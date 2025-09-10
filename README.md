@@ -11,7 +11,7 @@ Filecoin Pin is a TypeScript daemon that implements the [IPFS Pinning Service AP
 ### How It Works
 
 1. **Filecoin Pin daemon**: The Filecoin Pin daemon runs an HTTP server that implements the [IPFS Pinning Service API](https://ipfs.github.io/pinning-services-api-spec/) so it can serve pin requests.
-2. **Receive Pin Requests**: When you run `ipfs pin remote add`, Kubo sends a pin request to the Filecoin Pin daemon (assuming the Filecoin Pin Daemon has been configured as a pinning service for your Kubo client per [below](#using-with-ipfskubo)),
+2. **Receive Pin Requests**: When you run `ipfs pin remote add`, Kubo (or compatible IPFS node) sends a pin request to the Filecoin Pin daemon (assuming the Filecoin Pin Daemon has been configured as a pinning service for your Kubo client per [below](#using-with-ipfskubo)),
 3. **Fetch Blocks from IPFS**: The Filecoin Pin daemon connects to the IPFS network and fetches blocks for the requested CID (usually from the requesting node itself).
 4. **Store in CAR**: As the Filecoin Pin daemon receives blocks, it writes them directly to a CAR (Content Addressable aRchive) file on disk.
 5. **Upload to PDP Provider**: Once all blocks are collected, the Filecoin Pin daemon uploads the CAR file to a Proof of Data Possession (PDP) service provider.
