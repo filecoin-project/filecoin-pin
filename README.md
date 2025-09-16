@@ -32,7 +32,7 @@ Node.js 24+ and npm
 
 ### Installation
 
-You can install `filecoin-pin` globally or use it directly with npx.
+You can install `filecoin-pin` globally or use it directly with `npm exec`.
 
 ⚠️ **Note**: You'll need to set the `PRIVATE_KEY` environment variable before running - see [Configuration](#configuration) below.
 
@@ -45,11 +45,13 @@ npm install -g filecoin-pin
 filecoin-pin server
 ```
 
-**Option 2: Use npx (installs automatically and runs)**
+**Option 2: Use npm exec (installs automatically and runs)**
 ```bash
-# No installation needed - npx downloads and runs it
-npx filecoin-pin server
+# No installation needed - npm exec downloads and runs it
+npm exec filecoin-pin -- server
 ```
+
+> **Note**: `npm exec` is npm's built-in command for running packages (the `--` is needed to pass arguments). You may also see `npx` used for this purpose - it's a separate tool that comes bundled with npm and works similarly but doesn't require the `--`.
 
 **Option 3: Build from source**
 ```bash
@@ -99,8 +101,8 @@ When `DATABASE_PATH` and `CAR_STORAGE_PATH` are not specified, the service uses 
 # If installed globally:
 PRIVATE_KEY=0x... filecoin-pin server
 
-# Or with npx:
-PRIVATE_KEY=0x... npx filecoin-pin server
+# Or with npm exec:
+PRIVATE_KEY=0x... npm exec filecoin-pin -- server
 
 # With custom configuration:
 PRIVATE_KEY=0x... PORT=8080 RPC_URL=wss://... filecoin-pin server
@@ -120,6 +122,9 @@ filecoin-pin server
 
 # Start server with options
 filecoin-pin server --port 3456 --car-storage ./my-cars
+
+# Or with npm exec (note the -- separator)
+npm exec filecoin-pin -- server --port 3456 --car-storage ./my-cars
 ```
 
 ## Using with IPFS
