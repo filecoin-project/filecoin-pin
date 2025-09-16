@@ -35,17 +35,32 @@ function getDataDirectory(): string {
   return join(home, '.filecoin-pin')
 }
 
+/**
+ * Create configuration from environment variables
+ *
+ * This demonstrates configuration best practices for Synapse SDK:
+ * - PRIVATE_KEY: Required for transaction signing (keep secure!)
+ * - RPC_URL: Filecoin network endpoint (mainnet or calibration)
+ * - WARM_STORAGE_ADDRESS: Optional override for testing custom contracts
+ */
 export function createConfig(): Config {
   const dataDir = getDataDirectory()
 
   return {
+    // Application-specific configuration
     port: parseInt(process.env.PORT ?? '3456', 10),
     host: process.env.HOST ?? 'localhost',
-    privateKey: process.env.PRIVATE_KEY,
-    rpcUrl: process.env.RPC_URL ?? 'https://api.calibration.node.glif.io/rpc/v1',
+
+    // Synapse SDK configuration
+    privateKey: process.env.PRIVATE_KEY, // Required: Ethereum-compatible private key
+    rpcUrl: process.env.RPC_URL ?? 'https://api.calibration.node.glif.io/rpc/v1', // Default: calibration testnet
+    warmStorageAddress: process.env.WARM_STORAGE_ADDRESS, // Optional: custom contract address
+
+    // Storage paths
     databasePath: process.env.DATABASE_PATH ?? join(dataDir, 'pins.db'),
     carStoragePath: process.env.CAR_STORAGE_PATH ?? join(dataDir, 'cars'),
+
+    // Logging
     logLevel: process.env.LOG_LEVEL ?? 'info',
-    warmStorageAddress: process.env.WARM_STORAGE_ADDRESS,
   }
 }

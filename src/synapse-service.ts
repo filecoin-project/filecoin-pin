@@ -20,6 +20,16 @@ export interface SynapseService {
 
 /**
  * Initialize Synapse SDK and create storage service
+ *
+ * This function demonstrates the complete initialization flow for Synapse SDK:
+ * 1. Validates required configuration (private key)
+ * 2. Creates Synapse instance with network configuration
+ * 3. Creates a storage context with comprehensive callbacks
+ * 4. Returns a service object for application use
+ *
+ * @param config - Application configuration with privateKey and RPC URL
+ * @param logger - Logger instance for detailed operation tracking
+ * @returns SynapseService with initialized Synapse and storage context
  */
 export async function initializeSynapse(config: Config, logger: Logger): Promise<SynapseService> {
   try {
@@ -32,7 +42,8 @@ export async function initializeSynapse(config: Config, logger: Logger): Promise
       'Initializing Synapse'
     )
 
-    // Check if Synapse is configured
+    // IMPORTANT: Private key is required for transaction signing
+    // In production, this should come from secure environment variables, or a wallet integration
     if (config.privateKey == null) {
       const error = new Error('PRIVATE_KEY environment variable is required for Synapse integration')
       logger.error(
@@ -46,12 +57,15 @@ export async function initializeSynapse(config: Config, logger: Logger): Promise
     }
     logger.info({ event: 'synapse.init' }, 'Initializing Synapse SDK')
 
-    // Create Synapse instance
+    // Configure Synapse with network settings
+    // Network options: 314 (mainnet) or 314159 (calibration testnet)
     const synapseOptions: SynapseOptions = {
       privateKey: config.privateKey,
-      rpcURL: config.rpcUrl ?? RPC_URLS.calibration.websocket,
+      rpcURL: config.rpcUrl ?? RPC_URLS.calibration.websocket, // Default to calibration testnet
     }
 
+    // Optional: Override the default Warm Storage contract address
+    // Useful for testing with custom deployments
     if (config.warmStorageAddress != null) {
       synapseOptions.warmStorageAddress = config.warmStorageAddress
     }
@@ -69,11 +83,14 @@ export async function initializeSynapse(config: Config, logger: Logger): Promise
       'Synapse SDK initialized'
     )
 
-    // Create storage context
+    // Create storage context with comprehensive event tracking
+    // The storage context manages the data set and provider interactions
     logger.info({ event: 'synapse.storage.create' }, 'Creating storage context')
 
     const storage = await synapse.storage.createContext({
-      withCDN: false,
+      withCDN: false, // CDN not needed for direct CAR file uploads
+      // Callbacks provide visibility into the storage lifecycle
+      // These are crucial for debugging and monitoring in production
       callbacks: {
         onProviderSelected: (provider) => {
           logger.info(
@@ -164,6 +181,20 @@ export function getSynapseService(): SynapseService | null {
 
 /**
  * Upload data to Filecoin using Synapse
+ *
+ * This function demonstrates the complete upload flow:
+ * 1. Validates service initialization
+ * 2. Configures upload callbacks for lifecycle tracking
+ * 3. Performs the upload with proper error handling
+ * 4. Returns piece information for application tracking
+ *
+ * The callbacks show all possible upload events that applications
+ * can monitor for user feedback and debugging.
+ *
+ * @param data - Raw bytes to upload (typically a CAR file)
+ * @param pinId - Application-specific identifier for tracking
+ * @param logger - Logger for operation tracking
+ * @returns Object containing pieceCid, pieceId, and dataSetId
  */
 export async function uploadToSynapse(
   data: Uint8Array,

@@ -297,12 +297,19 @@ export class FilecoinPinStore extends EventEmitter {
         'CAR file finalized'
       )
 
-      // Store on Filecoin
+      // Store on Filecoin using Synapse SDK
+      // This section demonstrates the integration pattern:
+      // 1. Prepare the data (CAR file) for upload
+      // 2. Use Synapse's storage.upload() with callbacks for monitoring
+      // 3. Track the returned piece information in application state
+      // 4. Handle errors gracefully with proper cleanup
       try {
         // Read the CAR file (streaming not yet supported in Synapse)
+        // TODO: When Synapse supports streaming, this could be optimized
         const carData = await readFile(pinStatus.filecoin.carFilePath)
 
-        // Upload using Synapse
+        // Upload using Synapse with inline callbacks for event tracking
+        // This pattern allows real-time monitoring of the upload process
         const synapseResult = await this.synapseService.storage.upload(carData, {
           onUploadComplete: (pieceCid) => {
             this.logger.info(
