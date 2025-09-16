@@ -1,23 +1,23 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { rm, readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { CarReader } from '@ipld/car'
-import { createFilecoinPinningServer } from '../../filecoin-pinning-server.js'
-import { createConfig } from '../../config.js'
-import { createLogger } from '../../logger.js'
-import { CID } from 'multiformats/cid'
-import { sha256 } from 'multiformats/hashes/sha2'
-import * as raw from 'multiformats/codecs/raw'
-import * as dagCbor from '@ipld/dag-cbor'
-import { unixfs } from '@helia/unixfs'
-import { createHelia } from 'helia'
-import { createLibp2p } from 'libp2p'
+import { readFile, rm } from 'node:fs/promises'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
-import { tcp } from '@libp2p/tcp'
+import { unixfs } from '@helia/unixfs'
+import { CarReader } from '@ipld/car'
+import * as dagCbor from '@ipld/dag-cbor'
 import { identify } from '@libp2p/identify'
+import { tcp } from '@libp2p/tcp'
 import { MemoryBlockstore } from 'blockstore-core'
 import { MemoryDatastore } from 'datastore-core'
+import { createHelia } from 'helia'
+import { createLibp2p } from 'libp2p'
+import { CID } from 'multiformats/cid'
+import * as raw from 'multiformats/codecs/raw'
+import { sha256 } from 'multiformats/hashes/sha2'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createConfig } from '../../config.js'
+import { createFilecoinPinningServer } from '../../filecoin-pinning-server.js'
+import { createLogger } from '../../logger.js'
 
 // Mock the Synapse SDK
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
@@ -51,27 +51,27 @@ describe('End-to-End Pinning Service', () => {
       ...createConfig(),
       carStoragePath: testOutputDir,
       port: 0, // Use random port
-      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001' // Fake test key
+      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001', // Fake test key
     }
     const logger = createLogger(config)
 
     // Create client Helia node (content provider)
     const libp2p = await createLibp2p({
       addresses: {
-        listen: ['/ip4/127.0.0.1/tcp/0'] // Random port on localhost
+        listen: ['/ip4/127.0.0.1/tcp/0'], // Random port on localhost
       },
       transports: [tcp()],
       connectionEncrypters: [noise()],
       streamMuxers: [yamux()],
       services: {
-        identify: identify()
-      }
+        identify: identify(),
+      },
     })
 
     clientHelia = await createHelia({
       libp2p,
       blockstore: new MemoryBlockstore(),
-      datastore: new MemoryDatastore()
+      datastore: new MemoryDatastore(),
     })
 
     // Create pinning server
@@ -122,18 +122,18 @@ describe('End-to-End Pinning Service', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer test-token'
+          Authorization: 'Bearer test-token',
         },
         body: JSON.stringify({
           cid: testCID.toString(),
           name: 'E2E Test Pin',
           origins,
-          meta: { test: 'e2e', source: 'http-api' }
-        })
+          meta: { test: 'e2e', source: 'http-api' },
+        }),
       })
 
       expect(pinResponse.status).toBe(202)
-      const pinResult = await pinResponse.json() as PinResponse
+      const pinResult = (await pinResponse.json()) as PinResponse
 
       expect(pinResult).toBeDefined()
       expect(pinResult.requestid).toBeDefined()
@@ -141,14 +141,14 @@ describe('End-to-End Pinning Service', () => {
       expect(pinResult.pin.name).toBe('E2E Test Pin')
 
       // 3. Wait for processing and check status
-      let pinStatus
+      let pinStatus: PinResponse | undefined
       let attempts = 0
       do {
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        await new Promise((resolve) => setTimeout(resolve, 1000))
         const statusResponse = await fetch(`${serverAddress}/pins/${pinResult.requestid}`, {
-          headers: { Authorization: 'Bearer test-token' }
+          headers: { Authorization: 'Bearer test-token' },
         })
-        pinStatus = await statusResponse.json() as PinResponse
+        pinStatus = (await statusResponse.json()) as PinResponse
         attempts++
       } while (pinStatus.status !== 'pinned' && pinStatus.status !== 'failed' && attempts < 10)
 
@@ -202,7 +202,7 @@ describe('End-to-End Pinning Service', () => {
       const intermediateData = {
         type: 'intermediate',
         name: 'branch-node',
-        children: [leaf1CID, leaf2CID]
+        children: [leaf1CID, leaf2CID],
       }
       const intermediateBytes = dagCbor.encode(intermediateData)
       const intermediateHash = await sha256.digest(intermediateBytes)
@@ -215,7 +215,7 @@ describe('End-to-End Pinning Service', () => {
         name: 'test-dag',
         left: intermediateCID,
         right: leaf3CID,
-        metadata: { created: new Date().toISOString() }
+        metadata: { created: new Date().toISOString() },
       }
       const rootBytes = dagCbor.encode(rootData)
       const rootHash = await sha256.digest(rootBytes)
@@ -231,35 +231,35 @@ describe('End-to-End Pinning Service', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer test-token'
+          Authorization: 'Bearer test-token',
         },
         body: JSON.stringify({
           cid: rootCID.toString(),
           name: 'DAG-CBOR Multi-block Test',
           origins,
-          meta: { type: 'dag-cbor', blocks: '5' }
-        })
+          meta: { type: 'dag-cbor', blocks: '5' },
+        }),
       })
 
       expect(pinResponse.status).toBe(202)
-      const pinResult = await pinResponse.json() as PinResponse
+      const pinResult = (await pinResponse.json()) as PinResponse
 
       // 3. Wait for completion
-      let pinStatus
+      let pinStatus: PinResponse | undefined
       let attempts = 0
       do {
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        await new Promise((resolve) => setTimeout(resolve, 1000))
         const statusResponse = await fetch(`${serverAddress}/pins/${pinResult.requestid}`, {
-          headers: { Authorization: 'Bearer test-token' }
+          headers: { Authorization: 'Bearer test-token' },
         })
-        pinStatus = await statusResponse.json() as PinResponse
+        pinStatus = (await statusResponse.json()) as PinResponse
         attempts++
       } while (pinStatus.status !== 'pinned' && pinStatus.status !== 'failed' && attempts < 10)
 
       expect(pinStatus.status).toBe('pinned')
 
       // Should have exactly 5 blocks (root + intermediate + 3 leaves)
-      const blocksWritten = parseInt(pinStatus.info?.blocks_written ?? '0')
+      const blocksWritten = parseInt(pinStatus.info?.blocks_written ?? '0', 10)
       expect(blocksWritten).toBe(5)
 
       // 4. Verify CAR file contains all blocks
@@ -310,35 +310,35 @@ describe('End-to-End Pinning Service', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer test-token'
+          Authorization: 'Bearer test-token',
         },
         body: JSON.stringify({
           cid: fileCID.toString(),
           name: 'UnixFS Random Data File',
           origins,
-          meta: { type: 'unixfs-random', size: '10MB' }
-        })
+          meta: { type: 'unixfs-random', size: '10MB' },
+        }),
       })
 
       expect(pinResponse.status).toBe(202)
-      const pinResult = await pinResponse.json() as PinResponse
+      const pinResult = (await pinResponse.json()) as PinResponse
 
       // Wait for completion
-      let pinStatus
+      let pinStatus: PinResponse | undefined
       let attempts = 0
       do {
-        await new Promise(resolve => setTimeout(resolve, 2000))
+        await new Promise((resolve) => setTimeout(resolve, 2000))
         const statusResponse = await fetch(`${serverAddress}/pins/${pinResult.requestid}`, {
-          headers: { Authorization: 'Bearer test-token' }
+          headers: { Authorization: 'Bearer test-token' },
         })
-        pinStatus = await statusResponse.json() as PinResponse
+        pinStatus = (await statusResponse.json()) as PinResponse
         attempts++
       } while (pinStatus.status !== 'pinned' && pinStatus.status !== 'failed' && attempts < 15)
 
       expect(pinStatus.status).toBe('pinned')
 
       // Should have ~10 blocks for 10MB with 1MB chunks
-      const blocksWritten = parseInt(pinStatus.info?.blocks_written ?? '0')
+      const blocksWritten = parseInt(pinStatus.info?.blocks_written ?? '0', 10)
       expect(blocksWritten).toBeGreaterThanOrEqual(10) // Should be 11 (10 data + 1 metadata)
 
       // Verify CAR file
@@ -350,9 +350,11 @@ describe('End-to-End Pinning Service', () => {
         let dagPbBlockCount = 0
 
         for await (const { cid } of reader.blocks()) {
-          if (cid.code === 0x55) { // raw
+          if (cid.code === 0x55) {
+            // raw
             rawBlockCount++
-          } else if (cid.code === 0x70) { // dag-pb
+          } else if (cid.code === 0x70) {
+            // dag-pb
             dagPbBlockCount++
           }
         }
@@ -387,40 +389,40 @@ describe('End-to-End Pinning Service', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer test-token'
+          Authorization: 'Bearer test-token',
         },
         body: JSON.stringify({
           cid: fileCID.toString(),
           name: 'UnixFS Repeated Data File',
           origins,
-          meta: { type: 'unixfs-zeros', size: '10MB' }
-        })
+          meta: { type: 'unixfs-zeros', size: '10MB' },
+        }),
       })
 
       expect(pinResponse.status).toBe(202)
-      const pinResult = await pinResponse.json() as PinResponse
+      const pinResult = (await pinResponse.json()) as PinResponse
 
       // Wait for completion
-      let pinStatus
+      let pinStatus: PinResponse | undefined
       let attempts = 0
       do {
-        await new Promise(resolve => setTimeout(resolve, 2000))
+        await new Promise((resolve) => setTimeout(resolve, 2000))
         const statusResponse = await fetch(`${serverAddress}/pins/${pinResult.requestid}`, {
-          headers: { Authorization: 'Bearer test-token' }
+          headers: { Authorization: 'Bearer test-token' },
         })
-        pinStatus = await statusResponse.json() as PinResponse
+        pinStatus = (await statusResponse.json()) as PinResponse
         attempts++
       } while (pinStatus.status !== 'pinned' && pinStatus.status !== 'failed' && attempts < 15)
 
       expect(pinStatus.status).toBe('pinned')
 
       // Should have only 2 blocks due to deduplication!
-      const blocksWritten = parseInt(pinStatus.info?.blocks_written ?? '0')
+      const blocksWritten = parseInt(pinStatus.info?.blocks_written ?? '0', 10)
       expect(blocksWritten).toBe(2) // Just 1 data block (repeated) + 1 metadata
 
       // CRITICAL: Verify the total size is ~1MB, not ~10MB
       // This ensures we're not writing the same block 10 times
-      const totalSize = parseInt(pinStatus.info?.total_size ?? '0')
+      const totalSize = parseInt(pinStatus.info?.total_size ?? '0', 10)
       expect(totalSize).toBeLessThan(1.2 * 1024 * 1024) // Should be ~1MB + metadata, not 10MB
       expect(totalSize).toBeGreaterThan(1 * 1024 * 1024) // But at least 1MB
 
@@ -435,9 +437,11 @@ describe('End-to-End Pinning Service', () => {
 
         for await (const { cid } of reader.blocks()) {
           uniqueBlocks.add(cid.toString())
-          if (cid.code === 0x55) { // raw
+          if (cid.code === 0x55) {
+            // raw
             rawBlockCount++
-          } else if (cid.code === 0x70) { // dag-pb
+          } else if (cid.code === 0x70) {
+            // dag-pb
             dagPbBlockCount++
           }
         }
@@ -477,14 +481,14 @@ describe('End-to-End Pinning Service', () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: 'Bearer test-token'
+            Authorization: 'Bearer test-token',
           },
           body: JSON.stringify({
             cid: content.cid.toString(),
             name: `Concurrent Pin ${index}`,
             origins,
-            meta: { index: index.toString() }
-          })
+            meta: { index: index.toString() },
+          }),
         })
         return await response.json()
       })
@@ -495,14 +499,14 @@ describe('End-to-End Pinning Service', () => {
       // 3. Wait for all pins to complete
       const finalStatuses = []
       for (const pinResult of pinResults) {
-        let pinStatus
+        let pinStatus: PinResponse | undefined
         let attempts = 0
         do {
-          await new Promise(resolve => setTimeout(resolve, 1000))
+          await new Promise((resolve) => setTimeout(resolve, 1000))
           const statusResponse = await fetch(`${serverAddress}/pins/${(pinResult as PinResponse).requestid}`, {
-            headers: { Authorization: 'Bearer test-token' }
+            headers: { Authorization: 'Bearer test-token' },
           })
-          pinStatus = await statusResponse.json() as PinResponse
+          pinStatus = (await statusResponse.json()) as PinResponse
           attempts++
         } while (pinStatus.status !== 'pinned' && pinStatus.status !== 'failed' && attempts < 10)
 
@@ -548,24 +552,24 @@ describe('End-to-End Pinning Service', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer test-token'
+          Authorization: 'Bearer test-token',
         },
         body: JSON.stringify({
           cid: testCID.toString(),
           name: 'List Test Pin',
-          origins
-        })
+          origins,
+        }),
       })
 
-      const pinResult = await pinResponse.json() as PinResponse
+      const pinResult = (await pinResponse.json()) as PinResponse
 
       // 2. List pins
       const listResponse = await fetch(`${serverAddress}/pins`, {
-        headers: { Authorization: 'Bearer test-token' }
+        headers: { Authorization: 'Bearer test-token' },
       })
 
       expect(listResponse.status).toBe(200)
-      const listResult = await listResponse.json() as ListResponse
+      const listResult = (await listResponse.json()) as ListResponse
 
       expect(listResult.count).toBeGreaterThanOrEqual(1)
       expect(listResult.results).toBeDefined()
@@ -591,28 +595,28 @@ describe('End-to-End Pinning Service', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer test-token'
+          Authorization: 'Bearer test-token',
         },
         body: JSON.stringify({
           cid: testCID.toString(),
           name: 'Cancel Test Pin',
-          origins
-        })
+          origins,
+        }),
       })
 
-      const pinResult = await pinResponse.json() as PinResponse
+      const pinResult = (await pinResponse.json()) as PinResponse
 
       // 2. Cancel the pin
       const cancelResponse = await fetch(`${serverAddress}/pins/${String(pinResult.requestid)}`, {
         method: 'DELETE',
-        headers: { Authorization: 'Bearer test-token' }
+        headers: { Authorization: 'Bearer test-token' },
       })
 
       expect(cancelResponse.status).toBe(202)
 
       // 3. Verify pin is no longer accessible
       const getResponse = await fetch(`${serverAddress}/pins/${String(pinResult.requestid)}`, {
-        headers: { Authorization: 'Bearer test-token' }
+        headers: { Authorization: 'Bearer test-token' },
       })
 
       expect(getResponse.status).toBe(404)
@@ -655,26 +659,26 @@ describe('End-to-End Pinning Service', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer test-token'
+          Authorization: 'Bearer test-token',
         },
         body: JSON.stringify({
           cid: rootCID.toString(),
           name: 'DAG Transfer Test',
-          origins
-        })
+          origins,
+        }),
       })
 
-      const pinResult = await pinResponse.json() as PinResponse
+      const pinResult = (await pinResponse.json()) as PinResponse
 
       // 4. Wait for completion
-      let pinStatus
+      let pinStatus: PinResponse | undefined
       let attempts = 0
       do {
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        await new Promise((resolve) => setTimeout(resolve, 1000))
         const statusResponse = await fetch(`${serverAddress}/pins/${pinResult.requestid}`, {
-          headers: { Authorization: 'Bearer test-token' }
+          headers: { Authorization: 'Bearer test-token' },
         })
-        pinStatus = await statusResponse.json() as PinResponse
+        pinStatus = (await statusResponse.json()) as PinResponse
         attempts++
       } while (pinStatus.status !== 'pinned' && pinStatus.status !== 'failed' && attempts < 10)
 

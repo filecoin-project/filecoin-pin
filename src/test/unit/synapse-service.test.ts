@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { initializeSynapse, getSynapseService, uploadToSynapse, resetSynapseService } from '../../synapse-service.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Config } from '../../config.js'
 import { createConfig } from '../../config.js'
 import { createLogger } from '../../logger.js'
-import type { Config } from '../../config.js'
+import { getSynapseService, initializeSynapse, resetSynapseService, uploadToSynapse } from '../../synapse-service.js'
 
 // Mock the Synapse SDK
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
@@ -16,7 +16,7 @@ describe('synapse-service', () => {
     config = {
       ...createConfig(),
       privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001', // Fake test key
-      rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1'
+      rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
     }
     logger = createLogger(config)
 
@@ -33,8 +33,7 @@ describe('synapse-service', () => {
     it('should throw error when private key is not configured', async () => {
       config.privateKey = undefined
 
-      await expect(initializeSynapse(config, logger))
-        .rejects.toThrow('PRIVATE_KEY environment variable is required')
+      await expect(initializeSynapse(config, logger)).rejects.toThrow('PRIVATE_KEY environment variable is required')
     })
 
     it('should initialize Synapse when private key is configured', async () => {
@@ -54,7 +53,7 @@ describe('synapse-service', () => {
       expect(infoSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           hasPrivateKey: true,
-          rpcUrl: config.rpcUrl
+          rpcUrl: config.rpcUrl,
         }),
         'Initializing Synapse'
       )
@@ -72,13 +71,13 @@ describe('synapse-service', () => {
       // Capture callbacks
       vi.mocked(originalCreate).mockImplementationOnce(async (options) => {
         const synapse = await originalCreate(options)
-        const originalCreateStorage = synapse.createStorage.bind(synapse)
+        const originalCreateContext = synapse.storage.createContext.bind(synapse.storage)
 
-        synapse.createStorage = async (opts: any) => {
+        synapse.storage.createContext = async (opts: any) => {
           if (opts?.callbacks?.onProviderSelected != null) {
             callbacks.push(opts.callbacks.onProviderSelected)
           }
-          return await originalCreateStorage(opts)
+          return await originalCreateContext(opts)
         }
 
         return synapse
@@ -119,8 +118,7 @@ describe('synapse-service', () => {
       resetSynapseService()
 
       const data = new Uint8Array([1, 2, 3])
-      await expect(uploadToSynapse(data, 'pin-123', logger))
-        .rejects.toThrow('Synapse service not initialized')
+      await expect(uploadToSynapse(data, 'pin-123', logger)).rejects.toThrow('Synapse service not initialized')
     })
 
     it('should upload data successfully', async () => {
@@ -129,11 +127,11 @@ describe('synapse-service', () => {
 
       const result = await uploadToSynapse(data, pinId, logger)
 
-      expect(result).toHaveProperty('commp')
-      expect(result).toHaveProperty('rootId')
-      expect(result).toHaveProperty('proofSetId')
-      expect(result.commp).toMatch(/^baga6ea4seaq/)
-      expect(result.proofSetId).toBe('proof-set-123')
+      expect(result).toHaveProperty('pieceCid')
+      expect(result).toHaveProperty('pieceId')
+      expect(result).toHaveProperty('dataSetId')
+      expect(result.pieceCid).toMatch(/^bafkzcib/)
+      expect(result.dataSetId).toBe('123')
     })
 
     it('should log upload events', async () => {
@@ -147,7 +145,7 @@ describe('synapse-service', () => {
         expect.objectContaining({
           event: 'synapse.upload.start',
           pinId,
-          size: data.length
+          size: data.length,
         }),
         'Starting Synapse upload'
       )
@@ -155,7 +153,7 @@ describe('synapse-service', () => {
       expect(infoSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           event: 'synapse.upload.complete',
-          pinId
+          pinId,
         }),
         'Synapse upload completed successfully'
       )
@@ -167,20 +165,20 @@ describe('synapse-service', () => {
 
       // Mock the storage upload to capture callbacks
       const service = getSynapseService()
-      if ((service?.storage) != null) {
+      if (service?.storage != null) {
         const originalUpload = service.storage.upload.bind(service.storage)
         service.storage.upload = async (data: any, callbacks: any) => {
           // Override callbacks to track calls
           const wrappedCallbacks = {
             ...callbacks,
-            onUploadComplete: (commp: string) => {
+            onUploadComplete: (pieceCid: string) => {
               uploadCompleteCallbackCalled = true
-              callbacks?.onUploadComplete?.(commp)
+              callbacks?.onUploadComplete?.(pieceCid)
             },
-            onRootAdded: () => {
+            onPieceAdded: () => {
               rootAddedCallbackCalled = true
-              callbacks?.onRootAdded?.()
-            }
+              callbacks?.onPieceAdded?.()
+            },
           }
           return await originalUpload(data, wrappedCallbacks)
         }

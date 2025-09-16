@@ -1,15 +1,15 @@
-import { CarWriter } from '@ipld/car'
 import { EventEmitter } from 'node:events'
-import { createWriteStream, type WriteStream } from 'node:fs'
+import { createWriteStream, existsSync, type WriteStream } from 'node:fs'
 import { mkdir, open } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { CID } from 'multiformats/cid'
-import varint from 'varint'
+import { CarWriter } from '@ipld/car'
 import type { Blockstore } from 'interface-blockstore'
 import type { AbortOptions, AwaitIterable } from 'interface-store'
+import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
+import varint from 'varint'
 
 export interface CARBlockstoreStats {
   blocksWritten: number
@@ -46,7 +46,7 @@ export class CARWritingBlockstore extends EventEmitter implements Blockstore {
   private finalized = false
   private pipelinePromise: Promise<void> | null = null
 
-  constructor (options: CARBlockstoreOptions) {
+  constructor(options: CARBlockstoreOptions) {
     super()
     this.rootCID = options.rootCID
     this.outputPath = options.outputPath
@@ -56,11 +56,11 @@ export class CARWritingBlockstore extends EventEmitter implements Blockstore {
       missingBlocks: new Set(),
       totalSize: 0,
       startTime: Date.now(),
-      finalized: false
+      finalized: false,
     }
   }
 
-  async initialize (): Promise<void> {
+  async initialize(): Promise<void> {
     // Ensure output directory exists
     await mkdir(dirname(this.outputPath), { recursive: true })
 
@@ -83,7 +83,7 @@ export class CARWritingBlockstore extends EventEmitter implements Blockstore {
           headerSize += (chunk as Buffer).length
         }
         callback(null, chunk)
-      }
+      },
     })
 
     // Store the pipeline promise so we can await it on finalize
@@ -99,16 +99,44 @@ export class CARWritingBlockstore extends EventEmitter implements Blockstore {
 
     // Force header to be written by accessing the internal mutex
     // This ensures we can accurately track the header size
-    await (this.carWriter)._mutex
+    await this.carWriter._mutex
 
     // Mark header as written and set initial offset
     headerWritten = true
     this.currentOffset = headerSize
 
+    // Force the write stream to flush to ensure file is created on disk
+    // This is especially important on Windows and macOS where file creation
+    // can be delayed. Windows in particular has different filesystem timing.
+    if (this.writeStream != null) {
+      await new Promise<void>((resolve, reject) => {
+        // Check if stream is already open
+        if ((this.writeStream as any).fd != null) {
+          resolve()
+          return
+        }
+
+        // Wait for 'open' event
+        this.writeStream?.once('open', () => resolve())
+        this.writeStream?.once('error', reject)
+
+        // Set a timeout in case the event doesn't fire
+        setTimeout(() => resolve(), 50)
+      })
+    }
+
+    // Additional wait for filesystem to sync (critical for Windows/macOS)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    // Verify file was created
+    if (!existsSync(this.outputPath)) {
+      throw new Error(`Failed to create CAR file at ${this.outputPath}`)
+    }
+
     this.emit('initialized', { rootCID: this.rootCID, outputPath: this.outputPath })
   }
 
-  async put (cid: CID, block: Uint8Array, _options?: AbortOptions): Promise<CID> {
+  async put(cid: CID, block: Uint8Array, _options?: AbortOptions): Promise<CID> {
     const cidStr = cid.toString()
     this.logger?.debug({ cid: cidStr, blockSize: block.length }, 'CARWritingBlockstore.put() called')
 
@@ -133,7 +161,7 @@ export class CARWritingBlockstore extends EventEmitter implements Blockstore {
     // Store the offset information BEFORE writing
     this.blockOffsets.set(cidStr, {
       blockStart,
-      blockLength: block.length
+      blockLength: block.length,
     })
 
     // Update offset for next block
@@ -142,14 +170,17 @@ export class CARWritingBlockstore extends EventEmitter implements Blockstore {
     // Write block to CAR file
     await this.carWriter?.put({ cid, bytes: block })
 
-    this.logger?.debug({
-      cid: cidStr,
-      currentOffset,
-      varintLength,
-      cidLength: cid.bytes.length,
-      blockStart,
-      blockLength: block.length
-    }, 'Block offset calculated')
+    this.logger?.debug(
+      {
+        cid: cidStr,
+        currentOffset,
+        varintLength,
+        cidLength: cid.bytes.length,
+        blockStart,
+        blockLength: block.length,
+      },
+      'Block offset calculated'
+    )
 
     // Update statistics
     this.stats.blocksWritten++
@@ -158,12 +189,15 @@ export class CARWritingBlockstore extends EventEmitter implements Blockstore {
     // Emit event for tracking
     this.emit('block:stored', { cid, size: block.length })
 
-    this.logger?.info({ cid: cidStr, blocksWritten: this.stats.blocksWritten, totalSize: this.stats.totalSize }, 'Block written to CAR file')
+    this.logger?.info(
+      { cid: cidStr, blocksWritten: this.stats.blocksWritten, totalSize: this.stats.totalSize },
+      'Block written to CAR file'
+    )
 
     return cid
   }
 
-  async get (cid: CID, _options?: AbortOptions): Promise<Uint8Array> {
+  async get(cid: CID, _options?: AbortOptions): Promise<Uint8Array> {
     const cidStr = cid.toString()
     this.logger?.debug({ cid: cidStr }, 'CARWritingBlockstore.get() called')
 
@@ -179,7 +213,20 @@ export class CARWritingBlockstore extends EventEmitter implements Blockstore {
     }
 
     // Open the file in read-only mode
-    const fd = await open(this.outputPath, 'r')
+    // This will throw ENOENT if file doesn't exist yet
+    let fd: Awaited<ReturnType<typeof open>>
+    try {
+      fd = await open(this.outputPath, 'r')
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        // File doesn't exist yet - this can happen in tests
+        // Treat it as block not found
+        const notFoundError: Error & { code?: string } = new Error(`CAR file not yet created: ${this.outputPath}`)
+        notFoundError.code = 'ERR_NOT_FOUND'
+        throw notFoundError
+      }
+      throw error
+    }
     try {
       // Allocate buffer for the block data
       const buffer = Buffer.alloc(offset.blockLength)
@@ -188,7 +235,9 @@ export class CARWritingBlockstore extends EventEmitter implements Blockstore {
       const { bytesRead } = await fd.read(buffer, 0, offset.blockLength, offset.blockStart)
 
       if (bytesRead !== offset.blockLength) {
-        throw new Error(`Failed to read complete block for ${cidStr}: expected ${offset.blockLength} bytes, got ${bytesRead}`)
+        throw new Error(
+          `Failed to read complete block for ${cidStr}: expected ${offset.blockLength} bytes, got ${bytesRead}`
+        )
       }
 
       return new Uint8Array(buffer)
@@ -198,35 +247,36 @@ export class CARWritingBlockstore extends EventEmitter implements Blockstore {
     }
   }
 
-  async has (cid: CID, _options?: AbortOptions): Promise<boolean> {
+  async has(cid: CID, _options?: AbortOptions): Promise<boolean> {
     const cidStr = cid.toString()
     const hasBlock = this.blockOffsets.has(cidStr)
     this.logger?.debug({ cid: cidStr, hasBlock }, 'CARWritingBlockstore.has() called')
     return hasBlock
   }
 
-  async delete (_cid: CID, _options?: AbortOptions): Promise<void> {
+  async delete(_cid: CID, _options?: AbortOptions): Promise<void> {
     throw new Error('Delete operation not supported on CAR writing blockstore')
   }
 
-  async * putMany (source: AwaitIterable<{ cid: CID, block: Uint8Array }>, _options?: AbortOptions): AsyncIterable<CID> {
+  async *putMany(source: AwaitIterable<{ cid: CID; block: Uint8Array }>, _options?: AbortOptions): AsyncIterable<CID> {
     for await (const { cid, block } of source) {
       yield await this.put(cid, block)
     }
   }
 
-  async * getMany (source: AwaitIterable<CID>, _options?: AbortOptions): AsyncIterable<{ cid: CID, block: Uint8Array }> {
+  async *getMany(source: AwaitIterable<CID>, _options?: AbortOptions): AsyncIterable<{ cid: CID; block: Uint8Array }> {
     for await (const cid of source) {
       const block = await this.get(cid)
       yield { cid, block }
     }
   }
 
-  async * deleteMany (_source: AwaitIterable<CID>, _options?: AbortOptions): AsyncIterable<CID> {
+  // biome-ignore lint/correctness/useYield: This method throws immediately and intentionally never yields
+  async *deleteMany(_source: AwaitIterable<CID>, _options?: AbortOptions): AsyncIterable<CID> {
     throw new Error('DeleteMany operation not supported on CAR writing blockstore')
   }
 
-  async * getAll (_options?: AbortOptions): AsyncIterable<{ cid: CID, block: Uint8Array }> {
+  async *getAll(_options?: AbortOptions): AsyncIterable<{ cid: CID; block: Uint8Array }> {
     for (const [cidStr] of this.blockOffsets.entries()) {
       const cid = CID.parse(cidStr)
       const block = await this.get(cid)
@@ -237,7 +287,7 @@ export class CARWritingBlockstore extends EventEmitter implements Blockstore {
   /**
    * Finalize the CAR file and return statistics
    */
-  async finalize (): Promise<CARBlockstoreStats> {
+  async finalize(): Promise<CARBlockstoreStats> {
     if (this.finalized) {
       return this.stats
     }
@@ -281,25 +331,38 @@ export class CARWritingBlockstore extends EventEmitter implements Blockstore {
   /**
    * Get current statistics
    */
-  getStats (): CARBlockstoreStats {
+  getStats(): CARBlockstoreStats {
     return {
       ...this.stats,
-      missingBlocks: new Set(this.stats.missingBlocks) // Return a copy
+      missingBlocks: new Set(this.stats.missingBlocks), // Return a copy
     }
   }
 
   /**
    * Clean up resources (called on errors)
    */
-  async cleanup (): Promise<void> {
+  async cleanup(): Promise<void> {
     try {
-      if (this.carWriter != null && !this.finalized) {
+      // Mark as finalized to prevent further writes
+      this.finalized = true
+
+      if (this.carWriter != null) {
         await this.carWriter.close()
       }
-      if ((this.writeStream != null) && !this.writeStream.destroyed) {
+
+      // Wait for pipeline to complete if it exists
+      if (this.pipelinePromise != null) {
+        try {
+          await this.pipelinePromise
+        } catch {
+          // Ignore pipeline errors during cleanup
+        }
+      }
+
+      if (this.writeStream != null && !this.writeStream.destroyed) {
         this.writeStream.destroy()
       }
-    } catch (error) {
+    } catch (_error) {
       // Ignore cleanup errors
     }
 

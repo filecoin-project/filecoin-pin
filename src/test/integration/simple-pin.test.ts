@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { FilecoinPinStore } from '../../filecoin-pin-store.js'
-import { createConfig } from '../../config.js'
-import { createLogger } from '../../logger.js'
+import { existsSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { createHelia } from 'helia'
 import { CID } from 'multiformats/cid'
-import { sha256 } from 'multiformats/hashes/sha2'
 import * as raw from 'multiformats/codecs/raw'
-import { rm } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { sha256 } from 'multiformats/hashes/sha2'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createConfig } from '../../config.js'
+import { FilecoinPinStore } from '../../filecoin-pin-store.js'
+import { createLogger } from '../../logger.js'
 import { MockSynapse } from '../mocks/synapse-mocks.js'
 
 // Mock the Synapse SDK
@@ -30,7 +30,7 @@ describe('Simple Pin Test', () => {
     const config = {
       ...createConfig(),
       carStoragePath: testOutputDir,
-      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001' // Fake test key
+      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001', // Fake test key
     }
     const logger = createLogger(config)
 
@@ -40,14 +40,14 @@ describe('Simple Pin Test', () => {
 
     // Create mock Synapse service
     const mockSynapse = new MockSynapse()
-    const mockStorage = await mockSynapse.createStorage()
+    const mockStorage = await mockSynapse.storage.createContext()
     const synapseService = { synapse: mockSynapse as any, storage: mockStorage }
 
     // Create Filecoin pin store with mock Synapse
     pinStore = new FilecoinPinStore({
       config,
       logger,
-      synapseService
+      synapseService,
     })
 
     await pinStore.start()
@@ -71,22 +71,18 @@ describe('Simple Pin Test', () => {
     console.log('Test: Creating pin with origins:', origins)
     console.log('Test: Number of origins:', origins.length)
 
-    const pinResult = await pinStore.pin(
-      { id: 'test-user', name: 'Test User' },
-      testCID,
-      { name: 'Simple Test', origins }
-    )
+    const pinResult = await pinStore.pin({ id: 'test-user', name: 'Test User' }, testCID, {
+      name: 'Simple Test',
+      origins,
+    })
 
     console.log('Test: Pin created:', pinResult.id, pinResult.status)
 
     // Wait for background processing - increased timeout to allow for block fetch
-    await new Promise(resolve => setTimeout(resolve, 15000))
+    await new Promise((resolve) => setTimeout(resolve, 15000))
 
     // Check final status
-    const finalStatus = await pinStore.get(
-      { id: 'test-user', name: 'Test User' },
-      pinResult.id
-    )
+    const finalStatus = await pinStore.get({ id: 'test-user', name: 'Test User' }, pinResult.id)
 
     console.log('Test: Final status:', finalStatus?.status)
     console.log('Test: CAR file path:', finalStatus?.filecoin?.carFilePath)

@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest'
-import { createConfig } from '../../config.js'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { createConfig } from '../../config.js'
 
 describe('Config', () => {
   it('should create default config', () => {

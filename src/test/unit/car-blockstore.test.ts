@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { rm, readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { CARWritingBlockstore } from '../../car-blockstore.js'
+import { readFile, rm } from 'node:fs/promises'
 import { CID } from 'multiformats/cid'
-import { sha256 } from 'multiformats/hashes/sha2'
 import * as raw from 'multiformats/codecs/raw'
+import { sha256 } from 'multiformats/hashes/sha2'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { CARWritingBlockstore } from '../../car-blockstore.js'
 
 describe('CARWritingBlockstore', () => {
   let blockstore: CARWritingBlockstore
@@ -20,7 +20,7 @@ describe('CARWritingBlockstore', () => {
 
     blockstore = new CARWritingBlockstore({
       rootCID: testCID,
-      outputPath: testOutputPath
+      outputPath: testOutputPath,
     })
   })
 
@@ -104,7 +104,7 @@ describe('CARWritingBlockstore', () => {
 
       try {
         await blockstore.get(nonExistentCID)
-      } catch (error) {
+      } catch (_error) {
         // Expected to throw
       }
 
@@ -126,7 +126,9 @@ describe('CARWritingBlockstore', () => {
       await blockstore.put(testCID, testBlock)
       expect(await blockstore.has(testCID)).toBe(true)
 
-      await expect(blockstore.delete(testCID)).rejects.toThrow('Delete operation not supported on CAR writing blockstore')
+      await expect(blockstore.delete(testCID)).rejects.toThrow(
+        'Delete operation not supported on CAR writing blockstore'
+      )
       // Block should still exist after failed delete
       expect(await blockstore.has(testCID)).toBe(true)
     })
@@ -257,8 +259,9 @@ describe('CARWritingBlockstore', () => {
       const anotherHash = await sha256.digest(anotherBlock)
       const anotherCID = CID.create(1, raw.code, anotherHash)
 
-      await expect(blockstore.put(anotherCID, anotherBlock))
-        .rejects.toThrow('Cannot put blocks in finalized CAR blockstore')
+      await expect(blockstore.put(anotherCID, anotherBlock)).rejects.toThrow(
+        'Cannot put blocks in finalized CAR blockstore'
+      )
     })
 
     it('should handle multiple finalize calls gracefully', async () => {
@@ -287,11 +290,12 @@ describe('CARWritingBlockstore', () => {
       // Create a fresh blockstore that hasn't written any blocks
       const emptyBlockstore = new CARWritingBlockstore({
         rootCID: testCID,
-        outputPath: './test-empty.car'
+        outputPath: './test-empty.car',
       })
 
-      await expect(emptyBlockstore.finalize())
-        .rejects.toThrow('Cannot finalize CAR blockstore without any blocks written')
+      await expect(emptyBlockstore.finalize()).rejects.toThrow(
+        'Cannot finalize CAR blockstore without any blocks written'
+      )
     })
   })
 })

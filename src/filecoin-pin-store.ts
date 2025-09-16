@@ -1,12 +1,12 @@
-import { unlink, readFile } from 'node:fs/promises'
 import { EventEmitter } from 'node:events'
+import { readFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import { createPinningHeliaNode } from './create-pinning-helia.js'
-import type { CARWritingBlockstore, CARBlockstoreStats } from './car-blockstore.js'
-import type { Config } from './config.js'
 import type { Helia } from 'helia'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
+import type { CARBlockstoreStats, CARWritingBlockstore } from './car-blockstore.js'
+import type { Config } from './config.js'
+import { createPinningHeliaNode } from './create-pinning-helia.js'
 import type { SynapseService } from './synapse-service.js'
 
 export interface PinningServiceUser {
@@ -38,9 +38,9 @@ export interface FilecoinPinMetadata {
   carStats: CARBlockstoreStats
   pinStarted: number
   pinCompleted?: number
-  synapseCommP?: string
-  synapseRootId?: number
-  synapseProofSetId?: string
+  synapsePieceCid?: string
+  synapsePieceId?: number
+  synapseDataSetId?: string
 }
 
 export interface FilecoinStoredPinStatus extends StoredPinStatus {
@@ -61,26 +61,29 @@ export class FilecoinPinStore extends EventEmitter {
   private readonly logger: Logger
   private readonly synapseService: SynapseService
   private readonly pins = new Map<string, FilecoinStoredPinStatus>()
-  private readonly activePins = new Map<string, {
-    helia: Helia
-    blockstore: CARWritingBlockstore
-    metadata: FilecoinPinMetadata
-  }>()
+  private readonly activePins = new Map<
+    string,
+    {
+      helia: Helia
+      blockstore: CARWritingBlockstore
+      metadata: FilecoinPinMetadata
+    }
+  >()
 
   private pinCounter = 0
 
-  constructor (init: FilecoinPinStoreInit) {
+  constructor(init: FilecoinPinStoreInit) {
     super()
     this.config = init.config
     this.logger = init.logger
     this.synapseService = init.synapseService
   }
 
-  async start (): Promise<void> {
+  async start(): Promise<void> {
     this.logger.info('Filecoin pin store started')
   }
 
-  async stop (): Promise<void> {
+  async stop(): Promise<void> {
     // Clean up any active pins
     for (const [pinId, { helia, blockstore }] of this.activePins.entries()) {
       try {
@@ -95,7 +98,7 @@ export class FilecoinPinStore extends EventEmitter {
     this.logger.info('Filecoin pin store stopped')
   }
 
-  async pin (user: PinningServiceUser, cid: CID, options: PinOptions = {}): Promise<FilecoinStoredPinStatus> {
+  async pin(user: PinningServiceUser, cid: CID, options: PinOptions = {}): Promise<FilecoinStoredPinStatus> {
     const pinId = `pin-${Date.now()}-${++this.pinCounter}`
     const pinStarted = Date.now()
 
@@ -103,13 +106,16 @@ export class FilecoinPinStore extends EventEmitter {
     const carFileName = `${cid.toString()}-${pinStarted}.car`
     const carFilePath = join(this.config.carStoragePath, carFileName)
 
-    this.logger.info({
-      userId: user.id,
-      pinId,
-      cid: cid.toString(),
-      carFilePath,
-      name: options.name
-    }, 'Starting Filecoin pin operation')
+    this.logger.info(
+      {
+        userId: user.id,
+        pinId,
+        cid: cid.toString(),
+        carFilePath,
+        name: options.name,
+      },
+      'Starting Filecoin pin operation'
+    )
 
     // Create initial pin record
     const pinStatus: FilecoinStoredPinStatus = {
@@ -118,9 +124,9 @@ export class FilecoinPinStore extends EventEmitter {
       created: pinStarted,
       pin: {
         cid: cid.toString(),
-        ...((options.name != null) && { name: options.name }),
-        ...((options.origins != null) && { origins: options.origins }),
-        ...((options.meta != null) && { meta: options.meta })
+        ...(options.name != null && { name: options.name }),
+        ...(options.origins != null && { origins: options.origins }),
+        ...(options.meta != null && { meta: options.meta }),
       },
       filecoin: {
         carFilePath,
@@ -129,16 +135,16 @@ export class FilecoinPinStore extends EventEmitter {
           missingBlocks: new Set(),
           totalSize: 0,
           startTime: pinStarted,
-          finalized: false
+          finalized: false,
         },
-        pinStarted
+        pinStarted,
       },
       info: {
         car_file_path: carFilePath,
         blocks_written: '0',
         total_size: '0',
-        status: 'initializing'
-      }
+        status: 'initializing',
+      },
     }
 
     // Store the pin
@@ -152,12 +158,15 @@ export class FilecoinPinStore extends EventEmitter {
           this.logger.debug({ pinId }, 'Background processing completed')
         })
         .catch((error) => {
-          this.logger.error({
-            pinId,
-            userId: user.id,
-            cid: cid.toString(),
-            error: error instanceof Error ? (error.stack ?? error.message) : String(error)
-          }, 'Background pin processing failed')
+          this.logger.error(
+            {
+              pinId,
+              userId: user.id,
+              cid: cid.toString(),
+              error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+            },
+            'Background pin processing failed'
+          )
 
           // Update pin status to failed
           const failedPin = this.pins.get(pinId)
@@ -166,7 +175,7 @@ export class FilecoinPinStore extends EventEmitter {
             failedPin.info = {
               ...failedPin.info,
               error: error.message,
-              status: 'failed'
+              status: 'failed',
             }
             this.pins.set(pinId, failedPin)
           }
@@ -176,14 +185,10 @@ export class FilecoinPinStore extends EventEmitter {
     return pinStatus
   }
 
-  private async _processPinInBackground (
-    pinId: string,
-    user: PinningServiceUser,
-    cid: CID
-  ): Promise<void> {
+  private async _processPinInBackground(pinId: string, user: PinningServiceUser, cid: CID): Promise<void> {
     this.logger.debug({ pinId, cid: cid.toString() }, 'Entered _processPinInBackground')
     const pinStatus = this.pins.get(pinId)
-    if ((pinStatus == null) || (pinStatus.filecoin == null)) {
+    if (pinStatus == null || pinStatus.filecoin == null) {
       this.logger.error({ pinId }, 'Pin not found in _processPinInBackground')
       throw new Error(`Pin ${pinId} not found`)
     }
@@ -205,7 +210,7 @@ export class FilecoinPinStore extends EventEmitter {
         logger: this.logger,
         rootCID: cid,
         outputPath: pinStatus.filecoin.carFilePath,
-        origins: pinStatus.pin.origins ?? []
+        origins: pinStatus.pin.origins ?? [],
       })
       this.logger.debug({ pinId, cid: cid.toString() }, 'Pinning Helia node created')
 
@@ -213,7 +218,7 @@ export class FilecoinPinStore extends EventEmitter {
       this.activePins.set(pinId, {
         helia,
         blockstore,
-        metadata: pinStatus.filecoin
+        metadata: pinStatus.filecoin,
       })
 
       // Set up event handlers for monitoring
@@ -222,7 +227,7 @@ export class FilecoinPinStore extends EventEmitter {
           pinId,
           userId: user.id,
           cid: data.cid,
-          size: data.size
+          size: data.size,
         })
 
         // Update pin status
@@ -232,7 +237,7 @@ export class FilecoinPinStore extends EventEmitter {
           currentPin.info = {
             ...currentPin.info,
             blocks_written: currentPin.filecoin.carStats.blocksWritten.toString(),
-            total_size: currentPin.filecoin.carStats.totalSize.toString()
+            total_size: currentPin.filecoin.carStats.totalSize.toString(),
           }
           this.pins.set(pinId, currentPin)
         }
@@ -242,7 +247,7 @@ export class FilecoinPinStore extends EventEmitter {
         this.emit('pin:block:missing', {
           pinId,
           userId: user.id,
-          cid: data.cid
+          cid: data.cid,
         })
       })
 
@@ -255,33 +260,42 @@ export class FilecoinPinStore extends EventEmitter {
         this.logger.debug({ pinId, cid: cid.toString() }, 'Pinning content via Helia')
 
         for await (const pinnedCid of helia.pins.add(cid)) {
-          this.logger.debug({
-            pinId,
-            cid: cid.toString(),
-            pinnedCid: pinnedCid.toString()
-          }, 'Block pinned during DAG walk')
+          this.logger.debug(
+            {
+              pinId,
+              cid: cid.toString(),
+              pinnedCid: pinnedCid.toString(),
+            },
+            'Block pinned during DAG walk'
+          )
         }
 
         this.logger.info({ pinId, cid: cid.toString() }, 'Content fully pinned')
       } catch (error) {
-        this.logger.warn({
-          pinId,
-          cid: cid.toString(),
-          error: error instanceof Error ? error.message : String(error)
-        }, 'Failed to pin content - some blocks may be missing')
+        this.logger.warn(
+          {
+            pinId,
+            cid: cid.toString(),
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'Failed to pin content - some blocks may be missing'
+        )
         // Don't throw - we'll finalize the CAR with whatever blocks we got
       }
 
       // Finalize the CAR file
       const finalStats = await blockstore.finalize()
 
-      this.logger.info({
-        pinId,
-        cid: cid.toString(),
-        blocksWritten: finalStats.blocksWritten,
-        totalSize: finalStats.totalSize,
-        missingBlocks: finalStats.missingBlocks.size
-      }, 'CAR file finalized')
+      this.logger.info(
+        {
+          pinId,
+          cid: cid.toString(),
+          blocksWritten: finalStats.blocksWritten,
+          totalSize: finalStats.totalSize,
+          missingBlocks: finalStats.missingBlocks.size,
+        },
+        'CAR file finalized'
+      )
 
       // Store on Filecoin
       try {
@@ -290,71 +304,92 @@ export class FilecoinPinStore extends EventEmitter {
 
         // Upload using Synapse
         const synapseResult = await this.synapseService.storage.upload(carData, {
-          onUploadComplete: (commp) => {
-            this.logger.info({
-              event: 'synapse.upload.piece_uploaded',
-              pinId,
-              commp: commp.toString()
-            }, 'Upload to PDP server complete')
-          },
-          onRootAdded: (transaction) => {
-            if (transaction != null) {
-              this.logger.info({
-                event: 'synapse.upload.root_added',
+          onUploadComplete: (pieceCid) => {
+            this.logger.info(
+              {
+                event: 'synapse.upload.piece_uploaded',
                 pinId,
-                txHash: transaction.hash
-              }, 'Root addition transaction submitted')
+                pieceCid: pieceCid.toString(),
+              },
+              'Upload to PDP server complete'
+            )
+          },
+          onPieceAdded: (transaction) => {
+            if (transaction != null) {
+              this.logger.info(
+                {
+                  event: 'synapse.upload.piece_added',
+                  pinId,
+                  txHash: transaction.hash,
+                },
+                'Piece addition transaction submitted'
+              )
             } else {
-              this.logger.info({
-                event: 'synapse.upload.root_added',
-                pinId
-              }, 'Root added to proof set')
+              this.logger.info(
+                {
+                  event: 'synapse.upload.piece_added',
+                  pinId,
+                },
+                'Piece added to data set'
+              )
             }
           },
-          onRootConfirmed: (rootIds) => {
-            this.logger.info({
-              event: 'synapse.upload.root_confirmed',
-              pinId,
-              rootIds
-            }, 'Root addition confirmed on-chain')
-          }
+          onPieceConfirmed: (pieceIds) => {
+            this.logger.info(
+              {
+                event: 'synapse.upload.piece_confirmed',
+                pinId,
+                pieceIds,
+              },
+              'Piece addition confirmed on-chain'
+            )
+          },
         })
 
         // Store Synapse metadata
-        pinStatus.filecoin.synapseCommP = synapseResult.commp.toString()
-        if (synapseResult.rootId !== undefined) {
-          pinStatus.filecoin.synapseRootId = synapseResult.rootId
+        pinStatus.filecoin.synapsePieceCid = synapseResult.pieceCid.toString()
+        if (synapseResult.pieceId !== undefined) {
+          pinStatus.filecoin.synapsePieceId = synapseResult.pieceId
         }
-        pinStatus.filecoin.synapseProofSetId = this.synapseService.storage.proofSetId
+        pinStatus.filecoin.synapseDataSetId = String(this.synapseService.storage.dataSetId)
 
         // Add to info for API response
         pinStatus.info = {
           ...pinStatus.info,
-          synapse_commp: synapseResult.commp.toString(),
-          synapse_root_id: (synapseResult.rootId ?? 0).toString(),
-          synapse_proof_set_id: this.synapseService.storage.proofSetId
+          synapse_piece_cid: synapseResult.pieceCid.toString(),
+          synapse_piece_id: (synapseResult.pieceId ?? 0).toString(),
+          synapse_data_set_id: String(this.synapseService.storage.dataSetId),
         }
 
-        this.logger.info({
-          event: 'synapse.upload.success',
-          pinId,
-          commp: synapseResult.commp,
-          rootId: synapseResult.rootId,
-          proofSetId: this.synapseService.storage.proofSetId
-        }, 'Successfully uploaded to Filecoin with Synapse')
+        this.logger.info(
+          {
+            event: 'synapse.upload.success',
+            pinId,
+            pieceCid: synapseResult.pieceCid,
+            pieceId: synapseResult.pieceId,
+            dataSetId: this.synapseService.storage.dataSetId,
+          },
+          'Successfully uploaded to Filecoin with Synapse'
+        )
       } catch (error) {
         // Rollback on Synapse failure
-        this.logger.error({
-          event: 'synapse.upload.failed',
-          pinId,
-          error
-        }, 'Failed to upload to Filecoin with Synapse, rolling back')
+        this.logger.error(
+          {
+            event: 'synapse.upload.failed',
+            pinId,
+            error,
+          },
+          'Failed to upload to Filecoin with Synapse, rolling back'
+        )
 
         // Clean up the CAR file
         try {
           await blockstore.cleanup()
           await unlink(pinStatus.filecoin.carFilePath)
-          this.logger.info({ pinId, carFilePath: pinStatus.filecoin.carFilePath }, 'Deleted CAR file after Synapse failure')
+          this.logger.info(
+            { pinId, carFilePath: pinStatus.filecoin.carFilePath },
+            'Deleted CAR file after Synapse failure'
+          )
         } catch (cleanupError) {
           this.logger.warn({ pinId, error: cleanupError }, 'Failed to clean up CAR file')
         }
@@ -373,7 +408,7 @@ export class FilecoinPinStore extends EventEmitter {
         blocks_written: finalStats.blocksWritten.toString(),
         total_size: finalStats.totalSize.toString(),
         missing_blocks: finalStats.missingBlocks.size.toString(),
-        pin_duration: (pinStatus.filecoin.pinCompleted - pinStatus.filecoin.pinStarted).toString()
+        pin_duration: (pinStatus.filecoin.pinCompleted - pinStatus.filecoin.pinStarted).toString(),
       }
       this.pins.set(pinId, pinStatus)
 
@@ -383,7 +418,7 @@ export class FilecoinPinStore extends EventEmitter {
         userId: user.id,
         cid,
         stats: finalStats,
-        carFilePath: pinStatus.filecoin.carFilePath
+        carFilePath: pinStatus.filecoin.carFilePath,
       })
 
       this.logger.info({ pinId, cid: cid.toString() }, 'Pin processing completed successfully')
@@ -395,7 +430,7 @@ export class FilecoinPinStore extends EventEmitter {
       pinStatus.info = {
         ...pinStatus.info,
         status: 'failed',
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Unknown error',
       }
       this.pins.set(pinId, pinStatus)
 
@@ -403,7 +438,7 @@ export class FilecoinPinStore extends EventEmitter {
         pinId,
         userId: user.id,
         cid,
-        error
+        error,
       })
     } finally {
       // Clean up active pin
@@ -415,11 +450,15 @@ export class FilecoinPinStore extends EventEmitter {
     }
   }
 
-  async get (_user: PinningServiceUser, id: string): Promise<FilecoinStoredPinStatus | undefined> {
+  async get(_user: PinningServiceUser, id: string): Promise<FilecoinStoredPinStatus | undefined> {
     return this.pins.get(id)
   }
 
-  async update (_user: PinningServiceUser, id: string, options: PinOptions): Promise<FilecoinStoredPinStatus | undefined> {
+  async update(
+    _user: PinningServiceUser,
+    id: string,
+    options: PinOptions
+  ): Promise<FilecoinStoredPinStatus | undefined> {
     const pinStatus = this.pins.get(id)
     if (pinStatus == null) {
       return undefined
@@ -440,7 +479,7 @@ export class FilecoinPinStore extends EventEmitter {
     return pinStatus
   }
 
-  async cancel (_user: PinningServiceUser, id: string): Promise<void> {
+  async cancel(_user: PinningServiceUser, id: string): Promise<void> {
     // Get the pin to find the CAR file path
     const pin = this.pins.get(id)
 
@@ -473,27 +512,30 @@ export class FilecoinPinStore extends EventEmitter {
     this.pins.delete(id)
   }
 
-  async list (_user: PinningServiceUser, query?: {
-    cid?: string
-    name?: string
-    status?: string
-    limit?: number
-  }): Promise<{
-      count: number
-      results: FilecoinStoredPinStatus[]
-    }> {
+  async list(
+    _user: PinningServiceUser,
+    query?: {
+      cid?: string
+      name?: string
+      status?: string
+      limit?: number
+    }
+  ): Promise<{
+    count: number
+    results: FilecoinStoredPinStatus[]
+  }> {
     let results = Array.from(this.pins.values())
 
     // Apply filters
     if (query?.cid != null && query.cid.length > 0) {
-      results = results.filter(pin => pin.pin.cid === query.cid)
+      results = results.filter((pin) => pin.pin.cid === query.cid)
     }
     if (query?.name != null && query.name.length > 0) {
       const nameFilter = query.name
-      results = results.filter(pin => pin.pin.name?.includes(nameFilter) === true)
+      results = results.filter((pin) => pin.pin.name?.includes(nameFilter) === true)
     }
     if (query?.status != null) {
-      results = results.filter(pin => pin.status === query.status)
+      results = results.filter((pin) => pin.status === query.status)
     }
 
     // Apply limit
@@ -506,14 +548,14 @@ export class FilecoinPinStore extends EventEmitter {
 
     return {
       count: results.length,
-      results
+      results,
     }
   }
 
   /**
    * Get statistics for all active pins
    */
-  getActivePinStats (): Array<{
+  getActivePinStats(): Array<{
     pinId: string
     cid: string
     stats: CARBlockstoreStats
@@ -523,7 +565,7 @@ export class FilecoinPinStore extends EventEmitter {
       pinId,
       cid: metadata.carFilePath.split('/').pop()?.split('-')[0] ?? 'unknown',
       stats: metadata.carStats,
-      duration: Date.now() - metadata.pinStarted
+      duration: Date.now() - metadata.pinStarted,
     }))
   }
 }

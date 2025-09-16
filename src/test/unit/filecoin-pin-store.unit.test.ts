@@ -1,15 +1,15 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { FilecoinPinStore } from '../../filecoin-pin-store.js'
-import { createConfig } from '../../config.js'
-import { createLogger } from '../../logger.js'
 import { CID } from 'multiformats/cid'
-import { sha256 } from 'multiformats/hashes/sha2'
 import * as raw from 'multiformats/codecs/raw'
+import { sha256 } from 'multiformats/hashes/sha2'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createConfig } from '../../config.js'
+import { FilecoinPinStore } from '../../filecoin-pin-store.js'
+import { createLogger } from '../../logger.js'
 
 // Mock Synapse service - minimal mock since unit tests don't test background processing
 const mockSynapseService = {
   synapse: {} as any,
-  storage: {} as any
+  storage: {} as any,
 }
 
 // Mock the heavy dependencies
@@ -17,12 +17,12 @@ vi.mock('../../create-pinning-helia.js', () => ({
   createPinningHeliaNode: vi.fn().mockResolvedValue({
     helia: {
       blockstore: {
-        get: vi.fn()
+        get: vi.fn(),
       },
       pins: {
-        add: vi.fn()
+        add: vi.fn(),
       },
-      stop: vi.fn()
+      stop: vi.fn(),
     },
     blockstore: {
       on: vi.fn(),
@@ -31,18 +31,18 @@ vi.mock('../../create-pinning-helia.js', () => ({
         missingBlocks: new Set(),
         totalSize: 100,
         startTime: Date.now(),
-        finalized: false
+        finalized: false,
       }),
       finalize: vi.fn().mockResolvedValue({
         blocksWritten: 1,
         missingBlocks: new Set(),
         totalSize: 100,
         startTime: Date.now(),
-        finalized: true
+        finalized: true,
       }),
-      cleanup: vi.fn()
-    }
-  })
+      cleanup: vi.fn(),
+    },
+  }),
 }))
 
 describe('FilecoinPinStore (Unit)', () => {
@@ -61,7 +61,7 @@ describe('FilecoinPinStore (Unit)', () => {
     const config = {
       ...createConfig(),
       carStoragePath: './test-output',
-      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001' // Fake test key
+      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001', // Fake test key
     }
     const logger = createLogger(config)
 
@@ -69,7 +69,7 @@ describe('FilecoinPinStore (Unit)', () => {
     pinStore = new FilecoinPinStore({
       config,
       logger,
-      synapseService: mockSynapseService
+      synapseService: mockSynapseService,
     })
 
     await pinStore.start()
@@ -79,7 +79,7 @@ describe('FilecoinPinStore (Unit)', () => {
     it('should create a pin with queued status immediately', async () => {
       const pinResult = await pinStore.pin(testUser, testCID, {
         name: 'Test Pin',
-        meta: { test: 'metadata' }
+        meta: { test: 'metadata' },
       })
 
       expect(pinResult).toBeDefined()
@@ -96,7 +96,7 @@ describe('FilecoinPinStore (Unit)', () => {
 
       const updated = await pinStore.update(testUser, pinResult.id, {
         name: 'Updated Name',
-        meta: { updated: 'true' }
+        meta: { updated: 'true' },
       })
 
       expect(updated).toBeDefined()
@@ -162,13 +162,13 @@ describe('FilecoinPinStore (Unit)', () => {
     it('should handle start/stop', async () => {
       const config = {
         ...createConfig(),
-        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001' // Fake test key
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001', // Fake test key
       }
 
       const newPinStore = new FilecoinPinStore({
         config,
         logger: createLogger(config),
-        synapseService: mockSynapseService
+        synapseService: mockSynapseService,
       })
 
       await expect(newPinStore.start()).resolves.not.toThrow()

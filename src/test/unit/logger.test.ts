@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { createLogger } from '../../logger.js'
+import { describe, expect, it } from 'vitest'
 import { createConfig } from '../../config.js'
+import { createLogger } from '../../logger.js'
 
 describe('Logger', () => {
   it('should create a logger with the specified log level', () => {

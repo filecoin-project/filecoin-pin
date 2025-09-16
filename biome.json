@@ -1,0 +1,114 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "files": {
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/package-lock.json",
+      "!**/yarn.lock",
+      "!**/pnpm-lock.yaml",
+      "!**/bun.lockb",
+      "!**/output",
+      "!**/coverage",
+      "!**/temp",
+      "!**/.temp",
+      "!**/tmp",
+      "!**/.tmp",
+      "!**/.history",
+      "!**/.vitepress/cache",
+      "!**/.nuxt",
+      "!**/.next",
+      "!**/.vercel",
+      "!**/.changeset",
+      "!**/.idea",
+      "!**/.cache",
+      "!**/.output",
+      "!**/.vite-inspect",
+      "!**/.yarn",
+      "!**/CHANGELOG*.md",
+      "!**/*.min.*",
+      "!**/LICENSE*",
+      "!**/__snapshots__",
+      "!**/components.d.ts",
+      "!**/mockServiceWorker.js",
+      "!**/cars"
+    ]
+  },
+  "vcs": {
+    "clientKind": "git",
+    "enabled": true,
+    "useIgnoreFile": true,
+    "defaultBranch": "master"
+  },
+  "formatter": {
+    "enabled": true,
+    "formatWithErrors": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineEnding": "lf",
+    "lineWidth": 120,
+    "attributePosition": "auto",
+    "includes": ["**"]
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on",
+        "useSortedAttributes": "on",
+        "useSortedKeys": "off"
+      }
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "domains": {
+      "test": "recommended"
+    },
+    "rules": {
+      "recommended": true,
+      "complexity": {
+        "useSimpleNumberKeys": "off"
+      },
+      "correctness": {
+        "noUnusedVariables": "warn",
+        "noInvalidBuiltinInstantiation": "error",
+        "useImportExtensions": "error"
+      },
+      "style": {
+        "noNamespace": "error",
+        "noNegationElse": "error",
+        "noParameterAssign": "off",
+        "useCollapsedElseIf": "error",
+        "useFilenamingConvention": {
+          "level": "error",
+          "options": { "requireAscii": true, "filenameCases": ["kebab-case"] }
+        },
+        "useNodejsImportProtocol": "off",
+        "useDefaultParameterLast": "warn"
+      },
+      "suspicious": {
+        "noAssignInExpressions": "warn",
+        "noExportsInTest": "off",
+        "noEmptyBlockStatements": "error",
+        "useAwait": "off",
+        "noExplicitAny": "off"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "jsxQuoteStyle": "double",
+      "quoteProperties": "asNeeded",
+      "trailingCommas": "es5",
+      "semicolons": "asNeeded",
+      "arrowParentheses": "always",
+      "bracketSpacing": true,
+      "bracketSameLine": false,
+      "quoteStyle": "single",
+      "attributePosition": "auto"
+    },
+    "globals": ["document", "navigator", "window"]
+  }
+}

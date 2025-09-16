@@ -1,16 +1,16 @@
-import { createHelia, type Helia } from 'helia'
-import { createLibp2p } from 'libp2p'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
-import { tcp } from '@libp2p/tcp'
-import { identify } from '@libp2p/identify'
-import { MemoryDatastore } from 'datastore-core'
-import { CARWritingBlockstore } from './car-blockstore.js'
 import { bitswap } from '@helia/block-brokers'
-import type { Config } from './config.js'
-import type { Logger } from 'pino'
-import type { CID } from 'multiformats/cid'
+import { identify } from '@libp2p/identify'
+import { tcp } from '@libp2p/tcp'
 import { multiaddr } from '@multiformats/multiaddr'
+import { MemoryDatastore } from 'datastore-core'
+import { createHelia, type Helia } from 'helia'
+import { createLibp2p } from 'libp2p'
+import type { CID } from 'multiformats/cid'
+import type { Logger } from 'pino'
+import { CARWritingBlockstore } from './car-blockstore.js'
+import type { Config } from './config.js'
 
 export interface PinningHeliaOptions {
   config: Config
@@ -24,32 +24,34 @@ export interface PinningHeliaOptions {
  * Create a Helia node with CAR-writing blockstore for a specific pin operation
  * This combines the server and CAR Helia functionality into one instance
  */
-export async function createPinningHeliaNode (options: PinningHeliaOptions): Promise<{
+export async function createPinningHeliaNode(options: PinningHeliaOptions): Promise<{
   helia: Helia
   blockstore: CARWritingBlockstore
 }> {
   const { logger, rootCID, outputPath, origins = [] } = options
 
   // Parse origins into multiaddrs
-  const dialTargets = origins.map(origin => {
-    try {
-      return multiaddr(origin)
-    } catch (error) {
-      logger.warn({ origin, error }, 'Failed to parse origin multiaddr')
-      return null
-    }
-  }).filter(addr => addr != null)
+  const dialTargets = origins
+    .map((origin) => {
+      try {
+        return multiaddr(origin)
+      } catch (error) {
+        logger.warn({ origin, error }, 'Failed to parse origin multiaddr')
+        return null
+      }
+    })
+    .filter((addr) => addr != null)
 
   const libp2p = await createLibp2p({
     addresses: {
-      listen: ['/ip4/0.0.0.0/tcp/0'] // Random port
+      listen: ['/ip4/0.0.0.0/tcp/0'], // Random port
     },
     transports: [tcp()],
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     services: {
-      identify: identify()
-    }
+      identify: identify(),
+    },
     // No bootstrap or mdns - we'll connect directly to origins
   })
 
@@ -57,7 +59,7 @@ export async function createPinningHeliaNode (options: PinningHeliaOptions): Pro
   const carBlockstore = new CARWritingBlockstore({
     rootCID,
     outputPath,
-    logger
+    logger,
   })
 
   // Set up event handlers for monitoring
@@ -73,9 +75,7 @@ export async function createPinningHeliaNode (options: PinningHeliaOptions): Pro
     libp2p,
     blockstore: carBlockstore,
     datastore: new MemoryDatastore(),
-    blockBrokers: [
-      bitswap()
-    ]
+    blockBrokers: [bitswap()],
   })
 
   logger.info(`Pinning Helia node started with peer ID: ${helia.libp2p.peerId.toString()}`)

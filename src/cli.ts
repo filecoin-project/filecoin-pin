@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 
-import process from 'node:process'
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 import { daemon } from './index.js'
 
 // Get package.json for version info
 const filename = fileURLToPath(import.meta.url)
 const dirname_ = dirname(filename)
-const packageJson = JSON.parse(readFileSync(join(dirname_, '../package.json'), 'utf-8')) as { version: string, name: string }
+const packageJson = JSON.parse(readFileSync(join(dirname_, '../package.json'), 'utf-8')) as {
+  version: string
+  name: string
+}
 
 const command = process.argv[2]
 
@@ -30,7 +33,7 @@ Environment Variables:
   DATABASE_PATH         SQLite database location (default: {config}/pins.db)
   CAR_STORAGE_PATH      Temporary CAR file directory (default: {config}/cars)
   LOG_LEVEL             Log level (default: info)
-  PANDORA_ADDRESS       Override Pandora contract address (optional)
+  WARM_STORAGE_ADDRESS  Override Warm Storage contract address (optional)
 
 Examples:
   PRIVATE_KEY=0x... filecoin-pin daemon

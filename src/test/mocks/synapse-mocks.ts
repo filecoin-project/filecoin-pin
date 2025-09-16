@@ -1,64 +1,89 @@
-import type { ApprovedProviderInfo } from '@filoz/synapse-sdk'
 import { EventEmitter } from 'node:events'
+import type { ProviderInfo } from '@filoz/synapse-sdk'
 
 // Mock provider info for testing
-export const mockProviderInfo: ApprovedProviderInfo = {
-  owner: '0x78bF4d833fC2ba1Abd42Bc772edbC788EC76A28F',
-  pdpUrl: 'http://localhost:8888/pdp',
-  pieceRetrievalUrl: 'http://localhost:8888/retrieve',
-  registeredAt: 1234567890,
-  approvedAt: 1234567891
+export const mockProviderInfo: ProviderInfo = {
+  id: 1,
+  serviceProvider: '0x78bF4d833fC2ba1Abd42Bc772edbC788EC76A28F',
+  payee: '0x78bF4d833fC2ba1Abd42Bc772edbC788EC76A28F',
+  name: 'Mock Provider',
+  description: 'Mock provider for testing',
+  active: true,
+  products: {
+    PDP: {
+      type: 'PDP',
+      isActive: true,
+      capabilities: {},
+      data: {
+        serviceURL: 'http://localhost:8888/pdp',
+        minPieceSizeInBytes: 127n,
+        maxPieceSizeInBytes: 34359738368n,
+        ipniPiece: false,
+        ipniHttp: false,
+        ipniBitswap: false,
+        storagePricePerTibPerMonth: 5000000000000000000n,
+        location: 'Test Location',
+        bandwidth: 1000,
+        throughput: 100,
+        storageCapacity: 1000n,
+        storageAvailable: 800n,
+      } as any,
+    },
+  },
 }
 
-// Mock storage service that simulates successful uploads
-export class MockStorageService extends EventEmitter {
-  public readonly proofSetId = 'proof-set-123'
-  public readonly storageProvider = mockProviderInfo.owner
+// Mock storage context that simulates successful uploads
+export class MockStorageContext extends EventEmitter {
+  public readonly dataSetId = 123
+  public readonly serviceProvider = mockProviderInfo.serviceProvider
 
-  async upload (_data: ArrayBuffer | Uint8Array, callbacks?: any): Promise<any> {
+  async upload(_data: ArrayBuffer | Uint8Array, callbacks?: any): Promise<any> {
     // Simulate upload delay
-    await new Promise(resolve => setTimeout(resolve, 100))
+    await new Promise((resolve) => setTimeout(resolve, 100))
 
-    // Generate a mock CommP based on data size
-    const commp = `baga6ea4seaq${Math.random().toString(36).substring(2, 15)}`
-    const rootId = Math.floor(Math.random() * 1000)
+    // Generate a mock PieceCID based on data size
+    const pieceCid = `bafkzcib${Math.random().toString(36).substring(2, 15)}`
+    const pieceId = Math.floor(Math.random() * 1000)
 
     // Call callbacks if provided
     if (callbacks?.onUploadComplete != null) {
-      callbacks.onUploadComplete(commp)
+      callbacks.onUploadComplete(pieceCid)
     }
-    if (callbacks?.onRootAdded != null) {
-      callbacks.onRootAdded()
+    if (callbacks?.onPieceAdded != null) {
+      callbacks.onPieceAdded()
     }
 
-    return { commp, rootId, size: 1024 }
+    return { pieceCid, pieceId, size: 1024 }
   }
 }
 
 // Mock Synapse instance
 export class MockSynapse extends EventEmitter {
-  private _storage: MockStorageService | null = null
+  private _storageContext: MockStorageContext | null = null
 
-  getNetwork (): any {
+  public readonly storage = {
+    createContext: this.createStorageContext.bind(this),
+  }
+
+  getNetwork(): any {
     return { chainId: 314159n, name: 'calibration' }
   }
 
-  async createStorage (options?: any): Promise<any> {
+  async createStorageContext(options?: any): Promise<any> {
     // Simulate provider selection
     if (options?.callbacks?.onProviderSelected != null) {
       options.callbacks.onProviderSelected(mockProviderInfo)
     }
 
-    // Simulate proof set resolution
-    if (options?.callbacks?.onProofSetResolved != null) {
-      options.callbacks.onProofSetResolved({
-        proofSetId: 'proof-set-123',
+    // Simulate data set resolution
+    if (options?.callbacks?.onDataSetResolved != null) {
+      options.callbacks.onDataSetResolved({
+        dataSetId: 123,
         isExisting: false,
-        provider: mockProviderInfo
       })
     }
 
-    this._storage = new MockStorageService()
-    return this._storage
+    this._storageContext = new MockStorageContext()
+    return this._storageContext
   }
 }

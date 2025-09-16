@@ -9,10 +9,10 @@ export interface Config {
   databasePath: string
   carStoragePath: string
   logLevel: string
-  pandoraAddress: string | undefined
+  warmStorageAddress: string | undefined
 }
 
-function getDataDirectory (): string {
+function getDataDirectory(): string {
   const home = homedir()
   const plat = platform()
 
@@ -35,17 +35,17 @@ function getDataDirectory (): string {
   return join(home, '.filecoin-pin')
 }
 
-export function createConfig (): Config {
+export function createConfig(): Config {
   const dataDir = getDataDirectory()
 
   return {
-    port: parseInt(process.env.PORT ?? '3456'),
+    port: parseInt(process.env.PORT ?? '3456', 10),
     host: process.env.HOST ?? 'localhost',
     privateKey: process.env.PRIVATE_KEY,
     rpcUrl: process.env.RPC_URL ?? 'https://api.calibration.node.glif.io/rpc/v1',
     databasePath: process.env.DATABASE_PATH ?? join(dataDir, 'pins.db'),
     carStoragePath: process.env.CAR_STORAGE_PATH ?? join(dataDir, 'cars'),
     logLevel: process.env.LOG_LEVEL ?? 'info',
-    pandoraAddress: process.env.PANDORA_ADDRESS
+    warmStorageAddress: process.env.WARM_STORAGE_ADDRESS,
   }
 }

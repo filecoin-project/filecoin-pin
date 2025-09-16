@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { FilecoinPinStore } from '../../filecoin-pin-store.js'
-import { createConfig } from '../../config.js'
-import { createLogger } from '../../logger.js'
+import { rm } from 'node:fs/promises'
 import { createHelia } from 'helia'
 import { CID } from 'multiformats/cid'
-import { sha256 } from 'multiformats/hashes/sha2'
 import * as raw from 'multiformats/codecs/raw'
+import { sha256 } from 'multiformats/hashes/sha2'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createConfig } from '../../config.js'
+import { FilecoinPinStore } from '../../filecoin-pin-store.js'
+import { createLogger } from '../../logger.js'
 import { MockSynapse } from '../mocks/synapse-mocks.js'
 
 // Mock the Synapse SDK
@@ -33,7 +33,7 @@ describe('FilecoinPinStore', () => {
     const config = {
       ...createConfig(),
       carStoragePath: testOutputDir,
-      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001' // Fake test key
+      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001', // Fake test key
     }
     const logger = createLogger(config)
 
@@ -42,14 +42,14 @@ describe('FilecoinPinStore', () => {
 
     // Create mock Synapse service
     const mockSynapse = new MockSynapse()
-    const mockStorage = await mockSynapse.createStorage()
+    const mockStorage = await mockSynapse.storage.createContext()
     const synapseService = { synapse: mockSynapse as any, storage: mockStorage }
 
     // Create Filecoin pin store with mock Synapse
     pinStore = new FilecoinPinStore({
       config,
       logger,
-      synapseService
+      synapseService,
     })
 
     await pinStore.start()
@@ -71,7 +71,7 @@ describe('FilecoinPinStore', () => {
     it('should create a pin with Filecoin metadata', async () => {
       const pinResult = await pinStore.pin(testUser, testCID, {
         name: 'Test Pin',
-        meta: { test: 'metadata' }
+        meta: { test: 'metadata' },
       })
 
       expect(pinResult).toBeDefined()
@@ -109,13 +109,13 @@ describe('FilecoinPinStore', () => {
       const pinResult = await pinStore.pin(testUser, testCID, { name: 'Event Test', origins })
 
       // Wait a bit for background processing
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      await new Promise((resolve) => setTimeout(resolve, 2000))
 
       // Should have at least some events
       expect(events.length).toBeGreaterThan(0)
 
       // Check for completion event
-      const completionEvent = events.find(e => e.type === 'car:completed')
+      const completionEvent = events.find((e) => e.type === 'car:completed')
       if (completionEvent != null) {
         expect(completionEvent.data.pinId).toBe(pinResult.id)
         expect(completionEvent.data.userId).toBe(testUser.id)
@@ -127,7 +127,7 @@ describe('FilecoinPinStore', () => {
 
       const updated = await pinStore.update(testUser, pinResult.id, {
         name: 'Updated Name',
-        meta: { updated: 'true' }
+        meta: { updated: 'true' },
       })
 
       expect(updated).toBeDefined()
@@ -152,7 +152,7 @@ describe('FilecoinPinStore', () => {
       const pinResult = await pinStore.pin(testUser, testCID, { name: 'Cancel Test' })
 
       // Wait a moment to ensure pin processing starts
-      await new Promise(resolve => setTimeout(resolve, 150))
+      await new Promise((resolve) => setTimeout(resolve, 150))
 
       await pinStore.cancel(testUser, pinResult.id)
 
@@ -179,8 +179,8 @@ describe('FilecoinPinStore', () => {
       expect(list.results).toHaveLength(list.count)
 
       // Check that all results have Filecoin metadata
-      const pin1Result = list.results.find(p => p.id === pin1.id)
-      const pin2Result = list.results.find(p => p.id === pin2.id)
+      const pin1Result = list.results.find((p) => p.id === pin1.id)
+      const pin2Result = list.results.find((p) => p.id === pin2.id)
 
       expect(pin1Result).toBeDefined()
       expect(pin1Result?.filecoin).toBeDefined()
@@ -201,7 +201,7 @@ describe('FilecoinPinStore', () => {
       await pinStore.pin(testUser, cid2, { name: 'Stats Test 2' })
 
       // Wait for pins to start processing
-      await new Promise(resolve => setTimeout(resolve, 150))
+      await new Promise((resolve) => setTimeout(resolve, 150))
 
       const stats = pinStore.getActivePinStats()
       // Pins may complete quickly in test environment, so we check for reasonable activity
@@ -218,11 +218,11 @@ describe('FilecoinPinStore', () => {
     it('should provide detailed pin information', async () => {
       const pinResult = await pinStore.pin(testUser, testCID, {
         name: 'Detail Test',
-        meta: { priority: 'high', source: 'test' }
+        meta: { priority: 'high', source: 'test' },
       })
 
       // Wait for processing to complete
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      await new Promise((resolve) => setTimeout(resolve, 2000))
 
       const retrieved = await pinStore.get(testUser, pinResult.id)
 
@@ -254,7 +254,7 @@ describe('FilecoinPinStore', () => {
       const pinResult = await pinStore.pin(testUser, nonExistentCID, { name: 'Failure Test' })
 
       // Wait for background processing to potentially fail
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      await new Promise((resolve) => setTimeout(resolve, 2000))
 
       // Pin should be created and may process to completion (which is successful behavior for missing content)
       expect(pinResult).toBeDefined()
@@ -273,7 +273,7 @@ describe('FilecoinPinStore', () => {
       await pinStore.pin(testUser, cid2, { name: 'Cleanup Test 2' })
 
       // Wait for pins to start processing
-      await new Promise(resolve => setTimeout(resolve, 150))
+      await new Promise((resolve) => setTimeout(resolve, 150))
 
       // Stop should clean up all resources
       await pinStore.stop()
@@ -287,18 +287,18 @@ describe('FilecoinPinStore', () => {
     it('should start and stop cleanly', async () => {
       // Create mock Synapse service
       const mockSynapse = new MockSynapse()
-      const mockStorage = await mockSynapse.createStorage()
+      const mockStorage = await mockSynapse.storage.createContext()
       const synapseService = { synapse: mockSynapse as any, storage: mockStorage }
 
       const config = {
         ...createConfig(),
-        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001' // Fake test key
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001', // Fake test key
       }
 
       const newPinStore = new FilecoinPinStore({
         config,
         logger: createLogger(config),
-        synapseService
+        synapseService,
       })
 
       await expect(newPinStore.start()).resolves.not.toThrow()
@@ -308,18 +308,18 @@ describe('FilecoinPinStore', () => {
     it('should handle multiple start/stop cycles', async () => {
       // Create mock Synapse service
       const mockSynapse = new MockSynapse()
-      const mockStorage = await mockSynapse.createStorage()
+      const mockStorage = await mockSynapse.storage.createContext()
       const synapseService = { synapse: mockSynapse as any, storage: mockStorage }
 
       const config = {
         ...createConfig(),
-        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001' // Fake test key
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001', // Fake test key
       }
 
       const newPinStore = new FilecoinPinStore({
         config,
         logger: createLogger(config),
-        synapseService
+        synapseService,
       })
 
       await newPinStore.start()

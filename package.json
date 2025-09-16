@@ -25,8 +25,8 @@
     "test:unit": "vitest run src/test/unit",
     "test:integration": "vitest run src/test/integration",
     "test:watch": "vitest",
-    "lint": "ts-standard 'src/**/*.ts'",
-    "lint:fix": "ts-standard 'src/**/*.ts' --fix",
+    "lint": "tsc && biome check --no-errors-on-unmatched --files-ignore-unknown=true .",
+    "lint:fix": "biome check --no-errors-on-unmatched --files-ignore-unknown=true --fix .",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },
@@ -48,20 +48,20 @@
   },
   "homepage": "https://github.com/FilOzone/filecoin-pin#readme",
   "dependencies": {
-    "@filoz/synapse-sdk": "^0.20.0",
+    "@filoz/synapse-sdk": "^0.25.1",
     "@ipld/car": "^5.4.2",
-    "fastify": "^5.4.0",
-    "helia": "^5.5.0",
-    "multiformats": "^13.3.7",
-    "pino": "^9.7.0"
+    "fastify": "^5.6.0",
+    "helia": "^5.5.1",
+    "multiformats": "^13.4.1",
+    "pino": "^9.9.5"
   },
   "devDependencies": {
-    "@helia/unixfs": "^5.0.4",
-    "@ipld/dag-cbor": "^9.2.4",
-    "@types/node": "^24.1.0",
-    "ts-standard": "^12.0.2",
-    "tsx": "^4.20.3",
-    "typescript": "^5.8.3",
+    "@biomejs/biome": "~2.2.4",
+    "@helia/unixfs": "^5.1.0",
+    "@ipld/dag-cbor": "^9.2.5",
+    "@types/node": "^24.5.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   },
   "publishConfig": {

@@ -1,13 +1,13 @@
 import { createConfig } from './config.js'
-import { createLogger } from './logger.js'
 import { createFilecoinPinningServer } from './filecoin-pinning-server.js'
+import { createLogger } from './logger.js'
 
 export interface ServiceInfo {
   service: string
   version: string
 }
 
-export async function daemon (serviceInfo: ServiceInfo): Promise<void> {
+export async function daemon(serviceInfo: ServiceInfo): Promise<void> {
   const config = createConfig()
   const logger = createLogger(config)
 
@@ -41,7 +41,22 @@ export async function daemon (serviceInfo: ServiceInfo): Promise<void> {
     logger.info({ port }, `${serviceInfo.service} daemon started successfully`)
     logger.info(`Pinning service listening on http://${config.host}:${String(port)}`)
   } catch (error) {
-    logger.error({ error }, 'Failed to start daemon')
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    logger.error(
+      {
+        error: errorMessage,
+        stack: error instanceof Error ? error.stack : undefined,
+      },
+      `Failed to start daemon: ${errorMessage}`
+    )
+
+    // Also print a user-friendly message to stderr for clarity
+    if (errorMessage.includes('PRIVATE_KEY')) {
+      console.error('\n❌ Error: PRIVATE_KEY environment variable is required')
+      console.error('   Please set your private key: export PRIVATE_KEY=0x...')
+      console.error('   Or run with: PRIVATE_KEY=0x... npm start\n')
+    }
+
     process.exit(1)
   }
 }
