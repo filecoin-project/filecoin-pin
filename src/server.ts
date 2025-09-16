@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { createConfig } from './config.js'
 import { createFilecoinPinningServer } from './filecoin-pinning-server.js'
 import { createLogger } from './logger.js'
@@ -7,7 +11,17 @@ export interface ServiceInfo {
   version: string
 }
 
-export async function daemon(serviceInfo: ServiceInfo): Promise<void> {
+function getServiceInfo(): ServiceInfo {
+  const __dirname = dirname(fileURLToPath(import.meta.url))
+  const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'))
+  return {
+    service: packageJson.name,
+    version: packageJson.version,
+  }
+}
+
+export async function startServer(): Promise<void> {
+  const serviceInfo = getServiceInfo()
   const config = createConfig()
   const logger = createLogger(config)
 

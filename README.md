@@ -6,17 +6,17 @@ An IPFS Pinning Service API implementation that pins to Filecoin's PDP service, 
 
 ## Overview
 
-Filecoin Pin is a TypeScript daemon that implements the [IPFS Pinning Service API](https://ipfs.github.io/pinning-services-api-spec/) to enable users to pin IPFS content to Filecoin using familiar IPFS tooling like Kubo's `ipfs pin remote` commands.
+Filecoin Pin is a TypeScript server that implements the [IPFS Pinning Service API](https://ipfs.github.io/pinning-services-api-spec/) to enable users to pin IPFS content to Filecoin using familiar IPFS tooling like Kubo's `ipfs pin remote` commands.
 
 ### How It Works
 
-1. **Filecoin Pin daemon**: The Filecoin Pin daemon runs an HTTP server that implements the [IPFS Pinning Service API](https://ipfs.github.io/pinning-services-api-spec/) so it can serve pin requests.
-2. **Receive Pin Requests**: When you run `ipfs pin remote add`, Kubo (or compatible IPFS node) sends a pin request to the Filecoin Pin daemon (assuming the Filecoin Pin Daemon has been configured as a pinning service for your Kubo client per [below](#using-with-ipfskubo)),
-3. **Fetch Blocks from IPFS**: The Filecoin Pin daemon connects to the IPFS network and fetches blocks for the requested CID (usually from the requesting node itself).
-4. **Store in CAR**: As the Filecoin Pin daemon receives blocks, it writes them directly to a CAR (Content Addressable aRchive) file on disk.
-5. **Upload to PDP Provider**: Once all blocks are collected, the Filecoin Pin daemon uploads the CAR file to a Proof of Data Possession (PDP) service provider.
-6. **Commit to Filecoin**: The PDP service provider commits the data to the Filecoin blockchain.
-7. **Start Proving**: The PDP service provider begins generating ongoing proofs that they still possess your data.
+1. **Serve Pin Service**: The server runs an HTTP service that implements the IPFS Pinning Service API
+2. **Receive Pin Requests**: When you run `ipfs pin remote add`, Kubo sends a pin request to the service
+3. **Fetch Blocks from IPFS**: The service connects to the IPFS network and fetches blocks for the requested CID (usually from the requesting node itself)
+4. **Store in CAR**: As blocks arrive, they're written directly to a CAR (Content Addressable aRchive) file on disk
+5. **Upload to PDP Provider**: Once all blocks are collected, the CAR file is uploaded to a Proof of Data Possession (PDP) service provider
+6. **Commit to Filecoin**: The PDP provider commits the data to the Filecoin blockchain
+7. **Start Proving**: The storage provider begins generating ongoing proofs that they still possess your data
 
 This bridges the gap between IPFS's content-addressed storage and Filecoin's incentivized persistence layer, giving you the best of both worlds - easy pinning with long-term storage guarantees.
 
@@ -42,13 +42,13 @@ You can install `filecoin-pin` globally or use it directly with npx.
 npm install -g filecoin-pin
 
 # Then you can run it from anywhere
-filecoin-pin daemon
+filecoin-pin server
 ```
 
 **Option 2: Use npx (installs automatically and runs)**
 ```bash
 # No installation needed - npx downloads and runs it
-npx filecoin-pin daemon
+npx filecoin-pin server
 ```
 
 **Option 3: Build from source**
@@ -91,41 +91,46 @@ When `DATABASE_PATH` and `CAR_STORAGE_PATH` are not specified, the service uses 
 - **Windows**: `%APPDATA%/filecoin-pin/`
 - **Other**: `~/.filecoin-pin/`
 
-### Running the Daemon
+### Running the Server
 
 ⚠️ **PRIVATE_KEY is required** - The service will not start without it.
 
 ```bash
 # If installed globally:
-PRIVATE_KEY=0x... filecoin-pin daemon
+PRIVATE_KEY=0x... filecoin-pin server
 
 # Or with npx:
-PRIVATE_KEY=0x... npx filecoin-pin daemon
+PRIVATE_KEY=0x... npx filecoin-pin server
 
 # With custom configuration:
-PRIVATE_KEY=0x... PORT=8080 RPC_URL=wss://... filecoin-pin daemon
+PRIVATE_KEY=0x... PORT=8080 RPC_URL=wss://... filecoin-pin server
 ```
 
 ### CLI Usage
 
 ```bash
 # Show help
-filecoin-pin help
+filecoin-pin --help
 
 # Show version
-filecoin-pin version
+filecoin-pin --version
 
 # Start server
-filecoin-pin daemon
+filecoin-pin server
+
+# Start server with options
+filecoin-pin server --port 3456 --car-storage ./my-cars
 ```
 
-## Using with IPFS/Kubo
+## Using with IPFS
 
-Once the daemon is running, configure it as a remote pinning service in Kubo:
+Once the server is running, you can configure it as a remote pinning service in IPFS.
+
+### Using with Kubo CLI
 
 ```bash
-# Add the pinning service (replace <bearer-token> with any non-empty string for now)
-ipfs pin remote service add filecoin-pin http://localhost:3456 <bearer-token>
+# Add the pinning service (use any non-empty string as token - auth not currently enforced)
+ipfs pin remote service add filecoin-pin http://localhost:3456 any-token
 
 # Pin content to Filecoin
 ipfs pin remote add --service=filecoin-pin QmYourContentCID
@@ -136,6 +141,16 @@ ipfs pin remote ls --service=filecoin-pin
 # Check pin status
 ipfs pin remote ls --service=filecoin-pin --status=pinning,queued,pinned
 ```
+
+### Using with IPFS Desktop or WebUI
+
+You can also add this pinning service through the IPFS Desktop application or WebUI interface. See the [IPFS documentation on working with pinning services](https://docs.ipfs.tech/how-to/work-with-pinning-services/#use-a-third-party-pinning-service) for detailed instructions on:
+
+- Adding remote pinning services via the GUI
+- Managing pins through the web interface
+- Configuring authentication tokens
+
+The service endpoint will be `http://localhost:3456` (or your configured host/port). While the IPFS interface requires a token field, authentication is not currently enforced so any non-empty value will work.
 
 ## Development
 

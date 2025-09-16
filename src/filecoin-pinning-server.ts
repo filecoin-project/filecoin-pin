@@ -3,7 +3,7 @@ import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import type { Config } from './config.js'
 import { FilecoinPinStore, type PinOptions } from './filecoin-pin-store.js'
-import type { ServiceInfo } from './index.js'
+import type { ServiceInfo } from './server.js'
 import { initializeSynapse } from './synapse-service.js'
 
 declare module 'fastify' {
