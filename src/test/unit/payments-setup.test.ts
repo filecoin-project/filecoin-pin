@@ -1,0 +1,257 @@
+import { ethers } from 'ethers'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  calculateStorageAllowances,
+  checkFILBalance,
+  checkUSDFCBalance,
+  depositUSDFC,
+  formatFIL,
+  formatUSDFC,
+  getPaymentStatus,
+  parseStorageAllowance,
+  setServiceApprovals,
+} from '../../payments/setup.js'
+
+// Mock Synapse SDK
+vi.mock('@filoz/synapse-sdk', () => {
+  const mockSynapse = {
+    getProvider: vi.fn(),
+    getSigner: vi.fn(),
+    getNetwork: vi.fn(),
+    getPaymentsAddress: vi.fn(),
+    getWarmStorageAddress: vi.fn(),
+    payments: {
+      walletBalance: vi.fn(),
+      balance: vi.fn(),
+      serviceApproval: vi.fn(),
+      allowance: vi.fn(),
+      approve: vi.fn(),
+      deposit: vi.fn(),
+      approveService: vi.fn(),
+    },
+    storage: {
+      getStorageInfo: vi.fn(),
+    },
+  }
+
+  return {
+    Synapse: {
+      create: vi.fn().mockResolvedValue(mockSynapse),
+    },
+    TOKENS: {
+      USDFC: 'USDFC',
+    },
+    TIME_CONSTANTS: {
+      EPOCHS_PER_DAY: 2880n,
+      EPOCHS_PER_MONTH: 86400n,
+    },
+    SIZE_CONSTANTS: {
+      MIN_UPLOAD_SIZE: 127,
+    },
+  }
+})
+
+describe('Payment Setup Tests', () => {
+  let mockSynapse: any
+  let mockProvider: any
+  let mockSigner: any
+
+  beforeEach(() => {
+    // Reset mocks
+    vi.clearAllMocks()
+
+    // Create mock instances
+    mockProvider = {
+      getBalance: vi.fn().mockResolvedValue(ethers.parseEther('5')),
+    }
+
+    mockSigner = {
+      getAddress: vi.fn().mockResolvedValue('0x1234567890123456789012345678901234567890'),
+    }
+
+    // Create mock Synapse instance
+    mockSynapse = {
+      getProvider: vi.fn().mockReturnValue(mockProvider),
+      getSigner: vi.fn().mockReturnValue(mockSigner),
+      getNetwork: vi.fn().mockReturnValue('calibration'),
+      getPaymentsAddress: vi.fn().mockReturnValue('0xpayments'),
+      getWarmStorageAddress: vi.fn().mockReturnValue('0xwarmstorage'),
+      payments: {
+        walletBalance: vi.fn().mockResolvedValue(ethers.parseUnits('100', 18)),
+        balance: vi.fn().mockResolvedValue(ethers.parseUnits('10', 18)),
+        serviceApproval: vi.fn().mockResolvedValue({
+          rateAllowance: ethers.parseUnits('0.0001', 18),
+          lockupAllowance: ethers.parseUnits('2', 18),
+          rateUsed: 0n,
+          lockupUsed: 0n,
+        }),
+        allowance: vi.fn().mockResolvedValue(ethers.parseUnits('0', 18)),
+        approve: vi.fn().mockResolvedValue({
+          wait: vi.fn(),
+          hash: '0xapproval',
+        }),
+        deposit: vi.fn().mockResolvedValue({
+          wait: vi.fn(),
+          hash: '0xdeposit',
+        }),
+        approveService: vi.fn().mockResolvedValue({
+          wait: vi.fn(),
+          hash: '0xservice',
+        }),
+      },
+      storage: {
+        getStorageInfo: vi.fn().mockResolvedValue({
+          pricing: {
+            noCDN: {
+              perTiBPerEpoch: ethers.parseUnits('0.0000565', 18),
+              perTiBPerDay: ethers.parseUnits('0.16272', 18),
+              perTiBPerMonth: ethers.parseUnits('4.8816', 18),
+            },
+          },
+        }),
+      },
+    }
+  })
+
+  describe('checkFILBalance', () => {
+    it('should check FIL balance and network correctly', async () => {
+      const result = await checkFILBalance(mockSynapse)
+
+      expect(result.balance).toBe(ethers.parseEther('5'))
+      expect(result.isCalibnet).toBe(true)
+      expect(result.hasSufficientGas).toBe(true)
+    })
+
+    it('should detect insufficient gas', async () => {
+      mockProvider.getBalance.mockResolvedValue(ethers.parseEther('0.05'))
+
+      const result = await checkFILBalance(mockSynapse)
+
+      expect(result.hasSufficientGas).toBe(false)
+    })
+  })
+
+  describe('checkUSDFCBalance', () => {
+    it('should return USDFC wallet balance', async () => {
+      const balance = await checkUSDFCBalance(mockSynapse)
+
+      expect(balance).toBe(ethers.parseUnits('100', 18))
+      expect(mockSynapse.payments.walletBalance).toHaveBeenCalledWith('USDFC')
+    })
+  })
+
+  describe('getPaymentStatus', () => {
+    it('should return complete payment status', async () => {
+      const status = await getPaymentStatus(mockSynapse)
+
+      expect(status.network).toBe('calibration')
+      expect(status.address).toBe('0x1234567890123456789012345678901234567890')
+      expect(status.filBalance).toBe(ethers.parseEther('5'))
+      expect(status.usdfcBalance).toBe(ethers.parseUnits('100', 18))
+      expect(status.depositedAmount).toBe(ethers.parseUnits('10', 18))
+      expect(status.currentAllowances.rateAllowance).toBe(ethers.parseUnits('0.0001', 18))
+    })
+  })
+
+  describe('depositUSDFC', () => {
+    it('should deposit USDFC without approval when allowance sufficient', async () => {
+      mockSynapse.payments.allowance.mockResolvedValue(ethers.parseUnits('10', 18))
+
+      const result = await depositUSDFC(mockSynapse, ethers.parseUnits('5', 18))
+
+      expect(result.approvalTx).toBeUndefined()
+      expect(result.depositTx).toBe('0xdeposit')
+      expect(mockSynapse.payments.approve).not.toHaveBeenCalled()
+      expect(mockSynapse.payments.deposit).toHaveBeenCalled()
+    })
+
+    it('should approve and deposit when allowance insufficient', async () => {
+      mockSynapse.payments.allowance.mockResolvedValue(ethers.parseUnits('0', 18))
+
+      const result = await depositUSDFC(mockSynapse, ethers.parseUnits('5', 18))
+
+      expect(result.approvalTx).toBe('0xapproval')
+      expect(result.depositTx).toBe('0xdeposit')
+      expect(mockSynapse.payments.approve).toHaveBeenCalled()
+      expect(mockSynapse.payments.deposit).toHaveBeenCalled()
+    })
+  })
+
+  describe('setServiceApprovals', () => {
+    it('should set service approvals with correct parameters', async () => {
+      const rateAllowance = ethers.parseUnits('0.0001', 18)
+      const lockupAllowance = ethers.parseUnits('2', 18)
+
+      const txHash = await setServiceApprovals(mockSynapse, rateAllowance, lockupAllowance)
+
+      expect(txHash).toBe('0xservice')
+      expect(mockSynapse.payments.approveService).toHaveBeenCalledWith(
+        '0xwarmstorage',
+        rateAllowance,
+        lockupAllowance,
+        28800n, // 10 days * 2880 epochs/day
+        'USDFC'
+      )
+    })
+  })
+
+  describe('calculateStorageAllowances', () => {
+    it('should calculate allowances for 1 TiB/month', async () => {
+      const allowances = await calculateStorageAllowances(mockSynapse, 1)
+
+      expect(allowances.tibPerMonth).toBe(1)
+      expect(allowances.ratePerEpoch).toBe(ethers.parseUnits('0.0000565', 18))
+      expect(allowances.lockupAmount).toBe(
+        ethers.parseUnits('0.0000565', 18) * 2880n * 10n // rate * epochs/day * 10 days
+      )
+    })
+
+    it('should calculate allowances for fractional TiB', async () => {
+      const allowances = await calculateStorageAllowances(mockSynapse, 0.5)
+
+      expect(allowances.tibPerMonth).toBe(0.5)
+      expect(allowances.ratePerEpoch).toBe(0n) // Floor of 0.5 is 0
+    })
+  })
+
+  describe('parseStorageAllowance', () => {
+    it('should parse TiB/month format', () => {
+      const tibPerMonth = parseStorageAllowance('2TiB/month')
+
+      expect(tibPerMonth).toBe(2)
+    })
+
+    it('should parse GiB/month format', () => {
+      const tibPerMonth = parseStorageAllowance('512GiB/month')
+
+      expect(tibPerMonth).toBe(0.5)
+    })
+
+    it('should return null for direct USDFC/epoch format', () => {
+      const tibPerMonth = parseStorageAllowance('0.0001')
+
+      expect(tibPerMonth).toBeNull()
+    })
+
+    it('should throw on invalid format', () => {
+      expect(() => parseStorageAllowance('invalid')).toThrow()
+    })
+  })
+
+  describe('formatUSDFC', () => {
+    it('should format USDFC amounts correctly', () => {
+      expect(formatUSDFC(ethers.parseUnits('1.2345', 18))).toBe('1.2345')
+      expect(formatUSDFC(ethers.parseUnits('1.23456789', 18))).toBe('1.2346')
+      expect(formatUSDFC(ethers.parseUnits('1000', 18))).toBe('1000.0000')
+      expect(formatUSDFC(ethers.parseUnits('0.0001', 18), 6)).toBe('0.000100')
+    })
+  })
+
+  describe('formatFIL', () => {
+    it('should format FIL amounts with correct unit', () => {
+      expect(formatFIL(ethers.parseEther('1.5'), false)).toBe('1.5000 FIL')
+      expect(formatFIL(ethers.parseEther('1.5'), true)).toBe('1.5000 tFIL')
+      expect(formatFIL(ethers.parseEther('0.0001'), false)).toBe('0.0001 FIL')
+    })
+  })
+})

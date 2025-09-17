@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { Command } from 'commander'
-
+import { paymentsCommand } from './commands/payments.js'
 import { serverCommand } from './commands/server.js'
 
 // Get package.json for version
@@ -20,6 +20,7 @@ const program = new Command()
 
 // Add subcommands
 program.addCommand(serverCommand)
+program.addCommand(paymentsCommand)
 
 // Default action - show help if no command specified
 program.action(() => {
