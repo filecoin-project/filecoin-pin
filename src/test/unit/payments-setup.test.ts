@@ -210,7 +210,19 @@ describe('Payment Setup Tests', () => {
       const allowances = await calculateStorageAllowances(mockSynapse, 0.5)
 
       expect(allowances.tibPerMonth).toBe(0.5)
-      expect(allowances.ratePerEpoch).toBe(0n) // Floor of 0.5 is 0
+      // 0.5 TiB = 500 milliTiB, so (0.0000565 * 500) / 1000 = 0.00002825
+      expect(allowances.ratePerEpoch).toBe(ethers.parseUnits('0.00002825', 18))
+    })
+
+    it('should calculate allowances for 1.5 TiB correctly', async () => {
+      const allowances = await calculateStorageAllowances(mockSynapse, 1.5)
+
+      expect(allowances.tibPerMonth).toBe(1.5)
+      // 1.5 TiB = 1500 milliTiB, so (0.0000565 * 1500) / 1000 = 0.00008475
+      expect(allowances.ratePerEpoch).toBe(ethers.parseUnits('0.00008475', 18))
+      expect(allowances.lockupAmount).toBe(
+        ethers.parseUnits('0.00008475', 18) * 2880n * 10n // rate * epochs/day * 10 days
+      )
     })
   })
 

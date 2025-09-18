@@ -39,7 +39,7 @@ function createSpinner() {
 
   if (isTTY) {
     // Use the real spinner for TTY
-    return clackSpinner()
+    return clackSpinner({ indicator: 'timer' })
   } else {
     // Non-TTY fallback - just print messages without spinners
     return {
@@ -252,7 +252,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       // Display new permissions with capacity info
       const monthlyRate = allowances.ratePerEpoch * TIME_CONSTANTS.EPOCHS_PER_MONTH
       displayServicePermissions(
-        'New WarmStorage Service Permissions:',
+        'New WarmStorage Service Limits:',
         monthlyRate,
         allowances.lockupAmount,
         totalDeposit,
@@ -264,7 +264,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       // Display current permissions with capacity info
       const monthlyRate = currentAllowances.rateAllowance * TIME_CONSTANTS.EPOCHS_PER_MONTH
       displayServicePermissions(
-        'Current WarmStorage Service Permissions:',
+        'Your Current WarmStorage Service Limits:',
         monthlyRate,
         currentAllowances.lockupAllowance,
         totalDeposit,

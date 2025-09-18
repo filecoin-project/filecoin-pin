@@ -18,6 +18,7 @@ import {
   checkUSDFCBalance,
   createProvider,
   depositUSDFC,
+  displayCapacity,
   displayDepositWarning,
   displayServicePermissions,
   formatFIL,
@@ -80,7 +81,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     }
 
     // Step 2: Initialize Synapse
-    const s = spinner()
+    const s = spinner({ indicator: 'timer' })
     s.start('Initializing connection...')
 
     const rpcUrl = options.rpcUrl || RPC_URLS.calibration.websocket
@@ -206,7 +207,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     }
 
     // Step 5: Set storage allowances
-    console.log(`\n${pc.bold('WarmStorage Service Payment Limits:')}`)
+    console.log(`\n${pc.bold('Your Current WarmStorage Service Limits:')}`)
 
     // Show current allowances
     let currentAllowances = status.currentAllowances
@@ -223,17 +224,9 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       console.log(`  Max payment: ${formatUSDFC(monthlyRate)} USDFC/month`)
       console.log(`  Max reserve: ${formatUSDFC(currentAllowances.lockupAllowance)} USDFC (10-day lockup)`)
 
-      if (capacity.isDepositLimited) {
-        console.log(
-          `  → Current capacity: ~${capacity.actualGB.toLocaleString()} GB/month ${pc.yellow('(deposit-limited)')}`
-        )
-        console.log(`  → Potential: ~${capacity.potentialGB.toLocaleString()} GB/month`)
-      } else {
-        console.log(`  → Estimated capacity: ~${capacity.actualGB.toLocaleString()} GB/month`)
-        console.log(pc.gray('    (varies with CDN usage and data set fees)'))
-      }
+      displayCapacity(capacity)
     } else {
-      console.log(pc.gray('  No WarmStorage service permissions set yet'))
+      console.log(pc.gray('  No limits set yet'))
     }
 
     // Ask about setting/updating storage limits
@@ -252,7 +245,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       console.log(`\n${pc.bold('Storage Pricing:')}`)
       console.log(`  1 GiB/month: ${formatUSDFC(pricePerGiBPerMonth)} USDFC`)
       console.log(`  1 TiB/month: ${formatUSDFC(pricePerTiBPerMonth)} USDFC`)
-      console.log(pc.gray('  (WarmStorage service will reserve 10 days of costs as security)'))
+      console.log(pc.gray('  (for each upload, WarmStorage service will reserve 10 days of costs as security)'))
 
       const allowanceStr = await text({
         message: 'Enter storage allowance',
@@ -299,7 +292,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       // Display the new permissions with capacity info
       displayServicePermissions(
-        'New WarmStorage Service Permissions:',
+        'New WarmStorage Service Limits:',
         monthlyRate,
         allowances.lockupAmount,
         totalDeposit,
@@ -420,14 +413,6 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     const finalStatus = await getPaymentStatus(synapse)
     s.stop(`${pc.green('✓')} Setup complete`)
 
-    // Calculate actual vs potential capacity using existing pricePerTiBPerEpoch
-    const capacity = calculateActualCapacity(
-      finalStatus.depositedAmount,
-      finalStatus.currentAllowances.rateAllowance,
-      finalStatus.currentAllowances.lockupAllowance,
-      pricePerTiBPerEpoch
-    )
-
     // Final summary with three clear sections
     outro(pc.bold('━━━ Setup Complete ━━━'))
     console.log(`Network: ${pc.bold(network)}`)
@@ -444,21 +429,13 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
     // Section 3: WarmStorage service permissions
     const monthlyRate = finalStatus.currentAllowances.rateAllowance * TIME_CONSTANTS.EPOCHS_PER_MONTH
-    console.log(`\n${pc.bold('WarmStorage Service Permissions')}`)
-    console.log(`  Max payment: ${formatUSDFC(monthlyRate)} USDFC/month`)
-    console.log(`  Max reserve: ${formatUSDFC(finalStatus.currentAllowances.lockupAllowance)} USDFC (10-day lockup)`)
-
-    if (capacity.isDepositLimited) {
-      console.log(
-        `  → Current capacity: ~${capacity.actualGB.toLocaleString()} GB/month ${pc.yellow('(deposit-limited)')}`
-      )
-      console.log(
-        `  → Potential: ~${capacity.potentialGB.toLocaleString()} GB/month (deposit ${formatUSDFC(capacity.additionalDepositNeeded)} more)`
-      )
-    } else {
-      console.log(`  → Estimated capacity: ~${capacity.actualGB.toLocaleString()} GB/month`)
-      console.log(pc.gray('    (varies with CDN usage and data set fees)'))
-    }
+    displayServicePermissions(
+      'Your WarmStorage Service Limits',
+      monthlyRate,
+      finalStatus.currentAllowances.lockupAllowance,
+      finalStatus.depositedAmount,
+      pricePerTiBPerEpoch
+    )
 
     // Show deposit warning if needed
     displayDepositWarning(finalStatus.depositedAmount, finalStatus.currentAllowances.lockupUsed)
