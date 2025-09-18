@@ -6,23 +6,26 @@
  * with password-style input for private keys and spinners for long operations.
  */
 
-import { cancel, confirm, intro, isCancel, outro, password, spinner, text } from '@clack/prompts'
+import { cancel, confirm, intro, isCancel, password, spinner, text } from '@clack/prompts'
 import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { isTTY, log } from './logger.js'
 import {
   calculateActualCapacity,
   calculateStorageAllowances,
   calculateStorageFromUSDFC,
   checkFILBalance,
+  checkInsufficientFunds,
   checkUSDFCBalance,
   createProvider,
   depositUSDFC,
+  displayAccountInfo,
   displayCapacity,
   displayDepositWarning,
+  displayPaymentSummary,
   displayPricing,
   displayServicePermissions,
-  formatFIL,
   formatUSDFC,
   getPaymentStatus,
   parseStorageAllowance,
@@ -37,7 +40,7 @@ import type { PaymentSetupOptions, StorageAllowances } from './types.js'
  */
 export async function runInteractiveSetup(options: PaymentSetupOptions): Promise<void> {
   // Check for TTY support
-  if (!process.stdout.isTTY) {
+  if (!isTTY()) {
     console.error(pc.red('Error: Interactive mode requires a TTY terminal.'))
     console.error('Use --auto flag for non-interactive setup.')
     process.exit(1)
@@ -82,7 +85,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     }
 
     // Step 2: Initialize Synapse
-    const s = spinner({ indicator: 'timer' })
+    const s = spinner()
     s.start('Initializing connection...')
 
     const rpcUrl = options.rpcUrl || RPC_URLS.calibration.websocket
@@ -96,7 +99,6 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     const address = await signer.getAddress()
 
     s.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
-    console.log(pc.gray(`  Wallet: ${address}`))
 
     // Step 3: Check balances
     s.start('Checking balances...')
@@ -107,38 +109,12 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
     s.stop(`${pc.green('✓')} Balance check complete`)
 
-    // Display balance summary
-    console.log(`\n${pc.bold('Current Balances:')}`)
-    console.log(
-      `  ${formatFIL(filBalance, isCalibnet)}: ${hasSufficientGas ? pc.green('✓') : pc.red('✗ Insufficient for gas')}`
-    )
-    console.log(`  USDFC wallet: ${formatUSDFC(usdfcBalance)} USDFC`)
-    console.log(`  USDFC deposited: ${formatUSDFC(status.depositedAmount)} USDFC`)
+    // Display account and balance info using shared function
+    displayAccountInfo(address, network, filBalance, isCalibnet, hasSufficientGas, usdfcBalance, status.depositedAmount)
 
     // Check if user needs funds
-    if (!hasSufficientGas) {
-      console.log(`\n${pc.yellow('⚠ Insufficient FIL for gas fees')}`)
-      if (isCalibnet) {
-        console.log(`  Get test FIL from: ${pc.cyan('https://faucet.calibnet.chainsafe-fil.io/')}`)
-      }
+    if (!checkInsufficientFunds(hasSufficientGas, usdfcBalance, isCalibnet, false)) {
       cancel('Please fund your wallet and try again')
-      process.exit(1)
-    }
-
-    if (usdfcBalance === 0n) {
-      console.log(`\n${pc.yellow('⚠ No USDFC tokens found')}`)
-      if (isCalibnet) {
-        console.log(
-          '  Get test USDFC from: ' +
-            pc.cyan('https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet')
-        )
-      } else {
-        console.log(
-          '  Mint USDFC with FIL: ' +
-            pc.cyan('https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step')
-        )
-      }
-      cancel('Please acquire USDFC tokens and try again')
       process.exit(1)
     }
 
@@ -199,14 +175,14 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
         s.stop(`${pc.green('✓')} Deposit complete`)
 
         if (approvalTx) {
-          console.log(pc.gray(`  Approval tx: ${approvalTx}`))
+          log.indent(pc.gray(`Approval tx: ${approvalTx}`))
         }
-        console.log(pc.gray(`  Deposit tx: ${depositTx}`))
+        log.indent(pc.gray(`Deposit tx: ${depositTx}`))
       }
     }
 
     // Step 5: Set storage allowances
-    console.log(`\n${pc.bold('Your Current WarmStorage Service Limits:')}`)
+    log.line(pc.bold('Your Current WarmStorage Service Limits:'))
 
     // Show current allowances
     let currentAllowances = status.currentAllowances
@@ -220,12 +196,14 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       )
       const monthlyRate = currentAllowances.rateAllowance * TIME_CONSTANTS.EPOCHS_PER_MONTH
 
-      console.log(`  Max payment: ${formatUSDFC(monthlyRate)} USDFC/month`)
-      console.log(`  Max reserve: ${formatUSDFC(currentAllowances.lockupAllowance)} USDFC (10-day lockup)`)
+      log.indent(`Max payment: ${formatUSDFC(monthlyRate)} USDFC/month`)
+      log.indent(`Max reserve: ${formatUSDFC(currentAllowances.lockupAllowance)} USDFC (10-day lockup)`)
 
       displayCapacity(capacity)
+      log.flush()
     } else {
-      console.log(pc.gray('  No limits set yet'))
+      log.indent(pc.gray('No limits set yet'))
+      log.flush()
     }
 
     // Ask about setting/updating storage limits
@@ -300,11 +278,11 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       // Check if deposit is sufficient for lockup
       if (totalDeposit < allowances.lockupAmount) {
-        console.log(
-          '\n' +
-            pc.yellow(
-              `⚠ Insufficient deposit for WarmStorage service reserve (need ${formatUSDFC(allowances.lockupAmount)} USDFC)`
-            )
+        log.newline()
+        log.message(
+          pc.yellow(
+            `⚠ Insufficient deposit for WarmStorage service reserve (need ${formatUSDFC(allowances.lockupAmount)} USDFC)`
+          )
         )
         const shouldContinue = await confirm({
           message: 'Continue anyway? (You can deposit more later)',
@@ -321,7 +299,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       s.start('Setting WarmStorage service approvals...')
       const approvalTx = await setServiceApprovals(synapse, allowances.ratePerEpoch, allowances.lockupAmount)
       s.stop(`${pc.green('✓')} WarmStorage service approvals set`)
-      console.log(pc.gray(`  Transaction: ${approvalTx}`))
+      log.indent(pc.gray(`Transaction: ${approvalTx}`))
 
       // Update currentAllowances to reflect the new values
       currentAllowances = {
@@ -366,8 +344,9 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
           }
 
           if (capacity.isDepositLimited) {
-            console.log(
-              `\n${pc.yellow('Recommended:')} Deposit at least ${formatUSDFC(capacity.additionalDepositNeeded)} more to fully utilize your configured limits`
+            log.newline()
+            log.message(
+              `${pc.yellow('Recommended:')} Deposit at least ${formatUSDFC(capacity.additionalDepositNeeded)} more to fully utilize your configured limits`
             )
           }
 
@@ -400,9 +379,9 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
           s.stop(`${pc.green('✓')} Deposit complete`)
 
           if (approvalTx) {
-            console.log(pc.gray(`  Approval tx: ${approvalTx}`))
+            log.indent(pc.gray(`Approval tx: ${approvalTx}`))
           }
-          console.log(pc.gray(`  Deposit tx: ${depositTx}`))
+          log.indent(pc.gray(`Deposit tx: ${depositTx}`))
         }
       }
     }
@@ -410,29 +389,17 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     // Step 7: Final summary
     s.start('Fetching final status...')
     const finalStatus = await getPaymentStatus(synapse)
-    s.stop(`${pc.green('✓')} Setup complete`)
+    s.stop('━━━ Setup Complete ━━━')
 
-    // Final summary with three clear sections
-    outro(pc.bold('━━━ Setup Complete ━━━'))
-    console.log(`Network: ${pc.bold(network)}`)
-
-    // Section 1: Wallet
-    console.log(`\n${pc.bold('Wallet')}`)
-    console.log(`  ${formatFIL(filBalance, isCalibnet)}`)
-    console.log(`  ${formatUSDFC(usdfcBalance)} USDFC`)
-
-    // Section 2: Filecoin Pay deposit
-    console.log(`\n${pc.bold('Filecoin Pay Deposit')}`)
-    console.log(`  ${formatUSDFC(finalStatus.depositedAmount)} USDFC`)
-    console.log(pc.gray('  (spendable on any service)'))
-
-    // Section 3: WarmStorage service permissions
-    const monthlyRate = finalStatus.currentAllowances.rateAllowance * TIME_CONSTANTS.EPOCHS_PER_MONTH
-    displayServicePermissions(
-      'Your WarmStorage Service Limits',
-      monthlyRate,
-      finalStatus.currentAllowances.lockupAllowance,
+    // Use the shared display function for consistency
+    displayPaymentSummary(
+      network,
+      filBalance,
+      isCalibnet,
+      usdfcBalance,
       finalStatus.depositedAmount,
+      finalStatus.currentAllowances.rateAllowance,
+      finalStatus.currentAllowances.lockupAllowance,
       pricePerTiBPerEpoch
     )
 

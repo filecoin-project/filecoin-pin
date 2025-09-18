@@ -15,6 +15,7 @@
 import { type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { log } from './logger.js'
 import type { PaymentStatus, StorageAllowances } from './types.js'
 
 // Constants
@@ -455,33 +456,116 @@ export function displayPaymentSummary(
   lockupAllowance: bigint,
   pricePerTiBPerEpoch: bigint
 ): void {
-  console.log(`\n━━━ Setup Complete ━━━`)
-  console.log(`Network: ${pc.bold(network)}`)
-
+  // Start the summary section (Setup Complete is shown by spinner in auto mode)
+  log.line(`Network: ${pc.bold(network)}`)
+  log.line('')
   // Section 1: Wallet
-  console.log(`\n${pc.bold('Wallet')}`)
-  console.log(`  ${formatFIL(filBalance, isCalibnet)}`)
-  console.log(`  ${formatUSDFC(usdfcBalance)} USDFC`)
-
+  log.line(pc.bold('Wallet'))
+  log.indent(formatFIL(filBalance, isCalibnet))
+  log.indent(`${formatUSDFC(usdfcBalance)} USDFC`)
+  log.line('')
   // Section 2: Filecoin Pay deposit
-  console.log(`\n${pc.bold('Filecoin Pay Deposit')}`)
-  console.log(`  ${formatUSDFC(depositedAmount)} USDFC`)
-  console.log(pc.gray('  (spendable on any service)'))
+  log.line(pc.bold('Filecoin Pay Deposit'))
+  log.indent(`${formatUSDFC(depositedAmount)} USDFC`)
+  log.indent(pc.gray('(spendable on any service)'))
 
   // Section 3: WarmStorage service permissions
+  log.line('')
   if (rateAllowance > 0n) {
     const monthlyRate = rateAllowance * TIME_CONSTANTS.EPOCHS_PER_MONTH
-    console.log(`\n${pc.bold('Your WarmStorage Service Limits')}`)
-    console.log(`  Max payment: ${formatUSDFC(monthlyRate)} USDFC/month`)
-    console.log(`  Max reserve: ${formatUSDFC(lockupAllowance)} USDFC (10-day lockup)`)
-
-    // Calculate and display capacity
-    const capacity = calculateActualCapacity(depositedAmount, rateAllowance, lockupAllowance, pricePerTiBPerEpoch)
-    displayCapacity(capacity)
+    displayServicePermissions(
+      'Your WarmStorage Service Limits',
+      monthlyRate,
+      lockupAllowance,
+      depositedAmount,
+      pricePerTiBPerEpoch,
+      false
+    )
   } else {
-    console.log(`\n${pc.bold('Your WarmStorage Service Limits')}`)
-    console.log(pc.gray('  No limits set'))
+    log.line(pc.bold('Your WarmStorage Service Limits'))
+    log.indent(pc.gray('No limits set'))
   }
+  log.flush() // Flush everything at the end
+}
+
+/**
+ * Display account and balance information
+ *
+ * @param address - Wallet address
+ * @param network - Network name (mainnet/calibration)
+ * @param filBalance - FIL balance in wei
+ * @param isCalibnet - Whether on calibration testnet
+ * @param hasSufficientGas - Whether wallet has enough FIL for gas
+ * @param usdfcBalance - USDFC balance in wei
+ * @param depositedAmount - Amount deposited to Filecoin Pay
+ */
+export function displayAccountInfo(
+  address: string,
+  network: string,
+  filBalance: bigint,
+  isCalibnet: boolean,
+  _hasSufficientGas: boolean,
+  usdfcBalance: bigint,
+  depositedAmount: bigint
+): void {
+  log.line(pc.bold('Account:'))
+  log.indent(pc.gray(`Wallet: ${address}`))
+  log.indent(pc.gray(`Network: ${network}`))
+  log.line(pc.bold('Balances:'))
+  log.indent(pc.gray(`FIL: ${formatFIL(filBalance, isCalibnet)}`))
+  log.indent(pc.gray(`USDFC wallet: ${formatUSDFC(usdfcBalance)} USDFC`))
+  log.indent(pc.gray(`USDFC deposited: ${formatUSDFC(depositedAmount)} USDFC`))
+  log.flush()
+}
+
+/**
+ * Check and handle insufficient funds
+ *
+ * @param hasSufficientGas - Whether wallet has enough FIL for gas
+ * @param usdfcBalance - USDFC balance in wei
+ * @param isCalibnet - Whether on calibration testnet
+ * @param exitOnError - Whether to exit the process on error (for auto mode)
+ * @returns true if funds are sufficient, false if not
+ */
+export function checkInsufficientFunds(
+  hasSufficientGas: boolean,
+  usdfcBalance: bigint,
+  isCalibnet: boolean,
+  exitOnError: boolean = false
+): boolean {
+  if (!hasSufficientGas) {
+    console.error(pc.red('✗ Insufficient FIL for gas fees'))
+    if (isCalibnet) {
+      log.message(pc.yellow('Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'))
+    }
+    if (exitOnError) {
+      process.exit(1)
+    }
+    return false
+  }
+
+  if (usdfcBalance === 0n) {
+    console.error(pc.red('✗ No USDFC tokens found'))
+    if (isCalibnet) {
+      log.message(
+        pc.yellow(
+          'Get test USDFC from: https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet'
+        )
+      )
+    } else {
+      log.message(
+        pc.yellow(
+          'Mint USDFC with FIL: https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step'
+        )
+      )
+    }
+    if (exitOnError) {
+      process.exit(1)
+    }
+    return false
+  }
+
+  return true
 }
 
 /**
@@ -503,12 +587,13 @@ export function displayDepositWarning(depositedAmount: bigint, lockupUsed: bigin
 
     if (availableDeposit < safetyMargin) {
       const needed = lockupUsed + safetyMargin - depositedAmount
-      console.log(`\n${pc.yellow(`⚠ Warning: Low deposit balance`)}`)
-      console.log(pc.yellow(`  Your deposit: ${formatUSDFC(depositedAmount)} USDFC`))
-      console.log(pc.yellow(`  Amount locked: ${formatUSDFC(lockupUsed)} USDFC`))
-      console.log(pc.yellow(`  Available: ${formatUSDFC(availableDeposit > 0n ? availableDeposit : 0n)} USDFC`))
-      console.log(pc.yellow(`  Deposit at least ${formatUSDFC(needed)} more USDFC to maintain safety margin`))
-      console.log(pc.gray(`  Without sufficient deposit, storage may be terminated`))
+      log.newline()
+      log.message(pc.yellow(`⚠ Warning: Low deposit balance`))
+      log.indent(pc.yellow(`Your deposit: ${formatUSDFC(depositedAmount)} USDFC`))
+      log.indent(pc.yellow(`Amount locked: ${formatUSDFC(lockupUsed)} USDFC`))
+      log.indent(pc.yellow(`Available: ${formatUSDFC(availableDeposit > 0n ? availableDeposit : 0n)} USDFC`))
+      log.indent(pc.yellow(`Deposit at least ${formatUSDFC(needed)} more USDFC to maintain safety margin`))
+      log.indent(pc.gray(`Without sufficient deposit, storage may be terminated`))
     }
   }
 }
@@ -542,13 +627,13 @@ function formatStorageCapacity(gib: number): string {
  */
 export function displayCapacity(capacity: ReturnType<typeof calculateActualCapacity>): void {
   if (capacity.isDepositLimited) {
-    console.log(`  → Current capacity: ~${formatStorageCapacity(capacity.actualGiB)} ${pc.yellow('(deposit-limited)')}`)
-    console.log(
-      `  → Potential: ~${formatStorageCapacity(capacity.potentialGiB)} (deposit ${formatUSDFC(capacity.additionalDepositNeeded)} more)`
+    log.indent(`→ Current capacity: ~${formatStorageCapacity(capacity.actualGiB)} ${pc.yellow('(deposit-limited)')}`)
+    log.indent(
+      `→ Potential: ~${formatStorageCapacity(capacity.potentialGiB)} (deposit ${formatUSDFC(capacity.additionalDepositNeeded)} more)`
     )
   } else {
-    console.log(`  → Estimated capacity: ~${formatStorageCapacity(capacity.actualGiB)}`)
-    console.log(pc.gray('    (excludes data set creation fee and optional CDN add-on rates)'))
+    log.indent(`→ Estimated capacity: ~${formatStorageCapacity(capacity.actualGiB)}`)
+    log.indent(pc.gray('  (excludes data set creation fee and optional CDN add-on rates)'))
   }
 }
 
@@ -559,10 +644,11 @@ export function displayCapacity(capacity: ReturnType<typeof calculateActualCapac
  * @param pricePerTiBPerMonth - Price per TiB per month
  */
 export function displayPricing(pricePerGiBPerMonth: bigint, pricePerTiBPerMonth: bigint): void {
-  console.log(`\n${pc.bold('Current Pricing:')}`)
-  console.log(`  1 GiB/month: ${formatUSDFC(pricePerGiBPerMonth)} USDFC`)
-  console.log(`  1 TiB/month: ${formatUSDFC(pricePerTiBPerMonth)} USDFC`)
-  console.log(pc.gray('  (for each upload, WarmStorage service will reserve 10 days of costs as security)'))
+  log.line(pc.bold('Current Pricing:'))
+  log.indent(`1 GiB/month: ${formatUSDFC(pricePerGiBPerMonth)} USDFC`)
+  log.indent(`1 TiB/month: ${formatUSDFC(pricePerTiBPerMonth)} USDFC`)
+  log.indent(pc.gray('(for each upload, WarmStorage service will reserve 10 days of costs as security)'))
+  log.flush()
 }
 
 /**
@@ -579,17 +665,22 @@ export function displayServicePermissions(
   monthlyRate: bigint,
   lockupAmount: bigint,
   depositAmount: bigint,
-  pricePerTiBPerEpoch: bigint
+  pricePerTiBPerEpoch: bigint,
+  shouldFlush: boolean = true
 ): void {
   // Calculate capacity
   const ratePerEpoch = monthlyRate / TIME_CONSTANTS.EPOCHS_PER_MONTH
   const capacity = calculateActualCapacity(depositAmount, ratePerEpoch, lockupAmount, pricePerTiBPerEpoch)
 
-  console.log(`\n${pc.bold(title)}`)
-  console.log(`  Max payment: ${formatUSDFC(monthlyRate)} USDFC/month`)
-  console.log(`  Max reserve: ${formatUSDFC(lockupAmount)} USDFC (10-day lockup)`)
+  log.line(pc.bold(title))
+  log.indent(`Max payment: ${formatUSDFC(monthlyRate)} USDFC/month`)
+  log.indent(`Max reserve: ${formatUSDFC(lockupAmount)} USDFC (10-day lockup)`)
 
   displayCapacity(capacity)
+
+  if (shouldFlush) {
+    log.flush()
+  }
 }
 
 /**

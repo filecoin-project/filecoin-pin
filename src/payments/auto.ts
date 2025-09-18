@@ -6,21 +6,23 @@
  * options to complete the setup without user interaction.
  */
 
-import { spinner as clackSpinner } from '@clack/prompts'
+import { intro as clackIntro, spinner as clackSpinner } from '@clack/prompts'
 import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { isTTY, log } from './logger.js'
 import {
   calculateStorageAllowances,
   calculateStorageFromUSDFC,
   checkFILBalance,
+  checkInsufficientFunds,
   checkUSDFCBalance,
   createProvider,
   depositUSDFC,
+  displayAccountInfo,
   displayDepositWarning,
   displayPaymentSummary,
   displayServicePermissions,
-  formatFIL,
   formatUSDFC,
   getPaymentStatus,
   parseStorageAllowance,
@@ -35,26 +37,33 @@ import type { PaymentSetupOptions, StorageAllowances } from './types.js'
  * In non-TTY mode: Prints simple status messages without ANSI codes
  */
 function createSpinner() {
-  const isTTY = process.stdout.isTTY
-
-  if (isTTY) {
+  if (isTTY()) {
     // Use the real spinner for TTY
-    return clackSpinner({ indicator: 'timer' })
+    return clackSpinner()
   } else {
-    // Non-TTY fallback - just print messages without spinners
+    // Non-TTY fallback - only print completion messages
     return {
-      start(msg: string) {
-        console.log(msg)
+      start(_msg: string) {
+        // Don't print start messages in non-TTY
       },
-      message(msg: string) {
-        console.log(msg)
+      message(_msg: string) {
+        // Don't print progress messages in non-TTY
       },
       stop(msg?: string) {
         if (msg) {
-          console.log(msg)
+          // Only print the final completion message
+          log.message(msg)
         }
       },
     }
+  }
+}
+
+function intro(message: string) {
+  if (isTTY()) {
+    clackIntro(message)
+  } else {
+    log.message(message)
   }
 }
 
@@ -64,8 +73,8 @@ function createSpinner() {
  * @param options - Options from command line
  */
 export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> {
-  console.log(pc.bold('Filecoin Onchain Cloud Payment Setup'))
-  console.log(pc.gray('Running in auto mode...'))
+  intro(pc.bold('Filecoin Onchain Cloud Payment Setup'))
+  log.message(pc.gray('Running in auto mode...'))
 
   // Parse and validate all arguments upfront
   // 1. Private key
@@ -139,41 +148,11 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
 
     spinner.stop(`${pc.green('✓')} Balance check complete`)
 
-    // Display connection and balance info together
-    console.log(`\n${pc.bold('Account:')}`)
-    console.log(pc.gray(`  Wallet: ${address}`))
-    console.log(pc.gray(`  Network: ${network}`))
-    console.log(`\n${pc.bold('Balances:')}`)
-    console.log(pc.gray(`  FIL: ${formatFIL(filBalance, isCalibnet)}`))
-    console.log(pc.gray(`  USDFC wallet: ${formatUSDFC(usdfcBalance)} USDFC`))
-    console.log(pc.gray(`  USDFC deposited: ${formatUSDFC(status.depositedAmount)} USDFC`))
+    // Display account and balance info using shared function
+    displayAccountInfo(address, network, filBalance, isCalibnet, hasSufficientGas, usdfcBalance, status.depositedAmount)
 
     // Check for insufficient funds
-    if (!hasSufficientGas) {
-      console.error(pc.red('✗ Insufficient FIL for gas fees'))
-      if (isCalibnet) {
-        console.log(pc.yellow('Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'))
-      }
-      process.exit(1)
-    }
-
-    if (usdfcBalance === 0n) {
-      console.error(pc.red('✗ No USDFC tokens found'))
-      if (isCalibnet) {
-        console.log(
-          pc.yellow(
-            'Get test USDFC from: https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet'
-          )
-        )
-      } else {
-        console.log(
-          pc.yellow(
-            'Mint USDFC with FIL: https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step'
-          )
-        )
-      }
-      process.exit(1)
-    }
+    checkInsufficientFunds(hasSufficientGas, usdfcBalance, isCalibnet, true)
 
     // Calculate storage allowances now that we have synapse
     let allowances: StorageAllowances
@@ -208,11 +187,12 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       const { approvalTx, depositTx } = await depositUSDFC(synapse, depositAmount)
       spinner.stop(`${pc.green('✓')} Deposited ${formatUSDFC(depositAmount)} USDFC`)
 
-      console.log(`\n${pc.bold('Transaction details:')}`)
+      log.line(pc.bold('Transaction details:'))
       if (approvalTx) {
-        console.log(pc.gray(`  Approval: ${approvalTx}`))
+        log.indent(pc.gray(`Approval: ${approvalTx}`))
       }
-      console.log(pc.gray(`  Deposit: ${depositTx}`))
+      log.indent(pc.gray(`Deposit: ${depositTx}`))
+      log.flush()
     } else {
       // Use a dummy spinner to get consistent formatting
       spinner.start('Checking deposit...')
@@ -246,8 +226,9 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       const approvalTx = await setServiceApprovals(synapse, allowances.ratePerEpoch, allowances.lockupAmount)
       spinner.stop(`${pc.green('✓')} WarmStorage service approvals updated`)
 
-      console.log(`\n${pc.bold('Transaction:')}`)
-      console.log(pc.gray(`  ${approvalTx}`))
+      log.line(pc.bold('Transaction:'))
+      log.indent(pc.gray(approvalTx))
+      log.flush()
 
       // Display new permissions with capacity info
       const monthlyRate = allowances.ratePerEpoch * TIME_CONSTANTS.EPOCHS_PER_MONTH
@@ -285,6 +266,9 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     }
 
     // Final summary
+    spinner.start('Completing setup...')
+    spinner.stop('━━━ Setup Complete ━━━')
+
     displayPaymentSummary(
       network,
       filBalance,
