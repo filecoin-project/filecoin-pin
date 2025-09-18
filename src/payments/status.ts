@@ -11,7 +11,6 @@ import pc from 'picocolors'
 import {
   checkFILBalance,
   checkUSDFCBalance,
-  createProvider,
   displayDepositWarning,
   displayPaymentSummary,
   getPaymentStatus,
@@ -36,9 +35,9 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     process.exit(1)
   }
 
-  let wallet: ethers.Wallet
+  // Validate private key format early
   try {
-    wallet = new ethers.Wallet(privateKey)
+    new ethers.Wallet(privateKey)
   } catch {
     console.error(pc.red('Error: Invalid private key format'))
     process.exit(1)
@@ -50,14 +49,23 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
   console.log(pc.bold('Filecoin Onchain Cloud Payment Status'))
   console.log(pc.gray('Fetching current configuration...'))
 
+  // Store provider reference for cleanup if it's a WebSocket provider
+  let provider: any = null
+
   try {
     // Initialize connection
-    const provider = createProvider(rpcUrl)
-    const signer = wallet.connect(provider)
-
-    const synapse = await Synapse.create({ signer })
+    const synapse = await Synapse.create({
+      privateKey,
+      rpcURL: rpcUrl,
+    })
     const network = synapse.getNetwork()
+    const signer = synapse.getSigner()
     const address = await signer.getAddress()
+
+    // Store provider reference for cleanup if it's a WebSocket provider
+    if (rpcUrl.match(/^wss?:\/\//)) {
+      provider = synapse.getProvider()
+    }
 
     // Check balances and status
     const { balance: filBalance, isCalibnet } = await checkFILBalance(synapse)
@@ -92,10 +100,26 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     // - Usage statistics
     console.log(`\n${pc.gray('Payment rails details coming soon...')}`)
 
-    // Clean up
-    await provider.destroy()
+    // Clean up WebSocket providers to allow process termination
+    if (provider && typeof provider.destroy === 'function') {
+      try {
+        await provider.destroy()
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
   } catch (error) {
     console.error(`\n${pc.red('Error:')}`, error instanceof Error ? error.message : error)
+
+    // Clean up even on error
+    if (provider && typeof provider.destroy === 'function') {
+      try {
+        await provider.destroy()
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+
     process.exit(1)
   }
 }

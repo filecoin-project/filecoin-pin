@@ -1,9 +1,34 @@
-import { RPC_URLS, type StorageContext, Synapse, type SynapseOptions, type UploadCallbacks } from '@filoz/synapse-sdk'
+import {
+  METADATA_KEYS,
+  type ProviderInfo,
+  RPC_URLS,
+  type StorageContext,
+  Synapse,
+  type SynapseOptions,
+} from '@filoz/synapse-sdk'
 import type { Logger } from 'pino'
 import type { Config } from './config.js'
 
+/**
+ * Default metadata for Synapse data sets created by filecoin-pin
+ */
+const DEFAULT_DATA_SET_METADATA = {
+  [METADATA_KEYS.WITH_IPFS_INDEXING]: '', // Enable IPFS indexing for all data sets
+  source: 'filecoin-pin', // Identify the source application
+} as const
+
+/**
+ * Default configuration for creating storage contexts
+ */
+const DEFAULT_STORAGE_CONTEXT_CONFIG = {
+  withCDN: false, // CDN not needed for Filecoin Pin currently
+  metadata: DEFAULT_DATA_SET_METADATA,
+} as const
+
 let synapseInstance: Synapse | null = null
 let storageInstance: StorageContext | null = null
+let currentProviderInfo: ProviderInfo | null = null
+let activeProvider: any = null // Track the provider for cleanup
 
 /**
  * Reset the service instances (for testing)
@@ -11,11 +36,14 @@ let storageInstance: StorageContext | null = null
 export function resetSynapseService(): void {
   synapseInstance = null
   storageInstance = null
+  currentProviderInfo = null
+  activeProvider = null
 }
 
 export interface SynapseService {
   synapse: Synapse
   storage: StorageContext
+  providerInfo?: ProviderInfo | undefined
 }
 
 /**
@@ -31,7 +59,15 @@ export interface SynapseService {
  * @param logger - Logger instance for detailed operation tracking
  * @returns SynapseService with initialized Synapse and storage context
  */
-export async function initializeSynapse(config: Config, logger: Logger): Promise<SynapseService> {
+export async function initializeSynapse(
+  config: Config,
+  logger: Logger,
+  progressCallbacks?: {
+    onProviderSelected?: (provider: any) => void
+    onDataSetCreationStarted?: (transaction: any) => void
+    onDataSetResolved?: (info: { dataSetId: number; isExisting: boolean }) => void
+  }
+): Promise<SynapseService> {
   try {
     // Log the configuration status
     logger.info(
@@ -72,6 +108,11 @@ export async function initializeSynapse(config: Config, logger: Logger): Promise
 
     const synapse = await Synapse.create(synapseOptions)
 
+    // Store reference to the provider for cleanup if it's a WebSocket provider
+    if (synapseOptions.rpcURL && /^ws(s)?:\/\//i.test(synapseOptions.rpcURL)) {
+      activeProvider = synapse.getProvider()
+    }
+
     // Get network info for logging
     const network = synapse.getNetwork()
     logger.info(
@@ -88,15 +129,19 @@ export async function initializeSynapse(config: Config, logger: Logger): Promise
     logger.info({ event: 'synapse.storage.create' }, 'Creating storage context')
 
     const storage = await synapse.storage.createContext({
-      withCDN: false, // CDN not needed for direct CAR file uploads
+      ...DEFAULT_STORAGE_CONTEXT_CONFIG,
       // Callbacks provide visibility into the storage lifecycle
       // These are crucial for debugging and monitoring in production
       callbacks: {
         onProviderSelected: (provider) => {
+          // Store the provider info for later use
+          currentProviderInfo = provider
+
           logger.info(
             {
               event: 'synapse.storage.provider_selected',
               provider: {
+                id: provider.id,
                 serviceProvider: provider.serviceProvider,
                 name: provider.name,
                 serviceURL: provider.products?.PDP?.data?.serviceURL,
@@ -104,6 +149,11 @@ export async function initializeSynapse(config: Config, logger: Logger): Promise
             },
             'Selected storage provider'
           )
+
+          // Call progress callback if provided
+          if (progressCallbacks?.onProviderSelected) {
+            progressCallbacks.onProviderSelected(provider)
+          }
         },
         onDataSetResolved: (info) => {
           logger.info(
@@ -114,6 +164,11 @@ export async function initializeSynapse(config: Config, logger: Logger): Promise
             },
             info.isExisting ? 'Using existing data set' : 'Created new data set'
           )
+
+          // Call progress callback if provided
+          if (progressCallbacks?.onDataSetResolved) {
+            progressCallbacks.onDataSetResolved(info)
+          }
         },
         onDataSetCreationStarted: (transaction, statusUrl) => {
           logger.info(
@@ -124,6 +179,11 @@ export async function initializeSynapse(config: Config, logger: Logger): Promise
             },
             'Data set creation transaction submitted'
           )
+
+          // Call progress callback if provided
+          if (progressCallbacks?.onDataSetCreationStarted) {
+            progressCallbacks.onDataSetCreationStarted(transaction)
+          }
         },
         onDataSetCreationProgress: (status) => {
           logger.info(
@@ -152,7 +212,7 @@ export async function initializeSynapse(config: Config, logger: Logger): Promise
     synapseInstance = synapse
     storageInstance = storage
 
-    return { synapse, storage }
+    return { synapse, storage, providerInfo: currentProviderInfo ?? undefined }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     logger.error(
@@ -167,6 +227,45 @@ export async function initializeSynapse(config: Config, logger: Logger): Promise
 }
 
 /**
+ * Get default storage context configuration for consistent data set creation
+ *
+ * @param overrides - Optional overrides to merge with defaults
+ * @returns Storage context configuration with defaults
+ */
+export function getDefaultStorageContextConfig(overrides: any = {}) {
+  return {
+    ...DEFAULT_STORAGE_CONTEXT_CONFIG,
+    ...overrides,
+    metadata: {
+      ...DEFAULT_DATA_SET_METADATA,
+      ...overrides.metadata,
+    },
+  }
+}
+
+/**
+ * Clean up WebSocket providers and other resources
+ *
+ * Call this when CLI commands are finishing to ensure proper cleanup
+ * and allow the process to terminate.
+ */
+export async function cleanupSynapseService(): Promise<void> {
+  if (activeProvider && typeof activeProvider.destroy === 'function') {
+    try {
+      await activeProvider.destroy()
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+
+  // Clear references
+  synapseInstance = null
+  storageInstance = null
+  currentProviderInfo = null
+  activeProvider = null
+}
+
+/**
  * Get the initialized Synapse service
  */
 export function getSynapseService(): SynapseService | null {
@@ -176,108 +275,6 @@ export function getSynapseService(): SynapseService | null {
   return {
     synapse: synapseInstance,
     storage: storageInstance,
-  }
-}
-
-/**
- * Upload data to Filecoin using Synapse
- *
- * This function demonstrates the complete upload flow:
- * 1. Validates service initialization
- * 2. Configures upload callbacks for lifecycle tracking
- * 3. Performs the upload with proper error handling
- * 4. Returns piece information for application tracking
- *
- * The callbacks show all possible upload events that applications
- * can monitor for user feedback and debugging.
- *
- * @param data - Raw bytes to upload (typically a CAR file)
- * @param pinId - Application-specific identifier for tracking
- * @param logger - Logger for operation tracking
- * @returns Object containing pieceCid, pieceId, and dataSetId
- */
-export async function uploadToSynapse(
-  data: Uint8Array,
-  pinId: string,
-  logger: Logger
-): Promise<{
-  pieceCid: string
-  pieceId: number
-  dataSetId: string
-}> {
-  const service = getSynapseService()
-  if (service == null) {
-    throw new Error('Synapse service not initialized')
-  }
-
-  logger.info(
-    {
-      event: 'synapse.upload.start',
-      pinId,
-      size: data.length,
-    },
-    'Starting Synapse upload'
-  )
-
-  const uploadCallbacks: UploadCallbacks = {
-    onUploadComplete: (pieceCid) => {
-      logger.info(
-        {
-          event: 'synapse.upload.piece_uploaded',
-          pinId,
-          pieceCid: pieceCid.toString(),
-        },
-        'Upload to PDP server complete'
-      )
-    },
-    onPieceAdded: (transaction) => {
-      if (transaction != null) {
-        logger.info(
-          {
-            event: 'synapse.upload.piece_added',
-            pinId,
-            txHash: transaction.hash,
-          },
-          'Piece addition transaction submitted'
-        )
-      } else {
-        logger.info(
-          {
-            event: 'synapse.upload.piece_added',
-            pinId,
-          },
-          'Piece added to data set'
-        )
-      }
-    },
-    onPieceConfirmed: (pieceIds) => {
-      logger.info(
-        {
-          event: 'synapse.upload.piece_confirmed',
-          pinId,
-          pieceIds,
-        },
-        'Piece addition confirmed on-chain'
-      )
-    },
-  }
-
-  const uploadResult = await service.storage.upload(data, uploadCallbacks)
-
-  logger.info(
-    {
-      event: 'synapse.upload.complete',
-      pinId,
-      pieceCid: uploadResult.pieceCid.toString(),
-      pieceId: uploadResult.pieceId,
-      dataSetId: service.storage.dataSetId,
-    },
-    'Synapse upload completed successfully'
-  )
-
-  return {
-    pieceCid: uploadResult.pieceCid.toString(),
-    pieceId: uploadResult.pieceId ?? 0,
-    dataSetId: String(service.storage.dataSetId),
+    providerInfo: currentProviderInfo ?? undefined,
   }
 }

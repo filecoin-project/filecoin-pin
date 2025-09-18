@@ -6,11 +6,13 @@
  * with password-style input for private keys and spinners for long operations.
  */
 
-import { cancel, confirm, intro, isCancel, password, spinner, text } from '@clack/prompts'
+import { cancel, confirm, isCancel, password, text } from '@clack/prompts'
 import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { isTTY, log } from './logger.js'
+import { cleanupSynapseService } from '../synapse-service.js'
+import { createSpinner, intro } from '../utils/cli-helpers.js'
+import { isTTY, log } from '../utils/cli-logger.js'
 import {
   calculateActualCapacity,
   calculateStorageAllowances,
@@ -18,7 +20,6 @@ import {
   checkFILBalance,
   checkInsufficientFunds,
   checkUSDFCBalance,
-  createProvider,
   depositUSDFC,
   displayAccountInfo,
   displayCapacity,
@@ -43,10 +44,15 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
   if (!isTTY()) {
     console.error(pc.red('Error: Interactive mode requires a TTY terminal.'))
     console.error('Use --auto flag for non-interactive setup.')
+    // Even though we're exiting early, ensure any background connections are cleaned up
+    await cleanupSynapseService()
     process.exit(1)
   }
 
   intro(pc.bold('Filecoin Onchain Cloud Payment Setup'))
+
+  // Store provider reference for cleanup if it's a WebSocket provider
+  let provider: any = null
 
   try {
     // Step 1: Get private key
@@ -85,18 +91,23 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     }
 
     // Step 2: Initialize Synapse
-    const s = spinner()
+    const s = createSpinner()
     s.start('Initializing connection...')
 
     const rpcUrl = options.rpcUrl || RPC_URLS.calibration.websocket
 
-    const wallet = new ethers.Wallet(privateKey)
-    const provider = createProvider(rpcUrl)
-    const signer = wallet.connect(provider)
-
-    const synapse = await Synapse.create({ signer })
+    const synapse = await Synapse.create({
+      privateKey,
+      rpcURL: rpcUrl,
+    })
     const network = synapse.getNetwork()
+    const signer = synapse.getSigner()
     const address = await signer.getAddress()
+
+    // Store provider reference for cleanup if it's a WebSocket provider
+    if (rpcUrl.match(/^wss?:\/\//)) {
+      provider = synapse.getProvider()
+    }
 
     s.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
@@ -406,10 +417,26 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     // Show deposit warning if needed
     displayDepositWarning(finalStatus.depositedAmount, finalStatus.currentAllowances.lockupUsed)
 
-    // Clean up
-    await provider.destroy()
+    // Clean up WebSocket providers to allow process termination
+    if (provider && typeof provider.destroy === 'function') {
+      try {
+        await provider.destroy()
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
   } catch (error) {
     console.error(`\n${pc.red('Error:')}`, error instanceof Error ? error.message : error)
+
+    // Clean up even on error
+    if (provider && typeof provider.destroy === 'function') {
+      try {
+        await provider.destroy()
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+
     process.exit(1)
   }
 }

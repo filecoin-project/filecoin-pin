@@ -1,5 +1,6 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
+import { RPC_URLS } from '@filoz/synapse-sdk'
 
 export interface Config {
   port: number
@@ -53,7 +54,7 @@ export function createConfig(): Config {
 
     // Synapse SDK configuration
     privateKey: process.env.PRIVATE_KEY, // Required: Ethereum-compatible private key
-    rpcUrl: process.env.RPC_URL ?? 'https://api.calibration.node.glif.io/rpc/v1', // Default: calibration testnet
+    rpcUrl: process.env.RPC_URL ?? RPC_URLS.calibration.websocket, // Default: calibration testnet websocket
     warmStorageAddress: process.env.WARM_STORAGE_ADDRESS, // Optional: custom contract address
 
     // Storage paths

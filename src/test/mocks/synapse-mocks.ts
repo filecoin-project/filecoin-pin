@@ -58,7 +58,9 @@ export class MockStorageContext extends EventEmitter {
   public readonly dataSetId = 123 // Simulated on-chain data set ID
   public readonly serviceProvider = mockProviderInfo.serviceProvider
 
-  async upload(_data: ArrayBuffer | Uint8Array, callbacks?: any): Promise<any> {
+  async upload(_data: ArrayBuffer | Uint8Array, options?: any): Promise<any> {
+    // Extract callbacks from options (handle both old and new API)
+    const callbacks = options?.onUploadComplete ? options : options?.callbacks || options
     // Simulate network delay for realistic testing
     await new Promise((resolve) => setTimeout(resolve, 100))
 
@@ -104,6 +106,26 @@ export class MockSynapse extends EventEmitter {
    */
   getNetwork(): any {
     return { chainId: 314159n, name: 'calibration' }
+  }
+
+  /**
+   * Mock provider getter - returns a mock provider with destroy method
+   */
+  getProvider(): any {
+    return {
+      destroy: async () => {
+        // Mock provider cleanup
+      },
+    }
+  }
+
+  /**
+   * Mock signer getter
+   */
+  getSigner(): any {
+    return {
+      getAddress: async () => '0x1234567890123456789012345678901234567890',
+    }
   }
 
   /**

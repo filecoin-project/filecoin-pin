@@ -15,7 +15,7 @@
 import { type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { log } from './logger.js'
+import { log } from '../utils/cli-logger.js'
 import type { PaymentStatus, StorageAllowances } from './types.js'
 
 // Constants
@@ -420,16 +420,6 @@ export function formatUSDFC(amount: bigint, decimals = 4): string {
   }
 
   return num.toFixed(decimals)
-}
-
-/**
- * Create an Ethereum provider based on RPC URL protocol
- *
- * @param rpcUrl - The RPC endpoint URL
- * @returns WebSocketProvider for ws/wss URLs, JsonRpcProvider otherwise
- */
-export function createProvider(rpcUrl: string): ethers.WebSocketProvider | ethers.JsonRpcProvider {
-  return rpcUrl.match(/^wss?:\/\//) ? new ethers.WebSocketProvider(rpcUrl) : new ethers.JsonRpcProvider(rpcUrl)
 }
 
 /**

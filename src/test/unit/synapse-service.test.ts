@@ -1,11 +1,17 @@
+import * as synapseSdk from '@filoz/synapse-sdk'
+import { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Config } from '../../config.js'
 import { createConfig } from '../../config.js'
 import { createLogger } from '../../logger.js'
-import { getSynapseService, initializeSynapse, resetSynapseService, uploadToSynapse } from '../../synapse-service.js'
+import { getSynapseService, initializeSynapse, resetSynapseService } from '../../synapse-service.js'
+import { uploadToSynapse } from '../../synapse-upload.js'
 
-// Mock the Synapse SDK
+// Mock the Synapse SDK - vi.mock requires async import for ES modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
+
+// Test CID for upload tests
+const TEST_CID = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
 
 describe('synapse-service', () => {
   let config: Config
@@ -66,7 +72,7 @@ describe('synapse-service', () => {
 
     it('should call provider selection callback', async () => {
       const callbacks: any[] = []
-      const originalCreate = (await import('@filoz/synapse-sdk')).Synapse.create
+      const originalCreate = synapseSdk.Synapse.create
 
       // Capture callbacks
       vi.mocked(originalCreate).mockImplementationOnce(async (options) => {
@@ -109,23 +115,17 @@ describe('synapse-service', () => {
   })
 
   describe('uploadToSynapse', () => {
+    let service: any
+
     beforeEach(async () => {
-      await initializeSynapse(config, logger)
-    })
-
-    it('should throw error when service is not initialized', async () => {
-      // Reset service to ensure it's not initialized
-      resetSynapseService()
-
-      const data = new Uint8Array([1, 2, 3])
-      await expect(uploadToSynapse(data, 'pin-123', logger)).rejects.toThrow('Synapse service not initialized')
+      service = await initializeSynapse(config, logger)
     })
 
     it('should upload data successfully', async () => {
       const data = new Uint8Array([1, 2, 3])
-      const pinId = 'pin-123'
+      const contextId = 'pin-123'
 
-      const result = await uploadToSynapse(data, pinId, logger)
+      const result = await uploadToSynapse(service, data, TEST_CID, logger, { contextId })
 
       expect(result).toHaveProperty('pieceCid')
       expect(result).toHaveProperty('pieceId')
@@ -137,58 +137,163 @@ describe('synapse-service', () => {
     it('should log upload events', async () => {
       const infoSpy = vi.spyOn(logger, 'info')
       const data = new Uint8Array([1, 2, 3])
-      const pinId = 'pin-456'
+      const contextId = 'pin-456'
 
-      await uploadToSynapse(data, pinId, logger)
+      await uploadToSynapse(service, data, TEST_CID, logger, { contextId })
 
       expect(infoSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          event: 'synapse.upload.start',
-          pinId,
-          size: data.length,
+          event: 'synapse.upload.piece_uploaded',
+          contextId,
         }),
-        'Starting Synapse upload'
+        'Upload to PDP server complete'
       )
 
       expect(infoSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          event: 'synapse.upload.complete',
-          pinId,
+          event: 'synapse.upload.success',
+          contextId,
         }),
-        'Synapse upload completed successfully'
+        'Successfully uploaded to Filecoin with Synapse'
       )
     })
 
     it('should call upload callbacks', async () => {
       let uploadCompleteCallbackCalled = false
-      let rootAddedCallbackCalled = false
+      let pieceAddedCallbackCalled = false
 
-      // Mock the storage upload to capture callbacks
-      const service = getSynapseService()
-      if (service?.storage != null) {
-        const originalUpload = service.storage.upload.bind(service.storage)
-        service.storage.upload = async (data: any, callbacks: any) => {
-          // Override callbacks to track calls
-          const wrappedCallbacks = {
-            ...callbacks,
-            onUploadComplete: (pieceCid: string) => {
-              uploadCompleteCallbackCalled = true
-              callbacks?.onUploadComplete?.(pieceCid)
+      const data = new Uint8Array([1, 2, 3])
+      await uploadToSynapse(service, data, TEST_CID, logger, {
+        contextId: 'pin-789',
+        callbacks: {
+          onUploadComplete: () => {
+            uploadCompleteCallbackCalled = true
+          },
+          onPieceAdded: () => {
+            pieceAddedCallbackCalled = true
+          },
+        },
+      })
+
+      expect(uploadCompleteCallbackCalled).toBe(true)
+      expect(pieceAddedCallbackCalled).toBe(true)
+    })
+  })
+
+  describe('Provider Information', () => {
+    it('should capture provider info during initialization', async () => {
+      const mockConfig: Config = {
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+        port: 3000,
+        host: '127.0.0.1',
+        databasePath: ':memory:',
+        carStoragePath: './cars',
+        logLevel: 'info',
+        warmStorageAddress: undefined,
+      }
+
+      const service = await initializeSynapse(mockConfig, logger)
+
+      // Check that provider info was captured
+      expect(service.providerInfo).toBeDefined()
+      expect(service.providerInfo?.id).toBe(1)
+      expect(service.providerInfo?.name).toBe('Mock Provider')
+      expect(service.providerInfo?.products?.PDP?.data?.serviceURL).toBe('http://localhost:8888/pdp')
+    })
+
+    it('should include provider info in upload result', async () => {
+      // Ensure synapse is initialized with provider info
+      const mockConfig: Config = {
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+        port: 3000,
+        host: '127.0.0.1',
+        databasePath: ':memory:',
+        carStoragePath: './cars',
+        logLevel: 'info',
+        warmStorageAddress: undefined,
+      }
+
+      const service = await initializeSynapse(mockConfig, logger)
+
+      // Now test the upload with synapse-upload.ts
+      const data = new Uint8Array([1, 2, 3])
+      const result = await uploadToSynapse(service, data, TEST_CID, logger, {
+        contextId: 'test-upload',
+      })
+
+      // Verify provider info is included in result
+      expect(result.providerInfo).toBeDefined()
+      expect(result.providerInfo?.id).toBe(1)
+      expect(result.providerInfo?.name).toBe('Mock Provider')
+      expect(result.providerInfo?.serviceURL).toBe('http://localhost:8888/pdp')
+
+      // Verify download URL is correctly constructed
+      expect(result.providerInfo?.downloadURL).toBe(`http://localhost:8888/pdp/piece/${result.pieceCid}`)
+    })
+
+    it('should handle missing provider info gracefully', async () => {
+      // Initialize without provider info being set
+      const mockConfig: Config = {
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+        port: 3000,
+        host: '127.0.0.1',
+        databasePath: ':memory:',
+        carStoragePath: './cars',
+        logLevel: 'info',
+        warmStorageAddress: undefined,
+      }
+
+      // Create a service without provider info by manipulating after init
+      const service = await initializeSynapse(mockConfig, logger)
+      // Manually clear provider info to test the fallback
+      ;(service as any).providerInfo = undefined
+
+      const data = new Uint8Array([1, 2, 3])
+      const result = await uploadToSynapse(service, data, TEST_CID, logger, {
+        contextId: 'test-upload',
+      })
+
+      // Verify upload still works but provider info is undefined
+      expect(result.pieceCid).toBeDefined()
+      expect(result.providerInfo).toBeUndefined()
+    })
+
+    it('should handle provider without serviceURL gracefully', async () => {
+      const mockConfig: Config = {
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+        port: 3000,
+        host: '127.0.0.1',
+        databasePath: ':memory:',
+        carStoragePath: './cars',
+        logLevel: 'info',
+        warmStorageAddress: undefined,
+      }
+
+      const service = await initializeSynapse(mockConfig, logger)
+
+      // Modify provider info to not have serviceURL
+      if (service.providerInfo) {
+        ;(service.providerInfo as any).products = {
+          PDP: {
+            data: {
+              // No serviceURL
             },
-            onPieceAdded: () => {
-              rootAddedCallbackCalled = true
-              callbacks?.onPieceAdded?.()
-            },
-          }
-          return await originalUpload(data, wrappedCallbacks)
+          },
         }
       }
 
       const data = new Uint8Array([1, 2, 3])
-      await uploadToSynapse(data, 'pin-789', logger)
+      const result = await uploadToSynapse(service, data, TEST_CID, logger, {
+        contextId: 'test-upload',
+      })
 
-      expect(uploadCompleteCallbackCalled).toBe(true)
-      expect(rootAddedCallbackCalled).toBe(true)
+      // Verify upload works but provider info is not included
+      expect(result.pieceCid).toBeDefined()
+      expect(result.providerInfo).toBeUndefined()
     })
   })
 })

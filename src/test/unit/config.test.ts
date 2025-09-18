@@ -1,5 +1,6 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
+import { RPC_URLS } from '@filoz/synapse-sdk'
 import { describe, expect, it } from 'vitest'
 import { createConfig } from '../../config.js'
 
@@ -24,7 +25,7 @@ describe('Config', () => {
 
     expect(config.port).toBe(3456)
     expect(config.host).toBe('localhost')
-    expect(config.rpcUrl).toBe('https://api.calibration.node.glif.io/rpc/v1')
+    expect(config.rpcUrl).toBe(RPC_URLS.calibration.websocket)
     expect(config.databasePath).toBe(join(expectedDataDir, 'pins.db'))
     expect(config.carStoragePath).toBe(join(expectedDataDir, 'cars'))
     expect(config.logLevel).toBe('info')

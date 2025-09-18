@@ -10,7 +10,7 @@ import { FilecoinPinStore } from '../../filecoin-pin-store.js'
 import { createLogger } from '../../logger.js'
 import { MockSynapse } from '../mocks/synapse-mocks.js'
 
-// Mock the Synapse SDK
+// Mock the Synapse SDK - vi.mock requires async import for ES modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
 
 describe('Simple Pin Test', () => {

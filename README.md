@@ -2,201 +2,184 @@
 
 [![NPM](https://nodei.co/npm/filecoin-pin.svg?style=flat&data=n,v)](https://nodei.co/npm/filecoin-pin/)
 
-An IPFS Pinning Service API implementation that pins to Filecoin's PDP service, providing ongoing proof of possession of your pinned content using Filecoin's proving system.
+Bridge IPFS content to Filecoin storage using familiar tools.
 
-## Overview
+## What It Does
 
-Filecoin Pin is a TypeScript server that implements the [IPFS Pinning Service API](https://ipfs.github.io/pinning-services-api-spec/) to enable users to pin IPFS content to Filecoin using familiar IPFS tooling like Kubo's `ipfs pin remote` commands.
+Filecoin Pin provides two ways to store data on Filecoin:
 
-### How It Works
+1. **IPFS Pinning Service** - Use `ipfs pin remote` commands to pin content to Filecoin
+2. **Direct CAR Import** - Upload existing CAR files directly to Filecoin
 
-1. **Serve Pin Service**: The server runs an HTTP service that implements the IPFS Pinning Service API
-2. **Receive Pin Requests**: When you run `ipfs pin remote add`, Kubo sends a pin request to the service
-3. **Fetch Blocks from IPFS**: The service connects to the IPFS network and fetches blocks for the requested CID (usually from the requesting node itself)
-4. **Store in CAR**: As blocks arrive, they're written directly to a CAR (Content Addressable aRchive) file on disk
-5. **Upload to PDP Provider**: Once all blocks are collected, the CAR file is uploaded to a Proof of Data Possession (PDP) service provider
-6. **Commit to Filecoin**: The PDP provider commits the data to the Filecoin blockchain
-7. **Start Proving**: The storage provider begins generating ongoing proofs that they still possess your data
+Both methods use Synapse SDK to handle Filecoin storage deals, providing persistent storage with cryptographic proofs.
 
-This bridges the gap between IPFS's content-addressed storage and Filecoin's incentivized persistence layer, giving you the best of both worlds - easy pinning with long-term storage guarantees.
+## Installation
 
-**⚠️ Alpha Software**: This is currently alpha software, only deploying on Filecoin's Calibration Test network with storage providers participating in network testing, not dedicating long-term persistence.
+Requires Node.js 24+
 
-You need a Filecoin calibration network wallet funded with USDFC. See the [USDFC documentation](https://docs.secured.finance/usdfc-stablecoin/getting-started) which has a "Testnet Resources" section for getting USDFC on calibnet.
+```bash
+npm install -g filecoin-pin
+```
 
 ## Quick Start
 
-### Prerequisites
+### 1. Set Up Payments (Required First Step)
 
-Node.js 24+ and npm
-
-### Installation
-
-You can install `filecoin-pin` globally or use it directly with `npm exec`.
-
-⚠️ **Note**: You'll need to set the `PRIVATE_KEY` environment variable before running - see [Configuration](#configuration) below.
-
-**Option 1: Install globally (then run from anywhere)**
-```bash
-# First install it globally (one time)
-npm install -g filecoin-pin
-
-# Then you can run it from anywhere
-filecoin-pin server
-```
-
-**Option 2: Use npm exec (installs automatically and runs)**
-```bash
-# No installation needed - npm exec downloads and runs it
-npm exec filecoin-pin -- server
-```
-
-> **Note**: `npm exec` is npm's built-in command for running packages (the `--` is needed to pass arguments). You may also see `npx` used for this purpose - it's a separate tool that comes bundled with npm and works similarly but doesn't require the `--`.
-
-**Option 3: Build from source**
-```bash
-# Clone and build
-git clone https://github.com/FilOzone/filecoin-pin
-cd filecoin-pin
-npm install
-npm run build
-
-# Run it
-npm start
-```
-
-### Configuration
-
-Configuration is managed through environment variables. The service uses platform-specific default directories for data storage following OS conventions.
-
-#### Environment Variables
+Before storing data, configure your Filecoin payment approvals:
 
 ```bash
-# REQUIRED - Without this, the service will not start
-export PRIVATE_KEY="your-filecoin-private-key"      # Ethereum private key (must be funded with USDFC on calibration network)
+# Check your current payment status
+filecoin-pin payments status
 
-# Optional configuration with defaults
-export PORT=3456                                    # API server port (default: 3456)
-export HOST="localhost"                             # API server host (default: localhost)
-export RPC_URL="https://api.calibration.node.glif.io/rpc/v1"  # Filecoin RPC endpoint
-export DATABASE_PATH="./pins.db"                    # SQLite database location (default: see below)
-export CAR_STORAGE_PATH="./cars"                    # Temporary CAR file directory (default: see below)
-export LOG_LEVEL="info"                             # Log level (default: info)
+# Interactive setup (recommended)
+filecoin-pin payments setup
+
+# Or automated setup
+filecoin-pin payments setup --deposit 100 --storage 10TiB --auto
 ```
 
-#### Default Data Directories
+You'll need:
+- A private key with USDFC tokens on Calibration testnet
+- Get test USDFC from the [faucet](https://docs.secured.finance/usdfc-stablecoin/getting-started#testnet-resources)
 
-When `DATABASE_PATH` and `CAR_STORAGE_PATH` are not specified, the service uses platform-specific defaults:
+### 2. Choose Your Storage Method
 
-- **Linux**: `~/.local/share/filecoin-pin/` (follows XDG Base Directory spec)
+#### Option A: Run IPFS Pinning Service
+
+```bash
+# Start the daemon
+PRIVATE_KEY=0x... filecoin-pin daemon
+
+# In another terminal, configure IPFS
+ipfs pin remote service add filecoin http://localhost:3456 any-token
+
+# Pin content
+ipfs pin remote add --service=filecoin QmYourCID
+```
+
+#### Option B: Import CAR Files Directly
+
+```bash
+# Import a CAR file
+filecoin-pin import /path/to/file.car --private-key 0x...
+```
+
+## Commands
+
+### `filecoin-pin daemon`
+Runs the IPFS Pinning Service API server.
+
+**Options:**
+- `--port <number>` - Server port (default: 3456)
+- `--host <string>` - Server host (default: localhost)
+- `--database <path>` - SQLite database location
+- `--car-storage <path>` - CAR file storage directory
+
+### `filecoin-pin payments status`
+Check payment configuration and balances.
+
+**Options:**
+- `--private-key <key>` - Ethereum private key
+- `--rpc-url <url>` - Filecoin RPC endpoint
+
+### `filecoin-pin payments setup`
+Configure payment approvals for Filecoin storage.
+
+**Options:**
+- `--private-key <key>` - Ethereum private key
+- `--rpc-url <url>` - Filecoin RPC endpoint
+- `--deposit <amount>` - USDFC amount to deposit
+- `--storage <size>` - Storage allowance (e.g., "10TiB" or "5000" for USDFC/epoch)
+- `--auto` - Run without prompts
+
+### `filecoin-pin import <file>`
+Import an existing CAR file to Filecoin.
+
+**Options:**
+- `--private-key <key>` - Ethereum private key
+- `--rpc-url <url>` - Filecoin RPC endpoint
+
+**Output includes:**
+- Piece CID for retrieval
+- Storage provider details
+- Direct download URL
+
+## Configuration
+
+### Environment Variables
+
+```bash
+# Required for daemon
+PRIVATE_KEY=0x...              # Ethereum private key with USDFC
+
+# Optional
+RPC_URL=wss://...              # Filecoin RPC (default: calibration websocket)
+PORT=3456                      # Daemon port
+DATABASE_PATH=./pins.db        # SQLite database
+CAR_STORAGE_PATH=./cars        # CAR file directory
+LOG_LEVEL=info                 # Logging level
+```
+
+### Default Directories
+
+When not specified, data is stored in:
+- **Linux**: `~/.local/share/filecoin-pin/`
 - **macOS**: `~/Library/Application Support/filecoin-pin/`
 - **Windows**: `%APPDATA%/filecoin-pin/`
-- **Other**: `~/.filecoin-pin/`
 
-### Running the Server
+## How It Works
 
-⚠️ **PRIVATE_KEY is required** - The service will not start without it.
+### IPFS Pinning Flow
+1. Receive pin request from IPFS
+2. Create CAR file with root CID
+3. Fetch blocks via Bitswap
+4. Stream blocks directly to CAR
+5. Upload CAR to Synapse
+6. Return Filecoin piece CID
 
-```bash
-# If installed globally:
-PRIVATE_KEY=0x... filecoin-pin server
-
-# Or with npm exec:
-PRIVATE_KEY=0x... npm exec filecoin-pin -- server
-
-# With custom configuration:
-PRIVATE_KEY=0x... PORT=8080 RPC_URL=wss://... filecoin-pin server
-```
-
-### CLI Usage
-
-```bash
-# Show help
-filecoin-pin --help
-
-# Show version
-filecoin-pin --version
-
-# Start server
-filecoin-pin server
-
-# Start server with options
-filecoin-pin server --port 3456 --car-storage ./my-cars
-
-# Or with npm exec (note the -- separator)
-npm exec filecoin-pin -- server --port 3456 --car-storage ./my-cars
-```
-
-## Using with IPFS
-
-Once the server is running, you can configure it as a remote pinning service in IPFS.
-
-### Using with Kubo CLI
-
-```bash
-# Add the pinning service (use any non-empty string as token - auth not currently enforced)
-ipfs pin remote service add filecoin-pin http://localhost:3456 any-token
-
-# Pin content to Filecoin
-ipfs pin remote add --service=filecoin-pin QmYourContentCID
-
-# List remote pins
-ipfs pin remote ls --service=filecoin-pin
-
-# Check pin status
-ipfs pin remote ls --service=filecoin-pin --status=pinning,queued,pinned
-```
-
-### Using with IPFS Desktop or WebUI
-
-You can also add this pinning service through the IPFS Desktop application or WebUI interface. See the [IPFS documentation on working with pinning services](https://docs.ipfs.tech/how-to/work-with-pinning-services/#use-a-third-party-pinning-service) for detailed instructions on:
-
-- Adding remote pinning services via the GUI
-- Managing pins through the web interface
-- Configuring authentication tokens
-
-The service endpoint will be `http://localhost:3456` (or your configured host/port). While the IPFS interface requires a token field, authentication is not currently enforced so any non-empty value will work.
+### CAR Import Flow
+1. Validate CAR file format
+2. Extract root CIDs
+3. Upload to Synapse
+4. Display storage provider info
 
 ## Development
 
-For developers who want to contribute or build from source:
-
 ```bash
-# Clone the repository
-git clone https://github.com/FilOzone/filecoin-pin
+# Clone and install
+git clone https://github.com/filecoin-project/filecoin-pin
 cd filecoin-pin
-
-# Install dependencies
 npm install
 
-# Start development server with hot reload
+# Run development server
 npm run dev
 
 # Run tests
 npm test
+
+# Build for production
+npm run build
 ```
 
-### Development Scripts
+### Testing
 
-- `npm run build` - Compile TypeScript to JavaScript
-- `npm run dev` - Start development server with hot reload
-- `npm start` - Run compiled output (after building)
-- `npm test` - Run linting, type checking, unit tests, and integration tests
-- `npm run test:unit` - Run unit tests only
-- `npm run test:integration` - Run integration tests only
-- `npm run test:watch` - Run tests in watch mode
-- `npm run lint` - Check code style with ts-standard
-- `npm run lint:fix` - Auto-fix code style issues
-- `npm run typecheck` - Type check without emitting files
+```bash
+npm run test           # All tests
+npm run test:unit      # Unit tests only
+npm run test:integration # Integration tests
+npm run lint:fix       # Fix formatting
+```
+
+## Status
+
+**⚠️ Alpha Software** - Currently running on Filecoin Calibration testnet only. Not for production use.
 
 ## License
 
-Dual-licensed under [MIT](https://opensource.org/licenses/MIT) + [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0)
+Dual-licensed under [MIT](LICENSE-MIT) + [Apache 2.0](LICENSE-APACHE)
 
 ## References
 
-- [IPFS Pinning Service API Spec](https://ipfs.github.io/pinning-services-api-spec/)
-- [Helia Documentation](https://helia.io/)
-- [CAR Format Specification](https://ipld.io/specs/transport/car/)
-- [SynapseSDK](https://github.com/FilOzone/synapse-sdk)
-- [Filecoin Services Upload Demo App](https://fs-upload-dapp.netlify.app/)
+- [IPFS Pinning Service API](https://ipfs.github.io/pinning-services-api-spec/)
+- [Synapse SDK](https://github.com/filecoin-project/synapse-sdk)
+- [USDFC Documentation](https://docs.secured.finance/usdfc-stablecoin)

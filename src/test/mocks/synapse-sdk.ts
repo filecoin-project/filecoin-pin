@@ -42,7 +42,9 @@ export class StorageContext {
    * 3. Piece gets added to data set (on-chain transaction)
    * 4. Transaction confirmation triggers callbacks
    */
-  async upload(_data: ArrayBuffer | Uint8Array, callbacks?: any): Promise<any> {
+  async upload(_data: ArrayBuffer | Uint8Array, options?: any): Promise<any> {
+    // Extract callbacks and metadata from options
+    const callbacks = options?.onUploadComplete ? options : options?.callbacks
     // Generate mock piece CID with correct CommP prefix (bafkzcib)
     const pieceCidString = `bafkzcib${Math.random().toString(36).substring(2, 15)}`
     const pieceId = Math.floor(Math.random() * 1000)
@@ -80,6 +82,12 @@ export const RPC_URLS = {
   calibration: {
     websocket: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
   },
+}
+
+// Export mock METADATA_KEYS matching SDK's structure
+export const METADATA_KEYS = {
+  WITH_IPFS_INDEXING: 'withIPFSIndexing',
+  IPFS_ROOT_CID: 'ipfsRootCid',
 }
 
 // Export types for test compatibility

@@ -1,0 +1,62 @@
+/**
+ * Shared CLI helper utilities for consistent command-line experience
+ */
+
+import { intro as clackIntro, spinner as clackSpinner } from '@clack/prompts'
+import { isTTY, log } from './cli-logger.js'
+
+/**
+ * Creates a spinner that works in both TTY and non-TTY environments
+ *
+ * In TTY mode: Uses @clack/prompts spinner for nice visual feedback
+ * In non-TTY mode: Prints simple status messages without ANSI codes
+ */
+export function createSpinner() {
+  if (isTTY()) {
+    // Use the real spinner for TTY
+    return clackSpinner()
+  } else {
+    // Non-TTY fallback - only print completion messages
+    return {
+      start(_msg: string) {
+        // Don't print start messages in non-TTY
+      },
+      message(_msg: string) {
+        // Don't print progress messages in non-TTY
+      },
+      stop(msg?: string) {
+        if (msg) {
+          // Only print the final completion message
+          log.message(msg)
+        }
+      },
+    }
+  }
+}
+
+/**
+ * Show intro message with proper TTY handling
+ */
+export function intro(message: string): void {
+  if (isTTY()) {
+    clackIntro(message)
+  } else {
+    log.message(message)
+  }
+}
+
+/**
+ * Format file size for human-readable display
+ */
+export function formatFileSize(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let size = bytes
+  let unitIndex = 0
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex++
+  }
+
+  return `${size.toFixed(1)} ${units[unitIndex]}`
+}

@@ -6,18 +6,17 @@
  * options to complete the setup without user interaction.
  */
 
-import { intro as clackIntro, spinner as clackSpinner } from '@clack/prompts'
 import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { isTTY, log } from './logger.js'
+import { createSpinner, intro } from '../utils/cli-helpers.js'
+import { log } from '../utils/cli-logger.js'
 import {
   calculateStorageAllowances,
   calculateStorageFromUSDFC,
   checkFILBalance,
   checkInsufficientFunds,
   checkUSDFCBalance,
-  createProvider,
   depositUSDFC,
   displayAccountInfo,
   displayDepositWarning,
@@ -29,43 +28,6 @@ import {
   setServiceApprovals,
 } from './setup.js'
 import type { PaymentSetupOptions, StorageAllowances } from './types.js'
-
-/**
- * Creates a spinner that works in both TTY and non-TTY environments
- *
- * In TTY mode: Uses @clack/prompts spinner for nice visual feedback
- * In non-TTY mode: Prints simple status messages without ANSI codes
- */
-function createSpinner() {
-  if (isTTY()) {
-    // Use the real spinner for TTY
-    return clackSpinner()
-  } else {
-    // Non-TTY fallback - only print completion messages
-    return {
-      start(_msg: string) {
-        // Don't print start messages in non-TTY
-      },
-      message(_msg: string) {
-        // Don't print progress messages in non-TTY
-      },
-      stop(msg?: string) {
-        if (msg) {
-          // Only print the final completion message
-          log.message(msg)
-        }
-      },
-    }
-  }
-}
-
-function intro(message: string) {
-  if (isTTY()) {
-    clackIntro(message)
-  } else {
-    log.message(message)
-  }
-}
 
 /**
  * Run automatic payment setup with defaults
@@ -84,9 +46,9 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     process.exit(1)
   }
 
-  let wallet: ethers.Wallet
+  // Validate private key format early
   try {
-    wallet = new ethers.Wallet(privateKey)
+    new ethers.Wallet(privateKey)
   } catch {
     console.error(pc.red('Error: Invalid private key format'))
     process.exit(1)
@@ -128,14 +90,23 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
   const spinner = createSpinner()
   spinner.start('Initializing connection...')
 
+  // Store provider reference for cleanup if it's a WebSocket provider
+  let provider: any = null
+
   try {
     // Initialize Synapse
-    const provider = createProvider(rpcUrl)
-    const signer = wallet.connect(provider)
-
-    const synapse = await Synapse.create({ signer })
+    const synapse = await Synapse.create({
+      privateKey,
+      rpcURL: rpcUrl,
+    })
     const network = synapse.getNetwork()
+    const signer = synapse.getSigner()
     const address = await signer.getAddress()
+
+    // Store provider reference for cleanup if it's a WebSocket provider
+    if (rpcUrl.match(/^wss?:\/\//)) {
+      provider = synapse.getProvider()
+    }
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
@@ -283,12 +254,28 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     // Show deposit warning if needed
     displayDepositWarning(totalDeposit, status.currentAllowances.lockupUsed)
 
-    // Clean up
-    await provider.destroy()
+    // Clean up WebSocket providers to allow process termination
+    if (provider && typeof provider.destroy === 'function') {
+      try {
+        await provider.destroy()
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
   } catch (error) {
     spinner.stop() // Stop spinner without message
     console.error(pc.red('✗ Setup failed'))
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
+
+    // Clean up even on error
+    if (provider && typeof provider.destroy === 'function') {
+      try {
+        await provider.destroy()
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+
     process.exit(1)
   }
 }

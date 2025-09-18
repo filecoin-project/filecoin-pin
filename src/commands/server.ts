@@ -1,3 +1,4 @@
+import { RPC_URLS } from '@filoz/synapse-sdk'
 import { Command } from 'commander'
 import { startServer } from '../server.js'
 
@@ -8,7 +9,7 @@ export const serverCommand = new Command('server')
   .option('--car-storage <path>', 'path for CAR file storage', './cars')
   .option('--database <path>', 'path to SQLite database', './pins.db')
   .option('--private-key <key>', 'private key for Synapse (or use PRIVATE_KEY env var)')
-  .option('--rpc-url <url>', 'RPC URL for Filecoin network', 'https://api.calibration.node.glif.io/rpc/v1')
+  .option('--rpc-url <url>', 'RPC URL for Filecoin network', RPC_URLS.calibration.websocket)
   .action(async (options) => {
     // Override environment variables with CLI options if provided
     if (options.privateKey) {

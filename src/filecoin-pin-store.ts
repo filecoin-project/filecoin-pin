@@ -8,6 +8,7 @@ import type { CARBlockstoreStats, CARWritingBlockstore } from './car-blockstore.
 import type { Config } from './config.js'
 import { createPinningHeliaNode } from './create-pinning-helia.js'
 import type { SynapseService } from './synapse-service.js'
+import { uploadToSynapse } from './synapse-upload.js'
 
 export interface PinningServiceUser {
   id: string
@@ -308,76 +309,25 @@ export class FilecoinPinStore extends EventEmitter {
         // TODO: When Synapse supports streaming, this could be optimized
         const carData = await readFile(pinStatus.filecoin.carFilePath)
 
-        // Upload using Synapse with inline callbacks for event tracking
-        // This pattern allows real-time monitoring of the upload process
-        const synapseResult = await this.synapseService.storage.upload(carData, {
-          onUploadComplete: (pieceCid) => {
-            this.logger.info(
-              {
-                event: 'synapse.upload.piece_uploaded',
-                pinId,
-                pieceCid: pieceCid.toString(),
-              },
-              'Upload to PDP server complete'
-            )
-          },
-          onPieceAdded: (transaction) => {
-            if (transaction != null) {
-              this.logger.info(
-                {
-                  event: 'synapse.upload.piece_added',
-                  pinId,
-                  txHash: transaction.hash,
-                },
-                'Piece addition transaction submitted'
-              )
-            } else {
-              this.logger.info(
-                {
-                  event: 'synapse.upload.piece_added',
-                  pinId,
-                },
-                'Piece added to data set'
-              )
-            }
-          },
-          onPieceConfirmed: (pieceIds) => {
-            this.logger.info(
-              {
-                event: 'synapse.upload.piece_confirmed',
-                pinId,
-                pieceIds,
-              },
-              'Piece addition confirmed on-chain'
-            )
-          },
+        // Upload using shared function with pinId as context and IPFS root CID metadata
+        const uploadResult = await uploadToSynapse(this.synapseService, carData, cid, this.logger, {
+          contextId: pinId,
         })
 
         // Store Synapse metadata
-        pinStatus.filecoin.synapsePieceCid = synapseResult.pieceCid.toString()
-        if (synapseResult.pieceId !== undefined) {
-          pinStatus.filecoin.synapsePieceId = synapseResult.pieceId
+        pinStatus.filecoin.synapsePieceCid = uploadResult.pieceCid
+        if (uploadResult.pieceId !== undefined) {
+          pinStatus.filecoin.synapsePieceId = uploadResult.pieceId
         }
-        pinStatus.filecoin.synapseDataSetId = String(this.synapseService.storage.dataSetId)
+        pinStatus.filecoin.synapseDataSetId = uploadResult.dataSetId
 
         // Add to info for API response
         pinStatus.info = {
           ...pinStatus.info,
-          synapse_piece_cid: synapseResult.pieceCid.toString(),
-          synapse_piece_id: (synapseResult.pieceId ?? 0).toString(),
-          synapse_data_set_id: String(this.synapseService.storage.dataSetId),
+          synapse_piece_cid: uploadResult.pieceCid,
+          synapse_piece_id: (uploadResult.pieceId ?? 0).toString(),
+          synapse_data_set_id: uploadResult.dataSetId,
         }
-
-        this.logger.info(
-          {
-            event: 'synapse.upload.success',
-            pinId,
-            pieceCid: synapseResult.pieceCid,
-            pieceId: synapseResult.pieceId,
-            dataSetId: this.synapseService.storage.dataSetId,
-          },
-          'Successfully uploaded to Filecoin with Synapse'
-        )
       } catch (error) {
         // Rollback on Synapse failure
         this.logger.error(

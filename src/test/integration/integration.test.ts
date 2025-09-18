@@ -19,7 +19,7 @@ import { createConfig } from '../../config.js'
 import { createFilecoinPinningServer } from '../../filecoin-pinning-server.js'
 import { createLogger } from '../../logger.js'
 
-// Mock the Synapse SDK
+// Mock the Synapse SDK - vi.mock requires async import for ES modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
 
 // Type for API responses
