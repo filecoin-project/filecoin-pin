@@ -20,6 +20,7 @@ import {
   depositUSDFC,
   displayCapacity,
   displayDepositWarning,
+  displayPricing,
   displayServicePermissions,
   formatFIL,
   formatUSDFC,
@@ -152,14 +153,12 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     // Step 4: Handle deposits
     const defaultDeposit = ethers.parseUnits(options.deposit || '1', 18)
     let depositAmount = 0n
+    let pricingShown = false // Track if pricing has been displayed
 
     if (status.depositedAmount < defaultDeposit) {
-      // Use pricing info to help user decide
-
-      console.log(`\n${pc.bold('Current Pricing:')}`)
-      console.log(`  1 GiB/month: ${formatUSDFC(pricePerGiBPerMonth)} USDFC`)
-      console.log(`  1 TiB/month: ${formatUSDFC(pricePerTiBPerMonth)} USDFC`)
-      console.log(pc.gray('  (10-day reserve required for active storage)'))
+      // Show pricing info to help user decide
+      displayPricing(pricePerGiBPerMonth, pricePerTiBPerMonth)
+      pricingShown = true
 
       const shouldDeposit = await confirm({
         message: `Would you like to deposit USDFC? (Current: ${formatUSDFC(status.depositedAmount)}, Recommended: ${formatUSDFC(defaultDeposit)})`,
@@ -241,11 +240,11 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     }
 
     if (shouldSetAllowances) {
-      // Show pricing to help with decision
-      console.log(`\n${pc.bold('Storage Pricing:')}`)
-      console.log(`  1 GiB/month: ${formatUSDFC(pricePerGiBPerMonth)} USDFC`)
-      console.log(`  1 TiB/month: ${formatUSDFC(pricePerTiBPerMonth)} USDFC`)
-      console.log(pc.gray('  (for each upload, WarmStorage service will reserve 10 days of costs as security)'))
+      // Show pricing if not already shown
+      if (!pricingShown) {
+        displayPricing(pricePerGiBPerMonth, pricePerTiBPerMonth)
+        pricingShown = true
+      }
 
       const allowanceStr = await text({
         message: 'Enter storage allowance',
@@ -361,10 +360,10 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
         }
 
         if (shouldDepositMore) {
-          console.log(`\n${pc.bold('Current Pricing:')}`)
-          console.log(`  1 GiB/month: ${formatUSDFC(pricePerGiBPerMonth)} USDFC`)
-          console.log(`  1 TiB/month: ${formatUSDFC(pricePerTiBPerMonth)} USDFC`)
-          console.log(pc.gray('  (10-day reserve required for active storage)'))
+          // Don't show pricing again if already shown
+          if (!pricingShown) {
+            displayPricing(pricePerGiBPerMonth, pricePerTiBPerMonth)
+          }
 
           if (capacity.isDepositLimited) {
             console.log(

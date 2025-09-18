@@ -328,9 +328,9 @@ export function calculateStorageCapacity(
   // Actual capacity is the minimum of the two
   // Lockup is for 10 days, so multiply by 3 for 30-day month
   const tibPerMonth = Math.min(tibFromRate, tibFromLockup * 3)
-  const gbPerMonth = tibPerMonth * 1024
+  const gibPerMonth = tibPerMonth * 1024
 
-  return gbPerMonth
+  return gibPerMonth
 }
 
 /**
@@ -351,13 +351,13 @@ export function calculateActualCapacity(
   lockupAllowance: bigint,
   pricePerTiBPerEpoch: bigint
 ): {
-  actualGB: number
-  potentialGB: number
+  actualGiB: number
+  potentialGiB: number
   isDepositLimited: boolean
   additionalDepositNeeded: bigint
 } {
   // Calculate potential capacity based on approved allowances
-  const potentialGB = calculateStorageCapacity(rateAllowance, lockupAllowance, pricePerTiBPerEpoch)
+  const potentialGiB = calculateStorageCapacity(rateAllowance, lockupAllowance, pricePerTiBPerEpoch)
 
   // For storage, we need:
   // 1. Lockup (10 days of payments as security deposit)
@@ -370,13 +370,13 @@ export function calculateActualCapacity(
   const monthlyPayment = rateAllowance * TIME_CONSTANTS.EPOCHS_PER_MONTH
   const requiredDeposit = requiredLockup + monthlyPayment
 
-  let actualGB: number
+  let actualGiB: number
   let isDepositLimited = false
   let additionalDepositNeeded = 0n
 
   if (depositedAmount >= requiredDeposit) {
     // Deposit is sufficient for full capacity
-    actualGB = potentialGB
+    actualGiB = potentialGiB
   } else {
     // Deposit is limiting factor - scale down proportionally
     isDepositLimited = true
@@ -386,12 +386,12 @@ export function calculateActualCapacity(
     // Reserve 10/11ths for lockup, 1/11th for monthly payment
     // (10 days lockup + 1 month payment = 40 days total)
     const scaleFactor = Number((depositedAmount * 1000n) / requiredDeposit) / 1000
-    actualGB = potentialGB * scaleFactor
+    actualGiB = potentialGiB * scaleFactor
   }
 
   return {
-    actualGB: Math.floor(actualGB), // Round down to be conservative
-    potentialGB: Math.floor(potentialGB),
+    actualGiB: Math.floor(actualGiB), // Round down to be conservative
+    potentialGiB: Math.floor(potentialGiB),
     isDepositLimited,
     additionalDepositNeeded,
   }
@@ -514,22 +514,55 @@ export function displayDepositWarning(depositedAmount: bigint, lockupUsed: bigin
 }
 
 /**
+ * Format storage capacity with smart unit selection
+ *
+ * @param gib - Capacity in GiB
+ * @returns Formatted string with appropriate unit
+ */
+function formatStorageCapacity(gib: number): string {
+  if (gib >= 1024) {
+    const tib = gib / 1024
+    // Use 1 decimal place if under 100 TiB
+    if (tib < 100) {
+      return `${tib.toFixed(1)} TiB/month`
+    }
+    return `${Math.round(tib).toLocaleString()} TiB/month`
+  }
+  // Use 1 decimal place if under 100 GiB
+  if (gib < 100) {
+    return `${gib.toFixed(1)} GiB/month`
+  }
+  return `${Math.round(gib).toLocaleString()} GiB/month`
+}
+
+/**
  * Display capacity information based on deposit and limits
  *
  * @param capacity - Calculated capacity information
  */
 export function displayCapacity(capacity: ReturnType<typeof calculateActualCapacity>): void {
   if (capacity.isDepositLimited) {
+    console.log(`  → Current capacity: ~${formatStorageCapacity(capacity.actualGiB)} ${pc.yellow('(deposit-limited)')}`)
     console.log(
-      `  → Current capacity: ~${capacity.actualGB.toLocaleString()} GB/month ${pc.yellow('(deposit-limited)')}`
-    )
-    console.log(
-      `  → Potential: ~${capacity.potentialGB.toLocaleString()} GB/month (deposit ${formatUSDFC(capacity.additionalDepositNeeded)} more)`
+      `  → Potential: ~${formatStorageCapacity(capacity.potentialGiB)} (deposit ${formatUSDFC(capacity.additionalDepositNeeded)} more)`
     )
   } else {
-    console.log(`  → Estimated capacity: ~${capacity.actualGB.toLocaleString()} GB/month`)
+    console.log(`  → Estimated capacity: ~${formatStorageCapacity(capacity.actualGiB)}`)
     console.log(pc.gray('    (excludes data set creation fee and optional CDN add-on rates)'))
   }
+}
+
+/**
+ * Display current pricing information
+ *
+ * @param pricePerGiBPerMonth - Price per GiB per month
+ * @param pricePerTiBPerMonth - Price per TiB per month
+ */
+export function displayPricing(pricePerGiBPerMonth: bigint, pricePerTiBPerMonth: bigint): void {
+  console.log(`\n${pc.bold('Current Pricing:')}`)
+  console.log(`  1 GiB/month: ${formatUSDFC(pricePerGiBPerMonth)} USDFC`)
+  console.log(`  1 TiB/month: ${formatUSDFC(pricePerTiBPerMonth)} USDFC`)
+  console.log(pc.gray('  (for each upload, WarmStorage service will reserve 10 days of costs as security)'))
 }
 
 /**
