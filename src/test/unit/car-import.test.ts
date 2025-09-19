@@ -23,6 +23,29 @@ import type { ImportOptions } from '../../import/types.js'
 
 // Mock modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
+vi.mock('../../synapse/payments.js', () => ({
+  checkFILBalance: vi.fn().mockResolvedValue({
+    balance: 1000000000000000000n, // 1 FIL
+    isCalibnet: true,
+    hasSufficientGas: true,
+  }),
+  checkUSDFCBalance: vi.fn().mockResolvedValue(1000000000000000000000n), // 1000 USDFC
+  validatePaymentCapacity: vi.fn().mockResolvedValue({
+    canUpload: true,
+    storageTiB: 0.001,
+    required: {
+      rateAllowance: 100000000000000n,
+      lockupAllowance: 1000000000000000000n,
+      storageCapacityTiB: 0.001,
+    },
+    issues: {},
+    suggestions: [],
+  }),
+}))
+vi.mock('../../payments/setup.js', () => ({
+  checkInsufficientFunds: vi.fn().mockReturnValue(true),
+  formatUSDFC: vi.fn((amount) => `${amount} USDFC`),
+}))
 vi.mock('../../synapse/service.js', async () => {
   const { MockSynapse } = await import('../mocks/synapse-mocks.js')
 

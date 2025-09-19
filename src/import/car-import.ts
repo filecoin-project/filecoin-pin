@@ -12,6 +12,8 @@ import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
+import { checkInsufficientFunds, formatUSDFC } from '../payments/setup.js'
+import { checkFILBalance, checkUSDFCBalance, validatePaymentCapacity } from '../synapse/payments.js'
 import { cleanupSynapseService, initializeSynapse } from '../synapse/service.js'
 import { uploadToSynapse } from '../synapse/upload.js'
 import { createSpinner, formatFileSize, intro } from '../utils/cli-helpers.js'
@@ -166,8 +168,100 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
-    // Step 5: Read CAR file and upload to Synapse
-    spinner.start('Uploading to Filecoin...')
+    // Step 5: Validate payment setup
+    spinner.start('Validating payment setup...')
+
+    // First check basic requirements (FIL and USDFC balance)
+    const { isCalibnet, hasSufficientGas } = await checkFILBalance(synapseService.synapse)
+    const usdfcBalance = await checkUSDFCBalance(synapseService.synapse)
+
+    // Check basic requirements using existing function
+    const hasBasicRequirements = checkInsufficientFunds(hasSufficientGas, usdfcBalance, isCalibnet, false)
+
+    if (!hasBasicRequirements) {
+      spinner.stop(`${pc.red('✗')} Payment setup incomplete`)
+      log.line('')
+      log.line(`${pc.yellow('⚠')} Your payment setup is not complete. Please run:`)
+      log.indent(pc.cyan('filecoin-pin payments setup'))
+      log.line('')
+      log.line('For more information, run:')
+      log.indent(pc.cyan('filecoin-pin payments status'))
+      log.flush()
+      await cleanupSynapseService()
+      process.exit(1)
+    }
+
+    // Now check capacity for this specific file
+    const capacityCheck = await validatePaymentCapacity(synapseService.synapse, fileStat.size)
+
+    if (!capacityCheck.canUpload) {
+      spinner.stop(`${pc.red('✗')} Insufficient payment capacity for this file`)
+      log.line('')
+      log.line(pc.bold('File Requirements:'))
+      log.indent(`File size: ${formatFileSize(fileStat.size)} (${capacityCheck.storageTiB.toFixed(4)} TiB)`)
+      log.indent(`Storage cost: ${formatUSDFC(capacityCheck.required.rateAllowance)} USDFC/epoch`)
+      log.indent(`10-day lockup: ${formatUSDFC(capacityCheck.required.lockupAllowance)} USDFC`)
+      log.line('')
+
+      log.line(pc.bold(`${pc.red('Issues found:')}`))
+      if (capacityCheck.issues.insufficientDeposit) {
+        log.indent(
+          `${pc.red('✗')} Insufficient deposit (need ${formatUSDFC(capacityCheck.issues.insufficientDeposit)} more)`
+        )
+      }
+      if (capacityCheck.issues.insufficientRateAllowance) {
+        log.indent(
+          `${pc.red('✗')} Rate allowance too low (need ${formatUSDFC(capacityCheck.issues.insufficientRateAllowance)} more per epoch)`
+        )
+      }
+      if (capacityCheck.issues.insufficientLockupAllowance) {
+        log.indent(
+          `${pc.red('✗')} Lockup allowance too low (need ${formatUSDFC(capacityCheck.issues.insufficientLockupAllowance)} more)`
+        )
+      }
+      log.line('')
+
+      log.line(pc.bold('Suggested actions:'))
+      capacityCheck.suggestions.forEach((suggestion) => {
+        log.indent(`• ${suggestion}`)
+      })
+      log.line('')
+
+      // Calculate suggested parameters for payment setup
+      const suggestedDeposit = capacityCheck.issues.insufficientDeposit
+        ? formatUSDFC(capacityCheck.issues.insufficientDeposit)
+        : '0'
+      const suggestedStorage = `${Math.ceil(capacityCheck.storageTiB * 10) / 10}TiB/month`
+
+      log.line(`${pc.yellow('⚠')} To fix these issues, run:`)
+      if (capacityCheck.issues.insufficientDeposit) {
+        log.indent(
+          pc.cyan(`filecoin-pin payments setup --deposit ${suggestedDeposit} --storage ${suggestedStorage} --auto`)
+        )
+      } else {
+        log.indent(pc.cyan(`filecoin-pin payments setup --storage ${suggestedStorage} --auto`))
+      }
+      log.flush()
+      await cleanupSynapseService()
+      process.exit(1)
+    }
+
+    // Show warning if suggestions exist (even if upload is possible)
+    if (capacityCheck.suggestions.length > 0 && capacityCheck.canUpload) {
+      spinner.stop(`${pc.yellow('⚠')} Payment capacity check passed with warnings`)
+      log.line('')
+      log.line(pc.bold('Suggestions:'))
+      capacityCheck.suggestions.forEach((suggestion) => {
+        log.indent(`• ${suggestion}`)
+      })
+      log.flush()
+      spinner.start('Uploading to Filecoin...')
+    } else {
+      spinner.stop(`${pc.green('✓')} Payment capacity verified`)
+      spinner.start('Uploading to Filecoin...')
+    }
+
+    // Step 6: Read CAR file and upload to Synapse
 
     // Read the entire CAR file (streaming not yet supported in Synapse)
     const carData = await readFile(options.filePath)

@@ -345,3 +345,110 @@ export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpo
   const capacityTiB = Number((ratePerEpoch * 100n) / pricePerTiBPerEpoch) / 100
   return capacityTiB
 }
+
+/**
+ * Calculate required allowances from CAR file size
+ *
+ * Simple wrapper that converts file size to storage allowances.
+ *
+ * @param carSizeBytes - Size of the CAR file in bytes
+ * @param pricePerTiBPerEpoch - Current pricing from storage service
+ * @returns Required allowances for the file
+ */
+export function calculateRequiredAllowances(carSizeBytes: number, pricePerTiBPerEpoch: bigint): StorageAllowances {
+  // Convert bytes to TiB (1 TiB = 1024^4 bytes)
+  const bytesPerTiB = 1024 * 1024 * 1024 * 1024
+  const storageTiB = carSizeBytes / bytesPerTiB
+  return calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
+}
+
+/**
+ * Payment capacity validation for a specific file
+ */
+export interface PaymentCapacityCheck {
+  canUpload: boolean
+  storageTiB: number
+  required: StorageAllowances
+  issues: {
+    insufficientDeposit?: bigint
+    insufficientRateAllowance?: bigint
+    insufficientLockupAllowance?: bigint
+  }
+  suggestions: string[]
+}
+
+/**
+ * Validate payment capacity for a specific CAR file
+ *
+ * Checks if the current payment setup can handle uploading a specific file.
+ * This is a focused check on capacity, not basic setup validation.
+ *
+ * Example usage:
+ * ```typescript
+ * const fileSize = 10 * 1024 * 1024 * 1024 // 10 GiB
+ * const capacity = await validatePaymentCapacity(synapse, fileSize)
+ *
+ * if (!capacity.canUpload) {
+ *   console.error('Cannot upload file with current payment setup')
+ *   capacity.suggestions.forEach(s => console.log(`  - ${s}`))
+ * }
+ * ```
+ *
+ * @param synapse - Initialized Synapse instance
+ * @param carSizeBytes - Size of the CAR file in bytes
+ * @returns Capacity check result with specific issues
+ */
+export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: number): Promise<PaymentCapacityCheck> {
+  // Get current status and pricing
+  const [status, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
+
+  const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
+  const bytesPerTiB = 1024 * 1024 * 1024 * 1024
+  const storageTiB = carSizeBytes / bytesPerTiB
+
+  // Calculate requirements
+  const required = calculateRequiredAllowances(carSizeBytes, pricePerTiBPerEpoch)
+  const monthlyPayment = required.rateAllowance * TIME_CONSTANTS.EPOCHS_PER_MONTH
+  const totalDepositNeeded = required.lockupAllowance + monthlyPayment
+
+  const result: PaymentCapacityCheck = {
+    canUpload: true,
+    storageTiB,
+    required,
+    issues: {},
+    suggestions: [],
+  }
+
+  // Check deposit
+  if (status.depositedAmount < totalDepositNeeded) {
+    result.canUpload = false
+    result.issues.insufficientDeposit = totalDepositNeeded - status.depositedAmount
+    const depositNeeded = ethers.formatUnits(totalDepositNeeded - status.depositedAmount, 18)
+    result.suggestions.push(`Deposit at least ${depositNeeded} USDFC`)
+  }
+
+  // Check rate allowance
+  if (status.currentAllowances.rateAllowance < required.rateAllowance) {
+    result.canUpload = false
+    result.issues.insufficientRateAllowance = required.rateAllowance - status.currentAllowances.rateAllowance
+    const rateNeeded = ethers.formatUnits(required.rateAllowance, 18)
+    result.suggestions.push(`Set rate allowance to at least ${rateNeeded} USDFC/epoch`)
+  }
+
+  // Check lockup allowance
+  if (status.currentAllowances.lockupAllowance < required.lockupAllowance) {
+    result.canUpload = false
+    result.issues.insufficientLockupAllowance = required.lockupAllowance - status.currentAllowances.lockupAllowance
+    const lockupNeeded = ethers.formatUnits(required.lockupAllowance, 18)
+    result.suggestions.push(`Set lockup allowance to at least ${lockupNeeded} USDFC`)
+  }
+
+  // Add warning if approaching deposit limit
+  const totalLockupAfter = status.currentAllowances.lockupUsed + required.lockupAllowance
+  if (totalLockupAfter > (status.depositedAmount * 9n) / 10n && result.canUpload) {
+    const additionalDeposit = ethers.formatUnits((totalLockupAfter * 11n) / 10n - status.depositedAmount, 18)
+    result.suggestions.push(`Consider depositing ${additionalDeposit} more USDFC for safety margin`)
+  }
+
+  return result
+}
