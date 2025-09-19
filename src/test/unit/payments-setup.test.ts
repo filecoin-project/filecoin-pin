@@ -196,31 +196,34 @@ describe('Payment Setup Tests', () => {
   })
 
   describe('calculateStorageAllowances', () => {
-    it('should calculate allowances for 1 TiB/month', async () => {
-      const allowances = await calculateStorageAllowances(mockSynapse, 1)
+    it('should calculate allowances for 1 TiB/month', () => {
+      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const allowances = calculateStorageAllowances(1, pricePerTiBPerEpoch)
 
-      expect(allowances.tibPerMonth).toBe(1)
-      expect(allowances.ratePerEpoch).toBe(ethers.parseUnits('0.0000565', 18))
-      expect(allowances.lockupAmount).toBe(
+      expect(allowances.storageCapacityTiB).toBe(1)
+      expect(allowances.rateAllowance).toBe(ethers.parseUnits('0.0000565', 18))
+      expect(allowances.lockupAllowance).toBe(
         ethers.parseUnits('0.0000565', 18) * 2880n * 10n // rate * epochs/day * 10 days
       )
     })
 
-    it('should calculate allowances for fractional TiB', async () => {
-      const allowances = await calculateStorageAllowances(mockSynapse, 0.5)
+    it('should calculate allowances for fractional TiB', () => {
+      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const allowances = calculateStorageAllowances(0.5, pricePerTiBPerEpoch)
 
-      expect(allowances.tibPerMonth).toBe(0.5)
-      // 0.5 TiB = 500 milliTiB, so (0.0000565 * 500) / 1000 = 0.00002825
-      expect(allowances.ratePerEpoch).toBe(ethers.parseUnits('0.00002825', 18))
+      expect(allowances.storageCapacityTiB).toBe(0.5)
+      // 0.5 TiB
+      expect(allowances.rateAllowance).toBe(ethers.parseUnits('0.00002825', 18))
     })
 
     it('should calculate allowances for 1.5 TiB correctly', async () => {
-      const allowances = await calculateStorageAllowances(mockSynapse, 1.5)
+      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const allowances = calculateStorageAllowances(1.5, pricePerTiBPerEpoch)
 
-      expect(allowances.tibPerMonth).toBe(1.5)
-      // 1.5 TiB = 1500 milliTiB, so (0.0000565 * 1500) / 1000 = 0.00008475
-      expect(allowances.ratePerEpoch).toBe(ethers.parseUnits('0.00008475', 18))
-      expect(allowances.lockupAmount).toBe(
+      expect(allowances.storageCapacityTiB).toBe(1.5)
+      // 1.5 TiB
+      expect(allowances.rateAllowance).toBe(ethers.parseUnits('0.00008475', 18))
+      expect(allowances.lockupAllowance).toBe(
         ethers.parseUnits('0.00008475', 18) * 2880n * 10n // rate * epochs/day * 10 days
       )
     })

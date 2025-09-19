@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Config } from '../../config.js'
 import { createConfig } from '../../config.js'
 import { createLogger } from '../../logger.js'
-import { getSynapseService, initializeSynapse, resetSynapseService } from '../../synapse-service.js'
-import { uploadToSynapse } from '../../synapse-upload.js'
+import { getSynapseService, initializeSynapse, resetSynapseService } from '../../synapse/service.js'
+import { uploadToSynapse } from '../../synapse/upload.js'
 
 // Mock the Synapse SDK - vi.mock requires async import for ES modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))

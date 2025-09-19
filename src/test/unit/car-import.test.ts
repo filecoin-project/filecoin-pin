@@ -23,7 +23,7 @@ import type { ImportOptions } from '../../import/types.js'
 
 // Mock modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
-vi.mock('../../synapse-service.js', async () => {
+vi.mock('../../synapse/service.js', async () => {
   const { MockSynapse } = await import('../mocks/synapse-mocks.js')
 
   return {
@@ -253,7 +253,7 @@ describe('CAR Import', () => {
         [{ content: 'test content' }]
       )
 
-      const { initializeSynapse } = await import('../../synapse-service.js')
+      const { initializeSynapse } = await import('../../synapse/service.js')
       const initSpy = vi.mocked(initializeSynapse)
 
       const options: ImportOptions = {
@@ -299,7 +299,7 @@ describe('CAR Import', () => {
         rpcUrl: customRpcUrl,
       }
 
-      const { initializeSynapse } = await import('../../synapse-service.js')
+      const { initializeSynapse } = await import('../../synapse/service.js')
       const initSpy = vi.mocked(initializeSynapse)
 
       await runCarImport(options)
@@ -319,7 +319,7 @@ describe('CAR Import', () => {
       const carPath = join(testDir, 'cleanup.car')
       await createTestCarFile(carPath, [], [{ content: 'test content' }])
 
-      const { cleanupSynapseService } = await import('../../synapse-service.js')
+      const { cleanupSynapseService } = await import('../../synapse/service.js')
       const cleanupSpy = vi.mocked(cleanupSynapseService)
 
       const options: ImportOptions = {
@@ -333,7 +333,7 @@ describe('CAR Import', () => {
     })
 
     it('should call cleanup on error', async () => {
-      const { cleanupSynapseService } = await import('../../synapse-service.js')
+      const { cleanupSynapseService } = await import('../../synapse/service.js')
       const cleanupSpy = vi.mocked(cleanupSynapseService)
 
       const options: ImportOptions = {

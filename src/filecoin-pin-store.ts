@@ -7,8 +7,8 @@ import type { Logger } from 'pino'
 import type { CARBlockstoreStats, CARWritingBlockstore } from './car-blockstore.js'
 import type { Config } from './config.js'
 import { createPinningHeliaNode } from './create-pinning-helia.js'
-import type { SynapseService } from './synapse-service.js'
-import { uploadToSynapse } from './synapse-upload.js'
+import type { SynapseService } from './synapse/service.js'
+import { uploadToSynapse } from './synapse/upload.js'
 
 export interface PinningServiceUser {
   id: string

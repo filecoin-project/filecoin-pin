@@ -1,7 +1,7 @@
 {
   "name": "filecoin-pin",
   "version": "0.2.2",
-  "description": "IPFS Pinning Service API implementation that pins to Filecoin's PDP service",
+  "description": "Bridge IPFS content to Filecoin Onchain Cloud using familiar tools",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

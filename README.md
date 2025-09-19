@@ -2,7 +2,7 @@
 
 [![NPM](https://nodei.co/npm/filecoin-pin.svg?style=flat&data=n,v)](https://nodei.co/npm/filecoin-pin/)
 
-Bridge IPFS content to Filecoin storage using familiar tools.
+Bridge IPFS content to Filecoin Onchain Cloud using familiar tools.
 
 ## What It Does
 
@@ -169,6 +169,17 @@ npm run test:unit      # Unit tests only
 npm run test:integration # Integration tests
 npm run lint:fix       # Fix formatting
 ```
+
+## Synapse SDK Integration Examples
+
+This project includes comprehensive examples for integrating with the Synapse SDK. See the [`src/synapse`](src/synapse) directory for:
+
+- **Service initialization** with lifecycle management
+- **Upload patterns** for CAR files with progress tracking
+- **Payment operations** including deposits and approvals
+- **Production patterns** for error handling and resource cleanup
+
+These examples demonstrate best practices for building applications on Filecoin Onchain Cloud.
 
 ## Status
 

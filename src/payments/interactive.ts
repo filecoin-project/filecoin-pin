@@ -10,7 +10,7 @@ import { cancel, confirm, isCancel, password, text } from '@clack/prompts'
 import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { cleanupSynapseService } from '../synapse-service.js'
+import { cleanupSynapseService } from '../synapse/service.js'
 import { createSpinner, intro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
 import {
@@ -199,12 +199,15 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     let currentAllowances = status.currentAllowances
     if (currentAllowances.rateAllowance > 0n) {
       // Calculate actual vs potential capacity
-      const capacity = calculateActualCapacity(
-        status.depositedAmount + depositAmount, // Include any deposits we just made
-        currentAllowances.rateAllowance,
-        currentAllowances.lockupAllowance,
-        pricePerTiBPerEpoch
-      )
+      const capacityTiB = calculateActualCapacity(currentAllowances.rateAllowance, pricePerTiBPerEpoch)
+      const totalDeposit = status.depositedAmount + depositAmount
+      const capacity = {
+        actualGiB: capacityTiB * 1024,
+        potentialGiB: capacityTiB * 1024,
+        isDepositLimited: totalDeposit < currentAllowances.lockupAllowance,
+        additionalDepositNeeded:
+          currentAllowances.lockupAllowance > totalDeposit ? currentAllowances.lockupAllowance - totalDeposit : 0n,
+      }
       const monthlyRate = currentAllowances.rateAllowance * TIME_CONSTANTS.EPOCHS_PER_MONTH
 
       log.indent(`Max payment: ${formatUSDFC(monthlyRate)} USDFC/month`)
@@ -259,10 +262,12 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
         const parsedTiB = parseStorageAllowance(allowanceStr)
         if (parsedTiB !== null) {
           // User specified TiB/month
-          allowances = await calculateStorageAllowances(synapse, parsedTiB)
+          allowances = calculateStorageAllowances(parsedTiB, pricePerTiBPerEpoch)
         } else {
           // User specified USDFC per epoch directly
-          allowances = await calculateStorageFromUSDFC(synapse, allowanceStr)
+          const usdfcPerEpochBigint = ethers.parseUnits(allowanceStr, 18)
+          const capacityTiB = calculateStorageFromUSDFC(usdfcPerEpochBigint, pricePerTiBPerEpoch)
+          allowances = calculateStorageAllowances(capacityTiB, pricePerTiBPerEpoch)
         }
       } catch (error) {
         s.stop(`${pc.red('✗')} Invalid storage allowance format`)
@@ -272,8 +277,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       }
       s.stop(`${pc.green('✓')} Allowances calculated`)
 
-      const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
-      const monthlyRate = allowances.ratePerEpoch * TIME_CONSTANTS.EPOCHS_PER_MONTH
+      const monthlyRate = allowances.rateAllowance * TIME_CONSTANTS.EPOCHS_PER_MONTH
 
       // Calculate total deposit including any new deposits
       const totalDeposit = status.depositedAmount + depositAmount
@@ -282,17 +286,17 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       displayServicePermissions(
         'New WarmStorage Service Limits:',
         monthlyRate,
-        allowances.lockupAmount,
+        allowances.lockupAllowance,
         totalDeposit,
         pricePerTiBPerEpoch
       )
 
       // Check if deposit is sufficient for lockup
-      if (totalDeposit < allowances.lockupAmount) {
+      if (totalDeposit < allowances.lockupAllowance) {
         log.newline()
         log.message(
           pc.yellow(
-            `⚠ Insufficient deposit for WarmStorage service reserve (need ${formatUSDFC(allowances.lockupAmount)} USDFC)`
+            `⚠ Insufficient deposit for WarmStorage service reserve (need ${formatUSDFC(allowances.lockupAllowance)} USDFC)`
           )
         )
         const shouldContinue = await confirm({
@@ -308,14 +312,14 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       // Set approvals
       s.start('Setting WarmStorage service approvals...')
-      const approvalTx = await setServiceApprovals(synapse, allowances.ratePerEpoch, allowances.lockupAmount)
+      const approvalTx = await setServiceApprovals(synapse, allowances.rateAllowance, allowances.lockupAllowance)
       s.stop(`${pc.green('✓')} WarmStorage service approvals set`)
       log.indent(pc.gray(`Transaction: ${approvalTx}`))
 
       // Update currentAllowances to reflect the new values
       currentAllowances = {
-        rateAllowance: allowances.ratePerEpoch,
-        lockupAllowance: allowances.lockupAmount,
+        rateAllowance: allowances.rateAllowance,
+        lockupAllowance: allowances.lockupAllowance,
         rateUsed: 0n,
         lockupUsed: 0n,
       }
@@ -329,12 +333,16 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     if (!didInitialDeposit && hasConfiguredLimits) {
       // Check if we're deposit-limited and could benefit from more funds
       const currentTotalDeposit = status.depositedAmount + depositAmount
-      const capacity = calculateActualCapacity(
-        currentTotalDeposit,
-        currentAllowances.rateAllowance,
-        currentAllowances.lockupAllowance,
-        pricePerTiBPerEpoch
-      )
+      const capacityTiB = calculateActualCapacity(currentAllowances.rateAllowance, pricePerTiBPerEpoch)
+      const capacity = {
+        actualGiB: capacityTiB * 1024,
+        potentialGiB: capacityTiB * 1024,
+        isDepositLimited: currentTotalDeposit < currentAllowances.lockupAllowance,
+        additionalDepositNeeded:
+          currentAllowances.lockupAllowance > currentTotalDeposit
+            ? currentAllowances.lockupAllowance - currentTotalDeposit
+            : 0n,
+      }
 
       // Always offer if deposit-limited or below lockup requirement
       if (capacity.isDepositLimited || currentTotalDeposit < currentAllowances.lockupAllowance) {
