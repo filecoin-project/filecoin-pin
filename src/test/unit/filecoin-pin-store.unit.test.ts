@@ -10,6 +10,11 @@ import { createLogger } from '../../logger.js'
 const mockSynapseService = {
   synapse: {} as any,
   storage: {} as any,
+  providerInfo: {
+    id: 1,
+    name: 'Mock Provider',
+    serviceProvider: '0x1234567890123456789012345678901234567890',
+  } as any,
 }
 
 // Mock the heavy dependencies

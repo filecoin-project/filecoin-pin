@@ -1,5 +1,4 @@
-import { existsSync } from 'node:fs'
-import { readFile, rm } from 'node:fs/promises'
+import { readFile, rm, stat } from 'node:fs/promises'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { unixfs } from '@helia/unixfs'
@@ -98,8 +97,11 @@ describe('End-to-End Pinning Service', () => {
     }
 
     // Clean up test files
-    if (existsSync(testOutputDir)) {
+    try {
+      await stat(testOutputDir)
       await rm(testOutputDir, { recursive: true, force: true })
+    } catch {
+      // Directory doesn't exist, nothing to clean up
     }
   }, 15000)
 
@@ -156,7 +158,10 @@ describe('End-to-End Pinning Service', () => {
 
       // 4. Verify CAR file was created and contains correct data
       if (pinStatus.info?.car_file_path != null) {
-        expect(existsSync(pinStatus.info.car_file_path)).toBe(true)
+        const fileExists = await stat(pinStatus.info.car_file_path)
+          .then(() => true)
+          .catch(() => false)
+        expect(fileExists).toBe(true)
 
         const carBytes = await readFile(pinStatus.info.car_file_path)
         const reader = await CarReader.fromBytes(carBytes)
@@ -521,7 +526,10 @@ describe('End-to-End Pinning Service', () => {
 
         // Verify CAR file
         if (status?.info?.car_file_path != null) {
-          expect(existsSync(status.info.car_file_path)).toBe(true)
+          const fileExists = await stat(status.info.car_file_path)
+            .then(() => true)
+            .catch(() => false)
+          expect(fileExists).toBe(true)
 
           const carBytes = await readFile(status.info.car_file_path)
           const reader = await CarReader.fromBytes(carBytes)

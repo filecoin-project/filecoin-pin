@@ -1,5 +1,4 @@
-import { existsSync } from 'node:fs'
-import { readFile, rm } from 'node:fs/promises'
+import { readFile, rm, stat } from 'node:fs/promises'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
@@ -27,8 +26,11 @@ describe('CARWritingBlockstore', () => {
   afterEach(async () => {
     // Clean up test files
     await blockstore.cleanup()
-    if (existsSync(testOutputPath)) {
+    try {
+      await stat(testOutputPath)
       await rm(testOutputPath)
+    } catch {
+      // File doesn't exist, nothing to clean up
     }
   })
 
@@ -219,7 +221,11 @@ describe('CARWritingBlockstore', () => {
       await blockstore.put(testCID, testBlock)
       await blockstore.finalize()
 
-      expect(existsSync(testOutputPath)).toBe(true)
+      // Verify file was created
+      const fileExists = await stat(testOutputPath)
+        .then(() => true)
+        .catch(() => false)
+      expect(fileExists).toBe(true)
 
       // Verify file is not empty
       const fileContent = await readFile(testOutputPath)

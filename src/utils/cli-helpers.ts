@@ -2,7 +2,12 @@
  * Shared CLI helper utilities for consistent command-line experience
  */
 
-import { intro as clackIntro, spinner as clackSpinner } from '@clack/prompts'
+import {
+  cancel as clackCancel,
+  intro as clackIntro,
+  outro as clackOutro,
+  spinner as clackSpinner,
+} from '@clack/prompts'
 import { isTTY, log } from './cli-logger.js'
 
 /**
@@ -42,6 +47,32 @@ export function intro(message: string): void {
     clackIntro(message)
   } else {
     log.message(message)
+  }
+}
+
+/**
+ * Display a cancellation/error message
+ * In TTY mode, uses clack's cancel for nice formatting
+ * In non-TTY mode, prints to stderr
+ */
+export function cancel(message: string): void {
+  if (isTTY()) {
+    clackCancel(message)
+  } else {
+    console.error(message)
+  }
+}
+
+/**
+ * Display a success/completion message
+ * In TTY mode, uses clack's outro for nice formatting
+ * In non-TTY mode, prints to stdout
+ */
+export function outro(message: string): void {
+  if (isTTY()) {
+    clackOutro(message)
+  } else {
+    console.log(message)
   }
 }
 

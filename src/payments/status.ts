@@ -8,6 +8,9 @@
 import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { cleanupProvider } from '../synapse/service.js'
+import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
+import { log } from '../utils/cli-logger.js'
 import {
   checkFILBalance,
   checkUSDFCBalance,
@@ -46,8 +49,10 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
   // 2. RPC URL
   const rpcUrl = options.rpcUrl || process.env.RPC_URL || RPC_URLS.calibration.websocket
 
-  console.log(pc.bold('Filecoin Onchain Cloud Payment Status'))
-  console.log(pc.gray('Fetching current configuration...'))
+  intro(pc.bold('Filecoin Onchain Cloud Payment Status'))
+
+  const spinner = createSpinner()
+  spinner.start('Fetching current configuration...')
 
   // Store provider reference for cleanup if it's a WebSocket provider
   let provider: any = null
@@ -68,22 +73,67 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     }
 
     // Check balances and status
-    const { balance: filBalance, isCalibnet } = await checkFILBalance(synapse)
+    const filStatus = await checkFILBalance(synapse)
+
+    // Early exit if account has no funds
+    if (filStatus.balance === 0n) {
+      spinner.stop('━━━ Current Status ━━━')
+
+      log.line(`Address: ${address}`)
+      log.line(`Network: ${network}`)
+      log.line('')
+      log.line(`${pc.red('✗')} Account has no FIL balance`)
+      log.line('')
+      log.line(
+        `Get test FIL from: ${filStatus.isCalibnet ? 'https://faucet.calibnet.chainsafe-fil.io/' : 'Purchase FIL from an exchange'}`
+      )
+      log.flush()
+
+      // Clean up WebSocket provider before exiting
+      await cleanupProvider(provider)
+
+      cancel('Account not funded')
+      process.exit(1)
+    }
+
     const usdfcBalance = await checkUSDFCBalance(synapse)
+
+    // Check if we have USDFC tokens before continuing
+    if (usdfcBalance === 0n) {
+      spinner.stop('━━━ Current Status ━━━')
+
+      log.line(`Address: ${address}`)
+      log.line(`Network: ${network}`)
+      log.line('')
+      log.line(`${pc.red('✗')} No USDFC tokens found`)
+      log.line('')
+      const helpMessage = filStatus.isCalibnet
+        ? 'Get test USDFC from: https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet'
+        : 'Mint USDFC with FIL: https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step'
+      log.line(`  ${pc.cyan(helpMessage)}`)
+      log.flush()
+
+      await cleanupProvider(provider)
+
+      cancel('USDFC required to use Filecoin Onchain Cloud')
+      process.exit(1)
+    }
+
     const status = await getPaymentStatus(synapse)
 
     // Get storage pricing for capacity calculation
     const storageInfo = await synapse.storage.getStorageInfo()
     const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
 
-    // Display status (with custom header)
-    console.log(`\n━━━ Current Status ━━━`)
-    console.log(`Address: ${address}`)
+    // Stop spinner and display status
+    spinner.stop('━━━ Current Status ━━━')
+
+    log.line(`Address: ${address}`)
 
     displayPaymentSummary(
       network,
-      filBalance,
-      isCalibnet,
+      filStatus.balance,
+      filStatus.isCalibnet,
       usdfcBalance,
       status.depositedAmount,
       status.currentAllowances.rateAllowance,
@@ -98,28 +148,24 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     // - Active data sets
     // - Recent payments
     // - Usage statistics
-    console.log(`\n${pc.gray('Payment rails details coming soon...')}`)
+    log.line('')
+    log.line(pc.gray('Payment rails details coming soon...'))
+    log.flush()
 
-    // Clean up WebSocket providers to allow process termination
-    if (provider && typeof provider.destroy === 'function') {
-      try {
-        await provider.destroy()
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
+    await cleanupProvider(provider)
+
+    // Show success outro
+    outro('Status check complete')
   } catch (error) {
-    console.error(`\n${pc.red('Error:')}`, error instanceof Error ? error.message : error)
+    spinner.stop(`${pc.red('✗')} Status check failed`)
 
-    // Clean up even on error
-    if (provider && typeof provider.destroy === 'function') {
-      try {
-        await provider.destroy()
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
+    log.line('')
+    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.flush()
 
+    await cleanupProvider(provider)
+
+    cancel('Status check failed')
     process.exit(1)
   }
 }

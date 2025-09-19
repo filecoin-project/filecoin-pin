@@ -195,53 +195,52 @@ export function displayAccountInfo(
 }
 
 /**
- * Check and handle insufficient funds
+ * Validation result with error messages
+ */
+export interface PaymentValidationResult {
+  isValid: boolean
+  errorMessage?: string
+  helpMessage?: string
+}
+
+/**
+ * Validate payment requirements and return structured result
+ *
+ * This function validates both FIL and USDFC balances and returns
+ * structured error messages that can be displayed by the caller.
  *
  * @param hasSufficientGas - Whether wallet has enough FIL for gas
  * @param usdfcBalance - USDFC balance in wei
  * @param isCalibnet - Whether on calibration testnet
- * @param exitOnError - Whether to exit the process on error (for auto mode)
- * @returns true if funds are sufficient, false if not
+ * @returns Validation result with error messages
  */
-export function checkInsufficientFunds(
+export function validatePaymentRequirements(
   hasSufficientGas: boolean,
   usdfcBalance: bigint,
-  isCalibnet: boolean,
-  exitOnError: boolean = false
-): boolean {
+  isCalibnet: boolean
+): PaymentValidationResult {
   if (!hasSufficientGas) {
-    console.error(pc.red('✗ Insufficient FIL for gas fees'))
+    const result: PaymentValidationResult = {
+      isValid: false,
+      errorMessage: 'Insufficient FIL for gas fees',
+    }
     if (isCalibnet) {
-      log.message(pc.yellow('Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'))
+      result.helpMessage = 'Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'
     }
-    if (exitOnError) {
-      process.exit(1)
-    }
-    return false
+    return result
   }
 
   if (usdfcBalance === 0n) {
-    console.error(pc.red('✗ No USDFC tokens found'))
-    if (isCalibnet) {
-      log.message(
-        pc.yellow(
-          'Get test USDFC from: https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet'
-        )
-      )
-    } else {
-      log.message(
-        pc.yellow(
-          'Mint USDFC with FIL: https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step'
-        )
-      )
+    return {
+      isValid: false,
+      errorMessage: 'No USDFC tokens found',
+      helpMessage: isCalibnet
+        ? 'Get test USDFC from: https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet'
+        : 'Mint USDFC with FIL: https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step',
     }
-    if (exitOnError) {
-      process.exit(1)
-    }
-    return false
   }
 
-  return true
+  return { isValid: true }
 }
 
 /**

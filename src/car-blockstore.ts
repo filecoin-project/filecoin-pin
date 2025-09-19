@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
-import { createWriteStream, existsSync, type WriteStream } from 'node:fs'
-import { mkdir, open } from 'node:fs/promises'
+import { createWriteStream, type WriteStream } from 'node:fs'
+import { mkdir, open, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -129,7 +129,9 @@ export class CARWritingBlockstore extends EventEmitter implements Blockstore {
     await new Promise((resolve) => setTimeout(resolve, 20))
 
     // Verify file was created
-    if (!existsSync(this.outputPath)) {
+    try {
+      await stat(this.outputPath)
+    } catch {
       throw new Error(`Failed to create CAR file at ${this.outputPath}`)
     }
 

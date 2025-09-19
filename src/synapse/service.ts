@@ -43,31 +43,21 @@ export function resetSynapseService(): void {
 export interface SynapseService {
   synapse: Synapse
   storage: StorageContext
-  providerInfo?: ProviderInfo | undefined
+  providerInfo: ProviderInfo
 }
 
 /**
- * Initialize Synapse SDK and create storage service
+ * Initialize the Synapse SDK without creating storage context
  *
- * This function demonstrates the complete initialization flow for Synapse SDK:
- * 1. Validates required configuration (private key)
- * 2. Creates Synapse instance with network configuration
- * 3. Creates a storage context with comprehensive callbacks
- * 4. Returns a service object for application use
+ * This function initializes the Synapse SDK connection without creating
+ * a storage context. This method is primarily a wrapper for handling our
+ * custom configuration needs and adding detailed logging.
  *
  * @param config - Application configuration with privateKey and RPC URL
  * @param logger - Logger instance for detailed operation tracking
- * @returns SynapseService with initialized Synapse and storage context
+ * @returns Initialized Synapse instance
  */
-export async function initializeSynapse(
-  config: Config,
-  logger: Logger,
-  progressCallbacks?: {
-    onProviderSelected?: (provider: any) => void
-    onDataSetCreationStarted?: (transaction: any) => void
-    onDataSetResolved?: (info: { dataSetId: number; isExisting: boolean }) => void
-  }
-): Promise<SynapseService> {
+export async function initializeSynapse(config: Config, logger: Logger): Promise<Synapse> {
   try {
     // Log the configuration status
     logger.info(
@@ -124,6 +114,46 @@ export async function initializeSynapse(
       'Synapse SDK initialized'
     )
 
+    // Store instance for cleanup
+    synapseInstance = synapse
+
+    return synapse
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    logger.error(
+      {
+        event: 'synapse.init.failed',
+        error: errorMessage,
+      },
+      `Failed to initialize Synapse SDK: ${errorMessage}`
+    )
+    throw error
+  }
+}
+
+/**
+ * Create storage context for an initialized Synapse instance
+ *
+ * This creates a storage context with comprehensive callbacks for tracking
+ * the data set creation and provider selection process. This is primarily
+ * a wrapper around the Synapse SDK's storage context creation, adding logging
+ * and progress callbacks for better observability.
+ *
+ * @param synapse - Initialized Synapse instance
+ * @param logger - Logger instance for detailed operation tracking
+ * @param progressCallbacks - Optional callbacks for progress tracking
+ * @returns Storage context and provider information
+ */
+export async function createStorageContext(
+  synapse: Synapse,
+  logger: Logger,
+  progressCallbacks?: {
+    onProviderSelected?: (provider: any) => void
+    onDataSetCreationStarted?: (transaction: any) => void
+    onDataSetResolved?: (info: { dataSetId: number; isExisting: boolean }) => void
+  }
+): Promise<{ storage: StorageContext; providerInfo: ProviderInfo }> {
+  try {
     // Create storage context with comprehensive event tracking
     // The storage context manages the data set and provider interactions
     logger.info({ event: 'synapse.storage.create' }, 'Creating storage context')
@@ -208,22 +238,63 @@ export async function initializeSynapse(
       'Storage context created successfully'
     )
 
-    // Store instances
-    synapseInstance = synapse
+    // Store instance
     storageInstance = storage
 
-    return { synapse, storage, providerInfo: currentProviderInfo ?? undefined }
+    // Ensure we always have provider info
+    if (!currentProviderInfo) {
+      // This should not happen as provider is selected during context creation
+      throw new Error('Provider information not available after storage context creation')
+    }
+
+    return { storage, providerInfo: currentProviderInfo }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     logger.error(
       {
-        event: 'synapse.init.failed',
+        event: 'synapse.storage.create.failed',
         error: errorMessage,
       },
-      `Failed to initialize Synapse: ${errorMessage}`
+      `Failed to create storage context: ${errorMessage}`
     )
     throw error
   }
+}
+
+/**
+ * Set up complete Synapse service with SDK and storage context
+ *
+ * This function demonstrates the complete setup flow for Synapse:
+ * 1. Validates required configuration (private key)
+ * 2. Creates Synapse instance with network configuration
+ * 3. Creates a storage context with comprehensive callbacks
+ * 4. Returns a service object for application use
+ *
+ * Our wrapping of Synapse initialization and storage context creation is
+ * primarily to handle our custom configuration needs and add detailed logging
+ * and progress tracking.
+ *
+ * @param config - Application configuration with privateKey and RPC URL
+ * @param logger - Logger instance for detailed operation tracking
+ * @param progressCallbacks - Optional callbacks for progress tracking
+ * @returns SynapseService with initialized Synapse and storage context
+ */
+export async function setupSynapse(
+  config: Config,
+  logger: Logger,
+  progressCallbacks?: {
+    onProviderSelected?: (provider: any) => void
+    onDataSetCreationStarted?: (transaction: any) => void
+    onDataSetResolved?: (info: { dataSetId: number; isExisting: boolean }) => void
+  }
+): Promise<SynapseService> {
+  // Initialize SDK
+  const synapse = await initializeSynapse(config, logger)
+
+  // Create storage context
+  const { storage, providerInfo } = await createStorageContext(synapse, logger, progressCallbacks)
+
+  return { synapse, storage, providerInfo }
 }
 
 /**
@@ -244,18 +315,30 @@ export function getDefaultStorageContextConfig(overrides: any = {}) {
 }
 
 /**
+ * Clean up a WebSocket provider connection.
+ * This is important for allowing the Node.js process to exit cleanly.
+ *
+ * @param provider - The provider to clean up
+ */
+export async function cleanupProvider(provider: any): Promise<void> {
+  if (provider && typeof provider.destroy === 'function') {
+    try {
+      await provider.destroy()
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+/**
  * Clean up WebSocket providers and other resources
  *
  * Call this when CLI commands are finishing to ensure proper cleanup
  * and allow the process to terminate.
  */
 export async function cleanupSynapseService(): Promise<void> {
-  if (activeProvider && typeof activeProvider.destroy === 'function') {
-    try {
-      await activeProvider.destroy()
-    } catch {
-      // Ignore cleanup errors
-    }
+  if (activeProvider) {
+    await cleanupProvider(activeProvider)
   }
 
   // Clear references
@@ -269,12 +352,12 @@ export async function cleanupSynapseService(): Promise<void> {
  * Get the initialized Synapse service
  */
 export function getSynapseService(): SynapseService | null {
-  if (synapseInstance == null || storageInstance == null) {
+  if (synapseInstance == null || storageInstance == null || currentProviderInfo == null) {
     return null
   }
   return {
     synapse: synapseInstance,
     storage: storageInstance,
-    providerInfo: currentProviderInfo ?? undefined,
+    providerInfo: currentProviderInfo,
   }
 }

@@ -9,13 +9,13 @@
 import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { createSpinner, intro } from '../utils/cli-helpers.js'
+import { cleanupProvider } from '../synapse/service.js'
+import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import {
   calculateStorageAllowances,
   calculateStorageFromUSDFC,
   checkFILBalance,
-  checkInsufficientFunds,
   checkUSDFCBalance,
   depositUSDFC,
   displayAccountInfo,
@@ -26,6 +26,7 @@ import {
   getPaymentStatus,
   parseStorageAllowance,
   setServiceApprovals,
+  validatePaymentRequirements,
 } from './setup.js'
 import type { PaymentSetupOptions, StorageAllowances } from './types.js'
 
@@ -113,17 +114,37 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     // Check balances
     spinner.start('Checking balances...')
 
-    const { balance: filBalance, isCalibnet, hasSufficientGas } = await checkFILBalance(synapse)
+    const filStatus = await checkFILBalance(synapse)
     const usdfcBalance = await checkUSDFCBalance(synapse)
-    const status = await getPaymentStatus(synapse)
 
     spinner.stop(`${pc.green('✓')} Balance check complete`)
 
-    // Display account and balance info using shared function
-    displayAccountInfo(address, network, filBalance, isCalibnet, hasSufficientGas, usdfcBalance, status.depositedAmount)
+    // Validate payment requirements
+    const validation = validatePaymentRequirements(filStatus.hasSufficientGas, usdfcBalance, filStatus.isCalibnet)
+    if (!validation.isValid) {
+      log.line(`${pc.red('✗')} ${validation.errorMessage}`)
+      if (validation.helpMessage) {
+        log.line('')
+        log.line(`  ${pc.cyan(validation.helpMessage)}`)
+      }
+      log.flush()
+      cancel('Please fund your wallet and try again')
+      process.exit(1)
+    }
 
-    // Check for insufficient funds
-    checkInsufficientFunds(hasSufficientGas, usdfcBalance, isCalibnet, true)
+    // Now safe to get payment status since we know account exists
+    const status = await getPaymentStatus(synapse)
+
+    // Display account and balance info using shared function
+    displayAccountInfo(
+      address,
+      network,
+      filStatus.balance,
+      filStatus.isCalibnet,
+      filStatus.hasSufficientGas,
+      usdfcBalance,
+      status.depositedAmount
+    )
 
     // Get storage pricing for capacity calculation
     const storageInfo = await synapse.storage.getStorageInfo()
@@ -244,8 +265,8 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
 
     displayPaymentSummary(
       network,
-      filBalance,
-      isCalibnet,
+      filStatus.balance,
+      filStatus.isCalibnet,
       usdfcBalance,
       totalDeposit,
       finalRateAllowance,
@@ -256,27 +277,13 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     // Show deposit warning if needed
     displayDepositWarning(totalDeposit, status.currentAllowances.lockupUsed)
 
-    // Clean up WebSocket providers to allow process termination
-    if (provider && typeof provider.destroy === 'function') {
-      try {
-        await provider.destroy()
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
+    outro('Payment setup completed successfully')
   } catch (error) {
     spinner.stop() // Stop spinner without message
     console.error(pc.red('✗ Setup failed'))
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
 
-    // Clean up even on error
-    if (provider && typeof provider.destroy === 'function') {
-      try {
-        await provider.destroy()
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
+    await cleanupProvider(provider)
 
     process.exit(1)
   }

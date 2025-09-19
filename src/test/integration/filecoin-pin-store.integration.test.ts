@@ -1,5 +1,4 @@
-import { existsSync } from 'node:fs'
-import { rm } from 'node:fs/promises'
+import { rm, stat } from 'node:fs/promises'
 import { createHelia } from 'helia'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
@@ -8,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createConfig } from '../../config.js'
 import { FilecoinPinStore } from '../../filecoin-pin-store.js'
 import { createLogger } from '../../logger.js'
-import { MockSynapse } from '../mocks/synapse-mocks.js'
+import { MockSynapse, mockProviderInfo } from '../mocks/synapse-mocks.js'
 
 // Mock the Synapse SDK - vi.mock requires async import for ES modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
@@ -43,7 +42,7 @@ describe('FilecoinPinStore', () => {
     // Create mock Synapse service
     const mockSynapse = new MockSynapse()
     const mockStorage = await mockSynapse.storage.createContext()
-    const synapseService = { synapse: mockSynapse as any, storage: mockStorage }
+    const synapseService = { synapse: mockSynapse as any, storage: mockStorage, providerInfo: mockProviderInfo }
 
     // Create Filecoin pin store with mock Synapse
     pinStore = new FilecoinPinStore({
@@ -62,8 +61,11 @@ describe('FilecoinPinStore', () => {
     }
 
     // Clean up test files
-    if (existsSync(testOutputDir)) {
+    try {
+      await stat(testOutputDir)
       await rm(testOutputDir, { recursive: true, force: true })
+    } catch {
+      // Directory doesn't exist, nothing to clean up
     }
   })
 
@@ -288,7 +290,7 @@ describe('FilecoinPinStore', () => {
       // Create mock Synapse service
       const mockSynapse = new MockSynapse()
       const mockStorage = await mockSynapse.storage.createContext()
-      const synapseService = { synapse: mockSynapse as any, storage: mockStorage }
+      const synapseService = { synapse: mockSynapse as any, storage: mockStorage, providerInfo: mockProviderInfo }
 
       const config = {
         ...createConfig(),
@@ -309,7 +311,7 @@ describe('FilecoinPinStore', () => {
       // Create mock Synapse service
       const mockSynapse = new MockSynapse()
       const mockStorage = await mockSynapse.storage.createContext()
-      const synapseService = { synapse: mockSynapse as any, storage: mockStorage }
+      const synapseService = { synapse: mockSynapse as any, storage: mockStorage, providerInfo: mockProviderInfo }
 
       const config = {
         ...createConfig(),

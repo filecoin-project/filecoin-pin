@@ -10,15 +10,14 @@ import { cancel, confirm, isCancel, password, text } from '@clack/prompts'
 import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { cleanupSynapseService } from '../synapse/service.js'
-import { createSpinner, intro } from '../utils/cli-helpers.js'
+import { cleanupProvider, cleanupSynapseService } from '../synapse/service.js'
+import { createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
 import {
   calculateActualCapacity,
   calculateStorageAllowances,
   calculateStorageFromUSDFC,
   checkFILBalance,
-  checkInsufficientFunds,
   checkUSDFCBalance,
   depositUSDFC,
   displayAccountInfo,
@@ -31,6 +30,7 @@ import {
   getPaymentStatus,
   parseStorageAllowance,
   setServiceApprovals,
+  validatePaymentRequirements,
 } from './setup.js'
 import type { PaymentSetupOptions, StorageAllowances } from './types.js'
 
@@ -83,7 +83,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       if (isCancel(input)) {
         cancel('Setup cancelled')
-        process.exit(0)
+        process.exit(1)
       }
 
       // Add 0x prefix if it was missing
@@ -114,20 +114,36 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     // Step 3: Check balances
     s.start('Checking balances...')
 
-    const { balance: filBalance, isCalibnet, hasSufficientGas } = await checkFILBalance(synapse)
+    const filStatus = await checkFILBalance(synapse)
     const usdfcBalance = await checkUSDFCBalance(synapse)
-    const status = await getPaymentStatus(synapse)
 
     s.stop(`${pc.green('✓')} Balance check complete`)
 
-    // Display account and balance info using shared function
-    displayAccountInfo(address, network, filBalance, isCalibnet, hasSufficientGas, usdfcBalance, status.depositedAmount)
-
-    // Check if user needs funds
-    if (!checkInsufficientFunds(hasSufficientGas, usdfcBalance, isCalibnet, false)) {
+    // Validate payment requirements
+    const validation = validatePaymentRequirements(filStatus.hasSufficientGas, usdfcBalance, filStatus.isCalibnet)
+    if (!validation.isValid) {
+      log.line(`${pc.red('✗')} ${validation.errorMessage}`)
+      if (validation.helpMessage) {
+        log.line('')
+        log.line(`  ${pc.cyan(validation.helpMessage)}`)
+      }
+      log.flush()
       cancel('Please fund your wallet and try again')
       process.exit(1)
     }
+
+    // Now safe to get payment status since we know account exists
+    const status = await getPaymentStatus(synapse)
+
+    displayAccountInfo(
+      address,
+      network,
+      filStatus.balance,
+      filStatus.isCalibnet,
+      filStatus.hasSufficientGas,
+      usdfcBalance,
+      status.depositedAmount
+    )
 
     // Get storage pricing info once for all subsequent operations
     s.start('Getting current pricing...')
@@ -154,7 +170,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       if (isCancel(shouldDeposit)) {
         cancel('Setup cancelled')
-        process.exit(0)
+        process.exit(1)
       }
 
       if (shouldDeposit) {
@@ -176,7 +192,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
         if (isCancel(amountStr)) {
           cancel('Setup cancelled')
-          process.exit(0)
+          process.exit(1)
         }
 
         depositAmount = ethers.parseUnits(amountStr, 18)
@@ -228,7 +244,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
     if (isCancel(shouldSetAllowances)) {
       cancel('Setup cancelled')
-      process.exit(0)
+      process.exit(1)
     }
 
     if (shouldSetAllowances) {
@@ -243,8 +259,6 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
         placeholder: '1TiB/month or 0.0000565 (USDFC/epoch)',
         initialValue: options.rateAllowance || '1TiB/month',
         validate: (value: string) => {
-          // Note: Can't use async validation here due to @clack/prompts limitations
-          // We'll validate after the input is received
           if (!value) return 'Storage allowance is required'
           return undefined
         },
@@ -252,7 +266,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       if (isCancel(allowanceStr)) {
         cancel('Setup cancelled')
-        process.exit(0)
+        process.exit(1)
       }
 
       // Parse and calculate allowances
@@ -306,7 +320,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
         if (isCancel(shouldContinue) || !shouldContinue) {
           cancel('Setup cancelled')
-          process.exit(0)
+          process.exit(1)
         }
       }
 
@@ -353,7 +367,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
         if (isCancel(shouldDepositMore)) {
           cancel('Setup cancelled')
-          process.exit(0)
+          process.exit(1)
         }
 
         if (shouldDepositMore) {
@@ -387,7 +401,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
           if (isCancel(amountStr)) {
             cancel('Setup cancelled')
-            process.exit(0)
+            process.exit(1)
           }
 
           const additionalDeposit = ethers.parseUnits(amountStr, 18)
@@ -413,8 +427,8 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     // Use the shared display function for consistency
     displayPaymentSummary(
       network,
-      filBalance,
-      isCalibnet,
+      filStatus.balance,
+      filStatus.isCalibnet,
       usdfcBalance,
       finalStatus.depositedAmount,
       finalStatus.currentAllowances.rateAllowance,
@@ -425,25 +439,11 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     // Show deposit warning if needed
     displayDepositWarning(finalStatus.depositedAmount, finalStatus.currentAllowances.lockupUsed)
 
-    // Clean up WebSocket providers to allow process termination
-    if (provider && typeof provider.destroy === 'function') {
-      try {
-        await provider.destroy()
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
+    outro('Payment setup completed successfully')
   } catch (error) {
     console.error(`\n${pc.red('Error:')}`, error instanceof Error ? error.message : error)
 
-    // Clean up even on error
-    if (provider && typeof provider.destroy === 'function') {
-      try {
-        await provider.destroy()
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
+    await cleanupProvider(provider)
 
     process.exit(1)
   }

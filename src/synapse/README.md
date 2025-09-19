@@ -38,18 +38,18 @@ Comprehensive payment rail management for Filecoin Pay:
 
 Below are examples of how we use our custom Synapse SDK abstractions from within Filecoin Pin.
 
-### Initialize Synapse SDK
+### Set up Synapse Service
 
 ```typescript
 import { RPC_URLS } from '@filoz/synapse-sdk'
-import { initializeSynapse } from './synapse/service.js'
+import { setupSynapse } from './synapse/service.js'
 
 const config = {
   privateKey: process.env.PRIVATE_KEY,
   rpcUrl: RPC_URLS.calibration.websocket
 }
 
-const synapseService = await initializeSynapse(config, logger, {
+const synapseService = await setupSynapse(config, logger, {
   onProviderSelected: (provider) => {
     console.log(`Selected provider: ${provider.name}`)
   },

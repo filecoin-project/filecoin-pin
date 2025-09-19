@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Config } from '../../config.js'
 import { createConfig } from '../../config.js'
 import { createLogger } from '../../logger.js'
-import { getSynapseService, initializeSynapse, resetSynapseService } from '../../synapse/service.js'
+import { getSynapseService, resetSynapseService, setupSynapse } from '../../synapse/service.js'
 import { uploadToSynapse } from '../../synapse/upload.js'
 
 // Mock the Synapse SDK - vi.mock requires async import for ES modules
@@ -35,15 +35,15 @@ describe('synapse-service', () => {
     vi.clearAllMocks()
   })
 
-  describe('initializeSynapse', () => {
+  describe('setupSynapse', () => {
     it('should throw error when private key is not configured', async () => {
       config.privateKey = undefined
 
-      await expect(initializeSynapse(config, logger)).rejects.toThrow('PRIVATE_KEY environment variable is required')
+      await expect(setupSynapse(config, logger)).rejects.toThrow('PRIVATE_KEY environment variable is required')
     })
 
     it('should initialize Synapse when private key is configured', async () => {
-      const result = await initializeSynapse(config, logger)
+      const result = await setupSynapse(config, logger)
 
       expect(result).not.toBeNull()
       expect(result?.synapse).toBeDefined()
@@ -53,7 +53,7 @@ describe('synapse-service', () => {
     it('should log initialization events', async () => {
       const infoSpy = vi.spyOn(logger, 'info')
 
-      await initializeSynapse(config, logger)
+      await setupSynapse(config, logger)
 
       // Check that initialization logs were called
       expect(infoSpy).toHaveBeenCalledWith(
@@ -89,7 +89,7 @@ describe('synapse-service', () => {
         return synapse
       })
 
-      await initializeSynapse(config, logger)
+      await setupSynapse(config, logger)
 
       expect(callbacks.length).toBeGreaterThan(0)
     })
@@ -105,7 +105,7 @@ describe('synapse-service', () => {
     })
 
     it('should return service after initialization', async () => {
-      await initializeSynapse(config, logger)
+      await setupSynapse(config, logger)
 
       const result = getSynapseService()
       expect(result).not.toBeNull()
@@ -118,7 +118,7 @@ describe('synapse-service', () => {
     let service: any
 
     beforeEach(async () => {
-      service = await initializeSynapse(config, logger)
+      service = await setupSynapse(config, logger)
     })
 
     it('should upload data successfully', async () => {
@@ -193,7 +193,7 @@ describe('synapse-service', () => {
         warmStorageAddress: undefined,
       }
 
-      const service = await initializeSynapse(mockConfig, logger)
+      const service = await setupSynapse(mockConfig, logger)
 
       // Check that provider info was captured
       expect(service.providerInfo).toBeDefined()
@@ -215,7 +215,7 @@ describe('synapse-service', () => {
         warmStorageAddress: undefined,
       }
 
-      const service = await initializeSynapse(mockConfig, logger)
+      const service = await setupSynapse(mockConfig, logger)
 
       // Now test the upload with synapse-upload.ts
       const data = new Uint8Array([1, 2, 3])
@@ -227,14 +227,11 @@ describe('synapse-service', () => {
       expect(result.providerInfo).toBeDefined()
       expect(result.providerInfo?.id).toBe(1)
       expect(result.providerInfo?.name).toBe('Mock Provider')
-      expect(result.providerInfo?.serviceURL).toBe('http://localhost:8888/pdp')
-
-      // Verify download URL is correctly constructed
-      expect(result.providerInfo?.downloadURL).toBe(`http://localhost:8888/pdp/piece/${result.pieceCid}`)
+      expect(result.providerInfo?.products?.PDP?.data?.serviceURL).toBe('http://localhost:8888/pdp')
     })
 
-    it('should handle missing provider info gracefully', async () => {
-      // Initialize without provider info being set
+    it('should always include provider info', async () => {
+      // Initialize with provider info
       const mockConfig: Config = {
         privateKey: 'test-private-key',
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
@@ -246,19 +243,18 @@ describe('synapse-service', () => {
         warmStorageAddress: undefined,
       }
 
-      // Create a service without provider info by manipulating after init
-      const service = await initializeSynapse(mockConfig, logger)
-      // Manually clear provider info to test the fallback
-      ;(service as any).providerInfo = undefined
+      const service = await setupSynapse(mockConfig, logger)
 
       const data = new Uint8Array([1, 2, 3])
       const result = await uploadToSynapse(service, data, TEST_CID, logger, {
         contextId: 'test-upload',
       })
 
-      // Verify upload still works but provider info is undefined
+      // Verify upload includes provider info
       expect(result.pieceCid).toBeDefined()
-      expect(result.providerInfo).toBeUndefined()
+      expect(result.providerInfo).toBeDefined()
+      expect(result.providerInfo.id).toBe(1)
+      expect(result.providerInfo.name).toBe('Mock Provider')
     })
 
     it('should handle provider without serviceURL gracefully', async () => {
@@ -273,7 +269,7 @@ describe('synapse-service', () => {
         warmStorageAddress: undefined,
       }
 
-      const service = await initializeSynapse(mockConfig, logger)
+      const service = await setupSynapse(mockConfig, logger)
 
       // Modify provider info to not have serviceURL
       if (service.providerInfo) {
@@ -291,9 +287,10 @@ describe('synapse-service', () => {
         contextId: 'test-upload',
       })
 
-      // Verify upload works but provider info is not included
+      // Verify upload works with provider info (serviceURL is empty)
       expect(result.pieceCid).toBeDefined()
-      expect(result.providerInfo).toBeUndefined()
+      expect(result.providerInfo).toBeDefined()
+      expect(result.providerInfo.products?.PDP?.data?.serviceURL).toBeUndefined()
     })
   })
 })

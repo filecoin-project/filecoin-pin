@@ -1,3 +1,5 @@
+import type { ProviderInfo } from '@filoz/synapse-sdk'
+
 export interface ImportOptions {
   filePath: string
   privateKey?: string
@@ -12,12 +14,5 @@ export interface ImportResult {
   pieceId?: number | undefined
   dataSetId: string
   transactionHash?: string | undefined
-  providerInfo?:
-    | {
-        id: number
-        name: string
-        serviceURL: string
-        downloadURL: string
-      }
-    | undefined
+  providerInfo: ProviderInfo
 }

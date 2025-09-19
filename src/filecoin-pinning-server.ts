@@ -4,7 +4,7 @@ import type { Logger } from 'pino'
 import type { Config } from './config.js'
 import { FilecoinPinStore, type PinOptions } from './filecoin-pin-store.js'
 import type { ServiceInfo } from './server.js'
-import { initializeSynapse } from './synapse/service.js'
+import { setupSynapse } from './synapse/service.js'
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -25,8 +25,8 @@ export async function createFilecoinPinningServer(
   logger: Logger,
   serviceInfo: ServiceInfo
 ): Promise<{ server: FastifyInstance; pinStore: FilecoinPinStore }> {
-  // Initialize Synapse
-  const synapseService = await initializeSynapse(config, logger)
+  // Set up Synapse service
+  const synapseService = await setupSynapse(config, logger)
 
   // Create our custom Filecoin pin store with Synapse service
   const filecoinPinStore = new FilecoinPinStore({

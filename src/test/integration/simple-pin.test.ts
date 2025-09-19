@@ -1,5 +1,4 @@
-import { existsSync } from 'node:fs'
-import { rm } from 'node:fs/promises'
+import { rm, stat } from 'node:fs/promises'
 import { createHelia } from 'helia'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
@@ -8,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createConfig } from '../../config.js'
 import { FilecoinPinStore } from '../../filecoin-pin-store.js'
 import { createLogger } from '../../logger.js'
-import { MockSynapse } from '../mocks/synapse-mocks.js'
+import { MockSynapse, mockProviderInfo } from '../mocks/synapse-mocks.js'
 
 // Mock the Synapse SDK - vi.mock requires async import for ES modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
@@ -41,7 +40,7 @@ describe('Simple Pin Test', () => {
     // Create mock Synapse service
     const mockSynapse = new MockSynapse()
     const mockStorage = await mockSynapse.storage.createContext()
-    const synapseService = { synapse: mockSynapse as any, storage: mockStorage }
+    const synapseService = { synapse: mockSynapse as any, storage: mockStorage, providerInfo: mockProviderInfo }
 
     // Create Filecoin pin store with mock Synapse
     pinStore = new FilecoinPinStore({
@@ -58,8 +57,11 @@ describe('Simple Pin Test', () => {
     if (contentOriginHelia != null) {
       await contentOriginHelia.stop()
     }
-    if (existsSync(testOutputDir)) {
+    try {
+      await stat(testOutputDir)
       await rm(testOutputDir, { recursive: true, force: true })
+    } catch {
+      // Directory doesn't exist, nothing to clean up
     }
   })
 
@@ -86,10 +88,13 @@ describe('Simple Pin Test', () => {
 
     console.log('Test: Final status:', finalStatus?.status)
     console.log('Test: CAR file path:', finalStatus?.filecoin?.carFilePath)
-    console.log('Test: CAR file exists:', existsSync(finalStatus?.filecoin?.carFilePath ?? ''))
+    const fileExists = await stat(finalStatus?.filecoin?.carFilePath ?? '')
+      .then(() => true)
+      .catch(() => false)
+    console.log('Test: CAR file exists:', fileExists)
 
     expect(finalStatus?.status).toBe('pinned')
     expect(finalStatus?.filecoin?.carFilePath).toBeDefined()
-    expect(existsSync(finalStatus?.filecoin?.carFilePath ?? '')).toBe(true)
+    expect(fileExists).toBe(true)
   }, 30000)
 })

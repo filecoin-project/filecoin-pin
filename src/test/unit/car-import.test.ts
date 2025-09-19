@@ -9,8 +9,8 @@
  * - Clean up resources properly
  */
 
-import { createWriteStream, existsSync } from 'node:fs'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { createWriteStream } from 'node:fs'
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { CarWriter } from '@ipld/car'
@@ -43,14 +43,18 @@ vi.mock('../../synapse/payments.js', () => ({
   }),
 }))
 vi.mock('../../payments/setup.js', () => ({
-  checkInsufficientFunds: vi.fn().mockReturnValue(true),
   formatUSDFC: vi.fn((amount) => `${amount} USDFC`),
+  validatePaymentRequirements: vi.fn().mockReturnValue({ isValid: true }),
 }))
 vi.mock('../../synapse/service.js', async () => {
   const { MockSynapse } = await import('../mocks/synapse-mocks.js')
 
   return {
-    initializeSynapse: vi.fn(async (_config: any, _logger: any, progressCallbacks?: any) => {
+    initializeSynapse: vi.fn(async (_config: any, _logger: any) => {
+      const mockSynapse = new MockSynapse()
+      return mockSynapse
+    }),
+    createStorageContext: vi.fn(async (_synapse: any, _logger: any, progressCallbacks?: any) => {
       const mockSynapse = new MockSynapse()
 
       // Simulate progress callbacks
@@ -77,6 +81,18 @@ vi.mock('../../synapse/service.js', async () => {
       return {
         synapse: mockSynapse as any,
         storage: mockStorage,
+        providerInfo: {
+          id: 1,
+          name: 'Mock Provider',
+          serviceProvider: '0x1234567890123456789012345678901234567890',
+          products: {
+            PDP: {
+              data: {
+                serviceURL: 'http://localhost:8888/pdp',
+              },
+            },
+          },
+        },
       }
     }),
     cleanupSynapseService: vi.fn(async () => {
@@ -158,8 +174,11 @@ describe('CAR Import', () => {
 
   afterEach(async () => {
     // Clean up test files
-    if (existsSync(testDir)) {
+    try {
+      await stat(testDir)
       await rm(testDir, { recursive: true, force: true })
+    } catch {
+      // Directory doesn't exist, nothing to clean up
     }
   })
 
@@ -253,7 +272,7 @@ describe('CAR Import', () => {
       }
 
       await expect(runCarImport(options)).rejects.toThrow('process.exit called')
-      expect(consoleMocks.error).toHaveBeenCalledWith(expect.stringContaining('Invalid CAR file'))
+      expect(consoleMocks.error).toHaveBeenCalledWith('Import cancelled')
     })
 
     it('should reject non-existent file', async () => {
@@ -263,7 +282,7 @@ describe('CAR Import', () => {
       }
 
       await expect(runCarImport(options)).rejects.toThrow('process.exit called')
-      expect(consoleMocks.error).toHaveBeenCalledWith(expect.stringContaining('File not found'))
+      expect(consoleMocks.error).toHaveBeenCalledWith('Import cancelled')
     })
   })
 
@@ -276,8 +295,8 @@ describe('CAR Import', () => {
         [{ content: 'test content' }]
       )
 
-      const { initializeSynapse } = await import('../../synapse/service.js')
-      const initSpy = vi.mocked(initializeSynapse)
+      const { createStorageContext } = await import('../../synapse/service.js')
+      const createContextSpy = vi.mocked(createStorageContext)
 
       const options: ImportOptions = {
         filePath: carPath,
@@ -286,9 +305,9 @@ describe('CAR Import', () => {
 
       await runCarImport(options)
 
-      // Verify progress callbacks were provided
-      expect(initSpy).toHaveBeenCalledWith(
-        expect.any(Object), // config
+      // Verify progress callbacks were provided to createStorageContext
+      expect(createContextSpy).toHaveBeenCalledWith(
+        expect.any(Object), // synapse
         expect.any(Object), // logger
         expect.objectContaining({
           onProviderSelected: expect.any(Function),
@@ -308,7 +327,7 @@ describe('CAR Import', () => {
       }
 
       await expect(runCarImport(options)).rejects.toThrow('process.exit called')
-      expect(consoleMocks.error).toHaveBeenCalledWith(expect.stringContaining('Private key required'))
+      expect(consoleMocks.error).toHaveBeenCalledWith('Import cancelled')
     })
 
     it('should use custom RPC URL if provided', async () => {
@@ -331,7 +350,6 @@ describe('CAR Import', () => {
         expect.objectContaining({
           rpcUrl: customRpcUrl,
         }),
-        expect.any(Object),
         expect.any(Object)
       )
     })
@@ -396,14 +414,10 @@ describe('CAR Import', () => {
         dataSetId: '123', // Mock returns string
       })
 
-      // Provider info may or may not be present depending on mock implementation
-      if (result.providerInfo) {
-        expect(result.providerInfo).toMatchObject({
-          id: expect.any(Number),
-          name: expect.any(String),
-          downloadURL: expect.any(String),
-        })
-      }
+      // Provider info is always present
+      expect(result.providerInfo).toBeDefined()
+      expect(result.providerInfo.id).toBe(1)
+      expect(result.providerInfo.name).toBe('Mock Provider')
     })
   })
 })

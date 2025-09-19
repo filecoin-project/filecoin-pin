@@ -5,7 +5,7 @@
  * via Synapse SDK, used by both the import command and pinning server.
  */
 
-import { METADATA_KEYS, type UploadCallbacks } from '@filoz/synapse-sdk'
+import { METADATA_KEYS, type ProviderInfo, type UploadCallbacks } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import type { SynapseService } from './service.js'
@@ -26,14 +26,22 @@ export interface SynapseUploadResult {
   pieceCid: string
   pieceId?: number | undefined
   dataSetId: string
-  providerInfo?:
-    | {
-        id: number
-        name: string
-        serviceURL: string
-        downloadURL: string
-      }
-    | undefined
+  providerInfo: ProviderInfo
+}
+
+/**
+ * Get the direct download URL for a piece from a provider
+ */
+export function getDownloadURL(providerInfo: ProviderInfo, pieceCid: string): string {
+  const serviceURL = providerInfo.products?.PDP?.data?.serviceURL
+  return serviceURL ? `${serviceURL.replace(/\/$/, '')}/piece/${pieceCid}` : ''
+}
+
+/**
+ * Get the service URL from provider info
+ */
+export function getServiceURL(providerInfo: ProviderInfo): string {
+  return providerInfo.products?.PDP?.data?.serviceURL ?? ''
 }
 
 /**
@@ -135,19 +143,7 @@ export async function uploadToSynapse(
     pieceCid: synapseResult.pieceCid.toString(),
     pieceId: synapseResult.pieceId !== undefined ? Number(synapseResult.pieceId) : undefined,
     dataSetId: String(synapseService.storage.dataSetId),
-  }
-
-  // Add provider info if available
-  if (synapseService.providerInfo) {
-    const serviceURL = synapseService.providerInfo.products?.PDP?.data?.serviceURL
-    if (serviceURL) {
-      result.providerInfo = {
-        id: synapseService.providerInfo.id,
-        name: synapseService.providerInfo.name,
-        serviceURL,
-        downloadURL: `${serviceURL.replace(/\/$/, '')}/piece/${result.pieceCid}`,
-      }
-    }
+    providerInfo: synapseService.providerInfo,
   }
 
   return result
