@@ -12,7 +12,13 @@
       "always-bump-patch": true,
       "pull-request-header": "📦 Release Preparation",
       "pull-request-footer": "\n\n## 🚀 How to Release\n\n1. **Review** the changelog and version bump in this PR\n2. **Merge this PR** to trigger the release\n3. After merging, the workflow will:\n   - Create a GitHub release with tag `{{version}}`\n   - Publish to npm automatically\n\n⚠️ **Note**: The release has NOT been created yet. It will only be created after you merge this PR.",
-      "bootstrap-sha": "70e3c175e69c54fe5a503bfbb34f4a68f6d646fe"
+      "bootstrap-sha": "70e3c175e69c54fe5a503bfbb34f4a68f6d646fe",
+      "changelog-sections": [
+        { "type": "feat", "section": "Features", "hidden": false },
+        { "type": "fix", "section": "Bug Fixes", "hidden": false },
+        { "type": "chore", "section": "Chores", "hidden": false },
+        { "type": "docs", "section": "Documentation", "hidden": false }
+      ]
     }
   },
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
