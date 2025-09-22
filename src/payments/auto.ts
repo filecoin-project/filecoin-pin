@@ -283,8 +283,9 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     console.error(pc.red('✗ Setup failed'))
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
 
+    process.exitCode = 1
+  } finally {
     await cleanupProvider(provider)
-
-    process.exit(1)
+    process.exit()
   }
 }

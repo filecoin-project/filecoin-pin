@@ -442,9 +442,9 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     outro('Payment setup completed successfully')
   } catch (error) {
     console.error(`\n${pc.red('Error:')}`, error instanceof Error ? error.message : error)
-
+    process.exitCode = 1
+  } finally {
     await cleanupProvider(provider)
-
-    process.exit(1)
+    process.exit()
   }
 }
