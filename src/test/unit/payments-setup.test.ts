@@ -11,6 +11,7 @@ import {
   parseStorageAllowance,
   setServiceApprovals,
 } from '../../payments/setup.js'
+import { calculateActualCapacity, calculateStorageFromUSDFC } from '../../synapse/payments.js'
 
 // Mock Synapse SDK
 vi.mock('@filoz/synapse-sdk', () => {
@@ -227,6 +228,57 @@ describe('Payment Setup Tests', () => {
         ethers.parseUnits('0.00008475', 18) * 2880n * 10n // rate * epochs/day * 10 days
       )
     })
+
+    it('should calculate allowances for 1 GiB/month (small storage amount)', () => {
+      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const storageTiB = 1 / 1024 // 1 GiB = 1/1024 TiB ~= 0.0009765625 TiB
+      const allowances = calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
+
+      expect(allowances.storageCapacityTiB).toBe(storageTiB)
+      expect(allowances.rateAllowance).toBeGreaterThan(0n)
+      expect(allowances.lockupAllowance).toBeGreaterThan(0n)
+
+      const roundTripTiB = calculateActualCapacity(allowances.rateAllowance, pricePerTiBPerEpoch)
+      expect(roundTripTiB).toBeCloseTo(storageTiB, 6)
+    })
+
+    it('should calculate allowances for 512 MiB/month', () => {
+      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const storageTiB = 512 / (1024 * 1024) // 512 MiB = 512/(1024*1024) TiB ~= 0.00048828125 TiB
+      const allowances = calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
+
+      expect(allowances.storageCapacityTiB).toBe(storageTiB)
+      expect(allowances.rateAllowance).toBeGreaterThan(0n)
+      expect(allowances.lockupAllowance).toBeGreaterThan(0n)
+
+      const roundTripTiB = calculateActualCapacity(allowances.rateAllowance, pricePerTiBPerEpoch)
+      expect(roundTripTiB).toBeCloseTo(storageTiB, 6)
+    })
+
+    it('should calculate allowances for 1 MiB/month', () => {
+      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const storageTiB = 1 / (1024 * 1024) // 1 MiB in TiB
+      const allowances = calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
+
+      expect(allowances.storageCapacityTiB).toBe(storageTiB)
+      expect(allowances.rateAllowance).toBeGreaterThan(0n)
+      expect(allowances.lockupAllowance).toBeGreaterThan(0n)
+
+      const roundTripTiB = calculateActualCapacity(allowances.rateAllowance, pricePerTiBPerEpoch)
+      expect(roundTripTiB).toBeCloseTo(storageTiB, 6)
+    })
+
+    it('should handle very large TiB values without overflow', () => {
+      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      // 900 billion TiB (if we multiplied this by STORAGE_SCALE_MAX, it would overflow)
+      const storageTiB = 900_000_000_000
+
+      const allowances = calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
+
+      // rateAllowance should be price * storageTiB exactly representable via bigint math
+      const expectedRate = (pricePerTiBPerEpoch * BigInt(storageTiB)) / 1n
+      expect(allowances.rateAllowance).toBe(expectedRate)
+    })
   })
 
   describe('parseStorageAllowance', () => {
@@ -267,6 +319,41 @@ describe('Payment Setup Tests', () => {
       expect(formatFIL(ethers.parseEther('1.5'), false)).toBe('1.5000 FIL')
       expect(formatFIL(ethers.parseEther('1.5'), true)).toBe('1.5000 tFIL')
       expect(formatFIL(ethers.parseEther('0.0001'), false)).toBe('0.0001 FIL')
+    })
+  })
+
+  describe('calculateActualCapacity', () => {
+    it('should calculate capacity from rate allowance with high precision', () => {
+      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const rateAllowance = calculateStorageAllowances(1, pricePerTiBPerEpoch).rateAllowance // 1GiB/month rate
+
+      const capacityTiB = calculateActualCapacity(rateAllowance, pricePerTiBPerEpoch)
+
+      const expectedTiB = 1 / 1024 // ~= 0.0009765625
+      expect(capacityTiB).toBeCloseTo(expectedTiB, 5)
+    })
+
+    it('should handle zero price gracefully', () => {
+      const capacityTiB = calculateActualCapacity(ethers.parseUnits('1', 18), 0n)
+      expect(capacityTiB).toBe(0)
+    })
+  })
+
+  describe('calculateStorageFromUSDFC', () => {
+    it('should calculate storage capacity from USDFC amount with high precision', () => {
+      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      // 10 days worth of 1GiB/month = 0.0015881472 USDFC
+      const usdfcAmount = ethers.parseUnits('0.0015881472', 18)
+
+      const capacityTiB = calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch)
+
+      const expectedTiB = 1 / 1024 // ~= 0.0009765625
+      expect(capacityTiB).toBeCloseTo(expectedTiB, 5)
+    })
+
+    it('should handle zero price gracefully', () => {
+      const capacityTiB = calculateStorageFromUSDFC(ethers.parseUnits('1', 18), 0n)
+      expect(capacityTiB).toBe(0)
     })
   })
 })
