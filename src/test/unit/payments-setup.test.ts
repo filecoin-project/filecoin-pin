@@ -2,6 +2,7 @@ import { ethers } from 'ethers'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   calculateStorageAllowances,
+  calculateStorageFromUSDFC,
   checkFILBalance,
   checkUSDFCBalance,
   depositUSDFC,
@@ -242,6 +243,12 @@ describe('Payment Setup Tests', () => {
       expect(tibPerMonth).toBe(0.5)
     })
 
+    it('should parse MiB/month format', () => {
+      const tibPerMonth = parseStorageAllowance(`524288MiB/month`) // 512 GiB
+
+      expect(tibPerMonth).toBe(0.5)
+    })
+
     it('should return null for direct USDFC/epoch format', () => {
       const tibPerMonth = parseStorageAllowance('0.0001')
 
@@ -267,6 +274,52 @@ describe('Payment Setup Tests', () => {
       expect(formatFIL(ethers.parseEther('1.5'), false)).toBe('1.5000 FIL')
       expect(formatFIL(ethers.parseEther('1.5'), true)).toBe('1.5000 tFIL')
       expect(formatFIL(ethers.parseEther('0.0001'), false)).toBe('0.0001 FIL')
+    })
+  })
+
+  describe('calculateStorageFromUSDFC', () => {
+    // FIXME: if pricePerTiBPerEpoch is 0, shouldn't we throw an error or return Infinity?
+    it('returns 0 if pricePerTiBPerEpoch is 0', () => {
+      const usdfcAmount = ethers.parseUnits('1', 18)
+      const pricePerTiBPerEpoch = ethers.parseUnits('0', 18)
+      const capacityTiB = calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch)
+
+      expect(capacityTiB).toBe(0)
+    })
+
+    it('returns 0 if usdfcAmount is 0', () => {
+      const usdfcAmount = ethers.parseUnits('0', 18)
+      const pricePerTiBPerEpoch = ethers.parseUnits('0.0005', 18)
+      const capacityTiB = calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch)
+
+      expect(capacityTiB).toBe(0)
+    })
+
+    // simple testcase to show what the pricePerTibPerEpoch would need to be to get 1TiB/month with 1USDFC
+    it('should return capacity of 1 when pricePerTibPerEpoch is low', () => {
+      const usdfcAmount = ethers.parseUnits('1', 18)
+      const pricePerTiBPerEpoch = ethers.parseUnits('0.00003470', 18)
+      const capacityTiB = calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch)
+
+      expect(capacityTiB).toBe(1)
+    })
+
+    it('should return lower capacity as pricePerTibPerEpoch increases', () => {
+      const usdfcAmount = ethers.parseUnits('1', 18)
+      const pricePerTiBPerEpoch = ethers.parseUnits('0.00005', 18)
+      const capacityTiB = calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch)
+      expect(
+        calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch + ethers.parseUnits('0.00001', 18))
+      ).toBeLessThan(capacityTiB)
+    })
+
+    it('should return higher capacity as pricePerTibPerEpoch decreases', () => {
+      const usdfcAmount = ethers.parseUnits('1', 18)
+      const pricePerTiBPerEpoch = ethers.parseUnits('0.00005', 18)
+      const capacityTiB = calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch)
+      expect(
+        calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch - ethers.parseUnits('0.00001', 18))
+      ).toBeGreaterThan(capacityTiB)
     })
   })
 })
