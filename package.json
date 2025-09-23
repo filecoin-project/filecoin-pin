@@ -63,6 +63,7 @@
     "@helia/unixfs": "^5.1.0",
     "@ipld/dag-cbor": "^9.2.5",
     "@types/node": "^24.5.1",
+    "@vitest/coverage-v8": "^3.2.4",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
