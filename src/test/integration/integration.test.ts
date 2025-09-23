@@ -1,6 +1,7 @@
 import { readFile, rm, stat } from 'node:fs/promises'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
+import { SIZE_CONSTANTS } from '@filoz/synapse-sdk'
 import { unixfs } from '@helia/unixfs'
 import { CarReader } from '@ipld/car'
 import * as dagCbor from '@ipld/dag-cbor'
@@ -19,7 +20,15 @@ import { createFilecoinPinningServer } from '../../filecoin-pinning-server.js'
 import { createLogger } from '../../logger.js'
 
 // Mock the Synapse SDK - vi.mock requires async import for ES modules
-vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
+vi.mock('@filoz/synapse-sdk', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@filoz/synapse-sdk')>()
+  const mockModule = await import('../mocks/synapse-sdk.js')
+
+  return {
+    ...mockModule,
+    SIZE_CONSTANTS: actual.SIZE_CONSTANTS,
+  }
+})
 
 // Type for API responses
 interface PinResponse {
@@ -295,7 +304,7 @@ describe('End-to-End Pinning Service', () => {
       const fs = unixfs(clientHelia)
 
       // Create 10MB of random data
-      const dataSize = 10 * 1024 * 1024 // 10MB
+      const dataSize = 10 * Number(SIZE_CONSTANTS.MiB) // 10MB
       const randomData = new Uint8Array(dataSize)
 
       // Fill with random bytes
@@ -379,7 +388,7 @@ describe('End-to-End Pinning Service', () => {
       const fs = unixfs(clientHelia)
 
       // Create 10MB of repeated data (all zeros)
-      const dataSize = 10 * 1024 * 1024 // 10MB
+      const dataSize = 10 * Number(SIZE_CONSTANTS.MiB) // 10MB
       const repeatedData = new Uint8Array(dataSize) // All zeros
 
       // Add using addBytes
@@ -428,8 +437,8 @@ describe('End-to-End Pinning Service', () => {
       // CRITICAL: Verify the total size is ~1MB, not ~10MB
       // This ensures we're not writing the same block 10 times
       const totalSize = parseInt(pinStatus.info?.total_size ?? '0', 10)
-      expect(totalSize).toBeLessThan(1.2 * 1024 * 1024) // Should be ~1MB + metadata, not 10MB
-      expect(totalSize).toBeGreaterThan(1 * 1024 * 1024) // But at least 1MB
+      expect(totalSize).toBeLessThan(1.2 * Number(SIZE_CONSTANTS.MiB)) // Should be ~1MB + metadata, not 10MB
+      expect(totalSize).toBeGreaterThan(1 * Number(SIZE_CONSTANTS.MiB)) // But at least 1MB
 
       // Verify CAR file
       if (pinStatus.info?.car_file_path != null) {
@@ -457,7 +466,7 @@ describe('End-to-End Pinning Service', () => {
         expect(uniqueBlocks.size).toBe(2) // Only 2 unique blocks in CAR
 
         // Verify CAR file size matches the expected ~1MB + overhead
-        expect(carBytes.length).toBeLessThan(1.2 * 1024 * 1024)
+        expect(carBytes.length).toBeLessThan(1.2 * Number(SIZE_CONSTANTS.MiB))
 
         // Verify root
         const roots = await reader.getRoots()

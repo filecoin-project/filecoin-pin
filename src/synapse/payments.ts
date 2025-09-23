@@ -15,7 +15,7 @@
  * @module synapse/payments
  */
 
-import { type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
+import { SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 
 // Constants
@@ -377,9 +377,7 @@ export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpo
  * @returns Required allowances for the file
  */
 export function calculateRequiredAllowances(carSizeBytes: number, pricePerTiBPerEpoch: bigint): StorageAllowances {
-  // Convert bytes to TiB (1 TiB = 1024^4 bytes)
-  const bytesPerTiB = 1024 * 1024 * 1024 * 1024
-  const storageTiB = carSizeBytes / bytesPerTiB
+  const storageTiB = carSizeBytes / Number(SIZE_CONSTANTS.TiB)
   return calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
 }
 
@@ -424,8 +422,7 @@ export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: nu
   const [status, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
 
   const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
-  const bytesPerTiB = 1024 * 1024 * 1024 * 1024
-  const storageTiB = carSizeBytes / bytesPerTiB
+  const storageTiB = carSizeBytes / Number(SIZE_CONSTANTS.TiB)
 
   // Calculate requirements
   const required = calculateRequiredAllowances(carSizeBytes, pricePerTiBPerEpoch)
