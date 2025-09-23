@@ -167,6 +167,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
 
     // Handle deposits
     let actualDepositAmount = 0n
+    let actionsTaken = false // Track if any changes were made
 
     if (status.depositedAmount < targetDeposit) {
       const depositAmount = targetDeposit - status.depositedAmount
@@ -184,6 +185,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       spinner.start(`Depositing ${formatUSDFC(depositAmount)} USDFC...`)
       const { approvalTx, depositTx } = await depositUSDFC(synapse, depositAmount)
       spinner.stop(`${pc.green('✓')} Deposited ${formatUSDFC(depositAmount)} USDFC`)
+      actionsTaken = true
 
       log.line(pc.bold('Transaction details:'))
       if (approvalTx) {
@@ -219,6 +221,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       spinner.message('Setting WarmStorage service approvals...')
       const approvalTx = await setServiceApprovals(synapse, allowances.rateAllowance, allowances.lockupAllowance)
       spinner.stop(`${pc.green('✓')} WarmStorage service approvals updated`)
+      actionsTaken = true
 
       log.line(pc.bold('Transaction:'))
       log.indent(pc.gray(approvalTx))
@@ -277,7 +280,12 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     // Show deposit warning if needed
     displayDepositWarning(totalDeposit, status.currentAllowances.lockupUsed)
 
-    outro('Payment setup completed successfully')
+    // Show appropriate outro message based on whether actions were taken
+    if (actionsTaken) {
+      outro('Payment setup completed successfully')
+    } else {
+      outro('Payment setup already configured - no changes needed')
+    }
   } catch (error) {
     spinner.stop() // Stop spinner without message
     console.error(pc.red('✗ Setup failed'))

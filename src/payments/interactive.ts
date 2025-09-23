@@ -157,6 +157,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     const defaultDeposit = ethers.parseUnits(options.deposit || '1', 18)
     let depositAmount = 0n
     let pricingShown = false // Track if pricing has been displayed
+    let actionsTaken = false // Track if any changes were made
 
     if (status.depositedAmount < defaultDeposit) {
       // Show pricing info to help user decide
@@ -205,6 +206,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
           log.indent(pc.gray(`Approval tx: ${approvalTx}`))
         }
         log.indent(pc.gray(`Deposit tx: ${depositTx}`))
+        actionsTaken = true
       }
     }
 
@@ -329,6 +331,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       const approvalTx = await setServiceApprovals(synapse, allowances.rateAllowance, allowances.lockupAllowance)
       s.stop(`${pc.green('✓')} WarmStorage service approvals set`)
       log.indent(pc.gray(`Transaction: ${approvalTx}`))
+      actionsTaken = true
 
       // Update currentAllowances to reflect the new values
       currentAllowances = {
@@ -415,6 +418,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
             log.indent(pc.gray(`Approval tx: ${approvalTx}`))
           }
           log.indent(pc.gray(`Deposit tx: ${depositTx}`))
+          actionsTaken = true
         }
       }
     }
@@ -439,7 +443,12 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     // Show deposit warning if needed
     displayDepositWarning(finalStatus.depositedAmount, finalStatus.currentAllowances.lockupUsed)
 
-    outro('Payment setup completed successfully')
+    // Show appropriate outro message based on whether actions were taken
+    if (actionsTaken) {
+      outro('Payment setup completed successfully')
+    } else {
+      outro('No changes made to payment setup')
+    }
   } catch (error) {
     console.error(`\n${pc.red('Error:')}`, error instanceof Error ? error.message : error)
     process.exitCode = 1
