@@ -12,15 +12,13 @@ import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
-import { formatUSDFC, validatePaymentRequirements } from '../payments/setup.js'
-import { checkFILBalance, checkUSDFCBalance, validatePaymentCapacity } from '../synapse/payments.js'
+import { displayUploadResults, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import {
   cleanupSynapseService,
   createStorageContext,
   initializeSynapse,
   type SynapseService,
 } from '../synapse/service.js'
-import { getDownloadURL, uploadToSynapse } from '../synapse/upload.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import type { ImportOptions, ImportResult } from './types.js'
@@ -118,95 +116,6 @@ async function validateFilePath(filePath: string): Promise<{ exists: boolean; st
 }
 
 /**
- * Display payment capacity issues and suggestions
- */
-function displayPaymentIssues(capacityCheck: any, fileSize: number, spinner: ReturnType<typeof createSpinner>): void {
-  spinner.stop(`${pc.red('✗')} Insufficient payment capacity for this file`)
-  log.line('')
-  log.line(pc.bold('File Requirements:'))
-  log.indent(`File size: ${formatFileSize(fileSize)} (${capacityCheck.storageTiB.toFixed(4)} TiB)`)
-  log.indent(`Storage cost: ${formatUSDFC(capacityCheck.required.rateAllowance)} USDFC/epoch`)
-  log.indent(`10-day lockup: ${formatUSDFC(capacityCheck.required.lockupAllowance)} USDFC`)
-  log.line('')
-
-  log.line(pc.bold(`${pc.red('Issues found:')}`))
-  if (capacityCheck.issues.insufficientDeposit) {
-    log.indent(
-      `${pc.red('✗')} Insufficient deposit (need ${formatUSDFC(capacityCheck.issues.insufficientDeposit)} more)`
-    )
-  }
-  if (capacityCheck.issues.insufficientRateAllowance) {
-    log.indent(
-      `${pc.red('✗')} Rate allowance too low (need ${formatUSDFC(capacityCheck.issues.insufficientRateAllowance)} more per epoch)`
-    )
-  }
-  if (capacityCheck.issues.insufficientLockupAllowance) {
-    log.indent(
-      `${pc.red('✗')} Lockup allowance too low (need ${formatUSDFC(capacityCheck.issues.insufficientLockupAllowance)} more)`
-    )
-  }
-  log.line('')
-
-  log.line(pc.bold('Suggested actions:'))
-  capacityCheck.suggestions.forEach((suggestion: string) => {
-    log.indent(`• ${suggestion}`)
-  })
-  log.line('')
-
-  // Calculate suggested parameters for payment setup
-  const suggestedDeposit = capacityCheck.issues.insufficientDeposit
-    ? formatUSDFC(capacityCheck.issues.insufficientDeposit)
-    : '0'
-  const suggestedStorage = `${Math.ceil(capacityCheck.storageTiB * 10) / 10}TiB/month`
-
-  log.line(`${pc.yellow('⚠')} To fix these issues, run:`)
-  if (capacityCheck.issues.insufficientDeposit) {
-    log.indent(
-      pc.cyan(`filecoin-pin payments setup --deposit ${suggestedDeposit} --storage ${suggestedStorage} --auto`)
-    )
-  } else {
-    log.indent(pc.cyan(`filecoin-pin payments setup --storage ${suggestedStorage} --auto`))
-  }
-  log.flush()
-}
-
-/**
- * Display import results
- */
-function displayImportResults(result: ImportResult, network: string, transactionHash?: string): void {
-  log.line(`Network: ${pc.bold(network)}`)
-  log.line('')
-
-  log.line(pc.bold('Import Details'))
-  log.indent(`File: ${result.filePath}`)
-  log.indent(`Size: ${formatFileSize(result.fileSize)}`)
-  log.indent(`Root CID: ${result.rootCid}`)
-  log.line('')
-
-  log.line(pc.bold('Filecoin Storage'))
-  log.indent(`Piece CID: ${result.pieceCid}`)
-  log.indent(`Piece ID: ${result.pieceId?.toString() || 'N/A'}`)
-  log.indent(`Data Set ID: ${result.dataSetId}`)
-
-  log.line('')
-  log.line(pc.bold('Storage Provider'))
-  log.indent(`Provider ID: ${result.providerInfo.id}`)
-  log.indent(`Name: ${result.providerInfo.name}`)
-  const downloadURL = getDownloadURL(result.providerInfo, result.pieceCid)
-  if (downloadURL) {
-    log.indent(`Direct Download URL: ${downloadURL}`)
-  }
-
-  if (transactionHash) {
-    log.line('')
-    log.line(pc.bold('Transaction'))
-    log.indent(`Hash: ${transactionHash}`)
-  }
-
-  log.flush()
-}
-
-/**
  * Run the CAR import process
  *
  * @param options - Import configuration
@@ -280,62 +189,9 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
-    // Step 5: Validate payment setup before creating storage context
+    // Step 5: Validate payment setup
     spinner.start('Validating payment setup...')
-
-    // First check basic requirements (FIL and USDFC balance)
-    const filStatus = await checkFILBalance(synapse)
-    const usdfcBalance = await checkUSDFCBalance(synapse)
-
-    // Validate payment requirements
-    const validation = validatePaymentRequirements(filStatus.hasSufficientGas, usdfcBalance, filStatus.isCalibnet)
-
-    if (!validation.isValid) {
-      spinner.stop(`${pc.red('✗')} Payment setup incomplete`)
-
-      log.line('')
-      log.line(`${pc.red('✗')} ${validation.errorMessage}`)
-
-      if (validation.helpMessage) {
-        log.line('')
-        log.line(`  ${pc.cyan(validation.helpMessage)}`)
-      }
-
-      log.line('')
-      log.line(`${pc.yellow('⚠')} Your payment setup is not complete. Please run:`)
-      log.indent(pc.cyan('filecoin-pin payments setup'))
-      log.line('')
-      log.line('For more information, run:')
-      log.indent(pc.cyan('filecoin-pin payments status'))
-      log.flush()
-
-      await cleanupSynapseService()
-      cancel('Import cancelled - payment setup required')
-      process.exit(1)
-    }
-
-    // Now check capacity for this specific file
-    const capacityCheck = await validatePaymentCapacity(synapse, fileStat.size)
-
-    if (!capacityCheck.canUpload) {
-      displayPaymentIssues(capacityCheck, fileStat.size, spinner)
-      await cleanupSynapseService()
-      cancel('Import cancelled - insufficient payment capacity')
-      process.exit(1)
-    }
-
-    // Show warning if suggestions exist (even if upload is possible)
-    if (capacityCheck.suggestions.length > 0 && capacityCheck.canUpload) {
-      spinner.stop(`${pc.yellow('⚠')} Payment capacity check passed with warnings`)
-      log.line('')
-      log.line(pc.bold('Suggestions:'))
-      capacityCheck.suggestions.forEach((suggestion) => {
-        log.indent(`• ${suggestion}`)
-      })
-      log.flush()
-    } else {
-      spinner.stop(`${pc.green('✓')} Payment capacity verified`)
-    }
+    await validatePaymentSetup(synapse, fileStat.size, spinner)
 
     // Step 6: Create storage context now that payments are validated
     spinner.start('Creating storage context...')
@@ -367,26 +223,12 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     // Read the entire CAR file (streaming not yet supported in Synapse)
     const carData = await readFile(options.filePath)
 
-    // Track transaction hash from callbacks
-    let transactionHash: string | undefined
-
-    // Upload using shared function with root CID metadata
-    const uploadResult = await uploadToSynapse(synapseService, carData, rootCid, logger, {
-      contextId: `import-${Date.now()}`,
-      callbacks: {
-        onUploadComplete: () => {
-          spinner.message('Upload complete, adding to data set...')
-        },
-        onPieceAdded: (transaction) => {
-          if (transaction) {
-            transactionHash = transaction.hash
-            spinner.message('Piece added to data set, confirming on-chain...')
-          }
-        },
-        onPieceConfirmed: () => {
-          // Don't stop spinner here, we'll do it after
-        },
-      },
+    // Upload using common upload flow
+    const uploadResult = await performUpload(synapseService, carData, rootCid, {
+      contextType: 'import',
+      fileSize: fileStat.size,
+      logger,
+      spinner,
     })
 
     // Step 6: Display results
@@ -399,12 +241,12 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       pieceCid: uploadResult.pieceCid,
       pieceId: uploadResult.pieceId !== undefined ? uploadResult.pieceId : undefined,
       dataSetId: uploadResult.dataSetId,
-      transactionHash: transactionHash !== undefined ? transactionHash : undefined,
+      transactionHash: uploadResult.transactionHash !== undefined ? uploadResult.transactionHash : undefined,
       providerInfo,
     }
 
     // Display the results
-    displayImportResults(result, network, transactionHash)
+    displayUploadResults(result, 'Import', network)
 
     // Clean up WebSocket providers to allow process termination
     await cleanupSynapseService()

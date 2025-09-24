@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { Command } from 'commander'
+import { addCommand } from './commands/add.js'
 import { importCommand } from './commands/import.js'
 import { paymentsCommand } from './commands/payments.js'
 import { serverCommand } from './commands/server.js'
@@ -23,6 +24,7 @@ const program = new Command()
 program.addCommand(serverCommand)
 program.addCommand(paymentsCommand)
 program.addCommand(importCommand)
+program.addCommand(addCommand)
 
 // Default action - show help if no command specified
 program.action(() => {

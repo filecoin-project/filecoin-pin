@@ -18,7 +18,7 @@ import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runCarImport } from '../../import/car-import.js'
+import { runCarImport } from '../../import/import.js'
 import type { ImportOptions } from '../../import/types.js'
 
 // Mock modules
