@@ -325,7 +325,8 @@ describe('Payment Setup Tests', () => {
   describe('calculateActualCapacity', () => {
     it('should calculate capacity from rate allowance with high precision', () => {
       const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
-      const rateAllowance = calculateStorageAllowances(1, pricePerTiBPerEpoch).rateAllowance // 1GiB/month rate
+      const storageTiB = 1 / 1024 // 1 GiB/month
+      const rateAllowance = calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch).rateAllowance
 
       const capacityTiB = calculateActualCapacity(rateAllowance, pricePerTiBPerEpoch)
 
