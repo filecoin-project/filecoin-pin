@@ -6,6 +6,7 @@ import {
   Synapse,
   type SynapseOptions,
 } from '@filoz/synapse-sdk'
+import type { ethers } from 'ethers'
 import type { Logger } from 'pino'
 import type { Config } from '../config.js'
 
@@ -320,7 +321,7 @@ export function getDefaultStorageContextConfig(overrides: any = {}) {
  *
  * @param provider - The provider to clean up
  */
-export async function cleanupProvider(provider: any): Promise<void> {
+export async function cleanupProvider(provider: ethers.Provider | null): Promise<void> {
   if (provider && typeof provider.destroy === 'function') {
     try {
       await provider.destroy()

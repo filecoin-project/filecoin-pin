@@ -19,7 +19,9 @@ import {
   getStorageScale,
   setServiceApprovals,
 } from '../synapse/payments.js'
+import { makeStorageUnit } from '../utils/capacity/units.js'
 import { log } from '../utils/cli-logger.js'
+import { formatStorageCapacity } from '../utils/display/format-storage-sizes.js'
 
 // Re-export core payment functions for backward compatibility
 export {
@@ -275,38 +277,6 @@ export function displayDepositWarning(depositedAmount: bigint, lockupUsed: bigin
 }
 
 /**
- * Format storage capacity with smart unit selection
- *
- * @param gib - Capacity in GiB
- * @returns Formatted string with appropriate unit
- */
-function formatStorageCapacity(gib: number): string {
-  if (gib >= 1024) {
-    const tib = gib / 1024
-    // Use 1 decimal place if under 100 TiB
-    if (tib < 100) {
-      return `${tib.toFixed(1)} TiB/month`
-    }
-    return `${Math.round(tib).toLocaleString()} TiB/month`
-  }
-
-  // Use GiB between 1 GiB and 1 TiB
-  if (gib >= 0.9) {
-    if (gib < 100) {
-      return `${gib.toFixed(1)} GiB/month`
-    }
-    return `${Math.round(gib).toLocaleString()} GiB/month`
-  }
-
-  // For sub‑1 GiB, show MiB to avoid "0.0 GiB"
-  const mib = gib * 1024
-  if (mib < 10) {
-    return `${mib.toFixed(1)} MiB/month`
-  }
-  return `${Math.round(mib).toLocaleString()} MiB/month`
-}
-
-/**
  * Helper to calculate storage capacity in GiB from allowances
  */
 function calculateStorageCapacity(rateAllowance: bigint, lockupAllowance: bigint, pricePerTiBPerEpoch: bigint): number {
@@ -366,13 +336,15 @@ function calculateActualCapacityWithDeposit(
  * @param capacity - Calculated capacity information
  */
 export function displayCapacity(capacity: ReturnType<typeof calculateActualCapacityWithDeposit>): void {
+  const actualGiB = makeStorageUnit(capacity.actualGiB, 'GiB')
+  const potentialGiB = makeStorageUnit(capacity.potentialGiB, 'GiB')
   if (capacity.isDepositLimited) {
-    log.indent(`→ Current capacity: ~${formatStorageCapacity(capacity.actualGiB)} ${pc.yellow('(deposit-limited)')}`)
+    log.indent(`→ Current capacity: ~${formatStorageCapacity(actualGiB)} ${pc.yellow('(deposit-limited)')}`)
     log.indent(
-      `→ Potential: ~${formatStorageCapacity(capacity.potentialGiB)} (deposit ${formatUSDFC(capacity.additionalDepositNeeded)} more)`
+      `→ Potential: ~${formatStorageCapacity(potentialGiB)} (deposit ${formatUSDFC(capacity.additionalDepositNeeded)} more)`
     )
   } else {
-    log.indent(`→ Estimated capacity: ~${formatStorageCapacity(capacity.actualGiB)}`)
+    log.indent(`→ Estimated capacity: ~${formatStorageCapacity(actualGiB)}`)
     log.indent(pc.gray('  (excludes data set creation fee and optional CDN add-on rates)'))
   }
 }

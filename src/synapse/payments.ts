@@ -67,8 +67,20 @@ export interface PaymentStatus {
  * Storage allowance calculations
  */
 export interface StorageAllowances {
+  /**
+   * The maximum amount of USDFC that can be paid per epoch. This is used to determine the lockup allowance.
+   */
   rateAllowance: bigint
+  /**
+   * The maximum amount of USDFC that can be locked up at once. This is used to determine the maximum file size that can be uploaded.
+   * SPs will attempt to escrow funds for 10 days, so this is the maximum amount of USDFC that can be locked up at once.
+   */
   lockupAllowance: bigint
+  /**
+   * The maximum amount of storage that can be used. This is used to determine the maximum file size that can be uploaded.
+   *
+   * TODO: This value is confusing and we should probably refactor it to be more clear, i.e. "max data hosting capacity for 1 month" or whatever its supposed to be.
+   */
   storageCapacityTiB: number
 }
 
@@ -457,6 +469,29 @@ export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: nu
   const required = calculateRequiredAllowances(carSizeBytes, pricePerTiBPerEpoch)
   const monthlyPayment = required.rateAllowance * TIME_CONSTANTS.EPOCHS_PER_MONTH
   const totalDepositNeeded = required.lockupAllowance + monthlyPayment
+
+  console.log('byteSize', carSizeBytes)
+  console.log('storageTiB', storageTiB)
+  console.log('pricePerTiBPerEpoch', pricePerTiBPerEpoch)
+  console.log('required', required)
+  console.log('monthlyPayment', monthlyPayment)
+  console.log('totalDepositNeeded', totalDepositNeeded)
+
+  if (carSizeBytes > 50 * 1024 * 1024 * 1024) {
+    console.log('carSizeBytes', carSizeBytes)
+    console.log('storageTiB', storageTiB)
+    console.log('pricePerTiBPerEpoch', pricePerTiBPerEpoch)
+    console.log('required', required)
+    console.log('monthlyPayment', monthlyPayment)
+    console.log('totalDepositNeeded', totalDepositNeeded)
+    return {
+      canUpload: false,
+      storageTiB,
+      required,
+      issues: {},
+      suggestions: [],
+    }
+  }
 
   const result: PaymentCapacityCheck = {
     canUpload: true,
