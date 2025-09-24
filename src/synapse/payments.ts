@@ -24,6 +24,23 @@ const MIN_FIL_FOR_GAS = ethers.parseEther('0.1') // Minimum FIL padding for gas
 const DEFAULT_LOCKUP_DAYS = 10 // WarmStorage requires 10 days lockup
 
 /**
+ * Maximum precision scale used when converting small TiB (as a float) to integer(BigInt) math
+ */
+export const STORAGE_SCALE_MAX = 10_000_000
+const STORAGE_SCALE_MAX_BI = BigInt(STORAGE_SCALE_MAX)
+
+/**
+ * Compute adaptive integer scaling for a TiB value so that
+ * Math.floor(storageTiB * scale) stays within Number.MAX_SAFE_INTEGER.
+ * This allows us to handle numbers as small as 1/10_000_000 TiB and as large as Number.MAX_SAFE_INTEGER TiB (> 1 YiB)
+ */
+export function getStorageScale(storageTiB: number): number {
+  if (storageTiB <= 0) return 1
+  const maxScaleBySafe = Math.floor(Number.MAX_SAFE_INTEGER / storageTiB)
+  return Math.max(1, Math.min(STORAGE_SCALE_MAX, maxScaleBySafe))
+}
+
+/**
  * Service approval status from the Payments contract
  */
 export interface ServiceApprovalStatus {
@@ -313,8 +330,12 @@ export async function setServiceApprovals(
  * @returns Calculated allowances for the specified capacity
  */
 export function calculateStorageAllowances(storageTiB: number, pricePerTiBPerEpoch: bigint): StorageAllowances {
+  // Use adaptive scaling to avoid Number overflow/precision issues for very large values
+  // and to preserve precision for small fractional values.
+  const scale = getStorageScale(storageTiB)
+  const scaledStorage = Math.floor(storageTiB * scale)
   // Calculate rate allowance (per epoch payment)
-  const rateAllowance = (pricePerTiBPerEpoch * BigInt(Math.floor(storageTiB * 100))) / 100n
+  const rateAllowance = (pricePerTiBPerEpoch * BigInt(scaledStorage)) / BigInt(scale)
 
   // Calculate lockup allowance (10 days worth)
   const epochsIn10Days = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
@@ -341,8 +362,18 @@ export function calculateActualCapacity(rateAllowance: bigint, pricePerTiBPerEpo
   if (pricePerTiBPerEpoch === 0n) return 0
 
   // Calculate TiB capacity from rate allowance
-  const capacityTiB = Number((rateAllowance * 100n) / pricePerTiBPerEpoch) / 100
-  return capacityTiB
+  const scaledQuotient = (rateAllowance * STORAGE_SCALE_MAX_BI) / pricePerTiBPerEpoch
+  if (scaledQuotient > 0n) {
+    return Number(scaledQuotient) / STORAGE_SCALE_MAX
+  }
+
+  // fallback for very small values that underflow to 0 after integer division
+  const rateFloat = Number(ethers.formatUnits(rateAllowance, USDFC_DECIMALS))
+  const priceFloat = Number(ethers.formatUnits(pricePerTiBPerEpoch, USDFC_DECIMALS))
+  if (!Number.isFinite(rateFloat) || !Number.isFinite(priceFloat) || priceFloat === 0) {
+    return 0
+  }
+  return rateFloat / priceFloat
 }
 
 /**
@@ -362,9 +393,7 @@ export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpo
   const epochsIn10Days = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const ratePerEpoch = usdfcAmount / epochsIn10Days
 
-  // Convert to TiB
-  const capacityTiB = Number((ratePerEpoch * 100n) / pricePerTiBPerEpoch) / 100
-  return capacityTiB
+  return calculateActualCapacity(ratePerEpoch, pricePerTiBPerEpoch)
 }
 
 /**

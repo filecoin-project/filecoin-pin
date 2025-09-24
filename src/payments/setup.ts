@@ -16,6 +16,7 @@ import {
   checkUSDFCBalance,
   depositUSDFC,
   getPaymentStatus,
+  getStorageScale,
   setServiceApprovals,
 } from '../synapse/payments.js'
 import { log } from '../utils/cli-logger.js'
@@ -288,21 +289,31 @@ function formatStorageCapacity(gib: number): string {
     }
     return `${Math.round(tib).toLocaleString()} TiB/month`
   }
-  // Use 1 decimal place if under 100 GiB
-  if (gib < 100) {
-    return `${gib.toFixed(1)} GiB/month`
+
+  // Use GiB between 1 GiB and 1 TiB
+  if (gib >= 0.9) {
+    if (gib < 100) {
+      return `${gib.toFixed(1)} GiB/month`
+    }
+    return `${Math.round(gib).toLocaleString()} GiB/month`
   }
-  return `${Math.round(gib).toLocaleString()} GiB/month`
+
+  // For sub‑1 GiB, show MiB to avoid "0.0 GiB"
+  const mib = gib * 1024
+  if (mib < 10) {
+    return `${mib.toFixed(1)} MiB/month`
+  }
+  return `${Math.round(mib).toLocaleString()} MiB/month`
 }
 
 /**
  * Helper to calculate storage capacity in GiB from allowances
  */
 function calculateStorageCapacity(rateAllowance: bigint, lockupAllowance: bigint, pricePerTiBPerEpoch: bigint): number {
-  const tibFromRate = Number((rateAllowance * 10000n) / pricePerTiBPerEpoch) / 10000
+  const tibFromRate = calculateActualCapacity(rateAllowance, pricePerTiBPerEpoch)
   const defaultLockupEpochs = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const maxRateFromLockup = lockupAllowance / defaultLockupEpochs
-  const tibFromLockup = Number((maxRateFromLockup * 10000n) / pricePerTiBPerEpoch) / 10000
+  const tibFromLockup = calculateActualCapacity(maxRateFromLockup, pricePerTiBPerEpoch)
   const tibPerMonth = Math.min(tibFromRate, tibFromLockup * 3)
   const gibPerMonth = tibPerMonth * 1024
   return gibPerMonth
@@ -336,13 +347,14 @@ function calculateActualCapacityWithDeposit(
   } else {
     isDepositLimited = true
     additionalDepositNeeded = requiredDeposit - depositedAmount
-    const scaleFactor = Number((depositedAmount * 1000n) / requiredDeposit) / 1000
+    const scale = getStorageScale(potentialGiB)
+    const scaleFactor = Number((depositedAmount * BigInt(scale)) / requiredDeposit) / scale
     actualGiB = potentialGiB * scaleFactor
   }
 
   return {
-    actualGiB: Math.floor(actualGiB),
-    potentialGiB: Math.floor(potentialGiB),
+    actualGiB,
+    potentialGiB,
     isDepositLimited,
     additionalDepositNeeded,
   }
