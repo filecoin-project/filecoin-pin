@@ -21,6 +21,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runCarImport } from '../../import/import.js'
 import type { ImportOptions } from '../../import/types.js'
 
+// Test constants
+const ZERO_CID = 'bafkqaaa' // Zero CID used when CAR has no roots
+
 // Mock modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
 vi.mock('../../synapse/payments.js', () => ({
@@ -224,7 +227,7 @@ describe('CAR Import', () => {
 
       const result = await runCarImport(options)
 
-      expect(result.rootCid).toBe('bafkqaaa') // Zero CID
+      expect(result.rootCid).toBe(ZERO_CID) // Zero CID
       expect(result.filePath).toBe(carPath)
       expect(result.pieceCid).toBeDefined()
     })

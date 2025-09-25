@@ -103,8 +103,11 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     await validatePaymentSetup(synapse, fileStat.size, spinner)
 
     // Step 4: Create CAR from file
-    spinner.start('Preparing file for IPFS ...')
-    const { carPath, rootCid } = await createCarFromFile(options.filePath, { logger })
+    spinner.start(`Preparing file for IPFS${options.bare ? ' (bare mode)' : ''}...`)
+    const { carPath, rootCid } = await createCarFromFile(options.filePath, {
+      logger,
+      ...(options.bare !== undefined && { bare: options.bare }),
+    })
     tempCarPath = carPath
     spinner.stop(`${pc.green('✓')} File packed for IPFS with root CID: ${rootCid.toString()}`)
 

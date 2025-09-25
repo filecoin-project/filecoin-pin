@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { open, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { unixfs } from '@helia/unixfs'
 import { CarWriter } from '@ipld/car'
@@ -17,8 +17,12 @@ import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { CARWritingBlockstore } from '../car-blockstore.js'
 
+// Placeholder CID used during CAR creation (will be replaced with actual root)
+const PLACEHOLDER_CID = CID.parse('bafyaaiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+
 export interface CreateCarOptions {
   logger?: Logger
+  bare?: boolean
 }
 
 export interface CreateCarResult {
@@ -30,26 +34,23 @@ export interface CreateCarResult {
  * Create a CAR file from a regular file using UnixFS encoding
  *
  * @param filePath - Path to the file to encode
- * @param options - Optional logger
+ * @param options - Optional logger and bare flag
  * @returns Path to temporary CAR file and root CID
  */
 export async function createCarFromFile(filePath: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {
-  const { logger } = options
+  const { logger, bare = false } = options
 
   // Generate temp file path
   const tempCarPath = join(tmpdir(), `filecoin-pin-add-${Date.now()}-${randomBytes(8).toString('hex')}.car`)
 
-  logger?.info({ filePath, tempCarPath }, 'Creating CAR from file')
+  const mode = bare ? 'bare' : 'with directory wrapper'
+  logger?.info({ filePath, tempCarPath, mode }, `Creating CAR from file ${mode}`)
 
-  // Use a constant placeholder CID with same byte length as typical UnixFS CID
-  // This is a valid CIDv1 with dag-pb codec that will be replaced after UnixFS processing
-  const placeholderCID = CID.parse('bafyaaiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
-
-  logger?.debug({ placeholderCID: placeholderCID.toString() }, 'Using placeholder CID')
+  logger?.debug({ placeholderCID: PLACEHOLDER_CID.toString() }, 'Using placeholder CID')
 
   // Create blockstore with placeholder CID
   const blockstoreOptions: any = {
-    rootCID: placeholderCID,
+    rootCID: PLACEHOLDER_CID,
     outputPath: tempCarPath,
   }
   if (logger) {
@@ -63,13 +64,28 @@ export async function createCarFromFile(filePath: string, options: CreateCarOpti
   // Create UnixFS instance with our blockstore
   const fs = unixfs({ blockstore })
 
-  // Add file - convert Node stream to Web stream
+  // Add file to UnixFS - method depends on bare flag
+  let rootCid: CID
+
   const fileStream = createReadStream(filePath)
   const webStream = Readable.toWeb(fileStream) as ReadableStream<Uint8Array>
 
-  logger?.info({ filePath }, 'Adding file to UnixFS')
-  const rootCid = await fs.addByteStream(webStream)
-  logger?.info({ rootCid: rootCid.toString() }, 'File added to UnixFS')
+  if (bare) {
+    // Bare mode: add file directly as byte stream without any wrapper
+    logger?.info({ filePath }, 'Adding file to UnixFS (bare mode)')
+    rootCid = await fs.addByteStream(webStream)
+  } else {
+    // Directory wrapper mode: use addFile which automatically creates a directory wrapper
+    const fileName = basename(filePath)
+    logger?.info({ filePath, fileName }, 'Adding file to UnixFS with directory wrapper')
+
+    rootCid = await fs.addFile({
+      path: fileName,
+      content: webStream,
+    })
+  }
+
+  logger?.info({ rootCid: rootCid.toString() }, `File added to UnixFS ${mode}`)
 
   // Finalize CAR (close writer, flush to disk)
   await blockstore.finalize()
@@ -89,7 +105,7 @@ export async function createCarFromFile(filePath: string, options: CreateCarOpti
       rootCid: rootCid.toString(),
       stats: blockstore.getStats(),
     },
-    'CAR file created successfully'
+    `CAR file created successfully ${mode}`
   )
 
   return { carPath: tempCarPath, rootCid }

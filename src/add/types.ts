@@ -4,6 +4,7 @@ export interface AddOptions {
   filePath: string
   privateKey?: string
   rpcUrl?: string
+  bare?: boolean
 }
 
 export interface AddResult {

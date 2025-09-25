@@ -48,11 +48,18 @@ vi.mock('../../synapse/service.js', () => ({
 }))
 
 vi.mock('../../add/unixfs-car.js', () => ({
-  createCarFromFile: vi.fn().mockResolvedValue({
-    carPath: '/tmp/test.car',
-    rootCid: {
-      toString: () => 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi',
-    },
+  createCarFromFile: vi.fn((_filePath: string, options: any) => {
+    const bare = options?.bare || false
+    // Different CIDs for bare vs directory mode
+    const cid = bare
+      ? 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi'
+      : 'bafybeihw4ytkqxrq7q7e3p2l5s5di7zjzkhxdmfwvqfylkdamdg3xybpbq'
+    return Promise.resolve({
+      carPath: '/tmp/test.car',
+      rootCid: {
+        toString: () => cid,
+      },
+    })
   }),
   cleanupTempCar: vi.fn(),
 }))
@@ -86,6 +93,11 @@ vi.mock('node:fs/promises', async () => {
   }
 })
 
+// Test CID constants (defined after vi.mock calls due to hoisting)
+const TEST_BARE_CID = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi'
+const TEST_DIR_WRAPPED_CID = 'bafybeihw4ytkqxrq7q7e3p2l5s5di7zjzkhxdmfwvqfylkdamdg3xybpbq'
+const TEST_PIECE_CID = 'bafkzcibtest1234567890'
+
 describe('Add Command', () => {
   const testDir = join(process.cwd(), 'test-add-files')
   const testFile = join(testDir, 'test.bin')
@@ -105,19 +117,19 @@ describe('Add Command', () => {
   })
 
   describe('runAdd command', () => {
-    it('should successfully add a file', async () => {
+    it('should successfully add a file with directory wrapper by default', async () => {
       const result = await runAdd({
         filePath: testFile,
         privateKey: 'test-private-key',
         rpcUrl: 'wss://test.rpc.url',
       })
 
-      // Verify the result structure
+      // Verify the result structure (should use directory wrapper CID by default)
       expect(result).toMatchObject({
         filePath: testFile,
         fileSize: expect.any(Number),
-        rootCid: 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi',
-        pieceCid: 'bafkzcibtest1234567890',
+        rootCid: TEST_DIR_WRAPPED_CID, // Directory wrapper CID
+        pieceCid: TEST_PIECE_CID,
         pieceId: 789,
         dataSetId: '456',
         transactionHash: '0xabc123',
@@ -126,6 +138,50 @@ describe('Add Command', () => {
           name: 'Test Provider',
         },
       })
+
+      // Verify createCarFromFile was called without bare flag
+      const { createCarFromFile } = await import('../../add/unixfs-car.js')
+      expect(vi.mocked(createCarFromFile)).toHaveBeenCalledWith(
+        testFile,
+        expect.objectContaining({
+          logger: expect.any(Object),
+          // bare is not passed when undefined, due to spread operator
+        })
+      )
+    })
+
+    it('should successfully add a file in bare mode when specified', async () => {
+      const result = await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        bare: true,
+      })
+
+      // Verify the result structure (should use bare mode CID)
+      expect(result).toMatchObject({
+        filePath: testFile,
+        fileSize: expect.any(Number),
+        rootCid: TEST_BARE_CID, // Bare mode CID
+        pieceCid: TEST_PIECE_CID,
+        pieceId: 789,
+        dataSetId: '456',
+        transactionHash: '0xabc123',
+        providerInfo: {
+          id: 1,
+          name: 'Test Provider',
+        },
+      })
+
+      // Verify createCarFromFile was called with bare flag
+      const { createCarFromFile } = await import('../../add/unixfs-car.js')
+      expect(vi.mocked(createCarFromFile)).toHaveBeenCalledWith(
+        testFile,
+        expect.objectContaining({
+          logger: expect.any(Object),
+          bare: true,
+        })
+      )
     })
 
     it('should reject when file does not exist', async () => {
