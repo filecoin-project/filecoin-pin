@@ -1,28 +1,40 @@
 /**
  * UnixFS to CAR conversion functionality
  *
- * This module provides utilities to create CAR files from regular files
+ * This module provides utilities to create CAR files from files and directories
  * using @helia/unixfs and CARWritingBlockstore.
  */
 
 import { randomBytes } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { open, unlink } from 'node:fs/promises'
+import { open, stat, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
-import { unixfs } from '@helia/unixfs'
+import { globSource, unixfs } from '@helia/unixfs'
 import { CarWriter } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { CARWritingBlockstore } from '../car-blockstore.js'
 
+// Spinner type for progress reporting
+type Spinner = {
+  start(msg: string): void
+  stop(msg: string): void
+  message(msg: string): void
+}
+
 // Placeholder CID used during CAR creation (will be replaced with actual root)
 const PLACEHOLDER_CID = CID.parse('bafyaaiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+
+// Whether to include hidden files (starting with .) when adding directories
+const INCLUDE_HIDDEN_FILES = true
 
 export interface CreateCarOptions {
   logger?: Logger
   bare?: boolean
+  spinner?: Spinner
+  isDirectory?: boolean
 }
 
 export interface CreateCarResult {
@@ -31,21 +43,48 @@ export interface CreateCarResult {
 }
 
 /**
- * Create a CAR file from a regular file using UnixFS encoding
+ * Create a CAR file from a file or directory using UnixFS encoding
  *
- * @param filePath - Path to the file to encode
- * @param options - Optional logger and bare flag
- * @returns Path to temporary CAR file and root CID
+ * @param path - Path to the file or directory to encode
+ * @param options - Optional logger, bare flag, and directory flag
+ * @returns Path to temporary CAR file, root CID, and entry count
  */
-export async function createCarFromFile(filePath: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {
-  const { logger, bare = false } = options
+export async function createCarFromPath(path: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {
+  const { bare = false, isDirectory = false } = options
+
+  // Determine if path is a directory if not explicitly specified
+  let pathIsDirectory = isDirectory
+  if (!pathIsDirectory) {
+    const stats = await stat(path)
+    pathIsDirectory = stats.isDirectory()
+  }
+
+  // Handle directory
+  if (pathIsDirectory) {
+    if (bare) {
+      throw new Error('--bare flag is not supported for directories')
+    }
+    return createCarFromDirectory(path, options)
+  }
+
+  // Handle file
+  return createCarFromSingleFile(path, options)
+}
+
+/**
+ * Common CAR creation logic
+ */
+async function createCar(
+  contentPath: string,
+  options: CreateCarOptions & { type: 'file' | 'directory' },
+  addContent: (fs: any) => Promise<CID>
+): Promise<CreateCarResult> {
+  const { logger, type } = options
 
   // Generate temp file path
   const tempCarPath = join(tmpdir(), `filecoin-pin-add-${Date.now()}-${randomBytes(8).toString('hex')}.car`)
 
-  const mode = bare ? 'bare' : 'with directory wrapper'
-  logger?.info({ filePath, tempCarPath, mode }, `Creating CAR from file ${mode}`)
-
+  logger?.info({ path: contentPath, tempCarPath, type }, `Creating CAR from ${type}`)
   logger?.debug({ placeholderCID: PLACEHOLDER_CID.toString() }, 'Using placeholder CID')
 
   // Create blockstore with placeholder CID
@@ -64,28 +103,10 @@ export async function createCarFromFile(filePath: string, options: CreateCarOpti
   // Create UnixFS instance with our blockstore
   const fs = unixfs({ blockstore })
 
-  // Add file to UnixFS - method depends on bare flag
-  let rootCid: CID
+  // Add content using the provided function
+  const rootCid = await addContent(fs)
 
-  const fileStream = createReadStream(filePath)
-  const webStream = Readable.toWeb(fileStream) as ReadableStream<Uint8Array>
-
-  if (bare) {
-    // Bare mode: add file directly as byte stream without any wrapper
-    logger?.info({ filePath }, 'Adding file to UnixFS (bare mode)')
-    rootCid = await fs.addByteStream(webStream)
-  } else {
-    // Directory wrapper mode: use addFile which automatically creates a directory wrapper
-    const fileName = basename(filePath)
-    logger?.info({ filePath, fileName }, 'Adding file to UnixFS with directory wrapper')
-
-    rootCid = await fs.addFile({
-      path: fileName,
-      content: webStream,
-    })
-  }
-
-  logger?.info({ rootCid: rootCid.toString() }, `File added to UnixFS ${mode}`)
+  logger?.info({ rootCid: rootCid.toString() }, `Content added to UnixFS`)
 
   // Finalize CAR (close writer, flush to disk)
   await blockstore.finalize()
@@ -105,10 +126,95 @@ export async function createCarFromFile(filePath: string, options: CreateCarOpti
       rootCid: rootCid.toString(),
       stats: blockstore.getStats(),
     },
-    `CAR file created successfully ${mode}`
+    `CAR file created successfully`
   )
 
   return { carPath: tempCarPath, rootCid }
+}
+
+/**
+ * Create a CAR file from a single file
+ */
+async function createCarFromSingleFile(filePath: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {
+  const { logger, bare = false } = options
+
+  return createCar(filePath, { ...options, type: 'file' }, async (fs) => {
+    const fileStream = createReadStream(filePath)
+    const webStream = Readable.toWeb(fileStream) as ReadableStream<Uint8Array>
+
+    let rootCid: CID
+    if (bare) {
+      // Bare mode: add file directly as byte stream without any wrapper
+      logger?.info({ filePath }, 'Adding file to UnixFS (bare mode)')
+      rootCid = await fs.addByteStream(webStream)
+    } else {
+      // Directory wrapper mode: use addFile which automatically creates a directory wrapper
+      const fileName = basename(filePath)
+      logger?.info({ filePath, fileName }, 'Adding file to UnixFS with directory wrapper')
+      rootCid = await fs.addFile({
+        path: fileName,
+        content: webStream,
+      })
+    }
+
+    return rootCid
+  })
+}
+
+/**
+ * Create a CAR file from a directory
+ */
+async function createCarFromDirectory(dirPath: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {
+  const { logger, spinner } = options
+
+  return createCar(dirPath, { ...options, type: 'directory' }, async (fs) => {
+    logger?.info({ dirPath }, 'Streaming directory contents to UnixFS')
+
+    // Resolve to absolute path to handle cases like '.' or relative paths
+    const absolutePath = resolve(dirPath)
+    const parentDir = dirname(absolutePath)
+    const dirName = basename(absolutePath)
+
+    // Use globSource with the parent directory as base and include the directory name in the pattern
+    // This ensures the directory name is part of the UnixFS structure
+    // We use {,/**/*} to match both the directory itself and everything under it
+    const pattern = `${dirName}{,/**/*}`
+    logger?.info({ absolutePath, parentDir, dirName, pattern }, 'Directory structure for UnixFS')
+
+    const candidates = globSource(parentDir, pattern, {
+      hidden: INCLUDE_HIDDEN_FILES,
+    })
+
+    // Track progress
+    let fileCount = 0
+    async function* trackProgress(source: AsyncIterable<any>) {
+      for await (const entry of source) {
+        fileCount++
+        spinner?.message(`Adding: ${entry.path}`)
+        logger?.debug({ path: entry.path, hasContent: !!entry.content }, 'Processing entry')
+        yield entry
+      }
+    }
+
+    // Add all entries using addAll
+    const entries = []
+    for await (const entry of fs.addAll(trackProgress(candidates))) {
+      logger?.debug({ path: entry.path || '(root)', cid: entry.cid.toString() }, 'Entry added to CAR')
+      entries.push(entry)
+    }
+
+    // The last entry should be the root directory
+    // For empty directories, addAll might still yield a root entry
+    const rootCid = entries[entries.length - 1]?.cid
+    if (!rootCid) {
+      // Empty directory - create a single empty directory block
+      const emptyDirCid = await fs.addDirectory()
+      return emptyDirCid
+    }
+
+    logger?.info({ fileCount, rootCid: rootCid.toString() }, 'Directory added to UnixFS')
+    return rootCid
+  })
 }
 
 /**

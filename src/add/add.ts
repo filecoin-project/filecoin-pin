@@ -1,8 +1,8 @@
 /**
- * File add functionality
+ * File and directory add functionality
  *
- * This module handles adding regular files to Filecoin via Synapse SDK.
- * It encodes files as UnixFS, creates CAR files, and uploads to Filecoin.
+ * This module handles adding files and directories to Filecoin via Synapse SDK.
+ * It encodes content as UnixFS, creates CAR files, and uploads to Filecoin.
  */
 
 import { readFile, stat } from 'node:fs/promises'
@@ -18,30 +18,46 @@ import {
 } from '../synapse/service.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import type { AddOptions, AddResult } from './types.js'
-import { cleanupTempCar, createCarFromFile } from './unixfs-car.js'
+import { cleanupTempCar, createCarFromPath } from './unixfs-car.js'
 
 /**
- * Validate that a file exists and is a regular file
+ * Validate that a path exists and is a regular file or directory
  */
-async function validateFilePath(filePath: string): Promise<{ exists: boolean; stats?: any; error?: string }> {
+async function validatePath(
+  path: string,
+  options: AddOptions
+): Promise<{
+  exists: boolean
+  stats?: any
+  isDirectory?: boolean
+  error?: string
+}> {
   try {
-    const stats = await stat(filePath)
-    if (!stats.isFile()) {
-      return { exists: false, error: `Not a file: ${filePath}` }
+    const stats = await stat(path)
+    if (stats.isFile()) {
+      return { exists: true, stats, isDirectory: false }
     }
-    return { exists: true, stats }
+    if (stats.isDirectory()) {
+      // Check if bare flag is used with directory
+      if (options.bare) {
+        return { exists: false, error: `--bare flag is not supported for directories` }
+      }
+      return { exists: true, stats, isDirectory: true }
+    }
+    // Not a file or directory (could be symlink, socket, etc.)
+    return { exists: false, error: `Not a file or directory: ${path}` }
   } catch (error: any) {
-    // Differentiate between file not found and other errors
+    // Differentiate between not found and other errors
     if (error?.code === 'ENOENT') {
-      return { exists: false, error: `File not found: ${filePath}` }
+      return { exists: false, error: `Path not found: ${path}` }
     }
     // Other errors like permission denied, etc.
-    return { exists: false, error: `Cannot access file: ${filePath} (${error?.message || 'unknown error'})` }
+    return { exists: false, error: `Cannot access path: ${path} (${error?.message || 'unknown error'})` }
   }
 }
 
 /**
- * Run the file add process
+ * Run the file or directory add process
  *
  * @param options - Add configuration
  */
@@ -58,20 +74,24 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
   let tempCarPath: string | undefined
 
   try {
-    // Step 1: Validate file exists and is readable
-    spinner.start('Validating file...')
+    // Validate path exists and is readable
+    spinner.start('Validating path...')
 
-    const fileValidation = await validateFilePath(options.filePath)
-    if (!fileValidation.exists || !fileValidation.stats) {
-      spinner.stop(`${pc.red('✗')} ${fileValidation.error}`)
+    const pathValidation = await validatePath(options.filePath, options)
+    if (!pathValidation.exists || !pathValidation.stats) {
+      spinner.stop(`${pc.red('✗')} ${pathValidation.error}`)
       cancel('Add cancelled')
       process.exit(1)
     }
-    const fileStat = fileValidation.stats
 
-    spinner.stop(`${pc.green('✓')} File validated (${formatFileSize(fileStat.size)})`)
+    const pathStat = pathValidation.stats
+    const isDirectory = pathValidation.isDirectory || false
 
-    // Step 2: Initialize Synapse SDK (without storage context)
+    const pathType = isDirectory ? 'Directory' : 'File'
+    const sizeDisplay = isDirectory ? '' : ` (${formatFileSize(pathStat.size)})`
+    spinner.stop(`${pc.green('✓')} ${pathType} validated${sizeDisplay}`)
+
+    // Initialize Synapse SDK (without storage context)
     spinner.start('Initializing Synapse SDK...')
 
     if (!options.privateKey) {
@@ -98,25 +118,37 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
-    // Step 3: Validate payment setup
-    spinner.start('Validating payment setup...')
-    await validatePaymentSetup(synapse, fileStat.size, spinner)
+    // Validate basic payment setup (actual CAR size will be checked later)
+    spinner.start('Validating payment setup (basic requirements)...')
+    await validatePaymentSetup(synapse, 0, spinner)
 
-    // Step 4: Create CAR from file
-    spinner.start(`Preparing file for IPFS${options.bare ? ' (bare mode)' : ''}...`)
-    const { carPath, rootCid } = await createCarFromFile(options.filePath, {
+    // Create CAR from file or directory
+    const packingMsg = isDirectory
+      ? 'Packing directory for IPFS...'
+      : `Packing file for IPFS${options.bare ? ' (bare mode)' : ''}...`
+    spinner.start(packingMsg)
+
+    const { carPath, rootCid } = await createCarFromPath(options.filePath, {
       logger,
+      spinner,
+      isDirectory,
       ...(options.bare !== undefined && { bare: options.bare }),
     })
     tempCarPath = carPath
-    spinner.stop(`${pc.green('✓')} File packed for IPFS with root CID: ${rootCid.toString()}`)
 
-    // Step 5: Read CAR data
+    spinner.stop(`${pc.green('✓')} ${isDirectory ? 'Directory' : 'File'} packed with root CID: ${rootCid.toString()}`)
+
+    // Read CAR data
     spinner.start('Loading packed IPFS content ...')
     const carData = await readFile(tempCarPath)
-    spinner.stop(`${pc.green('✓')} IPFS content loaded (${formatFileSize(carData.length)})`)
+    const carSize = carData.length
+    spinner.stop(`${pc.green('✓')} IPFS content loaded (${formatFileSize(carSize)})`)
 
-    // Step 6: Create storage context
+    // Validate payment setup with actual CAR size
+    spinner.start('Validating payment capacity for CAR size...')
+    await validatePaymentSetup(synapse, carSize, spinner)
+
+    // Create storage context
     spinner.start('Creating storage context...')
 
     const { storage, providerInfo } = await createStorageContext(synapse, logger, {
@@ -140,20 +172,21 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     // Create service object for upload function
     const synapseService: SynapseService = { synapse, storage, providerInfo }
 
-    // Step 7: Upload to Synapse
+    // Upload to Synapse
     const uploadResult = await performUpload(synapseService, carData, rootCid, {
       contextType: 'add',
-      fileSize: fileStat.size,
+      fileSize: carSize,
       logger,
       spinner,
     })
 
-    // Step 8: Display results
+    // Display results
     spinner.stop('━━━ Add Complete ━━━')
 
     const result: AddResult = {
       filePath: options.filePath,
-      fileSize: fileStat.size,
+      fileSize: carSize,
+      ...(isDirectory && { isDirectory }),
       rootCid: rootCid.toString(),
       pieceCid: uploadResult.pieceCid,
       pieceId: uploadResult.pieceId,
@@ -162,13 +195,11 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       providerInfo: uploadResult.providerInfo,
     }
 
-    // Display the results
     displayUploadResults(result, 'Add', network)
 
     // Clean up WebSocket providers to allow process termination
     await cleanupSynapseService()
 
-    // Show success outro
     outro('Add completed successfully')
 
     return result

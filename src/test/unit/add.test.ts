@@ -48,7 +48,7 @@ vi.mock('../../synapse/service.js', () => ({
 }))
 
 vi.mock('../../add/unixfs-car.js', () => ({
-  createCarFromFile: vi.fn((_filePath: string, options: any) => {
+  createCarFromPath: vi.fn((_filePath: string, options: any) => {
     const bare = options?.bare || false
     // Different CIDs for bare vs directory mode
     const cid = bare
@@ -139,9 +139,9 @@ describe('Add Command', () => {
         },
       })
 
-      // Verify createCarFromFile was called without bare flag
-      const { createCarFromFile } = await import('../../add/unixfs-car.js')
-      expect(vi.mocked(createCarFromFile)).toHaveBeenCalledWith(
+      // Verify createCarFromPath was called without bare flag
+      const { createCarFromPath } = await import('../../add/unixfs-car.js')
+      expect(vi.mocked(createCarFromPath)).toHaveBeenCalledWith(
         testFile,
         expect.objectContaining({
           logger: expect.any(Object),
@@ -173,9 +173,9 @@ describe('Add Command', () => {
         },
       })
 
-      // Verify createCarFromFile was called with bare flag
-      const { createCarFromFile } = await import('../../add/unixfs-car.js')
-      expect(vi.mocked(createCarFromFile)).toHaveBeenCalledWith(
+      // Verify createCarFromPath was called with bare flag
+      const { createCarFromPath } = await import('../../add/unixfs-car.js')
+      expect(vi.mocked(createCarFromPath)).toHaveBeenCalledWith(
         testFile,
         expect.objectContaining({
           logger: expect.any(Object),
@@ -216,15 +216,16 @@ describe('Add Command', () => {
       mockExit.mockRestore()
     })
 
-    it('should reject non-file paths (directories)', async () => {
+    it('should reject --bare flag with directories', async () => {
       const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => {
         throw new Error('process.exit called')
       })
 
       await expect(
         runAdd({
-          filePath: testDir, // Directory, not a file
+          filePath: testDir, // Directory
           privateKey: 'test-key',
+          bare: true, // --bare flag should not work with directories
         })
       ).rejects.toThrow('process.exit called')
 

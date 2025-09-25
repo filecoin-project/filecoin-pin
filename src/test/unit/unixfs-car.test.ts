@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CarReader } from '@ipld/car'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createCarFromFile } from '../../add/unixfs-car.js'
+import { createCarFromPath } from '../../add/unixfs-car.js'
 
 // Test constants
 const PLACEHOLDER_CID = 'bafyaaiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -49,7 +49,7 @@ describe('UnixFS CAR Creation', () => {
   describe('Bare mode (no directory wrapper)', () => {
     it('should create a valid CAR that can be imported', async () => {
       // Step 1: Create CAR from file using add logic
-      const { carPath, rootCid } = await createCarFromFile(testFile, { bare: true })
+      const { carPath, rootCid } = await createCarFromPath(testFile, { bare: true })
 
       // Step 2: Read and validate the CAR file
       const carData = await readFile(carPath)
@@ -83,9 +83,9 @@ describe('UnixFS CAR Creation', () => {
     it('should produce consistent root CIDs for same content in bare mode', async () => {
       // Create multiple CARs from same content in bare mode
       const results = await Promise.all([
-        createCarFromFile(testFile, { bare: true }),
-        createCarFromFile(testFile, { bare: true }),
-        createCarFromFile(testFile, { bare: true }),
+        createCarFromPath(testFile, { bare: true }),
+        createCarFromPath(testFile, { bare: true }),
+        createCarFromPath(testFile, { bare: true }),
       ])
 
       // All should have the same root CID
@@ -100,7 +100,7 @@ describe('UnixFS CAR Creation', () => {
       const smallFile = join(testDir, 'small.txt')
       await writeFile(smallFile, 'tiny')
 
-      const { carPath, rootCid } = await createCarFromFile(smallFile, { bare: true })
+      const { carPath, rootCid } = await createCarFromPath(smallFile, { bare: true })
 
       // Should still produce valid CAR
       const carData = await readFile(carPath)
@@ -134,7 +134,7 @@ describe('UnixFS CAR Creation', () => {
       const largeContent = randomBytes(1024 * 1024 * 2) // 2MB of random data
       await writeFile(largeFile, largeContent)
 
-      const { carPath, rootCid } = await createCarFromFile(largeFile, { bare: true })
+      const { carPath, rootCid } = await createCarFromPath(largeFile, { bare: true })
 
       // Read the CAR and count blocks
       const carData = await readFile(carPath)
@@ -159,7 +159,7 @@ describe('UnixFS CAR Creation', () => {
     })
 
     it('should validate placeholder CID is replaced in bare mode', async () => {
-      const { carPath, rootCid } = await createCarFromFile(testFile, { bare: true })
+      const { carPath, rootCid } = await createCarFromPath(testFile, { bare: true })
 
       // The placeholder CID should never appear in final output
       expect(rootCid.toString()).not.toBe(PLACEHOLDER_CID)
@@ -179,7 +179,7 @@ describe('UnixFS CAR Creation', () => {
 
   describe('Directory wrapper mode (default)', () => {
     it('should create a valid CAR with directory wrapper', async () => {
-      const { carPath, rootCid } = await createCarFromFile(testFile, { bare: false })
+      const { carPath, rootCid } = await createCarFromPath(testFile, { bare: false })
 
       // Read and validate the CAR file
       const carData = await readFile(carPath)
@@ -204,8 +204,8 @@ describe('UnixFS CAR Creation', () => {
     })
 
     it('should have one extra block compared to bare mode', async () => {
-      const { carPath: bareCar } = await createCarFromFile(testFile, { bare: true })
-      const { carPath: dirCar } = await createCarFromFile(testFile, { bare: false })
+      const { carPath: bareCar } = await createCarFromPath(testFile, { bare: true })
+      const { carPath: dirCar } = await createCarFromPath(testFile, { bare: false })
 
       const bareBlocks = await countBlocks(bareCar)
       const dirBlocks = await countBlocks(dirCar)
@@ -219,8 +219,8 @@ describe('UnixFS CAR Creation', () => {
     })
 
     it('should produce different root CIDs between bare and directory modes', async () => {
-      const { carPath: bareCar, rootCid: bareCid } = await createCarFromFile(testFile, { bare: true })
-      const { carPath: dirCar, rootCid: dirCid } = await createCarFromFile(testFile, { bare: false })
+      const { carPath: bareCar, rootCid: bareCid } = await createCarFromPath(testFile, { bare: true })
+      const { carPath: dirCar, rootCid: dirCid } = await createCarFromPath(testFile, { bare: false })
 
       // Root CIDs should be different
       expect(bareCid.toString()).not.toBe(dirCid.toString())
@@ -232,9 +232,9 @@ describe('UnixFS CAR Creation', () => {
 
     it('should produce consistent root CIDs for same content in directory mode', async () => {
       const results = await Promise.all([
-        createCarFromFile(testFile, { bare: false }),
-        createCarFromFile(testFile, { bare: false }),
-        createCarFromFile(testFile, { bare: false }),
+        createCarFromPath(testFile, { bare: false }),
+        createCarFromPath(testFile, { bare: false }),
+        createCarFromPath(testFile, { bare: false }),
       ])
 
       // All should have the same root CID
@@ -249,8 +249,8 @@ describe('UnixFS CAR Creation', () => {
       const smallFile = join(testDir, 'small.txt')
       await writeFile(smallFile, 'tiny')
 
-      const { carPath: bareCar } = await createCarFromFile(smallFile, { bare: true })
-      const { carPath: dirCar } = await createCarFromFile(smallFile, { bare: false })
+      const { carPath: bareCar } = await createCarFromPath(smallFile, { bare: true })
+      const { carPath: dirCar } = await createCarFromPath(smallFile, { bare: false })
 
       const bareBlocks = await countBlocks(bareCar)
       const dirBlocks = await countBlocks(dirCar)
@@ -262,6 +262,216 @@ describe('UnixFS CAR Creation', () => {
       // Clean up
       await rm(bareCar, { force: true })
       await rm(dirCar, { force: true })
+    })
+  })
+
+  describe('Directory CAR creation', () => {
+    it('should create a valid CAR from a directory with multiple files', async () => {
+      // Create a test directory structure
+      const testDirPath = join(testDir, 'test-directory')
+      await mkdir(testDirPath, { recursive: true })
+
+      // Create multiple files with different sizes
+      await writeFile(join(testDirPath, 'file1.txt'), 'content1')
+      await writeFile(join(testDirPath, 'file2.bin'), randomBytes(1024))
+      await writeFile(join(testDirPath, 'large.bin'), randomBytes(1024 * 1024 * 2)) // 2MB
+
+      const { carPath, rootCid } = await createCarFromPath(testDirPath)
+
+      // Verify the result
+      expect(rootCid).toBeDefined()
+
+      // Read and validate the CAR file
+      const carData = await readFile(carPath)
+      const reader = await CarReader.fromBytes(carData)
+
+      // Verify roots
+      const roots = await reader.getRoots()
+      expect(roots.length).toBe(1)
+      expect(roots[0]?.toString()).toBe(rootCid.toString())
+
+      // Count blocks - should have blocks for:
+      // - 3 file data blocks (file1.txt, file2.bin, 2 blocks for large.bin)
+      // - 1 file metadata for large.bin (since it's chunked)
+      // - 1 root directory
+      let blockCount = 0
+      for await (const _block of reader.blocks()) {
+        blockCount++
+      }
+      expect(blockCount).toBeGreaterThanOrEqual(5) // At least 5 blocks
+
+      // Clean up
+      await rm(carPath, { force: true })
+      await rm(testDirPath, { recursive: true, force: true })
+    })
+
+    it('should handle nested directory structures correctly', async () => {
+      // Create nested directory structure
+      const rootDir = join(testDir, 'nested-test')
+      const subDir1 = join(rootDir, 'subdir1')
+      const subDir2 = join(rootDir, 'subdir2')
+      const deepDir = join(subDir1, 'deep')
+
+      await mkdir(deepDir, { recursive: true })
+      await mkdir(subDir2, { recursive: true })
+
+      // Add files at different levels
+      await writeFile(join(rootDir, 'root.txt'), 'root content')
+      await writeFile(join(subDir1, 'sub1.txt'), 'subdir1 content')
+      await writeFile(join(subDir2, 'sub2.txt'), 'subdir2 content')
+      await writeFile(join(deepDir, 'deep.txt'), 'deep content')
+
+      const { carPath, rootCid } = await createCarFromPath(rootDir)
+
+      // Verify the result
+      expect(rootCid).toBeDefined()
+
+      // Verify CAR structure
+      const carData = await readFile(carPath)
+      const reader = await CarReader.fromBytes(carData)
+
+      const roots = await reader.getRoots()
+      expect(roots.length).toBe(1)
+      expect(roots[0]?.toString()).toBe(rootCid.toString())
+
+      // Count blocks - should have at least:
+      // - 4 file blocks (one per file)
+      // - Directory blocks for nested structure
+      let blockCount = 0
+      for await (const _block of reader.blocks()) {
+        blockCount++
+      }
+      expect(blockCount).toBeGreaterThan(4) // More than just file blocks
+
+      // Clean up
+      await rm(carPath, { force: true })
+      await rm(rootDir, { recursive: true, force: true })
+    })
+
+    it('should handle empty directories correctly', async () => {
+      const emptyDir = join(testDir, 'empty-dir')
+      await mkdir(emptyDir, { recursive: true })
+
+      const { carPath, rootCid } = await createCarFromPath(emptyDir)
+
+      expect(rootCid).toBeDefined()
+
+      // Verify CAR has at least the directory block
+      const carData = await readFile(carPath)
+      const reader = await CarReader.fromBytes(carData)
+
+      let blockCount = 0
+      for await (const _block of reader.blocks()) {
+        blockCount++
+      }
+      expect(blockCount).toBe(1) // Just the empty directory block
+
+      // Clean up
+      await rm(carPath, { force: true })
+      await rm(emptyDir, { recursive: true, force: true })
+    })
+
+    it('should handle directories with only subdirectories (no files)', async () => {
+      const parentDir = join(testDir, 'dirs-only')
+      const subDir1 = join(parentDir, 'sub1')
+      const subDir2 = join(parentDir, 'sub2')
+      const subSubDir = join(subDir1, 'subsub')
+
+      await mkdir(subSubDir, { recursive: true })
+      await mkdir(subDir2, { recursive: true })
+
+      const { carPath, rootCid } = await createCarFromPath(parentDir)
+
+      expect(rootCid).toBeDefined()
+
+      // Verify CAR has directory blocks
+      const carData = await readFile(carPath)
+      const reader = await CarReader.fromBytes(carData)
+
+      let blockCount = 0
+      for await (const _block of reader.blocks()) {
+        blockCount++
+      }
+      // Should have blocks for each directory
+      expect(blockCount).toBeGreaterThanOrEqual(4) // parent, sub1, sub2, subsub
+
+      // Clean up
+      await rm(carPath, { force: true })
+      await rm(parentDir, { recursive: true, force: true })
+    })
+
+    it('should handle mixed content (files and directories) correctly', async () => {
+      const mixedDir = join(testDir, 'mixed-content')
+      const subDir = join(mixedDir, 'subdir')
+      await mkdir(subDir, { recursive: true })
+
+      // Add various file types and sizes
+      await writeFile(join(mixedDir, 'text.txt'), 'text content')
+      await writeFile(join(mixedDir, 'binary.bin'), randomBytes(512))
+      await writeFile(join(subDir, 'nested.json'), JSON.stringify({ test: true }))
+      await writeFile(join(subDir, 'large.dat'), randomBytes(1024 * 1024 * 1.5)) // 1.5MB
+
+      const { carPath, rootCid } = await createCarFromPath(mixedDir)
+
+      expect(rootCid).toBeDefined()
+
+      // Verify the CAR contains all expected content
+      const blockCount = await countBlocks(carPath)
+      // Should have blocks for: 4 files (large.dat chunked to 2) + file metadata for large.dat + 2 directories
+      expect(blockCount).toBeGreaterThanOrEqual(7)
+
+      // Clean up
+      await rm(carPath, { force: true })
+      await rm(mixedDir, { recursive: true, force: true })
+    })
+
+    it('should produce consistent CIDs for identical directory structures', async () => {
+      // Create two identical directory structures
+      const dir1 = join(testDir, 'consistent1')
+      const dir2 = join(testDir, 'consistent2')
+
+      for (const dir of [dir1, dir2]) {
+        const subDir = join(dir, 'sub')
+        await mkdir(subDir, { recursive: true })
+        await writeFile(join(dir, 'file.txt'), 'same content')
+        await writeFile(join(subDir, 'nested.txt'), 'nested content')
+      }
+
+      const result1 = await createCarFromPath(dir1)
+      const result2 = await createCarFromPath(dir2)
+
+      // Should produce identical CIDs for identical content
+      expect(result1.rootCid.toString()).toBe(result2.rootCid.toString())
+
+      // Clean up
+      await rm(result1.carPath, { force: true })
+      await rm(result2.carPath, { force: true })
+      await rm(dir1, { recursive: true, force: true })
+      await rm(dir2, { recursive: true, force: true })
+    })
+
+    it('should handle very deep directory nesting', async () => {
+      // Create a deeply nested structure
+      let currentPath = testDir
+      const depth = 10
+      for (let i = 0; i < depth; i++) {
+        currentPath = join(currentPath, `level${i}`)
+      }
+      await mkdir(currentPath, { recursive: true })
+      await writeFile(join(currentPath, 'deep-file.txt'), 'very deep')
+
+      const basePath = join(testDir, 'level0')
+      const { carPath, rootCid } = await createCarFromPath(basePath)
+
+      expect(rootCid).toBeDefined()
+
+      // Should have blocks for all directory levels plus the file
+      const blockCount = await countBlocks(carPath)
+      expect(blockCount).toBeGreaterThanOrEqual(depth + 1) // At least one block per level + file
+
+      // Clean up
+      await rm(carPath, { force: true })
+      await rm(basePath, { recursive: true, force: true })
     })
   })
 })

@@ -10,6 +10,7 @@ export interface AddOptions {
 export interface AddResult {
   filePath: string
   fileSize: number
+  isDirectory?: boolean
   rootCid: string
   pieceCid: string
   pieceId?: number | undefined
