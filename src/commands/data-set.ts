@@ -9,7 +9,6 @@ import type { EnhancedDataSetInfo, ProviderInfo } from '@filoz/synapse-sdk'
 
 interface DataSetCommandOptions {
   ls?: boolean
-  status?: string
   privateKey?: string
   rpcUrl?: string
 }
@@ -27,14 +26,12 @@ function buildContext(params: {
     }
   }
 
-  const managedDataSets = params.dataSets.filter(
-    (dataSet) => dataSet.metadata?.source === 'filecoin-pin'
-  )
-
   return {
     address: params.address,
     network: params.network,
-    dataSets: managedDataSets,
+    dataSets: params.dataSets.filter(
+      (dataSet) => dataSet.metadata?.source === 'filecoin-pin'
+    ),
     providers: providerMap,
   }
 }
@@ -56,17 +53,15 @@ function resolveRpcUrl(options: DataSetCommandOptions): string {
 
 export const dataSetCommand = new Command('data-set')
   .description('Inspect data sets managed through Filecoin Onchain Cloud')
+  .argument('[dataSetId]', 'Optional data set ID to inspect')
   .option('--ls', 'List all data sets for the configured account')
-  .option('--status <id>', 'Show status for a specific data set ID')
   .option('--private-key <key>', 'Private key (or PRIVATE_KEY env)')
   .option('--rpc-url <url>', 'RPC endpoint (or RPC_URL env)')
-  .action(async (options: DataSetCommandOptions) => {
-    if (options.ls !== true && options.status == null) {
-      log.line(pc.yellow('Specify --ls to list data sets or --status <id> for details.'))
-      log.line(pc.gray('Use both flags to list and inspect in one run.'))
-      log.flush()
-      return
-    }
+  .action(async (dataSetIdArg: string | undefined, options: DataSetCommandOptions) => {
+    const dataSetIdInput = dataSetIdArg ?? null
+    const hasDataSetId = dataSetIdInput != null
+    // we list if --ls is provided or no dataSetId is given (default to listing all data sets)
+    const shouldList = options.ls === true || !hasDataSetId
 
     const privateKey = await ensurePrivateKey(options)
     const rpcUrl = resolveRpcUrl(options)
@@ -104,28 +99,29 @@ export const dataSetCommand = new Command('data-set')
         providers: storageInfo?.providers ?? null,
       })
 
-      if (options.ls) {
+      if (shouldList) {
         displayDataSetList(context)
       }
 
-      if (options.status != null) {
-        const dataSetId = Number.parseInt(options.status, 10)
+      if (hasDataSetId) {
+        const dataSetId = Number.parseInt(dataSetIdInput, 10)
         if (Number.isNaN(dataSetId)) {
-          log.line(pc.red(`Invalid data set ID: ${options.status}`))
+          log.line(pc.red(`Invalid data set ID: ${dataSetIdInput}`))
           log.flush()
           cancel('Invalid arguments')
-          process.exit(1)
         }
 
-        if (options.ls) {
+        if (shouldList) {
           log.line('')
           log.flush()
         }
 
+        // Future operations like --terminate/--remove will be handled here
         const found = displayDataSetStatus(context, dataSetId)
         if (!found) {
           cancel('Data set not found')
-          process.exit(1)
+          process.exitCode = 1
+          return
         }
       }
 
@@ -140,6 +136,8 @@ export const dataSetCommand = new Command('data-set')
       log.flush()
 
       cancel('Inspection failed')
-      process.exit(1)
+      process.exitCode = 1
+    } finally {
+      await cleanupProvider(provider)
     }
   })
