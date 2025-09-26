@@ -15,10 +15,10 @@ import {
   checkFILBalance,
   checkUSDFCBalance,
   depositUSDFC,
-  withdrawUSDFC,
   getPaymentStatus,
   getStorageScale,
   setServiceApprovals,
+  withdrawUSDFC,
 } from '../synapse/payments.js'
 import { log } from '../utils/cli-logger.js'
 

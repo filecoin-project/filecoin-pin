@@ -5,7 +5,7 @@
  * This provides a quick overview of the user's payment setup without making changes.
  */
 
-import { RPC_URLS, TIME_CONSTANTS, Synapse } from '@filoz/synapse-sdk'
+import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
 import { calculateDepositCapacity } from '../synapse/payments.js'
@@ -161,14 +161,12 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
 
       log.line('')
       log.line(pc.bold('WarmStorage Usage'))
-      log.indent(pc.bold(`Spend rate:`) )
+      log.indent(pc.bold(`Spend rate:`))
       log.indent(`${formatUSDFC(rateUsed)} USDFC/epoch`, 3)
       log.indent(`~${formatUSDFC(perDay)} USDFC/day`, 3)
       log.indent(`~${formatUSDFC(perMonth)} USDFC/month`, 3)
       log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC (~${lockupDays}-day reserve)`)
-      log.indent(
-        `Runway: ~${runwayDays} day(s) ${runwayHoursRemainder > 0 ? `${runwayHoursRemainder} hour(s)` : ''}`
-      )
+      log.indent(`Runway: ~${runwayDays} day(s) ${runwayHoursRemainder > 0 ? `${runwayHoursRemainder} hour(s)` : ''}`)
       log.flush()
     } else {
       log.line('')

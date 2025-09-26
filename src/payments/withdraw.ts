@@ -97,4 +97,3 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
     await cleanupProvider(provider)
   }
 }
-

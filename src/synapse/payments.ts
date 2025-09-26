@@ -295,10 +295,7 @@ export async function depositUSDFC(
  * @param amount - Amount to withdraw in USDFC (with decimals)
  * @returns Transaction hash for the withdrawal
  */
-export async function withdrawUSDFC(
-  synapse: Synapse,
-  amount: bigint
-): Promise<string> {
+export async function withdrawUSDFC(synapse: Synapse, amount: bigint): Promise<string> {
   const tx = await synapse.payments.withdraw(amount, TOKENS.USDFC)
   await tx.wait()
   return tx.hash

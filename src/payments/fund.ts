@@ -4,19 +4,14 @@
  * Adjusts funds to exactly match a target runway (days) or a target deposited amount.
  */
 
-import { RPC_URLS, TIME_CONSTANTS, Synapse } from '@filoz/synapse-sdk'
+import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { computeAdjustmentForExactDays, computeAdjustmentForExactDeposit } from '../synapse/payments.js'
 import { cleanupProvider } from '../synapse/service.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import { checkFILBalance, formatUSDFC, getPaymentStatus } from './setup.js'
-import { depositUSDFC } from './setup.js'
-import { withdrawUSDFC } from './setup.js'
-import {
-  computeAdjustmentForExactDays,
-  computeAdjustmentForExactDeposit,
-} from '../synapse/payments.js'
+import { checkFILBalance, depositUSDFC, formatUSDFC, getPaymentStatus, withdrawUSDFC } from './setup.js'
 
 export interface FundOptions {
   privateKey?: string
@@ -171,7 +166,7 @@ export async function runFund(options: FundOptions): Promise<void> {
 
     if (targetDeposit < lockupUsed) {
       log.line(pc.yellow('⚠ Target amount is below locked funds. Clamping to locked amount.'))
-      log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC`) 
+      log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC`)
       log.flush()
     }
 
@@ -202,7 +197,9 @@ export async function runFund(options: FundOptions): Promise<void> {
       log.flush()
     } else {
       const withdrawAmount = -delta
-      spinner.start(`Withdrawing ${formatUSDFC(withdrawAmount)} USDFC to reach ${formatUSDFC(clampedTarget)} USDFC total...`)
+      spinner.start(
+        `Withdrawing ${formatUSDFC(withdrawAmount)} USDFC to reach ${formatUSDFC(clampedTarget)} USDFC total...`
+      )
       const txHash = await withdrawUSDFC(synapse, withdrawAmount)
       spinner.stop(`${pc.green('✓')} Withdraw complete`)
       log.line(pc.bold('Transaction'))

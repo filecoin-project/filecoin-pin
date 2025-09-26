@@ -1,11 +1,11 @@
 import { Command } from 'commander'
 import { runAutoSetup } from '../payments/auto.js'
+import { runDeposit } from '../payments/deposit.js'
+import { runFund } from '../payments/fund.js'
 import { runInteractiveSetup } from '../payments/interactive.js'
 import { showPaymentStatus } from '../payments/status.js'
-import { runDeposit } from '../payments/deposit.js'
-import { runWithdraw } from '../payments/withdraw.js'
-import { runFund } from '../payments/fund.js'
 import type { PaymentSetupOptions } from '../payments/types.js'
+import { runWithdraw } from '../payments/withdraw.js'
 
 export const paymentsCommand = new Command('payments').description('Manage payment setup for Filecoin Onchain Cloud')
 

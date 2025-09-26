@@ -6,14 +6,14 @@
  * - By duration: --days <N> (fund enough to keep current usage alive for N days)
  */
 
-import { RPC_URLS, TIME_CONSTANTS, Synapse } from '@filoz/synapse-sdk'
+import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { computeTopUpForDuration } from '../synapse/payments.js'
 import { cleanupProvider } from '../synapse/service.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { checkFILBalance, checkUSDFCBalance, depositUSDFC, formatUSDFC, getPaymentStatus } from './setup.js'
-import { computeTopUpForDuration } from '../synapse/payments.js'
 
 export interface DepositOptions {
   privateKey?: string
@@ -110,7 +110,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
 
       if (rateUsed === 0n) {
         spinner.stop()
-        log.line(`${pc.yellow('⚠')} No active storage payments detected (rateUsed = 0)`) 
+        log.line(`${pc.yellow('⚠')} No active storage payments detected (rateUsed = 0)`)
         log.line('Use --amount to deposit a specific USDFC value instead.')
         log.flush()
         await cleanupProvider(provider)
@@ -130,8 +130,6 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
         return
       }
     }
-
-
 
     // Ensure wallet has enough USDFC
     if (depositAmount > usdfcBalance) {
