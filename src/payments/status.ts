@@ -139,12 +139,9 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     log.line(pc.bold('Storage Deposit'))
     log.indent(`${formatUSDFC(status.depositedAmount)} USDFC deposited`)
     if (capacity.gibPerMonth > 0) {
-      const capacityStr =
-        capacity.gibPerMonth >= 1024
-          ? `${(capacity.gibPerMonth / 1024).toFixed(1)} TiB`
-          : `${capacity.gibPerMonth.toFixed(1)} GiB`
-      log.indent(`Capacity: ~${capacityStr} for 1 month`)
-      log.indent(pc.gray('(includes 10-day safety reserve)'))
+      const asTiB = capacity.tibPerMonth
+      const tibStr = asTiB >= 100 ? Math.round(asTiB).toLocaleString() : asTiB.toFixed(1)
+      log.indent(`Capacity: ~${tibStr} TiB/month ${pc.gray('(includes 10-day safety reserve)')}`)
     } else if (status.depositedAmount > 0n) {
       log.indent(pc.gray('(insufficient for storage)'))
     }
@@ -164,9 +161,11 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
 
       log.line('')
       log.line(pc.bold('WarmStorage Usage'))
-      log.indent(`Spend rate: ${formatUSDFC(rateUsed)} USDFC/epoch`)
-      log.indent(`~${formatUSDFC(perDay)} USDFC/day, ~${formatUSDFC(perMonth)} USDFC/month`)
-      log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC (~${lockupDays}-day reserve)`) 
+      log.indent(pc.bold(`Spend rate:`) )
+      log.indent(`${formatUSDFC(rateUsed)} USDFC/epoch`, 3)
+      log.indent(`~${formatUSDFC(perDay)} USDFC/day`, 3)
+      log.indent(`~${formatUSDFC(perMonth)} USDFC/month`, 3)
+      log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC (~${lockupDays}-day reserve)`)
       log.indent(
         `Runway: ~${runwayDays} day(s) ${runwayHoursRemainder > 0 ? `${runwayHoursRemainder} hour(s)` : ''}`
       )

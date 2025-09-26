@@ -3,6 +3,7 @@ import { runAutoSetup } from '../payments/auto.js'
 import { runInteractiveSetup } from '../payments/interactive.js'
 import { showPaymentStatus } from '../payments/status.js'
 import { runDeposit } from '../payments/deposit.js'
+import { runWithdraw } from '../payments/withdraw.js'
 import type { PaymentSetupOptions } from '../payments/types.js'
 
 export const paymentsCommand = new Command('payments').description('Manage payment setup for Filecoin Onchain Cloud')
@@ -35,6 +36,26 @@ paymentsCommand
       }
     } catch (error) {
       console.error('Payment setup failed:', error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+  })
+
+// Withdraw funds from the payments contract
+paymentsCommand
+  .command('withdraw')
+  .description('Withdraw funds from Filecoin Pay to your wallet')
+  .option('--private-key <key>', 'Private key (can also use PRIVATE_KEY env)')
+  .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env)')
+  .requiredOption('--amount <usdfc>', 'USDFC amount to withdraw (e.g., 5)')
+  .action(async (options) => {
+    try {
+      await runWithdraw({
+        privateKey: options.privateKey,
+        rpcUrl: options.rpcUrl || process.env.RPC_URL,
+        amount: options.amount,
+      })
+    } catch (error) {
+      console.error('Failed to withdraw:', error instanceof Error ? error.message : error)
       process.exit(1)
     }
   })

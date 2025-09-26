@@ -282,6 +282,29 @@ export async function depositUSDFC(
 }
 
 /**
+ * Withdraw USDFC from the Payments contract back to the wallet
+ *
+ * Example usage:
+ * ```typescript
+ * const amountToWithdraw = ethers.parseUnits('10', 18) // 10 USDFC
+ * const txHash = await withdrawUSDFC(synapse, amountToWithdraw)
+ * console.log(`Withdraw transaction: ${txHash}`)
+ * ```
+ *
+ * @param synapse - Initialized Synapse instance
+ * @param amount - Amount to withdraw in USDFC (with decimals)
+ * @returns Transaction hash for the withdrawal
+ */
+export async function withdrawUSDFC(
+  synapse: Synapse,
+  amount: bigint
+): Promise<string> {
+  const tx = await synapse.payments.withdraw(amount, TOKENS.USDFC)
+  await tx.wait()
+  return tx.hash
+}
+
+/**
  * Set service approvals for WarmStorage operator
  *
  * This authorizes the WarmStorage contract to create payment rails on behalf

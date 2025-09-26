@@ -15,6 +15,7 @@ import {
   checkFILBalance,
   checkUSDFCBalance,
   depositUSDFC,
+  withdrawUSDFC,
   getPaymentStatus,
   getStorageScale,
   setServiceApprovals,
@@ -29,6 +30,7 @@ export {
   checkFILBalance,
   checkUSDFCBalance,
   depositUSDFC,
+  withdrawUSDFC,
   getPaymentStatus,
   setServiceApprovals,
 }

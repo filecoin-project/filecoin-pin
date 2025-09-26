@@ -14,7 +14,6 @@ import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { checkFILBalance, checkUSDFCBalance, depositUSDFC, formatUSDFC, getPaymentStatus } from './setup.js'
 import { computeTopUpForDuration } from '../synapse/payments.js'
-import { confirm } from '@clack/prompts'
 
 export interface DepositOptions {
   privateKey?: string
@@ -142,19 +141,6 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
         )
       )
       process.exit(1)
-    } else {
-      // check if we want to continue, (debug only)
-      log.line(`Preparing to deposit ${formatUSDFC(depositAmount)} USDFC`)
-      log.flush()
-      const depositConfirmation = await confirm({
-        message: 'Proceed with deposit?',
-        initialValue: false,
-      })
-      if (!depositConfirmation) {
-        cancel('Deposit aborted')
-        await cleanupProvider(provider)
-        process.exit(0)
-      }
     }
 
     spinner.start(`Depositing ${formatUSDFC(depositAmount)} USDFC...`)
