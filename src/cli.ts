@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 import { Command } from 'commander'
 import { addCommand } from './commands/add.js'
+import { dataSetCommand } from './commands/data-set.js'
 import { importCommand } from './commands/import.js'
 import { paymentsCommand } from './commands/payments.js'
 import { serverCommand } from './commands/server.js'
@@ -23,6 +24,7 @@ const program = new Command()
 // Add subcommands
 program.addCommand(serverCommand)
 program.addCommand(paymentsCommand)
+program.addCommand(dataSetCommand)
 program.addCommand(importCommand)
 program.addCommand(addCommand)
 
