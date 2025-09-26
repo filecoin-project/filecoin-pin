@@ -8,16 +8,11 @@
 import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { calculateDepositCapacity } from '../synapse/payments.js'
 import { cleanupProvider } from '../synapse/service.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import {
-  checkFILBalance,
-  checkUSDFCBalance,
-  displayDepositWarning,
-  displayPaymentSummary,
-  getPaymentStatus,
-} from './setup.js'
+import { checkFILBalance, checkUSDFCBalance, displayDepositWarning, formatUSDFC, getPaymentStatus } from './setup.js'
 
 interface StatusOptions {
   privateKey?: string
@@ -129,17 +124,31 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     spinner.stop('━━━ Current Status ━━━')
 
     log.line(`Address: ${address}`)
+    log.line(`Network: ${pc.bold(network)}`)
+    log.line('')
 
-    displayPaymentSummary(
-      network,
-      filStatus.balance,
-      filStatus.isCalibnet,
-      usdfcBalance,
-      status.depositedAmount,
-      status.currentAllowances.rateAllowance,
-      status.currentAllowances.lockupAllowance,
-      pricePerTiBPerEpoch
-    )
+    // Show wallet balances
+    log.line(pc.bold('Wallet'))
+    const filUnit = filStatus.isCalibnet ? 'tFIL' : 'FIL'
+    log.indent(`${ethers.formatEther(filStatus.balance)} ${filUnit}`)
+    log.indent(`${formatUSDFC(usdfcBalance)} USDFC`)
+    log.line('')
+
+    // Show deposit and capacity
+    const capacity = calculateDepositCapacity(status.depositedAmount, pricePerTiBPerEpoch)
+    log.line(pc.bold('Storage Deposit'))
+    log.indent(`${formatUSDFC(status.depositedAmount)} USDFC deposited`)
+    if (capacity.gibPerMonth > 0) {
+      const capacityStr =
+        capacity.gibPerMonth >= 1024
+          ? `${(capacity.gibPerMonth / 1024).toFixed(1)} TiB`
+          : `${capacity.gibPerMonth.toFixed(1)} GiB`
+      log.indent(`Capacity: ~${capacityStr} for 1 month`)
+      log.indent(pc.gray('(includes 10-day safety reserve)'))
+    } else if (status.depositedAmount > 0n) {
+      log.indent(pc.gray('(insufficient for storage)'))
+    }
+    log.flush()
 
     // Show deposit warning if needed
     displayDepositWarning(status.depositedAmount, status.currentAllowances.lockupUsed)

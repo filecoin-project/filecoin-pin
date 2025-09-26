@@ -189,8 +189,8 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
-    // Step 5: Validate payment setup
-    spinner.start('Validating payment setup...')
+    // Step 5: Validate payment setup (may configure permissions if needed)
+    spinner.start('Checking payment setup...')
     await validatePaymentSetup(synapse, fileStat.size, spinner)
 
     // Step 6: Create storage context now that payments are validated

@@ -6,29 +6,24 @@
  * options to complete the setup without user interaction.
  */
 
-import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
+import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { calculateDepositCapacity, checkAndSetAllowances } from '../synapse/payments.js'
 import { cleanupProvider } from '../synapse/service.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import {
-  calculateStorageAllowances,
-  calculateStorageFromUSDFC,
   checkFILBalance,
   checkUSDFCBalance,
   depositUSDFC,
   displayAccountInfo,
   displayDepositWarning,
-  displayPaymentSummary,
-  displayServicePermissions,
   formatUSDFC,
   getPaymentStatus,
-  parseStorageAllowance,
-  setServiceApprovals,
   validatePaymentRequirements,
 } from './setup.js'
-import type { PaymentSetupOptions, StorageAllowances } from './types.js'
+import type { PaymentSetupOptions } from './types.js'
 
 /**
  * Run automatic payment setup with defaults
@@ -64,27 +59,6 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     targetDeposit = ethers.parseUnits(options.deposit, 18)
   } catch {
     console.error(pc.red(`Error: Invalid deposit amount '${options.deposit}'`))
-    process.exit(1)
-  }
-
-  // 4. Parse storage allowance early to validate format
-  if (!options.rateAllowance) {
-    console.error(pc.red('Error: Storage allowance is required'))
-    process.exit(1)
-  }
-
-  let parsedTiB: number | null
-  let rawUsdfcPerEpoch: string | null = null
-  try {
-    parsedTiB = parseStorageAllowance(options.rateAllowance)
-    if (parsedTiB === null) {
-      // parseStorageAllowance already validated it's a valid USDFC amount
-      // (it would have thrown otherwise), so we can safely save it
-      rawUsdfcPerEpoch = options.rateAllowance
-    }
-  } catch (error) {
-    console.error(pc.red(`Error: Invalid storage allowance '${options.rateAllowance}'`))
-    console.error(pc.red(error instanceof Error ? error.message : String(error)))
     process.exit(1)
   }
 
@@ -150,24 +124,22 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     const storageInfo = await synapse.storage.getStorageInfo()
     const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
 
-    // Calculate storage allowances now that we have synapse
-    let allowances: StorageAllowances
-    if (parsedTiB !== null) {
-      // User specified TiB/month, calculate allowances
-      allowances = calculateStorageAllowances(parsedTiB, pricePerTiBPerEpoch)
-    } else if (rawUsdfcPerEpoch !== null) {
-      // User specified USDFC per epoch directly
-      const usdfcPerEpochBigint = ethers.parseUnits(rawUsdfcPerEpoch, 18)
-      const capacityTiB = calculateStorageFromUSDFC(usdfcPerEpochBigint, pricePerTiBPerEpoch)
-      allowances = calculateStorageAllowances(capacityTiB, pricePerTiBPerEpoch)
-    } else {
-      // This shouldn't happen due to earlier validation
-      throw new Error('Invalid storage allowance state')
-    }
-
-    // Handle deposits
+    // Track if any changes were made
+    let actionsTaken = false
     let actualDepositAmount = 0n
-    let actionsTaken = false // Track if any changes were made
+
+    // Auto-set max allowances for WarmStorage
+    spinner.start('Configuring WarmStorage permissions...')
+    const allowanceResult = await checkAndSetAllowances(synapse)
+    if (allowanceResult.updated) {
+      spinner.stop(`${pc.green('✓')} WarmStorage permissions configured`)
+      log.line(pc.bold('Transaction:'))
+      log.indent(pc.gray(allowanceResult.transactionHash || 'Unknown'))
+      log.flush()
+      actionsTaken = true
+    } else {
+      spinner.stop(`${pc.green('✓')} WarmStorage permissions already configured`)
+    }
 
     if (status.depositedAmount < targetDeposit) {
       const depositAmount = targetDeposit - status.depositedAmount
@@ -199,83 +171,27 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       spinner.stop(`${pc.green('✓')} Deposit already sufficient (${formatUSDFC(status.depositedAmount)} USDFC)`)
     }
 
-    // Set storage allowances
-    spinner.start(`Checking WarmStorage service allowances (${options.rateAllowance})...`)
-
-    // Check if we need to update allowances
-    const currentAllowances = status.currentAllowances
-    let needsUpdate = false
-
-    if (currentAllowances.rateAllowance < allowances.rateAllowance) {
-      needsUpdate = true
-    }
-
-    if (currentAllowances.lockupAllowance < allowances.lockupAllowance) {
-      needsUpdate = true
-    }
-
-    // Calculate total deposit for capacity display
+    // Calculate capacity for final summary
     const totalDeposit = status.depositedAmount + actualDepositAmount
-
-    if (needsUpdate) {
-      spinner.message('Setting WarmStorage service approvals...')
-      const approvalTx = await setServiceApprovals(synapse, allowances.rateAllowance, allowances.lockupAllowance)
-      spinner.stop(`${pc.green('✓')} WarmStorage service approvals updated`)
-      actionsTaken = true
-
-      log.line(pc.bold('Transaction:'))
-      log.indent(pc.gray(approvalTx))
-      log.flush()
-
-      // Display new permissions with capacity info
-      const monthlyRate = allowances.rateAllowance * TIME_CONSTANTS.EPOCHS_PER_MONTH
-      displayServicePermissions(
-        'New WarmStorage Service Limits:',
-        monthlyRate,
-        allowances.lockupAllowance,
-        totalDeposit,
-        pricePerTiBPerEpoch
-      )
-    } else {
-      spinner.stop(`${pc.green('✓')} WarmStorage service permissions already sufficient`)
-
-      // Display current permissions with capacity info
-      const monthlyRate = currentAllowances.rateAllowance * TIME_CONSTANTS.EPOCHS_PER_MONTH
-      displayServicePermissions(
-        'Your Current WarmStorage Service Limits:',
-        monthlyRate,
-        currentAllowances.lockupAllowance,
-        totalDeposit,
-        pricePerTiBPerEpoch
-      )
-    }
-
-    // Get final values
-    let finalRateAllowance: bigint
-    let finalLockupAllowance: bigint
-
-    if (needsUpdate) {
-      finalRateAllowance = allowances.rateAllowance
-      finalLockupAllowance = allowances.lockupAllowance
-    } else {
-      finalRateAllowance = currentAllowances.rateAllowance
-      finalLockupAllowance = currentAllowances.lockupAllowance
-    }
+    const capacity = calculateDepositCapacity(totalDeposit, pricePerTiBPerEpoch)
 
     // Final summary
     spinner.start('Completing setup...')
-    spinner.stop('━━━ Setup Complete ━━━')
+    spinner.stop('━━━ Configuration Summary ━━━')
 
-    displayPaymentSummary(
-      network,
-      filStatus.balance,
-      filStatus.isCalibnet,
-      usdfcBalance,
-      totalDeposit,
-      finalRateAllowance,
-      finalLockupAllowance,
-      pricePerTiBPerEpoch
-    )
+    log.line(`Network: ${pc.bold(network)}`)
+    log.line(`Deposit: ${formatUSDFC(totalDeposit)} USDFC`)
+
+    if (capacity.gibPerMonth > 0) {
+      const capacityStr =
+        capacity.gibPerMonth >= 1024
+          ? `${(capacity.gibPerMonth / 1024).toFixed(1)} TiB`
+          : `${capacity.gibPerMonth.toFixed(1)} GiB`
+      log.line(`Storage: ~${capacityStr} for 1 month`)
+    }
+
+    log.line(`Status: ${pc.green('Ready to upload')}`)
+    log.flush()
 
     // Show deposit warning if needed
     displayDepositWarning(totalDeposit, status.currentAllowances.lockupUsed)
@@ -284,7 +200,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     if (actionsTaken) {
       outro('Payment setup completed successfully')
     } else {
-      outro('Payment setup already configured - no changes needed')
+      outro('Payment setup already configured - ready to use')
     }
   } catch (error) {
     spinner.stop() // Stop spinner without message

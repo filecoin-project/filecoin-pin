@@ -7,32 +7,25 @@
  */
 
 import { cancel, confirm, isCancel, password, text } from '@clack/prompts'
-import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
+import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { calculateDepositCapacity, checkAllowances, setMaxAllowances } from '../synapse/payments.js'
 import { cleanupProvider, cleanupSynapseService } from '../synapse/service.js'
 import { createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
 import {
-  calculateActualCapacity,
-  calculateStorageAllowances,
-  calculateStorageFromUSDFC,
   checkFILBalance,
   checkUSDFCBalance,
   depositUSDFC,
   displayAccountInfo,
-  displayCapacity,
   displayDepositWarning,
-  displayPaymentSummary,
   displayPricing,
-  displayServicePermissions,
   formatUSDFC,
   getPaymentStatus,
-  parseStorageAllowance,
-  setServiceApprovals,
   validatePaymentRequirements,
 } from './setup.js'
-import type { PaymentSetupOptions, StorageAllowances } from './types.js'
+import type { PaymentSetupOptions } from './types.js'
 
 /**
  * Run interactive payment setup
@@ -55,7 +48,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
   let provider: any = null
 
   try {
-    // Step 1: Get private key
+    // Get private key
     let privateKey = options.privateKey || process.env.PRIVATE_KEY
 
     if (!privateKey) {
@@ -90,7 +83,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       privateKey = input.startsWith('0x') ? input : `0x${input}`
     }
 
-    // Step 2: Initialize Synapse
+    // Initialize Synapse
     const s = createSpinner()
     s.start('Initializing connection...')
 
@@ -111,7 +104,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
     s.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
-    // Step 3: Check balances
+    // Check balances
     s.start('Checking balances...')
 
     const filStatus = await checkFILBalance(synapse)
@@ -153,292 +146,159 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     const pricePerGiBPerMonth = pricePerTiBPerMonth / 1024n
     s.stop(`${pc.green('✓')} Pricing loaded`)
 
-    // Step 4: Handle deposits
-    const defaultDeposit = ethers.parseUnits(options.deposit || '1', 18)
+    // Initialize tracking variables
     let depositAmount = 0n
-    let pricingShown = false // Track if pricing has been displayed
     let actionsTaken = false // Track if any changes were made
 
-    if (status.depositedAmount < defaultDeposit) {
-      // Show pricing info to help user decide
-      displayPricing(pricePerGiBPerMonth, pricePerTiBPerMonth)
-      pricingShown = true
+    // Check and optionally set max allowances for WarmStorage
+    s.start('Checking WarmStorage permissions...')
+    const allowanceCheck = await checkAllowances(synapse)
 
-      const shouldDeposit = await confirm({
-        message: `Would you like to deposit USDFC? (Current: ${formatUSDFC(status.depositedAmount)}, Recommended: ${formatUSDFC(defaultDeposit)})`,
+    if (allowanceCheck.needsUpdate) {
+      s.stop(`${pc.yellow('⚠')} WarmStorage authorization required`)
+      log.line('')
+      log.line(pc.bold('WarmStorage Service Authorization'))
+      log.line('WarmStorage needs permissions to manage storage payments on your behalf.')
+      log.line('This is a one-time setup.')
+      log.line('')
+
+      const shouldSetAllowances = await confirm({
+        message: 'Authorize WarmStorage?',
         initialValue: true,
       })
 
-      if (isCancel(shouldDeposit)) {
+      if (isCancel(shouldSetAllowances)) {
         cancel('Setup cancelled')
         process.exit(1)
       }
 
-      if (shouldDeposit) {
-        const amountStr = await text({
-          message: 'How much USDFC would you like to deposit?',
-          placeholder: '1.0',
-          initialValue: formatUSDFC(defaultDeposit - status.depositedAmount),
-          validate: (value: string) => {
-            try {
-              const amount = ethers.parseUnits(value, 18)
-              if (amount <= 0n) return 'Amount must be greater than 0'
-              if (amount > usdfcBalance) return `Insufficient balance (have ${formatUSDFC(usdfcBalance)} USDFC)`
-              return undefined
-            } catch {
-              return 'Invalid amount'
-            }
-          },
-        })
-
-        if (isCancel(amountStr)) {
-          cancel('Setup cancelled')
-          process.exit(1)
-        }
-
-        depositAmount = ethers.parseUnits(amountStr, 18)
-
-        s.start('Depositing USDFC...')
-        const { approvalTx, depositTx } = await depositUSDFC(synapse, depositAmount)
-        s.stop(`${pc.green('✓')} Deposit complete`)
-
-        if (approvalTx) {
-          log.indent(pc.gray(`Approval tx: ${approvalTx}`))
-        }
-        log.indent(pc.gray(`Deposit tx: ${depositTx}`))
+      if (shouldSetAllowances) {
+        s.start('Setting WarmStorage permissions...')
+        const setResult = await setMaxAllowances(synapse)
+        s.stop(`${pc.green('✓')} WarmStorage permissions configured`)
+        log.indent(pc.gray(`Transaction: ${setResult.transactionHash}`))
         actionsTaken = true
+      } else {
+        log.line(pc.yellow('⚠ Skipping WarmStorage authorization. You may need to set this before using storage.'))
       }
-    }
-
-    // Step 5: Set storage allowances
-    log.line(pc.bold('Your Current WarmStorage Service Limits:'))
-
-    // Show current allowances
-    let currentAllowances = status.currentAllowances
-    if (currentAllowances.rateAllowance > 0n) {
-      // Calculate actual vs potential capacity
-      const capacityTiB = calculateActualCapacity(currentAllowances.rateAllowance, pricePerTiBPerEpoch)
-      const totalDeposit = status.depositedAmount + depositAmount
-      const capacity = {
-        actualGiB: capacityTiB * 1024,
-        potentialGiB: capacityTiB * 1024,
-        isDepositLimited: totalDeposit < currentAllowances.lockupAllowance,
-        additionalDepositNeeded:
-          currentAllowances.lockupAllowance > totalDeposit ? currentAllowances.lockupAllowance - totalDeposit : 0n,
-      }
-      const monthlyRate = currentAllowances.rateAllowance * TIME_CONSTANTS.EPOCHS_PER_MONTH
-
-      log.indent(`Max payment: ${formatUSDFC(monthlyRate)} USDFC/month`)
-      log.indent(`Max reserve: ${formatUSDFC(currentAllowances.lockupAllowance)} USDFC (10-day lockup)`)
-
-      displayCapacity(capacity)
-      log.flush()
     } else {
-      log.indent(pc.gray('No limits set yet'))
-      log.flush()
+      s.stop(`${pc.green('✓')} WarmStorage permissions already configured`)
     }
 
-    // Ask about setting/updating storage limits
-    const shouldSetAllowances = await confirm({
-      message: 'Would you like to set storage payment limits?',
-      initialValue: currentAllowances.rateAllowance === 0n,
+    // Show current deposit capacity
+    const currentCapacity = calculateDepositCapacity(status.depositedAmount, pricePerTiBPerEpoch)
+    log.line(pc.bold('Current Storage Capacity:'))
+    if (status.depositedAmount > 0n) {
+      const capacityStr =
+        currentCapacity.gibPerMonth >= 1024
+          ? `${(currentCapacity.gibPerMonth / 1024).toFixed(1)} TiB`
+          : `${currentCapacity.gibPerMonth.toFixed(1)} GiB`
+      log.indent(`Deposit: ${formatUSDFC(status.depositedAmount)} USDFC`)
+      log.indent(`Capacity: ~${capacityStr} for 1 month`)
+    } else {
+      log.indent(pc.gray('No deposit yet'))
+    }
+    log.flush()
+
+    // Show pricing to help user understand costs
+    displayPricing(pricePerGiBPerMonth, pricePerTiBPerMonth)
+
+    // Offer deposit options with contextual message
+    const depositMessage =
+      status.depositedAmount === 0n
+        ? 'Would you like to deposit USDFC to enable storage?'
+        : 'Would you like to deposit additional USDFC?'
+
+    const shouldDeposit = await confirm({
+      message: depositMessage,
+      initialValue: status.depositedAmount === 0n,
     })
 
-    if (isCancel(shouldSetAllowances)) {
+    if (isCancel(shouldDeposit)) {
       cancel('Setup cancelled')
       process.exit(1)
     }
 
-    if (shouldSetAllowances) {
-      // Show pricing if not already shown
-      if (!pricingShown) {
-        displayPricing(pricePerGiBPerMonth, pricePerTiBPerMonth)
-        pricingShown = true
-      }
+    if (shouldDeposit) {
+      // Show examples to help user decide
+      log.line(pc.bold('Storage Examples (per month):'))
+      log.indent(`100 GiB capacity: ~${formatUSDFC((pricePerGiBPerMonth * 100n * 11n) / 10n)} USDFC`)
+      log.indent(`1 TiB capacity:   ~${formatUSDFC((pricePerTiBPerMonth * 11n) / 10n)} USDFC`)
+      log.indent(`10 TiB capacity:  ~${formatUSDFC((pricePerTiBPerMonth * 10n * 11n) / 10n)} USDFC`)
+      log.indent(pc.gray('(deposit covers 1 month + 10-day safety reserve)'))
+      log.flush()
 
-      const allowanceStr = await text({
-        message: 'Enter storage allowance',
-        placeholder: '1TiB/month or 0.0000565 (USDFC/epoch)',
-        initialValue: options.rateAllowance || '1TiB/month',
+      const amountStr = await text({
+        message: 'How much USDFC would you like to deposit?',
+        placeholder: '10.0',
+        initialValue: status.depositedAmount === 0n ? '10.0' : '5.0',
         validate: (value: string) => {
-          if (!value) return 'Storage allowance is required'
-          return undefined
+          try {
+            const amount = ethers.parseUnits(value, 18)
+            if (amount <= 0n) return 'Amount must be greater than 0'
+            if (amount > usdfcBalance) return `Insufficient balance (have ${formatUSDFC(usdfcBalance)} USDFC)`
+            return undefined
+          } catch {
+            return 'Invalid amount'
+          }
         },
       })
 
-      if (isCancel(allowanceStr)) {
+      if (isCancel(amountStr)) {
         cancel('Setup cancelled')
         process.exit(1)
       }
 
-      // Parse and calculate allowances
-      s.start('Calculating allowances...')
-      let allowances: StorageAllowances
-      try {
-        const parsedTiB = parseStorageAllowance(allowanceStr)
-        if (parsedTiB !== null) {
-          // User specified TiB/month
-          allowances = calculateStorageAllowances(parsedTiB, pricePerTiBPerEpoch)
-        } else {
-          // User specified USDFC per epoch directly
-          const usdfcPerEpochBigint = ethers.parseUnits(allowanceStr, 18)
-          const capacityTiB = calculateStorageFromUSDFC(usdfcPerEpochBigint, pricePerTiBPerEpoch)
-          allowances = calculateStorageAllowances(capacityTiB, pricePerTiBPerEpoch)
-        }
-      } catch (error) {
-        s.stop(`${pc.red('✗')} Invalid storage allowance format`)
-        console.error(pc.red(error instanceof Error ? error.message : 'Invalid format'))
-        cancel('Setup cancelled')
-        process.exit(1)
+      depositAmount = ethers.parseUnits(amountStr, 18)
+
+      s.start('Depositing USDFC...')
+      const { approvalTx, depositTx } = await depositUSDFC(synapse, depositAmount)
+      s.stop(`${pc.green('✓')} Deposit complete`)
+
+      if (approvalTx) {
+        log.indent(pc.gray(`Approval tx: ${approvalTx}`))
       }
-      s.stop(`${pc.green('✓')} Allowances calculated`)
-
-      const monthlyRate = allowances.rateAllowance * TIME_CONSTANTS.EPOCHS_PER_MONTH
-
-      // Calculate total deposit including any new deposits
-      const totalDeposit = status.depositedAmount + depositAmount
-
-      // Display the new permissions with capacity info
-      displayServicePermissions(
-        'New WarmStorage Service Limits:',
-        monthlyRate,
-        allowances.lockupAllowance,
-        totalDeposit,
-        pricePerTiBPerEpoch
-      )
-
-      // Check if deposit is sufficient for lockup
-      if (totalDeposit < allowances.lockupAllowance) {
-        log.newline()
-        log.message(
-          pc.yellow(
-            `⚠ Insufficient deposit for WarmStorage service reserve (need ${formatUSDFC(allowances.lockupAllowance)} USDFC)`
-          )
-        )
-        const shouldContinue = await confirm({
-          message: 'Continue anyway? (You can deposit more later)',
-          initialValue: false,
-        })
-
-        if (isCancel(shouldContinue) || !shouldContinue) {
-          cancel('Setup cancelled')
-          process.exit(1)
-        }
-      }
-
-      // Set approvals
-      s.start('Setting WarmStorage service approvals...')
-      const approvalTx = await setServiceApprovals(synapse, allowances.rateAllowance, allowances.lockupAllowance)
-      s.stop(`${pc.green('✓')} WarmStorage service approvals set`)
-      log.indent(pc.gray(`Transaction: ${approvalTx}`))
+      log.indent(pc.gray(`Deposit tx: ${depositTx}`))
       actionsTaken = true
 
-      // Update currentAllowances to reflect the new values
-      currentAllowances = {
-        rateAllowance: allowances.rateAllowance,
-        lockupAllowance: allowances.lockupAllowance,
-        rateUsed: 0n,
-        lockupUsed: 0n,
-      }
+      // Show new capacity after deposit
+      const newCapacity = calculateDepositCapacity(status.depositedAmount + depositAmount, pricePerTiBPerEpoch)
+      const newCapacityStr =
+        newCapacity.gibPerMonth >= 1024
+          ? `${(newCapacity.gibPerMonth / 1024).toFixed(1)} TiB`
+          : `${newCapacity.gibPerMonth.toFixed(1)} GiB`
+      log.line('')
+      log.line(pc.bold('New Storage Capacity:'))
+      log.indent(`Total deposit: ${formatUSDFC(status.depositedAmount + depositAmount)} USDFC`)
+      log.indent(`Capacity: ~${newCapacityStr} for 1 month`)
+      log.flush()
     }
 
-    // Step 6: Offer additional deposit if it would help utilize the configured limits
-    // Only if we haven't just done an initial deposit and have limits configured
-    const didInitialDeposit = depositAmount > 0n
-    const hasConfiguredLimits = currentAllowances.rateAllowance > 0n
-
-    if (!didInitialDeposit && hasConfiguredLimits) {
-      // Check if we're deposit-limited and could benefit from more funds
-      const currentTotalDeposit = status.depositedAmount + depositAmount
-      const capacityTiB = calculateActualCapacity(currentAllowances.rateAllowance, pricePerTiBPerEpoch)
-      const capacity = {
-        actualGiB: capacityTiB * 1024,
-        potentialGiB: capacityTiB * 1024,
-        isDepositLimited: currentTotalDeposit < currentAllowances.lockupAllowance,
-        additionalDepositNeeded:
-          currentAllowances.lockupAllowance > currentTotalDeposit
-            ? currentAllowances.lockupAllowance - currentTotalDeposit
-            : 0n,
-      }
-
-      // Always offer if deposit-limited or below lockup requirement
-      if (capacity.isDepositLimited || currentTotalDeposit < currentAllowances.lockupAllowance) {
-        const shouldDepositMore = await confirm({
-          message: `Would you like to deposit additional USDFC to better utilize your payment limits? (Current: ${formatUSDFC(currentTotalDeposit)})`,
-          initialValue: capacity.isDepositLimited,
-        })
-
-        if (isCancel(shouldDepositMore)) {
-          cancel('Setup cancelled')
-          process.exit(1)
-        }
-
-        if (shouldDepositMore) {
-          // Don't show pricing again if already shown
-          if (!pricingShown) {
-            displayPricing(pricePerGiBPerMonth, pricePerTiBPerMonth)
-          }
-
-          if (capacity.isDepositLimited) {
-            log.newline()
-            log.message(
-              `${pc.yellow('Recommended:')} Deposit at least ${formatUSDFC(capacity.additionalDepositNeeded)} more to fully utilize your configured limits`
-            )
-          }
-
-          const amountStr = await text({
-            message: 'How much USDFC would you like to deposit?',
-            placeholder: '1.0',
-            initialValue: capacity.isDepositLimited ? formatUSDFC(capacity.additionalDepositNeeded) : '1.0',
-            validate: (value: string) => {
-              try {
-                const amount = ethers.parseUnits(value, 18)
-                if (amount <= 0n) return 'Amount must be greater than 0'
-                if (amount > usdfcBalance) return `Insufficient balance (have ${formatUSDFC(usdfcBalance)} USDFC)`
-                return undefined
-              } catch {
-                return 'Invalid amount'
-              }
-            },
-          })
-
-          if (isCancel(amountStr)) {
-            cancel('Setup cancelled')
-            process.exit(1)
-          }
-
-          const additionalDeposit = ethers.parseUnits(amountStr, 18)
-          depositAmount += additionalDeposit
-
-          s.start('Depositing USDFC...')
-          const { approvalTx, depositTx } = await depositUSDFC(synapse, additionalDeposit)
-          s.stop(`${pc.green('✓')} Deposit complete`)
-
-          if (approvalTx) {
-            log.indent(pc.gray(`Approval tx: ${approvalTx}`))
-          }
-          log.indent(pc.gray(`Deposit tx: ${depositTx}`))
-          actionsTaken = true
-        }
-      }
-    }
-
-    // Step 7: Final summary
+    // Final summary
     s.start('Fetching final status...')
     const finalStatus = await getPaymentStatus(synapse)
     s.stop('━━━ Setup Complete ━━━')
 
-    // Use the shared display function for consistency
-    displayPaymentSummary(
-      network,
-      filStatus.balance,
-      filStatus.isCalibnet,
-      usdfcBalance,
-      finalStatus.depositedAmount,
-      finalStatus.currentAllowances.rateAllowance,
-      finalStatus.currentAllowances.lockupAllowance,
-      pricePerTiBPerEpoch
-    )
+    const finalCapacity = calculateDepositCapacity(finalStatus.depositedAmount, pricePerTiBPerEpoch)
+
+    log.line(`Network: ${pc.bold(network)}`)
+    log.line('')
+
+    log.line(pc.bold('Wallet'))
+    log.indent(`${formatUSDFC(usdfcBalance)} USDFC available`)
+    log.line('')
+
+    log.line(pc.bold('Storage Deposit'))
+    log.indent(`${formatUSDFC(finalStatus.depositedAmount)} USDFC deposited`)
+    if (finalCapacity.gibPerMonth > 0) {
+      const capacityStr =
+        finalCapacity.gibPerMonth >= 1024
+          ? `${(finalCapacity.gibPerMonth / 1024).toFixed(1)} TiB`
+          : `${finalCapacity.gibPerMonth.toFixed(1)} GiB`
+      log.indent(`Capacity: ~${capacityStr} for 1 month`)
+      log.indent(pc.gray('(includes 10-day safety reserve)'))
+    }
+    log.flush()
 
     // Show deposit warning if needed
     displayDepositWarning(finalStatus.depositedAmount, finalStatus.currentAllowances.lockupUsed)

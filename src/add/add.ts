@@ -118,8 +118,9 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
-    // Validate basic payment setup (actual CAR size will be checked later)
-    spinner.start('Validating payment setup (basic requirements)...')
+    // Check payment setup (may configure permissions if needed)
+    // Actual CAR size will be checked later
+    spinner.start('Checking payment setup...')
     await validatePaymentSetup(synapse, 0, spinner)
 
     // Create CAR from file or directory
@@ -144,8 +145,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     const carSize = carData.length
     spinner.stop(`${pc.green('✓')} IPFS content loaded (${formatFileSize(carSize)})`)
 
-    // Validate payment setup with actual CAR size
-    spinner.start('Validating payment capacity for CAR size...')
+    // Validate payment capacity for actual file size
+    spinner.start('Checking payment capacity...')
     await validatePaymentSetup(synapse, carSize, spinner)
 
     // Create storage context

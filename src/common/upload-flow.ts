@@ -10,7 +10,13 @@ import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
 import { formatUSDFC, validatePaymentRequirements } from '../payments/setup.js'
-import { checkFILBalance, checkUSDFCBalance, validatePaymentCapacity } from '../synapse/payments.js'
+import {
+  checkAllowances,
+  checkFILBalance,
+  checkUSDFCBalance,
+  setMaxAllowances,
+  validatePaymentCapacity,
+} from '../synapse/payments.js'
 import { cleanupSynapseService, type SynapseService } from '../synapse/service.js'
 import { getDownloadURL, type SynapseUploadResult, uploadToSynapse } from '../synapse/upload.js'
 import { cancel, formatFileSize } from '../utils/cli-helpers.js'
@@ -87,7 +93,22 @@ export async function validatePaymentSetup(
     process.exit(1)
   }
 
-  // Check capacity for this specific file
+  // Check WarmStorage permissions and configure if needed
+  spinner?.message('Checking WarmStorage permissions...')
+  const checkResult = await checkAllowances(synapse)
+
+  if (checkResult.needsUpdate) {
+    spinner?.message('Configuring WarmStorage permissions (one-time setup)...')
+    const setResult = await setMaxAllowances(synapse)
+    spinner?.stop(`${pc.green('✓')} WarmStorage permissions configured`)
+    log.indent(pc.gray(`Transaction: ${setResult.transactionHash}`))
+    log.flush()
+    spinner?.start('Validating payment capacity...')
+  } else {
+    spinner?.message('Validating payment capacity...')
+  }
+
+  // Check capacity for this specific file (this also calls checkAndSetAllowances but will be a no-op now)
   const capacityCheck = await validatePaymentCapacity(synapse, fileSize)
 
   if (!capacityCheck.canUpload) {
@@ -119,30 +140,15 @@ function displayPaymentIssues(
   fileSize: number,
   spinner?: ReturnType<typeof import('../utils/cli-helpers.js').createSpinner>
 ): void {
-  spinner?.stop(`${pc.red('✗')} Insufficient payment capacity for this file`)
+  spinner?.stop(`${pc.red('✗')} Insufficient deposit for this file`)
   log.line('')
   log.line(pc.bold('File Requirements:'))
   log.indent(`File size: ${formatFileSize(fileSize)} (${capacityCheck.storageTiB.toFixed(4)} TiB)`)
   log.indent(`Storage cost: ${formatUSDFC(capacityCheck.required.rateAllowance)} USDFC/epoch`)
-  log.indent(`10-day lockup: ${formatUSDFC(capacityCheck.required.lockupAllowance)} USDFC`)
-  log.line('')
-
-  log.line(pc.bold(`${pc.red('Issues found:')}`))
-  if (capacityCheck.issues.insufficientDeposit) {
-    log.indent(
-      `${pc.red('✗')} Insufficient deposit (need ${formatUSDFC(capacityCheck.issues.insufficientDeposit)} more)`
-    )
-  }
-  if (capacityCheck.issues.insufficientRateAllowance) {
-    log.indent(
-      `${pc.red('✗')} Rate allowance too low (need ${formatUSDFC(capacityCheck.issues.insufficientRateAllowance)} more per epoch)`
-    )
-  }
-  if (capacityCheck.issues.insufficientLockupAllowance) {
-    log.indent(
-      `${pc.red('✗')} Lockup allowance too low (need ${formatUSDFC(capacityCheck.issues.insufficientLockupAllowance)} more)`
-    )
-  }
+  log.indent(
+    `Required deposit: ${formatUSDFC(capacityCheck.required.lockupAllowance + capacityCheck.required.lockupAllowance / 10n)} USDFC`
+  )
+  log.indent(pc.gray('(includes 10-day safety reserve)'))
   log.line('')
 
   log.line(pc.bold('Suggested actions:'))
@@ -151,20 +157,13 @@ function displayPaymentIssues(
   })
   log.line('')
 
-  // Calculate suggested parameters for payment setup
+  // Calculate suggested deposit
   const suggestedDeposit = capacityCheck.issues.insufficientDeposit
     ? formatUSDFC(capacityCheck.issues.insufficientDeposit)
     : '0'
-  const suggestedStorage = `${Math.ceil(capacityCheck.storageTiB * 10) / 10}TiB/month`
 
-  log.line(`${pc.yellow('⚠')} To fix these issues, run:`)
-  if (capacityCheck.issues.insufficientDeposit) {
-    log.indent(
-      pc.cyan(`filecoin-pin payments setup --deposit ${suggestedDeposit} --storage ${suggestedStorage} --auto`)
-    )
-  } else {
-    log.indent(pc.cyan(`filecoin-pin payments setup --storage ${suggestedStorage} --auto`))
-  }
+  log.line(`${pc.yellow('⚠')} To fix this, run:`)
+  log.indent(pc.cyan(`filecoin-pin payments setup --deposit ${suggestedDeposit} --auto`))
   log.flush()
 }
 
