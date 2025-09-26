@@ -214,7 +214,8 @@ describe('runDataSetCommand', () => {
       rpcUrl: 'wss://sample',
     })
 
-    expect(displayDataSetListMock).toHaveBeenCalled()
+    expect(displayDataSetListMock).not.toHaveBeenCalled()
+
     expect(displayDataSetStatusMock).toHaveBeenCalledTimes(1)
     const statusCall = displayDataSetStatusMock.mock.calls[0]
     expect(statusCall).toBeDefined()

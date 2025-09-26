@@ -266,7 +266,24 @@ export async function runDataSetCommand(
       spinner.stop('━━━ Data Sets ━━━')
 
       if (shouldList) {
-        displayDataSetList(context)
+        const filteredContext: DataSetInspectionContext = {
+          ...context,
+          dataSets: context.dataSets.filter((entry, index) => {
+            if (entry.base.pdpVerifierDataSetId === dataSetId) {
+              return false
+            }
+            if (index === targetIndex) {
+              return false
+            }
+            return true
+          }),
+        }
+
+        if (filteredContext.dataSets.length > 0) {
+          displayDataSetList(filteredContext)
+          log.line('')
+          log.flush()
+        }
         log.line('')
         log.flush()
       }
