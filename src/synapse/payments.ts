@@ -601,6 +601,78 @@ export function computeTopUpForDuration(
 }
 
 /**
+ * Compute the exact adjustment (deposit or withdraw) needed to set runway to `days`.
+ *
+ * Positive result indicates a deposit is needed; negative indicates a withdrawal is possible.
+ */
+export function computeAdjustmentForExactDays(
+  status: PaymentStatus,
+  days: number
+): {
+  delta: bigint // >0 deposit, <0 withdraw, 0 none
+  targetAvailable: bigint
+  available: bigint
+  rateUsed: bigint
+  perDay: bigint
+  lockupUsed: bigint
+} {
+  const rateUsed = status.currentAllowances.rateUsed ?? 0n
+  const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
+  const available = status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n
+  const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+
+  if (days < 0) {
+    throw new Error('days must be non-negative')
+  }
+  if (rateUsed === 0n) {
+    return {
+      delta: 0n,
+      targetAvailable: 0n,
+      available,
+      rateUsed,
+      perDay,
+      lockupUsed,
+    }
+  }
+
+  // Safety buffer to ensure runway >= requested days even if rateUsed shifts slightly.
+  // Use a 1-hour buffer by default.
+  const perHour = perDay / 24n
+  const safety = perHour > 0n ? perHour : 1n
+  const targetAvailable = BigInt(Math.floor(days)) * perDay + safety
+  const delta = targetAvailable - available
+
+  return {
+    delta,
+    targetAvailable,
+    available,
+    rateUsed,
+    perDay,
+    lockupUsed,
+  }
+}
+
+/**
+ * Compute the exact adjustment (deposit or withdraw) to reach a target absolute deposit.
+ *
+ * Clamps to not withdraw below the currently locked amount.
+ */
+export function computeAdjustmentForExactDeposit(
+  status: PaymentStatus,
+  targetDeposit: bigint
+): {
+  delta: bigint // >0 deposit, <0 withdraw, 0 none
+  clampedTarget: bigint
+  lockupUsed: bigint
+} {
+  if (targetDeposit < 0n) throw new Error('target deposit cannot be negative')
+  const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
+  const clampedTarget = targetDeposit < lockupUsed ? lockupUsed : targetDeposit
+  const delta = clampedTarget - status.depositedAmount
+  return { delta, clampedTarget, lockupUsed }
+}
+
+/**
  * Calculate storage capacity from deposit amount
  *
  * This function calculates how much storage capacity a deposit can support,

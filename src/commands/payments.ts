@@ -4,6 +4,7 @@ import { runInteractiveSetup } from '../payments/interactive.js'
 import { showPaymentStatus } from '../payments/status.js'
 import { runDeposit } from '../payments/deposit.js'
 import { runWithdraw } from '../payments/withdraw.js'
+import { runFund } from '../payments/fund.js'
 import type { PaymentSetupOptions } from '../payments/types.js'
 
 export const paymentsCommand = new Command('payments').description('Manage payment setup for Filecoin Onchain Cloud')
@@ -36,6 +37,29 @@ paymentsCommand
       }
     } catch (error) {
       console.error('Payment setup failed:', error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+  })
+
+// Adjust funds to an exact runway or deposited total
+paymentsCommand
+  .command('fund')
+  .description('Adjust funds to an exact runway (days) or total deposit')
+  .option('--private-key <key>', 'Private key (can also use PRIVATE_KEY env)')
+  .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env)')
+  .option('--exact-days <n>', 'Set final runway to exactly N days (deposit or withdraw as needed)')
+  .option('--exact-amount <usdfc>', 'Set final deposited total to exactly this USDFC amount (deposit or withdraw)')
+  .action(async (options) => {
+    try {
+      const fundOptions: any = {
+        privateKey: options.privateKey,
+        rpcUrl: options.rpcUrl || process.env.RPC_URL,
+      }
+      if (options.exactDays != null) fundOptions.exactDays = Number(options.exactDays)
+      if (options.exactAmount != null) fundOptions.exactAmount = options.exactAmount
+      await runFund(fundOptions)
+    } catch (error) {
+      console.error('Failed to adjust funds:', error instanceof Error ? error.message : error)
       process.exit(1)
     }
   })
