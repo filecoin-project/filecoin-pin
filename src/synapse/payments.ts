@@ -519,6 +519,65 @@ export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpo
 }
 
 /**
+ * Compute the additional deposit required to fund current usage for a duration.
+ *
+ * The WarmStorage service maintains ~10 days of lockup (lockupUsed) and draws future
+ * lockups from the available deposit (deposited - lockupUsed). To keep the current
+ * rails alive for N days, ensure available >= N days of spend at the current rateUsed.
+ *
+ * @param status - Current payment status (from getPaymentStatus)
+ * @param days - Number of days to keep the current usage funded
+ * @returns Breakdown of required top-up and related values
+ */
+export function computeTopUpForDuration(
+  status: PaymentStatus,
+  days: number
+): {
+  topUp: bigint
+  available: bigint
+  rateUsed: bigint
+  perDay: bigint
+  lockupUsed: bigint
+} {
+  const rateUsed = status.currentAllowances.rateUsed ?? 0n
+  const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
+
+  if (days <= 0) {
+    return {
+      topUp: 0n,
+      available: status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n,
+      rateUsed,
+      perDay: rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY,
+      lockupUsed,
+    }
+  }
+
+  if (rateUsed === 0n) {
+    return {
+      topUp: 0n,
+      available: status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n,
+      rateUsed,
+      perDay: 0n,
+      lockupUsed,
+    }
+  }
+
+  const epochsNeeded = BigInt(Math.ceil(days)) * TIME_CONSTANTS.EPOCHS_PER_DAY
+  const spendNeeded = rateUsed * epochsNeeded
+  const available = status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n
+
+  const topUp = spendNeeded > available ? spendNeeded - available : 0n
+
+  return {
+    topUp,
+    available,
+    rateUsed,
+    perDay: rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY,
+    lockupUsed,
+  }
+}
+
+/**
  * Calculate storage capacity from deposit amount
  *
  * This function calculates how much storage capacity a deposit can support,

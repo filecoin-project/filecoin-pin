@@ -5,7 +5,7 @@
  * This provides a quick overview of the user's payment setup without making changes.
  */
 
-import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
+import { RPC_URLS, TIME_CONSTANTS, Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
 import { calculateDepositCapacity } from '../synapse/payments.js'
@@ -116,7 +116,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
 
     const status = await getPaymentStatus(synapse)
 
-    // Get storage pricing for capacity calculation
+    // Get storage pricing for capacity calculation and spend summaries
     const storageInfo = await synapse.storage.getStorageInfo()
     const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
 
@@ -150,15 +150,36 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     }
     log.flush()
 
+    // Show spend summaries (rateUsed, daily/monthly spend, runway)
+    const rateUsed = status.currentAllowances.rateUsed ?? 0n
+    const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
+    const maxLockup = status.currentAllowances.maxLockupPeriod
+    const lockupDays = maxLockup != null ? Number(maxLockup / TIME_CONSTANTS.EPOCHS_PER_DAY) : 10
+    if (rateUsed > 0n) {
+      const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+      const perMonth = rateUsed * TIME_CONSTANTS.EPOCHS_PER_MONTH
+      const available = status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n
+      const runwayDays = Number(available / perDay)
+      const runwayHoursRemainder = Number(((available % perDay) * 24n) / perDay)
+
+      log.line('')
+      log.line(pc.bold('WarmStorage Usage'))
+      log.indent(`Spend rate: ${formatUSDFC(rateUsed)} USDFC/epoch`)
+      log.indent(`~${formatUSDFC(perDay)} USDFC/day, ~${formatUSDFC(perMonth)} USDFC/month`)
+      log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC (~${lockupDays}-day reserve)`) 
+      log.indent(
+        `Runway: ~${runwayDays} day(s) ${runwayHoursRemainder > 0 ? `${runwayHoursRemainder} hour(s)` : ''}`
+      )
+      log.flush()
+    } else {
+      log.line('')
+      log.line(pc.bold('WarmStorage Usage'))
+      log.indent(pc.gray('No active spend detected'))
+      log.flush()
+    }
+
     // Show deposit warning if needed
     displayDepositWarning(status.depositedAmount, status.currentAllowances.lockupUsed)
-
-    // TODO: Add payment rails information
-    // - Active data sets
-    // - Recent payments
-    // - Usage statistics
-    log.line('')
-    log.line(pc.gray('Payment rails details coming soon...'))
     log.flush()
 
     await cleanupProvider(provider)
