@@ -7,6 +7,11 @@ import { log } from '../utils/cli-logger.js'
 import { displayDataSetList, displayDataSetStatus } from './inspect.js'
 import type { DataSetCommandOptions, DataSetDetail, DataSetInspectionContext, PieceDetail } from './types.js'
 
+/**
+ * Fetch piece-level metadata for a dataset without triggering PDP lookups.
+ *
+ * @param params - Context required to inspect the piece
+ */
 async function collectPieceDetail(params: {
   dataSetId: number
   pieceId: number
@@ -26,6 +31,10 @@ async function collectPieceDetail(params: {
   return pieceDetail
 }
 
+/**
+ * Build the lightweight inspection context used when no dataset ID is provided.
+ * Only metadata cached in Synapse responses is included so the command returns quickly.
+ */
 function buildSummaryContext(params: {
   address: string
   network: string
@@ -64,6 +73,11 @@ function buildSummaryContext(params: {
   }
 }
 
+/**
+ * Enrich a summary dataset entry with live information from WarmStorage and PDP.
+ *
+ * Populates leaf counts, total size estimates, piece metadata, and warning messages.
+ */
 async function loadDetailedDataSet(detail: DataSetDetail, synapse: Synapse): Promise<DataSetDetail> {
   const result: DataSetDetail = {
     base: detail.base,
@@ -146,6 +160,11 @@ async function loadDetailedDataSet(detail: DataSetDetail, synapse: Synapse): Pro
   return result
 }
 
+/**
+ * Resolve the private key from CLI options or environment variables.
+ *
+ * @throws Never returns when the key cannot be resolved; exits the process instead.
+ */
 async function ensurePrivateKey(options: DataSetCommandOptions): Promise<string> {
   const privateKey = options.privateKey ?? process.env.PRIVATE_KEY
   if (!privateKey) {
@@ -157,10 +176,19 @@ async function ensurePrivateKey(options: DataSetCommandOptions): Promise<string>
   return privateKey
 }
 
+/**
+ * Resolve the RPC endpoint, preferring CLI options over environment defaults.
+ */
 function resolveRpcUrl(options: DataSetCommandOptions): string {
   return options.rpcUrl ?? process.env.RPC_URL ?? RPC_URLS.calibration.websocket
 }
 
+/**
+ * Entry point invoked by the Commander command.
+ *
+ * @param dataSetIdArg - Optional dataset identifier provided on the command line
+ * @param options - Normalised CLI options
+ */
 export async function runDataSetCommand(
   dataSetIdArg: string | undefined,
   options: DataSetCommandOptions
@@ -257,11 +285,9 @@ export async function runDataSetCommand(
       }
     }
 
-    await cleanupProvider(provider)
     outro('Data set inspection complete')
   } catch (error) {
     spinner.stop(`${pc.red('✗')} Failed to inspect data sets`)
-    await cleanupProvider(provider)
 
     log.line('')
     log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)

@@ -4,6 +4,9 @@ import { formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import type { DataSetDetail, DataSetInspectionContext, PieceDetail } from './types.js'
 
+/**
+ * Convert dataset lifecycle information into a coloured status label.
+ */
 function statusLabel(dataSet: DataSetDetail['base']): string {
   if (dataSet.isLive) {
     return pc.green('live')
@@ -41,6 +44,9 @@ function formatBytes(value?: bigint): string {
   return `${value.toString()} B`
 }
 
+/**
+ * Render metadata key-value pairs with consistent indentation.
+ */
 function renderMetadata(metadata: Record<string, string>, indentLevel: number = 1): void {
   const entries = Object.entries(metadata)
   if (entries.length === 0) {
@@ -54,6 +60,9 @@ function renderMetadata(metadata: Record<string, string>, indentLevel: number = 
   }
 }
 
+/**
+ * Render a single piece entry including CommP, root CID, and extra metadata.
+ */
 function renderPiece(piece: PieceDetail, baseIndentLevel: number = 2): void {
   const rootCid = piece.metadata[METADATA_KEYS.IPFS_ROOT_CID]
   const rootDisplay = rootCid ?? pc.gray('unknown')
@@ -77,6 +86,9 @@ function renderPiece(piece: PieceDetail, baseIndentLevel: number = 2): void {
   }
 }
 
+/**
+ * Print the lightweight dataset list used for the default command output.
+ */
 export function displayDataSetList(ctx: DataSetInspectionContext): void {
   log.line(`Address: ${ctx.address}`)
   log.line(`Network: ${pc.bold(ctx.network)}`)
@@ -148,6 +160,11 @@ export function displayDataSetList(ctx: DataSetInspectionContext): void {
   log.flush()
 }
 
+/**
+ * Render detailed information for a single dataset.
+ *
+ * @returns true when the dataset exists; false otherwise.
+ */
 export function displayDataSetStatus(ctx: DataSetInspectionContext, dataSetId: number): boolean {
   const dataSet = ctx.dataSets.find((item) => item.base.pdpVerifierDataSetId === dataSetId)
   if (dataSet == null) {
