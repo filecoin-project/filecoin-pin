@@ -74,6 +74,7 @@ export interface StorageAllowances {
   /**
    * The maximum amount of USDFC that can be locked up at once. This is used to determine the maximum file size that can be uploaded.
    * SPs will attempt to escrow funds for 10 days, so this is the maximum amount of USDFC that can be locked up at once.
+   * Must satisfy: paymentRate × lockupPeriod ≤ lockupAllowance.
    */
   lockupAllowance: bigint
   /**

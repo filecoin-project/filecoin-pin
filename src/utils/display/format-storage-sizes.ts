@@ -16,7 +16,7 @@ export function formatStorageCapacity(su: StorageUnit, precision: number = 1): s
 }
 
 /**
- * Format a `StorageUnit` to a human-readable size.
+ * Format a `StorageUnit` to a human-readable size string.
  *
  * @param su - Storage amount as a `StorageUnit`
  * @param precision - Number of decimal places

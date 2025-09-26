@@ -38,7 +38,9 @@ export interface StorageRemainder {
 }
 
 /**
- * Simplified units for storage capacity.. exports a normalized interface for value and unit, which should be used to represent storage capacity.
+ * Normalized representation of a storage capacity value and unit.
+ * Optionally includes a remainder when the value is not a whole multiple
+ * of the unit's base.
  */
 export interface StorageUnit {
   /**
@@ -58,11 +60,11 @@ export interface StorageUnit {
 }
 
 /**
- * A number representation of a storage unit, to be used in UI.
+ * A number representation of a storage unit, for display in UI.
  *
  * @example
  * ```ts
- * const s = { value: 1.5, unit: 'GiB' }
+ * const s = { value: 1n, remainder: { bytes: 512n << 20n, denom: 'GiB' }, unit: 'GiB' }
  * const n = storageUnitToNumber(s)
  * console.log(`${n.value} ${n.unit}`) // "1.5 GiB"
  * ```
@@ -74,12 +76,12 @@ export type StorageUnitNumber = {
 
 /**
  * Normalize raw bytes to the largest unit whose factor <= bytes.
- * If bytes < 1 KiB, unit is 'B'.
- * If bytes < 1 MiB, unit is 'KiB'.
- * If bytes < 1 GiB, unit is 'MiB'.
- * If bytes < 1 TiB, unit is 'GiB'.
- * If bytes < 1 PiB, unit is 'TiB'.
- * If bytes >= 1 PiB, unit is 'PiB'.
+ * - If bytes < 1 KiB, unit is 'B'.
+ * - If bytes < 1 MiB, unit is 'KiB'.
+ * - If bytes < 1 GiB, unit is 'MiB'.
+ * - If bytes < 1 TiB, unit is 'GiB'.
+ * - If bytes < 1 PiB, unit is 'TiB'.
+ * - If bytes >= 1 PiB, unit is 'PiB'.
  */
 export function getStorageUnitBI(bytes: bigint): StorageUnit {
   if (bytes <= 0n) return { value: 0n, unit: 'B' }
@@ -91,10 +93,16 @@ export function getStorageUnitBI(bytes: bigint): StorageUnit {
 }
 
 /**
- * This function will return the correctly formatted storage unit from a number.
+ * Get the most appropriate `StorageUnit` from a number of bytes.
  *
- * @param size - The size of the storage unit, as a number, if you want to pass a large bigint value, use getStorageUnitBI instead
- * @returns the correctly formatted storage unit
+ * If you know the expected unit, use `makeStorageUnit` instead.
+ *
+ * Uses safe-scaling to expose fractional remainders without losing precision.
+ * For the smallest unit ('B'), sub-byte remainders cannot be represented; uses
+ * round-half-down to avoid over-reporting.
+ *
+ * @param size - The size in bytes as a number. For very large values use `getStorageUnitBI`.
+ * @returns A `StorageUnit` with value, unit, and optional remainder
  */
 export function getStorageUnit(size: number): StorageUnit {
   if (size <= 0) return { value: 0n, unit: 'B' }
@@ -115,11 +123,11 @@ export function getStorageUnit(size: number): StorageUnit {
 }
 
 /**
- * Instead of passing a large bigint value, you can pass a number and a unit and this function will return the correct StorageUnit.
+ * Construct a `StorageUnit` from a fractional numeric value and target unit.
  *
- * @param size - The size of the storage unit, as a number
- * @param unit - The unit of the storage unit, as a keyof typeof SIZE_CONSTANTS
- * @returns the correctly formatted storage unit
+ * @param size - The size value for the given unit
+ * @param unit - The unit of the storage amount
+ * @returns A `StorageUnit` with value, unit, and optional remainder
  */
 export function makeStorageUnit(size: number, unit: BinaryUnit): StorageUnit {
   if (size <= 0) return { value: 0n, unit }
@@ -141,6 +149,12 @@ export function makeStorageUnit(size: number, unit: BinaryUnit): StorageUnit {
   return { value, unit }
 }
 
+/**
+ * Convert a `StorageUnit` to bytes.
+ *
+ * @param s - The StorageUnit to convert to bytes
+ * @returns The bytes represented by the StorageUnit
+ */
 export function toBytes(s: StorageUnit): bigint {
   // clamp negatives
   if (s.value < 0n) return 0n
@@ -162,8 +176,8 @@ export function convert(s: StorageUnit, target: BinaryUnit): StorageUnit {
 }
 
 /**
- * Function to handle storage units that are not whole numbers, i.e. if you convert from bytes to KiB, you get a remainder.
- * This function will return a number for the given StorageUnit, with the remainder as a decimal.
+ * Convert a `StorageUnit` (with optional remainder) to a safe JavaScript number.
+ * Performs bigint-first scaling to avoid precision loss, then converts to Number.
  */
 export function storageUnitToNumber(s: StorageUnit): StorageUnitNumber {
   // whole part must be safe to represent as JS number

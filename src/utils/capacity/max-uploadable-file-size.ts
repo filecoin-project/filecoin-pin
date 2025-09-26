@@ -1,9 +1,12 @@
 import { SIZE_CONSTANTS } from '@filoz/synapse-sdk'
-import { calculateActualCapacity, type ServiceApprovalStatus } from '../../synapse/payments.js'
+import type { ServiceApprovalStatus } from '../../synapse/payments.js'
 import { calculateCapacityForDuration } from './capacity-for-duration.js'
 
 /**
  * Calculate the maximum file size that can be uploaded with current allowances.
+ *
+ * - Rate limit: Converts rateAllowance to TiB capacity (unbounded by time).
+ * - Lockup limit: Converts lockupAllowance to TiB capacity for 10 days.
  *
  * Returns sizes in both bytes and TiB, as well as which allowance limits the upload.
  */
@@ -18,10 +21,10 @@ export function calculateMaxUploadableFileSize({
   rateLimitTiB: number
   lockupLimitTiB: number
 } {
-  // Calculate max TiB from rate allowance (unlimited duration)
-  const rateLimitTiB = calculateActualCapacity(rateAllowance, pricePerTiBPerEpoch)
+  // Calculate max TiB from rate allowance (10-day minimum)
+  const rateLimitTiB = calculateCapacityForDuration(rateAllowance, pricePerTiBPerEpoch, 10)
 
-  // Calculate max TiB from lockup allowance (10-day limit)
+  // Calculate max TiB from lockup allowance (10-day minimum)
   const lockupLimitTiB = calculateCapacityForDuration(lockupAllowance, pricePerTiBPerEpoch, 10)
 
   // The limiting factor is the smaller of the two
