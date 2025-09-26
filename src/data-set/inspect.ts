@@ -57,7 +57,7 @@ export function displayDataSetList(ctx: DataSetInspectionContext): void {
   log.line('')
 
   if (ctx.dataSets.length === 0) {
-    log.line(pc.yellow('No data sets found for this account.'))
+    log.line(pc.yellow('No data sets created by filecoin-pin were found for this account.'))
     log.flush()
     return
   }

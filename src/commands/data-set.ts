@@ -27,10 +27,14 @@ function buildContext(params: {
     }
   }
 
+  const managedDataSets = params.dataSets.filter(
+    (dataSet) => dataSet.metadata?.source === 'filecoin-pin'
+  )
+
   return {
     address: params.address,
     network: params.network,
-    dataSets: params.dataSets,
+    dataSets: managedDataSets,
     providers: providerMap,
   }
 }
