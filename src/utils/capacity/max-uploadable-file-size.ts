@@ -22,10 +22,14 @@ export function calculateMaxUploadableFileSize({
   lockupLimitTiB: number
 } {
   // Calculate max TiB from rate allowance (10-day minimum)
-  const rateLimitTiB = calculateCapacityForDuration(rateAllowance, pricePerTiBPerEpoch, 10)
+  const rateLimitTiB = calculateCapacityForDuration(rateAllowance, pricePerTiBPerEpoch, 10, {
+    allowanceType: 'rate',
+  })
 
   // Calculate max TiB from lockup allowance (10-day minimum)
-  const lockupLimitTiB = calculateCapacityForDuration(lockupAllowance, pricePerTiBPerEpoch, 10)
+  const lockupLimitTiB = calculateCapacityForDuration(lockupAllowance, pricePerTiBPerEpoch, 10, {
+    allowanceType: 'lockup',
+  })
 
   // The limiting factor is the smaller of the two
   const maxSizeTiB = Math.min(rateLimitTiB, lockupLimitTiB)

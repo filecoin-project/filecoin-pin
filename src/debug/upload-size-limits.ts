@@ -17,7 +17,6 @@ import { calculateMaxDurationForFileSize } from '../utils/capacity/max-duration-
 import { calculateMaxUploadableFileSize } from '../utils/capacity/max-uploadable-file-size.js'
 import { convert, getStorageUnitBI, makeStorageUnit, toBytes } from '../utils/capacity/units.js'
 import { formatStorageSize } from '../utils/display/format-storage-sizes.js'
-import { calculateRatioAsNumber } from '../utils/numbers/safe-scaling.js'
 
 function formatCapacityFromTiB(capacityTiB: number, precision = 2): string {
   if (!Number.isFinite(capacityTiB) || capacityTiB <= 0) {
@@ -27,6 +26,33 @@ function formatCapacityFromTiB(capacityTiB: number, precision = 2): string {
   const capacityUnit = makeStorageUnit(capacityTiB, 'TiB')
   const normalizedUnit = getStorageUnitBI(toBytes(capacityUnit))
   return formatStorageSize(normalizedUnit, precision)
+}
+
+const CAPACITY_DURATIONS = [
+  { days: 1, label: '1 day' },
+  { days: 10, label: '10 days' },
+  { days: 30, label: '30 days' },
+  { days: 90, label: '90 days' },
+]
+
+function logAllowanceCapacity(label: 'Rate' | 'Lockup', allowance: bigint, pricePerTiBPerEpoch: bigint): void {
+  const allowanceLabel = label === 'Rate' ? 'USDFC/epoch' : 'USDFC'
+  console.log(`${label} allowance: ${formatUSDFC(allowance)} ${allowanceLabel}`)
+
+  if (label === 'Rate') {
+    const perEpochCapacity = calculateCapacityForDuration(allowance, pricePerTiBPerEpoch, 1, {
+      allowanceType: 'rate',
+    })
+    console.log(`  Max file size supported per epoch: ${formatCapacityFromTiB(perEpochCapacity, 4)}`)
+    return
+  }
+
+  for (const { days, label: durationLabel } of CAPACITY_DURATIONS) {
+    const capacityForDuration = calculateCapacityForDuration(allowance, pricePerTiBPerEpoch, days, {
+      allowanceType: 'lockup',
+    })
+    console.log(`  Capacity for ${durationLabel}: ${formatCapacityFromTiB(capacityForDuration)}`)
+  }
 }
 
 let provider: ethers.Provider | null = null
@@ -123,80 +149,11 @@ async function analyzeUploadLimits(filePath: string) {
     console.log('=== CAPACITY ANALYSIS ===')
     console.log(`carSizeBytes ${carSizeBytes}`)
 
-    const actualRateCapacity = calculateCapacityForDuration(
-      status.currentAllowances.rateAllowance,
-      pricePerTiBPerEpoch,
-      1
-    )
-    console.log(`actualCapacity ${formatCapacityFromTiB(actualRateCapacity)}`)
+    console.log('Rate capacity:')
+    logAllowanceCapacity('Rate', status.currentAllowances.rateAllowance, pricePerTiBPerEpoch)
 
-    const actualRateCapacityPerEpoch =
-      calculateCapacityForDuration(status.currentAllowances.rateAllowance, pricePerTiBPerEpoch, 1) /
-      Number(TIME_CONSTANTS.EPOCHS_PER_DAY)
-    console.log(`rate capacityPerEpoch ${formatCapacityFromTiB(actualRateCapacityPerEpoch, 8)}`)
-
-    const actualRateCapacityForDuration1 = calculateCapacityForDuration(
-      status.currentAllowances.rateAllowance,
-      pricePerTiBPerEpoch,
-      1
-    )
-    console.log(`rate capacityForDuration(1 day) ${formatCapacityFromTiB(actualRateCapacityForDuration1)}`)
-
-    const actualRateCapacityForDuration10 = calculateCapacityForDuration(
-      status.currentAllowances.rateAllowance,
-      pricePerTiBPerEpoch,
-      10
-    )
-    console.log(`rate capacityForDuration(10 days) ${formatCapacityFromTiB(actualRateCapacityForDuration10)}`)
-
-    const actualRateCapacityForDuration30 = calculateCapacityForDuration(
-      status.currentAllowances.rateAllowance,
-      pricePerTiBPerEpoch,
-      30
-    )
-    console.log(`rate capacityForDuration(30 days) ${formatCapacityFromTiB(actualRateCapacityForDuration30)}`)
-
-    const actualRateCapacityForDuration90 = calculateCapacityForDuration(
-      status.currentAllowances.rateAllowance,
-      pricePerTiBPerEpoch,
-      90
-    )
-    console.log(`rate capacityForDuration(90 days) ${formatCapacityFromTiB(actualRateCapacityForDuration90)}`)
-
-    const actualLockupCapacity = calculateCapacityForDuration(
-      status.currentAllowances.lockupAllowance,
-      pricePerTiBPerEpoch,
-      1
-    )
-    console.log(`lockup capacity ${formatCapacityFromTiB(actualLockupCapacity)}`)
-
-    const actualLockupCapacityForDuration1 = calculateCapacityForDuration(
-      status.currentAllowances.lockupAllowance,
-      pricePerTiBPerEpoch,
-      1
-    )
-    console.log(`lockup capacityForDuration(1 day) ${formatCapacityFromTiB(actualLockupCapacityForDuration1)}`)
-
-    const actualLockupCapacityForDuration10 = calculateCapacityForDuration(
-      status.currentAllowances.lockupAllowance,
-      pricePerTiBPerEpoch,
-      10
-    )
-    console.log(`lockup capacityForDuration(10 days) ${formatCapacityFromTiB(actualLockupCapacityForDuration10)}`)
-
-    const actualLockupCapacityForDuration30 = calculateCapacityForDuration(
-      status.currentAllowances.lockupAllowance,
-      pricePerTiBPerEpoch,
-      30
-    )
-    console.log(`lockup capacityForDuration(30 days) ${formatCapacityFromTiB(actualLockupCapacityForDuration30)}`)
-
-    const actualLockupCapacityForDuration90 = calculateCapacityForDuration(
-      status.currentAllowances.lockupAllowance,
-      pricePerTiBPerEpoch,
-      90
-    )
-    console.log(`lockup capacityForDuration(90 days) ${formatCapacityFromTiB(actualLockupCapacityForDuration90)}`)
+    console.log('Lockup capacity:')
+    logAllowanceCapacity('Lockup', status.currentAllowances.lockupAllowance, pricePerTiBPerEpoch)
 
     const maxDurationForFileSize = calculateMaxDurationForFileSize({
       fileSize: carSizeBytesBigInt,
@@ -226,49 +183,23 @@ async function analyzeUploadLimits(filePath: string) {
     // === STORAGE DURATION ANALYSIS ===
     console.log('=== STORAGE DURATION ANALYSIS ===')
 
-    // Calculate how long current allowances can support the max uploadable file size
-    const maxFileSizeBytes = maxUploadableFileSize.maxSizeBytes
-    const maxFileSizeTiB = maxUploadableFileSize.maxSizeTiB
+    const fileSizeDisplay = formatStorageSize(getStorageUnitBI(carSizeBytesBigInt))
 
-    // Skip duration analysis if max file size is too small to be meaningful
-    if (maxFileSizeBytes < 1024) { // Less than 1 KiB
-      console.log(`Max file size: ${formatStorageSize(makeStorageUnit(maxFileSizeTiB, 'TiB'))}`)
-      console.log(`⚠️  Max uploadable file size is too small for meaningful storage duration analysis`)
-      console.log(`   Consider increasing your rate and/or lockup allowances`)
+    const formatDuration = (value: number): string => `${value.toFixed(2)} days`
+
+    const { rateDurationDays, lockupDurationDays, maxDurationDays, limitingFactor } = maxDurationForFileSize
+
+    console.log(`File size analyzed: ${fileSizeDisplay}`)
+    console.log(`Rate-based duration: ${formatDuration(rateDurationDays)}`)
+    console.log(`Lockup-based duration: ${formatDuration(lockupDurationDays)}`)
+    console.log(`Actual duration: ${formatDuration(maxDurationDays)} (limited by ${limitingFactor})`)
+
+    if (maxDurationDays >= 365) {
+      console.log(`✅ Storage duration: ${(maxDurationDays / 365).toFixed(1)} years`)
+    } else if (maxDurationDays >= 30) {
+      console.log(`✅ Storage duration: ${(maxDurationDays / 30).toFixed(1)} months`)
     } else {
-      // Calculate required allowances for the max file size
-      const maxFileRequired = calculateRequiredAllowances(maxFileSizeBytes, pricePerTiBPerEpoch)
-
-    // Calculate duration based on rate allowance (unlimited duration)
-    const rateBasedDuration =
-      status.currentAllowances.rateAllowance > 0n && maxFileRequired.rateAllowance > 0n
-        ? calculateRatioAsNumber(status.currentAllowances.rateAllowance, maxFileRequired.rateAllowance)
-        : 0
-
-    // Calculate duration based on lockup allowance (10-day max)
-    const lockupBasedDuration =
-      status.currentAllowances.lockupAllowance >= maxFileRequired.lockupAllowance
-        ? 10
-        : maxFileRequired.rateAllowance > 0n
-        ? calculateRatioAsNumber(status.currentAllowances.lockupAllowance, maxFileRequired.rateAllowance * BigInt(2880))
-        : 0
-
-    // The limiting factor determines the actual duration
-    const actualDuration = Math.min(rateBasedDuration, lockupBasedDuration)
-    const limitingFactor = rateBasedDuration < lockupBasedDuration ? 'rate' : 'lockup'
-
-    console.log(`Max file size: ${formatStorageSize(makeStorageUnit(maxFileSizeTiB, 'TiB'))}`)
-    console.log(`Rate-based duration: ${rateBasedDuration.toFixed(2)} days`)
-    console.log(`Lockup-based duration: ${lockupBasedDuration.toFixed(2)} days`)
-    console.log(`Actual duration: ${actualDuration.toFixed(2)} days (limited by ${limitingFactor})`)
-
-      if (actualDuration >= 365) {
-        console.log(`✅ Storage duration: ${(actualDuration / 365).toFixed(1)} years`)
-      } else if (actualDuration >= 30) {
-        console.log(`✅ Storage duration: ${(actualDuration / 30).toFixed(1)} months`)
-      } else {
-        console.log(`⚠️  Storage duration: ${actualDuration.toFixed(1)} days`)
-      }
+      console.log(`⚠️  Storage duration: ${maxDurationDays.toFixed(1)} days`)
     }
 
     // === VALIDATION CHECKS ===

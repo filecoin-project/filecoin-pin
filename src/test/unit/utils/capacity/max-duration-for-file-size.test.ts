@@ -35,6 +35,9 @@ describe('calculateMaxDurationForFileSize', () => {
 
     expect(res.maxDurationDays).toBeGreaterThan(0)
     expect(res.limitingFactor).toBe('rate')
+    expect(res.rateDurationDays).toBeGreaterThan(0)
+    expect(res.lockupDurationDays).toBeGreaterThan(0)
+    expect(res.rateDurationDays).toBeLessThan(res.lockupDurationDays)
   })
 
   it('computes duration and limiting factor when lockup is limiting', () => {
@@ -52,6 +55,9 @@ describe('calculateMaxDurationForFileSize', () => {
 
     expect(res.maxDurationDays).toBeGreaterThan(0)
     expect(res.limitingFactor).toBe('lockup')
+    expect(res.lockupDurationDays).toBeGreaterThan(0)
+    expect(res.lockupDurationDays).toBeLessThanOrEqual(10)
+    expect(res.rateDurationDays).toBeGreaterThan(res.lockupDurationDays)
   })
 
   it('caps lockup-based duration at 10 days when lockup sufficient', () => {
@@ -67,6 +73,7 @@ describe('calculateMaxDurationForFileSize', () => {
     })
 
     expect(res.maxDurationDays).toBeLessThanOrEqual(10)
+    expect(res.lockupDurationDays).toBe(10)
   })
 
   it('returns 0 when both allowances are zero', () => {
@@ -82,5 +89,7 @@ describe('calculateMaxDurationForFileSize', () => {
     })
 
     expect(res.maxDurationDays).toBe(0)
+    expect(res.rateDurationDays).toBe(0)
+    expect(res.lockupDurationDays).toBe(0)
   })
 })
