@@ -1,5 +1,4 @@
-import type { EnhancedDataSetInfo } from '@filoz/synapse-sdk'
-import type { ProviderInfo } from '@filoz/synapse-sdk'
+import type { EnhancedDataSetInfo, ProviderInfo } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { log } from '../utils/cli-logger.js'
 
@@ -22,10 +21,7 @@ function statusLabel(dataSet: EnhancedDataSetInfo): string {
   return pc.yellow('inactive')
 }
 
-function providerLabel(
-  provider: ProviderInfo | undefined,
-  dataSet: EnhancedDataSetInfo
-): string {
+function providerLabel(provider: ProviderInfo | undefined, dataSet: EnhancedDataSetInfo): string {
   if (provider != null && provider.name.trim() !== '') {
     return `${provider.name} (ID ${provider.id})`
   }
@@ -62,9 +58,7 @@ export function displayDataSetList(ctx: DataSetInspectionContext): void {
     return
   }
 
-  const ordered = [...ctx.dataSets].sort(
-    (a, b) => a.pdpVerifierDataSetId - b.pdpVerifierDataSetId
-  )
+  const ordered = [...ctx.dataSets].sort((a, b) => a.pdpVerifierDataSetId - b.pdpVerifierDataSetId)
 
   for (const dataSet of ordered) {
     const provider = ctx.providers.get(dataSet.providerId)
@@ -94,10 +88,7 @@ export function displayDataSetList(ctx: DataSetInspectionContext): void {
   log.flush()
 }
 
-export function displayDataSetStatus(
-  ctx: DataSetInspectionContext,
-  dataSetId: number
-): boolean {
+export function displayDataSetStatus(ctx: DataSetInspectionContext, dataSetId: number): boolean {
   const dataSet = ctx.dataSets.find((item) => item.pdpVerifierDataSetId === dataSetId)
   if (dataSet == null) {
     log.line(pc.red(`No data set found with ID ${dataSetId}`))
@@ -107,9 +98,7 @@ export function displayDataSetStatus(
 
   const provider = ctx.providers.get(dataSet.providerId)
 
-  log.line(
-    `${pc.bold(`Data Set #${dataSet.pdpVerifierDataSetId}`)} • ${statusLabel(dataSet)}`
-  )
+  log.line(`${pc.bold(`Data Set #${dataSet.pdpVerifierDataSetId}`)} • ${statusLabel(dataSet)}`)
   log.indent(`Managed by Warm Storage: ${dataSet.isManaged ? 'yes' : 'no'}`)
   log.indent(`CDN add-on: ${dataSet.withCDN ? 'enabled' : 'disabled'}`)
   log.indent(`Pieces stored: ${dataSet.currentPieceCount}`)
@@ -117,9 +106,7 @@ export function displayDataSetStatus(
   log.indent(`Client data set ID: ${dataSet.clientDataSetId}`)
   log.indent(`PDP rail ID: ${dataSet.pdpRailId}`)
   log.indent(`CDN rail ID: ${dataSet.cdnRailId > 0 ? dataSet.cdnRailId : 'none'}`)
-  log.indent(`Cache-miss rail ID: ${
-    dataSet.cacheMissRailId > 0 ? dataSet.cacheMissRailId : 'none'
-  }`)
+  log.indent(`Cache-miss rail ID: ${dataSet.cacheMissRailId > 0 ? dataSet.cacheMissRailId : 'none'}`)
   log.indent(`Payer: ${dataSet.payer}`)
   log.indent(`Payee: ${dataSet.payee}`)
   log.indent(`Service provider: ${dataSet.serviceProvider}`)

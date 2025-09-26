@@ -1,11 +1,11 @@
+import type { EnhancedDataSetInfo, ProviderInfo } from '@filoz/synapse-sdk'
 import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
 import { Command } from 'commander'
 import pc from 'picocolors'
+import { type DataSetInspectionContext, displayDataSetList, displayDataSetStatus } from '../data-set/inspect.js'
 import { cleanupProvider } from '../synapse/service.js'
-import { displayDataSetList, displayDataSetStatus, type DataSetInspectionContext } from '../data-set/inspect.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import type { EnhancedDataSetInfo, ProviderInfo } from '@filoz/synapse-sdk'
 
 interface DataSetCommandOptions {
   ls?: boolean
@@ -29,9 +29,7 @@ function buildContext(params: {
   return {
     address: params.address,
     network: params.network,
-    dataSets: params.dataSets.filter(
-      (dataSet) => dataSet.metadata?.source === 'filecoin-pin'
-    ),
+    dataSets: params.dataSets.filter((dataSet) => dataSet.metadata?.source === 'filecoin-pin'),
     providers: providerMap,
   }
 }
