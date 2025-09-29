@@ -1,4 +1,5 @@
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
+import { ethers } from 'ethers'
 import pc from 'picocolors'
 import { formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -45,6 +46,45 @@ function formatBytes(value?: bigint): string {
 }
 
 /**
+ * Format payment token address for display
+ */
+function formatPaymentToken(tokenAddress: string): string {
+  // Zero address typically means native token (FIL) or USDFC
+  if (tokenAddress === '0x0000000000000000000000000000000000000000') {
+    return `USDFC ${pc.gray('(native)')}`
+  }
+
+  // For other addresses, show a truncated version
+  return `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`
+}
+
+/**
+ * Format storage price in USDFC per TiB per month
+ * Always shows TiB/month for consistency, with appropriate precision
+ */
+function formatStoragePrice(pricePerTiBPerMonth: bigint): string {
+  try {
+    const priceInUSDFC = parseFloat(ethers.formatUnits(pricePerTiBPerMonth, 18))
+
+    // Handle very small prices that would show as 0.0000
+    if (priceInUSDFC < 0.0001) {
+      return '< 0.0001 USDFC/TiB/month'
+    }
+
+    // For prices >= 0.0001, show with appropriate precision
+    if (priceInUSDFC >= 1) {
+      return `${priceInUSDFC.toFixed(2)} USDFC/TiB/month`
+    } else if (priceInUSDFC >= 0.01) {
+      return `${priceInUSDFC.toFixed(4)} USDFC/TiB/month`
+    } else {
+      return `${priceInUSDFC.toFixed(6)} USDFC/TiB/month`
+    }
+  } catch {
+    return pc.red('invalid price')
+  }
+}
+
+/**
  * Render metadata key-value pairs with consistent indentation.
  */
 function renderMetadata(metadata: Record<string, string>, indentLevel: number = 1): void {
@@ -66,14 +106,10 @@ function renderMetadata(metadata: Record<string, string>, indentLevel: number = 
 function renderPiece(piece: PieceDetail, baseIndentLevel: number = 2): void {
   const rootCid = piece.metadata[METADATA_KEYS.IPFS_ROOT_CID]
   const rootDisplay = rootCid ?? pc.gray('unknown')
-  // const leafCountDisplay = piece.leafCount != null ? piece.leafCount.toString() : pc.gray('unknown')
-  // const sizeDisplay = formatBytes(piece.sizeBytes)
 
   log.indent(`#${piece.pieceId}`, baseIndentLevel)
   log.indent(`CommP: ${piece.pieceCid}`, baseIndentLevel + 1)
   log.indent(`Root CID: ${rootDisplay}`, baseIndentLevel + 1)
-  // log.indent(`Leaf count: ${leafCountDisplay}`, baseIndentLevel + 1)
-  // log.indent(`Size: ${sizeDisplay}`, baseIndentLevel + 1)
 
   const extraMetadataEntries = Object.entries(piece.metadata).filter(([key]) => key !== METADATA_KEYS.IPFS_ROOT_CID)
 
@@ -191,6 +227,20 @@ export function displayDataSetStatus(ctx: DataSetInspectionContext, dataSetId: n
   log.indent(`Provider: ${providerLabel(provider, base)}`)
   log.indent(`Commission: ${formatCommission(base.commissionBps)}`)
 
+  // Add provider service information
+  if (provider?.products?.PDP?.data) {
+    const pdpData = provider.products.PDP.data
+    log.line('')
+    log.line(pc.bold('Provider Service'))
+    log.indent(`Service URL: ${pdpData.serviceURL}`)
+    log.indent(`Min piece size: ${formatBytes(BigInt(pdpData.minPieceSizeInBytes))}`)
+    log.indent(`Max piece size: ${formatBytes(BigInt(pdpData.maxPieceSizeInBytes))}`)
+    log.indent(`Storage price: ${formatStoragePrice(pdpData.storagePricePerTibPerMonth)}`)
+    log.indent(`Min proving period: ${pdpData.minProvingPeriodInEpochs} epochs`)
+    log.indent(`Location: ${pdpData.location}`)
+    log.indent(`Payment token: ${formatPaymentToken(pdpData.paymentTokenAddress)}`)
+  }
+
   if (base.pdpEndEpoch > 0) {
     log.indent(pc.yellow(`PDP payments ended @ epoch ${base.pdpEndEpoch}`))
   }
@@ -211,10 +261,20 @@ export function displayDataSetStatus(ctx: DataSetInspectionContext, dataSetId: n
     log.line('')
   }
 
+  log.line('')
   log.line(pc.bold('Pieces'))
   if (dataSet.pieces.length === 0) {
     log.indent(pc.gray('No piece information available'))
   } else {
+    // Show piece summary
+    const uniqueCommPs = new Set(dataSet.pieces.map((p) => p.pieceCid))
+    const uniqueRootCids = new Set(dataSet.pieces.map((p) => p.metadata[METADATA_KEYS.IPFS_ROOT_CID]).filter(Boolean))
+
+    log.indent(`Total pieces: ${dataSet.pieces.length}`)
+    log.indent(`Unique CommPs: ${uniqueCommPs.size}`)
+    log.indent(`Unique root CIDs: ${uniqueRootCids.size}`)
+    log.line('')
+
     for (const piece of dataSet.pieces) {
       renderPiece(piece, 1)
     }
