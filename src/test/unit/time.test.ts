@@ -20,4 +20,3 @@ describe('formatRunwayDuration', () => {
     expect(formatRunwayDuration(800, 0)).toBe('2 year(s) 2 month(s) 10 day(s)')
   })
 })
-

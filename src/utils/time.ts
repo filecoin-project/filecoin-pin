@@ -2,7 +2,6 @@
  * Helpers for formatting time-like values for CLI display.
  */
 
-
 const DAYS_PER_MONTH = 30
 const DAYS_PER_YEAR = 365
 
@@ -31,10 +30,7 @@ export function formatRunwayDuration(days: number, hoursRemainder: number = 0): 
   if (d < DAYS_PER_YEAR) {
     const months = Math.floor(d / DAYS_PER_MONTH)
     const daysRem = d % DAYS_PER_MONTH
-    const parts = [
-      months > 0 ? `${months} month(s)` : '',
-      daysRem > 0 ? `${daysRem} day(s)` : '',
-    ].filter(Boolean)
+    const parts = [months > 0 ? `${months} month(s)` : '', daysRem > 0 ? `${daysRem} day(s)` : ''].filter(Boolean)
     return parts.join(' ')
   }
 
@@ -50,4 +46,3 @@ export function formatRunwayDuration(days: number, hoursRemainder: number = 0): 
   ].filter(Boolean)
   return parts.join(' ')
 }
-
