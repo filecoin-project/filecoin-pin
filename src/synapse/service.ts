@@ -3,6 +3,7 @@ import {
   type ProviderInfo,
   RPC_URLS,
   type StorageContext,
+  type StorageServiceOptions,
   Synapse,
   type SynapseOptions,
 } from '@filoz/synapse-sdk'
@@ -158,7 +159,12 @@ export async function createStorageContext(
     // The storage context manages the data set and provider interactions
     logger.info({ event: 'synapse.storage.create' }, 'Creating storage context')
 
-    const storage = await synapse.storage.createContext({
+    // Optional override: allow selecting a specific provider via env vars
+    const envProviderAddress = process.env.PROVIDER_ADDRESS?.trim()
+    const envProviderIdRaw = process.env.PROVIDER_ID?.trim()
+    const envProviderId = envProviderIdRaw != null && envProviderIdRaw !== '' ? Number(envProviderIdRaw) : undefined
+
+    const createOptions: StorageServiceOptions = {
       ...DEFAULT_STORAGE_CONTEXT_CONFIG,
       // Callbacks provide visibility into the storage lifecycle
       // These are crucial for debugging and monitoring in production
@@ -227,7 +233,24 @@ export async function createStorageContext(
           )
         },
       },
-    })
+    }
+
+    // Apply provider override if present
+    if (envProviderAddress) {
+      createOptions.providerAddress = envProviderAddress
+      logger.info(
+        { event: 'synapse.storage.provider_override', by: 'env', providerAddress: envProviderAddress },
+        'Overriding provider via PROVIDER_ADDRESS'
+      )
+    } else if (envProviderId != null && Number.isFinite(envProviderId)) {
+      createOptions.providerId = envProviderId
+      logger.info(
+        { event: 'synapse.storage.provider_override', by: 'env', providerId: envProviderId },
+        'Overriding provider via PROVIDER_ID'
+      )
+    }
+
+    const storage = await synapse.storage.createContext(createOptions)
 
     logger.info(
       {
