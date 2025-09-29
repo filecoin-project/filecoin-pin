@@ -28,6 +28,20 @@ const DEFAULT_LOCKUP_DAYS = 10 // WarmStorage requires 10 days lockup
 const MAX_RATE_ALLOWANCE = ethers.MaxUint256
 const MAX_LOCKUP_ALLOWANCE = ethers.MaxUint256
 
+// Standard buffer configuration (10%) used across deposit/lockup calculations
+const BUFFER_NUMERATOR = 11n
+const BUFFER_DENOMINATOR = 10n
+
+// Helper to apply a buffer on top of a base amount
+function withBuffer(amount: bigint): bigint {
+  return (amount * BUFFER_NUMERATOR) / BUFFER_DENOMINATOR
+}
+
+// Helper to remove the buffer (inverse of withBuffer)
+function withoutBuffer(amount: bigint): bigint {
+  return (amount * BUFFER_DENOMINATOR) / BUFFER_NUMERATOR
+}
+
 /**
  * Maximum precision scale used when converting small TiB (as a float) to integer(BigInt) math
  */
@@ -546,11 +560,8 @@ export function calculateDepositCapacity(
 
   // Maximum storage we can support with this deposit
   // Reserve 10% for buffer beyond the lockup
-  const bufferRatio = 11n
-  const divisor = 10n
-
   // Calculate max rate per epoch we can afford with deposit
-  const maxRatePerEpoch = (depositAmount * divisor) / (epochsIn10Days * bufferRatio)
+  const maxRatePerEpoch = (depositAmount * BUFFER_DENOMINATOR) / (epochsIn10Days * BUFFER_NUMERATOR)
 
   // Convert to storage capacity
   const tibPerMonth = calculateActualCapacity(maxRatePerEpoch, pricePerTiBPerEpoch)
@@ -559,7 +570,7 @@ export function calculateDepositCapacity(
   // Calculate the actual costs for this capacity
   const monthlyPayment = maxRatePerEpoch * epochsPerMonth
   const requiredLockup = maxRatePerEpoch * epochsIn10Days
-  const totalRequired = requiredLockup + requiredLockup / 10n // lockup + 10% buffer
+  const totalRequired = withBuffer(requiredLockup)
 
   return {
     tibPerMonth,
@@ -634,7 +645,7 @@ export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: nu
 
   // Calculate requirements
   const required = calculateRequiredAllowances(carSizeBytes, pricePerTiBPerEpoch)
-  const totalDepositNeeded = required.lockupAllowance + required.lockupAllowance / 10n // lockup + 10% buffer
+  const totalDepositNeeded = withBuffer(required.lockupAllowance)
 
   const result: PaymentCapacityCheck = {
     canUpload: true,
@@ -654,8 +665,8 @@ export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: nu
 
   // Add warning if approaching deposit limit
   const totalLockupAfter = status.currentAllowances.lockupUsed + required.lockupAllowance
-  if (totalLockupAfter > (status.depositedAmount * 9n) / 10n && result.canUpload) {
-    const additionalDeposit = ethers.formatUnits((totalLockupAfter * 11n) / 10n - status.depositedAmount, 18)
+  if (totalLockupAfter > withoutBuffer(status.depositedAmount) && result.canUpload) {
+    const additionalDeposit = ethers.formatUnits(withBuffer(totalLockupAfter) - status.depositedAmount, 18)
     result.suggestions.push(`Consider depositing ${additionalDeposit} more USDFC for safety margin`)
   }
 

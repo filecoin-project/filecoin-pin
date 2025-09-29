@@ -36,8 +36,8 @@ vi.mock('../../synapse/payments.js', () => ({
   checkAllowances: vi.fn().mockResolvedValue({
     needsUpdate: false,
     currentAllowances: {
-      rateAllowance: 115792089237316195423570985008687907853269984665640564039457584007913129639935n,
-      lockupAllowance: 115792089237316195423570985008687907853269984665640564039457584007913129639935n,
+      rateAllowance: BigInt('0xffffffffffffffff'), // 2^64 - 1 (max)
+      lockupAllowance: BigInt('0xffffffffffffffff'), // 2^64 - 1 (max)
       rateUsed: 0n,
       lockupUsed: 0n,
     },
@@ -45,8 +45,8 @@ vi.mock('../../synapse/payments.js', () => ({
   setMaxAllowances: vi.fn().mockResolvedValue({
     transactionHash: '0x123...',
     currentAllowances: {
-      rateAllowance: 115792089237316195423570985008687907853269984665640564039457584007913129639935n,
-      lockupAllowance: 115792089237316195423570985008687907853269984665640564039457584007913129639935n,
+      rateAllowance: BigInt('0xffffffffffffffff'), // 2^64 - 1 (max)
+      lockupAllowance: BigInt('0xffffffffffffffff'), // 2^64 - 1 (max)
       rateUsed: 0n,
       lockupUsed: 0n,
     },
@@ -54,8 +54,8 @@ vi.mock('../../synapse/payments.js', () => ({
   checkAndSetAllowances: vi.fn().mockResolvedValue({
     updated: false,
     currentAllowances: {
-      rateAllowance: 115792089237316195423570985008687907853269984665640564039457584007913129639935n,
-      lockupAllowance: 115792089237316195423570985008687907853269984665640564039457584007913129639935n,
+      rateAllowance: BigInt('0xffffffffffffffff'), // 2^64 - 1 (max)
+      lockupAllowance: BigInt('0xffffffffffffffff'), // 2^64 - 1 (max)
       rateUsed: 0n,
       lockupUsed: 0n,
     },
