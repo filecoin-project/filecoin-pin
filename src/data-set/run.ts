@@ -19,9 +19,7 @@ async function collectPieceDetail(params: {
   warmStorage: WarmStorageService
 }): Promise<PieceDetail> {
   const { dataSetId, pieceId, pieceCid, warmStorage } = params
-  const metadata = await warmStorage
-    .getPieceMetadata(dataSetId, pieceId)
-    .catch(() => Object.create(null) as Record<string, string>)
+  const metadata = await warmStorage.getPieceMetadata(dataSetId, pieceId).catch(() => ({}) as Record<string, string>)
   const pieceDetail: PieceDetail = {
     pieceId,
     pieceCid,
