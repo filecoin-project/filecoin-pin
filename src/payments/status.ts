@@ -121,8 +121,12 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     const storageInfo = await synapse.storage.getStorageInfo()
     const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
 
-    // Stop spinner and display status
-    spinner.stop('━━━ Current Status ━━━')
+
+    const paymentRailsData = await fetchPaymentRailsData(synapse)
+    spinner.stop(`${pc.green('✓')} Configuration loaded`)
+
+    // Display all status information
+    log.line('━━━ Current Status ━━━')
 
     log.line(`Address: ${address}`)
     log.line(`Network: ${pc.bold(network)}`)
@@ -148,29 +152,26 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     }
     log.flush()
 
-    // Show spend summaries (rateUsed, daily/monthly spend, runway)
+    // Show payment rails summary
+    displayPaymentRailsSummary(paymentRailsData, log)
+
+    // Show spend summaries (rateUsed, runway)
     const rateUsed = status.currentAllowances.rateUsed ?? 0n
     const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
     const maxLockup = status.currentAllowances.maxLockupPeriod
     const lockupDays = maxLockup != null ? Number(maxLockup / TIME_CONSTANTS.EPOCHS_PER_DAY) : 10
     if (rateUsed > 0n) {
       const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
-      const perMonth = rateUsed * TIME_CONSTANTS.EPOCHS_PER_MONTH
       const available = status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n
       const runwayDays = Number(available / perDay)
       const runwayHoursRemainder = Number(((available % perDay) * 24n) / perDay)
 
-      log.line('')
       log.line(pc.bold('WarmStorage Usage'))
-      log.indent(pc.bold(`Spend rate:`))
-      log.indent(`${formatUSDFC(rateUsed)} USDFC/epoch`, 3)
-      log.indent(`~${formatUSDFC(perDay)} USDFC/day`, 3)
-      log.indent(`~${formatUSDFC(perMonth)} USDFC/month`, 3)
+      log.indent(`Spend rate: ${formatUSDFC(rateUsed)} USDFC/epoch`)
       log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC (~${lockupDays}-day reserve)`)
       log.indent(`Runway: ~${formatRunwayDuration(runwayDays, runwayHoursRemainder)}`)
       log.flush()
     } else {
-      log.line('')
       log.line(pc.bold('WarmStorage Usage'))
       log.indent(pc.gray('No active spend detected'))
       log.flush()
@@ -196,4 +197,119 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     cancel('Status check failed')
     process.exit(1)
   }
+}
+
+interface PaymentRailsData {
+  activeRails: number
+  terminatedRails: number
+  totalActiveRate: bigint
+  totalPendingSettlements: bigint
+  railsNeedingSettlement: number
+  error?: string
+}
+
+/**
+ * Fetch payment rails data without displaying anything
+ */
+async function fetchPaymentRailsData(synapse: Synapse): Promise<PaymentRailsData> {
+  try {
+    // Get rails as payer
+    const payerRails = await synapse.payments.getRailsAsPayer()
+
+    if (payerRails.length === 0) {
+      return {
+        activeRails: 0,
+        terminatedRails: 0,
+        totalActiveRate: 0n,
+        totalPendingSettlements: 0n,
+        railsNeedingSettlement: 0
+      }
+    }
+
+    // Analyze rails for summary
+    let totalPendingSettlements = 0n
+    let totalActiveRate = 0n
+    let activeRails = 0
+    let terminatedRails = 0
+    let railsNeedingSettlement = 0
+
+    for (const rail of payerRails) {
+      try {
+        const railDetails = await synapse.payments.getRail(rail.railId)
+        const settlementPreview = await synapse.payments.getSettlementAmounts(rail.railId)
+
+        if (rail.isTerminated) {
+          terminatedRails++
+        } else {
+          activeRails++
+          totalActiveRate += railDetails.paymentRate
+        }
+
+        // Check for pending settlements
+        if (settlementPreview.totalSettledAmount > 0n) {
+          totalPendingSettlements += settlementPreview.totalSettledAmount
+          railsNeedingSettlement++
+        }
+      } catch (error) {
+        // Skip rails that can't be analyzed
+        continue
+      }
+    }
+
+    return {
+      activeRails,
+      terminatedRails,
+      totalActiveRate,
+      totalPendingSettlements,
+      railsNeedingSettlement
+    }
+  } catch (error) {
+    return {
+      activeRails: 0,
+      terminatedRails: 0,
+      totalActiveRate: 0n,
+      totalPendingSettlements: 0n,
+      railsNeedingSettlement: 0,
+      error: 'Unable to fetch rail information'
+    }
+  }
+}
+
+/**
+ * Display payment rails summary
+ */
+function displayPaymentRailsSummary(data: PaymentRailsData, log: any): void {
+  log.line(pc.bold('Payment Rails'))
+
+  if (data.error) {
+    log.indent(pc.gray(data.error))
+    log.flush()
+    return
+  }
+
+  if (data.activeRails === 0 && data.terminatedRails === 0) {
+    log.indent(pc.gray('No active payment rails'))
+    log.flush()
+    return
+  }
+
+  log.indent(`${data.activeRails} active, ${data.terminatedRails} terminated`)
+
+  if (data.activeRails > 0) {
+    const dailyCost = data.totalActiveRate * 2880n // 2880 epochs per day
+    const monthlyCost = dailyCost * 30n
+
+    log.indent(`Daily cost: ${formatUSDFC(dailyCost)} USDFC`)
+    log.indent(`Monthly cost: ${formatUSDFC(monthlyCost)} USDFC`)
+  }
+
+  if (data.totalPendingSettlements > 0n) {
+    log.indent(`Pending settlement: ${formatUSDFC(data.totalPendingSettlements)} USDFC`)
+  }
+
+  if (data.railsNeedingSettlement > 0) {
+    log.indent(`${data.railsNeedingSettlement} rail(s) need settlement`)
+  }
+
+  log.flush()
 }
