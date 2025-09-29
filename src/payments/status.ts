@@ -121,7 +121,6 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     const storageInfo = await synapse.storage.getStorageInfo()
     const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
 
-
     const paymentRailsData = await fetchPaymentRailsData(synapse)
     spinner.stop(`${pc.green('✓')} Configuration loaded`)
 
@@ -222,7 +221,7 @@ async function fetchPaymentRailsData(synapse: Synapse): Promise<PaymentRailsData
         terminatedRails: 0,
         totalActiveRate: 0n,
         totalPendingSettlements: 0n,
-        railsNeedingSettlement: 0
+        railsNeedingSettlement: 0,
       }
     }
 
@@ -251,8 +250,7 @@ async function fetchPaymentRailsData(synapse: Synapse): Promise<PaymentRailsData
           railsNeedingSettlement++
         }
       } catch (error) {
-        // Skip rails that can't be analyzed
-        continue
+        log.warn(`Could not analyze rail ${rail.railId}: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
 
@@ -261,16 +259,16 @@ async function fetchPaymentRailsData(synapse: Synapse): Promise<PaymentRailsData
       terminatedRails,
       totalActiveRate,
       totalPendingSettlements,
-      railsNeedingSettlement
+      railsNeedingSettlement,
     }
-  } catch (error) {
+  } catch {
     return {
       activeRails: 0,
       terminatedRails: 0,
       totalActiveRate: 0n,
       totalPendingSettlements: 0n,
       railsNeedingSettlement: 0,
-      error: 'Unable to fetch rail information'
+      error: 'Unable to fetch rail information',
     }
   }
 }
