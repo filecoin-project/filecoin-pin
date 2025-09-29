@@ -12,6 +12,7 @@ import { calculateDepositCapacity } from '../synapse/payments.js'
 import { cleanupProvider } from '../synapse/service.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
+import { formatRunwayDuration } from '../utils/time.js'
 import { checkFILBalance, checkUSDFCBalance, displayDepositWarning, formatUSDFC, getPaymentStatus } from './setup.js'
 
 interface StatusOptions {
@@ -166,7 +167,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       log.indent(`~${formatUSDFC(perDay)} USDFC/day`, 3)
       log.indent(`~${formatUSDFC(perMonth)} USDFC/month`, 3)
       log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC (~${lockupDays}-day reserve)`)
-      log.indent(`Runway: ~${runwayDays} day(s) ${runwayHoursRemainder > 0 ? `${runwayHoursRemainder} hour(s)` : ''}`)
+      log.indent(`Runway: ~${formatRunwayDuration(runwayDays, runwayHoursRemainder)}`)
       log.flush()
     } else {
       log.line('')
