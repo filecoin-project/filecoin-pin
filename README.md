@@ -118,7 +118,7 @@ PORT=3456                      # Daemon port
 DATABASE_PATH=./pins.db        # SQLite database
 CAR_STORAGE_PATH=./cars        # CAR file directory
 LOG_LEVEL=info                 # Logging level
-WITH_CDN=true                  # Enable/Disable CDN for content uploads
+WITH_CDN=true                  # Enable/Disable CDN for content uploads (default: false)
 ```
 
 ### Default Directories
