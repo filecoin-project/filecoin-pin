@@ -8,8 +8,8 @@ import {
   type SynapseOptions,
 } from '@filoz/synapse-sdk'
 import type { Logger } from 'pino'
-import type { Config } from '../config.js'
 import { envToBool } from '../common/env-vars.js'
+import type { Config } from '../config.js'
 
 /**
  * Default metadata for Synapse data sets created by filecoin-pin
