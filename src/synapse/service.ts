@@ -9,6 +9,7 @@ import {
 } from '@filoz/synapse-sdk'
 import type { Logger } from 'pino'
 import type { Config } from '../config.js'
+import { envToBool } from '../common/env-vars.js'
 
 /**
  * Default metadata for Synapse data sets created by filecoin-pin
@@ -22,7 +23,7 @@ const DEFAULT_DATA_SET_METADATA = {
  * Default configuration for creating storage contexts
  */
 const DEFAULT_STORAGE_CONTEXT_CONFIG = {
-  withCDN: false, // CDN not needed for Filecoin Pin currently
+  withCDN: envToBool(process.env.WITH_CDN, false),
   metadata: DEFAULT_DATA_SET_METADATA,
 } as const
 
