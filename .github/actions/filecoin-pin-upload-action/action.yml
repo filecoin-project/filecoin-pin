@@ -69,6 +69,13 @@ runs:
       with:
         node-version: '24.x'
 
+    - name: Install & build filecoin-pin (local source)
+      shell: bash
+      working-directory: .github/actions/filecoin-pin-upload-action
+      run: |
+        npm install --prefix ../.. --no-audit --no-fund
+        npm run build --prefix ../..
+
     - name: Install action deps
       shell: bash
       working-directory: .github/actions/filecoin-pin-upload-action

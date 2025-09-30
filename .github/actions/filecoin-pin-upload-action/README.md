@@ -16,7 +16,7 @@ with:
 ```
 
 Notes:
-- This local copy depends on the published `filecoin-pin` npm package (imports `filecoin-pin/dist/...`).
+- This action automatically installs and builds the local `filecoin-pin` sources before running (no prebuilt `dist` is committed). This will change to an npm installed version when the action is production-ready.
 - For PR events, the action posts a comment with the IPFS Root CID.
 
 Inputs
