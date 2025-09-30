@@ -1,0 +1,14 @@
+{
+  "name": "filecoin-pin-upload-action-helper",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "Helper runner for Filecoin Pin Upload GitHub Action",
+  "dependencies": {
+    "filecoin-pin": "^0.6.0",
+    "pino": "^9.9.5",
+    "picocolors": "^1.1.1",
+    "ethers": "^6.13.4"
+  }
+}
+
