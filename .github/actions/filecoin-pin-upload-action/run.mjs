@@ -1,20 +1,13 @@
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import pino from 'pino'
 import pc from 'picocolors'
-
+import pino from 'pino'
+import { createArtifacts, mirrorToStandardCache, readCachedMetadata, writeCachedMetadata } from './cache.js'
+import { handleError } from './errors.js'
+import { cleanupSynapse, createCarFile, handlePayments, initializeSynapse, uploadCarToFilecoin } from './filecoin.js'
 // Import our organized modules
 import { parseInputs, resolveContentPath } from './inputs.js'
-import { FilecoinPinError, handleError } from './errors.js'
 import { writeOutputs, writeSummary } from './outputs.js'
-import { readCachedMetadata, writeCachedMetadata, mirrorToStandardCache, createArtifacts } from './cache.js'
-import {
-  initializeSynapse,
-  handlePayments,
-  createCarFile,
-  uploadCarToFilecoin,
-  cleanupSynapse
-} from './filecoin.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -35,7 +28,7 @@ async function main() {
     const { carPath, rootCid } = await createCarFile(targetPath, contentPath, logger)
     await writeOutputs({
       root_cid: rootCid,
-      car_path: carPath
+      car_path: carPath,
     })
     return
   }
@@ -54,7 +47,7 @@ async function main() {
       provider_name: meta.provider?.name || '',
       car_path: meta.carPath,
       metadata_path: join(cacheDir, 'upload.json'),
-      upload_status: fromArtifact ? 'reused-artifact' : 'reused-cache'
+      upload_status: fromArtifact ? 'reused-artifact' : 'reused-cache',
     })
 
     // Log reuse status for easy scanning
@@ -113,7 +106,7 @@ async function main() {
     pieceId,
     dataSetId,
     provider,
-    previewURL
+    previewURL,
   }
 
   const { artifactCarPath, metadataPath } = await createArtifacts(workspace, carPath, metadata)
@@ -131,7 +124,7 @@ async function main() {
     provider_name: provider.name,
     car_path: artifactCarPath,
     metadata_path: metadataPath,
-    upload_status: 'uploaded'
+    upload_status: 'uploaded',
   })
 
   console.log('\n━━━ Filecoin Pin Upload Complete ━━━')

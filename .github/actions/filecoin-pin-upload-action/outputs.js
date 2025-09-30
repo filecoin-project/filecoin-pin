@@ -47,7 +47,7 @@ export async function writeSummary(data, status) {
       'Artifacts:',
       `- CAR: ${carPath}`,
       `- Metadata: ${metadataPath}`,
-      ''
+      '',
     ].join('\n')
 
     await fs.appendFile(summaryFile, `\n${md}\n`)

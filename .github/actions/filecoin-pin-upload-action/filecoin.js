@@ -1,14 +1,22 @@
 import { promises as fs } from 'node:fs'
 import { ethers } from 'ethers'
-
-// Import filecoin-pin internals
-import { initializeSynapse as initSynapse, createStorageContext, cleanupSynapseService } from 'filecoin-pin/dist/synapse/service.js'
-import { checkAndSetAllowances, computeTopUpForDuration, getPaymentStatus, depositUSDFC } from 'filecoin-pin/dist/synapse/payments.js'
 import { createCarFromPath } from 'filecoin-pin/dist/add/unixfs-car.js'
-import { uploadToSynapse, getDownloadURL } from 'filecoin-pin/dist/synapse/upload.js'
 import { validatePaymentSetup } from 'filecoin-pin/dist/common/upload-flow.js'
+import {
+  checkAndSetAllowances,
+  computeTopUpForDuration,
+  depositUSDFC,
+  getPaymentStatus,
+} from 'filecoin-pin/dist/synapse/payments.js'
+// Import filecoin-pin internals
+import {
+  cleanupSynapseService,
+  createStorageContext,
+  initializeSynapse as initSynapse,
+} from 'filecoin-pin/dist/synapse/service.js'
+import { getDownloadURL, uploadToSynapse } from 'filecoin-pin/dist/synapse/upload.js'
 
-import { FilecoinPinError, ERROR_CODES } from './errors.js'
+import { ERROR_CODES, FilecoinPinError } from './errors.js'
 
 /**
  * Initialize Synapse sdk with error handling
@@ -139,7 +147,7 @@ export async function uploadCarToFilecoin(synapse, carPath, rootCid, options, lo
     dataSetId,
     provider: { id: providerId, name: providerName },
     previewURL,
-    network: synapse.getNetwork()
+    network: synapse.getNetwork(),
   }
 }
 

@@ -67,6 +67,6 @@ export async function createArtifacts(workspace, carPath, metadata) {
   return {
     artifactDir,
     artifactCarPath,
-    metadataPath
+    metadataPath,
   }
 }

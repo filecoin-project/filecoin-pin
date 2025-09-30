@@ -62,7 +62,7 @@ export function parseInputs() {
     maxTopUp,
     withCDN,
     token,
-    providerAddress
+    providerAddress,
   }
 }
 
