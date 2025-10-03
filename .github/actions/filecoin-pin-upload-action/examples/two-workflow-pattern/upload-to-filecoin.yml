@@ -1,0 +1,45 @@
+name: Upload to Filecoin
+
+# Runs AFTER build-pr.yml completes - HAS SECRETS
+# Fork PRs will be detected and blocked with appropriate PR comments
+on:
+  workflow_run:
+    workflows: ["Build PR Content"]  # Must match the name in build-pr.yml
+    types:
+      - completed
+  workflow_dispatch:  # Allow manual testing
+
+jobs:
+  upload:
+    # Only run if the build workflow succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read  # Required to download artifacts from workflow_run
+      pull-requests: write  # Required to comment on PRs
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Download the build artifacts from the build workflow
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: site-dist
+          path: dist
+          github-token: ${{ github.token }}
+          repository: ${{ github.event.workflow_run.repository.full_name }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      # Upload to Filecoin using the downloaded build artifacts
+      # The action will create a CAR file from the downloaded artifacts and upload to Filecoin
+      - name: Upload to Filecoin
+        uses: sgtpooki/filecoin-upload-action@v1
+        with:
+          path: dist  # Path to the downloaded build artifacts
+          walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
+          network: calibration
+          minStorageDays: "30"  # Hardcoded - not from PR!
+          filecoinPayBalanceLimit: "0.25" # Hardcoded - not from PR!

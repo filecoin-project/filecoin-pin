@@ -122,7 +122,6 @@ Releases are automatically created when changes are pushed to `main` with conven
 - **[USAGE.md](./USAGE.md)** - Complete usage guide with all patterns
 - **[FLOW.md](./FLOW.md)** - Internal architecture & how the action works under the hood
 - **[examples/README.md](./examples/README.md)** - Detailed setup instructions
-- **[CONTRIBUTING.md](./CONTRIBUTING.md)** - How to contribute and commit message guidelines
 
 ## Caching & Artifacts
 
