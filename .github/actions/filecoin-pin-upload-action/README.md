@@ -1,128 +1,131 @@
-# Filecoin Pin Upload Action (Local Copy)
+# Filecoin Pin Upload Action
 
-This is a local copy of the composite action that packs a file/directory into a UnixFS CAR, uploads via `filecoin-pin` to Filecoin (Synapse), and publishes useful artifacts.
+Composite GitHub Action that packs a file or directory into a UnixFS CAR, uploads it to Filecoin, and publishes artifacts and context for easy reuse.
 
-Use it from this repo via:
+## Quick Start
 
+Run your build in an untrusted workflow, publish the build output as an artifact, then run this action in a trusted workflow to create the CAR and upload to Filecoin. Fork PR support is currently disabled, so workflows must run within the same repository.
+
+**Step 1: Build workflow** (no secrets):
 ```yaml
-uses: ./.github/actions/filecoin-pin-upload-action
-with:
-  privateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
-  path: dist
-  minDays: 10
-  minBalance: "5"   # USDFC
-  maxTopUp: "50"     # USDFC
-  providerAddress: "0xa3971A7234a3379A1813d9867B531e7EeB20ae07"
+# .github/workflows/build-pr.yml
+name: Build PR Content
+on: pull_request
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci && npm run build
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-dist
+          path: dist
 ```
 
-Notes:
-- This action automatically installs and builds the local `filecoin-pin` sources before running (no prebuilt `dist` is committed). This will change to an npm installed version when the action is production-ready.
-- For PR events, the action posts a comment with the IPFS Root CID.
-
-Inputs
-- `privateKey` (required): Wallet private key.
-- `path` (default: `dist`): Build output path.
-- `minDays` (default: `10`): Minimum runway in days.
-- `minBalance` (optional): Minimum deposit (USDFC).
-- `maxTopUp` (optional): Maximum additional deposit (USDFC).
-- `token` (default: `USDFC`): Supported token.
-- `withCDN` (default: `false`): Request CDN if available.
-- `providerAddress` (default shown above): Override storage provider address (Calibration/Mainnet). Leave empty to allow auto-selection.
-
-Security notes for PR workflows
-- If you use `pull_request`, the workflow and action come from the PR branch. PR authors can modify inputs (e.g., `minDays`, `minBalance`). Set a conservative `maxTopUp` to cap spending.
-- If you need PRs to always run the workflow definition from `main`, consider `pull_request_target`. WARNING: it runs with base repo permissions and may have access to secrets. Do not run untrusted PR code with those secrets. Prefer a two-workflow model (`pull_request` build → `workflow_run` deploy) when in doubt.
-
-Security considerations (PRs)
-- Running uploads on pull_request means PR authors can change inputs (e.g., `minDays`, `minBalance`) within the PR, which can influence deposits/top-ups.
-- Always set a conservative `maxTopUp` to cap the maximum funds added in a single run.
-- Protect your main branch and review workflow changes. Require approval for workflows from outside collaborators.
-- Forked PRs don’t receive secrets by default, so funding won’t run there; same-repo PRs do have access to secrets.
-
-Caching details
-- Cache key: `filecoin-pin-v1-${root_cid}` ensures uploads are skipped for identical content.
-- You can invalidate all caches by changing the version prefix (e.g., `v2`).
-- Retention is managed by GitHub Actions and organization settings; it’s not configurable per cache entry in actions/cache v4. Each restore updates last-access time.
-
-## Setup Checklist (Security + Reliability)
-
-- Pin the action when used from another repo: `uses: filecoin-project/filecoin-pin/.github/actions/filecoin-pin-upload-action@<commit-sha>`
-- Restrict allowed actions in repo/org settings (Actions → General → Allow select actions) to:
-  - GitHub official (e.g., `actions/*`)
-  - Your org (e.g., `filecoin-project/*`)
-- Grant the workflow/job `actions: read` if you want artifact reuse to work across runs.
-- Cap spend with `maxTopUp` (pushes) and a lower cap (or zero) on PRs.
-- Consider Environments with required reviewers for any deposit/top-up steps.
-- Keep workflow files protected with CODEOWNERS + branch protection.
-- Never run untrusted PR code with secrets under `pull_request_target`. Prefer a two‑step model if you need main‑defined workflows.
-
-## PR Safety Options
-
-- Low/zero PR top‑ups (simple)
-  - In your workflow, set a small cap for PRs. Uploads still work if already funded.
-  - Example:
-    ```yaml
-    with:
-      maxTopUp: ${{ github.event_name == 'pull_request' && '0' || '50' }}
-    ```
-
-- Label‑gated PR spending (reviewer control)
-  - Default PR cap is 0; maintainers add `allow-upload` label to raise the cap.
-  - Example:
-    ```yaml
-    - name: Decide PR cap
-      id: caps
-      if: ${{ github.event_name == 'pull_request' }}
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const labels = (context.payload.pull_request.labels||[]).map(l=>l.name)
-          core.setOutput('PR_CAP', labels.includes('allow-upload') ? '5' : '0')
-
-    - name: Upload
-      uses: ./.github/actions/filecoin-pin-upload-action
-      with:
-        maxTopUp: "${{ steps.caps.outputs.PR_CAP || '50' }}"
-    ```
-
-- Two‑step (safest) with artifacts
-  - PR workflow (no secrets): `with: mode: prepare` → uploads CAR + metadata as artifact
-  - workflow_run on main: download artifact and `with: mode: upload` → validates and uploads with secrets
-
-## Two‑Step Usage
-
-Prepare (PR, no secrets):
+**Step 2: Upload workflow** (runs after build, uses secrets):
 ```yaml
-steps:
-  - uses: actions/checkout@v4
-  - uses: actions/setup-node@v4
-    with: { node-version: 20.x }
-  - run: npm ci && npm run build
-  - name: Prepare CAR (no secrets)
-    uses: ./.github/actions/filecoin-pin-upload-action
-    with:
-      mode: prepare
-      path: dist
-      artifactName: filecoin-pin-${{ github.run_id }}-${{ github.sha }}
+# .github/workflows/upload-to-filecoin.yml
+name: Upload to Filecoin
+on:
+  workflow_run:
+    workflows: ["Build PR Content"]
+    types: [completed]
+
+jobs:
+  upload:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: site-dist
+          path: dist
+          github-token: ${{ github.token }}
+          repository: ${{ github.event.workflow_run.repository.full_name }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Upload to Filecoin
+        uses: sgtpooki/filecoin-upload-action@v1
+        with:
+          path: dist
+          walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
+          network: calibration
+          minStorageDays: "30"
+          filecoinPayBalanceLimit: "0.25"
 ```
 
-Upload (workflow_run on main, with secrets):
-```yaml
-steps:
-  - uses: actions/checkout@v4
-  - name: Download artifact
-    uses: actions/download-artifact@v4
-    with:
-      name: filecoin-pin-${{ github.event.workflow_run.run_id }}-${{ github.event.workflow_run.head_sha }}
-      path: filecoin-pin-artifacts
-  - name: Upload to Filecoin
-    uses: ./.github/actions/filecoin-pin-upload-action
-    with:
-      mode: upload
-      prebuiltCarPath: filecoin-pin-artifacts/upload.car
-      privateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
-      minDays: 10
-      minBalance: "5"
-      maxTopUp: "50"
-      providerAddress: "0xa3971A7234a3379A1813d9867B531e7EeB20ae07"
-```
+**Versioning**: This action uses [Semantic Release](https://semantic-release.gitbook.io/) for automated versioning. Use version tags like `@v1`, `@v1.0.0`, or commit SHAs for supply-chain safety.
+
+## Inputs
+
+See [action.yml](./action.yml) the input parameters and their descriptions.
+
+## Security & Permissions Checklist
+
+- ✅ Pin the action by version tag or commit SHA
+- ✅ Grant `actions: read` if you want artifact reuse (cache fallback) to work
+- ✅ Protect workflow files with CODEOWNERS/branch protection
+- ✅ **Always** hardcode `minStorageDays` and `filecoinPayBalanceLimit` in trusted workflows
+- ✅ **Never** use `pull_request_target` - use the two-workflow pattern instead
+- ✅ Enable **branch protection** on main to require reviews for workflow changes
+- ✅ Use **CODEOWNERS** to require security team approval for workflow modifications
+- ⚠️ Consider gating deposits with Environments that require approval
+
+## Usage
+
+The action uses a secure two-workflow pattern by default. This currently works for **same-repo PRs only** (fork PR support temporarily disabled).
+
+Split your CI into untrusted build + trusted upload workflows.
+
+**Security Note**: The `workflow_run` trigger always executes the workflow file from your main branch, not from the PR. Even if a PR modifies the upload workflow to change hardcoded limits, those changes won't apply until the PR is merged.
+
+## Current Limitations
+
+**⚠️ Fork PR Support Disabled**
+
+- Only same-repo PRs and direct pushes to main are supported
+- PR commenting works, but shows different message for fork PRs
+- This limits non-maintainer PR actors from draining funds from unaware repo owners
+
+**See [examples/two-workflow-pattern/](./examples/two-workflow-pattern/)** for complete, ready-to-use workflow files.
+
+## Releases & Versioning
+
+This action uses [Semantic Release](https://semantic-release.gitbook.io/) for automated versioning based on [Conventional Commits](https://www.conventionalcommits.org/).
+
+### Available Versions
+
+- **`@v1`** - Latest v1.x.x release (recommended for most users)
+- **`@v1.0.0`** - Specific version (recommended for production)
+- **`@<commit-sha>`** - Specific commit (maximum security)
+
+### Version Bumps
+
+- **Patch** (`1.0.0` → `1.0.1`): Bug fixes, docs, refactoring
+- **Minor** (`1.0.0` → `1.1.0`): New features
+- **Major** (`1.0.0` → `2.0.0`): Breaking changes
+
+### Release Process
+
+Releases are automatically created when changes are pushed to `main` with conventional commit messages. See [CONTRIBUTING.md](./CONTRIBUTING.md) for commit message guidelines.
+
+## Documentation
+
+- **[examples/two-workflow-pattern/](./examples/two-workflow-pattern/)** - Ready-to-use workflow files (recommended)
+- **[USAGE.md](./USAGE.md)** - Complete usage guide with all patterns
+- **[FLOW.md](./FLOW.md)** - Internal architecture & how the action works under the hood
+- **[examples/README.md](./examples/README.md)** - Detailed setup instructions
+- **[CONTRIBUTING.md](./CONTRIBUTING.md)** - How to contribute and commit message guidelines
+
+## Caching & Artifacts
+
+- Cache key: `filecoin-pin-v1-${ipfsRootCid}` enables reuse for identical content.
+- Artifacts: `filecoin-pin-artifacts/upload.car` and `filecoin-pin-artifacts/context.json` are published for each run.
+- PR comments include the IPFS root CID, dataset ID, piece CID, and preview link.

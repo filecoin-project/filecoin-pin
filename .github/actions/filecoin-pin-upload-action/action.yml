@@ -5,61 +5,76 @@ branding:
   color: blue
 
 inputs:
-  github_token:
-    description: GitHub token for commenting and artifacts. Defaults to workflow token.
-    required: false
-  privateKey:
-    description: Required. Wallet private key used to fund uploads (USDFC on Calibration/Mainnet).
-    required: true
+  # Core configuration
   path:
     description: Path to content to upload (file or directory). Typically your build output directory.
+    required: true
+  walletPrivateKey:
+    description: Wallet private key used to fund uploads (USDFC on Calibration/Mainnet).
+    required: true
+  network:
+    description: What Filecoin network to use. Should either be "mainnet" or "calibration".
+    required: true
+
+  # Financial controls
+  minStorageDays:
+    description: >-
+      Minimum runway in days of funding to keep the current data set persisted on Filecoin.
+      This number is used to calculate the minimum Filecoin Pay balance to meet this runway.
+      This calculation assumes that all of the Filecoin Pay balance will go towards storage for this data set,
+      which won't be true for wallets that have multiple data sets or are using Filecoin Pay with other Filecoin Onchain Cloud services.
+      If this isn't specified, this action will not make any Filecoin Pay deposits.
+      If the current Filecoin Pay balance is already above this target, then no token deposits are attempted from the wallet.
+      If the current Filecoin Pay balance is below this target, the necessary deposit will be attempted if through the `filecoinPayBalanceLimit` (see below).
+      If there are insufficient funds in the wallet, the action will fail.
+      SECURITY: Hardcode this in trusted workflows.
     required: false
-    default: dist
-  minDays:
-    description: "Minimum runway (days) to keep current spend alive. Security note: on PRs, authors can change this."
+  filecoinPayBalanceLimit:
+    description: >-
+      Specifies a target Filecoin Pin balance in USDFC that this action will never exceed.
+      Actions (manual or other) outside of this action may cause the Filecoin Pay balance to exceed this limit,
+      but this limit prevents the action from using thewallet to top up the Filecoin Pay balance beyond the limit.
+      As a protection, this must be set if `minStorageDays` is set.
+      SECURITY: Hardcode this in trusted workflows.
     required: false
-    default: "10"
-  minBalance:
-    description: "Minimum deposit balance to maintain in Filecoin Pay (USDFC). Security note: on PRs, authors can change this."
-    required: false
-  maxTopUp:
-    description: Maximum allowed additional deposit during this run (USDFC). Strongly recommended to cap PR spend.
-    required: false
-  token:
-    description: Payment token identifier. Currently only "USDFC" is supported; address override reserved for future.
-    required: false
-    default: "USDFC"
-  withCDN:
-    description: If true, request CDN in the storage context (depends on provider capabilities).
-    required: false
-    default: "false"
+
+  # Optional/Advanced configuration
   providerAddress:
     description: Optional override for storage provider address (on Calibration/Mainnet). Defaults to a known good provider on Calibration.
     required: false
     default: "0xa3971A7234a3379A1813d9867B531e7EeB20ae07"
+  withCDN:
+    description: "If true, request CDN in the storage context (depends on provider capabilities). Warning: filecoin-pin does not calculate deposits and run-rate costs properly with CDN enabled."
+    required: false
+    default: "false"
+  dryRun:
+    description: "If true, run in dry-run mode - build CAR file and validate inputs but skip actual upload to Filecoin. Useful for testing and validation."
+    required: false
+    default: "false"
+
 
 outputs:
-  root_cid:
+  ipfsRootCid:
     description: IPFS Root CID
-    value: ${{ steps.run.outputs.root_cid }}
-  data_set_id:
+    value: ${{ steps.run.outputs.ipfsRootCid }}
+  dataSetId:
     description: Synapse Data Set ID
-    value: ${{ steps.run.outputs.data_set_id }}
-  piece_cid:
+    value: ${{ steps.run.outputs.dataSetId }}
+  pieceCid:
     description: Filecoin Piece CID
-    value: ${{ steps.run.outputs.piece_cid }}
-  provider_id:
+    value: ${{ steps.run.outputs.pieceCid }}
+  providerId:
     description: Storage Provider ID
-    value: ${{ steps.run.outputs.provider_id }}
-  provider_name:
+    value: ${{ steps.run.outputs.providerId }}
+  providerName:
     description: Storage Provider Name
-    value: ${{ steps.run.outputs.provider_name }}
-  car_path:
+    value: ${{ steps.run.outputs.providerName }}
+  carPath:
     description: Path to the created CAR file
-    value: ${{ steps.run.outputs.car_path }}
-  metadata_path:
-    description: Path to JSON with upload metadata
-    value: ${{ steps.run.outputs.metadata_path }}
+    value: ${{ steps.run.outputs.carPath }}
+  uploadStatus:
+    description: Upload status (uploaded, reused-cache, reused-artifact)
+    value: ${{ steps.run.outputs.uploadStatus }}
 
 runs:
   using: "composite"
@@ -69,190 +84,70 @@ runs:
       with:
         node-version: '24.x'
 
-    - name: Install & build filecoin-pin (local source)
+    - name: Get package-lock.json hash
+      id: lockfile-hash
       shell: bash
-      working-directory: .github/actions/filecoin-pin-upload-action
+      working-directory: ${{ github.action_path }}
       run: |
-        npm install --prefix ../.. --no-audit --no-fund
-        npm run build --prefix ../..
+        if [ -f package-lock.json ]; then
+          HASH=$(sha256sum package-lock.json | cut -d' ' -f1 | cut -c1-8)
+          echo "hash=$HASH" >> $GITHUB_OUTPUT
+        else
+          echo "hash=none" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Get action path
+      id: action-path
+      shell: bash
+      run: |
+        ACTION_PATH="${{ github.action_path }}"
+        ACTION_PATH=$(cd "$ACTION_PATH" && pwd)
+        echo "path=$ACTION_PATH" >> $GITHUB_OUTPUT
+
+    - name: Restore action dependencies cache
+      uses: actions/cache/restore@v4
+      id: npm-cache
+      with:
+        path: ${{ steps.action-path.outputs.path }}/node_modules
+        key: ${{ runner.os }}-filecoin-action-deps-${{ steps.lockfile-hash.outputs.hash }}
+        restore-keys: |
+          ${{ runner.os }}-filecoin-action-deps-
 
     - name: Install action deps
+      if: ${{ steps.npm-cache.outputs.cache-hit != 'true' }}
       shell: bash
-      working-directory: .github/actions/filecoin-pin-upload-action
-      run: |
-        npm install --no-audit --no-fund
+      working-directory: ${{ github.action_path }}
+      run: npm ci --production --no-audit --no-fund
 
-    - name: Compute root + CAR
-      id: compute
-      shell: bash
-      working-directory: .github/actions/filecoin-pin-upload-action
-      env:
-        INPUT_GITHUB_TOKEN: ${{ inputs.github_token }}
-        INPUT_PRIVATEKEY: ${{ inputs.privateKey }}
-        INPUT_PATH: ${{ inputs.path }}
-        INPUT_MINDAYS: ${{ inputs.minDays }}
-        INPUT_MINBALANCE: ${{ inputs.minBalance }}
-        INPUT_MAXTOPUP: ${{ inputs.maxTopUp }}
-        INPUT_WITHCDN: ${{ inputs.withCDN }}
-        INPUT_TOKEN: ${{ inputs.token }}
-        INPUT_PROVIDERADDRESS: ${{ inputs.providerAddress }}
-        ACTION_PHASE: compute
-      run: |
-        node run.mjs
-
-    - name: Restore upload cache
-      id: cache-restore
-      uses: actions/cache/restore@v4
-      with:
-        key: filecoin-pin-v1-${{ steps.compute.outputs.root_cid }}
-        path: .filecoin-pin-cache/${{ steps.compute.outputs.root_cid }}
-
-    - name: Use cached metadata
-      if: ${{ steps.cache-restore.outputs.cache-hit == 'true' }}
-      id: from-cache
-      shell: bash
-      working-directory: .github/actions/filecoin-pin-upload-action
-      env:
-        CACHE_DIR: ${{ github.workspace }}/.filecoin-pin-cache/${{ steps.compute.outputs.root_cid }}
-        INPUT_GITHUB_TOKEN: ${{ inputs.github_token }}
-        INPUT_PRIVATEKEY: ${{ inputs.privateKey }}
-        INPUT_MINDAYS: ${{ inputs.minDays }}
-        INPUT_MINBALANCE: ${{ inputs.minBalance }}
-        INPUT_MAXTOPUP: ${{ inputs.maxTopUp }}
-        INPUT_WITHCDN: ${{ inputs.withCDN }}
-        INPUT_TOKEN: ${{ inputs.token }}
-        INPUT_PROVIDERADDRESS: ${{ inputs.providerAddress }}
-        PREPARED_CAR_PATH: ${{ steps.compute.outputs.car_path }}
-        PREPARED_ROOT_CID: ${{ steps.compute.outputs.root_cid }}
-        ACTION_PHASE: from-cache
-      run: |
-        node run.mjs
-
-    - name: Find previous artifact by Root CID
-      if: ${{ steps.cache-restore.outputs.cache-hit != 'true' }}
-      id: find-artifact
-      uses: actions/github-script@v7
-      env:
-        ROOT_CID: ${{ steps.compute.outputs.root_cid }}
-      with:
-        github-token: ${{ inputs.github_token || github.token }}
-        script: |
-          const { owner, repo } = context.repo
-          const ROOT_CID = process.env.ROOT_CID
-          const targetName = `filecoin-pin-${ROOT_CID}`
-          const items = await github.paginate(github.rest.actions.listArtifactsForRepo, { owner, repo, per_page: 100 })
-          const found = items.find(a => a.name === targetName && !a.expired)
-          if (found) {
-            core.setOutput('artifact_id', String(found.id))
-            core.setOutput('run_id', String(found.workflow_run?.id || ''))
-          } else {
-            core.setOutput('artifact_id', '')
-            core.setOutput('run_id', '')
-          }
-
-    - name: Download previous artifact
-      if: ${{ steps.cache-restore.outputs.cache-hit != 'true' && steps.find-artifact.outputs.artifact_id != '' }}
-      uses: actions/download-artifact@v4
-      with:
-        name: filecoin-pin-${{ steps.compute.outputs.root_cid }}
-        run-id: ${{ steps.find-artifact.outputs.run_id }}
-        path: filecoin-pin-artifacts-restore
-
-    - name: Use artifact metadata
-      if: ${{ steps.cache-restore.outputs.cache-hit != 'true' && steps.find-artifact.outputs.artifact_id != '' }}
-      id: from-artifact
-      shell: bash
-      working-directory: .github/actions/filecoin-pin-upload-action
-      env:
-        CACHE_DIR: ${{ github.workspace }}/filecoin-pin-artifacts-restore
-        INPUT_GITHUB_TOKEN: ${{ inputs.github_token }}
-        INPUT_PRIVATEKEY: ${{ inputs.privateKey }}
-        INPUT_MINDAYS: ${{ inputs.minDays }}
-        INPUT_MINBALANCE: ${{ inputs.minBalance }}
-        INPUT_MAXTOPUP: ${{ inputs.maxTopUp }}
-        INPUT_WITHCDN: ${{ inputs.withCDN }}
-        INPUT_TOKEN: ${{ inputs.token }}
-        INPUT_PROVIDERADDRESS: ${{ inputs.providerAddress }}
-        FROM_ARTIFACT: "true"
-        ACTION_PHASE: from-cache
-      run: |
-        node run.mjs
-
-    - name: Upload via filecoin-pin
-      if: ${{ steps.cache-restore.outputs.cache-hit != 'true' && steps.find-artifact.outputs.artifact_id == '' }}
-      id: run
-      shell: bash
-      working-directory: .github/actions/filecoin-pin-upload-action
-      env:
-        INPUT_GITHUB_TOKEN: ${{ inputs.github_token }}
-        INPUT_PRIVATEKEY: ${{ inputs.privateKey }}
-        INPUT_PATH: ${{ inputs.path }}
-        INPUT_MINDAYS: ${{ inputs.minDays }}
-        INPUT_MINBALANCE: ${{ inputs.minBalance }}
-        INPUT_MAXTOPUP: ${{ inputs.maxTopUp }}
-        INPUT_WITHCDN: ${{ inputs.withCDN }}
-        INPUT_TOKEN: ${{ inputs.token }}
-        INPUT_PROVIDERADDRESS: ${{ inputs.providerAddress }}
-        ACTION_PHASE: upload
-        PREPARED_CAR_PATH: ${{ steps.compute.outputs.car_path }}
-        PREPARED_ROOT_CID: ${{ steps.compute.outputs.root_cid }}
-      run: |
-        node run.mjs
-
-    - name: Save upload cache
-      if: ${{ steps.cache-restore.outputs.cache-hit != 'true' }}
+    - name: Save action dependencies cache
+      if: ${{ always() && steps.npm-cache.outputs.cache-hit != 'true' }}
       uses: actions/cache/save@v4
       with:
-        key: filecoin-pin-v1-${{ steps.compute.outputs.root_cid }}
-        path: .filecoin-pin-cache/${{ steps.compute.outputs.root_cid }}
+        path: ${{ steps.action-path.outputs.path }}/node_modules
+        key: ${{ runner.os }}-filecoin-action-deps-${{ steps.lockfile-hash.outputs.hash }}
 
-    - name: Upload CAR + metadata artifacts
-      if: ${{ (steps.run.outputs.car_path || steps.from-cache.outputs.car_path || steps.from-artifact.outputs.car_path) != '' }}
-      uses: actions/upload-artifact@v4
-      with:
-        name: filecoin-pin-${{ steps.run.outputs.root_cid || steps.from-cache.outputs.root_cid || steps.from-artifact.outputs.root_cid || steps.compute.outputs.root_cid }}
-        path: |
-          ${{ steps.run.outputs.car_path || steps.from-cache.outputs.car_path || steps.from-artifact.outputs.car_path }}
-          ${{ steps.run.outputs.metadata_path || steps.from-cache.outputs.metadata_path || steps.from-artifact.outputs.metadata_path }}
-
-    - name: Comment on PR with IPFS Root CID
-      if: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' }}
+    - name: Propagate Actions runtime token
       uses: actions/github-script@v7
-      env:
-        IPFS_ROOT_CID: ${{ steps.run.outputs.root_cid || steps.from-cache.outputs.root_cid || steps.from-artifact.outputs.root_cid }}
-        DATA_SET_ID: ${{ steps.run.outputs.data_set_id || steps.from-cache.outputs.data_set_id || steps.from-artifact.outputs.data_set_id }}
-        PIECE_CID: ${{ steps.run.outputs.piece_cid || steps.from-cache.outputs.piece_cid || steps.from-artifact.outputs.piece_cid }}
-        UPLOAD_STATUS: ${{ steps.run.outputs.upload_status || steps.from-cache.outputs.upload_status || steps.from-artifact.outputs.upload_status }}
       with:
-        github-token: ${{ inputs.github_token || github.token }}
         script: |
-          const { IPFS_ROOT_CID, DATA_SET_ID, PIECE_CID, UPLOAD_STATUS } = process.env
-          const preview = 'https://ipfs.io/ipfs/' + IPFS_ROOT_CID
-          let statusLine = '- Status: '
-          if (UPLOAD_STATUS === 'uploaded') statusLine += 'Uploaded new content'
-          else if (UPLOAD_STATUS === 'reused-cache') statusLine += 'Reused cached content'
-          else if (UPLOAD_STATUS === 'reused-artifact') statusLine += 'Reused artifact content'
-          else statusLine += 'Unknown (see job logs)'
-          const body = [
-            '<!-- filecoin-pin-upload-action -->',
-            'Filecoin Pin Upload ✅',
-            '',
-            '- IPFS Root CID: `' + IPFS_ROOT_CID + '`',
-            '- Data Set ID: `' + DATA_SET_ID + '`',
-            '- Piece CID: `' + PIECE_CID + '`',
-            '',
-            statusLine,
-            '',
-            '- Preview (temporary centralized gateway):',
-            '  - ' + preview,
-          ].join('\n')
-
-          const { owner, repo } = context.repo
-          const issue_number = context.issue.number
-          const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number })
-          const existing = comments.find(c => c.user?.type === 'Bot' && (c.body || '').includes('filecoin-pin-upload-action'))
-          if (existing) {
-            await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body })
+          const token = process.env.ACTIONS_RUNTIME_TOKEN
+          const resultsUrl = process.env.ACTIONS_RESULTS_URL
+          if (!token || !resultsUrl) {
+            core.warning(
+              'GitHub did not expose ACTIONS_RUNTIME_TOKEN/ACTIONS_RESULTS_URL. ' +
+                'Ensure the workflow job has `permissions: actions: write` so artifacts can upload.'
+            )
           } else {
-            await github.rest.issues.createComment({ owner, repo, issue_number, body })
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', token)
+            core.exportVariable('ACTIONS_RESULTS_URL', resultsUrl)
           }
+
+    # Main execution - run.mjs handles everything based on mode
+    - name: Run action
+      id: run
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        INPUTS_JSON: ${{ toJson(inputs) }}
+        GITHUB_TOKEN: ${{ github.token }}
+      run: node src/run.mjs
