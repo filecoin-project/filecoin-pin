@@ -116,7 +116,7 @@ paymentsCommand
         privateKey: options.privateKey,
         rpcUrl: options.rpcUrl || process.env.RPC_URL,
         amount: options.amount,
-        days: options.days != null ? Number(options.days) : 10, // always default to 10 days top-up, otherwise top-up to the specified number of days.
+        days: options.days != null ? Number(options.days) : undefined, // Only pass days if explicitly provided
       })
     } catch (error) {
       console.error('Failed to perform deposit:', error instanceof Error ? error.message : error)
