@@ -4,7 +4,7 @@
  * Adjusts funds to exactly match a target runway (days) or a target deposited amount.
  */
 
-import { confirm, isCancel } from '@clack/prompts'
+import { confirm } from '@clack/prompts'
 import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
@@ -48,9 +48,8 @@ async function ensureBelowTenDaysAllowed(opts: {
     message: 'Proceed with reducing runway below 10 days?',
     initialValue: false,
   })
-  if (isCancel(proceed)) {
-    cancel('Fund adjustment cancelled')
-    throw new Error('Cancelled by user')
+  if (!proceed) {
+    throw new Error('Fund adjustment cancelled by user')
   }
 }
 
@@ -74,6 +73,16 @@ async function performAdjustment(params: {
       )
       throw new Error('Insufficient USDFC in wallet')
     }
+    if (isTTY()) {
+      // we will deposit `needed` USDFC, display confirmation to user unless not TTY or --auto flag was passed
+      const proceed = await confirm({
+        message: `Deposit ${formatUSDFC(needed)} USDFC?`,
+        initialValue: false,
+      })
+      if (!proceed) {
+        throw new Error('Deposit cancelled by user')
+      }
+    }
     spinner.start(depositMsg)
     const { approvalTx, depositTx } = await depositUSDFC(synapse, needed)
     spinner.stop(`${pc.green('✓')} Deposit complete`)
@@ -83,6 +92,16 @@ async function performAdjustment(params: {
     log.flush()
   } else if (delta < 0n) {
     const withdrawAmount = -delta
+    if (isTTY()) {
+      // we will withdraw `withdrawAmount` USDFC, display confirmation to user unless not TTY or --auto flag was passed
+      const proceed = await confirm({
+        message: `Withdraw ${formatUSDFC(withdrawAmount)} USDFC?`,
+        initialValue: false,
+      })
+      if (!proceed) {
+        throw new Error('Withdraw cancelled by user')
+      }
+    }
     spinner.start(withdrawMsg)
     const txHash = await withdrawUSDFC(synapse, withdrawAmount)
     spinner.stop(`${pc.green('✓')} Withdraw complete`)
@@ -273,7 +292,6 @@ export async function runFund(options: FundOptions): Promise<void> {
     await printSummary(synapse)
     outro('Fund adjustment completed')
   } catch (error) {
-    spinner.stop()
     console.error(pc.red('✗ Fund adjustment failed'))
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
     process.exitCode = 1
