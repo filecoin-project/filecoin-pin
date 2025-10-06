@@ -1,5 +1,7 @@
 {
+  "extends": "../../../tsconfig.json",
   "compilerOptions": {
+    "rootDir": "src",
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "node",
@@ -26,6 +28,6 @@
     "sourceMap": false,
     "outDir": null
   },
-  "include": ["src/**/*", "*.js", "*.mjs"],
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "venv"]
 }

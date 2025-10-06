@@ -117,7 +117,7 @@ runs:
       if: ${{ steps.npm-cache.outputs.cache-hit != 'true' }}
       shell: bash
       working-directory: ${{ github.action_path }}
-      run: npm ci --production --no-audit --no-fund
+      run: npm ci --omit=dev --no-audit --no-fund
 
     - name: Save action dependencies cache
       if: ${{ always() && steps.npm-cache.outputs.cache-hit != 'true' }}
