@@ -9,7 +9,9 @@ import type { Synapse } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
+import { autoFund } from '../payments/fund.js'
 import { formatUSDFC, validatePaymentRequirements } from '../payments/setup.js'
+import type { AutoFundOptions } from '../payments/types.js'
 import {
   checkAllowances,
   checkFILBalance,
@@ -47,6 +49,60 @@ export interface UploadFlowOptions {
 export interface UploadFlowResult extends SynapseUploadResult {
   network: string
   transactionHash?: string | undefined
+}
+
+/**
+ * Perform auto-funding if requested
+ * Automatically ensures a minimum of 10 days of runway based on current usage + new file requirements
+ *
+ * @param synapse - Initialized Synapse instance
+ * @param fileSize - Size of file being uploaded (in bytes)
+ * @param spinner - Optional spinner for progress
+ */
+export async function performAutoFunding(
+  synapse: Synapse,
+  fileSize: number,
+  spinner?: ReturnType<typeof import('../utils/cli-helpers.js').createSpinner>
+): Promise<void> {
+  spinner?.start('Checking funding requirements for upload...')
+
+  try {
+    const fundOptions: AutoFundOptions = {
+      synapse,
+      fileSize,
+    }
+    if (spinner !== undefined) {
+      fundOptions.spinner = spinner
+    }
+    const result = await autoFund(fundOptions)
+    spinner?.stop(`${pc.green('✓')} Funding requirements met`)
+
+    if (result.adjusted) {
+      log.line('')
+      log.line(pc.bold('Auto-funding completed:'))
+      log.indent(`Deposited ${formatUSDFC(result.delta)} USDFC`)
+      log.indent(`Total deposited: ${formatUSDFC(result.newDepositedAmount)} USDFC`)
+      log.indent(
+        `Runway: ~${result.newRunwayDays} day(s)${result.newRunwayHours > 0 ? ` ${result.newRunwayHours} hour(s)` : ''}`
+      )
+      if (result.approvalTx) {
+        log.indent(pc.gray(`Approval tx: ${result.approvalTx}`))
+      }
+      if (result.transactionHash) {
+        log.indent(pc.gray(`Transaction: ${result.transactionHash}`))
+      }
+      log.line('')
+      log.flush()
+    }
+  } catch (error) {
+    spinner?.stop(`${pc.red('✗')} Auto-funding failed`)
+    log.line('')
+    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.flush()
+    await cleanupSynapseService()
+    cancel('Operation cancelled - auto-funding failed')
+    process.exit(1)
+  }
 }
 
 /**

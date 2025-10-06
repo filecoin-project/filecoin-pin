@@ -5,6 +5,8 @@ export interface AddOptions {
   privateKey?: string
   rpcUrl?: string
   bare?: boolean
+  /** Auto-fund: automatically ensure minimum 10 days of runway */
+  autoFund?: boolean
 }
 
 export interface AddResult {

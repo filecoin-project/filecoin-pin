@@ -8,18 +8,26 @@ import { confirm, isCancel } from '@clack/prompts'
 import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { computeAdjustmentForExactDays, computeAdjustmentForExactDeposit } from '../synapse/payments.js'
+import { MIN_RUNWAY_DAYS } from '../common/constants.js'
+import {
+  checkAndSetAllowances,
+  computeAdjustmentForExactDays,
+  computeAdjustmentForExactDaysWithFile,
+  computeAdjustmentForExactDeposit,
+} from '../synapse/payments.js'
 import { cleanupProvider } from '../synapse/service.js'
-import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
-import { isTTY, log } from '../utils/cli-logger.js'
+import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
+import { log } from '../utils/cli-logger.js'
 import {
   checkFILBalance,
   checkUSDFCBalance,
   depositUSDFC,
   formatUSDFC,
   getPaymentStatus,
+  validatePaymentRequirements,
   withdrawUSDFC,
 } from './setup.js'
+import type { AutoFundOptions, FundingAdjustmentResult } from './types.js'
 
 export interface FundOptions {
   privateKey?: string
@@ -30,14 +38,12 @@ export interface FundOptions {
 
 // Helper: confirm/warn or bail when target implies < 10-day runway
 async function ensureBelowTenDaysAllowed(opts: {
-  isCI: boolean
-  isInteractive: boolean
   spinner: any
   warningLine1: string
   warningLine2: string
 }): Promise<void> {
-  const { isCI, isInteractive, spinner, warningLine1, warningLine2 } = opts
-  if (isCI || !isInteractive) {
+  const { spinner, warningLine1, warningLine2 } = opts
+  if (!isInteractive()) {
     spinner.stop()
     console.error(pc.red(warningLine1))
     console.error(pc.red(warningLine2))
@@ -111,6 +117,95 @@ async function printUpdatedSummary(synapse: Synapse): Promise<void> {
   ])
 }
 
+/**
+ * Automatically adjust funding to meet target runway or deposit amount.
+ * This is a non-interactive version suitable for programmatic use.
+ *
+ * @param options - Auto-funding options
+ * @returns Funding adjustment result
+ * @throws Error if adjustment fails or target is unsafe
+ */
+export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustmentResult> {
+  const { synapse, fileSize, spinner } = options
+
+  spinner?.message('Checking wallet readiness...')
+
+  const [filStatus, usdfcBalance] = await Promise.all([checkFILBalance(synapse), checkUSDFCBalance(synapse)])
+
+  const validation = validatePaymentRequirements(filStatus.hasSufficientGas, usdfcBalance, filStatus.isCalibnet)
+  if (!validation.isValid) {
+    const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
+    throw new Error(`${validation.errorMessage}${help}`)
+  }
+
+  spinner?.message('Ensuring WarmStorage permissions...')
+  const allowanceResult = await checkAndSetAllowances(synapse)
+  spinner?.message(
+    allowanceResult.updated ? 'WarmStorage permissions configured' : 'WarmStorage permissions already configured'
+  )
+
+  spinner?.message('Calculating funding requirements...')
+
+  // Get current payment status and pricing after ensuring permissions
+  const [status, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
+  const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
+
+  // Calculate funding needed to maintain MIN_RUNWAY_DAYS after uploading this file
+  // This accounts for both the file's lockup AND its impact on ongoing costs
+  const adj = computeAdjustmentForExactDaysWithFile(status, MIN_RUNWAY_DAYS, fileSize, pricePerTiBPerEpoch)
+  const delta = adj.delta
+
+  // Auto-fund only deposits, never withdraws
+  if (delta <= 0n) {
+    spinner?.message('No additional funding required')
+    // Funding already sufficient
+    const updated = await getPaymentStatus(synapse)
+    const newAvailable = updated.depositedAmount - (updated.currentAllowances.lockupUsed ?? 0n)
+    const newPerDay = (updated.currentAllowances.rateUsed ?? 0n) * TIME_CONSTANTS.EPOCHS_PER_DAY
+    const newRunway = newPerDay > 0n ? Number(newAvailable / newPerDay) : 0
+    const newRunwayHours = newPerDay > 0n ? Number(((newAvailable % newPerDay) * 24n) / newPerDay) : 0
+
+    return {
+      adjusted: false,
+      delta: 0n,
+      newDepositedAmount: updated.depositedAmount,
+      newRunwayDays: newRunway,
+      newRunwayHours: newRunwayHours,
+    }
+  }
+
+  // Perform deposit
+  if (delta > usdfcBalance) {
+    throw new Error(
+      `Insufficient USDFC in wallet (need ${formatUSDFC(delta)} USDFC, have ${formatUSDFC(usdfcBalance)} USDFC)`
+    )
+  }
+
+  const depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to ensure ${MIN_RUNWAY_DAYS} day(s) runway...`
+  spinner?.message(depositMsg)
+  const depositResult = await depositUSDFC(synapse, delta)
+  const approvalTx = depositResult.approvalTx
+  const transactionHash = depositResult.depositTx
+  spinner?.message(`${pc.green('✓')} Deposit complete`)
+
+  // Get updated status
+  const updated = await getPaymentStatus(synapse)
+  const newAvailable = updated.depositedAmount - (updated.currentAllowances.lockupUsed ?? 0n)
+  const newPerDay = (updated.currentAllowances.rateUsed ?? 0n) * TIME_CONSTANTS.EPOCHS_PER_DAY
+  const newRunway = newPerDay > 0n ? Number(newAvailable / newPerDay) : 0
+  const newRunwayHours = newPerDay > 0n ? Number(((newAvailable % newPerDay) * 24n) / newPerDay) : 0
+
+  return {
+    adjusted: true,
+    delta,
+    approvalTx,
+    transactionHash,
+    newDepositedAmount: updated.depositedAmount,
+    newRunwayDays: newRunway,
+    newRunwayHours: newRunwayHours,
+  }
+}
+
 export async function runFund(options: FundOptions): Promise<void> {
   intro(pc.bold('Filecoin Onchain Cloud Fund Adjustment'))
   const spinner = createSpinner()
@@ -161,9 +256,6 @@ export async function runFund(options: FundOptions): Promise<void> {
     const status = await getPaymentStatus(synapse)
     // Finish connection phase spinner before proceeding
     spinner.stop(`${pc.green('✓')} Connected`)
-
-    const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true'
-    const interactive = isTTY()
 
     // Unified planning: derive delta and target context for both modes
     const rateUsed = status.currentAllowances.rateUsed ?? 0n
@@ -237,8 +329,6 @@ export async function runFund(options: FundOptions): Promise<void> {
         ? 'WarmStorage reserves 10 days of costs; a shorter runway risks termination.'
         : 'Increase target or accept risk: shorter runway may cause termination.'
       await ensureBelowTenDaysAllowed({
-        isCI,
-        isInteractive: interactive,
         spinner,
         warningLine1: line1,
         warningLine2: line2,

@@ -91,3 +91,13 @@ export function formatFileSize(bytes: number): string {
 
   return `${size.toFixed(1)} ${units[unitIndex]}`
 }
+
+/**
+ * Check if we can perform interactive prompts.
+ *
+ * TTY is not enough, we also need to be in an interactive environment.
+ * CI/CD environments are not interactive.
+ */
+export function isInteractive(): boolean {
+  return isTTY() && process.env.CI !== 'true' && process.env.GITHUB_ACTIONS !== 'true'
+}
