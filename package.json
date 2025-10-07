@@ -57,7 +57,7 @@
     "helia": "^5.5.1",
     "multiformats": "^13.4.1",
     "picocolors": "^1.1.1",
-    "pino": "^9.9.5"
+    "pino": "^10.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "~2.2.4",
