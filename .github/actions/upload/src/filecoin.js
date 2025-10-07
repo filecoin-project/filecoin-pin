@@ -3,12 +3,11 @@ import { RPC_URLS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import { createCarFromPath } from 'filecoin-pin/add/unixfs-car.js'
 import { validatePaymentSetup } from 'filecoin-pin/common/upload-flow.js'
-import { calculateStorageRunway, computeTopUpForDuration } from 'filecoin-pin/core/payments'
+import { calculateStorageRunway, computeTopUpForDuration, initializeSynapse as initSynapse } from 'filecoin-pin/core'
 import { checkAndSetAllowances, depositUSDFC, getPaymentStatus } from 'filecoin-pin/synapse/payments.js'
 import {
   cleanupSynapseService,
   createStorageContext,
-  initializeSynapse as initSynapse,
 } from 'filecoin-pin/synapse/service.js'
 import { getDownloadURL, uploadToSynapse } from 'filecoin-pin/synapse/upload.js'
 import { CID } from 'multiformats/cid'
@@ -41,10 +40,13 @@ export async function initializeSynapse(config, logger) {
       throw new FilecoinPinError(`Unsupported network: ${network}`, ERROR_CODES.INVALID_INPUT)
     }
 
-    return await initSynapse({
-      privateKey: walletPrivateKey,
-      rpcUrl: rpcConfig.websocket,
-    }, logger)
+    return await initSynapse(
+      {
+        privateKey: walletPrivateKey,
+        rpcUrl: rpcConfig.websocket,
+      },
+      logger
+    )
   } catch (error) {
     const errorMessage = getErrorMessage(error)
     if (errorMessage.includes('invalid private key')) {

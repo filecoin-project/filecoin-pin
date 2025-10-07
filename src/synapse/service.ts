@@ -4,11 +4,11 @@ import {
   RPC_URLS,
   type StorageContext,
   type StorageServiceOptions,
-  Synapse,
-  type SynapseOptions,
+  type Synapse,
 } from '@filoz/synapse-sdk'
 import type { Logger } from 'pino'
 import type { Config } from '../config.js'
+import { initializeSynapse as coreInitializeSynapse, type InitializeSynapseConfig } from '../core/synapse/index.js'
 
 /**
  * Default metadata for Synapse data sets created by filecoin-pin
@@ -48,10 +48,10 @@ export interface SynapseService {
 }
 
 /**
- * Synapse init helper here only requires the private key and rpc url
- * The rest of the config is optional and will be used if provided
+ * Synapse init helper requiring the essentials (private key + RPC URL)
+ * while still allowing additional config fields (log level, paths, etc.).
  */
-export type SynapseInitConfig = Required<Pick<Config, 'privateKey' | 'rpcUrl'>> & Partial<Config>
+export type SynapseInitConfig = InitializeSynapseConfig & Partial<Config>
 
 /**
  * Initialize the Synapse SDK without creating storage context
@@ -63,79 +63,26 @@ export type SynapseInitConfig = Required<Pick<Config, 'privateKey' | 'rpcUrl'>> 
  * @param config - Application configuration with privateKey and RPC URL
  * @param logger - Logger instance for detailed operation tracking
  * @returns Initialized Synapse instance
+ *
+ * @deprecated Use {@link coreInitializeSynapse} instead
  */
 export async function initializeSynapse(config: SynapseInitConfig, logger: Logger): Promise<Synapse> {
-  try {
-    // Log the configuration status
-    logger.info(
-      {
-        hasPrivateKey: config.privateKey != null,
-        rpcUrl: config.rpcUrl,
-      },
-      'Initializing Synapse'
-    )
-
-    // IMPORTANT: Private key is required for transaction signing
-    // In production, this should come from secure environment variables, or a wallet integration
-    if (config.privateKey == null) {
-      const error = new Error('PRIVATE_KEY environment variable is required for Synapse integration')
-      logger.error(
-        {
-          event: 'synapse.init.failed',
-          error: error.message,
-        },
-        'Synapse initialization failed: missing PRIVATE_KEY'
-      )
-      throw error
-    }
-    logger.info({ event: 'synapse.init' }, 'Initializing Synapse SDK')
-
-    // Configure Synapse with network settings
-    // Network options: 314 (mainnet) or 314159 (calibration testnet)
-    const synapseOptions: SynapseOptions = {
-      privateKey: config.privateKey,
-      rpcURL: config.rpcUrl ?? RPC_URLS.calibration.websocket, // Default to calibration testnet
-    }
-
-    // Optional: Override the default Warm Storage contract address
-    // Useful for testing with custom deployments
-    if (config.warmStorageAddress != null) {
-      synapseOptions.warmStorageAddress = config.warmStorageAddress
-    }
-
-    const synapse = await Synapse.create(synapseOptions)
-
-    // Store reference to the provider for cleanup if it's a WebSocket provider
-    if (synapseOptions.rpcURL && /^ws(s)?:\/\//i.test(synapseOptions.rpcURL)) {
-      activeProvider = synapse.getProvider()
-    }
-
-    // Get network info for logging
-    const network = synapse.getNetwork()
-    logger.info(
-      {
-        event: 'synapse.init',
-        network,
-        rpcUrl: synapseOptions.rpcURL,
-      },
-      'Synapse SDK initialized'
-    )
-
-    // Store instance for cleanup
-    synapseInstance = synapse
-
-    return synapse
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    logger.error(
-      {
-        event: 'synapse.init.failed',
-        error: errorMessage,
-      },
-      `Failed to initialize Synapse SDK: ${errorMessage}`
-    )
-    throw error
+  const rpcUrl = config.rpcUrl ?? RPC_URLS.calibration.websocket
+  const initConfig: InitializeSynapseConfig = {
+    privateKey: config.privateKey as string,
+    rpcUrl,
   }
+
+  const synapse = await coreInitializeSynapse(initConfig, logger)
+
+  const effectiveRpcUrl = rpcUrl
+  if (/^ws(s)?:\/\//i.test(effectiveRpcUrl)) {
+    activeProvider = synapse.getProvider()
+  }
+
+  synapseInstance = synapse
+
+  return synapse
 }
 
 /**
@@ -318,7 +265,14 @@ export async function setupSynapse(
   }
 ): Promise<SynapseService> {
   // Initialize SDK
-  const synapse = await initializeSynapse(config, logger)
+  const synapse = await initializeSynapse(
+    {
+      ...config,
+      privateKey: config.privateKey as string,
+      rpcUrl: config.rpcUrl,
+    },
+    logger
+  )
 
   // Create storage context
   const { storage, providerInfo } = await createStorageContext(synapse, logger, progressCallbacks)
