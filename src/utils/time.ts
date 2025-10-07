@@ -1,6 +1,7 @@
 /**
  * Helpers for formatting time-like values for CLI display.
  */
+import type { StorageRunwaySummary } from '../core/payments/index.js'
 
 const DAYS_PER_MONTH = 30
 const DAYS_PER_YEAR = 365
@@ -45,4 +46,19 @@ export function formatRunwayDuration(days: number, hoursRemainder: number = 0): 
     daysRem > 0 ? `${daysRem} day(s)` : '',
   ].filter(Boolean)
   return parts.join(' ')
+}
+
+/**
+ * Convert a storage runway summary into a human-readable string for CLI/action output.
+ */
+export function formatRunwaySummary(runway: StorageRunwaySummary): string {
+  if (runway.state === 'active') {
+    return formatRunwayDuration(runway.days, runway.hours)
+  }
+
+  if (runway.state === 'no-spend') {
+    return 'No active spend detected'
+  }
+
+  return 'Unknown'
 }

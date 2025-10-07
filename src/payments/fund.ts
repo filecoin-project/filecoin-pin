@@ -24,6 +24,7 @@ import {
   getPaymentStatus,
   withdrawUSDFC,
 } from './setup.js'
+import { formatRunwaySummary } from '../utils/time.js'
 
 export interface FundOptions {
   privateKey?: string
@@ -106,9 +107,10 @@ async function performAdjustment(params: {
 async function printUpdatedSummary(synapse: Synapse): Promise<void> {
   const updated = await getPaymentStatus(synapse)
   const runway = calculateStorageRunway(updated)
+  const runwayDisplay = formatRunwaySummary(runway)
   log.section('Updated', [
     `Deposited: ${formatUSDFC(updated.depositedAmount)} USDFC`,
-    runway.state === 'active' ? `Runway: ~${runway.formatted}` : `Runway: ${runway.formatted}`,
+    runway.state === 'active' ? `Runway: ~${runwayDisplay}` : `Runway: ${runwayDisplay}`,
   ])
 }
 

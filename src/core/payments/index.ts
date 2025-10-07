@@ -1,6 +1,5 @@
 import { SIZE_CONSTANTS, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
-import { formatRunwayDuration } from '../../utils/time.js'
 
 /** Number of decimal places used by USDFC tokens. */
 export const USDFC_DECIMALS = 18
@@ -55,7 +54,6 @@ export interface StorageRunwaySummary {
   lockupUsed: bigint
   days: number
   hours: number
-  formatted: string
 }
 
 /** Apply the standard 10% buffer to a base amount. */
@@ -322,7 +320,6 @@ export function calculateStorageRunway(
       lockupUsed: 0n,
       days: 0,
       hours: 0,
-      formatted: 'Unknown',
     }
   }
 
@@ -340,7 +337,6 @@ export function calculateStorageRunway(
       lockupUsed,
       days: 0,
       hours: 0,
-      formatted: 'No active spend detected',
     }
   }
 
@@ -354,7 +350,6 @@ export function calculateStorageRunway(
       lockupUsed,
       days: 0,
       hours: 0,
-      formatted: 'No active spend detected',
     }
   }
 
@@ -369,6 +364,5 @@ export function calculateStorageRunway(
     lockupUsed,
     days: runwayDays,
     hours: runwayHoursRemainder,
-    formatted: formatRunwayDuration(runwayDays, runwayHoursRemainder),
   }
 }

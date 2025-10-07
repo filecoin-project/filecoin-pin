@@ -12,6 +12,7 @@ import { calculateDepositCapacity, calculateStorageRunway } from '../synapse/pay
 import { cleanupProvider } from '../synapse/service.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
+import { formatRunwaySummary } from '../utils/time.js'
 import { checkFILBalance, checkUSDFCBalance, displayDepositWarning, formatUSDFC, getPaymentStatus } from './setup.js'
 
 interface StatusOptions {
@@ -155,6 +156,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
 
     // Show spend summaries (rateUsed, runway)
     const runway = calculateStorageRunway(status)
+    const runwayDisplay = formatRunwaySummary(runway)
     const maxLockup = status.currentAllowances.maxLockupPeriod
     const lockupDays = maxLockup != null ? Number(maxLockup / TIME_CONSTANTS.EPOCHS_PER_DAY) : 10
 
@@ -162,9 +164,9 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     if (runway.state === 'active') {
       log.indent(`Spend rate: ${formatUSDFC(runway.rateUsed)} USDFC/epoch`)
       log.indent(`Locked: ${formatUSDFC(runway.lockupUsed)} USDFC (~${lockupDays}-day reserve)`)
-      log.indent(`Runway: ~${runway.formatted}`)
+      log.indent(`Runway: ~${runwayDisplay}`)
     } else {
-      log.indent(pc.gray(runway.formatted))
+      log.indent(pc.gray(runwayDisplay))
     }
     log.flush()
 

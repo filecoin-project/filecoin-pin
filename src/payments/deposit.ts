@@ -13,6 +13,7 @@ import { calculateStorageRunway, computeTopUpForDuration } from '../synapse/paym
 import { cleanupProvider } from '../synapse/service.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
+import { formatRunwaySummary } from '../utils/time.js'
 import { checkFILBalance, checkUSDFCBalance, depositUSDFC, formatUSDFC, getPaymentStatus } from './setup.js'
 
 export interface DepositOptions {
@@ -155,6 +156,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     // Brief post-deposit summary
     const updated = await getPaymentStatus(synapse)
     const runway = calculateStorageRunway(updated)
+    const runwayDisplay = formatRunwaySummary(runway)
 
     log.line('')
     log.line(pc.bold('Deposit Summary'))
@@ -162,9 +164,9 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     if (runway.state === 'active') {
       const dailySpend = runway.perDay
       log.indent(`Current spend: ${formatUSDFC(dailySpend)} USDFC/day`)
-      log.indent(`Runway: ~${runway.formatted} at current spend`)
+      log.indent(`Runway: ~${runwayDisplay} at current spend`)
     } else {
-      log.indent(pc.gray(runway.formatted))
+      log.indent(pc.gray(runwayDisplay))
     }
     log.flush()
 
