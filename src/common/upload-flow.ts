@@ -9,16 +9,11 @@ import type { Synapse } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
-import { formatUSDFC, validatePaymentRequirements } from '../payments/setup.js'
-import {
-  checkAllowances,
-  checkFILBalance,
-  checkUSDFCBalance,
-  setMaxAllowances,
-  validatePaymentCapacity,
-} from '../synapse/payments.js'
+import { checkUploadReadiness, executeUpload } from '../core/upload/index.js'
+import { formatUSDFC } from '../payments/setup.js'
+import type { PaymentCapacityCheck } from '../synapse/payments.js'
 import { cleanupSynapseService, type SynapseService } from '../synapse/service.js'
-import { getDownloadURL, type SynapseUploadResult, uploadToSynapse } from '../synapse/upload.js'
+import { getDownloadURL, type SynapseUploadResult } from '../synapse/upload.js'
 import { cancel, formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 
@@ -62,12 +57,10 @@ export async function validatePaymentSetup(
   fileSize: number,
   spinner?: ReturnType<typeof import('../utils/cli-helpers.js').createSpinner>
 ): Promise<void> {
-  // Check basic requirements (FIL and USDFC balance)
-  const filStatus = await checkFILBalance(synapse)
-  const usdfcBalance = await checkUSDFCBalance(synapse)
+  spinner?.message('Checking WarmStorage permissions...')
 
-  // Validate payment requirements
-  const validation = validatePaymentRequirements(filStatus.hasSufficientGas, usdfcBalance, filStatus.isCalibnet)
+  const readiness = await checkUploadReadiness({ synapse, fileSize })
+  const { validation, allowances, capacity, suggestions } = readiness
 
   if (!validation.isValid) {
     spinner?.stop(`${pc.red('✗')} Payment setup incomplete`)
@@ -93,37 +86,32 @@ export async function validatePaymentSetup(
     process.exit(1)
   }
 
-  // Check WarmStorage permissions and configure if needed
-  spinner?.message('Checking WarmStorage permissions...')
-  const checkResult = await checkAllowances(synapse)
-
-  if (checkResult.needsUpdate) {
-    spinner?.message('Configuring WarmStorage permissions (one-time setup)...')
-    const setResult = await setMaxAllowances(synapse)
+  if (allowances.updated) {
     spinner?.stop(`${pc.green('✓')} WarmStorage permissions configured`)
-    log.indent(pc.gray(`Transaction: ${setResult.transactionHash}`))
-    log.flush()
+    if (allowances.transactionHash) {
+      log.indent(pc.gray(`Transaction: ${allowances.transactionHash}`))
+      log.flush()
+    }
     spinner?.start('Validating payment capacity...')
   } else {
     spinner?.message('Validating payment capacity...')
   }
 
-  // Check capacity for this specific file (this also calls checkAndSetAllowances but will be a no-op now)
-  const capacityCheck = await validatePaymentCapacity(synapse, fileSize)
-
-  if (!capacityCheck.canUpload) {
-    displayPaymentIssues(capacityCheck, fileSize, spinner)
+  if (!capacity?.canUpload) {
+    if (capacity) {
+      displayPaymentIssues(capacity, fileSize, spinner)
+    }
     await cleanupSynapseService()
     cancel('Operation cancelled - insufficient payment capacity')
     process.exit(1)
   }
 
   // Show warning if suggestions exist (even if upload is possible)
-  if (capacityCheck.suggestions.length > 0 && capacityCheck.canUpload) {
+  if (suggestions.length > 0 && capacity?.canUpload) {
     spinner?.stop(`${pc.yellow('⚠')} Payment capacity check passed with warnings`)
     log.line('')
     log.line(pc.bold('Suggestions:'))
-    capacityCheck.suggestions.forEach((suggestion) => {
+    suggestions.forEach((suggestion) => {
       log.indent(`• ${suggestion}`)
     })
     log.flush()
@@ -136,7 +124,7 @@ export async function validatePaymentSetup(
  * Display payment capacity issues and suggestions
  */
 function displayPaymentIssues(
-  capacityCheck: any,
+  capacityCheck: PaymentCapacityCheck,
   fileSize: number,
   spinner?: ReturnType<typeof import('../utils/cli-helpers.js').createSpinner>
 ): void {
@@ -186,11 +174,8 @@ export async function performUpload(
 
   spinner?.start('Uploading to Filecoin...')
 
-  // Track transaction hash from callbacks
-  let transactionHash: string | undefined
-
-  // Upload using shared function with root CID metadata
-  const uploadResult = await uploadToSynapse(synapseService, carData, rootCid, logger, {
+  const uploadResult = await executeUpload(synapseService, carData, rootCid, {
+    logger,
     contextId: `${contextType}-${Date.now()}`,
     callbacks: {
       onUploadComplete: () => {
@@ -198,12 +183,8 @@ export async function performUpload(
       },
       onPieceAdded: (transaction) => {
         if (transaction) {
-          transactionHash = transaction.hash
           spinner?.message('Piece added to data set, confirming on-chain...')
         }
-      },
-      onPieceConfirmed: () => {
-        // Don't stop spinner here, caller will do it
       },
     },
   })
@@ -211,7 +192,7 @@ export async function performUpload(
   return {
     ...uploadResult,
     network: synapseService.synapse.getNetwork(),
-    transactionHash,
+    transactionHash: uploadResult.transactionHash,
   }
 }
 

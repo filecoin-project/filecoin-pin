@@ -2,14 +2,16 @@ import { promises as fs } from 'node:fs'
 import { RPC_URLS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import { createCarFromPath } from 'filecoin-pin/add/unixfs-car.js'
-import { validatePaymentSetup } from 'filecoin-pin/common/upload-flow.js'
-import { calculateStorageRunway, computeTopUpForDuration, initializeSynapse as initSynapse } from 'filecoin-pin/core'
-import { checkAndSetAllowances, depositUSDFC, getPaymentStatus } from 'filecoin-pin/synapse/payments.js'
 import {
-  cleanupSynapseService,
-  createStorageContext,
-} from 'filecoin-pin/synapse/service.js'
-import { getDownloadURL, uploadToSynapse } from 'filecoin-pin/synapse/upload.js'
+  calculateStorageRunway,
+  checkUploadReadiness,
+  computeTopUpForDuration,
+  executeUpload,
+  initializeSynapse as initSynapse,
+} from 'filecoin-pin/core'
+import { checkAndSetAllowances, depositUSDFC, getPaymentStatus } from 'filecoin-pin/synapse/payments.js'
+import { cleanupSynapseService, createStorageContext } from 'filecoin-pin/synapse/service.js'
+import { getDownloadURL } from 'filecoin-pin/synapse/upload.js'
 import { CID } from 'multiformats/cid'
 import { ERROR_CODES, FilecoinPinError, getErrorMessage } from './errors.js'
 
@@ -194,8 +196,47 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
   // Read CAR data
   const carBytes = await fs.readFile(carPath)
 
-  // Validate payment capacity
-  await validatePaymentSetup(synapse, carBytes.length)
+  // Validate payment capacity through reusable helper
+  const readiness = await checkUploadReadiness({ synapse, fileSize: carBytes.length })
+
+  if (!readiness.validation.isValid) {
+    throw new FilecoinPinError(
+      `Payment setup incomplete: ${readiness.validation.errorMessage}`,
+      ERROR_CODES.INSUFFICIENT_FUNDS,
+      {
+        helpMessage: readiness.validation.helpMessage,
+      }
+    )
+  }
+
+  if (readiness.capacity && !readiness.capacity.canUpload) {
+    throw new FilecoinPinError('Insufficient deposit for this upload', ERROR_CODES.INSUFFICIENT_FUNDS, {
+      suggestions: readiness.suggestions,
+      issues: readiness.capacity.issues,
+    })
+  }
+
+  if (readiness.allowances.updated) {
+    logger.info(
+      {
+        event: 'payments.allowances.updated',
+        transactionHash: readiness.allowances.transactionHash,
+      },
+      'WarmStorage permissions configured'
+    )
+  } else if (readiness.allowances.needsUpdate) {
+    logger.warn({ event: 'payments.allowances.pending' }, 'WarmStorage permissions require manual configuration')
+  }
+
+  if (readiness.suggestions.length > 0) {
+    logger.warn(
+      {
+        event: 'payments.capacity.warning',
+        suggestions: readiness.suggestions,
+      },
+      'Payment capacity verified with warnings'
+    )
+  }
 
   // Create storage context with optional CDN flag
   if (withCDN) process.env.WITH_CDN = 'true'
@@ -204,21 +245,22 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
   // Upload to Filecoin via filecoin-pin
   const synapseService = { synapse, storage, providerInfo }
   const cid = CID.parse(ipfsRootCid)
-  const { pieceCid, pieceId, dataSetId } = await uploadToSynapse(synapseService, carBytes, cid, logger, {
+  const uploadResult = await executeUpload(synapseService, carBytes, cid, {
+    logger,
     contextId: `gha-upload-${Date.now()}`,
   })
 
   const providerId = String(providerInfo.id ?? '')
   const providerName = providerInfo.name ?? (providerInfo.serviceProvider || '')
-  const previewURL = getDownloadURL(providerInfo, pieceCid) || `https://ipfs.io/ipfs/${ipfsRootCid}`
+  const previewURL = getDownloadURL(providerInfo, uploadResult.pieceCid) || `https://ipfs.io/ipfs/${ipfsRootCid}`
 
   return {
-    pieceCid,
-    pieceId: pieceId != null ? String(pieceId) : '',
-    dataSetId,
+    pieceCid: uploadResult.pieceCid,
+    pieceId: uploadResult.pieceId != null ? String(uploadResult.pieceId) : '',
+    dataSetId: uploadResult.dataSetId,
     provider: { id: providerId, name: providerName },
     previewURL,
-    network: synapse.getNetwork(),
+    network: uploadResult.network,
   }
 }
 

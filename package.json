@@ -22,6 +22,10 @@
       "types": "./dist/core/synapse/index.d.ts",
       "default": "./dist/core/synapse/index.js"
     },
+    "./core/upload": {
+      "types": "./dist/core/upload/index.d.ts",
+      "default": "./dist/core/upload/index.js"
+    },
     "./add/unixfs-car.js": {
       "types": "./dist/add/unixfs-car.d.ts",
       "default": "./dist/add/unixfs-car.js"
