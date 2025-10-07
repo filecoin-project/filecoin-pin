@@ -8,7 +8,11 @@ import { confirm, isCancel } from '@clack/prompts'
 import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { computeAdjustmentForExactDays, computeAdjustmentForExactDeposit } from '../synapse/payments.js'
+import {
+  calculateStorageRunway,
+  computeAdjustmentForExactDays,
+  computeAdjustmentForExactDeposit,
+} from '../synapse/payments.js'
 import { cleanupProvider } from '../synapse/service.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
@@ -101,13 +105,10 @@ async function performAdjustment(params: {
 // Helper: summary after adjustment
 async function printUpdatedSummary(synapse: Synapse): Promise<void> {
   const updated = await getPaymentStatus(synapse)
-  const newAvailable = updated.depositedAmount - (updated.currentAllowances.lockupUsed ?? 0n)
-  const newPerDay = (updated.currentAllowances.rateUsed ?? 0n) * TIME_CONSTANTS.EPOCHS_PER_DAY
-  const newRunway = newPerDay > 0n ? Number(newAvailable / newPerDay) : 0
-  const newRunwayHours = newPerDay > 0n ? Number(((newAvailable % newPerDay) * 24n) / newPerDay) : 0
+  const runway = calculateStorageRunway(updated)
   log.section('Updated', [
     `Deposited: ${formatUSDFC(updated.depositedAmount)} USDFC`,
-    `Runway: ~${newRunway} day(s)${newRunwayHours > 0 ? ` ${newRunwayHours} hour(s)` : ''}`,
+    runway.state === 'active' ? `Runway: ~${runway.formatted}` : `Runway: ${runway.formatted}`,
   ])
 }
 

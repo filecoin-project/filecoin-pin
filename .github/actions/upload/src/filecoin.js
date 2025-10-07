@@ -1,9 +1,10 @@
 import { promises as fs } from 'node:fs'
-import { RPC_URLS, TIME_CONSTANTS } from '@filoz/synapse-sdk'
+import { RPC_URLS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import { createCarFromPath } from 'filecoin-pin/dist/add/unixfs-car.js'
 import { validatePaymentSetup } from 'filecoin-pin/dist/common/upload-flow.js'
 import {
+  calculateStorageRunway,
   checkAndSetAllowances,
   computeTopUpForDuration,
   depositUSDFC,
@@ -15,7 +16,6 @@ import {
   initializeSynapse as initSynapse,
 } from 'filecoin-pin/dist/synapse/service.js'
 import { getDownloadURL, uploadToSynapse } from 'filecoin-pin/dist/synapse/upload.js'
-import { formatRunwayDuration } from 'filecoin-pin/dist/utils/time.js'
 import { CID } from 'multiformats/cid'
 import { ERROR_CODES, FilecoinPinError, getErrorMessage } from './errors.js'
 
@@ -27,32 +27,6 @@ import { ERROR_CODES, FilecoinPinError, getErrorMessage } from './errors.js'
  * @typedef {import('./types.js').FilecoinPinPaymentStatus} FilecoinPinPaymentStatus
  * @typedef {import('@filoz/synapse-sdk').Synapse} Synapse
  */
-
-/**
- * Calculate storage runway based on current payment status
- * @param {FilecoinPinPaymentStatus} status - Payment status from getPaymentStatus
- * @returns {string} Formatted runway duration or 'Unknown'
- */
-export function calculateStorageRunway(status) {
-  if (!status || !status.currentAllowances) {
-    return 'Unknown'
-  }
-
-  const rateUsed = status.currentAllowances.rateUsed ?? 0n
-  const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
-
-  if (rateUsed > 0n) {
-    const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
-    const depositedAmount = BigInt(status.depositedAmount || 0)
-    const available = depositedAmount > lockupUsed ? depositedAmount - lockupUsed : 0n
-    const runwayDays = Number(available / perDay)
-    const runwayHoursRemainder = Number(((available % perDay) * 24n) / perDay)
-
-    return formatRunwayDuration(runwayDays, runwayHoursRemainder)
-  }
-
-  return 'No active spend detected'
-}
 
 /**
  * Initialize Synapse sdk with error handling
@@ -154,7 +128,7 @@ export async function handlePayments(synapse, options, logger) {
     // the amount of USDFC you have in your wallet
     currentBalance: ethers.formatUnits(newStatus.usdfcBalance, 18),
     // the amount of time you have until your funds would run out based on storage usage
-    storageRunway: calculateStorageRunway(newStatus),
+    storageRunway: calculateStorageRunway(newStatus).formatted,
     // the amount of USDFC you have deposited to Filecoin Pay in this run
     depositedThisRun: ethers.formatUnits(requiredTopUp, 18),
   }

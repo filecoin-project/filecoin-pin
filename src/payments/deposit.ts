@@ -6,10 +6,10 @@
  * - By duration: --days <N> (fund enough to keep current usage alive for N days)
  */
 
-import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
+import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { computeTopUpForDuration } from '../synapse/payments.js'
+import { calculateStorageRunway, computeTopUpForDuration } from '../synapse/payments.js'
 import { cleanupProvider } from '../synapse/service.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -154,18 +154,17 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
 
     // Brief post-deposit summary
     const updated = await getPaymentStatus(synapse)
-    const lockupUsed = updated.currentAllowances.lockupUsed ?? 0n
-    const rateUsed = updated.currentAllowances.rateUsed ?? 0n
-    const available = updated.depositedAmount > lockupUsed ? updated.depositedAmount - lockupUsed : 0n
-    const dailySpend = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
-    const runwayDays = rateUsed > 0n ? Number(available / dailySpend) : 0
+    const runway = calculateStorageRunway(updated)
 
     log.line('')
     log.line(pc.bold('Deposit Summary'))
     log.indent(`Total deposit: ${formatUSDFC(updated.depositedAmount)} USDFC`)
-    if (rateUsed > 0n) {
+    if (runway.state === 'active') {
+      const dailySpend = runway.perDay
       log.indent(`Current spend: ${formatUSDFC(dailySpend)} USDFC/day`)
-      log.indent(`Runway: ~${runwayDays} days at current spend`)
+      log.indent(`Runway: ~${runway.formatted} at current spend`)
+    } else {
+      log.indent(pc.gray(runway.formatted))
     }
     log.flush()
 
