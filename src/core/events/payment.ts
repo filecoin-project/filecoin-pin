@@ -1,4 +1,4 @@
-import type { PaymentCapacityCheck } from '../../synapse/payments.js'
+import type { PaymentCapacityCheck } from '../payments/index.js'
 
 /**
  * Baseline validation: emitted before checking FIL/USDFC requirements.

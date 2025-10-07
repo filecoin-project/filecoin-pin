@@ -1,4 +1,4 @@
-import { SIZE_CONSTANTS, TIME_CONSTANTS } from '@filoz/synapse-sdk'
+import { SIZE_CONSTANTS, TIME_CONSTANTS, TOKENS, type Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 
 /** Number of decimal places used by USDFC tokens. */
@@ -13,6 +13,10 @@ export const DEFAULT_LOCKUP_DAYS = 10
  */
 export const BUFFER_NUMERATOR = 11n
 export const BUFFER_DENOMINATOR = 10n
+
+// Maximum allowances for trusted WarmStorage service.
+const MAX_RATE_ALLOWANCE = ethers.MaxUint256
+const MAX_LOCKUP_ALLOWANCE = ethers.MaxUint256
 
 /**
  * Maximum integer scaling factor when converting TiB/month to epoch-based
@@ -54,6 +58,21 @@ export interface StorageRunwaySummary {
   lockupUsed: bigint
   days: number
   hours: number
+}
+
+/**
+ * Result of evaluating whether current payment setup can support an upload.
+ */
+export interface PaymentCapacityCheck {
+  canUpload: boolean
+  storageTiB: number
+  required: StorageAllowances
+  issues: {
+    insufficientDeposit?: bigint
+    insufficientRateAllowance?: bigint
+    insufficientLockupAllowance?: bigint
+  }
+  suggestions: string[]
 }
 
 /**
@@ -410,4 +429,153 @@ export function validatePaymentRequirements(
   }
 
   return { isValid: true }
+}
+
+/**
+ * Set WarmStorage service approvals to explicitly defined rate/lockup values.
+ *
+ * @param synapse - Initialized Synapse instance.
+ * @param rateAllowance - Maximum rate per epoch in USDFC.
+ * @param lockupAllowance - Maximum lockup amount in USDFC.
+ * @returns The transaction hash for the approval update.
+ */
+export async function setServiceApprovals(
+  synapse: Synapse,
+  rateAllowance: bigint,
+  lockupAllowance: bigint
+): Promise<string> {
+  const warmStorageAddress = synapse.getWarmStorageAddress()
+
+  const maxLockupPeriod = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
+
+  const tx = await synapse.payments.approveService(
+    warmStorageAddress,
+    rateAllowance,
+    lockupAllowance,
+    maxLockupPeriod,
+    TOKENS.USDFC
+  )
+
+  await tx.wait()
+  return tx.hash
+}
+
+/**
+ * Check whether WarmStorage allowances are already configured at maximum.
+ *
+ * @param synapse - Initialized Synapse instance.
+ * @returns Current allowances and a flag indicating if an update is required.
+ */
+export async function checkAllowances(synapse: Synapse): Promise<{
+  needsUpdate: boolean
+  currentAllowances: ServiceApprovalStatus
+}> {
+  const warmStorageAddress = synapse.getWarmStorageAddress()
+  const currentAllowances = await synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC)
+
+  const needsUpdate =
+    currentAllowances.rateAllowance < MAX_RATE_ALLOWANCE || currentAllowances.lockupAllowance < MAX_LOCKUP_ALLOWANCE
+
+  return {
+    needsUpdate,
+    currentAllowances,
+  }
+}
+
+/**
+ * Set WarmStorage allowances to maximum values, treating it as a trusted service.
+ *
+ * @param synapse - Initialized Synapse instance.
+ * @returns Updated allowances plus the transaction hash if an on-chain update occurred.
+ */
+export async function setMaxAllowances(synapse: Synapse): Promise<{
+  transactionHash: string
+  currentAllowances: ServiceApprovalStatus
+}> {
+  const warmStorageAddress = synapse.getWarmStorageAddress()
+  const transactionHash = await setServiceApprovals(synapse, MAX_RATE_ALLOWANCE, MAX_LOCKUP_ALLOWANCE)
+  const currentAllowances = await synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC)
+
+  return {
+    transactionHash,
+    currentAllowances,
+  }
+}
+
+/**
+ * Ensure WarmStorage allowances are at maximum, updating them if necessary.
+ *
+ * @param synapse - Initialized Synapse instance.
+ * @returns Whether an update occurred, and the latest allowances.
+ */
+export async function checkAndSetAllowances(synapse: Synapse): Promise<{
+  updated: boolean
+  transactionHash?: string
+  currentAllowances: ServiceApprovalStatus
+}> {
+  const allowanceStatus = await checkAllowances(synapse)
+
+  if (allowanceStatus.needsUpdate) {
+    const setResult = await setMaxAllowances(synapse)
+    return {
+      updated: true,
+      transactionHash: setResult.transactionHash,
+      currentAllowances: setResult.currentAllowances,
+    }
+  }
+
+  return {
+    updated: false,
+    currentAllowances: allowanceStatus.currentAllowances,
+  }
+}
+
+/**
+ * Validate payment capacity for a specific CAR file.
+ *
+ * Ensures allowances are configured and that the existing deposit can cover the
+ * required lockup for the upload, returning suggestions when additional funds
+ * are recommended.
+ *
+ * @param synapse - Initialized Synapse instance.
+ * @param carSizeBytes - Size of the CAR file in bytes.
+ * @returns Capacity check result describing readiness and guidance.
+ */
+export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: number): Promise<PaymentCapacityCheck> {
+  const allowanceResult = await checkAndSetAllowances(synapse)
+
+  const [depositedAmount, storageInfo] = await Promise.all([
+    synapse.payments.balance(TOKENS.USDFC),
+    synapse.storage.getStorageInfo(),
+  ])
+
+  const currentAllowances = allowanceResult.currentAllowances
+  const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
+  const storageTiB = carSizeBytes / Number(SIZE_CONSTANTS.TiB)
+
+  const required = calculateRequiredAllowances(carSizeBytes, pricePerTiBPerEpoch)
+  const totalDepositNeeded = withBuffer(required.lockupAllowance)
+
+  const result: PaymentCapacityCheck = {
+    canUpload: true,
+    storageTiB,
+    required,
+    issues: {},
+    suggestions: [],
+  }
+
+  if (depositedAmount < totalDepositNeeded) {
+    result.canUpload = false
+    result.issues.insufficientDeposit = totalDepositNeeded - depositedAmount
+    const depositNeeded = ethers.formatUnits(totalDepositNeeded - depositedAmount, 18)
+    result.suggestions.push(`Deposit at least ${depositNeeded} USDFC`)
+  }
+
+  const totalLockupAfter = (currentAllowances.lockupUsed ?? 0n) + required.lockupAllowance
+  if (totalLockupAfter > withoutBuffer(depositedAmount) && result.canUpload) {
+    const additionalDeposit = ethers.formatUnits(withBuffer(totalLockupAfter) - depositedAmount, 18)
+    result.suggestions.push(`Consider depositing ${additionalDeposit} more USDFC for safety margin`)
+  }
+
+  return result
 }
