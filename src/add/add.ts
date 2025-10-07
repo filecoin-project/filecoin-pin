@@ -10,6 +10,7 @@ import { RPC_URLS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import pino from 'pino'
 import { displayUploadResults, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
+import { cleanupTempCar, createCarFromPath } from '../core/files/index.js'
 import {
   cleanupSynapseService,
   createStorageContext,
@@ -18,7 +19,6 @@ import {
 } from '../synapse/service.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import type { AddOptions, AddResult } from './types.js'
-import { cleanupTempCar, createCarFromPath } from './unixfs-car.js'
 
 /**
  * Validate that a path exists and is a regular file or directory

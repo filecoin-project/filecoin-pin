@@ -26,9 +26,9 @@
       "types": "./dist/core/upload/index.d.ts",
       "default": "./dist/core/upload/index.js"
     },
-    "./add/unixfs-car.js": {
-      "types": "./dist/add/unixfs-car.d.ts",
-      "default": "./dist/add/unixfs-car.js"
+    "./core/files": {
+      "types": "./dist/core/files/index.d.ts",
+      "default": "./dist/core/files/index.js"
     },
     "./common/upload-flow.js": {
       "types": "./dist/common/upload-flow.d.ts",

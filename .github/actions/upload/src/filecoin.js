@@ -1,7 +1,6 @@
 import { promises as fs } from 'node:fs'
 import { RPC_URLS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
-import { createCarFromPath } from 'filecoin-pin/add/unixfs-car.js'
 import {
   calculateStorageRunway,
   checkUploadReadiness,
@@ -9,6 +8,7 @@ import {
   executeUpload,
   initializeSynapse as initSynapse,
 } from 'filecoin-pin/core'
+import { createUnixfsCarBuilder } from 'filecoin-pin/core/files'
 import { checkAndSetAllowances, depositUSDFC, getPaymentStatus } from 'filecoin-pin/synapse/payments.js'
 import { cleanupSynapseService, createStorageContext } from 'filecoin-pin/synapse/service.js'
 import { getDownloadURL } from 'filecoin-pin/synapse/upload.js'
@@ -144,33 +144,14 @@ export async function handlePayments(synapse, options, logger) {
  */
 export async function createCarFile(targetPath, contentPath, logger) {
   try {
-    const stat = await fs.stat(targetPath)
-    const isDirectory = stat.isDirectory()
+    const builder = createUnixfsCarBuilder()
     logger.info(`Packing '${contentPath}' into CAR (UnixFS) ...`)
 
-    const result = await createCarFromPath(targetPath, { isDirectory, logger })
-    const { carPath, rootCid } = result
+    const { carPath, rootCid, size } = await builder.buildCar(targetPath, {
+      logger,
+    })
 
-    // Handle different possible return formats from filecoin-pin
-    if (!rootCid) {
-      throw new FilecoinPinError(
-        `createCarFromPath returned unexpected format: ${JSON.stringify(Object.keys(result))}`,
-        ERROR_CODES.CAR_CREATE_FAILED
-      )
-    }
-
-    // Get CAR file size from filesystem since stats are not returned in the interface
-    let carSize
-    if (carPath) {
-      try {
-        const stat = await fs.stat(carPath)
-        carSize = stat.size
-      } catch (error) {
-        logger.warn(`Failed to get CAR file size: ${getErrorMessage(error)}`)
-      }
-    }
-
-    return { carPath, ipfsRootCid: rootCid.toString(), contentPath, carSize }
+    return { carPath, ipfsRootCid: rootCid, contentPath, carSize: size }
   } catch (error) {
     throw new FilecoinPinError(`Failed to create CAR file: ${getErrorMessage(error)}`, ERROR_CODES.CAR_CREATE_FAILED)
   }
