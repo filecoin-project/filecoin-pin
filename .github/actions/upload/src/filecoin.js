@@ -1,21 +1,16 @@
 import { promises as fs } from 'node:fs'
 import { RPC_URLS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
-import { createCarFromPath } from 'filecoin-pin/dist/add/unixfs-car.js'
-import { validatePaymentSetup } from 'filecoin-pin/dist/common/upload-flow.js'
-import {
-  calculateStorageRunway,
-  checkAndSetAllowances,
-  computeTopUpForDuration,
-  depositUSDFC,
-  getPaymentStatus,
-} from 'filecoin-pin/dist/synapse/payments.js'
+import { createCarFromPath } from 'filecoin-pin/add/unixfs-car.js'
+import { validatePaymentSetup } from 'filecoin-pin/common/upload-flow.js'
+import { calculateStorageRunway, computeTopUpForDuration } from 'filecoin-pin/core/payments'
+import { checkAndSetAllowances, depositUSDFC, getPaymentStatus } from 'filecoin-pin/synapse/payments.js'
 import {
   cleanupSynapseService,
   createStorageContext,
   initializeSynapse as initSynapse,
-} from 'filecoin-pin/dist/synapse/service.js'
-import { getDownloadURL, uploadToSynapse } from 'filecoin-pin/dist/synapse/upload.js'
+} from 'filecoin-pin/synapse/service.js'
+import { getDownloadURL, uploadToSynapse } from 'filecoin-pin/synapse/upload.js'
 import { CID } from 'multiformats/cid'
 import { ERROR_CODES, FilecoinPinError, getErrorMessage } from './errors.js'
 
@@ -46,8 +41,10 @@ export async function initializeSynapse(config, logger) {
       throw new FilecoinPinError(`Unsupported network: ${network}`, ERROR_CODES.INVALID_INPUT)
     }
 
-    // @ts-expect-error - synapse types broken.
-    return await initSynapse({ privateKey: walletPrivateKey, rpcUrl: rpcConfig.websocket }, logger)
+    return await initSynapse({
+      privateKey: walletPrivateKey,
+      rpcUrl: rpcConfig.websocket,
+    }, logger)
   } catch (error) {
     const errorMessage = getErrorMessage(error)
     if (errorMessage.includes('invalid private key')) {

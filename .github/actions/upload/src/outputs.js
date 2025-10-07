@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import { ethers } from 'ethers'
-import { formatUSDFC } from 'filecoin-pin/dist/payments/setup.js'
+import { formatUSDFC } from 'filecoin-pin/payments/setup.js'
 import { getErrorMessage } from './errors.js'
 
 /**

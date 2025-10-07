@@ -48,6 +48,12 @@ export interface SynapseService {
 }
 
 /**
+ * Synapse init helper here only requires the private key and rpc url
+ * The rest of the config is optional and will be used if provided
+ */
+export type SynapseInitConfig = Required<Pick<Config, 'privateKey' | 'rpcUrl'>> & Partial<Config>
+
+/**
  * Initialize the Synapse SDK without creating storage context
  *
  * This function initializes the Synapse SDK connection without creating
@@ -58,7 +64,7 @@ export interface SynapseService {
  * @param logger - Logger instance for detailed operation tracking
  * @returns Initialized Synapse instance
  */
-export async function initializeSynapse(config: Config, logger: Logger): Promise<Synapse> {
+export async function initializeSynapse(config: SynapseInitConfig, logger: Logger): Promise<Synapse> {
   try {
     // Log the configuration status
     logger.info(

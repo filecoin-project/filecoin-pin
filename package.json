@@ -5,6 +5,40 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./core/payments": {
+      "types": "./dist/core/payments/index.d.ts",
+      "default": "./dist/core/payments/index.js"
+    },
+    "./add/unixfs-car.js": {
+      "types": "./dist/add/unixfs-car.d.ts",
+      "default": "./dist/add/unixfs-car.js"
+    },
+    "./common/upload-flow.js": {
+      "types": "./dist/common/upload-flow.d.ts",
+      "default": "./dist/common/upload-flow.js"
+    },
+    "./payments/setup.js": {
+      "types": "./dist/payments/setup.d.ts",
+      "default": "./dist/payments/setup.js"
+    },
+    "./synapse/payments.js": {
+      "types": "./dist/synapse/payments.d.ts",
+      "default": "./dist/synapse/payments.js"
+    },
+    "./synapse/service.js": {
+      "types": "./dist/synapse/service.d.ts",
+      "default": "./dist/synapse/service.js"
+    },
+    "./synapse/upload.js": {
+      "types": "./dist/synapse/upload.d.ts",
+      "default": "./dist/synapse/upload.js"
+    }
+  },
   "bin": {
     "filecoin-pin": "dist/cli.js"
   },
