@@ -26,6 +26,57 @@ const ZERO_CID = 'bafkqaaa' // Zero CID used when CAR has no roots
 
 // Mock modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
+vi.mock('../../core/payments/index.js', async () => {
+  const actual = await vi.importActual<typeof import('../../core/payments/index.js')>('../../core/payments/index.js')
+  return {
+    ...actual,
+    checkFILBalance: vi.fn().mockResolvedValue({
+      balance: 1000000000000000000n,
+      isCalibnet: true,
+      hasSufficientGas: true,
+    }),
+    checkUSDFCBalance: vi.fn().mockResolvedValue(1000000000000000000000n),
+    checkAllowances: vi.fn().mockResolvedValue({
+      needsUpdate: false,
+      currentAllowances: {
+        rateAllowance: BigInt('0xffffffffffffffff'),
+        lockupAllowance: BigInt('0xffffffffffffffff'),
+        rateUsed: 0n,
+        lockupUsed: 0n,
+      },
+    }),
+    setMaxAllowances: vi.fn().mockResolvedValue({
+      transactionHash: '0x123...',
+      currentAllowances: {
+        rateAllowance: BigInt('0xffffffffffffffff'),
+        lockupAllowance: BigInt('0xffffffffffffffff'),
+        rateUsed: 0n,
+        lockupUsed: 0n,
+      },
+    }),
+    checkAndSetAllowances: vi.fn().mockResolvedValue({
+      updated: false,
+      currentAllowances: {
+        rateAllowance: BigInt('0xffffffffffffffff'),
+        lockupAllowance: BigInt('0xffffffffffffffff'),
+        rateUsed: 0n,
+        lockupUsed: 0n,
+      },
+    }),
+    validatePaymentCapacity: vi.fn().mockResolvedValue({
+      canUpload: true,
+      storageTiB: 0.001,
+      required: {
+        rateAllowance: 100000000000000n,
+        lockupAllowance: 1000000000000000000n,
+        storageCapacityTiB: 0.001,
+      },
+      issues: {},
+      suggestions: [],
+    }),
+  }
+})
+
 vi.mock('../../synapse/payments.js', () => ({
   checkFILBalance: vi.fn().mockResolvedValue({
     balance: 1000000000000000000n, // 1 FIL

@@ -16,7 +16,6 @@
  */
 
 import { type Synapse, TOKENS } from '@filoz/synapse-sdk'
-import { checkFILBalance, checkUSDFCBalance, type PaymentStatus } from '../core/payments/index.js'
 
 export type {
   PaymentCapacityCheck,
@@ -40,6 +39,7 @@ export {
   computeAdjustmentForExactDays,
   computeAdjustmentForExactDeposit,
   computeTopUpForDuration,
+  getPaymentStatus,
   getStorageScale,
   STORAGE_SCALE_MAX,
   setMaxAllowances,
@@ -49,59 +49,6 @@ export {
   withBuffer,
   withoutBuffer,
 } from '../core/payments/index.js'
-
-/**
- * Get deposited USDFC balance in Payments contract
- *
- * This is different from wallet balance - it's the amount
- * already deposited and available for payment rails.
- *
- * @param synapse - Initialized Synapse instance
- * @returns Deposited USDFC balance in its smallest unit
- */
-export async function getDepositedBalance(synapse: Synapse): Promise<bigint> {
-  const depositedAmount = await synapse.payments.balance(TOKENS.USDFC)
-  return depositedAmount
-}
-
-/**
- * Get current payment status including all balances and approvals
- *
- * Example usage:
- * ```typescript
- * const status = await getPaymentStatus(synapse)
- * console.log(`Address: ${status.address}`)
- * console.log(`FIL Balance: ${ethers.formatEther(status.filBalance)}`)
- * console.log(`USDFC Balance: ${ethers.formatUnits(status.usdfcBalance, 18)}`)
- * console.log(`Deposited: ${ethers.formatUnits(status.depositedAmount, 18)}`)
- * ```
- *
- * @param synapse - Initialized Synapse instance
- * @returns Complete payment status
- */
-export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus> {
-  const signer = synapse.getSigner()
-  const network = synapse.getNetwork()
-  const warmStorageAddress = synapse.getWarmStorageAddress()
-
-  // Run all async operations in parallel for efficiency
-  const [address, filStatus, usdfcBalance, depositedAmount, currentAllowances] = await Promise.all([
-    signer.getAddress(),
-    checkFILBalance(synapse),
-    checkUSDFCBalance(synapse),
-    getDepositedBalance(synapse),
-    synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC),
-  ])
-
-  return {
-    network,
-    address,
-    filBalance: filStatus.balance,
-    usdfcBalance,
-    depositedAmount,
-    currentAllowances,
-  }
-}
 
 /**
  * Deposit USDFC into the Payments contract

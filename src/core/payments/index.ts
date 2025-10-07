@@ -506,6 +506,57 @@ export async function checkUSDFCBalance(synapse: Synapse): Promise<bigint> {
 }
 
 /**
+ * Get deposited USDFC balance in the Payments contract.
+ *
+ * This differs from the wallet balance; it reflects the funds already
+ * deposited and available for payment rails.
+ *
+ * @param synapse - Initialized Synapse instance.
+ * @returns Deposited USDFC balance in its smallest unit.
+ */
+export async function getDepositedBalance(synapse: Synapse): Promise<bigint> {
+  return await synapse.payments.balance(TOKENS.USDFC)
+}
+
+/**
+ * Get current payment status including wallet balances and approvals.
+ *
+ * Example usage:
+ * ```typescript
+ * const status = await getPaymentStatus(synapse)
+ * console.log(`Address: ${status.address}`)
+ * console.log(`FIL Balance: ${ethers.formatEther(status.filBalance)}`)
+ * console.log(`USDFC Balance: ${ethers.formatUnits(status.usdfcBalance, 18)}`)
+ * console.log(`Deposited: ${ethers.formatUnits(status.depositedAmount, 18)}`)
+ * ```
+ *
+ * @param synapse - Initialized Synapse instance.
+ * @returns Complete payment status.
+ */
+export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus> {
+  const signer = synapse.getSigner()
+  const network = synapse.getNetwork()
+  const warmStorageAddress = synapse.getWarmStorageAddress()
+
+  const [address, filStatus, usdfcBalance, depositedAmount, currentAllowances] = await Promise.all([
+    signer.getAddress(),
+    checkFILBalance(synapse),
+    checkUSDFCBalance(synapse),
+    getDepositedBalance(synapse),
+    synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC),
+  ])
+
+  return {
+    network,
+    address,
+    filBalance: filStatus.balance,
+    usdfcBalance,
+    depositedAmount,
+    currentAllowances,
+  }
+}
+
+/**
  * Set WarmStorage service approvals to explicitly defined rate/lockup values.
  *
  * @param synapse - Initialized Synapse instance.
