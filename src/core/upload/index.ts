@@ -12,6 +12,9 @@ import {
 } from '../../synapse/payments.js'
 import type { SynapseService } from '../../synapse/service.js'
 import { type SynapseUploadResult, uploadToSynapse } from '../../synapse/upload.js'
+import type { EventEmitter } from '../events/base.js'
+import type { PaymentEvent, PaymentsCapacitySuccessEvent } from '../events/payment.js'
+import type { UploadEvent } from '../events/upload.js'
 
 /**
  * Options for evaluating whether an upload can proceed.
@@ -26,6 +29,8 @@ export interface UploadReadinessOptions {
    * Defaults to `true` to match current CLI/action behaviour.
    */
   autoConfigureAllowances?: boolean
+  /** Optional event emitter for payment-related events. */
+  emitter?: EventEmitter<PaymentEvent>
 }
 
 /**
@@ -68,13 +73,20 @@ export interface UploadReadinessResult {
  * (default), in which case it will call {@link setMaxAllowances} as needed.
  */
 export async function checkUploadReadiness(options: UploadReadinessOptions): Promise<UploadReadinessResult> {
-  const { synapse, fileSize, autoConfigureAllowances = true } = options
+  const { synapse, fileSize, autoConfigureAllowances = true, emitter } = options
+
+  emitter?.emit({ type: 'payments:validation:start' })
 
   const filStatus = await checkFILBalance(synapse)
   const usdfcBalance = await checkUSDFCBalance(synapse)
 
   const validation = validatePaymentRequirements(filStatus.hasSufficientGas, usdfcBalance, filStatus.isCalibnet)
   if (!validation.isValid) {
+    emitter?.emit({
+      type: 'payments:validation:failed',
+      errorMessage: validation.errorMessage ?? 'Payment requirements not satisfied',
+      ...(validation.helpMessage ? { helpMessage: validation.helpMessage } : {}),
+    })
     return {
       status: 'blocked',
       validation,
@@ -88,18 +100,54 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
     }
   }
 
+  emitter?.emit({ type: 'payments:validation:success' })
+
+  emitter?.emit({ type: 'payments:allowances:start', stage: 'checking' })
   const allowanceStatus = await checkAllowances(synapse)
   let allowancesUpdated = false
   let allowanceTxHash: string | undefined
 
   if (allowanceStatus.needsUpdate && autoConfigureAllowances) {
-    const setResult = await setMaxAllowances(synapse)
-    allowancesUpdated = true
-    allowanceTxHash = setResult.transactionHash
+    emitter?.emit({ type: 'payments:allowances:progress', stage: 'updating' })
+    try {
+      const setResult = await setMaxAllowances(synapse)
+      allowancesUpdated = true
+      allowanceTxHash = setResult.transactionHash
+      emitter?.emit({ type: 'payments:allowances:progress', stage: 'updating', transactionHash: allowanceTxHash })
+      emitter?.emit({
+        type: 'payments:allowances:success',
+        status: 'updated',
+        transactionHash: allowanceTxHash,
+      })
+    } catch (error) {
+      emitter?.emit({
+        type: 'payments:allowances:failed',
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    }
+  } else if (allowanceStatus.needsUpdate) {
+    emitter?.emit({
+      type: 'payments:allowances:success',
+      status: 'manual-required',
+      reason: 'WarmStorage allowances must be configured manually.',
+    })
+  } else {
+    emitter?.emit({ type: 'payments:allowances:success', status: 'updated' })
   }
 
+  emitter?.emit({ type: 'payments:capacity:start' })
   const capacityCheck = await validatePaymentCapacity(synapse, fileSize)
-  if (!capacityCheck.canUpload) {
+  const capacityStatus: PaymentsCapacitySuccessEvent['status'] = determineCapacityStatus(capacityCheck)
+
+  emitter?.emit({
+    type: 'payments:capacity:success',
+    status: capacityStatus,
+    suggestions: capacityCheck.suggestions,
+    issues: capacityCheck.issues,
+  })
+
+  if (capacityStatus === 'insufficient') {
     return {
       status: 'blocked',
       validation,
@@ -130,6 +178,12 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
   }
 }
 
+function determineCapacityStatus(capacity: PaymentCapacityCheck): PaymentsCapacitySuccessEvent['status'] {
+  if (!capacity.canUpload) return 'insufficient'
+  if (capacity.suggestions.length > 0) return 'warning'
+  return 'sufficient'
+}
+
 export interface UploadExecutionOptions {
   /** Logger used for structured upload events. */
   logger: Logger
@@ -137,6 +191,8 @@ export interface UploadExecutionOptions {
   contextId?: string
   /** Optional callbacks mirroring Synapse SDK upload callbacks. */
   callbacks?: UploadCallbacks
+  /** Optional event emitter for upload progress. */
+  emitter?: EventEmitter<UploadEvent>
 }
 
 export interface UploadExecutionResult extends SynapseUploadResult {
@@ -156,8 +212,10 @@ export async function executeUpload(
   rootCid: CID,
   options: UploadExecutionOptions
 ): Promise<UploadExecutionResult> {
-  const { logger, contextId, callbacks } = options
+  const { logger, contextId, callbacks, emitter } = options
   let transactionHash: string | undefined
+
+  emitter?.emit(contextId ? { type: 'upload:start', contextId } : { type: 'upload:start' })
 
   const mergedCallbacks: UploadCallbacks = {
     onUploadComplete: (pieceCid) => {
@@ -167,9 +225,21 @@ export async function executeUpload(
       if (transaction?.hash) {
         transactionHash = transaction.hash
       }
+      emitter?.emit({
+        type: 'upload:progress',
+        ...(contextId ? { contextId } : {}),
+        stage: 'piece-added',
+        ...(transaction?.hash ? { transactionHash: transaction.hash } : {}),
+      })
       callbacks?.onPieceAdded?.(transaction)
     },
     onPieceConfirmed: (pieceIds) => {
+      emitter?.emit({
+        type: 'upload:progress',
+        ...(contextId ? { contextId } : {}),
+        stage: 'piece-confirmed',
+        pieceIds,
+      })
       callbacks?.onPieceConfirmed?.(pieceIds)
     },
   }
@@ -181,11 +251,31 @@ export async function executeUpload(
     uploadOptions.contextId = contextId
   }
 
-  const uploadResult = await uploadToSynapse(synapseService, carData, rootCid, logger, uploadOptions)
+  try {
+    const uploadResult = await uploadToSynapse(synapseService, carData, rootCid, logger, uploadOptions)
 
-  return {
-    ...uploadResult,
-    network: synapseService.synapse.getNetwork(),
-    transactionHash,
+    const result: UploadExecutionResult = {
+      ...uploadResult,
+      network: synapseService.synapse.getNetwork(),
+      transactionHash,
+    }
+
+    emitter?.emit({
+      type: 'upload:success',
+      ...(contextId ? { contextId } : {}),
+      pieceCid: result.pieceCid,
+      dataSetId: result.dataSetId,
+      network: result.network,
+      ...(typeof result.pieceId === 'number' ? { pieceId: result.pieceId } : {}),
+    })
+
+    return result
+  } catch (error) {
+    emitter?.emit({
+      type: 'upload:failed',
+      ...(contextId ? { contextId } : {}),
+      error,
+    })
+    throw error
   }
 }
