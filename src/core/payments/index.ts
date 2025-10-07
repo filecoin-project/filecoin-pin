@@ -435,6 +435,75 @@ export function validatePaymentRequirements(
 }
 
 /**
+ * Deposit USDFC into the Payments contract.
+ *
+ * This demonstrates the two-step process required for depositing ERC20 tokens:
+ * 1. Approve the Payments contract to spend USDFC (standard ERC20 approval).
+ * 2. Call deposit to move funds into the Payments contract.
+ *
+ * The function detects existing allowance and only performs the approval step
+ * when necessary to reduce unnecessary transactions.
+ *
+ * Example usage:
+ * ```typescript
+ * const amountToDeposit = ethers.parseUnits('100', 18)
+ * const { approvalTx, depositTx } = await depositUSDFC(synapse, amountToDeposit)
+ * console.log(`Deposit transaction: ${depositTx}`)
+ * ```
+ *
+ * @param synapse - Initialized Synapse instance.
+ * @param amount - Amount to deposit in USDFC (with decimals).
+ * @returns Transaction hashes for approval (if performed) and deposit.
+ */
+export async function depositUSDFC(
+  synapse: Synapse,
+  amount: bigint
+): Promise<{
+  approvalTx?: string
+  depositTx: string
+}> {
+  const paymentsAddress = synapse.getPaymentsAddress()
+
+  const currentAllowance = await synapse.payments.allowance(paymentsAddress, TOKENS.USDFC)
+
+  let approvalTx: string | undefined
+
+  if (currentAllowance < amount) {
+    const approveTx = await synapse.payments.approve(paymentsAddress, amount, TOKENS.USDFC)
+    await approveTx.wait()
+    approvalTx = approveTx.hash
+  }
+
+  const depositTransaction = await synapse.payments.deposit(amount, TOKENS.USDFC)
+  await depositTransaction.wait()
+
+  return {
+    depositTx: depositTransaction.hash,
+    ...(approvalTx ? { approvalTx } : {}),
+  }
+}
+
+/**
+ * Withdraw USDFC from the Payments contract back to the wallet.
+ *
+ * Example usage:
+ * ```typescript
+ * const amountToWithdraw = ethers.parseUnits('10', 18)
+ * const txHash = await withdrawUSDFC(synapse, amountToWithdraw)
+ * console.log(`Withdraw transaction: ${txHash}`)
+ * ```
+ *
+ * @param synapse - Initialized Synapse instance.
+ * @param amount - Amount to withdraw in USDFC (with decimals).
+ * @returns Transaction hash for the withdrawal.
+ */
+export async function withdrawUSDFC(synapse: Synapse, amount: bigint): Promise<string> {
+  const tx = await synapse.payments.withdraw(amount, TOKENS.USDFC)
+  await tx.wait()
+  return tx.hash
+}
+
+/**
  * Check FIL balance for gas fees.
  *
  * Example usage:
