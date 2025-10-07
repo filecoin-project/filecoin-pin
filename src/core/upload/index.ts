@@ -1,7 +1,6 @@
 import type { Synapse, UploadCallbacks } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import { validatePaymentRequirements } from '../../payments/setup.js'
 import {
   checkAllowances,
   checkFILBalance,
@@ -10,6 +9,7 @@ import {
   setMaxAllowances,
   validatePaymentCapacity,
 } from '../../synapse/payments.js'
+import { validatePaymentRequirements } from '../payments/index.js'
 import type { SynapseService } from '../../synapse/service.js'
 import { type SynapseUploadResult, uploadToSynapse } from '../../synapse/upload.js'
 import type { EventEmitter } from '../events/base.js'

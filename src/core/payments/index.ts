@@ -56,6 +56,15 @@ export interface StorageRunwaySummary {
   hours: number
 }
 
+/**
+ * Validation result describing whether payment preconditions are satisfied.
+ */
+export interface PaymentValidationResult {
+  isValid: boolean
+  errorMessage?: string
+  helpMessage?: string
+}
+
 /** Apply the standard 10% buffer to a base amount. */
 export function withBuffer(amount: bigint): bigint {
   return (amount * BUFFER_NUMERATOR) / BUFFER_DENOMINATOR
@@ -365,4 +374,40 @@ export function calculateStorageRunway(
     days: runwayDays,
     hours: runwayHoursRemainder,
   }
+}
+
+/**
+ * Validate that a wallet meets the minimum requirements for initiating
+ * storage operations (sufficient FIL for gas, presence of USDFC balance).
+ *
+ * Returns a structured result so callers can surface helpful error messaging
+ * without duplicating business logic.
+ */
+export function validatePaymentRequirements(
+  hasSufficientGas: boolean,
+  usdfcBalance: bigint,
+  isCalibnet: boolean
+): PaymentValidationResult {
+  if (!hasSufficientGas) {
+    const result: PaymentValidationResult = {
+      isValid: false,
+      errorMessage: 'Insufficient FIL for gas fees',
+    }
+    if (isCalibnet) {
+      result.helpMessage = 'Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'
+    }
+    return result
+  }
+
+  if (usdfcBalance === 0n) {
+    return {
+      isValid: false,
+      errorMessage: 'No USDFC tokens found',
+      helpMessage: isCalibnet
+        ? 'Get test USDFC from: https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet'
+        : 'Mint USDFC with FIL: https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step',
+    }
+  }
+
+  return { isValid: true }
 }

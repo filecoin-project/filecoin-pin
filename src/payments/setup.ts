@@ -20,6 +20,7 @@ import {
   setServiceApprovals,
   withdrawUSDFC,
 } from '../synapse/payments.js'
+import { validatePaymentRequirements } from '../core/payments/index.js'
 import { log } from '../utils/cli-logger.js'
 
 // Re-export core payment functions for backward compatibility
@@ -33,7 +34,9 @@ export {
   withdrawUSDFC,
   getPaymentStatus,
   setServiceApprovals,
+  validatePaymentRequirements,
 }
+export type { PaymentValidationResult } from '../core/payments/index.js'
 
 // Display constants
 const USDFC_DECIMALS = 18
@@ -195,55 +198,6 @@ export function displayAccountInfo(
   log.indent(pc.gray(`USDFC wallet: ${formatUSDFC(usdfcBalance)} USDFC`))
   log.indent(pc.gray(`USDFC deposited: ${formatUSDFC(depositedAmount)} USDFC`))
   log.flush()
-}
-
-/**
- * Validation result with error messages
- */
-export interface PaymentValidationResult {
-  isValid: boolean
-  errorMessage?: string
-  helpMessage?: string
-}
-
-/**
- * Validate payment requirements and return structured result
- *
- * This function validates both FIL and USDFC balances and returns
- * structured error messages that can be displayed by the caller.
- *
- * @param hasSufficientGas - Whether wallet has enough FIL for gas
- * @param usdfcBalance - USDFC balance in wei
- * @param isCalibnet - Whether on calibration testnet
- * @returns Validation result with error messages
- */
-export function validatePaymentRequirements(
-  hasSufficientGas: boolean,
-  usdfcBalance: bigint,
-  isCalibnet: boolean
-): PaymentValidationResult {
-  if (!hasSufficientGas) {
-    const result: PaymentValidationResult = {
-      isValid: false,
-      errorMessage: 'Insufficient FIL for gas fees',
-    }
-    if (isCalibnet) {
-      result.helpMessage = 'Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'
-    }
-    return result
-  }
-
-  if (usdfcBalance === 0n) {
-    return {
-      isValid: false,
-      errorMessage: 'No USDFC tokens found',
-      helpMessage: isCalibnet
-        ? 'Get test USDFC from: https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet'
-        : 'Mint USDFC with FIL: https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step',
-    }
-  }
-
-  return { isValid: true }
 }
 
 /**
