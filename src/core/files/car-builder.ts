@@ -15,7 +15,7 @@ import { globSource, unixfs } from '@helia/unixfs'
 import { CarWriter } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import { CARWritingBlockstore } from '../../car-blockstore.js'
+import { CARWritingBlockstore } from './car-blockstore.js'
 
 // Spinner type for progress reporting
 type Spinner = {

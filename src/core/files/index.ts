@@ -2,6 +2,12 @@ import { stat } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import { type CreateCarOptions, type CreateCarResult, cleanupTempCar, createCarFromPath } from './car-builder.js'
 
+export {
+  type CARBlockstoreOptions,
+  type CARBlockstoreStats,
+  CARWritingBlockstore,
+} from './car-blockstore.js'
+
 // Re-export the core CAR functionality
 export { type CreateCarOptions, type CreateCarResult, cleanupTempCar, createCarFromPath } from './car-builder.js'
 
