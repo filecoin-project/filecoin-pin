@@ -16,6 +16,7 @@ import {
 import { cleanupProvider } from '../synapse/service.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
+import { formatRunwaySummary } from '../utils/time.js'
 import {
   checkFILBalance,
   checkUSDFCBalance,
@@ -24,7 +25,6 @@ import {
   getPaymentStatus,
   withdrawUSDFC,
 } from './setup.js'
-import { formatRunwaySummary } from '../utils/time.js'
 
 export interface FundOptions {
   privateKey?: string

@@ -1,14 +1,20 @@
 import type { Synapse, UploadCallbacks } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import { checkAllowances, type PaymentCapacityCheck, setMaxAllowances, validatePaymentCapacity } from '../payments/index.js'
-import { checkFILBalance, checkUSDFCBalance } from '../../synapse/payments.js'
-import { validatePaymentRequirements } from '../payments/index.js'
 import type { SynapseService } from '../../synapse/service.js'
 import { type SynapseUploadResult, uploadToSynapse } from '../../synapse/upload.js'
 import type { EventEmitter } from '../events/base.js'
 import type { PaymentEvent, PaymentsCapacitySuccessEvent } from '../events/payment.js'
 import type { UploadEvent } from '../events/upload.js'
+import {
+  checkAllowances,
+  checkFILBalance,
+  checkUSDFCBalance,
+  type PaymentCapacityCheck,
+  setMaxAllowances,
+  validatePaymentCapacity,
+  validatePaymentRequirements,
+} from '../payments/index.js'
 
 /**
  * Options for evaluating whether an upload can proceed.

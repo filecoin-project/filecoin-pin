@@ -16,10 +16,14 @@
  */
 
 import { type Synapse, TOKENS } from '@filoz/synapse-sdk'
-import { ethers } from 'ethers'
-import type { PaymentStatus } from '../core/payments/index.js'
+import { checkFILBalance, checkUSDFCBalance, type PaymentStatus } from '../core/payments/index.js'
 
-export type { PaymentCapacityCheck, PaymentStatus, ServiceApprovalStatus, StorageAllowances } from '../core/payments/index.js'
+export type {
+  PaymentCapacityCheck,
+  PaymentStatus,
+  ServiceApprovalStatus,
+  StorageAllowances,
+} from '../core/payments/index.js'
 export {
   BUFFER_DENOMINATOR,
   BUFFER_NUMERATOR,
@@ -29,106 +33,22 @@ export {
   calculateStorageAllowances,
   calculateStorageFromUSDFC,
   calculateStorageRunway,
+  checkAllowances,
+  checkAndSetAllowances,
+  checkFILBalance,
+  checkUSDFCBalance,
   computeAdjustmentForExactDays,
   computeAdjustmentForExactDeposit,
   computeTopUpForDuration,
-  DEFAULT_LOCKUP_DAYS,
   getStorageScale,
   STORAGE_SCALE_MAX,
+  setMaxAllowances,
+  setServiceApprovals,
   USDFC_DECIMALS,
+  validatePaymentCapacity,
   withBuffer,
   withoutBuffer,
-  setServiceApprovals,
-  checkAllowances,
-  setMaxAllowances,
-  checkAndSetAllowances,
-  validatePaymentCapacity,
 } from '../core/payments/index.js'
-
-const MIN_FIL_FOR_GAS = ethers.parseEther('0.1') // Minimum FIL padding for gas
-
-/**
- * Check FIL balance for gas fees
- *
- * Example usage:
- * ```typescript
- * const synapse = await Synapse.create({ privateKey, rpcURL })
- * const filStatus = await checkFILBalance(synapse)
- *
- * if (filStatus.balance === 0n) {
- *   console.log('Account does not exist on-chain or has no FIL')
- * } else if (!filStatus.hasSufficientGas) {
- *   console.log('Insufficient FIL for gas fees')
- * }
- * ```
- *
- * @param synapse - Initialized Synapse instance
- * @returns Balance information and network type
- */
-export async function checkFILBalance(synapse: Synapse): Promise<{
-  balance: bigint
-  isCalibnet: boolean
-  hasSufficientGas: boolean
-}> {
-  const network = synapse.getNetwork()
-  const isCalibnet = network === 'calibration'
-
-  try {
-    const provider = synapse.getProvider()
-    const signer = synapse.getSigner()
-    const address = await signer.getAddress()
-
-    // Get native token balance
-    const balance = await provider.getBalance(address)
-
-    // Check if balance is sufficient for gas
-    const hasSufficientGas = balance >= MIN_FIL_FOR_GAS
-
-    return {
-      balance,
-      isCalibnet,
-      hasSufficientGas,
-    }
-  } catch (_error) {
-    // Account doesn't exist or network error
-    return {
-      balance: 0n,
-      isCalibnet,
-      hasSufficientGas: false,
-    }
-  }
-}
-
-/**
- * Check USDFC token balance in wallet
- *
- * Example usage:
- * ```typescript
- * const synapse = await Synapse.create({ privateKey, rpcURL })
- * const usdfcBalance = await checkUSDFCBalance(synapse)
- *
- * if (usdfcBalance === 0n) {
- *   console.log('No USDFC tokens found')
- * } else {
- *   const formatted = ethers.formatUnits(usdfcBalance, USDFC_DECIMALS)
- *   console.log(`USDFC Balance: ${formatted}`)
- * }
- * ```
- *
- * @param synapse - Initialized Synapse instance
- * @returns USDFC balance in wei (0 if account doesn't exist or has no balance)
- */
-export async function checkUSDFCBalance(synapse: Synapse): Promise<bigint> {
-  try {
-    // Get wallet balance (not deposited balance)
-    const balance = await synapse.payments.walletBalance(TOKENS.USDFC)
-    return balance
-  } catch (_error) {
-    // Account doesn't exist, has no FIL for gas, or contract call failed
-    // Treat as having 0 USDFC
-    return 0n
-  }
-}
 
 /**
  * Get deposited USDFC balance in Payments contract

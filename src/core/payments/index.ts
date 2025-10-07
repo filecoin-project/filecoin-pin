@@ -1,4 +1,4 @@
-import { SIZE_CONSTANTS, TIME_CONSTANTS, TOKENS, type Synapse } from '@filoz/synapse-sdk'
+import { SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 
 /** Number of decimal places used by USDFC tokens. */
@@ -13,6 +13,9 @@ export const DEFAULT_LOCKUP_DAYS = 10
  */
 export const BUFFER_NUMERATOR = 11n
 export const BUFFER_DENOMINATOR = 10n
+
+/** Minimum FIL balance (in wei) recommended to cover gas fees. */
+export const MIN_FIL_FOR_GAS = ethers.parseEther('0.1')
 
 // Maximum allowances for trusted WarmStorage service.
 const MAX_RATE_ALLOWANCE = ethers.MaxUint256
@@ -429,6 +432,77 @@ export function validatePaymentRequirements(
   }
 
   return { isValid: true }
+}
+
+/**
+ * Check FIL balance for gas fees.
+ *
+ * Example usage:
+ * ```typescript
+ * const filStatus = await checkFILBalance(synapse)
+ *
+ * if (filStatus.balance === 0n) {
+ *   console.log('Account does not exist on-chain or has no FIL')
+ * } else if (!filStatus.hasSufficientGas) {
+ *   console.log('Insufficient FIL for gas fees')
+ * }
+ * ```
+ *
+ * @param synapse - Initialized Synapse instance.
+ * @returns Balance information and network type.
+ */
+export async function checkFILBalance(synapse: Synapse): Promise<{
+  balance: bigint
+  isCalibnet: boolean
+  hasSufficientGas: boolean
+}> {
+  const network = synapse.getNetwork()
+  const isCalibnet = network === 'calibration'
+
+  try {
+    const provider = synapse.getProvider()
+    const signer = synapse.getSigner()
+    const address = await signer.getAddress()
+
+    const balance = await provider.getBalance(address)
+    const hasSufficientGas = balance >= MIN_FIL_FOR_GAS
+
+    return {
+      balance,
+      isCalibnet,
+      hasSufficientGas,
+    }
+  } catch {
+    return {
+      balance: 0n,
+      isCalibnet,
+      hasSufficientGas: false,
+    }
+  }
+}
+
+/**
+ * Check USDFC token balance in the wallet (not deposited balance).
+ *
+ * Example usage:
+ * ```typescript
+ * const usdfcBalance = await checkUSDFCBalance(synapse)
+ * if (usdfcBalance === 0n) {
+ *   console.log('No USDFC tokens found')
+ * } else {
+ *   console.log(`USDFC Balance: ${ethers.formatUnits(usdfcBalance, 18)}`)
+ * }
+ * ```
+ *
+ * @param synapse - Initialized Synapse instance.
+ * @returns Wallet USDFC balance in wei (0 if account doesn't exist or has no balance).
+ */
+export async function checkUSDFCBalance(synapse: Synapse): Promise<bigint> {
+  try {
+    return await synapse.payments.walletBalance(TOKENS.USDFC)
+  } catch {
+    return 0n
+  }
 }
 
 /**

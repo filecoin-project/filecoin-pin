@@ -8,6 +8,7 @@
 import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { validatePaymentRequirements } from '../core/payments/index.js'
 import {
   calculateActualCapacity,
   calculateStorageAllowances,
@@ -20,7 +21,6 @@ import {
   setServiceApprovals,
   withdrawUSDFC,
 } from '../synapse/payments.js'
-import { validatePaymentRequirements } from '../core/payments/index.js'
 import { log } from '../utils/cli-logger.js'
 
 // Re-export core payment functions for backward compatibility
