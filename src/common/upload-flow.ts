@@ -56,9 +56,36 @@ export async function validatePaymentSetup(
   fileSize: number,
   spinner?: ReturnType<typeof import('../utils/cli-helpers.js').createSpinner>
 ): Promise<void> {
-  spinner?.message('Checking WarmStorage permissions...')
+  const readiness = await checkUploadReadiness({
+    synapse,
+    fileSize,
+    onProgress: (event) => {
+      if (!spinner) return
 
-  const readiness = await checkUploadReadiness({ synapse, fileSize })
+      switch (event.type) {
+        case 'checking-balances': {
+          spinner.message('Checking payment setup requirements...')
+          return
+        }
+        case 'checking-allowances': {
+          spinner.message('Checking WarmStorage permissions...')
+          return
+        }
+        case 'configuring-allowances': {
+          spinner.message('Configuring WarmStorage permissions (one-time setup)...')
+          return
+        }
+        case 'validating-capacity': {
+          spinner.message('Validating payment capacity...')
+          return
+        }
+        case 'allowances-configured': {
+          // No spinner change; we log once readiness completes.
+          return
+        }
+      }
+    },
+  })
   const { validation, allowances, capacity, suggestions } = readiness
 
   if (!validation.isValid) {

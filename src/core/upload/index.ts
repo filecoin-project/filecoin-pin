@@ -19,6 +19,13 @@ export { getDownloadURL, getServiceURL, uploadToSynapse } from './synapse.js'
 /**
  * Options for evaluating whether an upload can proceed.
  */
+export type UploadReadinessProgressEvent =
+  | { type: 'checking-balances' }
+  | { type: 'checking-allowances' }
+  | { type: 'configuring-allowances' }
+  | { type: 'allowances-configured'; transactionHash?: string }
+  | { type: 'validating-capacity' }
+
 export interface UploadReadinessOptions {
   /** Initialized Synapse instance. */
   synapse: Synapse
@@ -29,6 +36,8 @@ export interface UploadReadinessOptions {
    * Defaults to `true` to match current CLI/action behaviour.
    */
   autoConfigureAllowances?: boolean
+  /** Optional callback for progress updates. */
+  onProgress?: (event: UploadReadinessProgressEvent) => void
 }
 
 /**
@@ -73,7 +82,9 @@ type CapacityStatus = 'sufficient' | 'warning' | 'insufficient'
  * (default), in which case it will call {@link setMaxAllowances} as needed.
  */
 export async function checkUploadReadiness(options: UploadReadinessOptions): Promise<UploadReadinessResult> {
-  const { synapse, fileSize, autoConfigureAllowances = true } = options
+  const { synapse, fileSize, autoConfigureAllowances = true, onProgress } = options
+
+  onProgress?.({ type: 'checking-balances' })
 
   const filStatus = await checkFILBalance(synapse)
   const usdfcBalance = await checkUSDFCBalance(synapse)
@@ -93,15 +104,21 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
     }
   }
 
+  onProgress?.({ type: 'checking-allowances' })
+
   const allowanceStatus = await checkAllowances(synapse)
   let allowancesUpdated = false
   let allowanceTxHash: string | undefined
 
   if (allowanceStatus.needsUpdate && autoConfigureAllowances) {
+    onProgress?.({ type: 'configuring-allowances' })
     const setResult = await setMaxAllowances(synapse)
     allowancesUpdated = true
     allowanceTxHash = setResult.transactionHash
+    onProgress?.({ type: 'allowances-configured', transactionHash: allowanceTxHash })
   }
+
+  onProgress?.({ type: 'validating-capacity' })
 
   const capacityCheck = await validatePaymentCapacity(synapse, fileSize)
   const capacityStatus = determineCapacityStatus(capacityCheck)
