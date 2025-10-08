@@ -7,12 +7,11 @@ import {
   checkFILBalance,
   checkUSDFCBalance,
   depositUSDFC,
-  formatFIL,
-  formatUSDFC,
   getPaymentStatus,
-  parseStorageAllowance,
   setServiceApprovals,
-} from '../../payments/setup.js'
+} from '../../core/payments/index.js'
+import { formatFIL, formatUSDFC } from '../../core/utils/format.js'
+import { parseStorageAllowance } from '../../payments/setup.js'
 
 // Mock Synapse SDK
 vi.mock('@filoz/synapse-sdk', () => {

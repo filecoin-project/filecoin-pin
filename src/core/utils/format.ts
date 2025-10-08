@@ -1,10 +1,58 @@
-/**
- * Helpers for formatting time-like values for CLI display.
- */
-import type { StorageRunwaySummary } from '../core/payments/index.js'
+import { ethers } from 'ethers'
+import type { StorageRunwaySummary } from '../payments/index.js'
+import { USDFC_DECIMALS } from '../payments/index.js'
 
 const DAYS_PER_MONTH = 30
 const DAYS_PER_YEAR = 365
+
+/**
+ * Format USDFC amount for display
+ *
+ * @param amount - Amount in wei (18 decimals)
+ * @param decimals - Number of decimal places to show
+ * @returns Formatted string
+ */
+export function formatUSDFC(amount: bigint, decimals = 4): string {
+  const formatted = ethers.formatUnits(amount, USDFC_DECIMALS)
+  const num = parseFloat(formatted)
+
+  // If the number rounds to 0 with the requested decimals, show more
+  if (num > 0 && num < 10 ** -decimals) {
+    // Find how many decimals we need to show a non-zero value
+    let testDecimals = decimals
+    while (testDecimals < 10 && parseFloat(num.toFixed(testDecimals)) === 0) {
+      testDecimals++
+    }
+    return num.toFixed(testDecimals)
+  }
+
+  return num.toFixed(decimals)
+}
+
+/**
+ * Format FIL amount for display
+ *
+ * @param amount - Amount in wei (18 decimals)
+ * @param isTestnet - Whether this is a testnet (shows tFIL)
+ * @param decimals - Number of decimal places to show
+ * @returns Formatted string
+ */
+export function formatFIL(amount: bigint, isTestnet: boolean, decimals = 4): string {
+  const formatted = ethers.formatEther(amount)
+  const num = parseFloat(formatted)
+
+  // If the number rounds to 0 with the requested decimals, show more
+  if (num > 0 && num < 10 ** -decimals) {
+    // Find how many decimals we need to show a non-zero value
+    let testDecimals = decimals
+    while (testDecimals < 10 && parseFloat(num.toFixed(testDecimals)) === 0) {
+      testDecimals++
+    }
+    return `${num.toFixed(testDecimals)} ${isTestnet ? 'tFIL' : 'FIL'}`
+  }
+
+  return `${num.toFixed(decimals)} ${isTestnet ? 'tFIL' : 'FIL'}`
+}
 
 /**
  * Format a runway duration for human-readable CLI output.

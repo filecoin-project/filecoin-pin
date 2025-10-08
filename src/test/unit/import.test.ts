@@ -26,57 +26,62 @@ const ZERO_CID = 'bafkqaaa' // Zero CID used when CAR has no roots
 
 // Mock modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
-vi.mock('../../synapse/payments.js', () => ({
-  checkFILBalance: vi.fn().mockResolvedValue({
-    balance: 1000000000000000000n, // 1 FIL
-    isCalibnet: true,
-    hasSufficientGas: true,
-  }),
-  checkUSDFCBalance: vi.fn().mockResolvedValue(1000000000000000000000n), // 1000 USDFC
-  checkAllowances: vi.fn().mockResolvedValue({
-    needsUpdate: false,
-    currentAllowances: {
-      rateAllowance: BigInt('0xffffffffffffffff'), // 2^64 - 1 (max)
-      lockupAllowance: BigInt('0xffffffffffffffff'), // 2^64 - 1 (max)
-      rateUsed: 0n,
-      lockupUsed: 0n,
-    },
-  }),
-  setMaxAllowances: vi.fn().mockResolvedValue({
-    transactionHash: '0x123...',
-    currentAllowances: {
-      rateAllowance: BigInt('0xffffffffffffffff'), // 2^64 - 1 (max)
-      lockupAllowance: BigInt('0xffffffffffffffff'), // 2^64 - 1 (max)
-      rateUsed: 0n,
-      lockupUsed: 0n,
-    },
-  }),
-  checkAndSetAllowances: vi.fn().mockResolvedValue({
-    updated: false,
-    currentAllowances: {
-      rateAllowance: BigInt('0xffffffffffffffff'), // 2^64 - 1 (max)
-      lockupAllowance: BigInt('0xffffffffffffffff'), // 2^64 - 1 (max)
-      rateUsed: 0n,
-      lockupUsed: 0n,
-    },
-  }),
-  validatePaymentCapacity: vi.fn().mockResolvedValue({
-    canUpload: true,
-    storageTiB: 0.001,
-    required: {
-      rateAllowance: 100000000000000n,
-      lockupAllowance: 1000000000000000000n,
-      storageCapacityTiB: 0.001,
-    },
-    issues: {},
-    suggestions: [],
-  }),
-}))
+vi.mock('../../core/payments/index.js', async () => {
+  const actual = await vi.importActual<typeof import('../../core/payments/index.js')>('../../core/payments/index.js')
+  return {
+    ...actual,
+    checkFILBalance: vi.fn().mockResolvedValue({
+      balance: 1000000000000000000n,
+      isCalibnet: true,
+      hasSufficientGas: true,
+    }),
+    checkUSDFCBalance: vi.fn().mockResolvedValue(1000000000000000000000n),
+    checkAllowances: vi.fn().mockResolvedValue({
+      needsUpdate: false,
+      currentAllowances: {
+        rateAllowance: BigInt('0xffffffffffffffff'),
+        lockupAllowance: BigInt('0xffffffffffffffff'),
+        rateUsed: 0n,
+        lockupUsed: 0n,
+      },
+    }),
+    setMaxAllowances: vi.fn().mockResolvedValue({
+      transactionHash: '0x123...',
+      currentAllowances: {
+        rateAllowance: BigInt('0xffffffffffffffff'),
+        lockupAllowance: BigInt('0xffffffffffffffff'),
+        rateUsed: 0n,
+        lockupUsed: 0n,
+      },
+    }),
+    checkAndSetAllowances: vi.fn().mockResolvedValue({
+      updated: false,
+      currentAllowances: {
+        rateAllowance: BigInt('0xffffffffffffffff'),
+        lockupAllowance: BigInt('0xffffffffffffffff'),
+        rateUsed: 0n,
+        lockupUsed: 0n,
+      },
+    }),
+    validatePaymentCapacity: vi.fn().mockResolvedValue({
+      canUpload: true,
+      storageTiB: 0.001,
+      required: {
+        rateAllowance: 100000000000000n,
+        lockupAllowance: 1000000000000000000n,
+        storageCapacityTiB: 0.001,
+      },
+      issues: {},
+      suggestions: [],
+    }),
+  }
+})
+
 vi.mock('../../payments/setup.js', () => ({
   formatUSDFC: vi.fn((amount) => `${amount} USDFC`),
   validatePaymentRequirements: vi.fn().mockReturnValue({ isValid: true }),
 }))
-vi.mock('../../synapse/service.js', async () => {
+vi.mock('../../core/synapse/index.js', async () => {
   const { MockSynapse } = await import('../mocks/synapse-mocks.js')
 
   return {
@@ -325,7 +330,7 @@ describe('CAR Import', () => {
         [{ content: 'test content' }]
       )
 
-      const { createStorageContext } = await import('../../synapse/service.js')
+      const { createStorageContext } = await import('../../core/synapse/index.js')
       const createContextSpy = vi.mocked(createStorageContext)
 
       const options: ImportOptions = {
@@ -371,7 +376,7 @@ describe('CAR Import', () => {
         rpcUrl: customRpcUrl,
       }
 
-      const { initializeSynapse } = await import('../../synapse/service.js')
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
       const initSpy = vi.mocked(initializeSynapse)
 
       await runCarImport(options)
@@ -390,7 +395,7 @@ describe('CAR Import', () => {
       const carPath = join(testDir, 'cleanup.car')
       await createTestCarFile(carPath, [], [{ content: 'test content' }])
 
-      const { cleanupSynapseService } = await import('../../synapse/service.js')
+      const { cleanupSynapseService } = await import('../../core/synapse/index.js')
       const cleanupSpy = vi.mocked(cleanupSynapseService)
 
       const options: ImportOptions = {
@@ -404,7 +409,7 @@ describe('CAR Import', () => {
     })
 
     it('should call cleanup on error', async () => {
-      const { cleanupSynapseService } = await import('../../synapse/service.js')
+      const { cleanupSynapseService } = await import('../../core/synapse/index.js')
       const cleanupSpy = vi.mocked(cleanupSynapseService)
 
       const options: ImportOptions = {

@@ -4,7 +4,7 @@ import { runDeposit } from '../payments/deposit.js'
 import { runFund } from '../payments/fund.js'
 import { runInteractiveSetup } from '../payments/interactive.js'
 import { showPaymentStatus } from '../payments/status.js'
-import type { FundOptions, PaymentSetupOptions } from '../payments/types.js'
+import type { PaymentSetupOptions } from '../payments/types.js'
 import { runWithdraw } from '../payments/withdraw.js'
 
 export const paymentsCommand = new Command('payments').description('Manage payment setup for Filecoin Onchain Cloud')
@@ -47,21 +47,16 @@ paymentsCommand
   .description('Adjust funds to an exact runway (days) or total deposit')
   .option('--private-key <key>', 'Private key (can also use PRIVATE_KEY env)')
   .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env)')
-  .option('--days <n>', 'Set final runway to exactly N days (deposit or withdraw as needed)')
-  .option('--amount <usdfc>', 'Set final deposited total to exactly this USDFC amount (deposit or withdraw)')
-  .option(
-    '--mode <mode>',
-    'Mode to use for funding: "exact" (default) or "minimum". "exact" will withdraw/deposit to exactly match the target. "minimum" will only deposit if below the minimum target.'
-  )
+  .option('--exact-days <n>', 'Set final runway to exactly N days (deposit or withdraw as needed)')
+  .option('--exact-amount <usdfc>', 'Set final deposited total to exactly this USDFC amount (deposit or withdraw)')
   .action(async (options) => {
     try {
-      const fundOptions: FundOptions = {
+      const fundOptions: any = {
         privateKey: options.privateKey,
         rpcUrl: options.rpcUrl || process.env.RPC_URL,
-        amount: options.amount,
-        mode: options.mode || 'exact',
       }
-      if (options.days != null) fundOptions.days = Number(options.days)
+      if (options.exactDays != null) fundOptions.exactDays = Number(options.exactDays)
+      if (options.exactAmount != null) fundOptions.exactAmount = options.exactAmount
       await runFund(fundOptions)
     } catch (error) {
       console.error('Failed to adjust funds:', error instanceof Error ? error.message : error)
@@ -121,7 +116,7 @@ paymentsCommand
         privateKey: options.privateKey,
         rpcUrl: options.rpcUrl || process.env.RPC_URL,
         amount: options.amount,
-        days: options.days != null ? Number(options.days) : undefined, // Only pass days if explicitly provided
+        days: options.days != null ? Number(options.days) : 10, // always default to 10 days top-up, otherwise top-up to the specified number of days.
       })
     } catch (error) {
       console.error('Failed to perform deposit:', error instanceof Error ? error.message : error)
