@@ -12,29 +12,29 @@ import type { Logger } from 'pino'
 const WEBSOCKET_REGEX = /^ws(s)?:\/\//i
 
 /**
- * Default metadata for Synapse data sets created by filecoin-pin.
+ * Default metadata for Synapse data sets created by filecoin-pin
  */
 const DEFAULT_DATA_SET_METADATA = {
-  [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
-  source: 'filecoin-pin',
+  [METADATA_KEYS.WITH_IPFS_INDEXING]: '', // Enable IPFS indexing for all data sets
+  source: 'filecoin-pin', // Identify the source application
 } as const
 
 /**
- * Default configuration for creating storage contexts.
+ * Default configuration for creating storage contexts
  */
 const DEFAULT_STORAGE_CONTEXT_CONFIG = {
-  withCDN: false,
+  withCDN: false, // CDN not needed for Filecoin Pin currently
   metadata: DEFAULT_DATA_SET_METADATA,
 } as const
 
 let synapseInstance: Synapse | null = null
 let storageInstance: StorageContext | null = null
 let currentProviderInfo: ProviderInfo | null = null
-let activeProvider: any = null
+let activeProvider: any = null // Track the provider for cleanup
 
 /**
- * Complete application configuration interface.
- * This is the main config interface that can be imported by CLI and other consumers.
+ * Complete application configuration interface
+ * This is the main config interface that can be imported by CLI and other consumers
  */
 export interface Config {
   port: number
@@ -49,8 +49,8 @@ export interface Config {
 }
 
 /**
- * Configuration for Synapse initialization.
- * Extends the main Config but makes privateKey required and rpcUrl optional.
+ * Configuration for Synapse initialization
+ * Extends the main Config but makes privateKey required and rpcUrl optional
  */
 export interface SynapseSetupConfig extends Partial<Omit<Config, 'privateKey' | 'rpcUrl'>> {
   /** Private key used for signing transactions. */
@@ -61,7 +61,7 @@ export interface SynapseSetupConfig extends Partial<Omit<Config, 'privateKey' | 
 
 /**
  * Structured service object containing the fully initialized Synapse SDK and
- * its storage context.
+ * its storage context
  */
 export interface SynapseService {
   synapse: Synapse
@@ -70,7 +70,7 @@ export interface SynapseService {
 }
 
 /**
- * Reset memoized service instances (used primarily in tests between runs).
+ * Reset the service instances (for testing)
  */
 export function resetSynapseService(): void {
   synapseInstance = null
@@ -80,20 +80,19 @@ export function resetSynapseService(): void {
 }
 
 /**
- * Initialize the Synapse SDK without creating a storage context.
+ * Initialize the Synapse SDK without creating storage context
  *
- * This function centralises the connection logic so multiple front-ends can
- * share the same behaviour (validation, logging, default RPC selection).
- * It mirrors the previous implementation from `src/synapse/service.ts` while
- * avoiding module-level side effects.
+ * This function initializes the Synapse SDK connection without creating
+ * a storage context. This method is primarily a wrapper for handling our
+ * custom configuration needs and adding detailed logging.
  *
- * @param config - Connection options for Synapse.
- * @param logger - Logger used for structured output during initialization.
- * @returns A ready-to-use Synapse instance.
- * @throws If required configuration is missing or initialization fails.
+ * @param config - Application configuration with privateKey and RPC URL
+ * @param logger - Logger instance for detailed operation tracking
+ * @returns Initialized Synapse instance
  */
 export async function initializeSynapse(config: SynapseSetupConfig, logger: Logger): Promise<Synapse> {
   try {
+    // Log the configuration status
     logger.info(
       {
         hasPrivateKey: config.privateKey != null,
@@ -102,6 +101,8 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
       'Initializing Synapse'
     )
 
+    // IMPORTANT: Private key is required for transaction signing
+    // In production, this should come from secure environment variables, or a wallet integration
     const privateKey = config.privateKey
     if (privateKey == null) {
       const error = new Error('PRIVATE_KEY environment variable is required for Synapse integration')
@@ -117,13 +118,21 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
 
     logger.info({ event: 'synapse.init' }, 'Initializing Synapse SDK')
 
+    // Configure Synapse with network settings
+    // Network options: 314 (mainnet) or 314159 (calibration testnet)
     const synapseOptions: SynapseOptions = {
       privateKey,
-      rpcURL: config.rpcUrl ?? RPC_URLS.calibration.websocket,
+      rpcURL: config.rpcUrl ?? RPC_URLS.calibration.websocket, // Default to calibration testnet
     }
 
     const synapse = await Synapse.create(synapseOptions)
 
+    // Store reference to the provider for cleanup if it's a WebSocket provider
+    if (synapseOptions.rpcURL && WEBSOCKET_REGEX.test(synapseOptions.rpcURL)) {
+      activeProvider = synapse.getProvider()
+    }
+
+    // Get network info for logging
     const network = synapse.getNetwork()
     logger.info(
       {
@@ -134,12 +143,8 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
       'Synapse SDK initialized'
     )
 
+    // Store instance for cleanup
     synapseInstance = synapse
-    if (synapseOptions.rpcURL && WEBSOCKET_REGEX.test(synapseOptions.rpcURL)) {
-      activeProvider = synapse.getProvider()
-    } else {
-      activeProvider = null
-    }
 
     return synapse
   } catch (error) {
@@ -156,27 +161,12 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
 }
 
 /**
- * Get default storage context configuration for consistent data set creation
+ * Create storage context for an initialized Synapse instance
  *
- * @param overrides - Optional overrides to merge with defaults
- * @returns Storage context configuration with defaults
- */
-export function getDefaultStorageContextConfig(overrides: any = {}) {
-  return {
-    ...DEFAULT_STORAGE_CONTEXT_CONFIG,
-    ...overrides,
-    metadata: {
-      ...DEFAULT_DATA_SET_METADATA,
-      ...overrides.metadata,
-    },
-  }
-}
-
-/**
- * Create a storage context for an initialized Synapse instance.
- *
- * Adds logging and optional progress callbacks around the SDK helper so
- * callers gain insight into provider selection and dataset lifecycle.
+ * This creates a storage context with comprehensive callbacks for tracking
+ * the data set creation and provider selection process. This is primarily
+ * a wrapper around the Synapse SDK's storage context creation, adding logging
+ * and progress callbacks for better observability.
  */
 export async function createStorageContext(
   synapse: Synapse,
@@ -188,14 +178,19 @@ export async function createStorageContext(
   }
 ): Promise<{ storage: StorageContext; providerInfo: ProviderInfo }> {
   try {
+    // Create storage context with comprehensive event tracking
+    // The storage context manages the data set and provider interactions
     logger.info({ event: 'synapse.storage.create' }, 'Creating storage context')
 
+    // Optional override: allow selecting a specific provider via env vars
     const envProviderAddress = process.env.PROVIDER_ADDRESS?.trim()
     const envProviderIdRaw = process.env.PROVIDER_ID?.trim()
     const envProviderId = envProviderIdRaw != null && envProviderIdRaw !== '' ? Number(envProviderIdRaw) : undefined
 
     const createOptions: StorageServiceOptions = {
       ...DEFAULT_STORAGE_CONTEXT_CONFIG,
+      // Callbacks provide visibility into the storage lifecycle
+      // These are crucial for debugging and monitoring in production
       callbacks: {
         onProviderSelected: (provider) => {
           currentProviderInfo = provider
@@ -213,6 +208,7 @@ export async function createStorageContext(
             'Selected storage provider'
           )
 
+          // Call progress callback if provided
           progressCallbacks?.onProviderSelected?.(provider)
         },
         onDataSetResolved: (info) => {
@@ -225,6 +221,7 @@ export async function createStorageContext(
             info.isExisting ? 'Using existing data set' : 'Created new data set'
           )
 
+          // Call progress callback if provided
           progressCallbacks?.onDataSetResolved?.(info)
         },
         onDataSetCreationStarted: (transaction, statusUrl) => {
@@ -237,6 +234,7 @@ export async function createStorageContext(
             'Data set creation transaction submitted'
           )
 
+          // Call progress callback if provided
           progressCallbacks?.onDataSetCreationStarted?.(transaction)
         },
         onDataSetCreationProgress: (status) => {
@@ -253,6 +251,7 @@ export async function createStorageContext(
       },
     }
 
+    // Apply provider override if present
     if (envProviderAddress) {
       createOptions.providerAddress = envProviderAddress
       logger.info(
@@ -278,9 +277,12 @@ export async function createStorageContext(
       'Storage context created successfully'
     )
 
+    // Store instance
     storageInstance = storage
 
+    // Ensure we always have provider info
     if (!currentProviderInfo) {
+      // This should not happen as provider is selected during context creation
       throw new Error('Provider information not available after storage context creation')
     }
 
@@ -299,10 +301,17 @@ export async function createStorageContext(
 }
 
 /**
- * Initialize Synapse and establish the storage context in a single step.
+ * Set up complete Synapse service with SDK and storage context
  *
- * Convenience wrapper used by the server, CLI imports, and tests expecting a
- * fully configured service object.
+ * This function demonstrates the complete setup flow for Synapse:
+ * 1. Validates required configuration (private key)
+ * 2. Creates Synapse instance with network configuration
+ * 3. Creates a storage context with comprehensive callbacks
+ * 4. Returns a service object for application use
+ *
+ * Our wrapping of Synapse initialization and storage context creation is
+ * primarily to handle our custom configuration needs and add detailed logging
+ * and progress tracking.
  */
 export async function setupSynapse(
   config: SynapseSetupConfig,
@@ -323,8 +332,25 @@ export async function setupSynapse(
 }
 
 /**
- * Clean up a WebSocket provider connection.
- * This is important for allowing the Node.js process to exit cleanly.
+ * Get default storage context configuration for consistent data set creation
+ *
+ * @param overrides - Optional overrides to merge with defaults
+ * @returns Storage context configuration with defaults
+ */
+export function getDefaultStorageContextConfig(overrides: any = {}) {
+  return {
+    ...DEFAULT_STORAGE_CONTEXT_CONFIG,
+    ...overrides,
+    metadata: {
+      ...DEFAULT_DATA_SET_METADATA,
+      ...overrides.metadata,
+    },
+  }
+}
+
+/**
+ * Clean up a WebSocket provider connection
+ * This is important for allowing the Node.js process to exit cleanly
  *
  * @param provider - The provider to clean up
  */
@@ -341,8 +367,8 @@ export async function cleanupProvider(provider: any): Promise<void> {
 /**
  * Clean up WebSocket providers and other resources
  *
- * Call this when CLI/UI/consumer commands are finished to ensure proper cleanup
- * and allow the process to terminate.
+ * Call this when CLI commands are finishing to ensure proper cleanup
+ * and allow the process to terminate
  */
 export async function cleanupSynapseService(): Promise<void> {
   if (activeProvider) {
@@ -357,7 +383,7 @@ export async function cleanupSynapseService(): Promise<void> {
 }
 
 /**
- * Return the current service snapshot if initialization has already occurred.
+ * Get the initialized Synapse service
  */
 export function getSynapseService(): SynapseService | null {
   if (synapseInstance == null || storageInstance == null || currentProviderInfo == null) {
