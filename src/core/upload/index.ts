@@ -1,7 +1,7 @@
 import type { Synapse, UploadCallbacks } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import type { SynapseService } from '../../synapse/service.js'
+import type { SynapseService } from '../synapse/index.js'
 import { type SynapseUploadResult, uploadToSynapse } from './synapse.js'
 
 export type { SynapseUploadOptions, SynapseUploadResult } from './synapse.js'

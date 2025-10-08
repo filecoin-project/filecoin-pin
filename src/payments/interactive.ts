@@ -11,7 +11,7 @@ import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
 import { calculateDepositCapacity, checkAllowances, setMaxAllowances } from '../core/payments/index.js'
-import { cleanupProvider, cleanupSynapseService } from '../synapse/service.js'
+import { cleanupProvider, cleanupSynapseService } from '../core/synapse/index.js'
 import { createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
 import {

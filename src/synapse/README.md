@@ -6,5 +6,6 @@ and future SDK consumers. Please see [`src/core/payments/README.md`](../core/pay
 for the full documentation that originally accompanied this directory.
 
 The remaining modules in `src/synapse/` either proxy to the new core layers or
-are awaiting relocation. The legacy `upload.ts` helper has now moved entirely to
-`src/core/upload/`; clients must update imports to the new location.
+are awaiting relocation. Both `service.ts` and `upload.ts` now re-export the
+implementation in `src/core/synapse/` and `src/core/upload/`; clients should
+update imports to the new locations.

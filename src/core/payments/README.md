@@ -14,7 +14,7 @@ Synapse is abstracted within Filecoin Pin to isolate it as an educational resour
 
 ## Module Overview
 
-### [`service.ts`](../synapse/service.ts) - SDK Initialization & Lifecycle
+### [`core/synapse`](../synapse/index.ts) - SDK Initialization & Lifecycle
 
 Core patterns for initializing and managing the Synapse SDK lifecycle:
 

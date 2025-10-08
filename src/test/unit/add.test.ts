@@ -32,7 +32,7 @@ vi.mock('../../common/upload-flow.js', () => ({
   displayUploadResults: vi.fn(),
 }))
 
-vi.mock('../../synapse/service.js', () => ({
+vi.mock('../../core/synapse/index.js', () => ({
   initializeSynapse: vi.fn().mockResolvedValue({
     getNetwork: () => 'calibration',
   }),

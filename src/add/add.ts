@@ -16,7 +16,7 @@ import {
   createStorageContext,
   initializeSynapse,
   type SynapseService,
-} from '../synapse/service.js'
+} from '../core/synapse/index.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import type { AddOptions, AddResult } from './types.js'
 
@@ -109,7 +109,6 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       databasePath: '',
       carStoragePath: '',
       logLevel: 'error',
-      warmStorageAddress: undefined,
     }
 
     // Initialize just the Synapse SDK

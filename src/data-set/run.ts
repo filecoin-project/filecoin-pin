@@ -1,7 +1,7 @@
 import type { EnhancedDataSetInfo, ProviderInfo } from '@filoz/synapse-sdk'
 import { PDPServer, PDPVerifier, RPC_URLS, Synapse, WarmStorageService } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import { cleanupProvider } from '../synapse/service.js'
+import { cleanupProvider } from '../core/synapse/index.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { displayDataSetList, displayDataSetStatus } from './inspect.js'

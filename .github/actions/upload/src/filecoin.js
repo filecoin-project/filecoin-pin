@@ -9,9 +9,9 @@ import {
   initializeSynapse as initSynapse,
 } from 'filecoin-pin/core'
 import { createUnixfsCarBuilder } from 'filecoin-pin/core/files'
+import { getDownloadURL } from 'filecoin-pin/core/upload'
 import { checkAndSetAllowances, depositUSDFC, getPaymentStatus } from 'filecoin-pin/synapse/payments.js'
 import { cleanupSynapseService, createStorageContext } from 'filecoin-pin/synapse/service.js'
-import { getDownloadURL } from 'filecoin-pin/synapse/upload.js'
 import { CID } from 'multiformats/cid'
 import { ERROR_CODES, FilecoinPinError, getErrorMessage } from './errors.js'
 

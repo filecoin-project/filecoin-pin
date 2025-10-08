@@ -6,9 +6,9 @@ import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import type { Config } from './config.js'
 import type { CARBlockstoreStats, CARWritingBlockstore } from './core/files/index.js'
+import type { SynapseService } from './core/synapse/index.js'
 import { uploadToSynapse } from './core/upload/index.js'
 import { createPinningHeliaNode } from './create-pinning-helia.js'
-import type { SynapseService } from './synapse/service.js'
 
 export interface PinningServiceUser {
   id: string

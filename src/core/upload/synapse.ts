@@ -1,7 +1,7 @@
 import { METADATA_KEYS, type ProviderInfo, type UploadCallbacks } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import type { SynapseService } from '../../synapse/service.js'
+import type { SynapseService } from '../synapse/index.js'
 
 export interface SynapseUploadOptions {
   /** Optional callbacks for monitoring upload progress. */
