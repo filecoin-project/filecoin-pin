@@ -1,9 +1,11 @@
 /**
  * TypeScript type definitions for the Filecoin Upload Action
  */
-import type { PaymentStatus as FilecoinPinPaymentStatus } from 'filecoin-pin/dist/synapse/payments.js'
+import type { PaymentStatus as FilecoinPinPaymentStatus } from 'filecoin-pin/core/payments'
+import type { SynapseService } from 'filecoin-pin/core/synapse'
 
-export type { PaymentStatus as FilecoinPinPaymentStatus } from 'filecoin-pin/dist/synapse/payments.js'
+export type { FilecoinPinPaymentStatus }
+export type Synapse = SynapseService['synapse']
 
 export interface CombinedContext {
   ipfsRootCid?: string

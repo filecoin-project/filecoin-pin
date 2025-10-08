@@ -2,7 +2,6 @@ import { access } from 'node:fs/promises'
 import pc from 'picocolors'
 import pino from 'pino'
 import { commentOnPR } from './comments/comment.js'
-import { getGlobalContext, mergeAndSaveContext } from './context.js'
 import { cleanupSynapse, handlePayments, initializeSynapse, uploadCarToFilecoin } from './filecoin.js'
 import { ensurePullRequestContext } from './github.js'
 import { parseInputs } from './inputs.js'
@@ -17,8 +16,9 @@ import { writeOutputs, writeSummary } from './outputs.js'
 
 /**
  * Run upload phase: Upload to Filecoin using context data from build phase
+ * @param {Partial<CombinedContext>} [buildContext]
  */
-export async function runUpload() {
+export async function runUpload(buildContext = {}) {
   const logger = pino({ level: process.env.LOG_LEVEL || 'info' })
 
   console.log('━━━ Upload Phase: Uploading to Filecoin ━━━')
@@ -37,20 +37,24 @@ export async function runUpload() {
     dryRun,
   } = inputs
 
-  // Ensure we have PR context available when running from workflow_run
-  await ensurePullRequestContext()
-
-  // Get context from build phase (already in memory from same workflow run)
   /** @type {Partial<CombinedContext>} */
-  let ctx = getGlobalContext()
-  console.log('[context-debug] Loaded context from build phase:', ctx)
+  const context = { ...buildContext, contentPath }
+
+  context.dryRun = dryRun
+
+  const resolvedPr = await ensurePullRequestContext(context.pr)
+  if (resolvedPr) {
+    context.pr = resolvedPr
+  }
+
+  console.log('[context-debug] Loaded context from build phase:', context)
 
   // Check if this was a fork PR that was blocked
-  if (ctx.uploadStatus === 'fork-pr-blocked') {
+  if (context.uploadStatus === 'fork-pr-blocked') {
     console.log('━━━ Fork PR Upload Blocked ━━━')
     console.log('::notice::Fork PR detected - content built but not uploaded to Filecoin, will comment on PR')
 
-    const rootCid = ctx.ipfsRootCid || ''
+    const rootCid = context.ipfsRootCid || ''
 
     // Write outputs indicating fork PR was blocked
     await writeOutputs({
@@ -59,28 +63,28 @@ export async function runUpload() {
       pieceCid: '',
       providerId: '',
       providerName: '',
-      carPath: ctx.carPath || '',
+      carPath: context.carPath || '',
       uploadStatus: 'fork-pr-blocked',
     })
 
-    await writeSummary(ctx, 'Fork PR blocked')
+    await writeSummary(context, 'Fork PR blocked')
 
     // Comment on PR with the actual IPFS Root CID
-    await commentOnPR(ctx)
+    await commentOnPR({ ...context, uploadStatus: 'fork-pr-blocked' })
 
     console.log('✓ Fork PR blocked - PR comment posted explaining the limitation')
-    return
+    return context
   }
 
-  if (!ctx.ipfsRootCid) {
+  if (!context.ipfsRootCid) {
     throw new Error('No IPFS Root CID found in context. Build phase may have failed.')
   }
 
-  const rootCid = ctx.ipfsRootCid
+  const rootCid = context.ipfsRootCid
   console.log(`Root CID from context: ${rootCid}`)
 
   // Get CAR file path from context
-  const carPath = ctx.carPath
+  const carPath = context.carPath
   if (!carPath) {
     throw new Error('No CAR file path found in context. Build phase may have failed.')
   }
@@ -103,16 +107,16 @@ export async function runUpload() {
   let paymentStatus
 
   if (dryRun) {
-    pieceCid = ctx.pieceCid || 'dry-run'
-    pieceId = ctx.pieceId || 'dry-run'
-    dataSetId = ctx.dataSetId || 'dry-run'
-    provider = ctx.provider || {
+    pieceCid = context.pieceCid || 'dry-run'
+    pieceId = context.pieceId || 'dry-run'
+    dataSetId = context.dataSetId || 'dry-run'
+    provider = context.provider || {
       id: 'dry-run',
       name: 'Dry Run Mode',
     }
-    previewURL = ctx.previewUrl || 'https://example.com/ipfs/dry-run'
-    network = ctx.network || 'dry-run'
-    paymentStatus = ctx.paymentStatus || {
+    previewURL = context.previewUrl || 'https://example.com/ipfs/dry-run'
+    network = context.network || 'dry-run'
+    paymentStatus = context.paymentStatus || {
       depositedAmount: '0',
       currentBalance: '0',
       storageRunway: 'Unknown',
@@ -143,27 +147,29 @@ export async function runUpload() {
 
   const uploadStatus = dryRun ? 'dry-run' : 'uploaded'
 
-  // Update context
-  await mergeAndSaveContext({
+  const providerInfo = provider || { id: '', name: '' }
+
+  Object.assign(context, {
     pieceCid,
     pieceId,
     dataSetId,
-    provider,
+    provider: providerInfo,
     previewUrl: previewURL,
-    network,
-    contentPath: contentPath,
+    network: network || inputNetwork,
     uploadStatus,
     paymentStatus,
     dryRun,
   })
+
+  provider = providerInfo
 
   // Write outputs
   await writeOutputs({
     ipfsRootCid: rootCid,
     dataSetId: dataSetId,
     pieceCid: pieceCid,
-    providerId: provider.id || '',
-    providerName: provider.name || '',
+    providerId: providerInfo.id || '',
+    providerName: providerInfo.name || '',
     carPath: carPath,
     uploadStatus,
   })
@@ -177,12 +183,12 @@ export async function runUpload() {
   console.log(`Provider: ${provider.name || 'Unknown'} (ID ${provider.id || 'Unknown'})`)
   console.log(`Preview: ${previewURL}`)
 
-  /** @type {Partial<CombinedContext>} */
-  ctx = getGlobalContext()
-  await writeSummary(ctx, 'Uploaded')
+  await writeSummary(context, 'Uploaded')
 
   // Comment on PR
-  await commentOnPR(ctx)
+  await commentOnPR(context)
 
   await cleanupSynapse()
+
+  return context
 }

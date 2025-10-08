@@ -9,7 +9,7 @@
     "@filoz/synapse-sdk": "^0.28.0",
     "@octokit/rest": "^22.0.0",
     "ethers": "^6.15.0",
-    "filecoin-pin": "^0.6.0",
+    "filecoin-pin": "../../..",
     "picocolors": "^1.1.1",
     "pino": "^9.13.0"
   },

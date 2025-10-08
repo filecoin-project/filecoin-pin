@@ -1,21 +1,19 @@
 import { promises as fs } from 'node:fs'
-import { RPC_URLS, TIME_CONSTANTS } from '@filoz/synapse-sdk'
-import { ethers } from 'ethers'
-import { createCarFromPath } from 'filecoin-pin/dist/add/unixfs-car.js'
-import { validatePaymentSetup } from 'filecoin-pin/dist/common/upload-flow.js'
+import { RPC_URLS } from '@filoz/synapse-sdk'
 import {
-  checkAndSetAllowances,
+  calculateStorageRunway,
   computeTopUpForDuration,
   depositUSDFC,
   getPaymentStatus,
-} from 'filecoin-pin/dist/synapse/payments.js'
+} from 'filecoin-pin/core/payments'
 import {
   cleanupSynapseService,
   createStorageContext,
   initializeSynapse as initSynapse,
-} from 'filecoin-pin/dist/synapse/service.js'
-import { getDownloadURL, uploadToSynapse } from 'filecoin-pin/dist/synapse/upload.js'
-import { formatRunwayDuration } from 'filecoin-pin/dist/utils/time.js'
+} from 'filecoin-pin/core/synapse'
+import { createUnixfsCarBuilder } from 'filecoin-pin/core/unixfs'
+import { checkUploadReadiness, executeUpload, getDownloadURL } from 'filecoin-pin/core/upload'
+import { formatRunwaySummary, formatUSDFC } from 'filecoin-pin/core/utils'
 import { CID } from 'multiformats/cid'
 import { ERROR_CODES, FilecoinPinError, getErrorMessage } from './errors.js'
 
@@ -25,34 +23,8 @@ import { ERROR_CODES, FilecoinPinError, getErrorMessage } from './errors.js'
  * @typedef {import('./types.js').UploadResult} UploadResult
  * @typedef {import('./types.js').PaymentStatus} PaymentStatus
  * @typedef {import('./types.js').FilecoinPinPaymentStatus} FilecoinPinPaymentStatus
- * @typedef {import('@filoz/synapse-sdk').Synapse} Synapse
+ * @typedef {import('./types.js').Synapse} Synapse
  */
-
-/**
- * Calculate storage runway based on current payment status
- * @param {FilecoinPinPaymentStatus} status - Payment status from getPaymentStatus
- * @returns {string} Formatted runway duration or 'Unknown'
- */
-export function calculateStorageRunway(status) {
-  if (!status || !status.currentAllowances) {
-    return 'Unknown'
-  }
-
-  const rateUsed = status.currentAllowances.rateUsed ?? 0n
-  const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
-
-  if (rateUsed > 0n) {
-    const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
-    const depositedAmount = BigInt(status.depositedAmount || 0)
-    const available = depositedAmount > lockupUsed ? depositedAmount - lockupUsed : 0n
-    const runwayDays = Number(available / perDay)
-    const runwayHoursRemainder = Number(((available % perDay) * 24n) / perDay)
-
-    return formatRunwayDuration(runwayDays, runwayHoursRemainder)
-  }
-
-  return 'No active spend detected'
-}
 
 /**
  * Initialize Synapse sdk with error handling
@@ -72,8 +44,13 @@ export async function initializeSynapse(config, logger) {
       throw new FilecoinPinError(`Unsupported network: ${network}`, ERROR_CODES.INVALID_INPUT)
     }
 
-    // @ts-expect-error - synapse types broken.
-    return await initSynapse({ privateKey: walletPrivateKey, rpcUrl: rpcConfig.websocket }, logger)
+    return await initSynapse(
+      {
+        privateKey: walletPrivateKey,
+        rpcUrl: rpcConfig.websocket,
+      },
+      logger
+    )
   } catch (error) {
     const errorMessage = getErrorMessage(error)
     if (errorMessage.includes('invalid private key')) {
@@ -93,18 +70,12 @@ export async function initializeSynapse(config, logger) {
 export async function handlePayments(synapse, options, logger) {
   const { minStorageDays, filecoinPayBalanceLimit } = options
 
-  // Ensure WarmStorage allowances are at max
-  await checkAndSetAllowances(synapse)
-
-  // Check current payment status
   const initialStatus = await getPaymentStatus(synapse)
-  let newStatus = initialStatus
-
-  // Compute top-up to satisfy minStorageDays
   let requiredTopUp = 0n
+
   if (minStorageDays > 0) {
     const { topUp } = computeTopUpForDuration(initialStatus, minStorageDays)
-    if (topUp > requiredTopUp) requiredTopUp = topUp
+    requiredTopUp = topUp
   }
 
   // Check if deposit would exceed maximum balance if specified
@@ -112,7 +83,7 @@ export async function handlePayments(synapse, options, logger) {
     // Check if current balance already equals or exceeds limit
     if (initialStatus.depositedAmount >= filecoinPayBalanceLimit) {
       logger.warn(
-        `⚠️  Current balance (${ethers.formatUnits(initialStatus.depositedAmount, 18)} USDFC) already equals or exceeds filecoinPayBalanceLimit (${ethers.formatUnits(filecoinPayBalanceLimit, 18)} USDFC). No additional deposits will be made.`
+        `⚠️  Current balance (${formatUSDFC(initialStatus.depositedAmount)}) already equals or exceeds filecoinPayBalanceLimit (${formatUSDFC(filecoinPayBalanceLimit)}). No additional deposits will be made.`
       )
       requiredTopUp = 0n // Don't deposit anything
     } else {
@@ -121,42 +92,35 @@ export async function handlePayments(synapse, options, logger) {
       if (projectedBalance > filecoinPayBalanceLimit) {
         // Calculate the maximum allowed top-up that won't exceed the limit
         const maxAllowedTopUp = filecoinPayBalanceLimit - initialStatus.depositedAmount
-
-        if (maxAllowedTopUp <= 0n) {
-          // This shouldn't happen due to the check above, but just in case
+        if (maxAllowedTopUp > 0n) {
           logger.warn(
-            `⚠️  Cannot deposit any amount without exceeding filecoinPayBalanceLimit (${ethers.formatUnits(filecoinPayBalanceLimit, 18)} USDFC). No additional deposits will be made.`
-          )
-          requiredTopUp = 0n
-        } else {
-          // Reduce the top-up to fit within the limit
-          logger.warn(
-            `⚠️  Required top-up (${ethers.formatUnits(requiredTopUp, 18)} USDFC) would exceed filecoinPayBalanceLimit (${ethers.formatUnits(filecoinPayBalanceLimit, 18)} USDFC). Reducing to ${ethers.formatUnits(maxAllowedTopUp, 18)} USDFC.`
+            `⚠️  Required top-up (${formatUSDFC(requiredTopUp)}) would exceed filecoinPayBalanceLimit (${formatUSDFC(filecoinPayBalanceLimit)}). Reducing to ${formatUSDFC(maxAllowedTopUp)}.`
           )
           requiredTopUp = maxAllowedTopUp
+        } else {
+          requiredTopUp = 0n
         }
       }
     }
   }
 
+  let newStatus = initialStatus
   if (requiredTopUp > 0n) {
-    logger.info(`Depositing ${ethers.formatUnits(requiredTopUp, 18)} USDFC to Filecoin Pay ...`)
+    logger.info(`Depositing ${formatUSDFC(requiredTopUp)} USDFC to Filecoin Pay ...`)
     await depositUSDFC(synapse, requiredTopUp)
     newStatus = await getPaymentStatus(synapse)
-  } else {
-    requiredTopUp = 0n
   }
 
   return {
     ...initialStatus,
     // the amount of USDFC you have deposited to Filecoin Pay
-    depositedAmount: ethers.formatUnits(newStatus.depositedAmount, 18),
-    // the amount of USDFC you have in your wallet
-    currentBalance: ethers.formatUnits(newStatus.usdfcBalance, 18),
+    depositedAmount: formatUSDFC(newStatus.depositedAmount),
+    // the amount of USDFC you currently hold in your wallet
+    currentBalance: formatUSDFC(newStatus.usdfcBalance),
     // the amount of time you have until your funds would run out based on storage usage
-    storageRunway: calculateStorageRunway(newStatus),
-    // the amount of USDFC you have deposited to Filecoin Pay in this run
-    depositedThisRun: ethers.formatUnits(requiredTopUp, 18),
+    storageRunway: formatRunwaySummary(calculateStorageRunway(newStatus)),
+    // the amount of USDFC deposited to Filecoin Pay during this run
+    depositedThisRun: formatUSDFC(requiredTopUp),
   }
 }
 
@@ -169,33 +133,14 @@ export async function handlePayments(synapse, options, logger) {
  */
 export async function createCarFile(targetPath, contentPath, logger) {
   try {
-    const stat = await fs.stat(targetPath)
-    const isDirectory = stat.isDirectory()
+    const builder = createUnixfsCarBuilder()
     logger.info(`Packing '${contentPath}' into CAR (UnixFS) ...`)
 
-    const result = await createCarFromPath(targetPath, { isDirectory, logger })
-    const { carPath, rootCid } = result
+    const { carPath, rootCid, size } = await builder.buildCar(targetPath, {
+      logger,
+    })
 
-    // Handle different possible return formats from filecoin-pin
-    if (!rootCid) {
-      throw new FilecoinPinError(
-        `createCarFromPath returned unexpected format: ${JSON.stringify(Object.keys(result))}`,
-        ERROR_CODES.CAR_CREATE_FAILED
-      )
-    }
-
-    // Get CAR file size from filesystem since stats are not returned in the interface
-    let carSize
-    if (carPath) {
-      try {
-        const stat = await fs.stat(carPath)
-        carSize = stat.size
-      } catch (error) {
-        logger.warn(`Failed to get CAR file size: ${getErrorMessage(error)}`)
-      }
-    }
-
-    return { carPath, ipfsRootCid: rootCid.toString(), contentPath, carSize }
+    return { carPath, ipfsRootCid: rootCid, contentPath, carSize: size }
   } catch (error) {
     throw new FilecoinPinError(`Failed to create CAR file: ${getErrorMessage(error)}`, ERROR_CODES.CAR_CREATE_FAILED)
   }
@@ -221,8 +166,51 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
   // Read CAR data
   const carBytes = await fs.readFile(carPath)
 
-  // Validate payment capacity
-  await validatePaymentSetup(synapse, carBytes.length)
+  // Validate payment capacity through reusable helper
+  const readiness = await checkUploadReadiness({
+    synapse,
+    fileSize: carBytes.length,
+    autoConfigureAllowances: true,
+  })
+
+  if (!readiness.validation.isValid) {
+    throw new FilecoinPinError(
+      `Payment setup incomplete: ${readiness.validation.errorMessage}`,
+      ERROR_CODES.INSUFFICIENT_FUNDS,
+      {
+        helpMessage: readiness.validation.helpMessage,
+      }
+    )
+  }
+
+  if (readiness.capacity && !readiness.capacity.canUpload) {
+    throw new FilecoinPinError('Insufficient deposit for this upload', ERROR_CODES.INSUFFICIENT_FUNDS, {
+      suggestions: readiness.suggestions,
+      issues: readiness.capacity.issues,
+    })
+  }
+
+  if (readiness.allowances.updated) {
+    logger.info(
+      {
+        event: 'payments.allowances.updated',
+        transactionHash: readiness.allowances.transactionHash,
+      },
+      'WarmStorage permissions configured automatically'
+    )
+  } else if (readiness.allowances.needsUpdate) {
+    logger.warn({ event: 'payments.allowances.pending' }, 'WarmStorage permissions require manual configuration')
+  }
+
+  if (readiness.suggestions.length > 0) {
+    logger.warn(
+      {
+        event: 'payments.capacity.warning',
+        suggestions: readiness.suggestions,
+      },
+      'Payment capacity verified with warnings'
+    )
+  }
 
   // Create storage context with optional CDN flag
   if (withCDN) process.env.WITH_CDN = 'true'
@@ -231,21 +219,22 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
   // Upload to Filecoin via filecoin-pin
   const synapseService = { synapse, storage, providerInfo }
   const cid = CID.parse(ipfsRootCid)
-  const { pieceCid, pieceId, dataSetId } = await uploadToSynapse(synapseService, carBytes, cid, logger, {
+  const uploadResult = await executeUpload(synapseService, carBytes, cid, {
+    logger,
     contextId: `gha-upload-${Date.now()}`,
   })
 
   const providerId = String(providerInfo.id ?? '')
   const providerName = providerInfo.name ?? (providerInfo.serviceProvider || '')
-  const previewURL = getDownloadURL(providerInfo, pieceCid) || `https://ipfs.io/ipfs/${ipfsRootCid}`
+  const previewURL = getDownloadURL(providerInfo, uploadResult.pieceCid) || `https://ipfs.io/ipfs/${ipfsRootCid}`
 
   return {
-    pieceCid,
-    pieceId: pieceId != null ? String(pieceId) : '',
-    dataSetId,
+    pieceCid: uploadResult.pieceCid,
+    pieceId: uploadResult.pieceId != null ? String(uploadResult.pieceId) : '',
+    dataSetId: uploadResult.dataSetId,
     provider: { id: providerId, name: providerName },
     previewURL,
-    network: synapse.getNetwork(),
+    network: uploadResult.network,
   }
 }
 

@@ -1,6 +1,5 @@
 import pc from 'picocolors'
 import pino from 'pino'
-import { mergeAndSaveContext } from './context.js'
 import { createCarFile } from './filecoin.js'
 import { readEventPayload } from './github.js'
 import { formatSize } from './outputs.js'
@@ -12,56 +11,37 @@ import { formatSize } from './outputs.js'
  */
 
 /**
- * Update context with PR and build context
- */
-async function updateBuildContext() {
-  const buildRunId = process.env.GITHUB_RUN_ID || ''
-  const eventName = process.env.GITHUB_EVENT_NAME || ''
-  const event = await readEventPayload()
-
-  /** @type {Partial<CombinedContext>} */
-  const payload = {
-    buildRunId: buildRunId,
-    eventName: eventName,
-  }
-
-  // Handle PR context
-  if (event?.pull_request) {
-    const pr = event.pull_request
-    payload.pr = {
-      number: typeof pr.number === 'number' ? pr.number : Number(pr.number) || 0,
-      sha: pr?.head?.sha || '',
-      title: pr?.title || '',
-      author: pr?.user?.login || '',
-    }
-  }
-
-  await mergeAndSaveContext(payload)
-}
-
-/**
- * Run build phase: Create CAR file and store in context
+ * Run build phase: Create CAR file and return build context details
  */
 export async function runBuild() {
   const logger = pino({ level: process.env.LOG_LEVEL || 'info' })
 
   console.log('━━━ Build Phase: Creating CAR file ━━━')
 
-  // Check if this is a fork PR first
   const event = await readEventPayload()
-  if (event?.pull_request) {
-    const pr = event.pull_request
-    const isForkPR = pr.head?.repo?.full_name !== pr.base?.repo?.full_name
+  const buildRunId = process.env.GITHUB_RUN_ID || ''
+  const eventName = process.env.GITHUB_EVENT_NAME || ''
 
-    if (isForkPR) {
-      console.log('━━━ Fork PR Detected - Building CAR but Blocking Upload ━━━')
-      console.error('::error::Fork PR support is currently disabled. Only same-repo workflows are supported.')
-      console.log('::notice::Building CAR file but upload will be blocked')
-      // update the context with the upload status
-      mergeAndSaveContext({
-        uploadStatus: 'fork-pr-blocked',
-      })
+  /** @type {CombinedContext['pr'] | undefined} */
+  let pr
+  if (event?.pull_request) {
+    const pullRequest = event.pull_request
+    pr = {
+      number: typeof pullRequest.number === 'number' ? pullRequest.number : Number(pullRequest.number) || 0,
+      sha: pullRequest?.head?.sha || '',
+      title: pullRequest?.title || '',
+      author: pullRequest?.user?.login || '',
     }
+  }
+
+  const isForkPR = Boolean(
+    event?.pull_request && event.pull_request.head?.repo?.full_name !== event.pull_request.base?.repo?.full_name
+  )
+
+  if (isForkPR) {
+    console.log('━━━ Fork PR Detected - Building CAR but Blocking Upload ━━━')
+    console.error('::error::Fork PR support is currently disabled. Only same-repo workflows are supported.')
+    console.log('::notice::Building CAR file but upload will be blocked')
   }
 
   const { parseInputs, resolveContentPath } = await import('./inputs.js')
@@ -69,7 +49,6 @@ export async function runBuild() {
   const { contentPath } = inputs
   const targetPath = resolveContentPath(contentPath)
 
-  // Create CAR file
   const buildResult = /** @type {BuildResult} */ (await createCarFile(targetPath, contentPath, logger))
   const { carPath, ipfsRootCid, carSize } = buildResult
   console.log(`IPFS Root CID: ${pc.bold(ipfsRootCid)}`)
@@ -80,27 +59,27 @@ export async function runBuild() {
     console.log(`::notice::CAR file size: ${formatSize(carSize)}`)
   }
 
-  // Update context with build context (PR info, etc.)
-  await updateBuildContext()
-
-  // Note: PR context is saved
-  if (event?.pull_request?.number) {
-    console.log(`::notice::PR #${event.pull_request.number} context saved`)
+  if (pr?.number) {
+    console.log(`::notice::PR #${pr.number} context detected`)
   }
 
-  // Determine upload status based on whether this is a fork PR
-  const isForkPR =
-    event?.pull_request && event.pull_request.head?.repo?.full_name !== event.pull_request.base?.repo?.full_name
-  const uploadStatus = isForkPR ? 'fork-pr-blocked' : 'pending-upload'
+  /** @type {Partial<CombinedContext>} */
+  const context = {
+    ipfsRootCid,
+    carSize,
+    carPath,
+    uploadStatus: isForkPR ? 'fork-pr-blocked' : 'pending-upload',
+    contentPath,
+    buildRunId,
+    eventName,
+  }
 
-  // Update context with CID and CAR info
-  await mergeAndSaveContext({
-    ipfsRootCid: ipfsRootCid,
-    carSize: carSize,
-    carPath: carPath,
-    uploadStatus: uploadStatus,
-  })
+  if (pr) {
+    context.pr = pr
+  }
 
-  console.log('✓ Build complete. CAR file created and stored in context')
+  console.log('✓ Build complete. CAR file created.')
   console.log('::notice::Build phase complete. CAR file created.')
+
+  return context
 }

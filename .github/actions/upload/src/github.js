@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises'
 import { Octokit } from '@octokit/rest'
-import { getGlobalContext, mergeAndSaveContext } from './context.js'
 import { getErrorMessage } from './errors.js'
 import { getInput } from './inputs.js'
 
@@ -114,12 +113,12 @@ async function resolveFromWorkflowRunApi(octokit, event) {
 }
 
 /**
- * Ensure PR metadata is available in global context, resolving it when triggered by workflow_run
+ * Ensure PR metadata is available, resolving it when triggered by workflow_run
+ * @param {import('./types.js').CombinedContext['pr'] | undefined} existingPr
  * @returns {Promise<import('./types.js').CombinedContext['pr'] | undefined>}
  */
-export async function ensurePullRequestContext() {
-  const ctx = getGlobalContext()
-  if (ctx?.pr?.number) return ctx.pr
+export async function ensurePullRequestContext(existingPr) {
+  if (existingPr?.number) return existingPr
 
   const event = await readEventPayload()
   if (!event) return undefined
@@ -136,10 +135,5 @@ export async function ensurePullRequestContext() {
     }
   }
 
-  if (pr) {
-    const merged = mergeAndSaveContext({ pr })
-    return merged.pr
-  }
-
-  return undefined
+  return pr
 }
