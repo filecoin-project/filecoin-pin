@@ -8,7 +8,7 @@
 import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { calculateDepositCapacity, calculateStorageRunway } from '../synapse/payments.js'
+import { calculateDepositCapacity, calculateStorageRunway } from '../core/payments/index.js'
 import { cleanupProvider } from '../synapse/service.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'

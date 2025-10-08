@@ -12,7 +12,7 @@ import {
   calculateStorageRunway,
   computeAdjustmentForExactDays,
   computeAdjustmentForExactDeposit,
-} from '../synapse/payments.js'
+} from '../core/payments/index.js'
 import { cleanupProvider } from '../synapse/service.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'

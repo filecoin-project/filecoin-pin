@@ -9,7 +9,7 @@
 import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { calculateStorageRunway, computeTopUpForDuration } from '../synapse/payments.js'
+import { calculateStorageRunway, computeTopUpForDuration } from '../core/payments/index.js'
 import { cleanupProvider } from '../synapse/service.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
