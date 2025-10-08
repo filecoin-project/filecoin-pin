@@ -26,8 +26,8 @@ import { log } from '../utils/cli-logger.js'
 export interface DepositOptions {
   privateKey?: string
   rpcUrl?: string
-  amount?: string
-  days?: number
+  amount?: string | undefined
+  days?: number | undefined
 }
 
 /**
