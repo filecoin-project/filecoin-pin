@@ -1,6 +1,5 @@
 import { promises as fs } from 'node:fs'
 import { RPC_URLS } from '@filoz/synapse-sdk'
-import { createUnixfsCarBuilder } from 'filecoin-pin/core/files'
 import {
   calculateStorageRunway,
   computeTopUpForDuration,
@@ -12,6 +11,7 @@ import {
   createStorageContext,
   initializeSynapse as initSynapse,
 } from 'filecoin-pin/core/synapse'
+import { createUnixfsCarBuilder } from 'filecoin-pin/core/unixfs'
 import { checkUploadReadiness, executeUpload, getDownloadURL } from 'filecoin-pin/core/upload'
 import { formatRunwaySummary, formatUSDFC } from 'filecoin-pin/core/utils'
 import { CID } from 'multiformats/cid'
@@ -23,7 +23,7 @@ import { ERROR_CODES, FilecoinPinError, getErrorMessage } from './errors.js'
  * @typedef {import('./types.js').UploadResult} UploadResult
  * @typedef {import('./types.js').PaymentStatus} PaymentStatus
  * @typedef {import('./types.js').FilecoinPinPaymentStatus} FilecoinPinPaymentStatus
- * @typedef {import('@filoz/synapse-sdk').Synapse} Synapse
+ * @typedef {import('./types.js').Synapse} Synapse
  */
 
 /**

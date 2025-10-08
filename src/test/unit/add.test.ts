@@ -47,7 +47,7 @@ vi.mock('../../core/synapse/index.js', () => ({
   cleanupSynapseService: vi.fn(),
 }))
 
-vi.mock('../../core/files/index.js', () => ({
+vi.mock('../../core/unixfs/index.js', () => ({
   createCarFromPath: vi.fn((_filePath: string, options: any) => {
     const bare = options?.bare || false
     // Different CIDs for bare vs directory mode
@@ -140,7 +140,7 @@ describe('Add Command', () => {
       })
 
       // Verify createCarFromPath was called without bare flag
-      const { createCarFromPath } = await import('../../core/files/index.js')
+      const { createCarFromPath } = await import('../../core/unixfs/index.js')
       expect(vi.mocked(createCarFromPath)).toHaveBeenCalledWith(
         testFile,
         expect.objectContaining({
@@ -174,7 +174,7 @@ describe('Add Command', () => {
       })
 
       // Verify createCarFromPath was called with bare flag
-      const { createCarFromPath } = await import('../../core/files/index.js')
+      const { createCarFromPath } = await import('../../core/unixfs/index.js')
       expect(vi.mocked(createCarFromPath)).toHaveBeenCalledWith(
         testFile,
         expect.objectContaining({

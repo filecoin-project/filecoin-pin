@@ -8,12 +8,14 @@
 import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { calculateActualCapacity, getStorageScale, USDFC_DECIMALS } from '../core/payments/index.js'
+import {
+  calculateActualCapacity,
+  DEFAULT_LOCKUP_DAYS,
+  getStorageScale,
+  USDFC_DECIMALS,
+} from '../core/payments/index.js'
 import { formatFIL, formatUSDFC } from '../core/utils/format.js'
 import { log } from '../utils/cli-logger.js'
-
-// Display constants
-const DEFAULT_LOCKUP_DAYS = 10
 
 /**
  * Parse storage allowance string

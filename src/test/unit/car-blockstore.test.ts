@@ -3,7 +3,7 @@ import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { CARWritingBlockstore } from '../../core/files/index.js'
+import { CARWritingBlockstore } from '../../core/car/index.js'
 
 describe('CARWritingBlockstore', () => {
   let blockstore: CARWritingBlockstore

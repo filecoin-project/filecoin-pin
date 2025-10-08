@@ -72,7 +72,10 @@ export async function runBuild() {
     contentPath,
     buildRunId,
     eventName,
-    pr,
+  }
+
+  if (pr) {
+    context.pr = pr
   }
 
   console.log('✓ Build complete. CAR file created.')

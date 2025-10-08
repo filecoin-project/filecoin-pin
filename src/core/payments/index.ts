@@ -1,35 +1,67 @@
+/**
+ * Synapse SDK Payment Operations
+ *
+ * This module demonstrates comprehensive payment operations using the Synapse SDK,
+ * providing patterns for interacting with the Filecoin Onchain Cloud payment
+ * system (Filecoin Pay).
+ *
+ * Key concepts demonstrated:
+ * - Native FIL balance checking for gas fees
+ * - ERC20 token (USDFC) balance management
+ * - Two-step deposit process (approve + deposit)
+ * - Service approval configuration for storage operators
+ * - Storage capacity calculations from pricing
+ *
+ * @module synapse/payments
+ */
+
 import { SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 
-/** Number of decimal places used by USDFC tokens. */
+// Constants
 export const USDFC_DECIMALS = 18
+const MIN_FIL_FOR_GAS = ethers.parseEther('0.1') // Minimum FIL padding for gas
+export const DEFAULT_LOCKUP_DAYS = 10 // WarmStorage requires 10 days lockup
 
-/** Default WarmStorage lockup period (days). */
-export const DEFAULT_LOCKUP_DAYS = 10
-
-/**
- * Numerator/denominator pair representing the standard 10% buffer applied to
- * lockup requirements (adds a safety margin beyond the mandatory lockup).
- */
-export const BUFFER_NUMERATOR = 11n
-export const BUFFER_DENOMINATOR = 10n
-
-/** Minimum FIL balance (in wei) recommended to cover gas fees. */
-export const MIN_FIL_FOR_GAS = ethers.parseEther('0.1')
-
-// Maximum allowances for trusted WarmStorage service.
+// Maximum allowances for trusted WarmStorage service
+// Using MaxUint256 which MetaMask displays as "Unlimited"
 const MAX_RATE_ALLOWANCE = ethers.MaxUint256
 const MAX_LOCKUP_ALLOWANCE = ethers.MaxUint256
 
+// Standard buffer configuration (10%) used across deposit/lockup calculations
+const BUFFER_NUMERATOR = 11n
+const BUFFER_DENOMINATOR = 10n
+
+// Helper to apply a buffer on top of a base amount
+function withBuffer(amount: bigint): bigint {
+  return (amount * BUFFER_NUMERATOR) / BUFFER_DENOMINATOR
+}
+
+// Helper to remove the buffer (inverse of withBuffer)
+function withoutBuffer(amount: bigint): bigint {
+  return (amount * BUFFER_DENOMINATOR) / BUFFER_NUMERATOR
+}
+
 /**
- * Maximum integer scaling factor when converting TiB/month to epoch-based
- * allowances. Keeps intermediate math within `Number.MAX_SAFE_INTEGER`.
+ * Maximum precision scale used when converting small TiB (as a float) to integer(BigInt) math
  */
 export const STORAGE_SCALE_MAX = 10_000_000
 const STORAGE_SCALE_MAX_BI = BigInt(STORAGE_SCALE_MAX)
 
-export type StorageRunwayState = 'unknown' | 'no-spend' | 'active'
+/**
+ * Compute adaptive integer scaling for a TiB value so that
+ * Math.floor(storageTiB * scale) stays within Number.MAX_SAFE_INTEGER.
+ * This allows us to handle numbers as small as 1/10_000_000 TiB and as large as Number.MAX_SAFE_INTEGER TiB (> 1 YiB)
+ */
+export function getStorageScale(storageTiB: number): number {
+  if (storageTiB <= 0) return 1
+  const maxScaleBySafe = Math.floor(Number.MAX_SAFE_INTEGER / storageTiB)
+  return Math.max(1, Math.min(STORAGE_SCALE_MAX, maxScaleBySafe))
+}
 
+/**
+ * Service approval status from the Payments contract
+ */
 export interface ServiceApprovalStatus {
   rateAllowance: bigint
   lockupAllowance: bigint
@@ -38,6 +70,9 @@ export interface ServiceApprovalStatus {
   rateUsed?: bigint
 }
 
+/**
+ * Complete payment status including balances and approvals
+ */
 export interface PaymentStatus {
   network: string
   address: string
@@ -47,11 +82,16 @@ export interface PaymentStatus {
   currentAllowances: ServiceApprovalStatus
 }
 
+/**
+ * Storage allowance calculations
+ */
 export interface StorageAllowances {
   rateAllowance: bigint
   lockupAllowance: bigint
   storageCapacityTiB: number
 }
+
+export type StorageRunwayState = 'unknown' | 'no-spend' | 'active'
 
 export interface StorageRunwaySummary {
   state: StorageRunwayState
@@ -64,58 +104,429 @@ export interface StorageRunwaySummary {
 }
 
 /**
- * Result of evaluating whether current payment setup can support an upload.
+ * Check FIL balance for gas fees
+ *
+ * Example usage:
+ * ```typescript
+ * const synapse = await Synapse.create({ privateKey, rpcURL })
+ * const filStatus = await checkFILBalance(synapse)
+ *
+ * if (filStatus.balance === 0n) {
+ *   console.log('Account does not exist on-chain or has no FIL')
+ * } else if (!filStatus.hasSufficientGas) {
+ *   console.log('Insufficient FIL for gas fees')
+ * }
+ * ```
+ *
+ * @param synapse - Initialized Synapse instance
+ * @returns Balance information and network type
  */
-export interface PaymentCapacityCheck {
-  canUpload: boolean
-  storageTiB: number
-  required: StorageAllowances
-  issues: {
-    insufficientDeposit?: bigint
-    insufficientRateAllowance?: bigint
-    insufficientLockupAllowance?: bigint
+export async function checkFILBalance(synapse: Synapse): Promise<{
+  balance: bigint
+  isCalibnet: boolean
+  hasSufficientGas: boolean
+}> {
+  const network = synapse.getNetwork()
+  const isCalibnet = network === 'calibration'
+
+  try {
+    const provider = synapse.getProvider()
+    const signer = synapse.getSigner()
+    const address = await signer.getAddress()
+
+    // Get native token balance
+    const balance = await provider.getBalance(address)
+
+    // Check if balance is sufficient for gas
+    const hasSufficientGas = balance >= MIN_FIL_FOR_GAS
+
+    return {
+      balance,
+      isCalibnet,
+      hasSufficientGas,
+    }
+  } catch (_error) {
+    // Account doesn't exist or network error
+    return {
+      balance: 0n,
+      isCalibnet,
+      hasSufficientGas: false,
+    }
   }
-  suggestions: string[]
 }
 
 /**
- * Validation result describing whether payment preconditions are satisfied.
+ * Check USDFC token balance in wallet
+ *
+ * Example usage:
+ * ```typescript
+ * const synapse = await Synapse.create({ privateKey, rpcURL })
+ * const usdfcBalance = await checkUSDFCBalance(synapse)
+ *
+ * if (usdfcBalance === 0n) {
+ *   console.log('No USDFC tokens found')
+ * } else {
+ *   const formatted = ethers.formatUnits(usdfcBalance, USDFC_DECIMALS)
+ *   console.log(`USDFC Balance: ${formatted}`)
+ * }
+ * ```
+ *
+ * @param synapse - Initialized Synapse instance
+ * @returns USDFC balance in wei (0 if account doesn't exist or has no balance)
  */
+export async function checkUSDFCBalance(synapse: Synapse): Promise<bigint> {
+  try {
+    // Get wallet balance (not deposited balance)
+    const balance = await synapse.payments.walletBalance(TOKENS.USDFC)
+    return balance
+  } catch (_error) {
+    // Account doesn't exist, has no FIL for gas, or contract call failed
+    // Treat as having 0 USDFC
+    return 0n
+  }
+}
+
+/**
+ * Get deposited USDFC balance in Payments contract
+ *
+ * This is different from wallet balance - it's the amount
+ * already deposited and available for payment rails.
+ *
+ * @param synapse - Initialized Synapse instance
+ * @returns Deposited USDFC balance in its smallest unit
+ */
+export async function getDepositedBalance(synapse: Synapse): Promise<bigint> {
+  const depositedAmount = await synapse.payments.balance(TOKENS.USDFC)
+  return depositedAmount
+}
+
+/**
+ * Get current payment status including all balances and approvals
+ *
+ * Example usage:
+ * ```typescript
+ * const status = await getPaymentStatus(synapse)
+ * console.log(`Address: ${status.address}`)
+ * console.log(`FIL Balance: ${ethers.formatEther(status.filBalance)}`)
+ * console.log(`USDFC Balance: ${ethers.formatUnits(status.usdfcBalance, 18)}`)
+ * console.log(`Deposited: ${ethers.formatUnits(status.depositedAmount, 18)}`)
+ * ```
+ *
+ * @param synapse - Initialized Synapse instance
+ * @returns Complete payment status
+ */
+export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus> {
+  const signer = synapse.getSigner()
+  const network = synapse.getNetwork()
+  const warmStorageAddress = synapse.getWarmStorageAddress()
+
+  // Run all async operations in parallel for efficiency
+  const [address, filStatus, usdfcBalance, depositedAmount, currentAllowances] = await Promise.all([
+    signer.getAddress(),
+    checkFILBalance(synapse),
+    checkUSDFCBalance(synapse),
+    getDepositedBalance(synapse),
+    synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC),
+  ])
+
+  return {
+    network,
+    address,
+    filBalance: filStatus.balance,
+    usdfcBalance,
+    depositedAmount,
+    currentAllowances,
+  }
+}
+
 export interface PaymentValidationResult {
   isValid: boolean
   errorMessage?: string
   helpMessage?: string
 }
 
-/** Apply the standard 10% buffer to a base amount. */
-export function withBuffer(amount: bigint): bigint {
-  return (amount * BUFFER_NUMERATOR) / BUFFER_DENOMINATOR
-}
+export function validatePaymentRequirements(
+  hasSufficientGas: boolean,
+  usdfcBalance: bigint,
+  isCalibnet: boolean
+): PaymentValidationResult {
+  if (!hasSufficientGas) {
+    const result: PaymentValidationResult = {
+      isValid: false,
+      errorMessage: 'Insufficient FIL for gas fees',
+    }
+    if (isCalibnet) {
+      result.helpMessage = 'Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'
+    }
+    return result
+  }
 
-/** Remove the standard 10% buffer (inverse of {@link withBuffer}). */
-export function withoutBuffer(amount: bigint): bigint {
-  return (amount * BUFFER_DENOMINATOR) / BUFFER_NUMERATOR
+  if (usdfcBalance === 0n) {
+    return {
+      isValid: false,
+      errorMessage: 'No USDFC tokens found',
+      helpMessage: isCalibnet
+        ? 'Get test USDFC from: https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet'
+        : 'Mint USDFC with FIL: https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step',
+    }
+  }
+
+  return { isValid: true }
 }
 
 /**
- * Compute an adaptive scaling factor that keeps `storageTiB * scale` within
- * `Number.MAX_SAFE_INTEGER` while preserving precision for very small values.
+ * Deposit USDFC into the Payments contract
+ *
+ * This demonstrates the two-step process required for depositing ERC20 tokens:
+ * 1. Approve the Payments contract to spend USDFC (standard ERC20 approval)
+ * 2. Call deposit to move funds into the Payments contract
+ *
+ * Example usage:
+ * ```typescript
+ * const amountToDeposit = ethers.parseUnits('100', 18) // 100 USDFC
+ * const { approvalTx, depositTx } = await depositUSDFC(synapse, amountToDeposit)
+ * console.log(`Deposit transaction: ${depositTx}`)
+ * ```
+ *
+ * @param synapse - Initialized Synapse instance
+ * @param amount - Amount to deposit in USDFC (with decimals)
+ * @returns Transaction hashes for approval and deposit
  */
-export function getStorageScale(storageTiB: number): number {
-  if (storageTiB <= 0) return 1
-  const maxScaleBySafe = Math.floor(Number.MAX_SAFE_INTEGER / storageTiB)
-  return Math.max(1, Math.min(STORAGE_SCALE_MAX, maxScaleBySafe))
+export async function depositUSDFC(
+  synapse: Synapse,
+  amount: bigint
+): Promise<{
+  approvalTx?: string
+  depositTx: string
+}> {
+  const paymentsAddress = synapse.getPaymentsAddress()
+
+  // Step 1: Check current allowance
+  const currentAllowance = await synapse.payments.allowance(paymentsAddress, TOKENS.USDFC)
+
+  let approvalTx: string | undefined
+
+  // Step 2: Approve if needed (skip if already approved)
+  if (currentAllowance < amount) {
+    const approveTx = await synapse.payments.approve(paymentsAddress, amount, TOKENS.USDFC)
+    await approveTx.wait()
+    approvalTx = approveTx.hash
+  }
+
+  // Step 3: Make the deposit
+  const depositTransaction = await synapse.payments.deposit(amount, TOKENS.USDFC)
+  await depositTransaction.wait()
+
+  const result: { approvalTx?: string; depositTx: string } = {
+    depositTx: depositTransaction.hash,
+  }
+
+  if (approvalTx) {
+    result.approvalTx = approvalTx
+  }
+
+  return result
 }
 
 /**
- * Convert a human-friendly storage target (TiB/month) into rate/lockup
- * allowances required by WarmStorage.
+ * Withdraw USDFC from the Payments contract back to the wallet
+ *
+ * Example usage:
+ * ```typescript
+ * const amountToWithdraw = ethers.parseUnits('10', 18) // 10 USDFC
+ * const txHash = await withdrawUSDFC(synapse, amountToWithdraw)
+ * console.log(`Withdraw transaction: ${txHash}`)
+ * ```
+ *
+ * @param synapse - Initialized Synapse instance
+ * @param amount - Amount to withdraw in USDFC (with decimals)
+ * @returns Transaction hash for the withdrawal
+ */
+export async function withdrawUSDFC(synapse: Synapse, amount: bigint): Promise<string> {
+  const tx = await synapse.payments.withdraw(amount, TOKENS.USDFC)
+  await tx.wait()
+  return tx.hash
+}
+
+/**
+ * Set service approvals for WarmStorage operator
+ *
+ * This authorizes the WarmStorage contract to create payment rails on behalf
+ * of the user. The approval consists of three parameters:
+ * - Rate allowance: Maximum payment rate per epoch (30 seconds)
+ * - Lockup allowance: Maximum funds that can be locked at once
+ * - Max lockup period: How far in advance funds can be locked (in epochs)
+ *
+ * Example usage:
+ * ```typescript
+ * // Allow up to 10 USDFC per epoch rate, 1000 USDFC total lockup
+ * const rate = ethers.parseUnits('10', 18)
+ * const lockup = ethers.parseUnits('1000', 18)
+ * const txHash = await setServiceApprovals(synapse, rate, lockup)
+ * console.log(`Approval transaction: ${txHash}`)
+ * ```
+ *
+ * @param synapse - Initialized Synapse instance
+ * @param rateAllowance - Maximum rate per epoch in USDFC
+ * @param lockupAllowance - Maximum lockup amount in USDFC
+ * @returns Transaction hash
+ */
+export async function setServiceApprovals(
+  synapse: Synapse,
+  rateAllowance: bigint,
+  lockupAllowance: bigint
+): Promise<string> {
+  const warmStorageAddress = synapse.getWarmStorageAddress()
+
+  // Max lockup period is always 10 days worth of epochs for WarmStorage
+  const maxLockupPeriod = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
+
+  // Set the service approval
+  const tx = await synapse.payments.approveService(
+    warmStorageAddress,
+    rateAllowance,
+    lockupAllowance,
+    maxLockupPeriod,
+    TOKENS.USDFC
+  )
+
+  await tx.wait()
+  return tx.hash
+}
+
+/**
+ * Check if WarmStorage allowances are at maximum
+ *
+ * This function checks whether the current allowances for WarmStorage
+ * are already set to maximum values (effectively infinite).
+ *
+ * @param synapse - Initialized Synapse instance
+ * @returns Current allowances and whether they need updating
+ */
+export async function checkAllowances(synapse: Synapse): Promise<{
+  needsUpdate: boolean
+  currentAllowances: ServiceApprovalStatus
+}> {
+  const warmStorageAddress = synapse.getWarmStorageAddress()
+
+  // Get current allowances
+  const currentAllowances = await synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC)
+
+  // Check if we need to update (not at max)
+  const needsUpdate =
+    currentAllowances.rateAllowance < MAX_RATE_ALLOWANCE || currentAllowances.lockupAllowance < MAX_LOCKUP_ALLOWANCE
+
+  return {
+    needsUpdate,
+    currentAllowances,
+  }
+}
+
+/**
+ * Set WarmStorage allowances to maximum
+ *
+ * This function sets the allowances for WarmStorage to maximum values,
+ * effectively treating it as a fully trusted service.
+ *
+ * @param synapse - Initialized Synapse instance
+ * @returns Transaction hash and updated allowances
+ */
+export async function setMaxAllowances(synapse: Synapse): Promise<{
+  transactionHash: string
+  currentAllowances: ServiceApprovalStatus
+}> {
+  const warmStorageAddress = synapse.getWarmStorageAddress()
+
+  // Set to maximum allowances
+  const txHash = await setServiceApprovals(synapse, MAX_RATE_ALLOWANCE, MAX_LOCKUP_ALLOWANCE)
+
+  // Return updated allowances
+  const updatedAllowances = await synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC)
+
+  return {
+    transactionHash: txHash,
+    currentAllowances: updatedAllowances,
+  }
+}
+
+/**
+ * Check and automatically set WarmStorage allowances to maximum if needed
+ *
+ * This function treats WarmStorage as a fully trusted service and ensures
+ * that rate and lockup allowances are always set to maximum values.
+ * This simplifies the user experience by removing the need to understand
+ * and configure complex allowance settings by assuming that WarmStorage
+ * can be fully trusted to manage payments on the user's behalf.
+ *
+ * The function will:
+ * 1. Check current allowances for WarmStorage
+ * 2. If either is not at maximum, update them to MAX_UINT256
+ * 3. Return information about what was done
+ *
+ * Example usage:
+ * ```typescript
+ * // Call before any operation that requires payments
+ * const result = await checkAndSetAllowances(synapse)
+ * if (result.updated) {
+ *   console.log(`Allowances updated: ${result.transactionHash}`)
+ * }
+ * ```
+ *
+ * @param synapse - Initialized Synapse instance
+ * @returns Result indicating if allowances were updated and transaction hash if applicable
+ */
+export async function checkAndSetAllowances(synapse: Synapse): Promise<{
+  updated: boolean
+  transactionHash?: string
+  currentAllowances: ServiceApprovalStatus
+}> {
+  const checkResult = await checkAllowances(synapse)
+
+  if (checkResult.needsUpdate) {
+    const setResult = await setMaxAllowances(synapse)
+    return {
+      updated: true,
+      transactionHash: setResult.transactionHash,
+      currentAllowances: setResult.currentAllowances,
+    }
+  }
+
+  return {
+    updated: false,
+    currentAllowances: checkResult.currentAllowances,
+  }
+}
+
+/**
+ * Calculate storage allowances from TiB per month
+ *
+ * This utility converts human-friendly storage units (TiB/month) into the
+ * epoch-based rates required by the payment system. It uses the actual
+ * pricing from the storage service to calculate accurate allowances.
+ *
+ * Example usage:
+ * ```typescript
+ * const storageInfo = await synapse.storage.getStorageInfo()
+ * const pricing = storageInfo.pricing.noCDN.perTiBPerEpoch
+ *
+ * // Calculate allowances for 10 TiB/month
+ * const allowances = calculateStorageAllowances(10, pricing)
+ * console.log(`Rate needed: ${ethers.formatUnits(allowances.rateAllowance, 18)} USDFC/epoch`)
+ * ```
+ *
+ * @param storageTiB - Desired storage capacity in TiB/month
+ * @param pricePerTiBPerEpoch - Current pricing from storage service
+ * @returns Calculated allowances for the specified capacity
  */
 export function calculateStorageAllowances(storageTiB: number, pricePerTiBPerEpoch: bigint): StorageAllowances {
+  // Use adaptive scaling to avoid Number overflow/precision issues for very large values
+  // and to preserve precision for small fractional values.
   const scale = getStorageScale(storageTiB)
   const scaledStorage = Math.floor(storageTiB * scale)
+  // Calculate rate allowance (per epoch payment)
   const rateAllowance = (pricePerTiBPerEpoch * BigInt(scaledStorage)) / BigInt(scale)
 
+  // Calculate lockup allowance (10 days worth)
   const epochsIn10Days = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const lockupAllowance = rateAllowance * epochsIn10Days
 
@@ -127,17 +538,25 @@ export function calculateStorageAllowances(storageTiB: number, pricePerTiBPerEpo
 }
 
 /**
- * Inverse of {@link calculateStorageAllowances}: derive TiB/month capacity
- * supported by the provided rate allowance at current pricing.
+ * Calculate actual storage capacity from current allowances
+ *
+ * This is the inverse of calculateStorageAllowances - it determines how much
+ * storage capacity the current allowances support.
+ *
+ * @param rateAllowance - Current rate allowance in its smallest unit
+ * @param pricePerTiBPerEpoch - Current pricing from storage service
+ * @returns Storage capacity in TiB that can be supported
  */
 export function calculateActualCapacity(rateAllowance: bigint, pricePerTiBPerEpoch: bigint): number {
   if (pricePerTiBPerEpoch === 0n) return 0
 
+  // Calculate TiB capacity from rate allowance
   const scaledQuotient = (rateAllowance * STORAGE_SCALE_MAX_BI) / pricePerTiBPerEpoch
   if (scaledQuotient > 0n) {
     return Number(scaledQuotient) / STORAGE_SCALE_MAX
   }
 
+  // fallback for very small values that underflow to 0 after integer division
   const rateFloat = Number(ethers.formatUnits(rateAllowance, USDFC_DECIMALS))
   const priceFloat = Number(ethers.formatUnits(pricePerTiBPerEpoch, USDFC_DECIMALS))
   if (!Number.isFinite(rateFloat) || !Number.isFinite(priceFloat) || priceFloat === 0) {
@@ -147,12 +566,19 @@ export function calculateActualCapacity(rateAllowance: bigint, pricePerTiBPerEpo
 }
 
 /**
- * Determine storage capacity (TiB/month) purchasable with a USDFC amount,
- * accounting for the mandatory 10-day lockup period.
+ * Calculate storage capacity from USDFC amount
+ *
+ * Determines how much storage can be purchased with a given USDFC amount,
+ * accounting for the 10-day lockup period.
+ *
+ * @param usdfcAmount - Amount of USDFC in its smallest unit
+ * @param pricePerTiBPerEpoch - Current pricing from storage service
+ * @returns Storage capacity in TiB/month
  */
 export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpoch: bigint): number {
   if (pricePerTiBPerEpoch === 0n) return 0
 
+  // Calculate how much this covers for 10 days
   const epochsIn10Days = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const ratePerEpoch = usdfcAmount / epochsIn10Days
 
@@ -160,11 +586,18 @@ export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpo
 }
 
 /**
- * Compute the additional deposit required to keep current spend alive for the
- * specified number of days.
+ * Compute the additional deposit required to fund current usage for a duration.
+ *
+ * The WarmStorage service maintains ~10 days of lockup (lockupUsed) and draws future
+ * lockups from the available deposit (deposited - lockupUsed). To keep the current
+ * rails alive for N days, ensure available >= N days of spend at the current rateUsed.
+ *
+ * @param status - Current payment status (from getPaymentStatus)
+ * @param days - Number of days to keep the current usage funded
+ * @returns Breakdown of required top-up and related values
  */
 export function computeTopUpForDuration(
-  status: Pick<PaymentStatus, 'depositedAmount' | 'currentAllowances'>,
+  status: PaymentStatus,
   days: number
 ): {
   topUp: bigint
@@ -212,14 +645,15 @@ export function computeTopUpForDuration(
 }
 
 /**
- * Compute deposit delta needed to reach an exact runway in days. Positive delta
- * means deposit, negative means withdraw. Includes an hour safety buffer.
+ * Compute the exact adjustment (deposit or withdraw) needed to set runway to `days`.
+ *
+ * Positive result indicates a deposit is needed; negative indicates a withdrawal is possible.
  */
 export function computeAdjustmentForExactDays(
-  status: Pick<PaymentStatus, 'depositedAmount' | 'currentAllowances'>,
+  status: PaymentStatus,
   days: number
 ): {
-  delta: bigint
+  delta: bigint // >0 deposit, <0 withdraw, 0 none
   targetAvailable: bigint
   available: bigint
   rateUsed: bigint
@@ -245,6 +679,8 @@ export function computeAdjustmentForExactDays(
     }
   }
 
+  // Safety buffer to ensure runway >= requested days even if rateUsed shifts slightly.
+  // Use a 1-hour buffer by default.
   const perHour = perDay / 24n
   const safety = perHour > 0n ? perHour : 1n
   const targetAvailable = BigInt(Math.floor(days)) * perDay + safety
@@ -261,14 +697,15 @@ export function computeAdjustmentForExactDays(
 }
 
 /**
- * Compute deposit delta needed to reach an exact total deposit while never
- * withdrawing below the currently locked amount.
+ * Compute the exact adjustment (deposit or withdraw) to reach a target absolute deposit.
+ *
+ * Clamps to not withdraw below the currently locked amount.
  */
 export function computeAdjustmentForExactDeposit(
-  status: Pick<PaymentStatus, 'depositedAmount' | 'currentAllowances'>,
+  status: PaymentStatus,
   targetDeposit: bigint
 ): {
-  delta: bigint
+  delta: bigint // >0 deposit, <0 withdraw, 0 none
   clampedTarget: bigint
   lockupUsed: bigint
 } {
@@ -280,8 +717,17 @@ export function computeAdjustmentForExactDeposit(
 }
 
 /**
- * Calculate storage capacity insights for a deposit amount assuming unrestricted
- * allowances (max trusted WarmStorage configuration).
+ * Calculate storage capacity from deposit amount
+ *
+ * This function calculates how much storage capacity a deposit can support,
+ * treating WarmStorage as fully trusted with max allowances, i.e. not
+ * accounting for allowance limits. If usage limits need to be accounted for
+ * then the capacity can be capped by either deposit or allowances.
+ * This function accounts for the 10-day lockup requirement.
+ *
+ * @param depositAmount - Amount deposited in USDFC
+ * @param pricePerTiBPerEpoch - Current pricing from storage service
+ * @returns Storage capacity information
  */
 export function calculateDepositCapacity(
   depositAmount: bigint,
@@ -305,14 +751,21 @@ export function calculateDepositCapacity(
     }
   }
 
+  // With infinite allowances, deposit is the only limiting factor
+  // Deposit needs to cover: lockup (10 days) + at least some buffer
   const epochsIn10Days = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const epochsPerMonth = TIME_CONSTANTS.EPOCHS_PER_MONTH
 
+  // Maximum storage we can support with this deposit
+  // Reserve 10% for buffer beyond the lockup
+  // Calculate max rate per epoch we can afford with deposit
   const maxRatePerEpoch = (depositAmount * BUFFER_DENOMINATOR) / (epochsIn10Days * BUFFER_NUMERATOR)
 
+  // Convert to storage capacity
   const tibPerMonth = calculateActualCapacity(maxRatePerEpoch, pricePerTiBPerEpoch)
   const gibPerMonth = tibPerMonth * 1024
 
+  // Calculate the actual costs for this capacity
   const monthlyPayment = maxRatePerEpoch * epochsPerMonth
   const requiredLockup = maxRatePerEpoch * epochsIn10Days
   const totalRequired = withBuffer(requiredLockup)
@@ -328,17 +781,19 @@ export function calculateDepositCapacity(
 }
 
 /**
- * Derive allowance requirements from a CAR size using current TiB pricing.
+ * Calculate required allowances from CAR file size
+ *
+ * Simple wrapper that converts file size to storage allowances.
+ *
+ * @param carSizeBytes - Size of the CAR file in bytes
+ * @param pricePerTiBPerEpoch - Current pricing from storage service
+ * @returns Required allowances for the file
  */
 export function calculateRequiredAllowances(carSizeBytes: number, pricePerTiBPerEpoch: bigint): StorageAllowances {
   const storageTiB = carSizeBytes / Number(SIZE_CONSTANTS.TiB)
   return calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
 }
 
-/**
- * Summarize storage runway from current deposit and allowance usage. Returns a
- * structured payload that callers can render for CLI, web, or automated flows.
- */
 export function calculateStorageRunway(
   status?: Pick<PaymentStatus, 'depositedAmount' | 'currentAllowances'> | null
 ): StorageRunwaySummary {
@@ -399,354 +854,53 @@ export function calculateStorageRunway(
 }
 
 /**
- * Validate that a wallet meets the minimum requirements for initiating
- * storage operations (sufficient FIL for gas, presence of USDFC balance).
- *
- * Returns a structured result so callers can surface helpful error messaging
- * without duplicating business logic.
+ * Payment capacity validation for a specific file
  */
-export function validatePaymentRequirements(
-  hasSufficientGas: boolean,
-  usdfcBalance: bigint,
-  isCalibnet: boolean
-): PaymentValidationResult {
-  if (!hasSufficientGas) {
-    const result: PaymentValidationResult = {
-      isValid: false,
-      errorMessage: 'Insufficient FIL for gas fees',
-    }
-    if (isCalibnet) {
-      result.helpMessage = 'Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'
-    }
-    return result
+export interface PaymentCapacityCheck {
+  canUpload: boolean
+  storageTiB: number
+  required: StorageAllowances
+  issues: {
+    insufficientDeposit?: bigint
+    insufficientRateAllowance?: bigint
+    insufficientLockupAllowance?: bigint
   }
-
-  if (usdfcBalance === 0n) {
-    return {
-      isValid: false,
-      errorMessage: 'No USDFC tokens found',
-      helpMessage: isCalibnet
-        ? 'Get test USDFC from: https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet'
-        : 'Mint USDFC with FIL: https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step',
-    }
-  }
-
-  return { isValid: true }
+  suggestions: string[]
 }
 
 /**
- * Deposit USDFC into the Payments contract.
+ * Validate payment capacity for a specific CAR file
  *
- * This demonstrates the two-step process required for depositing ERC20 tokens:
- * 1. Approve the Payments contract to spend USDFC (standard ERC20 approval).
- * 2. Call deposit to move funds into the Payments contract.
- *
- * The function detects existing allowance and only performs the approval step
- * when necessary to reduce unnecessary transactions.
+ * This function checks if the deposit is sufficient for the file upload. It
+ * does not account for allowances since WarmStorage is assumed to be given
+ * full trust with max allowances.
  *
  * Example usage:
  * ```typescript
- * const amountToDeposit = ethers.parseUnits('100', 18)
- * const { approvalTx, depositTx } = await depositUSDFC(synapse, amountToDeposit)
- * console.log(`Deposit transaction: ${depositTx}`)
- * ```
+ * const fileSize = 10 * 1024 * 1024 * 1024 // 10 GiB
+ * const capacity = await validatePaymentCapacity(synapse, fileSize)
  *
- * @param synapse - Initialized Synapse instance.
- * @param amount - Amount to deposit in USDFC (with decimals).
- * @returns Transaction hashes for approval (if performed) and deposit.
- */
-export async function depositUSDFC(
-  synapse: Synapse,
-  amount: bigint
-): Promise<{
-  approvalTx?: string
-  depositTx: string
-}> {
-  const paymentsAddress = synapse.getPaymentsAddress()
-
-  const currentAllowance = await synapse.payments.allowance(paymentsAddress, TOKENS.USDFC)
-
-  let approvalTx: string | undefined
-
-  if (currentAllowance < amount) {
-    const approveTx = await synapse.payments.approve(paymentsAddress, amount, TOKENS.USDFC)
-    await approveTx.wait()
-    approvalTx = approveTx.hash
-  }
-
-  const depositTransaction = await synapse.payments.deposit(amount, TOKENS.USDFC)
-  await depositTransaction.wait()
-
-  return {
-    depositTx: depositTransaction.hash,
-    ...(approvalTx ? { approvalTx } : {}),
-  }
-}
-
-/**
- * Withdraw USDFC from the Payments contract back to the wallet.
- *
- * Example usage:
- * ```typescript
- * const amountToWithdraw = ethers.parseUnits('10', 18)
- * const txHash = await withdrawUSDFC(synapse, amountToWithdraw)
- * console.log(`Withdraw transaction: ${txHash}`)
- * ```
- *
- * @param synapse - Initialized Synapse instance.
- * @param amount - Amount to withdraw in USDFC (with decimals).
- * @returns Transaction hash for the withdrawal.
- */
-export async function withdrawUSDFC(synapse: Synapse, amount: bigint): Promise<string> {
-  const tx = await synapse.payments.withdraw(amount, TOKENS.USDFC)
-  await tx.wait()
-  return tx.hash
-}
-
-/**
- * Check FIL balance for gas fees.
- *
- * Example usage:
- * ```typescript
- * const filStatus = await checkFILBalance(synapse)
- *
- * if (filStatus.balance === 0n) {
- *   console.log('Account does not exist on-chain or has no FIL')
- * } else if (!filStatus.hasSufficientGas) {
- *   console.log('Insufficient FIL for gas fees')
+ * if (!capacity.canUpload) {
+ *   console.error('Cannot upload file with current payment setup')
+ *   capacity.suggestions.forEach(s => console.log(`  - ${s}`))
  * }
  * ```
  *
- * @param synapse - Initialized Synapse instance.
- * @returns Balance information and network type.
- */
-export async function checkFILBalance(synapse: Synapse): Promise<{
-  balance: bigint
-  isCalibnet: boolean
-  hasSufficientGas: boolean
-}> {
-  const network = synapse.getNetwork()
-  const isCalibnet = network === 'calibration'
-
-  try {
-    const provider = synapse.getProvider()
-    const signer = synapse.getSigner()
-    const address = await signer.getAddress()
-
-    const balance = await provider.getBalance(address)
-    const hasSufficientGas = balance >= MIN_FIL_FOR_GAS
-
-    return {
-      balance,
-      isCalibnet,
-      hasSufficientGas,
-    }
-  } catch {
-    return {
-      balance: 0n,
-      isCalibnet,
-      hasSufficientGas: false,
-    }
-  }
-}
-
-/**
- * Check USDFC token balance in the wallet (not deposited balance).
- *
- * Example usage:
- * ```typescript
- * const usdfcBalance = await checkUSDFCBalance(synapse)
- * if (usdfcBalance === 0n) {
- *   console.log('No USDFC tokens found')
- * } else {
- *   console.log(`USDFC Balance: ${ethers.formatUnits(usdfcBalance, 18)}`)
- * }
- * ```
- *
- * @param synapse - Initialized Synapse instance.
- * @returns Wallet USDFC balance in wei (0 if account doesn't exist or has no balance).
- */
-export async function checkUSDFCBalance(synapse: Synapse): Promise<bigint> {
-  try {
-    return await synapse.payments.walletBalance(TOKENS.USDFC)
-  } catch {
-    return 0n
-  }
-}
-
-/**
- * Get deposited USDFC balance in the Payments contract.
- *
- * This differs from the wallet balance; it reflects the funds already
- * deposited and available for payment rails.
- *
- * @param synapse - Initialized Synapse instance.
- * @returns Deposited USDFC balance in its smallest unit.
- */
-export async function getDepositedBalance(synapse: Synapse): Promise<bigint> {
-  return await synapse.payments.balance(TOKENS.USDFC)
-}
-
-/**
- * Get current payment status including wallet balances and approvals.
- *
- * Example usage:
- * ```typescript
- * const status = await getPaymentStatus(synapse)
- * console.log(`Address: ${status.address}`)
- * console.log(`FIL Balance: ${ethers.formatEther(status.filBalance)}`)
- * console.log(`USDFC Balance: ${ethers.formatUnits(status.usdfcBalance, 18)}`)
- * console.log(`Deposited: ${ethers.formatUnits(status.depositedAmount, 18)}`)
- * ```
- *
- * @param synapse - Initialized Synapse instance.
- * @returns Complete payment status.
- */
-export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus> {
-  const signer = synapse.getSigner()
-  const network = synapse.getNetwork()
-  const warmStorageAddress = synapse.getWarmStorageAddress()
-
-  const [address, filStatus, usdfcBalance, depositedAmount, currentAllowances] = await Promise.all([
-    signer.getAddress(),
-    checkFILBalance(synapse),
-    checkUSDFCBalance(synapse),
-    getDepositedBalance(synapse),
-    synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC),
-  ])
-
-  return {
-    network,
-    address,
-    filBalance: filStatus.balance,
-    usdfcBalance,
-    depositedAmount,
-    currentAllowances,
-  }
-}
-
-/**
- * Set WarmStorage service approvals to explicitly defined rate/lockup values.
- *
- * @param synapse - Initialized Synapse instance.
- * @param rateAllowance - Maximum rate per epoch in USDFC.
- * @param lockupAllowance - Maximum lockup amount in USDFC.
- * @returns The transaction hash for the approval update.
- */
-export async function setServiceApprovals(
-  synapse: Synapse,
-  rateAllowance: bigint,
-  lockupAllowance: bigint
-): Promise<string> {
-  const warmStorageAddress = synapse.getWarmStorageAddress()
-
-  const maxLockupPeriod = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
-
-  const tx = await synapse.payments.approveService(
-    warmStorageAddress,
-    rateAllowance,
-    lockupAllowance,
-    maxLockupPeriod,
-    TOKENS.USDFC
-  )
-
-  await tx.wait()
-  return tx.hash
-}
-
-/**
- * Check whether WarmStorage allowances are already configured at maximum.
- *
- * @param synapse - Initialized Synapse instance.
- * @returns Current allowances and a flag indicating if an update is required.
- */
-export async function checkAllowances(synapse: Synapse): Promise<{
-  needsUpdate: boolean
-  currentAllowances: ServiceApprovalStatus
-}> {
-  const warmStorageAddress = synapse.getWarmStorageAddress()
-  const currentAllowances = await synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC)
-
-  const needsUpdate =
-    currentAllowances.rateAllowance < MAX_RATE_ALLOWANCE || currentAllowances.lockupAllowance < MAX_LOCKUP_ALLOWANCE
-
-  return {
-    needsUpdate,
-    currentAllowances,
-  }
-}
-
-/**
- * Set WarmStorage allowances to maximum values, treating it as a trusted service.
- *
- * @param synapse - Initialized Synapse instance.
- * @returns Updated allowances plus the transaction hash if an on-chain update occurred.
- */
-export async function setMaxAllowances(synapse: Synapse): Promise<{
-  transactionHash: string
-  currentAllowances: ServiceApprovalStatus
-}> {
-  const warmStorageAddress = synapse.getWarmStorageAddress()
-  const transactionHash = await setServiceApprovals(synapse, MAX_RATE_ALLOWANCE, MAX_LOCKUP_ALLOWANCE)
-  const currentAllowances = await synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC)
-
-  return {
-    transactionHash,
-    currentAllowances,
-  }
-}
-
-/**
- * Ensure WarmStorage allowances are at maximum, updating them if necessary.
- *
- * @param synapse - Initialized Synapse instance.
- * @returns Whether an update occurred, and the latest allowances.
- */
-export async function checkAndSetAllowances(synapse: Synapse): Promise<{
-  updated: boolean
-  transactionHash?: string
-  currentAllowances: ServiceApprovalStatus
-}> {
-  const allowanceStatus = await checkAllowances(synapse)
-
-  if (allowanceStatus.needsUpdate) {
-    const setResult = await setMaxAllowances(synapse)
-    return {
-      updated: true,
-      transactionHash: setResult.transactionHash,
-      currentAllowances: setResult.currentAllowances,
-    }
-  }
-
-  return {
-    updated: false,
-    currentAllowances: allowanceStatus.currentAllowances,
-  }
-}
-
-/**
- * Validate payment capacity for a specific CAR file.
- *
- * Ensures allowances are configured and that the existing deposit can cover the
- * required lockup for the upload, returning suggestions when additional funds
- * are recommended.
- *
- * @param synapse - Initialized Synapse instance.
- * @param carSizeBytes - Size of the CAR file in bytes.
- * @returns Capacity check result describing readiness and guidance.
+ * @param synapse - Initialized Synapse instance
+ * @param carSizeBytes - Size of the CAR file in bytes
+ * @returns Capacity check result
  */
 export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: number): Promise<PaymentCapacityCheck> {
-  const allowanceResult = await checkAndSetAllowances(synapse)
+  // First ensure allowances are at max
+  await checkAndSetAllowances(synapse)
 
-  const [depositedAmount, storageInfo] = await Promise.all([
-    synapse.payments.balance(TOKENS.USDFC),
-    synapse.storage.getStorageInfo(),
-  ])
+  // Get current status and pricing
+  const [status, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
 
-  const currentAllowances = allowanceResult.currentAllowances
   const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
   const storageTiB = carSizeBytes / Number(SIZE_CONSTANTS.TiB)
 
+  // Calculate requirements
   const required = calculateRequiredAllowances(carSizeBytes, pricePerTiBPerEpoch)
   const totalDepositNeeded = withBuffer(required.lockupAllowance)
 
@@ -758,16 +912,18 @@ export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: nu
     suggestions: [],
   }
 
-  if (depositedAmount < totalDepositNeeded) {
+  // Only check deposit
+  if (status.depositedAmount < totalDepositNeeded) {
     result.canUpload = false
-    result.issues.insufficientDeposit = totalDepositNeeded - depositedAmount
-    const depositNeeded = ethers.formatUnits(totalDepositNeeded - depositedAmount, 18)
+    result.issues.insufficientDeposit = totalDepositNeeded - status.depositedAmount
+    const depositNeeded = ethers.formatUnits(totalDepositNeeded - status.depositedAmount, 18)
     result.suggestions.push(`Deposit at least ${depositNeeded} USDFC`)
   }
 
-  const totalLockupAfter = (currentAllowances.lockupUsed ?? 0n) + required.lockupAllowance
-  if (totalLockupAfter > withoutBuffer(depositedAmount) && result.canUpload) {
-    const additionalDeposit = ethers.formatUnits(withBuffer(totalLockupAfter) - depositedAmount, 18)
+  // Add warning if approaching deposit limit
+  const totalLockupAfter = status.currentAllowances.lockupUsed + required.lockupAllowance
+  if (totalLockupAfter > withoutBuffer(status.depositedAmount) && result.canUpload) {
+    const additionalDeposit = ethers.formatUnits(withBuffer(totalLockupAfter) - status.depositedAmount, 18)
     result.suggestions.push(`Consider depositing ${additionalDeposit} more USDFC for safety margin`)
   }
 

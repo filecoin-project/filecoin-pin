@@ -10,6 +10,7 @@ import { getOutputSummary } from '../outputs.js'
 /**
  * Generate comment body based on upload status
  * @param {CombinedContext} context
+ * @param {string} status
  * @returns
  */
 const generateCommentBody = (context, status) => {
