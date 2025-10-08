@@ -1,10 +1,8 @@
 import { promises as fs } from 'node:fs'
 import { RPC_URLS } from '@filoz/synapse-sdk'
-import { ethers } from 'ethers'
 import { createUnixfsCarBuilder } from 'filecoin-pin/core/files'
 import {
   calculateStorageRunway,
-  checkAndSetAllowances,
   computeTopUpForDuration,
   depositUSDFC,
   getPaymentStatus,
@@ -15,7 +13,7 @@ import {
   initializeSynapse as initSynapse,
 } from 'filecoin-pin/core/synapse'
 import { checkUploadReadiness, executeUpload, getDownloadURL } from 'filecoin-pin/core/upload'
-import { formatRunwaySummary } from 'filecoin-pin/core/utils'
+import { formatRunwaySummary, formatUSDFC } from 'filecoin-pin/core/utils'
 import { CID } from 'multiformats/cid'
 import { ERROR_CODES, FilecoinPinError, getErrorMessage } from './errors.js'
 
@@ -72,18 +70,12 @@ export async function initializeSynapse(config, logger) {
 export async function handlePayments(synapse, options, logger) {
   const { minStorageDays, filecoinPayBalanceLimit } = options
 
-  // Ensure WarmStorage allowances are at max
-  await checkAndSetAllowances(synapse)
-
-  // Check current payment status
   const initialStatus = await getPaymentStatus(synapse)
-  let newStatus = initialStatus
-
-  // Compute top-up to satisfy minStorageDays
   let requiredTopUp = 0n
+
   if (minStorageDays > 0) {
     const { topUp } = computeTopUpForDuration(initialStatus, minStorageDays)
-    if (topUp > requiredTopUp) requiredTopUp = topUp
+    requiredTopUp = topUp
   }
 
   // Check if deposit would exceed maximum balance if specified
@@ -91,7 +83,7 @@ export async function handlePayments(synapse, options, logger) {
     // Check if current balance already equals or exceeds limit
     if (initialStatus.depositedAmount >= filecoinPayBalanceLimit) {
       logger.warn(
-        `⚠️  Current balance (${ethers.formatUnits(initialStatus.depositedAmount, 18)} USDFC) already equals or exceeds filecoinPayBalanceLimit (${ethers.formatUnits(filecoinPayBalanceLimit, 18)} USDFC). No additional deposits will be made.`
+        `⚠️  Current balance (${formatUSDFC(initialStatus.depositedAmount)}) already equals or exceeds filecoinPayBalanceLimit (${formatUSDFC(filecoinPayBalanceLimit)}). No additional deposits will be made.`
       )
       requiredTopUp = 0n // Don't deposit anything
     } else {
@@ -100,42 +92,35 @@ export async function handlePayments(synapse, options, logger) {
       if (projectedBalance > filecoinPayBalanceLimit) {
         // Calculate the maximum allowed top-up that won't exceed the limit
         const maxAllowedTopUp = filecoinPayBalanceLimit - initialStatus.depositedAmount
-
-        if (maxAllowedTopUp <= 0n) {
-          // This shouldn't happen due to the check above, but just in case
+        if (maxAllowedTopUp > 0n) {
           logger.warn(
-            `⚠️  Cannot deposit any amount without exceeding filecoinPayBalanceLimit (${ethers.formatUnits(filecoinPayBalanceLimit, 18)} USDFC). No additional deposits will be made.`
-          )
-          requiredTopUp = 0n
-        } else {
-          // Reduce the top-up to fit within the limit
-          logger.warn(
-            `⚠️  Required top-up (${ethers.formatUnits(requiredTopUp, 18)} USDFC) would exceed filecoinPayBalanceLimit (${ethers.formatUnits(filecoinPayBalanceLimit, 18)} USDFC). Reducing to ${ethers.formatUnits(maxAllowedTopUp, 18)} USDFC.`
+            `⚠️  Required top-up (${formatUSDFC(requiredTopUp)}) would exceed filecoinPayBalanceLimit (${formatUSDFC(filecoinPayBalanceLimit)}). Reducing to ${formatUSDFC(maxAllowedTopUp)}.`
           )
           requiredTopUp = maxAllowedTopUp
+        } else {
+          requiredTopUp = 0n
         }
       }
     }
   }
 
+  let newStatus = initialStatus
   if (requiredTopUp > 0n) {
-    logger.info(`Depositing ${ethers.formatUnits(requiredTopUp, 18)} USDFC to Filecoin Pay ...`)
+    logger.info(`Depositing ${formatUSDFC(requiredTopUp)} USDFC to Filecoin Pay ...`)
     await depositUSDFC(synapse, requiredTopUp)
     newStatus = await getPaymentStatus(synapse)
-  } else {
-    requiredTopUp = 0n
   }
 
   return {
     ...initialStatus,
     // the amount of USDFC you have deposited to Filecoin Pay
-    depositedAmount: ethers.formatUnits(newStatus.depositedAmount, 18),
-    // the amount of USDFC you have in your wallet
-    currentBalance: ethers.formatUnits(newStatus.usdfcBalance, 18),
+    depositedAmount: formatUSDFC(newStatus.depositedAmount),
+    // the amount of USDFC you currently hold in your wallet
+    currentBalance: formatUSDFC(newStatus.usdfcBalance),
     // the amount of time you have until your funds would run out based on storage usage
     storageRunway: formatRunwaySummary(calculateStorageRunway(newStatus)),
-    // the amount of USDFC you have deposited to Filecoin Pay in this run
-    depositedThisRun: ethers.formatUnits(requiredTopUp, 18),
+    // the amount of USDFC deposited to Filecoin Pay during this run
+    depositedThisRun: formatUSDFC(requiredTopUp),
   }
 }
 
@@ -182,7 +167,11 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
   const carBytes = await fs.readFile(carPath)
 
   // Validate payment capacity through reusable helper
-  const readiness = await checkUploadReadiness({ synapse, fileSize: carBytes.length })
+  const readiness = await checkUploadReadiness({
+    synapse,
+    fileSize: carBytes.length,
+    autoConfigureAllowances: true,
+  })
 
   if (!readiness.validation.isValid) {
     throw new FilecoinPinError(
@@ -207,7 +196,7 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
         event: 'payments.allowances.updated',
         transactionHash: readiness.allowances.transactionHash,
       },
-      'WarmStorage permissions configured'
+      'WarmStorage permissions configured automatically'
     )
   } else if (readiness.allowances.needsUpdate) {
     logger.warn({ event: 'payments.allowances.pending' }, 'WarmStorage permissions require manual configuration')
