@@ -18,8 +18,8 @@ import { checkFILBalance, checkUSDFCBalance, depositUSDFC, formatUSDFC, getPayme
 export interface DepositOptions {
   privateKey?: string
   rpcUrl?: string
-  amount?: string
-  days?: number
+  amount?: string | undefined
+  days?: number | undefined
 }
 
 /**

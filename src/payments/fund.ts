@@ -4,7 +4,7 @@
  * Adjusts funds to exactly match a target runway (days) or a target deposited amount.
  */
 
-import { confirm, isCancel } from '@clack/prompts'
+import { confirm } from '@clack/prompts'
 import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
@@ -20,23 +20,17 @@ import {
   getPaymentStatus,
   withdrawUSDFC,
 } from './setup.js'
-
-export interface FundOptions {
-  privateKey?: string
-  rpcUrl?: string
-  exactDays?: number
-  exactAmount?: string
-}
+import type { FundOptions } from './types.js'
 
 // Helper: confirm/warn or bail when target implies < 10-day runway
 async function ensureBelowTenDaysAllowed(opts: {
   isCI: boolean
-  isInteractive: boolean
+  isInteractive?: boolean | undefined
   spinner: any
   warningLine1: string
   warningLine2: string
 }): Promise<void> {
-  const { isCI, isInteractive, spinner, warningLine1, warningLine2 } = opts
+  const { isCI, isInteractive = isTTY(), spinner, warningLine1, warningLine2 } = opts
   if (isCI || !isInteractive) {
     spinner.stop()
     console.error(pc.red(warningLine1))
@@ -54,9 +48,8 @@ async function ensureBelowTenDaysAllowed(opts: {
     message: 'Proceed with reducing runway below 10 days?',
     initialValue: false,
   })
-  if (isCancel(proceed)) {
-    cancel('Fund adjustment cancelled')
-    throw new Error('Cancelled by user')
+  if (!proceed) {
+    throw new Error('Fund adjustment cancelled by user')
   }
 }
 
@@ -80,6 +73,16 @@ async function performAdjustment(params: {
       )
       throw new Error('Insufficient USDFC in wallet')
     }
+    if (isTTY()) {
+      // we will deposit `needed` USDFC, display confirmation to user unless not TTY or --auto flag was passed
+      const proceed = await confirm({
+        message: `Deposit ${formatUSDFC(needed)} USDFC?`,
+        initialValue: false,
+      })
+      if (!proceed) {
+        throw new Error('Deposit cancelled by user')
+      }
+    }
     spinner.start(depositMsg)
     const { approvalTx, depositTx } = await depositUSDFC(synapse, needed)
     spinner.stop(`${pc.green('✓')} Deposit complete`)
@@ -89,6 +92,16 @@ async function performAdjustment(params: {
     log.flush()
   } else if (delta < 0n) {
     const withdrawAmount = -delta
+    if (isTTY()) {
+      // we will withdraw `withdrawAmount` USDFC, display confirmation to user unless not TTY or --auto flag was passed
+      const proceed = await confirm({
+        message: `Withdraw ${formatUSDFC(withdrawAmount)} USDFC?`,
+        initialValue: false,
+      })
+      if (!proceed) {
+        throw new Error('Withdraw cancelled by user')
+      }
+    }
     spinner.start(withdrawMsg)
     const txHash = await withdrawUSDFC(synapse, withdrawAmount)
     spinner.stop(`${pc.green('✓')} Withdraw complete`)
@@ -99,13 +112,13 @@ async function performAdjustment(params: {
 }
 
 // Helper: summary after adjustment
-async function printUpdatedSummary(synapse: Synapse): Promise<void> {
+async function printSummary(synapse: Synapse, title = 'Updated'): Promise<void> {
   const updated = await getPaymentStatus(synapse)
   const newAvailable = updated.depositedAmount - (updated.currentAllowances.lockupUsed ?? 0n)
   const newPerDay = (updated.currentAllowances.rateUsed ?? 0n) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const newRunway = newPerDay > 0n ? Number(newAvailable / newPerDay) : 0
   const newRunwayHours = newPerDay > 0n ? Number(((newAvailable % newPerDay) * 24n) / newPerDay) : 0
-  log.section('Updated', [
+  log.section(title, [
     `Deposited: ${formatUSDFC(updated.depositedAmount)} USDFC`,
     `Runway: ~${newRunway} day(s)${newRunwayHours > 0 ? ` ${newRunwayHours} hour(s)` : ''}`,
   ])
@@ -128,11 +141,15 @@ export async function runFund(options: FundOptions): Promise<void> {
     throw new Error('Invalid private key format')
   }
 
-  const hasExactDays = options.exactDays != null
-  const hasExactAmount = options.exactAmount != null
-  if ((hasExactDays && hasExactAmount) || (!hasExactDays && !hasExactAmount)) {
-    console.error(pc.red('Error: Specify exactly one of --exact-days <N> or --exact-amount <USDFC>'))
+  const hasDays = options.days != null
+  const hasAmount = options.amount != null
+  if ((hasDays && hasAmount) || (!hasDays && !hasAmount)) {
+    console.error(pc.red('Error: Specify exactly one of --days <N> or --amount <USDFC>'))
     throw new Error('Invalid fund options')
+  }
+  if (options.mode != null && !['exact', 'minimum'].includes(options.mode)) {
+    console.error(pc.red('Error: Invalid mode'))
+    throw new Error(`Invalid mode (must be "exact" or "minimum"), received: '${options.mode}'`)
   }
 
   const rpcUrl = options.rpcUrl || process.env.RPC_URL || RPC_URLS.calibration.websocket
@@ -163,31 +180,32 @@ export async function runFund(options: FundOptions): Promise<void> {
     spinner.stop(`${pc.green('✓')} Connected`)
 
     const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true'
-    const interactive = isTTY()
 
     // Unified planning: derive delta and target context for both modes
     const rateUsed = status.currentAllowances.rateUsed ?? 0n
     const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
 
+    // user provided days or 0
+    const targetDays: number = hasDays ? Number(options.days) : 0
+    // user provided amount or 0
+    const targetDeposit: bigint = hasAmount ? ethers.parseUnits(String(options.amount), 18) : 0n
     let delta: bigint
-    let targetDays: number | null = null
     let clampedTarget: bigint | null = null
     let runwayCheckDays: number | null = null
     let alreadyMessage: string
     let depositMsg: string
     let withdrawMsg: string
 
-    if (hasExactDays) {
-      targetDays = Number(options.exactDays)
+    if (hasDays) {
       if (!Number.isFinite(targetDays) || targetDays < 0) {
-        console.error(pc.red('Error: --exact-days must be a non-negative number'))
-        throw new Error('Invalid --exact-days')
+        console.error(pc.red('Error: --days must be a non-negative number'))
+        throw new Error('Invalid --days')
       }
 
       const adj = computeAdjustmentForExactDays(status, targetDays)
       if (adj.rateUsed === 0n) {
         log.line(`${pc.red('✗')} No active spend detected (rateUsed = 0). Cannot compute runway.`)
-        log.line('Use --exact-amount to set a target deposit instead.')
+        log.line('Use --amount to set a target deposit instead.')
         log.flush()
         cancel('Fund adjustment aborted')
         throw new Error('No active spend')
@@ -201,17 +219,17 @@ export async function runFund(options: FundOptions): Promise<void> {
     } else {
       let targetDeposit: bigint
       try {
-        targetDeposit = ethers.parseUnits(String(options.exactAmount), 18)
+        targetDeposit = ethers.parseUnits(String(options.amount), 18)
       } catch {
-        console.error(pc.red(`Error: Invalid --exact-amount '${options.exactAmount}'`))
-        throw new Error('Invalid --exact-amount')
+        console.error(pc.red(`Error: Invalid --amount '${options.amount}'`))
+        throw new Error('Invalid --amount')
       }
 
       const adj = computeAdjustmentForExactDeposit(status, targetDeposit)
       delta = adj.delta
       clampedTarget = adj.clampedTarget
 
-      if (targetDeposit < lockupUsed) {
+      if (targetDeposit < lockupUsed && options.mode !== 'minimum') {
         log.line(pc.yellow('⚠ Target amount is below locked funds. Clamping to locked amount.'))
         log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC`)
         log.flush()
@@ -223,22 +241,40 @@ export async function runFund(options: FundOptions): Promise<void> {
         runwayCheckDays = Number(availableAfter / perDay)
       }
 
-      const targetLabel = clampedTarget != null ? formatUSDFC(clampedTarget) : String(options.exactAmount)
+      const targetLabel = clampedTarget != null ? formatUSDFC(clampedTarget) : String(options.amount)
       alreadyMessage = `Already at target deposit of ${targetLabel} USDFC. No changes needed.`
       depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to reach ${targetLabel} USDFC total...`
       withdrawMsg = `Withdrawing ${formatUSDFC(-delta)} USDFC to reach ${targetLabel} USDFC total...`
     }
 
-    if (runwayCheckDays != null && runwayCheckDays < 10) {
-      const line1 = hasExactDays
+    if (options.mode === 'minimum') {
+      // if they have selected minimum mode, we don't need to check the runway
+      if (delta > 0n) {
+        if (targetDeposit > 0n) {
+          depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to reach minimum of ${formatUSDFC(targetDeposit)} USDFC total...`
+        } else if (targetDays > 0) {
+          depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to reach minimum of ${targetDays} day(s) runway...`
+        }
+      } else {
+        if (delta < 0n) {
+          if (targetDeposit > 0n) {
+            alreadyMessage = `Already above minimum deposit of ${formatUSDFC(targetDeposit)} USDFC. No changes needed.`
+          } else if (targetDays > 0) {
+            alreadyMessage = `Already above minimum of ${targetDays} day(s) runway. No changes needed.`
+          }
+        }
+        delta = 0n
+      }
+    } else if (runwayCheckDays != null && runwayCheckDays < 10) {
+      // if they have selected exact mode, we need to check the runway
+      const line1 = hasDays
         ? 'Requested runway below 10-day safety baseline.'
         : 'Target deposit implies less than 10 days of runway at current spend.'
-      const line2 = hasExactDays
+      const line2 = hasDays
         ? 'WarmStorage reserves 10 days of costs; a shorter runway risks termination.'
         : 'Increase target or accept risk: shorter runway may cause termination.'
       await ensureBelowTenDaysAllowed({
         isCI,
-        isInteractive: interactive,
         spinner,
         warningLine1: line1,
         warningLine2: line2,
@@ -246,16 +282,16 @@ export async function runFund(options: FundOptions): Promise<void> {
     }
 
     if (delta === 0n) {
+      await printSummary(synapse, 'No Changes Needed')
       outro(alreadyMessage)
       return
     }
 
     await performAdjustment({ synapse, spinner, delta, depositMsg, withdrawMsg })
 
-    await printUpdatedSummary(synapse)
+    await printSummary(synapse)
     outro('Fund adjustment completed')
   } catch (error) {
-    spinner.stop()
     console.error(pc.red('✗ Fund adjustment failed'))
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
     process.exitCode = 1
