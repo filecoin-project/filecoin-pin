@@ -25,8 +25,6 @@ import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
 import type { FundOptions } from './types.js'
 
-export type { FundOptions } from './types.js'
-
 // Helper: confirm/warn or bail when target implies < 10-day runway
 async function ensureBelowTenDaysAllowed(opts: {
   isCI: boolean
@@ -79,6 +77,7 @@ async function performAdjustment(params: {
       throw new Error('Insufficient USDFC in wallet')
     }
     if (isTTY()) {
+      // we will deposit `needed` USDFC, display confirmation to user unless not TTY or --auto flag was passed
       const proceed = await confirm({
         message: `Deposit ${formatUSDFC(needed)} USDFC?`,
         initialValue: false,
@@ -97,6 +96,7 @@ async function performAdjustment(params: {
   } else if (delta < 0n) {
     const withdrawAmount = -delta
     if (isTTY()) {
+      // we will withdraw `withdrawAmount` USDFC, display confirmation to user unless not TTY or --auto flag was passed
       const proceed = await confirm({
         message: `Withdraw ${formatUSDFC(withdrawAmount)} USDFC?`,
         initialValue: false,
@@ -187,8 +187,7 @@ export async function runFund(options: FundOptions): Promise<void> {
     const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
 
     const targetDays: number = hasDays ? Number(options.days) : 0
-    const targetDepositInput: string | null = hasAmount ? String(options.amount) : null
-
+    const targetDepositInput: bigint = ethers.parseUnits(String(options.amount), 18) ?? 0n
     let delta: bigint
     let clampedTarget: bigint | null = null
     let runwayCheckDays: number | null = null
@@ -219,7 +218,7 @@ export async function runFund(options: FundOptions): Promise<void> {
       withdrawMsg = `Withdrawing ${formatUSDFC(-delta)} USDFC to reach ~${targetDays} day(s) runway...`
     } else {
       try {
-        targetDeposit = ethers.parseUnits(targetDepositInput ?? '0', 18)
+        targetDeposit = ethers.parseUnits(String(targetDepositInput), 18)
       } catch {
         console.error(pc.red(`Error: Invalid --amount '${targetDepositInput}'`))
         throw new Error('Invalid --amount')
