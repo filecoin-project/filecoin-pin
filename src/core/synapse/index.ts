@@ -8,7 +8,6 @@ import {
   type SynapseOptions,
 } from '@filoz/synapse-sdk'
 import type { Logger } from 'pino'
-import type { Config } from '../../config.js'
 
 const WEBSOCKET_REGEX = /^ws(s)?:\/\//i
 
@@ -34,9 +33,24 @@ let currentProviderInfo: ProviderInfo | null = null
 let activeProvider: any = null
 
 /**
- * Broader configuration surface accepted by {@link setupSynapse}.
- * Requires privateKey, and makes rpcUrl optional, because our initializeSynapse
- * function will default to calibration.
+ * Complete application configuration interface.
+ * This is the main config interface that can be imported by CLI and other consumers.
+ */
+export interface Config {
+  port: number
+  host: string
+  privateKey: string | undefined
+  rpcUrl: string
+  databasePath: string
+  // TODO: remove this from core?
+  carStoragePath: string
+  logLevel: string
+  warmStorageAddress: string | undefined
+}
+
+/**
+ * Configuration for Synapse initialization.
+ * Extends the main Config but makes privateKey required and rpcUrl optional.
  */
 export interface SynapseSetupConfig extends Partial<Omit<Config, 'privateKey' | 'rpcUrl'>> {
   /** Private key used for signing transactions. */
