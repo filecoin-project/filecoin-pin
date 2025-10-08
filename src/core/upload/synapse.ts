@@ -1,3 +1,9 @@
+/**
+ * Shared Synapse upload functionality
+ *
+ * This module provides a reusable upload pattern for CAR files to Filecoin
+ * via Synapse SDK, used by both the import command and pinning server.
+ */
 import type { UploadOptions } from '@filoz/synapse-sdk'
 import { METADATA_KEYS, type ProviderInfo, type UploadCallbacks } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
@@ -9,6 +15,7 @@ export interface SynapseUploadOptions {
    * Optional callbacks for monitoring upload progress
    */
   callbacks?: UploadCallbacks
+
   /**
    * Context identifier for logging (e.g., pinId, import job ID)
    */
@@ -23,7 +30,7 @@ export interface SynapseUploadResult {
 }
 
 /**
- * Get the direct download URL for a piece from a provider.
+ * Get the direct download URL for a piece from a provider
  */
 export function getDownloadURL(providerInfo: ProviderInfo, pieceCid: string): string {
   const serviceURL = providerInfo.products?.PDP?.data?.serviceURL
@@ -31,7 +38,7 @@ export function getDownloadURL(providerInfo: ProviderInfo, pieceCid: string): st
 }
 
 /**
- * Get the service URL from provider info.
+ * Get the service URL from provider info
  */
 export function getServiceURL(providerInfo: ProviderInfo): string {
   return providerInfo.products?.PDP?.data?.serviceURL ?? ''
@@ -61,6 +68,7 @@ export async function uploadToSynapse(
 ): Promise<SynapseUploadResult> {
   const { callbacks, contextId = 'upload' } = options
 
+  // Merge provided callbacks with logging callbacks
   const uploadCallbacks: UploadCallbacks = {
     onUploadComplete: (pieceCid) => {
       logger.info(
@@ -113,7 +121,7 @@ export async function uploadToSynapse(
   const uploadOptions: UploadOptions = {
     ...uploadCallbacks,
     metadata: {
-      [METADATA_KEYS.IPFS_ROOT_CID]: rootCid.toString(),
+      [METADATA_KEYS.IPFS_ROOT_CID]: rootCid.toString(), // Associate piece with IPFS root CID
     },
   }
 

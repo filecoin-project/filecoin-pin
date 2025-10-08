@@ -156,8 +156,10 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
 }
 
 /**
- * Build the default storage context configuration, applying optional
- * overrides while keeping the base metadata intact.
+ * Get default storage context configuration for consistent data set creation
+ *
+ * @param overrides - Optional overrides to merge with defaults
+ * @returns Storage context configuration with defaults
  */
 export function getDefaultStorageContextConfig(overrides: any = {}) {
   return {
@@ -311,14 +313,20 @@ export async function setupSynapse(
     onDataSetResolved?: (info: { dataSetId: number; isExisting: boolean }) => void
   }
 ): Promise<SynapseService> {
+  // Initialize SDK
   const synapse = await initializeSynapse(config, logger)
+
+  // Create storage context
   const { storage, providerInfo } = await createStorageContext(synapse, logger, progressCallbacks)
 
   return { synapse, storage, providerInfo }
 }
 
 /**
- * Clean up a single provider connection if one exists.
+ * Clean up a WebSocket provider connection.
+ * This is important for allowing the Node.js process to exit cleanly.
+ *
+ * @param provider - The provider to clean up
  */
 export async function cleanupProvider(provider: any): Promise<void> {
   if (provider && typeof provider.destroy === 'function') {
@@ -331,14 +339,17 @@ export async function cleanupProvider(provider: any): Promise<void> {
 }
 
 /**
- * Clean up Synapse service resources (WebSocket provider, cached instances)
- * so long-running processes can shut down cleanly.
+ * Clean up WebSocket providers and other resources
+ *
+ * Call this when CLI/UI/consumer commands are finished to ensure proper cleanup
+ * and allow the process to terminate.
  */
 export async function cleanupSynapseService(): Promise<void> {
   if (activeProvider) {
     await cleanupProvider(activeProvider)
   }
 
+  // Clear references
   synapseInstance = null
   storageInstance = null
   currentProviderInfo = null
