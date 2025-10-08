@@ -2,16 +2,7 @@ import { stat } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import { type CreateCarOptions, type CreateCarResult, cleanupTempCar, createCarFromPath } from './car-builder.js'
 
-export {
-  type CARBlockstoreOptions,
-  type CARBlockstoreStats,
-  CARWritingBlockstore,
-} from './car-blockstore.js'
-
-// Re-export the core CAR functionality
-export { type CreateCarOptions, type CreateCarResult, cleanupTempCar, createCarFromPath } from './car-builder.js'
-
-export type CarBuildOptions = CreateCarOptions
+export * from './car-builder.js'
 
 export interface CarBuildResult {
   carPath: string
@@ -20,13 +11,13 @@ export interface CarBuildResult {
 }
 
 export interface FileBuilder {
-  buildCar(sourcePath: string, options?: CarBuildOptions): Promise<CarBuildResult>
+  buildCar(sourcePath: string, options?: CreateCarOptions): Promise<CarBuildResult>
   cleanup(carPath: string, logger?: Logger): Promise<void>
 }
 
 export function createUnixfsCarBuilder(): FileBuilder {
   return {
-    async buildCar(sourcePath: string, options: CarBuildOptions = {}): Promise<CarBuildResult> {
+    async buildCar(sourcePath: string, options: CreateCarOptions = {}): Promise<CarBuildResult> {
       const { carPath, rootCid }: CreateCarResult = await createCarFromPath(sourcePath, options)
 
       let size: number | undefined

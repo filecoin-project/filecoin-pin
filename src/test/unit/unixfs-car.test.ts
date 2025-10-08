@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CarReader } from '@ipld/car'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createCarFromPath } from '../../core/files/index.js'
+import { createCarFromPath } from '../../core/unixfs/index.js'
 
 // Test constants
 const PLACEHOLDER_CID = 'bafyaaiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'

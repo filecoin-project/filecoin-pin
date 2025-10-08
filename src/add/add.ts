@@ -10,13 +10,13 @@ import { RPC_URLS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import pino from 'pino'
 import { displayUploadResults, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
-import { cleanupTempCar, createCarFromPath } from '../core/files/index.js'
 import {
   cleanupSynapseService,
   createStorageContext,
   initializeSynapse,
   type SynapseService,
 } from '../core/synapse/index.js'
+import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import type { AddOptions, AddResult } from './types.js'
 
