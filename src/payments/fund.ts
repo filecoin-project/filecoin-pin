@@ -186,15 +186,22 @@ export async function runFund(options: FundOptions): Promise<void> {
     const rateUsed = status.currentAllowances.rateUsed ?? 0n
     const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
 
+    // user provided days or 0 if not provided
     const targetDays: number = hasDays ? Number(options.days) : 0
-    const targetDepositInput: bigint = ethers.parseUnits(String(options.amount), 18) ?? 0n
+    // user provided amount or 0n if not provided
+    let targetDeposit: bigint = 0n
+    try {
+      targetDeposit = options.amount != null ? ethers.parseUnits(String(options.amount), 18) : 0n
+    } catch {
+      console.error(pc.red(`Error: Invalid --amount '${options.amount}'`))
+      throw new Error('Invalid --amount')
+    }
     let delta: bigint
     let clampedTarget: bigint | null = null
     let runwayCheckDays: number | null = null
     let alreadyMessage: string
     let depositMsg: string
     let withdrawMsg: string
-    let targetDeposit: bigint = 0n
 
     if (hasDays) {
       if (!Number.isFinite(targetDays) || targetDays < 0) {
@@ -217,13 +224,6 @@ export async function runFund(options: FundOptions): Promise<void> {
       depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to reach ~${targetDays} day(s) runway...`
       withdrawMsg = `Withdrawing ${formatUSDFC(-delta)} USDFC to reach ~${targetDays} day(s) runway...`
     } else {
-      try {
-        targetDeposit = ethers.parseUnits(String(targetDepositInput), 18)
-      } catch {
-        console.error(pc.red(`Error: Invalid --amount '${targetDepositInput}'`))
-        throw new Error('Invalid --amount')
-      }
-
       const adj = computeAdjustmentForExactDeposit(status, targetDeposit)
       delta = adj.delta
       clampedTarget = adj.clampedTarget

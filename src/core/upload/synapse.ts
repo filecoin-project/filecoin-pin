@@ -1,12 +1,17 @@
+import type { UploadOptions } from '@filoz/synapse-sdk'
 import { METADATA_KEYS, type ProviderInfo, type UploadCallbacks } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import type { SynapseService } from '../synapse/index.js'
 
 export interface SynapseUploadOptions {
-  /** Optional callbacks for monitoring upload progress. */
+  /**
+   * Optional callbacks for monitoring upload progress
+   */
   callbacks?: UploadCallbacks
-  /** Context identifier for logging (e.g., pinId, import job ID). */
+  /**
+   * Context identifier for logging (e.g., pinId, import job ID)
+   */
   contextId?: string
 }
 
@@ -39,6 +44,13 @@ export function getServiceURL(providerInfo: ProviderInfo): string {
  * 1. Submit CAR data to Synapse storage
  * 2. Track upload progress via callbacks
  * 3. Return piece information
+ *
+ * @param synapseService - Initialized Synapse service
+ * @param carData - CAR file data as Uint8Array
+ * @param rootCid - The IPFS root CID to associate with this piece
+ * @param logger - Logger instance for tracking
+ * @param options - Optional callbacks and context
+ * @returns Upload result with piece information
  */
 export async function uploadToSynapse(
   synapseService: SynapseService,
@@ -97,7 +109,8 @@ export async function uploadToSynapse(
     },
   }
 
-  const uploadOptions: any = {
+  // Upload using Synapse with IPFS root CID metadata
+  const uploadOptions: UploadOptions = {
     ...uploadCallbacks,
     metadata: {
       [METADATA_KEYS.IPFS_ROOT_CID]: rootCid.toString(),
@@ -106,6 +119,7 @@ export async function uploadToSynapse(
 
   const synapseResult = await synapseService.storage.upload(carData, uploadOptions)
 
+  // Log success
   logger.info(
     {
       event: 'synapse.upload.success',
