@@ -1,24 +1,12 @@
-/**
- * Shared Synapse upload functionality
- *
- * This module provides a reusable upload pattern for CAR files to Filecoin
- * via Synapse SDK, used by both the import command and pinning server.
- */
-
 import { METADATA_KEYS, type ProviderInfo, type UploadCallbacks } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import type { SynapseService } from './service.js'
+import type { SynapseService } from '../../synapse/service.js'
 
 export interface SynapseUploadOptions {
-  /**
-   * Optional callbacks for monitoring upload progress
-   */
+  /** Optional callbacks for monitoring upload progress. */
   callbacks?: UploadCallbacks
-
-  /**
-   * Context identifier for logging (e.g., pinId, import job ID)
-   */
+  /** Context identifier for logging (e.g., pinId, import job ID). */
   contextId?: string
 }
 
@@ -30,7 +18,7 @@ export interface SynapseUploadResult {
 }
 
 /**
- * Get the direct download URL for a piece from a provider
+ * Get the direct download URL for a piece from a provider.
  */
 export function getDownloadURL(providerInfo: ProviderInfo, pieceCid: string): string {
   const serviceURL = providerInfo.products?.PDP?.data?.serviceURL
@@ -38,26 +26,19 @@ export function getDownloadURL(providerInfo: ProviderInfo, pieceCid: string): st
 }
 
 /**
- * Get the service URL from provider info
+ * Get the service URL from provider info.
  */
 export function getServiceURL(providerInfo: ProviderInfo): string {
   return providerInfo.products?.PDP?.data?.serviceURL ?? ''
 }
 
 /**
- * Upload a CAR file to Filecoin via Synapse
+ * Upload a CAR file to Filecoin via Synapse.
  *
  * This function encapsulates the common upload pattern:
  * 1. Submit CAR data to Synapse storage
  * 2. Track upload progress via callbacks
  * 3. Return piece information
- *
- * @param synapseService - Initialized Synapse service
- * @param carData - CAR file data as Uint8Array
- * @param rootCid - The IPFS root CID to associate with this piece
- * @param logger - Logger instance for tracking
- * @param options - Optional callbacks and context
- * @returns Upload result with piece information
  */
 export async function uploadToSynapse(
   synapseService: SynapseService,
@@ -68,7 +49,6 @@ export async function uploadToSynapse(
 ): Promise<SynapseUploadResult> {
   const { callbacks, contextId = 'upload' } = options
 
-  // Merge provided callbacks with logging callbacks
   const uploadCallbacks: UploadCallbacks = {
     onUploadComplete: (pieceCid) => {
       logger.info(
@@ -117,17 +97,15 @@ export async function uploadToSynapse(
     },
   }
 
-  // Upload using Synapse with IPFS root CID metadata
   const uploadOptions: any = {
     ...uploadCallbacks,
     metadata: {
-      [METADATA_KEYS.IPFS_ROOT_CID]: rootCid.toString(), // Associate piece with IPFS root CID
+      [METADATA_KEYS.IPFS_ROOT_CID]: rootCid.toString(),
     },
   }
 
   const synapseResult = await synapseService.storage.upload(carData, uploadOptions)
 
-  // Log success
   logger.info(
     {
       event: 'synapse.upload.success',

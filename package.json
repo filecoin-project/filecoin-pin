@@ -45,10 +45,6 @@
     "./synapse/service.js": {
       "types": "./dist/synapse/service.d.ts",
       "default": "./dist/synapse/service.js"
-    },
-    "./synapse/upload.js": {
-      "types": "./dist/synapse/upload.d.ts",
-      "default": "./dist/synapse/upload.js"
     }
   },
   "bin": {

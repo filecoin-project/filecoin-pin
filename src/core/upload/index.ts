@@ -2,7 +2,11 @@ import type { Synapse, UploadCallbacks } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import type { SynapseService } from '../../synapse/service.js'
-import { type SynapseUploadResult, uploadToSynapse } from '../../synapse/upload.js'
+import { type SynapseUploadResult, uploadToSynapse } from './synapse.js'
+
+export type { SynapseUploadOptions, SynapseUploadResult } from './synapse.js'
+export { getDownloadURL, getServiceURL, uploadToSynapse } from './synapse.js'
+
 import type { EventEmitter } from '../events/base.js'
 import type { PaymentEvent, PaymentsCapacitySuccessEvent } from '../events/payment.js'
 import type { UploadEvent } from '../events/upload.js'

@@ -24,7 +24,7 @@ Core patterns for initializing and managing the Synapse SDK lifecycle:
 - **WebSocket Cleanup**: Proper resource management for WebSocket providers
 - **Service Singleton Pattern**: Reusable service management
 
-### [`upload.ts`](../synapse/upload.ts) - Data Upload Patterns
+### [`core/upload`](../upload/index.ts) - Data Upload Patterns
 
 Reusable upload functionality for CAR files to Filecoin:
 
