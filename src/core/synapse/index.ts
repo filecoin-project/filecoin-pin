@@ -125,6 +125,12 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
       rpcURL: config.rpcUrl ?? RPC_URLS.calibration.websocket, // Default to calibration testnet
     }
 
+    // Optional: Override the default Warm Storage contract address
+    // Useful for testing with custom deployments
+    if (config.warmStorageAddress != null) {
+      synapseOptions.warmStorageAddress = config.warmStorageAddress
+    }
+
     const synapse = await Synapse.create(synapseOptions)
 
     // Store reference to the provider for cleanup if it's a WebSocket provider
@@ -167,6 +173,11 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
  * the data set creation and provider selection process. This is primarily
  * a wrapper around the Synapse SDK's storage context creation, adding logging
  * and progress callbacks for better observability.
+ *
+ * @param synapse - Initialized Synapse instance
+ * @param logger - Logger instance for detailed operation tracking
+ * @param progressCallbacks - Optional callbacks for progress tracking
+ * @returns Storage context and provider information
  */
 export async function createStorageContext(
   synapse: Synapse,
@@ -312,6 +323,11 @@ export async function createStorageContext(
  * Our wrapping of Synapse initialization and storage context creation is
  * primarily to handle our custom configuration needs and add detailed logging
  * and progress tracking.
+ *
+ * @param config - Application configuration with privateKey and RPC URL
+ * @param logger - Logger instance for detailed operation tracking
+ * @param progressCallbacks - Optional callbacks for progress tracking
+ * @returns SynapseService with initialized Synapse and storage context
  */
 export async function setupSynapse(
   config: SynapseSetupConfig,
