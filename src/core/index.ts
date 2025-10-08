@@ -1,4 +1,3 @@
-export * from './events/index.js'
 export * from './files/index.js'
 export * from './payments/index.js'
 export * from './synapse/index.js'
