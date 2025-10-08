@@ -2,7 +2,7 @@
  * Payment setup utilities and display functions
  *
  * This module provides UI utilities and display functions for payment setup,
- * building on the core payment operations from synapse/payments.
+ * building on the shared payment operations exposed from `src/core/payments`.
  */
 
 import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
@@ -10,34 +10,12 @@ import { ethers } from 'ethers'
 import pc from 'picocolors'
 import {
   calculateActualCapacity,
-  calculateStorageAllowances,
-  calculateStorageFromUSDFC,
-  checkFILBalance,
-  checkUSDFCBalance,
-  depositUSDFC,
-  getPaymentStatus,
+  DEFAULT_LOCKUP_DAYS,
   getStorageScale,
-  setServiceApprovals,
-  withdrawUSDFC,
-} from '../synapse/payments.js'
+  USDFC_DECIMALS,
+} from '../core/payments/index.js'
+import { formatFIL, formatUSDFC } from '../core/utils/format.js'
 import { log } from '../utils/cli-logger.js'
-
-// Re-export core payment functions for backward compatibility
-export {
-  calculateActualCapacity,
-  calculateStorageAllowances,
-  calculateStorageFromUSDFC,
-  checkFILBalance,
-  checkUSDFCBalance,
-  depositUSDFC,
-  withdrawUSDFC,
-  getPaymentStatus,
-  setServiceApprovals,
-}
-
-// Display constants
-const USDFC_DECIMALS = 18
-const DEFAULT_LOCKUP_DAYS = 10
 
 /**
  * Parse storage allowance string
@@ -85,30 +63,6 @@ export function parseStorageAllowance(input: string): number | null {
       `Invalid storage allowance format: ${input}. Use "1TiB/month", "500GiB/month", or a decimal number for USDFC per epoch (e.g., "0.0000565")`
     )
   }
-}
-
-/**
- * Format USDFC amount for display
- *
- * @param amount - Amount in wei (18 decimals)
- * @param decimals - Number of decimal places to show
- * @returns Formatted string
- */
-export function formatUSDFC(amount: bigint, decimals = 4): string {
-  const formatted = ethers.formatUnits(amount, USDFC_DECIMALS)
-  const num = parseFloat(formatted)
-
-  // If the number rounds to 0 with the requested decimals, show more
-  if (num > 0 && num < 10 ** -decimals) {
-    // Find how many decimals we need to show a non-zero value
-    let testDecimals = decimals
-    while (testDecimals < 10 && parseFloat(num.toFixed(testDecimals)) === 0) {
-      testDecimals++
-    }
-    return num.toFixed(testDecimals)
-  }
-
-  return num.toFixed(decimals)
 }
 
 /**
@@ -195,55 +149,6 @@ export function displayAccountInfo(
   log.indent(pc.gray(`USDFC wallet: ${formatUSDFC(usdfcBalance)} USDFC`))
   log.indent(pc.gray(`USDFC deposited: ${formatUSDFC(depositedAmount)} USDFC`))
   log.flush()
-}
-
-/**
- * Validation result with error messages
- */
-export interface PaymentValidationResult {
-  isValid: boolean
-  errorMessage?: string
-  helpMessage?: string
-}
-
-/**
- * Validate payment requirements and return structured result
- *
- * This function validates both FIL and USDFC balances and returns
- * structured error messages that can be displayed by the caller.
- *
- * @param hasSufficientGas - Whether wallet has enough FIL for gas
- * @param usdfcBalance - USDFC balance in wei
- * @param isCalibnet - Whether on calibration testnet
- * @returns Validation result with error messages
- */
-export function validatePaymentRequirements(
-  hasSufficientGas: boolean,
-  usdfcBalance: bigint,
-  isCalibnet: boolean
-): PaymentValidationResult {
-  if (!hasSufficientGas) {
-    const result: PaymentValidationResult = {
-      isValid: false,
-      errorMessage: 'Insufficient FIL for gas fees',
-    }
-    if (isCalibnet) {
-      result.helpMessage = 'Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'
-    }
-    return result
-  }
-
-  if (usdfcBalance === 0n) {
-    return {
-      isValid: false,
-      errorMessage: 'No USDFC tokens found',
-      helpMessage: isCalibnet
-        ? 'Get test USDFC from: https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet'
-        : 'Mint USDFC with FIL: https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step',
-    }
-  }
-
-  return { isValid: true }
 }
 
 /**
@@ -423,18 +328,4 @@ export function displayServicePermissions(
   if (shouldFlush) {
     log.flush()
   }
-}
-
-/**
- * Format FIL amount for display
- *
- * @param amount - Amount in attoFIL
- * @param isTestnet - Whether this is tFIL (testnet)
- * @returns Formatted string with unit
- */
-export function formatFIL(amount: bigint, isTestnet: boolean): string {
-  const formatted = ethers.formatEther(amount)
-  const num = parseFloat(formatted)
-  const unit = isTestnet ? 'tFIL' : 'FIL'
-  return `${num.toFixed(4)} ${unit}`
 }

@@ -15,7 +15,7 @@ import { globSource, unixfs } from '@helia/unixfs'
 import { CarWriter } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import { CARWritingBlockstore } from '../car-blockstore.js'
+import { CARWritingBlockstore } from '../car/index.js'
 
 // Spinner type for progress reporting
 type Spinner = {
@@ -73,6 +73,11 @@ export async function createCarFromPath(path: string, options: CreateCarOptions 
 
 /**
  * Common CAR creation logic
+ *
+ * @param contentPath - Path to the content to encode
+ * @param options - Options including logger and type
+ * @param addContent - Function that adds content to UnixFS and returns the root CID
+ * @returns CAR file path and root CID
  */
 async function createCar(
   contentPath: string,
@@ -134,6 +139,10 @@ async function createCar(
 
 /**
  * Create a CAR file from a single file
+ *
+ * @param filePath - Path to the file to encode
+ * @param options - Options including logger and bare flag
+ * @returns CAR file path and root CID
  */
 async function createCarFromSingleFile(filePath: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {
   const { logger, bare = false } = options
@@ -163,6 +172,10 @@ async function createCarFromSingleFile(filePath: string, options: CreateCarOptio
 
 /**
  * Create a CAR file from a directory
+ *
+ * @param dirPath - Path to the directory to encode
+ * @param options - Options including logger and spinner
+ * @returns CAR file path and root CID
  */
 async function createCarFromDirectory(dirPath: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {
   const { logger, spinner } = options

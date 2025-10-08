@@ -8,18 +8,21 @@ import { confirm } from '@clack/prompts'
 import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { computeAdjustmentForExactDays, computeAdjustmentForExactDeposit } from '../synapse/payments.js'
-import { cleanupProvider } from '../synapse/service.js'
-import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
-import { isTTY, log } from '../utils/cli-logger.js'
 import {
+  calculateStorageRunway,
   checkFILBalance,
   checkUSDFCBalance,
+  computeAdjustmentForExactDays,
+  computeAdjustmentForExactDeposit,
   depositUSDFC,
-  formatUSDFC,
   getPaymentStatus,
   withdrawUSDFC,
-} from './setup.js'
+} from '../core/payments/index.js'
+import { cleanupProvider } from '../core/synapse/index.js'
+import { formatUSDFC } from '../core/utils/format.js'
+import { formatRunwaySummary } from '../core/utils/index.js'
+import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
+import { isTTY, log } from '../utils/cli-logger.js'
 import type { FundOptions } from './types.js'
 
 // Helper: confirm/warn or bail when target implies < 10-day runway
@@ -114,13 +117,11 @@ async function performAdjustment(params: {
 // Helper: summary after adjustment
 async function printSummary(synapse: Synapse, title = 'Updated'): Promise<void> {
   const updated = await getPaymentStatus(synapse)
-  const newAvailable = updated.depositedAmount - (updated.currentAllowances.lockupUsed ?? 0n)
-  const newPerDay = (updated.currentAllowances.rateUsed ?? 0n) * TIME_CONSTANTS.EPOCHS_PER_DAY
-  const newRunway = newPerDay > 0n ? Number(newAvailable / newPerDay) : 0
-  const newRunwayHours = newPerDay > 0n ? Number(((newAvailable % newPerDay) * 24n) / newPerDay) : 0
+  const runway = calculateStorageRunway(updated)
+  const runwayDisplay = formatRunwaySummary(runway)
   log.section(title, [
     `Deposited: ${formatUSDFC(updated.depositedAmount)} USDFC`,
-    `Runway: ~${newRunway} day(s)${newRunwayHours > 0 ? ` ${newRunwayHours} hour(s)` : ''}`,
+    runway.state === 'active' ? `Runway: ~${runwayDisplay}` : `Runway: ${runwayDisplay}`,
   ])
 }
 
@@ -185,10 +186,16 @@ export async function runFund(options: FundOptions): Promise<void> {
     const rateUsed = status.currentAllowances.rateUsed ?? 0n
     const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
 
-    // user provided days or 0
+    // user provided days or 0 if not provided
     const targetDays: number = hasDays ? Number(options.days) : 0
-    // user provided amount or 0
-    const targetDeposit: bigint = hasAmount ? ethers.parseUnits(String(options.amount), 18) : 0n
+    // user provided amount or 0n if not provided
+    let targetDeposit: bigint = 0n
+    try {
+      targetDeposit = options.amount != null ? ethers.parseUnits(String(options.amount), 18) : 0n
+    } catch {
+      console.error(pc.red(`Error: Invalid --amount '${options.amount}'`))
+      throw new Error('Invalid --amount')
+    }
     let delta: bigint
     let clampedTarget: bigint | null = null
     let runwayCheckDays: number | null = null
@@ -217,14 +224,6 @@ export async function runFund(options: FundOptions): Promise<void> {
       depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to reach ~${targetDays} day(s) runway...`
       withdrawMsg = `Withdrawing ${formatUSDFC(-delta)} USDFC to reach ~${targetDays} day(s) runway...`
     } else {
-      let targetDeposit: bigint
-      try {
-        targetDeposit = ethers.parseUnits(String(options.amount), 18)
-      } catch {
-        console.error(pc.red(`Error: Invalid --amount '${options.amount}'`))
-        throw new Error('Invalid --amount')
-      }
-
       const adj = computeAdjustmentForExactDeposit(status, targetDeposit)
       delta = adj.delta
       clampedTarget = adj.clampedTarget
@@ -248,16 +247,17 @@ export async function runFund(options: FundOptions): Promise<void> {
     }
 
     if (options.mode === 'minimum') {
-      // if they have selected minimum mode, we don't need to check the runway
       if (delta > 0n) {
-        if (targetDeposit > 0n) {
-          depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to reach minimum of ${formatUSDFC(targetDeposit)} USDFC total...`
+        if (hasAmount) {
+          depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to reach minimum of ${formatUSDFC(
+            targetDeposit
+          )} USDFC total...`
         } else if (targetDays > 0) {
           depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to reach minimum of ${targetDays} day(s) runway...`
         }
       } else {
         if (delta < 0n) {
-          if (targetDeposit > 0n) {
+          if (hasAmount) {
             alreadyMessage = `Already above minimum deposit of ${formatUSDFC(targetDeposit)} USDFC. No changes needed.`
           } else if (targetDays > 0) {
             alreadyMessage = `Already above minimum of ${targetDays} day(s) runway. No changes needed.`
@@ -266,7 +266,6 @@ export async function runFund(options: FundOptions): Promise<void> {
         delta = 0n
       }
     } else if (runwayCheckDays != null && runwayCheckDays < 10) {
-      // if they have selected exact mode, we need to check the runway
       const line1 = hasDays
         ? 'Requested runway below 10-day safety baseline.'
         : 'Target deposit implies less than 10 days of runway at current spend.'
@@ -292,6 +291,7 @@ export async function runFund(options: FundOptions): Promise<void> {
     await printSummary(synapse)
     outro('Fund adjustment completed')
   } catch (error) {
+    spinner.stop()
     console.error(pc.red('✗ Fund adjustment failed'))
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
     process.exitCode = 1

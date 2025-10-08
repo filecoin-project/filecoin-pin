@@ -1,12 +1,18 @@
 # Synapse SDK Integration Examples
 
-This directory contains examples demonstrating how to integrate with the [Synapse SDK](https://github.com/FilOzone/synapse-sdk) for interacting with Filecoin Onchain Cloud.
+Filecoin Pin is first and foremost a reference implementation. The modules in
+`src/core/` expose the API surface we reuse across the CLI, GitHub Action, and
+sample integrations so that the business logic stays in one place while the
+surrounding UX layers remain easy to follow, fork, and remix.
+
+This document shows how the payment helpers exported from
+`filecoin-pin/core/payments` map onto the underlying [Synapse SDK](https://github.com/FilOzone/synapse-sdk).
 
 Synapse is abstracted within Filecoin Pin to isolate it as an educational resource, to integrate with our logging system, and to make mocking easier for testing.
 
 ## Module Overview
 
-### [`service.ts`](./service.ts) - SDK Initialization & Lifecycle
+### [`core/synapse`](../synapse/index.ts) - SDK Initialization & Lifecycle
 
 Core patterns for initializing and managing the Synapse SDK lifecycle:
 
@@ -16,7 +22,7 @@ Core patterns for initializing and managing the Synapse SDK lifecycle:
 - **WebSocket Cleanup**: Proper resource management for WebSocket providers
 - **Service Singleton Pattern**: Reusable service management
 
-### [`upload.ts`](./upload.ts) - Data Upload Patterns
+### [`core/upload`](../upload/index.ts) - Data Upload Patterns
 
 Reusable upload functionality for CAR files to Filecoin:
 
@@ -25,7 +31,7 @@ Reusable upload functionality for CAR files to Filecoin:
 - **Metadata Association**: IPFS CID linking with Filecoin pieces
 - **Provider Information**: Direct download URLs from storage providers
 
-### [`payments.ts`](./payments.ts) - Payment Operations
+### [`index.ts`](./index.ts) - Payment Operations
 
 Comprehensive payment rail management for Filecoin Pay:
 
@@ -42,7 +48,7 @@ Below are examples of how we use our custom Synapse SDK abstractions from within
 
 ```typescript
 import { RPC_URLS } from '@filoz/synapse-sdk'
-import { setupSynapse } from './synapse/service.js'
+import { setupSynapse } from 'filecoin-pin/core/synapse'
 
 const config = {
   privateKey: process.env.PRIVATE_KEY,
@@ -62,7 +68,7 @@ const synapseService = await setupSynapse(config, logger, {
 ### Upload CAR File
 
 ```typescript
-import { uploadToSynapse } from './synapse/upload.js'
+import { uploadToSynapse } from 'filecoin-pin/core/upload'
 import { CID } from 'multiformats/cid'
 
 const carData = await fs.readFile('path/to/file.car')
@@ -90,10 +96,10 @@ console.log(`Download URL: ${result.providerInfo?.downloadURL}`)
 
 ```typescript
 import {
+  calculateStorageAllowances,
   depositUSDFC,
   setServiceApprovals,
-  calculateStorageAllowances
-} from './synapse/payments.js'
+} from 'filecoin-pin/core/payments'
 import { ethers } from 'ethers'
 
 // Deposit 100 USDFC

@@ -59,7 +59,7 @@ paymentsCommand
         privateKey: options.privateKey,
         rpcUrl: options.rpcUrl || process.env.RPC_URL,
         amount: options.amount,
-        mode: options.mode || 'exact',
+        mode: options.mode,
       }
       if (options.days != null) fundOptions.days = Number(options.days)
       await runFund(fundOptions)

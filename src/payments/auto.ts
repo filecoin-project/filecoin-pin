@@ -9,20 +9,20 @@
 import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { calculateDepositCapacity, checkAndSetAllowances } from '../synapse/payments.js'
-import { cleanupProvider } from '../synapse/service.js'
-import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
-import { log } from '../utils/cli-logger.js'
 import {
+  calculateDepositCapacity,
+  checkAndSetAllowances,
   checkFILBalance,
   checkUSDFCBalance,
   depositUSDFC,
-  displayAccountInfo,
-  displayDepositWarning,
-  formatUSDFC,
   getPaymentStatus,
   validatePaymentRequirements,
-} from './setup.js'
+} from '../core/payments/index.js'
+import { cleanupProvider } from '../core/synapse/index.js'
+import { formatUSDFC } from '../core/utils/format.js'
+import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
+import { log } from '../utils/cli-logger.js'
+import { displayAccountInfo, displayDepositWarning } from './setup.js'
 import type { PaymentSetupOptions } from './types.js'
 
 /**

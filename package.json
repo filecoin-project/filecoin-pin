@@ -5,6 +5,40 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "default": "./dist/core/index.js"
+    },
+    "./core/car": {
+      "types": "./dist/core/car/index.d.ts",
+      "default": "./dist/core/car/index.js"
+    },
+    "./core/payments": {
+      "types": "./dist/core/payments/index.d.ts",
+      "default": "./dist/core/payments/index.js"
+    },
+    "./core/synapse": {
+      "types": "./dist/core/synapse/index.d.ts",
+      "default": "./dist/core/synapse/index.js"
+    },
+    "./core/upload": {
+      "types": "./dist/core/upload/index.d.ts",
+      "default": "./dist/core/upload/index.js"
+    },
+    "./core/unixfs": {
+      "types": "./dist/core/unixfs/index.d.ts",
+      "default": "./dist/core/unixfs/index.js"
+    },
+    "./core/utils": {
+      "types": "./dist/core/utils/index.d.ts",
+      "default": "./dist/core/utils/index.js"
+    }
+  },
   "bin": {
     "filecoin-pin": "dist/cli.js"
   },

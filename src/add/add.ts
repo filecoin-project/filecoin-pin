@@ -15,10 +15,10 @@ import {
   createStorageContext,
   initializeSynapse,
   type SynapseService,
-} from '../synapse/service.js'
+} from '../core/synapse/index.js'
+import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import type { AddOptions, AddResult } from './types.js'
-import { cleanupTempCar, createCarFromPath } from './unixfs-car.js'
 
 /**
  * Validate that a path exists and is a regular file or directory
@@ -109,7 +109,6 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       databasePath: '',
       carStoragePath: '',
       logLevel: 'error',
-      warmStorageAddress: undefined,
     }
 
     // Initialize just the Synapse SDK

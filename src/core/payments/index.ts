@@ -21,7 +21,7 @@ import { ethers } from 'ethers'
 // Constants
 export const USDFC_DECIMALS = 18
 const MIN_FIL_FOR_GAS = ethers.parseEther('0.1') // Minimum FIL padding for gas
-const DEFAULT_LOCKUP_DAYS = 10 // WarmStorage requires 10 days lockup
+export const DEFAULT_LOCKUP_DAYS = 10 // WarmStorage requires 10 days lockup
 
 // Maximum allowances for trusted WarmStorage service
 // Using MaxUint256 which MetaMask displays as "Unlimited"
@@ -89,6 +89,18 @@ export interface StorageAllowances {
   rateAllowance: bigint
   lockupAllowance: bigint
   storageCapacityTiB: number
+}
+
+export type StorageRunwayState = 'unknown' | 'no-spend' | 'active'
+
+export interface StorageRunwaySummary {
+  state: StorageRunwayState
+  available: bigint
+  rateUsed: bigint
+  perDay: bigint
+  lockupUsed: bigint
+  days: number
+  hours: number
 }
 
 /**
@@ -225,6 +237,41 @@ export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus>
     depositedAmount,
     currentAllowances,
   }
+}
+
+export interface PaymentValidationResult {
+  isValid: boolean
+  errorMessage?: string
+  helpMessage?: string
+}
+
+export function validatePaymentRequirements(
+  hasSufficientGas: boolean,
+  usdfcBalance: bigint,
+  isCalibnet: boolean
+): PaymentValidationResult {
+  if (!hasSufficientGas) {
+    const result: PaymentValidationResult = {
+      isValid: false,
+      errorMessage: 'Insufficient FIL for gas fees',
+    }
+    if (isCalibnet) {
+      result.helpMessage = 'Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'
+    }
+    return result
+  }
+
+  if (usdfcBalance === 0n) {
+    return {
+      isValid: false,
+      errorMessage: 'No USDFC tokens found',
+      helpMessage: isCalibnet
+        ? 'Get test USDFC from: https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet'
+        : 'Mint USDFC with FIL: https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step',
+    }
+  }
+
+  return { isValid: true }
 }
 
 /**
@@ -745,6 +792,65 @@ export function calculateDepositCapacity(
 export function calculateRequiredAllowances(carSizeBytes: number, pricePerTiBPerEpoch: bigint): StorageAllowances {
   const storageTiB = carSizeBytes / Number(SIZE_CONSTANTS.TiB)
   return calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
+}
+
+export function calculateStorageRunway(
+  status?: Pick<PaymentStatus, 'depositedAmount' | 'currentAllowances'> | null
+): StorageRunwaySummary {
+  if (!status || !status.currentAllowances) {
+    return {
+      state: 'unknown',
+      available: 0n,
+      rateUsed: 0n,
+      perDay: 0n,
+      lockupUsed: 0n,
+      days: 0,
+      hours: 0,
+    }
+  }
+
+  const rateUsed = status.currentAllowances.rateUsed ?? 0n
+  const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
+  const depositedAmount = status.depositedAmount ?? 0n
+  const available = depositedAmount > lockupUsed ? depositedAmount - lockupUsed : 0n
+
+  if (rateUsed === 0n) {
+    return {
+      state: 'no-spend',
+      available,
+      rateUsed,
+      perDay: 0n,
+      lockupUsed,
+      days: 0,
+      hours: 0,
+    }
+  }
+
+  const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+  if (perDay === 0n) {
+    return {
+      state: 'no-spend',
+      available,
+      rateUsed,
+      perDay,
+      lockupUsed,
+      days: 0,
+      hours: 0,
+    }
+  }
+
+  const runwayDays = Number(available / perDay)
+  const runwayHoursRemainder = Number(((available % perDay) * 24n) / perDay)
+
+  return {
+    state: 'active',
+    available,
+    rateUsed,
+    perDay,
+    lockupUsed,
+    days: runwayDays,
+    hours: runwayHoursRemainder,
+  }
 }
 
 /**

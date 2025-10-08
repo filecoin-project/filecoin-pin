@@ -8,12 +8,19 @@
 import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { calculateDepositCapacity } from '../synapse/payments.js'
-import { cleanupProvider } from '../synapse/service.js'
+import {
+  calculateDepositCapacity,
+  calculateStorageRunway,
+  checkFILBalance,
+  checkUSDFCBalance,
+  getPaymentStatus,
+} from '../core/payments/index.js'
+import { cleanupProvider } from '../core/synapse/index.js'
+import { formatUSDFC } from '../core/utils/format.js'
+import { formatRunwaySummary } from '../core/utils/index.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import { formatRunwayDuration } from '../utils/time.js'
-import { checkFILBalance, checkUSDFCBalance, displayDepositWarning, formatUSDFC, getPaymentStatus } from './setup.js'
+import { displayDepositWarning } from './setup.js'
 
 interface StatusOptions {
   privateKey?: string
@@ -155,26 +162,20 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     displayPaymentRailsSummary(paymentRailsData, log)
 
     // Show spend summaries (rateUsed, runway)
-    const rateUsed = status.currentAllowances.rateUsed ?? 0n
-    const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
+    const runway = calculateStorageRunway(status)
+    const runwayDisplay = formatRunwaySummary(runway)
     const maxLockup = status.currentAllowances.maxLockupPeriod
     const lockupDays = maxLockup != null ? Number(maxLockup / TIME_CONSTANTS.EPOCHS_PER_DAY) : 10
-    if (rateUsed > 0n) {
-      const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
-      const available = status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n
-      const runwayDays = Number(available / perDay)
-      const runwayHoursRemainder = Number(((available % perDay) * 24n) / perDay)
 
-      log.line(pc.bold('WarmStorage Usage'))
-      log.indent(`Spend rate: ${formatUSDFC(rateUsed)} USDFC/epoch`)
-      log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC (~${lockupDays}-day reserve)`)
-      log.indent(`Runway: ~${formatRunwayDuration(runwayDays, runwayHoursRemainder)}`)
-      log.flush()
+    log.line(pc.bold('WarmStorage Usage'))
+    if (runway.state === 'active') {
+      log.indent(`Spend rate: ${formatUSDFC(runway.rateUsed)} USDFC/epoch`)
+      log.indent(`Locked: ${formatUSDFC(runway.lockupUsed)} USDFC (~${lockupDays}-day reserve)`)
+      log.indent(`Runway: ~${runwayDisplay}`)
     } else {
-      log.line(pc.bold('WarmStorage Usage'))
-      log.indent(pc.gray('No active spend detected'))
-      log.flush()
+      log.indent(pc.gray(runwayDisplay))
     }
+    log.flush()
 
     // Show deposit warning if needed
     displayDepositWarning(status.depositedAmount, status.currentAllowances.lockupUsed)
