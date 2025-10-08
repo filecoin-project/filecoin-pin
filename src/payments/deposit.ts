@@ -11,9 +11,9 @@ import { ethers } from 'ethers'
 import pc from 'picocolors'
 import { calculateStorageRunway, computeTopUpForDuration } from '../core/payments/index.js'
 import { cleanupProvider } from '../core/synapse/index.js'
+import { formatRunwaySummary } from '../core/utils/index.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import { formatRunwaySummary } from '../utils/time.js'
 import { checkFILBalance, checkUSDFCBalance, depositUSDFC, formatUSDFC, getPaymentStatus } from './setup.js'
 
 export interface DepositOptions {

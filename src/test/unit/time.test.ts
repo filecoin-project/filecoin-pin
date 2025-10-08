@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatRunwayDuration, formatRunwaySummary } from '../../utils/time.js'
+import { formatRunwayDuration, formatRunwaySummary } from '../../core/utils/index.js'
 
 describe('formatRunwayDuration', () => {
   it('formats small durations with days and hours', () => {

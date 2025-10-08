@@ -1,17 +1,21 @@
 import { promises as fs } from 'node:fs'
 import { RPC_URLS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
+import { createUnixfsCarBuilder } from 'filecoin-pin/core/files'
 import {
   calculateStorageRunway,
-  checkUploadReadiness,
+  checkAndSetAllowances,
   computeTopUpForDuration,
-  executeUpload,
+  depositUSDFC,
+  getPaymentStatus,
+} from 'filecoin-pin/core/payments'
+import {
+  cleanupSynapseService,
+  createStorageContext,
   initializeSynapse as initSynapse,
-} from 'filecoin-pin/core'
-import { createUnixfsCarBuilder } from 'filecoin-pin/core/files'
-import { getDownloadURL } from 'filecoin-pin/core/upload'
-import { checkAndSetAllowances, depositUSDFC, getPaymentStatus } from 'filecoin-pin/synapse/payments.js'
-import { cleanupSynapseService, createStorageContext } from 'filecoin-pin/synapse/service.js'
+} from 'filecoin-pin/core/synapse'
+import { checkUploadReadiness, executeUpload, getDownloadURL } from 'filecoin-pin/core/upload'
+import { formatRunwaySummary } from 'filecoin-pin/core/utils'
 import { CID } from 'multiformats/cid'
 import { ERROR_CODES, FilecoinPinError, getErrorMessage } from './errors.js'
 
@@ -129,7 +133,7 @@ export async function handlePayments(synapse, options, logger) {
     // the amount of USDFC you have in your wallet
     currentBalance: ethers.formatUnits(newStatus.usdfcBalance, 18),
     // the amount of time you have until your funds would run out based on storage usage
-    storageRunway: calculateStorageRunway(newStatus).formatted,
+    storageRunway: formatRunwaySummary(calculateStorageRunway(newStatus)),
     // the amount of USDFC you have deposited to Filecoin Pay in this run
     depositedThisRun: ethers.formatUnits(requiredTopUp, 18),
   }

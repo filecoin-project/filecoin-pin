@@ -14,9 +14,9 @@ import {
   computeAdjustmentForExactDeposit,
 } from '../core/payments/index.js'
 import { cleanupProvider } from '../core/synapse/index.js'
+import { formatRunwaySummary } from '../core/utils/index.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
-import { formatRunwaySummary } from '../utils/time.js'
 import {
   checkFILBalance,
   checkUSDFCBalance,

@@ -30,21 +30,9 @@
       "types": "./dist/core/files/index.d.ts",
       "default": "./dist/core/files/index.js"
     },
-    "./common/upload-flow.js": {
-      "types": "./dist/common/upload-flow.d.ts",
-      "default": "./dist/common/upload-flow.js"
-    },
-    "./payments/setup.js": {
-      "types": "./dist/payments/setup.d.ts",
-      "default": "./dist/payments/setup.js"
-    },
-    "./synapse/payments.js": {
-      "types": "./dist/synapse/payments.d.ts",
-      "default": "./dist/synapse/payments.js"
-    },
-    "./synapse/service.js": {
-      "types": "./dist/synapse/service.d.ts",
-      "default": "./dist/synapse/service.js"
+    "./core/utils": {
+      "types": "./dist/core/utils/index.d.ts",
+      "default": "./dist/core/utils/index.js"
     }
   },
   "bin": {

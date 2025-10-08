@@ -7,8 +7,6 @@ surrounding UX layers remain easy to follow, fork, and remix.
 
 This document shows how the payment helpers exported from
 `filecoin-pin/core/payments` map onto the underlying [Synapse SDK](https://github.com/FilOzone/synapse-sdk).
-They previously lived in `src/synapse/payments.ts`; that file now re-exports
-these helpers for backward compatibility.
 
 Synapse is abstracted within Filecoin Pin to isolate it as an educational resource, to integrate with our logging system, and to make mocking easier for testing.
 

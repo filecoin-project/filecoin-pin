@@ -2,7 +2,7 @@
  * Payment setup utilities and display functions
  *
  * This module provides UI utilities and display functions for payment setup,
- * building on the core payment operations from synapse/payments.
+ * building on the shared payment operations exposed from `src/core/payments`.
  */
 
 import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
