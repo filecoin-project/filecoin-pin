@@ -8,12 +8,19 @@
 import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { calculateDepositCapacity, calculateStorageRunway } from '../core/payments/index.js'
+import {
+  calculateDepositCapacity,
+  calculateStorageRunway,
+  checkFILBalance,
+  checkUSDFCBalance,
+  getPaymentStatus,
+} from '../core/payments/index.js'
 import { cleanupProvider } from '../core/synapse/index.js'
+import { formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import { checkFILBalance, checkUSDFCBalance, displayDepositWarning, formatUSDFC, getPaymentStatus } from './setup.js'
+import { displayDepositWarning } from './setup.js'
 
 interface StatusOptions {
   privateKey?: string

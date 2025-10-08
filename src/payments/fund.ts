@@ -10,21 +10,19 @@ import { ethers } from 'ethers'
 import pc from 'picocolors'
 import {
   calculateStorageRunway,
+  checkFILBalance,
+  checkUSDFCBalance,
   computeAdjustmentForExactDays,
   computeAdjustmentForExactDeposit,
+  depositUSDFC,
+  getPaymentStatus,
+  withdrawUSDFC,
 } from '../core/payments/index.js'
 import { cleanupProvider } from '../core/synapse/index.js'
+import { formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
-import {
-  checkFILBalance,
-  checkUSDFCBalance,
-  depositUSDFC,
-  formatUSDFC,
-  getPaymentStatus,
-  withdrawUSDFC,
-} from './setup.js'
 
 export interface FundOptions {
   privateKey?: string

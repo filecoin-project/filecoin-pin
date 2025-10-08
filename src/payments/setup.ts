@@ -8,38 +8,11 @@
 import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import {
-  calculateActualCapacity,
-  calculateStorageAllowances,
-  calculateStorageFromUSDFC,
-  checkFILBalance,
-  checkUSDFCBalance,
-  depositUSDFC,
-  getPaymentStatus,
-  getStorageScale,
-  setServiceApprovals,
-  validatePaymentRequirements,
-  withdrawUSDFC,
-} from '../core/payments/index.js'
+import { calculateActualCapacity, getStorageScale, USDFC_DECIMALS } from '../core/payments/index.js'
+import { formatFIL, formatUSDFC } from '../core/utils/format.js'
 import { log } from '../utils/cli-logger.js'
 
-// Re-export core payment functions for backward compatibility
-export {
-  calculateActualCapacity,
-  calculateStorageAllowances,
-  calculateStorageFromUSDFC,
-  checkFILBalance,
-  checkUSDFCBalance,
-  depositUSDFC,
-  withdrawUSDFC,
-  getPaymentStatus,
-  setServiceApprovals,
-  validatePaymentRequirements,
-}
-export type { PaymentValidationResult } from '../core/payments/index.js'
-
 // Display constants
-const USDFC_DECIMALS = 18
 const DEFAULT_LOCKUP_DAYS = 10
 
 /**
@@ -88,30 +61,6 @@ export function parseStorageAllowance(input: string): number | null {
       `Invalid storage allowance format: ${input}. Use "1TiB/month", "500GiB/month", or a decimal number for USDFC per epoch (e.g., "0.0000565")`
     )
   }
-}
-
-/**
- * Format USDFC amount for display
- *
- * @param amount - Amount in wei (18 decimals)
- * @param decimals - Number of decimal places to show
- * @returns Formatted string
- */
-export function formatUSDFC(amount: bigint, decimals = 4): string {
-  const formatted = ethers.formatUnits(amount, USDFC_DECIMALS)
-  const num = parseFloat(formatted)
-
-  // If the number rounds to 0 with the requested decimals, show more
-  if (num > 0 && num < 10 ** -decimals) {
-    // Find how many decimals we need to show a non-zero value
-    let testDecimals = decimals
-    while (testDecimals < 10 && parseFloat(num.toFixed(testDecimals)) === 0) {
-      testDecimals++
-    }
-    return num.toFixed(testDecimals)
-  }
-
-  return num.toFixed(decimals)
 }
 
 /**
@@ -377,18 +326,4 @@ export function displayServicePermissions(
   if (shouldFlush) {
     log.flush()
   }
-}
-
-/**
- * Format FIL amount for display
- *
- * @param amount - Amount in attoFIL
- * @param isTestnet - Whether this is tFIL (testnet)
- * @returns Formatted string with unit
- */
-export function formatFIL(amount: bigint, isTestnet: boolean): string {
-  const formatted = ethers.formatEther(amount)
-  const num = parseFloat(formatted)
-  const unit = isTestnet ? 'tFIL' : 'FIL'
-  return `${num.toFixed(4)} ${unit}`
 }

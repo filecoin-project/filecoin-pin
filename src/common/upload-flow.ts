@@ -12,7 +12,7 @@ import type { Logger } from 'pino'
 import type { PaymentCapacityCheck } from '../core/payments/index.js'
 import { cleanupSynapseService, type SynapseService } from '../core/synapse/index.js'
 import { checkUploadReadiness, executeUpload, getDownloadURL, type SynapseUploadResult } from '../core/upload/index.js'
-import { formatUSDFC } from '../payments/setup.js'
+import { formatUSDFC } from '../core/utils/format.js'
 import { cancel, formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 
