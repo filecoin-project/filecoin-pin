@@ -1,4 +1,5 @@
 import type { Synapse } from '@filoz/synapse-sdk'
+import type { Spinner } from '../utils/cli-helpers.js'
 
 // Re-export payment types from the synapse module
 export type { PaymentStatus, StorageAllowances } from '../synapse/payments.js'
@@ -17,7 +18,7 @@ export interface AutoFundOptions {
   /** Size of file being uploaded (in bytes) - used to calculate additional funding needed */
   fileSize: number
   /** Optional spinner for progress updates */
-  spinner?: ReturnType<typeof import('../utils/cli-helpers.js').createSpinner>
+  spinner?: Spinner
 }
 
 export interface FundingAdjustmentResult {

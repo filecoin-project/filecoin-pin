@@ -11,12 +11,22 @@ import {
 import { isTTY, log } from './cli-logger.js'
 
 /**
+ * Spinner interface for progress indication
+ * Works in both TTY and non-TTY environments
+ */
+export type Spinner = {
+  start: (msg: string) => void
+  message: (msg: string) => void
+  stop: (msg?: string) => void
+}
+
+/**
  * Creates a spinner that works in both TTY and non-TTY environments
  *
  * In TTY mode: Uses @clack/prompts spinner for nice visual feedback
  * In non-TTY mode: Prints simple status messages without ANSI codes
  */
-export function createSpinner() {
+export function createSpinner(): Spinner {
   if (isTTY()) {
     // Use the real spinner for TTY
     return clackSpinner()

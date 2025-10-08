@@ -16,6 +16,7 @@ import {
   computeAdjustmentForExactDeposit,
 } from '../synapse/payments.js'
 import { cleanupProvider } from '../synapse/service.js'
+import type { Spinner } from '../utils/cli-helpers.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
 import {
@@ -31,7 +32,7 @@ import type { AutoFundOptions, FundingAdjustmentResult, FundOptions } from './ty
 
 // Helper: confirm/warn or bail when target implies < 10-day runway
 async function ensureBelowTenDaysAllowed(opts: {
-  spinner: ReturnType<typeof createSpinner>
+  spinner: Spinner
   warningLine1: string
   warningLine2: string
 }): Promise<void> {
@@ -61,7 +62,7 @@ async function ensureBelowTenDaysAllowed(opts: {
 // Helper: perform deposit or withdraw according to delta
 async function performAdjustment(params: {
   synapse: Synapse
-  spinner: ReturnType<typeof createSpinner>
+  spinner: Spinner
   delta: bigint
   depositMsg: string
   withdrawMsg: string

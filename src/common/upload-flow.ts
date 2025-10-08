@@ -21,6 +21,7 @@ import {
 } from '../synapse/payments.js'
 import { cleanupSynapseService, type SynapseService } from '../synapse/service.js'
 import { getDownloadURL, type SynapseUploadResult, uploadToSynapse } from '../synapse/upload.js'
+import type { Spinner } from '../utils/cli-helpers.js'
 import { cancel, formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 
@@ -43,7 +44,7 @@ export interface UploadFlowOptions {
   /**
    * Optional spinner for progress updates
    */
-  spinner?: ReturnType<typeof import('../utils/cli-helpers.js').createSpinner>
+  spinner?: Spinner
 }
 
 export interface UploadFlowResult extends SynapseUploadResult {
@@ -59,11 +60,7 @@ export interface UploadFlowResult extends SynapseUploadResult {
  * @param fileSize - Size of file being uploaded (in bytes)
  * @param spinner - Optional spinner for progress
  */
-export async function performAutoFunding(
-  synapse: Synapse,
-  fileSize: number,
-  spinner?: ReturnType<typeof import('../utils/cli-helpers.js').createSpinner>
-): Promise<void> {
+export async function performAutoFunding(synapse: Synapse, fileSize: number, spinner?: Spinner): Promise<void> {
   spinner?.start('Checking funding requirements for upload...')
 
   try {
@@ -113,11 +110,7 @@ export async function performAutoFunding(
  * @param spinner - Optional spinner for progress
  * @returns true if validation passes, exits process if not
  */
-export async function validatePaymentSetup(
-  synapse: Synapse,
-  fileSize: number,
-  spinner?: ReturnType<typeof import('../utils/cli-helpers.js').createSpinner>
-): Promise<void> {
+export async function validatePaymentSetup(synapse: Synapse, fileSize: number, spinner?: Spinner): Promise<void> {
   // Check basic requirements (FIL and USDFC balance)
   const filStatus = await checkFILBalance(synapse)
   const usdfcBalance = await checkUSDFCBalance(synapse)
@@ -191,11 +184,7 @@ export async function validatePaymentSetup(
 /**
  * Display payment capacity issues and suggestions
  */
-function displayPaymentIssues(
-  capacityCheck: any,
-  fileSize: number,
-  spinner?: ReturnType<typeof import('../utils/cli-helpers.js').createSpinner>
-): void {
+function displayPaymentIssues(capacityCheck: any, fileSize: number, spinner?: Spinner): void {
   spinner?.stop(`${pc.red('✗')} Insufficient deposit for this file`)
   log.line('')
   log.line(pc.bold('File Requirements:'))
