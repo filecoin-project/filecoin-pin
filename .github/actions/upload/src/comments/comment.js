@@ -1,5 +1,4 @@
 import { Octokit } from '@octokit/rest'
-import { getGlobalContext } from '../context.js'
 import { getErrorMessage } from '../errors.js'
 import { getOutputSummary } from '../outputs.js'
 
@@ -13,8 +12,8 @@ import { getOutputSummary } from '../outputs.js'
  * @param {CombinedContext} context
  * @returns
  */
-const generateCommentBody = (context) => {
-  return `${getOutputSummary(context, 'Uploaded')}
+const generateCommentBody = (context, status) => {
+  return `${getOutputSummary(context, status)}
   <a href="${getWorkflowRunUrl()}">More details</a>`
 }
 
@@ -46,10 +45,6 @@ export async function commentOnPR(ctx) {
 
   /** @type {number | undefined} */
   let resolvedPrNumber = pr?.number
-  if (!resolvedPrNumber) {
-    const ctx = getGlobalContext()
-    resolvedPrNumber = ctx.pr?.number || undefined
-  }
 
   // Also try from GitHub event
   if (!resolvedPrNumber && process.env.GITHUB_EVENT_NAME === 'pull_request') {
@@ -67,11 +62,6 @@ export async function commentOnPR(ctx) {
     return
   }
 
-  if (!ipfsRootCid || !dataSetId || !pieceCid) {
-    console.log('Skipping PR comment: missing required upload information')
-    return
-  }
-
   // If this is a fork PR that was blocked, we need to comment with explanation
   if (ctx.pr && ctx.uploadStatus === 'fork-pr-blocked') {
     console.log('Posting comment for blocked fork PR')
@@ -80,6 +70,20 @@ export async function commentOnPR(ctx) {
     if (!dataSetId) dataSetId = 'N/A (fork PR blocked)'
     if (!pieceCid) pieceCid = 'N/A (fork PR blocked)'
   }
+
+  if (!ipfsRootCid || !dataSetId || !pieceCid) {
+    console.log('Skipping PR comment: missing required upload information')
+    return
+  }
+
+  const contextForComment = {
+    ...ctx,
+    ipfsRootCid,
+    dataSetId,
+    pieceCid,
+  }
+
+  const summaryStatus = contextForComment.uploadStatus === 'fork-pr-blocked' ? 'Fork PR blocked' : 'Uploaded'
 
   const [owner, repo] = github_repository.split('/')
   const issue_number = resolvedPrNumber
@@ -91,7 +95,7 @@ export async function commentOnPR(ctx) {
 
   const octokit = new Octokit({ auth: github_token })
 
-  const body = generateCommentBody(ctx)
+  const body = generateCommentBody(contextForComment, summaryStatus)
 
   try {
     // Find existing comment
