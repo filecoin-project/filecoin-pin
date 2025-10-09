@@ -13,6 +13,9 @@ import type { PaymentCapacityCheck } from '../core/payments/index.js'
 import { cleanupSynapseService, type SynapseService } from '../core/synapse/index.js'
 import { checkUploadReadiness, executeUpload, getDownloadURL, type SynapseUploadResult } from '../core/upload/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
+import { autoFund } from '../payments/fund.js'
+import type { AutoFundOptions } from '../payments/types.js'
+import type { Spinner } from '../utils/cli-helpers.js'
 import { cancel, formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 
@@ -35,12 +38,62 @@ export interface UploadFlowOptions {
   /**
    * Optional spinner for progress updates
    */
-  spinner?: ReturnType<typeof import('../utils/cli-helpers.js').createSpinner>
+  spinner?: Spinner
 }
 
 export interface UploadFlowResult extends SynapseUploadResult {
   network: string
   transactionHash?: string | undefined
+}
+
+/**
+ * Perform auto-funding if requested
+ * Automatically ensures a minimum of 10 days of runway based on current usage + new file requirements
+ *
+ * @param synapse - Initialized Synapse instance
+ * @param fileSize - Size of file being uploaded (in bytes)
+ * @param spinner - Optional spinner for progress
+ */
+export async function performAutoFunding(synapse: Synapse, fileSize: number, spinner?: Spinner): Promise<void> {
+  spinner?.start('Checking funding requirements for upload...')
+
+  try {
+    const fundOptions: AutoFundOptions = {
+      synapse,
+      fileSize,
+    }
+    if (spinner !== undefined) {
+      fundOptions.spinner = spinner
+    }
+    const result = await autoFund(fundOptions)
+    spinner?.stop(`${pc.green('✓')} Funding requirements met`)
+
+    if (result.adjusted) {
+      log.line('')
+      log.line(pc.bold('Auto-funding completed:'))
+      log.indent(`Deposited ${formatUSDFC(result.delta)} USDFC`)
+      log.indent(`Total deposited: ${formatUSDFC(result.newDepositedAmount)} USDFC`)
+      log.indent(
+        `Runway: ~${result.newRunwayDays} day(s)${result.newRunwayHours > 0 ? ` ${result.newRunwayHours} hour(s)` : ''}`
+      )
+      if (result.approvalTx) {
+        log.indent(pc.gray(`Approval tx: ${result.approvalTx}`))
+      }
+      if (result.transactionHash) {
+        log.indent(pc.gray(`Transaction: ${result.transactionHash}`))
+      }
+      log.line('')
+      log.flush()
+    }
+  } catch (error) {
+    spinner?.stop(`${pc.red('✗')} Auto-funding failed`)
+    log.line('')
+    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.flush()
+    await cleanupSynapseService()
+    cancel('Operation cancelled - auto-funding failed')
+    process.exit(1)
+  }
 }
 
 /**
@@ -51,11 +104,7 @@ export interface UploadFlowResult extends SynapseUploadResult {
  * @param spinner - Optional spinner for progress
  * @returns true if validation passes, exits process if not
  */
-export async function validatePaymentSetup(
-  synapse: Synapse,
-  fileSize: number,
-  spinner?: ReturnType<typeof import('../utils/cli-helpers.js').createSpinner>
-): Promise<void> {
+export async function validatePaymentSetup(synapse: Synapse, fileSize: number, spinner?: Spinner): Promise<void> {
   const readiness = await checkUploadReadiness({
     synapse,
     fileSize,
@@ -149,11 +198,7 @@ export async function validatePaymentSetup(
 /**
  * Display payment capacity issues and suggestions
  */
-function displayPaymentIssues(
-  capacityCheck: PaymentCapacityCheck,
-  fileSize: number,
-  spinner?: ReturnType<typeof import('../utils/cli-helpers.js').createSpinner>
-): void {
+function displayPaymentIssues(capacityCheck: PaymentCapacityCheck, fileSize: number, spinner?: Spinner): void {
   spinner?.stop(`${pc.red('✗')} Insufficient deposit for this file`)
   log.line('')
   log.line(pc.bold('File Requirements:'))

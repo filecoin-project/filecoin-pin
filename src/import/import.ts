@@ -12,7 +12,7 @@ import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
-import { displayUploadResults, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
+import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import {
   cleanupSynapseService,
   createStorageContext,
@@ -188,9 +188,14 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
-    // Step 5: Validate payment setup (may configure permissions if needed)
-    spinner.start('Checking payment setup...')
-    await validatePaymentSetup(synapse, fileStat.size, spinner)
+    if (options.autoFund) {
+      // Step 5: Perform auto-funding if requested (now that we know the file size)
+      await performAutoFunding(synapse, fileStat.size, spinner)
+    } else {
+      // Step 5: Validate payment setup (may configure permissions if needed)
+      spinner.start('Checking payment capacity...')
+      await validatePaymentSetup(synapse, fileStat.size, spinner)
+    }
 
     // Step 6: Create storage context now that payments are validated
     spinner.start('Creating storage context...')

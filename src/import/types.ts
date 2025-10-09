@@ -4,6 +4,8 @@ export interface ImportOptions {
   filePath: string
   privateKey?: string
   rpcUrl?: string
+  /** Auto-fund: automatically ensure minimum 10 days of runway */
+  autoFund?: boolean
 }
 
 export interface ImportResult {

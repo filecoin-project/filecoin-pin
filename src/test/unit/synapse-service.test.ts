@@ -1,5 +1,6 @@
 import * as synapseSdk from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
+import type { Logger } from 'pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createConfig } from '../../config.js'
 import {
@@ -19,7 +20,7 @@ const TEST_CID = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzo
 
 describe('synapse-service', () => {
   let config: SynapseSetupConfig
-  let logger: ReturnType<typeof createLogger>
+  let logger: Logger
 
   beforeEach(() => {
     // Create test config with Synapse enabled

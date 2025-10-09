@@ -1,3 +1,6 @@
+import type { Synapse } from '@filoz/synapse-sdk'
+import type { Spinner } from '../utils/cli-helpers.js'
+
 // Re-export payment types from the core module
 export type { PaymentStatus, StorageAllowances } from '../core/payments/index.js'
 
@@ -7,6 +10,32 @@ export interface PaymentSetupOptions {
   rpcUrl?: string
   deposit: string
   rateAllowance: string
+}
+
+export interface AutoFundOptions {
+  /** Synapse instance (required) */
+  synapse: Synapse
+  /** Size of file being uploaded (in bytes) - used to calculate additional funding needed */
+  fileSize: number
+  /** Optional spinner for progress updates */
+  spinner?: Spinner
+}
+
+export interface FundingAdjustmentResult {
+  /** Whether any adjustment was performed */
+  adjusted: boolean
+  /** Amount deposited (positive) or withdrawn (negative) */
+  delta: bigint
+  /** Approval transaction hash (if deposit required approval) */
+  approvalTx?: string | undefined
+  /** Deposit or withdraw transaction hash */
+  transactionHash?: string | undefined
+  /** Updated deposited amount after adjustment */
+  newDepositedAmount: bigint
+  /** New runway in days */
+  newRunwayDays: number
+  /** New runway hours (fractional part) */
+  newRunwayHours: number
 }
 
 export type FundMode = 'exact' | 'minimum'

@@ -227,6 +227,16 @@ function calculateStorageCapacity(rateAllowance: bigint, lockupAllowance: bigint
 }
 
 /**
+ * Storage capacity information with deposit limitations
+ */
+export interface StorageCapacityInfo {
+  actualGiB: number
+  potentialGiB: number
+  isDepositLimited: boolean
+  additionalDepositNeeded: bigint
+}
+
+/**
  * Calculate actual capacity with deposit limitations
  */
 function calculateActualCapacityWithDeposit(
@@ -234,12 +244,7 @@ function calculateActualCapacityWithDeposit(
   rateAllowance: bigint,
   lockupAllowance: bigint,
   pricePerTiBPerEpoch: bigint
-): {
-  actualGiB: number
-  potentialGiB: number
-  isDepositLimited: boolean
-  additionalDepositNeeded: bigint
-} {
+): StorageCapacityInfo {
   const potentialGiB = calculateStorageCapacity(rateAllowance, lockupAllowance, pricePerTiBPerEpoch)
   const requiredLockup = lockupAllowance
   const monthlyPayment = rateAllowance * TIME_CONSTANTS.EPOCHS_PER_MONTH
@@ -272,7 +277,7 @@ function calculateActualCapacityWithDeposit(
  *
  * @param capacity - Calculated capacity information
  */
-export function displayCapacity(capacity: ReturnType<typeof calculateActualCapacityWithDeposit>): void {
+export function displayCapacity(capacity: StorageCapacityInfo): void {
   if (capacity.isDepositLimited) {
     log.indent(`→ Current capacity: ~${formatStorageCapacity(capacity.actualGiB)} ${pc.yellow('(deposit-limited)')}`)
     log.indent(
