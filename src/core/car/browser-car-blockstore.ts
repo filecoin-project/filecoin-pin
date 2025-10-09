@@ -104,6 +104,9 @@ export class CARWritingBlockstore implements Blockstore {
   }
 
   async put(cid: CID, block: Uint8Array, _options?: AbortOptions): Promise<CID> {
+    if (await this.has(cid)) {
+      return cid
+    }
     const cidStr = cid.toString()
 
     if (this.finalized) {
@@ -143,31 +146,8 @@ export class CARWritingBlockstore implements Blockstore {
     return cid
   }
 
-  async get(cid: CID, _options?: AbortOptions): Promise<Uint8Array> {
-    const cidStr = cid.toString()
-
-    const offset = this.blockOffsets.get(cidStr)
-    if (offset == null) {
-      // Track missing blocks for statistics
-      this.stats.missingBlocks.add(cidStr)
-      const error: Error & { code?: string } = new Error(`Block not found: ${cidStr}`)
-      error.code = 'ERR_NOT_FOUND'
-      throw error
-    }
-
-    // Get the complete CAR data
-    const carData = this.getCarBytes()
-
-    // Extract the block from the CAR data at the stored offset
-    const blockData = carData.slice(offset.blockStart, offset.blockStart + offset.blockLength)
-
-    if (blockData.length !== offset.blockLength) {
-      throw new Error(
-        `Failed to read complete block for ${cidStr}: expected ${offset.blockLength} bytes, got ${blockData.length}`
-      )
-    }
-
-    return blockData
+  async get(_cid: CID, _options?: AbortOptions): Promise<Uint8Array> {
+    throw new Error('Not implemented for CAR blockstore in the browser.')
   }
 
   async has(cid: CID, _options?: AbortOptions): Promise<boolean> {
