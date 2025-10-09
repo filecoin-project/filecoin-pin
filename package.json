@@ -1,6 +1,6 @@
 {
   "name": "filecoin-pin",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Bridge IPFS content to Filecoin Onchain Cloud using familiar tools",
   "type": "module",
   "main": "dist/index.js",
