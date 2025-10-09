@@ -1,6 +1,8 @@
 # Usage Guide
 
-This action builds a UnixFS CAR from your site or files and uploads it to Filecoin in a single invocation. For security, separate untrusted build steps from the trusted upload step.
+This action packs your build output in IPFS compatible form, uploads it to Filecoin and makes it available IPFS clients in a single invocation.
+
+For security, separate untrusted build steps from the trusted upload step.
 
 ## Recommended Pattern: Build + Upload Workflows
 
