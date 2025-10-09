@@ -9,8 +9,8 @@ import { createHelia, type Helia } from 'helia'
 import { createLibp2p } from 'libp2p'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import { CARWritingBlockstore } from './car-blockstore.js'
-import type { Config } from './config.js'
+import { CARWritingBlockstore } from './core/car/index.js'
+import type { Config } from './core/synapse/index.js'
 
 export interface PinningHeliaOptions {
   config: Config

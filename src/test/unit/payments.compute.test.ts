@@ -6,7 +6,7 @@ import {
   computeTopUpForDuration,
   type PaymentStatus,
   type ServiceApprovalStatus,
-} from '../../synapse/payments.js'
+} from '../../core/payments/index.js'
 
 function makeStatus(params: { depositedAmount: bigint; lockupUsed?: bigint; rateUsed?: bigint }): PaymentStatus {
   const currentAllowances: ServiceApprovalStatus = {

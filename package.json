@@ -1,10 +1,56 @@
 {
   "name": "filecoin-pin",
-  "version": "0.6.0",
+  "version": "0.7.2",
   "description": "Bridge IPFS content to Filecoin Onchain Cloud using familiar tools",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./core": {
+      "browser": {
+        "types": "./dist/core/browser.d.ts",
+        "default": "./dist/core/browser.js"
+      },
+      "types": "./dist/core/index.d.ts",
+      "default": "./dist/core/index.js"
+    },
+    "./core/car": {
+      "browser": {
+        "types": "./dist/core/car/browser.d.ts",
+        "default": "./dist/core/car/browser.js"
+      },
+      "types": "./dist/core/car/index.d.ts",
+      "default": "./dist/core/car/index.js"
+    },
+    "./core/payments": {
+      "types": "./dist/core/payments/index.d.ts",
+      "default": "./dist/core/payments/index.js"
+    },
+    "./core/synapse": {
+      "types": "./dist/core/synapse/index.d.ts",
+      "default": "./dist/core/synapse/index.js"
+    },
+    "./core/upload": {
+      "types": "./dist/core/upload/index.d.ts",
+      "default": "./dist/core/upload/index.js"
+    },
+    "./core/unixfs": {
+      "browser": {
+        "types": "./dist/core/unixfs/browser.d.ts",
+        "default": "./dist/core/unixfs/browser.js"
+      },
+      "types": "./dist/core/unixfs/index.d.ts",
+      "default": "./dist/core/unixfs/index.js"
+    },
+    "./core/utils": {
+      "types": "./dist/core/utils/index.d.ts",
+      "default": "./dist/core/utils/index.js"
+    }
+  },
   "bin": {
     "filecoin-pin": "dist/cli.js"
   },
@@ -49,7 +95,7 @@
   "homepage": "https://github.com/FilOzone/filecoin-pin#readme",
   "dependencies": {
     "@clack/prompts": "^0.11.0",
-    "@filoz/synapse-sdk": "^0.28.0",
+    "@filoz/synapse-sdk": "^0.30.1",
     "@helia/unixfs": "^5.1.0",
     "@ipld/car": "^5.4.2",
     "commander": "^14.0.1",
@@ -57,7 +103,7 @@
     "helia": "^5.5.1",
     "multiformats": "^13.4.1",
     "picocolors": "^1.1.1",
-    "pino": "^9.9.5"
+    "pino": "^10.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "~2.2.4",

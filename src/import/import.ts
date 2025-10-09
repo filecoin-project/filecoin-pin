@@ -18,7 +18,7 @@ import {
   createStorageContext,
   initializeSynapse,
   type SynapseService,
-} from '../synapse/service.js'
+} from '../core/synapse/index.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import type { ImportOptions, ImportResult } from './types.js'
@@ -180,7 +180,6 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       databasePath: '',
       carStoragePath: '',
       logLevel: 'error',
-      warmStorageAddress: undefined,
     }
 
     // Initialize just the Synapse SDK

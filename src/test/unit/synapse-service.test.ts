@@ -2,11 +2,15 @@ import * as synapseSdk from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Config } from '../../config.js'
 import { createConfig } from '../../config.js'
+import {
+  getSynapseService,
+  resetSynapseService,
+  type SynapseSetupConfig,
+  setupSynapse,
+} from '../../core/synapse/index.js'
+import { uploadToSynapse } from '../../core/upload/index.js'
 import { createLogger } from '../../logger.js'
-import { getSynapseService, resetSynapseService, setupSynapse } from '../../synapse/service.js'
-import { uploadToSynapse } from '../../synapse/upload.js'
 
 // Mock the Synapse SDK - vi.mock requires async import for ES modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
@@ -15,7 +19,7 @@ vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'
 const TEST_CID = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
 
 describe('synapse-service', () => {
-  let config: Config
+  let config: SynapseSetupConfig
   let logger: Logger
 
   beforeEach(() => {
@@ -38,6 +42,7 @@ describe('synapse-service', () => {
 
   describe('setupSynapse', () => {
     it('should throw error when private key is not configured', async () => {
+      // @ts-expect-error - private key is required
       config.privateKey = undefined
 
       await expect(setupSynapse(config, logger)).rejects.toThrow('PRIVATE_KEY environment variable is required')
@@ -183,7 +188,7 @@ describe('synapse-service', () => {
 
   describe('Provider Information', () => {
     it('should capture provider info during initialization', async () => {
-      const mockConfig: Config = {
+      const mockConfig: SynapseSetupConfig = {
         privateKey: 'test-private-key',
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
         port: 3000,
@@ -191,7 +196,6 @@ describe('synapse-service', () => {
         databasePath: ':memory:',
         carStoragePath: './cars',
         logLevel: 'info',
-        warmStorageAddress: undefined,
       }
 
       const service = await setupSynapse(mockConfig, logger)
@@ -205,7 +209,7 @@ describe('synapse-service', () => {
 
     it('should include provider info in upload result', async () => {
       // Ensure synapse is initialized with provider info
-      const mockConfig: Config = {
+      const mockConfig: SynapseSetupConfig = {
         privateKey: 'test-private-key',
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
         port: 3000,
@@ -213,7 +217,6 @@ describe('synapse-service', () => {
         databasePath: ':memory:',
         carStoragePath: './cars',
         logLevel: 'info',
-        warmStorageAddress: undefined,
       }
 
       const service = await setupSynapse(mockConfig, logger)
@@ -233,7 +236,7 @@ describe('synapse-service', () => {
 
     it('should always include provider info', async () => {
       // Initialize with provider info
-      const mockConfig: Config = {
+      const mockConfig: SynapseSetupConfig = {
         privateKey: 'test-private-key',
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
         port: 3000,
@@ -241,7 +244,6 @@ describe('synapse-service', () => {
         databasePath: ':memory:',
         carStoragePath: './cars',
         logLevel: 'info',
-        warmStorageAddress: undefined,
       }
 
       const service = await setupSynapse(mockConfig, logger)
@@ -259,7 +261,7 @@ describe('synapse-service', () => {
     })
 
     it('should handle provider without serviceURL gracefully', async () => {
-      const mockConfig: Config = {
+      const mockConfig: SynapseSetupConfig = {
         privateKey: 'test-private-key',
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
         port: 3000,
@@ -267,7 +269,6 @@ describe('synapse-service', () => {
         databasePath: ':memory:',
         carStoragePath: './cars',
         logLevel: 'info',
-        warmStorageAddress: undefined,
       }
 
       const service = await setupSynapse(mockConfig, logger)

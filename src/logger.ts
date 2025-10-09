@@ -1,7 +1,7 @@
 import { type Logger, pino } from 'pino'
-import type { Config } from './config.js'
+import type { SynapseSetupConfig } from './core/synapse/index.js'
 
-export function createLogger(config: Config): Logger {
+export function createLogger(config: Pick<SynapseSetupConfig, 'logLevel'>): Logger {
   return pino({
     level: config.logLevel ?? 'info',
   })

@@ -15,7 +15,7 @@ import { globSource, unixfs } from '@helia/unixfs'
 import { CarWriter } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import { CARWritingBlockstore } from '../car-blockstore.js'
+import { CARWritingBlockstore } from '../car/index.js'
 
 // Spinner type for progress reporting
 type Spinner = {
@@ -73,6 +73,11 @@ export async function createCarFromPath(path: string, options: CreateCarOptions 
 
 /**
  * Common CAR creation logic
+ *
+ * @param contentPath - Path to the content to encode
+ * @param options - Options including logger and type
+ * @param addContent - Function that adds content to UnixFS and returns the root CID
+ * @returns CAR file path and root CID
  */
 async function createCar(
   contentPath: string,
@@ -134,6 +139,10 @@ async function createCar(
 
 /**
  * Create a CAR file from a single file
+ *
+ * @param filePath - Path to the file to encode
+ * @param options - Options including logger and bare flag
+ * @returns CAR file path and root CID
  */
 async function createCarFromSingleFile(filePath: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {
   const { logger, bare = false } = options
@@ -163,6 +172,10 @@ async function createCarFromSingleFile(filePath: string, options: CreateCarOptio
 
 /**
  * Create a CAR file from a directory
+ *
+ * @param dirPath - Path to the directory to encode
+ * @param options - Options including logger and spinner
+ * @returns CAR file path and root CID
  */
 async function createCarFromDirectory(dirPath: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {
   const { logger, spinner } = options
@@ -177,8 +190,9 @@ async function createCarFromDirectory(dirPath: string, options: CreateCarOptions
 
     // Use globSource with the parent directory as base and include the directory name in the pattern
     // This ensures the directory name is part of the UnixFS structure
-    // We use {,/**/*} to match both the directory itself and everything under it
-    const pattern = `${dirName}{,/**/*}`
+    // We match only the directory contents (/**/*), not the directory itself
+    // addAll will automatically create the root directory entry with proper links
+    const pattern = `${dirName}/**/*`
     logger?.info({ absolutePath, parentDir, dirName, pattern }, 'Directory structure for UnixFS')
 
     const candidates = globSource(parentDir, pattern, {

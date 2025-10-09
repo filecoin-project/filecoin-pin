@@ -1,8 +1,8 @@
 import type { Synapse } from '@filoz/synapse-sdk'
 import type { Spinner } from '../utils/cli-helpers.js'
 
-// Re-export payment types from the synapse module
-export type { PaymentStatus, StorageAllowances } from '../synapse/payments.js'
+// Re-export payment types from the core module
+export type { PaymentStatus, StorageAllowances } from '../core/payments/index.js'
 
 export interface PaymentSetupOptions {
   auto: boolean

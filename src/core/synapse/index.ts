@@ -8,7 +8,8 @@ import {
   type SynapseOptions,
 } from '@filoz/synapse-sdk'
 import type { Logger } from 'pino'
-import type { Config } from '../config.js'
+
+const WEBSOCKET_REGEX = /^ws(s)?:\/\//i
 
 /**
  * Default metadata for Synapse data sets created by filecoin-pin
@@ -32,6 +33,43 @@ let currentProviderInfo: ProviderInfo | null = null
 let activeProvider: any = null // Track the provider for cleanup
 
 /**
+ * Complete application configuration interface
+ * This is the main config interface that can be imported by CLI and other consumers
+ */
+export interface Config {
+  port: number
+  host: string
+  privateKey: string | undefined
+  rpcUrl: string
+  databasePath: string
+  // TODO: remove this from core?
+  carStoragePath: string
+  logLevel: string
+  warmStorageAddress: string | undefined
+}
+
+/**
+ * Configuration for Synapse initialization
+ * Extends the main Config but makes privateKey required and rpcUrl optional
+ */
+export interface SynapseSetupConfig extends Partial<Omit<Config, 'privateKey' | 'rpcUrl'>> {
+  /** Private key used for signing transactions. */
+  privateKey: string
+  /** RPC endpoint for the target Filecoin network. Defaults to calibration. */
+  rpcUrl?: string | undefined
+}
+
+/**
+ * Structured service object containing the fully initialized Synapse SDK and
+ * its storage context
+ */
+export interface SynapseService {
+  synapse: Synapse
+  storage: StorageContext
+  providerInfo: ProviderInfo
+}
+
+/**
  * Reset the service instances (for testing)
  */
 export function resetSynapseService(): void {
@@ -39,12 +77,6 @@ export function resetSynapseService(): void {
   storageInstance = null
   currentProviderInfo = null
   activeProvider = null
-}
-
-export interface SynapseService {
-  synapse: Synapse
-  storage: StorageContext
-  providerInfo: ProviderInfo
 }
 
 /**
@@ -58,7 +90,7 @@ export interface SynapseService {
  * @param logger - Logger instance for detailed operation tracking
  * @returns Initialized Synapse instance
  */
-export async function initializeSynapse(config: Config, logger: Logger): Promise<Synapse> {
+export async function initializeSynapse(config: SynapseSetupConfig, logger: Logger): Promise<Synapse> {
   try {
     // Log the configuration status
     logger.info(
@@ -71,7 +103,8 @@ export async function initializeSynapse(config: Config, logger: Logger): Promise
 
     // IMPORTANT: Private key is required for transaction signing
     // In production, this should come from secure environment variables, or a wallet integration
-    if (config.privateKey == null) {
+    const privateKey = config.privateKey
+    if (privateKey == null) {
       const error = new Error('PRIVATE_KEY environment variable is required for Synapse integration')
       logger.error(
         {
@@ -82,12 +115,13 @@ export async function initializeSynapse(config: Config, logger: Logger): Promise
       )
       throw error
     }
+
     logger.info({ event: 'synapse.init' }, 'Initializing Synapse SDK')
 
     // Configure Synapse with network settings
     // Network options: 314 (mainnet) or 314159 (calibration testnet)
     const synapseOptions: SynapseOptions = {
-      privateKey: config.privateKey,
+      privateKey,
       rpcURL: config.rpcUrl ?? RPC_URLS.calibration.websocket, // Default to calibration testnet
     }
 
@@ -100,7 +134,7 @@ export async function initializeSynapse(config: Config, logger: Logger): Promise
     const synapse = await Synapse.create(synapseOptions)
 
     // Store reference to the provider for cleanup if it's a WebSocket provider
-    if (synapseOptions.rpcURL && /^ws(s)?:\/\//i.test(synapseOptions.rpcURL)) {
+    if (synapseOptions.rpcURL && WEBSOCKET_REGEX.test(synapseOptions.rpcURL)) {
       activeProvider = synapse.getProvider()
     }
 
@@ -170,7 +204,6 @@ export async function createStorageContext(
       // These are crucial for debugging and monitoring in production
       callbacks: {
         onProviderSelected: (provider) => {
-          // Store the provider info for later use
           currentProviderInfo = provider
 
           logger.info(
@@ -187,9 +220,7 @@ export async function createStorageContext(
           )
 
           // Call progress callback if provided
-          if (progressCallbacks?.onProviderSelected) {
-            progressCallbacks.onProviderSelected(provider)
-          }
+          progressCallbacks?.onProviderSelected?.(provider)
         },
         onDataSetResolved: (info) => {
           logger.info(
@@ -202,9 +233,7 @@ export async function createStorageContext(
           )
 
           // Call progress callback if provided
-          if (progressCallbacks?.onDataSetResolved) {
-            progressCallbacks.onDataSetResolved(info)
-          }
+          progressCallbacks?.onDataSetResolved?.(info)
         },
         onDataSetCreationStarted: (transaction, statusUrl) => {
           logger.info(
@@ -217,9 +246,7 @@ export async function createStorageContext(
           )
 
           // Call progress callback if provided
-          if (progressCallbacks?.onDataSetCreationStarted) {
-            progressCallbacks.onDataSetCreationStarted(transaction)
-          }
+          progressCallbacks?.onDataSetCreationStarted?.(transaction)
         },
         onDataSetCreationProgress: (status) => {
           logger.info(
@@ -303,7 +330,7 @@ export async function createStorageContext(
  * @returns SynapseService with initialized Synapse and storage context
  */
 export async function setupSynapse(
-  config: Config,
+  config: SynapseSetupConfig,
   logger: Logger,
   progressCallbacks?: {
     onProviderSelected?: (provider: any) => void
@@ -338,8 +365,8 @@ export function getDefaultStorageContextConfig(overrides: any = {}) {
 }
 
 /**
- * Clean up a WebSocket provider connection.
- * This is important for allowing the Node.js process to exit cleanly.
+ * Clean up a WebSocket provider connection
+ * This is important for allowing the Node.js process to exit cleanly
  *
  * @param provider - The provider to clean up
  */
@@ -357,7 +384,7 @@ export async function cleanupProvider(provider: any): Promise<void> {
  * Clean up WebSocket providers and other resources
  *
  * Call this when CLI commands are finishing to ensure proper cleanup
- * and allow the process to terminate.
+ * and allow the process to terminate
  */
 export async function cleanupSynapseService(): Promise<void> {
   if (activeProvider) {
@@ -378,6 +405,7 @@ export function getSynapseService(): SynapseService | null {
   if (synapseInstance == null || storageInstance == null || currentProviderInfo == null) {
     return null
   }
+
   return {
     synapse: synapseInstance,
     storage: storageInstance,

@@ -5,10 +5,11 @@
 import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { cleanupProvider } from '../synapse/service.js'
+import { checkFILBalance, getPaymentStatus, withdrawUSDFC } from '../core/payments/index.js'
+import { cleanupProvider } from '../core/synapse/index.js'
+import { formatUSDFC } from '../core/utils/format.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import { checkFILBalance, formatUSDFC, getPaymentStatus, withdrawUSDFC } from './setup.js'
 
 export interface WithdrawOptions {
   privateKey?: string

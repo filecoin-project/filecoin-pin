@@ -96,7 +96,7 @@ vi.mock('../../data-set/inspect.js', () => ({
   displayDataSetStatus: displayDataSetStatusMock,
 }))
 
-vi.mock('../../synapse/service.js', () => ({
+vi.mock('../../core/synapse/index.js', () => ({
   cleanupProvider: cleanupProviderMock,
 }))
 

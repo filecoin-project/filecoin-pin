@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CarReader } from '@ipld/car'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createCarFromPath } from '../../add/unixfs-car.js'
+import { createCarFromPath } from '../../core/unixfs/index.js'
 
 // Test constants
 const PLACEHOLDER_CID = 'bafyaaiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -472,6 +472,31 @@ describe('UnixFS CAR Creation', () => {
       // Clean up
       await rm(carPath, { force: true })
       await rm(basePath, { recursive: true, force: true })
+    })
+
+    it('should create exactly 3 blocks for simple directory with 2 small files', async () => {
+      // Create a simple directory with 2 small files
+      const simpleDir = join(testDir, 'simple-dir')
+      await mkdir(simpleDir, { recursive: true })
+
+      // Create 2 small files (small enough to be single blocks each)
+      await writeFile(join(simpleDir, 'file1.txt'), 'content of file 1')
+      await writeFile(join(simpleDir, 'file2.txt'), 'content of file 2')
+
+      const { carPath, rootCid } = await createCarFromPath(simpleDir)
+
+      expect(rootCid).toBeDefined()
+
+      // Expected blocks:
+      // 1. file1.txt data block (raw)
+      // 2. file2.txt data block (raw)
+      // 3. directory block (dag-pb) linking to file1 and file2
+      const blockCount = await countBlocks(carPath)
+      expect(blockCount).toBe(3)
+
+      // Clean up
+      await rm(carPath, { force: true })
+      await rm(simpleDir, { recursive: true, force: true })
     })
   })
 })
