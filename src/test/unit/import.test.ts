@@ -89,14 +89,14 @@ vi.mock('../../core/synapse/index.js', async () => {
       const mockSynapse = new MockSynapse()
       return mockSynapse
     }),
-    createStorageContext: vi.fn(async (_synapse: any, _logger: any, progressCallbacks?: any) => {
+    createStorageContext: vi.fn(async (_synapse: any, _logger: any, options?: any) => {
       const mockSynapse = new MockSynapse()
 
       // Simulate progress callbacks
-      if (progressCallbacks) {
+      if (options?.callbacks) {
         // Simulate provider selection
         setTimeout(() => {
-          progressCallbacks.onProviderSelected?.({
+          options.callbacks.onProviderSelected?.({
             id: 1,
             name: 'Mock Provider',
             serviceProvider: '0x1234567890123456789012345678901234567890',
@@ -105,7 +105,7 @@ vi.mock('../../core/synapse/index.js', async () => {
 
         // Simulate dataset resolution
         setTimeout(() => {
-          progressCallbacks.onDataSetResolved?.({
+          options.callbacks.onDataSetResolved?.({
             dataSetId: 123,
             isExisting: false,
           })
@@ -345,9 +345,11 @@ describe('CAR Import', () => {
         expect.any(Object), // synapse
         expect.any(Object), // logger
         expect.objectContaining({
-          onProviderSelected: expect.any(Function),
-          onDataSetCreationStarted: expect.any(Function),
-          onDataSetResolved: expect.any(Function),
+          callbacks: expect.objectContaining({
+            onProviderSelected: expect.any(Function),
+            onDataSetCreationStarted: expect.any(Function),
+            onDataSetResolved: expect.any(Function),
+          }),
         })
       )
     })

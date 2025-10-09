@@ -3,6 +3,7 @@ import {
   type ProviderInfo,
   RPC_URLS,
   type StorageContext,
+  type StorageCreationCallbacks,
   type StorageServiceOptions,
   Synapse,
   type SynapseOptions,
@@ -67,6 +68,62 @@ export interface SynapseService {
   synapse: Synapse
   storage: StorageContext
   providerInfo: ProviderInfo
+}
+
+/**
+ * Dataset selection options for multi-tenant scenarios.
+ *
+ * This is a curated subset of Synapse SDK options focused on the common
+ * use cases for filecoin-pin.
+ */
+export interface DatasetOptions {
+  /**
+   * Create a new dataset even if one exists for this wallet.
+   *
+   * Set to `true` when you want each user to have their own dataset
+   * despite sharing the same wallet (e.g., multi-tenant websites and org/enterprise services using the same wallet).
+   *
+   * @default false
+   */
+  createNew?: boolean
+
+  /**
+   * Connect to a specific dataset by ID.
+   *
+   * Use this to reconnect to a user's existing dataset after retrieving
+   * the ID from localStorage or a database.
+   *
+   * Takes precedence over `createNew` if both are provided.
+   */
+  useExisting?: number
+
+  /**
+   * Custom metadata to attach to the dataset.
+   *
+   * Note: If `useExisting` is provided, metadata is ignored since you're
+   * connecting to an existing dataset.
+   */
+  metadata?: Record<string, string>
+}
+
+/**
+ * Progress callbacks for tracking dataset and provider selection.
+ */
+export type StorageProgressCallbacks = Omit<StorageCreationCallbacks, 'onDataSetCreationProgress'>
+
+/**
+ * Options for creating a storage context.
+ */
+export interface CreateStorageContextOptions {
+  /**
+   * Dataset selection options.
+   */
+  dataset?: DatasetOptions
+
+  /**
+   * Progress callbacks for tracking creation.
+   */
+  callbacks?: StorageProgressCallbacks
 }
 
 /**
@@ -176,17 +233,29 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
  *
  * @param synapse - Initialized Synapse instance
  * @param logger - Logger instance for detailed operation tracking
- * @param progressCallbacks - Optional callbacks for progress tracking
+ * @param options - Optional configuration for dataset selection and callbacks
  * @returns Storage context and provider information
+ *
+ * @example
+ * ```typescript
+ * // Create a new dataset (multi-user scenario)
+ * const { storage } = await createStorageContext(synapse, logger, {
+ *   dataset: { createNew: true }
+ * })
+ *
+ * // Connect to existing dataset
+ * const { storage } = await createStorageContext(synapse, logger, {
+ *   dataset: { useExisting: 123 }
+ * })
+ *
+ * // Default behavior (reuse wallet's dataset)
+ * const { storage } = await createStorageContext(synapse, logger)
+ * ```
  */
 export async function createStorageContext(
   synapse: Synapse,
   logger: Logger,
-  progressCallbacks?: {
-    onProviderSelected?: (provider: any) => void
-    onDataSetCreationStarted?: (transaction: any) => void
-    onDataSetResolved?: (info: { dataSetId: number; isExisting: boolean }) => void
-  }
+  options?: CreateStorageContextOptions
 ): Promise<{ storage: StorageContext; providerInfo: ProviderInfo }> {
   try {
     // Create storage context with comprehensive event tracking
@@ -198,86 +267,107 @@ export async function createStorageContext(
     const envProviderIdRaw = process.env.PROVIDER_ID?.trim()
     const envProviderId = envProviderIdRaw != null && envProviderIdRaw !== '' ? Number(envProviderIdRaw) : undefined
 
-    const createOptions: StorageServiceOptions = {
+    // Convert our curated options to Synapse SDK options
+    const sdkOptions: StorageServiceOptions = {
       ...DEFAULT_STORAGE_CONTEXT_CONFIG,
-      // Callbacks provide visibility into the storage lifecycle
-      // These are crucial for debugging and monitoring in production
-      callbacks: {
-        onProviderSelected: (provider) => {
-          currentProviderInfo = provider
+    }
 
-          logger.info(
-            {
-              event: 'synapse.storage.provider_selected',
-              provider: {
-                id: provider.id,
-                serviceProvider: provider.serviceProvider,
-                name: provider.name,
-                serviceURL: provider.products?.PDP?.data?.serviceURL,
-              },
-            },
-            'Selected storage provider'
-          )
+    // Apply dataset options
+    if (options?.dataset?.useExisting != null) {
+      sdkOptions.dataSetId = options.dataset.useExisting
+      logger.info(
+        { event: 'synapse.storage.dataset.existing', dataSetId: options.dataset.useExisting },
+        'Connecting to existing dataset'
+      )
+    } else if (options?.dataset?.createNew === true) {
+      sdkOptions.forceCreateDataSet = true
+      logger.info({ event: 'synapse.storage.dataset.create_new' }, 'Forcing creation of new dataset')
+    }
 
-          // Call progress callback if provided
-          progressCallbacks?.onProviderSelected?.(provider)
-        },
-        onDataSetResolved: (info) => {
-          logger.info(
-            {
-              event: 'synapse.storage.data_set_resolved',
-              dataSetId: info.dataSetId,
-              isExisting: info.isExisting,
-            },
-            info.isExisting ? 'Using existing data set' : 'Created new data set'
-          )
+    // Merge metadata (dataset metadata takes precedence)
+    sdkOptions.metadata = {
+      ...DEFAULT_DATA_SET_METADATA,
+      ...options?.dataset?.metadata,
+    }
 
-          // Call progress callback if provided
-          progressCallbacks?.onDataSetResolved?.(info)
-        },
-        onDataSetCreationStarted: (transaction, statusUrl) => {
-          logger.info(
-            {
-              event: 'synapse.storage.data_set_creation_started',
-              txHash: transaction.hash,
-              statusUrl,
-            },
-            'Data set creation transaction submitted'
-          )
+    /**
+     * Callbacks provide visibility into the storage lifecycle
+     * These are crucial for debugging and monitoring in production
+     */
+    const callbacks: StorageCreationCallbacks = {
+      onProviderSelected: (provider) => {
+        currentProviderInfo = provider
 
-          // Call progress callback if provided
-          progressCallbacks?.onDataSetCreationStarted?.(transaction)
-        },
-        onDataSetCreationProgress: (status) => {
-          logger.info(
-            {
-              event: 'synapse.storage.data_set_creation_progress',
-              transactionMined: status.transactionMined,
-              dataSetLive: status.dataSetLive,
-              elapsedMs: status.elapsedMs,
+        logger.info(
+          {
+            event: 'synapse.storage.provider_selected',
+            provider: {
+              id: provider.id,
+              serviceProvider: provider.serviceProvider,
+              name: provider.name,
+              serviceURL: provider.products?.PDP?.data?.serviceURL,
             },
-            'Data set creation progress'
-          )
-        },
+          },
+          'Selected storage provider'
+        )
+
+        options?.callbacks?.onProviderSelected?.(provider)
+      },
+      onDataSetResolved: (info) => {
+        logger.info(
+          {
+            event: 'synapse.storage.data_set_resolved',
+            dataSetId: info.dataSetId,
+            isExisting: info.isExisting,
+          },
+          info.isExisting ? 'Using existing data set' : 'Created new data set'
+        )
+
+        options?.callbacks?.onDataSetResolved?.(info)
+      },
+      onDataSetCreationStarted: (transaction, statusUrl) => {
+        logger.info(
+          {
+            event: 'synapse.storage.data_set_creation_started',
+            txHash: transaction.hash,
+            statusUrl,
+          },
+          'Data set creation transaction submitted'
+        )
+
+        options?.callbacks?.onDataSetCreationStarted?.(transaction)
+      },
+      onDataSetCreationProgress: (status) => {
+        logger.info(
+          {
+            event: 'synapse.storage.data_set_creation_progress',
+            transactionMined: status.transactionMined,
+            dataSetLive: status.dataSetLive,
+            elapsedMs: status.elapsedMs,
+          },
+          'Data set creation progress'
+        )
       },
     }
 
+    sdkOptions.callbacks = callbacks
+
     // Apply provider override if present
     if (envProviderAddress) {
-      createOptions.providerAddress = envProviderAddress
+      sdkOptions.providerAddress = envProviderAddress
       logger.info(
         { event: 'synapse.storage.provider_override', by: 'env', providerAddress: envProviderAddress },
         'Overriding provider via PROVIDER_ADDRESS'
       )
     } else if (envProviderId != null && Number.isFinite(envProviderId)) {
-      createOptions.providerId = envProviderId
+      sdkOptions.providerId = envProviderId
       logger.info(
         { event: 'synapse.storage.provider_override', by: 'env', providerId: envProviderId },
         'Overriding provider via PROVIDER_ID'
       )
     }
 
-    const storage = await synapse.storage.createContext(createOptions)
+    const storage = await synapse.storage.createContext(sdkOptions)
 
     logger.info(
       {
@@ -326,23 +416,35 @@ export async function createStorageContext(
  *
  * @param config - Application configuration with privateKey and RPC URL
  * @param logger - Logger instance for detailed operation tracking
- * @param progressCallbacks - Optional callbacks for progress tracking
+ * @param options - Optional dataset selection and callbacks
  * @returns SynapseService with initialized Synapse and storage context
+ *
+ * @example
+ * ```typescript
+ * // Standard setup (reuses wallet's dataset)
+ * const service = await setupSynapse(config, logger)
+ *
+ * // Create new dataset for multi-user scenario
+ * const service = await setupSynapse(config, logger, {
+ *   dataset: { createNew: true }
+ * })
+ *
+ * // Connect to specific dataset
+ * const service = await setupSynapse(config, logger, {
+ *   dataset: { useExisting: 123 }
+ * })
+ * ```
  */
 export async function setupSynapse(
   config: SynapseSetupConfig,
   logger: Logger,
-  progressCallbacks?: {
-    onProviderSelected?: (provider: any) => void
-    onDataSetCreationStarted?: (transaction: any) => void
-    onDataSetResolved?: (info: { dataSetId: number; isExisting: boolean }) => void
-  }
+  options?: CreateStorageContextOptions
 ): Promise<SynapseService> {
   // Initialize SDK
   const synapse = await initializeSynapse(config, logger)
 
   // Create storage context
-  const { storage, providerInfo } = await createStorageContext(synapse, logger, progressCallbacks)
+  const { storage, providerInfo } = await createStorageContext(synapse, logger, options)
 
   return { synapse, storage, providerInfo }
 }

@@ -157,18 +157,20 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     spinner.start('Creating storage context...')
 
     const { storage, providerInfo } = await createStorageContext(synapse, logger, {
-      onProviderSelected: (provider) => {
-        spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)
-      },
-      onDataSetCreationStarted: (transaction) => {
-        spinner.message(`Creating data set (tx: ${transaction.hash.slice(0, 10)}...)`)
-      },
-      onDataSetResolved: (info) => {
-        if (info.isExisting) {
-          spinner.message(`Using existing data set #${info.dataSetId}`)
-        } else {
-          spinner.message(`Created new data set #${info.dataSetId}`)
-        }
+      callbacks: {
+        onProviderSelected: (provider) => {
+          spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)
+        },
+        onDataSetCreationStarted: (transaction) => {
+          spinner.message(`Creating data set (tx: ${transaction.hash.slice(0, 10)}...)`)
+        },
+        onDataSetResolved: (info) => {
+          if (info.isExisting) {
+            spinner.message(`Using existing data set #${info.dataSetId}`)
+          } else {
+            spinner.message(`Created new data set #${info.dataSetId}`)
+          }
+        },
       },
     })
 
