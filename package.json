@@ -11,10 +11,18 @@
       "default": "./dist/index.js"
     },
     "./core": {
+      "browser": {
+        "types": "./dist/core/browser.d.ts",
+        "default": "./dist/core/browser.js"
+      },
       "types": "./dist/core/index.d.ts",
       "default": "./dist/core/index.js"
     },
     "./core/car": {
+      "browser": {
+        "types": "./dist/core/car/browser.d.ts",
+        "default": "./dist/core/car/browser.js"
+      },
       "types": "./dist/core/car/index.d.ts",
       "default": "./dist/core/car/index.js"
     },
@@ -31,6 +39,10 @@
       "default": "./dist/core/upload/index.js"
     },
     "./core/unixfs": {
+      "browser": {
+        "types": "./dist/core/unixfs/browser.d.ts",
+        "default": "./dist/core/unixfs/browser.js"
+      },
       "types": "./dist/core/unixfs/index.d.ts",
       "default": "./dist/core/unixfs/index.js"
     },
