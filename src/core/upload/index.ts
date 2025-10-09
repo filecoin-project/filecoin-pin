@@ -167,6 +167,8 @@ export interface UploadExecutionOptions {
   contextId?: string
   /** Optional callbacks mirroring Synapse SDK upload callbacks. */
   callbacks?: UploadCallbacks
+  /** Optional metadata to associate with the upload. */
+  metadata?: Record<string, string>
 }
 
 export interface UploadExecutionResult extends SynapseUploadResult {
@@ -209,6 +211,9 @@ export async function executeUpload(
   }
   if (contextId) {
     uploadOptions.contextId = contextId
+  }
+  if (options.metadata) {
+    uploadOptions.metadata = options.metadata
   }
 
   const uploadResult = await uploadToSynapse(synapseService, carData, rootCid, logger, uploadOptions)
