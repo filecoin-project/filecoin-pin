@@ -159,6 +159,7 @@ describe('Browser CAR Builder', () => {
       // Node.js directory processing
       const nodeResult = await createCarFromPath(testDirPath, { isDirectory: true })
       testFiles.push(nodeResult.carPath)
+      const nodeCarBytes = await readFile(nodeResult.carPath)
 
       // Browser version with webkitRelativePath
       const browserFile1 = new File([file1Data], 'file1.txt')
@@ -179,12 +180,12 @@ describe('Browser CAR Builder', () => {
       // Compare CIDs - they should be identical (most important!)
       expect(browserResult.rootCid.toString()).toBe(nodeResult.rootCid.toString())
 
-      // Note: CAR file sizes may differ due to different block packing strategies
-      // (Node.js: 4 blocks, Browser: 3 blocks) but both represent the same DAG
-      // The root CID matching proves they're functionally equivalent
-      // TODO: We might need to address this.
+      /**
+       * Note: CAR file sizes differ due to an extra block in the nodejs car
+       * @see https://github.com/filecoin-project/filecoin-pin/pull/83#discussion_r2415372437
+       */
       expect(browserResult.carBytes).toBeInstanceOf(Uint8Array)
-      expect(browserResult.carBytes.length).toBeGreaterThan(0)
+      expect(browserResult.carBytes.length).toBeLessThanOrEqual(nodeCarBytes.length)
 
       // Cleanup
       await cleanupTempCar(nodeResult.carPath)
