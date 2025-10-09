@@ -20,6 +20,11 @@ export interface SynapseUploadOptions {
    * Context identifier for logging (e.g., pinId, import job ID)
    */
   contextId?: string
+
+  /**
+   * Optional metadata to associate with the upload
+   */
+  metadata?: Record<string, string>
 }
 
 export interface SynapseUploadResult {
@@ -121,6 +126,7 @@ export async function uploadToSynapse(
   const uploadOptions: UploadOptions = {
     ...uploadCallbacks,
     metadata: {
+      ...(options.metadata ?? {}),
       [METADATA_KEYS.IPFS_ROOT_CID]: rootCid.toString(), // Associate piece with IPFS root CID
     },
   }
