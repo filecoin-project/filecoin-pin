@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/filecoin-project/filecoin-pin/compare/v0.7.1...v0.7.2) (2025-10-09)
+
+
+### Bug Fixes
+
+* avoid empty-directory block in directory CAR ([#85](https://github.com/filecoin-project/filecoin-pin/issues/85)) ([53fc7df](https://github.com/filecoin-project/filecoin-pin/commit/53fc7df58e5c31bfc72dd13e108d376ce7fdd2a4))
+
 ## [0.7.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.7.0...v0.7.1) (2025-10-09)
 
 
