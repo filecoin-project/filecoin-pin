@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.3](https://github.com/filecoin-project/filecoin-pin/compare/v0.7.2...v0.7.3) (2025-10-09)
+
+
+### Bug Fixes
+
+* add auto-fund option ([#79](https://github.com/filecoin-project/filecoin-pin/issues/79)) ([c1e2f72](https://github.com/filecoin-project/filecoin-pin/commit/c1e2f72a2d7dfd4ae78c305063e9feb277fe3da9))
+* createStorageContext supports multi-tenancy ([#93](https://github.com/filecoin-project/filecoin-pin/issues/93)) ([d47d3f3](https://github.com/filecoin-project/filecoin-pin/commit/d47d3f3f633e0972f21db3fe2153c49b4827a242))
+* pass metadata through to executeUpload ([#89](https://github.com/filecoin-project/filecoin-pin/issues/89)) ([300ecd5](https://github.com/filecoin-project/filecoin-pin/commit/300ecd58f4132410c401a2dae45073975d98e9a2))
+
 ## [0.7.2](https://github.com/filecoin-project/filecoin-pin/compare/v0.7.1...v0.7.2) (2025-10-09)
 
 
