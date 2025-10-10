@@ -6,7 +6,7 @@ This is provided for illustrative purposes of how to use filecoin-pin.  It's not
 
 ## Quick Start
 
-Run your build in an untrusted workflow, publish the build output as an artifact, then run this action in a trusted workflow to create the CAR and upload to Filecoin. Fork PR support is currently disabled, so workflows must run within the same repository.
+Run your build in an untrusted workflow, publish the build output as an artifact, then run this action in a trusted workflow to create the CAR and upload to Filecoin.
 
 **Step 1: Build workflow** (no secrets):
 ```yaml
@@ -64,68 +64,93 @@ jobs:
           filecoinPayBalanceLimit: "0.25"
 ```
 
-**Versioning**: This action uses [Semantic Release](https://semantic-release.gitbook.io/) for automated versioning. Use version tags like `@v1`, `@v1.0.0`, or commit SHAs for supply-chain safety.
+**Why this pattern?**
+- Build workflow never sees wallet secrets
+- Upload workflow runs from main branch (PRs can't modify hardcoded limits until merged)
+- Currently **same-repo PRs only** (fork PR support disabled for security)
 
-## Inputs
+## Inputs & Outputs
 
-See [action.yml](./action.yml) the input parameters and their descriptions.
+See [action.yml](./action.yml) for complete input documentation including:
+- **Core**: `path`, `walletPrivateKey`, `network`
+- **Financial**: `minStorageDays`, `filecoinPayBalanceLimit`
+- **Advanced**: `providerAddress`, `withCDN`, `dryRun`
 
-## Security & Permissions Checklist
+**Outputs**: `ipfsRootCid`, `dataSetId`, `pieceCid`, `providerId`, `providerName`, `carPath`, `uploadStatus`
 
-- ✅ Pin the action by version tag or commit SHA
-- ✅ Grant `actions: read` if you want artifact reuse (cache fallback) to work
-- ✅ Grant `checks: write` to enable PR check status (shows upload status in PR checks list)
-- ✅ Grant `pull-requests: write` to enable PR comments with upload results
-- ℹ️ **GitHub token** is automatically provided - no need to pass it as an input
-- ✅ Protect workflow files with CODEOWNERS/branch protection
+## Security Checklist
+
+- ✅ Pin action by version tag or commit SHA (`@v1`, `@v1.0.0`, or `@<sha>`)
+- ✅ Grant `actions: read` for artifact reuse (cache fallback)
+- ✅ Grant `checks: write` for PR check status
+- ✅ Grant `pull-requests: write` for PR comments
+- ℹ️ GitHub token is automatically provided - no need to pass it
 - ✅ **Always** hardcode `minStorageDays` and `filecoinPayBalanceLimit` in trusted workflows
 - ✅ **Never** use `pull_request_target` - use the two-workflow pattern instead
 - ✅ Enable **branch protection** on main to require reviews for workflow changes
 - ✅ Use **CODEOWNERS** to require security team approval for workflow modifications
 - ⚠️ **Consider using GitHub Environments** with required approvals to gate wallet interactions - this prevents workflows from making deposits without maintainer approval (via label, manual approval, etc.)
 
-## Usage
+**Security Note**: The `workflow_run` trigger executes the workflow file from your main branch, not from the PR. PRs cannot change hardcoded limits until merged to the main branch of your repo.
 
-The action uses a secure two-workflow pattern by default. This currently works for **same-repo PRs only** (fork PR support temporarily disabled).
+## Alternative: Single Workflow Pattern
 
-Split your CI into untrusted build + trusted upload workflows.
+For trusted repositories where all contributors have write access and fork PRs are disabled:
 
-**Security Note**: The `workflow_run` trigger always executes the workflow file from your main branch, not from the PR. Even if a PR modifies the upload workflow to change hardcoded limits, those changes won't apply until the PR is merged.
+```yaml
+name: Upload to Filecoin
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci && npm run build
+      - name: Upload to Filecoin
+        uses: filecoin-project/filecoin-pin/upload-action@v1
+        with:
+          path: dist
+          walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
+          network: calibration
+          minStorageDays: "30"
+          filecoinPayBalanceLimit: "0.25"
+```
+
+**Use only when you fully trust everyone who can open PRs.**
 
 ## Current Limitations
 
 **⚠️ Fork PR Support Disabled**
+- Only same-repo PRs and direct pushes are supported
+- This prevents non-maintainer PR actors from draining funds
 
-- Only same-repo PRs and direct pushes to main are supported
-- PR commenting works, but shows different message for fork PRs
-- This limits non-maintainer PR actors from draining funds from unaware repo owners
+## Versioning
 
-**See [examples/two-workflow-pattern/](./examples/two-workflow-pattern/)** for complete, ready-to-use workflow files.
+Use semantic version tags from [filecoin-pin releases](https://github.com/filecoin-project/filecoin-pin/releases):
 
-## Releases & Versioning
-
-This action uses the filecoin-pin repository's release process. See the [filecoin-pin releases](https://github.com/filecoin-project/filecoin-pin/releases) for available versions.
-
-### Using the Action
-
-- **`@v1`** - Latest v1.x.x release (recommended for most users)
-- **`@v1.0.0`** - Specific version (recommended for production)
-- **`@<commit-sha>`** - Specific commit (maximum security)
-
-Example:
-```yaml
-- uses: filecoin-project/filecoin-pin/upload-action@v1
-```
-
-## Documentation
-
-- **[examples/two-workflow-pattern/](./examples/two-workflow-pattern/)** - Ready-to-use workflow files (recommended)
-- **[USAGE.md](./USAGE.md)** - Complete usage guide with all patterns
-- **[FLOW.md](./FLOW.md)** - Internal architecture & how the action works under the hood
-- **[examples/README.md](./examples/README.md)** - Detailed setup instructions
+- **`@v1`** - Latest v1.x.x (recommended)
+- **`@v1.0.0`** - Specific version (production)
+- **`@<commit-sha>`** - Maximum supply-chain security
 
 ## Caching & Artifacts
 
-- Cache key: `filecoin-pin-v1-${ipfsRootCid}` enables reuse for identical content.
-- Artifacts: `filecoin-pin-artifacts/upload.car` and `filecoin-pin-artifacts/context.json` are published for each run.
-- PR comments include the IPFS root CID, dataset ID, piece CID, and preview link.
+- **Cache key**: `filecoin-pin-v1-${ipfsRootCid}` enables reuse for identical content
+- **Artifacts**: `filecoin-pin-artifacts/upload.car` and `filecoin-pin-artifacts/context.json` published for each run
+- **PR comments**: Include IPFS root CID, dataset ID, piece CID, and preview link
+
+## Examples & Documentation
+
+- **[examples/two-workflow-pattern/](./examples/two-workflow-pattern/)** - Ready-to-use workflow files (recommended starting point)
+- **[examples/README.md](./examples/README.md)** - Detailed setup instructions
+- **[FLOW.md](./FLOW.md)** - Internal architecture for contributors and maintainers
+
+## Contributing
+
+See [FLOW.md](./FLOW.md) for internal architecture.
