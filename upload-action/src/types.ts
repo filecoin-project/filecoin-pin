@@ -7,62 +7,7 @@ import type { SynapseService } from 'filecoin-pin/core/synapse'
 export type { FilecoinPinPaymentStatus }
 export type Synapse = SynapseService['synapse']
 
-export interface CombinedContext extends Partial<UploadResult> {
-  ipfsRootCid?: string
-  carPath?: string
-  carFilename?: string
-  carDownloadUrl?: string
-  carSize?: number | undefined
-  artifactName?: string
-  buildRunId?: string
-  eventName?: string
-  pr?: {
-    number?: number
-    sha?: string
-    title?: string
-    author?: string
-  }
-  uploadStatus?: string
-  runId?: string
-  repository?: string
-  mode?: string
-  phase?: string
-  artifactCarPath?: string
-  contentPath?: string
-  walletPrivateKey?: string
-  minStorageDays?: number
-  filecoinPayBalanceLimit?: bigint
-  withCDN?: boolean
-  providerAddress?: string
-  paymentStatus?: PaymentStatus
-  dryRun?: boolean
-}
-
-export interface PaymentStatus extends Omit<FilecoinPinPaymentStatus, 'depositedAmount'> {
-  depositedAmount: string
-  currentBalance: string
-  storageRunway: string
-  depositedThisRun: string
-}
-
-export interface ParsedInputs {
-  walletPrivateKey?: string
-  contentPath: string
-  network: 'mainnet' | 'calibration'
-  minStorageDays: number
-  filecoinPayBalanceLimit?: bigint | undefined
-  withCDN: boolean
-  providerAddress: string
-  dryRun: boolean
-}
-
-export interface PRMetadata {
-  number: number
-  sha: string
-  title: string
-  author: string
-}
-
+// Base result types
 export interface UploadResult {
   pieceCid: string
   pieceId: string
@@ -83,19 +28,42 @@ export interface BuildResult {
   carSize?: number | undefined
 }
 
-export interface CommentPRParams {
-  ipfsRootCid: string
-  dataSetId: string
-  pieceCid: string
-  uploadStatus: string
-  /**
-   * The piece CID preview URL, directly from the provider
-   */
-  previewUrl?: string | undefined
-  prNumber?: number
-  githubToken: string
-  githubRepository: string
-  network?: string | undefined
+// Combined context extends both result types
+export interface CombinedContext extends Partial<UploadResult>, Partial<BuildResult> {
+  carFilename?: string
+  carDownloadUrl?: string
+  artifactName?: string
+  buildRunId?: string
+  eventName?: string
+  pr?: Partial<PRMetadata>
+  uploadStatus?: string
+  runId?: string
+  repository?: string
+  mode?: string
+  phase?: string
+  artifactCarPath?: string
+  walletPrivateKey?: string
+  minStorageDays?: number
+  filecoinPayBalanceLimit?: bigint
+  withCDN?: boolean
+  providerAddress?: string
+  paymentStatus?: PaymentStatus
+  dryRun?: boolean
+}
+
+export interface PaymentStatus extends Omit<FilecoinPinPaymentStatus, 'depositedAmount'> {
+  depositedAmount: string
+  currentBalance: string
+  storageRunway: string
+  depositedThisRun: string
+}
+
+// Configuration types
+export interface PRMetadata {
+  number: number
+  sha: string
+  title: string
+  author: string
 }
 
 export interface PaymentConfig {
@@ -106,6 +74,13 @@ export interface PaymentConfig {
 export interface UploadConfig {
   withCDN: boolean
   providerAddress: string
+}
+
+export interface ParsedInputs extends PaymentConfig, UploadConfig {
+  walletPrivateKey?: string
+  contentPath: string
+  network: 'mainnet' | 'calibration'
+  dryRun: boolean
 }
 
 export interface ArtifactUploadOptions {

@@ -3,7 +3,6 @@ import { createOctokit, getGitHubEnv } from '../github.js'
 import { getOutputSummary } from '../outputs.js'
 
 /**
- * @typedef {import('../types.js').CommentPRParams} CommentPRParams
  * @typedef {import('../types.js').CombinedContext} CombinedContext
  */
 

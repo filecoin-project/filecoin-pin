@@ -22,6 +22,8 @@ import { ERROR_CODES, FilecoinPinError, getErrorMessage } from './errors.js'
  * @typedef {import('./types.js').BuildResult} BuildResult
  * @typedef {import('./types.js').UploadResult} UploadResult
  * @typedef {import('./types.js').PaymentStatus} PaymentStatus
+ * @typedef {import('./types.js').PaymentConfig} PaymentConfig
+ * @typedef {import('./types.js').UploadConfig} UploadConfig
  * @typedef {import('./types.js').FilecoinPinPaymentStatus} FilecoinPinPaymentStatus
  * @typedef {import('./types.js').Synapse} Synapse
  */
@@ -63,7 +65,7 @@ export async function initializeSynapse(config, logger) {
 /**
  * Handle payment setup and top-ups
  * @param {Synapse} synapse - Synapse service
- * @param {{ minStorageDays: number, filecoinPayBalanceLimit?: bigint | undefined }} options - Payment options
+ * @param {PaymentConfig} options - Payment options
  * @param {any} logger - Logger instance
  * @returns {Promise<PaymentStatus>} Updated payment status
  */
@@ -174,7 +176,7 @@ export async function createCarFile(targetPath, contentPath, logger) {
  * @param {any} synapse - Synapse service
  * @param {string} carPath - Path to CAR file
  * @param {string} ipfsRootCid - Root CID
- * @param {{ withCDN: boolean, providerAddress: string }} options - Upload options
+ * @param {UploadConfig} options - Upload options
  * @param {any} logger - Logger instance
  * @returns {Promise<UploadResult>} Upload result
  */

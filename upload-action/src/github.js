@@ -4,6 +4,11 @@ import { getErrorMessage } from './errors.js'
 import { getInput } from './inputs.js'
 
 /**
+ * @typedef {import('./types.js').PRMetadata} PRMetadata
+ * @typedef {import('./types.js').CheckContext} CheckContext
+ */
+
+/**
  * Read GitHub event payload
  */
 export async function readEventPayload() {
@@ -36,7 +41,7 @@ function toNumber(value) {
  * Normalize PR metadata into CombinedContext.pr shape
  * @param {any} pr
  * @param {string} [fallbackSha]
- * @returns {import('./types.js').CombinedContext['pr'] | undefined}
+ * @returns {Partial<PRMetadata> | undefined}
  */
 function normalizePr(pr, fallbackSha = '') {
   if (!pr) return undefined
@@ -53,7 +58,7 @@ function normalizePr(pr, fallbackSha = '') {
 /**
  * Try to resolve PR metadata directly from a workflow_run payload
  * @param {any} workflowRun
- * @returns {import('./types.js').CombinedContext['pr'] | undefined}
+ * @returns {Partial<PRMetadata> | undefined}
  */
 function resolveFromWorkflowRunPayload(workflowRun) {
   if (!workflowRun) return undefined
@@ -78,7 +83,7 @@ function resolveFromWorkflowRunPayload(workflowRun) {
  * Use the GitHub API to resolve a PR from workflow_run context
  * @param {Octokit | undefined} octokit
  * @param {any} event
- * @returns {Promise<import('./types.js').CombinedContext['pr'] | undefined>}
+ * @returns {Promise<Partial<PRMetadata> | undefined>}
  */
 async function resolveFromWorkflowRunApi(octokit, event) {
   if (!octokit || !event?.workflow_run) return undefined
@@ -114,8 +119,8 @@ async function resolveFromWorkflowRunApi(octokit, event) {
 
 /**
  * Ensure PR metadata is available, resolving it when triggered by workflow_run
- * @param {import('./types.js').CombinedContext['pr'] | undefined} existingPr
- * @returns {Promise<import('./types.js').CombinedContext['pr'] | undefined>}
+ * @param {Partial<PRMetadata> | undefined} existingPr
+ * @returns {Promise<Partial<PRMetadata> | undefined>}
  */
 export async function ensurePullRequestContext(existingPr) {
   if (existingPr?.number) return existingPr
@@ -178,10 +183,6 @@ export function createOctokit(token = null) {
   }
   return new Octokit({ auth: authToken })
 }
-
-/**
- * @typedef {import('./types.js').CheckContext} CheckContext
- */
 
 /** @type {CheckContext | null} */
 let checkContext = null
