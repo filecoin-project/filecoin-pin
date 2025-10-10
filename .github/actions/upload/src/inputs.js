@@ -90,7 +90,7 @@ export function parseInputs(phase = 'single') {
   const minStorageDaysRaw = getInput('minStorageDays', '')
   const filecoinPayBalanceLimitRaw = getInput('filecoinPayBalanceLimit', '')
   const withCDN = parseBoolean(getInput('withCDN', 'false'))
-  const providerAddress = getInput('providerAddress', '0xa3971A7234a3379A1813d9867B531e7EeB20ae07')
+  const providerAddress = getInput('providerAddress', undefined)
   const dryRun = parseBoolean(getInput('dryRun', 'false'))
 
   if (!contentPath) {

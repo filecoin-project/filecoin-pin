@@ -54,7 +54,7 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
 
       - name: Upload to Filecoin
-        uses: sgtpooki/filecoin-upload-action@v1
+        uses: filecoin-project/filecoin-pin/.github/actions/upload@v1
         with:
           path: dist
           walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
@@ -78,7 +78,7 @@ See [action.yml](./action.yml) the input parameters and their descriptions.
 - ✅ **Never** use `pull_request_target` - use the two-workflow pattern instead
 - ✅ Enable **branch protection** on main to require reviews for workflow changes
 - ✅ Use **CODEOWNERS** to require security team approval for workflow modifications
-- ⚠️ Consider gating deposits with Environments that require approval
+- ⚠️ **Consider using GitHub Environments** with required approvals to gate wallet interactions - this prevents workflows from making deposits without maintainer approval (via label, manual approval, etc.)
 
 ## Usage
 
@@ -100,23 +100,18 @@ Split your CI into untrusted build + trusted upload workflows.
 
 ## Releases & Versioning
 
-This action uses [Semantic Release](https://semantic-release.gitbook.io/) for automated versioning based on [Conventional Commits](https://www.conventionalcommits.org/).
+This action uses the filecoin-pin repository's release process. See the [filecoin-pin releases](https://github.com/filecoin-project/filecoin-pin/releases) for available versions.
 
-### Available Versions
+### Using the Action
 
 - **`@v1`** - Latest v1.x.x release (recommended for most users)
 - **`@v1.0.0`** - Specific version (recommended for production)
 - **`@<commit-sha>`** - Specific commit (maximum security)
 
-### Version Bumps
-
-- **Patch** (`1.0.0` → `1.0.1`): Bug fixes, docs, refactoring
-- **Minor** (`1.0.0` → `1.1.0`): New features
-- **Major** (`1.0.0` → `2.0.0`): Breaking changes
-
-### Release Process
-
-Releases are automatically created when changes are pushed to `main` with conventional commit messages. See [CONTRIBUTING.md](./CONTRIBUTING.md) for commit message guidelines.
+Example:
+```yaml
+- uses: filecoin-project/filecoin-pin/.github/actions/upload@v1
+```
 
 ## Documentation
 

@@ -65,7 +65,7 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
 
       - name: Upload to Filecoin
-        uses: sgtpooki/filecoin-upload-action@v1
+        uses: filecoin-project/filecoin-pin/.github/actions/upload@v1
         with:
           path: dist
           walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
@@ -100,7 +100,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: npm run build
       - name: Upload to Filecoin
-        uses: sgtpooki/filecoin-upload-action@v1
+        uses: filecoin-project/filecoin-pin/.github/actions/upload@v1
         with:
           path: dist
           walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
