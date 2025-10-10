@@ -1,0 +1,39 @@
+name: Upload to Filecoin
+
+# Simple single-workflow pattern - for same-repo PRs only
+# NOTE: Fork PR support is currently disabled
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read        # Required for artifact reuse
+      pull-requests: write # Required for PR comments
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          # npm install
+          # npm run build
+          # or whatever builds your content
+          mkdir -p dist
+          echo "Built content" > dist/index.html
+
+      # Upload to Filecoin - the action will build CAR and upload in a single flow
+      - name: Upload to Filecoin
+        uses: filecoin-project/filecoin-pin/.github/actions/filecoin-pin-upload-action@49-feat-github-action-for-filecoin-pin-uploads
+        with:
+          walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
+          path: dist
+          network: mainnet
+          minStorageDays: "30"
+          filecoinPayBalanceLimit: "5.00"
