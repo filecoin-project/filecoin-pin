@@ -89,12 +89,13 @@ runs:
       shell: bash
       working-directory: ${{ github.action_path }}
       run: |
-        if [ -f package-lock.json ]; then
-          HASH=$(sha256sum package-lock.json | cut -d' ' -f1 | cut -c1-8)
-          echo "hash=$HASH" >> $GITHUB_OUTPUT
-        else
-          echo "hash=none" >> $GITHUB_OUTPUT
+        if [ ! -f package-lock.json ]; then
+          echo "ERROR: package-lock.json not found in action directory"
+          echo "This file is required for npm ci to work properly"
+          exit 1
         fi
+        HASH=$(sha256sum package-lock.json | cut -d' ' -f1 | cut -c1-8)
+        echo "hash=$HASH" >> $GITHUB_OUTPUT
 
     - name: Get action path
       id: action-path
