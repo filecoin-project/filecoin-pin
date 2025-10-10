@@ -252,6 +252,31 @@ async function initializeCheckContext() {
  */
 export async function createCheck(name = 'Filecoin Upload') {
   try {
+    // Check if check run was already created by early action step
+    const existingCheckId = process.env.FILECOIN_CHECK_RUN_ID
+    const existingSha = process.env.FILECOIN_CHECK_SHA
+
+    if (existingCheckId && existingSha) {
+      console.log(`✓ Using existing check run (ID: ${existingCheckId})`)
+
+      // Initialize minimal checkContext with existing check
+      const { token, owner, repo } = getGitHubEnv()
+      if (token && owner && repo) {
+        const octokit = createOctokit(token)
+        if (octokit) {
+          checkContext = {
+            octokit,
+            owner,
+            repo,
+            sha: existingSha,
+            checkRunId: Number.parseInt(existingCheckId, 10),
+          }
+          return checkContext.checkRunId
+        }
+      }
+    }
+
+    // Otherwise create a new check run
     checkContext = await initializeCheckContext()
     if (!checkContext) {
       return null

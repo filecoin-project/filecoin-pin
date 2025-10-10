@@ -6,7 +6,7 @@ import { getOutputSummary } from './outputs.js'
 import { runUpload } from './upload.js'
 
 async function main() {
-  // Create check run at the start
+  // Create/reuse check run (may already exist from early action step for fast UI feedback)
   await createCheck('Filecoin Upload')
 
   try {
