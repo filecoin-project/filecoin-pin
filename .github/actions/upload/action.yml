@@ -33,7 +33,7 @@ inputs:
     description: >-
       Specifies a target Filecoin Pin balance in USDFC that this action will never exceed.
       Actions (manual or other) outside of this action may cause the Filecoin Pay balance to exceed this limit,
-      but this limit prevents the action from using thewallet to top up the Filecoin Pay balance beyond the limit.
+      but this limit prevents the action from using the wallet to top up the Filecoin Pay balance beyond the limit.
       As a protection, this must be set if `minStorageDays` is set.
       SECURITY: Hardcode this in trusted workflows.
     required: false
