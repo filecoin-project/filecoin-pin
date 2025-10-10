@@ -70,12 +70,18 @@ export async function initializeSynapse(config, logger) {
 export async function handlePayments(synapse, options, logger) {
   const { minStorageDays, filecoinPayBalanceLimit } = options
 
+  console.log('Checking current Filecoin Pay account balance...')
   const initialStatus = await getPaymentStatus(synapse)
+
+  console.log(`Current Filecoin Pay balance: ${formatUSDFC(initialStatus.depositedAmount)} USDFC`)
+  console.log(`Wallet USDFC balance: ${formatUSDFC(initialStatus.usdfcBalance)} USDFC`)
+
   let requiredTopUp = 0n
 
   if (minStorageDays > 0) {
     const { topUp } = computeTopUpForDuration(initialStatus, minStorageDays)
     requiredTopUp = topUp
+    console.log(`Required top-up for ${minStorageDays} days of storage: ${formatUSDFC(requiredTopUp)} USDFC`)
   }
 
   // Check if deposit would exceed maximum balance if specified
@@ -106,9 +112,26 @@ export async function handlePayments(synapse, options, logger) {
 
   let newStatus = initialStatus
   if (requiredTopUp > 0n) {
+    console.log(`\nSubmitting transaction to deposit ${formatUSDFC(requiredTopUp)} USDFC to Filecoin Pay...`)
     logger.info(`Depositing ${formatUSDFC(requiredTopUp)} USDFC to Filecoin Pay ...`)
     await depositUSDFC(synapse, requiredTopUp)
+    console.log('✓ Transaction submitted successfully')
+    console.log('(Note: Transaction will continue to process in the background)')
+
+    // Verify the deposit was initiated
+    console.log('\nVerifying deposit transaction...')
     newStatus = await getPaymentStatus(synapse)
+    const depositDifference = newStatus.depositedAmount - initialStatus.depositedAmount
+
+    if (depositDifference > 0n) {
+      console.log(`✓ Deposit verified: ${formatUSDFC(depositDifference)} USDFC added to Filecoin Pay`)
+      console.log(`New Filecoin Pay balance: ${formatUSDFC(newStatus.depositedAmount)} USDFC`)
+    } else {
+      console.log('⚠️  Deposit transaction submitted but not yet reflected in balance')
+      console.log('(This is normal - the transaction may take a moment to process)')
+    }
+  } else {
+    console.log('✓ No deposit required - sufficient balance available')
   }
 
   return {
@@ -216,13 +239,39 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
   if (withCDN) process.env.WITH_CDN = 'true'
   const { storage, providerInfo } = await createStorageContext(synapse, logger, {})
 
-  // Upload to Filecoin via filecoin-pin
+  // Upload to Filecoin via filecoin-pin with progress tracking
   const synapseService = { synapse, storage, providerInfo }
   const cid = CID.parse(ipfsRootCid)
+
+  console.log('\nStarting upload to storage provider...')
+  console.log('⏳ Uploading data to PDP server...')
+
   const uploadResult = await executeUpload(synapseService, carBytes, cid, {
     logger,
     contextId: `gha-upload-${Date.now()}`,
+    callbacks: {
+      onUploadComplete: (pieceCid) => {
+        console.log('✓ Data uploaded to PDP server successfully')
+        console.log(`Piece CID: ${pieceCid}`)
+        console.log('\n⏳ Registering piece in data set...')
+      },
+      onPieceAdded: (transaction) => {
+        if (transaction?.hash) {
+          console.log('✓ Piece registration transaction submitted')
+          console.log(`Transaction hash: ${transaction.hash}`)
+          console.log('\n⏳ Waiting for on-chain confirmation...')
+        } else {
+          console.log('✓ Piece added to data set (no transaction needed)')
+        }
+      },
+      onPieceConfirmed: (pieceIds) => {
+        console.log('✓ Piece confirmed on-chain')
+        console.log(`Piece ID(s): ${pieceIds.join(', ')}`)
+      },
+    },
   })
+
+  console.log('\n✓ Upload to Filecoin complete!')
 
   const providerId = String(providerInfo.id ?? '')
   const providerName = providerInfo.name ?? (providerInfo.serviceProvider || '')

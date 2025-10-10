@@ -21,11 +21,11 @@ import { writeOutputs, writeSummary } from './outputs.js'
 export async function runUpload(buildContext = {}) {
   const logger = pino({ level: process.env.LOG_LEVEL || 'info' })
 
-  console.log('━━━ Upload Phase: Uploading to Filecoin ━━━')
+  console.log('━━━ Preparing for Upload ━━━')
 
   await updateCheck({
-    title: 'Uploading to Filecoin',
-    summary: 'Initializing upload to Filecoin...',
+    title: 'Initializing upload workflow',
+    summary: 'Preparing to upload to Filecoin...',
   })
 
   // Parse inputs (upload phase needs wallet)
@@ -145,12 +145,18 @@ export async function runUpload(buildContext = {}) {
   } else {
     const synapse = await initializeSynapse({ walletPrivateKey, network: inputNetwork }, logger)
 
+    console.log('\n━━━ Funding Phase: Checking Filecoin Pay Account ━━━')
+
     await updateCheck({
-      title: 'Handling payments',
-      summary: 'Checking Filecoin Pay balance and deposits...',
+      title: 'Checking Filecoin Pay balance',
+      summary: 'Verifying account balance and calculating required deposits...',
     })
 
     paymentStatus = await handlePayments(synapse, { minStorageDays, filecoinPayBalanceLimit }, logger)
+
+    console.log('✓ Funding phase complete')
+
+    console.log('\n━━━ Upload Phase: Uploading to Filecoin ━━━')
 
     await updateCheck({
       title: 'Uploading to storage provider',
