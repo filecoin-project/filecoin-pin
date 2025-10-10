@@ -5,21 +5,22 @@ This document explains how the action works internally and why each step exists.
 ## High-Level Execution
 
 1. **run.mjs** is the entry point. It:
-   - Persists basic GitHub run metadata in the shared context.
+   - Creates a GitHub check run to track progress.
    - Calls `runBuild()` to create the CAR file.
-   - Calls `runUpload()` to upload to Filecoin.
-   - Ensures `cleanupSynapse()` runs on success or failure.
+   - Calls `runUpload()` to upload to Filecoin, passing the build context.
+   - Handles special cases (fork PRs, dry runs) by completing the check with appropriate status.
+   - Ensures `cleanupSynapse()` runs on error via try/catch blocks.
 
 2. **Build phase (`src/build.js`)**
    - Parses inputs via `parseInputs('compute')`. This validates `path` and `network` but does not require the wallet key.
    - Detects fork PRs (by comparing head/base repo names). When detected, it records `uploadStatus=fork-pr-blocked` in the context and emits a notice that upload will be blocked.
    - Resolves `path` against the workspace and generates a CAR using `createCarFile()`.
-   - Stores the CAR file path, size, and IPFS root CID in the in-memory context (see `src/context.js`).
-   - Merges additional metadata (run id, PR details) through `mergeAndSaveContext()`.
+   - Returns a context object containing the CAR file path, size, IPFS root CID, and additional metadata (run id, PR details, upload status).
 
 3. **Upload phase (`src/upload.js`)**
    - Parses inputs via `parseInputs('upload')`. This enforces presence of `walletPrivateKey` and confirms `network`, `minStorageDays`, and `filecoinPayBalanceLimit` rules.
    - If the build context marked the run as `fork-pr-blocked`, the upload phase writes outputs, posts the explanatory PR comment, and exits without touching Filecoin.
+   - If `dryRun` is enabled, validates the CAR file exists, writes outputs, posts a PR comment, and exits without uploading.
    - Validates that the CAR file still exists on disk.
    - Calls `initializeSynapse({ walletPrivateKey, network })`, which selects the correct RPC endpoint (`RPC_URLS[network].websocket`) and bootstraps filecoin-pin.
    - Fetches current payment status, then hands control to `handlePayments()` for deposit logic.
@@ -34,7 +35,7 @@ This document explains how the action works internally and why each step exists.
 - `network`: required; must be `mainnet` or `calibration`.
 - `minStorageDays`: optional number (defaults to `0` when unset).
 - `filecoinPayBalanceLimit`: bigint parsed from USDFC string; required when `minStorageDays > 0`.
-- `providerAddress`, `withCDN`: optional advanced settings with defaults.
+- `providerAddress`, `withCDN`, `dryRun`: optional advanced settings with defaults.
 
 The helper supports both environment-variable fallback (`INPUT_<NAME>`) and the `INPUTS_JSON` bundle populated by `action.yml`.
 
@@ -48,8 +49,8 @@ The helper supports both environment-variable fallback (`INPUT_<NAME>`) and the 
 
 ## Context & Outputs
 
-- Context lives in-memory inside `src/context.js`. Build and upload occur in the same job, so filesystem artifacts are not required for hand-off.
-- `writeOutputs()` exposes CID, dataset, provider, CAR path, and status. Fork-blocked runs still surface the CAR information to aid reviewers.
+- Context is passed directly from build phase to upload phase as a plain object. Build and upload occur in the same job, so no intermediate storage is needed.
+- `writeOutputs()` exposes CID, dataset, provider, CAR path, and status. Fork-blocked and dry-run modes still surface the CAR information to aid reviewers.
 - `writeSummary()` appends a markdown summary detailing payment status, provider links (via `pdp.vxb.ai/<network>`), and CAR size.
 - `commentOnPR()` reuses existing bot comments when possible and uses the default workflow token.
 
