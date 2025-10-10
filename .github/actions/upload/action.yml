@@ -25,7 +25,7 @@ inputs:
       which won't be true for wallets that have multiple data sets or are using Filecoin Pay with other Filecoin Onchain Cloud services.
       If this isn't specified, this action will not make any Filecoin Pay deposits.
       If the current Filecoin Pay balance is already above this target, then no token deposits are attempted from the wallet.
-      If the current Filecoin Pay balance is below this target, the necessary deposit will be attempted if through the `filecoinPayBalanceLimit` (see below).
+      If the current Filecoin Pay balance is below this target, the necessary deposit will be attempted up through the `filecoinPayBalanceLimit` (see below).
       If there are insufficient funds in the wallet, the action will fail.
       SECURITY: Hardcode this in trusted workflows.
     required: false
