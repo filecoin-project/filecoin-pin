@@ -73,6 +73,7 @@ export function getOutputSummary(context, status) {
   const dataSetId = context?.dataSetId || ''
   const pieceCid = context?.pieceCid || ''
   const provider = context?.provider || {}
+  const providerAddress = context?.providerAddress || provider?.address || ''
   const previewURL = context?.previewUrl || ''
   const carPath = context?.carPath || ''
   const carSize = context?.carSize
@@ -107,9 +108,9 @@ export function getOutputSummary(context, status) {
     '',
     '**Onchain verification:**',
     `* Network: ${network}`,
-    `* Data Set ID: [${dataSetId}](https://pdp.vxb.ai/${network || 'mainnet'}/proofsets/${dataSetId})`,
-    `* Piece CID: [${pieceCid}](https://pdp.vxb.ai/${network || 'mainnet'}/proofsets/${dataSetId})`,
-    `* Provider: [${provider?.name || 'Unknown'} (ID ${provider?.id || 'Unknown'})](https://pdp.vxb.ai/${network || 'mainnet'}/providers/${provider?.id || ''})`,
+    `* Data Set ID: [${dataSetId}](https://pdp.vxb.ai/${network || 'mainnet'}/dataset/${dataSetId})`,
+    `* Piece CID: [${pieceCid}](https://pdp.vxb.ai/${network || 'mainnet'}/piece/${pieceCid})`,
+    `* Provider: [${provider?.name || 'Unknown'} (ID ${provider?.id || 'Unknown'})](https://pdp.vxb.ai/${network || 'mainnet'}/providers/${providerAddress})`,
     `* Piece download direct from provider: ${previewURL}`,
     '',
     '**Payment:**',

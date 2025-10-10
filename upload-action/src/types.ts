@@ -28,6 +28,7 @@ export interface CombinedContext {
   provider?: {
     id?: string
     name?: string
+    address?: string
   }
   uploadStatus?: string
   runId?: string
@@ -79,6 +80,7 @@ export interface UploadResult {
   provider: {
     id?: string
     name?: string
+    address?: string
   }
   previewURL: string
   network: string

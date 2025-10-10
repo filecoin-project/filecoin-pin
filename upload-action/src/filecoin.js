@@ -281,7 +281,7 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
     pieceCid: uploadResult.pieceCid,
     pieceId: uploadResult.pieceId != null ? String(uploadResult.pieceId) : '',
     dataSetId: uploadResult.dataSetId,
-    provider: { id: providerId, name: providerName },
+    provider: { id: providerId, name: providerName, address: providerAddress ?? providerInfo.serviceProvider ?? '' },
     previewURL,
     network: uploadResult.network,
   }
