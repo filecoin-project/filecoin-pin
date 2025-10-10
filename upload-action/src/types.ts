@@ -124,3 +124,11 @@ export interface ArtifactUploadOptions {
 export interface ArtifactDownloadOptions {
   path: string
 }
+
+export interface CheckContext {
+  octokit: import('@octokit/rest').Octokit
+  owner: string
+  repo: string
+  sha: string
+  checkRunId: number | null
+}

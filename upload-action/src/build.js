@@ -1,7 +1,7 @@
 import pc from 'picocolors'
 import pino from 'pino'
 import { createCarFile } from './filecoin.js'
-import { readEventPayload } from './github.js'
+import { readEventPayload, updateCheck } from './github.js'
 import { formatSize } from './outputs.js'
 
 /**
@@ -17,6 +17,11 @@ export async function runBuild() {
   const logger = pino({ level: process.env.LOG_LEVEL || 'info' })
 
   console.log('━━━ Build Phase: Creating CAR file ━━━')
+
+  await updateCheck({
+    title: 'Building CAR file',
+    summary: 'Creating CAR file from content...',
+  })
 
   const event = await readEventPayload()
   const buildRunId = process.env.GITHUB_RUN_ID || ''
@@ -80,6 +85,12 @@ export async function runBuild() {
 
   console.log('✓ Build complete. CAR file created.')
   console.log('::notice::Build phase complete. CAR file created.')
+
+  await updateCheck({
+    title: 'CAR file built',
+    summary: `Built CAR file for IPFS Root CID: \`${ipfsRootCid}\``,
+    text: carSize ? `CAR file size: ${formatSize(carSize)}` : undefined,
+  })
 
   return context
 }

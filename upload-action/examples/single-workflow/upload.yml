@@ -14,6 +14,7 @@ jobs:
     permissions:
       contents: read
       actions: read        # Required for artifact reuse
+      checks: write        # Required to create PR check status
       pull-requests: write # Required for PR comments
 
     steps:

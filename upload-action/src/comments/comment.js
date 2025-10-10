@@ -1,5 +1,5 @@
-import { Octokit } from '@octokit/rest'
 import { getErrorMessage } from '../errors.js'
+import { createOctokit, getGitHubEnv } from '../github.js'
 import { getOutputSummary } from '../outputs.js'
 
 /**
@@ -24,7 +24,7 @@ const generateCommentBody = (context, status) => {
  */
 function getWorkflowRunUrl() {
   const serverUrl = process.env.GITHUB_SERVER_URL || 'https://github.com'
-  const repository = process.env.GITHUB_REPOSITORY || ''
+  const { repository } = getGitHubEnv()
   const runId = process.env.GITHUB_RUN_ID || ''
 
   if (!repository || !runId) {
@@ -41,8 +41,7 @@ function getWorkflowRunUrl() {
 export async function commentOnPR(ctx) {
   // Try to get PR number from parameter or context
   let { ipfsRootCid, dataSetId, pieceCid, pr, dryRun } = ctx
-  const github_token = process.env.GITHUB_TOKEN || ''
-  const github_repository = process.env.GITHUB_REPOSITORY || ''
+  const { owner, repo } = getGitHubEnv()
 
   /** @type {number | undefined} */
   let resolvedPrNumber = pr?.number
@@ -86,15 +85,18 @@ export async function commentOnPR(ctx) {
 
   const summaryStatus = contextForComment.uploadStatus === 'fork-pr-blocked' ? 'Fork PR blocked' : 'Uploaded'
 
-  const [owner, repo] = github_repository.split('/')
   const issue_number = resolvedPrNumber
 
   if (!owner || !repo) {
-    console.error('Invalid repository format:', github_repository)
+    console.error('Invalid repository format - cannot post comment')
     return
   }
 
-  const octokit = new Octokit({ auth: github_token })
+  const octokit = createOctokit()
+  if (!octokit) {
+    console.error('No GitHub token available - cannot post comment')
+    return
+  }
 
   const body = generateCommentBody(contextForComment, summaryStatus)
 

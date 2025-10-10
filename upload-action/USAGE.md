@@ -53,6 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: read
+      checks: write
       pull-requests: write
     steps:
       - name: Download build artifacts
@@ -78,6 +79,13 @@ jobs:
 - Build workflow never sees wallet secrets.
 - Upload workflow runs from the main branch version of the file when triggered via `workflow_run`, so PRs cannot change hardcoded values until merged.
 - Hardcode financial parameters in trusted workflows and review changes carefully.
+
+**Permissions**:
+- `actions: read` - Required to download artifacts from workflow_run
+- `checks: write` - Required to create check run status visible in PR checks
+- `pull-requests: write` - Required to comment on PRs with upload results
+
+**Note**: The GitHub token (`github.token`) is automatically provided by the action - you don't need to pass it as an input.
 
 ---
 

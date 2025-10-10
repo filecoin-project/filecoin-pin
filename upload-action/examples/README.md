@@ -184,9 +184,14 @@ uses: filecoin-project/filecoin-pin/upload-action@v1.0.0  # Pin to a specific ve
 
 ### Comments not appearing on PR
 - Verify `pull-requests: write` permission is granted
-- Check `github_token` is provided to the action (auto-provided by default)
+- GitHub token is automatically provided by the action (no input needed)
 - PR number is automatically detected from metadata
 - Look for errors in the "Comment on PR" step
+
+### Check status not appearing in PR
+- Verify `checks: write` permission is granted
+- GitHub token is automatically provided by the action (no input needed)
+- Action will work without checks permission but won't show status in PR checks list
 
 ### Secrets not available
 - Check repository secret settings

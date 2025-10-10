@@ -42,6 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: read
+      checks: write
       pull-requests: write
     steps:
       - name: Download build artifacts
@@ -73,6 +74,9 @@ See [action.yml](./action.yml) the input parameters and their descriptions.
 
 - ✅ Pin the action by version tag or commit SHA
 - ✅ Grant `actions: read` if you want artifact reuse (cache fallback) to work
+- ✅ Grant `checks: write` to enable PR check status (shows upload status in PR checks list)
+- ✅ Grant `pull-requests: write` to enable PR comments with upload results
+- ℹ️ **GitHub token** is automatically provided - no need to pass it as an input
 - ✅ Protect workflow files with CODEOWNERS/branch protection
 - ✅ **Always** hardcode `minStorageDays` and `filecoinPayBalanceLimit` in trusted workflows
 - ✅ **Never** use `pull_request_target` - use the two-workflow pattern instead

@@ -130,10 +130,215 @@ export async function ensurePullRequestContext(existingPr) {
 
     if (!pr) {
       const token = process.env.GITHUB_TOKEN || getInput('github_token') || ''
-      const octokit = token ? new Octokit({ auth: token }) : undefined
+      const octokit = createOctokit(token) || undefined
       pr = await resolveFromWorkflowRunApi(octokit, event)
     }
   }
 
   return pr
+}
+
+/**
+ * Get GitHub environment context from standard GitHub Actions environment variables.
+ *
+ * Centralizes access to GitHub-specific env vars to avoid duplication and ensure
+ * consistent parsing across the codebase.
+ *
+ * @returns {{ token: string | null, repository: string | null, owner: string | null, repo: string | null, sha: string | null }}
+ *   Returns null for any missing values rather than empty strings for safer checks.
+ */
+export function getGitHubEnv() {
+  const token = process.env.GITHUB_TOKEN || null
+  const repository = process.env.GITHUB_REPOSITORY || null
+  const sha = process.env.GITHUB_SHA || null
+
+  let owner = null
+  let repo = null
+  if (repository) {
+    const parts = repository.split('/')
+    owner = parts[0] || null
+    repo = parts[1] || null
+  }
+
+  return { token, repository, owner, repo, sha }
+}
+
+/**
+ * Create an authenticated Octokit instance for GitHub API interactions.
+ *
+ * Centralizes Octokit creation to ensure consistent authentication handling.
+ *
+ * @param {string | null} [token] - GitHub token (uses env var if not provided)
+ * @returns {Octokit | null} Returns null if no token available (graceful degradation)
+ */
+export function createOctokit(token = null) {
+  const authToken = token || process.env.GITHUB_TOKEN
+  if (!authToken) {
+    return null
+  }
+  return new Octokit({ auth: authToken })
+}
+
+/**
+ * @typedef {import('./types.js').CheckContext} CheckContext
+ */
+
+/** @type {CheckContext | null} */
+let checkContext = null
+
+/**
+ * Initialize GitHub Checks API client
+ * @returns {Promise<CheckContext | null>}
+ */
+async function initializeCheckContext() {
+  const { token, owner, repo, sha } = getGitHubEnv()
+
+  if (!token) {
+    console.log('No GITHUB_TOKEN available - check status will not be created')
+    return null
+  }
+
+  if (!owner || !repo) {
+    console.log('No GITHUB_REPOSITORY or invalid format - check status will not be created')
+    return null
+  }
+
+  if (!sha) {
+    console.log('No GITHUB_SHA - check status will not be created')
+    return null
+  }
+
+  const octokit = createOctokit(token)
+  if (!octokit) {
+    return null
+  }
+
+  return {
+    octokit,
+    owner,
+    repo,
+    sha,
+    checkRunId: null,
+  }
+}
+
+/**
+ * Create a check run for the Filecoin upload.
+ *
+ * Creates a visible check status in the PR's "Checks" tab, similar to other
+ * CI/CD integrations. The check shows real-time progress and final results.
+ *
+ * Gracefully degrades if permissions are missing - logs helpful warnings but
+ * doesn't fail the action. Requires `checks: write` permission.
+ *
+ * @param {string} name - Name of the check (default: 'Filecoin Upload')
+ * @returns {Promise<number | null>} Check run ID or null if creation failed
+ */
+export async function createCheck(name = 'Filecoin Upload') {
+  try {
+    checkContext = await initializeCheckContext()
+    if (!checkContext) {
+      return null
+    }
+
+    const { octokit, owner, repo, sha } = checkContext
+
+    const response = await octokit.rest.checks.create({
+      owner,
+      repo,
+      name,
+      head_sha: sha,
+      status: 'in_progress',
+      started_at: new Date().toISOString(),
+      output: {
+        title: 'Building and uploading to Filecoin',
+        summary: 'Creating CAR file and preparing for upload...',
+      },
+    })
+
+    checkContext.checkRunId = response.data.id
+    console.log(`✓ Created check run: ${name} (ID: ${response.data.id})`)
+
+    return response.data.id
+  } catch (error) {
+    console.warn('Failed to create check run:', getErrorMessage(error))
+    console.warn('Check status will not be visible in PR. Ensure workflow has `checks: write` permission.')
+    return null
+  }
+}
+
+/**
+ * Update the check run with new status during build/upload progress.
+ *
+ * Silently no-ops if check creation failed (graceful degradation).
+ * Updates the existing check run with new progress information.
+ *
+ * @param {Object} options
+ * @param {string} options.title - Title for the output
+ * @param {string} options.summary - Summary text
+ * @param {string} [options.text] - Optional detailed text
+ * @param {'in_progress' | 'queued' | 'completed'} [options.status] - Check status (default: 'in_progress')
+ */
+export async function updateCheck({ title, summary, text, status = 'in_progress' }) {
+  if (!checkContext?.checkRunId || !checkContext.octokit) {
+    return
+  }
+
+  try {
+    const { octokit, owner, repo, checkRunId } = checkContext
+
+    await octokit.rest.checks.update({
+      owner,
+      repo,
+      check_run_id: checkRunId,
+      status,
+      output: {
+        title,
+        summary,
+        ...(text && { text }),
+      },
+    })
+  } catch (error) {
+    console.warn('Failed to update check run:', getErrorMessage(error))
+  }
+}
+
+/**
+ * Complete the check run with final status (success/failure/skipped).
+ *
+ * Marks the check run as completed and sets the final conclusion that appears
+ * in the PR checks UI. Silently no-ops if check creation failed.
+ *
+ * @param {Object} options
+ * @param {'success' | 'failure' | 'cancelled' | 'skipped'} options.conclusion - Final conclusion
+ * @param {string} options.title - Title for the output
+ * @param {string} options.summary - Summary text
+ * @param {string} [options.text] - Optional detailed text (typically full upload summary)
+ */
+export async function completeCheck({ conclusion, title, summary, text }) {
+  if (!checkContext?.checkRunId || !checkContext.octokit) {
+    return
+  }
+
+  try {
+    const { octokit, owner, repo, checkRunId } = checkContext
+
+    await octokit.rest.checks.update({
+      owner,
+      repo,
+      check_run_id: checkRunId,
+      status: 'completed',
+      conclusion,
+      completed_at: new Date().toISOString(),
+      output: {
+        title,
+        summary,
+        ...(text && { text }),
+      },
+    })
+
+    console.log(`✓ Completed check run with conclusion: ${conclusion}`)
+  } catch (error) {
+    console.warn('Failed to complete check run:', getErrorMessage(error))
+  }
 }

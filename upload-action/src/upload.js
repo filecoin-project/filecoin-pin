@@ -3,7 +3,7 @@ import pc from 'picocolors'
 import pino from 'pino'
 import { commentOnPR } from './comments/comment.js'
 import { cleanupSynapse, handlePayments, initializeSynapse, uploadCarToFilecoin } from './filecoin.js'
-import { ensurePullRequestContext } from './github.js'
+import { ensurePullRequestContext, updateCheck } from './github.js'
 import { parseInputs } from './inputs.js'
 import { writeOutputs, writeSummary } from './outputs.js'
 
@@ -22,6 +22,11 @@ export async function runUpload(buildContext = {}) {
   const logger = pino({ level: process.env.LOG_LEVEL || 'info' })
 
   console.log('━━━ Upload Phase: Uploading to Filecoin ━━━')
+
+  await updateCheck({
+    title: 'Uploading to Filecoin',
+    summary: 'Initializing upload to Filecoin...',
+  })
 
   // Parse inputs (upload phase needs wallet)
   /** @type {ParsedInputs} */
@@ -55,6 +60,12 @@ export async function runUpload(buildContext = {}) {
     console.log('::notice::Fork PR detected - content built but not uploaded to Filecoin, will comment on PR')
 
     const rootCid = context.ipfsRootCid || ''
+
+    await updateCheck({
+      title: 'Fork PR detected',
+      summary: 'Fork PR support is currently disabled for security reasons',
+      text: 'CAR file built successfully but upload blocked. See PR comment for details.',
+    })
 
     // Write outputs indicating fork PR was blocked
     await writeOutputs({
@@ -134,7 +145,17 @@ export async function runUpload(buildContext = {}) {
   } else {
     const synapse = await initializeSynapse({ walletPrivateKey, network: inputNetwork }, logger)
 
+    await updateCheck({
+      title: 'Handling payments',
+      summary: 'Checking Filecoin Pay balance and deposits...',
+    })
+
     paymentStatus = await handlePayments(synapse, { minStorageDays, filecoinPayBalanceLimit }, logger)
+
+    await updateCheck({
+      title: 'Uploading to storage provider',
+      summary: `Uploading CAR file to Filecoin storage provider...`,
+    })
 
     const uploadResult = await uploadCarToFilecoin(synapse, carPath, rootCid, { withCDN, providerAddress }, logger)
     pieceCid = uploadResult.pieceCid
@@ -182,6 +203,11 @@ export async function runUpload(buildContext = {}) {
   console.log(`Piece CID: ${pieceCid}`)
   console.log(`Provider: ${provider.name || 'Unknown'} (ID ${provider.id || 'Unknown'})`)
   console.log(`Preview: ${previewURL}`)
+
+  await updateCheck({
+    title: 'Finalizing upload',
+    summary: `Upload complete. IPFS Root CID: \`${rootCid}\``,
+  })
 
   await writeSummary(context, 'Uploaded')
 

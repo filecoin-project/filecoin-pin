@@ -17,6 +17,7 @@ jobs:
     permissions:
       contents: read
       actions: read  # Required to download artifacts from workflow_run
+      checks: write  # Required to create PR check status
       pull-requests: write  # Required to comment on PRs
 
     steps:
