@@ -7,7 +7,7 @@ import type { SynapseService } from 'filecoin-pin/core/synapse'
 export type { FilecoinPinPaymentStatus }
 export type Synapse = SynapseService['synapse']
 
-export interface CombinedContext {
+export interface CombinedContext extends Partial<UploadResult> {
   ipfsRootCid?: string
   carPath?: string
   carFilename?: string
@@ -22,20 +22,11 @@ export interface CombinedContext {
     title?: string
     author?: string
   }
-  pieceCid?: string
-  pieceId?: string
-  dataSetId?: string
-  provider?: {
-    id?: string
-    name?: string
-    address?: string
-  }
   uploadStatus?: string
   runId?: string
   repository?: string
   mode?: string
   phase?: string
-  network?: string
   artifactCarPath?: string
   contentPath?: string
   walletPrivateKey?: string
@@ -43,7 +34,6 @@ export interface CombinedContext {
   filecoinPayBalanceLimit?: bigint
   withCDN?: boolean
   providerAddress?: string
-  previewUrl?: string
   paymentStatus?: PaymentStatus
   dryRun?: boolean
 }
@@ -82,7 +72,7 @@ export interface UploadResult {
     name?: string
     address?: string
   }
-  previewURL: string
+  previewUrl: string
   network: string
 }
 

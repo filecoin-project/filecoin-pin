@@ -275,14 +275,14 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
 
   const providerId = String(providerInfo.id ?? '')
   const providerName = providerInfo.name ?? (providerInfo.serviceProvider || '')
-  const previewURL = getDownloadURL(providerInfo, uploadResult.pieceCid) || `https://ipfs.io/ipfs/${ipfsRootCid}`
+  const previewUrl = getDownloadURL(providerInfo, uploadResult.pieceCid) || `https://dweb.link/ipfs/${ipfsRootCid}`
 
   return {
     pieceCid: uploadResult.pieceCid,
     pieceId: uploadResult.pieceId != null ? String(uploadResult.pieceId) : '',
     dataSetId: uploadResult.dataSetId,
-    provider: { id: providerId, name: providerName, address: providerAddress ?? providerInfo.serviceProvider ?? '' },
-    previewURL,
+    provider: { id: providerId, name: providerName, address: providerInfo.serviceProvider ?? '' },
+    previewUrl,
     network: uploadResult.network,
   }
 }

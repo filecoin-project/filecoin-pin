@@ -74,7 +74,7 @@ export function getOutputSummary(context, status) {
   const pieceCid = context?.pieceCid || ''
   const provider = context?.provider || {}
   const providerAddress = context?.providerAddress || provider?.address || ''
-  const previewURL = context?.previewUrl || ''
+  const previewUrl = context?.previewUrl || ''
   const carPath = context?.carPath || ''
   const carSize = context?.carSize
   const carDownloadUrl = context?.carDownloadUrl || (carPath ? `[download link](${carPath})` : 'download')
@@ -111,7 +111,7 @@ export function getOutputSummary(context, status) {
     `* Data Set ID: [${dataSetId}](https://pdp.vxb.ai/${network || 'mainnet'}/dataset/${dataSetId})`,
     `* Piece CID: [${pieceCid}](https://pdp.vxb.ai/${network || 'mainnet'}/piece/${pieceCid})`,
     `* Provider: [${provider?.name || 'Unknown'} (ID ${provider?.id || 'Unknown'})](https://pdp.vxb.ai/${network || 'mainnet'}/providers/${providerAddress})`,
-    `* Piece download direct from provider: ${previewURL}`,
+    `* Piece download direct from provider: ${previewUrl}`,
     '',
     '**Payment:**',
     `* Current Filecoin Pay balance: ${formatUSDFC(ethers.parseUnits(paymentStatus.currentBalance, 18))} USDFC`,

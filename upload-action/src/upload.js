@@ -113,7 +113,7 @@ export async function runUpload(buildContext = {}) {
   }
 
   /** @type {Partial<UploadResult>} */
-  let { pieceCid, pieceId, dataSetId, provider, previewURL, network } = {}
+  let { pieceCid, pieceId, dataSetId, provider, previewUrl, network } = {}
   /** @type {PaymentStatus} */
   let paymentStatus
 
@@ -125,7 +125,7 @@ export async function runUpload(buildContext = {}) {
       id: 'dry-run',
       name: 'Dry Run Mode',
     }
-    previewURL = context.previewUrl || 'https://example.com/ipfs/dry-run'
+    previewUrl = context.previewUrl || 'https://example.com/ipfs/dry-run'
     network = context.network || 'dry-run'
     paymentStatus = context.paymentStatus || {
       depositedAmount: '0',
@@ -168,7 +168,7 @@ export async function runUpload(buildContext = {}) {
     pieceId = uploadResult.pieceId
     dataSetId = uploadResult.dataSetId
     provider = uploadResult.provider
-    previewURL = uploadResult.previewURL
+    previewUrl = uploadResult.previewUrl
     network = uploadResult.network
   }
 
@@ -181,7 +181,7 @@ export async function runUpload(buildContext = {}) {
     pieceId,
     dataSetId,
     provider: providerInfo,
-    previewUrl: previewURL,
+    previewUrl,
     network: network || inputNetwork,
     uploadStatus,
     paymentStatus,
@@ -208,7 +208,7 @@ export async function runUpload(buildContext = {}) {
   console.log(`::notice::Upload complete. IPFS Root CID: ${rootCid}`)
   console.log(`Piece CID: ${pieceCid}`)
   console.log(`Provider: ${provider.name || 'Unknown'} (ID ${provider.id || 'Unknown'})`)
-  console.log(`Preview: ${previewURL}`)
+  console.log(`Preview: ${previewUrl}`)
 
   await updateCheck({
     title: 'Finalizing upload',
