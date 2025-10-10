@@ -95,10 +95,10 @@ filecoinPayBalanceLimit: "0.10" # 10 cents max per run (0.10 USDFC)
 
 ### 5. Update Action Version
 
-Replace `filecoin-project/filecoin-pin/.github/actions/upload@v1` with the actual action reference:
+Replace `filecoin-project/filecoin-pin/upload-action@v1` with the actual action reference:
 
 ```yaml
-uses: filecoin-project/filecoin-pin/.github/actions/upload@v1.0.0  # Pin to a specific version
+uses: filecoin-project/filecoin-pin/upload-action@v1.0.0  # Pin to a specific version
 ```
 
 ---

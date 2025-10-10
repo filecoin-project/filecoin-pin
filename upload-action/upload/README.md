@@ -54,7 +54,7 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
 
       - name: Upload to Filecoin
-        uses: filecoin-project/filecoin-pin/.github/actions/upload@v1
+        uses: filecoin-project/filecoin-pin/upload-action@v1
         with:
           path: dist
           walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
@@ -110,7 +110,7 @@ This action uses the filecoin-pin repository's release process. See the [filecoi
 
 Example:
 ```yaml
-- uses: filecoin-project/filecoin-pin/.github/actions/upload@v1
+- uses: filecoin-project/filecoin-pin/upload-action@v1
 ```
 
 ## Documentation
