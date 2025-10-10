@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { createWriteStream, type WriteStream } from 'node:fs'
+import type { FileHandle } from 'node:fs/promises'
 import { mkdir, open, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { Readable, Transform } from 'node:stream'
@@ -216,7 +217,7 @@ export class CARWritingBlockstore extends EventEmitter implements Blockstore {
 
     // Open the file in read-only mode
     // This will throw ENOENT if file doesn't exist yet
-    let fd: Awaited<ReturnType<typeof open>>
+    let fd: FileHandle
     try {
       fd = await open(this.outputPath, 'r')
     } catch (error: any) {

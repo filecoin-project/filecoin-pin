@@ -1,6 +1,6 @@
 {
   "name": "filecoin-pin",
-  "version": "0.6.0",
+  "version": "0.7.3",
   "description": "Bridge IPFS content to Filecoin Onchain Cloud using familiar tools",
   "type": "module",
   "main": "dist/index.js",
@@ -11,10 +11,18 @@
       "default": "./dist/index.js"
     },
     "./core": {
+      "browser": {
+        "types": "./dist/core/browser.d.ts",
+        "default": "./dist/core/browser.js"
+      },
       "types": "./dist/core/index.d.ts",
       "default": "./dist/core/index.js"
     },
     "./core/car": {
+      "browser": {
+        "types": "./dist/core/car/browser.d.ts",
+        "default": "./dist/core/car/browser.js"
+      },
       "types": "./dist/core/car/index.d.ts",
       "default": "./dist/core/car/index.js"
     },
@@ -31,6 +39,10 @@
       "default": "./dist/core/upload/index.js"
     },
     "./core/unixfs": {
+      "browser": {
+        "types": "./dist/core/unixfs/browser.d.ts",
+        "default": "./dist/core/unixfs/browser.js"
+      },
       "types": "./dist/core/unixfs/index.d.ts",
       "default": "./dist/core/unixfs/index.js"
     },
@@ -83,7 +95,7 @@
   "homepage": "https://github.com/FilOzone/filecoin-pin#readme",
   "dependencies": {
     "@clack/prompts": "^0.11.0",
-    "@filoz/synapse-sdk": "^0.29.3",
+    "@filoz/synapse-sdk": "^0.30.1",
     "@helia/unixfs": "^5.1.0",
     "@ipld/car": "^5.4.2",
     "commander": "^14.0.1",

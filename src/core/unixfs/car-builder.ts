@@ -190,8 +190,9 @@ async function createCarFromDirectory(dirPath: string, options: CreateCarOptions
 
     // Use globSource with the parent directory as base and include the directory name in the pattern
     // This ensures the directory name is part of the UnixFS structure
-    // We use {,/**/*} to match both the directory itself and everything under it
-    const pattern = `${dirName}{,/**/*}`
+    // We match only the directory contents (/**/*), not the directory itself
+    // addAll will automatically create the root directory entry with proper links
+    const pattern = `${dirName}/**/*`
     logger?.info({ absolutePath, parentDir, dirName, pattern }, 'Directory structure for UnixFS')
 
     const candidates = globSource(parentDir, pattern, {

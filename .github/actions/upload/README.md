@@ -2,6 +2,8 @@
 
 Composite GitHub Action that packs a file or directory into a UnixFS CAR, uploads it to Filecoin, and publishes artifacts and context for easy reuse.
 
+This is provided for illustrative purposes of how to use filecoin-pin.  It's not expected to be the action that other repos will depend on for their production usecase of uploading to filecoin.  Given the emphasis on this being educational, breaking changes may be made at any time.  For robust use, the intent is to add filecoin-pin functionality ipshipyard/ipfs-deploy-action, which is being tracked in [issue #39](https://github.com/ipfs/ipfs-deploy-action/issues/39).
+
 ## Quick Start
 
 Run your build in an untrusted workflow, publish the build output as an artifact, then run this action in a trusted workflow to create the CAR and upload to Filecoin. Fork PR support is currently disabled, so workflows must run within the same repository.

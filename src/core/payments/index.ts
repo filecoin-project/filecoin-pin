@@ -717,6 +717,80 @@ export function computeAdjustmentForExactDeposit(
 }
 
 /**
+ * Compute adjustment needed to maintain target runway AFTER adding a new file
+ *
+ * This function accounts for both:
+ * - The new file's lockup requirement
+ * - The new file's ongoing per-epoch cost (rate)
+ *
+ * @param status - Current payment status
+ * @param days - Target runway in days
+ * @param carSizeBytes - Size of the CAR file being uploaded in bytes
+ * @param pricePerTiBPerEpoch - Current pricing from storage service
+ * @returns Adjustment details including total delta needed
+ */
+export function computeAdjustmentForExactDaysWithFile(
+  status: PaymentStatus,
+  days: number,
+  carSizeBytes: number,
+  pricePerTiBPerEpoch: bigint
+): {
+  delta: bigint // >0 deposit, <0 withdraw, 0 none
+  targetDeposit: bigint
+  currentDeposit: bigint
+  newLockupUsed: bigint
+  newRateUsed: bigint
+} {
+  const currentRateUsed = status.currentAllowances.rateUsed ?? 0n
+  const currentLockupUsed = status.currentAllowances.lockupUsed ?? 0n
+
+  // Calculate required allowances for the new file
+  const newFileAllowances = calculateRequiredAllowances(carSizeBytes, pricePerTiBPerEpoch)
+
+  // Calculate new totals after adding the file
+  const newRateUsed = currentRateUsed + newFileAllowances.rateAllowance
+  const newLockupUsed = currentLockupUsed + newFileAllowances.lockupAllowance
+
+  // Calculate deposit needed for target runway with new rate
+  const perDay = newRateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+
+  if (days < 0) {
+    throw new Error('days must be non-negative')
+  }
+
+  // If no ongoing spend (both current and new), just need the lockup
+  if (newRateUsed === 0n) {
+    const targetDeposit = newLockupUsed
+    const delta = targetDeposit - status.depositedAmount
+    return {
+      delta,
+      targetDeposit,
+      currentDeposit: status.depositedAmount,
+      newLockupUsed,
+      newRateUsed,
+    }
+  }
+
+  // Safety buffer to ensure runway >= requested days even if rateUsed shifts slightly
+  const perHour = perDay / 24n
+  const safety = perHour > 0n ? perHour : 1n
+
+  // Target: lockup (with buffer) + (days worth of ongoing cost)
+  const targetAvailable = BigInt(Math.floor(days)) * perDay + safety
+  const targetDeposit = withBuffer(newLockupUsed) + targetAvailable
+
+  const delta = targetDeposit - status.depositedAmount
+
+  return {
+    delta,
+    targetDeposit,
+    currentDeposit: status.depositedAmount,
+    newLockupUsed,
+    newRateUsed,
+  }
+}
+
+/**
  * Calculate storage capacity from deposit amount
  *
  * This function calculates how much storage capacity a deposit can support,

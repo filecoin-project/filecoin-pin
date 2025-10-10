@@ -9,7 +9,7 @@ import { readFile, stat } from 'node:fs/promises'
 import { RPC_URLS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import pino from 'pino'
-import { displayUploadResults, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
+import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import {
   cleanupSynapseService,
   createStorageContext,
@@ -144,26 +144,33 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     const carSize = carData.length
     spinner.stop(`${pc.green('✓')} IPFS content loaded (${formatFileSize(carSize)})`)
 
-    // Validate payment capacity for actual file size
-    spinner.start('Checking payment capacity...')
-    await validatePaymentSetup(synapse, carSize, spinner)
+    if (options.autoFund) {
+      // Perform auto-funding if requested (now that we know the file size)
+      await performAutoFunding(synapse, carSize, spinner)
+    } else {
+      // Check payment setup and capacity for actual file size
+      spinner.start('Checking payment capacity...')
+      await validatePaymentSetup(synapse, carSize, spinner)
+    }
 
     // Create storage context
     spinner.start('Creating storage context...')
 
     const { storage, providerInfo } = await createStorageContext(synapse, logger, {
-      onProviderSelected: (provider) => {
-        spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)
-      },
-      onDataSetCreationStarted: (transaction) => {
-        spinner.message(`Creating data set (tx: ${transaction.hash.slice(0, 10)}...)`)
-      },
-      onDataSetResolved: (info) => {
-        if (info.isExisting) {
-          spinner.message(`Using existing data set #${info.dataSetId}`)
-        } else {
-          spinner.message(`Created new data set #${info.dataSetId}`)
-        }
+      callbacks: {
+        onProviderSelected: (provider) => {
+          spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)
+        },
+        onDataSetCreationStarted: (transaction) => {
+          spinner.message(`Creating data set (tx: ${transaction.hash.slice(0, 10)}...)`)
+        },
+        onDataSetResolved: (info) => {
+          if (info.isExisting) {
+            spinner.message(`Using existing data set #${info.dataSetId}`)
+          } else {
+            spinner.message(`Created new data set #${info.dataSetId}`)
+          }
+        },
       },
     })
 
