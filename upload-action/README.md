@@ -74,7 +74,7 @@ jobs:
 See [action.yml](./action.yml) for complete input documentation including:
 - **Core**: `path`, `walletPrivateKey`, `network`
 - **Financial**: `minStorageDays`, `filecoinPayBalanceLimit`
-- **Advanced**: `providerAddress`, `withCDN`, `dryRun`
+- **Advanced**: `withCDN`, `dryRun`
 
 **Outputs**: `ipfsRootCid`, `dataSetId`, `pieceCid`, `providerId`, `providerName`, `carPath`, `uploadStatus`
 
