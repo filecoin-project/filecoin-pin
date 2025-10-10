@@ -126,11 +126,6 @@ runs:
         path: ${{ steps.action-path.outputs.path }}/node_modules
         key: ${{ runner.os }}-filecoin-action-deps-${{ steps.lockfile-hash.outputs.hash }}
 
-    - name: Build filecoin-pin package
-      shell: bash
-      working-directory: ${{ github.action_path }}/..
-      run: npm run build
-
     - name: Propagate Actions runtime token
       uses: actions/github-script@v7
       with:
