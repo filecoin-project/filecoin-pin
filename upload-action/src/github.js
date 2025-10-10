@@ -187,11 +187,16 @@ export function createOctokit(token = null) {
 let checkContext = null
 
 /**
- * Initialize GitHub Checks API client
- * @returns {Promise<CheckContext | null>}
+ * Initialize GitHub Checks API client with correct SHA resolution.
+ *
+ * Only creates checks in PR context - gracefully returns null for push events.
+ * Automatically resolves the correct commit SHA, handling workflow_run contexts
+ * where GITHUB_SHA points to the base branch instead of the PR head.
+ *
+ * @returns {Promise<CheckContext | null>} Returns null if not in PR context
  */
 async function initializeCheckContext() {
-  const { token, owner, repo, sha } = getGitHubEnv()
+  const { token, owner, repo } = getGitHubEnv()
 
   if (!token) {
     console.log('No GITHUB_TOKEN available - check status will not be created')
@@ -203,10 +208,17 @@ async function initializeCheckContext() {
     return null
   }
 
-  if (!sha) {
-    console.log('No GITHUB_SHA - check status will not be created')
+  // Resolve correct SHA, especially important for workflow_run triggers
+  // where GITHUB_SHA points to base branch, not PR head
+  const pr = await ensurePullRequestContext(undefined)
+
+  // Only create checks for PR context - not needed for push to main
+  if (!pr?.sha) {
+    console.log('No PR context - check status will not be created')
     return null
   }
+
+  const sha = pr.sha
 
   const octokit = createOctokit(token)
   if (!octokit) {
@@ -228,11 +240,14 @@ async function initializeCheckContext() {
  * Creates a visible check status in the PR's "Checks" tab, similar to other
  * CI/CD integrations. The check shows real-time progress and final results.
  *
+ * Only creates checks for PRs - gracefully skips for push events to main.
+ * Automatically handles workflow_run contexts by resolving the correct PR head SHA.
+ *
  * Gracefully degrades if permissions are missing - logs helpful warnings but
  * doesn't fail the action. Requires `checks: write` permission.
  *
  * @param {string} name - Name of the check (default: 'Filecoin Upload')
- * @returns {Promise<number | null>} Check run ID or null if creation failed
+ * @returns {Promise<number | null>} Check run ID or null if not in PR context or creation failed
  */
 export async function createCheck(name = 'Filecoin Upload') {
   try {
