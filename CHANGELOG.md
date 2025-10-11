@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.7.3...v0.8.0) (2025-10-11)
+
+
+### Features
+
+* create re-usable github action ([#60](https://github.com/filecoin-project/filecoin-pin/issues/60)) ([aa6b9bf](https://github.com/filecoin-project/filecoin-pin/commit/aa6b9bfc957bc59621606c1bad7e1a676b7fddaf))
+
+
+### Chores
+
+* **dev:** fix biome version ([#77](https://github.com/filecoin-project/filecoin-pin/issues/77)) ([dbf14be](https://github.com/filecoin-project/filecoin-pin/commit/dbf14be0ec0b52b88dd8282cf03b180ca67a370b))
+
 ## [0.7.3](https://github.com/filecoin-project/filecoin-pin/compare/v0.7.2...v0.7.3) (2025-10-09)
 
 
