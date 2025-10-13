@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.8.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.7.3...v0.8.0) (2025-10-13)
+
+
+### Features
+
+* add session key authentication support ([#103](https://github.com/filecoin-project/filecoin-pin/issues/103)) ([8ef8261](https://github.com/filecoin-project/filecoin-pin/commit/8ef82615c76924d7e154dd3f00126d94c385c180))
+* create re-usable github action ([#60](https://github.com/filecoin-project/filecoin-pin/issues/60)) ([aa6b9bf](https://github.com/filecoin-project/filecoin-pin/commit/aa6b9bfc957bc59621606c1bad7e1a676b7fddaf))
+
+
+### Bug Fixes
+
+* cli supports session-key & wallet options ([#105](https://github.com/filecoin-project/filecoin-pin/issues/105)) ([e362531](https://github.com/filecoin-project/filecoin-pin/commit/e362531ccd17661c3ae745ef6c82939c740f6fbf))
+
+
+### Chores
+
+* **dev:** fix biome version ([#77](https://github.com/filecoin-project/filecoin-pin/issues/77)) ([dbf14be](https://github.com/filecoin-project/filecoin-pin/commit/dbf14be0ec0b52b88dd8282cf03b180ca67a370b))
+
 ## [0.7.3](https://github.com/filecoin-project/filecoin-pin/compare/v0.7.2...v0.7.3) (2025-10-09)
 
 
