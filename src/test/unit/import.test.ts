@@ -364,7 +364,9 @@ describe('CAR Import', () => {
       }
 
       await expect(runCarImport(options)).rejects.toThrow('process.exit called')
-      expect(consoleMocks.error).toHaveBeenCalledWith('Import cancelled')
+      expect(consoleMocks.error).toHaveBeenCalledWith(
+        'Provide either PRIVATE_KEY or both WALLET_ADDRESS + SESSION_KEY env vars'
+      )
     })
 
     it('should use custom RPC URL if provided', async () => {

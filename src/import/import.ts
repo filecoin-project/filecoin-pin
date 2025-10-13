@@ -165,14 +165,24 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     // Step 4: Initialize Synapse SDK (without storage context)
     spinner.start('Initializing Synapse SDK...')
 
-    if (!options.privateKey) {
-      spinner.stop(`${pc.red('✗')} Private key required via --private-key or PRIVATE_KEY env`)
-      cancel('Import cancelled')
+    // Check for session key auth (env vars only for now)
+    const walletAddress = process.env.WALLET_ADDRESS
+    const sessionKey = process.env.SESSION_KEY
+
+    // Validate authentication (either standard or session key mode)
+    const hasStandardAuth = options.privateKey != null
+    const hasSessionKeyAuth = walletAddress != null && sessionKey != null
+
+    if (!hasStandardAuth && !hasSessionKeyAuth) {
+      spinner.stop(`${pc.red('✗')} Authentication required`)
+      cancel('Provide either PRIVATE_KEY or both WALLET_ADDRESS + SESSION_KEY env vars')
       process.exit(1)
     }
 
     const config = {
       privateKey: options.privateKey,
+      walletAddress,
+      sessionKey,
       rpcUrl: options.rpcUrl || RPC_URLS.calibration.websocket,
       // Other config fields not needed for import
       port: 0,

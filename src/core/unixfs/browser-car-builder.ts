@@ -6,7 +6,7 @@
  */
 
 import { unixfs } from '@helia/unixfs'
-import { CarWriter } from '@ipld/car'
+import { CarReader, CarWriter } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import { CARWritingBlockstore } from '../car/browser-car-blockstore.js'
 
@@ -250,9 +250,6 @@ async function createCar(
 async function updateRootCidInCar(carBytes: Uint8Array, rootCid: CID): Promise<Uint8Array> {
   // We need to replace the placeholder CID with the actual root CID
   // The easiest way is to re-read the CAR and write a new one with the correct root
-
-  // Import CarReader to read the existing CAR
-  const { CarReader } = await import('@ipld/car')
 
   const reader = await CarReader.fromBytes(carBytes)
 

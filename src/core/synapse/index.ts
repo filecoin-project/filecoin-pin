@@ -1,4 +1,6 @@
 import {
+  ADD_PIECES_TYPEHASH,
+  CREATE_DATA_SET_TYPEHASH,
   METADATA_KEYS,
   type ProviderInfo,
   RPC_URLS,
@@ -8,7 +10,9 @@ import {
   Synapse,
   type SynapseOptions,
 } from '@filoz/synapse-sdk'
+import { type Provider as EthersProvider, JsonRpcProvider, Wallet, WebSocketProvider } from 'ethers'
 import type { Logger } from 'pino'
+import { AddressOnlySigner } from './address-only-signer.js'
 
 const WEBSOCKET_REGEX = /^ws(s)?:\/\//i
 
@@ -51,11 +55,18 @@ export interface Config {
 
 /**
  * Configuration for Synapse initialization
- * Extends the main Config but makes privateKey required and rpcUrl optional
+ *
+ * Supports two authentication modes:
+ * 1. Standard: privateKey only
+ * 2. Session Key: walletAddress + sessionKey
  */
 export interface SynapseSetupConfig extends Partial<Omit<Config, 'privateKey' | 'rpcUrl'>> {
-  /** Private key used for signing transactions. */
-  privateKey: string
+  /** Private key for standard authentication (mutually exclusive with session key mode) */
+  privateKey?: string | undefined
+  /** Wallet address for session key mode (requires sessionKey) */
+  walletAddress?: string | undefined
+  /** Session key private key (requires walletAddress) */
+  sessionKey?: string | undefined
   /** RPC endpoint for the target Filecoin network. Defaults to calibration. */
   rpcUrl?: string | undefined
 }
@@ -137,88 +148,121 @@ export function resetSynapseService(): void {
 }
 
 /**
+ * Validate authentication configuration
+ */
+function validateAuthConfig(config: SynapseSetupConfig): 'standard' | 'session-key' {
+  const hasStandardAuth = config.privateKey != null
+  const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
+
+  if (!hasStandardAuth && !hasSessionKeyAuth) {
+    throw new Error('Authentication required: provide either a privateKey or walletAddress + sessionKey')
+  }
+
+  if (hasStandardAuth && hasSessionKeyAuth) {
+    throw new Error('Conflicting authentication: provide either a privateKey or walletAddress + sessionKey, not both')
+  }
+
+  return hasStandardAuth ? 'standard' : 'session-key'
+}
+
+/**
+ * Create ethers provider for the given RPC URL
+ */
+function createProvider(rpcURL: string): EthersProvider {
+  if (WEBSOCKET_REGEX.test(rpcURL)) {
+    return new WebSocketProvider(rpcURL)
+  }
+  return new JsonRpcProvider(rpcURL)
+}
+
+/**
+ * Setup and verify session key, throws if expired
+ */
+async function setupSessionKey(synapse: Synapse, sessionWallet: Wallet, logger: Logger): Promise<void> {
+  const sessionKey = synapse.createSessionKey(sessionWallet)
+
+  // Verify permissions - fail fast if expired or expiring soon
+  const expiries = await sessionKey.fetchExpiries([CREATE_DATA_SET_TYPEHASH, ADD_PIECES_TYPEHASH])
+  const now = Math.floor(Date.now() / 1000)
+  const bufferTime = 30 * 60 // 30 minutes in seconds
+  const minValidTime = now + bufferTime
+  const createExpiry = Number(expiries[CREATE_DATA_SET_TYPEHASH])
+  const addExpiry = Number(expiries[ADD_PIECES_TYPEHASH])
+
+  if (createExpiry <= minValidTime || addExpiry <= minValidTime) {
+    throw new Error(
+      `Session key expired or expiring soon (requires 30+ minutes validity). CreateDataSet: ${new Date(createExpiry * 1000).toISOString()}, AddPieces: ${new Date(addExpiry * 1000).toISOString()}`
+    )
+  }
+
+  logger.info({ event: 'synapse.session_key.verified', createExpiry, addExpiry }, 'Session key verified')
+
+  synapse.setSession(sessionKey)
+  logger.info({ event: 'synapse.session_key.activated' }, 'Session key activated')
+}
+
+/**
  * Initialize the Synapse SDK without creating storage context
  *
- * This function initializes the Synapse SDK connection without creating
- * a storage context. This method is primarily a wrapper for handling our
- * custom configuration needs and adding detailed logging.
+ * Supports two authentication modes:
+ * - Standard: privateKey only
+ * - Session Key: walletAddress + sessionKey
  *
- * @param config - Application configuration with privateKey and RPC URL
+ * @param config - Application configuration with authentication credentials
  * @param logger - Logger instance for detailed operation tracking
  * @returns Initialized Synapse instance
  */
 export async function initializeSynapse(config: SynapseSetupConfig, logger: Logger): Promise<Synapse> {
   try {
-    // Log the configuration status
-    logger.info(
-      {
-        hasPrivateKey: config.privateKey != null,
-        rpcUrl: config.rpcUrl,
-      },
-      'Initializing Synapse'
-    )
+    const authMode = validateAuthConfig(config)
+    const rpcURL = config.rpcUrl ?? RPC_URLS.calibration.websocket
 
-    // IMPORTANT: Private key is required for transaction signing
-    // In production, this should come from secure environment variables, or a wallet integration
-    const privateKey = config.privateKey
-    if (privateKey == null) {
-      const error = new Error('PRIVATE_KEY environment variable is required for Synapse integration')
-      logger.error(
-        {
-          event: 'synapse.init.failed',
-          error: error.message,
-        },
-        'Synapse initialization failed: missing PRIVATE_KEY'
-      )
-      throw error
-    }
+    logger.info({ event: 'synapse.init', authMode, rpcUrl: rpcURL }, 'Initializing Synapse SDK')
 
-    logger.info({ event: 'synapse.init' }, 'Initializing Synapse SDK')
-
-    // Configure Synapse with network settings
-    // Network options: 314 (mainnet) or 314159 (calibration testnet)
-    const synapseOptions: SynapseOptions = {
-      privateKey,
-      rpcURL: config.rpcUrl ?? RPC_URLS.calibration.websocket, // Default to calibration testnet
-    }
-
-    // Optional: Override the default Warm Storage contract address
-    // Useful for testing with custom deployments
-    if (config.warmStorageAddress != null) {
+    const synapseOptions: SynapseOptions = { rpcURL }
+    if (config.warmStorageAddress) {
       synapseOptions.warmStorageAddress = config.warmStorageAddress
     }
 
-    const synapse = await Synapse.create(synapseOptions)
+    let synapse: Synapse
 
-    // Store reference to the provider for cleanup if it's a WebSocket provider
-    if (synapseOptions.rpcURL && WEBSOCKET_REGEX.test(synapseOptions.rpcURL)) {
+    if (authMode === 'session-key') {
+      // Session key mode - validation guarantees these are defined
+      const walletAddress = config.walletAddress
+      const sessionKey = config.sessionKey
+      if (!walletAddress || !sessionKey) {
+        throw new Error('Internal error: session key config validated but values missing')
+      }
+
+      // Create provider and signers for session key mode
+      const provider = createProvider(rpcURL)
+      activeProvider = provider
+
+      const ownerSigner = new AddressOnlySigner(walletAddress, provider)
+      const sessionWallet = new Wallet(sessionKey, provider)
+
+      // Initialize with owner signer, then activate session key
+      synapse = await Synapse.create({ ...synapseOptions, signer: ownerSigner })
+      await setupSessionKey(synapse, sessionWallet, logger)
+    } else {
+      // Standard mode - validation guarantees privateKey is defined
+      const privateKey = config.privateKey
+      if (!privateKey) {
+        throw new Error('Internal error: standard auth validated but privateKey missing')
+      }
+
+      synapse = await Synapse.create({ ...synapseOptions, privateKey })
       activeProvider = synapse.getProvider()
     }
 
-    // Get network info for logging
     const network = synapse.getNetwork()
-    logger.info(
-      {
-        event: 'synapse.init',
-        network,
-        rpcUrl: synapseOptions.rpcURL,
-      },
-      'Synapse SDK initialized'
-    )
+    logger.info({ event: 'synapse.init.success', network }, 'Synapse SDK initialized')
 
-    // Store instance for cleanup
     synapseInstance = synapse
-
     return synapse
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
-    logger.error(
-      {
-        event: 'synapse.init.failed',
-        error: errorMessage,
-      },
-      `Failed to initialize Synapse SDK: ${errorMessage}`
-    )
+    logger.error({ event: 'synapse.init.failed', error: errorMessage }, 'Failed to initialize Synapse SDK')
     throw error
   }
 }

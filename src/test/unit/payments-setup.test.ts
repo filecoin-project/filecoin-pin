@@ -74,6 +74,7 @@ describe('Payment Setup Tests', () => {
     mockSynapse = {
       getProvider: vi.fn().mockReturnValue(mockProvider),
       getSigner: vi.fn().mockReturnValue(mockSigner),
+      getClient: vi.fn().mockReturnValue(mockSigner),
       getNetwork: vi.fn().mockReturnValue('calibration'),
       getPaymentsAddress: vi.fn().mockReturnValue('0xpayments'),
       getWarmStorageAddress: vi.fn().mockReturnValue('0xwarmstorage'),

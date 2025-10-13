@@ -131,7 +131,7 @@ export async function checkFILBalance(synapse: Synapse): Promise<{
 
   try {
     const provider = synapse.getProvider()
-    const signer = synapse.getSigner()
+    const signer = synapse.getClient() // owner wallet
     const address = await signer.getAddress()
 
     // Get native token balance

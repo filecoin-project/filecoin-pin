@@ -2,6 +2,7 @@ import pc from 'picocolors'
 import pino from 'pino'
 import { createCarFile } from './filecoin.js'
 import { readEventPayload, updateCheck } from './github.js'
+import { parseInputs, resolveContentPath } from './inputs.js'
 import { formatSize } from './outputs.js'
 
 /**
@@ -49,7 +50,6 @@ export async function runBuild() {
     console.log('::notice::Building CAR file but upload will be blocked')
   }
 
-  const { parseInputs, resolveContentPath } = await import('./inputs.js')
   const inputs = /** @type {ParsedInputs} */ (parseInputs('compute'))
   const { contentPath } = inputs
   const targetPath = resolveContentPath(contentPath)

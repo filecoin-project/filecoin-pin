@@ -41,11 +41,10 @@ describe('synapse-service', () => {
   })
 
   describe('setupSynapse', () => {
-    it('should throw error when private key is not configured', async () => {
-      // @ts-expect-error - private key is required
+    it('should throw error when no authentication is provided', async () => {
       config.privateKey = undefined
 
-      await expect(setupSynapse(config, logger)).rejects.toThrow('PRIVATE_KEY environment variable is required')
+      await expect(setupSynapse(config, logger)).rejects.toThrow('Authentication required')
     })
 
     it('should initialize Synapse when private key is configured', async () => {
@@ -64,15 +63,16 @@ describe('synapse-service', () => {
       // Check that initialization logs were called
       expect(infoSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          hasPrivateKey: true,
+          event: 'synapse.init',
+          authMode: 'standard',
           rpcUrl: config.rpcUrl,
         }),
-        'Initializing Synapse'
+        'Initializing Synapse SDK'
       )
 
       expect(infoSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ event: 'synapse.init' }),
-        'Initializing Synapse SDK'
+        expect.objectContaining({ event: 'synapse.init.success' }),
+        'Synapse SDK initialized'
       )
     })
 
