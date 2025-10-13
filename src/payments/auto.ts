@@ -6,7 +6,6 @@
  * options to complete the setup without user interaction.
  */
 
-import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
 import {
@@ -18,7 +17,8 @@ import {
   getPaymentStatus,
   validatePaymentRequirements,
 } from '../core/payments/index.js'
-import { cleanupProvider } from '../core/synapse/index.js'
+import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -34,26 +34,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
   intro(pc.bold('Filecoin Onchain Cloud Payment Setup'))
   log.message(pc.gray('Running in auto mode...'))
 
-  // Parse and validate all arguments upfront
-  // 1. Private key
-  const privateKey = options.privateKey || process.env.PRIVATE_KEY
-  if (!privateKey) {
-    console.error(pc.red('Error: Private key required via --private-key or PRIVATE_KEY env'))
-    process.exit(1)
-  }
-
-  // Validate private key format early
-  try {
-    new ethers.Wallet(privateKey)
-  } catch {
-    console.error(pc.red('Error: Invalid private key format'))
-    process.exit(1)
-  }
-
-  // 2. RPC URL
-  const rpcUrl = options.rpcUrl || RPC_URLS.calibration.websocket
-
-  // 3. Deposit amount
+  // Parse and validate deposit amount
   let targetDeposit: bigint
   try {
     targetDeposit = ethers.parseUnits(options.deposit, 18)
@@ -65,23 +46,20 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
   const spinner = createSpinner()
   spinner.start('Initializing connection...')
 
-  // Store provider reference for cleanup if it's a WebSocket provider
-  let provider: any = null
-
   try {
-    // Initialize Synapse
-    const synapse = await Synapse.create({
-      privateKey,
-      rpcURL: rpcUrl,
+    // Parse and validate authentication
+    const authConfig = parseCLIAuth({
+      privateKey: options.privateKey,
+      walletAddress: options.walletAddress,
+      sessionKey: options.sessionKey,
+      rpcUrl: options.rpcUrl,
     })
+
+    const logger = getCLILogger()
+    const synapse = await initializeSynapse(authConfig, logger)
     const network = synapse.getNetwork()
     const signer = synapse.getSigner()
     const address = await signer.getAddress()
-
-    // Store provider reference for cleanup if it's a WebSocket provider
-    if (rpcUrl.match(/^wss?:\/\//)) {
-      provider = synapse.getProvider()
-    }
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
@@ -209,7 +187,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
 
     process.exitCode = 1
   } finally {
-    await cleanupProvider(provider)
+    await cleanupSynapseService()
     process.exit()
   }
 }

@@ -25,5 +25,7 @@ export interface DataSetInspectionContext {
 export interface DataSetCommandOptions {
   ls?: boolean
   privateKey?: string
+  walletAddress?: string
+  sessionKey?: string
   rpcUrl?: string
 }

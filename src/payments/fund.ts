@@ -5,7 +5,7 @@
  */
 
 import { confirm } from '@clack/prompts'
-import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
+import { TIME_CONSTANTS, type Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
@@ -22,7 +22,8 @@ import {
   validatePaymentRequirements,
   withdrawUSDFC,
 } from '../core/payments/index.js'
-import { cleanupProvider } from '../core/synapse/index.js'
+import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
 import type { Spinner } from '../utils/cli-helpers.js'
@@ -222,18 +223,6 @@ export async function runFund(options: FundOptions): Promise<void> {
   const spinner = createSpinner()
 
   // Validate inputs
-  const privateKey = options.privateKey || process.env.PRIVATE_KEY
-  if (!privateKey) {
-    console.error(pc.red('Error: Private key required via --private-key or PRIVATE_KEY env'))
-    throw new Error('Missing private key')
-  }
-  try {
-    new ethers.Wallet(privateKey)
-  } catch {
-    console.error(pc.red('Error: Invalid private key format'))
-    throw new Error('Invalid private key format')
-  }
-
   const hasDays = options.days != null
   const hasAmount = options.amount != null
   if ((hasDays && hasAmount) || (!hasDays && !hasAmount)) {
@@ -245,15 +234,18 @@ export async function runFund(options: FundOptions): Promise<void> {
     throw new Error(`Invalid mode (must be "exact" or "minimum"), received: '${options.mode}'`)
   }
 
-  const rpcUrl = options.rpcUrl || process.env.RPC_URL || RPC_URLS.calibration.websocket
-
   spinner.start('Connecting...')
-  let provider: any = null
   try {
-    const synapse = await Synapse.create({ privateKey, rpcURL: rpcUrl })
-    if (rpcUrl.match(/^wss?:\/\//)) {
-      provider = synapse.getProvider()
-    }
+    // Parse and validate authentication
+    const authConfig = parseCLIAuth({
+      privateKey: options.privateKey,
+      walletAddress: options.walletAddress,
+      sessionKey: options.sessionKey,
+      rpcUrl: options.rpcUrl,
+    })
+
+    const logger = getCLILogger()
+    const synapse = await initializeSynapse(authConfig, logger)
 
     const filStatus = await checkFILBalance(synapse)
     if (!filStatus.hasSufficientGas) {
@@ -385,6 +377,6 @@ export async function runFund(options: FundOptions): Promise<void> {
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
     process.exitCode = 1
   } finally {
-    await cleanupProvider(provider)
+    await cleanupSynapseService()
   }
 }

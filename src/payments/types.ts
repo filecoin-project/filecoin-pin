@@ -7,6 +7,8 @@ export type { PaymentStatus, StorageAllowances } from '../core/payments/index.js
 export interface PaymentSetupOptions {
   auto: boolean
   privateKey?: string
+  walletAddress?: string
+  sessionKey?: string
   rpcUrl?: string
   deposit: string
   rateAllowance: string
@@ -42,6 +44,8 @@ export type FundMode = 'exact' | 'minimum'
 
 export interface FundOptions {
   privateKey?: string
+  walletAddress?: string
+  sessionKey?: string
   rpcUrl?: string
   days?: number
   amount?: string

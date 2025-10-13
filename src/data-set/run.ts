@@ -1,7 +1,8 @@
-import type { EnhancedDataSetInfo, ProviderInfo } from '@filoz/synapse-sdk'
-import { PDPServer, PDPVerifier, RPC_URLS, Synapse, WarmStorageService } from '@filoz/synapse-sdk'
+import type { EnhancedDataSetInfo, ProviderInfo, Synapse } from '@filoz/synapse-sdk'
+import { PDPServer, PDPVerifier, WarmStorageService } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import { cleanupProvider } from '../core/synapse/index.js'
+import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { displayDataSetList, displayDataSetStatus } from './inspect.js'
@@ -158,28 +159,6 @@ async function loadDetailedDataSet(detail: DataSetDetail, synapse: Synapse): Pro
   return result
 }
 
-/**
- * Resolve the private key from CLI options or environment variables.
- *
- * @throws Never returns when the key cannot be resolved; exits the process instead.
- */
-async function ensurePrivateKey(options: DataSetCommandOptions): Promise<string> {
-  const privateKey = options.privateKey ?? process.env.PRIVATE_KEY
-  if (!privateKey) {
-    log.line(pc.red('Error: Private key required via --private-key or PRIVATE_KEY env'))
-    log.flush()
-    cancel('Data set inspection cancelled')
-    process.exit(1)
-  }
-  return privateKey
-}
-
-/**
- * Resolve the RPC endpoint, preferring CLI options over environment defaults.
- */
-function resolveRpcUrl(options: DataSetCommandOptions): string {
-  return options.rpcUrl ?? process.env.RPC_URL ?? RPC_URLS.calibration.websocket
-}
 
 /**
  * Entry point invoked by the Commander command.
@@ -195,25 +174,26 @@ export async function runDataSetCommand(
   const hasDataSetId = dataSetIdInput != null
   const shouldList = options.ls === true || !hasDataSetId
 
-  const privateKey = await ensurePrivateKey(options)
-  const rpcUrl = resolveRpcUrl(options)
-
   intro(pc.bold('Filecoin Onchain Cloud Data Sets'))
   const spinner = createSpinner()
   spinner.start('Connecting to Synapse...')
 
   let synapse: Synapse | null = null
-  let provider: any = null
 
   try {
-    synapse = await Synapse.create({ privateKey, rpcURL: rpcUrl })
+    // Parse and validate authentication
+    const authConfig = parseCLIAuth({
+      privateKey: options.privateKey,
+      walletAddress: options.walletAddress,
+      sessionKey: options.sessionKey,
+      rpcUrl: options.rpcUrl,
+    })
+
+    const logger = getCLILogger()
+    synapse = await initializeSynapse(authConfig, logger)
     const network = synapse.getNetwork()
     const signer = synapse.getSigner()
     const address = await signer.getAddress()
-
-    if (/^wss?:\/\//i.test(rpcUrl)) {
-      provider = synapse.getProvider()
-    }
 
     spinner.message('Fetching data set information...')
 
@@ -311,6 +291,6 @@ export async function runDataSetCommand(
     cancel('Inspection failed')
     process.exitCode = 1
   } finally {
-    await cleanupProvider(provider)
+    await cleanupSynapseService()
   }
 }

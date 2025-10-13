@@ -2,17 +2,19 @@
  * Withdraw command for Filecoin Pay
  */
 
-import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
 import { checkFILBalance, getPaymentStatus, withdrawUSDFC } from '../core/payments/index.js'
-import { cleanupProvider } from '../core/synapse/index.js'
+import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 
 export interface WithdrawOptions {
   privateKey?: string
+  walletAddress?: string
+  sessionKey?: string
   rpcUrl?: string
   amount: string
 }
@@ -20,21 +22,6 @@ export interface WithdrawOptions {
 export async function runWithdraw(options: WithdrawOptions): Promise<void> {
   intro(pc.bold('Filecoin Onchain Cloud Withdraw'))
   const spinner = createSpinner()
-
-  const privateKey = options.privateKey || process.env.PRIVATE_KEY
-  if (!privateKey) {
-    console.error(pc.red('Error: Private key required via --private-key or PRIVATE_KEY env'))
-    process.exit(1)
-  }
-
-  try {
-    new ethers.Wallet(privateKey)
-  } catch {
-    console.error(pc.red('Error: Invalid private key format'))
-    process.exit(1)
-  }
-
-  const rpcUrl = options.rpcUrl || process.env.RPC_URL || RPC_URLS.calibration.websocket
 
   let amount: bigint
   try {
@@ -49,12 +36,17 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
   }
 
   spinner.start('Connecting...')
-  let provider: any = null
   try {
-    const synapse = await Synapse.create({ privateKey, rpcURL: rpcUrl })
-    if (rpcUrl.match(/^wss?:\/\//)) {
-      provider = synapse.getProvider()
-    }
+    // Parse and validate authentication
+    const authConfig = parseCLIAuth({
+      privateKey: options.privateKey,
+      walletAddress: options.walletAddress,
+      sessionKey: options.sessionKey,
+      rpcUrl: options.rpcUrl,
+    })
+
+    const logger = getCLILogger()
+    const synapse = await initializeSynapse(authConfig, logger)
 
     const filStatus = await checkFILBalance(synapse)
     if (!filStatus.hasSufficientGas) {
@@ -65,9 +57,8 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
         : 'Acquire FIL for gas from an exchange'
       log.line(`  ${pc.cyan(help)}`)
       log.flush()
-      await cleanupProvider(provider)
       cancel('Withdraw aborted')
-      process.exit(1)
+      throw new Error('Insufficient FIL for gas fees')
     }
 
     spinner.stop(`${pc.green('✓')} Connected`)
@@ -87,7 +78,6 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
     log.indent(`Deposited: ${formatUSDFC(status.depositedAmount)} USDFC`)
     log.flush()
 
-    await cleanupProvider(provider)
     outro('Withdraw completed')
   } catch (error) {
     spinner.stop()
@@ -95,6 +85,6 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
     process.exitCode = 1
   } finally {
-    await cleanupProvider(provider)
+    await cleanupSynapseService()
   }
 }

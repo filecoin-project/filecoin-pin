@@ -6,7 +6,6 @@
  * - By duration: --days <N> (fund enough to keep current usage alive for N days)
  */
 
-import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
 import {
@@ -17,7 +16,8 @@ import {
   depositUSDFC,
   getPaymentStatus,
 } from '../core/payments/index.js'
-import { cleanupProvider } from '../core/synapse/index.js'
+import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
@@ -25,6 +25,8 @@ import { log } from '../utils/cli-logger.js'
 
 export interface DepositOptions {
   privateKey?: string
+  walletAddress?: string
+  sessionKey?: string
   rpcUrl?: string
   amount?: string | undefined
   days?: number | undefined
@@ -39,21 +41,6 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
   const spinner = createSpinner()
 
   // Validate inputs
-  const privateKey = options.privateKey || process.env.PRIVATE_KEY
-  if (!privateKey) {
-    console.error(pc.red('Error: Private key required via --private-key or PRIVATE_KEY env'))
-    process.exit(1)
-  }
-
-  try {
-    new ethers.Wallet(privateKey)
-  } catch {
-    console.error(pc.red('Error: Invalid private key format'))
-    process.exit(1)
-  }
-
-  const rpcUrl = options.rpcUrl || process.env.RPC_URL || RPC_URLS.calibration.websocket
-
   const hasAmount = options.amount != null
   const hasDays = options.days != null
 
@@ -64,13 +51,17 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
 
   // Connect
   spinner.start('Connecting...')
-  let provider: any = null
   try {
-    const synapse = await Synapse.create({ privateKey, rpcURL: rpcUrl })
+    // Parse and validate authentication
+    const authConfig = parseCLIAuth({
+      privateKey: options.privateKey,
+      walletAddress: options.walletAddress,
+      sessionKey: options.sessionKey,
+      rpcUrl: options.rpcUrl,
+    })
 
-    if (rpcUrl.match(/^wss?:\/\//)) {
-      provider = synapse.getProvider()
-    }
+    const logger = getCLILogger()
+    const synapse = await initializeSynapse(authConfig, logger)
 
     const [filStatus, usdfcBalance, status] = await Promise.all([
       checkFILBalance(synapse),
@@ -88,9 +79,8 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
         : 'Acquire FIL for gas from an exchange'
       log.line(`  ${pc.cyan(help)}`)
       log.flush()
-      await cleanupProvider(provider)
       cancel('Deposit aborted')
-      process.exit(1)
+      throw new Error('Insufficient FIL for gas fees')
     }
 
     let depositAmount: bigint = 0n
@@ -99,19 +89,16 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
       try {
         depositAmount = ethers.parseUnits(String(options.amount), 18)
       } catch {
-        console.error(pc.red(`Error: Invalid amount '${options.amount}'`))
-        process.exit(1)
+        throw new Error(`Invalid amount '${options.amount}'`)
       }
 
       if (depositAmount <= 0n) {
-        console.error(pc.red('Error: Amount must be greater than 0'))
-        process.exit(1)
+        throw new Error('Amount must be greater than 0')
       }
     } else if (hasDays) {
       const days = Number(options.days)
       if (!Number.isFinite(days) || days <= 0) {
-        console.error(pc.red('Error: --days must be a positive number'))
-        process.exit(1)
+        throw new Error('--days must be a positive number')
       }
 
       const { topUp, rateUsed, perDay } = computeTopUpForDuration(status, days)
@@ -121,9 +108,8 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
         log.line(`${pc.yellow('⚠')} No active storage payments detected (rateUsed = 0)`)
         log.line('Use --amount to deposit a specific USDFC value instead.')
         log.flush()
-        await cleanupProvider(provider)
         cancel('Nothing to fund by duration')
-        process.exit(1)
+        throw new Error('No active spend detected')
       }
 
       depositAmount = topUp
@@ -133,7 +119,6 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
         log.line(`${pc.green('✓')} Already funded for at least ${days} day(s) at current spend rate`)
         log.indent(`Current daily spend: ${formatUSDFC(perDay)} USDFC/day`)
         log.flush()
-        await cleanupProvider(provider)
         outro('No deposit needed')
         return
       }
@@ -146,7 +131,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
           `✗ Insufficient USDFC (need ${formatUSDFC(depositAmount)} USDFC, have ${formatUSDFC(usdfcBalance)} USDFC)`
         )
       )
-      process.exit(1)
+      throw new Error('Insufficient USDFC')
     }
 
     spinner.start(`Depositing ${formatUSDFC(depositAmount)} USDFC...`)
@@ -177,7 +162,6 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     }
     log.flush()
 
-    await cleanupProvider(provider)
     outro('Deposit completed')
   } catch (error) {
     spinner.stop()
@@ -185,6 +169,6 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
     process.exitCode = 1
   } finally {
-    await cleanupProvider(provider)
+    await cleanupSynapseService()
   }
 }
