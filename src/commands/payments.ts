@@ -6,17 +6,14 @@ import { runInteractiveSetup } from '../payments/interactive.js'
 import { showPaymentStatus } from '../payments/status.js'
 import type { FundOptions, PaymentSetupOptions } from '../payments/types.js'
 import { runWithdraw } from '../payments/withdraw.js'
+import { addAuthOptions } from '../utils/cli-options.js'
 
 export const paymentsCommand = new Command('payments').description('Manage payment setup for Filecoin Onchain Cloud')
 
-paymentsCommand
-  .command('setup')
+// Setup command
+const setupCommand = new Command('setup')
   .description('Setup payment approvals for Filecoin Onchain Cloud storage')
   .option('--auto', 'Run in automatic mode with defaults')
-  .option('--private-key <key>', 'Private key for standard auth (can also use PRIVATE_KEY env)')
-  .option('--wallet-addr <address>', 'Wallet address for session key auth (can also use WALLET_ADDRESS env)')
-  .option('--session-key <key>', 'Session key for session key auth (can also use SESSION_KEY env)')
-  .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env)')
   .option('--deposit <amount>', 'USDFC amount to deposit in Filecoin Pay (default: 1)')
   .option(
     '--rate-allowance <amount>',
@@ -25,11 +22,8 @@ paymentsCommand
   .action(async (options) => {
     try {
       const setupOptions: PaymentSetupOptions = {
+        ...options,
         auto: options.auto || false,
-        privateKey: options.privateKey,
-        walletAddress: options.walletAddr,
-        sessionKey: options.sessionKey,
-        rpcUrl: options.rpcUrl || process.env.RPC_URL,
         deposit: options.deposit || '1',
         rateAllowance: options.rateAllowance || '1TiB/month',
       }
@@ -45,14 +39,12 @@ paymentsCommand
     }
   })
 
-// Adjust funds to an exact runway or deposited total
-paymentsCommand
-  .command('fund')
+addAuthOptions(setupCommand)
+paymentsCommand.addCommand(setupCommand)
+
+// Fund command - adjust funds to an exact runway or deposited total
+const fundCommand = new Command('fund')
   .description('Adjust funds to an exact runway (days) or total deposit')
-  .option('--private-key <key>', 'Private key for standard auth (can also use PRIVATE_KEY env)')
-  .option('--wallet-addr <address>', 'Wallet address for session key auth (can also use WALLET_ADDRESS env)')
-  .option('--session-key <key>', 'Session key for session key auth (can also use SESSION_KEY env)')
-  .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env)')
   .option('--days <n>', 'Set final runway to exactly N days (deposit or withdraw as needed)')
   .option('--amount <usdfc>', 'Set final deposited total to exactly this USDFC amount (deposit or withdraw)')
   .option(
@@ -62,10 +54,7 @@ paymentsCommand
   .action(async (options) => {
     try {
       const fundOptions: FundOptions = {
-        privateKey: options.privateKey,
-        walletAddress: options.walletAddr,
-        sessionKey: options.sessionKey,
-        rpcUrl: options.rpcUrl || process.env.RPC_URL,
+        ...options,
         amount: options.amount,
         mode: options.mode,
       }
@@ -77,22 +66,17 @@ paymentsCommand
     }
   })
 
-// Withdraw funds from the payments contract
-paymentsCommand
-  .command('withdraw')
+addAuthOptions(fundCommand)
+paymentsCommand.addCommand(fundCommand)
+
+// Withdraw command
+const withdrawCommand = new Command('withdraw')
   .description('Withdraw funds from Filecoin Pay to your wallet')
-  .option('--private-key <key>', 'Private key for standard auth (can also use PRIVATE_KEY env)')
-  .option('--wallet-addr <address>', 'Wallet address for session key auth (can also use WALLET_ADDRESS env)')
-  .option('--session-key <key>', 'Session key for session key auth (can also use SESSION_KEY env)')
-  .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env)')
   .requiredOption('--amount <usdfc>', 'USDFC amount to withdraw (e.g., 5)')
   .action(async (options) => {
     try {
       await runWithdraw({
-        privateKey: options.privateKey,
-        walletAddress: options.walletAddr,
-        sessionKey: options.sessionKey,
-        rpcUrl: options.rpcUrl || process.env.RPC_URL,
+        ...options,
         amount: options.amount,
       })
     } catch (error) {
@@ -101,21 +85,16 @@ paymentsCommand
     }
   })
 
-// Add a status subcommand for checking current payment status
-paymentsCommand
-  .command('status')
+addAuthOptions(withdrawCommand)
+paymentsCommand.addCommand(withdrawCommand)
+
+// Status command
+const statusCommand = new Command('status')
   .description('Check current payment setup status')
-  .option('--private-key <key>', 'Private key for standard auth (can also use PRIVATE_KEY env)')
-  .option('--wallet-addr <address>', 'Wallet address for session key auth (can also use WALLET_ADDRESS env)')
-  .option('--session-key <key>', 'Session key for session key auth (can also use SESSION_KEY env)')
-  .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env)')
   .action(async (options) => {
     try {
       await showPaymentStatus({
-        privateKey: options.privateKey,
-        walletAddress: options.walletAddr,
-        sessionKey: options.sessionKey,
-        rpcUrl: options.rpcUrl || process.env.RPC_URL,
+        ...options,
       })
     } catch (error) {
       console.error('Failed to get payment status:', error instanceof Error ? error.message : error)
@@ -123,23 +102,18 @@ paymentsCommand
     }
   })
 
-// Add a deposit/top-up subcommand
-paymentsCommand
-  .command('deposit')
+addAuthOptions(statusCommand)
+paymentsCommand.addCommand(statusCommand)
+
+// Deposit command
+const depositCommand = new Command('deposit')
   .description('Deposit or top-up funds in Filecoin Pay')
-  .option('--private-key <key>', 'Private key for standard auth (can also use PRIVATE_KEY env)')
-  .option('--wallet-addr <address>', 'Wallet address for session key auth (can also use WALLET_ADDRESS env)')
-  .option('--session-key <key>', 'Session key for session key auth (can also use SESSION_KEY env)')
-  .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env)')
   .option('--amount <usdfc>', 'USDFC amount to deposit (e.g., 10.5)')
   .option('--days <n>', 'Fund enough to keep current spend alive for N days')
   .action(async (options) => {
     try {
       await runDeposit({
-        privateKey: options.privateKey,
-        walletAddress: options.walletAddr,
-        sessionKey: options.sessionKey,
-        rpcUrl: options.rpcUrl || process.env.RPC_URL,
+        ...options,
         amount: options.amount,
         days: options.days != null ? Number(options.days) : undefined, // Only pass days if explicitly provided
       })
@@ -148,3 +122,6 @@ paymentsCommand
       process.exit(1)
     }
   })
+
+addAuthOptions(depositCommand)
+paymentsCommand.addCommand(depositCommand)

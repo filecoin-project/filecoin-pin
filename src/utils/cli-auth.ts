@@ -5,8 +5,8 @@
  * and preparing them for use with the Synapse SDK.
  */
 
-import { createLogger } from '../logger.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
+import { createLogger } from '../logger.js'
 
 /**
  * Common CLI authentication options interface
@@ -64,4 +64,3 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
 export function getCLILogger() {
   return createLogger({ logLevel: process.env.LOG_LEVEL || 'info' })
 }
-

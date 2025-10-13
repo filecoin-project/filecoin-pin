@@ -7,6 +7,7 @@ const {
   displayDataSetListMock,
   displayDataSetStatusMock,
   cleanupProviderMock,
+  cleanupSynapseServiceMock,
   spinnerMock,
   mockFindDataSets,
   mockGetStorageInfo,
@@ -21,6 +22,7 @@ const {
   const displayDataSetListMock = vi.fn()
   const displayDataSetStatusMock = vi.fn()
   const cleanupProviderMock = vi.fn()
+  const cleanupSynapseServiceMock = vi.fn()
   const spinnerMock = {
     start: vi.fn(),
     stop: vi.fn(),
@@ -78,6 +80,7 @@ const {
     displayDataSetListMock,
     displayDataSetStatusMock,
     cleanupProviderMock,
+    cleanupSynapseServiceMock,
     spinnerMock,
     mockFindDataSets,
     mockGetStorageInfo,
@@ -98,6 +101,7 @@ vi.mock('../../data-set/inspect.js', () => ({
 
 vi.mock('../../core/synapse/index.js', () => ({
   cleanupProvider: cleanupProviderMock,
+  cleanupSynapseService: cleanupSynapseServiceMock,
 }))
 
 vi.mock('../../utils/cli-helpers.js', () => ({

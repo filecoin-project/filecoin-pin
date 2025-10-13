@@ -5,8 +5,8 @@
  * This provides a quick overview of the user's payment setup without making changes.
  */
 
-import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import type { Synapse } from '@filoz/synapse-sdk'
+import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
 import {
@@ -17,19 +17,14 @@ import {
   getPaymentStatus,
 } from '../core/payments/index.js'
 import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
-import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
+import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { displayDepositWarning } from './setup.js'
 
-interface StatusOptions {
-  privateKey?: string
-  walletAddress?: string
-  sessionKey?: string
-  rpcUrl?: string
-}
+interface StatusOptions extends CLIAuthOptions {}
 
 /**
  * Display current payment status

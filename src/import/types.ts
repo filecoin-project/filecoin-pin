@@ -1,9 +1,8 @@
 import type { ProviderInfo } from '@filoz/synapse-sdk'
+import type { CLIAuthOptions } from '../utils/cli-auth.js'
 
-export interface ImportOptions {
+export interface ImportOptions extends CLIAuthOptions {
   filePath: string
-  privateKey?: string
-  rpcUrl?: string
   /** Auto-fund: automatically ensure minimum 10 days of runway */
   autoFund?: boolean
 }

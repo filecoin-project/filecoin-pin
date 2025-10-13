@@ -159,7 +159,6 @@ async function loadDetailedDataSet(detail: DataSetDetail, synapse: Synapse): Pro
   return result
 }
 
-
 /**
  * Entry point invoked by the Commander command.
  *

@@ -5,7 +5,7 @@
  */
 
 import { confirm } from '@clack/prompts'
-import { TIME_CONSTANTS, type Synapse } from '@filoz/synapse-sdk'
+import { type Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
@@ -23,9 +23,9 @@ import {
   withdrawUSDFC,
 } from '../core/payments/index.js'
 import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
-import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
+import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import type { Spinner } from '../utils/cli-helpers.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'

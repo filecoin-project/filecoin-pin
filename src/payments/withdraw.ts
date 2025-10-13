@@ -6,16 +6,12 @@ import { ethers } from 'ethers'
 import pc from 'picocolors'
 import { checkFILBalance, getPaymentStatus, withdrawUSDFC } from '../core/payments/index.js'
 import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
-import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { formatUSDFC } from '../core/utils/format.js'
+import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 
-export interface WithdrawOptions {
-  privateKey?: string
-  walletAddress?: string
-  sessionKey?: string
-  rpcUrl?: string
+export interface WithdrawOptions extends CLIAuthOptions {
   amount: string
 }
 
