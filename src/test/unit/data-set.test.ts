@@ -78,6 +78,9 @@ const {
       getSigner: () => ({
         getAddress: mockGetAddress,
       }),
+      getClient: () => ({
+        getAddress: mockGetAddress,
+      }),
       storage: {
         findDataSets: mockFindDataSets,
         getStorageInfo: mockGetStorageInfo,

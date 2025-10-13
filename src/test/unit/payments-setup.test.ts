@@ -18,6 +18,7 @@ vi.mock('@filoz/synapse-sdk', () => {
   const mockSynapse = {
     getProvider: vi.fn(),
     getSigner: vi.fn(),
+    getClient: vi.fn(),
     getNetwork: vi.fn(),
     getPaymentsAddress: vi.fn(),
     getWarmStorageAddress: vi.fn(),
