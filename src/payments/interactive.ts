@@ -92,6 +92,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     const synapse = await Synapse.create({
       privateKey,
       rpcURL: rpcUrl,
+      withIpni: true, // Always filter for IPNI-enabled providers
     })
     const network = synapse.getNetwork()
     const signer = synapse.getSigner()
