@@ -113,6 +113,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       walletAddress,
       sessionKey,
       rpcUrl: options.rpcUrl || RPC_URLS.calibration.websocket,
+      warmStorageAddress: process.env.WARM_STORAGE_ADDRESS,
       // Other config fields not needed for add
       port: 0,
       host: '',
@@ -166,7 +167,14 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     // Create storage context
     spinner.start('Creating storage context...')
 
+    // Read provider selection from environment variables
+    const providerAddress = process.env.PROVIDER_ADDRESS?.trim()
+    const providerIdRaw = process.env.PROVIDER_ID?.trim()
+    const providerId = providerIdRaw != null && providerIdRaw !== '' ? Number(providerIdRaw) : undefined
+
     const { storage, providerInfo } = await createStorageContext(synapse, logger, {
+      ...(providerAddress && { providerAddress }),
+      ...(providerId != null && { providerId }),
       callbacks: {
         onProviderSelected: (provider) => {
           spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)

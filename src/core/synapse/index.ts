@@ -138,6 +138,17 @@ export interface CreateStorageContextOptions {
    * Progress callbacks for tracking creation.
    */
   callbacks?: StorageProgressCallbacks
+
+  /**
+   * Override provider selection by address.
+   * Takes precedence over providerId if both are specified.
+   */
+  providerAddress?: string
+
+  /**
+   * Override provider selection by ID.
+   */
+  providerId?: number
 }
 
 /**
@@ -340,11 +351,6 @@ export async function createStorageContext(
     // The storage context manages the data set and provider interactions
     logger.info({ event: 'synapse.storage.create' }, 'Creating storage context')
 
-    // Optional override: allow selecting a specific provider via env vars
-    const envProviderAddress = process.env.PROVIDER_ADDRESS?.trim()
-    const envProviderIdRaw = process.env.PROVIDER_ID?.trim()
-    const envProviderId = envProviderIdRaw != null && envProviderIdRaw !== '' ? Number(envProviderIdRaw) : undefined
-
     // Convert our curated options to Synapse SDK options
     const sdkOptions: StorageServiceOptions = {
       ...DEFAULT_STORAGE_CONTEXT_CONFIG,
@@ -431,17 +437,17 @@ export async function createStorageContext(
     sdkOptions.callbacks = callbacks
 
     // Apply provider override if present
-    if (envProviderAddress) {
-      sdkOptions.providerAddress = envProviderAddress
+    if (options?.providerAddress) {
+      sdkOptions.providerAddress = options.providerAddress
       logger.info(
-        { event: 'synapse.storage.provider_override', by: 'env', providerAddress: envProviderAddress },
-        'Overriding provider via PROVIDER_ADDRESS'
+        { event: 'synapse.storage.provider_override', providerAddress: options.providerAddress },
+        'Overriding provider by address'
       )
-    } else if (envProviderId != null && Number.isFinite(envProviderId)) {
-      sdkOptions.providerId = envProviderId
+    } else if (options?.providerId != null && Number.isFinite(options.providerId)) {
+      sdkOptions.providerId = options.providerId
       logger.info(
-        { event: 'synapse.storage.provider_override', by: 'env', providerId: envProviderId },
-        'Overriding provider via PROVIDER_ID'
+        { event: 'synapse.storage.provider_override', providerId: options.providerId },
+        'Overriding provider by ID'
       )
     }
 

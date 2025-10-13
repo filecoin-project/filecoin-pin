@@ -30,12 +30,21 @@ export async function createFilecoinPinningServer(
     throw new Error('PRIVATE_KEY environment variable is required to start the pinning server')
   }
 
+  // Read provider selection from environment variables
+  const providerAddress = process.env.PROVIDER_ADDRESS?.trim()
+  const providerIdRaw = process.env.PROVIDER_ID?.trim()
+  const providerId = providerIdRaw != null && providerIdRaw !== '' ? Number(providerIdRaw) : undefined
+
   const synapseService = await setupSynapse(
     {
       ...config,
       privateKey: config.privateKey,
     },
-    logger
+    logger,
+    {
+      ...(providerAddress && { providerAddress }),
+      ...(providerId != null && { providerId }),
+    }
   )
 
   // Create our custom Filecoin pin store with Synapse service
