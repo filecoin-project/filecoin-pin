@@ -191,8 +191,8 @@ export async function runDataSetCommand(
     const logger = getCLILogger()
     synapse = await initializeSynapse(authConfig, logger)
     const network = synapse.getNetwork()
-    const signer = synapse.getSigner()
-    const address = await signer.getAddress()
+    const client = synapse.getClient()
+    const address = await client.getAddress()
 
     spinner.message('Fetching data set information...')
 

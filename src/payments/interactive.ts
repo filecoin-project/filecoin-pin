@@ -94,8 +94,8 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       rpcURL: rpcUrl,
     })
     const network = synapse.getNetwork()
-    const signer = synapse.getSigner()
-    const address = await signer.getAddress()
+    const client = synapse.getClient()
+    const address = await client.getAddress()
 
     // Store provider reference for cleanup if it's a WebSocket provider
     if (rpcUrl.match(/^wss?:\/\//)) {

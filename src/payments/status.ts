@@ -49,8 +49,8 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)
     const network = synapse.getNetwork()
-    const signer = synapse.getSigner()
-    const address = await signer.getAddress()
+    const client = synapse.getClient()
+    const address = await client.getAddress()
 
     // Check balances and status
     const filStatus = await checkFILBalance(synapse)

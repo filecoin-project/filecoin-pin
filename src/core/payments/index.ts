@@ -216,13 +216,13 @@ export async function getDepositedBalance(synapse: Synapse): Promise<bigint> {
  * @returns Complete payment status
  */
 export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus> {
-  const signer = synapse.getSigner()
+  const client = synapse.getClient() // Use owner wallet, not session key
   const network = synapse.getNetwork()
   const warmStorageAddress = synapse.getWarmStorageAddress()
 
   // Run all async operations in parallel for efficiency
   const [address, filStatus, usdfcBalance, depositedAmount, currentAllowances] = await Promise.all([
-    signer.getAddress(),
+    client.getAddress(),
     checkFILBalance(synapse),
     checkUSDFCBalance(synapse),
     getDepositedBalance(synapse),
