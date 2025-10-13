@@ -50,6 +50,12 @@ vi.mock('@filoz/synapse-sdk', () => {
     SIZE_CONSTANTS: {
       MIN_UPLOAD_SIZE: 127,
     },
+    METADATA_KEYS: {
+      WITH_IPFS_INDEXING: 'withIPFSIndexing',
+      IPFS_ROOT_CID: 'ipfsRootCid',
+    },
+    ADD_PIECES_TYPEHASH: '0x1234567890abcdef',
+    CREATE_DATA_SET_TYPEHASH: '0xabcdef1234567890',
   }
 })
 

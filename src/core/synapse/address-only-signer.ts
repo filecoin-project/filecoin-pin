@@ -11,8 +11,15 @@ import { AbstractSigner, type Provider, type TransactionRequest } from 'ethers'
 const cannotSign = (thing: string) =>
   `Cannot sign ${thing} - this is an address-only signer for session key authentication. Signing operations should be performed by the session key.`
 
+/**
+ * Symbol used to identify AddressOnlySigner instances
+ * This is more reliable than instanceof checks across module boundaries
+ */
+export const ADDRESS_ONLY_SIGNER_SYMBOL = Symbol.for('filecoin-pin.AddressOnlySigner')
+
 export class AddressOnlySigner extends AbstractSigner {
   readonly address: string
+  readonly [ADDRESS_ONLY_SIGNER_SYMBOL] = true
 
   constructor(address: string, provider?: Provider) {
     super(provider)

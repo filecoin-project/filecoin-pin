@@ -17,6 +17,7 @@
 
 import { SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
+import { isSessionKeyMode } from '../synapse/index.js'
 
 // Constants
 export const USDFC_DECIMALS = 18
@@ -463,6 +464,11 @@ export async function setMaxAllowances(synapse: Synapse): Promise<{
  * 2. If either is not at maximum, update them to MAX_UINT256
  * 3. Return information about what was done
  *
+ * **Session Key Authentication**: When using session key authentication,
+ * this function will not attempt to update allowances since payment
+ * operations require the owner wallet to sign. The function will return
+ * `updated: false` and current allowances, which may not be at maximum.
+ *
  * Example usage:
  * ```typescript
  * // Call before any operation that requires payments
@@ -480,9 +486,12 @@ export async function checkAndSetAllowances(synapse: Synapse): Promise<{
   transactionHash?: string
   currentAllowances: ServiceApprovalStatus
 }> {
+  // Skip automatic updates in session key mode
+  const sessionKeyMode = isSessionKeyMode(synapse)
+
   const checkResult = await checkAllowances(synapse)
 
-  if (checkResult.needsUpdate) {
+  if (checkResult.needsUpdate && !sessionKeyMode) {
     const setResult = await setMaxAllowances(synapse)
     return {
       updated: true,
@@ -949,6 +958,10 @@ export interface PaymentCapacityCheck {
  * does not account for allowances since WarmStorage is assumed to be given
  * full trust with max allowances.
  *
+ * **Note**: This function will attempt to automatically set max allowances
+ * unless using session key authentication, in which case allowances must
+ * be configured separately by the owner wallet.
+ *
  * Example usage:
  * ```typescript
  * const fileSize = 10 * 1024 * 1024 * 1024 // 10 GiB
@@ -965,7 +978,7 @@ export interface PaymentCapacityCheck {
  * @returns Capacity check result
  */
 export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: number): Promise<PaymentCapacityCheck> {
-  // First ensure allowances are at max
+  // Ensure allowances are at max (automatically skips if in session key mode)
   await checkAndSetAllowances(synapse)
 
   // Get current status and pricing

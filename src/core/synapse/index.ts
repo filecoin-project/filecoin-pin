@@ -12,7 +12,7 @@ import {
 } from '@filoz/synapse-sdk'
 import { type Provider as EthersProvider, JsonRpcProvider, Wallet, WebSocketProvider } from 'ethers'
 import type { Logger } from 'pino'
-import { AddressOnlySigner } from './address-only-signer.js'
+import { ADDRESS_ONLY_SIGNER_SYMBOL, AddressOnlySigner } from './address-only-signer.js'
 
 const WEBSOCKET_REGEX = /^ws(s)?:\/\//i
 
@@ -148,6 +148,34 @@ export function resetSynapseService(): void {
   storageInstance = null
   currentProviderInfo = null
   activeProvider = null
+}
+
+/**
+ * Check if Synapse is using session key authentication
+ *
+ * Session key authentication uses an AddressOnlySigner which cannot sign transactions.
+ * Payment operations (deposits, allowances) must be done by the owner wallet separately.
+ *
+ * Uses a Symbol to reliably detect AddressOnlySigner even across module boundaries.
+ *
+ * @param synapse - Initialized Synapse instance
+ * @returns true if using session key authentication, false otherwise
+ */
+export function isSessionKeyMode(synapse: Synapse): boolean {
+  try {
+    const client = synapse.getClient()
+
+    // The client might be wrapped in a NonceManager, check the underlying signer
+    let signerToCheck: any = client
+    if ('signer' in client && client.signer) {
+      signerToCheck = client.signer
+    }
+
+    // Check for the AddressOnlySigner symbol (most reliable)
+    return ADDRESS_ONLY_SIGNER_SYMBOL in signerToCheck && signerToCheck[ADDRESS_ONLY_SIGNER_SYMBOL] === true
+  } catch {
+    return false
+  }
 }
 
 /**

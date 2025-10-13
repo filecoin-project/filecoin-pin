@@ -85,6 +85,7 @@ vi.mock('../../core/synapse/index.js', async () => {
   const { MockSynapse } = await import('../mocks/synapse-mocks.js')
 
   return {
+    isSessionKeyMode: vi.fn(() => false),
     initializeSynapse: vi.fn(async (_config: any, _logger: any) => {
       const mockSynapse = new MockSynapse()
       return mockSynapse

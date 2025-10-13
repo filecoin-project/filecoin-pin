@@ -10,7 +10,7 @@ import {
   validatePaymentCapacity,
   validatePaymentRequirements,
 } from '../payments/index.js'
-import type { SynapseService } from '../synapse/index.js'
+import { isSessionKeyMode, type SynapseService } from '../synapse/index.js'
 import { type SynapseUploadResult, uploadToSynapse } from './synapse.js'
 
 export type { SynapseUploadOptions, SynapseUploadResult } from './synapse.js'
@@ -80,9 +80,18 @@ type CapacityStatus = 'sufficient' | 'warning' | 'insufficient'
  *
  * The function only mutates state when `autoConfigureAllowances` is enabled
  * (default), in which case it will call {@link setMaxAllowances} as needed.
+ *
+ * **Session Key Authentication**: When using session key authentication,
+ * `autoConfigureAllowances` is automatically disabled since payment operations
+ * require the owner wallet to sign. Allowances must be configured separately
+ * by the owner wallet before uploads can proceed.
  */
 export async function checkUploadReadiness(options: UploadReadinessOptions): Promise<UploadReadinessResult> {
   const { synapse, fileSize, autoConfigureAllowances = true, onProgress } = options
+
+  // Detect session key mode - payment operations cannot be performed
+  const sessionKeyMode = isSessionKeyMode(synapse)
+  const canConfigureAllowances = autoConfigureAllowances && !sessionKeyMode
 
   onProgress?.({ type: 'checking-balances' })
 
@@ -110,7 +119,8 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
   let allowancesUpdated = false
   let allowanceTxHash: string | undefined
 
-  if (allowanceStatus.needsUpdate && autoConfigureAllowances) {
+  // Only try to configure allowances if not in session key mode
+  if (allowanceStatus.needsUpdate && canConfigureAllowances) {
     onProgress?.({ type: 'configuring-allowances' })
     const setResult = await setMaxAllowances(synapse)
     allowancesUpdated = true
