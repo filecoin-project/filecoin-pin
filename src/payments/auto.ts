@@ -58,8 +58,8 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)
     const network = synapse.getNetwork()
-    const signer = synapse.getSigner()
-    const address = await signer.getAddress()
+    const client = synapse.getClient()
+    const address = await client.getAddress()
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
