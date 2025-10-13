@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.8.0...v0.8.1) (2025-10-13)
+
+
+### Bug Fixes
+
+* prevent some checks when using session key ([#110](https://github.com/filecoin-project/filecoin-pin/issues/110)) ([987c4cb](https://github.com/filecoin-project/filecoin-pin/commit/987c4cb6a64a4b23730bef4699cc497b012d9132))
+* use correct addresses with session key auth ([#107](https://github.com/filecoin-project/filecoin-pin/issues/107)) ([9e05746](https://github.com/filecoin-project/filecoin-pin/commit/9e057464461589edf3cb0a8cd57857ebea1c6b12))
+* use only ipni-enabled providers ([#109](https://github.com/filecoin-project/filecoin-pin/issues/109)) ([f642d6e](https://github.com/filecoin-project/filecoin-pin/commit/f642d6e6641a6d467eb11c0fbece46a9dcd7c4fc))
+
 ## [0.8.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.7.3...v0.8.0) (2025-10-13)
 
 
