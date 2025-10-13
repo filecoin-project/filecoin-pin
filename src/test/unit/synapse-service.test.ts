@@ -29,7 +29,7 @@ describe('synapse-service', () => {
       privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001', // Fake test key
       rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
     }
-    logger = createLogger(config)
+    logger = createLogger({ logLevel: 'info' })
 
     // Reset the service instances
     resetSynapseService()
@@ -191,11 +191,6 @@ describe('synapse-service', () => {
       const mockConfig: SynapseSetupConfig = {
         privateKey: 'test-private-key',
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-        port: 3000,
-        host: '127.0.0.1',
-        databasePath: ':memory:',
-        carStoragePath: './cars',
-        logLevel: 'info',
       }
 
       const service = await setupSynapse(mockConfig, logger)
@@ -212,11 +207,6 @@ describe('synapse-service', () => {
       const mockConfig: SynapseSetupConfig = {
         privateKey: 'test-private-key',
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-        port: 3000,
-        host: '127.0.0.1',
-        databasePath: ':memory:',
-        carStoragePath: './cars',
-        logLevel: 'info',
       }
 
       const service = await setupSynapse(mockConfig, logger)
@@ -239,11 +229,6 @@ describe('synapse-service', () => {
       const mockConfig: SynapseSetupConfig = {
         privateKey: 'test-private-key',
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-        port: 3000,
-        host: '127.0.0.1',
-        databasePath: ':memory:',
-        carStoragePath: './cars',
-        logLevel: 'info',
       }
 
       const service = await setupSynapse(mockConfig, logger)
@@ -264,11 +249,6 @@ describe('synapse-service', () => {
       const mockConfig: SynapseSetupConfig = {
         privateKey: 'test-private-key',
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-        port: 3000,
-        host: '127.0.0.1',
-        databasePath: ':memory:',
-        carStoragePath: './cars',
-        logLevel: 'info',
       }
 
       const service = await setupSynapse(mockConfig, logger)

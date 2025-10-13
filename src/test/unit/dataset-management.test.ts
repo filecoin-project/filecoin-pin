@@ -25,7 +25,7 @@ describe('Dataset Management', () => {
       privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
       rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
     }
-    logger = createLogger(config)
+    logger = createLogger({ logLevel: 'info' })
     resetSynapseService()
     vi.clearAllMocks()
   })

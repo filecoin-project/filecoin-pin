@@ -60,7 +60,7 @@ export interface Config {
  * 1. Standard: privateKey only
  * 2. Session Key: walletAddress + sessionKey
  */
-export interface SynapseSetupConfig extends Partial<Omit<Config, 'privateKey' | 'rpcUrl'>> {
+export interface SynapseSetupConfig {
   /** Private key for standard authentication (mutually exclusive with session key mode) */
   privateKey?: string | undefined
   /** Wallet address for session key mode (requires sessionKey) */
@@ -69,6 +69,8 @@ export interface SynapseSetupConfig extends Partial<Omit<Config, 'privateKey' | 
   sessionKey?: string | undefined
   /** RPC endpoint for the target Filecoin network. Defaults to calibration. */
   rpcUrl?: string | undefined
+  /** Optional override for WarmStorage contract address */
+  warmStorageAddress?: string | undefined
 }
 
 /**
