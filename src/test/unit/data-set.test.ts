@@ -6,9 +6,9 @@ import type { DataSetDetail, DataSetInspectionContext } from '../../data-set/typ
 const {
   displayDataSetListMock,
   displayDataSetStatusMock,
-  cleanupProviderMock,
   cleanupSynapseServiceMock,
   spinnerMock,
+  cancelMock,
   mockFindDataSets,
   mockGetStorageInfo,
   mockGetAddress,
@@ -21,8 +21,8 @@ const {
 } = vi.hoisted(() => {
   const displayDataSetListMock = vi.fn()
   const displayDataSetStatusMock = vi.fn()
-  const cleanupProviderMock = vi.fn()
   const cleanupSynapseServiceMock = vi.fn()
+  const cancelMock = vi.fn()
   const spinnerMock = {
     start: vi.fn(),
     stop: vi.fn(),
@@ -63,24 +63,35 @@ const {
     }
   }
 
-  const mockSynapseCreate = vi.fn(async () => ({
-    getNetwork: () => 'calibration',
-    getSigner: () => ({
-      getAddress: mockGetAddress,
-    }),
-    storage: {
-      findDataSets: mockFindDataSets,
-      getStorageInfo: mockGetStorageInfo,
-    },
-    getProvider: () => ({}),
-    getWarmStorageAddress: () => '0xwarm',
-  }))
+  // TODO: we should not need to mock synapseCreate, and should use mocks/synapse-sdk.ts instead
+  const mockSynapseCreate = vi.fn(async (config: any) => {
+    // Validate auth like the real initializeSynapse does
+    const hasStandardAuth = config.privateKey != null
+    const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
+
+    if (!hasStandardAuth && !hasSessionKeyAuth) {
+      throw new Error('Authentication required: provide either a privateKey or walletAddress + sessionKey')
+    }
+
+    return {
+      getNetwork: () => 'calibration',
+      getSigner: () => ({
+        getAddress: mockGetAddress,
+      }),
+      storage: {
+        findDataSets: mockFindDataSets,
+        getStorageInfo: mockGetStorageInfo,
+      },
+      getProvider: () => ({}),
+      getWarmStorageAddress: () => '0xwarm',
+    }
+  })
 
   return {
     displayDataSetListMock,
     displayDataSetStatusMock,
-    cleanupProviderMock,
     cleanupSynapseServiceMock,
+    cancelMock,
     spinnerMock,
     mockFindDataSets,
     mockGetStorageInfo,
@@ -100,14 +111,14 @@ vi.mock('../../data-set/inspect.js', () => ({
 }))
 
 vi.mock('../../core/synapse/index.js', () => ({
-  cleanupProvider: cleanupProviderMock,
+  initializeSynapse: mockSynapseCreate,
   cleanupSynapseService: cleanupSynapseServiceMock,
 }))
 
 vi.mock('../../utils/cli-helpers.js', () => ({
   intro: vi.fn(),
   outro: vi.fn(),
-  cancel: vi.fn(),
+  cancel: cancelMock,
   createSpinner: () => spinnerMock,
 }))
 
@@ -119,11 +130,11 @@ vi.mock('../../utils/cli-logger.js', () => ({
   },
 }))
 
+// Use shared SDK mock with custom extensions for dataset command testing
 vi.mock('@filoz/synapse-sdk', async () => {
-  const actual = await vi.importActual<typeof import('@filoz/synapse-sdk')>('@filoz/synapse-sdk')
+  const sharedMock = await import('../mocks/synapse-sdk.js')
   return {
-    ...actual,
-    Synapse: { create: mockSynapseCreate },
+    ...sharedMock,
     WarmStorageService: { create: mockWarmStorageCreate },
     PDPVerifier: MockPDPVerifier,
     PDPServer: MockPDPServer,
@@ -181,6 +192,7 @@ describe('runDataSetCommand', () => {
 
   afterEach(() => {
     delete process.env.PRIVATE_KEY
+    process.exitCode = 0
   })
 
   it('lists datasets without fetching details when no id is provided', async () => {
@@ -239,18 +251,22 @@ describe('runDataSetCommand', () => {
   })
 
   it('exits when no private key is provided', async () => {
-    const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit called')
+    await runDataSetCommand(undefined, {
+      ls: false,
+      rpcUrl: 'wss://sample',
     })
 
-    await expect(
-      runDataSetCommand(undefined, {
-        ls: false,
-        rpcUrl: 'wss://sample',
-      })
-    ).rejects.toThrow('process.exit called')
+    // Should call cancel with failure message
+    expect(cancelMock).toHaveBeenCalledWith('Inspection failed')
 
-    expect(mockExit).toHaveBeenCalledWith(1)
-    mockExit.mockRestore()
+    // Should stop spinner with error message
+    expect(spinnerMock.stop).toHaveBeenCalledWith(expect.stringContaining('Failed to inspect data sets'))
+
+    // Should set exitCode to 1 due to authentication error
+    expect(process.exitCode).toBe(1)
+
+    // Should not call display functions since it failed early
+    expect(displayDataSetListMock).not.toHaveBeenCalled()
+    expect(displayDataSetStatusMock).not.toHaveBeenCalled()
   })
 })
