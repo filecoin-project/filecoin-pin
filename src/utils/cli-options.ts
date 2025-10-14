@@ -44,3 +44,35 @@ export function addAuthOptions(command: Command): Command {
     .option('--session-key <key>', 'Session key for session key auth (can also use SESSION_KEY env)')
     .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env)', RPC_URLS.calibration.websocket)
 }
+
+/**
+ * Decorator to add provider selection options to a Commander command
+ *
+ * This adds options for overriding the automatic provider selection:
+ * - --provider-address for selecting by provider address
+ * - --provider-id for selecting by provider ID
+ *
+ * The function modifies the command in-place and returns it for chaining.
+ *
+ * @param command - The Commander command to add options to
+ * @returns The same command with options added (for chaining)
+ *
+ * @example
+ * ```typescript
+ * const myCommand = new Command('upload')
+ *   .description('Upload data')
+ *   .action(async (options) => {
+ *     const { providerAddress, providerId } = options
+ *   })
+ *
+ * addProviderOptions(myCommand)
+ * ```
+ */
+export function addProviderOptions(command: Command): Command {
+  return command
+    .option(
+      '--provider-address <address>',
+      'Override provider selection by address (can also use PROVIDER_ADDRESS env)'
+    )
+    .option('--provider-id <id>', 'Override provider selection by ID (can also use PROVIDER_ID env)')
+}

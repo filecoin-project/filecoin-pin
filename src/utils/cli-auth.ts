@@ -23,6 +23,10 @@ export interface CLIAuthOptions {
   rpcUrl?: string | undefined
   /** Optional warm storage address override */
   warmStorageAddress?: string | undefined
+  /** Optional provider address override */
+  providerAddress?: string | undefined
+  /** Optional provider ID override */
+  providerId?: string | undefined
 }
 
 /**
@@ -54,6 +58,45 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   }
 
   return config
+}
+
+/**
+ * Provider selection options for storage context
+ */
+export interface ProviderSelectionOptions {
+  /** Provider address override */
+  providerAddress?: string
+  /** Provider ID override */
+  providerId?: number
+}
+
+/**
+ * Parse provider selection from CLI options and environment variables
+ *
+ * Reads provider address and ID from CLI options or environment variables,
+ * parses and validates the provider ID as a number.
+ *
+ * @param options - CLI authentication options (may contain provider fields)
+ * @returns Provider selection options ready for createStorageContext()
+ */
+export function parseProviderOptions(options?: CLIAuthOptions): ProviderSelectionOptions {
+  // Read from CLI options or environment variables
+  const providerAddress = (options?.providerAddress || process.env.PROVIDER_ADDRESS)?.trim()
+  const providerIdRaw = (options?.providerId || process.env.PROVIDER_ID)?.trim()
+
+  // Parse provider ID as number if present and non-empty
+  const providerId = providerIdRaw != null && providerIdRaw !== '' ? Number(providerIdRaw) : undefined
+
+  // Build result with only defined values
+  const result: ProviderSelectionOptions = {}
+  if (providerAddress) {
+    result.providerAddress = providerAddress
+  }
+  if (providerId != null) {
+    result.providerId = providerId
+  }
+
+  return result
 }
 
 /**

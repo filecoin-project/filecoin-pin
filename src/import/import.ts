@@ -19,6 +19,7 @@ import {
   initializeSynapse,
   type SynapseService,
 } from '../core/synapse/index.js'
+import { parseProviderOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import type { ImportOptions, ImportResult } from './types.js'
@@ -211,14 +212,11 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     // Step 6: Create storage context now that payments are validated
     spinner.start('Creating storage context...')
 
-    // Read provider selection from environment variables
-    const providerAddress = process.env.PROVIDER_ADDRESS?.trim()
-    const providerIdRaw = process.env.PROVIDER_ID?.trim()
-    const providerId = providerIdRaw != null && providerIdRaw !== '' ? Number(providerIdRaw) : undefined
+    // Parse provider selection from CLI options and environment variables
+    const providerOptions = parseProviderOptions(options)
 
     const { storage, providerInfo } = await createStorageContext(synapse, logger, {
-      ...(providerAddress && { providerAddress }),
-      ...(providerId != null && { providerId }),
+      ...providerOptions,
       callbacks: {
         onProviderSelected: (provider) => {
           spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)

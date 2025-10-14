@@ -2,7 +2,7 @@ import { Command } from 'commander'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import { runCarImport } from '../import/import.js'
 import type { ImportOptions } from '../import/types.js'
-import { addAuthOptions } from '../utils/cli-options.js'
+import { addAuthOptions, addProviderOptions } from '../utils/cli-options.js'
 
 export const importCommand = new Command('import')
   .description('Import an existing CAR file to Filecoin via Synapse')
@@ -24,3 +24,4 @@ export const importCommand = new Command('import')
   })
 
 addAuthOptions(importCommand)
+addProviderOptions(importCommand)

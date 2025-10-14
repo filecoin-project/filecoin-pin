@@ -2,7 +2,7 @@ import { Command } from 'commander'
 import { runAdd } from '../add/add.js'
 import type { AddOptions } from '../add/types.js'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
-import { addAuthOptions } from '../utils/cli-options.js'
+import { addAuthOptions, addProviderOptions } from '../utils/cli-options.js'
 
 export const addCommand = new Command('add')
   .description('Add a file or directory to Filecoin via Synapse (creates UnixFS CAR)')
@@ -26,3 +26,4 @@ export const addCommand = new Command('add')
   })
 
 addAuthOptions(addCommand)
+addProviderOptions(addCommand)
