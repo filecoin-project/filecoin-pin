@@ -2,16 +2,21 @@
 
 [![NPM](https://nodei.co/npm/filecoin-pin.svg?style=flat&data=n,v)](https://nodei.co/npm/filecoin-pin/)
 
-Bridge IPFS content to Filecoin Onchain Cloud using familiar tools.
+**Pin IPFS content to Filecoin Onchain Cloud using familiar IPFS tools.**
 
 ## What It Does
 
-Filecoin Pin provides two ways to store data on Filecoin:
+Filecoin Pin is a fully decentralized [IPFS Pinning Service](https://docs.ipfs.tech/how-to/work-with-pinning-services) that persists pinned content to a global network of Filecoin storage providers. 
 
-1. **IPFS Pinning Service** - Use `ipfs pin remote` commands to pin content to Filecoin
-2. **Direct CAR Import** - Upload existing CAR files directly to Filecoin
+<img width="3840" height="2160" alt="image" src="https://github.com/user-attachments/assets/a7bccef4-91d9-4733-8d48-9177b14e27b2" />
 
-Both methods use Synapse SDK to handle Filecoin storage deals, providing persistent storage with cryptographic proofs.
+Filecoin Pin provides three ways to store data on Filecoin:
+
+1. **Filecoin Pin CLI** - Upload new or existing CAR files directly to Filecoin via CLI (see QuickStart below)
+2. **Filecoin Pin GitHub Action** - Run the [Upload Action](https://github.com/filecoin-project/filecoin-pin/tree/master/upload-action) workflow to automatically publish artifacts to IPFS & Filecoin
+3. **Filecoin Pin dApp Demo** - A simple demo showing how to use Filecoin Pin in an end-to-end dapp workflow
+
+All methods use the [Synapse SDK](https://synapse.filecoin.services/) to create Filecoin storage deals, providing persistent storage with cryptographic proofs.
 
 ## Installation
 
