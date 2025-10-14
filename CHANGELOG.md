@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.8.1...v0.9.0) (2025-10-14)
+
+
+### Features
+
+* add support for warm storage (env var only) and provider selection ([#102](https://github.com/filecoin-project/filecoin-pin/issues/102)) ([7f8eca9](https://github.com/filecoin-project/filecoin-pin/commit/7f8eca9b94bde227edc29a8b7b7830e0b14eacd3))
+
+
+### Bug Fixes
+
+* upgrade to latest synapse-sdk ([#115](https://github.com/filecoin-project/filecoin-pin/issues/115)) ([c99e370](https://github.com/filecoin-project/filecoin-pin/commit/c99e37036931d054c4127d44d10022a9e243a000))
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.2.5 to 2.2.6 ([#112](https://github.com/filecoin-project/filecoin-pin/issues/112)) ([e8c4ce5](https://github.com/filecoin-project/filecoin-pin/commit/e8c4ce5221c5845601f20e38ec8b9980b4734492))
+
 ## [0.8.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.8.0...v0.8.1) (2025-10-13)
 
 
