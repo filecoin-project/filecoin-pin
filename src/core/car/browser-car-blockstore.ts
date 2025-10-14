@@ -146,7 +146,8 @@ export class CARWritingBlockstore implements Blockstore {
     return cid
   }
 
-  async get(_cid: CID, _options?: AbortOptions): Promise<Uint8Array> {
+  // biome-ignore lint/correctness/useYield: This method throws immediately and intentionally never yields
+  async *get(_cid: CID, _options?: AbortOptions): AsyncGenerator<Uint8Array> {
     throw new Error('Not implemented for CAR blockstore in the browser.')
   }
 
@@ -159,29 +160,53 @@ export class CARWritingBlockstore implements Blockstore {
     throw new Error('Delete operation not supported on CAR writing blockstore')
   }
 
-  async *putMany(source: AwaitIterable<{ cid: CID; block: Uint8Array }>, _options?: AbortOptions): AsyncIterable<CID> {
-    for await (const { cid, block } of source) {
+  async *putMany(
+    source: AwaitIterable<{ cid: CID; bytes: Uint8Array | AwaitIterable<Uint8Array> }>,
+    _options?: AbortOptions
+  ): AsyncGenerator<CID> {
+    for await (const { cid, bytes } of source) {
+      let block: Uint8Array
+      if (bytes instanceof Uint8Array) {
+        block = bytes
+      } else {
+        // Collect all chunks from the iterable
+        const chunks: Uint8Array[] = []
+        for await (const chunk of bytes) {
+          chunks.push(chunk)
+        }
+        // Concatenate chunks into a single Uint8Array
+        const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
+        block = new Uint8Array(totalLength)
+        let offset = 0
+        for (const chunk of chunks) {
+          block.set(chunk, offset)
+          offset += chunk.length
+        }
+      }
       yield await this.put(cid, block)
     }
   }
 
-  async *getMany(source: AwaitIterable<CID>, _options?: AbortOptions): AsyncIterable<{ cid: CID; block: Uint8Array }> {
+  async *getMany(
+    source: AwaitIterable<CID>,
+    _options?: AbortOptions
+  ): AsyncGenerator<{ cid: CID; bytes: AsyncGenerator<Uint8Array> }> {
     for await (const cid of source) {
-      const block = await this.get(cid)
-      yield { cid, block }
+      const bytes = this.get(cid)
+      yield { cid, bytes }
     }
   }
 
   // biome-ignore lint/correctness/useYield: This method throws immediately and intentionally never yields
-  async *deleteMany(_source: AwaitIterable<CID>, _options?: AbortOptions): AsyncIterable<CID> {
+  async *deleteMany(_source: AwaitIterable<CID>, _options?: AbortOptions): AsyncGenerator<CID> {
     throw new Error('DeleteMany operation not supported on CAR writing blockstore')
   }
 
-  async *getAll(_options?: AbortOptions): AsyncIterable<{ cid: CID; block: Uint8Array }> {
+  async *getAll(_options?: AbortOptions): AsyncGenerator<{ cid: CID; bytes: AsyncGenerator<Uint8Array> }> {
     for (const [cidStr] of this.blockOffsets.entries()) {
       const cid = CID.parse(cidStr)
-      const block = await this.get(cid)
-      yield { cid, block }
+      const bytes = this.get(cid)
+      yield { cid, bytes }
     }
   }
 
