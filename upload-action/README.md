@@ -8,7 +8,7 @@ This GitHub Action is provided to illustrate how to use filecoin-pin, a new IPFS
 
 ## Example Workflow Files
 
-Check out the [Workflow Examples](https://github.com/filecoin-project/filecoin-pin/upload-action/examples/README.md) for ready-to-use GitHub workflow files for the Filecoin Pin Upload Action.
+Check out the [Workflow Examples](https://github.com/filecoin-project/filecoin-pin/tree/master/upload-action/examples/README.md) for ready-to-use GitHub workflow files for the Filecoin Pin Upload Action.
 
 ## Quick Start
 
