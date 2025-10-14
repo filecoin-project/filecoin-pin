@@ -1,12 +1,18 @@
 # Filecoin Pin Upload Action
 
-Composite GitHub Action that packs a file or directory into a UnixFS CAR, uploads it to Filecoin, and publishes artifacts and context for easy reuse.
+The Filecoin Pin Upload Action is a composite GitHub Action that packs a file or directory into a UnixFS CAR, uploads it to Filecoin, and publishes artifacts and context for easy reuse.
 
-This is provided for illustrative purposes of how to use filecoin-pin.  It's not expected to be the action that other repos will depend on for their production usecase of uploading to filecoin.  Given the emphasis on this being educational, breaking changes may be made at any time.  For robust use, the intent is to add filecoin-pin functionality ipshipyard/ipfs-deploy-action, which is being tracked in [issue #39](https://github.com/ipfs/ipfs-deploy-action/issues/39).
+This GitHub Action is provided to illustrate how to use filecoin-pin, a new IPFS pinning workflow that stores to the Filecoin decentralized storage network.  It's not expected to be the action that other repos will depend on for their production usecase of uploading to Filecoin.  Given the emphasis on this being an educational demo, breaking changes may be made at any time.  For robust use, the intent is to add filecoin-pin functionality to the ipshipyard/ipfs-deploy-action, which is being tracked in [issue #39](https://github.com/ipfs/ipfs-deploy-action/issues/39).
+
+*Note: The Filecoin Pin Upload Action currently runs on the Filecoin Calibration testnet, where data isn't permanent and infrastructure resets regularly.*
+
+## Example Workflow Files
+
+Check out the [Workflow Examples](https://github.com/filecoin-project/filecoin-pin/upload-action/examples/README.md) for ready-to-use GitHub workflow files for the Filecoin Pin Upload Action.
 
 ## Quick Start
 
-Run your build in an untrusted workflow, publish the build output as an artifact, then run this action in a trusted workflow to create the CAR and upload to Filecoin.
+The recommended Upload Action usage is to run your build in an untrusted workflow, publish the build output as an artifact, then run this action in a trusted workflow to create the IPFS CAR and upload to Filecoin for long-term storage.
 
 **Step 1: Build workflow** (no secrets):
 ```yaml
