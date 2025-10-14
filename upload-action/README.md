@@ -78,6 +78,30 @@ See [action.yml](./action.yml) for complete input documentation including:
 
 **Outputs**: `ipfsRootCid`, `dataSetId`, `pieceCid`, `providerId`, `providerName`, `carPath`, `uploadStatus`
 
+### Advanced: Provider Overrides
+
+For most users, automatic provider selection is recommended. However, for advanced use cases where you need to target a specific storage provider, set environment variables:
+
+```yaml
+- name: Upload to Filecoin
+  uses: filecoin-project/filecoin-pin/upload-action@v1
+  env:
+    PROVIDER_ADDRESS: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e"  # Override by address
+    # OR
+    PROVIDER_ID: "5"  # Override by provider ID
+  with:
+    path: dist
+    walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
+    network: calibration
+```
+
+**Priority order**:
+1. `PROVIDER_ADDRESS` environment variable (highest priority)
+2. `PROVIDER_ID` environment variable (only if no address specified)
+3. Automatic provider selection (default - recommended)
+
+⚠️ **Warning**: Overriding the provider may cause uploads to fail if the specified provider is unavailable or doesn't support IPFS indexing.
+
 ## Security Checklist
 
 - ✅ Pin action by version tag or commit SHA (`@v1`, `@v1.0.0`, or `@<sha>`)

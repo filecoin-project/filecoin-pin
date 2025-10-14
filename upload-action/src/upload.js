@@ -12,6 +12,7 @@ import { writeOutputs, writeSummary } from './outputs.js'
  * @typedef {import('./types.js').ParsedInputs} ParsedInputs
  * @typedef {import('./types.js').UploadResult} UploadResult
  * @typedef {import('./types.js').PaymentStatus} PaymentStatus
+ * @typedef {import('./types.js').UploadConfig} UploadConfig
  */
 
 /**
@@ -39,6 +40,7 @@ export async function runUpload(buildContext = {}) {
     filecoinPayBalanceLimit,
     withCDN,
     providerAddress,
+    providerId,
     dryRun,
   } = inputs
 
@@ -163,7 +165,10 @@ export async function runUpload(buildContext = {}) {
       summary: `Uploading CAR file to Filecoin storage provider...`,
     })
 
-    const uploadResult = await uploadCarToFilecoin(synapse, carPath, rootCid, { withCDN, providerAddress }, logger)
+    /** @type {UploadConfig} */
+    const uploadOptions = { withCDN, providerId, providerAddress }
+
+    const uploadResult = await uploadCarToFilecoin(synapse, carPath, rootCid, uploadOptions, logger)
     pieceCid = uploadResult.pieceCid
     pieceId = uploadResult.pieceId
     dataSetId = uploadResult.dataSetId

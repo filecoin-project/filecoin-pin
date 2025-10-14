@@ -39,13 +39,6 @@ inputs:
     required: false
 
   # Optional/Advanced configuration
-  providerAddress:
-    description: >-
-      ADVANCED: Override for storage provider address. Only use if you have a specific need to work with a particular provider.
-      In most cases, you should omit this and let the system choose the appropriate provider.
-      WARNING: Setting this may cause uploads to fail if the specified provider is unavailable.
-    required: false
-    default: "0xa3971A7234a3379A1813d9867B531e7EeB20ae07"
   withCDN:
     description: "If true, request CDN in the storage context (depends on provider capabilities). Warning: filecoin-pin does not calculate deposits and run-rate costs properly with CDN enabled."
     required: false

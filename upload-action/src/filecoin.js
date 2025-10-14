@@ -18,6 +18,7 @@ import { CID } from 'multiformats/cid'
 import { ERROR_CODES, FilecoinPinError, getErrorMessage } from './errors.js'
 
 /**
+ * @typedef {import('./types.js').CreateStorageContextOptions} CreateStorageContextOptions
  * @typedef {import('./types.js').ParsedInputs} ParsedInputs
  * @typedef {import('./types.js').BuildResult} BuildResult
  * @typedef {import('./types.js').UploadResult} UploadResult
@@ -182,11 +183,7 @@ export async function createCarFile(targetPath, contentPath, logger) {
  */
 export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options, logger) {
   const { withCDN, providerAddress } = options
-
-  // Set provider address if specified
-  if (providerAddress) {
-    process.env.PROVIDER_ADDRESS = providerAddress
-  }
+  let providerIdInput = options.providerId
 
   // Read CAR data
   const carBytes = await fs.readFile(carPath)
@@ -237,9 +234,21 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
     )
   }
 
+  // Prepare storage context options (inputs.js already handled priority logic)
+  /** @type {CreateStorageContextOptions} */
+  const storageOptions = {}
+
+  if (providerAddress) {
+    storageOptions.providerAddress = providerAddress
+    logger.info({ event: 'upload.provider_override', providerAddress }, 'Using provider address override')
+  } else if (providerIdInput != null) {
+    storageOptions.providerId = providerIdInput
+    logger.info({ event: 'upload.provider_override', providerIdInput }, 'Using provider ID override')
+  }
+
   // Create storage context with optional CDN flag
   if (withCDN) process.env.WITH_CDN = 'true'
-  const { storage, providerInfo } = await createStorageContext(synapse, logger, {})
+  const { storage, providerInfo } = await createStorageContext(synapse, logger, storageOptions)
 
   // Upload to Filecoin via filecoin-pin with progress tracking
   const synapseService = { synapse, storage, providerInfo }

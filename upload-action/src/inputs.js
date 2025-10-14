@@ -90,7 +90,6 @@ export function parseInputs(phase = 'single') {
   const minStorageDaysRaw = getInput('minStorageDays', '')
   const filecoinPayBalanceLimitRaw = getInput('filecoinPayBalanceLimit', '')
   const withCDN = parseBoolean(getInput('withCDN', 'false'))
-  const providerAddress = getInput('providerAddress', undefined)
   const dryRun = parseBoolean(getInput('dryRun', 'false'))
 
   if (!contentPath) {
@@ -135,6 +134,29 @@ export function parseInputs(phase = 'single') {
     throw new Error('filecoinPayBalanceLimit must be set when minStorageDays is provided')
   }
 
+  // Parse provider overrides from environment variables only:
+  // 1. PROVIDER_ADDRESS environment variable (highest priority)
+  // 2. PROVIDER_ID environment variable (only if no address specified)
+  // 3. Automatic provider selection by SDK (default if none specified)
+  //
+  // Note: providerAddress always takes precedence over providerId because
+  // address is more specific than numeric ID.
+  let providerAddress = undefined
+  let providerId = undefined
+
+  const envProviderAddress = process.env.PROVIDER_ADDRESS
+  if (envProviderAddress) {
+    providerAddress = envProviderAddress
+  } else {
+    const envProviderId = process.env.PROVIDER_ID
+    if (envProviderId) {
+      const parsed = Number.parseInt(envProviderId, 10)
+      if (Number.isFinite(parsed)) {
+        providerId = parsed
+      }
+    }
+  }
+
   /** @type {ParsedInputs} */
   const parsedInputs = {
     walletPrivateKey,
@@ -144,6 +166,7 @@ export function parseInputs(phase = 'single') {
     filecoinPayBalanceLimit,
     withCDN,
     providerAddress,
+    providerId,
     dryRun,
   }
 
