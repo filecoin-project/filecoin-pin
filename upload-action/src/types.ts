@@ -2,8 +2,7 @@
  * TypeScript type definitions for the Filecoin Upload Action
  */
 import type { PaymentStatus as FilecoinPinPaymentStatus } from 'filecoin-pin/core/payments'
-import type { SynapseService } from 'filecoin-pin/core/synapse'
-import type { CreateStorageContextOptions } from 'filecoin-pin/core/synapse'
+import type { CreateStorageContextOptions, SynapseService } from 'filecoin-pin/core/synapse'
 
 export type { FilecoinPinPaymentStatus, CreateStorageContextOptions }
 export type Synapse = SynapseService['synapse']

@@ -141,8 +141,8 @@ export function parseInputs(phase = 'single') {
   //
   // Note: providerAddress always takes precedence over providerId because
   // address is more specific than numeric ID.
-  let providerAddress = undefined
-  let providerId = undefined
+  let providerAddress
+  let providerId
 
   const envProviderAddress = process.env.PROVIDER_ADDRESS
   if (envProviderAddress) {

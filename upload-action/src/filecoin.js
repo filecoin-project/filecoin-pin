@@ -183,7 +183,7 @@ export async function createCarFile(targetPath, contentPath, logger) {
  */
 export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options, logger) {
   const { withCDN, providerAddress } = options
-  let providerIdInput = options.providerId
+  const providerIdInput = options.providerId
 
   // Read CAR data
   const carBytes = await fs.readFile(carPath)
