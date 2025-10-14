@@ -12,9 +12,9 @@ Filecoin Pin is a fully decentralized [IPFS Pinning Service](https://docs.ipfs.t
 
 Filecoin Pin provides three ways to store data on Filecoin:
 
-1. **Filecoin Pin CLI** - Upload new or existing CAR files directly to Filecoin via CLI (see QuickStart below)
-2. **Filecoin Pin GitHub Action** - Run the [Upload Action](https://github.com/filecoin-project/filecoin-pin/tree/master/upload-action) workflow to automatically publish artifacts to IPFS & Filecoin
-3. **Filecoin Pin dApp Demo** - A simple demo showing how to use Filecoin Pin in an end-to-end dapp workflow
+1. [Filecoin Pin CLI](https://docs.filecoin.io/builder-cookbook/filecoin-pin/cli) - Upload new or existing IPFS files directly to Filecoin via the command line
+2. [Filecoin Pin GitHub Action](https://github.com/filecoin-project/filecoin-pin/blob/master/upload-action/README.md) - Use GitHub Actions to automatically publish websites or build artifacts to IPFS & Filecoin
+3. [Filecoin Pin dApp Demo](https://github.com/filecoin-project/filecoin-pin-website) - Run or fork a simple demo dApp using Filecoin Pin
 
 All methods use the [Synapse SDK](https://synapse.filecoin.services/) to create Filecoin storage deals, providing persistent storage with cryptographic proofs.
 
