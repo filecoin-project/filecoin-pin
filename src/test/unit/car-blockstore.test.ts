@@ -1,4 +1,5 @@
 import { readFile, rm, stat } from 'node:fs/promises'
+import toBuffer from 'it-to-buffer'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
@@ -85,11 +86,8 @@ describe('CARWritingBlockstore', () => {
       await blockstore.put(testCID, testBlock)
 
       // Consume the async generator to get the bytes
-      const chunks: Uint8Array[] = []
-      for await (const chunk of blockstore.get(testCID)) {
-        chunks.push(chunk)
-      }
-      expect(chunks[0]).toEqual(testBlock)
+      const result = await toBuffer(blockstore.get(testCID))
+      expect(result).toEqual(testBlock)
     })
 
     it('should throw error when getting non-existent block', async () => {
@@ -207,12 +205,11 @@ describe('CARWritingBlockstore', () => {
       }
 
       expect(results).toHaveLength(3)
-      // Consume the generator to get the actual bytes
-      const firstBytes = []
-      for await (const chunk of results[0]?.bytes || []) {
-        firstBytes.push(chunk)
+      // Consume the generator to get the actual bytes and compare all blocks
+      for (let i = 0; i < results.length; i++) {
+        const resultBytes = await toBuffer(results[i]?.bytes || [])
+        expect(resultBytes).toEqual(blocks[i]?.bytes)
       }
-      expect(firstBytes[0]).toEqual(blocks[0]?.bytes)
     })
 
     it('should get all blocks', async () => {
