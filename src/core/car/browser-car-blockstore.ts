@@ -6,6 +6,7 @@
 import { CarWriter } from '@ipld/car'
 import type { Blockstore } from 'interface-blockstore'
 import type { AbortOptions, AwaitIterable } from 'interface-store'
+import toBuffer from 'it-to-buffer'
 import { CID } from 'multiformats/cid'
 import varint from 'varint'
 
@@ -165,24 +166,7 @@ export class CARWritingBlockstore implements Blockstore {
     _options?: AbortOptions
   ): AsyncGenerator<CID> {
     for await (const { cid, bytes } of source) {
-      let block: Uint8Array
-      if (bytes instanceof Uint8Array) {
-        block = bytes
-      } else {
-        // Collect all chunks from the iterable
-        const chunks: Uint8Array[] = []
-        for await (const chunk of bytes) {
-          chunks.push(chunk)
-        }
-        // Concatenate chunks into a single Uint8Array
-        const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
-        block = new Uint8Array(totalLength)
-        let offset = 0
-        for (const chunk of chunks) {
-          block.set(chunk, offset)
-          offset += chunk.length
-        }
-      }
+      const block = bytes instanceof Uint8Array ? bytes : await toBuffer(bytes)
       yield await this.put(cid, block)
     }
   }
