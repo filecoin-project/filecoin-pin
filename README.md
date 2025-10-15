@@ -14,7 +14,7 @@ Register for updates and a later 2025 Q4 GA announcement at [filecoin.cloud](htt
 
 Filecoin Pin is a fully decentralized persistence layer for IPFS content using the global network of Filecoin storage providers with cryptographic guarantees.
 
-When you use Filecoin Pin, your IPFS files gain:
+When you use Filecoin Pin, your IPFS data gains:
 
 - **Verifiable persistence** - Storage providers must cryptographically prove daily that they continue to store and serve your data
 - **Economic incentives** - You only pay when storage proofs are successfully delivered and verified onchain
@@ -28,7 +28,7 @@ Filecoin Pin is designed for **developers building on IPFS** who need trustless,
 
 ## Affordances
 
-Filecoin Pin offers multiple "affordances" to integrate Filecoin storage into your workflow:
+Filecoin Pin offers multiple affordances to integrate Filecoin storage into your workflow:
 
 ### CLI
 Upload IPFS files directly to Filecoin via the command line. Perfect for developers who want to integrate Filecoin storage into scripts, workflows, or local development environments.
@@ -42,7 +42,7 @@ Upload IPFS files directly to Filecoin via the command line. Perfect for develop
 ### GitHub Action
 Automatically publish websites or build artifacts to IPFS and Filecoin as part of your CI/CD pipeline. Ideal for static websites, documentation sites, and automated deployment workflows.
 
-- **Repository**: This repo ([upload-action/](./upload-action))
+- **Repository**: This repo ([see upload-action/](./upload-action))
 - **Documentation**: 
    - [GitHub Action Walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/github-action)
 - **Example in Production**: [filecoin-pin-website CI pipeline](https://github.com/filecoin-project/filecoin-pin-website/tree/main/.github/workflows)
@@ -50,15 +50,15 @@ Automatically publish websites or build artifacts to IPFS and Filecoin as part o
 ### JavaScript "core" Library
 Opinionated JavaScript library with utilities for common functionality across different use cases. Use these modules directly in your Node.js or browser applications.
 
-- **Repository**: This repo (see `src/core/` and package exports).
+- **Repository**: This repo (see [`src/core/`](./src/core) and package exports).
 - **Installation**: `npm install filecoin-pin`
 - **Exports**: Core modules for CAR files, payments, Synapse SDK integration, uploads, and UnixFS operations
 
 ### IPFS Pinning Server (Daemon Mode)
 Run a localhost IPFS Pinning Service API server that implements the [IPFS Pinning Service API specification](https://ipfs.github.io/pinning-services-api-spec/). This allows you to use standard IPFS tooling (like `ipfs pin remote`) while storing data on Filecoin.
 
-- **Repository**: This repo (daemon command in CLI)
-- **Usage**: `PRIVATE_KEY=0x... npx filecoin-pin daemon`
+- **Repository**: This repo (`filecoin-pin server` command in CLI)
+- **Usage**: `PRIVATE_KEY=0x... npx filecoin-pin server`
 - **Status**: Works and is tested, but hasn't received as many features as the CLI.  If it would benefit your usecase, please comment on [tracking issue](https://github.com/filecoin-project/filecoin-pin/issues/46) so we can be better informed when it comes to prioritizing.  
 
 ### Management Console GUI
@@ -91,9 +91,9 @@ This repository contains multiple affordances for user interaction and a shared 
 
 The [Synapse SDK](https://synapse.filecoin.services/) is the main library, as it's doing the work of interfacing with the rest of [Filecoin Onchain Cloud](https://filecoin.cloud) including smart contracts, Filecoin Storage Providers, and more.
 
-[Helia](https://helia.io/) is leveraged for turning files/directories into CARs.
+[Helia](https://helia.io/) is leveraged for turning files and directories into IPFS compatible data, which we output in [CAR format](https://ipld.io/specs/transport/car/carv1/).
 
-The "affordances" were [discussed more above](#affordances).  All affordances use the same core library, ensuring consistent behavior and making it easy to add new interfaces in the future.
+The affordances were [discussed more above](#affordances).  All affordances use the same core library, ensuring consistent behavior and making it easy to add new interfaces in the future.
 
 ## Quick Start
 
@@ -113,6 +113,8 @@ npm install -g filecoin-pin
 ### Basic Usage
 
 ```bash
+# 0. Set your PRIVATE_KEY environment variable or pass it via --private-key to each command.
+
 # 1. Configure payment permissions (one-time setup)
 filecoin-pin payments setup --auto
 
@@ -126,9 +128,20 @@ filecoin-pin data-set <dataset-id>
 For detailed guides, see:
 - **CLI**: [Complete CLI walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/filecoin-pin-cli)
 - **GitHub Action**: [CI/CD integration guide](https://docs.filecoin.io/builder-cookbook/filecoin-pin/github-action)
-- **dApp Demo**: [Browser-based implementation](https://docs.filecoin.io/builder-cookbook/filecoin-pin/dapp-demo)
-
 ## Configuration
+
+Configuration of the Filecoin Pin CLI can be performed either with arguments, or environment variables.
+
+The Pinning Server requires the use of environment variables, as detailed below.
+
+### Common CLI Arguments
+
+* `-h`, `--help`: Display help information for each command
+* `-v`, `--version`: Output the version number
+* `--private-key`: Ethereum-style (`0x`) private key, funded with USDFC (required)
+* `--rpc-url`: Filecoin RPC endpoint (default: Calibration testnet)
+
+Other arguments are possible for individual commands, use `--help` to find out more.
 
 ### Environment Variables
 
@@ -164,14 +177,19 @@ git clone https://github.com/filecoin-project/filecoin-pin
 cd filecoin-pin
 npm install
 
-# Run development server
+# Run the Pinning Server
 npm run dev
 
 # Run tests
 npm test
 
-# Build for production
+# Compile TypeScript source
 npm run build
+
+# Run the cli
+# This is the equivalent of running `filecoin-pin` if you had it installed globally (e.g., `npm install filecoin-pin -g`).
+# It's like doing `npx filecoin-pin` that isn't stuck on that version until you `run npm install filecoin-pin -g` again.
+node ./dist/cli.js
 ```
 
 ### Testing
