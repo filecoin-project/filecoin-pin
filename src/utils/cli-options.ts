@@ -43,6 +43,10 @@ export function addAuthOptions(command: Command): Command {
     .option('--wallet-address <address>', 'Wallet address for session key auth (can also use WALLET_ADDRESS env)')
     .option('--session-key <key>', 'Session key for session key auth (can also use SESSION_KEY env)')
     .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env)', RPC_URLS.calibration.websocket)
+    .option(
+      '--warm-storage-address <address>',
+      'Warm storage contract address override (can also use WARM_STORAGE_ADDRESS env)'
+    )
 }
 
 /**

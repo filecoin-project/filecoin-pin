@@ -7,7 +7,6 @@
 
 import { createReadStream } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
-import { RPC_URLS } from '@filoz/synapse-sdk'
 import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
@@ -19,7 +18,7 @@ import {
   initializeSynapse,
   type SynapseService,
 } from '../core/synapse/index.js'
-import { parseProviderOptions } from '../utils/cli-auth.js'
+import { parseCLIAuth, parseProviderOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import type { ImportOptions, ImportResult } from './types.js'
@@ -166,33 +165,8 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     // Step 4: Initialize Synapse SDK (without storage context)
     spinner.start('Initializing Synapse SDK...')
 
-    // Check for session key auth (env vars only for now)
-    const walletAddress = process.env.WALLET_ADDRESS
-    const sessionKey = process.env.SESSION_KEY
-
-    // Validate authentication (either standard or session key mode)
-    const hasStandardAuth = options.privateKey != null
-    const hasSessionKeyAuth = walletAddress != null && sessionKey != null
-
-    if (!hasStandardAuth && !hasSessionKeyAuth) {
-      spinner.stop(`${pc.red('✗')} Authentication required`)
-      cancel('Provide either PRIVATE_KEY or both WALLET_ADDRESS + SESSION_KEY env vars')
-      process.exit(1)
-    }
-
-    const config = {
-      privateKey: options.privateKey,
-      walletAddress,
-      sessionKey,
-      rpcUrl: options.rpcUrl || RPC_URLS.calibration.websocket,
-      warmStorageAddress: process.env.WARM_STORAGE_ADDRESS,
-      // Other config fields not needed for import
-      port: 0,
-      host: '',
-      databasePath: '',
-      carStoragePath: '',
-      logLevel: 'error',
-    }
+    // Parse authentication options from CLI and environment
+    const config = parseCLIAuth(options)
 
     // Initialize just the Synapse SDK
     const synapse = await initializeSynapse(config, logger)
