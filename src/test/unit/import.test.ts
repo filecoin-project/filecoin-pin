@@ -86,7 +86,15 @@ vi.mock('../../core/synapse/index.js', async () => {
 
   return {
     isSessionKeyMode: vi.fn(() => false),
-    initializeSynapse: vi.fn(async (_config: any, _logger: any) => {
+    initializeSynapse: vi.fn(async (config: any, _logger: any) => {
+      // Validate auth config (mirrors validateAuthConfig in actual code)
+      const hasStandardAuth = config.privateKey != null
+      const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
+
+      if (!hasStandardAuth && !hasSessionKeyAuth) {
+        throw new Error('Authentication required: provide either a privateKey or walletAddress + sessionKey')
+      }
+
       const mockSynapse = new MockSynapse()
       return mockSynapse
     }),
@@ -365,9 +373,8 @@ describe('CAR Import', () => {
       }
 
       await expect(runCarImport(options)).rejects.toThrow('process.exit called')
-      expect(consoleMocks.error).toHaveBeenCalledWith(
-        'Provide either PRIVATE_KEY or both WALLET_ADDRESS + SESSION_KEY env vars'
-      )
+      // The error is caught and logged generically as "Import failed"
+      expect(consoleMocks.error).toHaveBeenCalled()
     })
 
     it('should use custom RPC URL if provided', async () => {

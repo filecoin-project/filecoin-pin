@@ -33,8 +33,18 @@ vi.mock('../../common/upload-flow.js', () => ({
 }))
 
 vi.mock('../../core/synapse/index.js', () => ({
-  initializeSynapse: vi.fn().mockResolvedValue({
-    getNetwork: () => 'calibration',
+  initializeSynapse: vi.fn().mockImplementation(async (config: any) => {
+    // Validate auth config (mirrors validateAuthConfig in actual code)
+    const hasStandardAuth = config.privateKey != null
+    const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
+
+    if (!hasStandardAuth && !hasSessionKeyAuth) {
+      throw new Error('Authentication required: provide either a privateKey or walletAddress + sessionKey')
+    }
+
+    return {
+      getNetwork: () => 'calibration',
+    }
   }),
   createStorageContext: vi.fn().mockResolvedValue({
     storage: {},
