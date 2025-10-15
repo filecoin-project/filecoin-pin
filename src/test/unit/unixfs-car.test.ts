@@ -392,8 +392,11 @@ describe('UnixFS CAR Creation', () => {
       for await (const _block of reader.blocks()) {
         blockCount++
       }
-      // Should have blocks for each directory
-      expect(blockCount).toBeGreaterThanOrEqual(4) // parent, sub1, sub2, subsub
+      // Empty directories deduplicate to the same CID, so we expect:
+      // 1. Empty directory block (shared by all empty dirs)
+      // 2. sub1 directory block (links to subsub)
+      // 3. parent directory block (links to sub1 and sub2)
+      expect(blockCount).toBe(3)
 
       // Clean up
       await rm(carPath, { force: true })
@@ -497,6 +500,39 @@ describe('UnixFS CAR Creation', () => {
       // Clean up
       await rm(carPath, { force: true })
       await rm(simpleDir, { recursive: true, force: true })
+    })
+
+    it('should deduplicate identical content blocks', async () => {
+      // Create a directory with multiple files containing identical content
+      const dedupDir = join(testDir, 'dedup-test')
+      await mkdir(dedupDir, { recursive: true })
+
+      // Create 3 files with identical content - they should deduplicate to one block
+      const identicalContent = 'This is the same content in all files'
+      await writeFile(join(dedupDir, 'file1.txt'), identicalContent)
+      await writeFile(join(dedupDir, 'file2.txt'), identicalContent)
+      await writeFile(join(dedupDir, 'file3.txt'), identicalContent)
+
+      const { carPath, rootCid } = await createCarFromPath(dedupDir)
+
+      expect(rootCid).toBeDefined()
+
+      // Expected blocks:
+      // 1. Single data block (shared by all 3 files due to deduplication)
+      // 2. directory block (dag-pb) linking to the 3 files (which all point to same data block)
+      const blockCount = await countBlocks(carPath)
+      expect(blockCount).toBe(2) // Only 2 blocks instead of 4 due to deduplication
+
+      // Verify CAR still has correct structure
+      const carData = await readFile(carPath)
+      const reader = await CarReader.fromBytes(carData)
+      const roots = await reader.getRoots()
+      expect(roots.length).toBe(1)
+      expect(roots[0]?.toString()).toBe(rootCid.toString())
+
+      // Clean up
+      await rm(carPath, { force: true })
+      await rm(dedupDir, { recursive: true, force: true })
     })
   })
 })

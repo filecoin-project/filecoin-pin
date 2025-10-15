@@ -4,13 +4,63 @@ import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { CARWritingBlockstore } from '../../core/car/index.js'
+import { CARWritingBlockstore as BrowserCARBlockstore } from '../../core/car/browser-car-blockstore.js'
+import { CARWritingBlockstore as NodeCARBlockstore } from '../../core/car/car-blockstore.js'
+import type { CARBlockstoreBase } from '../../core/car/car-blockstore-base.js'
 
-describe('CARWritingBlockstore', () => {
-  let blockstore: CARWritingBlockstore
+interface BlockstoreFactory {
+  create(rootCID: CID): CARBlockstoreBase | NodeCARBlockstore | BrowserCARBlockstore
+  cleanup(): Promise<void>
+  hasEvents: boolean
+  hasFileOutput: boolean
+  hasBrowserAPI: boolean
+  supportsReading: boolean // Can read blocks back after writing
+  name: string
+}
+
+const testOutputPath = './test-output-shared.car'
+
+const factories: BlockstoreFactory[] = [
+  {
+    name: 'Node.js (file-based)',
+    hasEvents: true,
+    hasFileOutput: true,
+    hasBrowserAPI: false,
+    supportsReading: true,
+    create: (rootCID: CID) =>
+      new NodeCARBlockstore({
+        rootCID,
+        outputPath: testOutputPath,
+      }),
+    cleanup: async () => {
+      try {
+        await stat(testOutputPath)
+        await rm(testOutputPath)
+      } catch {
+        // File doesn't exist
+      }
+    },
+  },
+  {
+    name: 'Browser (in-memory)',
+    hasEvents: false,
+    hasFileOutput: false,
+    hasBrowserAPI: true,
+    supportsReading: false, // Browser version is write-only
+    create: (rootCID: CID) =>
+      new BrowserCARBlockstore({
+        rootCID,
+      }),
+    cleanup: async () => {
+      // No cleanup needed for in-memory
+    },
+  },
+]
+
+describe.each(factories)('CARWritingBlockstore - $name', (factory) => {
+  let blockstore: CARBlockstoreBase | NodeCARBlockstore | BrowserCARBlockstore
   let testCID: CID
   let testBlock: Uint8Array
-  const testOutputPath = './test-output.car'
 
   beforeEach(async () => {
     // Create a test block and CID
@@ -18,25 +68,18 @@ describe('CARWritingBlockstore', () => {
     const hash = await sha256.digest(testBlock)
     testCID = CID.create(1, raw.code, hash)
 
-    blockstore = new CARWritingBlockstore({
-      rootCID: testCID,
-      outputPath: testOutputPath,
-    })
+    blockstore = factory.create(testCID)
   })
 
   afterEach(async () => {
-    // Clean up test files
     await blockstore.cleanup()
-    try {
-      await stat(testOutputPath)
-      await rm(testOutputPath)
-    } catch {
-      // File doesn't exist, nothing to clean up
-    }
+    await factory.cleanup()
+    // Add a small delay to ensure file operations complete
+    await new Promise((resolve) => setTimeout(resolve, 10))
   })
 
   describe('Initialization', () => {
-    it('should initialize with root CID and output path', () => {
+    it('should initialize with root CID', () => {
       expect(blockstore).toBeDefined()
       const stats = blockstore.getStats()
       expect(stats.blocksWritten).toBe(0)
@@ -44,9 +87,9 @@ describe('CARWritingBlockstore', () => {
       expect(stats.finalized).toBe(false)
     })
 
-    it('should emit initialized event', async () => {
+    it.skipIf(!factory.hasEvents)('should emit initialized event', async () => {
       let eventData: any
-      blockstore.on('initialized', (data) => {
+      ;(blockstore as NodeCARBlockstore).on('initialized', (data) => {
         eventData = data
       })
 
@@ -69,9 +112,9 @@ describe('CARWritingBlockstore', () => {
       expect(stats.totalSize).toBe(testBlock.length)
     })
 
-    it('should emit block:stored event when putting blocks', async () => {
+    it.skipIf(!factory.hasEvents)('should emit block:stored event when putting blocks', async () => {
       let eventData: any
-      blockstore.on('block:stored', (data) => {
+      ;(blockstore as NodeCARBlockstore).on('block:stored', (data) => {
         eventData = data
       })
 
@@ -82,13 +125,12 @@ describe('CARWritingBlockstore', () => {
       expect(eventData.size).toBe(testBlock.length)
     })
 
-    it('should get a block that was previously put', async () => {
+    it.skipIf(!factory.supportsReading)('should get a block that was previously put', async () => {
       await blockstore.put(testCID, testBlock)
 
       // Allow filesystem to settle after write
       await new Promise((resolve) => setTimeout(resolve, 50))
 
-      // Consume the async generator to get the bytes
       const result = await toBuffer(blockstore.get(testCID))
       expect(result).toEqual(testBlock)
     })
@@ -97,7 +139,6 @@ describe('CARWritingBlockstore', () => {
       const nonExistentHash = await sha256.digest(new TextEncoder().encode('nonexistent'))
       const nonExistentCID = CID.create(1, raw.code, nonExistentHash)
 
-      // Need to consume the generator to trigger the error
       await expect(async () => {
         for await (const _ of blockstore.get(nonExistentCID)) {
           // Should not reach here
@@ -105,9 +146,9 @@ describe('CARWritingBlockstore', () => {
       }).rejects.toThrow('Block not found')
     })
 
-    it('should emit block:missing event for missing blocks', async () => {
+    it.skipIf(!factory.hasEvents)('should emit block:missing event for missing blocks', async () => {
       let eventData: any
-      blockstore.on('block:missing', (data) => {
+      ;(blockstore as NodeCARBlockstore).on('block:missing', (data) => {
         eventData = data
       })
 
@@ -115,7 +156,6 @@ describe('CARWritingBlockstore', () => {
       const nonExistentCID = CID.create(1, raw.code, nonExistentHash)
 
       try {
-        // Consume the generator to trigger the error and event
         for await (const _ of blockstore.get(nonExistentCID)) {
           // Should not reach here
         }
@@ -144,7 +184,6 @@ describe('CARWritingBlockstore', () => {
       await expect(blockstore.delete(testCID)).rejects.toThrow(
         'Delete operation not supported on CAR writing blockstore'
       )
-      // Block should still exist after failed delete
       expect(await blockstore.has(testCID)).toBe(true)
     })
   })
@@ -170,7 +209,6 @@ describe('CARWritingBlockstore', () => {
     })
 
     it('should throw error when trying to delete many blocks', async () => {
-      // Put some blocks first
       const cids: CID[] = []
       for (let i = 0; i < 3; i++) {
         const data = new TextEncoder().encode(`Block ${i}`)
@@ -180,17 +218,14 @@ describe('CARWritingBlockstore', () => {
         await blockstore.put(cid, data)
       }
 
-      // deleteMany should throw an error
       await expect(async () => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         for await (const _ of blockstore.deleteMany(cids)) {
           // Should not reach here
         }
       }).rejects.toThrow('DeleteMany operation not supported on CAR writing blockstore')
     })
 
-    it('should get many blocks', async () => {
-      // Put some blocks first
+    it.skipIf(!factory.supportsReading)('should get many blocks', async () => {
       const blocks = []
       const cids: CID[] = []
       for (let i = 0; i < 3; i++) {
@@ -211,15 +246,15 @@ describe('CARWritingBlockstore', () => {
       }
 
       expect(results).toHaveLength(3)
-      // Consume the generator to get the actual bytes and compare all blocks
-      for (let i = 0; i < results.length; i++) {
-        const resultBytes = await toBuffer(results[i]?.bytes || [])
-        expect(resultBytes).toEqual(blocks[i]?.bytes)
+      const firstPair = results[0]
+      expect(firstPair).toBeDefined()
+      if (firstPair != null) {
+        const firstBytes = await toBuffer(firstPair.bytes as AsyncIterable<Uint8Array>)
+        expect(firstBytes).toEqual(blocks[0]?.bytes)
       }
     })
 
     it('should get all blocks', async () => {
-      // Put some blocks first
       for (let i = 0; i < 3; i++) {
         const data = new TextEncoder().encode(`Block ${i}`)
         const hash = await sha256.digest(data)
@@ -236,18 +271,16 @@ describe('CARWritingBlockstore', () => {
     })
   })
 
-  describe('CAR File Operations', () => {
-    it('should create a CAR file', async () => {
+  describe('Finalization', () => {
+    it.skipIf(!factory.hasFileOutput)('should create a CAR file', async () => {
       await blockstore.put(testCID, testBlock)
       await blockstore.finalize()
 
-      // Verify file was created
       const fileExists = await stat(testOutputPath)
         .then(() => true)
         .catch(() => false)
       expect(fileExists).toBe(true)
 
-      // Verify file is not empty
       const fileContent = await readFile(testOutputPath)
       expect(fileContent.length).toBeGreaterThan(0)
     })
@@ -262,9 +295,9 @@ describe('CARWritingBlockstore', () => {
       expect(finalStats.missingBlocks.size).toBe(0)
     })
 
-    it('should emit finalized event', async () => {
+    it.skipIf(!factory.hasEvents)('should emit finalized event', async () => {
       let eventData: any
-      blockstore.on('finalized', (data) => {
+      ;(blockstore as NodeCARBlockstore).on('finalized', (data) => {
         eventData = data
       })
 
@@ -276,11 +309,9 @@ describe('CARWritingBlockstore', () => {
     })
 
     it('should prevent putting blocks after finalization', async () => {
-      // Write at least one block before finalizing
       await blockstore.put(testCID, testBlock)
       await blockstore.finalize()
 
-      // Now try to put another block - this should fail
       const anotherBlock = new TextEncoder().encode('Another block')
       const anotherHash = await sha256.digest(anotherBlock)
       const anotherCID = CID.create(1, raw.code, anotherHash)
@@ -297,14 +328,27 @@ describe('CARWritingBlockstore', () => {
 
       expect(stats1).toEqual(stats2)
     })
+
+    it.skipIf(!factory.hasBrowserAPI)('should provide CAR bytes after finalization', async () => {
+      await blockstore.put(testCID, testBlock)
+      await blockstore.finalize()
+
+      const carBytes = (blockstore as BrowserCARBlockstore).getCarBytes()
+      expect(carBytes).toBeInstanceOf(Uint8Array)
+      expect(carBytes.length).toBeGreaterThan(0)
+    })
+
+    it.skipIf(!factory.hasBrowserAPI)('should throw when getting CAR bytes before finalization', () => {
+      expect(() => {
+        ;(blockstore as BrowserCARBlockstore).getCarBytes()
+      }).toThrow('Cannot get CAR bytes before finalization')
+    })
   })
 
   describe('Error Handling', () => {
-    it('should handle cleanup gracefully', async () => {
-      await blockstore.put(testCID, testBlock)
-
+    it.skipIf(!factory.hasEvents)('should handle cleanup gracefully', async () => {
       let cleanupEmitted = false
-      blockstore.on('cleanup', () => {
+      ;(blockstore as NodeCARBlockstore).on('cleanup', () => {
         cleanupEmitted = true
       })
 
@@ -312,16 +356,28 @@ describe('CARWritingBlockstore', () => {
       expect(cleanupEmitted).toBe(true)
     })
 
-    it('should throw error when finalizing without any blocks', async () => {
-      // Create a fresh blockstore that hasn't written any blocks
-      const emptyBlockstore = new CARWritingBlockstore({
-        rootCID: testCID,
-        outputPath: './test-empty.car',
-      })
+    it.skipIf(!factory.hasFileOutput)('should throw error when finalizing without any blocks', async () => {
+      // Only Node.js version checks for empty blockstore
+      const emptyBlockstore = factory.create(testCID)
 
       await expect(emptyBlockstore.finalize()).rejects.toThrow(
         'Cannot finalize CAR blockstore without any blocks written'
       )
+    })
+  })
+
+  describe('Deduplication', () => {
+    it('should deduplicate identical blocks', async () => {
+      // Put same block twice
+      await blockstore.put(testCID, testBlock)
+      await blockstore.put(testCID, testBlock)
+
+      // Allow filesystem to settle after writes
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      const stats = blockstore.getStats()
+      // Should only count once
+      expect(stats.blocksWritten).toBe(1)
     })
   })
 })

@@ -7,6 +7,7 @@
 
 import { unixfs } from '@helia/unixfs'
 import { CarReader, CarWriter } from '@ipld/car'
+import toBuffer from 'it-to-buffer'
 import { CID } from 'multiformats/cid'
 import { CARWritingBlockstore } from '../car/browser-car-blockstore.js'
 
@@ -273,13 +274,5 @@ async function updateRootCidInCar(carBytes: Uint8Array, rootCid: CID): Promise<U
   await writer.close()
 
   // Combine chunks
-  const totalLength = newChunks.reduce((sum, chunk) => sum + chunk.length, 0)
-  const result = new Uint8Array(totalLength)
-  let offset = 0
-  for (const chunk of newChunks) {
-    result.set(chunk, offset)
-    offset += chunk.length
-  }
-
-  return result
+  return toBuffer(newChunks)
 }
