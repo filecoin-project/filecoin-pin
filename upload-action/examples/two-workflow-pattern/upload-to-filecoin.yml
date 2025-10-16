@@ -34,6 +34,18 @@ jobs:
           repository: ${{ github.event.workflow_run.repository.full_name }}
           run-id: ${{ github.event.workflow_run.id }}
 
+      # Temporary allowlist of storage providers that have proven reliable during launch.
+      # This exists to paper over early stability issues while the wider provider ecosystem
+      # catches up. Remove once automatic provider discovery is trustworthy again.
+      # Having a FilOz-approved set of SPs onchain is happening in https://github.com/FilOzone/filecoin-services/issues/291
+      # This PROVIDER_ID set here will be used by the upload action below to override provider selection.
+      - name: Select random known good provider
+        run: |
+          known_good_provider_ids=(2 8 16)
+          selected_provider_id=${known_good_provider_ids[$RANDOM % ${#known_good_provider_ids[@]}]}
+          echo "PROVIDER_ID=$selected_provider_id" >> $GITHUB_ENV
+          echo "Selected known good provider ID: $selected_provider_id"
+
       # Upload to Filecoin using the downloaded build artifacts
       # The action will create a CAR file from the downloaded artifacts and upload to Filecoin
       - name: Upload to Filecoin
