@@ -61,7 +61,7 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
 
       - name: Upload to Filecoin
-        uses: filecoin-project/filecoin-pin/upload-action@v1
+        uses: filecoin-project/filecoin-pin/upload-action@v0
         with:
           path: dist
           walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
@@ -90,7 +90,7 @@ For most users, automatic provider selection is recommended. However, for advanc
 
 ```yaml
 - name: Upload to Filecoin
-  uses: filecoin-project/filecoin-pin/upload-action@v1
+  uses: filecoin-project/filecoin-pin/upload-action@v0
   env:
     PROVIDER_ADDRESS: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e"  # Override by address
     # OR
@@ -110,7 +110,7 @@ For most users, automatic provider selection is recommended. However, for advanc
 
 ## Security Checklist
 
-- ✅ Pin action by version tag or commit SHA (`@v1`, `@v1.0.0`, or `@<sha>`)
+- ✅ Pin action by version tag or commit SHA (`@v0`, `@v0.9.1`, or `@<sha>`)
 - ✅ Grant `actions: read` for artifact reuse (cache fallback)
 - ✅ Grant `checks: write` for PR check status
 - ✅ Grant `pull-requests: write` for PR comments
@@ -144,7 +144,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: npm ci && npm run build
       - name: Upload to Filecoin
-        uses: filecoin-project/filecoin-pin/upload-action@v1
+        uses: filecoin-project/filecoin-pin/upload-action@v0
         with:
           path: dist
           walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
@@ -165,8 +165,8 @@ jobs:
 
 Use semantic version tags from [filecoin-pin releases](https://github.com/filecoin-project/filecoin-pin/releases):
 
-- **`@v1`** - Latest v1.x.x (recommended)
-- **`@v1.0.0`** - Specific version (production)
+- **`@v0`** - Latest v0.x.x (recommended)
+- **`@v0.9.1`** - Specific version (production)
 - **`@<commit-sha>`** - Maximum supply-chain security
 
 ## Caching & Artifacts
