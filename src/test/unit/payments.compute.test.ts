@@ -151,9 +151,9 @@ describe('computeAdjustmentForExactDaysWithFile', () => {
     const carSizeBytes = 1024 * 1024 * 1024 // 1 GiB
     const pricePerTiBPerEpoch = 1_000_000_000_000_000n // 0.001 USDFC per TiB per epoch
     const days = 30
-    
+
     const res = computeAdjustmentForExactDaysWithFile(status, days, carSizeBytes, pricePerTiBPerEpoch)
-    
+
     // Should require deposit for both lockup and runway
     expect(res.delta).toBeGreaterThan(0n)
     expect(res.newRateUsed).toBeGreaterThan(0n)
@@ -164,15 +164,15 @@ describe('computeAdjustmentForExactDaysWithFile', () => {
     // Scenario: Existing storage, adding another file
     const rateUsed = 1_000_000_000_000_000_000n // 1 USDFC/epoch
     const lockupUsed = rateUsed * BigInt(10) * TIME_CONSTANTS.EPOCHS_PER_DAY // 10 days worth
-    const depositedAmount = lockupUsed * 12n / 10n // 20% buffer
+    const depositedAmount = (lockupUsed * 12n) / 10n // 20% buffer
     const status = makeStatus({ depositedAmount, lockupUsed, rateUsed })
-    
+
     const carSizeBytes = 1024 * 1024 * 1024 // 1 GiB
     const pricePerTiBPerEpoch = 1_000_000_000_000_000n // 0.001 USDFC per TiB per epoch
     const days = 30
-    
+
     const res = computeAdjustmentForExactDaysWithFile(status, days, carSizeBytes, pricePerTiBPerEpoch)
-    
+
     // New rate should be higher than existing
     expect(res.newRateUsed).toBeGreaterThan(rateUsed)
     expect(res.newLockupUsed).toBeGreaterThan(lockupUsed)
