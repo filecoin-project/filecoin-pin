@@ -2,6 +2,7 @@ import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { describe, expect, it } from 'vitest'
 import {
   computeAdjustmentForExactDays,
+  computeAdjustmentForExactDaysWithFile,
   computeAdjustmentForExactDeposit,
   computeTopUpForDuration,
   type PaymentStatus,
@@ -140,5 +141,40 @@ describe('computeAdjustmentForExactDeposit', () => {
     const res = computeAdjustmentForExactDeposit(status, 1_500n)
     expect(res.delta).toBe(500n)
     expect(res.clampedTarget).toBe(1_500n)
+  })
+})
+
+describe('computeAdjustmentForExactDaysWithFile', () => {
+  it('calculates deposit for new file when rateUsed is 0', () => {
+    // Scenario: No existing storage, uploading first file
+    const status = makeStatus({ depositedAmount: 0n, lockupUsed: 0n, rateUsed: 0n })
+    const carSizeBytes = 1024 * 1024 * 1024 // 1 GiB
+    const pricePerTiBPerEpoch = 1_000_000_000_000_000n // 0.001 USDFC per TiB per epoch
+    const days = 30
+    
+    const res = computeAdjustmentForExactDaysWithFile(status, days, carSizeBytes, pricePerTiBPerEpoch)
+    
+    // Should require deposit for both lockup and runway
+    expect(res.delta).toBeGreaterThan(0n)
+    expect(res.newRateUsed).toBeGreaterThan(0n)
+    expect(res.newLockupUsed).toBeGreaterThan(0n)
+  })
+
+  it('adds file requirements to existing usage', () => {
+    // Scenario: Existing storage, adding another file
+    const rateUsed = 1_000_000_000_000_000_000n // 1 USDFC/epoch
+    const lockupUsed = rateUsed * BigInt(10) * TIME_CONSTANTS.EPOCHS_PER_DAY // 10 days worth
+    const depositedAmount = lockupUsed * 12n / 10n // 20% buffer
+    const status = makeStatus({ depositedAmount, lockupUsed, rateUsed })
+    
+    const carSizeBytes = 1024 * 1024 * 1024 // 1 GiB
+    const pricePerTiBPerEpoch = 1_000_000_000_000_000n // 0.001 USDFC per TiB per epoch
+    const days = 30
+    
+    const res = computeAdjustmentForExactDaysWithFile(status, days, carSizeBytes, pricePerTiBPerEpoch)
+    
+    // New rate should be higher than existing
+    expect(res.newRateUsed).toBeGreaterThan(rateUsed)
+    expect(res.newLockupUsed).toBeGreaterThan(lockupUsed)
   })
 })

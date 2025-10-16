@@ -154,7 +154,11 @@ export async function runUpload(buildContext = {}) {
       summary: 'Verifying account balance and calculating required deposits...',
     })
 
-    paymentStatus = await handlePayments(synapse, { minStorageDays, filecoinPayBalanceLimit }, logger)
+    paymentStatus = await handlePayments(
+      synapse,
+      { minStorageDays, filecoinPayBalanceLimit, carSizeBytes: context.carSize },
+      logger
+    )
 
     console.log('✓ Funding phase complete')
 

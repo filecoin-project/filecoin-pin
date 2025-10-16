@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs'
 import { RPC_URLS } from '@filoz/synapse-sdk'
 import {
   calculateStorageRunway,
+  computeAdjustmentForExactDaysWithFile,
   computeTopUpForDuration,
   depositUSDFC,
   getPaymentStatus,
@@ -71,7 +72,7 @@ export async function initializeSynapse(config, logger) {
  * @returns {Promise<PaymentStatus>} Updated payment status
  */
 export async function handlePayments(synapse, options, logger) {
-  const { minStorageDays, filecoinPayBalanceLimit } = options
+  const { minStorageDays, filecoinPayBalanceLimit, carSizeBytes } = options
 
   console.log('Checking current Filecoin Pay account balance...')
   const initialStatus = await getPaymentStatus(synapse)
@@ -82,9 +83,32 @@ export async function handlePayments(synapse, options, logger) {
   let requiredTopUp = 0n
 
   if (minStorageDays > 0) {
-    const { topUp } = computeTopUpForDuration(initialStatus, minStorageDays)
-    requiredTopUp = topUp
-    console.log(`Required top-up for ${minStorageDays} days of storage: ${formatUSDFC(requiredTopUp)} USDFC`)
+    const rateUsed = initialStatus.currentAllowances.rateUsed ?? 0n
+
+    // If there's an upcoming file upload and no existing usage, calculate deposit based on file size
+    if (rateUsed === 0n && carSizeBytes != null && carSizeBytes > 0) {
+      // Get pricing information to calculate file requirements
+      const storageInfo = await synapse.storage.getStorageInfo()
+      const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
+
+      // Calculate required deposit accounting for the new file
+      const { delta } = computeAdjustmentForExactDaysWithFile(
+        initialStatus,
+        minStorageDays,
+        carSizeBytes,
+        pricePerTiBPerEpoch
+      )
+
+      requiredTopUp = delta > 0n ? delta : 0n
+      console.log(
+        `Required top-up for ${minStorageDays} days of storage (including upcoming upload): ${formatUSDFC(requiredTopUp)} USDFC`
+      )
+    } else {
+      // Use existing logic for maintaining current usage
+      const { topUp } = computeTopUpForDuration(initialStatus, minStorageDays)
+      requiredTopUp = topUp
+      console.log(`Required top-up for ${minStorageDays} days of storage: ${formatUSDFC(requiredTopUp)} USDFC`)
+    }
   }
 
   // Check if deposit would exceed maximum balance if specified
