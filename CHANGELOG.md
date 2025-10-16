@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.9.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.9.0...v0.9.1) (2025-10-16)
+
+
+### Bug Fixes
+
+* re-use upload-action PR comment ([#126](https://github.com/filecoin-project/filecoin-pin/issues/126)) ([e1cf5ec](https://github.com/filecoin-project/filecoin-pin/commit/e1cf5ec51f0b8853996e9fa3abbc2b6ed934681f)), closes [#99](https://github.com/filecoin-project/filecoin-pin/issues/99)
+* upload-action provider overriding ([#116](https://github.com/filecoin-project/filecoin-pin/issues/116)) ([5a59dac](https://github.com/filecoin-project/filecoin-pin/commit/5a59dac8c27a0b2ef1e1d6b517df1d061a507ce0))
+* use parseCLIAuth in add and import, add --warm-storage-address ([#123](https://github.com/filecoin-project/filecoin-pin/issues/123)) ([76bb790](https://github.com/filecoin-project/filecoin-pin/commit/76bb7909a16346ac0ca9a70f6a26cb69d5dc805f))
+
+
+### Chores
+
+* **deps:** bump actions/setup-node from 5 to 6 ([#121](https://github.com/filecoin-project/filecoin-pin/issues/121)) ([ebaabd6](https://github.com/filecoin-project/filecoin-pin/commit/ebaabd6951bad7329d004dfc5498eb2f2e97dcdc))
+* **docs:** make README more accurate for current state ([#119](https://github.com/filecoin-project/filecoin-pin/issues/119)) ([dd0869b](https://github.com/filecoin-project/filecoin-pin/commit/dd0869b19de1ca5ec6890e03a6a30efba3e9a997))
+
+
+### Documentation
+
+* action example selects a random known good SP ([#125](https://github.com/filecoin-project/filecoin-pin/issues/125)) ([a23093b](https://github.com/filecoin-project/filecoin-pin/commit/a23093ba1988f7d071b0141aee81bf4389b3c3b4))
+* **action:** Update Filecoin Pin Github Action README.md ([#118](https://github.com/filecoin-project/filecoin-pin/issues/118)) ([0df2e25](https://github.com/filecoin-project/filecoin-pin/commit/0df2e2558cb74a447aa2195950d34ab810a9da1c))
+* **readme:** restructure and clarify project overview ([#124](https://github.com/filecoin-project/filecoin-pin/issues/124)) ([b3ce025](https://github.com/filecoin-project/filecoin-pin/commit/b3ce0258007d83d7f472fc85835d8e54eda7c033))
+
 ## [0.9.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.8.1...v0.9.0) (2025-10-14)
 
 
