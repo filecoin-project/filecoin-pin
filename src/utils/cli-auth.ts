@@ -105,5 +105,5 @@ export function parseProviderOptions(options?: CLIAuthOptions): ProviderSelectio
  * @returns Logger configured for CLI use
  */
 export function getCLILogger() {
-  return createLogger({ logLevel: process.env.LOG_LEVEL || 'info' })
+  return createLogger({ logLevel: process.env.LOG_LEVEL })
 }
