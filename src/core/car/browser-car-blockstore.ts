@@ -7,7 +7,7 @@ import { CarWriter } from '@ipld/car'
 import type { Blockstore } from 'interface-blockstore'
 import type { AbortOptions, AwaitIterable } from 'interface-store'
 import toBuffer from 'it-to-buffer'
-import { CID } from 'multiformats/cid'
+import type { CID } from 'multiformats/cid'
 import varint from 'varint'
 
 export interface CARBlockstoreStats {
@@ -171,14 +171,12 @@ export class CARWritingBlockstore implements Blockstore {
     }
   }
 
+  // biome-ignore lint/correctness/useYield: This method throws immediately and intentionally never yields
   async *getMany(
-    source: AwaitIterable<CID>,
+    _source: AwaitIterable<CID>,
     _options?: AbortOptions
   ): AsyncGenerator<{ cid: CID; bytes: AsyncGenerator<Uint8Array> }> {
-    for await (const cid of source) {
-      const bytes = this.get(cid)
-      yield { cid, bytes }
-    }
+    throw new Error('Not implemented for CAR blockstore in the browser.')
   }
 
   // biome-ignore lint/correctness/useYield: This method throws immediately and intentionally never yields
@@ -186,12 +184,9 @@ export class CARWritingBlockstore implements Blockstore {
     throw new Error('DeleteMany operation not supported on CAR writing blockstore')
   }
 
+  // biome-ignore lint/correctness/useYield: This method throws immediately and intentionally never yields
   async *getAll(_options?: AbortOptions): AsyncGenerator<{ cid: CID; bytes: AsyncGenerator<Uint8Array> }> {
-    for (const [cidStr] of this.blockOffsets.entries()) {
-      const cid = CID.parse(cidStr)
-      const bytes = this.get(cid)
-      yield { cid, bytes }
-    }
+    throw new Error('Not implemented for CAR blockstore in the browser.')
   }
 
   /**
