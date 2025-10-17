@@ -1,0 +1,52 @@
+name: Upload to Filecoin
+
+# Simple single-workflow pattern - for same-repo PRs only
+# NOTE: Fork PR support is currently disabled
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read        # Required for artifact reuse
+      checks: write        # Required to create PR check status
+      pull-requests: write # Required for PR comments
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          # npm install
+          # npm run build
+          # or whatever builds your content
+          mkdir -p dist
+          echo "Built content" > dist/index.html
+
+      # Temporary allowlist of storage providers that have proven reliable during launch.
+      # This exists to paper over early stability issues while the wider provider ecosystem
+      # catches up. Remove once automatic provider discovery is trustworthy again.
+      # Having a FilOz-approved set of SPs onchain is happening in https://github.com/FilOzone/filecoin-services/issues/291
+      # This PROVIDER_ID set here will be used by the upload action below to override provider selection.
+      - name: Select random known good provider
+        run: |
+          known_good_provider_ids=(2 8 16)
+          selected_provider_id=${known_good_provider_ids[$RANDOM % ${#known_good_provider_ids[@]}]}
+          echo "PROVIDER_ID=$selected_provider_id" >> $GITHUB_ENV
+          echo "Selected known good provider ID: $selected_provider_id"
+
+      # Upload to Filecoin - the action will build CAR and upload in a single flow
+      - name: Upload to Filecoin
+        uses: filecoin-project/filecoin-pin/upload-action@v0
+        with:
+          walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
+          path: dist
+          network: mainnet
+          minStorageDays: "30"
+          filecoinPayBalanceLimit: "5.00"

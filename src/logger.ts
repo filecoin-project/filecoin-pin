@@ -1,8 +1,7 @@
 import { type Logger, pino } from 'pino'
-import type { Config } from './config.js'
 
-export function createLogger(config: Config): Logger {
+export function createLogger(config: { logLevel?: string | undefined }): Logger {
   return pino({
-    level: config.logLevel ?? 'info',
+    level: config.logLevel ?? 'error',
   })
 }

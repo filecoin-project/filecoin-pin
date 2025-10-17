@@ -1,9 +1,10 @@
 import { readFile, rm, stat } from 'node:fs/promises'
+import toBuffer from 'it-to-buffer'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { CARWritingBlockstore } from '../../car-blockstore.js'
+import { CARWritingBlockstore } from '../../core/car/index.js'
 
 describe('CARWritingBlockstore', () => {
   let blockstore: CARWritingBlockstore
@@ -84,15 +85,21 @@ describe('CARWritingBlockstore', () => {
     it('should get a block that was previously put', async () => {
       await blockstore.put(testCID, testBlock)
 
-      const retrievedBlock = await blockstore.get(testCID)
-      expect(retrievedBlock).toEqual(testBlock)
+      // Consume the async generator to get the bytes
+      const result = await toBuffer(blockstore.get(testCID))
+      expect(result).toEqual(testBlock)
     })
 
     it('should throw error when getting non-existent block', async () => {
       const nonExistentHash = await sha256.digest(new TextEncoder().encode('nonexistent'))
       const nonExistentCID = CID.create(1, raw.code, nonExistentHash)
 
-      await expect(blockstore.get(nonExistentCID)).rejects.toThrow('Block not found')
+      // Need to consume the generator to trigger the error
+      await expect(async () => {
+        for await (const _ of blockstore.get(nonExistentCID)) {
+          // Should not reach here
+        }
+      }).rejects.toThrow('Block not found')
     })
 
     it('should emit block:missing event for missing blocks', async () => {
@@ -105,7 +112,10 @@ describe('CARWritingBlockstore', () => {
       const nonExistentCID = CID.create(1, raw.code, nonExistentHash)
 
       try {
-        await blockstore.get(nonExistentCID)
+        // Consume the generator to trigger the error and event
+        for await (const _ of blockstore.get(nonExistentCID)) {
+          // Should not reach here
+        }
       } catch (_error) {
         // Expected to throw
       }
@@ -140,10 +150,10 @@ describe('CARWritingBlockstore', () => {
     it('should put many blocks', async () => {
       const blocks = []
       for (let i = 0; i < 3; i++) {
-        const data = new TextEncoder().encode(`Block ${i}`)
-        const hash = await sha256.digest(data)
+        const bytes = new TextEncoder().encode(`Block ${i}`)
+        const hash = await sha256.digest(bytes)
         const cid = CID.create(1, raw.code, hash)
-        blocks.push({ cid, block: data })
+        blocks.push({ cid, bytes })
       }
 
       const results = []
@@ -181,12 +191,12 @@ describe('CARWritingBlockstore', () => {
       const blocks = []
       const cids: CID[] = []
       for (let i = 0; i < 3; i++) {
-        const data = new TextEncoder().encode(`Block ${i}`)
-        const hash = await sha256.digest(data)
+        const bytes = new TextEncoder().encode(`Block ${i}`)
+        const hash = await sha256.digest(bytes)
         const cid = CID.create(1, raw.code, hash)
-        blocks.push({ cid, block: data })
+        blocks.push({ cid, bytes })
         cids.push(cid)
-        await blockstore.put(cid, data)
+        await blockstore.put(cid, bytes)
       }
 
       const results = []
@@ -195,7 +205,11 @@ describe('CARWritingBlockstore', () => {
       }
 
       expect(results).toHaveLength(3)
-      expect(results[0]?.block).toEqual(blocks[0]?.block)
+      // Consume the generator to get the actual bytes and compare all blocks
+      for (let i = 0; i < results.length; i++) {
+        const resultBytes = await toBuffer(results[i]?.bytes || [])
+        expect(resultBytes).toEqual(blocks[i]?.bytes)
+      }
     })
 
     it('should get all blocks', async () => {

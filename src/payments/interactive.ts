@@ -10,21 +10,21 @@ import { cancel, confirm, isCancel, password, text } from '@clack/prompts'
 import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { calculateDepositCapacity, checkAllowances, setMaxAllowances } from '../synapse/payments.js'
-import { cleanupProvider, cleanupSynapseService } from '../synapse/service.js'
-import { createSpinner, intro, outro } from '../utils/cli-helpers.js'
-import { isTTY, log } from '../utils/cli-logger.js'
 import {
+  calculateDepositCapacity,
+  checkAllowances,
   checkFILBalance,
   checkUSDFCBalance,
   depositUSDFC,
-  displayAccountInfo,
-  displayDepositWarning,
-  displayPricing,
-  formatUSDFC,
   getPaymentStatus,
+  setMaxAllowances,
   validatePaymentRequirements,
-} from './setup.js'
+} from '../core/payments/index.js'
+import { cleanupProvider, cleanupSynapseService } from '../core/synapse/index.js'
+import { formatUSDFC } from '../core/utils/format.js'
+import { createSpinner, intro, outro } from '../utils/cli-helpers.js'
+import { isTTY, log } from '../utils/cli-logger.js'
+import { displayAccountInfo, displayDepositWarning, displayPricing } from './setup.js'
 import type { PaymentSetupOptions } from './types.js'
 
 /**
@@ -92,10 +92,11 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     const synapse = await Synapse.create({
       privateKey,
       rpcURL: rpcUrl,
+      withIpni: true, // Always filter for IPNI-enabled providers
     })
     const network = synapse.getNetwork()
-    const signer = synapse.getSigner()
-    const address = await signer.getAddress()
+    const client = synapse.getClient()
+    const address = await client.getAddress()
 
     // Store provider reference for cleanup if it's a WebSocket provider
     if (rpcUrl.match(/^wss?:\/\//)) {

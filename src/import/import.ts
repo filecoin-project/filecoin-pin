@@ -7,20 +7,20 @@
 
 import { createReadStream } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
-import { RPC_URLS } from '@filoz/synapse-sdk'
 import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
 import { envToBool } from '../common/env-vars.js'
-import { displayUploadResults, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
+import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import {
   cleanupSynapseService,
   createStorageContext,
   initializeSynapse,
   type SynapseService,
-} from '../synapse/service.js'
+} from '../core/synapse/index.js'
+import { parseCLIAuth, parseProviderOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import type { ImportOptions, ImportResult } from './types.js'
@@ -178,23 +178,8 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     // Step 4: Initialize Synapse SDK (without storage context)
     spinner.start('Initializing Synapse SDK...')
 
-    if (!options.privateKey) {
-      spinner.stop(`${pc.red('✗')} Private key required via --private-key or PRIVATE_KEY env`)
-      cancel('Import cancelled')
-      process.exit(1)
-    }
-
-    const config = {
-      privateKey: options.privateKey,
-      rpcUrl: options.rpcUrl || RPC_URLS.calibration.websocket,
-      // Other config fields not needed for import
-      port: 0,
-      host: '',
-      databasePath: '',
-      carStoragePath: '',
-      logLevel: 'error',
-      warmStorageAddress: undefined,
-    }
+    // Parse authentication options from CLI and environment
+    const config = parseCLIAuth(options)
 
     // Initialize just the Synapse SDK
     const synapse = await initializeSynapse(config, logger)
@@ -202,26 +187,37 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
-    // Step 5: Validate payment setup (may configure permissions if needed)
-    spinner.start('Checking payment setup...')
-    await validatePaymentSetup(synapse, fileStat.size, spinner)
+    if (options.autoFund) {
+      // Step 5: Perform auto-funding if requested (now that we know the file size)
+      await performAutoFunding(synapse, fileStat.size, spinner)
+    } else {
+      // Step 5: Validate payment setup (may configure permissions if needed)
+      spinner.start('Checking payment capacity...')
+      await validatePaymentSetup(synapse, fileStat.size, spinner)
+    }
 
     // Step 6: Create storage context now that payments are validated
     spinner.start('Creating storage context...')
 
+    // Parse provider selection from CLI options and environment variables
+    const providerOptions = parseProviderOptions(options)
+
     const { storage, providerInfo } = await createStorageContext(synapse, logger, {
-      onProviderSelected: (provider) => {
-        spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)
-      },
-      onDataSetCreationStarted: (transaction) => {
-        spinner.message(`Creating data set (tx: ${transaction.hash.slice(0, 10)}...)`)
-      },
-      onDataSetResolved: (info) => {
-        if (info.isExisting) {
-          spinner.message(`Using existing data set #${info.dataSetId}`)
-        } else {
-          spinner.message(`Created new data set #${info.dataSetId}`)
-        }
+      ...providerOptions,
+      callbacks: {
+        onProviderSelected: (provider) => {
+          spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)
+        },
+        onDataSetCreationStarted: (transaction) => {
+          spinner.message(`Creating data set (tx: ${transaction.hash.slice(0, 10)}...)`)
+        },
+        onDataSetResolved: (info) => {
+          if (info.isExisting) {
+            spinner.message(`Using existing data set #${info.dataSetId}`)
+          } else {
+            spinner.message(`Created new data set #${info.dataSetId}`)
+          }
+        },
       },
     })
 

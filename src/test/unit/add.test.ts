@@ -32,9 +32,19 @@ vi.mock('../../common/upload-flow.js', () => ({
   displayUploadResults: vi.fn(),
 }))
 
-vi.mock('../../synapse/service.js', () => ({
-  initializeSynapse: vi.fn().mockResolvedValue({
-    getNetwork: () => 'calibration',
+vi.mock('../../core/synapse/index.js', () => ({
+  initializeSynapse: vi.fn().mockImplementation(async (config: any) => {
+    // Validate auth config (mirrors validateAuthConfig in actual code)
+    const hasStandardAuth = config.privateKey != null
+    const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
+
+    if (!hasStandardAuth && !hasSessionKeyAuth) {
+      throw new Error('Authentication required: provide either a privateKey or walletAddress + sessionKey')
+    }
+
+    return {
+      getNetwork: () => 'calibration',
+    }
   }),
   createStorageContext: vi.fn().mockResolvedValue({
     storage: {},
@@ -47,7 +57,7 @@ vi.mock('../../synapse/service.js', () => ({
   cleanupSynapseService: vi.fn(),
 }))
 
-vi.mock('../../add/unixfs-car.js', () => ({
+vi.mock('../../core/unixfs/index.js', () => ({
   createCarFromPath: vi.fn((_filePath: string, options: any) => {
     const bare = options?.bare || false
     // Different CIDs for bare vs directory mode
@@ -140,7 +150,7 @@ describe('Add Command', () => {
       })
 
       // Verify createCarFromPath was called without bare flag
-      const { createCarFromPath } = await import('../../add/unixfs-car.js')
+      const { createCarFromPath } = await import('../../core/unixfs/index.js')
       expect(vi.mocked(createCarFromPath)).toHaveBeenCalledWith(
         testFile,
         expect.objectContaining({
@@ -174,7 +184,7 @@ describe('Add Command', () => {
       })
 
       // Verify createCarFromPath was called with bare flag
-      const { createCarFromPath } = await import('../../add/unixfs-car.js')
+      const { createCarFromPath } = await import('../../core/unixfs/index.js')
       expect(vi.mocked(createCarFromPath)).toHaveBeenCalledWith(
         testFile,
         expect.objectContaining({

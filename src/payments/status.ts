@@ -5,20 +5,26 @@
  * This provides a quick overview of the user's payment setup without making changes.
  */
 
-import { RPC_URLS, Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
+import type { Synapse } from '@filoz/synapse-sdk'
+import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { calculateDepositCapacity } from '../synapse/payments.js'
-import { cleanupProvider } from '../synapse/service.js'
+import {
+  calculateDepositCapacity,
+  calculateStorageRunway,
+  checkFILBalance,
+  checkUSDFCBalance,
+  getPaymentStatus,
+} from '../core/payments/index.js'
+import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { formatUSDFC } from '../core/utils/format.js'
+import { formatRunwaySummary } from '../core/utils/index.js'
+import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import { formatRunwayDuration } from '../utils/time.js'
-import { checkFILBalance, checkUSDFCBalance, displayDepositWarning, formatUSDFC, getPaymentStatus } from './setup.js'
+import { displayDepositWarning } from './setup.js'
 
-interface StatusOptions {
-  privateKey?: string
-  rpcUrl?: string
-}
+interface StatusOptions extends CLIAuthOptions {}
 
 /**
  * Display current payment status
@@ -26,47 +32,25 @@ interface StatusOptions {
  * @param options - Options from command line
  */
 export async function showPaymentStatus(options: StatusOptions): Promise<void> {
-  // Parse and validate all arguments upfront
-  // 1. Private key
-  const privateKey = options.privateKey || process.env.PRIVATE_KEY
-  if (!privateKey) {
-    console.error(pc.red('Error: Private key required via --private-key or PRIVATE_KEY env'))
-    process.exit(1)
-  }
-
-  // Validate private key format early
-  try {
-    new ethers.Wallet(privateKey)
-  } catch {
-    console.error(pc.red('Error: Invalid private key format'))
-    process.exit(1)
-  }
-
-  // 2. RPC URL
-  const rpcUrl = options.rpcUrl || process.env.RPC_URL || RPC_URLS.calibration.websocket
-
   intro(pc.bold('Filecoin Onchain Cloud Payment Status'))
 
   const spinner = createSpinner()
   spinner.start('Fetching current configuration...')
 
-  // Store provider reference for cleanup if it's a WebSocket provider
-  let provider: any = null
-
   try {
-    // Initialize connection
-    const synapse = await Synapse.create({
-      privateKey,
-      rpcURL: rpcUrl,
+    // Parse and validate authentication
+    const authConfig = parseCLIAuth({
+      privateKey: options.privateKey,
+      walletAddress: options.walletAddress,
+      sessionKey: options.sessionKey,
+      rpcUrl: options.rpcUrl,
     })
-    const network = synapse.getNetwork()
-    const signer = synapse.getSigner()
-    const address = await signer.getAddress()
 
-    // Store provider reference for cleanup if it's a WebSocket provider
-    if (rpcUrl.match(/^wss?:\/\//)) {
-      provider = synapse.getProvider()
-    }
+    const logger = getCLILogger()
+    const synapse = await initializeSynapse(authConfig, logger)
+    const network = synapse.getNetwork()
+    const client = synapse.getClient()
+    const address = await client.getAddress()
 
     // Check balances and status
     const filStatus = await checkFILBalance(synapse)
@@ -85,11 +69,8 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       )
       log.flush()
 
-      // Clean up WebSocket provider before exiting
-      await cleanupProvider(provider)
-
       cancel('Account not funded')
-      process.exit(1)
+      throw new Error('Account has no FIL balance')
     }
 
     const usdfcBalance = await checkUSDFCBalance(synapse)
@@ -109,10 +90,8 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       log.line(`  ${pc.cyan(helpMessage)}`)
       log.flush()
 
-      await cleanupProvider(provider)
-
       cancel('USDFC required to use Filecoin Onchain Cloud')
-      process.exit(1)
+      throw new Error('No USDFC tokens found')
     }
 
     const status = await getPaymentStatus(synapse)
@@ -155,32 +134,24 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     displayPaymentRailsSummary(paymentRailsData, log)
 
     // Show spend summaries (rateUsed, runway)
-    const rateUsed = status.currentAllowances.rateUsed ?? 0n
-    const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
+    const runway = calculateStorageRunway(status)
+    const runwayDisplay = formatRunwaySummary(runway)
     const maxLockup = status.currentAllowances.maxLockupPeriod
     const lockupDays = maxLockup != null ? Number(maxLockup / TIME_CONSTANTS.EPOCHS_PER_DAY) : 10
-    if (rateUsed > 0n) {
-      const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
-      const available = status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n
-      const runwayDays = Number(available / perDay)
-      const runwayHoursRemainder = Number(((available % perDay) * 24n) / perDay)
 
-      log.line(pc.bold('WarmStorage Usage'))
-      log.indent(`Spend rate: ${formatUSDFC(rateUsed)} USDFC/epoch`)
-      log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC (~${lockupDays}-day reserve)`)
-      log.indent(`Runway: ~${formatRunwayDuration(runwayDays, runwayHoursRemainder)}`)
-      log.flush()
+    log.line(pc.bold('WarmStorage Usage'))
+    if (runway.state === 'active') {
+      log.indent(`Spend rate: ${formatUSDFC(runway.rateUsed)} USDFC/epoch`)
+      log.indent(`Locked: ${formatUSDFC(runway.lockupUsed)} USDFC (~${lockupDays}-day reserve)`)
+      log.indent(`Runway: ~${runwayDisplay}`)
     } else {
-      log.line(pc.bold('WarmStorage Usage'))
-      log.indent(pc.gray('No active spend detected'))
-      log.flush()
+      log.indent(pc.gray(runwayDisplay))
     }
+    log.flush()
 
     // Show deposit warning if needed
     displayDepositWarning(status.depositedAmount, status.currentAllowances.lockupUsed)
     log.flush()
-
-    await cleanupProvider(provider)
 
     // Show success outro
     outro('Status check complete')
@@ -191,10 +162,10 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
     log.flush()
 
-    await cleanupProvider(provider)
-
     cancel('Status check failed')
-    process.exit(1)
+    process.exitCode = 1
+  } finally {
+    await cleanupSynapseService()
   }
 }
 

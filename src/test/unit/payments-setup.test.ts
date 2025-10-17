@@ -7,18 +7,18 @@ import {
   checkFILBalance,
   checkUSDFCBalance,
   depositUSDFC,
-  formatFIL,
-  formatUSDFC,
   getPaymentStatus,
-  parseStorageAllowance,
   setServiceApprovals,
-} from '../../payments/setup.js'
+} from '../../core/payments/index.js'
+import { formatFIL, formatUSDFC } from '../../core/utils/format.js'
+import { parseStorageAllowance } from '../../payments/setup.js'
 
 // Mock Synapse SDK
 vi.mock('@filoz/synapse-sdk', () => {
   const mockSynapse = {
     getProvider: vi.fn(),
     getSigner: vi.fn(),
+    getClient: vi.fn(),
     getNetwork: vi.fn(),
     getPaymentsAddress: vi.fn(),
     getWarmStorageAddress: vi.fn(),
@@ -50,6 +50,10 @@ vi.mock('@filoz/synapse-sdk', () => {
     SIZE_CONSTANTS: {
       MIN_UPLOAD_SIZE: 127,
     },
+    METADATA_KEYS: {
+      WITH_IPFS_INDEXING: 'withIPFSIndexing',
+      IPFS_ROOT_CID: 'ipfsRootCid',
+    },
   }
 })
 
@@ -75,6 +79,7 @@ describe('Payment Setup Tests', () => {
     mockSynapse = {
       getProvider: vi.fn().mockReturnValue(mockProvider),
       getSigner: vi.fn().mockReturnValue(mockSigner),
+      getClient: vi.fn().mockReturnValue(mockSigner),
       getNetwork: vi.fn().mockReturnValue('calibration'),
       getPaymentsAddress: vi.fn().mockReturnValue('0xpayments'),
       getWarmStorageAddress: vi.fn().mockReturnValue('0xwarmstorage'),

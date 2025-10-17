@@ -1,11 +1,16 @@
 import * as synapseSdk from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
+import type { Logger } from 'pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Config } from '../../config.js'
 import { createConfig } from '../../config.js'
+import {
+  getSynapseService,
+  resetSynapseService,
+  type SynapseSetupConfig,
+  setupSynapse,
+} from '../../core/synapse/index.js'
+import { uploadToSynapse } from '../../core/upload/index.js'
 import { createLogger } from '../../logger.js'
-import { getSynapseService, resetSynapseService, setupSynapse } from '../../synapse/service.js'
-import { uploadToSynapse } from '../../synapse/upload.js'
 
 // Mock the Synapse SDK - vi.mock requires async import for ES modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
@@ -14,8 +19,8 @@ vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'
 const TEST_CID = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
 
 describe('synapse-service', () => {
-  let config: Config
-  let logger: ReturnType<typeof createLogger>
+  let config: SynapseSetupConfig
+  let logger: Logger
 
   beforeEach(() => {
     // Create test config with Synapse enabled
@@ -24,7 +29,7 @@ describe('synapse-service', () => {
       privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001', // Fake test key
       rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
     }
-    logger = createLogger(config)
+    logger = createLogger({ logLevel: 'info' })
 
     // Reset the service instances
     resetSynapseService()
@@ -36,10 +41,10 @@ describe('synapse-service', () => {
   })
 
   describe('setupSynapse', () => {
-    it('should throw error when private key is not configured', async () => {
+    it('should throw error when no authentication is provided', async () => {
       config.privateKey = undefined
 
-      await expect(setupSynapse(config, logger)).rejects.toThrow('PRIVATE_KEY environment variable is required')
+      await expect(setupSynapse(config, logger)).rejects.toThrow('Authentication required')
     })
 
     it('should initialize Synapse when private key is configured', async () => {
@@ -58,15 +63,16 @@ describe('synapse-service', () => {
       // Check that initialization logs were called
       expect(infoSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          hasPrivateKey: true,
+          event: 'synapse.init',
+          authMode: 'standard',
           rpcUrl: config.rpcUrl,
         }),
-        'Initializing Synapse'
+        'Initializing Synapse SDK'
       )
 
       expect(infoSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ event: 'synapse.init' }),
-        'Initializing Synapse SDK'
+        expect.objectContaining({ event: 'synapse.init.success' }),
+        'Synapse SDK initialized'
       )
     })
 
@@ -182,15 +188,9 @@ describe('synapse-service', () => {
 
   describe('Provider Information', () => {
     it('should capture provider info during initialization', async () => {
-      const mockConfig: Config = {
+      const mockConfig: SynapseSetupConfig = {
         privateKey: 'test-private-key',
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-        port: 3000,
-        host: '127.0.0.1',
-        databasePath: ':memory:',
-        carStoragePath: './cars',
-        logLevel: 'info',
-        warmStorageAddress: undefined,
       }
 
       const service = await setupSynapse(mockConfig, logger)
@@ -204,15 +204,9 @@ describe('synapse-service', () => {
 
     it('should include provider info in upload result', async () => {
       // Ensure synapse is initialized with provider info
-      const mockConfig: Config = {
+      const mockConfig: SynapseSetupConfig = {
         privateKey: 'test-private-key',
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-        port: 3000,
-        host: '127.0.0.1',
-        databasePath: ':memory:',
-        carStoragePath: './cars',
-        logLevel: 'info',
-        warmStorageAddress: undefined,
       }
 
       const service = await setupSynapse(mockConfig, logger)
@@ -232,15 +226,9 @@ describe('synapse-service', () => {
 
     it('should always include provider info', async () => {
       // Initialize with provider info
-      const mockConfig: Config = {
+      const mockConfig: SynapseSetupConfig = {
         privateKey: 'test-private-key',
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-        port: 3000,
-        host: '127.0.0.1',
-        databasePath: ':memory:',
-        carStoragePath: './cars',
-        logLevel: 'info',
-        warmStorageAddress: undefined,
       }
 
       const service = await setupSynapse(mockConfig, logger)
@@ -258,15 +246,9 @@ describe('synapse-service', () => {
     })
 
     it('should handle provider without serviceURL gracefully', async () => {
-      const mockConfig: Config = {
+      const mockConfig: SynapseSetupConfig = {
         privateKey: 'test-private-key',
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-        port: 3000,
-        host: '127.0.0.1',
-        databasePath: ':memory:',
-        carStoragePath: './cars',
-        logLevel: 'info',
-        warmStorageAddress: undefined,
       }
 
       const service = await setupSynapse(mockConfig, logger)

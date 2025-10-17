@@ -1,0 +1,188 @@
+name: "Filecoin Pin Upload"
+description: "Pack site into a CAR, upload via filecoin-pin to Filecoin, and publish build artifacts."
+branding:
+  icon: upload-cloud
+  color: blue
+
+inputs:
+  # Core configuration
+  path:
+    description: Path to content to upload (file or directory). Typically your build output directory.
+    required: true
+  walletPrivateKey:
+    description: Wallet private key used to fund uploads (USDFC on Calibration/Mainnet).
+    required: true
+  network:
+    description: What Filecoin network to use. Should either be "mainnet" or "calibration".
+    required: true
+
+  # Financial controls
+  minStorageDays:
+    description: >-
+      Minimum runway in days of funding to keep the current data set persisted on Filecoin.
+      This number is used to calculate the minimum Filecoin Pay balance to meet this runway.
+      This calculation assumes that all of the Filecoin Pay balance will go towards storage for this data set,
+      which won't be true for wallets that have multiple data sets or are using Filecoin Pay with other Filecoin Onchain Cloud services.
+      If this isn't specified, this action will not make any Filecoin Pay deposits.
+      If the current Filecoin Pay balance is already above this target, then no token deposits are attempted from the wallet.
+      If the current Filecoin Pay balance is below this target, the necessary deposit will be attempted up through the `filecoinPayBalanceLimit` (see below).
+      If there are insufficient funds in the wallet, the action will fail.
+      SECURITY: Hardcode this in trusted workflows.
+    required: false
+  filecoinPayBalanceLimit:
+    description: >-
+      Specifies a target Filecoin Pin balance in USDFC that this action will never exceed.
+      Actions (manual or other) outside of this action may cause the Filecoin Pay balance to exceed this limit,
+      but this limit prevents the action from using the wallet to top up the Filecoin Pay balance beyond the limit.
+      As a protection, this must be set if `minStorageDays` is set.
+      SECURITY: Hardcode this in trusted workflows.
+    required: false
+
+  # Optional/Advanced configuration
+  withCDN:
+    description: "If true, request CDN in the storage context (depends on provider capabilities). Warning: filecoin-pin does not calculate deposits and run-rate costs properly with CDN enabled."
+    required: false
+    default: "false"
+  dryRun:
+    description: "If true, run in dry-run mode - build CAR file and validate inputs but skip actual upload to Filecoin. Useful for testing and validation."
+    required: false
+    default: "false"
+
+
+outputs:
+  ipfsRootCid:
+    description: IPFS Root CID
+    value: ${{ steps.run.outputs.ipfsRootCid }}
+  dataSetId:
+    description: Synapse Data Set ID
+    value: ${{ steps.run.outputs.dataSetId }}
+  pieceCid:
+    description: Filecoin Piece CID
+    value: ${{ steps.run.outputs.pieceCid }}
+  providerId:
+    description: Storage Provider ID
+    value: ${{ steps.run.outputs.providerId }}
+  providerName:
+    description: Storage Provider Name
+    value: ${{ steps.run.outputs.providerName }}
+  carPath:
+    description: Path to the created CAR file
+    value: ${{ steps.run.outputs.carPath }}
+  uploadStatus:
+    description: Upload status (uploaded, reused-cache, reused-artifact)
+    value: ${{ steps.run.outputs.uploadStatus }}
+
+runs:
+  using: "composite"
+  steps:
+    # Create check immediately - no dependencies needed
+    - name: Create check run
+      id: create-check
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const event = fs.existsSync(process.env.GITHUB_EVENT_PATH)
+            ? JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'))
+            : {};
+
+          const sha = event?.pull_request?.head?.sha || event?.workflow_run?.head_sha;
+          if (!sha) {
+            console.log('No PR context - check status will not be created');
+            return;
+          }
+
+          try {
+            const { data } = await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'Filecoin Upload',
+              head_sha: sha,
+              status: 'in_progress',
+              started_at: new Date().toISOString(),
+              output: {
+                title: 'Building and uploading to Filecoin',
+                summary: 'Creating CAR file and preparing for upload...',
+              },
+            });
+
+            console.log(`✓ Created check run (ID: ${data.id})`);
+            core.exportVariable('FILECOIN_CHECK_RUN_ID', data.id.toString());
+            core.exportVariable('FILECOIN_CHECK_SHA', sha);
+          } catch (error) {
+            console.warn('Failed to create check:', error.message);
+          }
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24.x'
+
+    - name: Get package-lock.json hash
+      id: lockfile-hash
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        if [ ! -f package-lock.json ]; then
+          echo "ERROR: package-lock.json not found in action directory"
+          echo "This file is required for npm ci to work properly"
+          exit 1
+        fi
+        HASH=$(sha256sum package-lock.json | cut -d' ' -f1 | cut -c1-8)
+        echo "hash=$HASH" >> $GITHUB_OUTPUT
+
+    - name: Get action path
+      id: action-path
+      shell: bash
+      run: |
+        ACTION_PATH="${{ github.action_path }}"
+        ACTION_PATH=$(cd "$ACTION_PATH" && pwd)
+        echo "path=$ACTION_PATH" >> $GITHUB_OUTPUT
+
+    - name: Restore action dependencies cache
+      uses: actions/cache/restore@v4
+      id: npm-cache
+      with:
+        path: ${{ steps.action-path.outputs.path }}/node_modules
+        key: ${{ runner.os }}-filecoin-action-deps-${{ steps.lockfile-hash.outputs.hash }}
+        restore-keys: |
+          ${{ runner.os }}-filecoin-action-deps-
+
+    - name: Install action deps
+      if: ${{ steps.npm-cache.outputs.cache-hit != 'true' }}
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci --omit=dev --no-audit --no-fund
+
+    - name: Save action dependencies cache
+      if: ${{ always() && steps.npm-cache.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.action-path.outputs.path }}/node_modules
+        key: ${{ runner.os }}-filecoin-action-deps-${{ steps.lockfile-hash.outputs.hash }}
+
+    - name: Propagate Actions runtime token
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const token = process.env.ACTIONS_RUNTIME_TOKEN
+          const resultsUrl = process.env.ACTIONS_RESULTS_URL
+          if (!token || !resultsUrl) {
+            core.warning(
+              'GitHub did not expose ACTIONS_RUNTIME_TOKEN/ACTIONS_RESULTS_URL. ' +
+                'Ensure the workflow job has `permissions: actions: write` so artifacts can upload.'
+            )
+          } else {
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', token)
+            core.exportVariable('ACTIONS_RESULTS_URL', resultsUrl)
+          }
+
+    # Main execution - run.mjs handles everything
+    - name: Run action
+      id: run
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        INPUTS_JSON: ${{ toJson(inputs) }}
+        GITHUB_TOKEN: ${{ github.token }}
+      run: node src/run.mjs

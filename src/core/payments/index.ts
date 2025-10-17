@@ -17,11 +17,12 @@
 
 import { SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
+import { isSessionKeyMode } from '../synapse/index.js'
 
 // Constants
 export const USDFC_DECIMALS = 18
 const MIN_FIL_FOR_GAS = ethers.parseEther('0.1') // Minimum FIL padding for gas
-const DEFAULT_LOCKUP_DAYS = 10 // WarmStorage requires 10 days lockup
+export const DEFAULT_LOCKUP_DAYS = 10 // WarmStorage requires 10 days lockup
 
 // Maximum allowances for trusted WarmStorage service
 // Using MaxUint256 which MetaMask displays as "Unlimited"
@@ -91,6 +92,18 @@ export interface StorageAllowances {
   storageCapacityTiB: number
 }
 
+export type StorageRunwayState = 'unknown' | 'no-spend' | 'active'
+
+export interface StorageRunwaySummary {
+  state: StorageRunwayState
+  available: bigint
+  rateUsed: bigint
+  perDay: bigint
+  lockupUsed: bigint
+  days: number
+  hours: number
+}
+
 /**
  * Check FIL balance for gas fees
  *
@@ -119,7 +132,7 @@ export async function checkFILBalance(synapse: Synapse): Promise<{
 
   try {
     const provider = synapse.getProvider()
-    const signer = synapse.getSigner()
+    const signer = synapse.getClient() // owner wallet
     const address = await signer.getAddress()
 
     // Get native token balance
@@ -204,13 +217,13 @@ export async function getDepositedBalance(synapse: Synapse): Promise<bigint> {
  * @returns Complete payment status
  */
 export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus> {
-  const signer = synapse.getSigner()
+  const client = synapse.getClient() // Use owner wallet, not session key
   const network = synapse.getNetwork()
   const warmStorageAddress = synapse.getWarmStorageAddress()
 
   // Run all async operations in parallel for efficiency
   const [address, filStatus, usdfcBalance, depositedAmount, currentAllowances] = await Promise.all([
-    signer.getAddress(),
+    client.getAddress(),
     checkFILBalance(synapse),
     checkUSDFCBalance(synapse),
     getDepositedBalance(synapse),
@@ -225,6 +238,41 @@ export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus>
     depositedAmount,
     currentAllowances,
   }
+}
+
+export interface PaymentValidationResult {
+  isValid: boolean
+  errorMessage?: string
+  helpMessage?: string
+}
+
+export function validatePaymentRequirements(
+  hasSufficientGas: boolean,
+  usdfcBalance: bigint,
+  isCalibnet: boolean
+): PaymentValidationResult {
+  if (!hasSufficientGas) {
+    const result: PaymentValidationResult = {
+      isValid: false,
+      errorMessage: 'Insufficient FIL for gas fees',
+    }
+    if (isCalibnet) {
+      result.helpMessage = 'Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'
+    }
+    return result
+  }
+
+  if (usdfcBalance === 0n) {
+    return {
+      isValid: false,
+      errorMessage: 'No USDFC tokens found',
+      helpMessage: isCalibnet
+        ? 'Get test USDFC from: https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet'
+        : 'Mint USDFC with FIL: https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step',
+    }
+  }
+
+  return { isValid: true }
 }
 
 /**
@@ -416,6 +464,11 @@ export async function setMaxAllowances(synapse: Synapse): Promise<{
  * 2. If either is not at maximum, update them to MAX_UINT256
  * 3. Return information about what was done
  *
+ * **Session Key Authentication**: When using session key authentication,
+ * this function will not attempt to update allowances since payment
+ * operations require the owner wallet to sign. The function will return
+ * `updated: false` and current allowances, which may not be at maximum.
+ *
  * Example usage:
  * ```typescript
  * // Call before any operation that requires payments
@@ -433,9 +486,12 @@ export async function checkAndSetAllowances(synapse: Synapse): Promise<{
   transactionHash?: string
   currentAllowances: ServiceApprovalStatus
 }> {
+  // Skip automatic updates in session key mode
+  const sessionKeyMode = isSessionKeyMode(synapse)
+
   const checkResult = await checkAllowances(synapse)
 
-  if (checkResult.needsUpdate) {
+  if (checkResult.needsUpdate && !sessionKeyMode) {
     const setResult = await setMaxAllowances(synapse)
     return {
       updated: true,
@@ -670,6 +726,80 @@ export function computeAdjustmentForExactDeposit(
 }
 
 /**
+ * Compute adjustment needed to maintain target runway AFTER adding a new file
+ *
+ * This function accounts for both:
+ * - The new file's lockup requirement
+ * - The new file's ongoing per-epoch cost (rate)
+ *
+ * @param status - Current payment status
+ * @param days - Target runway in days
+ * @param carSizeBytes - Size of the CAR file being uploaded in bytes
+ * @param pricePerTiBPerEpoch - Current pricing from storage service
+ * @returns Adjustment details including total delta needed
+ */
+export function computeAdjustmentForExactDaysWithFile(
+  status: PaymentStatus,
+  days: number,
+  carSizeBytes: number,
+  pricePerTiBPerEpoch: bigint
+): {
+  delta: bigint // >0 deposit, <0 withdraw, 0 none
+  targetDeposit: bigint
+  currentDeposit: bigint
+  newLockupUsed: bigint
+  newRateUsed: bigint
+} {
+  const currentRateUsed = status.currentAllowances.rateUsed ?? 0n
+  const currentLockupUsed = status.currentAllowances.lockupUsed ?? 0n
+
+  // Calculate required allowances for the new file
+  const newFileAllowances = calculateRequiredAllowances(carSizeBytes, pricePerTiBPerEpoch)
+
+  // Calculate new totals after adding the file
+  const newRateUsed = currentRateUsed + newFileAllowances.rateAllowance
+  const newLockupUsed = currentLockupUsed + newFileAllowances.lockupAllowance
+
+  // Calculate deposit needed for target runway with new rate
+  const perDay = newRateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+
+  if (days < 0) {
+    throw new Error('days must be non-negative')
+  }
+
+  // If no ongoing spend (both current and new), just need the lockup
+  if (newRateUsed === 0n) {
+    const targetDeposit = newLockupUsed
+    const delta = targetDeposit - status.depositedAmount
+    return {
+      delta,
+      targetDeposit,
+      currentDeposit: status.depositedAmount,
+      newLockupUsed,
+      newRateUsed,
+    }
+  }
+
+  // Safety buffer to ensure runway >= requested days even if rateUsed shifts slightly
+  const perHour = perDay / 24n
+  const safety = perHour > 0n ? perHour : 1n
+
+  // Target: lockup (with buffer) + (days worth of ongoing cost)
+  const targetAvailable = BigInt(Math.floor(days)) * perDay + safety
+  const targetDeposit = withBuffer(newLockupUsed) + targetAvailable
+
+  const delta = targetDeposit - status.depositedAmount
+
+  return {
+    delta,
+    targetDeposit,
+    currentDeposit: status.depositedAmount,
+    newLockupUsed,
+    newRateUsed,
+  }
+}
+
+/**
  * Calculate storage capacity from deposit amount
  *
  * This function calculates how much storage capacity a deposit can support,
@@ -747,6 +877,65 @@ export function calculateRequiredAllowances(carSizeBytes: number, pricePerTiBPer
   return calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
 }
 
+export function calculateStorageRunway(
+  status?: Pick<PaymentStatus, 'depositedAmount' | 'currentAllowances'> | null
+): StorageRunwaySummary {
+  if (!status || !status.currentAllowances) {
+    return {
+      state: 'unknown',
+      available: 0n,
+      rateUsed: 0n,
+      perDay: 0n,
+      lockupUsed: 0n,
+      days: 0,
+      hours: 0,
+    }
+  }
+
+  const rateUsed = status.currentAllowances.rateUsed ?? 0n
+  const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
+  const depositedAmount = status.depositedAmount ?? 0n
+  const available = depositedAmount > lockupUsed ? depositedAmount - lockupUsed : 0n
+
+  if (rateUsed === 0n) {
+    return {
+      state: 'no-spend',
+      available,
+      rateUsed,
+      perDay: 0n,
+      lockupUsed,
+      days: 0,
+      hours: 0,
+    }
+  }
+
+  const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+  if (perDay === 0n) {
+    return {
+      state: 'no-spend',
+      available,
+      rateUsed,
+      perDay,
+      lockupUsed,
+      days: 0,
+      hours: 0,
+    }
+  }
+
+  const runwayDays = Number(available / perDay)
+  const runwayHoursRemainder = Number(((available % perDay) * 24n) / perDay)
+
+  return {
+    state: 'active',
+    available,
+    rateUsed,
+    perDay,
+    lockupUsed,
+    days: runwayDays,
+    hours: runwayHoursRemainder,
+  }
+}
+
 /**
  * Payment capacity validation for a specific file
  */
@@ -769,6 +958,10 @@ export interface PaymentCapacityCheck {
  * does not account for allowances since WarmStorage is assumed to be given
  * full trust with max allowances.
  *
+ * **Note**: This function will attempt to automatically set max allowances
+ * unless using session key authentication, in which case allowances must
+ * be configured separately by the owner wallet.
+ *
  * Example usage:
  * ```typescript
  * const fileSize = 10 * 1024 * 1024 * 1024 // 10 GiB
@@ -785,7 +978,7 @@ export interface PaymentCapacityCheck {
  * @returns Capacity check result
  */
 export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: number): Promise<PaymentCapacityCheck> {
-  // First ensure allowances are at max
+  // Ensure allowances are at max (automatically skips if in session key mode)
   await checkAndSetAllowances(synapse)
 
   // Get current status and pricing

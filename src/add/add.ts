@@ -6,21 +6,21 @@
  */
 
 import { readFile, stat } from 'node:fs/promises'
-import { RPC_URLS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
 import { envToBool } from '../common/env-vars.js'
-import { displayUploadResults, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
+import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import {
   cleanupSynapseService,
   createStorageContext,
   initializeSynapse,
   type SynapseService,
-} from '../synapse/service.js'
+} from '../core/synapse/index.js'
+import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
+import { parseCLIAuth, parseProviderOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import type { AddOptions, AddResult } from './types.js'
-import { cleanupTempCar, createCarFromPath } from './unixfs-car.js'
 
 /**
  * Validate that a path exists and is a regular file or directory
@@ -107,23 +107,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     // Initialize Synapse SDK (without storage context)
     spinner.start('Initializing Synapse SDK...')
 
-    if (!options.privateKey) {
-      spinner.stop(`${pc.red('✗')} Private key required via --private-key or PRIVATE_KEY env`)
-      cancel('Add cancelled')
-      process.exit(1)
-    }
-
-    const config = {
-      privateKey: options.privateKey,
-      rpcUrl: options.rpcUrl || RPC_URLS.calibration.websocket,
-      // Other config fields not needed for add
-      port: 0,
-      host: '',
-      databasePath: '',
-      carStoragePath: '',
-      logLevel: 'error',
-      warmStorageAddress: undefined,
-    }
+    // Parse authentication options from CLI and environment
+    const config = parseCLIAuth(options)
 
     // Initialize just the Synapse SDK
     const synapse = await initializeSynapse(config, logger)
@@ -158,26 +143,37 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     const carSize = carData.length
     spinner.stop(`${pc.green('✓')} IPFS content loaded (${formatFileSize(carSize)})`)
 
-    // Validate payment capacity for actual file size
-    spinner.start('Checking payment capacity...')
-    await validatePaymentSetup(synapse, carSize, spinner)
+    if (options.autoFund) {
+      // Perform auto-funding if requested (now that we know the file size)
+      await performAutoFunding(synapse, carSize, spinner)
+    } else {
+      // Check payment setup and capacity for actual file size
+      spinner.start('Checking payment capacity...')
+      await validatePaymentSetup(synapse, carSize, spinner)
+    }
 
     // Create storage context
     spinner.start('Creating storage context...')
 
+    // Parse provider selection from CLI options and environment variables
+    const providerOptions = parseProviderOptions(options)
+
     const { storage, providerInfo } = await createStorageContext(synapse, logger, {
-      onProviderSelected: (provider) => {
-        spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)
-      },
-      onDataSetCreationStarted: (transaction) => {
-        spinner.message(`Creating data set (tx: ${transaction.hash.slice(0, 10)}...)`)
-      },
-      onDataSetResolved: (info) => {
-        if (info.isExisting) {
-          spinner.message(`Using existing data set #${info.dataSetId}`)
-        } else {
-          spinner.message(`Created new data set #${info.dataSetId}`)
-        }
+      ...providerOptions,
+      callbacks: {
+        onProviderSelected: (provider) => {
+          spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)
+        },
+        onDataSetCreationStarted: (transaction) => {
+          spinner.message(`Creating data set (tx: ${transaction.hash.slice(0, 10)}...)`)
+        },
+        onDataSetResolved: (info) => {
+          if (info.isExisting) {
+            spinner.message(`Using existing data set #${info.dataSetId}`)
+          } else {
+            spinner.message(`Created new data set #${info.dataSetId}`)
+          }
+        },
       },
     })
 

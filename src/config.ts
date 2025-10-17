@@ -1,17 +1,7 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { RPC_URLS } from '@filoz/synapse-sdk'
-
-export interface Config {
-  port: number
-  host: string
-  privateKey: string | undefined
-  rpcUrl: string
-  databasePath: string
-  carStoragePath: string
-  logLevel: string
-  warmStorageAddress: string | undefined
-}
+import type { Config } from './core/synapse/index.js'
 
 function getDataDirectory(): string {
   const home = homedir()

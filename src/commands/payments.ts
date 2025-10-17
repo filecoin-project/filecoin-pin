@@ -4,17 +4,16 @@ import { runDeposit } from '../payments/deposit.js'
 import { runFund } from '../payments/fund.js'
 import { runInteractiveSetup } from '../payments/interactive.js'
 import { showPaymentStatus } from '../payments/status.js'
-import type { PaymentSetupOptions } from '../payments/types.js'
+import type { FundOptions, PaymentSetupOptions } from '../payments/types.js'
 import { runWithdraw } from '../payments/withdraw.js'
+import { addAuthOptions } from '../utils/cli-options.js'
 
 export const paymentsCommand = new Command('payments').description('Manage payment setup for Filecoin Onchain Cloud')
 
-paymentsCommand
-  .command('setup')
+// Setup command
+const setupCommand = new Command('setup')
   .description('Setup payment approvals for Filecoin Onchain Cloud storage')
   .option('--auto', 'Run in automatic mode with defaults')
-  .option('--private-key <key>', 'Private key (can also use PRIVATE_KEY env)')
-  .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env)')
   .option('--deposit <amount>', 'USDFC amount to deposit in Filecoin Pay (default: 1)')
   .option(
     '--rate-allowance <amount>',
@@ -23,9 +22,8 @@ paymentsCommand
   .action(async (options) => {
     try {
       const setupOptions: PaymentSetupOptions = {
+        ...options,
         auto: options.auto || false,
-        privateKey: options.privateKey,
-        rpcUrl: options.rpcUrl || process.env.RPC_URL,
         deposit: options.deposit || '1',
         rateAllowance: options.rateAllowance || '1TiB/month',
       }
@@ -41,22 +39,26 @@ paymentsCommand
     }
   })
 
-// Adjust funds to an exact runway or deposited total
-paymentsCommand
-  .command('fund')
+addAuthOptions(setupCommand)
+paymentsCommand.addCommand(setupCommand)
+
+// Fund command - adjust funds to an exact runway or deposited total
+const fundCommand = new Command('fund')
   .description('Adjust funds to an exact runway (days) or total deposit')
-  .option('--private-key <key>', 'Private key (can also use PRIVATE_KEY env)')
-  .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env)')
-  .option('--exact-days <n>', 'Set final runway to exactly N days (deposit or withdraw as needed)')
-  .option('--exact-amount <usdfc>', 'Set final deposited total to exactly this USDFC amount (deposit or withdraw)')
+  .option('--days <n>', 'Set final runway to exactly N days (deposit or withdraw as needed)')
+  .option('--amount <usdfc>', 'Set final deposited total to exactly this USDFC amount (deposit or withdraw)')
+  .option(
+    '--mode <mode>',
+    'Mode to use for funding: "exact" (default) or "minimum". "exact" will withdraw/deposit to exactly match the target. "minimum" will only deposit if below the minimum target.'
+  )
   .action(async (options) => {
     try {
-      const fundOptions: any = {
-        privateKey: options.privateKey,
-        rpcUrl: options.rpcUrl || process.env.RPC_URL,
+      const fundOptions: FundOptions = {
+        ...options,
+        amount: options.amount,
+        mode: options.mode,
       }
-      if (options.exactDays != null) fundOptions.exactDays = Number(options.exactDays)
-      if (options.exactAmount != null) fundOptions.exactAmount = options.exactAmount
+      if (options.days != null) fundOptions.days = Number(options.days)
       await runFund(fundOptions)
     } catch (error) {
       console.error('Failed to adjust funds:', error instanceof Error ? error.message : error)
@@ -64,18 +66,17 @@ paymentsCommand
     }
   })
 
-// Withdraw funds from the payments contract
-paymentsCommand
-  .command('withdraw')
+addAuthOptions(fundCommand)
+paymentsCommand.addCommand(fundCommand)
+
+// Withdraw command
+const withdrawCommand = new Command('withdraw')
   .description('Withdraw funds from Filecoin Pay to your wallet')
-  .option('--private-key <key>', 'Private key (can also use PRIVATE_KEY env)')
-  .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env)')
   .requiredOption('--amount <usdfc>', 'USDFC amount to withdraw (e.g., 5)')
   .action(async (options) => {
     try {
       await runWithdraw({
-        privateKey: options.privateKey,
-        rpcUrl: options.rpcUrl || process.env.RPC_URL,
+        ...options,
         amount: options.amount,
       })
     } catch (error) {
@@ -84,17 +85,16 @@ paymentsCommand
     }
   })
 
-// Add a status subcommand for checking current payment status
-paymentsCommand
-  .command('status')
+addAuthOptions(withdrawCommand)
+paymentsCommand.addCommand(withdrawCommand)
+
+// Status command
+const statusCommand = new Command('status')
   .description('Check current payment setup status')
-  .option('--private-key <key>', 'Private key (can also use PRIVATE_KEY env)')
-  .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env)')
   .action(async (options) => {
     try {
       await showPaymentStatus({
-        privateKey: options.privateKey,
-        rpcUrl: options.rpcUrl || process.env.RPC_URL,
+        ...options,
       })
     } catch (error) {
       console.error('Failed to get payment status:', error instanceof Error ? error.message : error)
@@ -102,24 +102,26 @@ paymentsCommand
     }
   })
 
-// Add a deposit/top-up subcommand
-paymentsCommand
-  .command('deposit')
+addAuthOptions(statusCommand)
+paymentsCommand.addCommand(statusCommand)
+
+// Deposit command
+const depositCommand = new Command('deposit')
   .description('Deposit or top-up funds in Filecoin Pay')
-  .option('--private-key <key>', 'Private key (can also use PRIVATE_KEY env)')
-  .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env)')
   .option('--amount <usdfc>', 'USDFC amount to deposit (e.g., 10.5)')
   .option('--days <n>', 'Fund enough to keep current spend alive for N days')
   .action(async (options) => {
     try {
       await runDeposit({
-        privateKey: options.privateKey,
-        rpcUrl: options.rpcUrl || process.env.RPC_URL,
+        ...options,
         amount: options.amount,
-        days: options.days != null ? Number(options.days) : 10, // always default to 10 days top-up, otherwise top-up to the specified number of days.
+        days: options.days != null ? Number(options.days) : undefined, // Only pass days if explicitly provided
       })
     } catch (error) {
       console.error('Failed to perform deposit:', error instanceof Error ? error.message : error)
       process.exit(1)
     }
   })
+
+addAuthOptions(depositCommand)
+paymentsCommand.addCommand(depositCommand)

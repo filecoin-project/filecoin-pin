@@ -1,4 +1,5 @@
 import type { EnhancedDataSetInfo, ProviderInfo } from '@filoz/synapse-sdk'
+import type { CLIAuthOptions } from '../utils/cli-auth.js'
 
 export interface PieceDetail {
   pieceId: number
@@ -22,8 +23,6 @@ export interface DataSetInspectionContext {
   dataSets: DataSetDetail[]
 }
 
-export interface DataSetCommandOptions {
+export interface DataSetCommandOptions extends CLIAuthOptions {
   ls?: boolean
-  privateKey?: string
-  rpcUrl?: string
 }

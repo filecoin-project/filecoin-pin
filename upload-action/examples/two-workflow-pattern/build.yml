@@ -1,0 +1,36 @@
+name: Build PR Content
+
+# Runs on both same-repo PRs and fork PRs - NO SECRETS
+# Fork PRs will build but upload will be blocked
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]  # Also run when PRs are merged to main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      # Your build steps here (example)
+      - name: Build
+        run: |
+          # npm install
+          # npm run build
+          # or whatever builds your content
+          mkdir -p dist
+          echo "Built content" > dist/index.html
+
+      # Upload your build artifacts to GitHub Actions artifacts
+      # The upload workflow will download these artifacts and use them
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-dist
+          path: dist
+          retention-days: 1

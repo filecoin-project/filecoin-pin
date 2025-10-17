@@ -4,11 +4,10 @@ import { join } from 'node:path'
 import type { Helia } from 'helia'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import type { CARBlockstoreStats, CARWritingBlockstore } from './car-blockstore.js'
-import type { Config } from './config.js'
+import type { CARBlockstoreStats, CARWritingBlockstore } from './core/car/index.js'
+import type { Config, SynapseService } from './core/synapse/index.js'
+import { uploadToSynapse } from './core/upload/index.js'
 import { createPinningHeliaNode } from './create-pinning-helia.js'
-import type { SynapseService } from './synapse/service.js'
-import { uploadToSynapse } from './synapse/upload.js'
 
 export interface PinningServiceUser {
   id: string

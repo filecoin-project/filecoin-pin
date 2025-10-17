@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getStorageScale, STORAGE_SCALE_MAX } from '../../synapse/payments.js'
+import { getStorageScale, STORAGE_SCALE_MAX } from '../../core/payments/index.js'
 
 describe('getStorageScale', () => {
   it('returns 1 for extremely large TiB', () => {

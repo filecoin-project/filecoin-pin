@@ -129,6 +129,15 @@ export class MockSynapse extends EventEmitter {
   }
 
   /**
+   * Mock client getter (returns owner wallet)
+   */
+  getClient(): any {
+    return {
+      getAddress: async () => '0x1234567890123456789012345678901234567890',
+    }
+  }
+
+  /**
    * Create a storage context with lifecycle callbacks
    *
    * Real process:
