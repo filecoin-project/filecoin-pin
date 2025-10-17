@@ -205,11 +205,7 @@ npm run lint:fix         # Fix formatting
 
 ### Contributing
 
-Interested in contributing? Please read our [Contributing Guidelines](CONTRIBUTING.md) for information on:
-- Commit conventions
-- PR workflow and draft PRs
-- Code quality standards
-- Visual evidence requirements
+Interested in contributing? Please read our [Contributing Guidelines](CONTRIBUTING.md) for information on commit conventions, PR workflows, etc.
 
 ### Get Help
 
