@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.9.2](https://github.com/filecoin-project/filecoin-pin/compare/v0.9.1...v0.9.2) (2025-10-17)
+
+
+### Bug Fixes
+
+* **action:** use fileSize to determine capacity when spendrate=0 ([#132](https://github.com/filecoin-project/filecoin-pin/issues/132)) ([f498169](https://github.com/filecoin-project/filecoin-pin/commit/f498169d3a304af14a8bdfef70544758640127ac))
+* log level defaults to error for CLI ([#128](https://github.com/filecoin-project/filecoin-pin/issues/128)) ([cf851e5](https://github.com/filecoin-project/filecoin-pin/commit/cf851e547d33191566b9e45e7eef8e2746c9ab55))
+
+
+### Chores
+
+* **deps:** bump @helia/unixfs from 5.1.0 to 6.0.1 ([#94](https://github.com/filecoin-project/filecoin-pin/issues/94)) ([5ceb925](https://github.com/filecoin-project/filecoin-pin/commit/5ceb9250ff468c5001aa3a22b2987787d661e10f))
+
+
+### Documentation
+
+* **action:** Fix GitHub action version references from [@v1](https://github.com/v1) to [@v0](https://github.com/v0) ([#131](https://github.com/filecoin-project/filecoin-pin/issues/131)) ([2408783](https://github.com/filecoin-project/filecoin-pin/commit/240878373af58a66012e1e8287dd00fc6431a2e0))
+* **action:** streamline README and remove duplication ([#136](https://github.com/filecoin-project/filecoin-pin/issues/136)) ([2d2b742](https://github.com/filecoin-project/filecoin-pin/commit/2d2b7428e01630c25e3da2db5de5c5c0df7a76df))
+
 ## [0.9.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.9.0...v0.9.1) (2025-10-16)
 
 
