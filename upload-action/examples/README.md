@@ -7,10 +7,10 @@ Ready-to-use GitHub workflow files for the Filecoin Pin Upload Action.
 ```
 examples/
 ├── two-workflow-pattern/         # Recommended: Secure pattern
-│   ├── build-pr.yml              #   - Untrusted build (no secrets)
+│   ├── build.yml                 #   - Untrusted build (no secrets)
 │   └── upload-to-filecoin.yml    #   - Trusted upload (has secrets)
 └── single-workflow/              # Alternative: Trusted repos only
-    └── upload.yml                #   - All-in-one (simpler but less secure)
+    └── build-and-upload.yml      #   - All-in-one (simpler but less secure)
 ```
 
 ## 🚀 Quick Setup
@@ -24,17 +24,24 @@ cp examples/two-workflow-pattern/*.yml .github/workflows/
 
 **Customize:**
 1. Add `FILECOIN_WALLET_KEY` secret in your repository settings
-2. Update build steps in `build-pr.yml` for your project
+2. Update build steps in `build.yml` for your project
 3. Adjust `minStorageDays` and `filecoinPayBalanceLimit` in `upload-to-filecoin.yml`
 
 **Done!** Open a PR to see it in action.
+
+**Why this two-workflow appraoch?**
+The recommended pattern is a **two-workflow approach**:
+1. **Build workflow** (untrusted) - Builds your content, publishes artifacts.  This workflow never sees wallet secrets.
+2. **Upload workflow** (trusted) - Downloads artifacts, creates IPFS CAR, uploads to Filecoin with secrets.  This upload workflow runs from the `main` branch, meaning PR branches can't modify hardcoded limits until merged. 
+
+Note: this approach supports **same-repo PRs only**.  Fork PRs support is disabled for security.
 
 ### Alternative: Single-Workflow Pattern
 
 ⚠️ **Only for trusted repositories** where all contributors have write access.
 
 ```bash
-cp examples/single-workflow/upload.yml .github/workflows/
+cp examples/single-workflow/build-and-upload.yml .github/workflows/
 ```
 
 Then add the `FILECOIN_WALLET_KEY` secret and customize the build steps.
@@ -48,10 +55,8 @@ See [action.yml](../action.yml) for detailed input/output reference.
 ## 🔍 What Each File Does
 
 **Two-Workflow Pattern:**
-- `build-pr.yml` - Runs on every PR, builds your project, uploads artifacts (no secrets)
+- `build.yml` - Runs on every PR, builds your project, uploads artifacts (no secrets)
 - `upload-to-filecoin.yml` - Runs after build succeeds, downloads artifacts, uploads to Filecoin (has secrets)
 
 **Single-Workflow Pattern:**
-- `upload.yml` - Does everything in one job (build + upload)
-
-The two-workflow pattern is more secure because the `workflow_run` trigger always uses the workflow file from your main branch, preventing PRs from modifying financial limits.
+- `build-and-upload.yml` - Does everything in one job (build + upload)
