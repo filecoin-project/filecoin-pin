@@ -203,6 +203,10 @@ npm run lint:fix         # Fix formatting
 
 ## Community and Support
 
+### Contributing
+
+Interested in contributing? Please read our [Contributing Guidelines](CONTRIBUTING.md) for information on commit conventions, PR workflows, etc.
+
 ### Get Help
 
 - **Issues**: Found a bug or have a feature request? [Open an issue](https://github.com/filecoin-project/filecoin-pin/issues) in this repository
