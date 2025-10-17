@@ -8,6 +8,7 @@
 import { readFile, stat } from 'node:fs/promises'
 import pc from 'picocolors'
 import pino from 'pino'
+import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import {
   cleanupSynapseService,
@@ -70,6 +71,17 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
   const logger = pino({
     level: process.env.LOG_LEVEL || 'error',
   })
+
+  // Check CDN status and warn if enabled
+  const withCDN = process.env.WITH_CDN === 'true'
+  if (withCDN) {
+    const proceed = await warnAboutCDNPricingLimitations()
+    if (!proceed) {
+      cancel('Add cancelled')
+      process.exitCode = 1
+      throw new Error('CDN pricing limitations warning cancelled')
+    }
+  }
 
   let tempCarPath: string | undefined
 
