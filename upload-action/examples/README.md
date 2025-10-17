@@ -29,7 +29,7 @@ cp examples/two-workflow-pattern/*.yml .github/workflows/
 
 **Done!** Open a PR to see it in action.
 
-**Why this two-workflow appraoch?**
+**Why this two-workflow approach?**
 The recommended pattern is a **two-workflow approach**:
 1. **Build workflow** (untrusted) - Builds your content, publishes artifacts.  This workflow never sees wallet secrets.
 2. **Upload workflow** (trusted) - Downloads artifacts, creates IPFS CAR, uploads to Filecoin with secrets.  This upload workflow runs from the `main` branch, meaning PR branches can't modify hardcoded limits until merged. 
