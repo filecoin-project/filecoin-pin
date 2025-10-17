@@ -8,7 +8,7 @@ This GitHub Action is provided to illustrate how to use filecoin-pin, a new IPFS
 
 ## Quick Start
 
-See the two workflow approach in the [examples directory](./examples/) for complete workflow files and setup instructions.
+See the two-workflow approach in the [examples directory](./examples/) for complete workflow files and setup instructions.
 
 ## Inputs & Outputs
 
@@ -79,7 +79,7 @@ Use semantic version tags from [filecoin-pin releases](https://github.com/fileco
 ## Examples & Documentation
 
 - **[examples/](./examples/)** - Ready-to-use workflow files and setup instructions
-- **[Actual usage in filecoin-pin-website repo](https://github.com/filecoin-project/filecoin-pin-website/blob/main/.github/workflows/filecoin-pin-upload.yml)
+- **[Actual usage in filecoin-pin-website repo](https://github.com/filecoin-project/filecoin-pin-website/blob/main/.github/workflows/filecoin-pin-upload.yml)**
 - **[FLOW.md](./FLOW.md)** - Internal architecture for contributors and maintainers
 
 ## Contributing

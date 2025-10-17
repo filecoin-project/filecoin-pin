@@ -34,7 +34,7 @@ The recommended pattern is a **two-workflow approach**:
 1. **Build workflow** (untrusted) - Builds your content, publishes artifacts.  This workflow never sees wallet secrets.
 2. **Upload workflow** (trusted) - Downloads artifacts, creates IPFS CAR, uploads to Filecoin with secrets.  This upload workflow runs from the `main` branch, meaning PR branches can't modify hardcoded limits until merged. 
 
-Note: this approach supports **same-repo PRs only**.  Fork PRs support is disabled for security.
+Note: this approach supports **same-repo PRs only**.  Fork PR support is disabled for security.
 
 ### Alternative: Single-Workflow Pattern
 
