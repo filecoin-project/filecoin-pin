@@ -34,7 +34,7 @@ Filecoin Pin offers multiple affordances to integrate Filecoin storage into your
 Upload IPFS files directly to Filecoin via the command line. Perfect for developers who want to integrate Filecoin storage into scripts, workflows, or local development environments.
 
 - **Repository**: This repo ([filecoin-project/filecoin-pin](https://github.com/filecoin-project/filecoin-pin))
-- **Documentation**:
+- **Documentation**: 
   - Run `filecoin-pin --help` to see all available commands and options.
   - [CLI Walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/filecoin-pin-cli)
 - **Installation**: `npm install -g filecoin-pin`
@@ -43,7 +43,7 @@ Upload IPFS files directly to Filecoin via the command line. Perfect for develop
 Automatically publish websites or build artifacts to IPFS and Filecoin as part of your CI/CD pipeline. Ideal for static websites, documentation sites, and automated deployment workflows.
 
 - **Repository**: This repo ([see upload-action/](./upload-action))
-- **Documentation**:
+- **Documentation**: 
    - [GitHub Action Walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/github-action)
 - **Example in Production**: [filecoin-pin-website CI pipeline](https://github.com/filecoin-project/filecoin-pin-website/tree/main/.github/workflows)
 
@@ -59,13 +59,13 @@ Run a localhost IPFS Pinning Service API server that implements the [IPFS Pinnin
 
 - **Repository**: This repo (`filecoin-pin server` command in CLI)
 - **Usage**: `PRIVATE_KEY=0x... npx filecoin-pin server`
-- **Status**: Works and is tested, but hasn't received as many features as the CLI.  If it would benefit your usecase, please comment on [tracking issue](https://github.com/filecoin-project/filecoin-pin/issues/46) so we can be better informed when it comes to prioritizing.
+- **Status**: Works and is tested, but hasn't received as many features as the CLI.  If it would benefit your usecase, please comment on [tracking issue](https://github.com/filecoin-project/filecoin-pin/issues/46) so we can be better informed when it comes to prioritizing.  
 
 ### Management Console GUI
 Web-based management console for monitoring and managing your Filecoin Pin deployments.  This is effectively a Web UI equivalent to the [CLI](#cli).
 
 - **Status**: Planned
-- **Tracking**: See [issue #74](https://github.com/filecoin-project/filecoin-pin/issues/74) for updates.  Please leave a comment about your usecase if this would be particularly beneficial.
+- **Tracking**: See [issue #74](https://github.com/filecoin-project/filecoin-pin/issues/74) for updates.  Please leave a comment about your usecase if this would be particularly beneficial.  
 
 ## Examples in Production
 
