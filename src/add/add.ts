@@ -9,7 +9,6 @@ import { readFile, stat } from 'node:fs/promises'
 import pc from 'picocolors'
 import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
-import { envToBool } from '../common/env-vars.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import {
   cleanupSynapseService,
@@ -74,7 +73,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
   })
 
   // Check CDN status and warn if enabled
-  const withCDN = envToBool(process.env.WITH_CDN, false)
+  const withCDN = process.env.WITH_CDN === 'true'
   if (withCDN) {
     const proceed = await warnAboutCDNPricingLimitations()
     if (!proceed) {
