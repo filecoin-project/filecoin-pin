@@ -10,7 +10,7 @@ import {
   Synapse,
   type SynapseOptions,
 } from '@filoz/synapse-sdk'
-import { type Provider as EthersProvider, JsonRpcProvider, Wallet, WebSocketProvider } from 'ethers'
+import { type Provider as EthersProvider, JsonRpcProvider, type Signer, Wallet, WebSocketProvider } from 'ethers'
 import type { Logger } from 'pino'
 import { ADDRESS_ONLY_SIGNER_SYMBOL, AddressOnlySigner } from './address-only-signer.js'
 
@@ -308,6 +308,86 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     logger.error({ event: 'synapse.init.failed', error: errorMessage }, 'Failed to initialize Synapse SDK')
+    throw error
+  }
+}
+
+/**
+ * Initialize Synapse SDK with an ethers Signer
+ *
+ * This is a convenience function that accepts an ethers Signer instead of
+ * raw private keys, making it easier to integrate with various wallet
+ * providers and authentication methods.
+ *
+ * @param signer - ethers Signer instance (e.g., from Wallet, browser wallet, etc.)
+ * @param network - Target Filecoin network
+ * @param logger - Logger instance for detailed operation tracking
+ * @param options - Optional configuration
+ * @returns Initialized Synapse instance
+ *
+ * @example
+ * ```typescript
+ * import { Wallet } from 'ethers'
+ * import { initializeSynapseWithSigner } from 'filecoin-pin/core/synapse'
+ *
+ * // From private key
+ * const signer = new Wallet(process.env.PRIVATE_KEY)
+ * const synapse = await initializeSynapseWithSigner(signer, 'calibration', logger)
+ *
+ * // From browser wallet (future)
+ * const signer = await window.ethereum.request({ method: 'eth_requestAccounts' })
+ * const synapse = await initializeSynapseWithSigner(signer, 'mainnet', logger)
+ * ```
+ */
+export async function initializeSynapseWithSigner(
+  signer: Signer,
+  network: 'mainnet' | 'calibration',
+  logger: Logger,
+  options: {
+    rpcUrl?: string
+    warmStorageAddress?: string
+  } = {}
+): Promise<Synapse> {
+  try {
+    // Validate network
+    if (network !== 'mainnet' && network !== 'calibration') {
+      throw new Error('Network must be either "mainnet" or "calibration"')
+    }
+
+    const rpcURL = options.rpcUrl ?? RPC_URLS[network].websocket
+    if (!rpcURL) {
+      throw new Error(`Unsupported network: ${network}`)
+    }
+
+    logger.info({ event: 'synapse.init.signer', network, rpcUrl: rpcURL }, 'Initializing Synapse SDK with signer')
+
+    const synapseOptions: SynapseOptions = {
+      rpcURL,
+      withIpni: true, // Always filter for IPNI-enabled providers
+    }
+    if (options.warmStorageAddress) {
+      synapseOptions.warmStorageAddress = options.warmStorageAddress
+    }
+
+    // Create Synapse with the signer directly - this is the recommended approach
+    // The Synapse SDK already supports ethers Signer instances
+    const synapse = await Synapse.create({ ...synapseOptions, signer })
+    activeProvider = synapse.getProvider()
+
+    const synapseNetwork = synapse.getNetwork()
+    logger.info(
+      { event: 'synapse.init.signer.success', network: synapseNetwork },
+      'Synapse SDK initialized with signer'
+    )
+
+    synapseInstance = synapse
+    return synapse
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    logger.error(
+      { event: 'synapse.init.signer.failed', error: errorMessage },
+      'Failed to initialize Synapse SDK with signer'
+    )
     throw error
   }
 }

@@ -17,7 +17,9 @@
 
 import { SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
+import type { Logger } from 'pino'
 import { isSessionKeyMode } from '../synapse/index.js'
+import { formatUSDFC } from '../utils/index.js'
 
 // Constants
 export const USDFC_DECIMALS = 18
@@ -78,7 +80,13 @@ export interface PaymentStatus {
   network: string
   address: string
   filBalance: bigint
+  /** USDFC tokens sitting in the owner wallet (not yet deposited) */
+  walletUsdfcBalance: bigint
+  /** USDFC balance currently deposited into Filecoin Pay (WarmStorage contract) */
+  filecoinPayBalance: bigint
+  /** @deprecated use walletUsdfcBalance */
   usdfcBalance: bigint
+  /** @deprecated use filecoinPayBalance */
   depositedAmount: bigint
   currentAllowances: ServiceApprovalStatus
 }
@@ -234,6 +242,8 @@ export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus>
     network,
     address,
     filBalance: filStatus.balance,
+    walletUsdfcBalance: usdfcBalance,
+    filecoinPayBalance: depositedAmount,
     usdfcBalance,
     depositedAmount,
     currentAllowances,
@@ -878,7 +888,7 @@ export function calculateRequiredAllowances(carSizeBytes: number, pricePerTiBPer
 }
 
 export function calculateStorageRunway(
-  status?: Pick<PaymentStatus, 'depositedAmount' | 'currentAllowances'> | null
+  status?: Pick<PaymentStatus, 'filecoinPayBalance' | 'depositedAmount' | 'currentAllowances'> | null
 ): StorageRunwaySummary {
   if (!status || !status.currentAllowances) {
     return {
@@ -894,7 +904,7 @@ export function calculateStorageRunway(
 
   const rateUsed = status.currentAllowances.rateUsed ?? 0n
   const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
-  const depositedAmount = status.depositedAmount ?? 0n
+  const depositedAmount = status.filecoinPayBalance ?? status.depositedAmount ?? 0n
   const available = depositedAmount > lockupUsed ? depositedAmount - lockupUsed : 0n
 
   if (rateUsed === 0n) {
@@ -952,6 +962,40 @@ export interface PaymentCapacityCheck {
 }
 
 /**
+ * Calculate file upload deposit requirements
+ *
+ * @param status - Current payment status
+ * @param carSizeBytes - Size of the CAR file in bytes
+ * @param pricePerTiBPerEpoch - Current pricing from storage service
+ * @returns File upload deposit requirements
+ */
+export function calculateFileUploadRequirements(
+  status: PaymentStatus,
+  carSizeBytes: number,
+  pricePerTiBPerEpoch: bigint
+): {
+  required: StorageAllowances
+  totalDepositNeeded: bigint
+  insufficientDeposit: bigint
+  canUpload: boolean
+} {
+  // Calculate requirements
+  const required = calculateRequiredAllowances(carSizeBytes, pricePerTiBPerEpoch)
+  const totalDepositNeeded = withBuffer(required.lockupAllowance)
+
+  // Check if current deposit can cover the new file's lockup requirement
+  const insufficientDeposit =
+    status.depositedAmount < totalDepositNeeded ? totalDepositNeeded - status.depositedAmount : 0n
+
+  return {
+    required,
+    totalDepositNeeded,
+    insufficientDeposit,
+    canUpload: insufficientDeposit === 0n,
+  }
+}
+
+/**
  * Validate payment capacity for a specific CAR file
  *
  * This function checks if the deposit is sufficient for the file upload. It
@@ -988,31 +1032,252 @@ export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: nu
   const storageTiB = carSizeBytes / Number(SIZE_CONSTANTS.TiB)
 
   // Calculate requirements
-  const required = calculateRequiredAllowances(carSizeBytes, pricePerTiBPerEpoch)
-  const totalDepositNeeded = withBuffer(required.lockupAllowance)
+  const uploadRequirements = calculateFileUploadRequirements(status, carSizeBytes, pricePerTiBPerEpoch)
 
   const result: PaymentCapacityCheck = {
-    canUpload: true,
+    canUpload: uploadRequirements.canUpload,
     storageTiB,
-    required,
+    required: uploadRequirements.required,
     issues: {},
     suggestions: [],
   }
 
   // Only check deposit
-  if (status.depositedAmount < totalDepositNeeded) {
+  if (uploadRequirements.insufficientDeposit > 0n) {
     result.canUpload = false
-    result.issues.insufficientDeposit = totalDepositNeeded - status.depositedAmount
-    const depositNeeded = ethers.formatUnits(totalDepositNeeded - status.depositedAmount, 18)
+    result.issues.insufficientDeposit = uploadRequirements.insufficientDeposit
+    const depositNeeded = ethers.formatUnits(uploadRequirements.insufficientDeposit, 18)
     result.suggestions.push(`Deposit at least ${depositNeeded} USDFC`)
   }
 
   // Add warning if approaching deposit limit
-  const totalLockupAfter = status.currentAllowances.lockupUsed + required.lockupAllowance
+  const totalLockupAfter = status.currentAllowances.lockupUsed + uploadRequirements.required.lockupAllowance
   if (totalLockupAfter > withoutBuffer(status.depositedAmount) && result.canUpload) {
     const additionalDeposit = ethers.formatUnits(withBuffer(totalLockupAfter) - status.depositedAmount, 18)
     result.suggestions.push(`Consider depositing ${additionalDeposit} more USDFC for safety margin`)
   }
 
   return result
+}
+
+/**
+ * Calculate required top-up for specific storage scenario
+ */
+export interface TopUpCalculation {
+  requiredTopUp: bigint
+  reason: string
+  calculation: {
+    minStorageDays?: number | undefined
+    carSizeBytes?: number | undefined
+    currentRateUsed: bigint
+    currentLockupUsed: bigint
+    currentDeposited: bigint
+    pricePerTiBPerEpoch?: bigint | undefined
+  }
+}
+
+/**
+ * Calculate required top-up for a specific storage scenario
+ *
+ * This function determines how much USDFC needs to be deposited to meet
+ * the specified storage requirements, taking into account current usage
+ * and the size of any upcoming upload.
+ *
+ * @param status - Current payment status
+ * @param options - Storage requirements
+ * @returns Top-up calculation with reasoning
+ */
+export function calculateRequiredTopUp(
+  status: PaymentStatus,
+  options: {
+    minStorageDays?: number | undefined
+    carSizeBytes?: number | undefined
+    pricePerTiBPerEpoch?: bigint | undefined
+  }
+): TopUpCalculation {
+  const { minStorageDays = 0, carSizeBytes, pricePerTiBPerEpoch } = options
+  const rateUsed = status.currentAllowances.rateUsed ?? 0n
+  const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
+
+  let requiredTopUp = 0n
+  let reason = ''
+
+  // Calculate file upload requirements if we have file info
+  let fileUploadTopUp = 0n
+  let fileUploadReason = ''
+  if (carSizeBytes != null && carSizeBytes > 0 && pricePerTiBPerEpoch != null) {
+    const uploadRequirements = calculateFileUploadRequirements(status, carSizeBytes, pricePerTiBPerEpoch)
+    if (uploadRequirements.insufficientDeposit > 0n) {
+      fileUploadTopUp = uploadRequirements.insufficientDeposit
+      fileUploadReason = 'file upload (lockup requirement)'
+    }
+  }
+
+  // Calculate runway requirements if specified
+  let runwayTopUp = 0n
+  let runwayReason = ''
+  if (minStorageDays > 0) {
+    if (rateUsed === 0n && carSizeBytes != null && carSizeBytes > 0 && pricePerTiBPerEpoch != null) {
+      // New file upload with runway requirement
+      const { delta } = computeAdjustmentForExactDaysWithFile(status, minStorageDays, carSizeBytes, pricePerTiBPerEpoch)
+      runwayTopUp = delta
+      runwayReason = `${minStorageDays} days of storage (including upcoming upload)`
+    } else {
+      // Existing usage with runway requirement
+      const { topUp } = computeTopUpForDuration(status, minStorageDays)
+      runwayTopUp = topUp
+      runwayReason = `${minStorageDays} days of storage`
+    }
+  }
+
+  // Determine the final top-up requirement (take the maximum of file upload and runway needs)
+  if (runwayTopUp > fileUploadTopUp) {
+    requiredTopUp = runwayTopUp
+    reason = `Required top-up for ${runwayReason}`
+  } else if (fileUploadTopUp > 0n) {
+    requiredTopUp = fileUploadTopUp
+    reason = `Required top-up for ${fileUploadReason}`
+  }
+
+  return {
+    requiredTopUp,
+    reason,
+    calculation: {
+      minStorageDays,
+      carSizeBytes,
+      pricePerTiBPerEpoch,
+      currentRateUsed: rateUsed,
+      currentLockupUsed: lockupUsed,
+      currentDeposited: status.depositedAmount,
+    },
+  }
+}
+
+/**
+ * Execute top-up with balance limit checking
+ */
+export interface TopUpResult {
+  success: boolean
+  deposited: bigint
+  transactionHash?: string
+  message: string
+  warnings: string[]
+}
+
+/**
+ * Execute a top-up operation with balance limit checking
+ *
+ * This function handles the complete top-up process including:
+ * - Checking if top-up is needed
+ * - Validating against balance limits
+ * - Executing the deposit transaction
+ * - Providing detailed feedback
+ *
+ * @param synapse - Initialized Synapse instance
+ * @param topUpAmount - Amount of USDFC to deposit
+ * @param options - Options for top-up execution
+ * @returns Top-up execution result
+ */
+export async function executeTopUp(
+  synapse: Synapse,
+  topUpAmount: bigint,
+  options: {
+    balanceLimit?: bigint | undefined
+    logger?: Logger | undefined
+  } = {}
+): Promise<TopUpResult> {
+  const { balanceLimit, logger } = options
+  const warnings: string[] = []
+
+  if (topUpAmount <= 0n) {
+    return {
+      success: true,
+      deposited: 0n,
+      message: 'No deposit required - sufficient balance available',
+      warnings: [],
+    }
+  }
+
+  // Get current status for limit checking
+  const currentStatus = await getPaymentStatus(synapse)
+
+  // Check if deposit would exceed maximum balance if specified
+  if (balanceLimit != null && balanceLimit >= 0n) {
+    // Check if current balance already equals or exceeds limit
+    if (currentStatus.depositedAmount >= balanceLimit) {
+      const message = `Current balance (${formatUSDFC(currentStatus.depositedAmount)}) already equals or exceeds the configured balance limit (${formatUSDFC(balanceLimit)}). No additional deposits will be made.`
+      logger?.warn(`⚠️  ${message}`)
+      return {
+        success: true,
+        deposited: 0n,
+        message,
+        warnings: [message],
+      }
+    } else {
+      // Check if required top-up would exceed the limit
+      const projectedBalance = currentStatus.depositedAmount + topUpAmount
+      if (projectedBalance > balanceLimit) {
+        // Calculate the maximum allowed top-up that won't exceed the limit
+        const maxAllowedTopUp = balanceLimit - currentStatus.depositedAmount
+        if (maxAllowedTopUp > 0n) {
+          const warning = `Required top-up (${formatUSDFC(topUpAmount)}) would exceed the configured balance limit (${formatUSDFC(balanceLimit)}). Reducing to ${formatUSDFC(maxAllowedTopUp)}.`
+          logger?.warn(`⚠️  ${warning}`)
+          warnings.push(warning)
+          topUpAmount = maxAllowedTopUp
+        } else {
+          return {
+            success: true,
+            deposited: 0n,
+            message: 'Cannot deposit - would exceed balance limit',
+            warnings: ['Cannot deposit - would exceed balance limit'],
+          }
+        }
+      }
+    }
+  }
+
+  // Ensure wallet has sufficient USDFC for the deposit
+  if (currentStatus.walletUsdfcBalance < topUpAmount) {
+    const message = `Insufficient USDFC in wallet for deposit. Needed ${formatUSDFC(topUpAmount)}, available ${formatUSDFC(currentStatus.walletUsdfcBalance)}.`
+    logger?.warn(`⚠️  ${message}`)
+    return {
+      success: false,
+      deposited: 0n,
+      message,
+      warnings: [message],
+    }
+  }
+
+  try {
+    // Execute the deposit
+    const result = await depositUSDFC(synapse, topUpAmount)
+
+    // Verify the deposit was successful
+    const newStatus = await getPaymentStatus(synapse)
+    const depositDifference = newStatus.depositedAmount - currentStatus.depositedAmount
+
+    let message = ''
+    if (depositDifference > 0n) {
+      message = `Deposit verified: ${formatUSDFC(depositDifference)} USDFC added to Filecoin Pay`
+    } else {
+      message = 'Deposit transaction submitted but not yet reflected in balance'
+      warnings.push('Transaction may take a moment to process')
+    }
+
+    return {
+      success: true,
+      deposited: depositDifference,
+      transactionHash: result.depositTx,
+      message,
+      warnings,
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    return {
+      success: false,
+      deposited: 0n,
+      message: `Deposit failed: ${errorMessage}`,
+      warnings: [errorMessage],
+    }
+  }
 }

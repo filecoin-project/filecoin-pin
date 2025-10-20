@@ -12,6 +12,7 @@ import { writeOutputs, writeSummary } from './outputs.js'
  * @typedef {import('./types.js').ParsedInputs} ParsedInputs
  * @typedef {import('./types.js').UploadResult} UploadResult
  * @typedef {import('./types.js').PaymentStatus} PaymentStatus
+ * @typedef {import('./types.js').SimplifiedPaymentStatus} SimplifiedPaymentStatus
  * @typedef {import('./types.js').UploadConfig} UploadConfig
  */
 
@@ -116,7 +117,7 @@ export async function runUpload(buildContext = {}) {
 
   /** @type {Partial<UploadResult>} */
   let { pieceCid, pieceId, dataSetId, provider, previewUrl, network } = {}
-  /** @type {PaymentStatus} */
+  /** @type {SimplifiedPaymentStatus} */
   let paymentStatus
 
   if (dryRun) {
@@ -131,18 +132,10 @@ export async function runUpload(buildContext = {}) {
     network = context.network || 'dry-run'
     paymentStatus = context.paymentStatus || {
       depositedAmount: '0',
-      currentBalance: '0',
+      filecoinPayBalance: '0',
+      walletUsdfcBalance: '0',
       storageRunway: 'Unknown',
       depositedThisRun: '0',
-      network: 'dry-run',
-      address: 'dry-run',
-      filBalance: 0n,
-      usdfcBalance: 0n,
-      currentAllowances: {
-        rateAllowance: 0n,
-        lockupAllowance: 0n,
-        lockupUsed: 0n,
-      },
     }
   } else {
     const synapse = await initializeSynapse({ walletPrivateKey, network: inputNetwork }, logger)
