@@ -28,7 +28,6 @@ const DEFAULT_DATA_SET_METADATA = {
  * Default configuration for creating storage contexts
  */
 const DEFAULT_STORAGE_CONTEXT_CONFIG = {
-  withCDN: false, // CDN not needed for Filecoin Pin currently
   withIpni: true, // Always filter for IPNI-enabled providers for IPFS indexing
   metadata: DEFAULT_DATA_SET_METADATA,
 } as const
@@ -72,6 +71,7 @@ export interface SynapseSetupConfig {
   rpcUrl?: string | undefined
   /** Optional override for WarmStorage contract address */
   warmStorageAddress?: string | undefined
+  withCDN?: boolean | undefined
 }
 
 /**
@@ -264,6 +264,9 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
     const synapseOptions: SynapseOptions = {
       rpcURL,
       withIpni: true, // Always filter for IPNI-enabled providers
+    }
+    if (config.withCDN) {
+      synapseOptions.withCDN = true
     }
     if (config.warmStorageAddress) {
       synapseOptions.warmStorageAddress = config.warmStorageAddress
