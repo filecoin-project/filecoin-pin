@@ -12,6 +12,14 @@ Bridges IPFS content to Filecoin storage providers with cryptographic guarantees
 
 **Status**: Calibration testnet only. Not production-ready.
 
+## Design Philosophy
+
+**Reference Implementation**: Demonstrates opinionated, documented patterns for building on synapse-sdk. Code clarity and educational value over abstraction.
+
+**Developer Learning**: Primary use case is teaching developers how to build on FOC stack. Favor explicit, traceable code over clever shortcuts.
+
+**Simple API Surface**: Keep public interfaces minimal and focused. Complexity lives in internal implementation, not exposed APIs.
+
 ## Architecture
 
 ```
