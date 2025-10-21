@@ -558,11 +558,27 @@ export function getDefaultStorageContextConfig(overrides: any = {}) {
  */
 export async function cleanupProvider(provider: any): Promise<void> {
   if (provider && typeof provider.destroy === 'function') {
+    // Suppress all errors during cleanup
+    // WebSocket providers can throw async errors from scheduled operations
+    // (like eth_unsubscribe) after destroy() is called
+    const errorHandler = () => {
+      // Silently ignore all cleanup errors
+    }
+
+    // Add error listener to suppress errors from async operations
+    if (typeof provider.on === 'function') {
+      provider.on('error', errorHandler)
+    }
+
     try {
       await provider.destroy()
     } catch {
       // Ignore cleanup errors
     }
+
+    // Small delay to allow any pending async operations to complete
+    // This prevents errors from scheduled operations that trigger after destroy()
+    await new Promise((resolve) => setTimeout(resolve, 100))
   }
 }
 
