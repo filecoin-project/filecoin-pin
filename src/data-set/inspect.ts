@@ -244,9 +244,6 @@ export function displayDataSetStatus(ctx: DataSetInspectionContext, dataSetId: n
   if (base.pdpEndEpoch > 0) {
     log.indent(pc.yellow(`PDP payments ended @ epoch ${base.pdpEndEpoch}`))
   }
-  if (base.cdnEndEpoch > 0) {
-    log.indent(pc.yellow(`CDN payments ended @ epoch ${base.cdnEndEpoch}`))
-  }
 
   log.line('')
   log.line(pc.bold('Metadata'))
