@@ -22,7 +22,7 @@ import { isSessionKeyMode } from '../synapse/index.js'
 // Constants
 export const USDFC_DECIMALS = 18
 const MIN_FIL_FOR_GAS = ethers.parseEther('0.1') // Minimum FIL padding for gas
-export const DEFAULT_LOCKUP_DAYS = 10 // WarmStorage requires 10 days lockup
+export const DEFAULT_LOCKUP_DAYS = 30 // WarmStorage requires 30 days lockup
 
 // Maximum allowances for trusted WarmStorage service
 // Using MaxUint256 which MetaMask displays as "Unlimited"
@@ -381,7 +381,7 @@ export async function setServiceApprovals(
 ): Promise<string> {
   const warmStorageAddress = synapse.getWarmStorageAddress()
 
-  // Max lockup period is always 10 days worth of epochs for WarmStorage
+  // Max lockup period is always 30 days worth of epochs for WarmStorage
   const maxLockupPeriod = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
 
   // Set the service approval
@@ -537,7 +537,7 @@ export function calculateStorageAllowances(storageTiB: number, pricePerTiBPerEpo
   // Calculate rate allowance (per epoch payment)
   const rateAllowance = (pricePerTiBPerEpoch * BigInt(scaledStorage)) / BigInt(scale)
 
-  // Calculate lockup allowance (10 days worth)
+  // Calculate lockup allowance (30 days worth)
   const epochsIn10Days = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const lockupAllowance = rateAllowance * epochsIn10Days
 
@@ -589,7 +589,7 @@ export function calculateActualCapacity(rateAllowance: bigint, pricePerTiBPerEpo
 export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpoch: bigint): number {
   if (pricePerTiBPerEpoch === 0n) return 0
 
-  // Calculate how much this covers for 10 days
+  // Calculate how much this covers for 30 days
   const epochsIn10Days = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const ratePerEpoch = usdfcAmount / epochsIn10Days
 
@@ -599,7 +599,7 @@ export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpo
 /**
  * Compute the additional deposit required to fund current usage for a duration.
  *
- * The WarmStorage service maintains ~10 days of lockup (lockupUsed) and draws future
+ * The WarmStorage service maintains ~30 days of lockup (lockupUsed) and draws future
  * lockups from the available deposit (deposited - lockupUsed). To keep the current
  * rails alive for N days, ensure available >= N days of spend at the current rateUsed.
  *
@@ -837,7 +837,7 @@ export function calculateDepositCapacity(
   }
 
   // With infinite allowances, deposit is the only limiting factor
-  // Deposit needs to cover: lockup (10 days) + at least some buffer
+  // Deposit needs to cover: lockup (30 days) + at least some buffer
   const epochsIn10Days = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const epochsPerMonth = TIME_CONSTANTS.EPOCHS_PER_MONTH
 

@@ -48,7 +48,7 @@ export interface UploadFlowResult extends SynapseUploadResult {
 
 /**
  * Perform auto-funding if requested
- * Automatically ensures a minimum of 10 days of runway based on current usage + new file requirements
+ * Automatically ensures a minimum of 30 days of runway based on current usage + new file requirements
  *
  * @param synapse - Initialized Synapse instance
  * @param fileSize - Size of file being uploaded (in bytes)
