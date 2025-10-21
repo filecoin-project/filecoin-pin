@@ -4,20 +4,22 @@
  * Storage Provider Health Check Script
  *
  * This script tests the complete workflow of a storage provider by:
- * 1. Creating a CAR file with random data
- * 2. Uploading to a specific provider
- * 3. Monitoring piece status including IPNI indexing
- * 4. Verifying the piece is retrievable
+ * 1. Creating a CAR file with random data (multiple 5MiB blocks)
+ * 2. Uploading to a specific provider with IPFS indexing enabled
+ * 3. Monitoring piece status including IPNI indexing workflow
+ * 4. Downloading and verifying the piece data
+ * 5. Verifying all CIDs are discoverable on IPNI with correct multiaddr
  *
  * Usage:
  *   PRIVATE_KEY=0x... node test-provider-health.js
  *
  * The script will exit with:
- *   - 0 on success (piece retrieved)
- *   - 1 on failure (timeout, upload error, etc.)
+ *   - 0 on success (all checks passed)
+ *   - 1 on failure (timeout, upload error, IPNI verification failed, etc.)
  */
 
 import { Readable } from 'node:stream'
+import { request } from 'node:https'
 import { METADATA_KEYS, Synapse } from '@filoz/synapse-sdk'
 import { PDPServer } from '@filoz/synapse-sdk/pdp'
 import { CarWriter } from '@ipld/car'
@@ -29,11 +31,12 @@ import { sha256 } from 'multiformats/hashes/sha2'
 // CONFIGURATION
 // ============================================================================
 
-const PROVIDER_ID = 16 // Provider to test
+const PROVIDER_ID = 22 // Provider to test
 const CAR_SIZE_MB = 10 // Raw block size in MiB
-const FORCE_CREATE_DATASET = true // Force new dataset each run
-const POLLING_INTERVAL_MS = 5000 // Check status every 5 seconds
-const MAX_POLLING_DURATION_MS = 30 * 60 * 1000 // 30 minute timeout
+const FORCE_CREATE_DATASET = false // Force new dataset each run
+const POLLING_INTERVAL_MS = 2500 // Check status every 2.5 seconds
+const POLLING_TIMEOUT_MS = 10 * 60 * 1000 // 10 minute timeout for status polling
+const IPNI_LOOKUP_TIMEOUT_MS = 10 * 60 * 1000 // 10 minute timeout for IPNI lookups
 const PRIVATE_KEY = process.env.PRIVATE_KEY // Only env var
 
 // ============================================================================
@@ -138,10 +141,12 @@ async function generateTestCAR(targetSizeBytes) {
   }
 
   const totalBlockSize = blocks.reduce((sum, b) => sum + b.bytes.length, 0)
+  const blockCIDs = blocks.map((b) => b.cid)
 
   return {
     carData,
     rootCID,
+    blockCIDs,
     blockCount: blocks.length,
     totalBlockSize,
     carSize: carData.length,
@@ -223,6 +228,191 @@ async function monitorPieceStatus(pdpServer, pieceCid, maxDurationMs, pollInterv
   throw new Error(`Timeout waiting for piece retrieval (${checkCount} checks over ${(durationMs / 1000).toFixed(1)}s)`)
 }
 
+/**
+ * Monitor piece status, then verify IPNI advertisement
+ * This runs after upload completes - status monitoring followed by IPNI checks
+ */
+async function monitorAndVerifyIPNI(pdpServer, pieceCid, blockCIDs, expectedMultiaddr, statusTimeoutMs, ipniTimeoutMs, pollIntervalMs) {
+  // First, wait for piece to be retrieved
+  const monitoringResult = await monitorPieceStatus(pdpServer, pieceCid, statusTimeoutMs, pollIntervalMs)
+
+  // Once retrieved, verify IPNI advertisement
+  logSection('IPNI VERIFICATION')
+  log(`Piece retrieved, now verifying IPNI advertisement`)
+
+  const ipniResult = await verifyIPNIAdvertisement(blockCIDs, expectedMultiaddr, ipniTimeoutMs)
+
+  log(`✓ IPNI verification complete: ${ipniResult.verified}/${ipniResult.total} CIDs verified in ${(ipniResult.durationMs / 1000).toFixed(1)}s`)
+
+  return {
+    monitoringResult,
+    ipniResult,
+  }
+}
+
+// ============================================================================
+// IPNI VERIFICATION
+// ============================================================================
+//
+// Note on Node.js Happy Eyeballs and IPv6:
+// ----------------------------------------
+// Node.js v18+ uses Happy Eyeballs v2 (RFC 8305) with a default
+// autoSelectFamilyAttemptTimeout of 250ms. This is too aggressive for networks
+// where IPv4 connections take longer to establish and IPv6 is unavailable.
+// Unfortunately we can't use fetch() here because it doesn't expose this option.
+//
+// See https://github.com/nodejs/node/pull/60334 to track progress upstream.
+
+/**
+ * Convert a serviceURL to expected multiaddr format
+ * e.g., "https://polynomial.pro/" -> "/dns/polynomial.pro/tcp/443/https"
+ */
+function serviceURLToMultiaddr(serviceURL) {
+  try {
+    const url = new URL(serviceURL)
+    const hostname = url.hostname
+    const protocol = url.protocol.replace(':', '')
+    if (protocol !== 'https') {
+      throw new Error(`Only HTTPS protocol is supported for PDP serviceURL, got: ${protocol}`)
+    }
+    return `/dns/${hostname}/tcp/443/https`
+  } catch (error) {
+    throw new Error(`Failed to convert serviceURL to multiaddr: ${error.message}`)
+  }
+}
+
+/**
+ * Make an HTTPS GET request with increased Happy Eyeballs timeout. This is a
+ * poor-man's fetch() replacement to allow setting
+ * autoSelectFamilyAttemptTimeout. See note above.
+ */
+function httpsGet(hostname, path, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname,
+      path,
+      method: 'GET',
+      timeout: timeoutMs,
+      headers: {
+        'User-Agent': 'filecoin-pin-health-check/1.0',
+        'Accept': 'application/json',
+      },
+      autoSelectFamilyAttemptTimeout: 500,
+    }
+
+    const req = request(options, (res) => {
+      let data = ''
+      res.on('data', (chunk) => { data += chunk.toString() })
+      res.on('end', () => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`))
+          return
+        }
+        try {
+          resolve(JSON.parse(data))
+        } catch (error) {
+          reject(new Error(`Failed to parse JSON response: ${error.message}`))
+        }
+      })
+    })
+
+    req.on('error', (error) => {
+      reject(new Error(`Request failed: ${error.message} (${error.code || 'unknown'})`))
+    })
+
+    req.on('timeout', () => {
+      req.destroy()
+      reject(new Error(`Request timed out after ${timeoutMs}ms`))
+    })
+
+    req.end()
+  })
+}
+
+/**
+ * Extract provider multiaddrs from IPNI response
+ */
+function extractProviderAddrs(ipniResponse) {
+  const providerAddrs = []
+  for (const multihashResult of ipniResponse.MultihashResults || []) {
+    for (const providerResult of multihashResult.ProviderResults || []) {
+      if (providerResult.Provider?.Addrs) {
+        providerAddrs.push(...providerResult.Provider.Addrs)
+      }
+    }
+  }
+  return providerAddrs
+}
+
+/**
+ * Query filecoinpin.contact for a CID and return provider multiaddrs
+ */
+async function queryIPNI(cid, timeoutMs = 5000) {
+  const response = await httpsGet('filecoinpin.contact', `/cid/${cid.toString()}`, timeoutMs)
+  return extractProviderAddrs(response)
+}
+
+/**
+ * Verify all CIDs are discoverable on IPNI with correct provider
+ */
+async function verifyIPNIAdvertisement(blockCIDs, expectedMultiaddr, maxDurationMs) {
+  log(`Verifying ${blockCIDs.length} CID(s) on IPNI`, 'IPNI')
+  log(`Expected multiaddr: ${expectedMultiaddr}`, 'IPNI')
+
+  const startTime = Date.now()
+  let successCount = 0
+  let failedCIDs = []
+
+  for (let i = 0; i < blockCIDs.length; i++) {
+    const cid = blockCIDs[i]
+    const elapsed = Date.now() - startTime
+
+    if (elapsed > maxDurationMs) {
+      throw new Error(`IPNI verification timeout after ${(elapsed / 1000).toFixed(1)}s (verified ${successCount}/${blockCIDs.length})`)
+    }
+
+    try {
+      log(`Checking CID ${i + 1}/${blockCIDs.length}: ${cid.toString()}`, 'IPNI')
+
+      const addrs = await queryIPNI(cid, 5000)
+
+      if (addrs.length === 0) {
+        log(`✗ CID not found on IPNI`, 'IPNI')
+        failedCIDs.push({ cid: cid.toString(), reason: 'not found' })
+        continue
+      }
+
+      // Check if our expected multiaddr is in the results
+      if (!addrs.includes(expectedMultiaddr)) {
+        log(`✗ Expected multiaddr not found. Got: ${addrs.join(', ')}`, 'IPNI')
+        failedCIDs.push({ cid: cid.toString(), reason: 'wrong multiaddr', addrs })
+        continue
+      }
+
+      log(`✓ CID found with correct multiaddr`, 'IPNI')
+      successCount++
+    } catch (error) {
+      log(`✗ Error querying CID: ${error.message}`, 'IPNI')
+      failedCIDs.push({ cid: cid.toString(), reason: error.message })
+    }
+  }
+
+  const durationMs = Date.now() - startTime
+
+  if (failedCIDs.length > 0) {
+    throw new Error(
+      `IPNI verification failed: ${successCount}/${blockCIDs.length} CIDs verified. ` +
+      `Failed CIDs: ${JSON.stringify(failedCIDs, null, 2)}`
+    )
+  }
+
+  return {
+    verified: successCount,
+    total: blockCIDs.length,
+    durationMs,
+  }
+}
+
 // ============================================================================
 // MAIN WORKFLOW
 // ============================================================================
@@ -245,7 +435,7 @@ async function main() {
     logSection('INITIALIZATION')
     log('Starting provider health check')
     log(`Config: Provider ID=${PROVIDER_ID}, CAR=${CAR_SIZE_MB} MiB, ForceCreate=${FORCE_CREATE_DATASET}`)
-    log(`Polling: interval=${POLLING_INTERVAL_MS}ms, timeout=${MAX_POLLING_DURATION_MS / 1000}s`)
+    log(`Polling: interval=${POLLING_INTERVAL_MS}ms, timeout=${POLLING_TIMEOUT_MS / 1000}s`)
 
     log('Initializing Synapse SDK...')
     const synapse = await Synapse.create({
@@ -283,7 +473,7 @@ async function main() {
     const targetSizeBytes = CAR_SIZE_MB * 1024 * 1024
     log(`Target size: ${targetSizeBytes.toLocaleString()} bytes`)
 
-    const { carData, rootCID, blockCount, totalBlockSize, carSize } = await generateTestCAR(targetSizeBytes)
+    const { carData, rootCID, blockCIDs, blockCount, totalBlockSize, carSize } = await generateTestCAR(targetSizeBytes)
 
     log(`Root CID: ${rootCID.toString()}`)
     log(`Total blocks: ${blockCount}`)
@@ -297,8 +487,11 @@ async function main() {
     logSection('UPLOAD + MONITORING')
     log('Starting upload...', 'UPLOAD')
 
-    // We'll track when monitoring should start
-    let monitoringPromise = null
+    // Convert serviceURL to expected multiaddr for IPNI verification
+    const expectedMultiaddr = serviceURLToMultiaddr(pdpServiceURL)
+
+    // We'll track when monitoring + IPNI verification should start
+    let verificationPromise = null
     let pieceCidForMonitoring = null
 
     const uploadPromise = storage.upload(carData, {
@@ -308,13 +501,17 @@ async function main() {
       onUploadComplete: (pieceCid) => {
         log(`Upload complete: ${pieceCid}`, 'UPLOAD')
 
-        // Start status monitoring immediately
+        // Start status monitoring + IPNI verification immediately
+        // This will monitor status, then once retrievedAt is set, start IPNI checks
         pieceCidForMonitoring = pieceCid.toString()
         const pdpServer = new PDPServer(null, pdpServiceURL)
-        monitoringPromise = monitorPieceStatus(
+        verificationPromise = monitorAndVerifyIPNI(
           pdpServer,
           pieceCidForMonitoring,
-          MAX_POLLING_DURATION_MS,
+          blockCIDs,
+          expectedMultiaddr,
+          POLLING_TIMEOUT_MS,
+          IPNI_LOOKUP_TIMEOUT_MS,
           POLLING_INTERVAL_MS
         )
       },
@@ -330,17 +527,17 @@ async function main() {
       },
     })
 
-    // Wait for upload to complete
+    // Wait for upload to complete (this also ensures onUploadComplete has fired)
     const uploadResult = await uploadPromise
     log(`Upload result: pieceCid=${uploadResult.pieceCid}, pieceId=${uploadResult.pieceId}`, 'UPLOAD')
 
-    // Ensure monitoring started (it should have via onUploadComplete)
-    if (!monitoringPromise) {
-      throw new Error('Monitoring did not start - onUploadComplete was not called')
+    // Ensure verification started (it should have via onUploadComplete)
+    if (!verificationPromise) {
+      throw new Error('Verification did not start - onUploadComplete was not called')
     }
 
-    // Wait for monitoring to complete
-    const monitoringResult = await monitoringPromise
+    // Wait for monitoring + IPNI verification to complete (runs in parallel with upload confirmation)
+    const { monitoringResult, ipniResult } = await verificationPromise
 
     // ========================================================================
     // DOWNLOAD & VERIFICATION PHASE
@@ -379,6 +576,7 @@ async function main() {
     )
     log(`Upload confirmed: dataSetId=${storage.dataSetId}, pieceId=${uploadResult.pieceId}`)
     log(`Monitoring: ${monitoringResult.checks} status checks over ${(monitoringResult.durationMs / 1000).toFixed(1)}s`)
+    log(`IPNI verification: ${ipniResult.verified}/${ipniResult.total} CIDs verified in ${(ipniResult.durationMs / 1000).toFixed(1)}s`)
 
     process.exit(0)
   } catch (error) {
