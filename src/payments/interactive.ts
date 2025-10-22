@@ -93,6 +93,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       privateKey,
       rpcURL: rpcUrl,
       withIpni: true, // Always filter for IPNI-enabled providers
+      ...(options.warmStorageAddress && { warmStorageAddress: options.warmStorageAddress }),
     })
     const network = synapse.getNetwork()
     const client = synapse.getClient()
