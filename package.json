@@ -95,7 +95,7 @@
   "homepage": "https://github.com/FilOzone/filecoin-pin#readme",
   "dependencies": {
     "@clack/prompts": "^0.11.0",
-    "@filoz/synapse-sdk": "^0.33.0",
+    "@filoz/synapse-sdk": "^0.34.0",
     "@helia/unixfs": "^6.0.1",
     "@ipld/car": "^5.4.2",
     "commander": "^14.0.1",
