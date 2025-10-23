@@ -13,6 +13,7 @@ import {
 import { type Provider as EthersProvider, JsonRpcProvider, Wallet, WebSocketProvider } from 'ethers'
 import type { Logger } from 'pino'
 import { ADDRESS_ONLY_SIGNER_SYMBOL, AddressOnlySigner } from './address-only-signer.js'
+import { getTelemetryConfig } from './telemetry-config.js'
 
 const WEBSOCKET_REGEX = /^ws(s)?:\/\//i
 
@@ -290,7 +291,7 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
       const sessionWallet = new Wallet(sessionKey, provider)
 
       // Initialize with owner signer, then activate session key
-      synapse = await Synapse.create({ ...synapseOptions, signer: ownerSigner })
+      synapse = await Synapse.create({ ...synapseOptions, signer: ownerSigner, telemetry: getTelemetryConfig() })
       await setupSessionKey(synapse, sessionWallet, logger)
     } else {
       // Standard mode - validation guarantees privateKey is defined
@@ -299,7 +300,7 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
         throw new Error('Internal error: standard auth validated but privateKey missing')
       }
 
-      synapse = await Synapse.create({ ...synapseOptions, privateKey })
+      synapse = await Synapse.create({ ...synapseOptions, privateKey, telemetry: getTelemetryConfig() })
       activeProvider = synapse.getProvider()
     }
 
