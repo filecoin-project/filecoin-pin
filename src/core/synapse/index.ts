@@ -1,3 +1,4 @@
+import type { TelemetryConfig } from '@filoz/synapse-sdk'
 import {
   ADD_PIECES_TYPEHASH,
   CREATE_DATA_SET_TYPEHASH,
@@ -73,6 +74,16 @@ export interface SynapseSetupConfig {
   /** Optional override for WarmStorage contract address */
   warmStorageAddress?: string | undefined
   withCDN?: boolean | undefined
+  /**
+   * Telemetry configuration, merges fields, but appends "appName" to the existing appName
+   * @example
+   * {
+   *   appName: "filecoin-pin@v1.0.0-${your-app-name}",
+   *   enabled: true,
+   *   environment: "development",
+   * }
+   */
+  telemetry?: TelemetryConfig
 }
 
 /**
@@ -255,7 +266,11 @@ async function setupSessionKey(synapse: Synapse, sessionWallet: Wallet, logger: 
  * @param logger - Logger instance for detailed operation tracking
  * @returns Initialized Synapse instance
  */
-export async function initializeSynapse(config: SynapseSetupConfig, logger: Logger): Promise<Synapse> {
+export async function initializeSynapse(
+  config: SynapseSetupConfig,
+  logger: Logger,
+  telemetryConfig?: TelemetryConfig
+): Promise<Synapse> {
   try {
     const authMode = validateAuthConfig(config)
     const rpcURL = config.rpcUrl ?? RPC_URLS.calibration.websocket
@@ -291,7 +306,11 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
       const sessionWallet = new Wallet(sessionKey, provider)
 
       // Initialize with owner signer, then activate session key
-      synapse = await Synapse.create({ ...synapseOptions, signer: ownerSigner, telemetry: getTelemetryConfig() })
+      synapse = await Synapse.create({
+        ...synapseOptions,
+        signer: ownerSigner,
+        telemetry: getTelemetryConfig(telemetryConfig),
+      })
       await setupSessionKey(synapse, sessionWallet, logger)
     } else {
       // Standard mode - validation guarantees privateKey is defined
@@ -300,7 +319,7 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
         throw new Error('Internal error: standard auth validated but privateKey missing')
       }
 
-      synapse = await Synapse.create({ ...synapseOptions, privateKey, telemetry: getTelemetryConfig() })
+      synapse = await Synapse.create({ ...synapseOptions, privateKey, telemetry: getTelemetryConfig(telemetryConfig) })
       activeProvider = synapse.getProvider()
     }
 

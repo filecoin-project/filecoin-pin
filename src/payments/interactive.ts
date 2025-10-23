@@ -21,12 +21,12 @@ import {
   validatePaymentRequirements,
 } from '../core/payments/index.js'
 import { cleanupProvider, cleanupSynapseService } from '../core/synapse/index.js'
+import { getTelemetryConfig } from '../core/synapse/telemetry-config.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
 import { displayAccountInfo, displayDepositWarning, displayPricing } from './setup.js'
 import type { PaymentSetupOptions } from './types.js'
-import { getTelemetryConfig } from '../core/synapse/telemetry-config.js'
 
 /**
  * Run interactive payment setup
