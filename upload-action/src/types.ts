@@ -3,9 +3,11 @@
  */
 import type { PaymentStatus as FilecoinPinPaymentStatus } from 'filecoin-pin/core/payments'
 import type { CreateStorageContextOptions, SynapseService } from 'filecoin-pin/core/synapse'
-
+import type { Logger as PinoLogger } from 'pino'
 export type { FilecoinPinPaymentStatus, CreateStorageContextOptions }
 export type Synapse = SynapseService['synapse']
+
+export type Logger = PinoLogger
 
 // Base result types
 export interface UploadResult {
@@ -52,9 +54,19 @@ export interface CombinedContext extends Partial<UploadResult>, Partial<BuildRes
   dryRun?: boolean
 }
 
-export interface PaymentStatus extends Omit<FilecoinPinPaymentStatus, 'depositedAmount'> {
+export interface PaymentStatus
+  extends Omit<FilecoinPinPaymentStatus, 'depositedAmount' | 'walletUsdfcBalance' | 'filecoinPayBalance'> {
   depositedAmount: string
-  currentBalance: string
+  filecoinPayBalance?: string
+  walletUsdfcBalance?: string
+  storageRunway: string
+  depositedThisRun: string
+}
+
+export interface SimplifiedPaymentStatus {
+  depositedAmount: string
+  filecoinPayBalance?: string
+  walletUsdfcBalance?: string
   storageRunway: string
   depositedThisRun: string
 }

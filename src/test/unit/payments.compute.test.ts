@@ -21,6 +21,8 @@ function makeStatus(params: { depositedAmount: bigint; lockupUsed?: bigint; rate
     network: 'calibration',
     address: '0x0000000000000000000000000000000000000000',
     filBalance: 0n,
+    walletUsdfcBalance: 0n,
+    filecoinPayBalance: params.depositedAmount,
     usdfcBalance: 0n,
     depositedAmount: params.depositedAmount,
     currentAllowances,
