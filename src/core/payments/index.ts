@@ -415,9 +415,11 @@ export async function checkAllowances(synapse: Synapse): Promise<{
   // Get current allowances
   const currentAllowances = await synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC)
 
-  // Check if we need to update (not at max)
+  // Check if we need to update (not at max or max lockup period is not enough)
   const needsUpdate =
-    currentAllowances.rateAllowance < MAX_RATE_ALLOWANCE || currentAllowances.lockupAllowance < MAX_LOCKUP_ALLOWANCE
+    currentAllowances.rateAllowance < MAX_RATE_ALLOWANCE ||
+    currentAllowances.lockupAllowance < MAX_LOCKUP_ALLOWANCE ||
+    currentAllowances.maxLockupPeriod < BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
 
   return {
     needsUpdate,
