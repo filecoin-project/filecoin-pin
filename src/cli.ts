@@ -9,6 +9,7 @@ import { dataSetCommand } from './commands/data-set.js'
 import { importCommand } from './commands/import.js'
 import { paymentsCommand } from './commands/payments.js'
 import { serverCommand } from './commands/server.js'
+import { trackFirstRun } from './core/telemetry.js'
 
 // Get package.json for version
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -32,6 +33,9 @@ program.addCommand(addCommand)
 program.action(() => {
   program.help()
 })
+
+// Track first run for telemetry (non-blocking)
+trackFirstRun(packageJson.version)
 
 // Parse arguments and run
 program.parseAsync(process.argv).catch((error) => {
