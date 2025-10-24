@@ -9,7 +9,7 @@ import type { Synapse } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
-import type { PaymentCapacityCheck } from '../core/payments/index.js'
+import { DEFAULT_LOCKUP_DAYS, type PaymentCapacityCheck } from '../core/payments/index.js'
 import { cleanupSynapseService, type SynapseService } from '../core/synapse/index.js'
 import { checkUploadReadiness, executeUpload, getDownloadURL, type SynapseUploadResult } from '../core/upload/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
@@ -207,7 +207,7 @@ function displayPaymentIssues(capacityCheck: PaymentCapacityCheck, fileSize: num
   log.indent(
     `Required deposit: ${formatUSDFC(capacityCheck.required.lockupAllowance + capacityCheck.required.lockupAllowance / 10n)} USDFC`
   )
-  log.indent(pc.gray('(includes 10-day safety reserve)'))
+  log.indent(pc.gray(`(includes ${DEFAULT_LOCKUP_DAYS}-day safety reserve)`))
   log.line('')
 
   log.line(pc.bold('Suggested actions:'))

@@ -85,14 +85,14 @@ describe('computeAdjustmentForExactDays', () => {
   it('returns positive delta when more deposit needed (includes 1-hour safety)', () => {
     const rateUsed = 1_000_000_000_000_000_000n // 1 USDFC/epoch
     const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
-    const days = 10
+    const days = 30
     const available = perDay * 30n // exactly 30 days
     const status = makeStatus({ filecoinPayBalance: available, lockupUsed: 0n, rateUsed })
     const res = computeAdjustmentForExactDays(status, days)
     const perHour = perDay / 24n
     const safety = perHour > 0n ? perHour : 1n
     expect(res.delta).toBe(safety)
-    expect(res.targetAvailable).toBe(perDay * 10n + safety)
+    expect(res.targetAvailable).toBe(perDay * 30n + safety)
   })
 
   it('returns negative delta when withdrawal possible', () => {

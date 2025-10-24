@@ -17,6 +17,7 @@ import {
   computeAdjustmentForExactDays,
   computeAdjustmentForExactDaysWithPiece,
   computeAdjustmentForExactDeposit,
+  DEFAULT_LOCKUP_DAYS,
   depositUSDFC,
   getPaymentStatus,
   validatePaymentRequirements,
@@ -31,7 +32,7 @@ import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli
 import { isTTY, log } from '../utils/cli-logger.js'
 import type { AutoFundOptions, FundingAdjustmentResult, FundOptions } from './types.js'
 
-// Helper: confirm/warn or bail when target implies < 10-day runway
+// Helper: confirm/warn or bail when target implies < lockup-days runway
 async function ensureBelowThirtyDaysAllowed(opts: {
   spinner: Spinner
   warningLine1: string
@@ -43,7 +44,7 @@ async function ensureBelowThirtyDaysAllowed(opts: {
     console.error(pc.red(warningLine1))
     console.error(pc.red(warningLine2))
     cancel('Fund adjustment aborted')
-    throw new Error('Unsafe target below 10-day baseline')
+    throw new Error(`Unsafe target below ${DEFAULT_LOCKUP_DAYS}-day baseline`)
   }
 
   log.line(pc.yellow('⚠ Warning'))
