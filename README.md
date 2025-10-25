@@ -151,6 +151,7 @@ PRIVATE_KEY=0x...              # Ethereum private key with USDFC tokens
 
 # Optional
 RPC_URL=wss://...              # Filecoin RPC endpoint (default: Calibration testnet)
+FILECOIN_PIN_TELEMETRY_ENDPOINT=https://...  # Override telemetry endpoint for testing
 
 # Optional for Pinning Server Daemon
 PORT=3456                      # Daemon server port
@@ -200,6 +201,66 @@ npm run test:unit        # Unit tests only
 npm run test:integration # Integration tests
 npm run lint:fix         # Fix formatting
 ```
+
+## Privacy and Telemetry
+
+Filecoin Pin collects minimal anonymous usage data to help us understand adoption and improve the tool.
+
+### What We Collect
+
+On the first run of the CLI, we collect:
+- **Anonymous identifier**: A randomly generated UUID (not linked to any personal information)
+- **Package version**: The version of filecoin-pin you're using
+- **Platform**: Your operating system (e.g., darwin, linux, win32)
+- **Timestamp**: When the CLI was first run
+
+### What We Don't Collect
+
+- No personally identifiable information
+- No file names, contents, or CIDs
+- No wallet addresses or private keys
+- No command arguments or flags
+- No network or provider information
+
+### How to Opt Out
+
+**Recommended:** Use the `--private` flag to permanently disable telemetry:
+
+```bash
+filecoin-pin --private
+```
+
+This creates a config file at `~/.filecoin-pin/config.json` that persists your privacy preference. All future runs will respect this setting.
+
+**Alternative:** Set an environment variable:
+
+```bash
+export FILECOIN_PIN_TELEMETRY_DISABLED=1
+filecoin-pin add myfile.txt
+```
+
+Or add it to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.):
+
+```bash
+echo 'export FILECOIN_PIN_TELEMETRY_DISABLED=1' >> ~/.bashrc
+```
+
+### Data Usage
+
+Telemetry data is used solely to:
+- Measure unique installations and active usage
+- Understand which versions are in use
+- Inform development priorities and platform support
+
+The data is collected once on first run and helps us demonstrate real-world adoption to stakeholders and contributors.
+
+### Industry Standard Practice
+
+This telemetry approach follows common npm ecosystem practices:
+- **npm itself** collects anonymous usage data during package installation ([npm Privacy Policy](https://docs.npmjs.com/policies/privacy/))
+- Similar to [@nuxt/telemetry](https://www.npmjs.com/package/@nuxt/telemetry), [@ibm/telemetry-js](https://www.npmjs.com/package/@ibm/telemetry-js), and other community packages
+- All data is anonymized and used solely for measuring adoption and improving the tool
+- Easy opt-out mechanism follows ecosystem conventions
 
 ## Community and Support
 

@@ -9,6 +9,7 @@ import { dataSetCommand } from './commands/data-set.js'
 import { importCommand } from './commands/import.js'
 import { paymentsCommand } from './commands/payments.js'
 import { serverCommand } from './commands/server.js'
+import { trackFirstRun } from './core/telemetry.js'
 
 // Get package.json for version
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -20,6 +21,9 @@ const program = new Command()
   .description('IPFS Pinning Service with Filecoin storage via Synapse SDK')
   .version(packageJson.version)
   .option('-v, --verbose', 'verbose output')
+  .option('--private', 'disable telemetry collection (persists to config)')
+  .option('--test', 'mark telemetry as test data (internal use)')
+  .exitOverride() // Prevent auto-exit so telemetry can complete
 
 // Add subcommands
 program.addCommand(serverCommand)
@@ -33,8 +37,22 @@ program.action(() => {
   program.help()
 })
 
-// Parse arguments and run
-program.parseAsync(process.argv).catch((error) => {
-  console.error('Error:', error.message)
-  process.exit(1)
+// Parse arguments first to get options
+let parsedOptions: { private?: boolean; test?: boolean } = {}
+try {
+  await program.parseAsync(process.argv)
+  parsedOptions = program.opts()
+} catch (error) {
+  // Commander throws on help/version with exitOverride, ignore those
+  if (error instanceof Error && error.message !== '(outputHelp)' && error.message !== '(version)') {
+    console.error('Error:', error.message)
+    process.exit(1)
+  }
+  parsedOptions = program.opts()
+}
+
+// Track first run for telemetry (non-blocking)
+trackFirstRun(packageJson.version, {
+  isPrivate: parsedOptions.private || false,
+  isTest: parsedOptions.test || false,
 })
