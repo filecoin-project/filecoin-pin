@@ -15,7 +15,7 @@ interface TelemetryPayload {
   version: string
   platform: string
   timestamp: string
-  testMode?: boolean
+  testMode?: string
 }
 
 interface TrackingOptions {
@@ -66,6 +66,10 @@ async function sendTelemetryEvent(payload: TelemetryPayload): Promise<void> {
   try {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT)
+
+    if (process.env.DEBUG_TELEMETRY) {
+      console.log('Sending payload:', JSON.stringify(payload, null, 2))
+    }
 
     const response = await fetch(TELEMETRY_ENDPOINT, {
       method: 'POST',
@@ -130,7 +134,7 @@ export function trackFirstRun(version: string, options?: TrackingOptions): void 
 
       // Add testMode flag if --test is used
       if (options?.isTest) {
-        payload.testMode = true
+        payload.testMode = 'test'
       }
 
       // Send telemetry
