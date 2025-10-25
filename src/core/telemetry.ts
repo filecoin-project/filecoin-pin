@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 const TELEMETRY_ENDPOINT = 'https://eomwm816g3v5sar.m.pipedream.net'
 const CONFIG_DIR = join(homedir(), '.filecoin-pin')
 const TELEMETRY_ID_FILE = join(CONFIG_DIR, '.telemetry-id')
-const REQUEST_TIMEOUT = 2000 // 2 seconds
+const REQUEST_TIMEOUT = 5000 // 5 seconds
 
 interface TelemetryPayload {
   event: string
@@ -57,11 +57,6 @@ function getOrCreateTelemetryId(): { id: string; isFirstRun: boolean } {
  */
 async function sendTelemetryEvent(payload: TelemetryPayload): Promise<void> {
   try {
-    if (process.env.DEBUG_TELEMETRY) {
-      console.log('Telemetry payload:', JSON.stringify(payload, null, 2))
-      console.log('Sending to:', TELEMETRY_ENDPOINT)
-    }
-
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT)
 
@@ -77,12 +72,12 @@ async function sendTelemetryEvent(payload: TelemetryPayload): Promise<void> {
     clearTimeout(timeoutId)
 
     if (process.env.DEBUG_TELEMETRY) {
-      console.log('Telemetry response status:', response.status)
+      console.log('Telemetry sent successfully:', response.status)
     }
   } catch (error) {
     // Fail silently - telemetry should never block CLI functionality
     if (process.env.DEBUG_TELEMETRY) {
-      console.error('Telemetry send error:', error)
+      console.error('Telemetry error:', error instanceof Error ? error.message : error)
     }
   }
 }
@@ -97,9 +92,6 @@ export function trackFirstRun(version: string): void {
     try {
       // Check opt-out
       if (isTelemetryDisabled()) {
-        if (process.env.DEBUG_TELEMETRY) {
-          console.log('Telemetry disabled via FILECOIN_PIN_TELEMETRY_DISABLED')
-        }
         return
       }
 
@@ -108,9 +100,6 @@ export function trackFirstRun(version: string): void {
 
       // Only send event on first run
       if (!isFirstRun) {
-        if (process.env.DEBUG_TELEMETRY) {
-          console.log('Not first run - skipping telemetry')
-        }
         return
       }
 
@@ -128,7 +117,7 @@ export function trackFirstRun(version: string): void {
     } catch (error) {
       // Fail silently
       if (process.env.DEBUG_TELEMETRY) {
-        console.error('Telemetry tracking error:', error)
+        console.error('Telemetry error:', error instanceof Error ? error.message : error)
       }
     }
   })()

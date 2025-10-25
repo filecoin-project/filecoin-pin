@@ -21,6 +21,7 @@ const program = new Command()
   .description('IPFS Pinning Service with Filecoin storage via Synapse SDK')
   .version(packageJson.version)
   .option('-v, --verbose', 'verbose output')
+  .exitOverride() // Prevent auto-exit so telemetry can complete
 
 // Add subcommands
 program.addCommand(serverCommand)
@@ -38,7 +39,12 @@ program.action(() => {
 trackFirstRun(packageJson.version)
 
 // Parse arguments and run
-program.parseAsync(process.argv).catch((error) => {
-  console.error('Error:', error.message)
-  process.exit(1)
-})
+try {
+  await program.parseAsync(process.argv)
+} catch (error) {
+  // Commander throws on help/version with exitOverride, ignore those
+  if (error instanceof Error && error.message !== '(outputHelp)' && error.message !== '(version)') {
+    console.error('Error:', error.message)
+    process.exit(1)
+  }
+}
