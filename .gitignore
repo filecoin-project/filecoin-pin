@@ -5,6 +5,7 @@ kubo/
 dist/
 .vite/
 *.car
+*.tgz
 test-output/
 test-car-output/
 test-e2e-cars/
