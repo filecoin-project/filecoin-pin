@@ -21,6 +21,8 @@ const program = new Command()
   .description('IPFS Pinning Service with Filecoin storage via Synapse SDK')
   .version(packageJson.version)
   .option('-v, --verbose', 'verbose output')
+  .option('--private', 'disable telemetry collection (persists to config)')
+  .option('--test', 'mark telemetry as test data (internal use)')
   .exitOverride() // Prevent auto-exit so telemetry can complete
 
 // Add subcommands
@@ -35,16 +37,22 @@ program.action(() => {
   program.help()
 })
 
-// Track first run for telemetry (non-blocking)
-trackFirstRun(packageJson.version)
-
-// Parse arguments and run
+// Parse arguments first to get options
+let parsedOptions: { private?: boolean; test?: boolean } = {}
 try {
   await program.parseAsync(process.argv)
+  parsedOptions = program.opts()
 } catch (error) {
   // Commander throws on help/version with exitOverride, ignore those
   if (error instanceof Error && error.message !== '(outputHelp)' && error.message !== '(version)') {
     console.error('Error:', error.message)
     process.exit(1)
   }
+  parsedOptions = program.opts()
 }
+
+// Track first run for telemetry (non-blocking)
+trackFirstRun(packageJson.version, {
+  isPrivate: parsedOptions.private || false,
+  isTest: parsedOptions.test || false,
+})

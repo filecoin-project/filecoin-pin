@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { isTelemetryDisabledInConfig, disableTelemetryInConfig } from './telemetry-config.js'
 
 const TELEMETRY_ENDPOINT = 'https://eomwm816g3v5sar.m.pipedream.net'
 const CONFIG_DIR = join(homedir(), '.filecoin-pin')
@@ -14,6 +15,12 @@ interface TelemetryPayload {
   version: string
   platform: string
   timestamp: string
+  testMode?: boolean
+}
+
+interface TrackingOptions {
+  isPrivate: boolean
+  isTest: boolean
 }
 
 /**
@@ -86,12 +93,21 @@ async function sendTelemetryEvent(payload: TelemetryPayload): Promise<void> {
  * Track CLI first run event
  * This function is non-blocking and will not throw errors
  */
-export function trackFirstRun(version: string): void {
+export function trackFirstRun(version: string, options?: TrackingOptions): void {
   // Don't await - fire and forget
   void (async () => {
     try {
-      // Check opt-out
-      if (isTelemetryDisabled()) {
+      // If --private flag is used, save to config and exit
+      if (options?.isPrivate) {
+        disableTelemetryInConfig()
+        if (process.env.DEBUG_TELEMETRY) {
+          console.log('Telemetry disabled via --private flag (saved to config)')
+        }
+        return
+      }
+
+      // Check opt-out via config file, then environment variable
+      if (isTelemetryDisabledInConfig() || isTelemetryDisabled()) {
         return
       }
 
@@ -110,6 +126,11 @@ export function trackFirstRun(version: string): void {
         version,
         platform: process.platform,
         timestamp: new Date().toISOString(),
+      }
+
+      // Add testMode flag if --test is used
+      if (options?.isTest) {
+        payload.testMode = true
       }
 
       // Send telemetry

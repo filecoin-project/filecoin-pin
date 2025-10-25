@@ -223,7 +223,15 @@ On the first run of the CLI, we collect:
 
 ### How to Opt Out
 
-Set the environment variable before running the CLI:
+**Recommended:** Use the `--private` flag to permanently disable telemetry:
+
+```bash
+filecoin-pin --private
+```
+
+This creates a config file at `~/.filecoin-pin/config.json` that persists your privacy preference. All future runs will respect this setting.
+
+**Alternative:** Set an environment variable:
 
 ```bash
 export FILECOIN_PIN_TELEMETRY_DISABLED=1
@@ -244,6 +252,14 @@ Telemetry data is used solely to:
 - Inform development priorities and platform support
 
 The data is collected once on first run and helps us demonstrate real-world adoption to stakeholders and contributors.
+
+### Industry Standard Practice
+
+This telemetry approach follows common npm ecosystem practices:
+- **npm itself** collects anonymous usage data during package installation ([npm Privacy Policy](https://docs.npmjs.com/policies/privacy/))
+- Similar to [@nuxt/telemetry](https://www.npmjs.com/package/@nuxt/telemetry), [@ibm/telemetry-js](https://www.npmjs.com/package/@ibm/telemetry-js), and other community packages
+- All data is anonymized and used solely for measuring adoption and improving the tool
+- Easy opt-out mechanism follows ecosystem conventions
 
 ## Community and Support
 
