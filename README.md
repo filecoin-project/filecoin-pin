@@ -151,6 +151,7 @@ PRIVATE_KEY=0x...              # Ethereum private key with USDFC tokens
 
 # Optional
 RPC_URL=wss://...              # Filecoin RPC endpoint (default: Calibration testnet)
+FILECOIN_PIN_TELEMETRY_ENDPOINT=https://...  # Override telemetry endpoint for testing
 
 # Optional for Pinning Server Daemon
 PORT=3456                      # Daemon server port
