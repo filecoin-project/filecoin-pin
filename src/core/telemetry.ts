@@ -4,9 +4,7 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { isTelemetryDisabledInConfig, disableTelemetryInConfig } from './telemetry-config.js'
 
-// NOTE: This endpoint should be updated to the production telemetry endpoint before release.
-// For testing, set FILECOIN_PIN_TELEMETRY_ENDPOINT environment variable to override.
-const TELEMETRY_ENDPOINT = process.env.FILECOIN_PIN_TELEMETRY_ENDPOINT || 'https://telemetry.filecoin.io/cli'
+const TELEMETRY_ENDPOINT = process.env.FILECOIN_PIN_TELEMETRY_ENDPOINT || 'https://eomwm816g3v5sar.m.pipedream.net'
 const CONFIG_DIR = join(homedir(), '.filecoin-pin')
 const TELEMETRY_ID_FILE = join(CONFIG_DIR, '.telemetry-id')
 const REQUEST_TIMEOUT = 5000 // 5 seconds
