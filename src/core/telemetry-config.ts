@@ -40,9 +40,6 @@ export function writeTelemetryConfig(config: TelemetryConfig): void {
     writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8')
   } catch (error) {
     // Fail silently - telemetry config is not critical
-    if (process.env.DEBUG_TELEMETRY) {
-      console.error('Failed to write telemetry config:', error)
-    }
   }
 }
 

@@ -52,9 +52,6 @@ function getOrCreateTelemetryId(): { id: string; isFirstRun: boolean } {
     return { id, isFirstRun: true }
   } catch (error) {
     // Fail silently if we can't access filesystem
-    if (process.env.DEBUG_TELEMETRY) {
-      console.error('Telemetry ID error:', error)
-    }
     return { id: 'unknown', isFirstRun: false }
   }
 }
@@ -67,11 +64,7 @@ async function sendTelemetryEvent(payload: TelemetryPayload): Promise<void> {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT)
 
-    if (process.env.DEBUG_TELEMETRY) {
-      console.log('Sending payload:', JSON.stringify(payload, null, 2))
-    }
-
-    const response = await fetch(TELEMETRY_ENDPOINT, {
+    await fetch(TELEMETRY_ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -81,15 +74,8 @@ async function sendTelemetryEvent(payload: TelemetryPayload): Promise<void> {
     })
 
     clearTimeout(timeoutId)
-
-    if (process.env.DEBUG_TELEMETRY) {
-      console.log('Telemetry sent successfully:', response.status)
-    }
   } catch (error) {
     // Fail silently - telemetry should never block CLI functionality
-    if (process.env.DEBUG_TELEMETRY) {
-      console.error('Telemetry error:', error instanceof Error ? error.message : error)
-    }
   }
 }
 
@@ -104,9 +90,6 @@ export function trackFirstRun(version: string, options?: TrackingOptions): void 
       // If --private flag is used, save to config and exit
       if (options?.isPrivate) {
         disableTelemetryInConfig()
-        if (process.env.DEBUG_TELEMETRY) {
-          console.log('Telemetry disabled via --private flag (saved to config)')
-        }
         return
       }
 
@@ -140,10 +123,7 @@ export function trackFirstRun(version: string, options?: TrackingOptions): void 
       // Send telemetry
       await sendTelemetryEvent(payload)
     } catch (error) {
-      // Fail silently
-      if (process.env.DEBUG_TELEMETRY) {
-        console.error('Telemetry error:', error instanceof Error ? error.message : error)
-      }
+      // Fail silently - telemetry should never block CLI functionality
     }
   })()
 }
