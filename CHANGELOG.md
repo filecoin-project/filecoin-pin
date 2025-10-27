@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.10.0...v0.10.1) (2025-10-27)
+
+
+### Chores
+
+* s/FilOzone/filecoin-project ([#163](https://github.com/filecoin-project/filecoin-pin/issues/163)) ([0277e4d](https://github.com/filecoin-project/filecoin-pin/commit/0277e4de167e575e6ac2104da692b69b28d9af27))
+
 ## [0.10.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.9.2...v0.10.0) (2025-10-27)
 
 
