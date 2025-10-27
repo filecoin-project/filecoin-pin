@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.10.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.9.2...v0.10.0) (2025-10-27)
+
+
+### Features
+
+* allow overriding withCDN via env-var ([#55](https://github.com/filecoin-project/filecoin-pin/issues/55)) ([0a89ca8](https://github.com/filecoin-project/filecoin-pin/commit/0a89ca8f9a8b30fccb5df51be926d84258f8afe8))
+
+
+### Bug Fixes
+
+* more ethers.js cleanup silencing ([#144](https://github.com/filecoin-project/filecoin-pin/issues/144)) ([785af4a](https://github.com/filecoin-project/filecoin-pin/commit/785af4ad6996f77afa9cebdc5fc66df866f5b089))
+* withCDN data set creation ([#145](https://github.com/filecoin-project/filecoin-pin/issues/145)) ([86c839f](https://github.com/filecoin-project/filecoin-pin/commit/86c839f74b456279b9ffc9bdc89f6b0819413761))
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.2.6 to 2.2.7 ([#150](https://github.com/filecoin-project/filecoin-pin/issues/150)) ([c29f2e6](https://github.com/filecoin-project/filecoin-pin/commit/c29f2e674c15779d6980afe761647b568566763b))
+* **deps:** bump @filoz/synapse-sdk from 0.33.0 to 0.34.0 ([#149](https://github.com/filecoin-project/filecoin-pin/issues/149)) ([e9b7f07](https://github.com/filecoin-project/filecoin-pin/commit/e9b7f07dd4de3e771828d0ce5073e4fba3c9b544))
+* **docs:** agents context file ([#139](https://github.com/filecoin-project/filecoin-pin/issues/139)) ([7c610a3](https://github.com/filecoin-project/filecoin-pin/commit/7c610a329ef6feb64048e2a3e69fc9e43a762610))
+
+
+### Documentation
+
+* add CONTRIBUTING.md and AGENTS.md ([#134](https://github.com/filecoin-project/filecoin-pin/issues/134)) ([5c204ed](https://github.com/filecoin-project/filecoin-pin/commit/5c204ed1f00eb2db16676225ad6e7b37c8e7af23))
+
 ## [0.9.2](https://github.com/filecoin-project/filecoin-pin/compare/v0.9.1...v0.9.2) (2025-10-17)
 
 
