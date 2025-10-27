@@ -78,7 +78,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/FilOzone/filecoin-pin.git"
+    "url": "git+https://github.com/filecoin-project/filecoin-pin.git"
   },
   "keywords": [
     "ipfs",
@@ -90,9 +90,9 @@
   "author": "Rod Vagg <rod@vagg.org>",
   "license": "Apache-2.0 OR MIT",
   "bugs": {
-    "url": "https://github.com/FilOzone/filecoin-pin/issues"
+    "url": "https://github.com/filecoin-project/filecoin-pin/issues"
   },
-  "homepage": "https://github.com/FilOzone/filecoin-pin#readme",
+  "homepage": "https://github.com/filecoin-project/filecoin-pin#readme",
   "dependencies": {
     "@clack/prompts": "^0.11.0",
     "@filoz/synapse-sdk": "^0.34.0",
