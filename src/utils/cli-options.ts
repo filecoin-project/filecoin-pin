@@ -80,27 +80,3 @@ export function addProviderOptions(command: Command): Command {
     )
     .option('--provider-id <id>', 'Override provider selection by ID (can also use PROVIDER_ID env)')
 }
-
-/**
- * Decorator to add a verbose option to a Commander command
- *
- * This adds a verbose option that can be used to enable verbose output. The default value is false.
- *
- * @param command - The Commander command to add options to
- * @returns The same command with options added (for chaining)
- *
- * @example
- * ```typescript
- * const myCommand = new Command('mycommand')
- *   .description('Do something')
- *   .action(async (options) => {
- *     const { verbose } = options
- *   })
- *
- * addVerboseOption(myCommand)
- * ```
- */
-export function addVerboseOption(command: Command): Command {
-  return command
-    .option('-v, --verbose', 'Verbose output', false)
-}

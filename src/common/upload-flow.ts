@@ -5,13 +5,20 @@
  * including payment validation, storage context creation, and result display.
  */
 
-import type { Synapse } from '@filoz/synapse-sdk'
+import type { PieceCID, Synapse } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
 import type { PaymentCapacityCheck } from '../core/payments/index.js'
 import { cleanupSynapseService, type SynapseService } from '../core/synapse/index.js'
-import { checkUploadReadiness, executeUpload, getDownloadURL, type SynapseUploadResult } from '../core/upload/index.js'
+import {
+  checkUploadReadiness,
+  executeUpload,
+  getDownloadURL,
+  getServiceURL,
+  type SynapseUploadResult,
+} from '../core/upload/index.js'
+import { checkIPNIAnnouncement } from '../core/utils/check-ipni-announcement.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { autoFund } from '../payments/fund.js'
 import type { AutoFundOptions } from '../payments/types.js'
@@ -245,24 +252,109 @@ export async function performUpload(
 
   spinner?.start('Uploading to Filecoin...')
 
+  // Track parallel operations with their messages
+  const pendingOps = new Map<string, string>()
+  let transactionHash: string | undefined
+
+  function getSpinnerMessage() {
+    return Array.from(pendingOps.values())
+      .map((op) => op)
+      .join(' & ')
+  }
+
+  function completeOperation(operationKey: string, completionMessage: string) {
+    pendingOps.delete(operationKey)
+    spinner?.stop(completionMessage)
+
+    // Restart spinner with remaining operations if any
+    if (pendingOps.size > 0) {
+      spinner?.start(getSpinnerMessage())
+    }
+  }
+
+  let ipniAnnouncementPromise: Promise<void> | null = null
+  let pieceCid: PieceCID | undefined
+
   const uploadResult = await executeUpload(synapseService, carData, rootCid, {
     logger,
     contextId: `${contextType}-${Date.now()}`,
     onProgress(event) {
       switch (event.type) {
         case 'onUploadComplete': {
+          pieceCid = event.data.pieceCid
           spinner?.stop(`${pc.green('✓')} Upload complete`)
-          spinner?.start('Adding to data set...')
+          const serviceURL = getServiceURL(synapseService.providerInfo)
+          if (serviceURL != null && serviceURL !== '') {
+            log.section('Download IPFS content from SP', [
+              pc.gray(`${serviceURL.replace(/\/$/, '')}/ipfs/${rootCid}`),
+              '',
+            ])
+          }
+          spinner?.message('Adding piece to DataSet...')
           break
         }
         case 'onPieceAdded': {
-          spinner?.stop(`${pc.green('✓')} Content added to data set`)
-          // TODO: output
-          spinner?.start('Waiting for transaction to be confirmed on-chain...')
+          spinner?.message(`${pc.green('✓')} Piece added to DataSet (unconfirmed on-chain)`)
+          if (event.data.transaction?.hash) {
+            transactionHash = event.data.transaction?.hash
+          }
+          log.section('Explorer URLs', [
+            pc.gray(`Piece: https://pdp.vxb.ai/calibration/piece/${pieceCid}`),
+            pc.gray(`Transaction: https://${synapseService.synapse.getNetwork()}.filfox.info/en/tx/${transactionHash}`),
+            '',
+          ])
+
+          function getIpniAdvertisementMsg(attemptCount: number): string {
+            return `Checking for IPNI advertisement (check #${attemptCount})`
+          }
+
+          // Start tracking both parallel operations
+          pendingOps.set('ipni', getIpniAdvertisementMsg(1))
+          pendingOps.set('chain', 'Confirming piece added to DataSet on-chain')
+
+          spinner?.message(getSpinnerMessage())
+
+          // Start IPNI check in parallel and store the promise
+          ipniAnnouncementPromise = checkIPNIAnnouncement(rootCid, {
+            logger,
+            onProgress: (event) => {
+              switch (event.type) {
+                case 'onRetryUpdate': {
+                  pendingOps.set('ipni', getIpniAdvertisementMsg(event.data.retryCount + 1))
+                  spinner?.message(getSpinnerMessage())
+                  break
+                }
+              }
+            },
+          })
+            .then((result) => {
+              const message = result
+                ? `${pc.green('✓')} IPNI advertisement successful. IPFS retrieval possible.`
+                : `${pc.yellow('⚠')} IPNI advertisement pending`
+
+              completeOperation('ipni', message)
+
+              if (result) {
+                log.section('IPFS Retrieval URLs', [
+                  pc.gray(`ipfs://${rootCid}`),
+                  pc.gray(`https://inbrowser.link/ipfs/${rootCid}`),
+                  pc.gray(`https://dweb.link/ipfs/${rootCid}`),
+                  '',
+                ])
+              }
+            })
+            .catch((error) => {
+              logger.error({ error }, 'Error checking IPNI advertisement')
+              completeOperation('ipni', `${pc.red('✗')} IPNI advertisement check failed`)
+              log.section('IPNI advertisement check failed', [
+                pc.gray(`IPNI advertisement does not exist at http://filecoinpin.contact/cid/${rootCid}`),
+                '',
+              ])
+            })
           break
         }
         case 'onPieceConfirmed': {
-          spinner?.stop(`${pc.green('✓')} Piece confirmed on-chain`)
+          completeOperation('chain', `${pc.green('✓')} Piece added to DataSet (confirmed on-chain)`)
           break
         }
         default: {
@@ -271,6 +363,14 @@ export async function performUpload(
       }
     },
   })
+
+  if (ipniAnnouncementPromise) {
+    try {
+      await ipniAnnouncementPromise
+    } catch {
+      // messaging should be handled elsewhere.
+    }
+  }
 
   return {
     ...uploadResult,

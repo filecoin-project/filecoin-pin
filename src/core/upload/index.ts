@@ -202,10 +202,8 @@ export async function executeUpload(
   let transactionHash: string | undefined
 
   const onProgress: UploadOnProgressFn = (event) => {
-    options.onProgress?.(event)
     switch (event.type) {
       case 'onPieceAdded': {
-        options.onProgress?.(event)
         if (event.data.transaction != null && event.data.transaction.hash != null) {
           transactionHash = event.data.transaction.hash
         }
@@ -215,6 +213,7 @@ export async function executeUpload(
         break
       }
     }
+    options.onProgress?.(event)
   }
 
   const uploadOptions: Parameters<typeof uploadToSynapse>[4] = {

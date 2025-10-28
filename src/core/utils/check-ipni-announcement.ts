@@ -10,6 +10,13 @@ export interface CheckIPNIAnnouncementOptions {
   maxAttempts?: number
 
   /**
+   * delay between attempts in milliseconds
+   *
+   * @default: 5000
+   */
+  delayMs?: number
+
+  /**
    * Abort signal
    *
    * @default: undefined
@@ -22,6 +29,13 @@ export interface CheckIPNIAnnouncementOptions {
    * @default: undefined
    */
   logger?: Logger
+
+  /**
+   * Callback for progress updates
+   *
+   * @default: undefined
+   */
+  onProgress?: (event: { type: 'onRetryUpdate'; data: { retryCount: number } }) => void
 }
 
 /**
@@ -33,11 +47,14 @@ export interface CheckIPNIAnnouncementOptions {
  * @param options - Options for the check
  * @returns True if the IPNI announce succeeded, false otherwise
  */
-export async function checkIPNIAnnouncement(ipfsRootCid: CID, options?: CheckIPNIAnnouncementOptions): Promise<boolean> {
-  const initialDelayMs = 1000
-  const maxDelayMs = 30000
+export async function checkIPNIAnnouncement(
+  ipfsRootCid: CID,
+  options?: CheckIPNIAnnouncementOptions
+): Promise<boolean> {
+  const delayMs = options?.delayMs ?? 5000
+  const maxAttempts = options?.maxAttempts ?? 10
+
   return new Promise<boolean>((resolve, reject) => {
-    const maxAttempts = options?.maxAttempts ?? 10
     let retryCount = 0
     const check = async (): Promise<void> => {
       try {
@@ -57,22 +74,23 @@ export async function checkIPNIAnnouncement(ipfsRootCid: CID, options?: CheckIPN
         if (options?.signal) {
           fetchOptions.signal = options?.signal
         }
+        options?.onProgress?.({ type: 'onRetryUpdate', data: { retryCount } })
+
         const response = await fetch(`https://filecoinpin.contact/cid/${ipfsRootCid}`, fetchOptions)
         if (response.ok) {
           resolve(true)
           return
         }
         if (++retryCount < maxAttempts) {
-          const delay = Math.min(initialDelayMs * 2 ** (retryCount - 1), maxDelayMs)
           options?.logger?.info(
             { retryCount, maxAttempts },
             'IPFS Root CID "%s" not announced to IPNI yet (%d/%d). Retrying in %dms...',
             ipfsRootCid.toString(),
             retryCount,
             maxAttempts,
-            delay
+            delayMs
           )
-          await new Promise((resolve) => setTimeout(resolve, delay))
+          await new Promise((resolve) => setTimeout(resolve, delayMs))
           await check()
         } else {
           const msg = `IPFS root CID "${ipfsRootCid.toString()}" not announced to IPNI after ${maxAttempts} attempts`

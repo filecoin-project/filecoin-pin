@@ -26,6 +26,12 @@ const ZERO_CID = 'bafkqaaa' // Zero CID used when CAR has no roots
 
 // Mock modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
+
+// Mock IPNI announcement check to prevent network calls
+vi.mock('../../core/utils/check-ipni-announcement.js', () => ({
+  checkIPNIAnnouncement: vi.fn().mockResolvedValue(true),
+}))
+
 vi.mock('../../core/payments/index.js', async () => {
   const actual = await vi.importActual<typeof import('../../core/payments/index.js')>('../../core/payments/index.js')
   return {

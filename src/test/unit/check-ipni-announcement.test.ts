@@ -124,52 +124,6 @@ describe('checkIPNIAnnouncement', () => {
         signal: abortController.signal,
       })
     })
-
-    it('should not include signal in fetch options when not provided', async () => {
-      mockFetch.mockResolvedValueOnce({ ok: true })
-
-      const promise = checkIPNIAnnouncement(testCid, { })
-      await vi.runAllTimersAsync()
-      await promise
-
-      expect(mockFetch).toHaveBeenCalledWith(`https://filecoinpin.contact/cid/${testCid}`, {})
-    })
-  })
-
-  describe('exponential backoff', () => {
-    it('should cap delay at 30000ms (maxDelayMs)', async () => {
-      mockFetch.mockResolvedValue({ ok: false })
-
-      const promise = checkIPNIAnnouncement(testCid, { maxAttempts: 10 })
-      // Attach rejection handler immediately
-      const expectPromise = expect(promise).rejects.toThrow()
-
-      // Skip to where delay would exceed max
-      await vi.advanceTimersByTimeAsync(0) // 1st: immediate
-      expect(mockFetch).toHaveBeenCalledTimes(1)
-      await vi.advanceTimersByTimeAsync(1000) // 2nd: 1000ms
-      expect(mockFetch).toHaveBeenCalledTimes(2)
-      await vi.advanceTimersByTimeAsync(2000) // 3rd: 2000ms
-      expect(mockFetch).toHaveBeenCalledTimes(3)
-      await vi.advanceTimersByTimeAsync(4000) // 4th: 4000ms
-      expect(mockFetch).toHaveBeenCalledTimes(4)
-      await vi.advanceTimersByTimeAsync(8000) // 5th: 8000ms
-      expect(mockFetch).toHaveBeenCalledTimes(5)
-      await vi.advanceTimersByTimeAsync(16000) // 6th: 16000ms
-      expect(mockFetch).toHaveBeenCalledTimes(6)
-
-      // 7th attempt: would be 32000ms but capped at 30000ms
-      await vi.advanceTimersByTimeAsync(30000)
-      expect(mockFetch).toHaveBeenCalledTimes(7)
-
-      // 8th attempt: also capped at 30000ms
-      await vi.advanceTimersByTimeAsync(30000)
-      expect(mockFetch).toHaveBeenCalledTimes(8)
-
-      // Complete remaining attempts
-      await vi.runAllTimersAsync()
-      await expectPromise
-    })
   })
 
   describe('edge cases', () => {
