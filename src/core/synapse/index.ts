@@ -612,6 +612,11 @@ export async function cleanupProvider(provider: any): Promise<void> {
  * and allow the process to terminate
  */
 export async function cleanupSynapseService(): Promise<void> {
+  // Close telemetry to flush pending events and shutdown cleanly
+  if (synapseInstance) {
+    await synapseInstance.telemetry.close()
+  }
+
   if (activeProvider) {
     await cleanupProvider(activeProvider)
   }

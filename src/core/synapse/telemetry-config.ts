@@ -12,6 +12,5 @@ export const getTelemetryConfig = (config?: TelemetryConfig | undefined): Teleme
     enabled: true, // allow config.enabled to override default
     ...config,
     appName, // use constructed appName, always.
-    environment: config?.environment || 'development',
   }
 }
