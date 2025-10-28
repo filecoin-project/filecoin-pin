@@ -1,4 +1,4 @@
-import type { Synapse, UploadCallbacks } from '@filoz/synapse-sdk'
+import type { Synapse } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import {
@@ -11,9 +11,9 @@ import {
   validatePaymentRequirements,
 } from '../payments/index.js'
 import { isSessionKeyMode, type SynapseService } from '../synapse/index.js'
-import { type SynapseUploadResult, uploadToSynapse } from './synapse.js'
+import { type SynapseUploadResult, type UploadOnProgressFn, uploadToSynapse } from './synapse.js'
 
-export type { SynapseUploadOptions, SynapseUploadResult } from './synapse.js'
+export type { SynapseUploadOptions, SynapseUploadResult, UploadOnProgressFn, UploadProgressEvent } from './synapse.js'
 export { getDownloadURL, getServiceURL, uploadToSynapse } from './synapse.js'
 
 /**
@@ -175,8 +175,8 @@ export interface UploadExecutionOptions {
   logger: Logger
   /** Optional identifier to help correlate logs. */
   contextId?: string
-  /** Optional callbacks mirroring Synapse SDK upload callbacks. */
-  callbacks?: UploadCallbacks
+  /** Optional onProgress function mirroring Synapse SDK upload callbacks. */
+  onProgress?: UploadOnProgressFn
   /** Optional metadata to associate with the upload. */
   metadata?: Record<string, string>
 }
@@ -198,26 +198,27 @@ export async function executeUpload(
   rootCid: CID,
   options: UploadExecutionOptions
 ): Promise<UploadExecutionResult> {
-  const { logger, contextId, callbacks } = options
+  const { logger, contextId } = options
   let transactionHash: string | undefined
 
-  const mergedCallbacks: UploadCallbacks = {
-    onUploadComplete: (pieceCid) => {
-      callbacks?.onUploadComplete?.(pieceCid)
-    },
-    onPieceAdded: (transaction) => {
-      if (transaction?.hash) {
-        transactionHash = transaction.hash
+  const onProgress: UploadOnProgressFn = (event) => {
+    options.onProgress?.(event)
+    switch (event.type) {
+      case 'onPieceAdded': {
+        options.onProgress?.(event)
+        if (event.data.transaction != null && event.data.transaction.hash != null) {
+          transactionHash = event.data.transaction.hash
+        }
+        break
       }
-      callbacks?.onPieceAdded?.(transaction)
-    },
-    onPieceConfirmed: (pieceIds) => {
-      callbacks?.onPieceConfirmed?.(pieceIds)
-    },
+      default: {
+        break
+      }
+    }
   }
 
   const uploadOptions: Parameters<typeof uploadToSynapse>[4] = {
-    callbacks: mergedCallbacks,
+    onProgress,
   }
   if (contextId) {
     uploadOptions.contextId = contextId

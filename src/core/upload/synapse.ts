@@ -4,17 +4,25 @@
  * This module provides a reusable upload pattern for CAR files to Filecoin
  * via Synapse SDK, used by both the import command and pinning server.
  */
-import type { UploadOptions } from '@filoz/synapse-sdk'
+import type { PieceCID, UploadOptions } from '@filoz/synapse-sdk'
 import { METADATA_KEYS, type ProviderInfo, type UploadCallbacks } from '@filoz/synapse-sdk'
+import type { TransactionResponse } from 'ethers'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import type { SynapseService } from '../synapse/index.js'
+
+export type UploadProgressEvent =
+  | { type: 'onUploadComplete'; data: { pieceCid: PieceCID } }
+  | { type: 'onPieceAdded'; data: { transaction: TransactionResponse | undefined } }
+  | { type: 'onPieceConfirmed'; data: { pieceIds: number[] } }
+
+export type UploadOnProgressFn = (event: UploadProgressEvent) => void
 
 export interface SynapseUploadOptions {
   /**
    * Optional callbacks for monitoring upload progress
    */
-  callbacks?: UploadCallbacks
+  onProgress?: UploadOnProgressFn
 
   /**
    * Context identifier for logging (e.g., pinId, import job ID)
@@ -71,7 +79,7 @@ export async function uploadToSynapse(
   logger: Logger,
   options: SynapseUploadOptions = {}
 ): Promise<SynapseUploadResult> {
-  const { callbacks, contextId = 'upload' } = options
+  const { onProgress, contextId = 'upload' } = options
 
   // Merge provided callbacks with logging callbacks
   const uploadCallbacks: UploadCallbacks = {
@@ -84,7 +92,7 @@ export async function uploadToSynapse(
         },
         'Upload to PDP server complete'
       )
-      callbacks?.onUploadComplete?.(pieceCid)
+      onProgress?.({ type: 'onUploadComplete', data: { pieceCid } })
     },
 
     onPieceAdded: (transaction) => {
@@ -106,7 +114,7 @@ export async function uploadToSynapse(
           'Piece added to data set'
         )
       }
-      callbacks?.onPieceAdded?.(transaction)
+      onProgress?.({ type: 'onPieceAdded', data: { transaction } })
     },
 
     onPieceConfirmed: (pieceIds) => {
@@ -118,7 +126,7 @@ export async function uploadToSynapse(
         },
         'Piece addition confirmed on-chain'
       )
-      callbacks?.onPieceConfirmed?.(pieceIds)
+      onProgress?.({ type: 'onPieceConfirmed', data: { pieceIds } })
     },
   }
 

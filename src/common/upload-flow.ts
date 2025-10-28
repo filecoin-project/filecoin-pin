@@ -248,15 +248,27 @@ export async function performUpload(
   const uploadResult = await executeUpload(synapseService, carData, rootCid, {
     logger,
     contextId: `${contextType}-${Date.now()}`,
-    callbacks: {
-      onUploadComplete: () => {
-        spinner?.message('Upload complete, adding to data set...')
-      },
-      onPieceAdded: (transaction) => {
-        if (transaction) {
-          spinner?.message('Piece added to data set, confirming on-chain...')
+    onProgress(event) {
+      switch (event.type) {
+        case 'onUploadComplete': {
+          spinner?.stop(`${pc.green('✓')} Upload complete`)
+          spinner?.start('Adding to data set...')
+          break
         }
-      },
+        case 'onPieceAdded': {
+          spinner?.stop(`${pc.green('✓')} Content added to data set`)
+          // TODO: output
+          spinner?.start('Waiting for transaction to be confirmed on-chain...')
+          break
+        }
+        case 'onPieceConfirmed': {
+          spinner?.stop(`${pc.green('✓')} Piece confirmed on-chain`)
+          break
+        }
+        default: {
+          break
+        }
+      }
     },
   })
 
