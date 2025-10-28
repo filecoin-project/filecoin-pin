@@ -262,9 +262,24 @@ export async function performUpload(
       .join(' & ')
   }
 
-  function completeOperation(operationKey: string, completionMessage: string) {
+  function completeOperation(
+    operationKey: string,
+    completionMessage: string,
+    type: 'success' | 'warning' | 'info' | 'none' = 'success'
+  ) {
     pendingOps.delete(operationKey)
-    spinner?.stop(completionMessage)
+
+    switch (type) {
+      case 'success':
+        spinner?.stop(`${pc.green('✓')} ${completionMessage}`)
+        break
+      case 'warning':
+        spinner?.stop(`${pc.yellow('⚠')} ${completionMessage}`)
+        break
+      default:
+        spinner?.stop(completionMessage)
+        break
+    }
 
     // Restart spinner with remaining operations if any
     if (pendingOps.size > 0) {
@@ -285,23 +300,21 @@ export async function performUpload(
           spinner?.stop(`${pc.green('✓')} Upload complete`)
           const serviceURL = getServiceURL(synapseService.providerInfo)
           if (serviceURL != null && serviceURL !== '') {
-            log.section('Download IPFS content from SP', [
+            log.spinnerSection('Download IPFS content from SP', [
               pc.gray(`${serviceURL.replace(/\/$/, '')}/ipfs/${rootCid}`),
-              '',
             ])
           }
-          spinner?.message('Adding piece to DataSet...')
+          spinner?.start('Adding piece to DataSet...')
           break
         }
         case 'onPieceAdded': {
-          spinner?.message(`${pc.green('✓')} Piece added to DataSet (unconfirmed on-chain)`)
+          spinner?.stop(`${pc.green('✓')} Piece added to DataSet (unconfirmed on-chain)`)
           if (event.data.transaction?.hash) {
             transactionHash = event.data.transaction?.hash
           }
-          log.section('Explorer URLs', [
+          log.spinnerSection('Explorer URLs', [
             pc.gray(`Piece: https://pdp.vxb.ai/calibration/piece/${pieceCid}`),
             pc.gray(`Transaction: https://${synapseService.synapse.getNetwork()}.filfox.info/en/tx/${transactionHash}`),
-            '',
           ])
 
           function getIpniAdvertisementMsg(attemptCount: number): string {
@@ -312,7 +325,7 @@ export async function performUpload(
           pendingOps.set('ipni', getIpniAdvertisementMsg(1))
           pendingOps.set('chain', 'Confirming piece added to DataSet on-chain')
 
-          spinner?.message(getSpinnerMessage())
+          spinner?.start(getSpinnerMessage())
 
           // Start IPNI check in parallel and store the promise
           ipniAnnouncementPromise = checkIPNIAnnouncement(rootCid, {
@@ -329,32 +342,30 @@ export async function performUpload(
           })
             .then((result) => {
               const message = result
-                ? `${pc.green('✓')} IPNI advertisement successful. IPFS retrieval possible.`
-                : `${pc.yellow('⚠')} IPNI advertisement pending`
+                ? `IPNI advertisement successful. IPFS retrieval possible.`
+                : `IPNI advertisement pending`
 
-              completeOperation('ipni', message)
+              completeOperation('ipni', message, result ? 'success' : 'warning')
 
               if (result) {
-                log.section('IPFS Retrieval URLs', [
+                log.spinnerSection('IPFS Retrieval URLs', [
                   pc.gray(`ipfs://${rootCid}`),
                   pc.gray(`https://inbrowser.link/ipfs/${rootCid}`),
                   pc.gray(`https://dweb.link/ipfs/${rootCid}`),
-                  '',
                 ])
               }
             })
             .catch((error) => {
               logger.error({ error }, 'Error checking IPNI advertisement')
-              completeOperation('ipni', `${pc.red('✗')} IPNI advertisement check failed`)
-              log.section('IPNI advertisement check failed', [
+              completeOperation('ipni', `IPNI advertisement check failed`, 'warning')
+              log.spinnerSection('IPNI advertisement check failed', [
                 pc.gray(`IPNI advertisement does not exist at http://filecoinpin.contact/cid/${rootCid}`),
-                '',
               ])
             })
           break
         }
         case 'onPieceConfirmed': {
-          completeOperation('chain', `${pc.green('✓')} Piece added to DataSet (confirmed on-chain)`)
+          completeOperation('chain', `Piece added to DataSet (confirmed on-chain)`, 'success')
           break
         }
         default: {
