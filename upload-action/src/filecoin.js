@@ -4,6 +4,7 @@ import {
   calculateRequiredTopUp,
   calculateStorageRunway,
   executeTopUp,
+  formatTopUpReason,
   getPaymentStatus,
 } from 'filecoin-pin/core/payments'
 import { cleanupSynapseService, createStorageContext, initializeSynapseWithSigner } from 'filecoin-pin/core/synapse'
@@ -76,7 +77,8 @@ export async function handlePayments(synapse, options, logger) {
   })
 
   if (topUpCalculation.requiredTopUp > 0n) {
-    console.log(`\n${topUpCalculation.reason}: ${topUpCalculation.requiredTopUp} USDFC`)
+    const reasonMessage = formatTopUpReason(topUpCalculation)
+    console.log(`\n${reasonMessage}: ${formatUSDFC(topUpCalculation.requiredTopUp)} USDFC`)
   }
 
   // Execute top-up with balance limit checking

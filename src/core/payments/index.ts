@@ -1055,11 +1055,20 @@ export async function validatePaymentCapacity(synapse: Synapse, pieceSizeBytes: 
 }
 
 /**
+ * Top-up reason codes for programmatic handling
+ */
+export type TopUpReasonCode =
+  | 'none' // No top-up required
+  | 'piece-upload' // Insufficient lockup for file upload
+  | 'required-runway' // Insufficient balance for minimum storage duration
+  | 'required-runway-plus-upload' // Insufficient balance for duration + new upload
+
+/**
  * Calculate required top-up for specific storage scenario
  */
 export interface TopUpCalculation {
   requiredTopUp: bigint
-  reason: string
+  reasonCode: TopUpReasonCode
   calculation: {
     minStorageDays?: number | undefined
     pieceSizeBytes?: number | undefined
@@ -1067,6 +1076,29 @@ export interface TopUpCalculation {
     currentLockupUsed: bigint
     currentDeposited: bigint
     pricePerTiBPerEpoch?: bigint | undefined
+  }
+}
+
+/**
+ * Format a human-readable message for a top-up calculation
+ *
+ * @param calc - Top-up calculation result
+ * @returns Human-readable message explaining the top-up requirement
+ */
+export function formatTopUpReason(calc: TopUpCalculation): string {
+  if (calc.requiredTopUp === 0n) {
+    return 'No top-up required'
+  }
+
+  switch (calc.reasonCode) {
+    case 'piece-upload':
+      return 'Required top-up for file upload (lockup requirement)'
+    case 'required-runway':
+      return `Required top-up for ${calc.calculation.minStorageDays} days of storage`
+    case 'required-runway-plus-upload':
+      return `Required top-up for ${calc.calculation.minStorageDays} days of storage (including upcoming upload)`
+    default:
+      return 'Required top-up'
   }
 }
 
@@ -1094,25 +1126,23 @@ export function calculateRequiredTopUp(
   const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
 
   let requiredTopUp = 0n
-  let reason = ''
+  let reasonCode: TopUpReasonCode = 'none'
 
-  // Calculate file upload requirements if we have file info
-  let fileUploadTopUp = 0n
-  let fileUploadReason = ''
+  // Calculate piece upload requirements if we have piece info
+  let pieceUploadTopUp = 0n
   if (pieceSizeBytes != null && pieceSizeBytes > 0 && pricePerTiBPerEpoch != null) {
     const uploadRequirements = calculatePieceUploadRequirements(status, pieceSizeBytes, pricePerTiBPerEpoch)
     if (uploadRequirements.insufficientDeposit > 0n) {
-      fileUploadTopUp = uploadRequirements.insufficientDeposit
-      fileUploadReason = 'file upload (lockup requirement)'
+      pieceUploadTopUp = uploadRequirements.insufficientDeposit
     }
   }
 
   // Calculate runway requirements if specified
   let runwayTopUp = 0n
-  let runwayReason = ''
+  let isRunwayWithUpload = false
   if (minStorageDays > 0) {
     if (rateUsed === 0n && pieceSizeBytes != null && pieceSizeBytes > 0 && pricePerTiBPerEpoch != null) {
-      // New file upload with runway requirement
+      // New piece upload with runway requirement
       const { delta } = computeAdjustmentForExactDaysWithPiece(
         status,
         minStorageDays,
@@ -1120,27 +1150,26 @@ export function calculateRequiredTopUp(
         pricePerTiBPerEpoch
       )
       runwayTopUp = delta
-      runwayReason = `${minStorageDays} days of storage (including upcoming upload)`
+      isRunwayWithUpload = true
     } else {
       // Existing usage with runway requirement
       const { topUp } = computeTopUpForDuration(status, minStorageDays)
       runwayTopUp = topUp
-      runwayReason = `${minStorageDays} days of storage`
     }
   }
 
   // Determine the final top-up requirement (take the maximum of file upload and runway needs)
-  if (runwayTopUp > fileUploadTopUp) {
+  if (runwayTopUp > pieceUploadTopUp) {
     requiredTopUp = runwayTopUp
-    reason = `Required top-up for ${runwayReason}`
-  } else if (fileUploadTopUp > 0n) {
-    requiredTopUp = fileUploadTopUp
-    reason = `Required top-up for ${fileUploadReason}`
+    reasonCode = isRunwayWithUpload ? 'required-runway-plus-upload' : 'required-runway'
+  } else if (pieceUploadTopUp > 0n) {
+    requiredTopUp = pieceUploadTopUp
+    reasonCode = 'piece-upload'
   }
 
   return {
     requiredTopUp,
-    reason,
+    reasonCode,
     calculation: {
       minStorageDays,
       pieceSizeBytes,
