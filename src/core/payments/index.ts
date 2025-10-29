@@ -1188,7 +1188,7 @@ export async function executeTopUp(
       success: true,
       deposited: 0n,
       message: 'No deposit required - sufficient balance available',
-      warnings: [],
+      warnings,
     }
   }
 
@@ -1205,7 +1205,7 @@ export async function executeTopUp(
         success: true,
         deposited: 0n,
         message,
-        warnings: [message],
+        warnings,
       }
     } else {
       // Check if required top-up would exceed the limit
@@ -1223,7 +1223,7 @@ export async function executeTopUp(
             success: true,
             deposited: 0n,
             message: 'Cannot deposit - would exceed balance limit',
-            warnings: ['Cannot deposit - would exceed balance limit'],
+            warnings,
           }
         }
       }
@@ -1238,7 +1238,7 @@ export async function executeTopUp(
       success: false,
       deposited: 0n,
       message,
-      warnings: [message],
+      warnings,
     }
   }
 
@@ -1271,7 +1271,7 @@ export async function executeTopUp(
       success: false,
       deposited: 0n,
       message: `Deposit failed: ${errorMessage}`,
-      warnings: [errorMessage],
+      warnings,
     }
   }
 }
