@@ -40,7 +40,7 @@ export interface CLIAuthOptions {
  * @param options - CLI authentication options
  * @returns Synapse setup config (validation happens in initializeSynapse)
  */
-export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
+export function parseCLIAuth(options: CLIAuthOptions): Partial<SynapseSetupConfig> {
   // Read from CLI options or environment variables
   const privateKey = options.privateKey || process.env.PRIVATE_KEY
   const walletAddress = options.walletAddress || process.env.WALLET_ADDRESS
@@ -48,14 +48,14 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   const rpcUrl = options.rpcUrl || process.env.RPC_URL
   const warmStorageAddress = options.warmStorageAddress || process.env.WARM_STORAGE_ADDRESS
 
-  // Build config - validation happens in initializeSynapse()
-  const config: SynapseSetupConfig = {
-    privateKey,
-    walletAddress,
-    sessionKey,
-    rpcUrl,
-    warmStorageAddress,
-  }
+  // Build config - only include defined values, validation happens in initializeSynapse()
+  const config: any = {}
+
+  if (privateKey) config.privateKey = privateKey
+  if (walletAddress) config.walletAddress = walletAddress
+  if (sessionKey) config.sessionKey = sessionKey
+  if (rpcUrl) config.rpcUrl = rpcUrl
+  if (warmStorageAddress) config.warmStorageAddress = warmStorageAddress
 
   return config
 }

@@ -1,8 +1,9 @@
 import { access } from 'node:fs/promises'
+import { initializeSynapse } from 'filecoin-pin/core/synapse'
 import pc from 'picocolors'
 import pino from 'pino'
 import { commentOnPR } from './comments/comment.js'
-import { cleanupSynapse, handlePayments, initializeSynapse, uploadCarToFilecoin } from './filecoin.js'
+import { cleanupSynapse, handlePayments, uploadCarToFilecoin } from './filecoin.js'
 import { ensurePullRequestContext, updateCheck } from './github.js'
 import { parseInputs } from './inputs.js'
 import { writeOutputs, writeSummary } from './outputs.js'
@@ -138,7 +139,7 @@ export async function runUpload(buildContext = {}) {
       ...context.paymentStatus,
     }
   } else {
-    const synapse = await initializeSynapse({ walletPrivateKey, network: inputNetwork }, logger)
+    const synapse = await initializeSynapse({ privateKey: walletPrivateKey, network: inputNetwork }, logger)
 
     console.log('\n━━━ Funding Phase: Checking Filecoin Pay Account ━━━')
 

@@ -54,25 +54,49 @@ export interface Config {
 }
 
 /**
- * Configuration for Synapse initialization
- *
- * Supports two authentication modes:
- * 1. Standard: privateKey only
- * 2. Session Key: walletAddress + sessionKey
+ * Common options for all Synapse configurations
  */
-export interface SynapseSetupConfig {
-  /** Private key for standard authentication (mutually exclusive with session key mode) */
-  privateKey?: string | undefined
-  /** Wallet address for session key mode (requires sessionKey) */
-  walletAddress?: string | undefined
-  /** Session key private key (requires walletAddress) */
-  sessionKey?: string | undefined
+interface BaseSynapseConfig {
   /** RPC endpoint for the target Filecoin network. Defaults to calibration. */
   rpcUrl?: string | undefined
   /** Optional override for WarmStorage contract address */
   warmStorageAddress?: string | undefined
   withCDN?: boolean | undefined
 }
+
+/**
+ * Standard authentication with private key
+ */
+export interface PrivateKeyConfig extends BaseSynapseConfig {
+  privateKey: string
+}
+
+/**
+ * Session key authentication with wallet address and session key
+ */
+export interface SessionKeyConfig extends BaseSynapseConfig {
+  walletAddress: string
+  sessionKey: string
+}
+
+/**
+ * Signer-based authentication with ethers Signer
+ */
+export interface SignerConfig extends BaseSynapseConfig {
+  signer: Signer
+  /** Target Filecoin network (required for signer mode to determine default RPC) */
+  network: 'mainnet' | 'calibration'
+}
+
+/**
+ * Configuration for Synapse initialization
+ *
+ * Supports three authentication modes:
+ * 1. Standard: privateKey only
+ * 2. Session Key: walletAddress + sessionKey
+ * 3. Signer: ethers Signer instance
+ */
+export type SynapseSetupConfig = PrivateKeyConfig | SessionKeyConfig | SignerConfig
 
 /**
  * Structured service object containing the fully initialized Synapse SDK and
@@ -190,21 +214,43 @@ export function isSessionKeyMode(synapse: Synapse): boolean {
 }
 
 /**
+ * Type guards for authentication configuration
+ */
+function isPrivateKeyConfig(config: Partial<SynapseSetupConfig>): config is PrivateKeyConfig {
+  return 'privateKey' in config && config.privateKey != null
+}
+
+function isSessionKeyConfig(config: Partial<SynapseSetupConfig>): config is SessionKeyConfig {
+  return (
+    'walletAddress' in config && 'sessionKey' in config && config.walletAddress != null && config.sessionKey != null
+  )
+}
+
+function isSignerConfig(config: Partial<SynapseSetupConfig>): config is SignerConfig {
+  return 'signer' in config && config.signer != null
+}
+
+/**
  * Validate authentication configuration
  */
-function validateAuthConfig(config: SynapseSetupConfig): 'standard' | 'session-key' {
-  const hasStandardAuth = config.privateKey != null
-  const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
+function validateAuthConfig(config: Partial<SynapseSetupConfig>): 'standard' | 'session-key' | 'signer' {
+  const hasPrivateKey = isPrivateKeyConfig(config)
+  const hasSessionKey = isSessionKeyConfig(config)
+  const hasSigner = isSignerConfig(config)
 
-  if (!hasStandardAuth && !hasSessionKeyAuth) {
-    throw new Error('Authentication required: provide either a privateKey or walletAddress + sessionKey')
+  const authCount = [hasPrivateKey, hasSessionKey, hasSigner].filter(Boolean).length
+
+  if (authCount === 0) {
+    throw new Error('Authentication required: provide either privateKey, walletAddress + sessionKey, or signer')
   }
 
-  if (hasStandardAuth && hasSessionKeyAuth) {
-    throw new Error('Conflicting authentication: provide either a privateKey or walletAddress + sessionKey, not both')
+  if (authCount > 1) {
+    throw new Error('Conflicting authentication: provide only one of privateKey, walletAddress + sessionKey, or signer')
   }
 
-  return hasStandardAuth ? 'standard' : 'session-key'
+  if (hasPrivateKey) return 'standard'
+  if (hasSessionKey) return 'session-key'
+  return 'signer'
 }
 
 /**
@@ -246,18 +292,26 @@ async function setupSessionKey(synapse: Synapse, sessionWallet: Wallet, logger: 
 /**
  * Initialize the Synapse SDK without creating storage context
  *
- * Supports two authentication modes:
+ * Supports three authentication modes:
  * - Standard: privateKey only
  * - Session Key: walletAddress + sessionKey
+ * - Signer: ethers Signer instance
  *
  * @param config - Application configuration with authentication credentials
  * @param logger - Logger instance for detailed operation tracking
  * @returns Initialized Synapse instance
  */
-export async function initializeSynapse(config: SynapseSetupConfig, logger: Logger): Promise<Synapse> {
+export async function initializeSynapse(config: Partial<SynapseSetupConfig>, logger: Logger): Promise<Synapse> {
   try {
     const authMode = validateAuthConfig(config)
-    const rpcURL = config.rpcUrl ?? RPC_URLS.calibration.websocket
+
+    // Determine RPC URL based on auth mode
+    let rpcURL: string
+    if (isSignerConfig(config)) {
+      rpcURL = config.rpcUrl ?? RPC_URLS[config.network].websocket
+    } else {
+      rpcURL = config.rpcUrl ?? RPC_URLS.calibration.websocket
+    }
 
     logger.info({ event: 'synapse.init', authMode, rpcUrl: rpcURL }, 'Initializing Synapse SDK')
 
@@ -275,31 +329,36 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
     let synapse: Synapse
 
     if (authMode === 'session-key') {
-      // Session key mode - validation guarantees these are defined
-      const walletAddress = config.walletAddress
-      const sessionKey = config.sessionKey
-      if (!walletAddress || !sessionKey) {
-        throw new Error('Internal error: session key config validated but values missing')
+      // Session key mode - type guard ensures these are defined
+      if (!isSessionKeyConfig(config)) {
+        throw new Error('Internal error: session key mode but config type mismatch')
       }
 
       // Create provider and signers for session key mode
       const provider = createProvider(rpcURL)
       activeProvider = provider
 
-      const ownerSigner = new AddressOnlySigner(walletAddress, provider)
-      const sessionWallet = new Wallet(sessionKey, provider)
+      const ownerSigner = new AddressOnlySigner(config.walletAddress, provider)
+      const sessionWallet = new Wallet(config.sessionKey, provider)
 
       // Initialize with owner signer, then activate session key
       synapse = await Synapse.create({ ...synapseOptions, signer: ownerSigner })
       await setupSessionKey(synapse, sessionWallet, logger)
-    } else {
-      // Standard mode - validation guarantees privateKey is defined
-      const privateKey = config.privateKey
-      if (!privateKey) {
-        throw new Error('Internal error: standard auth validated but privateKey missing')
+    } else if (authMode === 'signer') {
+      // Signer mode - type guard ensures signer is defined
+      if (!isSignerConfig(config)) {
+        throw new Error('Internal error: signer mode but config type mismatch')
       }
 
-      synapse = await Synapse.create({ ...synapseOptions, privateKey })
+      synapse = await Synapse.create({ ...synapseOptions, signer: config.signer })
+      activeProvider = synapse.getProvider()
+    } else {
+      // Private key mode - type guard ensures privateKey is defined
+      if (!isPrivateKeyConfig(config)) {
+        throw new Error('Internal error: private key mode but config type mismatch')
+      }
+
+      synapse = await Synapse.create({ ...synapseOptions, privateKey: config.privateKey })
       activeProvider = synapse.getProvider()
     }
 
@@ -311,86 +370,6 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     logger.error({ event: 'synapse.init.failed', error: errorMessage }, 'Failed to initialize Synapse SDK')
-    throw error
-  }
-}
-
-/**
- * Initialize Synapse SDK with an ethers Signer
- *
- * This is a convenience function that accepts an ethers Signer instead of
- * raw private keys, making it easier to integrate with various wallet
- * providers and authentication methods.
- *
- * @param signer - ethers Signer instance (e.g., from Wallet, browser wallet, etc.)
- * @param network - Target Filecoin network
- * @param logger - Logger instance for detailed operation tracking
- * @param options - Optional configuration
- * @returns Initialized Synapse instance
- *
- * @example
- * ```typescript
- * import { Wallet } from 'ethers'
- * import { initializeSynapseWithSigner } from 'filecoin-pin/core/synapse'
- *
- * // From private key
- * const signer = new Wallet(process.env.PRIVATE_KEY)
- * const synapse = await initializeSynapseWithSigner(signer, 'calibration', logger)
- *
- * // From browser wallet (future)
- * const signer = await window.ethereum.request({ method: 'eth_requestAccounts' })
- * const synapse = await initializeSynapseWithSigner(signer, 'mainnet', logger)
- * ```
- */
-export async function initializeSynapseWithSigner(
-  signer: Signer,
-  network: 'mainnet' | 'calibration',
-  logger: Logger,
-  options: {
-    rpcUrl?: string
-    warmStorageAddress?: string
-  } = {}
-): Promise<Synapse> {
-  try {
-    // Validate network
-    if (network !== 'mainnet' && network !== 'calibration') {
-      throw new Error('Network must be either "mainnet" or "calibration"')
-    }
-
-    const rpcURL = options.rpcUrl ?? RPC_URLS[network].websocket
-    if (!rpcURL) {
-      throw new Error(`Unsupported network: ${network}`)
-    }
-
-    logger.info({ event: 'synapse.init.signer', network, rpcUrl: rpcURL }, 'Initializing Synapse SDK with signer')
-
-    const synapseOptions: SynapseOptions = {
-      rpcURL,
-      withIpni: true, // Always filter for IPNI-enabled providers
-    }
-    if (options.warmStorageAddress) {
-      synapseOptions.warmStorageAddress = options.warmStorageAddress
-    }
-
-    // Create Synapse with the signer directly - this is the recommended approach
-    // The Synapse SDK already supports ethers Signer instances
-    const synapse = await Synapse.create({ ...synapseOptions, signer })
-    activeProvider = synapse.getProvider()
-
-    const synapseNetwork = synapse.getNetwork()
-    logger.info(
-      { event: 'synapse.init.signer.success', network: synapseNetwork },
-      'Synapse SDK initialized with signer'
-    )
-
-    synapseInstance = synapse
-    return synapse
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    logger.error(
-      { event: 'synapse.init.signer.failed', error: errorMessage },
-      'Failed to initialize Synapse SDK with signer'
-    )
     throw error
   }
 }

@@ -1,5 +1,4 @@
 import { promises as fs } from 'node:fs'
-import { Wallet } from 'ethers'
 import {
   calculateRequiredTopUp,
   calculateStorageRunway,
@@ -7,7 +6,7 @@ import {
   formatTopUpReason,
   getPaymentStatus,
 } from 'filecoin-pin/core/payments'
-import { cleanupSynapseService, createStorageContext, initializeSynapseWithSigner } from 'filecoin-pin/core/synapse'
+import { cleanupSynapseService, createStorageContext } from 'filecoin-pin/core/synapse'
 import { createUnixfsCarBuilder } from 'filecoin-pin/core/unixfs'
 import { executeUpload, getDownloadURL } from 'filecoin-pin/core/upload'
 import { formatRunwaySummary, formatUSDFC } from 'filecoin-pin/core/utils'
@@ -190,33 +189,6 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
     provider: { id: providerIdStr, name: providerName, address: providerInfo.serviceProvider ?? '' },
     previewUrl,
     network: uploadResult.network,
-  }
-}
-
-/**
- * Initialize Synapse with wallet private key using core functionality
- * @param {{ walletPrivateKey: string, network: 'mainnet' | 'calibration' }} config - Wallet and network config
- * @param {Logger} logger - Logger instance
- * @returns {Promise<Synapse>} Synapse service
- */
-export async function initializeSynapse(config, logger) {
-  try {
-    const { walletPrivateKey, network } = config
-    if (!network || (network !== 'mainnet' && network !== 'calibration')) {
-      throw new Error('Network must be either "mainnet" or "calibration"')
-    }
-
-    // Create signer from private key
-    const signer = new Wallet(walletPrivateKey)
-
-    // Initialize Synapse using core function
-    return await initializeSynapseWithSigner(signer, network, logger)
-  } catch (error) {
-    const errorMessage = getErrorMessage(error)
-    if (errorMessage.includes('invalid private key')) {
-      throw new Error('Invalid private key format')
-    }
-    throw new Error(`Failed to initialize Synapse: ${errorMessage}`)
   }
 }
 
