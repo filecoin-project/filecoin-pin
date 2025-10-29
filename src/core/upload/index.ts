@@ -55,7 +55,7 @@ export interface UploadReadinessResult {
   /** FIL/gas balance status. */
   filStatus: Awaited<ReturnType<typeof checkFILBalance>>
   /** Wallet USDFC balance. */
-  usdfcBalance: Awaited<ReturnType<typeof checkUSDFCBalance>>
+  walletUsdfcBalance: Awaited<ReturnType<typeof checkUSDFCBalance>>
   /** Allowance update information. */
   allowances: {
     needsUpdate: boolean
@@ -96,15 +96,15 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
   onProgress?.({ type: 'checking-balances' })
 
   const filStatus = await checkFILBalance(synapse)
-  const usdfcBalance = await checkUSDFCBalance(synapse)
+  const walletUsdfcBalance = await checkUSDFCBalance(synapse)
 
-  const validation = validatePaymentRequirements(filStatus.hasSufficientGas, usdfcBalance, filStatus.isCalibnet)
+  const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
   if (!validation.isValid) {
     return {
       status: 'blocked',
       validation,
       filStatus,
-      usdfcBalance,
+      walletUsdfcBalance,
       allowances: {
         needsUpdate: false,
         updated: false,
@@ -138,7 +138,7 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
       status: 'blocked',
       validation,
       filStatus,
-      usdfcBalance,
+      walletUsdfcBalance,
       allowances: {
         needsUpdate: allowanceStatus.needsUpdate,
         updated: allowancesUpdated,
@@ -153,7 +153,7 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
     status: 'ready',
     validation,
     filStatus,
-    usdfcBalance,
+    walletUsdfcBalance,
     allowances: {
       needsUpdate: allowanceStatus.needsUpdate,
       updated: allowancesUpdated,

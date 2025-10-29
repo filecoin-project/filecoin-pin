@@ -59,7 +59,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)
 
-    const [filStatus, usdfcBalance, status] = await Promise.all([
+    const [filStatus, walletUsdfcBalance, status] = await Promise.all([
       checkFILBalance(synapse),
       checkUSDFCBalance(synapse),
       getPaymentStatus(synapse),
@@ -121,10 +121,10 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     }
 
     // Ensure wallet has enough USDFC
-    if (depositAmount > usdfcBalance) {
+    if (depositAmount > walletUsdfcBalance) {
       console.error(
         pc.red(
-          `✗ Insufficient USDFC (need ${formatUSDFC(depositAmount)} USDFC, have ${formatUSDFC(usdfcBalance)} USDFC)`
+          `✗ Insufficient USDFC (need ${formatUSDFC(depositAmount)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
         )
       )
       throw new Error('Insufficient USDFC')
@@ -148,7 +148,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
 
     log.line('')
     log.line(pc.bold('Deposit Summary'))
-    log.indent(`Total deposit: ${formatUSDFC(updated.depositedAmount)} USDFC`)
+    log.indent(`Total deposit: ${formatUSDFC(updated.filecoinPayBalance)} USDFC`)
     if (runway.state === 'active') {
       const dailySpend = runway.perDay
       log.indent(`Current spend: ${formatUSDFC(dailySpend)} USDFC/day`)

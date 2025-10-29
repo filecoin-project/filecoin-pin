@@ -15,7 +15,7 @@ import {
   checkFILBalance,
   checkUSDFCBalance,
   computeAdjustmentForExactDays,
-  computeAdjustmentForExactDaysWithFile,
+  computeAdjustmentForExactDaysWithPiece,
   computeAdjustmentForExactDeposit,
   depositUSDFC,
   getPaymentStatus,
@@ -124,7 +124,7 @@ async function printSummary(synapse: Synapse, title = 'Updated'): Promise<void> 
   const runway = calculateStorageRunway(updated)
   const runwayDisplay = formatRunwaySummary(runway)
   log.section(title, [
-    `Deposited: ${formatUSDFC(updated.depositedAmount)} USDFC`,
+    `Deposited: ${formatUSDFC(updated.filecoinPayBalance)} USDFC`,
     runway.state === 'active' ? `Runway: ~${runwayDisplay}` : `Runway: ${runwayDisplay}`,
   ])
 }
@@ -142,9 +142,9 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
 
   spinner?.message('Checking wallet readiness...')
 
-  const [filStatus, usdfcBalance] = await Promise.all([checkFILBalance(synapse), checkUSDFCBalance(synapse)])
+  const [filStatus, walletUsdfcBalance] = await Promise.all([checkFILBalance(synapse), checkUSDFCBalance(synapse)])
 
-  const validation = validatePaymentRequirements(filStatus.hasSufficientGas, usdfcBalance, filStatus.isCalibnet)
+  const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
   if (!validation.isValid) {
     const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
     throw new Error(`${validation.errorMessage}${help}`)
@@ -162,9 +162,9 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
   const [status, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
   const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
 
-  // Calculate funding needed to maintain MIN_RUNWAY_DAYS after uploading this file
-  // This accounts for both the file's lockup AND its impact on ongoing costs
-  const adj = computeAdjustmentForExactDaysWithFile(status, MIN_RUNWAY_DAYS, fileSize, pricePerTiBPerEpoch)
+  // Calculate funding needed to maintain MIN_RUNWAY_DAYS after uploading this piece
+  // This accounts for both the piece's lockup AND its impact on ongoing costs
+  const adj = computeAdjustmentForExactDaysWithPiece(status, MIN_RUNWAY_DAYS, fileSize, pricePerTiBPerEpoch)
   const delta = adj.delta
 
   // Auto-fund only deposits, never withdraws
@@ -172,7 +172,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     spinner?.message('No additional funding required')
     // Funding already sufficient
     const updated = await getPaymentStatus(synapse)
-    const newAvailable = updated.depositedAmount - (updated.currentAllowances.lockupUsed ?? 0n)
+    const newAvailable = updated.filecoinPayBalance - (updated.currentAllowances.lockupUsed ?? 0n)
     const newPerDay = (updated.currentAllowances.rateUsed ?? 0n) * TIME_CONSTANTS.EPOCHS_PER_DAY
     const newRunway = newPerDay > 0n ? Number(newAvailable / newPerDay) : 0
     const newRunwayHours = newPerDay > 0n ? Number(((newAvailable % newPerDay) * 24n) / newPerDay) : 0
@@ -180,19 +180,19 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     return {
       adjusted: false,
       delta: 0n,
-      newDepositedAmount: updated.depositedAmount,
+      newDepositedAmount: updated.filecoinPayBalance,
       newRunwayDays: newRunway,
       newRunwayHours: newRunwayHours,
     }
   }
 
-  // Perform deposit
-  if (delta > usdfcBalance) {
+  if (delta > walletUsdfcBalance) {
     throw new Error(
-      `Insufficient USDFC in wallet (need ${formatUSDFC(delta)} USDFC, have ${formatUSDFC(usdfcBalance)} USDFC)`
+      `Insufficient USDFC in wallet (need ${formatUSDFC(delta)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
     )
   }
 
+  // Perform deposit
   const depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to ensure ${MIN_RUNWAY_DAYS} day(s) runway...`
   spinner?.message(depositMsg)
   const depositResult = await depositUSDFC(synapse, delta)
@@ -202,7 +202,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
 
   // Get updated status
   const updated = await getPaymentStatus(synapse)
-  const newAvailable = updated.depositedAmount - (updated.currentAllowances.lockupUsed ?? 0n)
+  const newAvailable = updated.filecoinPayBalance - (updated.currentAllowances.lockupUsed ?? 0n)
   const newPerDay = (updated.currentAllowances.rateUsed ?? 0n) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const newRunway = newPerDay > 0n ? Number(newAvailable / newPerDay) : 0
   const newRunwayHours = newPerDay > 0n ? Number(((newAvailable % newPerDay) * 24n) / newPerDay) : 0
@@ -212,7 +212,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     delta,
     approvalTx,
     transactionHash,
-    newDepositedAmount: updated.depositedAmount,
+    newDepositedAmount: updated.filecoinPayBalance,
     newRunwayDays: newRunway,
     newRunwayHours: newRunwayHours,
   }

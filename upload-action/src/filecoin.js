@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import { RPC_URLS } from '@filoz/synapse-sdk'
 import {
   calculateStorageRunway,
-  computeAdjustmentForExactDaysWithFile,
+  computeAdjustmentForExactDaysWithPiece,
   computeTopUpForDuration,
   depositUSDFC,
   getPaymentStatus,
@@ -77,8 +77,8 @@ export async function handlePayments(synapse, options, logger) {
   console.log('Checking current Filecoin Pay account balance...')
   const initialStatus = await getPaymentStatus(synapse)
 
-  console.log(`Current Filecoin Pay balance: ${formatUSDFC(initialStatus.depositedAmount)} USDFC`)
-  console.log(`Wallet USDFC balance: ${formatUSDFC(initialStatus.usdfcBalance)} USDFC`)
+  console.log(`Current Filecoin Pay balance: ${formatUSDFC(initialStatus.filecoinPayBalance)} USDFC`)
+  console.log(`Wallet USDFC balance: ${formatUSDFC(initialStatus.walletUsdfcBalance)} USDFC`)
 
   let requiredTopUp = 0n
 
@@ -92,7 +92,7 @@ export async function handlePayments(synapse, options, logger) {
       const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
 
       // Calculate required deposit accounting for the new file
-      const { delta } = computeAdjustmentForExactDaysWithFile(
+      const { delta } = computeAdjustmentForExactDaysWithPiece(
         initialStatus,
         minStorageDays,
         carSizeBytes,
@@ -114,17 +114,17 @@ export async function handlePayments(synapse, options, logger) {
   // Check if deposit would exceed maximum balance if specified
   if (filecoinPayBalanceLimit != null && filecoinPayBalanceLimit >= 0n) {
     // Check if current balance already equals or exceeds limit
-    if (initialStatus.depositedAmount >= filecoinPayBalanceLimit) {
+    if (initialStatus.filecoinPayBalance >= filecoinPayBalanceLimit) {
       logger.warn(
-        `⚠️  Current balance (${formatUSDFC(initialStatus.depositedAmount)}) already equals or exceeds filecoinPayBalanceLimit (${formatUSDFC(filecoinPayBalanceLimit)}). No additional deposits will be made.`
+        `⚠️  Current balance (${formatUSDFC(initialStatus.filecoinPayBalance)}) already equals or exceeds filecoinPayBalanceLimit (${formatUSDFC(filecoinPayBalanceLimit)}). No additional deposits will be made.`
       )
       requiredTopUp = 0n // Don't deposit anything
     } else {
       // Check if required top-up would exceed the limit
-      const projectedBalance = initialStatus.depositedAmount + requiredTopUp
+      const projectedBalance = initialStatus.filecoinPayBalance + requiredTopUp
       if (projectedBalance > filecoinPayBalanceLimit) {
         // Calculate the maximum allowed top-up that won't exceed the limit
-        const maxAllowedTopUp = filecoinPayBalanceLimit - initialStatus.depositedAmount
+        const maxAllowedTopUp = filecoinPayBalanceLimit - initialStatus.filecoinPayBalance
         if (maxAllowedTopUp > 0n) {
           logger.warn(
             `⚠️  Required top-up (${formatUSDFC(requiredTopUp)}) would exceed filecoinPayBalanceLimit (${formatUSDFC(filecoinPayBalanceLimit)}). Reducing to ${formatUSDFC(maxAllowedTopUp)}.`
@@ -148,11 +148,11 @@ export async function handlePayments(synapse, options, logger) {
     // Verify the deposit was initiated
     console.log('\nVerifying deposit transaction...')
     newStatus = await getPaymentStatus(synapse)
-    const depositDifference = newStatus.depositedAmount - initialStatus.depositedAmount
+    const depositDifference = newStatus.filecoinPayBalance - initialStatus.filecoinPayBalance
 
     if (depositDifference > 0n) {
       console.log(`✓ Deposit verified: ${formatUSDFC(depositDifference)} USDFC added to Filecoin Pay`)
-      console.log(`New Filecoin Pay balance: ${formatUSDFC(newStatus.depositedAmount)} USDFC`)
+      console.log(`New Filecoin Pay balance: ${formatUSDFC(newStatus.filecoinPayBalance)} USDFC`)
     } else {
       console.log('⚠️  Deposit transaction submitted but not yet reflected in balance')
       console.log('(This is normal - the transaction may take a moment to process)')
@@ -164,9 +164,9 @@ export async function handlePayments(synapse, options, logger) {
   return {
     ...initialStatus,
     // the amount of USDFC you have deposited to Filecoin Pay
-    depositedAmount: formatUSDFC(newStatus.depositedAmount),
+    filecoinPayBalance: formatUSDFC(newStatus.filecoinPayBalance),
     // the amount of USDFC you currently hold in your wallet
-    currentBalance: formatUSDFC(newStatus.usdfcBalance),
+    walletUsdfcBalance: formatUSDFC(newStatus.walletUsdfcBalance),
     // the amount of time you have until your funds would run out based on storage usage
     storageRunway: formatRunwaySummary(calculateStorageRunway(newStatus)),
     // the amount of USDFC deposited to Filecoin Pay during this run

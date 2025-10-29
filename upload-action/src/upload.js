@@ -130,14 +130,13 @@ export async function runUpload(buildContext = {}) {
     previewUrl = context.previewUrl || 'https://example.com/ipfs/dry-run'
     network = context.network || 'dry-run'
     paymentStatus = context.paymentStatus || {
-      depositedAmount: '0',
-      currentBalance: '0',
+      filecoinPayBalance: '0',
+      walletUsdfcBalance: '0',
       storageRunway: 'Unknown',
       depositedThisRun: '0',
       network: 'dry-run',
       address: 'dry-run',
       filBalance: 0n,
-      usdfcBalance: 0n,
       currentAllowances: {
         rateAllowance: 0n,
         lockupAllowance: 0n,

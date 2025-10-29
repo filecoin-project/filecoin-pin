@@ -35,9 +35,9 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
   log.message(pc.gray('Running in auto mode...'))
 
   // Parse and validate deposit amount
-  let targetDeposit: bigint
+  let targetFilecoinPayBalance: bigint
   try {
-    targetDeposit = ethers.parseUnits(options.deposit, 18)
+    targetFilecoinPayBalance = ethers.parseUnits(options.deposit, 18)
   } catch {
     console.error(pc.red(`Error: Invalid deposit amount '${options.deposit}'`))
     process.exit(1)
@@ -67,12 +67,12 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     spinner.start('Checking balances...')
 
     const filStatus = await checkFILBalance(synapse)
-    const usdfcBalance = await checkUSDFCBalance(synapse)
+    const walletUsdfcBalance = await checkUSDFCBalance(synapse)
 
     spinner.stop(`${pc.green('✓')} Balance check complete`)
 
     // Validate payment requirements
-    const validation = validatePaymentRequirements(filStatus.hasSufficientGas, usdfcBalance, filStatus.isCalibnet)
+    const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
     if (!validation.isValid) {
       log.line(`${pc.red('✗')} ${validation.errorMessage}`)
       if (validation.helpMessage) {
@@ -94,8 +94,8 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       filStatus.balance,
       filStatus.isCalibnet,
       filStatus.hasSufficientGas,
-      usdfcBalance,
-      status.depositedAmount
+      walletUsdfcBalance,
+      status.filecoinPayBalance
     )
 
     // Get storage pricing for capacity calculation
@@ -104,7 +104,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
 
     // Track if any changes were made
     let actionsTaken = false
-    let actualDepositAmount = 0n
+    let actualFilecoinPayTopUp = 0n
 
     // Auto-set max allowances for WarmStorage
     spinner.start('Configuring WarmStorage permissions...')
@@ -119,22 +119,22 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       spinner.stop(`${pc.green('✓')} WarmStorage permissions already configured`)
     }
 
-    if (status.depositedAmount < targetDeposit) {
-      const depositAmount = targetDeposit - status.depositedAmount
-      actualDepositAmount = depositAmount
+    if (status.filecoinPayBalance < targetFilecoinPayBalance) {
+      const neededFilecoinPayTopUp = targetFilecoinPayBalance - status.filecoinPayBalance
+      actualFilecoinPayTopUp = neededFilecoinPayTopUp
 
-      if (depositAmount > usdfcBalance) {
+      if (neededFilecoinPayTopUp > walletUsdfcBalance) {
         console.error(
           pc.red(
-            `✗ Insufficient USDFC for deposit (need ${formatUSDFC(depositAmount)} USDFC, have ${formatUSDFC(usdfcBalance)} USDFC)`
+            `✗ Insufficient USDFC for deposit (need ${formatUSDFC(neededFilecoinPayTopUp)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
           )
         )
         process.exit(1)
       }
 
-      spinner.start(`Depositing ${formatUSDFC(depositAmount)} USDFC...`)
-      const { approvalTx, depositTx } = await depositUSDFC(synapse, depositAmount)
-      spinner.stop(`${pc.green('✓')} Deposited ${formatUSDFC(depositAmount)} USDFC`)
+      spinner.start(`Depositing ${formatUSDFC(neededFilecoinPayTopUp)} USDFC...`)
+      const { approvalTx, depositTx } = await depositUSDFC(synapse, neededFilecoinPayTopUp)
+      spinner.stop(`${pc.green('✓')} Deposited ${formatUSDFC(neededFilecoinPayTopUp)} USDFC`)
       actionsTaken = true
 
       log.line(pc.bold('Transaction details:'))
@@ -146,11 +146,11 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     } else {
       // Use a dummy spinner to get consistent formatting
       spinner.start('Checking deposit...')
-      spinner.stop(`${pc.green('✓')} Deposit already sufficient (${formatUSDFC(status.depositedAmount)} USDFC)`)
+      spinner.stop(`${pc.green('✓')} Deposit already sufficient (${formatUSDFC(status.filecoinPayBalance)} USDFC)`)
     }
 
     // Calculate capacity for final summary
-    const totalDeposit = status.depositedAmount + actualDepositAmount
+    const totalDeposit = status.filecoinPayBalance + actualFilecoinPayTopUp
     const capacity = calculateDepositCapacity(totalDeposit, pricePerTiBPerEpoch)
 
     // Final summary
