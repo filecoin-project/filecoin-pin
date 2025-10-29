@@ -54,9 +54,7 @@ export interface CombinedContext extends Partial<UploadResult>, Partial<BuildRes
   dryRun?: boolean
 }
 
-export interface PaymentStatus
-  extends Omit<FilecoinPinPaymentStatus, 'depositedAmount' | 'walletUsdfcBalance' | 'filecoinPayBalance'> {
-  depositedAmount: string
+export interface PaymentStatus extends Omit<FilecoinPinPaymentStatus, 'walletUsdfcBalance' | 'filecoinPayBalance'> {
   filecoinPayBalance?: string
   walletUsdfcBalance?: string
   storageRunway: string
@@ -64,9 +62,8 @@ export interface PaymentStatus
 }
 
 export interface SimplifiedPaymentStatus {
-  depositedAmount: string
-  filecoinPayBalance?: string
-  walletUsdfcBalance?: string
+  filecoinPayBalance: string
+  walletUsdfcBalance: string
   storageRunway: string
   depositedThisRun: string
 }

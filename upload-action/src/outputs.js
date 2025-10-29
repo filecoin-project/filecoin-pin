@@ -80,7 +80,6 @@ export function getOutputSummary(context, status) {
   const carDownloadUrl = context?.carDownloadUrl || (carPath ? `[download link](${carPath})` : 'download')
   /** @type {PaymentStatus} */
   const paymentStatus = {
-    depositedAmount: '0',
     filecoinPayBalance: '0',
     walletUsdfcBalance: '0',
     storageRunway: 'Unknown',
@@ -88,7 +87,6 @@ export function getOutputSummary(context, status) {
     network,
     address: 'Unknown',
     filBalance: 0n,
-    usdfcBalance: 0n,
     currentAllowances: {
       rateAllowance: 0n,
       lockupAllowance: 0n,
@@ -117,7 +115,7 @@ export function getOutputSummary(context, status) {
     '',
     '**Payment:**',
     `* Wallet USDFC balance: ${formatUSDFC(ethers.parseUnits(paymentStatus.walletUsdfcBalance ?? '0', 18))} USDFC`,
-    `* Current Filecoin Pay balance: ${formatUSDFC(ethers.parseUnits(paymentStatus.depositedAmount, 18))} USDFC`,
+    `* Current Filecoin Pay balance: ${formatUSDFC(ethers.parseUnits(paymentStatus.filecoinPayBalance, 18))} USDFC`,
     `* Amount deposited to Filecoin Pay by this workflow: ${formatUSDFC(ethers.parseUnits(paymentStatus.depositedThisRun, 18))} USDFC`,
     `* Data Set Storage runway: ${paymentStatus.storageRunway}`,
     '',

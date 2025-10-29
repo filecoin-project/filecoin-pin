@@ -84,10 +84,6 @@ export interface PaymentStatus {
   walletUsdfcBalance: bigint
   /** USDFC balance currently deposited into Filecoin Pay (WarmStorage contract) */
   filecoinPayBalance: bigint
-  /** @deprecated use walletUsdfcBalance */
-  usdfcBalance: bigint
-  /** @deprecated use filecoinPayBalance */
-  depositedAmount: bigint
   currentAllowances: ServiceApprovalStatus
 }
 
@@ -170,18 +166,18 @@ export async function checkFILBalance(synapse: Synapse): Promise<{
  * Example usage:
  * ```typescript
  * const synapse = await Synapse.create({ privateKey, rpcURL })
- * const usdfcBalance = await checkUSDFCBalance(synapse)
+ * const walletUsdfcBalance = await checkUSDFCBalance(synapse)
  *
- * if (usdfcBalance === 0n) {
+ * if (walletUsdfcBalance === 0n) {
  *   console.log('No USDFC tokens found')
  * } else {
- *   const formatted = ethers.formatUnits(usdfcBalance, USDFC_DECIMALS)
+ *   const formatted = ethers.formatUnits(walletUsdfcBalance, USDFC_DECIMALS)
  *   console.log(`USDFC Balance: ${formatted}`)
  * }
  * ```
  *
  * @param synapse - Initialized Synapse instance
- * @returns USDFC balance in wei (0 if account doesn't exist or has no balance)
+ * @returns bigint USDFC balance in wallet (0 if account doesn't exist or has no balance)
  */
 export async function checkUSDFCBalance(synapse: Synapse): Promise<bigint> {
   try {
@@ -205,8 +201,8 @@ export async function checkUSDFCBalance(synapse: Synapse): Promise<bigint> {
  * @returns Deposited USDFC balance in its smallest unit
  */
 export async function getDepositedBalance(synapse: Synapse): Promise<bigint> {
-  const depositedAmount = await synapse.payments.balance(TOKENS.USDFC)
-  return depositedAmount
+  const filecoinPayBalance = await synapse.payments.balance(TOKENS.USDFC)
+  return filecoinPayBalance
 }
 
 /**
@@ -217,8 +213,8 @@ export async function getDepositedBalance(synapse: Synapse): Promise<bigint> {
  * const status = await getPaymentStatus(synapse)
  * console.log(`Address: ${status.address}`)
  * console.log(`FIL Balance: ${ethers.formatEther(status.filBalance)}`)
- * console.log(`USDFC Balance: ${ethers.formatUnits(status.usdfcBalance, 18)}`)
- * console.log(`Deposited: ${ethers.formatUnits(status.depositedAmount, 18)}`)
+ * console.log(`USDFC Balance: ${ethers.formatUnits(status.walletUsdfcBalance, 18)}`)
+ * console.log(`Deposited: ${ethers.formatUnits(status.filecoinPayBalance, 18)}`)
  * ```
  *
  * @param synapse - Initialized Synapse instance
@@ -230,7 +226,7 @@ export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus>
   const warmStorageAddress = synapse.getWarmStorageAddress()
 
   // Run all async operations in parallel for efficiency
-  const [address, filStatus, usdfcBalance, depositedAmount, currentAllowances] = await Promise.all([
+  const [address, filStatus, walletUsdfcBalance, filecoinPayBalance, currentAllowances] = await Promise.all([
     client.getAddress(),
     checkFILBalance(synapse),
     checkUSDFCBalance(synapse),
@@ -242,10 +238,8 @@ export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus>
     network,
     address,
     filBalance: filStatus.balance,
-    walletUsdfcBalance: usdfcBalance,
-    filecoinPayBalance: depositedAmount,
-    usdfcBalance,
-    depositedAmount,
+    walletUsdfcBalance,
+    filecoinPayBalance,
     currentAllowances,
   }
 }
@@ -258,7 +252,7 @@ export interface PaymentValidationResult {
 
 export function validatePaymentRequirements(
   hasSufficientGas: boolean,
-  usdfcBalance: bigint,
+  walletUsdfcBalance: bigint,
   isCalibnet: boolean
 ): PaymentValidationResult {
   if (!hasSufficientGas) {
@@ -272,7 +266,7 @@ export function validatePaymentRequirements(
     return result
   }
 
-  if (usdfcBalance === 0n) {
+  if (walletUsdfcBalance === 0n) {
     return {
       isValid: false,
       errorMessage: 'No USDFC tokens found',
@@ -631,7 +625,7 @@ export function computeTopUpForDuration(
   if (days <= 0) {
     return {
       topUp: 0n,
-      available: status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n,
+      available: status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n,
       rateUsed,
       perDay: rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY,
       lockupUsed,
@@ -641,7 +635,7 @@ export function computeTopUpForDuration(
   if (rateUsed === 0n) {
     return {
       topUp: 0n,
-      available: status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n,
+      available: status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n,
       rateUsed,
       perDay: 0n,
       lockupUsed,
@@ -650,7 +644,7 @@ export function computeTopUpForDuration(
 
   const epochsNeeded = BigInt(Math.ceil(days)) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const spendNeeded = rateUsed * epochsNeeded
-  const available = status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n
+  const available = status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n
 
   const topUp = spendNeeded > available ? spendNeeded - available : 0n
 
@@ -681,7 +675,7 @@ export function computeAdjustmentForExactDays(
 } {
   const rateUsed = status.currentAllowances.rateUsed ?? 0n
   const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
-  const available = status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n
+  const available = status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n
   const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
 
   if (days < 0) {
@@ -731,7 +725,7 @@ export function computeAdjustmentForExactDeposit(
   if (targetDeposit < 0n) throw new Error('target deposit cannot be negative')
   const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
   const clampedTarget = targetDeposit < lockupUsed ? lockupUsed : targetDeposit
-  const delta = clampedTarget - status.depositedAmount
+  const delta = clampedTarget - status.filecoinPayBalance
   return { delta, clampedTarget, lockupUsed }
 }
 
@@ -780,11 +774,11 @@ export function computeAdjustmentForExactDaysWithFile(
   // If no ongoing spend (both current and new), just need the lockup
   if (newRateUsed === 0n) {
     const targetDeposit = newLockupUsed
-    const delta = targetDeposit - status.depositedAmount
+    const delta = targetDeposit - status.filecoinPayBalance
     return {
       delta,
       targetDeposit,
-      currentDeposit: status.depositedAmount,
+      currentDeposit: status.filecoinPayBalance,
       newLockupUsed,
       newRateUsed,
     }
@@ -798,12 +792,12 @@ export function computeAdjustmentForExactDaysWithFile(
   const targetAvailable = BigInt(Math.floor(days)) * perDay + safety
   const targetDeposit = withBuffer(newLockupUsed) + targetAvailable
 
-  const delta = targetDeposit - status.depositedAmount
+  const delta = targetDeposit - status.filecoinPayBalance
 
   return {
     delta,
     targetDeposit,
-    currentDeposit: status.depositedAmount,
+    currentDeposit: status.filecoinPayBalance,
     newLockupUsed,
     newRateUsed,
   }
@@ -888,7 +882,7 @@ export function calculateRequiredAllowances(carSizeBytes: number, pricePerTiBPer
 }
 
 export function calculateStorageRunway(
-  status?: Pick<PaymentStatus, 'filecoinPayBalance' | 'depositedAmount' | 'currentAllowances'> | null
+  status?: Pick<PaymentStatus, 'filecoinPayBalance' | 'currentAllowances'> | null
 ): StorageRunwaySummary {
   if (!status || !status.currentAllowances) {
     return {
@@ -904,8 +898,8 @@ export function calculateStorageRunway(
 
   const rateUsed = status.currentAllowances.rateUsed ?? 0n
   const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
-  const depositedAmount = status.filecoinPayBalance ?? status.depositedAmount ?? 0n
-  const available = depositedAmount > lockupUsed ? depositedAmount - lockupUsed : 0n
+  const filecoinPayBalance = status.filecoinPayBalance ?? 0n
+  const available = filecoinPayBalance > lockupUsed ? filecoinPayBalance - lockupUsed : 0n
 
   if (rateUsed === 0n) {
     return {
@@ -985,7 +979,7 @@ export function calculatePieceUploadRequirements(
 
   // Check if current deposit can cover the new file's lockup requirement
   const insufficientDeposit =
-    status.depositedAmount < totalDepositNeeded ? totalDepositNeeded - status.depositedAmount : 0n
+    status.filecoinPayBalance < totalDepositNeeded ? totalDepositNeeded - status.filecoinPayBalance : 0n
 
   return {
     required,
@@ -1052,8 +1046,8 @@ export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: nu
 
   // Add warning if approaching deposit limit
   const totalLockupAfter = status.currentAllowances.lockupUsed + uploadRequirements.required.lockupAllowance
-  if (totalLockupAfter > withoutBuffer(status.depositedAmount) && result.canUpload) {
-    const additionalDeposit = ethers.formatUnits(withBuffer(totalLockupAfter) - status.depositedAmount, 18)
+  if (totalLockupAfter > withoutBuffer(status.filecoinPayBalance) && result.canUpload) {
+    const additionalDeposit = ethers.formatUnits(withBuffer(totalLockupAfter) - status.filecoinPayBalance, 18)
     result.suggestions.push(`Consider depositing ${additionalDeposit} more USDFC for safety margin`)
   }
 
@@ -1148,7 +1142,7 @@ export function calculateRequiredTopUp(
       pricePerTiBPerEpoch,
       currentRateUsed: rateUsed,
       currentLockupUsed: lockupUsed,
-      currentDeposited: status.depositedAmount,
+      currentDeposited: status.filecoinPayBalance,
     },
   }
 }
@@ -1204,8 +1198,8 @@ export async function executeTopUp(
   // Check if deposit would exceed maximum balance if specified
   if (balanceLimit != null && balanceLimit >= 0n) {
     // Check if current balance already equals or exceeds limit
-    if (currentStatus.depositedAmount >= balanceLimit) {
-      const message = `Current balance (${formatUSDFC(currentStatus.depositedAmount)}) already equals or exceeds the configured balance limit (${formatUSDFC(balanceLimit)}). No additional deposits will be made.`
+    if (currentStatus.filecoinPayBalance >= balanceLimit) {
+      const message = `Current balance (${formatUSDFC(currentStatus.filecoinPayBalance)}) already equals or exceeds the configured balance limit (${formatUSDFC(balanceLimit)}). No additional deposits will be made.`
       logger?.warn(`⚠️  ${message}`)
       return {
         success: true,
@@ -1215,10 +1209,10 @@ export async function executeTopUp(
       }
     } else {
       // Check if required top-up would exceed the limit
-      const projectedBalance = currentStatus.depositedAmount + topUpAmount
+      const projectedBalance = currentStatus.filecoinPayBalance + topUpAmount
       if (projectedBalance > balanceLimit) {
         // Calculate the maximum allowed top-up that won't exceed the limit
-        const maxAllowedTopUp = balanceLimit - currentStatus.depositedAmount
+        const maxAllowedTopUp = balanceLimit - currentStatus.filecoinPayBalance
         if (maxAllowedTopUp > 0n) {
           const warning = `Required top-up (${formatUSDFC(topUpAmount)}) would exceed the configured balance limit (${formatUSDFC(balanceLimit)}). Reducing to ${formatUSDFC(maxAllowedTopUp)}.`
           logger?.warn(`⚠️  ${warning}`)
@@ -1254,7 +1248,7 @@ export async function executeTopUp(
 
     // Verify the deposit was successful
     const newStatus = await getPaymentStatus(synapse)
-    const depositDifference = newStatus.depositedAmount - currentStatus.depositedAmount
+    const depositDifference = newStatus.filecoinPayBalance - currentStatus.filecoinPayBalance
 
     let message = ''
     if (depositDifference > 0n) {

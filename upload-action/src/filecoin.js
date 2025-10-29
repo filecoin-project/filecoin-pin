@@ -101,13 +101,12 @@ export async function handlePayments(synapse, options, logger) {
   }
 
   const filecoinPayBalance = formatUSDFC(finalStatus.filecoinPayBalance)
-  const walletBalance = formatUSDFC(finalStatus.walletUsdfcBalance)
+  const walletUsdfcBalance = formatUSDFC(finalStatus.walletUsdfcBalance)
 
   // Return formatted status for action consumption
   return {
-    depositedAmount: filecoinPayBalance,
     filecoinPayBalance,
-    walletUsdfcBalance: walletBalance,
+    walletUsdfcBalance,
     storageRunway: formatRunwaySummary(calculateStorageRunway(finalStatus)),
     depositedThisRun: topUpResult.deposited.toString(),
   }

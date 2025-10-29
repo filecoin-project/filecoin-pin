@@ -73,10 +73,10 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       throw new Error('Account has no FIL balance')
     }
 
-    const usdfcBalance = await checkUSDFCBalance(synapse)
+    const walletUsdfcBalance = await checkUSDFCBalance(synapse)
 
     // Check if we have USDFC tokens before continuing
-    if (usdfcBalance === 0n) {
+    if (walletUsdfcBalance === 0n) {
       spinner.stop('━━━ Current Status ━━━')
 
       log.line(`Address: ${address}`)
@@ -114,18 +114,18 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     log.line(pc.bold('Wallet'))
     const filUnit = filStatus.isCalibnet ? 'tFIL' : 'FIL'
     log.indent(`${ethers.formatEther(filStatus.balance)} ${filUnit}`)
-    log.indent(`${formatUSDFC(usdfcBalance)} USDFC`)
+    log.indent(`${formatUSDFC(walletUsdfcBalance)} USDFC`)
     log.line('')
 
     // Show deposit and capacity
-    const capacity = calculateDepositCapacity(status.depositedAmount, pricePerTiBPerEpoch)
+    const capacity = calculateDepositCapacity(status.filecoinPayBalance, pricePerTiBPerEpoch)
     log.line(pc.bold('Storage Deposit'))
-    log.indent(`${formatUSDFC(status.depositedAmount)} USDFC deposited`)
+    log.indent(`${formatUSDFC(status.filecoinPayBalance)} USDFC deposited`)
     if (capacity.gibPerMonth > 0) {
       const asTiB = capacity.tibPerMonth
       const tibStr = asTiB >= 100 ? Math.round(asTiB).toLocaleString() : asTiB.toFixed(1)
       log.indent(`Capacity: ~${tibStr} TiB/month ${pc.gray('(includes 10-day safety reserve)')}`)
-    } else if (status.depositedAmount > 0n) {
+    } else if (status.filecoinPayBalance > 0n) {
       log.indent(pc.gray('(insufficient for storage)'))
     }
     log.flush()
@@ -150,7 +150,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     log.flush()
 
     // Show deposit warning if needed
-    displayDepositWarning(status.depositedAmount, status.currentAllowances.lockupUsed)
+    displayDepositWarning(status.filecoinPayBalance, status.currentAllowances.lockupUsed)
     log.flush()
 
     // Show success outro

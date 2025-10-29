@@ -124,7 +124,7 @@ async function printSummary(synapse: Synapse, title = 'Updated'): Promise<void> 
   const runway = calculateStorageRunway(updated)
   const runwayDisplay = formatRunwaySummary(runway)
   log.section(title, [
-    `Deposited: ${formatUSDFC(updated.depositedAmount)} USDFC`,
+    `Deposited: ${formatUSDFC(updated.filecoinPayBalance)} USDFC`,
     runway.state === 'active' ? `Runway: ~${runwayDisplay}` : `Runway: ${runwayDisplay}`,
   ])
 }
@@ -142,9 +142,9 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
 
   spinner?.message('Checking wallet readiness...')
 
-  const [filStatus, usdfcBalance] = await Promise.all([checkFILBalance(synapse), checkUSDFCBalance(synapse)])
+  const [filStatus, walletUsdfcBalance] = await Promise.all([checkFILBalance(synapse), checkUSDFCBalance(synapse)])
 
-  const validation = validatePaymentRequirements(filStatus.hasSufficientGas, usdfcBalance, filStatus.isCalibnet)
+  const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
   if (!validation.isValid) {
     const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
     throw new Error(`${validation.errorMessage}${help}`)
@@ -172,7 +172,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     spinner?.message('No additional funding required')
     // Funding already sufficient
     const updated = await getPaymentStatus(synapse)
-    const newAvailable = updated.depositedAmount - (updated.currentAllowances.lockupUsed ?? 0n)
+    const newAvailable = updated.filecoinPayBalance - (updated.currentAllowances.lockupUsed ?? 0n)
     const newPerDay = (updated.currentAllowances.rateUsed ?? 0n) * TIME_CONSTANTS.EPOCHS_PER_DAY
     const newRunway = newPerDay > 0n ? Number(newAvailable / newPerDay) : 0
     const newRunwayHours = newPerDay > 0n ? Number(((newAvailable % newPerDay) * 24n) / newPerDay) : 0
@@ -180,19 +180,19 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     return {
       adjusted: false,
       delta: 0n,
-      newDepositedAmount: updated.depositedAmount,
+      newDepositedAmount: updated.walletUsdfcBalance,
       newRunwayDays: newRunway,
       newRunwayHours: newRunwayHours,
     }
   }
 
-  // Perform deposit
-  if (delta > usdfcBalance) {
+  if (delta > walletUsdfcBalance) {
     throw new Error(
-      `Insufficient USDFC in wallet (need ${formatUSDFC(delta)} USDFC, have ${formatUSDFC(usdfcBalance)} USDFC)`
+      `Insufficient USDFC in wallet (need ${formatUSDFC(delta)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
     )
   }
 
+  // Perform deposit
   const depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to ensure ${MIN_RUNWAY_DAYS} day(s) runway...`
   spinner?.message(depositMsg)
   const depositResult = await depositUSDFC(synapse, delta)
@@ -202,7 +202,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
 
   // Get updated status
   const updated = await getPaymentStatus(synapse)
-  const newAvailable = updated.depositedAmount - (updated.currentAllowances.lockupUsed ?? 0n)
+  const newAvailable = updated.filecoinPayBalance - (updated.currentAllowances.lockupUsed ?? 0n)
   const newPerDay = (updated.currentAllowances.rateUsed ?? 0n) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const newRunway = newPerDay > 0n ? Number(newAvailable / newPerDay) : 0
   const newRunwayHours = newPerDay > 0n ? Number(((newAvailable % newPerDay) * 24n) / newPerDay) : 0
@@ -212,7 +212,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     delta,
     approvalTx,
     transactionHash,
-    newDepositedAmount: updated.depositedAmount,
+    newDepositedAmount: updated.filecoinPayBalance,
     newRunwayDays: newRunway,
     newRunwayHours: newRunwayHours,
   }

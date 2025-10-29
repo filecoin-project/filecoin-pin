@@ -131,7 +131,6 @@ export async function runUpload(buildContext = {}) {
     previewUrl = context.previewUrl || 'https://example.com/ipfs/dry-run'
     network = context.network || 'dry-run'
     paymentStatus = context.paymentStatus || {
-      depositedAmount: '0',
       filecoinPayBalance: '0',
       walletUsdfcBalance: '0',
       storageRunway: 'Unknown',
