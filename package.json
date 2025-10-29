@@ -73,7 +73,9 @@
     "test:watch": "vitest",
     "lint": "tsc && biome check --no-errors-on-unmatched --files-ignore-unknown=true .",
     "lint:fix": "biome check --no-errors-on-unmatched --files-ignore-unknown=true --fix .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "npm run typecheck:root && npm run typecheck:upload-action",
+    "typecheck:root": "tsc --noEmit",
+    "typecheck:upload-action": "npm run typecheck --prefix upload-action",
     "prepublishOnly": "npm run build"
   },
   "repository": {
