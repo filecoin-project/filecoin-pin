@@ -868,16 +868,16 @@ export function calculateDepositCapacity(
 }
 
 /**
- * Calculate required allowances from CAR file size
+ * Calculate required allowances from piece size
  *
- * Simple wrapper that converts file size to storage allowances.
+ * Simple wrapper that converts piece size to storage allowances.
  *
- * @param carSizeBytes - Size of the CAR file in bytes
+ * @param pieceSizeBytes - Size of the piece (CAR, File, etc.) file in bytes
  * @param pricePerTiBPerEpoch - Current pricing from storage service
- * @returns Required allowances for the file
+ * @returns Required allowances for the piece
  */
-export function calculateRequiredAllowances(carSizeBytes: number, pricePerTiBPerEpoch: bigint): StorageAllowances {
-  const storageTiB = carSizeBytes / Number(SIZE_CONSTANTS.TiB)
+export function calculateRequiredAllowances(pieceSizeBytes: number, pricePerTiBPerEpoch: bigint): StorageAllowances {
+  const storageTiB = pieceSizeBytes / Number(SIZE_CONSTANTS.TiB)
   return calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
 }
 
@@ -974,7 +974,7 @@ export function calculatePieceUploadRequirements(
   canUpload: boolean
 } {
   // Calculate requirements
-  const required = calculateRequiredAllowances(carSizeBytes, pricePerTiBPerEpoch)
+  const required = calculateRequiredAllowances(pieceSizeBytes, pricePerTiBPerEpoch)
   const totalDepositNeeded = withBuffer(required.lockupAllowance)
 
   // Check if current deposit can cover the new file's lockup requirement
