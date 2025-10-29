@@ -1200,7 +1200,7 @@ export async function executeTopUp(
     // Check if current balance already equals or exceeds limit
     if (currentStatus.filecoinPayBalance >= balanceLimit) {
       const message = `Current balance (${formatUSDFC(currentStatus.filecoinPayBalance)}) already equals or exceeds the configured balance limit (${formatUSDFC(balanceLimit)}). No additional deposits will be made.`
-      logger?.warn(`⚠️  ${message}`)
+      logger?.warn(`${message}`)
       return {
         success: true,
         deposited: 0n,
@@ -1215,7 +1215,7 @@ export async function executeTopUp(
         const maxAllowedTopUp = balanceLimit - currentStatus.filecoinPayBalance
         if (maxAllowedTopUp > 0n) {
           const warning = `Required top-up (${formatUSDFC(topUpAmount)}) would exceed the configured balance limit (${formatUSDFC(balanceLimit)}). Reducing to ${formatUSDFC(maxAllowedTopUp)}.`
-          logger?.warn(`⚠️  ${warning}`)
+          logger?.warn(`${warning}`)
           warnings.push(warning)
           topUpAmount = maxAllowedTopUp
         } else {
@@ -1233,7 +1233,7 @@ export async function executeTopUp(
   // Ensure wallet has sufficient USDFC for the deposit
   if (currentStatus.walletUsdfcBalance < topUpAmount) {
     const message = `Insufficient USDFC in wallet for deposit. Needed ${formatUSDFC(topUpAmount)}, available ${formatUSDFC(currentStatus.walletUsdfcBalance)}.`
-    logger?.warn(`⚠️  ${message}`)
+    logger?.warn(`${message}`)
     return {
       success: false,
       deposited: 0n,
