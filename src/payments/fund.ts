@@ -180,7 +180,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     return {
       adjusted: false,
       delta: 0n,
-      newDepositedAmount: updated.walletUsdfcBalance,
+      newDepositedAmount: updated.filecoinPayBalance,
       newRunwayDays: newRunway,
       newRunwayHours: newRunwayHours,
     }

@@ -81,12 +81,12 @@ export function getOutputSummary(context, status) {
   /** @type {PaymentStatus} */
   const paymentStatus = {
     filecoinPayBalance: '0',
-    walletUsdfcBalance: '0',
     storageRunway: 'Unknown',
     depositedThisRun: '0',
     network,
     address: 'Unknown',
     filBalance: 0n,
+    walletUsdfcBalance: '0',
     currentAllowances: {
       rateAllowance: 0n,
       lockupAllowance: 0n,
@@ -114,8 +114,7 @@ export function getOutputSummary(context, status) {
     `* Piece download direct from provider: ${previewUrl}`,
     '',
     '**Payment:**',
-    `* Wallet USDFC balance: ${formatUSDFC(ethers.parseUnits(paymentStatus.walletUsdfcBalance ?? '0', 18))} USDFC`,
-    `* Current Filecoin Pay balance: ${formatUSDFC(ethers.parseUnits(paymentStatus.filecoinPayBalance ?? '0', 18))} USDFC`,
+    `* Current Filecoin Pay balance: ${formatUSDFC(ethers.parseUnits(paymentStatus.filecoinPayBalance, 18))} USDFC`,
     `* Amount deposited to Filecoin Pay by this workflow: ${formatUSDFC(ethers.parseUnits(paymentStatus.depositedThisRun, 18))} USDFC`,
     `* Data Set Storage runway: ${paymentStatus.storageRunway}`,
     '',

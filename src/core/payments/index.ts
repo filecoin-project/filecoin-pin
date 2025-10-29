@@ -20,11 +20,15 @@ import { ethers } from 'ethers'
 import type { Logger } from 'pino'
 import { isSessionKeyMode } from '../synapse/index.js'
 import { formatUSDFC } from '../utils/index.js'
+import type { PaymentStatus, ServiceApprovalStatus, StorageAllowances, StorageRunwaySummary } from './types.js'
 
 // Constants
 export const USDFC_DECIMALS = 18
 const MIN_FIL_FOR_GAS = ethers.parseEther('0.1') // Minimum FIL padding for gas
 export const DEFAULT_LOCKUP_DAYS = 10 // WarmStorage requires 10 days lockup
+
+export * from './top-up.js'
+export * from './types.js'
 
 // Maximum allowances for trusted WarmStorage service
 // Using MaxUint256 which MetaMask displays as "Unlimited"
@@ -60,52 +64,6 @@ export function getStorageScale(storageTiB: number): number {
   if (storageTiB <= 0) return 1
   const maxScaleBySafe = Math.floor(Number.MAX_SAFE_INTEGER / storageTiB)
   return Math.max(1, Math.min(STORAGE_SCALE_MAX, maxScaleBySafe))
-}
-
-/**
- * Service approval status from the Payments contract
- */
-export interface ServiceApprovalStatus {
-  rateAllowance: bigint
-  lockupAllowance: bigint
-  lockupUsed: bigint
-  maxLockupPeriod?: bigint
-  rateUsed?: bigint
-}
-
-/**
- * Complete payment status including balances and approvals
- */
-export interface PaymentStatus {
-  network: string
-  address: string
-  filBalance: bigint
-  /** USDFC tokens sitting in the owner wallet (not yet deposited) */
-  walletUsdfcBalance: bigint
-  /** USDFC balance currently deposited into Filecoin Pay (WarmStorage contract) */
-  filecoinPayBalance: bigint
-  currentAllowances: ServiceApprovalStatus
-}
-
-/**
- * Storage allowance calculations
- */
-export interface StorageAllowances {
-  rateAllowance: bigint
-  lockupAllowance: bigint
-  storageCapacityTiB: number
-}
-
-export type StorageRunwayState = 'unknown' | 'no-spend' | 'active'
-
-export interface StorageRunwaySummary {
-  state: StorageRunwayState
-  available: bigint
-  rateUsed: bigint
-  perDay: bigint
-  lockupUsed: bigint
-  days: number
-  hours: number
 }
 
 /**
