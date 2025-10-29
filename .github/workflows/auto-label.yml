@@ -19,6 +19,10 @@ jobs:
           # Events triggered by GITHUB_TOKEN do not create new workflow runs by design.
           # This allows the add-issues-and-prs-to-fs-project-board.yml workflow to be triggered when labels are added.
           # See: https://docs.github.com/en/actions/concepts/security/github_token
+          #
+          # PAT Requirements:
+          # - Scope: public_repo (to add labels to issues/PRs in public repositories)
+          # - Permissions: The PAT owner must have at least triage access to the repository
           github-token: ${{ secrets.FILOZZY_CI_ADD_TO_PROJECT }}
           script: |
             github.rest.issues.addLabels({
