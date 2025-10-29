@@ -115,7 +115,7 @@ export function getOutputSummary(context, status) {
     '',
     '**Payment:**',
     `* Wallet USDFC balance: ${formatUSDFC(ethers.parseUnits(paymentStatus.walletUsdfcBalance ?? '0', 18))} USDFC`,
-    `* Current Filecoin Pay balance: ${formatUSDFC(ethers.parseUnits(paymentStatus.filecoinPayBalance, 18))} USDFC`,
+    `* Current Filecoin Pay balance: ${formatUSDFC(ethers.parseUnits(paymentStatus.filecoinPayBalance ?? '0', 18))} USDFC`,
     `* Amount deposited to Filecoin Pay by this workflow: ${formatUSDFC(ethers.parseUnits(paymentStatus.depositedThisRun, 18))} USDFC`,
     `* Data Set Storage runway: ${paymentStatus.storageRunway}`,
     '',
