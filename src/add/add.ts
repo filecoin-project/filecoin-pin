@@ -108,6 +108,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     // Parse authentication options from CLI and environment
     const config = parseCLIAuth(options)
+    if (withCDN) config.withCDN = true
 
     // Initialize just the Synapse SDK
     const synapse = await initializeSynapse(config, logger)

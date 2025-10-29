@@ -6,6 +6,7 @@ on:
       - master
 
 permissions:
+  id-token: write  # Required for OIDC
   contents: write
   pull-requests: write
 
@@ -31,6 +32,11 @@ jobs:
           node-version: 'lts/*'
           registry-url: 'https://registry.npmjs.org'
 
+      # Ensure npm 11.5.1 or later is installed
+      - name: Update npm
+        if: ${{ steps.release.outputs.release_created }}
+        run: npm install -g npm@latest
+
       - name: Install dependencies
         if: ${{ steps.release.outputs.release_created }}
         run: npm install
@@ -42,5 +48,3 @@ jobs:
       - name: Publish to npm
         if: ${{ steps.release.outputs.release_created }}
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

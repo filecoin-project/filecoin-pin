@@ -28,7 +28,6 @@ const DEFAULT_DATA_SET_METADATA = {
  * Default configuration for creating storage contexts
  */
 const DEFAULT_STORAGE_CONTEXT_CONFIG = {
-  withCDN: false, // CDN not needed for Filecoin Pin currently
   withIpni: true, // Always filter for IPNI-enabled providers for IPFS indexing
   metadata: DEFAULT_DATA_SET_METADATA,
 } as const
@@ -72,6 +71,7 @@ export interface SynapseSetupConfig {
   rpcUrl?: string | undefined
   /** Optional override for WarmStorage contract address */
   warmStorageAddress?: string | undefined
+  withCDN?: boolean | undefined
 }
 
 /**
@@ -264,6 +264,9 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger: Logg
     const synapseOptions: SynapseOptions = {
       rpcURL,
       withIpni: true, // Always filter for IPNI-enabled providers
+    }
+    if (config.withCDN) {
+      synapseOptions.withCDN = true
     }
     if (config.warmStorageAddress) {
       synapseOptions.warmStorageAddress = config.warmStorageAddress
@@ -638,11 +641,27 @@ export function getDefaultStorageContextConfig(overrides: any = {}) {
  */
 export async function cleanupProvider(provider: any): Promise<void> {
   if (provider && typeof provider.destroy === 'function') {
+    // Suppress all errors during cleanup
+    // WebSocket providers can throw async errors from scheduled operations
+    // (like eth_unsubscribe) after destroy() is called
+    const errorHandler = () => {
+      // Silently ignore all cleanup errors
+    }
+
+    // Add error listener to suppress errors from async operations
+    if (typeof provider.on === 'function') {
+      provider.on('error', errorHandler)
+    }
+
     try {
       await provider.destroy()
     } catch {
       // Ignore cleanup errors
     }
+
+    // Small delay to allow any pending async operations to complete
+    // This prevents errors from scheduled operations that trigger after destroy()
+    await new Promise((resolve) => setTimeout(resolve, 100))
   }
 }
 
