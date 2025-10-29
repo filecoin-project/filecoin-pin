@@ -730,22 +730,22 @@ export function computeAdjustmentForExactDeposit(
 }
 
 /**
- * Compute adjustment needed to maintain target runway AFTER adding a new file
+ * Compute adjustment needed to maintain target runway AFTER adding a new piece
  *
  * This function accounts for both:
- * - The new file's lockup requirement
- * - The new file's ongoing per-epoch cost (rate)
+ * - The new piece's lockup requirement
+ * - The new piece's ongoing per-epoch cost (rate)
  *
  * @param status - Current payment status
  * @param days - Target runway in days
- * @param carSizeBytes - Size of the CAR file being uploaded in bytes
+ * @param pieceSizeBytes - Size of the piece (CAR, File, etc.) file being uploaded in bytes
  * @param pricePerTiBPerEpoch - Current pricing from storage service
  * @returns Adjustment details including total delta needed
  */
-export function computeAdjustmentForExactDaysWithFile(
+export function computeAdjustmentForExactDaysWithPiece(
   status: PaymentStatus,
   days: number,
-  carSizeBytes: number,
+  pieceSizeBytes: number,
   pricePerTiBPerEpoch: bigint
 ): {
   delta: bigint // >0 deposit, <0 withdraw, 0 none
@@ -758,11 +758,11 @@ export function computeAdjustmentForExactDaysWithFile(
   const currentLockupUsed = status.currentAllowances.lockupUsed ?? 0n
 
   // Calculate required allowances for the new file
-  const newFileAllowances = calculateRequiredAllowances(carSizeBytes, pricePerTiBPerEpoch)
+  const newPieceAllowances = calculateRequiredAllowances(pieceSizeBytes, pricePerTiBPerEpoch)
 
-  // Calculate new totals after adding the file
-  const newRateUsed = currentRateUsed + newFileAllowances.rateAllowance
-  const newLockupUsed = currentLockupUsed + newFileAllowances.lockupAllowance
+  // Calculate new totals after adding the piece
+  const newRateUsed = currentRateUsed + newPieceAllowances.rateAllowance
+  const newLockupUsed = currentLockupUsed + newPieceAllowances.lockupAllowance
 
   // Calculate deposit needed for target runway with new rate
   const perDay = newRateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
@@ -990,9 +990,9 @@ export function calculatePieceUploadRequirements(
 }
 
 /**
- * Validate payment capacity for a specific CAR file
+ * Validate payment capacity for a specific piece size
  *
- * This function checks if the deposit is sufficient for the file upload. It
+ * This function checks if the deposit is sufficient for the piece upload. It
  * does not account for allowances since WarmStorage is assumed to be given
  * full trust with max allowances.
  *
@@ -1012,10 +1012,10 @@ export function calculatePieceUploadRequirements(
  * ```
  *
  * @param synapse - Initialized Synapse instance
- * @param carSizeBytes - Size of the CAR file in bytes
+ * @param pieceSizeBytes - Size of the piece (CAR, File, etc.) file in bytes
  * @returns Capacity check result
  */
-export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: number): Promise<PaymentCapacityCheck> {
+export async function validatePaymentCapacity(synapse: Synapse, pieceSizeBytes: number): Promise<PaymentCapacityCheck> {
   // Ensure allowances are at max (automatically skips if in session key mode)
   await checkAndSetAllowances(synapse)
 
@@ -1023,10 +1023,10 @@ export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: nu
   const [status, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
 
   const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
-  const storageTiB = carSizeBytes / Number(SIZE_CONSTANTS.TiB)
+  const storageTiB = pieceSizeBytes / Number(SIZE_CONSTANTS.TiB)
 
   // Calculate requirements
-  const uploadRequirements = calculateFileUploadRequirements(status, carSizeBytes, pricePerTiBPerEpoch)
+  const uploadRequirements = calculatePieceUploadRequirements(status, pieceSizeBytes, pricePerTiBPerEpoch)
 
   const result: PaymentCapacityCheck = {
     canUpload: uploadRequirements.canUpload,
@@ -1062,7 +1062,7 @@ export interface TopUpCalculation {
   reason: string
   calculation: {
     minStorageDays?: number | undefined
-    carSizeBytes?: number | undefined
+    pieceSizeBytes?: number | undefined
     currentRateUsed: bigint
     currentLockupUsed: bigint
     currentDeposited: bigint
@@ -1085,11 +1085,11 @@ export function calculateRequiredTopUp(
   status: PaymentStatus,
   options: {
     minStorageDays?: number | undefined
-    carSizeBytes?: number | undefined
+    pieceSizeBytes?: number | undefined
     pricePerTiBPerEpoch?: bigint | undefined
   }
 ): TopUpCalculation {
-  const { minStorageDays = 0, carSizeBytes, pricePerTiBPerEpoch } = options
+  const { minStorageDays = 0, pieceSizeBytes, pricePerTiBPerEpoch } = options
   const rateUsed = status.currentAllowances.rateUsed ?? 0n
   const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
 
@@ -1099,8 +1099,8 @@ export function calculateRequiredTopUp(
   // Calculate file upload requirements if we have file info
   let fileUploadTopUp = 0n
   let fileUploadReason = ''
-  if (carSizeBytes != null && carSizeBytes > 0 && pricePerTiBPerEpoch != null) {
-    const uploadRequirements = calculateFileUploadRequirements(status, carSizeBytes, pricePerTiBPerEpoch)
+  if (pieceSizeBytes != null && pieceSizeBytes > 0 && pricePerTiBPerEpoch != null) {
+    const uploadRequirements = calculatePieceUploadRequirements(status, pieceSizeBytes, pricePerTiBPerEpoch)
     if (uploadRequirements.insufficientDeposit > 0n) {
       fileUploadTopUp = uploadRequirements.insufficientDeposit
       fileUploadReason = 'file upload (lockup requirement)'
@@ -1111,9 +1111,14 @@ export function calculateRequiredTopUp(
   let runwayTopUp = 0n
   let runwayReason = ''
   if (minStorageDays > 0) {
-    if (rateUsed === 0n && carSizeBytes != null && carSizeBytes > 0 && pricePerTiBPerEpoch != null) {
+    if (rateUsed === 0n && pieceSizeBytes != null && pieceSizeBytes > 0 && pricePerTiBPerEpoch != null) {
       // New file upload with runway requirement
-      const { delta } = computeAdjustmentForExactDaysWithFile(status, minStorageDays, carSizeBytes, pricePerTiBPerEpoch)
+      const { delta } = computeAdjustmentForExactDaysWithPiece(
+        status,
+        minStorageDays,
+        pieceSizeBytes,
+        pricePerTiBPerEpoch
+      )
       runwayTopUp = delta
       runwayReason = `${minStorageDays} days of storage (including upcoming upload)`
     } else {
@@ -1138,7 +1143,7 @@ export function calculateRequiredTopUp(
     reason,
     calculation: {
       minStorageDays,
-      carSizeBytes,
+      pieceSizeBytes,
       pricePerTiBPerEpoch,
       currentRateUsed: rateUsed,
       currentLockupUsed: lockupUsed,

@@ -130,11 +130,12 @@ export async function runUpload(buildContext = {}) {
     }
     previewUrl = context.previewUrl || 'https://example.com/ipfs/dry-run'
     network = context.network || 'dry-run'
-    paymentStatus = context.paymentStatus || {
+    paymentStatus = {
       filecoinPayBalance: '0',
       walletUsdfcBalance: '0',
       storageRunway: 'Unknown',
       depositedThisRun: '0',
+      ...context.paymentStatus,
     }
   } else {
     const synapse = await initializeSynapse({ walletPrivateKey, network: inputNetwork }, logger)
@@ -148,7 +149,7 @@ export async function runUpload(buildContext = {}) {
 
     paymentStatus = await handlePayments(
       synapse,
-      { minStorageDays, filecoinPayBalanceLimit, carSizeBytes: context.carSize },
+      { minStorageDays, filecoinPayBalanceLimit, pieceSizeBytes: context.carSize },
       logger
     )
 

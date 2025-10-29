@@ -79,7 +79,7 @@ export interface PRMetadata {
 export interface PaymentConfig {
   minStorageDays: number
   filecoinPayBalanceLimit?: bigint | undefined
-  carSizeBytes?: number | undefined
+  pieceSizeBytes?: number | undefined
 }
 
 export interface UploadConfig {

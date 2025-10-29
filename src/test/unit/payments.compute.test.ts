@@ -2,7 +2,7 @@ import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { describe, expect, it } from 'vitest'
 import {
   computeAdjustmentForExactDays,
-  computeAdjustmentForExactDaysWithFile,
+  computeAdjustmentForExactDaysWithPiece,
   computeAdjustmentForExactDeposit,
   computeTopUpForDuration,
   type PaymentStatus,
@@ -144,15 +144,15 @@ describe('computeAdjustmentForExactDeposit', () => {
   })
 })
 
-describe('computeAdjustmentForExactDaysWithFile', () => {
+describe('computeAdjustmentForExactDaysWithPiece', () => {
   it('calculates deposit for new file when rateUsed is 0', () => {
     // Scenario: No existing storage, uploading first file
     const status = makeStatus({ filecoinPayBalance: 0n, lockupUsed: 0n, rateUsed: 0n })
-    const carSizeBytes = 1024 * 1024 * 1024 // 1 GiB
+    const pieceSizeBytes = 1024 * 1024 * 1024 // 1 GiB
     const pricePerTiBPerEpoch = 1_000_000_000_000_000n // 0.001 USDFC per TiB per epoch
     const days = 30
 
-    const res = computeAdjustmentForExactDaysWithFile(status, days, carSizeBytes, pricePerTiBPerEpoch)
+    const res = computeAdjustmentForExactDaysWithPiece(status, days, pieceSizeBytes, pricePerTiBPerEpoch)
 
     // Should require deposit for both lockup and runway
     expect(res.delta).toBeGreaterThan(0n)
@@ -167,11 +167,11 @@ describe('computeAdjustmentForExactDaysWithFile', () => {
     const filecoinPayBalance = (lockupUsed * 12n) / 10n // 20% buffer
     const status = makeStatus({ filecoinPayBalance, lockupUsed, rateUsed })
 
-    const carSizeBytes = 1024 * 1024 * 1024 // 1 GiB
+    const pieceSizeBytes = 1024 * 1024 * 1024 // 1 GiB
     const pricePerTiBPerEpoch = 1_000_000_000_000_000n // 0.001 USDFC per TiB per epoch
     const days = 30
 
-    const res = computeAdjustmentForExactDaysWithFile(status, days, carSizeBytes, pricePerTiBPerEpoch)
+    const res = computeAdjustmentForExactDaysWithPiece(status, days, pieceSizeBytes, pricePerTiBPerEpoch)
 
     // New rate should be higher than existing
     expect(res.newRateUsed).toBeGreaterThan(rateUsed)

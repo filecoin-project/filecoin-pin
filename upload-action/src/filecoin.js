@@ -57,7 +57,7 @@ export async function createCarFile(targetPath, contentPath, logger) {
  * @returns {Promise<SimplifiedPaymentStatus>} Updated payment status
  */
 export async function handlePayments(synapse, options, logger) {
-  const { minStorageDays, filecoinPayBalanceLimit, carSizeBytes } = options
+  const { minStorageDays, filecoinPayBalanceLimit, pieceSizeBytes } = options
 
   console.log('Checking current Filecoin Pay account balance...')
   const [rawStatus, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
@@ -71,7 +71,7 @@ export async function handlePayments(synapse, options, logger) {
   // Calculate required top-up with pricing info
   const topUpCalculation = calculateRequiredTopUp(rawStatus, {
     minStorageDays,
-    carSizeBytes,
+    pieceSizeBytes,
     pricePerTiBPerEpoch: storageInfo.pricing.noCDN.perTiBPerEpoch,
   })
 

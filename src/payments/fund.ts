@@ -15,7 +15,7 @@ import {
   checkFILBalance,
   checkUSDFCBalance,
   computeAdjustmentForExactDays,
-  computeAdjustmentForExactDaysWithFile,
+  computeAdjustmentForExactDaysWithPiece,
   computeAdjustmentForExactDeposit,
   depositUSDFC,
   getPaymentStatus,
@@ -162,9 +162,9 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
   const [status, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
   const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
 
-  // Calculate funding needed to maintain MIN_RUNWAY_DAYS after uploading this file
-  // This accounts for both the file's lockup AND its impact on ongoing costs
-  const adj = computeAdjustmentForExactDaysWithFile(status, MIN_RUNWAY_DAYS, fileSize, pricePerTiBPerEpoch)
+  // Calculate funding needed to maintain MIN_RUNWAY_DAYS after uploading this piece
+  // This accounts for both the piece's lockup AND its impact on ongoing costs
+  const adj = computeAdjustmentForExactDaysWithPiece(status, MIN_RUNWAY_DAYS, fileSize, pricePerTiBPerEpoch)
   const delta = adj.delta
 
   // Auto-fund only deposits, never withdraws
