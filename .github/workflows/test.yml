@@ -18,6 +18,7 @@ jobs:
       - name: Install Dependencies
         run: |
           npm install --no-progress
+          npm install --no-progress --prefix upload-action
       - name: Run Lint
         run: |
           npm run lint
