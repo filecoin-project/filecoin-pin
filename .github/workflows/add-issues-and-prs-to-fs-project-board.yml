@@ -1,7 +1,7 @@
 ######################################################################################
 # READ THIS FIRST
 # This file is authored in filecoin-project/github-mgmt repository and MANUALLY copied to other repos.
-# See https://github.com/filecoin-project/github-mgmt/blob/master/files/workflows/add-issues-and-prs-to-fs-project-board.yml for more info.
+# See https://github.com/filecoin-project/github-mgmt/blob/master/files/.github/workflows/add-issues-and-prs-to-fs-project-board.yml for more info.
 ######################################################################################
 
 # This action adds all issues and PRs with a "team/fs-wg" label to the FS project board.
