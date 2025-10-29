@@ -962,16 +962,16 @@ export interface PaymentCapacityCheck {
 }
 
 /**
- * Calculate file upload deposit requirements
+ * Calculate piece upload deposit requirements
  *
  * @param status - Current payment status
- * @param carSizeBytes - Size of the CAR file in bytes
+ * @param pieceSizeBytes - Size of the piece (CAR, File, etc.) file in bytes
  * @param pricePerTiBPerEpoch - Current pricing from storage service
- * @returns File upload deposit requirements
+ * @returns Piece upload deposit requirements
  */
-export function calculateFileUploadRequirements(
+export function calculatePieceUploadRequirements(
   status: PaymentStatus,
-  carSizeBytes: number,
+  pieceSizeBytes: number,
   pricePerTiBPerEpoch: bigint
 ): {
   required: StorageAllowances
