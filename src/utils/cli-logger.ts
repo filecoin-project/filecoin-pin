@@ -119,7 +119,7 @@ export const log = {
   },
 
   /**
-   * This section is intended to be used with an active spinner.. It will not insert a newline before the title and should be spaced properly with closed/open spinners.
+   * This section is intended to be used with an active spinner. It will not insert a newline before the title and should be spaced properly with closed/open spinners.
    */
   spinnerSection(
     title: string,
