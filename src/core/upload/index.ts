@@ -241,7 +241,7 @@ export async function executeUpload(
             ipniValidationPromise = Promise.resolve(false)
           }
         }
-        if (event.data.txHash != null && event.data.txHash != null) {
+        if (event.data.txHash != null) {
           transactionHash = event.data.txHash
         }
         break
