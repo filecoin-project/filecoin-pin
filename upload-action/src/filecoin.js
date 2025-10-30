@@ -290,10 +290,10 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
         console.log(`Piece CID: ${pieceCid}`)
         console.log('\n⏳ Registering piece in data set...')
       },
-      onPieceAdded: (transaction) => {
-        if (transaction?.hash) {
+      onPieceAdded: (txHash) => {
+        if (txHash) {
           console.log('✓ Piece registration transaction submitted')
-          console.log(`Transaction hash: ${transaction.hash}`)
+          console.log(`Transaction hash: ${txHash}`)
           console.log('\n⏳ Waiting for on-chain confirmation...')
         } else {
           console.log('✓ Piece added to data set (no transaction needed)')
