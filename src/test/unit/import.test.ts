@@ -359,7 +359,6 @@ describe('CAR Import', () => {
         expect.objectContaining({
           callbacks: expect.objectContaining({
             onProviderSelected: expect.any(Function),
-            onDataSetCreationStarted: expect.any(Function),
             onDataSetResolved: expect.any(Function),
           }),
         })

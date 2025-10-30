@@ -6,7 +6,6 @@
  */
 import type { PieceCID, UploadOptions } from '@filoz/synapse-sdk'
 import { METADATA_KEYS, type ProviderInfo, type UploadCallbacks } from '@filoz/synapse-sdk'
-import type { TransactionResponse } from 'ethers'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import type { SynapseService } from '../synapse/index.js'
@@ -14,7 +13,7 @@ import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 
 export type UploadProgressEvents =
   | ProgressEvent<'onUploadComplete', { pieceCid: PieceCID }>
-  | ProgressEvent<'onPieceAdded', { transaction: TransactionResponse | undefined }>
+  | ProgressEvent<'onPieceAdded', { txHash: `0x${string}` | undefined }>
   | ProgressEvent<'onPieceConfirmed', { pieceIds: number[] }>
 
 export interface SynapseUploadOptions {
@@ -94,13 +93,13 @@ export async function uploadToSynapse(
       onProgress?.({ type: 'onUploadComplete', data: { pieceCid } })
     },
 
-    onPieceAdded: (transaction) => {
-      if (transaction != null) {
+    onPieceAdded: (txHash) => {
+      if (txHash != null) {
         logger.info(
           {
             event: 'synapse.upload.piece_added',
             contextId,
-            txHash: transaction.hash,
+            txHash: txHash,
           },
           'Piece addition transaction submitted'
         )
@@ -113,7 +112,7 @@ export async function uploadToSynapse(
           'Piece added to data set'
         )
       }
-      onProgress?.({ type: 'onPieceAdded', data: { transaction } })
+      onProgress?.({ type: 'onPieceAdded', data: { txHash } })
     },
 
     onPieceConfirmed: (pieceIds) => {

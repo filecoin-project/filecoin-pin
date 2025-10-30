@@ -17,6 +17,7 @@ import {
   computeAdjustmentForExactDays,
   computeAdjustmentForExactDaysWithPiece,
   computeAdjustmentForExactDeposit,
+  DEFAULT_LOCKUP_DAYS,
   depositUSDFC,
   getPaymentStatus,
   validatePaymentRequirements,
@@ -31,8 +32,8 @@ import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli
 import { isTTY, log } from '../utils/cli-logger.js'
 import type { AutoFundOptions, FundingAdjustmentResult, FundOptions } from './types.js'
 
-// Helper: confirm/warn or bail when target implies < 10-day runway
-async function ensureBelowTenDaysAllowed(opts: {
+// Helper: confirm/warn or bail when target implies < lockup-days runway
+async function ensureBelowThirtyDaysAllowed(opts: {
   spinner: Spinner
   warningLine1: string
   warningLine2: string
@@ -43,7 +44,7 @@ async function ensureBelowTenDaysAllowed(opts: {
     console.error(pc.red(warningLine1))
     console.error(pc.red(warningLine2))
     cancel('Fund adjustment aborted')
-    throw new Error('Unsafe target below 10-day baseline')
+    throw new Error(`Unsafe target below ${DEFAULT_LOCKUP_DAYS}-day baseline`)
   }
 
   log.line(pc.yellow('⚠ Warning'))
@@ -52,7 +53,7 @@ async function ensureBelowTenDaysAllowed(opts: {
   log.flush()
 
   const proceed = await confirm({
-    message: 'Proceed with reducing runway below 10 days?',
+    message: 'Proceed with reducing runway below 30 days?',
     initialValue: false,
   })
   if (!proceed) {
@@ -347,14 +348,14 @@ export async function runFund(options: FundOptions): Promise<void> {
         }
         delta = 0n
       }
-    } else if (runwayCheckDays != null && runwayCheckDays < 10) {
+    } else if (runwayCheckDays != null && runwayCheckDays < Number(TIME_CONSTANTS.DEFAULT_LOCKUP_DAYS)) {
       const line1 = hasDays
-        ? 'Requested runway below 10-day safety baseline.'
-        : 'Target deposit implies less than 10 days of runway at current spend.'
+        ? 'Requested runway below 30-day safety baseline.'
+        : 'Target deposit implies less than 30 days of runway at current spend.'
       const line2 = hasDays
-        ? 'WarmStorage reserves 10 days of costs; a shorter runway risks termination.'
+        ? 'WarmStorage reserves 30 days of costs; a shorter runway risks termination.'
         : 'Increase target or accept risk: shorter runway may cause termination.'
-      await ensureBelowTenDaysAllowed({
+      await ensureBelowThirtyDaysAllowed({
         spinner,
         warningLine1: line1,
         warningLine2: line2,

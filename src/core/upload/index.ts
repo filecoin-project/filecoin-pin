@@ -17,7 +17,7 @@ import {
   type ValidateIPNIProgressEvents,
   validateIPNIAdvertisement,
 } from '../utils/validate-ipni-advertisement.js'
-import { type SynapseUploadResult, type UploadProgressEvents, uploadToSynapse } from './synapse.js'
+import { type SynapseUploadResult, uploadToSynapse, type UploadProgressEvents } from './synapse.js'
 
 export type { SynapseUploadOptions, SynapseUploadResult, UploadProgressEvents } from './synapse.js'
 export { getDownloadURL, getServiceURL, uploadToSynapse } from './synapse.js'
@@ -241,8 +241,8 @@ export async function executeUpload(
             ipniValidationPromise = Promise.resolve(false)
           }
         }
-        if (event.data.transaction != null && event.data.transaction.hash != null) {
-          transactionHash = event.data.transaction.hash
+        if (event.data.txHash != null && event.data.txHash != null) {
+          transactionHash = event.data.txHash
         }
         break
       }

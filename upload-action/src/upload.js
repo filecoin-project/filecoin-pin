@@ -114,7 +114,11 @@ export async function runUpload(buildContext = {}) {
     throw new Error('walletPrivateKey is required for upload phase')
   }
 
-  /** @type {Partial<UploadResult>} */
+  /**
+   * @type {Partial<UploadResult>}
+   * This is a simple trick to get each of these variables defined easily without using a separate let statement and jsdoc for each one.
+   * We already have them in the type we want.
+   */
   let { pieceCid, pieceId, dataSetId, provider, previewUrl, network, ipniValidated } = {}
   /** @type {PaymentStatus} */
   let paymentStatus

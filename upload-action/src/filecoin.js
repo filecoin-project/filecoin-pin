@@ -294,9 +294,9 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
           break
         }
         case 'onPieceAdded': {
-          if (event.data.transaction?.hash) {
+          if (event.data.txHash) {
             console.log('✓ Piece registration transaction submitted')
-            console.log(`Transaction hash: ${event.data.transaction.hash}`)
+            console.log(`Transaction hash: ${event.data.txHash}`)
             console.log('\n⏳ Waiting for on-chain confirmation...')
           } else {
             console.log('✓ Piece added to data set (no transaction)')

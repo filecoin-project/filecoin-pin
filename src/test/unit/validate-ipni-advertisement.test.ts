@@ -95,7 +95,7 @@ describe('validateIPNIAdvertisement', () => {
       const promise = validateIPNIAdvertisement(testCid, { maxAttempts: 1 })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS root CID "${testCid.toString()}" not announced to IPNI after 1 attempts`
+        `IPFS root CID "${testCid.toString()}" not announced to IPNI after 1 attempt`
       )
 
       await vi.runAllTimersAsync()
@@ -184,7 +184,7 @@ describe('validateIPNIAdvertisement', () => {
       const promise = validateIPNIAdvertisement(testCid, { maxAttempts: 1 })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS root CID "${testCid.toString()}" not announced to IPNI after 1 attempts`
+        `IPFS root CID "${testCid.toString()}" not announced to IPNI after 1 attempt`
       )
 
       await vi.runAllTimersAsync()

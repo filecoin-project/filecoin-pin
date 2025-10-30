@@ -85,14 +85,14 @@ describe('computeAdjustmentForExactDays', () => {
   it('returns positive delta when more deposit needed (includes 1-hour safety)', () => {
     const rateUsed = 1_000_000_000_000_000_000n // 1 USDFC/epoch
     const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
-    const days = 10
-    const available = perDay * 10n // exactly 10 days
+    const days = 30
+    const available = perDay * 30n // exactly 30 days
     const status = makeStatus({ filecoinPayBalance: available, lockupUsed: 0n, rateUsed })
     const res = computeAdjustmentForExactDays(status, days)
     const perHour = perDay / 24n
     const safety = perHour > 0n ? perHour : 1n
     expect(res.delta).toBe(safety)
-    expect(res.targetAvailable).toBe(perDay * 10n + safety)
+    expect(res.targetAvailable).toBe(perDay * 30n + safety)
   })
 
   it('returns negative delta when withdrawal possible', () => {
@@ -163,7 +163,7 @@ describe('computeAdjustmentForExactDaysWithPiece', () => {
   it('adds file requirements to existing usage', () => {
     // Scenario: Existing storage, adding another file
     const rateUsed = 1_000_000_000_000_000_000n // 1 USDFC/epoch
-    const lockupUsed = rateUsed * BigInt(10) * TIME_CONSTANTS.EPOCHS_PER_DAY // 10 days worth
+    const lockupUsed = rateUsed * BigInt(30) * TIME_CONSTANTS.EPOCHS_PER_DAY // 30 days worth
     const filecoinPayBalance = (lockupUsed * 12n) / 10n // 20% buffer
     const status = makeStatus({ filecoinPayBalance, lockupUsed, rateUsed })
 

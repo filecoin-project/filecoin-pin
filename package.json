@@ -97,10 +97,11 @@
   "homepage": "https://github.com/filecoin-project/filecoin-pin#readme",
   "dependencies": {
     "@clack/prompts": "^0.11.0",
-    "@filoz/synapse-sdk": "^0.34.0",
+    "@filoz/synapse-sdk": "^0.35.0",
     "@helia/unixfs": "^6.0.1",
     "@ipld/car": "^5.4.2",
     "commander": "^14.0.1",
+    "ethers": "^6.15.0",
     "fastify": "^5.6.0",
     "helia": "^6.0.1",
     "it-to-buffer": "^4.0.10",
