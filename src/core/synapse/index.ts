@@ -1,4 +1,3 @@
-import type { TelemetryConfig } from '@filoz/synapse-sdk'
 import {
   ADD_PIECES_TYPEHASH,
   CREATE_DATA_SET_TYPEHASH,
@@ -10,6 +9,7 @@ import {
   type StorageServiceOptions,
   Synapse,
   type SynapseOptions,
+  type TelemetryConfig,
 } from '@filoz/synapse-sdk'
 import { type Provider as EthersProvider, JsonRpcProvider, type Signer, Wallet, WebSocketProvider } from 'ethers'
 import type { Logger } from 'pino'
@@ -68,10 +68,14 @@ interface BaseSynapseConfig {
    * Telemetry configuration, merges fields, but appends "appName" to the existing appName
    * @example
    * {
-   *   appName: "filecoin-pin@v1.0.0-${your-app-name}",
-   *   enabled: true,
-   *   environment: "development",
+   *   sentryInitOptions: {
+   *     enabled: true,
+   *   },
+   *   sentrySetTags: {
+   *     appName: "${your-app-name}",
+   *   },
    * }
+   * will result in your appName being "filecoin-pin@v1.0.0-${your-app-name}"
    */
   telemetry?: TelemetryConfig
 }
@@ -309,7 +313,7 @@ async function setupSessionKey(synapse: Synapse, sessionWallet: Wallet, logger: 
  * @returns Initialized Synapse instance
  */
 export async function initializeSynapse(
-  config: SynapseSetupConfig,
+  config: Partial<SynapseSetupConfig>,
   logger: Logger,
   telemetryConfig?: TelemetryConfig
 ): Promise<Synapse> {
@@ -647,7 +651,7 @@ export async function cleanupProvider(provider: any): Promise<void> {
 export async function cleanupSynapseService(): Promise<void> {
   // Close telemetry to flush pending events and shutdown cleanly
   if (synapseInstance) {
-    await synapseInstance.telemetry.close()
+    await synapseInstance.telemetry?.sentry?.close()
   }
 
   if (activeProvider) {

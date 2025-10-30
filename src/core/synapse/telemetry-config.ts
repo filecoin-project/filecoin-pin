@@ -4,13 +4,20 @@ import packageJson from '../../../package.json' with { type: 'json' }
 
 export const getTelemetryConfig = (config?: TelemetryConfig | undefined): TelemetryConfig => {
   let appName = `${packageJson.name}@v${packageJson.version}`
-  if (config?.appName != null) {
-    appName = `${appName}-${config.appName}`
+  if (config?.sentrySetTags?.appName != null) {
+    appName = `${appName}-${String(config.sentrySetTags.appName)}`
   }
 
   return {
-    enabled: true, // allow config.enabled to override default
     ...config,
-    appName, // use constructed appName, always.
+    sentryInitOptions: {
+      enabled: true,
+      // allow config.enabled to override default
+      ...config?.sentryInitOptions,
+    },
+    sentrySetTags: {
+      ...config?.sentrySetTags,
+      appName, // use constructed appName, always.
+    },
   }
 }
