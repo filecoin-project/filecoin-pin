@@ -1,5 +1,11 @@
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
+import type { ProgressEvent, ProgressEventHandler } from './types.js'
+
+export type ValidateIPNIProgressEvents =
+  | ProgressEvent<'ipniAdvertisement.retryUpdate', { retryCount: number }>
+  | ProgressEvent<'ipniAdvertisement.complete', { result: boolean; retryCount: number }>
+  | ProgressEvent<'ipniAdvertisement.failed', { error: Error }>
 
 export interface ValidateIPNIAdvertisementOptions {
   /**
@@ -35,11 +41,7 @@ export interface ValidateIPNIAdvertisementOptions {
    *
    * @default: undefined
    */
-  onProgress?: (
-    event:
-      | { type: 'retryUpdate'; data: { retryCount: number } }
-      | { type: 'complete'; data: { result: boolean; retryCount: number } }
-  ) => undefined | undefined
+  onProgress?: ProgressEventHandler<ValidateIPNIProgressEvents>
 }
 
 /**
@@ -61,66 +63,64 @@ export async function validateIPNIAdvertisement(
   return new Promise<boolean>((resolve, reject) => {
     let retryCount = 0
     const check = async (): Promise<void> => {
+      if (options?.signal?.aborted) {
+        throw new Error('Check IPNI announce aborted', { cause: options?.signal })
+      }
+      options?.logger?.info(
+        {
+          event: 'check-ipni-announce',
+          ipfsRootCid: ipfsRootCid.toString(),
+        },
+        'Checking IPNI for announcement of IPFS Root CID "%s"',
+        ipfsRootCid.toString()
+      )
+      const fetchOptions: RequestInit = {}
+      if (options?.signal) {
+        fetchOptions.signal = options?.signal
+      }
       try {
-        if (options?.signal?.aborted) {
-          reject(new Error('Check IPNI announce aborted'))
-          return
-        }
-        options?.logger?.info(
-          {
-            event: 'check-ipni-announce',
-            ipfsRootCid: ipfsRootCid.toString(),
-          },
-          'Checking IPNI for announcement of IPFS Root CID "%s"',
-          ipfsRootCid.toString()
-        )
-        const fetchOptions: RequestInit = {}
-        if (options?.signal) {
-          fetchOptions.signal = options?.signal
-        }
-        try {
-          options?.onProgress?.({ type: 'retryUpdate', data: { retryCount } })
-        } catch (error) {
-          options?.logger?.error({ error }, 'Error in consumer onProgress callback for retryUpdate event')
-        }
-
-        const response = await fetch(`https://filecoinpin.contact/cid/${ipfsRootCid}`, fetchOptions)
-        if (response.ok) {
-          try {
-            options?.onProgress?.({ type: 'complete', data: { result: true, retryCount } })
-          } catch (error) {
-            options?.logger?.error({ error }, 'Error in consumer onProgress callback for complete event')
-          }
-          resolve(true)
-          return
-        }
-        if (++retryCount < maxAttempts) {
-          options?.logger?.info(
-            { retryCount, maxAttempts },
-            'IPFS Root CID "%s" not announced to IPNI yet (%d/%d). Retrying in %dms...',
-            ipfsRootCid.toString(),
-            retryCount,
-            maxAttempts,
-            delayMs
-          )
-          await new Promise((resolve) => setTimeout(resolve, delayMs))
-          await check()
-        } else {
-          const msg = `IPFS root CID "${ipfsRootCid.toString()}" not announced to IPNI after ${maxAttempts} attempts`
-          const error = new Error(msg)
-          options?.logger?.error({ error }, msg)
-          try {
-            options?.onProgress?.({ type: 'complete', data: { result: false, retryCount } })
-          } catch (error) {
-            options?.logger?.error({ error }, 'Error in consumer onProgress callback for complete event')
-          }
-          reject(error)
-        }
+        options?.onProgress?.({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount } })
       } catch (error) {
-        reject(error)
+        options?.logger?.error({ error }, 'Error in consumer onProgress callback for retryUpdate event')
+      }
+
+      const response = await fetch(`https://filecoinpin.contact/cid/${ipfsRootCid}`, fetchOptions)
+      if (response.ok) {
+        try {
+          options?.onProgress?.({ type: 'ipniAdvertisement.complete', data: { result: true, retryCount } })
+        } catch (error) {
+          options?.logger?.error({ error }, 'Error in consumer onProgress callback for complete event')
+        }
+        resolve(true)
+        return
+      }
+      if (++retryCount < maxAttempts) {
+        options?.logger?.info(
+          { retryCount, maxAttempts },
+          'IPFS Root CID "%s" not announced to IPNI yet (%d/%d). Retrying in %dms...',
+          ipfsRootCid.toString(),
+          retryCount,
+          maxAttempts,
+          delayMs
+        )
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+        await check()
+      } else {
+        const msg = `IPFS root CID "${ipfsRootCid.toString()}" not announced to IPNI after ${maxAttempts} attempts`
+        const error = new Error(msg)
+        options?.logger?.error({ error }, msg)
+        try {
+          options?.onProgress?.({ type: 'ipniAdvertisement.complete', data: { result: false, retryCount } })
+        } catch (error) {
+          options?.logger?.error({ error }, 'Error in consumer onProgress callback for complete event')
+        }
+        throw error
       }
     }
 
-    check().catch(reject)
+    check().catch((error) => {
+      options?.onProgress?.({ type: 'ipniAdvertisement.failed', data: { error } })
+      reject(error)
+    })
   })
 }

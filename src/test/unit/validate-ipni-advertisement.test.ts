@@ -31,8 +31,11 @@ describe('validateIPNIAdvertisement', () => {
       expect(mockFetch).toHaveBeenCalledWith(`https://filecoinpin.contact/cid/${testCid}`, {})
 
       // Should emit retryUpdate for attempt 0 and a final complete(true)
-      expect(onProgress).toHaveBeenCalledWith({ type: 'retryUpdate', data: { retryCount: 0 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'complete', data: { result: true, retryCount: 0 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 0 } })
+      expect(onProgress).toHaveBeenCalledWith({
+        type: 'ipniAdvertisement.complete',
+        data: { result: true, retryCount: 0 },
+      })
     })
 
     it('should retry multiple times before succeeding and emit a final complete(true)', async () => {
@@ -51,11 +54,14 @@ describe('validateIPNIAdvertisement', () => {
       expect(mockFetch).toHaveBeenCalledTimes(4)
 
       // Expect retryUpdate with counts 0,1,2,3 and final complete with retryCount 3
-      expect(onProgress).toHaveBeenCalledWith({ type: 'retryUpdate', data: { retryCount: 0 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'retryUpdate', data: { retryCount: 1 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'retryUpdate', data: { retryCount: 2 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'retryUpdate', data: { retryCount: 3 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'complete', data: { result: true, retryCount: 3 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 0 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 1 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 2 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 3 } })
+      expect(onProgress).toHaveBeenCalledWith({
+        type: 'ipniAdvertisement.complete',
+        data: { result: true, retryCount: 3 },
+      })
     })
   })
 
@@ -74,10 +80,13 @@ describe('validateIPNIAdvertisement', () => {
       expect(mockFetch).toHaveBeenCalledTimes(3)
 
       // Expect retryUpdate with counts 0,1,2 and final complete(false) with retryCount 3
-      expect(onProgress).toHaveBeenCalledWith({ type: 'retryUpdate', data: { retryCount: 0 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'retryUpdate', data: { retryCount: 1 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'retryUpdate', data: { retryCount: 2 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'complete', data: { result: false, retryCount: 3 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 0 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 1 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 2 } })
+      expect(onProgress).toHaveBeenCalledWith({
+        type: 'ipniAdvertisement.complete',
+        data: { result: false, retryCount: 3 },
+      })
     })
 
     it('should reject immediately when maxAttempts is 1', async () => {

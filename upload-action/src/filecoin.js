@@ -287,9 +287,9 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
     ipniValidation: {
       enabled: true,
       onProgress: (event) => {
-        if (event.type === 'retryUpdate') {
+        if (event.type === 'ipniAdvertisement.retryUpdate') {
           console.log(`IPNI advertisement validation attempt #${event.data.retryCount + 1}...`)
-        } else if (event.type === 'complete') {
+        } else if (event.type === 'ipniAdvertisement.complete') {
           console.log(event.data.result ? '✓ IPNI advertisement successful' : '✗ IPNI advertisement failed')
         }
       },
