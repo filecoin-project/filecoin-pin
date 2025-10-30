@@ -164,9 +164,6 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
         onProviderSelected: (provider) => {
           spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)
         },
-        onDataSetCreationStarted: (transaction) => {
-          spinner.message(`Creating data set (tx: ${transaction.hash.slice(0, 10)}...)`)
-        },
         onDataSetResolved: (info) => {
           if (info.isExisting) {
             spinner.message(`Using existing data set #${info.dataSetId}`)

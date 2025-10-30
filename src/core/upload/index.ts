@@ -205,11 +205,11 @@ export async function executeUpload(
     onUploadComplete: (pieceCid) => {
       callbacks?.onUploadComplete?.(pieceCid)
     },
-    onPieceAdded: (transaction) => {
-      if (transaction?.hash) {
-        transactionHash = transaction.hash
+    onPieceAdded: (txHash) => {
+      if (txHash) {
+        transactionHash = txHash
       }
-      callbacks?.onPieceAdded?.(transaction)
+      callbacks?.onPieceAdded?.(txHash)
     },
     onPieceConfirmed: (pieceIds) => {
       callbacks?.onPieceConfirmed?.(pieceIds)
