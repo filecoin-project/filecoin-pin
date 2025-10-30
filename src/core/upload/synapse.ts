@@ -87,13 +87,13 @@ export async function uploadToSynapse(
       callbacks?.onUploadComplete?.(pieceCid)
     },
 
-    onPieceAdded: (transaction) => {
-      if (transaction != null) {
+    onPieceAdded: (txHash) => {
+      if (txHash != null) {
         logger.info(
           {
             event: 'synapse.upload.piece_added',
             contextId,
-            txHash: transaction.hash,
+            txHash: txHash,
           },
           'Piece addition transaction submitted'
         )
@@ -106,7 +106,7 @@ export async function uploadToSynapse(
           'Piece added to data set'
         )
       }
-      callbacks?.onPieceAdded?.(transaction)
+      callbacks?.onPieceAdded?.(txHash)
     },
 
     onPieceConfirmed: (pieceIds) => {

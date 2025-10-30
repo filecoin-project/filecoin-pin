@@ -80,14 +80,13 @@ export function getOutputSummary(context, status) {
   const carDownloadUrl = context?.carDownloadUrl || (carPath ? `[download link](${carPath})` : 'download')
   /** @type {PaymentStatus} */
   const paymentStatus = {
-    depositedAmount: '0',
-    currentBalance: '0',
+    filecoinPayBalance: '0',
     storageRunway: 'Unknown',
     depositedThisRun: '0',
     network,
     address: 'Unknown',
     filBalance: 0n,
-    usdfcBalance: 0n,
+    walletUsdfcBalance: '0',
     currentAllowances: {
       rateAllowance: 0n,
       lockupAllowance: 0n,
@@ -95,14 +94,32 @@ export function getOutputSummary(context, status) {
     },
     ...context?.paymentStatus,
   }
+  const ipniValidated = context?.ipniValidated === true
+  let centralizedIpfsGatewayPreview
+  if (!ipfsRootCid) {
+    centralizedIpfsGatewayPreview = 'IPFS Root CID unavailable'
+  } else if (ipniValidated) {
+    centralizedIpfsGatewayPreview = `https://dweb.link/ipfs/${ipfsRootCid}`
+  } else {
+    centralizedIpfsGatewayPreview = 'Waiting for IPNI announcement'
+  }
+
+  let inBrowserIpfsGatewayPreview
+  if (!ipfsRootCid) {
+    inBrowserIpfsGatewayPreview = 'IPFS Root CID unavailable'
+  } else if (ipniValidated) {
+    inBrowserIpfsGatewayPreview = `https://inbrowser.link/ipfs/${ipfsRootCid}`
+  } else {
+    inBrowserIpfsGatewayPreview = 'Waiting for IPNI announcement'
+  }
 
   return [
     '## Filecoin Pin Upload',
     '',
     '**IPFS Artifacts:**',
     `* IPFS Root CID: ${ipfsRootCid}`,
-    `* Centralized IPFS HTTP Gateway Preview: ${ipfsRootCid ? `https://dweb.link/ipfs/${ipfsRootCid}` : 'IPFS Root CID unavailable'}`,
-    `* In-Browser IPFS HTTP Gateway Preview: ${ipfsRootCid ? `https://inbrowser.link/ipfs/${ipfsRootCid}` : 'IPFS Root CID unavailable'}`,
+    `* Centralized IPFS HTTP Gateway Preview: ${centralizedIpfsGatewayPreview}`,
+    `* In-Browser IPFS HTTP Gateway Preview: ${inBrowserIpfsGatewayPreview}`,
     `* Status: ${status}`,
     `* Generated CAR on GitHub: ${carDownloadUrl}`,
     `* CAR file size: ${formatSize(carSize)}`,
@@ -115,7 +132,7 @@ export function getOutputSummary(context, status) {
     `* Piece download direct from provider: ${previewUrl}`,
     '',
     '**Payment:**',
-    `* Current Filecoin Pay balance: ${formatUSDFC(ethers.parseUnits(paymentStatus.currentBalance, 18))} USDFC`,
+    `* Current Filecoin Pay balance: ${formatUSDFC(ethers.parseUnits(paymentStatus.filecoinPayBalance, 18))} USDFC`,
     `* Amount deposited to Filecoin Pay by this workflow: ${formatUSDFC(ethers.parseUnits(paymentStatus.depositedThisRun, 18))} USDFC`,
     `* Data Set Storage runway: ${paymentStatus.storageRunway}`,
     '',

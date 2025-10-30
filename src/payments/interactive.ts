@@ -15,6 +15,7 @@ import {
   checkAllowances,
   checkFILBalance,
   checkUSDFCBalance,
+  DEFAULT_LOCKUP_DAYS,
   depositUSDFC,
   getPaymentStatus,
   setMaxAllowances,
@@ -95,6 +96,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       privateKey,
       rpcURL: rpcUrl,
       withIpni: true, // Always filter for IPNI-enabled providers
+      ...(options.warmStorageAddress && { warmStorageAddress: options.warmStorageAddress }),
     })
     const network = synapse.getNetwork()
     const client = synapse.getClient()
@@ -111,12 +113,12 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     s.start('Checking balances...')
 
     const filStatus = await checkFILBalance(synapse)
-    const usdfcBalance = await checkUSDFCBalance(synapse)
+    const walletUsdfcBalance = await checkUSDFCBalance(synapse)
 
     s.stop(`${pc.green('✓')} Balance check complete`)
 
     // Validate payment requirements
-    const validation = validatePaymentRequirements(filStatus.hasSufficientGas, usdfcBalance, filStatus.isCalibnet)
+    const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
     if (!validation.isValid) {
       log.line(`${pc.red('✗')} ${validation.errorMessage}`)
       if (validation.helpMessage) {
@@ -137,8 +139,8 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       filStatus.balance,
       filStatus.isCalibnet,
       filStatus.hasSufficientGas,
-      usdfcBalance,
-      status.depositedAmount
+      walletUsdfcBalance,
+      status.filecoinPayBalance
     )
 
     // Get storage pricing info once for all subsequent operations
@@ -189,14 +191,14 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     }
 
     // Show current deposit capacity
-    const currentCapacity = calculateDepositCapacity(status.depositedAmount, pricePerTiBPerEpoch)
+    const currentCapacity = calculateDepositCapacity(status.filecoinPayBalance, pricePerTiBPerEpoch)
     log.line(pc.bold('Current Storage Capacity:'))
-    if (status.depositedAmount > 0n) {
+    if (status.filecoinPayBalance > 0n) {
       const capacityStr =
         currentCapacity.gibPerMonth >= 1024
           ? `${(currentCapacity.gibPerMonth / 1024).toFixed(1)} TiB`
           : `${currentCapacity.gibPerMonth.toFixed(1)} GiB`
-      log.indent(`Deposit: ${formatUSDFC(status.depositedAmount)} USDFC`)
+      log.indent(`Deposit: ${formatUSDFC(status.filecoinPayBalance)} USDFC`)
       log.indent(`Capacity: ~${capacityStr} for 1 month`)
     } else {
       log.indent(pc.gray('No deposit yet'))
@@ -208,13 +210,13 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
     // Offer deposit options with contextual message
     const depositMessage =
-      status.depositedAmount === 0n
+      status.filecoinPayBalance === 0n
         ? 'Would you like to deposit USDFC to enable storage?'
         : 'Would you like to deposit additional USDFC?'
 
     const shouldDeposit = await confirm({
       message: depositMessage,
-      initialValue: status.depositedAmount === 0n,
+      initialValue: status.filecoinPayBalance === 0n,
     })
 
     if (isCancel(shouldDeposit)) {
@@ -228,18 +230,19 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       log.indent(`100 GiB capacity: ~${formatUSDFC((pricePerGiBPerMonth * 100n * 11n) / 10n)} USDFC`)
       log.indent(`1 TiB capacity:   ~${formatUSDFC((pricePerTiBPerMonth * 11n) / 10n)} USDFC`)
       log.indent(`10 TiB capacity:  ~${formatUSDFC((pricePerTiBPerMonth * 10n * 11n) / 10n)} USDFC`)
-      log.indent(pc.gray('(deposit covers 1 month + 10-day safety reserve)'))
+      log.indent(pc.gray(`(deposit covers 1 month + ${DEFAULT_LOCKUP_DAYS}-day safety reserve)`))
       log.flush()
 
       const amountStr = await text({
         message: 'How much USDFC would you like to deposit?',
         placeholder: '10.0',
-        initialValue: status.depositedAmount === 0n ? '10.0' : '5.0',
+        initialValue: status.filecoinPayBalance === 0n ? '10.0' : '5.0',
         validate: (value: string) => {
           try {
             const amount = ethers.parseUnits(value, 18)
             if (amount <= 0n) return 'Amount must be greater than 0'
-            if (amount > usdfcBalance) return `Insufficient balance (have ${formatUSDFC(usdfcBalance)} USDFC)`
+            if (amount > walletUsdfcBalance)
+              return `Insufficient balance (have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
             return undefined
           } catch {
             return 'Invalid amount'
@@ -265,14 +268,14 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       actionsTaken = true
 
       // Show new capacity after deposit
-      const newCapacity = calculateDepositCapacity(status.depositedAmount + depositAmount, pricePerTiBPerEpoch)
+      const newCapacity = calculateDepositCapacity(status.filecoinPayBalance + depositAmount, pricePerTiBPerEpoch)
       const newCapacityStr =
         newCapacity.gibPerMonth >= 1024
           ? `${(newCapacity.gibPerMonth / 1024).toFixed(1)} TiB`
           : `${newCapacity.gibPerMonth.toFixed(1)} GiB`
       log.line('')
       log.line(pc.bold('New Storage Capacity:'))
-      log.indent(`Total deposit: ${formatUSDFC(status.depositedAmount + depositAmount)} USDFC`)
+      log.indent(`Total deposit: ${formatUSDFC(status.filecoinPayBalance + depositAmount)} USDFC`)
       log.indent(`Capacity: ~${newCapacityStr} for 1 month`)
       log.flush()
     }
@@ -282,29 +285,29 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     const finalStatus = await getPaymentStatus(synapse)
     s.stop('━━━ Setup Complete ━━━')
 
-    const finalCapacity = calculateDepositCapacity(finalStatus.depositedAmount, pricePerTiBPerEpoch)
+    const finalCapacity = calculateDepositCapacity(finalStatus.filecoinPayBalance, pricePerTiBPerEpoch)
 
     log.line(`Network: ${pc.bold(network)}`)
     log.line('')
 
     log.line(pc.bold('Wallet'))
-    log.indent(`${formatUSDFC(usdfcBalance)} USDFC available`)
+    log.indent(`${formatUSDFC(walletUsdfcBalance)} USDFC available`)
     log.line('')
 
     log.line(pc.bold('Storage Deposit'))
-    log.indent(`${formatUSDFC(finalStatus.depositedAmount)} USDFC deposited`)
+    log.indent(`${formatUSDFC(finalStatus.filecoinPayBalance)} USDFC deposited`)
     if (finalCapacity.gibPerMonth > 0) {
       const capacityStr =
         finalCapacity.gibPerMonth >= 1024
           ? `${(finalCapacity.gibPerMonth / 1024).toFixed(1)} TiB`
           : `${finalCapacity.gibPerMonth.toFixed(1)} GiB`
       log.indent(`Capacity: ~${capacityStr} for 1 month`)
-      log.indent(pc.gray('(includes 10-day safety reserve)'))
+      log.indent(pc.gray(`(includes ${DEFAULT_LOCKUP_DAYS}-day safety reserve)`))
     }
     log.flush()
 
     // Show deposit warning if needed
-    displayDepositWarning(finalStatus.depositedAmount, finalStatus.currentAllowances.lockupUsed)
+    displayDepositWarning(finalStatus.filecoinPayBalance, finalStatus.currentAllowances.lockupUsed)
 
     // Show appropriate outro message based on whether actions were taken
     if (actionsTaken) {

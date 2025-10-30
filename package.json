@@ -1,6 +1,6 @@
 {
   "name": "filecoin-pin",
-  "version": "0.9.2",
+  "version": "0.10.1",
   "description": "Bridge IPFS content to Filecoin Onchain Cloud using familiar tools",
   "type": "module",
   "main": "dist/index.js",
@@ -73,12 +73,14 @@
     "test:watch": "vitest",
     "lint": "tsc && biome check --no-errors-on-unmatched --files-ignore-unknown=true .",
     "lint:fix": "biome check --no-errors-on-unmatched --files-ignore-unknown=true --fix .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "npm run typecheck:root && npm run typecheck:upload-action",
+    "typecheck:root": "tsc --noEmit",
+    "typecheck:upload-action": "npm run typecheck --prefix upload-action",
     "prepublishOnly": "npm run build"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/FilOzone/filecoin-pin.git"
+    "url": "git+https://github.com/filecoin-project/filecoin-pin.git"
   },
   "keywords": [
     "ipfs",
@@ -90,12 +92,12 @@
   "author": "Rod Vagg <rod@vagg.org>",
   "license": "Apache-2.0 OR MIT",
   "bugs": {
-    "url": "https://github.com/FilOzone/filecoin-pin/issues"
+    "url": "https://github.com/filecoin-project/filecoin-pin/issues"
   },
-  "homepage": "https://github.com/FilOzone/filecoin-pin#readme",
+  "homepage": "https://github.com/filecoin-project/filecoin-pin#readme",
   "dependencies": {
     "@clack/prompts": "^0.11.0",
-    "@filoz/synapse-sdk": "file:../../filozone/synapse-sdk/packages/synapse-sdk",
+    "@filoz/synapse-sdk": "^0.35.1",
     "@helia/unixfs": "^6.0.1",
     "@ipld/car": "^5.4.2",
     "commander": "^14.0.1",

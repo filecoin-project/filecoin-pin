@@ -15,8 +15,9 @@ import {
   checkFILBalance,
   checkUSDFCBalance,
   computeAdjustmentForExactDays,
-  computeAdjustmentForExactDaysWithFile,
+  computeAdjustmentForExactDaysWithPiece,
   computeAdjustmentForExactDeposit,
+  DEFAULT_LOCKUP_DAYS,
   depositUSDFC,
   getPaymentStatus,
   validatePaymentRequirements,
@@ -31,8 +32,8 @@ import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli
 import { isTTY, log } from '../utils/cli-logger.js'
 import type { AutoFundOptions, FundingAdjustmentResult, FundOptions } from './types.js'
 
-// Helper: confirm/warn or bail when target implies < 10-day runway
-async function ensureBelowTenDaysAllowed(opts: {
+// Helper: confirm/warn or bail when target implies < lockup-days runway
+async function ensureBelowThirtyDaysAllowed(opts: {
   spinner: Spinner
   warningLine1: string
   warningLine2: string
@@ -43,7 +44,7 @@ async function ensureBelowTenDaysAllowed(opts: {
     console.error(pc.red(warningLine1))
     console.error(pc.red(warningLine2))
     cancel('Fund adjustment aborted')
-    throw new Error('Unsafe target below 10-day baseline')
+    throw new Error(`Unsafe target below ${DEFAULT_LOCKUP_DAYS}-day baseline`)
   }
 
   log.line(pc.yellow('⚠ Warning'))
@@ -52,7 +53,7 @@ async function ensureBelowTenDaysAllowed(opts: {
   log.flush()
 
   const proceed = await confirm({
-    message: 'Proceed with reducing runway below 10 days?',
+    message: 'Proceed with reducing runway below 30 days?',
     initialValue: false,
   })
   if (!proceed) {
@@ -124,7 +125,7 @@ async function printSummary(synapse: Synapse, title = 'Updated'): Promise<void> 
   const runway = calculateStorageRunway(updated)
   const runwayDisplay = formatRunwaySummary(runway)
   log.section(title, [
-    `Deposited: ${formatUSDFC(updated.depositedAmount)} USDFC`,
+    `Deposited: ${formatUSDFC(updated.filecoinPayBalance)} USDFC`,
     runway.state === 'active' ? `Runway: ~${runwayDisplay}` : `Runway: ${runwayDisplay}`,
   ])
 }
@@ -142,9 +143,9 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
 
   spinner?.message('Checking wallet readiness...')
 
-  const [filStatus, usdfcBalance] = await Promise.all([checkFILBalance(synapse), checkUSDFCBalance(synapse)])
+  const [filStatus, walletUsdfcBalance] = await Promise.all([checkFILBalance(synapse), checkUSDFCBalance(synapse)])
 
-  const validation = validatePaymentRequirements(filStatus.hasSufficientGas, usdfcBalance, filStatus.isCalibnet)
+  const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
   if (!validation.isValid) {
     const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
     throw new Error(`${validation.errorMessage}${help}`)
@@ -162,9 +163,9 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
   const [status, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
   const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
 
-  // Calculate funding needed to maintain MIN_RUNWAY_DAYS after uploading this file
-  // This accounts for both the file's lockup AND its impact on ongoing costs
-  const adj = computeAdjustmentForExactDaysWithFile(status, MIN_RUNWAY_DAYS, fileSize, pricePerTiBPerEpoch)
+  // Calculate funding needed to maintain MIN_RUNWAY_DAYS after uploading this piece
+  // This accounts for both the piece's lockup AND its impact on ongoing costs
+  const adj = computeAdjustmentForExactDaysWithPiece(status, MIN_RUNWAY_DAYS, fileSize, pricePerTiBPerEpoch)
   const delta = adj.delta
 
   // Auto-fund only deposits, never withdraws
@@ -172,7 +173,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     spinner?.message('No additional funding required')
     // Funding already sufficient
     const updated = await getPaymentStatus(synapse)
-    const newAvailable = updated.depositedAmount - (updated.currentAllowances.lockupUsed ?? 0n)
+    const newAvailable = updated.filecoinPayBalance - (updated.currentAllowances.lockupUsed ?? 0n)
     const newPerDay = (updated.currentAllowances.rateUsed ?? 0n) * TIME_CONSTANTS.EPOCHS_PER_DAY
     const newRunway = newPerDay > 0n ? Number(newAvailable / newPerDay) : 0
     const newRunwayHours = newPerDay > 0n ? Number(((newAvailable % newPerDay) * 24n) / newPerDay) : 0
@@ -180,19 +181,19 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     return {
       adjusted: false,
       delta: 0n,
-      newDepositedAmount: updated.depositedAmount,
+      newDepositedAmount: updated.filecoinPayBalance,
       newRunwayDays: newRunway,
       newRunwayHours: newRunwayHours,
     }
   }
 
-  // Perform deposit
-  if (delta > usdfcBalance) {
+  if (delta > walletUsdfcBalance) {
     throw new Error(
-      `Insufficient USDFC in wallet (need ${formatUSDFC(delta)} USDFC, have ${formatUSDFC(usdfcBalance)} USDFC)`
+      `Insufficient USDFC in wallet (need ${formatUSDFC(delta)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
     )
   }
 
+  // Perform deposit
   const depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to ensure ${MIN_RUNWAY_DAYS} day(s) runway...`
   spinner?.message(depositMsg)
   const depositResult = await depositUSDFC(synapse, delta)
@@ -202,7 +203,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
 
   // Get updated status
   const updated = await getPaymentStatus(synapse)
-  const newAvailable = updated.depositedAmount - (updated.currentAllowances.lockupUsed ?? 0n)
+  const newAvailable = updated.filecoinPayBalance - (updated.currentAllowances.lockupUsed ?? 0n)
   const newPerDay = (updated.currentAllowances.rateUsed ?? 0n) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const newRunway = newPerDay > 0n ? Number(newAvailable / newPerDay) : 0
   const newRunwayHours = newPerDay > 0n ? Number(((newAvailable % newPerDay) * 24n) / newPerDay) : 0
@@ -212,7 +213,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     delta,
     approvalTx,
     transactionHash,
-    newDepositedAmount: updated.depositedAmount,
+    newDepositedAmount: updated.filecoinPayBalance,
     newRunwayDays: newRunway,
     newRunwayHours: newRunwayHours,
   }
@@ -347,14 +348,14 @@ export async function runFund(options: FundOptions): Promise<void> {
         }
         delta = 0n
       }
-    } else if (runwayCheckDays != null && runwayCheckDays < 10) {
+    } else if (runwayCheckDays != null && runwayCheckDays < Number(TIME_CONSTANTS.DEFAULT_LOCKUP_DAYS)) {
       const line1 = hasDays
-        ? 'Requested runway below 10-day safety baseline.'
-        : 'Target deposit implies less than 10 days of runway at current spend.'
+        ? 'Requested runway below 30-day safety baseline.'
+        : 'Target deposit implies less than 30 days of runway at current spend.'
       const line2 = hasDays
-        ? 'WarmStorage reserves 10 days of costs; a shorter runway risks termination.'
+        ? 'WarmStorage reserves 30 days of costs; a shorter runway risks termination.'
         : 'Increase target or accept risk: shorter runway may cause termination.'
-      await ensureBelowTenDaysAllowed({
+      await ensureBelowThirtyDaysAllowed({
         spinner,
         warningLine1: line1,
         warningLine2: line2,

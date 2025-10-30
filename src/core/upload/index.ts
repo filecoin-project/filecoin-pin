@@ -11,6 +11,10 @@ import {
   validatePaymentRequirements,
 } from '../payments/index.js'
 import { isSessionKeyMode, type SynapseService } from '../synapse/index.js'
+import {
+  type ValidateIPNIAdvertisementOptions,
+  validateIPNIAdvertisement,
+} from '../utils/validate-ipni-advertisement.js'
 import { type SynapseUploadResult, uploadToSynapse } from './synapse.js'
 
 export type { SynapseUploadOptions, SynapseUploadResult } from './synapse.js'
@@ -55,7 +59,7 @@ export interface UploadReadinessResult {
   /** FIL/gas balance status. */
   filStatus: Awaited<ReturnType<typeof checkFILBalance>>
   /** Wallet USDFC balance. */
-  usdfcBalance: Awaited<ReturnType<typeof checkUSDFCBalance>>
+  walletUsdfcBalance: Awaited<ReturnType<typeof checkUSDFCBalance>>
   /** Allowance update information. */
   allowances: {
     needsUpdate: boolean
@@ -96,15 +100,15 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
   onProgress?.({ type: 'checking-balances' })
 
   const filStatus = await checkFILBalance(synapse)
-  const usdfcBalance = await checkUSDFCBalance(synapse)
+  const walletUsdfcBalance = await checkUSDFCBalance(synapse)
 
-  const validation = validatePaymentRequirements(filStatus.hasSufficientGas, usdfcBalance, filStatus.isCalibnet)
+  const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
   if (!validation.isValid) {
     return {
       status: 'blocked',
       validation,
       filStatus,
-      usdfcBalance,
+      walletUsdfcBalance,
       allowances: {
         needsUpdate: false,
         updated: false,
@@ -138,7 +142,7 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
       status: 'blocked',
       validation,
       filStatus,
-      usdfcBalance,
+      walletUsdfcBalance,
       allowances: {
         needsUpdate: allowanceStatus.needsUpdate,
         updated: allowancesUpdated,
@@ -153,7 +157,7 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
     status: 'ready',
     validation,
     filStatus,
-    usdfcBalance,
+    walletUsdfcBalance,
     allowances: {
       needsUpdate: allowanceStatus.needsUpdate,
       updated: allowancesUpdated,
@@ -179,6 +183,17 @@ export interface UploadExecutionOptions {
   callbacks?: UploadCallbacks
   /** Optional metadata to associate with the upload. */
   metadata?: Record<string, string>
+  /**
+   * Optional IPNI validation behaviour. When enabled (default), the upload flow will wait for the IPFS Root CID to be announced to IPNI.
+   */
+  ipniValidation?: {
+    /**
+     * Enable the IPNI validation wait.
+     *
+     * @default: true
+     */
+    enabled?: boolean
+  } & ValidateIPNIAdvertisementOptions
 }
 
 export interface UploadExecutionResult extends SynapseUploadResult {
@@ -186,6 +201,12 @@ export interface UploadExecutionResult extends SynapseUploadResult {
   network: string
   /** Transaction hash from the piece-addition step (if available). */
   transactionHash?: string | undefined
+  /**
+   * True if the IPFS Root CID was observed on filecoinpin.contact (IPNI).
+   *
+   * You should block any displaying, or attempting to access, of IPFS download URLs unless the IPNI validation is successful.
+   */
+  ipniValidated: boolean
 }
 
 /**
@@ -200,16 +221,30 @@ export async function executeUpload(
 ): Promise<UploadExecutionResult> {
   const { logger, contextId, callbacks } = options
   let transactionHash: string | undefined
+  let ipniValidationPromise: Promise<boolean> | undefined
 
   const mergedCallbacks: UploadCallbacks = {
     onUploadComplete: (pieceCid) => {
       callbacks?.onUploadComplete?.(pieceCid)
-    },
-    onPieceAdded: (transaction) => {
-      if (transaction?.hash) {
-        transactionHash = transaction.hash
+      // Begin IPNI validation as soon as the upload completes
+      if (options.ipniValidation?.enabled !== false && ipniValidationPromise == null) {
+        try {
+          const { enabled: _enabled, ...rest } = options.ipniValidation ?? {}
+          ipniValidationPromise = validateIPNIAdvertisement(rootCid, {
+            ...rest,
+            logger,
+          })
+        } catch (error) {
+          logger.error({ error }, 'Could not begin IPNI advertisement validation')
+          ipniValidationPromise = Promise.resolve(false)
+        }
       }
-      callbacks?.onPieceAdded?.(transaction)
+    },
+    onPieceAdded: (txHash) => {
+      if (txHash) {
+        transactionHash = txHash
+      }
+      callbacks?.onPieceAdded?.(txHash)
     },
     onPieceConfirmed: (pieceIds) => {
       callbacks?.onPieceConfirmed?.(pieceIds)
@@ -228,10 +263,22 @@ export async function executeUpload(
 
   const uploadResult = await uploadToSynapse(synapseService, carData, rootCid, logger, uploadOptions)
 
+  // Optionally validate IPNI advertisement of the root CID before returning
+  let ipniValidated = false
+  if (ipniValidationPromise != null) {
+    try {
+      ipniValidated = await ipniValidationPromise
+    } catch (error) {
+      logger.error({ error }, 'Could not validate IPNI advertisement')
+      ipniValidated = false
+    }
+  }
+
   const result: UploadExecutionResult = {
     ...uploadResult,
     network: synapseService.synapse.getNetwork(),
     transactionHash,
+    ipniValidated,
   }
 
   return result

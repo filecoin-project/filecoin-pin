@@ -19,6 +19,7 @@ export interface UploadResult {
   }
   previewUrl: string
   network: string
+  ipniValidated: boolean
 }
 
 export interface BuildResult {
@@ -52,9 +53,9 @@ export interface CombinedContext extends Partial<UploadResult>, Partial<BuildRes
   dryRun?: boolean
 }
 
-export interface PaymentStatus extends Omit<FilecoinPinPaymentStatus, 'depositedAmount'> {
-  depositedAmount: string
-  currentBalance: string
+export interface PaymentStatus extends Omit<FilecoinPinPaymentStatus, 'walletUsdfcBalance' | 'filecoinPayBalance'> {
+  filecoinPayBalance: string
+  walletUsdfcBalance: string
   storageRunway: string
   depositedThisRun: string
 }

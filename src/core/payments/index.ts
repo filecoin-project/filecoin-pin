@@ -22,7 +22,7 @@ import { isSessionKeyMode } from '../synapse/index.js'
 // Constants
 export const USDFC_DECIMALS = 18
 const MIN_FIL_FOR_GAS = ethers.parseEther('0.1') // Minimum FIL padding for gas
-export const DEFAULT_LOCKUP_DAYS = 10 // WarmStorage requires 10 days lockup
+export const DEFAULT_LOCKUP_DAYS = 30 // WarmStorage requires 30 days lockup
 
 // Maximum allowances for trusted WarmStorage service
 // Using MaxUint256 which MetaMask displays as "Unlimited"
@@ -78,8 +78,10 @@ export interface PaymentStatus {
   network: string
   address: string
   filBalance: bigint
-  usdfcBalance: bigint
-  depositedAmount: bigint
+  /** USDFC tokens sitting in the owner wallet (not yet deposited) */
+  walletUsdfcBalance: bigint
+  /** USDFC balance currently deposited into Filecoin Pay (WarmStorage contract) */
+  filecoinPayBalance: bigint
   currentAllowances: ServiceApprovalStatus
 }
 
@@ -162,18 +164,18 @@ export async function checkFILBalance(synapse: Synapse): Promise<{
  * Example usage:
  * ```typescript
  * const synapse = await Synapse.create({ privateKey, rpcURL })
- * const usdfcBalance = await checkUSDFCBalance(synapse)
+ * const walletUsdfcBalance = await checkUSDFCBalance(synapse)
  *
- * if (usdfcBalance === 0n) {
+ * if (walletUsdfcBalance === 0n) {
  *   console.log('No USDFC tokens found')
  * } else {
- *   const formatted = ethers.formatUnits(usdfcBalance, USDFC_DECIMALS)
+ *   const formatted = ethers.formatUnits(walletUsdfcBalance, USDFC_DECIMALS)
  *   console.log(`USDFC Balance: ${formatted}`)
  * }
  * ```
  *
  * @param synapse - Initialized Synapse instance
- * @returns USDFC balance in wei (0 if account doesn't exist or has no balance)
+ * @returns bigint USDFC balance in wallet (0 if account doesn't exist or has no balance)
  */
 export async function checkUSDFCBalance(synapse: Synapse): Promise<bigint> {
   try {
@@ -197,8 +199,8 @@ export async function checkUSDFCBalance(synapse: Synapse): Promise<bigint> {
  * @returns Deposited USDFC balance in its smallest unit
  */
 export async function getDepositedBalance(synapse: Synapse): Promise<bigint> {
-  const depositedAmount = await synapse.payments.balance(TOKENS.USDFC)
-  return depositedAmount
+  const filecoinPayBalance = await synapse.payments.balance(TOKENS.USDFC)
+  return filecoinPayBalance
 }
 
 /**
@@ -209,8 +211,8 @@ export async function getDepositedBalance(synapse: Synapse): Promise<bigint> {
  * const status = await getPaymentStatus(synapse)
  * console.log(`Address: ${status.address}`)
  * console.log(`FIL Balance: ${ethers.formatEther(status.filBalance)}`)
- * console.log(`USDFC Balance: ${ethers.formatUnits(status.usdfcBalance, 18)}`)
- * console.log(`Deposited: ${ethers.formatUnits(status.depositedAmount, 18)}`)
+ * console.log(`USDFC Balance: ${ethers.formatUnits(status.walletUsdfcBalance, 18)}`)
+ * console.log(`Deposited: ${ethers.formatUnits(status.filecoinPayBalance, 18)}`)
  * ```
  *
  * @param synapse - Initialized Synapse instance
@@ -222,7 +224,7 @@ export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus>
   const warmStorageAddress = synapse.getWarmStorageAddress()
 
   // Run all async operations in parallel for efficiency
-  const [address, filStatus, usdfcBalance, depositedAmount, currentAllowances] = await Promise.all([
+  const [address, filStatus, walletUsdfcBalance, filecoinPayBalance, currentAllowances] = await Promise.all([
     client.getAddress(),
     checkFILBalance(synapse),
     checkUSDFCBalance(synapse),
@@ -234,8 +236,8 @@ export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus>
     network,
     address,
     filBalance: filStatus.balance,
-    usdfcBalance,
-    depositedAmount,
+    walletUsdfcBalance,
+    filecoinPayBalance,
     currentAllowances,
   }
 }
@@ -248,7 +250,7 @@ export interface PaymentValidationResult {
 
 export function validatePaymentRequirements(
   hasSufficientGas: boolean,
-  usdfcBalance: bigint,
+  walletUsdfcBalance: bigint,
   isCalibnet: boolean
 ): PaymentValidationResult {
   if (!hasSufficientGas) {
@@ -262,7 +264,7 @@ export function validatePaymentRequirements(
     return result
   }
 
-  if (usdfcBalance === 0n) {
+  if (walletUsdfcBalance === 0n) {
     return {
       isValid: false,
       errorMessage: 'No USDFC tokens found',
@@ -379,7 +381,7 @@ export async function setServiceApprovals(
 ): Promise<string> {
   const warmStorageAddress = synapse.getWarmStorageAddress()
 
-  // Max lockup period is always 10 days worth of epochs for WarmStorage
+  // Max lockup period is always 30 days worth of epochs for WarmStorage
   const maxLockupPeriod = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
 
   // Set the service approval
@@ -413,9 +415,11 @@ export async function checkAllowances(synapse: Synapse): Promise<{
   // Get current allowances
   const currentAllowances = await synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC)
 
-  // Check if we need to update (not at max)
+  // Check if we need to update (not at max or max lockup period is not enough)
   const needsUpdate =
-    currentAllowances.rateAllowance < MAX_RATE_ALLOWANCE || currentAllowances.lockupAllowance < MAX_LOCKUP_ALLOWANCE
+    currentAllowances.rateAllowance < MAX_RATE_ALLOWANCE ||
+    currentAllowances.lockupAllowance < MAX_LOCKUP_ALLOWANCE ||
+    currentAllowances.maxLockupPeriod < BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
 
   return {
     needsUpdate,
@@ -535,9 +539,9 @@ export function calculateStorageAllowances(storageTiB: number, pricePerTiBPerEpo
   // Calculate rate allowance (per epoch payment)
   const rateAllowance = (pricePerTiBPerEpoch * BigInt(scaledStorage)) / BigInt(scale)
 
-  // Calculate lockup allowance (10 days worth)
-  const epochsIn10Days = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
-  const lockupAllowance = rateAllowance * epochsIn10Days
+  // Calculate lockup allowance
+  const epochsInLockupDays = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
+  const lockupAllowance = rateAllowance * epochsInLockupDays
 
   return {
     rateAllowance,
@@ -578,7 +582,7 @@ export function calculateActualCapacity(rateAllowance: bigint, pricePerTiBPerEpo
  * Calculate storage capacity from USDFC amount
  *
  * Determines how much storage can be purchased with a given USDFC amount,
- * accounting for the 10-day lockup period.
+ * accounting for the 30-day lockup period.
  *
  * @param usdfcAmount - Amount of USDFC in its smallest unit
  * @param pricePerTiBPerEpoch - Current pricing from storage service
@@ -587,9 +591,9 @@ export function calculateActualCapacity(rateAllowance: bigint, pricePerTiBPerEpo
 export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpoch: bigint): number {
   if (pricePerTiBPerEpoch === 0n) return 0
 
-  // Calculate how much this covers for 10 days
-  const epochsIn10Days = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
-  const ratePerEpoch = usdfcAmount / epochsIn10Days
+  // Calculate how much this covers for lockup
+  const epochsInLockupDays = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
+  const ratePerEpoch = usdfcAmount / epochsInLockupDays
 
   return calculateActualCapacity(ratePerEpoch, pricePerTiBPerEpoch)
 }
@@ -597,7 +601,7 @@ export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpo
 /**
  * Compute the additional deposit required to fund current usage for a duration.
  *
- * The WarmStorage service maintains ~10 days of lockup (lockupUsed) and draws future
+ * The WarmStorage service maintains ~30 days of lockup (lockupUsed) and draws future
  * lockups from the available deposit (deposited - lockupUsed). To keep the current
  * rails alive for N days, ensure available >= N days of spend at the current rateUsed.
  *
@@ -621,7 +625,7 @@ export function computeTopUpForDuration(
   if (days <= 0) {
     return {
       topUp: 0n,
-      available: status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n,
+      available: status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n,
       rateUsed,
       perDay: rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY,
       lockupUsed,
@@ -631,7 +635,7 @@ export function computeTopUpForDuration(
   if (rateUsed === 0n) {
     return {
       topUp: 0n,
-      available: status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n,
+      available: status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n,
       rateUsed,
       perDay: 0n,
       lockupUsed,
@@ -640,7 +644,7 @@ export function computeTopUpForDuration(
 
   const epochsNeeded = BigInt(Math.ceil(days)) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const spendNeeded = rateUsed * epochsNeeded
-  const available = status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n
+  const available = status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n
 
   const topUp = spendNeeded > available ? spendNeeded - available : 0n
 
@@ -671,7 +675,7 @@ export function computeAdjustmentForExactDays(
 } {
   const rateUsed = status.currentAllowances.rateUsed ?? 0n
   const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
-  const available = status.depositedAmount > lockupUsed ? status.depositedAmount - lockupUsed : 0n
+  const available = status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n
   const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
 
   if (days < 0) {
@@ -721,27 +725,27 @@ export function computeAdjustmentForExactDeposit(
   if (targetDeposit < 0n) throw new Error('target deposit cannot be negative')
   const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
   const clampedTarget = targetDeposit < lockupUsed ? lockupUsed : targetDeposit
-  const delta = clampedTarget - status.depositedAmount
+  const delta = clampedTarget - status.filecoinPayBalance
   return { delta, clampedTarget, lockupUsed }
 }
 
 /**
- * Compute adjustment needed to maintain target runway AFTER adding a new file
+ * Compute adjustment needed to maintain target runway AFTER adding a new piece
  *
  * This function accounts for both:
- * - The new file's lockup requirement
- * - The new file's ongoing per-epoch cost (rate)
+ * - The new piece's lockup requirement
+ * - The new piece's ongoing per-epoch cost (rate)
  *
  * @param status - Current payment status
  * @param days - Target runway in days
- * @param carSizeBytes - Size of the CAR file being uploaded in bytes
+ * @param pieceSizeBytes - Size of the piece (CAR, File, etc.) file being uploaded in bytes
  * @param pricePerTiBPerEpoch - Current pricing from storage service
  * @returns Adjustment details including total delta needed
  */
-export function computeAdjustmentForExactDaysWithFile(
+export function computeAdjustmentForExactDaysWithPiece(
   status: PaymentStatus,
   days: number,
-  carSizeBytes: number,
+  pieceSizeBytes: number,
   pricePerTiBPerEpoch: bigint
 ): {
   delta: bigint // >0 deposit, <0 withdraw, 0 none
@@ -754,11 +758,11 @@ export function computeAdjustmentForExactDaysWithFile(
   const currentLockupUsed = status.currentAllowances.lockupUsed ?? 0n
 
   // Calculate required allowances for the new file
-  const newFileAllowances = calculateRequiredAllowances(carSizeBytes, pricePerTiBPerEpoch)
+  const newPieceAllowances = calculateRequiredAllowances(pieceSizeBytes, pricePerTiBPerEpoch)
 
-  // Calculate new totals after adding the file
-  const newRateUsed = currentRateUsed + newFileAllowances.rateAllowance
-  const newLockupUsed = currentLockupUsed + newFileAllowances.lockupAllowance
+  // Calculate new totals after adding the piece
+  const newRateUsed = currentRateUsed + newPieceAllowances.rateAllowance
+  const newLockupUsed = currentLockupUsed + newPieceAllowances.lockupAllowance
 
   // Calculate deposit needed for target runway with new rate
   const perDay = newRateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
@@ -770,11 +774,11 @@ export function computeAdjustmentForExactDaysWithFile(
   // If no ongoing spend (both current and new), just need the lockup
   if (newRateUsed === 0n) {
     const targetDeposit = newLockupUsed
-    const delta = targetDeposit - status.depositedAmount
+    const delta = targetDeposit - status.filecoinPayBalance
     return {
       delta,
       targetDeposit,
-      currentDeposit: status.depositedAmount,
+      currentDeposit: status.filecoinPayBalance,
       newLockupUsed,
       newRateUsed,
     }
@@ -788,12 +792,12 @@ export function computeAdjustmentForExactDaysWithFile(
   const targetAvailable = BigInt(Math.floor(days)) * perDay + safety
   const targetDeposit = withBuffer(newLockupUsed) + targetAvailable
 
-  const delta = targetDeposit - status.depositedAmount
+  const delta = targetDeposit - status.filecoinPayBalance
 
   return {
     delta,
     targetDeposit,
-    currentDeposit: status.depositedAmount,
+    currentDeposit: status.filecoinPayBalance,
     newLockupUsed,
     newRateUsed,
   }
@@ -806,7 +810,7 @@ export function computeAdjustmentForExactDaysWithFile(
  * treating WarmStorage as fully trusted with max allowances, i.e. not
  * accounting for allowance limits. If usage limits need to be accounted for
  * then the capacity can be capped by either deposit or allowances.
- * This function accounts for the 10-day lockup requirement.
+ * This function accounts for the 30-day lockup requirement.
  *
  * @param depositAmount - Amount deposited in USDFC
  * @param pricePerTiBPerEpoch - Current pricing from storage service
@@ -835,14 +839,14 @@ export function calculateDepositCapacity(
   }
 
   // With infinite allowances, deposit is the only limiting factor
-  // Deposit needs to cover: lockup (10 days) + at least some buffer
-  const epochsIn10Days = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
+  // Deposit needs to cover: lockup (30 days) + at least some buffer
+  const epochsInLockupDays = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const epochsPerMonth = TIME_CONSTANTS.EPOCHS_PER_MONTH
 
   // Maximum storage we can support with this deposit
   // Reserve 10% for buffer beyond the lockup
   // Calculate max rate per epoch we can afford with deposit
-  const maxRatePerEpoch = (depositAmount * BUFFER_DENOMINATOR) / (epochsIn10Days * BUFFER_NUMERATOR)
+  const maxRatePerEpoch = (depositAmount * BUFFER_DENOMINATOR) / (epochsInLockupDays * BUFFER_NUMERATOR)
 
   // Convert to storage capacity
   const tibPerMonth = calculateActualCapacity(maxRatePerEpoch, pricePerTiBPerEpoch)
@@ -850,7 +854,7 @@ export function calculateDepositCapacity(
 
   // Calculate the actual costs for this capacity
   const monthlyPayment = maxRatePerEpoch * epochsPerMonth
-  const requiredLockup = maxRatePerEpoch * epochsIn10Days
+  const requiredLockup = maxRatePerEpoch * epochsInLockupDays
   const totalRequired = withBuffer(requiredLockup)
 
   return {
@@ -864,21 +868,21 @@ export function calculateDepositCapacity(
 }
 
 /**
- * Calculate required allowances from CAR file size
+ * Calculate required allowances from piece size
  *
- * Simple wrapper that converts file size to storage allowances.
+ * Simple wrapper that converts piece size to storage allowances.
  *
- * @param carSizeBytes - Size of the CAR file in bytes
+ * @param pieceSizeBytes - Size of the piece (CAR, File, etc.) file in bytes
  * @param pricePerTiBPerEpoch - Current pricing from storage service
- * @returns Required allowances for the file
+ * @returns Required allowances for the piece
  */
-export function calculateRequiredAllowances(carSizeBytes: number, pricePerTiBPerEpoch: bigint): StorageAllowances {
-  const storageTiB = carSizeBytes / Number(SIZE_CONSTANTS.TiB)
+export function calculateRequiredAllowances(pieceSizeBytes: number, pricePerTiBPerEpoch: bigint): StorageAllowances {
+  const storageTiB = pieceSizeBytes / Number(SIZE_CONSTANTS.TiB)
   return calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
 }
 
 export function calculateStorageRunway(
-  status?: Pick<PaymentStatus, 'depositedAmount' | 'currentAllowances'> | null
+  status?: Pick<PaymentStatus, 'filecoinPayBalance' | 'currentAllowances'> | null
 ): StorageRunwaySummary {
   if (!status || !status.currentAllowances) {
     return {
@@ -894,8 +898,8 @@ export function calculateStorageRunway(
 
   const rateUsed = status.currentAllowances.rateUsed ?? 0n
   const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
-  const depositedAmount = status.depositedAmount ?? 0n
-  const available = depositedAmount > lockupUsed ? depositedAmount - lockupUsed : 0n
+  const filecoinPayBalance = status.filecoinPayBalance ?? 0n
+  const available = filecoinPayBalance > lockupUsed ? filecoinPayBalance - lockupUsed : 0n
 
   if (rateUsed === 0n) {
     return {
@@ -952,9 +956,9 @@ export interface PaymentCapacityCheck {
 }
 
 /**
- * Validate payment capacity for a specific CAR file
+ * Validate payment capacity for a specific piece size
  *
- * This function checks if the deposit is sufficient for the file upload. It
+ * This function checks if the deposit is sufficient for the piece upload. It
  * does not account for allowances since WarmStorage is assumed to be given
  * full trust with max allowances.
  *
@@ -974,10 +978,10 @@ export interface PaymentCapacityCheck {
  * ```
  *
  * @param synapse - Initialized Synapse instance
- * @param carSizeBytes - Size of the CAR file in bytes
+ * @param pieceSizeBytes - Size of the piece (CAR, File, etc.) file in bytes
  * @returns Capacity check result
  */
-export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: number): Promise<PaymentCapacityCheck> {
+export async function validatePaymentCapacity(synapse: Synapse, pieceSizeBytes: number): Promise<PaymentCapacityCheck> {
   // Ensure allowances are at max (automatically skips if in session key mode)
   await checkAndSetAllowances(synapse)
 
@@ -985,10 +989,10 @@ export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: nu
   const [status, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
 
   const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
-  const storageTiB = carSizeBytes / Number(SIZE_CONSTANTS.TiB)
+  const storageTiB = pieceSizeBytes / Number(SIZE_CONSTANTS.TiB)
 
   // Calculate requirements
-  const required = calculateRequiredAllowances(carSizeBytes, pricePerTiBPerEpoch)
+  const required = calculateRequiredAllowances(pieceSizeBytes, pricePerTiBPerEpoch)
   const totalDepositNeeded = withBuffer(required.lockupAllowance)
 
   const result: PaymentCapacityCheck = {
@@ -1000,17 +1004,17 @@ export async function validatePaymentCapacity(synapse: Synapse, carSizeBytes: nu
   }
 
   // Only check deposit
-  if (status.depositedAmount < totalDepositNeeded) {
+  if (status.filecoinPayBalance < totalDepositNeeded) {
     result.canUpload = false
-    result.issues.insufficientDeposit = totalDepositNeeded - status.depositedAmount
-    const depositNeeded = ethers.formatUnits(totalDepositNeeded - status.depositedAmount, 18)
+    result.issues.insufficientDeposit = totalDepositNeeded - status.filecoinPayBalance
+    const depositNeeded = ethers.formatUnits(totalDepositNeeded - status.filecoinPayBalance, 18)
     result.suggestions.push(`Deposit at least ${depositNeeded} USDFC`)
   }
 
   // Add warning if approaching deposit limit
   const totalLockupAfter = status.currentAllowances.lockupUsed + required.lockupAllowance
-  if (totalLockupAfter > withoutBuffer(status.depositedAmount) && result.canUpload) {
-    const additionalDeposit = ethers.formatUnits(withBuffer(totalLockupAfter) - status.depositedAmount, 18)
+  if (totalLockupAfter > withoutBuffer(status.filecoinPayBalance) && result.canUpload) {
+    const additionalDeposit = ethers.formatUnits(withBuffer(totalLockupAfter) - status.filecoinPayBalance, 18)
     result.suggestions.push(`Consider depositing ${additionalDeposit} more USDFC for safety margin`)
   }
 

@@ -71,7 +71,7 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
     const status = await getPaymentStatus(synapse)
     log.line('')
     log.line(pc.bold('Updated Balance'))
-    log.indent(`Deposited: ${formatUSDFC(status.depositedAmount)} USDFC`)
+    log.indent(`Deposited: ${formatUSDFC(status.filecoinPayBalance)} USDFC`)
     log.flush()
 
     outro('Withdraw completed')
