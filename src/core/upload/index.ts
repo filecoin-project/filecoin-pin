@@ -228,7 +228,7 @@ export async function executeUpload(
   const onProgress: ProgressEventHandler<UploadProgressEvents | ValidateIPNIProgressEvents> = (event) => {
     switch (event.type) {
       case 'onPieceAdded': {
-        // Begin IPNI validation as soon as the piece is added to the data set
+        // Begin IPNI validation as soon as the piece is added and parked in the data set
         if (options.ipniValidation?.enabled !== false && ipniValidationPromise == null) {
           try {
             const { enabled: _enabled, ...rest } = options.ipniValidation ?? {}
