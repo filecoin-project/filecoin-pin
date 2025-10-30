@@ -106,7 +106,7 @@ export async function validateIPNIAdvertisement(
         await new Promise((resolve) => setTimeout(resolve, delayMs))
         await check()
       } else {
-        const msg = `IPFS root CID "${ipfsRootCid.toString()}" not announced to IPNI after ${maxAttempts} attempts`
+        const msg = `IPFS root CID "${ipfsRootCid.toString()}" not announced to IPNI after ${maxAttempts} attempt${maxAttempts === 1 ? '' : 's'}`
         const error = new Error(msg)
         options?.logger?.error({ error }, msg)
         try {
