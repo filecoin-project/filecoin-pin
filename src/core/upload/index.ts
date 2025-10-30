@@ -17,7 +17,7 @@ import {
   type ValidateIPNIProgressEvents,
   validateIPNIAdvertisement,
 } from '../utils/validate-ipni-advertisement.js'
-import { type SynapseUploadResult, uploadToSynapse, type UploadProgressEvents } from './synapse.js'
+import { type SynapseUploadResult, type UploadProgressEvents, uploadToSynapse } from './synapse.js'
 
 export type { SynapseUploadOptions, SynapseUploadResult, UploadProgressEvents } from './synapse.js'
 export { getDownloadURL, getServiceURL, uploadToSynapse } from './synapse.js'
