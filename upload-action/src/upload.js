@@ -115,7 +115,7 @@ export async function runUpload(buildContext = {}) {
   }
 
   /** @type {Partial<UploadResult>} */
-  let { pieceCid, pieceId, dataSetId, provider, previewUrl, network, ipniValidated } = {}
+  let pieceCid, pieceId, dataSetId, provider, previewUrl, network, ipniValidated
   /** @type {PaymentStatus} */
   let paymentStatus
 
