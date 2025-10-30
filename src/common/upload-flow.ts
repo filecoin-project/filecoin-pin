@@ -286,7 +286,6 @@ export async function performUpload(
     }
   }
 
-  const ipniAnnouncementPromise: Promise<void> | null = null
   let pieceCid: PieceCID | undefined
   function getIpniAdvertisementMsg(attemptCount: number): string {
     return `Checking for IPNI advertisement (check #${attemptCount})`
@@ -370,14 +369,6 @@ export async function performUpload(
       }
     },
   })
-
-  if (ipniAnnouncementPromise) {
-    try {
-      await ipniAnnouncementPromise
-    } catch {
-      // messaging should be handled elsewhere.
-    }
-  }
 
   return {
     ...uploadResult,
