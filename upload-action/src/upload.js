@@ -115,7 +115,7 @@ export async function runUpload(buildContext = {}) {
   }
 
   /** @type {Partial<UploadResult>} */
-  let { pieceCid, pieceId, dataSetId, provider, previewUrl, network } = {}
+  let { pieceCid, pieceId, dataSetId, provider, previewUrl, network, ipniValidated } = {}
   /** @type {PaymentStatus} */
   let paymentStatus
 
@@ -178,6 +178,7 @@ export async function runUpload(buildContext = {}) {
     provider = uploadResult.provider
     previewUrl = uploadResult.previewUrl
     network = uploadResult.network
+    ipniValidated = uploadResult.ipniValidated
   }
 
   const uploadStatus = dryRun ? 'dry-run' : 'uploaded'
@@ -194,6 +195,7 @@ export async function runUpload(buildContext = {}) {
     uploadStatus,
     paymentStatus,
     dryRun,
+    ipniValidated,
   })
 
   provider = providerInfo

@@ -284,6 +284,16 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
   const uploadResult = await executeUpload(synapseService, carBytes, cid, {
     logger,
     contextId: `gha-upload-${Date.now()}`,
+    ipniValidation: {
+      enabled: true,
+      onProgress: (event) => {
+        if (event.type === 'retryUpdate') {
+          console.log(`IPNI advertisement validation attempt #${event.data.retryCount + 1}...`)
+        } else if (event.type === 'complete') {
+          console.log(event.data.result ? '✓ IPNI advertisement successful' : '✗ IPNI advertisement failed')
+        }
+      },
+    },
     callbacks: {
       onUploadComplete: (pieceCid) => {
         console.log('✓ Data uploaded to PDP server successfully')
@@ -310,7 +320,7 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
 
   const providerId = String(providerInfo.id ?? '')
   const providerName = providerInfo.name ?? (providerInfo.serviceProvider || '')
-  const previewUrl = getDownloadURL(providerInfo, uploadResult.pieceCid) || `https://dweb.link/ipfs/${ipfsRootCid}`
+  const previewUrl = getDownloadURL(providerInfo, uploadResult.pieceCid)
 
   return {
     pieceCid: uploadResult.pieceCid,
@@ -319,6 +329,7 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
     provider: { id: providerId, name: providerName, address: providerInfo.serviceProvider ?? '' },
     previewUrl,
     network: uploadResult.network,
+    ipniValidated: uploadResult.ipniValidated,
   }
 }
 

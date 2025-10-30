@@ -248,6 +248,7 @@ export async function performUpload(
   const uploadResult = await executeUpload(synapseService, carData, rootCid, {
     logger,
     contextId: `${contextType}-${Date.now()}`,
+    ipniValidation: { enabled: false },
     callbacks: {
       onUploadComplete: () => {
         spinner?.message('Upload complete, adding to data set...')

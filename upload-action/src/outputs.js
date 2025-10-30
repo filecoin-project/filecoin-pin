@@ -94,14 +94,32 @@ export function getOutputSummary(context, status) {
     },
     ...context?.paymentStatus,
   }
+  const ipniValidated = context?.ipniValidated === true
+  let centralizedIpfsGatewayPreview
+  if (!ipfsRootCid) {
+    centralizedIpfsGatewayPreview = 'IPFS Root CID unavailable'
+  } else if (ipniValidated) {
+    centralizedIpfsGatewayPreview = `https://dweb.link/ipfs/${ipfsRootCid}`
+  } else {
+    centralizedIpfsGatewayPreview = 'Waiting for IPNI announcement'
+  }
+
+  let inBrowserIpfsGatewayPreview
+  if (!ipfsRootCid) {
+    inBrowserIpfsGatewayPreview = 'IPFS Root CID unavailable'
+  } else if (ipniValidated) {
+    inBrowserIpfsGatewayPreview = `https://inbrowser.link/ipfs/${ipfsRootCid}`
+  } else {
+    inBrowserIpfsGatewayPreview = 'Waiting for IPNI announcement'
+  }
 
   return [
     '## Filecoin Pin Upload',
     '',
     '**IPFS Artifacts:**',
     `* IPFS Root CID: ${ipfsRootCid}`,
-    `* Centralized IPFS HTTP Gateway Preview: ${ipfsRootCid ? `https://dweb.link/ipfs/${ipfsRootCid}` : 'IPFS Root CID unavailable'}`,
-    `* In-Browser IPFS HTTP Gateway Preview: ${ipfsRootCid ? `https://inbrowser.link/ipfs/${ipfsRootCid}` : 'IPFS Root CID unavailable'}`,
+    `* Centralized IPFS HTTP Gateway Preview: ${centralizedIpfsGatewayPreview}`,
+    `* In-Browser IPFS HTTP Gateway Preview: ${inBrowserIpfsGatewayPreview}`,
     `* Status: ${status}`,
     `* Generated CAR on GitHub: ${carDownloadUrl}`,
     `* CAR file size: ${formatSize(carSize)}`,
