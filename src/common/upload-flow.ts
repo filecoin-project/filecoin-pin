@@ -300,7 +300,7 @@ export async function performUpload(
           spinner?.stop(`${pc.green('✓')} Upload complete`)
           const serviceURL = getServiceURL(synapseService.providerInfo)
           if (serviceURL != null && serviceURL !== '') {
-            log.spinnerSection('Download IPFS content from SP', [
+            log.spinnerSection('Download IPFS CAR from SP', [
               pc.gray(`${serviceURL.replace(/\/$/, '')}/ipfs/${rootCid}`),
             ])
           }
@@ -314,7 +314,7 @@ export async function performUpload(
           }
           log.spinnerSection('Explorer URLs', [
             pc.gray(`Piece: https://pdp.vxb.ai/calibration/piece/${pieceCid}`),
-            pc.gray(`Transaction: https://${synapseService.synapse.getNetwork()}.filfox.info/en/tx/${transactionHash}`),
+            pc.gray(`Transaction: https://${synapseService.synapse.getNetwork()}.filfox.info/en/message/${transactionHash}`),
           ])
 
           function getIpniAdvertisementMsg(attemptCount: number): string {
