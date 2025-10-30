@@ -119,6 +119,27 @@ export const log = {
   },
 
   /**
+   * This section is intended to be used with an active spinner. It will not insert a newline before the title and should be spaced properly with closed/open spinners.
+   */
+  spinnerSection(
+    title: string,
+    content: string | string[],
+    options: { indentLevel?: number } = { indentLevel: 1 }
+  ): void {
+    const lines = Array.isArray(content) ? content : [content]
+
+    if (isTTY()) {
+      clackLog.message(pc.bold(title))
+    } else {
+      console.log(`${title}`)
+    }
+    for (const line of lines) {
+      this.indent(line, options.indentLevel)
+    }
+    this.flush()
+  },
+
+  /**
    * Log with custom indentation
    * Adds to buffer in TTY mode for batched output
    */

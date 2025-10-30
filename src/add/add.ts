@@ -19,6 +19,7 @@ import {
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { parseCLIAuth, parseProviderOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
+import { log } from '../utils/cli-logger.js'
 import type { AddOptions, AddResult } from './types.js'
 
 /**
@@ -175,6 +176,10 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     })
 
     spinner.stop(`${pc.green('✓')} Storage context ready`)
+    log.spinnerSection('Storage Context', [
+      pc.gray(`Data Set ID: ${storage.dataSetId}`),
+      pc.gray(`Provider: ${providerInfo.name || providerInfo.serviceProvider}`),
+    ])
 
     // Create service object for upload function
     const synapseService: SynapseService = { synapse, storage, providerInfo }

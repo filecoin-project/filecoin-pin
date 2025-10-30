@@ -174,13 +174,17 @@ describe('synapse-service', () => {
       const data = new Uint8Array([1, 2, 3])
       await uploadToSynapse(service, data, TEST_CID, logger, {
         contextId: 'pin-789',
-        callbacks: {
-          onUploadComplete: () => {
-            uploadCompleteCallbackCalled = true
-          },
-          onPieceAdded: () => {
-            pieceAddedCallbackCalled = true
-          },
+        onProgress(event) {
+          switch (event.type) {
+            case 'onUploadComplete': {
+              uploadCompleteCallbackCalled = true
+              break
+            }
+            case 'onPieceAdded': {
+              pieceAddedCallbackCalled = true
+              break
+            }
+          }
         },
       })
 

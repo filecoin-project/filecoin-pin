@@ -284,35 +284,48 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
   const uploadResult = await executeUpload(synapseService, carBytes, cid, {
     logger,
     contextId: `gha-upload-${Date.now()}`,
-    ipniValidation: {
-      enabled: true,
-      onProgress: (event) => {
-        if (event.type === 'ipniAdvertisement.retryUpdate') {
+    onProgress: (event) => {
+      switch (event.type) {
+        // Upload progress events
+        case 'onUploadComplete': {
+          console.log('✓ Data uploaded to PDP server successfully')
+          console.log(`Piece CID: ${event.data.pieceCid}`)
+          console.log('\n⏳ Registering piece in data set...')
+          break
+        }
+        case 'onPieceAdded': {
+          if (event.data.txHash) {
+            console.log('✓ Piece registration transaction submitted')
+            console.log(`Transaction hash: ${event.data.txHash}`)
+            console.log('\n⏳ Waiting for on-chain confirmation...')
+          } else {
+            console.log('✓ Piece added to data set (no transaction)')
+          }
+          break
+        }
+        case 'onPieceConfirmed': {
+          console.log('✓ Piece confirmed on-chain')
+          console.log(`Piece ID(s): ${event.data.pieceIds.join(', ')}`)
+          break
+        }
+        // IPNI advertisement progress events
+        case 'ipniAdvertisement.retryUpdate': {
           console.log(`IPNI advertisement validation attempt #${event.data.retryCount + 1}...`)
-        } else if (event.type === 'ipniAdvertisement.complete') {
+          break
+        }
+        case 'ipniAdvertisement.complete': {
           console.log(event.data.result ? '✓ IPNI advertisement successful' : '✗ IPNI advertisement failed')
+          break
         }
-      },
-    },
-    callbacks: {
-      onUploadComplete: (pieceCid) => {
-        console.log('✓ Data uploaded to PDP server successfully')
-        console.log(`Piece CID: ${pieceCid}`)
-        console.log('\n⏳ Registering piece in data set...')
-      },
-      onPieceAdded: (txHash) => {
-        if (txHash) {
-          console.log('✓ Piece registration transaction submitted')
-          console.log(`Transaction hash: ${txHash}`)
-          console.log('\n⏳ Waiting for on-chain confirmation...')
-        } else {
-          console.log('✓ Piece added to data set (no transaction needed)')
+        case 'ipniAdvertisement.failed': {
+          console.log('✗ IPNI advertisement failed')
+          console.log(`Error: ${event.data.error.message}`)
+          break
         }
-      },
-      onPieceConfirmed: (pieceIds) => {
-        console.log('✓ Piece confirmed on-chain')
-        console.log(`Piece ID(s): ${pieceIds.join(', ')}`)
-      },
+        default: {
+          break
+        }
+      }
     },
   })
 
