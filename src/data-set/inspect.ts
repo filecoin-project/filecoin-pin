@@ -62,22 +62,22 @@ function formatPaymentToken(tokenAddress: string): string {
  * Format storage price in USDFC per TiB per month
  * Always shows TiB/month for consistency, with appropriate precision
  */
-function formatStoragePrice(pricePerTiBPerMonth: bigint): string {
+function formatStoragePrice(pricePerTiBPerDay: bigint): string {
   try {
-    const priceInUSDFC = parseFloat(ethers.formatUnits(pricePerTiBPerMonth, 18))
+    const priceInUSDFC = parseFloat(ethers.formatUnits(pricePerTiBPerDay, 18))
 
     // Handle very small prices that would show as 0.0000
     if (priceInUSDFC < 0.0001) {
-      return '< 0.0001 USDFC/TiB/month'
+      return '< 0.0001 USDFC/TiB/day'
     }
 
     // For prices >= 0.0001, show with appropriate precision
     if (priceInUSDFC >= 1) {
-      return `${priceInUSDFC.toFixed(2)} USDFC/TiB/month`
+      return `${priceInUSDFC.toFixed(2)} USDFC/TiB/day`
     } else if (priceInUSDFC >= 0.01) {
-      return `${priceInUSDFC.toFixed(4)} USDFC/TiB/month`
+      return `${priceInUSDFC.toFixed(4)} USDFC/TiB/day`
     } else {
-      return `${priceInUSDFC.toFixed(6)} USDFC/TiB/month`
+      return `${priceInUSDFC.toFixed(6)} USDFC/TiB/day`
     }
   } catch {
     return pc.red('invalid price')
@@ -235,7 +235,7 @@ export function displayDataSetStatus(ctx: DataSetInspectionContext, dataSetId: n
     log.indent(`Service URL: ${pdpData.serviceURL}`)
     log.indent(`Min piece size: ${formatBytes(BigInt(pdpData.minPieceSizeInBytes))}`)
     log.indent(`Max piece size: ${formatBytes(BigInt(pdpData.maxPieceSizeInBytes))}`)
-    log.indent(`Storage price: ${formatStoragePrice(pdpData.storagePricePerTibPerMonth)}`)
+    log.indent(`Storage price: ${formatStoragePrice(pdpData.storagePricePerTibPerDay)}`)
     log.indent(`Min proving period: ${pdpData.minProvingPeriodInEpochs} epochs`)
     log.indent(`Location: ${pdpData.location}`)
     log.indent(`Payment token: ${formatPaymentToken(pdpData.paymentTokenAddress)}`)
@@ -243,9 +243,6 @@ export function displayDataSetStatus(ctx: DataSetInspectionContext, dataSetId: n
 
   if (base.pdpEndEpoch > 0) {
     log.indent(pc.yellow(`PDP payments ended @ epoch ${base.pdpEndEpoch}`))
-  }
-  if (base.cdnEndEpoch > 0) {
-    log.indent(pc.yellow(`CDN payments ended @ epoch ${base.cdnEndEpoch}`))
   }
 
   log.line('')

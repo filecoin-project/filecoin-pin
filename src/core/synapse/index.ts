@@ -5,7 +5,7 @@ import {
   type ProviderInfo,
   RPC_URLS,
   type StorageContext,
-  type StorageCreationCallbacks,
+  type StorageContextCallbacks,
   type StorageServiceOptions,
   Synapse,
   type SynapseOptions,
@@ -145,11 +145,6 @@ export interface DatasetOptions {
 }
 
 /**
- * Progress callbacks for tracking dataset and provider selection.
- */
-export type StorageProgressCallbacks = Omit<StorageCreationCallbacks, 'onDataSetCreationProgress'>
-
-/**
  * Options for creating a storage context.
  */
 export interface CreateStorageContextOptions {
@@ -161,7 +156,7 @@ export interface CreateStorageContextOptions {
   /**
    * Progress callbacks for tracking creation.
    */
-  callbacks?: StorageProgressCallbacks
+  callbacks?: StorageContextCallbacks
 
   /**
    * Override provider selection by address.
@@ -440,7 +435,7 @@ export async function createStorageContext(
      * Callbacks provide visibility into the storage lifecycle
      * These are crucial for debugging and monitoring in production
      */
-    const callbacks: StorageCreationCallbacks = {
+    const callbacks: StorageContextCallbacks = {
       onProviderSelected: (provider) => {
         currentProviderInfo = provider
 
@@ -470,29 +465,6 @@ export async function createStorageContext(
         )
 
         options?.callbacks?.onDataSetResolved?.(info)
-      },
-      onDataSetCreationStarted: (transaction, statusUrl) => {
-        logger.info(
-          {
-            event: 'synapse.storage.data_set_creation_started',
-            txHash: transaction.hash,
-            statusUrl,
-          },
-          'Data set creation transaction submitted'
-        )
-
-        options?.callbacks?.onDataSetCreationStarted?.(transaction)
-      },
-      onDataSetCreationProgress: (status) => {
-        logger.info(
-          {
-            event: 'synapse.storage.data_set_creation_progress',
-            transactionMined: status.transactionMined,
-            dataSetLive: status.dataSetLive,
-            elapsedMs: status.elapsedMs,
-          },
-          'Data set creation progress'
-        )
       },
     }
 

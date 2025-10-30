@@ -299,7 +299,7 @@ export function displayPricing(pricePerGiBPerMonth: bigint, pricePerTiBPerMonth:
   log.line(pc.bold('Current Pricing:'))
   log.indent(`1 GiB/month: ${formatUSDFC(pricePerGiBPerMonth)} USDFC`)
   log.indent(`1 TiB/month: ${formatUSDFC(pricePerTiBPerMonth)} USDFC`)
-  log.indent(pc.gray('(for each upload, WarmStorage service will reserve 10 days of costs as security)'))
+  log.indent(pc.gray('(for each upload, WarmStorage service will reserve 30 days of costs as security)'))
   log.flush()
 }
 
