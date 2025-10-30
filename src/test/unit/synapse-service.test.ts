@@ -42,9 +42,12 @@ describe('synapse-service', () => {
 
   describe('setupSynapse', () => {
     it('should throw error when no authentication is provided', async () => {
-      config.privateKey = undefined
+      // Create an invalid config with no authentication
+      const invalidConfig = {
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      } as any
 
-      await expect(setupSynapse(config, logger)).rejects.toThrow('Authentication required')
+      await expect(setupSynapse(invalidConfig, logger)).rejects.toThrow('Authentication required')
     })
 
     it('should initialize Synapse when private key is configured', async () => {

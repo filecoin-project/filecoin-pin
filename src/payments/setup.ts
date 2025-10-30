@@ -73,8 +73,8 @@ export function parseStorageAllowance(input: string): number | null {
  * @param network - Network name
  * @param filBalance - FIL balance in wei
  * @param isCalibnet - Whether this is calibnet testnet
- * @param usdfcBalance - USDFC balance in wei
- * @param depositedAmount - Amount deposited in Filecoin Pay
+ * @param walletUsdfcBalance - USDFC balance in wei
+ * @param filecoinPayBalance - Amount deposited in Filecoin Pay
  * @param rateAllowance - Maximum rate per epoch
  * @param lockupAllowance - Maximum lockup amount
  * @param pricePerTiBPerEpoch - Current storage price
@@ -83,8 +83,8 @@ export function displayPaymentSummary(
   network: string,
   filBalance: bigint,
   isCalibnet: boolean,
-  usdfcBalance: bigint,
-  depositedAmount: bigint,
+  walletUsdfcBalance: bigint,
+  filecoinPayBalance: bigint,
   rateAllowance: bigint,
   lockupAllowance: bigint,
   pricePerTiBPerEpoch: bigint
@@ -95,11 +95,11 @@ export function displayPaymentSummary(
   // Section 1: Wallet
   log.line(pc.bold('Wallet'))
   log.indent(formatFIL(filBalance, isCalibnet))
-  log.indent(`${formatUSDFC(usdfcBalance)} USDFC`)
+  log.indent(`${formatUSDFC(walletUsdfcBalance)} USDFC`)
   log.line('')
   // Section 2: Filecoin Pay deposit
   log.line(pc.bold('Filecoin Pay Deposit'))
-  log.indent(`${formatUSDFC(depositedAmount)} USDFC`)
+  log.indent(`${formatUSDFC(filecoinPayBalance)} USDFC`)
   log.indent(pc.gray('(spendable on any service)'))
 
   // Section 3: WarmStorage service permissions
@@ -110,7 +110,7 @@ export function displayPaymentSummary(
       'Your WarmStorage Service Limits',
       monthlyRate,
       lockupAllowance,
-      depositedAmount,
+      filecoinPayBalance,
       pricePerTiBPerEpoch,
       false
     )
@@ -129,8 +129,8 @@ export function displayPaymentSummary(
  * @param filBalance - FIL balance in wei
  * @param isCalibnet - Whether on calibration testnet
  * @param hasSufficientGas - Whether wallet has enough FIL for gas
- * @param usdfcBalance - USDFC balance in wei
- * @param depositedAmount - Amount deposited to Filecoin Pay
+ * @param walletUsdfcBalance - USDFC balance in wei
+ * @param filecoinPayBalance - Amount deposited to Filecoin Pay
  */
 export function displayAccountInfo(
   address: string,
@@ -138,16 +138,16 @@ export function displayAccountInfo(
   filBalance: bigint,
   isCalibnet: boolean,
   _hasSufficientGas: boolean,
-  usdfcBalance: bigint,
-  depositedAmount: bigint
+  walletUsdfcBalance: bigint,
+  filecoinPayBalance: bigint
 ): void {
   log.line(pc.bold('Account:'))
   log.indent(pc.gray(`Wallet: ${address}`))
   log.indent(pc.gray(`Network: ${network}`))
   log.line(pc.bold('Balances:'))
   log.indent(pc.gray(`FIL: ${formatFIL(filBalance, isCalibnet)}`))
-  log.indent(pc.gray(`USDFC wallet: ${formatUSDFC(usdfcBalance)} USDFC`))
-  log.indent(pc.gray(`USDFC deposited: ${formatUSDFC(depositedAmount)} USDFC`))
+  log.indent(pc.gray(`USDFC wallet: ${formatUSDFC(walletUsdfcBalance)} USDFC`))
+  log.indent(pc.gray(`USDFC deposited: ${formatUSDFC(filecoinPayBalance)} USDFC`))
   log.flush()
 }
 
@@ -157,22 +157,22 @@ export function displayAccountInfo(
  * Warns when the available deposit (total deposit minus locked amount)
  * is insufficient to maintain active storage operations.
  *
- * @param depositedAmount - Current deposit balance
+ * @param filecoinPayBalance - Current deposit balance
  * @param lockupUsed - Amount currently locked for active storage
  */
-export function displayDepositWarning(depositedAmount: bigint, lockupUsed: bigint): void {
+export function displayDepositWarning(filecoinPayBalance: bigint, lockupUsed: bigint): void {
   if (lockupUsed > 0n) {
     // Calculate available deposit after accounting for locked funds
-    const availableDeposit = depositedAmount - lockupUsed
+    const availableDeposit = filecoinPayBalance - lockupUsed
 
     // Warn if available deposit is too low (less than 10% of lockup as safety margin)
     const safetyMargin = lockupUsed / 10n // 10% safety margin
 
     if (availableDeposit < safetyMargin) {
-      const needed = lockupUsed + safetyMargin - depositedAmount
+      const needed = lockupUsed + safetyMargin - filecoinPayBalance
       log.newline()
       log.message(pc.yellow(`⚠ Warning: Low deposit balance`))
-      log.indent(pc.yellow(`Your deposit: ${formatUSDFC(depositedAmount)} USDFC`))
+      log.indent(pc.yellow(`Your deposit: ${formatUSDFC(filecoinPayBalance)} USDFC`))
       log.indent(pc.yellow(`Amount locked: ${formatUSDFC(lockupUsed)} USDFC`))
       log.indent(pc.yellow(`Available: ${formatUSDFC(availableDeposit > 0n ? availableDeposit : 0n)} USDFC`))
       log.indent(pc.yellow(`Deposit at least ${formatUSDFC(needed)} more USDFC to maintain safety margin`))
@@ -240,7 +240,7 @@ export interface StorageCapacityInfo {
  * Calculate actual capacity with deposit limitations
  */
 function calculateActualCapacityWithDeposit(
-  depositedAmount: bigint,
+  filecoinPayBalance: bigint,
   rateAllowance: bigint,
   lockupAllowance: bigint,
   pricePerTiBPerEpoch: bigint
@@ -254,13 +254,13 @@ function calculateActualCapacityWithDeposit(
   let isDepositLimited = false
   let additionalDepositNeeded = 0n
 
-  if (depositedAmount >= requiredDeposit) {
+  if (filecoinPayBalance >= requiredDeposit) {
     actualGiB = potentialGiB
   } else {
     isDepositLimited = true
-    additionalDepositNeeded = requiredDeposit - depositedAmount
+    additionalDepositNeeded = requiredDeposit - filecoinPayBalance
     const scale = getStorageScale(potentialGiB)
-    const scaleFactor = Number((depositedAmount * BigInt(scale)) / requiredDeposit) / scale
+    const scaleFactor = Number((filecoinPayBalance * BigInt(scale)) / requiredDeposit) / scale
     actualGiB = potentialGiB * scaleFactor
   }
 
@@ -309,20 +309,25 @@ export function displayPricing(pricePerGiBPerMonth: bigint, pricePerTiBPerMonth:
  * @param title - Section title to display
  * @param monthlyRate - Rate allowance in USDFC per month
  * @param lockupAmount - Lockup allowance amount
- * @param depositAmount - Total deposited amount
+ * @param filecoinPayBalance - Total deposited amount
  * @param pricePerTiBPerEpoch - Current pricing per TiB per epoch
  */
 export function displayServicePermissions(
   title: string,
   monthlyRate: bigint,
   lockupAmount: bigint,
-  depositAmount: bigint,
+  filecoinPayBalance: bigint,
   pricePerTiBPerEpoch: bigint,
   shouldFlush: boolean = true
 ): void {
   // Calculate capacity
   const ratePerEpoch = monthlyRate / TIME_CONSTANTS.EPOCHS_PER_MONTH
-  const capacity = calculateActualCapacityWithDeposit(depositAmount, ratePerEpoch, lockupAmount, pricePerTiBPerEpoch)
+  const capacity = calculateActualCapacityWithDeposit(
+    filecoinPayBalance,
+    ratePerEpoch,
+    lockupAmount,
+    pricePerTiBPerEpoch
+  )
 
   log.line(pc.bold(title))
   log.indent(`Max payment: ${formatUSDFC(monthlyRate)} USDFC/month`)

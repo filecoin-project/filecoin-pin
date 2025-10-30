@@ -1,7 +1,7 @@
 ######################################################################################
 # READ THIS FIRST
 # This file is authored in filecoin-project/github-mgmt repository and MANUALLY copied to other repos.
-# See https://github.com/filecoin-project/github-mgmt/blob/master/files/workflows/add-issues-and-prs-to-fs-project-board.yml for more info.
+# See https://github.com/filecoin-project/github-mgmt/blob/master/files/.github/workflows/add-issues-and-prs-to-fs-project-board.yml for more info.
 ######################################################################################
 
 # This action adds all issues and PRs with a "team/fs-wg" label to the FS project board.
@@ -16,9 +16,12 @@ on:
     types:
       - labeled
   # Using "pull_request_target" instead of "pull_request" to support PRs from forks.
-  # Workflow runs triggered on PRs from forks do not have access to secrets, so "github-token" input below would otherwise be empty.
+  # pull_request_target has access to secrets even for fork PRs, which is necessary
+  # for this action to authenticate and add items to the project board.
+  # pull_request_target runs the workflow file from the base branch (main),
+  # not from the PR branch, so attackers cannot modify this workflow via PR.
   # This action does not check out nor execute user code so we should be safe.
-  # We also hardcode to specific hash to ensure no unintended changes underneath us.  
+  # We also hardcode to specific hash to ensure no unintended changes underneath us.
   pull_request_target:
     types:
       - labeled

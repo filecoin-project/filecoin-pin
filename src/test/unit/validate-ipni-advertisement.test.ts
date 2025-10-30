@@ -1,8 +1,8 @@
 import { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { checkIPNIAnnouncement } from '../../core/utils/check-ipni-announcement.js'
+import { validateIPNIAdvertisement } from '../../core/utils/validate-ipni-advertisement.js'
 
-describe('checkIPNIAnnouncement', () => {
+describe('validateIPNIAdvertisement', () => {
   const testCid = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
   const mockFetch = vi.fn()
 
@@ -18,39 +18,58 @@ describe('checkIPNIAnnouncement', () => {
   })
 
   describe('successful announcement', () => {
-    it('should resolve true when CID is announced on first attempt', async () => {
+    it('should resolve true and emit a final complete event on first attempt', async () => {
       mockFetch.mockResolvedValueOnce({ ok: true })
+      const onProgress = vi.fn()
 
-      const promise = checkIPNIAnnouncement(testCid)
+      const promise = validateIPNIAdvertisement(testCid, { onProgress })
       await vi.runAllTimersAsync()
       const result = await promise
 
       expect(result).toBe(true)
       expect(mockFetch).toHaveBeenCalledTimes(1)
       expect(mockFetch).toHaveBeenCalledWith(`https://filecoinpin.contact/cid/${testCid}`, {})
+
+      // Should emit retryUpdate for attempt 0 and a final complete(true)
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 0 } })
+      expect(onProgress).toHaveBeenCalledWith({
+        type: 'ipniAdvertisement.complete',
+        data: { result: true, retryCount: 0 },
+      })
     })
 
-    it('should retry multiple times before succeeding', async () => {
+    it('should retry multiple times before succeeding and emit a final complete(true)', async () => {
       mockFetch
         .mockResolvedValueOnce({ ok: false })
         .mockResolvedValueOnce({ ok: false })
         .mockResolvedValueOnce({ ok: false })
         .mockResolvedValueOnce({ ok: true })
 
-      const promise = checkIPNIAnnouncement(testCid, { maxAttempts: 5 })
+      const onProgress = vi.fn()
+      const promise = validateIPNIAdvertisement(testCid, { maxAttempts: 5, onProgress })
       await vi.runAllTimersAsync()
       const result = await promise
 
       expect(result).toBe(true)
       expect(mockFetch).toHaveBeenCalledTimes(4)
+
+      // Expect retryUpdate with counts 0,1,2,3 and final complete with retryCount 3
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 0 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 1 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 2 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 3 } })
+      expect(onProgress).toHaveBeenCalledWith({
+        type: 'ipniAdvertisement.complete',
+        data: { result: true, retryCount: 3 },
+      })
     })
   })
 
   describe('failed announcement', () => {
-    it('should reject after custom maxAttempts', async () => {
+    it('should reject after custom maxAttempts and emit a final complete(false)', async () => {
       mockFetch.mockResolvedValue({ ok: false })
-
-      const promise = checkIPNIAnnouncement(testCid, { maxAttempts: 3 })
+      const onProgress = vi.fn()
+      const promise = validateIPNIAdvertisement(testCid, { maxAttempts: 3, onProgress })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow(
         `IPFS root CID "${testCid.toString()}" not announced to IPNI after 3 attempts`
@@ -59,12 +78,21 @@ describe('checkIPNIAnnouncement', () => {
       await vi.runAllTimersAsync()
       await expectPromise
       expect(mockFetch).toHaveBeenCalledTimes(3)
+
+      // Expect retryUpdate with counts 0,1,2 and final complete(false) with retryCount 3
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 0 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 1 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 2 } })
+      expect(onProgress).toHaveBeenCalledWith({
+        type: 'ipniAdvertisement.complete',
+        data: { result: false, retryCount: 3 },
+      })
     })
 
     it('should reject immediately when maxAttempts is 1', async () => {
       mockFetch.mockResolvedValue({ ok: false })
 
-      const promise = checkIPNIAnnouncement(testCid, { maxAttempts: 1 })
+      const promise = validateIPNIAdvertisement(testCid, { maxAttempts: 1 })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow(
         `IPFS root CID "${testCid.toString()}" not announced to IPNI after 1 attempts`
@@ -81,7 +109,7 @@ describe('checkIPNIAnnouncement', () => {
       const abortController = new AbortController()
       abortController.abort()
 
-      const promise = checkIPNIAnnouncement(testCid, { signal: abortController.signal })
+      const promise = validateIPNIAdvertisement(testCid, { signal: abortController.signal })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow('Check IPNI announce aborted')
 
@@ -94,7 +122,7 @@ describe('checkIPNIAnnouncement', () => {
       const abortController = new AbortController()
       mockFetch.mockResolvedValue({ ok: false })
 
-      const promise = checkIPNIAnnouncement(testCid, { signal: abortController.signal, maxAttempts: 5 })
+      const promise = validateIPNIAdvertisement(testCid, { signal: abortController.signal, maxAttempts: 5 })
 
       // Let first check complete
       await vi.advanceTimersByTimeAsync(0)
@@ -116,7 +144,7 @@ describe('checkIPNIAnnouncement', () => {
       const abortController = new AbortController()
       mockFetch.mockResolvedValueOnce({ ok: true })
 
-      const promise = checkIPNIAnnouncement(testCid, { signal: abortController.signal })
+      const promise = validateIPNIAdvertisement(testCid, { signal: abortController.signal })
       await vi.runAllTimersAsync()
       await promise
 
@@ -130,7 +158,7 @@ describe('checkIPNIAnnouncement', () => {
     it('should handle fetch throwing an error', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network error'))
 
-      const promise = checkIPNIAnnouncement(testCid, {})
+      const promise = validateIPNIAdvertisement(testCid, {})
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow('Network error')
 
@@ -142,7 +170,7 @@ describe('checkIPNIAnnouncement', () => {
       const v0Cid = CID.parse('QmNT6isqrhH6LZWg8NeXQYTD9wPjJo2BHHzyezpf9BdHbD')
       mockFetch.mockResolvedValueOnce({ ok: true })
 
-      const promise = checkIPNIAnnouncement(v0Cid, {})
+      const promise = validateIPNIAdvertisement(v0Cid, {})
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -153,7 +181,7 @@ describe('checkIPNIAnnouncement', () => {
     it('should handle maxAttempts of 1', async () => {
       mockFetch.mockResolvedValue({ ok: false })
 
-      const promise = checkIPNIAnnouncement(testCid, { maxAttempts: 1 })
+      const promise = validateIPNIAdvertisement(testCid, { maxAttempts: 1 })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow(
         `IPFS root CID "${testCid.toString()}" not announced to IPNI after 1 attempts`

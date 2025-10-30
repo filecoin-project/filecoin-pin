@@ -18,7 +18,6 @@ import {
   getServiceURL,
   type SynapseUploadResult,
 } from '../core/upload/index.js'
-import { checkIPNIAnnouncement } from '../core/utils/check-ipni-announcement.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { autoFund } from '../payments/fund.js'
 import type { AutoFundOptions } from '../payments/types.js'
@@ -287,8 +286,11 @@ export async function performUpload(
     }
   }
 
-  let ipniAnnouncementPromise: Promise<void> | null = null
+  const ipniAnnouncementPromise: Promise<void> | null = null
   let pieceCid: PieceCID | undefined
+  function getIpniAdvertisementMsg(attemptCount: number): string {
+    return `Checking for IPNI advertisement (check #${attemptCount})`
+  }
 
   const uploadResult = await executeUpload(synapseService, carData, rootCid, {
     logger,
@@ -314,58 +316,52 @@ export async function performUpload(
           }
           log.spinnerSection('Explorer URLs', [
             pc.gray(`Piece: https://pdp.vxb.ai/calibration/piece/${pieceCid}`),
-            pc.gray(`Transaction: https://${synapseService.synapse.getNetwork()}.filfox.info/en/message/${transactionHash}`),
+            pc.gray(
+              `Transaction: https://${synapseService.synapse.getNetwork()}.filfox.info/en/message/${transactionHash}`
+            ),
           ])
 
-          function getIpniAdvertisementMsg(attemptCount: number): string {
-            return `Checking for IPNI advertisement (check #${attemptCount})`
-          }
-
-          // Start tracking both parallel operations
-          pendingOps.set('ipni', getIpniAdvertisementMsg(1))
           pendingOps.set('chain', 'Confirming piece added to DataSet on-chain')
 
           spinner?.start(getSpinnerMessage())
-
-          // Start IPNI check in parallel and store the promise
-          ipniAnnouncementPromise = checkIPNIAnnouncement(rootCid, {
-            logger,
-            onProgress: (event) => {
-              switch (event.type) {
-                case 'onRetryUpdate': {
-                  pendingOps.set('ipni', getIpniAdvertisementMsg(event.data.retryCount + 1))
-                  spinner?.message(getSpinnerMessage())
-                  break
-                }
-              }
-            },
-          })
-            .then((result) => {
-              const message = result
-                ? `IPNI advertisement successful. IPFS retrieval possible.`
-                : `IPNI advertisement pending`
-
-              completeOperation('ipni', message, result ? 'success' : 'warning')
-
-              if (result) {
-                log.spinnerSection('IPFS Retrieval URLs', [
-                  pc.gray(`ipfs://${rootCid}`),
-                  pc.gray(`https://inbrowser.link/ipfs/${rootCid}`),
-                  pc.gray(`https://dweb.link/ipfs/${rootCid}`),
-                ])
-              }
-            })
-            .catch((error) => {
-              logger.error({ error }, 'Error checking IPNI advertisement')
-              completeOperation('ipni', `IPNI advertisement check failed`, 'warning')
-              log.spinnerSection('IPNI advertisement check failed', [
-                pc.gray(`IPNI advertisement does not exist at http://filecoinpin.contact/cid/${rootCid}`),
-              ])
-            })
           break
         }
         case 'onPieceConfirmed': {
           completeOperation('chain', `Piece added to DataSet (confirmed on-chain)`, 'success')
+          break
+        }
+
+        case 'ipniAdvertisement.retryUpdate': {
+          if (event.data.retryCount === 0) {
+            pendingOps.set('ipni', getIpniAdvertisementMsg(1))
+          }
+          pendingOps.set('ipni', getIpniAdvertisementMsg(event.data.retryCount + 1))
+          spinner?.message(getSpinnerMessage())
+          break
+        }
+        case 'ipniAdvertisement.complete': {
+          const isIpniAdvertisementSuccessful = event.data.result
+          const message = isIpniAdvertisementSuccessful
+            ? `IPNI advertisement successful. IPFS retrieval possible.`
+            : `IPNI advertisement pending`
+
+          completeOperation('ipni', message, isIpniAdvertisementSuccessful ? 'success' : 'warning')
+
+          if (isIpniAdvertisementSuccessful) {
+            log.spinnerSection('IPFS Retrieval URLs', [
+              pc.gray(`ipfs://${rootCid}`),
+              pc.gray(`https://inbrowser.link/ipfs/${rootCid}`),
+              pc.gray(`https://dweb.link/ipfs/${rootCid}`),
+            ])
+          }
+          break
+        }
+        case 'ipniAdvertisement.failed': {
+          logger.error({ error: event.data.error }, 'Error checking IPNI advertisement')
+          completeOperation('ipni', `IPNI advertisement check failed`, 'warning')
+          log.spinnerSection('IPNI advertisement check failed', [
+            pc.gray(`IPNI advertisement does not exist at http://filecoinpin.contact/cid/${rootCid}`),
+          ])
           break
         }
         default: {

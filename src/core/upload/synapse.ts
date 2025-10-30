@@ -10,19 +10,18 @@ import type { TransactionResponse } from 'ethers'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import type { SynapseService } from '../synapse/index.js'
+import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 
-export type UploadProgressEvent =
-  | { type: 'onUploadComplete'; data: { pieceCid: PieceCID } }
-  | { type: 'onPieceAdded'; data: { transaction: TransactionResponse | undefined } }
-  | { type: 'onPieceConfirmed'; data: { pieceIds: number[] } }
-
-export type UploadOnProgressFn = (event: UploadProgressEvent) => void
+export type UploadProgressEvents =
+  | ProgressEvent<'onUploadComplete', { pieceCid: PieceCID }>
+  | ProgressEvent<'onPieceAdded', { transaction: TransactionResponse | undefined }>
+  | ProgressEvent<'onPieceConfirmed', { pieceIds: number[] }>
 
 export interface SynapseUploadOptions {
   /**
    * Optional callbacks for monitoring upload progress
    */
-  onProgress?: UploadOnProgressFn
+  onProgress?: ProgressEventHandler<UploadProgressEvents>
 
   /**
    * Context identifier for logging (e.g., pinId, import job ID)
