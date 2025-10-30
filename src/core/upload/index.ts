@@ -265,11 +265,9 @@ export async function executeUpload(
 
   // Optionally validate IPNI advertisement of the root CID before returning
   let ipniValidated = false
-  if (options.ipniValidation?.enabled !== false) {
+  if (ipniValidationPromise != null) {
     try {
-      if (ipniValidationPromise) {
-        ipniValidated = await ipniValidationPromise
-      }
+      ipniValidated = await ipniValidationPromise
     } catch (error) {
       logger.error({ error }, 'Could not validate IPNI advertisement')
       ipniValidated = false
