@@ -136,6 +136,9 @@ export const log = {
     for (const line of lines) {
       this.indent(line, options.indentLevel)
     }
+    if (lineBuffer.length === 0) {
+      this.newline()
+    }
     this.flush()
   },
 

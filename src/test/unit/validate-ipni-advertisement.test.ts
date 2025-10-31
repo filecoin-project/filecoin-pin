@@ -66,7 +66,7 @@ describe('validateIPNIAdvertisement', () => {
   })
 
   describe('failed announcement', () => {
-    it('should reject after custom maxAttempts and emit a final complete(false)', async () => {
+    it('should reject after custom maxAttempts and emit a failed event', async () => {
       mockFetch.mockResolvedValue({ ok: false })
       const onProgress = vi.fn()
       const promise = validateIPNIAdvertisement(testCid, { maxAttempts: 3, onProgress })
@@ -79,13 +79,19 @@ describe('validateIPNIAdvertisement', () => {
       await expectPromise
       expect(mockFetch).toHaveBeenCalledTimes(3)
 
-      // Expect retryUpdate with counts 0,1,2 and final complete(false) with retryCount 3
+      // Expect retryUpdate with counts 0,1,2 and final failed event (no complete event on failure)
       expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 0 } })
       expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 1 } })
       expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 2 } })
+      // Should emit failed event, not complete(false)
       expect(onProgress).toHaveBeenCalledWith({
+        type: 'ipniAdvertisement.failed',
+        data: { error: expect.any(Error) },
+      })
+      // Should NOT emit complete event
+      expect(onProgress).not.toHaveBeenCalledWith({
         type: 'ipniAdvertisement.complete',
-        data: { result: false, retryCount: 3 },
+        data: { result: false, retryCount: expect.any(Number) },
       })
     })
 
