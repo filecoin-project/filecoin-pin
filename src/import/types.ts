@@ -3,7 +3,7 @@ import type { CLIAuthOptions } from '../utils/cli-auth.js'
 
 export interface ImportOptions extends CLIAuthOptions {
   filePath: string
-  /** Auto-fund: automatically ensure minimum 10 days of runway */
+  /** Auto-fund: automatically ensure minimum 30 days of runway */
   autoFund?: boolean
 }
 

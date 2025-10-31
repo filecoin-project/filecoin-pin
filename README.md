@@ -67,12 +67,15 @@ Web-based management console for monitoring and managing your Filecoin Pin deplo
 - **Status**: Planned
 - **Tracking**: See [issue #74](https://github.com/filecoin-project/filecoin-pin/issues/74) for updates.  Please leave a comment about your usecase if this would be particularly beneficial.  
 
-## Examples in Production
+## Examples
 
 See Filecoin Pin in action:
 
 - **[upload-action](https://github.com/filecoin-project/filecoin-pin/tree/master/upload-action)** - Example GitHub Action workflows demonstrating automated IPFS/Filecoin uploads
-- **[filecoin-pin-website](https://github.com/filecoin-project/filecoin-pin-website)** - Demo dApp showing browser-based file uploads to Filecoin ([Walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/dapp-demo))
+- **[filecoin-pin-website](https://github.com/filecoin-project/filecoin-pin-website)** - Demo dApp showing browser-based file uploads to Filecoin
+   - [Walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/dapp-demo)
+   - [🎥 Recording 1](https://www.youtube.com/watch?v=UElx1_qF12o)
+   - [🎥 Recording 2](https://www.youtube.com/watch?v=DXH84_gI-c0)
 
 ## Architecture
 

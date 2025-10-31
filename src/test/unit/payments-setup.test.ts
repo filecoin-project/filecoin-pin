@@ -110,9 +110,9 @@ describe('Payment Setup Tests', () => {
         getStorageInfo: vi.fn().mockResolvedValue({
           pricing: {
             noCDN: {
-              perTiBPerEpoch: ethers.parseUnits('0.0000565', 18),
-              perTiBPerDay: ethers.parseUnits('0.16272', 18),
-              perTiBPerMonth: ethers.parseUnits('4.8816', 18),
+              perTiBPerEpoch: ethers.parseUnits('0.00002893519', 18), // 2.5 USDFC/TiB/month
+              perTiBPerDay: ethers.parseUnits('0.08333333', 18),
+              perTiBPerMonth: ethers.parseUnits('2.5', 18),
             },
           },
         }),
@@ -196,7 +196,7 @@ describe('Payment Setup Tests', () => {
         '0xwarmstorage',
         rateAllowance,
         lockupAllowance,
-        28800n, // 10 days * 2880 epochs/day
+        86400n, // 30 days * 2880 epochs/day (bigint)
         'USDFC'
       )
     })
@@ -210,7 +210,7 @@ describe('Payment Setup Tests', () => {
       expect(allowances.storageCapacityTiB).toBe(1)
       expect(allowances.rateAllowance).toBe(ethers.parseUnits('0.0000565', 18))
       expect(allowances.lockupAllowance).toBe(
-        ethers.parseUnits('0.0000565', 18) * 2880n * 10n // rate * epochs/day * 10 days
+        ethers.parseUnits('0.0000565', 18) * 2880n * 30n // rate * epochs/day * 30 days
       )
     })
 
@@ -231,7 +231,7 @@ describe('Payment Setup Tests', () => {
       // 1.5 TiB
       expect(allowances.rateAllowance).toBe(ethers.parseUnits('0.00008475', 18))
       expect(allowances.lockupAllowance).toBe(
-        ethers.parseUnits('0.00008475', 18) * 2880n * 10n // rate * epochs/day * 10 days
+        ethers.parseUnits('0.00008475', 18) * 2880n * 30n // rate * epochs/day * 30 days
       )
     })
 
@@ -355,8 +355,8 @@ describe('Payment Setup Tests', () => {
   describe('calculateStorageFromUSDFC', () => {
     it('should calculate storage capacity from USDFC amount with high precision', () => {
       const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
-      // 10 days worth of 1GiB/month = 0.0015881472 USDFC
-      const usdfcAmount = ethers.parseUnits('0.0015881472', 18)
+      // 30 days worth of 1GiB/month = 0.0047644416 USDFC
+      const usdfcAmount = ethers.parseUnits('0.0047644416', 18)
 
       const capacityTiB = calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch)
 
@@ -387,11 +387,12 @@ describe('Payment Setup Tests', () => {
       expect(capacityTiB).toBe(0)
     })
 
-    // simple testcase to show what the pricePerTibPerEpoch would need to be to get 1TiB/month with 1USDFC
-    // feel free to skip/delete this testcase if it becomes irrelevant
+    // Verify pricePerTibPerEpoch needed to get 1TiB/month with 1USDFC given 30-day lockup
+    // With 30-day lockup: 1 USDFC / (30 days * 2880 epochs/day) = 1 USDFC / 86400 epochs
+    // For 1 TiB capacity: pricePerTiBPerEpoch = 1 / 86400 = 0.000011574074 USDFC
     it('should return capacity of 1 when pricePerTibPerEpoch is low', () => {
       const usdfcAmount = ethers.parseUnits('1', 18)
-      const pricePerTiBPerEpoch = ethers.parseUnits('0.000034722219', 18)
+      const pricePerTiBPerEpoch = ethers.parseUnits('0.000011574074', 18)
       const capacityTiB = calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch)
       // within 10 decimal places accuracy of 1
       expect(capacityTiB).toBeCloseTo(1, 10)

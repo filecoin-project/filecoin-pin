@@ -154,25 +154,48 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
   const uploadResult = await executeUpload(synapseService, carBytes, cid, {
     logger,
     contextId: `gha-upload-${Date.now()}`,
-    callbacks: {
-      onUploadComplete: (pieceCid) => {
-        console.log('✓ Data uploaded to PDP server successfully')
-        console.log(`Piece CID: ${pieceCid}`)
-        console.log('\n⏳ Registering piece in data set...')
-      },
-      onPieceAdded: (transaction) => {
-        if (transaction?.hash) {
-          console.log('✓ Piece registration transaction submitted')
-          console.log(`Transaction hash: ${transaction.hash}`)
-          console.log('\n⏳ Waiting for on-chain confirmation...')
-        } else {
-          console.log('✓ Piece added to data set (no transaction needed)')
+    onProgress: (event) => {
+      switch (event.type) {
+        // Upload progress events
+        case 'onUploadComplete': {
+          console.log('✓ Data uploaded to PDP server successfully')
+          console.log(`Piece CID: ${event.data.pieceCid}`)
+          console.log('\n⏳ Registering piece in data set...')
+          break
         }
-      },
-      onPieceConfirmed: (pieceIds) => {
-        console.log('✓ Piece confirmed on-chain')
-        console.log(`Piece ID(s): ${pieceIds.join(', ')}`)
-      },
+        case 'onPieceAdded': {
+          if (event.data.txHash) {
+            console.log('✓ Piece registration transaction submitted')
+            console.log(`Transaction hash: ${event.data.txHash}`)
+            console.log('\n⏳ Waiting for on-chain confirmation...')
+          } else {
+            console.log('✓ Piece added to data set (no transaction)')
+          }
+          break
+        }
+        case 'onPieceConfirmed': {
+          console.log('✓ Piece confirmed on-chain')
+          console.log(`Piece ID(s): ${event.data.pieceIds.join(', ')}`)
+          break
+        }
+        // IPNI advertisement progress events
+        case 'ipniAdvertisement.retryUpdate': {
+          console.log(`IPNI advertisement validation attempt #${event.data.retryCount + 1}...`)
+          break
+        }
+        case 'ipniAdvertisement.complete': {
+          console.log(event.data.result ? '✓ IPNI advertisement successful' : '✗ IPNI advertisement failed')
+          break
+        }
+        case 'ipniAdvertisement.failed': {
+          console.log('✗ IPNI advertisement failed')
+          console.log(`Error: ${event.data.error.message}`)
+          break
+        }
+        default: {
+          break
+        }
+      }
     },
   })
 
@@ -180,7 +203,7 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
 
   const providerIdStr = String(providerInfo.id ?? '')
   const providerName = providerInfo.name ?? (providerInfo.serviceProvider || '')
-  const previewUrl = getDownloadURL(providerInfo, uploadResult.pieceCid) || `https://dweb.link/ipfs/${ipfsRootCid}`
+  const previewUrl = getDownloadURL(providerInfo, uploadResult.pieceCid)
 
   return {
     pieceCid: uploadResult.pieceCid,
@@ -189,6 +212,7 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
     provider: { id: providerIdStr, name: providerName, address: providerInfo.serviceProvider ?? '' },
     previewUrl,
     network: uploadResult.network,
+    ipniValidated: uploadResult.ipniValidated,
   }
 }
 

@@ -21,6 +21,7 @@ export interface UploadResult {
   }
   previewUrl: string
   network: string
+  ipniValidated: boolean
 }
 
 export interface BuildResult {

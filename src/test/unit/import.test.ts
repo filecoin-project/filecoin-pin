@@ -76,6 +76,9 @@ vi.mock('../../core/payments/index.js', async () => {
     }),
   }
 })
+vi.mock('../../core/utils/validate-ipni-advertisement.js', () => ({
+  validateIPNIAdvertisement: vi.fn().mockResolvedValue(true),
+}))
 
 vi.mock('../../payments/setup.js', () => ({
   formatUSDFC: vi.fn((amount) => `${amount} USDFC`),
@@ -356,7 +359,6 @@ describe('CAR Import', () => {
         expect.objectContaining({
           callbacks: expect.objectContaining({
             onProviderSelected: expect.any(Function),
-            onDataSetCreationStarted: expect.any(Function),
             onDataSetResolved: expect.any(Function),
           }),
         })

@@ -23,7 +23,7 @@ import type { PaymentStatus, ServiceApprovalStatus, StorageAllowances, StorageRu
 // Constants
 export const USDFC_DECIMALS = 18
 const MIN_FIL_FOR_GAS = ethers.parseEther('0.1') // Minimum FIL padding for gas
-export const DEFAULT_LOCKUP_DAYS = 10 // WarmStorage requires 10 days lockup
+export const DEFAULT_LOCKUP_DAYS = 30 // WarmStorage requires 30 days lockup
 
 export * from './top-up.js'
 export * from './types.js'
@@ -339,7 +339,7 @@ export async function setServiceApprovals(
 ): Promise<string> {
   const warmStorageAddress = synapse.getWarmStorageAddress()
 
-  // Max lockup period is always 10 days worth of epochs for WarmStorage
+  // Max lockup period is always 30 days worth of epochs for WarmStorage
   const maxLockupPeriod = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
 
   // Set the service approval
@@ -373,9 +373,11 @@ export async function checkAllowances(synapse: Synapse): Promise<{
   // Get current allowances
   const currentAllowances = await synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC)
 
-  // Check if we need to update (not at max)
+  // Check if we need to update (not at max or max lockup period is not enough)
   const needsUpdate =
-    currentAllowances.rateAllowance < MAX_RATE_ALLOWANCE || currentAllowances.lockupAllowance < MAX_LOCKUP_ALLOWANCE
+    currentAllowances.rateAllowance < MAX_RATE_ALLOWANCE ||
+    currentAllowances.lockupAllowance < MAX_LOCKUP_ALLOWANCE ||
+    currentAllowances.maxLockupPeriod < BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
 
   return {
     needsUpdate,
@@ -495,9 +497,9 @@ export function calculateStorageAllowances(storageTiB: number, pricePerTiBPerEpo
   // Calculate rate allowance (per epoch payment)
   const rateAllowance = (pricePerTiBPerEpoch * BigInt(scaledStorage)) / BigInt(scale)
 
-  // Calculate lockup allowance (10 days worth)
-  const epochsIn10Days = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
-  const lockupAllowance = rateAllowance * epochsIn10Days
+  // Calculate lockup allowance
+  const epochsInLockupDays = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
+  const lockupAllowance = rateAllowance * epochsInLockupDays
 
   return {
     rateAllowance,
@@ -538,7 +540,7 @@ export function calculateActualCapacity(rateAllowance: bigint, pricePerTiBPerEpo
  * Calculate storage capacity from USDFC amount
  *
  * Determines how much storage can be purchased with a given USDFC amount,
- * accounting for the 10-day lockup period.
+ * accounting for the 30-day lockup period.
  *
  * @param usdfcAmount - Amount of USDFC in its smallest unit
  * @param pricePerTiBPerEpoch - Current pricing from storage service
@@ -547,9 +549,9 @@ export function calculateActualCapacity(rateAllowance: bigint, pricePerTiBPerEpo
 export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpoch: bigint): number {
   if (pricePerTiBPerEpoch === 0n) return 0
 
-  // Calculate how much this covers for 10 days
-  const epochsIn10Days = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
-  const ratePerEpoch = usdfcAmount / epochsIn10Days
+  // Calculate how much this covers for lockup
+  const epochsInLockupDays = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
+  const ratePerEpoch = usdfcAmount / epochsInLockupDays
 
   return calculateActualCapacity(ratePerEpoch, pricePerTiBPerEpoch)
 }
@@ -557,7 +559,7 @@ export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpo
 /**
  * Compute the additional deposit required to fund current usage for a duration.
  *
- * The WarmStorage service maintains ~10 days of lockup (lockupUsed) and draws future
+ * The WarmStorage service maintains ~30 days of lockup (lockupUsed) and draws future
  * lockups from the available deposit (deposited - lockupUsed). To keep the current
  * rails alive for N days, ensure available >= N days of spend at the current rateUsed.
  *
@@ -766,7 +768,7 @@ export function computeAdjustmentForExactDaysWithPiece(
  * treating WarmStorage as fully trusted with max allowances, i.e. not
  * accounting for allowance limits. If usage limits need to be accounted for
  * then the capacity can be capped by either deposit or allowances.
- * This function accounts for the 10-day lockup requirement.
+ * This function accounts for the 30-day lockup requirement.
  *
  * @param depositAmount - Amount deposited in USDFC
  * @param pricePerTiBPerEpoch - Current pricing from storage service
@@ -795,14 +797,14 @@ export function calculateDepositCapacity(
   }
 
   // With infinite allowances, deposit is the only limiting factor
-  // Deposit needs to cover: lockup (10 days) + at least some buffer
-  const epochsIn10Days = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
+  // Deposit needs to cover: lockup (30 days) + at least some buffer
+  const epochsInLockupDays = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const epochsPerMonth = TIME_CONSTANTS.EPOCHS_PER_MONTH
 
   // Maximum storage we can support with this deposit
   // Reserve 10% for buffer beyond the lockup
   // Calculate max rate per epoch we can afford with deposit
-  const maxRatePerEpoch = (depositAmount * BUFFER_DENOMINATOR) / (epochsIn10Days * BUFFER_NUMERATOR)
+  const maxRatePerEpoch = (depositAmount * BUFFER_DENOMINATOR) / (epochsInLockupDays * BUFFER_NUMERATOR)
 
   // Convert to storage capacity
   const tibPerMonth = calculateActualCapacity(maxRatePerEpoch, pricePerTiBPerEpoch)
@@ -810,7 +812,7 @@ export function calculateDepositCapacity(
 
   // Calculate the actual costs for this capacity
   const monthlyPayment = maxRatePerEpoch * epochsPerMonth
-  const requiredLockup = maxRatePerEpoch * epochsIn10Days
+  const requiredLockup = maxRatePerEpoch * epochsInLockupDays
   const totalRequired = withBuffer(requiredLockup)
 
   return {

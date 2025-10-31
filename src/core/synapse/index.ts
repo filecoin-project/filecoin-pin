@@ -5,14 +5,16 @@ import {
   type ProviderInfo,
   RPC_URLS,
   type StorageContext,
-  type StorageCreationCallbacks,
+  type StorageContextCallbacks,
   type StorageServiceOptions,
   Synapse,
   type SynapseOptions,
+  type TelemetryConfig,
 } from '@filoz/synapse-sdk'
 import { type Provider as EthersProvider, JsonRpcProvider, type Signer, Wallet, WebSocketProvider } from 'ethers'
 import type { Logger } from 'pino'
 import { ADDRESS_ONLY_SIGNER_SYMBOL, AddressOnlySigner } from './address-only-signer.js'
+import { getTelemetryConfig } from './telemetry-config.js'
 
 const WEBSOCKET_REGEX = /^ws(s)?:\/\//i
 
@@ -62,6 +64,20 @@ interface BaseSynapseConfig {
   /** Optional override for WarmStorage contract address */
   warmStorageAddress?: string | undefined
   withCDN?: boolean | undefined
+  /**
+   * Telemetry configuration, merges fields, but appends "appName" to the existing appName
+   * @example
+   * {
+   *   sentryInitOptions: {
+   *     enabled: true,
+   *   },
+   *   sentrySetTags: {
+   *     appName: "${your-app-name}",
+   *   },
+   * }
+   * will result in your appName being "filecoin-pin@v1.0.0-${your-app-name}"
+   */
+  telemetry?: TelemetryConfig
 }
 
 /**
@@ -145,11 +161,6 @@ export interface DatasetOptions {
 }
 
 /**
- * Progress callbacks for tracking dataset and provider selection.
- */
-export type StorageProgressCallbacks = Omit<StorageCreationCallbacks, 'onDataSetCreationProgress'>
-
-/**
  * Options for creating a storage context.
  */
 export interface CreateStorageContextOptions {
@@ -161,7 +172,7 @@ export interface CreateStorageContextOptions {
   /**
    * Progress callbacks for tracking creation.
    */
-  callbacks?: StorageProgressCallbacks
+  callbacks?: StorageContextCallbacks
 
   /**
    * Override provider selection by address.
@@ -301,7 +312,11 @@ async function setupSessionKey(synapse: Synapse, sessionWallet: Wallet, logger: 
  * @param logger - Logger instance for detailed operation tracking
  * @returns Initialized Synapse instance
  */
-export async function initializeSynapse(config: Partial<SynapseSetupConfig>, logger: Logger): Promise<Synapse> {
+export async function initializeSynapse(
+  config: Partial<SynapseSetupConfig>,
+  logger: Logger,
+  telemetryConfig?: TelemetryConfig
+): Promise<Synapse> {
   try {
     const authMode = validateAuthConfig(config)
 
@@ -325,6 +340,9 @@ export async function initializeSynapse(config: Partial<SynapseSetupConfig>, log
     if (config.warmStorageAddress) {
       synapseOptions.warmStorageAddress = config.warmStorageAddress
     }
+    if (telemetryConfig) {
+      synapseOptions.telemetry = getTelemetryConfig(telemetryConfig)
+    }
 
     let synapse: Synapse
 
@@ -342,7 +360,10 @@ export async function initializeSynapse(config: Partial<SynapseSetupConfig>, log
       const sessionWallet = new Wallet(config.sessionKey, provider)
 
       // Initialize with owner signer, then activate session key
-      synapse = await Synapse.create({ ...synapseOptions, signer: ownerSigner })
+      synapse = await Synapse.create({
+        ...synapseOptions,
+        signer: ownerSigner,
+      })
       await setupSessionKey(synapse, sessionWallet, logger)
     } else if (authMode === 'signer') {
       // Signer mode - type guard ensures signer is defined
@@ -440,7 +461,7 @@ export async function createStorageContext(
      * Callbacks provide visibility into the storage lifecycle
      * These are crucial for debugging and monitoring in production
      */
-    const callbacks: StorageCreationCallbacks = {
+    const callbacks: StorageContextCallbacks = {
       onProviderSelected: (provider) => {
         currentProviderInfo = provider
 
@@ -470,29 +491,6 @@ export async function createStorageContext(
         )
 
         options?.callbacks?.onDataSetResolved?.(info)
-      },
-      onDataSetCreationStarted: (transaction, statusUrl) => {
-        logger.info(
-          {
-            event: 'synapse.storage.data_set_creation_started',
-            txHash: transaction.hash,
-            statusUrl,
-          },
-          'Data set creation transaction submitted'
-        )
-
-        options?.callbacks?.onDataSetCreationStarted?.(transaction)
-      },
-      onDataSetCreationProgress: (status) => {
-        logger.info(
-          {
-            event: 'synapse.storage.data_set_creation_progress',
-            transactionMined: status.transactionMined,
-            dataSetLive: status.dataSetLive,
-            elapsedMs: status.elapsedMs,
-          },
-          'Data set creation progress'
-        )
       },
     }
 
@@ -651,6 +649,11 @@ export async function cleanupProvider(provider: any): Promise<void> {
  * and allow the process to terminate
  */
 export async function cleanupSynapseService(): Promise<void> {
+  // Close telemetry to flush pending events and shutdown cleanly
+  if (synapseInstance) {
+    await synapseInstance.telemetry?.sentry?.close()
+  }
+
   if (activeProvider) {
     await cleanupProvider(activeProvider)
   }

@@ -15,12 +15,14 @@ import {
   checkAllowances,
   checkFILBalance,
   checkUSDFCBalance,
+  DEFAULT_LOCKUP_DAYS,
   depositUSDFC,
   getPaymentStatus,
   setMaxAllowances,
   validatePaymentRequirements,
 } from '../core/payments/index.js'
 import { cleanupProvider, cleanupSynapseService } from '../core/synapse/index.js'
+import { getTelemetryConfig } from '../core/synapse/telemetry-config.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
@@ -90,9 +92,11 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     const rpcUrl = options.rpcUrl || RPC_URLS.calibration.websocket
 
     const synapse = await Synapse.create({
+      telemetry: getTelemetryConfig(),
       privateKey,
       rpcURL: rpcUrl,
       withIpni: true, // Always filter for IPNI-enabled providers
+      ...(options.warmStorageAddress && { warmStorageAddress: options.warmStorageAddress }),
     })
     const network = synapse.getNetwork()
     const client = synapse.getClient()
@@ -226,7 +230,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       log.indent(`100 GiB capacity: ~${formatUSDFC((pricePerGiBPerMonth * 100n * 11n) / 10n)} USDFC`)
       log.indent(`1 TiB capacity:   ~${formatUSDFC((pricePerTiBPerMonth * 11n) / 10n)} USDFC`)
       log.indent(`10 TiB capacity:  ~${formatUSDFC((pricePerTiBPerMonth * 10n * 11n) / 10n)} USDFC`)
-      log.indent(pc.gray('(deposit covers 1 month + 10-day safety reserve)'))
+      log.indent(pc.gray(`(deposit covers 1 month + ${DEFAULT_LOCKUP_DAYS}-day safety reserve)`))
       log.flush()
 
       const amountStr = await text({
@@ -298,7 +302,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
           ? `${(finalCapacity.gibPerMonth / 1024).toFixed(1)} TiB`
           : `${finalCapacity.gibPerMonth.toFixed(1)} GiB`
       log.indent(`Capacity: ~${capacityStr} for 1 month`)
-      log.indent(pc.gray('(includes 10-day safety reserve)'))
+      log.indent(pc.gray(`(includes ${DEFAULT_LOCKUP_DAYS}-day safety reserve)`))
     }
     log.flush()
 
