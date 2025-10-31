@@ -1,8 +1,9 @@
 import { access } from 'node:fs/promises'
+import { initializeSynapse } from 'filecoin-pin/core/synapse'
 import pc from 'picocolors'
 import pino from 'pino'
 import { commentOnPR } from './comments/comment.js'
-import { cleanupSynapse, handlePayments, initializeSynapse, uploadCarToFilecoin } from './filecoin.js'
+import { cleanupSynapse, handlePayments, uploadCarToFilecoin } from './filecoin.js'
 import { ensurePullRequestContext, updateCheck } from './github.js'
 import { parseInputs } from './inputs.js'
 import { writeOutputs, writeSummary } from './outputs.js'
@@ -12,6 +13,7 @@ import { writeOutputs, writeSummary } from './outputs.js'
  * @typedef {import('./types.js').ParsedInputs} ParsedInputs
  * @typedef {import('./types.js').UploadResult} UploadResult
  * @typedef {import('./types.js').PaymentStatus} PaymentStatus
+ * @typedef {import('./types.js').SimplifiedPaymentStatus} SimplifiedPaymentStatus
  * @typedef {import('./types.js').UploadConfig} UploadConfig
  */
 
@@ -120,7 +122,7 @@ export async function runUpload(buildContext = {}) {
    * We already have them in the type we want.
    */
   let { pieceCid, pieceId, dataSetId, provider, previewUrl, network, ipniValidated } = {}
-  /** @type {PaymentStatus} */
+  /** @type {SimplifiedPaymentStatus} */
   let paymentStatus
 
   if (dryRun) {
@@ -133,22 +135,15 @@ export async function runUpload(buildContext = {}) {
     }
     previewUrl = context.previewUrl || 'https://example.com/ipfs/dry-run'
     network = context.network || 'dry-run'
-    paymentStatus = context.paymentStatus || {
+    paymentStatus = {
       filecoinPayBalance: '0',
       walletUsdfcBalance: '0',
       storageRunway: 'Unknown',
       depositedThisRun: '0',
-      network: 'dry-run',
-      address: 'dry-run',
-      filBalance: 0n,
-      currentAllowances: {
-        rateAllowance: 0n,
-        lockupAllowance: 0n,
-        lockupUsed: 0n,
-      },
+      ...context.paymentStatus,
     }
   } else {
-    const synapse = await initializeSynapse({ walletPrivateKey, network: inputNetwork }, logger)
+    const synapse = await initializeSynapse({ privateKey: walletPrivateKey, network: inputNetwork }, logger)
 
     console.log('\n━━━ Funding Phase: Checking Filecoin Pay Account ━━━')
 
@@ -159,7 +154,7 @@ export async function runUpload(buildContext = {}) {
 
     paymentStatus = await handlePayments(
       synapse,
-      { minStorageDays, filecoinPayBalanceLimit, carSizeBytes: context.carSize },
+      { minStorageDays, filecoinPayBalanceLimit, pieceSizeBytes: context.carSize },
       logger
     )
 

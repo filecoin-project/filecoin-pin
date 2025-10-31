@@ -18,11 +18,15 @@
 import { SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import { isSessionKeyMode } from '../synapse/index.js'
+import type { PaymentStatus, ServiceApprovalStatus, StorageAllowances, StorageRunwaySummary } from './types.js'
 
 // Constants
 export const USDFC_DECIMALS = 18
 const MIN_FIL_FOR_GAS = ethers.parseEther('0.1') // Minimum FIL padding for gas
 export const DEFAULT_LOCKUP_DAYS = 30 // WarmStorage requires 30 days lockup
+
+export * from './top-up.js'
+export * from './types.js'
 
 // Maximum allowances for trusted WarmStorage service
 // Using MaxUint256 which MetaMask displays as "Unlimited"
@@ -58,52 +62,6 @@ export function getStorageScale(storageTiB: number): number {
   if (storageTiB <= 0) return 1
   const maxScaleBySafe = Math.floor(Number.MAX_SAFE_INTEGER / storageTiB)
   return Math.max(1, Math.min(STORAGE_SCALE_MAX, maxScaleBySafe))
-}
-
-/**
- * Service approval status from the Payments contract
- */
-export interface ServiceApprovalStatus {
-  rateAllowance: bigint
-  lockupAllowance: bigint
-  lockupUsed: bigint
-  maxLockupPeriod?: bigint
-  rateUsed?: bigint
-}
-
-/**
- * Complete payment status including balances and approvals
- */
-export interface PaymentStatus {
-  network: string
-  address: string
-  filBalance: bigint
-  /** USDFC tokens sitting in the owner wallet (not yet deposited) */
-  walletUsdfcBalance: bigint
-  /** USDFC balance currently deposited into Filecoin Pay (WarmStorage contract) */
-  filecoinPayBalance: bigint
-  currentAllowances: ServiceApprovalStatus
-}
-
-/**
- * Storage allowance calculations
- */
-export interface StorageAllowances {
-  rateAllowance: bigint
-  lockupAllowance: bigint
-  storageCapacityTiB: number
-}
-
-export type StorageRunwayState = 'unknown' | 'no-spend' | 'active'
-
-export interface StorageRunwaySummary {
-  state: StorageRunwayState
-  available: bigint
-  rateUsed: bigint
-  perDay: bigint
-  lockupUsed: bigint
-  days: number
-  hours: number
 }
 
 /**
@@ -956,6 +914,40 @@ export interface PaymentCapacityCheck {
 }
 
 /**
+ * Calculate piece upload deposit requirements
+ *
+ * @param status - Current payment status
+ * @param pieceSizeBytes - Size of the piece (CAR, File, etc.) file in bytes
+ * @param pricePerTiBPerEpoch - Current pricing from storage service
+ * @returns Piece upload deposit requirements
+ */
+export function calculatePieceUploadRequirements(
+  status: PaymentStatus,
+  pieceSizeBytes: number,
+  pricePerTiBPerEpoch: bigint
+): {
+  required: StorageAllowances
+  totalDepositNeeded: bigint
+  insufficientDeposit: bigint
+  canUpload: boolean
+} {
+  // Calculate requirements
+  const required = calculateRequiredAllowances(pieceSizeBytes, pricePerTiBPerEpoch)
+  const totalDepositNeeded = withBuffer(required.lockupAllowance)
+
+  // Check if current deposit can cover the new file's lockup requirement
+  const insufficientDeposit =
+    status.filecoinPayBalance < totalDepositNeeded ? totalDepositNeeded - status.filecoinPayBalance : 0n
+
+  return {
+    required,
+    totalDepositNeeded,
+    insufficientDeposit,
+    canUpload: insufficientDeposit === 0n,
+  }
+}
+
+/**
  * Validate payment capacity for a specific piece size
  *
  * This function checks if the deposit is sufficient for the piece upload. It
@@ -992,27 +984,26 @@ export async function validatePaymentCapacity(synapse: Synapse, pieceSizeBytes: 
   const storageTiB = pieceSizeBytes / Number(SIZE_CONSTANTS.TiB)
 
   // Calculate requirements
-  const required = calculateRequiredAllowances(pieceSizeBytes, pricePerTiBPerEpoch)
-  const totalDepositNeeded = withBuffer(required.lockupAllowance)
+  const uploadRequirements = calculatePieceUploadRequirements(status, pieceSizeBytes, pricePerTiBPerEpoch)
 
   const result: PaymentCapacityCheck = {
-    canUpload: true,
+    canUpload: uploadRequirements.canUpload,
     storageTiB,
-    required,
+    required: uploadRequirements.required,
     issues: {},
     suggestions: [],
   }
 
   // Only check deposit
-  if (status.filecoinPayBalance < totalDepositNeeded) {
+  if (uploadRequirements.insufficientDeposit > 0n) {
     result.canUpload = false
-    result.issues.insufficientDeposit = totalDepositNeeded - status.filecoinPayBalance
-    const depositNeeded = ethers.formatUnits(totalDepositNeeded - status.filecoinPayBalance, 18)
+    result.issues.insufficientDeposit = uploadRequirements.insufficientDeposit
+    const depositNeeded = ethers.formatUnits(uploadRequirements.insufficientDeposit, 18)
     result.suggestions.push(`Deposit at least ${depositNeeded} USDFC`)
   }
 
   // Add warning if approaching deposit limit
-  const totalLockupAfter = status.currentAllowances.lockupUsed + required.lockupAllowance
+  const totalLockupAfter = status.currentAllowances.lockupUsed + uploadRequirements.required.lockupAllowance
   if (totalLockupAfter > withoutBuffer(status.filecoinPayBalance) && result.canUpload) {
     const additionalDeposit = ethers.formatUnits(withBuffer(totalLockupAfter) - status.filecoinPayBalance, 18)
     result.suggestions.push(`Consider depositing ${additionalDeposit} more USDFC for safety margin`)
