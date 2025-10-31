@@ -24,7 +24,7 @@ import type { AutoFundOptions } from '../payments/types.js'
 import type { Spinner } from '../utils/cli-helpers.js'
 import { cancel, formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import { createSpinnerFlow } from '../utils/cli-spinner-flow.js'
+import { createSpinnerFlow } from '../utils/multi-operation-spinner.js'
 
 export interface UploadFlowOptions {
   /**
