@@ -235,6 +235,10 @@ export async function executeUpload(
             ipniValidationPromise = validateIPNIAdvertisement(rootCid, {
               ...rest,
               logger,
+              ...(options?.onProgress != null ? { onProgress: options.onProgress } : {}),
+            }).catch((error) => {
+              logger.error({ error }, 'IPNI advertisement validation promise rejected')
+              return false
             })
           } catch (error) {
             logger.error({ error }, 'Could not begin IPNI advertisement validation')

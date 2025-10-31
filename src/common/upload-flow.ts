@@ -321,8 +321,6 @@ export async function performUpload(
           ])
 
           pendingOps.set('chain', 'Confirming piece added to DataSet on-chain')
-
-          spinner?.start(getSpinnerMessage())
           break
         }
         case 'onPieceConfirmed': {
@@ -333,9 +331,11 @@ export async function performUpload(
         case 'ipniAdvertisement.retryUpdate': {
           if (event.data.retryCount === 0) {
             pendingOps.set('ipni', getIpniAdvertisementMsg(1))
+            spinner?.message(getSpinnerMessage())
+          } else {
+            pendingOps.set('ipni', getIpniAdvertisementMsg(event.data.retryCount + 1))
+            spinner?.message(getSpinnerMessage())
           }
-          pendingOps.set('ipni', getIpniAdvertisementMsg(event.data.retryCount + 1))
-          spinner?.message(getSpinnerMessage())
           break
         }
         case 'ipniAdvertisement.complete': {
