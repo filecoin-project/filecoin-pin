@@ -3,9 +3,11 @@
  */
 import type { PaymentStatus as FilecoinPinPaymentStatus } from 'filecoin-pin/core/payments'
 import type { CreateStorageContextOptions, SynapseService } from 'filecoin-pin/core/synapse'
-
+import type { Logger as PinoLogger } from 'pino'
 export type { FilecoinPinPaymentStatus, CreateStorageContextOptions }
 export type Synapse = SynapseService['synapse']
+
+export type Logger = PinoLogger
 
 // Base result types
 export interface UploadResult {
@@ -60,6 +62,13 @@ export interface PaymentStatus extends Omit<FilecoinPinPaymentStatus, 'walletUsd
   depositedThisRun: string
 }
 
+export interface SimplifiedPaymentStatus {
+  filecoinPayBalance: string
+  walletUsdfcBalance: string
+  storageRunway: string
+  depositedThisRun: string
+}
+
 // Configuration types
 export interface PRMetadata {
   number: number
@@ -71,7 +80,7 @@ export interface PRMetadata {
 export interface PaymentConfig {
   minStorageDays: number
   filecoinPayBalanceLimit?: bigint | undefined
-  carSizeBytes?: number | undefined
+  pieceSizeBytes?: number | undefined
 }
 
 export interface UploadConfig {

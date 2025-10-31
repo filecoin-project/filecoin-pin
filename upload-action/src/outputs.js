@@ -91,6 +91,8 @@ export function getOutputSummary(context, status) {
       rateAllowance: 0n,
       lockupAllowance: 0n,
       lockupUsed: 0n,
+      maxLockupPeriod: 0n,
+      rateUsed: 0n,
     },
     ...context?.paymentStatus,
   }
