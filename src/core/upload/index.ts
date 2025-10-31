@@ -230,16 +230,15 @@ export async function executeUpload(
       case 'onPieceAdded': {
         // Begin IPNI validation as soon as the piece is added and parked in the data set
         if (options.ipniValidation?.enabled !== false && ipniValidationPromise == null) {
-          try {
-            const { enabled: _enabled, ...rest } = options.ipniValidation ?? {}
-            ipniValidationPromise = validateIPNIAdvertisement(rootCid, {
-              ...rest,
-              logger,
-            })
-          } catch (error) {
-            logger.error({ error }, 'Could not begin IPNI advertisement validation')
-            ipniValidationPromise = Promise.resolve(false)
-          }
+          const { enabled: _enabled, ...rest } = options.ipniValidation ?? {}
+          ipniValidationPromise = validateIPNIAdvertisement(rootCid, {
+            ...rest,
+            logger,
+            ...(options?.onProgress != null ? { onProgress: options.onProgress } : {}),
+          }).catch((error) => {
+            logger.warn({ error }, 'IPNI advertisement validation promise rejected')
+            return false
+          })
         }
         if (event.data.txHash != null) {
           transactionHash = event.data.txHash

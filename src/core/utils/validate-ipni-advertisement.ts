@@ -4,7 +4,7 @@ import type { ProgressEvent, ProgressEventHandler } from './types.js'
 
 export type ValidateIPNIProgressEvents =
   | ProgressEvent<'ipniAdvertisement.retryUpdate', { retryCount: number }>
-  | ProgressEvent<'ipniAdvertisement.complete', { result: boolean; retryCount: number }>
+  | ProgressEvent<'ipniAdvertisement.complete', { result: true; retryCount: number }>
   | ProgressEvent<'ipniAdvertisement.failed', { error: Error }>
 
 export interface ValidateIPNIAdvertisementOptions {
@@ -81,7 +81,7 @@ export async function validateIPNIAdvertisement(
       try {
         options?.onProgress?.({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount } })
       } catch (error) {
-        options?.logger?.error({ error }, 'Error in consumer onProgress callback for retryUpdate event')
+        options?.logger?.warn({ error }, 'Error in consumer onProgress callback for retryUpdate event')
       }
 
       const response = await fetch(`https://filecoinpin.contact/cid/${ipfsRootCid}`, fetchOptions)
@@ -89,11 +89,12 @@ export async function validateIPNIAdvertisement(
         try {
           options?.onProgress?.({ type: 'ipniAdvertisement.complete', data: { result: true, retryCount } })
         } catch (error) {
-          options?.logger?.error({ error }, 'Error in consumer onProgress callback for complete event')
+          options?.logger?.warn({ error }, 'Error in consumer onProgress callback for complete event')
         }
         resolve(true)
         return
       }
+
       if (++retryCount < maxAttempts) {
         options?.logger?.info(
           { retryCount, maxAttempts },
@@ -106,20 +107,21 @@ export async function validateIPNIAdvertisement(
         await new Promise((resolve) => setTimeout(resolve, delayMs))
         await check()
       } else {
+        // Max attempts reached - don't emit 'complete' event, just throw
+        // The outer catch handler will emit 'failed' event
         const msg = `IPFS root CID "${ipfsRootCid.toString()}" not announced to IPNI after ${maxAttempts} attempt${maxAttempts === 1 ? '' : 's'}`
         const error = new Error(msg)
-        options?.logger?.error({ error }, msg)
-        try {
-          options?.onProgress?.({ type: 'ipniAdvertisement.complete', data: { result: false, retryCount } })
-        } catch (error) {
-          options?.logger?.error({ error }, 'Error in consumer onProgress callback for complete event')
-        }
+        options?.logger?.warn({ error }, msg)
         throw error
       }
     }
 
     check().catch((error) => {
-      options?.onProgress?.({ type: 'ipniAdvertisement.failed', data: { error } })
+      try {
+        options?.onProgress?.({ type: 'ipniAdvertisement.failed', data: { error } })
+      } catch (callbackError) {
+        options?.logger?.warn({ error: callbackError }, 'Error in consumer onProgress callback for failed event')
+      }
       reject(error)
     })
   })

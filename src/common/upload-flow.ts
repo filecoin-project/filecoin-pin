@@ -24,6 +24,7 @@ import type { AutoFundOptions } from '../payments/types.js'
 import type { Spinner } from '../utils/cli-helpers.js'
 import { cancel, formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
+import { createSpinnerFlow } from '../utils/multi-operation-spinner.js'
 
 export interface UploadFlowOptions {
   /**
@@ -249,42 +250,13 @@ export async function performUpload(
 ): Promise<UploadFlowResult> {
   const { contextType, logger, spinner } = options
 
-  spinner?.start('Uploading to Filecoin...')
+  // Create spinner flow manager for tracking all operations
+  const flow = createSpinnerFlow(spinner)
 
-  // Track parallel operations with their messages
-  const pendingOps = new Map<string, string>()
+  // Start with upload operation
+  flow.addOperation('upload', 'Uploading to Filecoin...')
+
   let transactionHash: string | undefined
-
-  function getSpinnerMessage() {
-    return Array.from(pendingOps.values())
-      .map((op) => op)
-      .join(' & ')
-  }
-
-  function completeOperation(
-    operationKey: string,
-    completionMessage: string,
-    type: 'success' | 'warning' | 'info' | 'none' = 'success'
-  ) {
-    pendingOps.delete(operationKey)
-
-    switch (type) {
-      case 'success':
-        spinner?.stop(`${pc.green('✓')} ${completionMessage}`)
-        break
-      case 'warning':
-        spinner?.stop(`${pc.yellow('⚠')} ${completionMessage}`)
-        break
-      default:
-        spinner?.stop(completionMessage)
-        break
-    }
-
-    // Restart spinner with remaining operations if any
-    if (pendingOps.size > 0) {
-      spinner?.start(getSpinnerMessage())
-    }
-  }
 
   let pieceCid: PieceCID | undefined
   function getIpniAdvertisementMsg(attemptCount: number): string {
@@ -298,69 +270,78 @@ export async function performUpload(
       switch (event.type) {
         case 'onUploadComplete': {
           pieceCid = event.data.pieceCid
-          spinner?.stop(`${pc.green('✓')} Upload complete`)
-          const serviceURL = getServiceURL(synapseService.providerInfo)
-          if (serviceURL != null && serviceURL !== '') {
-            log.spinnerSection('Download IPFS CAR from SP', [
-              pc.gray(`${serviceURL.replace(/\/$/, '')}/ipfs/${rootCid}`),
-            ])
-          }
-          spinner?.start('Adding piece to DataSet...')
+          flow.completeOperation('upload', 'Upload complete', {
+            type: 'success',
+            details: (() => {
+              const serviceURL = getServiceURL(synapseService.providerInfo)
+              if (serviceURL != null && serviceURL !== '') {
+                return {
+                  title: 'Download IPFS CAR from SP',
+                  content: [pc.gray(`${serviceURL.replace(/\/$/, '')}/ipfs/${rootCid}`)],
+                }
+              }
+              return
+            })(),
+          })
+          // Start adding piece to dataset operation
+          flow.addOperation('add-to-dataset', 'Adding piece to DataSet...')
           break
         }
         case 'onPieceAdded': {
-          spinner?.stop(`${pc.green('✓')} Piece added to DataSet (unconfirmed on-chain)`)
           if (event.data.txHash) {
             transactionHash = event.data.txHash
           }
-          log.spinnerSection('Explorer URLs', [
-            pc.gray(`Piece: https://pdp.vxb.ai/calibration/piece/${pieceCid}`),
-            pc.gray(
-              `Transaction: https://${synapseService.synapse.getNetwork()}.filfox.info/en/message/${transactionHash}`
-            ),
-          ])
-
-          pendingOps.set('chain', 'Confirming piece added to DataSet on-chain')
-
-          spinner?.start(getSpinnerMessage())
+          flow.completeOperation('add-to-dataset', 'Piece added to DataSet (unconfirmed on-chain)', {
+            type: 'success',
+            details: {
+              title: 'Explorer URLs',
+              content: [
+                pc.gray(`Piece: https://pdp.vxb.ai/calibration/piece/${pieceCid}`),
+                pc.gray(
+                  `Transaction: https://${synapseService.synapse.getNetwork()}.filfox.info/en/message/${transactionHash}`
+                ),
+              ],
+            },
+          })
+          // Start chain confirmation operation
+          flow.addOperation('chain', 'Confirming piece added to DataSet on-chain')
           break
         }
         case 'onPieceConfirmed': {
-          completeOperation('chain', `Piece added to DataSet (confirmed on-chain)`, 'success')
+          flow.completeOperation('chain', 'Piece added to DataSet (confirmed on-chain)', {
+            type: 'success',
+          })
           break
         }
 
         case 'ipniAdvertisement.retryUpdate': {
-          if (event.data.retryCount === 0) {
-            pendingOps.set('ipni', getIpniAdvertisementMsg(1))
-          }
-          pendingOps.set('ipni', getIpniAdvertisementMsg(event.data.retryCount + 1))
-          spinner?.message(getSpinnerMessage())
+          const attemptCount = event.data.retryCount === 0 ? 1 : event.data.retryCount + 1
+          flow.addOperation('ipni', getIpniAdvertisementMsg(attemptCount))
           break
         }
         case 'ipniAdvertisement.complete': {
-          const isIpniAdvertisementSuccessful = event.data.result
-          const message = isIpniAdvertisementSuccessful
-            ? `IPNI advertisement successful. IPFS retrieval possible.`
-            : `IPNI advertisement pending`
-
-          completeOperation('ipni', message, isIpniAdvertisementSuccessful ? 'success' : 'warning')
-
-          if (isIpniAdvertisementSuccessful) {
-            log.spinnerSection('IPFS Retrieval URLs', [
-              pc.gray(`ipfs://${rootCid}`),
-              pc.gray(`https://inbrowser.link/ipfs/${rootCid}`),
-              pc.gray(`https://dweb.link/ipfs/${rootCid}`),
-            ])
-          }
+          // complete event is only emitted when result === true (success)
+          flow.completeOperation('ipni', 'IPNI advertisement successful. IPFS retrieval possible.', {
+            type: 'success',
+            details: {
+              title: 'IPFS Retrieval URLs',
+              content: [
+                pc.gray(`ipfs://${rootCid}`),
+                pc.gray(`https://inbrowser.link/ipfs/${rootCid}`),
+                pc.gray(`https://dweb.link/ipfs/${rootCid}`),
+              ],
+            },
+          })
           break
         }
         case 'ipniAdvertisement.failed': {
-          logger.error({ error: event.data.error }, 'Error checking IPNI advertisement')
-          completeOperation('ipni', `IPNI advertisement check failed`, 'warning')
-          log.spinnerSection('IPNI advertisement check failed', [
-            pc.gray(`IPNI advertisement does not exist at http://filecoinpin.contact/cid/${rootCid}`),
-          ])
+          flow.completeOperation('ipni', 'IPNI advertisement failed.', {
+            type: 'warning',
+            details: {
+              title: 'IPFS retrieval is not possible yet.',
+              content: [pc.gray(`IPNI advertisement does not exist at http://filecoinpin.contact/cid/${rootCid}`)],
+            },
+          })
           break
         }
         default: {
