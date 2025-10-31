@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.11.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.10.1...v0.11.0) (2025-10-31)
+
+
+### Features
+
+* add more details to upload-flow ([#169](https://github.com/filecoin-project/filecoin-pin/issues/169)) ([9ab3f8c](https://github.com/filecoin-project/filecoin-pin/commit/9ab3f8c110ce0b6c6bf21c1fcdbcf84ade557953))
+* use synapse-sdk telemetry ([#154](https://github.com/filecoin-project/filecoin-pin/issues/154)) ([15c00ee](https://github.com/filecoin-project/filecoin-pin/commit/15c00eee5f13319e01a30a748fea991dbcbea897))
+
+
+### Bug Fixes
+
+* add signer support to initializeSynapse ([#172](https://github.com/filecoin-project/filecoin-pin/issues/172)) ([1d5988a](https://github.com/filecoin-project/filecoin-pin/commit/1d5988a8e2a6115025f285ffa76923c62e5d25dd))
+* check ipni advertisement during upload ([#183](https://github.com/filecoin-project/filecoin-pin/issues/183)) ([b020a42](https://github.com/filecoin-project/filecoin-pin/commit/b020a42803dfaaf7945c32e52a6e83bf5d2b20dc))
+* **ci:** handle duplicate items in add-to-project workflow ([#184](https://github.com/filecoin-project/filecoin-pin/issues/184)) ([0e80256](https://github.com/filecoin-project/filecoin-pin/commit/0e802564065b9139e36e860874a320f4c043f924))
+* gh-action lints and typechecks on core changes ([#170](https://github.com/filecoin-project/filecoin-pin/issues/170)) ([107a023](https://github.com/filecoin-project/filecoin-pin/commit/107a0239877bc64fee8e43d35040e8209ae652eb))
+* move gh-action logic to filecoin-pin/core ([#143](https://github.com/filecoin-project/filecoin-pin/issues/143)) ([ef6adc1](https://github.com/filecoin-project/filecoin-pin/commit/ef6adc12dd5c7dc951da17f74fae680fb06188f2))
+* upload-flow renders correct spacing and IPNI info ([#191](https://github.com/filecoin-project/filecoin-pin/issues/191)) ([9a7a484](https://github.com/filecoin-project/filecoin-pin/commit/9a7a4845ad9134ce5151ed6aa638ceb1f53fa558))
+
+
+### Chores
+
+* move to the version of synapse-sdk on `next` branch ([#146](https://github.com/filecoin-project/filecoin-pin/issues/146)) ([528c6fa](https://github.com/filecoin-project/filecoin-pin/commit/528c6fac57d7582c77332c097058946a9d9852d2))
+
+
+### Documentation
+
+* link to more examples ([#181](https://github.com/filecoin-project/filecoin-pin/issues/181)) ([849b333](https://github.com/filecoin-project/filecoin-pin/commit/849b333b0ccb6ed2f7c0389f0ed12f239a13cdae))
+
 ## [0.10.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.10.0...v0.10.1) (2025-10-27)
 
 
