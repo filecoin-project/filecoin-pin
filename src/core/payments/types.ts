@@ -5,8 +5,8 @@ export interface ServiceApprovalStatus {
   rateAllowance: bigint
   lockupAllowance: bigint
   lockupUsed: bigint
-  maxLockupPeriod?: bigint
-  rateUsed?: bigint
+  maxLockupPeriod: bigint
+  rateUsed: bigint
 }
 
 /**

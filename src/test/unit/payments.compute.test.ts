@@ -5,6 +5,7 @@ import {
   computeAdjustmentForExactDaysWithPiece,
   computeAdjustmentForExactDeposit,
   computeTopUpForDuration,
+  DEFAULT_LOCKUP_DAYS,
   type PaymentStatus,
   type ServiceApprovalStatus,
 } from '../../core/payments/index.js'
@@ -15,6 +16,7 @@ function makeStatus(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; r
     lockupAllowance: 0n,
     lockupUsed: params.lockupUsed ?? 0n,
     rateUsed: params.rateUsed ?? 0n,
+    maxLockupPeriod: BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY,
   }
 
   return {
