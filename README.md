@@ -98,6 +98,27 @@ The [Synapse SDK](https://synapse.filecoin.services/) is the main library, as it
 
 The affordances were [discussed more above](#affordances).  All affordances use the same core library, ensuring consistent behavior and making it easy to add new interfaces in the future.
 
+## Telemetry
+
+Filecoin Pain collects telemetry.  A few things:
+* Telemetry always [has a way to be disabled](#how-to-disable-telemetry).  
+* We don't collect Personal identifiable information (PII).
+* With our [end user affordance](#affordances) we expect to make telemetry on by default, requiring a consumer/user to opt out.  We are defaulting as "enabled" to help make sure we have a good pulse on the user experience and can address issues correctly.
+* In this [pre-v1 season](https://github.com/filecoin-project/filecoin-pin/issues/187), we are particularly focused on helping maintainers validate functionality and iron out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on.  We're piggy-backing on the underlying telemetry setup/system of Synapse, which uses sentry.io.  The telemetry we get from synapse-sdk is more invasive than we'd do if just setting it up for [Filecoin Pin affordances](#affordances), but this was the most resource efficient way to be able to get a pulse on what errors are happening where in the stack.  
+* Learn more at the Synapse telemetry docs ([docs site](https://synapse.filecoin.services/guides/telemetry/), [github](https://github.com/FilOzone/synapse-sdk/blob/master/docs/src/content/docs/guides/telemetry.md)).
+
+### How to disable telemetry
+Telemetry can be disabled in JS by instantiating X with 
+
+```
+filecoinPin.create({
+  /* ...existing options... */
+  telemetry : { sentryInitOptions : { enabled: false } },
+})
+```
+
+If using a different affordance like the CLI or example GitHub Action, then the following telemetry can be disabled by environment variable.  Because filecoin-pin telemetry is tied to synapse's telemetry currently, see the Synapse telemetry docs ([docs site](https://synapse.filecoin.services/guides/telemetry/#how-to-disable-telemetry), [github](https://github.com/FilOzone/synapse-sdk/blob/master/docs/src/content/docs/guides/telemetry.md#how-to-disable-telemetry)) for how to do this.
+
 ## Quick Start
 
 ### Prerequisites
