@@ -8,7 +8,7 @@ import { confirm } from '@clack/prompts'
 import { type Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { MIN_RUNWAY_DAYS } from '../common/constants.js'
+import { MIN_RUNWAY_DAYS, TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import {
   calculateStorageRunway,
   checkAndSetAllowances,
@@ -247,7 +247,7 @@ export async function runFund(options: FundOptions): Promise<void> {
 
     const logger = getCLILogger()
     const synapse = await initializeSynapse(
-      { ...authConfig, telemetry: { sentrySetTags: { appName: 'filecoinPinCli' } } },
+      { ...authConfig, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
       logger
     )
 

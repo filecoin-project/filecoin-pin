@@ -1,6 +1,7 @@
 import type { EnhancedDataSetInfo, ProviderInfo, Synapse } from '@filoz/synapse-sdk'
 import { PDPServer, PDPVerifier, WarmStorageService } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
+import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
 import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
@@ -190,7 +191,7 @@ export async function runDataSetCommand(
 
     const logger = getCLILogger()
     synapse = await initializeSynapse(
-      { ...authConfig, telemetry: { sentrySetTags: { appName: 'filecoinPinCli' } } },
+      { ...authConfig, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
       logger
     )
     const network = synapse.getNetwork()
