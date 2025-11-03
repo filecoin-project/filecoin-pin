@@ -108,7 +108,7 @@ Filecoin Pain collects telemetry.  A few things:
 * Learn more at the Synapse telemetry docs ([docs site](https://synapse.filecoin.services/guides/telemetry/), [github](https://github.com/FilOzone/synapse-sdk/blob/master/docs/src/content/docs/guides/telemetry.md)).
 
 ### How to disable telemetry
-Telemetry can be disabled in JS by instantiating X with
+Telemetry can be disabled in JS with:
 
 ```
 initializeSynapse(synapseConfig, logger, { sentryInitOptions: { enabled: false } })
