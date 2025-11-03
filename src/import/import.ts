@@ -128,7 +128,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
   // Initialize logger (silent for CLI output)
   const logger = pino({
-    level: process.env.LOG_LEVEL || 'error',
+    level: process.env.LOG_LEVEL || 'silent',
   })
 
   // Check CDN status and warn if enabled
