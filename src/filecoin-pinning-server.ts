@@ -38,6 +38,11 @@ export async function createFilecoinPinningServer(
     {
       ...config,
       privateKey: config.privateKey,
+      telemetry: {
+        sentrySetTags: {
+          appName: 'filecoinPinIPFSPinningServer',
+        },
+      },
     },
     logger,
     providerOptions

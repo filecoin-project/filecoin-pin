@@ -12,6 +12,7 @@ import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
+import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import {
   cleanupSynapseService,
@@ -182,7 +183,10 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     if (withCDN) config.withCDN = true
 
     // Initialize just the Synapse SDK
-    const synapse = await initializeSynapse(config, logger)
+    const synapse = await initializeSynapse(
+      { ...config, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
+      logger
+    )
     const network = synapse.getNetwork()
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)

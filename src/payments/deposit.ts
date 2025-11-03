@@ -8,6 +8,7 @@
 
 import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import {
   calculateStorageRunway,
   checkFILBalance,
@@ -57,7 +58,10 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     })
 
     const logger = getCLILogger()
-    const synapse = await initializeSynapse(authConfig, logger)
+    const synapse = await initializeSynapse(
+      { ...authConfig, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
+      logger
+    )
 
     const [filStatus, walletUsdfcBalance, status] = await Promise.all([
       checkFILBalance(synapse),

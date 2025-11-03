@@ -65,17 +65,17 @@ interface BaseSynapseConfig {
   warmStorageAddress?: string | undefined
   withCDN?: boolean | undefined
   /**
-   * Telemetry configuration, merges fields, but appends "appName" to the existing appName
+   * Telemetry configuration.
+   * Defaults to enabled unless explicitly disabled.
    * @example
    * {
    *   sentryInitOptions: {
-   *     enabled: true,
+   *     enabled: false, // if want to disable telemetry.
    *   },
    *   sentrySetTags: {
    *     appName: "${your-app-name}",
    *   },
    * }
-   * will result in your appName being "filecoin-pin@v1.0.0-${your-app-name}"
    */
   telemetry?: TelemetryConfig
 }
@@ -312,11 +312,7 @@ async function setupSessionKey(synapse: Synapse, sessionWallet: Wallet, logger: 
  * @param logger - Logger instance for detailed operation tracking
  * @returns Initialized Synapse instance
  */
-export async function initializeSynapse(
-  config: Partial<SynapseSetupConfig>,
-  logger: Logger,
-  telemetryConfig?: TelemetryConfig
-): Promise<Synapse> {
+export async function initializeSynapse(config: Partial<SynapseSetupConfig>, logger: Logger): Promise<Synapse> {
   try {
     const authMode = validateAuthConfig(config)
 
@@ -340,9 +336,7 @@ export async function initializeSynapse(
     if (config.warmStorageAddress) {
       synapseOptions.warmStorageAddress = config.warmStorageAddress
     }
-    if (telemetryConfig) {
-      synapseOptions.telemetry = getTelemetryConfig(telemetryConfig)
-    }
+    synapseOptions.telemetry = getTelemetryConfig(config.telemetry)
 
     let synapse: Synapse
 
