@@ -189,7 +189,7 @@ export async function runDataSetCommand(
     })
 
     const logger = getCLILogger()
-    synapse = await initializeSynapse(authConfig, logger)
+    synapse = await initializeSynapse(authConfig, logger, { sentrySetTags: { appName: 'filecoinPinCli' } })
     const network = synapse.getNetwork()
     const client = synapse.getClient()
     const address = await client.getAddress()

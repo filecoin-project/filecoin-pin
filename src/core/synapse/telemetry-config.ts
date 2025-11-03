@@ -12,7 +12,7 @@ export const getTelemetryConfig = (config?: TelemetryConfig | undefined): Teleme
     },
     sentrySetTags: {
       ...config?.sentrySetTags,
-      filecoinPinVersion : `${packageJson.name}@v${packageJson.version}`
+      filecoinPinVersion: `${packageJson.name}@v${packageJson.version}`,
     },
   }
 }

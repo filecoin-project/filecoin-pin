@@ -143,7 +143,9 @@ export async function runUpload(buildContext = {}) {
       ...context.paymentStatus,
     }
   } else {
-    const synapse = await initializeSynapse({ privateKey: walletPrivateKey, network: inputNetwork }, logger)
+    const synapse = await initializeSynapse({ privateKey: walletPrivateKey, network: inputNetwork }, logger, {
+      sentrySetTags: { appName: 'filecoinPinGitHubAction' },
+    })
 
     console.log('\n━━━ Funding Phase: Checking Filecoin Pay Account ━━━')
 

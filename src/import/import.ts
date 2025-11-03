@@ -182,7 +182,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     if (withCDN) config.withCDN = true
 
     // Initialize just the Synapse SDK
-    const synapse = await initializeSynapse(config, logger)
+    const synapse = await initializeSynapse(config, logger, { sentrySetTags: { appName: 'filecoinPinCli' } })
     const network = synapse.getNetwork()
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
