@@ -399,7 +399,12 @@ describe('CAR Import', () => {
         expect.objectContaining({
           rpcUrl: customRpcUrl,
         }),
-        expect.any(Object)
+        expect.any(Object),
+        expect.objectContaining({
+          sentrySetTags: {
+            appName: 'filecoinPinCli',
+          },
+        })
       )
     })
   })
