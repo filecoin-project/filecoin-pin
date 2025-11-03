@@ -32,3 +32,4 @@ jobs:
       - name: Check TypeScript
         run: |
           npm run typecheck
+          npm run typecheck --prefix upload-action
