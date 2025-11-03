@@ -2,6 +2,8 @@
 
 ## [0.11.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.10.1...v0.11.0) (2025-11-03)
 
+### ⚠️ Breaking Functionality
+With the update to synpase 0.35.x, filecoin-pin is now using a new set of [Filecoin Onchain Cloud contracts](https://github.com/FilOzone/filecoin-services/releases/tag/v1.0.0).  DataSets created previously are no longer accessible through this release of `filecoin-pin`.
 
 ### Features
 
