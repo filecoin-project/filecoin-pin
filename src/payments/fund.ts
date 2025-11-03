@@ -246,7 +246,10 @@ export async function runFund(options: FundOptions): Promise<void> {
     })
 
     const logger = getCLILogger()
-    const synapse = await initializeSynapse({ ...authConfig, telemetry: { sentrySetTags: { appName: 'filecoinPinCli' } } }, logger)
+    const synapse = await initializeSynapse(
+      { ...authConfig, telemetry: { sentrySetTags: { appName: 'filecoinPinCli' } } },
+      logger
+    )
 
     const filStatus = await checkFILBalance(synapse)
     if (!filStatus.hasSufficientGas) {

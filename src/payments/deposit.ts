@@ -57,7 +57,10 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     })
 
     const logger = getCLILogger()
-    const synapse = await initializeSynapse({ ...authConfig, telemetry: { sentrySetTags: { appName: 'filecoinPinCli' } } }, logger)
+    const synapse = await initializeSynapse(
+      { ...authConfig, telemetry: { sentrySetTags: { appName: 'filecoinPinCli' } } },
+      logger
+    )
 
     const [filStatus, walletUsdfcBalance, status] = await Promise.all([
       checkFILBalance(synapse),

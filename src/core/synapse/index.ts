@@ -312,10 +312,7 @@ async function setupSessionKey(synapse: Synapse, sessionWallet: Wallet, logger: 
  * @param logger - Logger instance for detailed operation tracking
  * @returns Initialized Synapse instance
  */
-export async function initializeSynapse(
-  config: Partial<SynapseSetupConfig>,
-  logger: Logger,
-): Promise<Synapse> {
+export async function initializeSynapse(config: Partial<SynapseSetupConfig>, logger: Logger): Promise<Synapse> {
   try {
     const authMode = validateAuthConfig(config)
 

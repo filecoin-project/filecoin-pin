@@ -112,7 +112,10 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     if (withCDN) config.withCDN = true
 
     // Initialize just the Synapse SDK
-    const synapse = await initializeSynapse({ ...config, telemetry: { sentrySetTags: { appName: 'filecoinPinCli' } } }, logger)
+    const synapse = await initializeSynapse(
+      { ...config, telemetry: { sentrySetTags: { appName: 'filecoinPinCli' } } },
+      logger
+    )
     const network = synapse.getNetwork()
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)

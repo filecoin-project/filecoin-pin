@@ -56,7 +56,10 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     })
 
     const logger = getCLILogger()
-    const synapse = await initializeSynapse({ ...authConfig, telemetry: { sentrySetTags: { appName: 'filecoinPinCli' } } }, logger)
+    const synapse = await initializeSynapse(
+      { ...authConfig, telemetry: { sentrySetTags: { appName: 'filecoinPinCli' } } },
+      logger
+    )
     const network = synapse.getNetwork()
     const client = synapse.getClient()
     const address = await client.getAddress()
