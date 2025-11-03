@@ -315,7 +315,6 @@ async function setupSessionKey(synapse: Synapse, sessionWallet: Wallet, logger: 
 export async function initializeSynapse(
   config: Partial<SynapseSetupConfig>,
   logger: Logger,
-  telemetryConfig?: TelemetryConfig
 ): Promise<Synapse> {
   try {
     const authMode = validateAuthConfig(config)
@@ -340,9 +339,7 @@ export async function initializeSynapse(
     if (config.warmStorageAddress) {
       synapseOptions.warmStorageAddress = config.warmStorageAddress
     }
-    if (telemetryConfig) {
-      synapseOptions.telemetry = getTelemetryConfig(telemetryConfig)
-    }
+    synapseOptions.telemetry = getTelemetryConfig(config.telemetry)
 
     let synapse: Synapse
 

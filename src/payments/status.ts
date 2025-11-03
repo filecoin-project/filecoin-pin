@@ -47,7 +47,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     })
 
     const logger = getCLILogger()
-    const synapse = await initializeSynapse(authConfig, logger, { sentrySetTags: { appName: 'filecoinPinCli' } })
+    const synapse = await initializeSynapse({ ...authConfig, telemetry: { sentrySetTags: { appName: 'filecoinPinCli' } } }, logger)
     const network = synapse.getNetwork()
     const client = synapse.getClient()
     const address = await client.getAddress()

@@ -110,8 +110,8 @@ Filecoin Pain collects telemetry.  A few things:
 ### How to disable telemetry
 Telemetry can be disabled in JS with:
 
-```
-initializeSynapse(synapseConfig, logger, { sentryInitOptions: { enabled: false } })
+```typescript
+const synapse = await initializeSynapse({ ...synapseConfig, telemetry: { sentryInitOptions: { enabled: false } } }, logger)
 ```
 
 If using a different affordance like the CLI or example GitHub Action, then the following telemetry can be disabled by environment variable.  Because filecoin-pin telemetry is tied to synapse's telemetry currently, see the Synapse telemetry docs ([docs site](https://synapse.filecoin.services/guides/telemetry/#how-to-disable-telemetry), [github](https://github.com/FilOzone/synapse-sdk/blob/master/docs/src/content/docs/guides/telemetry.md#how-to-disable-telemetry)) for how to do this.

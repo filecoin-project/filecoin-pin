@@ -42,7 +42,7 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
     })
 
     const logger = getCLILogger()
-    const synapse = await initializeSynapse(authConfig, logger, { sentrySetTags: { appName: 'filecoinPinCli' } })
+    const synapse = await initializeSynapse({ ...authConfig, telemetry: { sentrySetTags: { appName: 'filecoinPinCli' } } }, logger)
     const filStatus = await checkFILBalance(synapse)
     if (!filStatus.hasSufficientGas) {
       spinner.stop()
