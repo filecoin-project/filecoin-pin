@@ -1,16 +1,8 @@
 import { readFile, rm, stat } from 'node:fs/promises'
-import { noise } from '@chainsafe/libp2p-noise'
-import { yamux } from '@chainsafe/libp2p-yamux'
 import { SIZE_CONSTANTS } from '@filoz/synapse-sdk'
 import { unixfs } from '@helia/unixfs'
 import { CarReader } from '@ipld/car'
 import * as dagCbor from '@ipld/dag-cbor'
-import { identify } from '@libp2p/identify'
-import { tcp } from '@libp2p/tcp'
-import { MemoryBlockstore } from 'blockstore-core'
-import { MemoryDatastore } from 'datastore-core'
-import { createHelia } from 'helia'
-import { createLibp2p } from 'libp2p'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
@@ -18,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createConfig } from '../../config.js'
 import { createFilecoinPinningServer } from '../../filecoin-pinning-server.js'
 import { createLogger } from '../../logger.js'
+import { createTestHelia } from '../mocks/test-helia.js'
 
 // Mock the Synapse SDK - vi.mock requires async import for ES modules
 vi.mock('@filoz/synapse-sdk', async (importOriginal) => {
@@ -64,23 +57,7 @@ describe('End-to-End Pinning Service', () => {
     const logger = createLogger(config)
 
     // Create client Helia node (content provider)
-    const libp2p = await createLibp2p({
-      addresses: {
-        listen: ['/ip4/127.0.0.1/tcp/0'], // Random port on localhost
-      },
-      transports: [tcp()],
-      connectionEncrypters: [noise()],
-      streamMuxers: [yamux()],
-      services: {
-        identify: identify(),
-      },
-    })
-
-    clientHelia = await createHelia({
-      libp2p,
-      blockstore: new MemoryBlockstore(),
-      datastore: new MemoryDatastore(),
-    })
+    clientHelia = await createTestHelia()
 
     // Create pinning server
     const serviceInfo = { service: 'filecoin-pin', version: '0.1.0' }

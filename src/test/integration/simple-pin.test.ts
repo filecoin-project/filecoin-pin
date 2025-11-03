@@ -1,5 +1,4 @@
 import { rm, stat } from 'node:fs/promises'
-import { createHelia } from 'helia'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
@@ -8,6 +7,7 @@ import { createConfig } from '../../config.js'
 import { FilecoinPinStore } from '../../filecoin-pin-store.js'
 import { createLogger } from '../../logger.js'
 import { MockSynapse, mockProviderInfo } from '../mocks/synapse-mocks.js'
+import { createTestHelia } from '../mocks/test-helia.js'
 
 // Mock the Synapse SDK - vi.mock requires async import for ES modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
@@ -34,7 +34,7 @@ describe('Simple Pin Test', () => {
     const logger = createLogger(config)
 
     // Create a Helia node to serve content
-    contentOriginHelia = await createHelia()
+    contentOriginHelia = await createTestHelia()
     await contentOriginHelia.blockstore.put(testCID, testBlock)
 
     // Create mock Synapse service
