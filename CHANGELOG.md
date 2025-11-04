@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.11.0...v0.11.1) (2025-11-04)
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.2.7 to 2.3.3 ([#198](https://github.com/filecoin-project/filecoin-pin/issues/198)) ([2e6a20e](https://github.com/filecoin-project/filecoin-pin/commit/2e6a20e930f7472d0259795afc46fa3ab55aa226))
+* update to synapse-sdk-v0.35.3 ([#203](https://github.com/filecoin-project/filecoin-pin/issues/203)) ([6a24f00](https://github.com/filecoin-project/filecoin-pin/commit/6a24f0037e3bf7b9ac76c2258ecd4600de8bbbac))
+
 ## [0.11.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.10.1...v0.11.0) (2025-11-03)
 
 ### ⚠️ Breaking Functionality
