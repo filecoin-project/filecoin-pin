@@ -161,6 +161,11 @@ runs:
         path: ${{ steps.action-path.outputs.path }}/node_modules
         key: ${{ runner.os }}-filecoin-action-deps-${{ steps.lockfile-hash.outputs.hash }}
 
+    - name: Install filecoin-pin dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm install --prefix ../
+
     - name: Build filecoin-pin package
       shell: bash
       working-directory: ${{ github.action_path }}
