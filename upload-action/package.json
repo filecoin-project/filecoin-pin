@@ -6,7 +6,7 @@
   "description": "Helper runner for Filecoin Pin Upload GitHub Action",
   "dependencies": {
     "@actions/artifact": "^2.3.2",
-    "@filoz/synapse-sdk": "^0.35.0",
+    "@filoz/synapse-sdk": "^0.35.3",
     "@octokit/rest": "^22.0.0",
     "ethers": "^6.15.0",
     "filecoin-pin": "../",
@@ -28,7 +28,6 @@
     "typescript": "^5.9.3"
   },
   "scripts": {
-    "postinstall": "npm run build --prefix ../",
     "lint": "npm run typecheck && biome check --no-errors-on-unmatched --files-ignore-unknown=true .",
     "lint:fix": "biome check --no-errors-on-unmatched --files-ignore-unknown=true --fix .",
     "typecheck": "tsc --noEmit",
