@@ -25,8 +25,6 @@ export interface FundingAdjustmentResult {
   adjusted: boolean
   /** Amount deposited (positive) or withdrawn (negative) */
   delta: bigint
-  /** Approval transaction hash (if deposit required approval) */
-  approvalTx?: string | undefined
   /** Deposit or withdraw transaction hash */
   transactionHash?: string | undefined
   /** Updated deposited amount after adjustment */

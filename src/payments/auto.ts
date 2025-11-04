@@ -137,14 +137,11 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       }
 
       spinner.start(`Depositing ${formatUSDFC(neededFilecoinPayTopUp)} USDFC...`)
-      const { approvalTx, depositTx } = await depositUSDFC(synapse, neededFilecoinPayTopUp)
+      const { depositTx } = await depositUSDFC(synapse, neededFilecoinPayTopUp)
       spinner.stop(`${pc.green('✓')} Deposited ${formatUSDFC(neededFilecoinPayTopUp)} USDFC`)
       actionsTaken = true
 
       log.line(pc.bold('Transaction details:'))
-      if (approvalTx) {
-        log.indent(pc.gray(`Approval: ${approvalTx}`))
-      }
       log.indent(pc.gray(`Deposit: ${depositTx}`))
       log.flush()
     } else {

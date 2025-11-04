@@ -135,13 +135,10 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     }
 
     spinner.start(`Depositing ${formatUSDFC(depositAmount)} USDFC...`)
-    const { approvalTx, depositTx } = await depositUSDFC(synapse, depositAmount)
+    const { depositTx } = await depositUSDFC(synapse, depositAmount)
     spinner.stop(`${pc.green('✓')} Deposit complete`)
 
     log.line(pc.bold('Transaction details:'))
-    if (approvalTx) {
-      log.indent(pc.gray(`Approval: ${approvalTx}`))
-    }
     log.indent(pc.gray(`Deposit: ${depositTx}`))
     log.flush()
 

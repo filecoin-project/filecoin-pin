@@ -258,12 +258,9 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       depositAmount = ethers.parseUnits(amountStr, 18)
 
       s.start('Depositing USDFC...')
-      const { approvalTx, depositTx } = await depositUSDFC(synapse, depositAmount)
+      const { depositTx } = await depositUSDFC(synapse, depositAmount)
       s.stop(`${pc.green('✓')} Deposit complete`)
 
-      if (approvalTx) {
-        log.indent(pc.gray(`Approval tx: ${approvalTx}`))
-      }
       log.indent(pc.gray(`Deposit tx: ${depositTx}`))
       actionsTaken = true
 

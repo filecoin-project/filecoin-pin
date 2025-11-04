@@ -93,9 +93,9 @@ describe('Payment Setup Tests', () => {
           lockupUsed: 0n,
         }),
         allowance: vi.fn().mockResolvedValue(ethers.parseUnits('0', 18)),
-        approve: vi.fn().mockResolvedValue({
+        depositWithPermit: vi.fn().mockResolvedValue({
           wait: vi.fn(),
-          hash: '0xapproval',
+          hash: '0xdepositWithPermit',
         }),
         deposit: vi.fn().mockResolvedValue({
           wait: vi.fn(),
@@ -166,9 +166,7 @@ describe('Payment Setup Tests', () => {
 
       const result = await depositUSDFC(mockSynapse, ethers.parseUnits('5', 18))
 
-      expect(result.approvalTx).toBeUndefined()
       expect(result.depositTx).toBe('0xdeposit')
-      expect(mockSynapse.payments.approve).not.toHaveBeenCalled()
       expect(mockSynapse.payments.deposit).toHaveBeenCalled()
     })
 
@@ -177,10 +175,8 @@ describe('Payment Setup Tests', () => {
 
       const result = await depositUSDFC(mockSynapse, ethers.parseUnits('5', 18))
 
-      expect(result.approvalTx).toBe('0xapproval')
-      expect(result.depositTx).toBe('0xdeposit')
-      expect(mockSynapse.payments.approve).toHaveBeenCalled()
-      expect(mockSynapse.payments.deposit).toHaveBeenCalled()
+      expect(result.depositTx).toBe('0xdepositWithPermit')
+      expect(mockSynapse.payments.depositWithPermit).toHaveBeenCalled()
     })
   })
 

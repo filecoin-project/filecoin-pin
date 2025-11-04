@@ -257,36 +257,19 @@ export async function depositUSDFC(
   synapse: Synapse,
   amount: bigint
 ): Promise<{
-  approvalTx?: string
   depositTx: string
 }> {
-  const paymentsAddress = synapse.getPaymentsAddress()
+  const currentAllowance = await synapse.payments.allowance(synapse.getPaymentsAddress(), TOKENS.USDFC)
 
-  // Step 1: Check current allowance
-  const currentAllowance = await synapse.payments.allowance(paymentsAddress, TOKENS.USDFC)
+  let tx = {} as ethers.TransactionResponse
 
-  let approvalTx: string | undefined
-
-  // Step 2: Approve if needed (skip if already approved)
   if (currentAllowance < amount) {
-    const approveTx = await synapse.payments.approve(paymentsAddress, amount, TOKENS.USDFC)
-    await approveTx.wait()
-    approvalTx = approveTx.hash
+    tx = await synapse.payments.depositWithPermit(amount)
+  } else {
+    tx = await synapse.payments.deposit(amount, TOKENS.USDFC)
   }
 
-  // Step 3: Make the deposit
-  const depositTransaction = await synapse.payments.deposit(amount, TOKENS.USDFC)
-  await depositTransaction.wait()
-
-  const result: { approvalTx?: string; depositTx: string } = {
-    depositTx: depositTransaction.hash,
-  }
-
-  if (approvalTx) {
-    result.approvalTx = approvalTx
-  }
-
-  return result
+  return { depositTx: tx.hash }
 }
 
 /**
