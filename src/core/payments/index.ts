@@ -238,14 +238,14 @@ export function validatePaymentRequirements(
 /**
  * Deposit USDFC into the Payments contract
  *
- * This demonstrates the two-step process required for depositing ERC20 tokens:
- * 1. Approve the Payments contract to spend USDFC (standard ERC20 approval)
- * 2. Call deposit to move funds into the Payments contract
+ * This demonstrates the single-step process required for depositing ERC20 tokens:
+ * 1. If approval is insufficient, use permit to approve and deposit in one transaction
+ * 2. If approval is sufficient, directly call deposit
  *
  * Example usage:
  * ```typescript
  * const amountToDeposit = ethers.parseUnits('100', 18) // 100 USDFC
- * const { approvalTx, depositTx } = await depositUSDFC(synapse, amountToDeposit)
+ * const { depositTx } = await depositUSDFC(synapse, amountToDeposit)
  * console.log(`Deposit transaction: ${depositTx}`)
  * ```
  *
