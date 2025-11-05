@@ -84,7 +84,7 @@ export async function getDataSetPieces(
   return {
     pieces,
     dataSetId: storageContext.dataSetId,
-    warnings: warnings.length > 0 ? warnings : [],
+    warnings,
   }
 }
 
