@@ -83,9 +83,6 @@ export async function performAutoFunding(synapse: Synapse, fileSize: number, spi
       log.indent(
         `Runway: ~${result.newRunwayDays} day(s)${result.newRunwayHours > 0 ? ` ${result.newRunwayHours} hour(s)` : ''}`
       )
-      if (result.approvalTx) {
-        log.indent(pc.gray(`Approval tx: ${result.approvalTx}`))
-      }
       if (result.transactionHash) {
         log.indent(pc.gray(`Transaction: ${result.transactionHash}`))
       }

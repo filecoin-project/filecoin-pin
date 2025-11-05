@@ -110,19 +110,6 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     let actionsTaken = false
     let actualFilecoinPayTopUp = 0n
 
-    // Auto-set max allowances for WarmStorage
-    spinner.start('Configuring WarmStorage permissions...')
-    const allowanceResult = await checkAndSetAllowances(synapse)
-    if (allowanceResult.updated) {
-      spinner.stop(`${pc.green('✓')} WarmStorage permissions configured`)
-      log.line(pc.bold('Transaction:'))
-      log.indent(pc.gray(allowanceResult.transactionHash || 'Unknown'))
-      log.flush()
-      actionsTaken = true
-    } else {
-      spinner.stop(`${pc.green('✓')} WarmStorage permissions already configured`)
-    }
-
     if (status.filecoinPayBalance < targetFilecoinPayBalance) {
       const neededFilecoinPayTopUp = targetFilecoinPayBalance - status.filecoinPayBalance
       actualFilecoinPayTopUp = neededFilecoinPayTopUp
@@ -137,20 +124,22 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       }
 
       spinner.start(`Depositing ${formatUSDFC(neededFilecoinPayTopUp)} USDFC...`)
-      const { approvalTx, depositTx } = await depositUSDFC(synapse, neededFilecoinPayTopUp)
+      const { depositTx } = await depositUSDFC(synapse, neededFilecoinPayTopUp)
       spinner.stop(`${pc.green('✓')} Deposited ${formatUSDFC(neededFilecoinPayTopUp)} USDFC`)
       actionsTaken = true
 
       log.line(pc.bold('Transaction details:'))
-      if (approvalTx) {
-        log.indent(pc.gray(`Approval: ${approvalTx}`))
-      }
       log.indent(pc.gray(`Deposit: ${depositTx}`))
       log.flush()
     } else {
       // Use a dummy spinner to get consistent formatting
       spinner.start('Checking deposit...')
-      spinner.stop(`${pc.green('✓')} Deposit already sufficient (${formatUSDFC(status.filecoinPayBalance)} USDFC)`)
+      const { updated, transactionHash } = await checkAndSetAllowances(synapse)
+      if (updated) {
+        spinner.stop(`${pc.green('✓')} Updated payment allowances, tx: ${transactionHash}`)
+      } else {
+        spinner.stop(`${pc.green('✓')} Deposit already sufficient (${formatUSDFC(status.filecoinPayBalance)} USDFC)`)
+      }
     }
 
     // Calculate capacity for final summary
