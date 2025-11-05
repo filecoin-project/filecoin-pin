@@ -93,9 +93,9 @@ describe('Payment Setup Tests', () => {
           lockupUsed: 0n,
         }),
         allowance: vi.fn().mockResolvedValue(ethers.parseUnits('0', 18)),
-        depositWithPermit: vi.fn().mockResolvedValue({
+        depositWithPermitAndApproveOperator: vi.fn().mockResolvedValue({
           wait: vi.fn(),
-          hash: '0xdepositWithPermit',
+          hash: '0xdepositWithPermitAndApproveOperator',
         }),
         deposit: vi.fn().mockResolvedValue({
           wait: vi.fn(),
@@ -166,8 +166,8 @@ describe('Payment Setup Tests', () => {
 
       const result = await depositUSDFC(mockSynapse, ethers.parseUnits('5', 18))
 
-      expect(result.depositTx).toBe('0xdeposit')
-      expect(mockSynapse.payments.deposit).toHaveBeenCalled()
+      expect(result.depositTx).toBe('0xdepositWithPermitAndApproveOperator')
+      expect(mockSynapse.payments.depositWithPermitAndApproveOperator).toHaveBeenCalled()
     })
 
     it('should approve and deposit when allowance insufficient', async () => {
@@ -175,8 +175,8 @@ describe('Payment Setup Tests', () => {
 
       const result = await depositUSDFC(mockSynapse, ethers.parseUnits('5', 18))
 
-      expect(result.depositTx).toBe('0xdepositWithPermit')
-      expect(mockSynapse.payments.depositWithPermit).toHaveBeenCalled()
+      expect(result.depositTx).toBe('0xdepositWithPermitAndApproveOperator')
+      expect(mockSynapse.payments.depositWithPermitAndApproveOperator).toHaveBeenCalled()
     })
   })
 

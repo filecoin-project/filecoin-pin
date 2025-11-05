@@ -259,12 +259,20 @@ export async function depositUSDFC(
 ): Promise<{
   depositTx: string
 }> {
-  const currentAllowance = await synapse.payments.allowance(synapse.getPaymentsAddress(), TOKENS.USDFC)
+  const needsAllowanceUpdate = (await checkAllowances(synapse)).needsUpdate
+  const amountMoreThanCurrentAllowance =
+    (await synapse.payments.allowance(synapse.getPaymentsAddress(), TOKENS.USDFC)) < amount
 
   let tx = {} as ethers.TransactionResponse
 
-  if (currentAllowance < amount) {
-    tx = await synapse.payments.depositWithPermit(amount)
+  if (amountMoreThanCurrentAllowance || needsAllowanceUpdate) {
+    tx = await synapse.payments.depositWithPermitAndApproveOperator(
+      amount,
+      synapse.getPaymentsAddress(),
+      MAX_RATE_ALLOWANCE,
+      MAX_LOCKUP_ALLOWANCE,
+      BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
+    )
   } else {
     tx = await synapse.payments.deposit(amount, TOKENS.USDFC)
   }

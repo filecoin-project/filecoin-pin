@@ -12,13 +12,11 @@ import { ethers } from 'ethers'
 import pc from 'picocolors'
 import {
   calculateDepositCapacity,
-  checkAllowances,
   checkFILBalance,
   checkUSDFCBalance,
   DEFAULT_LOCKUP_DAYS,
   depositUSDFC,
   getPaymentStatus,
-  setMaxAllowances,
   validatePaymentRequirements,
 } from '../core/payments/index.js'
 import { cleanupProvider, cleanupSynapseService } from '../core/synapse/index.js'
@@ -154,41 +152,6 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     // Initialize tracking variables
     let depositAmount = 0n
     let actionsTaken = false // Track if any changes were made
-
-    // Check and optionally set max allowances for WarmStorage
-    s.start('Checking WarmStorage permissions...')
-    const allowanceCheck = await checkAllowances(synapse)
-
-    if (allowanceCheck.needsUpdate) {
-      s.stop(`${pc.yellow('⚠')} WarmStorage authorization required`)
-      log.line('')
-      log.line(pc.bold('WarmStorage Service Authorization'))
-      log.line('WarmStorage needs permissions to manage storage payments on your behalf.')
-      log.line('This is a one-time setup.')
-      log.line('')
-
-      const shouldSetAllowances = await confirm({
-        message: 'Authorize WarmStorage?',
-        initialValue: true,
-      })
-
-      if (isCancel(shouldSetAllowances)) {
-        cancel('Setup cancelled')
-        process.exit(1)
-      }
-
-      if (shouldSetAllowances) {
-        s.start('Setting WarmStorage permissions...')
-        const setResult = await setMaxAllowances(synapse)
-        s.stop(`${pc.green('✓')} WarmStorage permissions configured`)
-        log.indent(pc.gray(`Transaction: ${setResult.transactionHash}`))
-        actionsTaken = true
-      } else {
-        log.line(pc.yellow('⚠ Skipping WarmStorage authorization. You may need to set this before using storage.'))
-      }
-    } else {
-      s.stop(`${pc.green('✓')} WarmStorage permissions already configured`)
-    }
 
     // Show current deposit capacity
     const currentCapacity = calculateDepositCapacity(status.filecoinPayBalance, pricePerTiBPerEpoch)

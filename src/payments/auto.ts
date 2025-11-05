@@ -11,7 +11,6 @@ import pc from 'picocolors'
 import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import {
   calculateDepositCapacity,
-  checkAndSetAllowances,
   checkFILBalance,
   checkUSDFCBalance,
   depositUSDFC,
@@ -109,19 +108,6 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     // Track if any changes were made
     let actionsTaken = false
     let actualFilecoinPayTopUp = 0n
-
-    // Auto-set max allowances for WarmStorage
-    spinner.start('Configuring WarmStorage permissions...')
-    const allowanceResult = await checkAndSetAllowances(synapse)
-    if (allowanceResult.updated) {
-      spinner.stop(`${pc.green('✓')} WarmStorage permissions configured`)
-      log.line(pc.bold('Transaction:'))
-      log.indent(pc.gray(allowanceResult.transactionHash || 'Unknown'))
-      log.flush()
-      actionsTaken = true
-    } else {
-      spinner.stop(`${pc.green('✓')} WarmStorage permissions already configured`)
-    }
 
     if (status.filecoinPayBalance < targetFilecoinPayBalance) {
       const neededFilecoinPayTopUp = targetFilecoinPayBalance - status.filecoinPayBalance
