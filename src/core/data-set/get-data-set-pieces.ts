@@ -1,0 +1,159 @@
+/**
+ * Get Data Set Pieces
+ *
+ * Functions for retrieving pieces from a dataset with optional metadata enrichment.
+ *
+ * @module core/data-set/get-data-set-pieces
+ */
+
+import { METADATA_KEYS, type StorageContext, type Synapse, WarmStorageService } from '@filoz/synapse-sdk'
+import { isStorageContextWithDataSetId } from './type-guards.js'
+import type {
+  DataSetPiecesResult,
+  GetDataSetPiecesOptions,
+  PieceInfo,
+  StorageContextWithDataSetId,
+  Warning,
+} from './types.js'
+
+/**
+ * Get all pieces for a dataset from a StorageContext
+ *
+ * This function uses the StorageContext.getPieces() async generator to retrieve
+ * all pieces in a dataset. Optionally fetches metadata for each piece from WarmStorage.
+ *
+ * Example usage:
+ * ```typescript
+ * const result = await getDataSetPieces(storageContext, {
+ *   includeMetadata: true,
+ *   batchSize: 100
+ * })
+ *
+ * console.log(`Found ${result.pieces.length} pieces`)
+ * for (const piece of result.pieces) {
+ *   console.log(`  ${piece.pieceCid}`)
+ *   if (piece.rootIpfsCid) {
+ *     console.log(`    IPFS: ${piece.rootIpfsCid}`)
+ *   }
+ * }
+ * ```
+ *
+ * @param storageContext - Storage context from upload or dataset resolution
+ * @param options - Optional configuration
+ * @returns Pieces and warnings
+ */
+export async function getDataSetPieces(
+  synapse: Synapse,
+  storageContext: StorageContext,
+  options?: GetDataSetPiecesOptions
+): Promise<DataSetPiecesResult> {
+  const logger = options?.logger
+  const includeMetadata = options?.includeMetadata ?? false
+  const batchSize = options?.batchSize ?? 100
+  const signal = options?.signal
+
+  if (!isStorageContextWithDataSetId(storageContext)) {
+    throw new Error('Storage context does not have a dataset ID')
+  }
+
+  const pieces: PieceInfo[] = []
+  const warnings: Warning[] = []
+
+  // Use the async generator to fetch all pieces
+  try {
+    const getPiecesOptions = signal ? { batchSize, signal } : { batchSize }
+    for await (const piece of storageContext.getPieces(getPiecesOptions)) {
+      const pieceInfo: PieceInfo = {
+        pieceId: piece.pieceId,
+        pieceCid: piece.pieceCid.toString(),
+      }
+
+      pieces.push(pieceInfo)
+    }
+  } catch (error) {
+    // If getPieces fails completely, throw - this is a critical error
+    logger?.error({ dataSetId: storageContext.dataSetId, error }, 'Failed to retrieve pieces from dataset')
+    throw new Error(`Failed to retrieve pieces for dataset ${storageContext.dataSetId}: ${String(error)}`)
+  }
+
+  // Optionally enrich with metadata
+  if (includeMetadata && pieces.length > 0) {
+    await enrichPiecesWithMetadata(synapse, storageContext, pieces, warnings, logger)
+  }
+
+  return {
+    pieces,
+    dataSetId: storageContext.dataSetId,
+    warnings: warnings.length > 0 ? warnings : [],
+  }
+}
+
+/**
+ * Internal helper: Enrich pieces with metadata from WarmStorage
+ *
+ * This function fetches metadata for each piece and extracts:
+ * - rootIpfsCid (from METADATA_KEYS.IPFS_ROOT_CID)
+ * - Full metadata object
+ *
+ * Non-fatal errors are added to the warnings array.
+ */
+async function enrichPiecesWithMetadata(
+  synapse: Synapse,
+  storageContext: StorageContextWithDataSetId,
+  pieces: PieceInfo[],
+  warnings: Warning[],
+  logger?: GetDataSetPiecesOptions['logger']
+): Promise<void> {
+  const dataSetId = storageContext.dataSetId
+
+  // Create WarmStorage service instance
+  let warmStorage: WarmStorageService
+  try {
+    warmStorage = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
+  } catch (error) {
+    // If we can't create the service, warn and return
+    logger?.warn({ error }, 'Failed to create WarmStorageService for metadata enrichment')
+    warnings.push({
+      code: 'WARM_STORAGE_INIT_FAILED',
+      message: 'Failed to initialize WarmStorageService for metadata enrichment',
+      context: { error: String(error) },
+    })
+    return
+  }
+
+  // Fetch metadata for each piece
+  for (const piece of pieces) {
+    try {
+      const metadata = await warmStorage.getPieceMetadata(dataSetId, piece.pieceId)
+
+      // Extract root IPFS CID if available
+      const rootIpfsCid = metadata[METADATA_KEYS.IPFS_ROOT_CID]
+      if (rootIpfsCid) {
+        piece.rootIpfsCid = rootIpfsCid
+      }
+
+      // Store full metadata
+      piece.metadata = metadata
+    } catch (error) {
+      // Non-fatal: piece exists but metadata fetch failed
+      logger?.warn(
+        {
+          dataSetId,
+          pieceId: piece.pieceId,
+          error,
+        },
+        'Failed to fetch metadata for piece'
+      )
+
+      warnings.push({
+        code: 'METADATA_FETCH_FAILED',
+        message: `Failed to fetch metadata for piece ${piece.pieceId}`,
+        context: {
+          pieceId: piece.pieceId,
+          dataSetId,
+          error: String(error),
+        },
+      })
+    }
+  }
+}

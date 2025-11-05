@@ -26,6 +26,10 @@
       "types": "./dist/core/car/index.d.ts",
       "default": "./dist/core/car/index.js"
     },
+    "./core/data-set": {
+      "types": "./dist/core/data-set/index.d.ts",
+      "default": "./dist/core/data-set/index.js"
+    },
     "./core/payments": {
       "types": "./dist/core/payments/index.d.ts",
       "default": "./dist/core/payments/index.js"
