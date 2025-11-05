@@ -268,7 +268,7 @@ export async function depositUSDFC(
   if (amountMoreThanCurrentAllowance || needsAllowanceUpdate) {
     tx = await synapse.payments.depositWithPermitAndApproveOperator(
       amount,
-      synapse.getPaymentsAddress(),
+      synapse.getWarmStorageAddress(),
       MAX_RATE_ALLOWANCE,
       MAX_LOCKUP_ALLOWANCE,
       BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
