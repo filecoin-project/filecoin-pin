@@ -35,6 +35,8 @@ export interface DataSetPiecesResult {
   pieces: PieceInfo[]
   /** Dataset ID these pieces belong to */
   dataSetId: number
+  /** Total size of all pieces in bytes (sum of individual piece sizes) */
+  totalSizeBytes?: bigint
   /** Non-fatal warnings encountered during retrieval */
   warnings?: Warning[]
 }
@@ -60,6 +62,7 @@ export interface Warning {
  * - Contract details (commissionBps, pdpEndEpoch, cdnEndEpoch)
  * - Piece tracking (nextPieceId, currentPieceCount)
  * - Provider enrichment (optional provider field)
+ * - Optional detailed information (pieces, metadata, size calculations, warnings)
  *
  * The dataSetId alias makes pdpVerifierDataSetId more discoverable.
  */
@@ -68,6 +71,14 @@ export interface DataSetSummary extends EnhancedDataSetInfo {
   dataSetId: number
   /** Provider information (enriched from getStorageInfo if available) */
   provider: ProviderInfo | undefined
+  /** Leaf count for size calculation (optional, populated when fetching detailed info) */
+  // TODO: do we care about leafCount?
+  leafCount?: bigint
+  /** Total size in bytes (optional, calculated from piece sizes) */
+  // TODO: is getting full data-set size from pieceSizes enough?
+  totalSizeBytes?: bigint
+  /** Pieces in the dataset (optional, populated when fetching detailed info) */
+  pieces?: PieceInfo[]
 }
 
 /**

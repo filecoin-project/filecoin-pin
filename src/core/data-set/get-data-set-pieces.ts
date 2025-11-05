@@ -7,6 +7,7 @@
  */
 
 import { METADATA_KEYS, type StorageContext, type Synapse, WarmStorageService } from '@filoz/synapse-sdk'
+import { getSizeFromPieceCID } from '@filoz/synapse-sdk/piece'
 import { isStorageContextWithDataSetId } from './type-guards.js'
 import type {
   DataSetPiecesResult,
@@ -68,6 +69,17 @@ export async function getDataSetPieces(
         pieceCid: piece.pieceCid.toString(),
       }
 
+      // Calculate piece size from CID
+      try {
+        pieceInfo.size = getSizeFromPieceCID(piece.pieceCid.toString())
+      } catch (error) {
+        logger?.warn(
+          { pieceId: piece.pieceId, pieceCid: piece.pieceCid.toString(), error },
+          'Failed to calculate piece size from CID'
+        )
+        // size remains undefined
+      }
+
       pieces.push(pieceInfo)
     }
   } catch (error) {
@@ -81,11 +93,22 @@ export async function getDataSetPieces(
     await enrichPiecesWithMetadata(synapse, storageContext, pieces, warnings, logger)
   }
 
-  return {
+  // Calculate total size from pieces that have sizes
+  const piecesWithSizes = pieces.filter((p) => p.size != null)
+  const result: DataSetPiecesResult = {
     pieces,
     dataSetId: storageContext.dataSetId,
     warnings,
   }
+
+  if (piecesWithSizes.length > 0) {
+    result.totalSizeBytes = piecesWithSizes.reduce((sum, piece) => {
+      const size = piece.size
+      return size != null ? sum + BigInt(size) : sum
+    }, 0n)
+  }
+
+  return result
 }
 
 /**

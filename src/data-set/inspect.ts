@@ -1,14 +1,15 @@
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
+import type { DataSetSummary, PieceInfo } from '../core/data-set/types.js'
 import { formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import type { DataSetDetail, DataSetInspectionContext, PieceDetail } from './types.js'
+import type { DataSetInspectionContext } from './types.js'
 
 /**
  * Convert dataset lifecycle information into a coloured status label.
  */
-function statusLabel(dataSet: DataSetDetail['base']): string {
+function statusLabel(dataSet: DataSetSummary): string {
   if (dataSet.isLive) {
     return pc.green('live')
   }
@@ -20,7 +21,7 @@ function statusLabel(dataSet: DataSetDetail['base']): string {
   return pc.yellow('inactive')
 }
 
-function providerLabel(provider: DataSetDetail['provider'], dataSet: DataSetDetail['base']): string {
+function providerLabel(provider: DataSetSummary['provider'], dataSet: DataSetSummary): string {
   if (provider != null && provider.name.trim() !== '') {
     return `${provider.name} (ID ${provider.id})`
   }
@@ -101,17 +102,20 @@ function renderMetadata(metadata: Record<string, string>, indentLevel: number = 
 }
 
 /**
- * Render a single piece entry including CommP, root CID, and extra metadata.
+ * Render a single piece entry including CommP, root CID, size, and extra metadata.
  */
-function renderPiece(piece: PieceDetail, baseIndentLevel: number = 2): void {
-  const rootCid = piece.metadata[METADATA_KEYS.IPFS_ROOT_CID]
-  const rootDisplay = rootCid ?? pc.gray('unknown')
+function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
+  const rootDisplay = piece.rootIpfsCid ?? piece.metadata?.[METADATA_KEYS.IPFS_ROOT_CID] ?? pc.gray('unknown')
+  const sizeDisplay = piece.size != null ? formatFileSize(piece.size) : pc.gray('unknown')
 
   log.indent(`#${piece.pieceId}`, baseIndentLevel)
   log.indent(`CommP: ${piece.pieceCid}`, baseIndentLevel + 1)
   log.indent(`Root CID: ${rootDisplay}`, baseIndentLevel + 1)
+  log.indent(`Size: ${sizeDisplay}`, baseIndentLevel + 1)
 
-  const extraMetadataEntries = Object.entries(piece.metadata).filter(([key]) => key !== METADATA_KEYS.IPFS_ROOT_CID)
+  const extraMetadataEntries = Object.entries(piece.metadata ?? {}).filter(
+    ([key]) => key !== METADATA_KEYS.IPFS_ROOT_CID
+  )
 
   if (extraMetadataEntries.length > 0) {
     log.indent('Metadata:', baseIndentLevel + 1)
@@ -136,44 +140,43 @@ export function displayDataSetList(ctx: DataSetInspectionContext): void {
     return
   }
 
-  const ordered = [...ctx.dataSets].sort((a, b) => a.base.pdpVerifierDataSetId - b.base.pdpVerifierDataSetId)
+  const ordered = [...ctx.dataSets].sort((a, b) => a.dataSetId - b.dataSetId)
 
   for (const dataSet of ordered) {
-    const { base, provider } = dataSet
     const annotations: string[] = []
 
-    if (base.isManaged) {
+    if (dataSet.isManaged) {
       annotations.push(pc.gray('managed'))
     } else {
       annotations.push(pc.yellow('external'))
     }
 
-    if (base.withCDN) {
+    if (dataSet.withCDN) {
       annotations.push(pc.cyan('cdn'))
     }
 
     log.line(
-      `${pc.bold(`#${base.pdpVerifierDataSetId}`)} • ${statusLabel(base)}${
+      `${pc.bold(`#${dataSet.dataSetId}`)} • ${statusLabel(dataSet)}${
         annotations.length > 0 ? ` • ${annotations.join(', ')}` : ''
       }`
     )
-    log.indent(`Provider: ${providerLabel(provider, base)}`)
-    log.indent(`Pieces stored: ${base.currentPieceCount}`)
+    log.indent(`Provider: ${providerLabel(dataSet.provider, dataSet)}`)
+    log.indent(`Pieces stored: ${dataSet.currentPieceCount}`)
     log.indent(`Leaf count: ${dataSet.leafCount != null ? dataSet.leafCount.toString() : pc.gray('unknown')}`)
     log.indent(`Total size: ${formatBytes(dataSet.totalSizeBytes)}`)
-    log.indent(`Client data set ID: ${base.clientDataSetId}`)
-    log.indent(`PDP rail ID: ${base.pdpRailId}`)
-    log.indent(`CDN rail ID: ${base.cdnRailId > 0 ? base.cdnRailId : 'none'}`)
-    log.indent(`Cache-miss rail ID: ${base.cacheMissRailId > 0 ? base.cacheMissRailId : 'none'}`)
-    log.indent(`Payer: ${base.payer}`)
-    log.indent(`Payee: ${base.payee}`)
+    log.indent(`Client data set ID: ${dataSet.clientDataSetId}`)
+    log.indent(`PDP rail ID: ${dataSet.pdpRailId}`)
+    log.indent(`CDN rail ID: ${dataSet.cdnRailId > 0 ? dataSet.cdnRailId : 'none'}`)
+    log.indent(`Cache-miss rail ID: ${dataSet.cacheMissRailId > 0 ? dataSet.cacheMissRailId : 'none'}`)
+    log.indent(`Payer: ${dataSet.payer}`)
+    log.indent(`Payee: ${dataSet.payee}`)
     log.line('')
 
     log.indent(pc.bold('Metadata'))
-    renderMetadata(dataSet.metadata, 2)
+    renderMetadata(dataSet.metadata ?? {}, 2)
     log.line('')
 
-    if (dataSet.warnings.length > 0) {
+    if (dataSet.warnings != null && dataSet.warnings.length > 0) {
       log.indent(pc.bold(pc.yellow('Warnings')))
       for (const warning of dataSet.warnings) {
         log.indent(pc.yellow(`- ${warning}`), 2)
@@ -182,7 +185,7 @@ export function displayDataSetList(ctx: DataSetInspectionContext): void {
     }
 
     log.indent(pc.bold('Pieces'))
-    if (dataSet.pieces.length === 0) {
+    if (dataSet.pieces == null || dataSet.pieces.length === 0) {
       log.indent(pc.gray('No piece information available'), 2)
     } else {
       for (const piece of dataSet.pieces) {
@@ -202,34 +205,32 @@ export function displayDataSetList(ctx: DataSetInspectionContext): void {
  * @returns true when the dataset exists; false otherwise.
  */
 export function displayDataSetStatus(ctx: DataSetInspectionContext, dataSetId: number): boolean {
-  const dataSet = ctx.dataSets.find((item) => item.base.pdpVerifierDataSetId === dataSetId)
+  const dataSet = ctx.dataSets.find((item) => item.dataSetId === dataSetId)
   if (dataSet == null) {
     log.line(pc.red(`No data set found with ID ${dataSetId}`))
     log.flush()
     return false
   }
 
-  const { base, provider } = dataSet
-
-  log.line(`${pc.bold(`Data Set #${base.pdpVerifierDataSetId}`)} • ${statusLabel(base)}`)
-  log.indent(`Managed by Warm Storage: ${base.isManaged ? 'yes' : 'no'}`)
-  log.indent(`CDN add-on: ${base.withCDN ? 'enabled' : 'disabled'}`)
-  log.indent(`Pieces stored: ${base.currentPieceCount}`)
+  log.line(`${pc.bold(`Data Set #${dataSet.dataSetId}`)} • ${statusLabel(dataSet)}`)
+  log.indent(`Managed by Warm Storage: ${dataSet.isManaged ? 'yes' : 'no'}`)
+  log.indent(`CDN add-on: ${dataSet.withCDN ? 'enabled' : 'disabled'}`)
+  log.indent(`Pieces stored: ${dataSet.currentPieceCount}`)
   log.indent(`Leaf count: ${dataSet.leafCount != null ? dataSet.leafCount.toString() : pc.gray('unknown')}`)
   log.indent(`Total size: ${formatBytes(dataSet.totalSizeBytes)}`)
-  log.indent(`Client data set ID: ${base.clientDataSetId}`)
-  log.indent(`PDP rail ID: ${base.pdpRailId}`)
-  log.indent(`CDN rail ID: ${base.cdnRailId > 0 ? base.cdnRailId : 'none'}`)
-  log.indent(`Cache-miss rail ID: ${base.cacheMissRailId > 0 ? base.cacheMissRailId : 'none'}`)
-  log.indent(`Payer: ${base.payer}`)
-  log.indent(`Payee: ${base.payee}`)
-  log.indent(`Service provider: ${base.serviceProvider}`)
-  log.indent(`Provider: ${providerLabel(provider, base)}`)
-  log.indent(`Commission: ${formatCommission(base.commissionBps)}`)
+  log.indent(`Client data set ID: ${dataSet.clientDataSetId}`)
+  log.indent(`PDP rail ID: ${dataSet.pdpRailId}`)
+  log.indent(`CDN rail ID: ${dataSet.cdnRailId > 0 ? dataSet.cdnRailId : 'none'}`)
+  log.indent(`Cache-miss rail ID: ${dataSet.cacheMissRailId > 0 ? dataSet.cacheMissRailId : 'none'}`)
+  log.indent(`Payer: ${dataSet.payer}`)
+  log.indent(`Payee: ${dataSet.payee}`)
+  log.indent(`Service provider: ${dataSet.serviceProvider}`)
+  log.indent(`Provider: ${providerLabel(dataSet.provider, dataSet)}`)
+  log.indent(`Commission: ${formatCommission(dataSet.commissionBps)}`)
 
   // Add provider service information
-  if (provider?.products?.PDP?.data) {
-    const pdpData = provider.products.PDP.data
+  if (dataSet.provider?.products?.PDP?.data) {
+    const pdpData = dataSet.provider.products.PDP.data
     log.line('')
     log.line(pc.bold('Provider Service'))
     log.indent(`Service URL: ${pdpData.serviceURL}`)
@@ -241,16 +242,16 @@ export function displayDataSetStatus(ctx: DataSetInspectionContext, dataSetId: n
     log.indent(`Payment token: ${formatPaymentToken(pdpData.paymentTokenAddress)}`)
   }
 
-  if (base.pdpEndEpoch > 0) {
-    log.indent(pc.yellow(`PDP payments ended @ epoch ${base.pdpEndEpoch}`))
+  if (dataSet.pdpEndEpoch > 0) {
+    log.indent(pc.yellow(`PDP payments ended @ epoch ${dataSet.pdpEndEpoch}`))
   }
 
   log.line('')
   log.line(pc.bold('Metadata'))
-  renderMetadata(dataSet.metadata, 2)
+  renderMetadata(dataSet.metadata ?? {}, 2)
   log.line('')
 
-  if (dataSet.warnings.length > 0) {
+  if (dataSet.warnings != null && dataSet.warnings.length > 0) {
     log.line(pc.bold(pc.yellow('Warnings')))
     for (const warning of dataSet.warnings) {
       log.indent(pc.yellow(`- ${warning}`))
@@ -260,12 +261,14 @@ export function displayDataSetStatus(ctx: DataSetInspectionContext, dataSetId: n
 
   log.line('')
   log.line(pc.bold('Pieces'))
-  if (dataSet.pieces.length === 0) {
+  if (dataSet.pieces == null || dataSet.pieces.length === 0) {
     log.indent(pc.gray('No piece information available'))
   } else {
     // Show piece summary
     const uniqueCommPs = new Set(dataSet.pieces.map((p) => p.pieceCid))
-    const uniqueRootCids = new Set(dataSet.pieces.map((p) => p.metadata[METADATA_KEYS.IPFS_ROOT_CID]).filter(Boolean))
+    const uniqueRootCids = new Set(
+      dataSet.pieces.map((p) => p.rootIpfsCid ?? p.metadata?.[METADATA_KEYS.IPFS_ROOT_CID]).filter(Boolean)
+    )
 
     log.indent(`Total pieces: ${dataSet.pieces.length}`)
     log.indent(`Unique CommPs: ${uniqueCommPs.size}`)

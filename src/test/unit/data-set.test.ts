@@ -1,7 +1,7 @@
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runDataSetCommand } from '../../data-set/run.js'
-import type { DataSetDetail, DataSetInspectionContext } from '../../data-set/types.js'
+import type { DataSetInspectionContext, DataSetSummaryForCLI } from '../../data-set/types.js'
 
 const {
   displayDataSetListMock,
@@ -63,6 +63,22 @@ const {
     }
   }
 
+  const mockStorageContext = {
+    dataSetId: 158,
+    getPieces: async function* () {
+      for (const piece of state.pieceList) {
+        yield {
+          pieceId: piece.pieceId,
+          pieceCid: {
+            toString: () => piece.pieceCid,
+          },
+        }
+      }
+    },
+  }
+
+  const mockCreateContext = vi.fn(async () => mockStorageContext)
+
   // TODO: we should not need to mock synapseCreate, and should use mocks/synapse-sdk.ts instead
   const mockSynapseCreate = vi.fn(async (config: any) => {
     // Validate auth like the real initializeSynapse does
@@ -84,6 +100,7 @@ const {
       storage: {
         findDataSets: mockFindDataSets,
         getStorageInfo: mockGetStorageInfo,
+        createContext: mockCreateContext,
       },
       getProvider: () => ({}),
       getWarmStorageAddress: () => '0xwarm',
@@ -102,6 +119,8 @@ const {
     mockWarmStorageCreate,
     mockWarmStorageInstance,
     mockSynapseCreate,
+    mockCreateContext,
+    mockStorageContext,
     MockPDPServer,
     MockPDPVerifier,
     state,
@@ -143,6 +162,14 @@ vi.mock('@filoz/synapse-sdk', async () => {
     PDPServer: MockPDPServer,
   }
 })
+
+// Mock piece size calculation
+vi.mock('@filoz/synapse-sdk/piece', () => ({
+  getSizeFromPieceCID: vi.fn(() => {
+    // Return a realistic piece size (1 MiB = 1048576 bytes)
+    return 1048576
+  }),
+}))
 
 describe('runDataSetCommand', () => {
   const summaryDataSet = {
@@ -209,17 +236,17 @@ describe('runDataSetCommand', () => {
     expect(firstCall).toBeDefined()
     const [context] = firstCall as [DataSetInspectionContext]
     expect(context.dataSets).toHaveLength(1)
-    const detail = context.dataSets[0]
-    expect(detail).toBeDefined()
-    const datasetDetail = detail as DataSetDetail
-    expect(datasetDetail.base.pdpVerifierDataSetId).toBe(158)
-    expect(datasetDetail.pieces).toHaveLength(0)
+    const summary = context.dataSets[0]
+    expect(summary).toBeDefined()
+    const datasetSummary = summary as DataSetSummaryForCLI
+    expect(datasetSummary.dataSetId).toBe(158)
+    // In list mode, pieces are not fetched
+    expect(datasetSummary.pieces).toBeUndefined()
     expect(mockWarmStorageCreate).not.toHaveBeenCalled()
     expect(displayDataSetStatusMock).not.toHaveBeenCalled()
   })
 
   it('loads detailed information when a dataset id is provided', async () => {
-    state.leafCount = 256
     state.pieceList = [{ pieceId: 0, pieceCid: 'bafkpiece0' }]
     state.pieceMetadata = {
       [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot0',
@@ -239,14 +266,16 @@ describe('runDataSetCommand', () => {
     const statusCall = displayDataSetStatusMock.mock.calls[0]
     expect(statusCall).toBeDefined()
     const [context] = statusCall as [DataSetInspectionContext]
-    const detail = context.dataSets[0]
-    expect(detail).toBeDefined()
-    const datasetDetail = detail as DataSetDetail
-    expect(datasetDetail.leafCount).toBe(BigInt(256))
-    expect(datasetDetail.totalSizeBytes).toBe(BigInt(256 * 32))
-    expect(datasetDetail.pieces).toHaveLength(1)
-    const [piece] = datasetDetail.pieces
+    const summary = context.dataSets[0]
+    expect(summary).toBeDefined()
+    const datasetSummary = summary as DataSetSummaryForCLI
+    // Total size should be 1 MiB (from mocked getSizeFromPieceCID)
+    expect(datasetSummary.totalSizeBytes).toBe(BigInt(1048576))
+    expect(datasetSummary.pieces).toBeDefined()
+    expect(datasetSummary.pieces).toHaveLength(1)
+    const piece = datasetSummary.pieces?.[0]
     expect(piece).toBeDefined()
+    expect(piece?.size).toBe(1048576)
     expect(piece?.metadata).toMatchObject({
       [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot0',
       custom: 'value',

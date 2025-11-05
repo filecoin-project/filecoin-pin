@@ -1,160 +1,78 @@
-import type { EnhancedDataSetInfo, ProviderInfo, Synapse } from '@filoz/synapse-sdk'
-import { PDPServer, PDPVerifier, WarmStorageService } from '@filoz/synapse-sdk'
+import type { Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
+import { getDataSetPieces, listDataSets } from '../core/data-set/index.js'
 import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
 import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { displayDataSetList, displayDataSetStatus } from './inspect.js'
-import type { DataSetCommandOptions, DataSetDetail, DataSetInspectionContext, PieceDetail } from './types.js'
-
-/**
- * Fetch piece-level metadata for a dataset without triggering PDP lookups.
- *
- * @param params - Context required to inspect the piece
- */
-async function collectPieceDetail(params: {
-  dataSetId: number
-  pieceId: number
-  pieceCid: string
-  warmStorage: WarmStorageService
-}): Promise<PieceDetail> {
-  const { dataSetId, pieceId, pieceCid, warmStorage } = params
-  const metadata = await warmStorage.getPieceMetadata(dataSetId, pieceId).catch(() => ({}) as Record<string, string>)
-  const pieceDetail: PieceDetail = {
-    pieceId,
-    pieceCid,
-    metadata: { ...metadata },
-  }
-
-  return pieceDetail
-}
+import type { DataSetCommandOptions, DataSetInspectionContext, DataSetSummaryForCLI } from './types.js'
 
 /**
  * Build the lightweight inspection context used when no dataset ID is provided.
  * Only metadata cached in Synapse responses is included so the command returns quickly.
  */
-function buildSummaryContext(params: {
+async function buildSummaryContext(params: {
   address: string
   network: string
-  dataSets: EnhancedDataSetInfo[]
-  providers: ProviderInfo[] | null
-}): DataSetInspectionContext {
-  const providerMap = new Map<number, ProviderInfo>()
-  if (params.providers != null) {
-    for (const provider of params.providers) {
-      providerMap.set(provider.id, provider)
-    }
-  }
-
-  const managedDataSets = params.dataSets.filter((dataSet) => dataSet.metadata?.source === 'filecoin-pin')
-
-  const dataSetDetails: DataSetDetail[] = managedDataSets.map((dataSet) => {
-    const detail: DataSetDetail = {
-      base: dataSet,
-      metadata: { ...(dataSet.metadata ?? {}) },
-      pieces: [],
-      warnings: [],
-    }
-
-    const provider = providerMap.get(dataSet.providerId)
-    if (provider != null) {
-      detail.provider = provider
-    }
-
-    return detail
+  synapse: Synapse
+}): Promise<DataSetInspectionContext> {
+  // Use core listDataSets function which handles provider enrichment
+  const allDataSets = await listDataSets(params.synapse, {
+    address: params.address,
+    logger: getCLILogger(),
   })
+
+  // Filter to only filecoin-pin managed datasets and add required warnings field
+  const managedDataSets: DataSetSummaryForCLI[] = allDataSets
+    .filter((dataSet) => dataSet.metadata?.source === 'filecoin-pin')
+    .map((dataSet) => ({
+      ...dataSet,
+      warnings: [],
+    }))
 
   return {
     address: params.address,
     network: params.network,
-    dataSets: dataSetDetails,
+    dataSets: managedDataSets,
   }
 }
 
 /**
- * Enrich a summary dataset entry with live information from WarmStorage and PDP.
+ * Enrich a summary dataset entry with live information from pieces.
  *
- * Populates leaf counts, total size estimates, piece metadata, and warning messages.
+ * Populates pieces, metadata, total size, and warning messages.
  */
-async function loadDetailedDataSet(detail: DataSetDetail, synapse: Synapse): Promise<DataSetDetail> {
-  const result: DataSetDetail = {
-    base: detail.base,
-    metadata: { ...detail.metadata },
-    pieces: detail.pieces.map((piece) => ({
-      ...piece,
-      metadata: { ...piece.metadata },
-    })),
-    warnings: [...detail.warnings],
+async function loadDetailedDataSet(summary: DataSetSummaryForCLI, synapse: Synapse): Promise<DataSetSummaryForCLI> {
+  const result: DataSetSummaryForCLI = {
+    ...summary,
+    metadata: { ...summary.metadata },
+    pieces: summary.pieces?.map((piece) => ({ ...piece })) ?? [],
+    warnings: [...summary.warnings],
   }
 
-  if (detail.provider != null) {
-    result.provider = detail.provider
-  }
-  if (detail.leafCount != null) {
-    result.leafCount = detail.leafCount
-  }
-  if (detail.totalSizeBytes != null) {
-    result.totalSizeBytes = detail.totalSizeBytes
-  }
-
-  let warmStorage: WarmStorageService
+  // Fetch pieces using core function
   try {
-    warmStorage = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
+    const storageContext = await synapse.storage.createContext({
+      dataSetId: result.dataSetId,
+    })
+    const piecesResult = await getDataSetPieces(synapse, storageContext, {
+      includeMetadata: true,
+      logger: getCLILogger(),
+    })
+
+    result.pieces = piecesResult.pieces
+    if (piecesResult.totalSizeBytes != null) {
+      result.totalSizeBytes = piecesResult.totalSizeBytes
+    }
+
+    // Add any warnings from piece fetching
+    if (piecesResult.warnings != null && piecesResult.warnings.length > 0) {
+      result.warnings.push(...piecesResult.warnings.map((w) => w.message))
+    }
   } catch (error) {
-    result.warnings.push(
-      `Unable to initialize Warm Storage service: ${error instanceof Error ? error.message : String(error)}`
-    )
-    return result
-  }
-
-  const pdpVerifier = new PDPVerifier(synapse.getProvider(), warmStorage.getPDPVerifierAddress())
-
-  try {
-    const rawLeafCount = await pdpVerifier.getDataSetLeafCount(result.base.pdpVerifierDataSetId)
-    const leafCount = BigInt(rawLeafCount)
-    result.leafCount = leafCount
-    result.totalSizeBytes = leafCount * 32n
-  } catch (error) {
-    result.warnings.push(`Unable to fetch leaf count: ${error instanceof Error ? error.message : String(error)}`)
-  }
-
-  const serviceURL = result.provider?.products?.PDP?.data?.serviceURL
-  if (serviceURL == null || serviceURL.trim() === '') {
-    result.warnings.push('Provider does not expose a PDP service URL; piece details unavailable')
-    return result
-  }
-
-  try {
-    const pdpServer = new PDPServer(null, serviceURL)
-    const dataSetData = await pdpServer.getDataSet(result.base.pdpVerifierDataSetId)
-    const pieces = await Promise.all(
-      dataSetData.pieces.map(async (piece) => {
-        try {
-          return await collectPieceDetail({
-            dataSetId: result.base.pdpVerifierDataSetId,
-            pieceId: piece.pieceId,
-            pieceCid: piece.pieceCid.toString(),
-            warmStorage,
-          })
-        } catch (error) {
-          result.warnings.push(
-            `Failed to inspect piece #${piece.pieceId}: ${error instanceof Error ? error.message : String(error)}`
-          )
-          return {
-            pieceId: piece.pieceId,
-            pieceCid: piece.pieceCid.toString(),
-            metadata: {},
-          }
-        }
-      })
-    )
-
-    pieces.sort((a, b) => a.pieceId - b.pieceId)
-    result.pieces = pieces
-  } catch (error) {
-    result.warnings.push(`Failed to fetch piece list: ${error instanceof Error ? error.message : String(error)}`)
+    result.warnings.push(`Failed to fetch pieces: ${error instanceof Error ? error.message : String(error)}`)
   }
 
   return result
@@ -200,16 +118,10 @@ export async function runDataSetCommand(
 
     spinner.message('Fetching data set information...')
 
-    const [dataSets, storageInfo] = await Promise.all([
-      synapse.storage.findDataSets(address),
-      synapse.storage.getStorageInfo().catch(() => null),
-    ])
-
-    const context = buildSummaryContext({
+    const context = await buildSummaryContext({
       address,
       network,
-      dataSets,
-      providers: storageInfo?.providers ?? null,
+      synapse,
     })
 
     if (hasDataSetId) {
@@ -223,7 +135,7 @@ export async function runDataSetCommand(
         return
       }
 
-      const targetIndex = context.dataSets.findIndex((item) => item.base.pdpVerifierDataSetId === dataSetId)
+      const targetIndex = context.dataSets.findIndex((item) => item.dataSetId === dataSetId)
 
       if (targetIndex === -1) {
         spinner.stop('━━━ Data Sets ━━━')
@@ -234,14 +146,14 @@ export async function runDataSetCommand(
 
       spinner.message('Collecting data set details...')
 
-      const baseDetail = context.dataSets[targetIndex]
-      if (baseDetail == null) {
+      const baseSummary = context.dataSets[targetIndex]
+      if (baseSummary == null) {
         spinner.stop('━━━ Data Sets ━━━')
         cancel('Data set not found')
         process.exitCode = 1
         return
       }
-      const detailed = await loadDetailedDataSet(baseDetail, synapse)
+      const detailed = await loadDetailedDataSet(baseSummary, synapse)
       context.dataSets[targetIndex] = detailed
 
       spinner.stop('━━━ Data Sets ━━━')
@@ -250,7 +162,7 @@ export async function runDataSetCommand(
         const filteredContext: DataSetInspectionContext = {
           ...context,
           dataSets: context.dataSets.filter((entry, index) => {
-            if (entry.base.pdpVerifierDataSetId === dataSetId) {
+            if (entry.dataSetId === dataSetId) {
               return false
             }
             if (index === targetIndex) {
