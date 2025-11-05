@@ -14,8 +14,9 @@ import { getOutputSummary } from '../outputs.js'
  */
 const generateCommentBody = (context, status) => {
   return `<!-- filecoin-pin-upload-action -->
-  ${getOutputSummary(context, status)}
-  <a href="${getWorkflowRunUrl()}">More details</a>`
+${getOutputSummary(context, status)}
+
+<a href="${getWorkflowRunUrl()}">More details</a>`
 }
 
 /**
