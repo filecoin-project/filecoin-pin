@@ -11,6 +11,7 @@ import pc from 'picocolors'
 import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import {
   calculateDepositCapacity,
+  checkAndSetAllowances,
   checkFILBalance,
   checkUSDFCBalance,
   depositUSDFC,
@@ -133,7 +134,12 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     } else {
       // Use a dummy spinner to get consistent formatting
       spinner.start('Checking deposit...')
-      spinner.stop(`${pc.green('✓')} Deposit already sufficient (${formatUSDFC(status.filecoinPayBalance)} USDFC)`)
+      const { updated, transactionHash } = await checkAndSetAllowances(synapse)
+      if (updated) {
+        spinner.stop(`${pc.green('✓')} Updated payment allowances, tx: ${transactionHash}`)
+      } else {
+        spinner.stop(`${pc.green('✓')} Deposit already sufficient (${formatUSDFC(status.filecoinPayBalance)} USDFC)`)
+      }
     }
 
     // Calculate capacity for final summary

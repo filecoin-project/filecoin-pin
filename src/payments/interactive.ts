@@ -12,6 +12,7 @@ import { ethers } from 'ethers'
 import pc from 'picocolors'
 import {
   calculateDepositCapacity,
+  checkAndSetAllowances,
   checkFILBalance,
   checkUSDFCBalance,
   DEFAULT_LOCKUP_DAYS,
@@ -238,6 +239,13 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       log.indent(`Total deposit: ${formatUSDFC(status.filecoinPayBalance + depositAmount)} USDFC`)
       log.indent(`Capacity: ~${newCapacityStr} for 1 month`)
       log.flush()
+    } else {
+      const { updated, transactionHash } = await checkAndSetAllowances(synapse)
+      if (updated) {
+        log.indent(`${pc.green('✓')} Updated payment allowances, tx: ${transactionHash}`)
+      } else {
+        log.indent(`${pc.green('✓')} Deposit already sufficient (${formatUSDFC(status.filecoinPayBalance)} USDFC)`)
+      }
     }
 
     // Final summary
