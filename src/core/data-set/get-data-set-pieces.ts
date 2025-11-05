@@ -61,7 +61,7 @@ export async function getDataSetPieces(
 
   // Use the async generator to fetch all pieces
   try {
-    const getPiecesOptions = signal ? { batchSize, signal } : { batchSize }
+    const getPiecesOptions = { batchSize, ...(signal && { signal }) }
     for await (const piece of storageContext.getPieces(getPiecesOptions)) {
       const pieceInfo: PieceInfo = {
         pieceId: piece.pieceId,
