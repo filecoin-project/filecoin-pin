@@ -263,7 +263,7 @@ export async function depositUSDFC(
   const amountMoreThanCurrentAllowance =
     (await synapse.payments.allowance(synapse.getPaymentsAddress(), TOKENS.USDFC)) < amount
 
-  let tx = {} as ethers.TransactionResponse
+  let tx: ethers.TransactionResponse
 
   if (amountMoreThanCurrentAllowance || needsAllowanceUpdate) {
     tx = await synapse.payments.depositWithPermitAndApproveOperator(
