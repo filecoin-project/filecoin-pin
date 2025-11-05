@@ -90,8 +90,6 @@ export interface GetDataSetPiecesOptions {
   batchSize?: number
   /** Abort signal for cancellation */
   signal?: AbortSignal
-  /** Synapse instance (required if includeMetadata is true) */
-  synapse?: import('@filoz/synapse-sdk').Synapse
   /** Logger instance for debugging (optional) */
   logger?: Logger
 }
