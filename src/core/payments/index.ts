@@ -277,7 +277,7 @@ export async function depositUSDFC(
     tx = await synapse.payments.deposit(amount, TOKENS.USDFC)
   }
 
-  await tx.wait();
+  await tx.wait()
 
   return { depositTx: tx.hash }
 }
