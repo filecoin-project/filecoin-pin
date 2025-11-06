@@ -238,14 +238,14 @@ export function validatePaymentRequirements(
 /**
  * Deposit USDFC into the Payments contract
  *
- * This demonstrates the two-step process required for depositing ERC20 tokens:
- * 1. Approve the Payments contract to spend USDFC (standard ERC20 approval)
- * 2. Call deposit to move funds into the Payments contract
+ * This demonstrates the single-step process required for depositing ERC20 tokens:
+ * 1. If approval is insufficient, use permit to approve and deposit in one transaction
+ * 2. If approval is sufficient, directly call deposit
  *
  * Example usage:
  * ```typescript
  * const amountToDeposit = ethers.parseUnits('100', 18) // 100 USDFC
- * const { approvalTx, depositTx } = await depositUSDFC(synapse, amountToDeposit)
+ * const { depositTx } = await depositUSDFC(synapse, amountToDeposit)
  * console.log(`Deposit transaction: ${depositTx}`)
  * ```
  *
@@ -257,36 +257,29 @@ export async function depositUSDFC(
   synapse: Synapse,
   amount: bigint
 ): Promise<{
-  approvalTx?: string
   depositTx: string
 }> {
-  const paymentsAddress = synapse.getPaymentsAddress()
+  const needsAllowanceUpdate = (await checkAllowances(synapse)).needsUpdate
+  const amountMoreThanCurrentAllowance =
+    (await synapse.payments.allowance(synapse.getPaymentsAddress(), TOKENS.USDFC)) < amount
 
-  // Step 1: Check current allowance
-  const currentAllowance = await synapse.payments.allowance(paymentsAddress, TOKENS.USDFC)
+  let tx: ethers.TransactionResponse
 
-  let approvalTx: string | undefined
-
-  // Step 2: Approve if needed (skip if already approved)
-  if (currentAllowance < amount) {
-    const approveTx = await synapse.payments.approve(paymentsAddress, amount, TOKENS.USDFC)
-    await approveTx.wait()
-    approvalTx = approveTx.hash
+  if (amountMoreThanCurrentAllowance || needsAllowanceUpdate) {
+    tx = await synapse.payments.depositWithPermitAndApproveOperator(
+      amount,
+      synapse.getWarmStorageAddress(),
+      MAX_RATE_ALLOWANCE,
+      MAX_LOCKUP_ALLOWANCE,
+      BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
+    )
+  } else {
+    tx = await synapse.payments.deposit(amount, TOKENS.USDFC)
   }
 
-  // Step 3: Make the deposit
-  const depositTransaction = await synapse.payments.deposit(amount, TOKENS.USDFC)
-  await depositTransaction.wait()
+  await tx.wait()
 
-  const result: { approvalTx?: string; depositTx: string } = {
-    depositTx: depositTransaction.hash,
-  }
-
-  if (approvalTx) {
-    result.approvalTx = approvalTx
-  }
-
-  return result
+  return { depositTx: tx.hash }
 }
 
 /**

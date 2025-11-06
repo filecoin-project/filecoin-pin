@@ -92,10 +92,9 @@ async function performAdjustment(params: {
       }
     }
     spinner.start(depositMsg)
-    const { approvalTx, depositTx } = await depositUSDFC(synapse, needed)
+    const { depositTx } = await depositUSDFC(synapse, needed)
     spinner.stop(`${pc.green('✓')} Deposit complete`)
     log.line(pc.bold('Transaction details:'))
-    if (approvalTx) log.indent(pc.gray(`Approval: ${approvalTx}`))
     log.indent(pc.gray(`Deposit: ${depositTx}`))
     log.flush()
   } else if (delta < 0n) {
@@ -197,7 +196,6 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
   const depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to ensure ${MIN_RUNWAY_DAYS} day(s) runway...`
   spinner?.message(depositMsg)
   const depositResult = await depositUSDFC(synapse, delta)
-  const approvalTx = depositResult.approvalTx
   const transactionHash = depositResult.depositTx
   spinner?.message(`${pc.green('✓')} Deposit complete`)
 
@@ -211,7 +209,6 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
   return {
     adjusted: true,
     delta,
-    approvalTx,
     transactionHash,
     newDepositedAmount: updated.filecoinPayBalance,
     newRunwayDays: newRunway,
