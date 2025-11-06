@@ -5,7 +5,6 @@ import { runDataSetDetailsCommand, runDataSetListCommand } from '../../data-set/
 
 const {
   displayDataSetListMock,
-  displayDataSetStatusMock,
   cleanupSynapseServiceMock,
   spinnerMock,
   cancelMock,
@@ -20,7 +19,6 @@ const {
   state,
 } = vi.hoisted(() => {
   const displayDataSetListMock = vi.fn()
-  const displayDataSetStatusMock = vi.fn()
   const cleanupSynapseServiceMock = vi.fn()
   const cancelMock = vi.fn()
   const spinnerMock = {
@@ -109,7 +107,6 @@ const {
 
   return {
     displayDataSetListMock,
-    displayDataSetStatusMock,
     cleanupSynapseServiceMock,
     cancelMock,
     spinnerMock,
@@ -128,8 +125,7 @@ const {
 })
 
 vi.mock('../../data-set/display.js', () => ({
-  displayDataSetList: displayDataSetListMock,
-  displayDataSetDetails: displayDataSetStatusMock,
+  displayDataSets: displayDataSetListMock,
 }))
 
 vi.mock('../../core/synapse/index.js', () => ({
@@ -260,18 +256,18 @@ describe('runDataSetCommand', () => {
       rpcUrl: 'wss://sample',
     })
 
-    expect(displayDataSetListMock).not.toHaveBeenCalled()
-
-    expect(displayDataSetStatusMock).toHaveBeenCalledTimes(1)
-    const statusCall = displayDataSetStatusMock.mock.calls[0]
+    expect(displayDataSetListMock).toHaveBeenCalledTimes(1)
+    const statusCall = displayDataSetListMock.mock.calls[0]
     expect(statusCall).toBeDefined()
-    const [context] = statusCall as [DataSetSummary]
-    expect(context).toBeDefined()
-    expect(context.totalSizeBytes).toBe(BigInt(1048576))
-    expect(context.pieces).toBeDefined()
-    expect(context.pieces).toHaveLength(1)
-    expect(context.pieces?.[0]?.size).toBe(1048576)
-    expect(context.pieces?.[0]?.metadata).toMatchObject({
+    const [dataSets] = statusCall as [DataSetSummary[]]
+    expect(dataSets).toHaveLength(1)
+    const dataSet = dataSets[0]
+    expect(dataSet).toBeDefined()
+    expect(dataSet?.totalSizeBytes).toBe(BigInt(1048576))
+    expect(dataSet?.pieces).toBeDefined()
+    expect(dataSet?.pieces).toHaveLength(1)
+    expect(dataSet?.pieces?.[0]?.size).toBe(1048576)
+    expect(dataSet?.pieces?.[0]?.metadata).toMatchObject({
       [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot0',
       custom: 'value',
     })
@@ -291,8 +287,7 @@ describe('runDataSetCommand', () => {
     // Should set exitCode to 1 due to authentication error
     expect(process.exitCode).toBe(1)
 
-    // Should not call display functions since it failed early
+    // Should not call display function since it failed early
     expect(displayDataSetListMock).not.toHaveBeenCalled()
-    expect(displayDataSetStatusMock).not.toHaveBeenCalled()
   })
 })

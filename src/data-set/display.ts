@@ -212,7 +212,7 @@ function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
 /**
  * Print the lightweight dataset list used for the default command output.
  */
-export function displayDataSetList(dataSets: DataSetSummary[], network: string, address: string): void {
+export function displayDataSets(dataSets: DataSetSummary[], network: string, address: string): void {
   if (dataSets.length === 0) {
     log.line(pc.yellow('No data sets managed by filecoin-pin were found for this account.'))
     log.flush()
@@ -231,27 +231,4 @@ export function displayDataSetList(dataSets: DataSetSummary[], network: string, 
   }
 
   log.flush()
-}
-
-/**
- * Render detailed information for a single dataset.
- *
- * @returns true when the dataset exists; false otherwise.
- */
-export function displayDataSetDetails(dataSet: DataSetSummary, network: string, address: string): boolean {
-  if (dataSet == null) {
-    log.line(pc.red(`No data set found`))
-    log.flush()
-    return false
-  }
-
-  renderNetworkDetails(network, address)
-  renderDataSetHeader(dataSet)
-  renderProviderDetails(dataSet, 1)
-  renderMetadata(dataSet.metadata ?? {}, 1)
-  renderPaymentDetails(dataSet, 1)
-  renderPieces(dataSet, 1)
-
-  log.flush()
-  return true
 }

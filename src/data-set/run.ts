@@ -5,7 +5,7 @@ import { cleanupSynapseService } from '../core/synapse/index.js'
 import { getCliSynapse } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import { displayDataSetDetails, displayDataSetList } from './display.js'
+import { displayDataSets } from './display.js'
 import type { DataSetCommandOptions, DataSetListCommandOptions } from './types.js'
 
 /**
@@ -32,7 +32,7 @@ export async function runDataSetDetailsCommand(dataSetId: number, options: DataS
     const dataSet: DataSetSummary = await getDetailedDataSet(synapse, dataSetId)
 
     spinner.stop('━━━ Data Set ━━━')
-    displayDataSetDetails(dataSet, network, address)
+    displayDataSets([dataSet], network, address)
 
     outro('Data set inspection complete')
   } catch (error) {
@@ -81,7 +81,7 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
 
     spinner.stop('━━━ Data Sets ━━━')
 
-    displayDataSetList(dataSets, network, address)
+    displayDataSets(dataSets, network, address)
 
     outro('Data set list complete')
   } catch (error) {
