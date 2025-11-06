@@ -131,6 +131,7 @@ describe('listDataSets', () => {
       serviceProvider: '0xservice',
       payer: '0xpayer',
       payee: '0xpayee',
+      createdWithFilecoinPin: false,
     })
     expect(result[0]?.provider).toBeUndefined()
   })
@@ -167,6 +168,7 @@ describe('listDataSets', () => {
 
     expect(result).toHaveLength(1)
     expect(result[0]?.provider).toEqual(provider)
+    expect(result[0]?.createdWithFilecoinPin).toBe(false)
   })
 
   it('uses custom address when provided in options', async () => {
@@ -224,7 +226,71 @@ describe('listDataSets', () => {
 
     expect(result).toHaveLength(2)
     expect(result[0]?.provider).toEqual(provider1)
+    expect(result[0]?.createdWithFilecoinPin).toBe(false)
     expect(result[1]?.provider).toBeUndefined()
+    expect(result[1]?.createdWithFilecoinPin).toBe(false)
+  })
+
+  it('sets createdWithFilecoinPin to true when both WITH_IPFS_INDEXING and source=filecoin-pin metadata are present', async () => {
+    state.datasets = [
+      {
+        pdpVerifierDataSetId: 1,
+        clientDataSetId: 100n,
+        providerId: 2,
+        metadata: {
+          [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+          source: 'filecoin-pin',
+        },
+        currentPieceCount: 5,
+        isManaged: true,
+        withCDN: false,
+        isLive: true,
+        serviceProvider: '0xservice',
+        payer: '0xpayer',
+        payee: '0xpayee',
+      },
+      {
+        pdpVerifierDataSetId: 2,
+        clientDataSetId: 101n,
+        providerId: 2,
+        metadata: {
+          // Has WITH_IPFS_INDEXING but wrong source
+          [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+          source: 'other-tool',
+        },
+        currentPieceCount: 3,
+        isManaged: false,
+        withCDN: false,
+        isLive: true,
+        serviceProvider: '0xservice',
+        payer: '0xpayer',
+        payee: '0xpayee',
+      },
+      {
+        pdpVerifierDataSetId: 3,
+        clientDataSetId: 102n,
+        providerId: 2,
+        metadata: {
+          // Has source but no WITH_IPFS_INDEXING
+          source: 'filecoin-pin',
+        },
+        currentPieceCount: 2,
+        isManaged: false,
+        withCDN: false,
+        isLive: true,
+        serviceProvider: '0xservice',
+        payer: '0xpayer',
+        payee: '0xpayee',
+      },
+    ]
+    state.storageInfo = { providers: [] }
+
+    const result = await listDataSets(mockSynapse as any)
+
+    expect(result).toHaveLength(3)
+    expect(result[0]?.createdWithFilecoinPin).toBe(true)
+    expect(result[1]?.createdWithFilecoinPin).toBe(false)
+    expect(result[2]?.createdWithFilecoinPin).toBe(false)
   })
 })
 

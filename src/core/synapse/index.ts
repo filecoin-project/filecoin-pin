@@ -1,7 +1,6 @@
 import {
   ADD_PIECES_TYPEHASH,
   CREATE_DATA_SET_TYPEHASH,
-  METADATA_KEYS,
   type ProviderInfo,
   RPC_URLS,
   type StorageContext,
@@ -14,25 +13,12 @@ import {
 import { type Provider as EthersProvider, JsonRpcProvider, type Signer, Wallet, WebSocketProvider } from 'ethers'
 import type { Logger } from 'pino'
 import { ADDRESS_ONLY_SIGNER_SYMBOL, AddressOnlySigner } from './address-only-signer.js'
+import { DEFAULT_DATA_SET_METADATA, DEFAULT_STORAGE_CONTEXT_CONFIG } from './constants.js'
 import { getTelemetryConfig } from './telemetry-config.js'
 
+export * from './constants.js'
+
 const WEBSOCKET_REGEX = /^ws(s)?:\/\//i
-
-/**
- * Default metadata for Synapse data sets created by filecoin-pin
- */
-const DEFAULT_DATA_SET_METADATA = {
-  [METADATA_KEYS.WITH_IPFS_INDEXING]: '', // Enable IPFS indexing for all data sets
-  source: 'filecoin-pin', // Identify the source application
-} as const
-
-/**
- * Default configuration for creating storage contexts
- */
-const DEFAULT_STORAGE_CONTEXT_CONFIG = {
-  withIpni: true, // Always filter for IPNI-enabled providers for IPFS indexing
-  metadata: DEFAULT_DATA_SET_METADATA,
-} as const
 
 let synapseInstance: Synapse | null = null
 let storageInstance: StorageContext | null = null
