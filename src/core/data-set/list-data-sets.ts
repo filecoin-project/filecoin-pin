@@ -34,12 +34,13 @@ import type { DataSetSummary, ListDataSetsOptions } from './types.js'
 export async function listDataSets(synapse: Synapse, options?: ListDataSetsOptions): Promise<DataSetSummary[]> {
   const logger = options?.logger
   const address = options?.address ?? (await synapse.getClient().getAddress())
+  const withProviderDetails = options?.withProviderDetails ?? false
 
   // Step 1: Find data sets
   const dataSets = await synapse.storage.findDataSets(address)
 
   // Step 2: Collect unique provider IDs from data sets
-  const uniqueProviderIds = Array.from(new Set(dataSets.map((ds) => ds.providerId)))
+  const uniqueProviderIds = withProviderDetails ? Array.from(new Set(dataSets.map((ds) => ds.providerId))) : []
 
   // Step 3: Fetch provider info for the specific provider IDs using sp-registry
   let providerMap: Map<number, ProviderInfo> = new Map()

@@ -89,6 +89,12 @@ export interface ListDataSetsOptions {
   address?: string
   /** Logger instance for debugging (optional) */
   logger?: Logger
+  /**
+   * Whether to get the provider details from the SP registry
+   *
+   * @default false
+   */
+  withProviderDetails?: boolean
 }
 
 /**
