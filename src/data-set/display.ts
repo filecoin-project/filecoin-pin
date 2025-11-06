@@ -91,17 +91,16 @@ function renderDataSetHeader(dataSet: DataSetSummary): void {
 
 function renderProviderDetails(dataSet: DataSetSummary, indentLevel: number = 0): void {
   log.indent(pc.bold('Provider'), indentLevel)
+  log.indent(`ID: ${dataSet.providerId}`, indentLevel + 1)
+  log.indent(`Address: ${dataSet.serviceProvider}`, indentLevel + 1)
   if (dataSet.provider == null) {
-    log.indent(`Address: ${dataSet.serviceProvider}`, indentLevel + 1)
-    log.indent(`ID: ${dataSet.providerId}`, indentLevel + 1)
     log.line('')
     return
   }
-  log.indent(`Active: ${dataSet.provider.active ? 'yes' : 'no'}`, indentLevel + 1)
   log.indent(`Name: ${dataSet.provider.name}`, indentLevel + 1)
-  log.indent(`ID: ${dataSet.provider.id}`, indentLevel + 1)
   log.indent(`Description: ${dataSet.provider.description}`, indentLevel + 1)
   log.indent(`Service URL: ${dataSet.provider.products.PDP?.data?.serviceURL ?? 'unknown'}`, indentLevel + 1)
+  log.indent(`Active: ${dataSet.provider.active ? 'yes' : 'no'}`, indentLevel + 1)
   log.indent(
     `Min piece size: ${formatBytes(BigInt(dataSet.provider.products.PDP?.data?.minPieceSizeInBytes ?? 0))}`,
     indentLevel + 1
