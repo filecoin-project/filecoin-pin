@@ -73,11 +73,7 @@ export interface DataSetSummary extends EnhancedDataSetInfo {
   dataSetId: number
   /** Provider information (enriched from getStorageInfo if available) */
   provider: ProviderInfo | undefined
-  /** Leaf count for size calculation (optional, populated when fetching detailed info) */
-  // TODO: do we care about leafCount?
-  leafCount?: bigint
   /** Total size in bytes (optional, calculated from piece sizes) */
-  // TODO: is getting full data-set size from pieceSizes enough?
   totalSizeBytes?: bigint
   /** Pieces in the dataset (optional, populated when fetching detailed info) */
   pieces?: PieceInfo[]
