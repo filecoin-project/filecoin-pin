@@ -86,8 +86,6 @@ export interface ListDataSetsOptions {
 export interface GetDataSetPiecesOptions {
   /** Whether to fetch and include piece metadata from WarmStorage */
   includeMetadata?: boolean
-  /** Batch size for pagination (default: 100) */
-  batchSize?: number
   /** Abort signal for cancellation */
   signal?: AbortSignal
   /** Logger instance for debugging (optional) */

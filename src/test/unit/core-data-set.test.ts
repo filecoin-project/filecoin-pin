@@ -355,17 +355,6 @@ describe('getDataSetPieces', () => {
     })
   })
 
-  it('uses custom batch size when provided', async () => {
-    state.pieces = [
-      { pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } },
-      { pieceId: 1, pieceCid: { toString: () => 'bafkpiece1' } },
-    ]
-
-    await getDataSetPieces(mockSynapse as any, mockStorageContext as any, { batchSize: 50 })
-
-    expect(mockGetPieces).toHaveBeenCalledWith({ batchSize: 50, signal: undefined })
-  })
-
   it('throws error when getPieces fails completely', async () => {
     mockGetPieces.mockImplementationOnce(async function* (): AsyncGenerator<{
       pieceId: number

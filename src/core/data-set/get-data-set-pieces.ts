@@ -49,7 +49,6 @@ export async function getDataSetPieces(
 ): Promise<DataSetPiecesResult> {
   const logger = options?.logger
   const includeMetadata = options?.includeMetadata ?? false
-  const batchSize = options?.batchSize ?? 100
   const signal = options?.signal
 
   if (!isStorageContextWithDataSetId(storageContext)) {
@@ -61,7 +60,7 @@ export async function getDataSetPieces(
 
   // Use the async generator to fetch all pieces
   try {
-    const getPiecesOptions = { batchSize, ...(signal && { signal }) }
+    const getPiecesOptions = { ...(signal && { signal }) }
     for await (const piece of storageContext.getPieces(getPiecesOptions)) {
       const pieceInfo: PieceInfo = {
         pieceId: piece.pieceId,
