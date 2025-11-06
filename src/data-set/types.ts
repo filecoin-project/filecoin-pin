@@ -1,16 +1,10 @@
-import type { DataSetSummary } from '../core/data-set/types.js'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 
-export interface DataSetSummaryForCLI extends DataSetSummary {
-  warnings: string[]
-}
+export interface DataSetCommandOptions extends CLIAuthOptions {}
 
-export interface DataSetInspectionContext {
-  address: string
-  network: string
-  dataSets: DataSetSummaryForCLI[]
-}
-
-export interface DataSetCommandOptions extends CLIAuthOptions {
-  ls?: boolean
+export interface DataSetListCommandOptions extends CLIAuthOptions {
+  /**
+   * If you want to filter the data sets by provider ID, you can pass it here.
+   */
+  providerId?: string | undefined
 }

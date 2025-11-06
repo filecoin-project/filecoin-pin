@@ -1,7 +1,7 @@
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runDataSetCommand } from '../../data-set/run.js'
-import type { DataSetInspectionContext, DataSetSummaryForCLI } from '../../data-set/types.js'
+import type { DataSetSummary } from '../../core/data-set/types.js'
+import { runDataSetDetailsCommand, runDataSetListCommand } from '../../data-set/run.js'
 
 const {
   displayDataSetListMock,
@@ -127,9 +127,9 @@ const {
   }
 })
 
-vi.mock('../../data-set/inspect.js', () => ({
+vi.mock('../../data-set/display.js', () => ({
   displayDataSetList: displayDataSetListMock,
-  displayDataSetStatus: displayDataSetStatusMock,
+  displayDataSetDetails: displayDataSetStatusMock,
 }))
 
 vi.mock('../../core/synapse/index.js', () => ({
@@ -189,7 +189,11 @@ describe('runDataSetCommand', () => {
     commissionBps: 100,
     pdpEndEpoch: 0,
     cdnEndEpoch: 0,
-    metadata: { source: 'filecoin-pin', note: 'demo' },
+    metadata: {
+      [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+      source: 'filecoin-pin',
+      note: 'demo',
+    },
   }
 
   const provider = {
@@ -226,7 +230,7 @@ describe('runDataSetCommand', () => {
   })
 
   it('lists datasets without fetching details when no id is provided', async () => {
-    await runDataSetCommand(undefined, {
+    await runDataSetListCommand({
       privateKey: 'test-key',
       rpcUrl: 'wss://sample',
     })
@@ -234,28 +238,24 @@ describe('runDataSetCommand', () => {
     expect(displayDataSetListMock).toHaveBeenCalledTimes(1)
     const firstCall = displayDataSetListMock.mock.calls[0]
     expect(firstCall).toBeDefined()
-    const [context] = firstCall as [DataSetInspectionContext]
-    expect(context.dataSets).toHaveLength(1)
-    const summary = context.dataSets[0]
+    const [context] = firstCall as [DataSetSummary[]]
+    expect(context).toHaveLength(1)
+    const summary = context[0]
     expect(summary).toBeDefined()
-    const datasetSummary = summary as DataSetSummaryForCLI
-    expect(datasetSummary.dataSetId).toBe(158)
-    // In list mode, pieces are not fetched
-    expect(datasetSummary.pieces).toBeUndefined()
-    expect(mockWarmStorageCreate).not.toHaveBeenCalled()
-    expect(displayDataSetStatusMock).not.toHaveBeenCalled()
+    expect(summary?.dataSetId).toBe(158)
+    expect(summary?.createdWithFilecoinPin).toBe(true)
   })
 
   it('loads detailed information when a dataset id is provided', async () => {
     state.pieceList = [{ pieceId: 0, pieceCid: 'bafkpiece0' }]
-    state.pieceMetadata = {
+    const pieceMetadata = {
       [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot0',
       custom: 'value',
     }
-    mockWarmStorageInstance.getPieceMetadata.mockResolvedValue({ ...state.pieceMetadata })
+    state.pieceMetadata = pieceMetadata
+    mockWarmStorageInstance.getPieceMetadata.mockResolvedValue(pieceMetadata)
 
-    await runDataSetCommand('158', {
-      ls: true,
+    await runDataSetDetailsCommand(158, {
       privateKey: 'test-key',
       rpcUrl: 'wss://sample',
     })
@@ -265,34 +265,28 @@ describe('runDataSetCommand', () => {
     expect(displayDataSetStatusMock).toHaveBeenCalledTimes(1)
     const statusCall = displayDataSetStatusMock.mock.calls[0]
     expect(statusCall).toBeDefined()
-    const [context] = statusCall as [DataSetInspectionContext]
-    const summary = context.dataSets[0]
-    expect(summary).toBeDefined()
-    const datasetSummary = summary as DataSetSummaryForCLI
-    // Total size should be 1 MiB (from mocked getSizeFromPieceCID)
-    expect(datasetSummary.totalSizeBytes).toBe(BigInt(1048576))
-    expect(datasetSummary.pieces).toBeDefined()
-    expect(datasetSummary.pieces).toHaveLength(1)
-    const piece = datasetSummary.pieces?.[0]
-    expect(piece).toBeDefined()
-    expect(piece?.size).toBe(1048576)
-    expect(piece?.metadata).toMatchObject({
+    const [context] = statusCall as [DataSetSummary]
+    expect(context).toBeDefined()
+    expect(context.totalSizeBytes).toBe(BigInt(1048576))
+    expect(context.pieces).toBeDefined()
+    expect(context.pieces).toHaveLength(1)
+    expect(context.pieces?.[0]?.size).toBe(1048576)
+    expect(context.pieces?.[0]?.metadata).toMatchObject({
       [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot0',
       custom: 'value',
     })
   })
 
   it('exits when no private key is provided', async () => {
-    await runDataSetCommand(undefined, {
-      ls: false,
+    await runDataSetListCommand({
       rpcUrl: 'wss://sample',
     })
 
     // Should call cancel with failure message
-    expect(cancelMock).toHaveBeenCalledWith('Inspection failed')
+    expect(cancelMock).toHaveBeenCalledWith('Listing failed')
 
     // Should stop spinner with error message
-    expect(spinnerMock.stop).toHaveBeenCalledWith(expect.stringContaining('Failed to inspect data sets'))
+    expect(spinnerMock.stop).toHaveBeenCalledWith(expect.stringContaining('Failed to list data sets'))
 
     // Should set exitCode to 1 due to authentication error
     expect(process.exitCode).toBe(1)

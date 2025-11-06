@@ -42,6 +42,7 @@ const {
     getPieceMetadata: vi.fn(async (_dataSetId: number, pieceId: number) => {
       return state.pieceMetadata[pieceId] ?? {}
     }),
+    getServiceProviderRegistryAddress: vi.fn(async () => '0xsp-registry'),
   }
 
   const mockWarmStorageCreate = vi.fn(async () => mockWarmStorageInstance)
@@ -85,12 +86,13 @@ vi.mock('@filoz/synapse-sdk', async () => {
 
 // Mock piece size calculation
 vi.mock('@filoz/synapse-sdk/piece', () => ({
-  getSizeFromPieceCID: vi.fn((cid: string) => {
+  getSizeFromPieceCID: vi.fn((cid: { toString: () => string } | string) => {
     // Map specific CIDs to sizes for testing
-    if (cid === 'bafkpiece0') return 1048576 // 1 MiB
-    if (cid === 'bafkpiece1') return 2097152 // 2 MiB
-    if (cid === 'bafkpiece2') return 4194304 // 4 MiB
-    throw new Error(`Invalid piece CID: ${cid}`)
+    const cidString = typeof cid === 'string' ? cid : cid.toString()
+    if (cidString === 'bafkpiece0') return 1048576 // 1 MiB
+    if (cidString === 'bafkpiece1') return 2097152 // 2 MiB
+    if (cidString === 'bafkpiece2') return 4194304 // 4 MiB
+    throw new Error(`Invalid piece CID: ${cidString}`)
   }),
 }))
 vi.mock('@filoz/synapse-sdk/sp-registry', () => {
@@ -135,7 +137,7 @@ describe('listDataSets', () => {
     state.datasets = [expectedDataSet]
     mockGetProviders.mockRejectedValueOnce(new Error('Network error'))
 
-    const result = await listDataSets(mockSynapse as any)
+    const result = await listDataSets(mockSynapse as any, { withProviderDetails: true })
 
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({
@@ -174,7 +176,7 @@ describe('listDataSets', () => {
     ]
     state.providers = [provider]
 
-    const result = await listDataSets(mockSynapse as any)
+    const result = await listDataSets(mockSynapse as any, { withProviderDetails: true })
 
     expect(result).toHaveLength(1)
     expect(result[0]?.provider).toEqual(provider)
@@ -231,7 +233,7 @@ describe('listDataSets', () => {
     ]
     state.providers = [provider1]
 
-    const result = await listDataSets(mockSynapse as any)
+    const result = await listDataSets(mockSynapse as any, { withProviderDetails: true })
 
     expect(result).toHaveLength(2)
     expect(result[0]?.provider).toEqual(provider1)

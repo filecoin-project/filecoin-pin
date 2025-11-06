@@ -88,13 +88,24 @@ export interface ListDataSetsOptions {
   /** Address to list datasets for (defaults to synapse client address) */
   address?: string
   /** Logger instance for debugging (optional) */
-  logger?: Logger
+  logger?: Logger | undefined
   /**
    * Whether to get the provider details from the SP registry
    *
    * @default false
    */
   withProviderDetails?: boolean
+
+  /**
+   * Filter function to apply to the data sets before additional processing
+   *
+   * Note: The filter receives raw EnhancedDataSetInfo objects from the SDK
+   * (with pdpVerifierDataSetId field) before transformation to DataSetSummary
+   *
+   * @param dataSet - Raw dataset from SDK storage.findDataSets()
+   * @returns true to include the dataset, false to exclude it
+   */
+  filter?: undefined | ((dataSet: EnhancedDataSetInfo) => boolean)
 }
 
 /**
@@ -106,7 +117,7 @@ export interface GetDataSetPiecesOptions {
   /** Abort signal for cancellation */
   signal?: AbortSignal
   /** Logger instance for debugging (optional) */
-  logger?: Logger
+  logger?: Logger | undefined
 }
 
 export type StorageContextWithDataSetId = StorageContext & { dataSetId: number }

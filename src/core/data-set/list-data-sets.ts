@@ -7,6 +7,7 @@
  */
 
 import type { ProviderInfo, Synapse } from '@filoz/synapse-sdk'
+import { WarmStorageService } from '@filoz/synapse-sdk'
 import { SPRegistryService } from '@filoz/synapse-sdk/sp-registry'
 import { DEFAULT_DATA_SET_METADATA } from '../synapse/constants.js'
 import type { DataSetSummary, ListDataSetsOptions } from './types.js'
@@ -35,27 +36,32 @@ export async function listDataSets(synapse: Synapse, options?: ListDataSetsOptio
   const logger = options?.logger
   const address = options?.address ?? (await synapse.getClient().getAddress())
   const withProviderDetails = options?.withProviderDetails ?? false
+  const filter = options?.filter
 
   // Step 1: Find data sets
   const dataSets = await synapse.storage.findDataSets(address)
 
+  const filteredDataSets = filter ? dataSets.filter(filter) : dataSets
+
   // Step 2: Collect unique provider IDs from data sets
-  const uniqueProviderIds = withProviderDetails ? Array.from(new Set(dataSets.map((ds) => ds.providerId))) : []
+  const uniqueProviderIds = withProviderDetails ? Array.from(new Set(filteredDataSets.map((ds) => ds.providerId))) : []
 
   // Step 3: Fetch provider info for the specific provider IDs using sp-registry
   let providerMap: Map<number, ProviderInfo> = new Map()
   if (uniqueProviderIds.length > 0) {
     try {
-      const spRegistry = new SPRegistryService(synapse.getProvider(), synapse.getNetwork())
+      const warmStorageService = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
+      const serviceProviderRegistryAddress = await warmStorageService.getServiceProviderRegistryAddress()
+      const spRegistry = new SPRegistryService(synapse.getProvider(), serviceProviderRegistryAddress)
       const providers = await spRegistry.getProviders(uniqueProviderIds)
-      providerMap = new Map(providers.map((provider) => [provider.id, provider] as const))
+      providerMap = new Map(providers.map((provider) => [provider.id, provider]))
     } catch (error) {
       logger?.warn({ error }, 'Failed to fetch provider info from sp-registry for provider enrichment')
     }
   }
 
   // Map SDK datasets to our summary format (spread all fields, add dataSetId alias, provider, and filecoin-pin creation flag)
-  return dataSets.map((ds) => {
+  return filteredDataSets.map((ds) => {
     // Check if this dataset was created by filecoin-pin by looking for our DEFAULT_DATA_SET_METADATA fields
     const createdWithFilecoinPin = Object.entries(DEFAULT_DATA_SET_METADATA).every(
       ([key, value]) => ds.metadata[key] === value

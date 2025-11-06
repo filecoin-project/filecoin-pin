@@ -92,13 +92,16 @@ export async function getDataSetPieces(
 
   // Calculate total size from pieces that have sizes
   const piecesWithSizes = pieces.filter((p): p is PieceInfo & { size: number } => p.size != null)
+
   const result: DataSetPiecesResult = {
     pieces,
     dataSetId: storageContext.dataSetId,
     warnings,
   }
 
-  result.totalSizeBytes = piecesWithSizes.reduce((sum, piece) => sum + BigInt(piece.size), 0n)
+  if (piecesWithSizes.length > 0) {
+    result.totalSizeBytes = piecesWithSizes.reduce((sum, piece) => sum + BigInt(piece.size), 0n)
+  }
 
   return result
 }
