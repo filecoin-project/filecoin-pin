@@ -62,6 +62,8 @@ export interface Warning {
  * - Contract details (commissionBps, pdpEndEpoch, cdnEndEpoch)
  * - Piece tracking (nextPieceId, currentPieceCount)
  * - Provider enrichment (optional provider field)
+ * - Dataset metadata (inherited from EnhancedDataSetInfo.metadata - key-value pairs from WarmStorage)
+ * - Filecoin-pin creation flag (indicates if created by filecoin-pin)
  * - Optional detailed information (pieces, metadata, size calculations, warnings)
  *
  * The dataSetId alias makes pdpVerifierDataSetId more discoverable.
@@ -79,6 +81,8 @@ export interface DataSetSummary extends EnhancedDataSetInfo {
   totalSizeBytes?: bigint
   /** Pieces in the dataset (optional, populated when fetching detailed info) */
   pieces?: PieceInfo[]
+  /** Indicates if this dataset was created by filecoin-pin (has WITH_IPFS_INDEXING and source='filecoin-pin' metadata) */
+  createdWithFilecoinPin: boolean
 }
 
 /**
@@ -97,8 +101,6 @@ export interface ListDataSetsOptions {
 export interface GetDataSetPiecesOptions {
   /** Whether to fetch and include piece metadata from WarmStorage */
   includeMetadata?: boolean
-  /** Batch size for pagination (default: 100) */
-  batchSize?: number
   /** Abort signal for cancellation */
   signal?: AbortSignal
   /** Logger instance for debugging (optional) */

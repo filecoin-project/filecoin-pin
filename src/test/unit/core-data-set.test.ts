@@ -14,26 +14,29 @@ const {
   mockWarmStorageInstance,
   mockWarmStorageCreate,
   mockFindDataSets,
-  mockGetStorageInfo,
+  mockGetProviders,
   mockGetPieces,
   mockGetAddress,
   state,
 } = vi.hoisted(() => {
   const state = {
     datasets: [] as any[],
-    storageInfo: null as any,
+    providers: [] as any[],
     pieces: [] as Array<{ pieceId: number; pieceCid: { toString: () => string } }>,
     pieceMetadata: {} as Record<number, Record<string, string>>,
   }
 
   const mockGetAddress = vi.fn(async () => '0xtest-address')
   const mockFindDataSets = vi.fn(async () => state.datasets)
-  const mockGetStorageInfo = vi.fn(async () => state.storageInfo)
+  const mockGetProviders = vi.fn(async (providerIds: number[]) => {
+    return state.providers.filter((p) => providerIds.includes(p.id))
+  })
   const mockGetPieces = vi.fn(async function* () {
     for (const piece of state.pieces) {
       yield piece
     }
   })
+  const mockGetNetwork = vi.fn(() => ({ chainId: 314159n, name: 'calibration' }))
 
   const mockWarmStorageInstance = {
     getPieceMetadata: vi.fn(async (_dataSetId: number, pieceId: number) => {
@@ -52,10 +55,10 @@ const {
   const mockSynapse = {
     getClient: () => ({ getAddress: mockGetAddress }),
     getProvider: () => ({}),
+    getNetwork: mockGetNetwork,
     getWarmStorageAddress: () => '0xwarm-storage',
     storage: {
       findDataSets: mockFindDataSets,
-      getStorageInfo: mockGetStorageInfo,
     },
   }
 
@@ -65,7 +68,7 @@ const {
     mockWarmStorageInstance,
     mockWarmStorageCreate,
     mockFindDataSets,
-    mockGetStorageInfo,
+    mockGetProviders,
     mockGetPieces,
     mockGetAddress,
     state,
@@ -90,48 +93,34 @@ vi.mock('@filoz/synapse-sdk/piece', () => ({
     throw new Error(`Invalid piece CID: ${cid}`)
   }),
 }))
+vi.mock('@filoz/synapse-sdk/sp-registry', () => {
+  return {
+    SPRegistryService: vi.fn().mockImplementation(() => {
+      return {
+        getProviders: mockGetProviders,
+      }
+    }),
+  }
+})
 
 describe('listDataSets', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     state.datasets = []
-    state.storageInfo = null
+    state.providers = []
   })
 
   it('returns empty array when no datasets exist', async () => {
-    state.datasets = []
-    state.storageInfo = { providers: [] }
-
     const result = await listDataSets(mockSynapse as any)
 
     expect(result).toEqual([])
     expect(mockFindDataSets).toHaveBeenCalledWith('0xtest-address')
-    expect(mockGetStorageInfo).toHaveBeenCalled()
+    expect(mockGetProviders).not.toHaveBeenCalled()
   })
 
-  it('lists datasets without provider enrichment when storage info unavailable', async () => {
-    state.datasets = [
-      {
-        pdpVerifierDataSetId: 1,
-        clientDataSetId: 100n,
-        providerId: 2,
-        metadata: { source: 'filecoin-pin' },
-        currentPieceCount: 5,
-        isManaged: true,
-        withCDN: false,
-        isLive: true,
-        serviceProvider: '0xservice',
-        payer: '0xpayer',
-        payee: '0xpayee',
-      },
-    ]
-    mockGetStorageInfo.mockRejectedValueOnce(new Error('Network error'))
-
-    const result = await listDataSets(mockSynapse as any)
-
-    expect(result).toHaveLength(1)
-    expect(result[0]).toMatchObject({
-      dataSetId: 1,
+  it('lists datasets without provider enrichment when sp-registry fails', async () => {
+    const expectedDataSet = {
+      pdpVerifierDataSetId: 1,
       clientDataSetId: 100n,
       providerId: 2,
       metadata: { source: 'filecoin-pin' },
@@ -142,8 +131,19 @@ describe('listDataSets', () => {
       serviceProvider: '0xservice',
       payer: '0xpayer',
       payee: '0xpayee',
+    }
+    state.datasets = [expectedDataSet]
+    mockGetProviders.mockRejectedValueOnce(new Error('Network error'))
+
+    const result = await listDataSets(mockSynapse as any)
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      ...expectedDataSet,
+      createdWithFilecoinPin: false,
     })
     expect(result[0]?.provider).toBeUndefined()
+    expect(mockGetProviders).toHaveBeenCalledWith([2])
   })
 
   it('enriches datasets with provider information when available', async () => {
@@ -172,22 +172,22 @@ describe('listDataSets', () => {
         payee: '0xpayee',
       },
     ]
-    state.storageInfo = { providers: [provider] }
+    state.providers = [provider]
 
     const result = await listDataSets(mockSynapse as any)
 
     expect(result).toHaveLength(1)
     expect(result[0]?.provider).toEqual(provider)
+    expect(result[0]?.createdWithFilecoinPin).toBe(false)
+    expect(mockGetProviders).toHaveBeenCalledWith([2])
   })
 
   it('uses custom address when provided in options', async () => {
-    state.datasets = []
-    state.storageInfo = { providers: [] }
-
     await listDataSets(mockSynapse as any, { address: '0xcustom' })
 
     expect(mockFindDataSets).toHaveBeenCalledWith('0xcustom')
     expect(mockGetAddress).not.toHaveBeenCalled()
+    expect(mockGetProviders).not.toHaveBeenCalled()
   })
 
   it('handles multiple datasets with mixed provider availability', async () => {
@@ -218,7 +218,7 @@ describe('listDataSets', () => {
       {
         pdpVerifierDataSetId: 2,
         clientDataSetId: 101n,
-        providerId: 999, // Provider not in list
+        providerId: 999, // Provider not in registry
         metadata: {},
         currentPieceCount: 1,
         isManaged: false,
@@ -229,13 +229,78 @@ describe('listDataSets', () => {
         payee: '0xpayee',
       },
     ]
-    state.storageInfo = { providers: [provider1] }
+    state.providers = [provider1]
 
     const result = await listDataSets(mockSynapse as any)
 
     expect(result).toHaveLength(2)
     expect(result[0]?.provider).toEqual(provider1)
+    expect(result[0]?.createdWithFilecoinPin).toBe(false)
     expect(result[1]?.provider).toBeUndefined()
+    expect(result[1]?.createdWithFilecoinPin).toBe(false)
+    expect(mockGetProviders).toHaveBeenCalledWith([1, 999])
+  })
+
+  it('sets createdWithFilecoinPin to true when both WITH_IPFS_INDEXING and source=filecoin-pin metadata are present', async () => {
+    state.datasets = [
+      {
+        pdpVerifierDataSetId: 1,
+        clientDataSetId: 100n,
+        providerId: 2,
+        metadata: {
+          [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+          source: 'filecoin-pin',
+        },
+        currentPieceCount: 5,
+        isManaged: true,
+        withCDN: false,
+        isLive: true,
+        serviceProvider: '0xservice',
+        payer: '0xpayer',
+        payee: '0xpayee',
+      },
+      {
+        pdpVerifierDataSetId: 2,
+        clientDataSetId: 101n,
+        providerId: 2,
+        metadata: {
+          // Has WITH_IPFS_INDEXING but wrong source
+          [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+          source: 'other-tool',
+        },
+        currentPieceCount: 3,
+        isManaged: false,
+        withCDN: false,
+        isLive: true,
+        serviceProvider: '0xservice',
+        payer: '0xpayer',
+        payee: '0xpayee',
+      },
+      {
+        pdpVerifierDataSetId: 3,
+        clientDataSetId: 102n,
+        providerId: 2,
+        metadata: {
+          // Has source but no WITH_IPFS_INDEXING
+          source: 'filecoin-pin',
+        },
+        currentPieceCount: 2,
+        isManaged: false,
+        withCDN: false,
+        isLive: true,
+        serviceProvider: '0xservice',
+        payer: '0xpayer',
+        payee: '0xpayee',
+      },
+    ]
+    state.providers = []
+
+    const result = await listDataSets(mockSynapse as any)
+
+    expect(result).toHaveLength(3)
+    expect(result[0]?.createdWithFilecoinPin).toBe(true)
+    expect(result[1]?.createdWithFilecoinPin).toBe(false)
+    expect(result[2]?.createdWithFilecoinPin).toBe(false)
   })
 })
 
@@ -248,8 +313,6 @@ describe('getDataSetPieces', () => {
   })
 
   it('returns empty array when dataset has no pieces', async () => {
-    state.pieces = []
-
     const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
 
     expect(result.pieces).toEqual([])
@@ -277,7 +340,6 @@ describe('getDataSetPieces', () => {
       pieceId: 1,
       pieceCid: 'bafkpiece1',
     })
-    expect(mockWarmStorageCreate).not.toHaveBeenCalled()
   })
 
   it('enriches pieces with metadata when includeMetadata is true', async () => {
@@ -366,23 +428,10 @@ describe('getDataSetPieces', () => {
     })
   })
 
-  it('uses custom batch size when provided', async () => {
-    state.pieces = [
-      { pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } },
-      { pieceId: 1, pieceCid: { toString: () => 'bafkpiece1' } },
-    ]
-
-    await getDataSetPieces(mockSynapse as any, mockStorageContext as any, { batchSize: 50 })
-
-    expect(mockGetPieces).toHaveBeenCalledWith({ batchSize: 50, signal: undefined })
-  })
-
   it('throws error when getPieces fails completely', async () => {
-    mockGetPieces.mockImplementationOnce(async function* (): AsyncGenerator<{
-      pieceId: number
-      pieceCid: { toString: () => string }
-    }> {
-      yield await Promise.reject(new Error('Network error'))
+    // biome-ignore lint/correctness/useYield: Generator intentionally throws before yielding to test error handling
+    mockGetPieces.mockImplementationOnce(async function* () {
+      throw new Error('Network error')
     })
 
     await expect(getDataSetPieces(mockSynapse as any, mockStorageContext as any)).rejects.toThrow(

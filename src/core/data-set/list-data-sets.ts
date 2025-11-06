@@ -7,6 +7,8 @@
  */
 
 import type { ProviderInfo, Synapse } from '@filoz/synapse-sdk'
+import { SPRegistryService } from '@filoz/synapse-sdk/sp-registry'
+import { DEFAULT_DATA_SET_METADATA } from '../synapse/constants.js'
 import type { DataSetSummary, ListDataSetsOptions } from './types.js'
 
 /**
@@ -33,26 +35,36 @@ export async function listDataSets(synapse: Synapse, options?: ListDataSetsOptio
   const logger = options?.logger
   const address = options?.address ?? (await synapse.getClient().getAddress())
 
-  // Fetch datasets and provider info in parallel
-  const [dataSets, storageInfo] = await Promise.all([
-    synapse.storage.findDataSets(address),
-    synapse.storage.getStorageInfo().catch((error) => {
-      logger?.warn({ error }, 'Failed to fetch storage info for provider enrichment')
-      return null
-    }),
-  ])
+  // Step 1: Find data sets
+  const dataSets = await synapse.storage.findDataSets(address)
 
-  // Build provider lookup map for provider enrichment
-  const providerMap: Map<number, ProviderInfo> = new Map(
-    storageInfo?.providers?.map((provider) => [provider.id, provider] as const) ?? []
-  )
+  // Step 2: Collect unique provider IDs from data sets
+  const uniqueProviderIds = Array.from(new Set(dataSets.map((ds) => ds.providerId)))
 
-  // Map SDK datasets to our summary format (spread all fields, add dataSetId alias and provider)
+  // Step 3: Fetch provider info for the specific provider IDs using sp-registry
+  let providerMap: Map<number, ProviderInfo> = new Map()
+  if (uniqueProviderIds.length > 0) {
+    try {
+      const spRegistry = new SPRegistryService(synapse.getProvider(), synapse.getNetwork())
+      const providers = await spRegistry.getProviders(uniqueProviderIds)
+      providerMap = new Map(providers.map((provider) => [provider.id, provider] as const))
+    } catch (error) {
+      logger?.warn({ error }, 'Failed to fetch provider info from sp-registry for provider enrichment')
+    }
+  }
+
+  // Map SDK datasets to our summary format (spread all fields, add dataSetId alias, provider, and filecoin-pin creation flag)
   return dataSets.map((ds) => {
+    // Check if this dataset was created by filecoin-pin by looking for our DEFAULT_DATA_SET_METADATA fields
+    const createdWithFilecoinPin = Object.entries(DEFAULT_DATA_SET_METADATA).every(
+      ([key, value]) => ds.metadata[key] === value
+    )
+
     const summary: DataSetSummary = {
       ...ds,
       dataSetId: ds.pdpVerifierDataSetId,
       provider: providerMap.get(ds.providerId),
+      createdWithFilecoinPin,
     }
     return summary
   })
