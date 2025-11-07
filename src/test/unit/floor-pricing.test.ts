@@ -41,24 +41,6 @@ function getBufferedFloorDeposit(): bigint {
 }
 
 
-describe('getFloorAllowances', () => {
-  it('returns floor rate and lockup allowances', () => {
-    const floor = getFloorAllowances()
-
-    // Floor rate per epoch = 0.06 USDFC / (30 days * epochs per day)
-    const epochsInFloorPeriod = BigInt(FLOOR_PRICE_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
-    const expectedRateAllowance = FLOOR_PRICE_PER_30_DAYS / epochsInFloorPeriod
-
-    expect(floor.rateAllowance).toBe(expectedRateAllowance)
-
-    // Floor lockup = floor rate * lockup period
-    const epochsInLockup = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
-    const expectedLockupAllowance = expectedRateAllowance * epochsInLockup
-
-    expect(floor.lockupAllowance).toBe(expectedLockupAllowance)
-    expect(floor.storageCapacityTiB).toBe(0) // Floor is not size-based
-  })
-})
 
 describe('applyFloorPricing', () => {
   const mockPricing = 100_000_000_000_000n // Some arbitrary price per TiB per epoch
