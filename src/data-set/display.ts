@@ -130,8 +130,8 @@ function renderPaymentDetails(dataSet: DataSetSummary, indentLevel: number = 0):
   log.indent(pc.bold('Payment'), indentLevel)
   log.indent(`PDP rail ID: ${dataSet.pdpRailId}`, indentLevel + 1)
   if (dataSet.withCDN) {
-    log.indent(`CDN rail ID: ${dataSet.cdnRailId > 0 ? dataSet.cdnRailId : 'none'}`, indentLevel + 1)
-    log.indent(`Cache-miss rail ID: ${dataSet.cacheMissRailId > 0 ? dataSet.cacheMissRailId : 'none'}`, indentLevel + 1)
+    log.indent(`FilBeam rail ID: ${dataSet.cdnRailId > 0 ? dataSet.cdnRailId : 'none'}`, indentLevel + 1)
+    log.indent(`FilBeam cache-miss rail ID: ${dataSet.cacheMissRailId > 0 ? dataSet.cacheMissRailId : 'none'}`, indentLevel + 1)
   }
   log.indent(`Payer: ${dataSet.payer}`, indentLevel + 1)
   log.indent(`Payee: ${dataSet.payee}`, indentLevel + 1)
