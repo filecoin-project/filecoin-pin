@@ -200,7 +200,7 @@ function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
   )
   log.indent(`Total size: ${formatBytes(dataSet.totalSizeBytes)}`, indentLevel + 1)
   log.indent(`Unique PieceCIDs: ${uniqueCommPs.size}`, indentLevel + 1)
-  log.indent(`Unique root CIDs: ${uniqueRootCids.size}`, indentLevel + 1)
+  log.indent(`Unique IPFS Root CIDs: ${uniqueRootCids.size}`, indentLevel + 1)
   log.line('')
 
   for (const piece of dataSet.pieces) {
