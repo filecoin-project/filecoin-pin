@@ -199,7 +199,7 @@ function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
     dataSet.pieces.map((p) => p.rootIpfsCid ?? p.metadata?.[METADATA_KEYS.IPFS_ROOT_CID]).filter(Boolean)
   )
   log.indent(`Total size: ${formatBytes(dataSet.totalSizeBytes)}`, indentLevel + 1)
-  log.indent(`Unique CommPs: ${uniqueCommPs.size}`, indentLevel + 1)
+  log.indent(`Unique PieceCIDs: ${uniqueCommPs.size}`, indentLevel + 1)
   log.indent(`Unique root CIDs: ${uniqueRootCids.size}`, indentLevel + 1)
   log.line('')
 
