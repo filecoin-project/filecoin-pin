@@ -125,7 +125,9 @@ function renderProviderDetails(dataSet: DataSetSummary, indentLevel: number = 0)
   //   `Payment token: ${formatPaymentToken(dataSet.provider.products.PDP?.data?.paymentTokenAddress ?? 'unknown')}`,
   //   indentLevel + 1
   // )
-  log.indent(`Commission: ${formatCommission(dataSet.commissionBps)}`, indentLevel + 1)
+  if (dataSet.commissionBps > 0) {
+    log.indent(`Commission: ${formatCommission(dataSet.commissionBps)}`, indentLevel + 1)
+  }
   log.line('')
 }
 
