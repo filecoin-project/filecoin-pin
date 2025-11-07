@@ -176,7 +176,7 @@ function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
   const sizeDisplay = piece.size != null ? formatFileSize(piece.size) : pc.gray('unknown')
 
   log.indent(pc.bold(`#${piece.pieceId}`), baseIndentLevel)
-  log.indent(`CommP: ${piece.pieceCid}`, baseIndentLevel + 1)
+  log.indent(`PieceCID: ${piece.pieceCid}`, baseIndentLevel + 1)
   log.indent(`IPFS Root CID: ${rootDisplay}`, baseIndentLevel + 1)
   log.indent(`Size: ${sizeDisplay}`, baseIndentLevel + 1)
 
