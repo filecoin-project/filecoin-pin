@@ -5,7 +5,10 @@
  * and preparing them for use with the Synapse SDK.
  */
 
+import type { Synapse } from '@filoz/synapse-sdk'
+import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
+import { initializeSynapse } from '../core/synapse/index.js'
 import { createLogger } from '../logger.js'
 
 /**
@@ -106,4 +109,13 @@ export function parseProviderOptions(options?: CLIAuthOptions): ProviderSelectio
  */
 export function getCLILogger() {
   return createLogger({ logLevel: process.env.LOG_LEVEL })
+}
+
+export async function getCliSynapse(options: CLIAuthOptions): Promise<Synapse> {
+  const authConfig = parseCLIAuth(options)
+  const logger = getCLILogger()
+  return await initializeSynapse(
+    { ...authConfig, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
+    logger
+  )
 }

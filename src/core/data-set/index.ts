@@ -15,5 +15,6 @@
  */
 
 export * from './get-data-set-pieces.js'
+export * from './get-detailed-data-set.js'
 export * from './list-data-sets.js'
 export * from './types.js'

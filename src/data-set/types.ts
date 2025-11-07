@@ -1,28 +1,15 @@
-import type { EnhancedDataSetInfo, ProviderInfo } from '@filoz/synapse-sdk'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 
-export interface PieceDetail {
-  pieceId: number
-  pieceCid: string
-  metadata: Record<string, string>
-}
+export interface DataSetCommandOptions extends CLIAuthOptions {}
 
-export interface DataSetDetail {
-  base: EnhancedDataSetInfo
-  provider?: ProviderInfo
-  leafCount?: bigint
-  totalSizeBytes?: bigint
-  metadata: Record<string, string>
-  pieces: PieceDetail[]
-  warnings: string[]
-}
-
-export interface DataSetInspectionContext {
-  address: string
-  network: string
-  dataSets: DataSetDetail[]
-}
-
-export interface DataSetCommandOptions extends CLIAuthOptions {
-  ls?: boolean
+export interface DataSetListCommandOptions extends CLIAuthOptions {
+  /**
+   * If you want to filter the data sets by provider ID, you can pass it here.
+   */
+  providerId?: string | undefined
+  /**
+   * We filter out data sets that were not created with filecoin-pin by default. If you want to see all data sets, you can pass true here.
+   * @default false
+   */
+  all?: boolean | undefined
 }
