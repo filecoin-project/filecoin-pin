@@ -77,7 +77,9 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
       withProviderDetails: false,
       filter,
     })
-    const dataSets: DataSetSummary[] = allDataSets.filter((dataSet) => dataSet.createdWithFilecoinPin)
+    const dataSets: DataSetSummary[] = options.all
+      ? allDataSets
+      : allDataSets.filter((dataSet) => dataSet.createdWithFilecoinPin)
 
     spinner.stop('━━━ Data Sets ━━━')
 

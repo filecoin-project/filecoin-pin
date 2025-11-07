@@ -31,12 +31,10 @@ addAuthOptions(dataSetShowCommand)
 export const dataSetListCommand = new Command('list')
   .alias('ls')
   .description('List all data sets for the configured account')
-  .action(async (options) => {
+  .option('--all', 'Show all data sets, not just the ones created with filecoin-pin', false)
+  .action(async (options: DataSetListCommandOptions) => {
     try {
-      const commandOptions: DataSetListCommandOptions = {
-        ...options,
-      }
-      await runDataSetListCommand(commandOptions)
+      await runDataSetListCommand(options)
     } catch (error) {
       console.error('Data set list command failed:', error instanceof Error ? error.message : error)
       process.exit(1)
