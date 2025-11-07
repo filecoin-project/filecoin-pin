@@ -3,16 +3,14 @@ import { runDataSetDetailsCommand, runDataSetListCommand } from '../data-set/run
 import type { DataSetCommandOptions, DataSetListCommandOptions } from '../data-set/types.js'
 import { addAuthOptions, addProviderOptions } from '../utils/cli-options.js'
 
-export const dataSetCommand = new Command('data-set')
-  .description('Inspect data sets managed through Filecoin Onchain Cloud')
-  .argument('[dataSetId]', 'Display detailed information about a data-set')
-  .action(async (dataSetId: string | undefined, options) => {
-    if (dataSetId == null) {
-      // render help
-      dataSetCommand.help()
-      process.exit(0)
-    }
+export const dataSetCommand = new Command('data-set').description(
+  'Inspect data sets managed through Filecoin Onchain Cloud'
+)
 
+export const dataSetShowCommand = new Command('show')
+  .description('Display detailed information about a data set')
+  .argument('<dataSetId>', 'Display detailed information about a data set')
+  .action(async (dataSetId: string, options) => {
     try {
       const commandOptions: DataSetCommandOptions = {
         ...options,
@@ -28,7 +26,7 @@ export const dataSetCommand = new Command('data-set')
       process.exit(1)
     }
   })
-addAuthOptions(dataSetCommand)
+addAuthOptions(dataSetShowCommand)
 
 export const dataSetListCommand = new Command('list')
   .alias('ls')
@@ -47,4 +45,5 @@ export const dataSetListCommand = new Command('list')
 addAuthOptions(dataSetListCommand)
 addProviderOptions(dataSetListCommand)
 
+dataSetCommand.addCommand(dataSetShowCommand)
 dataSetCommand.addCommand(dataSetListCommand)
