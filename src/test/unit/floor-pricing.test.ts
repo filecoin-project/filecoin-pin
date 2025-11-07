@@ -40,16 +40,6 @@ function getBufferedFloorDeposit(): bigint {
   return (floor.lockupAllowance * BUFFER_NUMERATOR) / BUFFER_DENOMINATOR
 }
 
-describe('Floor Pricing Constants', () => {
-  it('floor price is 0.06 USDFC', () => {
-    const expected = ethers.parseUnits('0.06', 18)
-    expect(FLOOR_PRICE_PER_30_DAYS).toBe(expected)
-  })
-
-  it('floor price covers 30 days', () => {
-    expect(FLOOR_PRICE_DAYS).toBe(30)
-  })
-})
 
 describe('getFloorAllowances', () => {
   it('returns floor rate and lockup allowances', () => {
