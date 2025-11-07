@@ -162,16 +162,7 @@ function renderMetadata(metadata: Record<string, string>, indentLevel: number = 
   }
 
   for (const [key, value] of entries) {
-    if (key === METADATA_KEYS.WITH_IPFS_INDEXING) {
-      log.indent(`${key}: ${pc.green('true')}`, indentLevel + 1)
-      continue
-    }
-    if (key === 'source' && value === 'filecoin-pin') {
-      log.indent(`${key}: ${pc.green(value)}`, indentLevel + 1)
-      continue
-    }
-    const displayValue = value === '' ? pc.gray('(empty)') : value
-    log.indent(`${key}: ${displayValue}`, indentLevel + 1)
+    log.indent(`${key}: "${value}"`, indentLevel + 1)
   }
   log.line('')
 }
