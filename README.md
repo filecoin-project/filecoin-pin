@@ -38,6 +38,7 @@ Upload IPFS files directly to Filecoin via the command line. Perfect for develop
   - Run `filecoin-pin --help` to see all available commands and options.
   - [CLI Walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/filecoin-pin-cli)
 - **Installation**: `npm install -g filecoin-pin`
+- **Update notice**: Every command quickly checks npm for a newer version and prints a reminder when one is available. Disable with `--no-update-check`.
 
 ### GitHub Action
 Automatically publish websites or build artifacts to IPFS and Filecoin as part of your CI/CD pipeline. Ideal for static websites, documentation sites, and automated deployment workflows.
@@ -158,7 +159,8 @@ The Pinning Server requires the use of environment variables, as detailed below.
 ### Common CLI Arguments
 
 * `-h`, `--help`: Display help information for each command
-* `-v`, `--version`: Output the version number
+* `-V`, `--version`: Output the version number
+* `-v`, `--verbose`: Verbose output
 * `--private-key`: Ethereum-style (`0x`) private key, funded with USDFC (required)
 * `--rpc-url`: Filecoin RPC endpoint (default: Calibration testnet)
 

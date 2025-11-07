@@ -10,6 +10,8 @@ This GitHub Action is provided to illustrate how to use filecoin-pin, a new IPFS
 
 See the two-workflow approach in the [examples directory](./examples/) for complete workflow files and setup instructions.
 
+**Heads-up on updates:** the action checks npm for a newer `filecoin-pin` release at the start of each run and posts a GitHub Actions notice when one is available.
+
 ## Inputs & Outputs
 
 See [action.yml](./action.yml) for complete input documentation including:
