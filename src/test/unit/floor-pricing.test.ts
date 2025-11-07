@@ -1,5 +1,4 @@
 import { SIZE_CONSTANTS, TIME_CONSTANTS } from '@filoz/synapse-sdk'
-import { ethers } from 'ethers'
 import { describe, expect, it } from 'vitest'
 import {
   applyFloorPricing,
@@ -9,8 +8,6 @@ import {
   calculateRequiredAllowances,
   computeAdjustmentForExactDaysWithPiece,
   DEFAULT_LOCKUP_DAYS,
-  FLOOR_PRICE_DAYS,
-  FLOOR_PRICE_PER_30_DAYS,
   getFloorAllowances,
   type PaymentStatus,
   type ServiceApprovalStatus,
@@ -39,8 +36,6 @@ function getBufferedFloorDeposit(): bigint {
   const floor = getFloorAllowances()
   return (floor.lockupAllowance * BUFFER_NUMERATOR) / BUFFER_DENOMINATOR
 }
-
-
 
 describe('applyFloorPricing', () => {
   const mockPricing = 100_000_000_000_000n // Some arbitrary price per TiB per epoch
