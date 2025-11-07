@@ -104,11 +104,18 @@ export async function performAutoFunding(synapse: Synapse, fileSize: number, spi
  * Validate payment setup and capacity for upload
  *
  * @param synapse - Initialized Synapse instance
- * @param fileSize - Size of file to upload in bytes
+ * @param fileSize - Size of file to upload in bytes (use 0 for minimum setup check)
  * @param spinner - Optional spinner for progress
+ * @param options - Optional configuration
+ * @param options.suppressSuggestions - If true, don't display suggestion warnings
  * @returns true if validation passes, exits process if not
  */
-export async function validatePaymentSetup(synapse: Synapse, fileSize: number, spinner?: Spinner): Promise<void> {
+export async function validatePaymentSetup(
+  synapse: Synapse,
+  fileSize: number,
+  spinner?: Spinner,
+  options?: { suppressSuggestions?: boolean }
+): Promise<void> {
   const readiness = await checkUploadReadiness({
     synapse,
     fileSize,
@@ -186,7 +193,7 @@ export async function validatePaymentSetup(synapse: Synapse, fileSize: number, s
   }
 
   // Show warning if suggestions exist (even if upload is possible)
-  if (suggestions.length > 0 && capacity?.canUpload) {
+  if (suggestions.length > 0 && capacity?.canUpload && !options?.suppressSuggestions) {
     spinner?.stop(`${pc.yellow('⚠')} Payment capacity check passed with warnings`)
     log.line('')
     log.line(pc.bold('Suggestions:'))
@@ -194,8 +201,12 @@ export async function validatePaymentSetup(synapse: Synapse, fileSize: number, s
       log.indent(`• ${suggestion}`)
     })
     log.flush()
+  } else if (fileSize === 0) {
+    // Different message based on whether this is minimum setup (fileSize=0) or actual capacity check
+    // Note: 0.06 USDFC is the floor price, but with 10% buffer, ~0.066 USDFC is actually required
+    spinner?.stop(`${pc.green('✓')} Minimum payment setup verified (~0.066 USDFC required)`)
   } else {
-    spinner?.stop(`${pc.green('✓')} Payment capacity verified`)
+    spinner?.stop(`${pc.green('✓')} Payment capacity verified for ${formatFileSize(fileSize)}`)
   }
 }
 

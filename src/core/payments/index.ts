@@ -18,24 +18,26 @@
 import { SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import { isSessionKeyMode } from '../synapse/index.js'
+import {
+  BUFFER_DENOMINATOR,
+  BUFFER_NUMERATOR,
+  DEFAULT_LOCKUP_DAYS,
+  MAX_LOCKUP_ALLOWANCE,
+  MAX_RATE_ALLOWANCE,
+  MIN_FIL_FOR_GAS,
+  STORAGE_SCALE_MAX,
+  STORAGE_SCALE_MAX_BI,
+  USDFC_DECIMALS,
+} from './constants.js'
+import { applyFloorPricing } from './floor-pricing.js'
 import type { PaymentStatus, ServiceApprovalStatus, StorageAllowances, StorageRunwaySummary } from './types.js'
 
-// Constants
-export const USDFC_DECIMALS = 18
-const MIN_FIL_FOR_GAS = ethers.parseEther('0.1') // Minimum FIL padding for gas
-export const DEFAULT_LOCKUP_DAYS = 30 // WarmStorage requires 30 days lockup
+// Re-export commonly used constants
+export { DEFAULT_LOCKUP_DAYS, STORAGE_SCALE_MAX, USDFC_DECIMALS } from './constants.js'
 
+export * from './floor-pricing.js'
 export * from './top-up.js'
 export * from './types.js'
-
-// Maximum allowances for trusted WarmStorage service
-// Using MaxUint256 which MetaMask displays as "Unlimited"
-const MAX_RATE_ALLOWANCE = ethers.MaxUint256
-const MAX_LOCKUP_ALLOWANCE = ethers.MaxUint256
-
-// Standard buffer configuration (10%) used across deposit/lockup calculations
-const BUFFER_NUMERATOR = 11n
-const BUFFER_DENOMINATOR = 10n
 
 // Helper to apply a buffer on top of a base amount
 function withBuffer(amount: bigint): bigint {
@@ -46,12 +48,6 @@ function withBuffer(amount: bigint): bigint {
 function withoutBuffer(amount: bigint): bigint {
   return (amount * BUFFER_DENOMINATOR) / BUFFER_NUMERATOR
 }
-
-/**
- * Maximum precision scale used when converting small TiB (as a float) to integer(BigInt) math
- */
-export const STORAGE_SCALE_MAX = 10_000_000
-const STORAGE_SCALE_MAX_BI = BigInt(STORAGE_SCALE_MAX)
 
 /**
  * Compute adaptive integer scaling for a TiB value so that
@@ -708,8 +704,9 @@ export function computeAdjustmentForExactDaysWithPiece(
   const currentRateUsed = status.currentAllowances.rateUsed ?? 0n
   const currentLockupUsed = status.currentAllowances.lockupUsed ?? 0n
 
-  // Calculate required allowances for the new file
-  const newPieceAllowances = calculateRequiredAllowances(pieceSizeBytes, pricePerTiBPerEpoch)
+  // Calculate required allowances for the new file with floor pricing applied
+  const baseAllowances = calculateRequiredAllowances(pieceSizeBytes, pricePerTiBPerEpoch)
+  const newPieceAllowances = applyFloorPricing(baseAllowances)
 
   // Calculate new totals after adding the piece
   const newRateUsed = currentRateUsed + newPieceAllowances.rateAllowance
@@ -924,8 +921,9 @@ export function calculatePieceUploadRequirements(
   insufficientDeposit: bigint
   canUpload: boolean
 } {
-  // Calculate requirements
-  const required = calculateRequiredAllowances(pieceSizeBytes, pricePerTiBPerEpoch)
+  // Calculate base requirements and apply floor pricing
+  const baseRequired = calculateRequiredAllowances(pieceSizeBytes, pricePerTiBPerEpoch)
+  const required = applyFloorPricing(baseRequired)
   const totalDepositNeeded = withBuffer(required.lockupAllowance)
 
   // Check if current deposit can cover the new file's lockup requirement
