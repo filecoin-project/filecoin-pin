@@ -32,8 +32,8 @@ import {
 import { applyFloorPricing } from './floor-pricing.js'
 import type { PaymentStatus, ServiceApprovalStatus, StorageAllowances, StorageRunwaySummary } from './types.js'
 
-// Re-export commonly used constants
-export { DEFAULT_LOCKUP_DAYS, STORAGE_SCALE_MAX, USDFC_DECIMALS } from './constants.js'
+// Re-export all constants
+export * from './constants.js'
 
 export * from './floor-pricing.js'
 export * from './top-up.js'
