@@ -181,11 +181,11 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC (30-day reserve)`)
     log.indent(`Available: ${formatUSDFC(availableDeposit)} USDFC`)
     if (rateUsed > 0n) {
-      log.indent(`Spend rate: ${formatUSDFC(rateUsed)} USDFC/epoch`)
+      log.indent(`Epoch cost: ${formatUSDFC(rateUsed)} USDFC`)
       log.indent(`Daily cost: ${formatUSDFC(dailyCost)} USDFC`)
       log.indent(`Monthly cost: ${formatUSDFC(monthlyCost)} USDFC`)
     } else {
-      log.indent(`Spend rate: ${pc.gray('0 USDFC/epoch')}`)
+      log.indent(`Epoch cost: ${pc.gray('0 USDFC')}`)
       log.indent(`Daily cost: ${pc.gray('0 USDFC')}`)
       log.indent(`Monthly cost: ${pc.gray('0 USDFC')}`)
     }
