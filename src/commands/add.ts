@@ -3,6 +3,7 @@ import { runAdd } from '../add/add.js'
 import type { AddOptions } from '../add/types.js'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import { addAuthOptions, addProviderOptions } from '../utils/cli-options.js'
+import { addMetadataOptions, resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 
 export const addCommand = new Command('add')
   .description('Add a file or directory to Filecoin via Synapse (creates UnixFS CAR)')
@@ -11,11 +12,21 @@ export const addCommand = new Command('add')
   .option('--auto-fund', `Automatically ensure minimum ${MIN_RUNWAY_DAYS} days of runway before upload`)
   .action(async (path: string, options) => {
     try {
+      const { metadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
+      const {
+        metadata: _metadata,
+        dataSetMetadata: _dataSetMetadata,
+        datasetMetadata: _datasetMetadata,
+        '8004Type': _erc8004Type,
+        '8004Agent': _erc8004Agent,
+        ...rest
+      } = options
+
       const addOptions: AddOptions = {
-        ...options,
+        ...rest,
         filePath: path,
-        bare: options.bare,
-        autoFund: options.autoFund,
+        ...(metadata ? { metadata } : {}),
+        ...(dataSetMetadata ? { dataSetMetadata } : {}),
       }
 
       await runAdd(addOptions)
@@ -27,3 +38,4 @@ export const addCommand = new Command('add')
 
 addAuthOptions(addCommand)
 addProviderOptions(addCommand)
+addMetadataOptions(addCommand, { includePieceMetadata: true, includeDataSetMetadata: true, includeErc8004: true })

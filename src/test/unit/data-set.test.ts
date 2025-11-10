@@ -242,6 +242,29 @@ describe('runDataSetCommand', () => {
     expect(summary?.createdWithFilecoinPin).toBe(true)
   })
 
+  it('filters datasets by metadata entries', async () => {
+    await runDataSetListCommand({
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+      dataSetMetadata: { note: 'demo' },
+    })
+
+    const [dataSets] = displayDataSetListMock.mock.calls[0] as [DataSetSummary[]]
+    expect(dataSets).toHaveLength(1)
+    expect(dataSets[0]?.dataSetId).toBe(158)
+  })
+
+  it('excludes datasets that do not match metadata filters', async () => {
+    await runDataSetListCommand({
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+      dataSetMetadata: { note: 'unknown' },
+    })
+
+    const [dataSets] = displayDataSetListMock.mock.calls[0] as [DataSetSummary[]]
+    expect(dataSets).toHaveLength(0)
+  })
+
   it('loads detailed information when a dataset id is provided', async () => {
     state.pieceList = [{ pieceId: 0, pieceCid: 'bafkpiece0' }]
     const pieceMetadata = {

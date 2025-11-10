@@ -62,8 +62,24 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
     if (providerId != null && Number.isNaN(providerId)) {
       throw new Error('Invalid provider ID')
     }
-    const filter: ((dataSet: EnhancedDataSetInfo) => boolean) | undefined =
-      providerId != null ? (dataSet) => dataSet.providerId === providerId : undefined
+    const metadataEntries = options.dataSetMetadata ? Object.entries(options.dataSetMetadata) : []
+    let filter: ((dataSet: EnhancedDataSetInfo) => boolean) | undefined
+
+    if (providerId != null || metadataEntries.length > 0) {
+      // TODO: synapse is supposed to be able to filter on dataset metadata, but synapse.storage.findDataSets doesn't accept metadata? How do we filter..
+      filter = (dataSet) => {
+        if (providerId != null && dataSet.providerId !== providerId) {
+          return false
+        }
+        if (
+          metadataEntries.length > 0 &&
+          !metadataEntries.every(([key, value]) => (dataSet.metadata?.[key] ?? '') === value)
+        ) {
+          return false
+        }
+        return true
+      }
+    }
 
     synapse = await getCliSynapse(options)
 

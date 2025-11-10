@@ -50,6 +50,8 @@ interface BaseSynapseConfig {
   /** Optional override for WarmStorage contract address */
   warmStorageAddress?: string | undefined
   withCDN?: boolean | undefined
+  /** Default metadata to apply when creating or reusing datasets */
+  dataSetMetadata?: Record<string, string>
   /**
    * Telemetry configuration.
    * Defaults to enabled unless explicitly disabled.
@@ -568,7 +570,21 @@ export async function setupSynapse(
   const synapse = await initializeSynapse(config, logger)
 
   // Create storage context
-  const { storage, providerInfo } = await createStorageContext(synapse, logger, options)
+  let storageOptions = options ? { ...options } : undefined
+  if (config.dataSetMetadata && Object.keys(config.dataSetMetadata).length > 0) {
+    storageOptions = {
+      ...(storageOptions ?? {}),
+      dataset: {
+        ...(storageOptions?.dataset ?? {}),
+        metadata: {
+          ...config.dataSetMetadata,
+          ...(storageOptions?.dataset?.metadata ?? {}),
+        },
+      },
+    }
+  }
+
+  const { storage, providerInfo } = await createStorageContext(synapse, logger, storageOptions)
 
   return { synapse, storage, providerInfo }
 }

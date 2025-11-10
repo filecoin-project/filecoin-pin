@@ -11,6 +11,7 @@ import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
 import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
+import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import {
   cleanupSynapseService,
   createStorageContext,
@@ -69,6 +70,11 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
   const spinner = createSpinner()
 
+  const { metadata: uploadMetadata, dataSetMetadata } = normalizeMetadataConfig({
+    metadata: options.metadata,
+    dataSetMetadata: options.dataSetMetadata,
+  })
+
   // Initialize logger (silent for CLI output)
   const logger = pino({
     level: process.env.LOG_LEVEL || 'silent',
@@ -110,6 +116,9 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     // Parse authentication options from CLI and environment
     const config = parseCLIAuth(options)
+    if (dataSetMetadata) {
+      config.dataSetMetadata = dataSetMetadata
+    }
     if (withCDN) config.withCDN = true
 
     // Initialize just the Synapse SDK
@@ -163,7 +172,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     // Parse provider selection from CLI options and environment variables
     const providerOptions = parseProviderOptions(options)
 
-    const { storage, providerInfo } = await createStorageContext(synapse, logger, {
+    const storageContextOptions: Parameters<typeof createStorageContext>[2] = {
       ...providerOptions,
       callbacks: {
         onProviderSelected: (provider) => {
@@ -177,7 +186,15 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
           }
         },
       },
-    })
+    }
+    if (dataSetMetadata) {
+      storageContextOptions.dataset = {
+        ...(storageContextOptions.dataset ?? {}),
+        metadata: dataSetMetadata,
+      }
+    }
+
+    const { storage, providerInfo } = await createStorageContext(synapse, logger, storageContextOptions)
 
     spinner.stop(`${pc.green('✓')} Storage context ready`)
     log.spinnerSection('Storage Context', [
@@ -194,6 +211,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       fileSize: carSize,
       logger,
       spinner,
+      ...(uploadMetadata ? { metadata: uploadMetadata } : {}),
     })
 
     // Display results

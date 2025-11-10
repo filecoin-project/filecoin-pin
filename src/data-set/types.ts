@@ -12,4 +12,8 @@ export interface DataSetListCommandOptions extends CLIAuthOptions {
    * @default false
    */
   all?: boolean | undefined
+  /**
+   * Optional metadata filters applied to datasets when listing.
+   */
+  dataSetMetadata?: Record<string, string>
 }

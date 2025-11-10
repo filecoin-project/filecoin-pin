@@ -14,6 +14,7 @@ import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
 import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
+import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import {
   cleanupSynapseService,
   createStorageContext,
@@ -127,6 +128,11 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
   const spinner = createSpinner()
 
+  const { metadata: uploadMetadata, dataSetMetadata } = normalizeMetadataConfig({
+    metadata: options.metadata,
+    dataSetMetadata: options.dataSetMetadata,
+  })
+
   // Initialize logger (silent for CLI output)
   const logger = pino({
     level: process.env.LOG_LEVEL || 'silent',
@@ -180,6 +186,9 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     // Parse authentication options from CLI and environment
     const config = parseCLIAuth(options)
+    if (dataSetMetadata) {
+      config.dataSetMetadata = dataSetMetadata
+    }
     if (withCDN) config.withCDN = true
 
     // Initialize just the Synapse SDK
@@ -206,7 +215,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     // Parse provider selection from CLI options and environment variables
     const providerOptions = parseProviderOptions(options)
 
-    const { storage, providerInfo } = await createStorageContext(synapse, logger, {
+    const storageContextOptions: Parameters<typeof createStorageContext>[2] = {
       ...providerOptions,
       callbacks: {
         onProviderSelected: (provider) => {
@@ -220,7 +229,15 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
           }
         },
       },
-    })
+    }
+    if (dataSetMetadata) {
+      storageContextOptions.dataset = {
+        ...(storageContextOptions.dataset ?? {}),
+        metadata: dataSetMetadata,
+      }
+    }
+
+    const { storage, providerInfo } = await createStorageContext(synapse, logger, storageContextOptions)
 
     spinner.stop(`${pc.green('✓')} Storage context ready`)
 
@@ -239,6 +256,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       fileSize: fileStat.size,
       logger,
       spinner,
+      ...(uploadMetadata ? { metadata: uploadMetadata } : {}),
     })
 
     // Step 6: Display results
