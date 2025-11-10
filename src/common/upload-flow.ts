@@ -195,7 +195,6 @@ export async function validatePaymentSetup(
   // Show warning if suggestions exist (even if upload is possible)
   if (suggestions.length > 0 && capacity?.canUpload && !options?.suppressSuggestions) {
     spinner?.stop(`${pc.yellow('⚠')} Payment capacity check passed with warnings`)
-    log.line('')
     log.line(pc.bold('Suggestions:'))
     suggestions.forEach((suggestion) => {
       log.indent(`• ${suggestion}`)
@@ -215,14 +214,14 @@ export async function validatePaymentSetup(
  */
 function displayPaymentIssues(capacityCheck: PaymentCapacityCheck, fileSize: number, spinner?: Spinner): void {
   spinner?.stop(`${pc.red('✗')} Insufficient deposit for this file`)
-  log.line('')
   log.line(pc.bold('File Requirements:'))
-  log.indent(`File size: ${formatFileSize(fileSize)} (${capacityCheck.storageTiB.toFixed(4)} TiB)`)
+  if (fileSize === 0) {
+    log.indent(`File size: ${formatFileSize(fileSize)} (${capacityCheck.storageTiB.toFixed(4)} TiB)`)
+  }
   log.indent(`Storage cost: ${formatUSDFC(capacityCheck.required.rateAllowance)} USDFC/epoch`)
   log.indent(
-    `Required deposit: ${formatUSDFC(capacityCheck.required.lockupAllowance + capacityCheck.required.lockupAllowance / 10n)} USDFC`
+    `Required deposit: ${formatUSDFC(capacityCheck.required.lockupAllowance + capacityCheck.required.lockupAllowance / 10n)} USDFC ${pc.gray(`(includes ${DEFAULT_LOCKUP_DAYS}-day safety reserve)`)}`
   )
-  log.indent(pc.gray(`(includes ${DEFAULT_LOCKUP_DAYS}-day safety reserve)`))
   log.line('')
 
   log.line(pc.bold('Suggested actions:'))
