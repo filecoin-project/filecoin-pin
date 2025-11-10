@@ -91,6 +91,7 @@ paymentsCommand.addCommand(withdrawCommand)
 // Status command
 const statusCommand = new Command('status')
   .description('Check current payment setup status')
+  .option('--include-rails', 'Show payment rail details')
   .action(async (options) => {
     try {
       await showPaymentStatus({
