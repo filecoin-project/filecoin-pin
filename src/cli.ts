@@ -7,7 +7,7 @@ import { dataSetCommand } from './commands/data-set.js'
 import { importCommand } from './commands/import.js'
 import { paymentsCommand } from './commands/payments.js'
 import { serverCommand } from './commands/server.js'
-import { checkForUpdate } from './common/version-check.js'
+import { checkForUpdate, type UpdateCheckStatus } from './common/version-check.js'
 import { version as packageVersion } from './core/utils/version.js'
 
 // Create the main program
@@ -30,33 +30,38 @@ program.action(() => {
   program.help()
 })
 
-let updateCheckPromise: ReturnType<typeof checkForUpdate> | null = null
+let updateCheckResult: UpdateCheckStatus | null = null
 
 program.hook('preAction', () => {
-  if (updateCheckPromise) {
+  if (updateCheckResult) {
     return
   }
 
   const options = program.optsWithGlobals<{ updateCheck?: boolean }>()
   if (options.updateCheck === false) {
-    updateCheckPromise = null
+    updateCheckResult = null
     return
   }
 
-  updateCheckPromise = checkForUpdate({ currentVersion: packageVersion })
+  setImmediate(() => {
+    checkForUpdate({ currentVersion: packageVersion })
+      .then((result) => {
+        if (result) {
+          updateCheckResult = result
+        }
+      })
+      .catch(() => {
+        // could not check for update, swallow error
+        // checkForUpdate should not throw. If it does, it's an unexpected error.
+      })
+  }).unref()
 })
 
 program.hook('postAction', async () => {
-  const promise = updateCheckPromise
-  updateCheckPromise = null
+  if (updateCheckResult?.status === 'update-available') {
+    const result = updateCheckResult
+    updateCheckResult = null
 
-  if (!promise) {
-    return
-  }
-
-  const result = await promise
-
-  if (result.status === 'update-available') {
     const header = `${pc.yellow(`Update available: filecoin-pin ${result.currentVersion} → ${result.latestVersion}`)}. Upgrade with ${pc.cyan('npm i -g filecoin-pin@latest')}`
     const releasesLink = 'https://github.com/filecoin-project/filecoin-pin/releases'
     const instruction = `Visit ${releasesLink} to view release notes or download the latest version.`

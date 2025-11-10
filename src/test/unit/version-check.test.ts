@@ -52,12 +52,12 @@ describe('version check', () => {
       message: 'network down',
     })
   })
-})
 
-it('supports opting out via options', async () => {
-  const result = await checkForUpdate({ currentVersion: '0.11.0', disableCheck: true })
-  expect(result).toEqual({
-    status: 'disabled',
-    reason: 'Update check disabled by configuration',
+  it('supports opting out via options', async () => {
+    const result = await checkForUpdate({ currentVersion: '0.11.0', disableCheck: true })
+    expect(result).toEqual({
+      status: 'disabled',
+      reason: 'Update check disabled by configuration',
+    })
   })
 })

@@ -44,14 +44,11 @@ export async function checkForUpdate(options: CheckForUpdateOptions = {}): Promi
 
   const currentVersion = options.currentVersion ?? getLocalPackageVersion()
 
-  const controller = new AbortController()
-  const timeoutHandle = setTimeout(() => {
-    controller.abort()
-  }, timeoutMs)
+  const signal = AbortSignal.timeout(timeoutMs)
 
   try {
     const response = await fetch(`https://registry.npmjs.org/${packageName}/latest`, {
-      signal: controller.signal,
+      signal,
       headers: {
         accept: 'application/json',
       },
@@ -104,8 +101,6 @@ export async function checkForUpdate(options: CheckForUpdateOptions = {}): Promi
       currentVersion,
       message: error instanceof Error ? error.message : 'Unknown error during update check',
     }
-  } finally {
-    clearTimeout(timeoutHandle)
   }
 }
 

@@ -24,7 +24,7 @@ async function maybeNotifyAboutUpdates() {
 }
 
 async function main() {
-  // check for updates in the background.
+  // Check for updates in the background.
   void maybeNotifyAboutUpdates()
   // Create/reuse check run (may already exist from early action step for fast UI feedback)
   await createCheck('Filecoin Upload')
