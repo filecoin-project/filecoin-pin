@@ -171,17 +171,13 @@ function renderMetadata(metadata: Record<string, string>, indentLevel: number = 
  * Render a single piece entry including CommP, root CID, size, and extra metadata.
  */
 function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
-  const rootDisplay = piece.rootIpfsCid ?? piece.metadata?.[METADATA_KEYS.IPFS_ROOT_CID] ?? pc.gray('unknown')
   const sizeDisplay = piece.size != null ? formatFileSize(piece.size) : pc.gray('unknown')
 
   log.indent(pc.bold(`#${piece.pieceId}`), baseIndentLevel)
   log.indent(`PieceCID: ${piece.pieceCid}`, baseIndentLevel + 1)
-  log.indent(`IPFS Root CID: ${rootDisplay}`, baseIndentLevel + 1)
   log.indent(`Size: ${sizeDisplay}`, baseIndentLevel + 1)
 
-  const extraMetadataEntries = Object.entries(piece.metadata ?? {}).filter(
-    ([key]) => key !== METADATA_KEYS.IPFS_ROOT_CID
-  )
+  const extraMetadataEntries = Object.entries(piece.metadata ?? {})
 
   renderMetadata(Object.fromEntries(extraMetadataEntries), baseIndentLevel + 1)
 }
