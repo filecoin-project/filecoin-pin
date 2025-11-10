@@ -161,7 +161,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
 
     // Show wallet balances
     log.line(pc.bold('Wallet'))
-    log.indent(`Address: ${address}`)
+    log.indent(`Owner address: ${address}`)
     log.indent(`Network: ${network}`)
     log.indent(`FIL: ${formatFIL(filStatus.balance, filStatus.isCalibnet)}`)
     log.indent(`USDFC: ${formatUSDFC(walletUsdfcBalance)} USDFC`)
@@ -204,19 +204,20 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     } else {
       log.indent(pc.gray('Stored: none'))
     }
-    const capacityTiB =
-      capacity.tibPerMonth >= 100
-        ? Math.round(capacity.tibPerMonth).toLocaleString()
-        : capacity.tibPerMonth.toFixed(1)
-    if (capacity.gibPerMonth > 0) {
-      log.indent(`Capacity (est.): ~${capacityTiB} TiB/month`)
-    } else {
-      log.indent(pc.gray(`Capacity (est.): ~${capacityTiB} TiB/month`))
-    }
     if (runway.state === 'active') {
       log.indent(`Runway: ~${runwayDisplay}`)
     } else {
       log.indent(pc.gray(`Runway: ${runwayDisplay}`))
+    }
+    const capacityTiB =
+      capacity.tibPerMonth >= 100
+        ? Math.round(capacity.tibPerMonth).toLocaleString()
+        : capacity.tibPerMonth.toFixed(1)
+    const capacityLine = `Funding could cover ~${capacityTiB} TiB per month`
+    if (capacity.gibPerMonth > 0) {
+      log.indent(capacityLine)
+    } else {
+      log.indent(pc.gray(capacityLine))
     }
     log.flush()
 
