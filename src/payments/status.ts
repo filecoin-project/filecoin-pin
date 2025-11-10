@@ -54,9 +54,7 @@ function formatStorageGiB(rateUsed: bigint, pricePerTiBPerEpoch: bigint): string
     return pc.gray('Stored: no active usage')
   }
 
-  const storedGiB = Number(
-    ethers.formatUnits(storedTiBScaled * 1024n, STORAGE_DISPLAY_PRECISION_DIGITS)
-  )
+  const storedGiB = Number(ethers.formatUnits(storedTiBScaled * 1024n, STORAGE_DISPLAY_PRECISION_DIGITS))
 
   if (storedGiB < 0.1) {
     return 'Stored: < 0.1 GiB'
@@ -210,9 +208,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       log.indent(pc.gray(`Runway: ${runwayDisplay}`))
     }
     const capacityTiB =
-      capacity.tibPerMonth >= 100
-        ? Math.round(capacity.tibPerMonth).toLocaleString()
-        : capacity.tibPerMonth.toFixed(1)
+      capacity.tibPerMonth >= 100 ? Math.round(capacity.tibPerMonth).toLocaleString() : capacity.tibPerMonth.toFixed(1)
     const capacityLine = `Funding could cover ~${capacityTiB} TiB per month`
     if (capacity.gibPerMonth > 0) {
       log.indent(capacityLine)
