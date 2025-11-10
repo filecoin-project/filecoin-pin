@@ -46,9 +46,7 @@ program.hook('preAction', () => {
   setImmediate(() => {
     checkForUpdate({ currentVersion: packageVersion })
       .then((result) => {
-        if (result) {
-          updateCheckResult = result
-        }
+        updateCheckResult = result
       })
       .catch(() => {
         // could not check for update, swallow error
