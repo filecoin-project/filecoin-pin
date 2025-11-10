@@ -45,12 +45,13 @@ function formatStorageGiB(rateUsed: bigint, pricePerTiBPerEpoch: bigint): string
     return pc.gray('Stored: no active usage')
   }
 
-  if (pricePerTiBPerEpoch <= 0) {
+  if (pricePerTiBPerEpoch < 0n) {
+    // pricePerTiBPerEpoch should always be positive
     return pc.gray('Stored: unknown')
   }
 
   const storedTiBScaled = (rateUsed * STORAGE_DISPLAY_PRECISION) / pricePerTiBPerEpoch
-  if (storedTiBScaled <= 0) {
+  if (storedTiBScaled <= 0n) {
     return pc.gray('Stored: no active usage')
   }
 
