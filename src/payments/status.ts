@@ -210,7 +210,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     }
     const capacityTiB =
       capacity.tibPerMonth >= 100 ? Math.round(capacity.tibPerMonth).toLocaleString() : capacity.tibPerMonth.toFixed(1)
-    const capacityLine = `Funding could cover ~${capacityTiB} TiB per month`
+    const capacityLine = `Funding could cover ~${capacityTiB} TiB for one month`
     if (capacity.gibPerMonth > 0) {
       log.indent(capacityLine)
     } else {
