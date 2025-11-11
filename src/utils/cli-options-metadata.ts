@@ -68,7 +68,7 @@ export function addMetadataOptions(command: Command, config: MetadataOptionConfi
   }
 
   if (includeErc8004) {
-    const typeOption = new Option('--8004-type <type>', 'ERC-8004 artefact type').choices(
+    const typeOption = new Option('--8004-type <type>', 'ERC-8004 artifact type').choices(
       ERC8004_TYPES as readonly string[]
     )
     command.addOption(typeOption)
