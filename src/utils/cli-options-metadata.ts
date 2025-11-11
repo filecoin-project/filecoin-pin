@@ -21,8 +21,8 @@ function parseKeyValuePairs(pairs: string[], flagLabel: string): Record<string, 
       throw new Error(`${flagLabel} entries require a non-empty key (received "${pair}")`)
     }
 
-    if (Object.prototype.hasOwnProperty.call(result, key)) {
-      throw new Error(`${flagLabel} contains duplicate key "${key}"`);
+    if (Object.hasOwn(result, key)) {
+      throw new Error(`${flagLabel} contains duplicate key "${key}"`)
     }
     result[key] = value
   }
