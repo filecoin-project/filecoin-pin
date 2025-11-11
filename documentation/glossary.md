@@ -1,4 +1,4 @@
-Filecoin Pin brings multiple technologies together (e.g., traditioanl Filecoin blockchain, traditional IPFS, new Filecoin initiatives like Filecoin Onchain Cloud).  As a result, terminology from all these areas is used for describing Filecoin Pin.  This glossary serves as a primer of the key terminology.  Rather than seeking to be the comprehensive source of truth, it seeks to point to where to find authoritative and more in depth information.  Many additional IPFS-related terms can be found in https://docs.ipfs.tech/concepts/glossary.  
+Filecoin Pin brings multiple technologies together (e.g., traditional Filecoin blockchain, traditional IPFS, new Filecoin initiatives like Filecoin Onchain Cloud).  As a result, terminology from all these areas is used for describing Filecoin Pin.  This glossary serves as a primer of the key terminology.  Rather than seeking to be the comprehensive source of truth, it seeks to point to where to find authoritative and more in depth information.  Many additional IPFS-related terms can be found in https://docs.ipfs.tech/concepts/glossary.  
 
 ## Calibration Network
 
@@ -6,7 +6,7 @@ The “test network” of Filecoin’s Mainnet, where developers can have more r
 
 ## CAR
 
-A CAR is a container and trasport to hold your "IPFS data" (i.e., IPLD blocks).  It just happens to take file form sometimes.  See https://docs.ipfs.tech/concepts/glossary/#car for more info.
+A CAR is a container and transport to hold your "IPFS data" (i.e., IPLD blocks).  It just happens to take file form sometimes.  See https://docs.ipfs.tech/concepts/glossary/#car for more info.
 
 ## Curio
 
@@ -19,7 +19,7 @@ Curio is the software that Filecoin Warm Storage Service Storage Provider run, w
 
 ## Data Set
 
-Collections of stored data (Pieces) managed by Filecoin Warm Storage Servce. Each Data Set has a corresponding SP, Pieces, metadata, and an associated payment rail between Filecoin Pay and the SPthat handles the ongoing storage payments.
+Collections of stored data (Pieces) managed by Filecoin Warm Storage Service. Each Data Set has a corresponding SP, Pieces, metadata, and an associated payment rail between Filecoin Pay and the SP that handles the ongoing storage payments.
 
 ## FIL
 
@@ -35,7 +35,7 @@ Learn more at https://github.com/FilOzone/filecoin-pay
 
 ## Filecoin Onchain Cloud
 
-https://filecon.cloud.
+https://filecoin.cloud.
 
 This is the collection of DePIN services offered on Filecoin using shared/consistent payment infrastructure in Filecoin Pay.  Filecoin Warm Storage Service is the initial service offering.
 
@@ -53,7 +53,7 @@ Serves as an IPFS-oriented sets of tools for interfacing with Filecoin Onchain C
 
 https://github.com/filecoin-project/filecoin-pin-website
 
-Example of filecoin-pin in action within a web-browser.  It’s purposes are:
+Example of filecoin-pin in action within a web-browser.  Its purposes are:
 
 1. Demonstrate that filecoin-pin is usable.  Drag and drop and you’re good to go!
 2. Serve as a starter or inspiration for dApp builders wanting to use Filecoin Onchain Cloud.
@@ -76,7 +76,7 @@ This is one of two retrieval endpoints that SPs expose.  This endpoint conforms 
 
 See https://docs.ipfs.tech/concepts/glossary/#ipni.
 
-IPNI is the content routing system that Filecoin Pin relies upon for retrieval to work for standard IPFS tooling.  Storage Providers announce their advertisement changes to IPNI indexer like [filecionpin.contact](http://filecionpin.contact) and cid.contact, and the advertised CIDs become discoverage for IPFS Standard tooling.  
+IPNI is the content routing system that Filecoin Pin relies upon for retrieval to work for standard IPFS tooling.  Storage Providers announce their advertisement changes to IPNI indexer like [filecoinpin.contact](http://filecoinpin.contact) and cid.contact, and the advertised CIDs become discoverable for IPFS Standard tooling.  
 
 ## Piece
 
@@ -88,11 +88,11 @@ filecoin-pin creates a new piece for each “add” operation.  Whatever file or
 
 ## Piece CID
 
-A CID for a Piece using the CommP hash function.  This is a commond CID type used within Filecoin.  This value is different than the “IPFS Root CID”.  This is the CommP hash for the full CAR itself while serially processing its bytes without any regard to the CAR’s underlying DAG structure.
+A CID for a Piece using the CommP hash function.  This is a common CID type used within Filecoin.  This value is different than the “IPFS Root CID”.  This is the CommP hash for the full CAR itself while serially processing its bytes without any regard to the CAR’s underlying DAG structure.
 
 ## `/piece` Retrieval
 
-This is a Filecoin-defined retrieval specification outlined in TODO_FILL_ME_IN.  It is for retrieving pieces by Piece CID, optionally taking a rang.
+This is a Filecoin-defined retrieval specification outlined in TODO_FILL_ME_IN.  It is for retrieving pieces by Piece CID, optionally taking a range.
 
 It takes the form of https://sp.domain/piece/$pieceCid. 
 
@@ -106,11 +106,11 @@ This is usually abbreviated as “PDP”.
 
 ## RPC Provider
 
-HTTP endpoint/infrastructure for reading or writing blockchain state.  These RPC providers run native blockchain clients and likely are storing blockchain state in optimized state for faster readds.  See TODO ADD LINK for for more information about Filecoin RPC providers.  
+HTTP endpoint/infrastructure for reading or writing blockchain state.  These RPC providers run native blockchain clients and likely are storing blockchain state in optimized state for faster reads.  See TODO ADD LINK for for more information about Filecoin RPC providers.  
 
 ## Service Provider Registry
 
-An onchain registry of Storage Providers who are participating in Filecoin Onchain Cloud.  They can be view at [https://filecoin.cloud/providers](https://filecoin.services/providers).  By default, only “Approved Providers” are using by filecoin-pin because they have been vetted to support IPFS Mainnet retrievals.
+An onchain registry of Storage Providers who are participating in Filecoin Onchain Cloud.  They can be view at [https://filecoin.cloud/providers](https://filecoin.services/providers).  By default, only "Approved Providers" are used by filecoin-pin because they have been vetted to support IPFS Mainnet retrievals.
 
 ## Session Key
 
@@ -118,11 +118,11 @@ Credentials that are permitted to perform a scoped down set of tasks on behalf o
 
 ## Standard IPFS Tooling
 
-This is shorthand way of referring to all the tooling the tradtiaional IPFS ecosystem has built up for finding and retrieving content on [IPFS Mainnet](https://docs.ipfs.tech/concepts/glossary/#mainnet).  This includes tools like Kubo, Helia, and HTTP gateways.  A goal of filecoin-pin is to make sure data stored with it is retrievable with stadard IPFS tooling without any special configuration.  
+This is shorthand way of referring to all the tooling the traditional IPFS ecosystem has built up for finding and retrieving content on [IPFS Mainnet](https://docs.ipfs.tech/concepts/glossary/#mainnet).  This includes tools like Kubo, Helia, and HTTP gateways.  A goal of filecoin-pin is to make sure data stored with it is retrievable with standard IPFS tooling without any special configuration.  
 
 ## Storage Provider
 
-Storage Providers receive uploaded piece data and then cryptograpphyiclaly proove that they have possession of the uploaded data.  Storage providers do this in exchange for payment through Filecoin Pay as validated and uathorized by Filecoin Warm Storage Service.  Storage Providers at least currently run Curio.
+Storage Providers receive uploaded piece data and then cryptographically prove that they have possession of the uploaded data.  Storage providers do this in exchange for payment through Filecoin Pay as validated and authorized by Filecoin Warm Storage Service.  Storage Providers at least currently run Curio.
 
 This is usually abbreviated as “SP”.
 
@@ -132,4 +132,4 @@ Synapse is the TypeScript SDK for interfacing with Filecoin Onchain Cloud.  It a
 
 ## USDFC
 
-A US doollar denominate “stable coin” that is backed by FIL.  USDFC is the currency uses by Storage Providers in Filecoin Onchain Cloud.
+A US dollar denominated "stable coin" that is backed by FIL.  USDFC is the currency used by Storage Providers in Filecoin Onchain Cloud.
