@@ -62,13 +62,15 @@ For most users, automatic provider selection is recommended. However, for advanc
 - Only same-repo PRs and direct pushes are supported
 - This prevents non-maintainer PR actors from draining funds
 
-## Versioning
+## Versioning and Updates
 
 Use semantic version tags from [filecoin-pin releases](https://github.com/filecoin-project/filecoin-pin/releases):
 
 - **`@v0`** - Latest v0.x.x (recommended)
 - **`@v0.9.1`** - Specific version (production)
 - **`@<commit-sha>`** - Maximum supply-chain security
+
+The action checks npm for a newer `filecoin-pin` release at the start of each run and posts a GitHub Actions notice when one is available.
 
 ## Caching & Artifacts
 

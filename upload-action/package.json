@@ -5,6 +5,7 @@
   "version": "1.0.16",
   "description": "Helper runner for Filecoin Pin Upload GitHub Action",
   "dependencies": {
+    "@actions/core": "^1.11.1",
     "@actions/artifact": "^2.3.2",
     "@filoz/synapse-sdk": "^0.35.3",
     "@octokit/rest": "^22.0.0",
