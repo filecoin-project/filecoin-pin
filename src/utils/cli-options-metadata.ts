@@ -2,7 +2,7 @@ import { type Command, Option } from 'commander'
 import { ERC8004_TYPES, normalizeMetadataConfig } from '../core/metadata/index.js'
 
 function collectKeyValue(value: string, previous: string[] = []): string[] {
-  const entries = previous ?? []
+  const entries = previous
   entries.push(value)
   return entries
 }
