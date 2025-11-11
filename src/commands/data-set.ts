@@ -3,9 +3,9 @@ import { runDataSetDetailsCommand, runDataSetListCommand } from '../data-set/run
 import type { DataSetCommandOptions, DataSetListCommandOptions } from '../data-set/types.js'
 import { addAuthOptions, addProviderOptions } from '../utils/cli-options.js'
 
-export const dataSetCommand = new Command('data-set').description(
-  'Inspect data sets managed through Filecoin Onchain Cloud'
-)
+export const dataSetCommand = new Command('data-set')
+  .alias('dataset')
+  .description('Inspect data sets managed through Filecoin Onchain Cloud')
 
 export const dataSetShowCommand = new Command('show')
   .description('Display detailed information about a data set')
