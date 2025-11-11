@@ -35,7 +35,7 @@ export interface MetadataOptionConfig {
 /**
  * Registers metadata-related Commander flags on a CLI command.
  * Adds piece-level metadata flags by default, dataset metadata flags (with alias support),
- * and optionally ERC-8004 artefact options depending on the provided configuration.
+ * and optionally ERC-8004 artifact options depending on the provided configuration.
  *
  * @param command Commander command to augment (mutated in place)
  * @param config Controls which categories of metadata flags should be attached
