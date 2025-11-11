@@ -230,16 +230,40 @@ export async function executeUpload(
       case 'onPieceAdded': {
         // Begin IPNI validation as soon as the piece is added and parked in the data set
         if (options.ipniValidation?.enabled !== false && ipniValidationPromise == null) {
-          const { enabled: _enabled, ...rest } = options.ipniValidation ?? {}
-          ipniValidationPromise = validateIPNIAdvertisement(rootCid, {
-            ...rest,
+          const { enabled: _enabled, expectedProviders, ...restOptions } = options.ipniValidation ?? {}
+
+          // Build validation options
+          const validationOptions: ValidateIPNIAdvertisementOptions = {
+            ...restOptions,
             logger,
-            ...(options?.onProgress != null ? { onProgress: options.onProgress } : {}),
-          }).catch((error) => {
+          }
+
+          // Forward progress events to caller if they provided a handler
+          if (options?.onProgress != null) {
+            validationOptions.onProgress = options.onProgress
+          }
+
+          // Determine which providers to expect in IPNI
+          // Priority: user-provided expectedProviders > current provider > none (generic validation)
+          const providersToExpect =
+            expectedProviders && expectedProviders.length > 0
+              ? expectedProviders
+              : synapseService.providerInfo != null
+                ? [synapseService.providerInfo]
+                : []
+
+          if (providersToExpect.length > 0) {
+            validationOptions.expectedProviders = providersToExpect
+          }
+
+          // Start validation (runs in parallel with other operations)
+          ipniValidationPromise = validateIPNIAdvertisement(rootCid, validationOptions).catch((error) => {
             logger.warn({ error }, 'IPNI advertisement validation promise rejected')
             return false
           })
         }
+
+        // Capture transaction hash if available
         if (event.data.txHash != null) {
           transactionHash = event.data.txHash
         }
