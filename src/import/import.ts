@@ -217,6 +217,9 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     const storageContextOptions: Parameters<typeof createStorageContext>[2] = {
       ...providerOptions,
+      dataset: {
+        ...(dataSetMetadata && { metadata: dataSetMetadata }),
+      },
       callbacks: {
         onProviderSelected: (provider) => {
           spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)
@@ -229,12 +232,6 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
           }
         },
       },
-    }
-    if (dataSetMetadata) {
-      storageContextOptions.dataset = {
-        ...(storageContextOptions.dataset ?? {}),
-        metadata: dataSetMetadata,
-      }
     }
 
     const { storage, providerInfo } = await createStorageContext(synapse, logger, storageContextOptions)
@@ -256,7 +253,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       fileSize: fileStat.size,
       logger,
       spinner,
-      ...(uploadMetadata ? { metadata: uploadMetadata } : {}),
+      ...(uploadMetadata && { metadata: uploadMetadata }),
     })
 
     // Step 6: Display results

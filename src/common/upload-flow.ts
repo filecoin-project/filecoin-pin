@@ -268,7 +268,7 @@ export async function performUpload(
   const uploadResult = await executeUpload(synapseService, carData, rootCid, {
     logger,
     contextId: `${contextType}-${Date.now()}`,
-    ...(metadata ? { metadata } : {}),
+    ...(metadata && { metadata }),
     onProgress(event) {
       switch (event.type) {
         case 'onUploadComplete': {

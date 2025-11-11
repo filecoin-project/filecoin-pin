@@ -35,10 +35,14 @@ export const dataSetListCommand = new Command('list')
   .option('--all', 'Show all data sets, not just the ones created with filecoin-pin', false)
   .action(async (options) => {
     try {
+      const {
+        dataSetMetadata: _dataSetMetadata,
+        datasetMetadata: _datasetMetadata,
+        ...dataSetListOptionsFromCli
+      } = options
       const { dataSetMetadata } = resolveMetadataOptions(options)
-      const { dataSetMetadata: _dataSetMetadata, datasetMetadata: _datasetMetadata, ...rest } = options
       const normalizedOptions: DataSetListCommandOptions = {
-        ...rest,
+        ...dataSetListOptionsFromCli,
         ...(dataSetMetadata ? { dataSetMetadata } : {}),
       }
       await runDataSetListCommand(normalizedOptions)

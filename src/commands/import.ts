@@ -11,20 +11,21 @@ export const importCommand = new Command('import')
   .option('--auto-fund', `Automatically ensure minimum ${MIN_RUNWAY_DAYS} days of runway before upload`)
   .action(async (file: string, options) => {
     try {
-      const { metadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
       const {
         metadata: _metadata,
         dataSetMetadata: _dataSetMetadata,
         datasetMetadata: _datasetMetadata,
         '8004Type': _erc8004Type,
         '8004Agent': _erc8004Agent,
-        ...rest
+        ...importOptionsFromCli
       } = options
+
+      const { metadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
       const importOptions: ImportOptions = {
-        ...rest,
+        ...importOptionsFromCli,
         filePath: file,
-        ...(metadata ? { metadata } : {}),
-        ...(dataSetMetadata ? { dataSetMetadata } : {}),
+        ...(metadata && { metadata }),
+        ...(dataSetMetadata && { dataSetMetadata }),
       }
 
       await runCarImport(importOptions)

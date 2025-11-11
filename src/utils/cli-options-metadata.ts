@@ -32,6 +32,15 @@ export interface MetadataOptionConfig {
   includeErc8004?: boolean
 }
 
+/**
+ * Registers metadata-related Commander flags on a CLI command.
+ * Adds piece-level metadata flags by default, dataset metadata flags (with alias support),
+ * and optionally ERC-8004 artefact options depending on the provided configuration.
+ *
+ * @param command Commander command to augment (mutated in place)
+ * @param config Controls which categories of metadata flags should be attached
+ * @returns The same command instance to support fluent configuration
+ */
 export function addMetadataOptions(command: Command, config: MetadataOptionConfig = {}): Command {
   const includePieceMetadata = config.includePieceMetadata ?? true
   const includeDataSetMetadata = config.includeDataSetMetadata ?? true
@@ -78,7 +87,19 @@ export interface ResolvedMetadataOptions {
   dataSetMetadata?: Record<string, string>
 }
 
-export function resolveMetadataOptions(options: Record<string, any>, config: MetadataResolutionConfig = {}) {
+/**
+ * Converts Commander option values into normalized metadata objects used by upload flows.
+ * Aggregates `--metadata` and `--data-set-metadata` flags (including aliases), then applies
+ * `normalizeMetadataConfig` to ensure optional ERC-8004 fields are propagated when requested.
+ *
+ * @param options Parsed Commander options, typically the result of `command.opts()`
+ * @param config Controls whether ERC-8004 parameters should be included in the normalization step
+ * @returns Metadata maps ready to pass into upload APIs, excluding keys that were not provided
+ */
+export function resolveMetadataOptions(
+  options: Record<string, any>,
+  config: MetadataResolutionConfig = {}
+): ResolvedMetadataOptions {
   const metadataPairs = Array.isArray(options.metadata) ? options.metadata : []
   const dsMetadataPairs = [
     ...(Array.isArray(options.dataSetMetadata) ? options.dataSetMetadata : []),

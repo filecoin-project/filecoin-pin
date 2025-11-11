@@ -174,6 +174,9 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     const storageContextOptions: Parameters<typeof createStorageContext>[2] = {
       ...providerOptions,
+      dataset: {
+        ...(dataSetMetadata && { metadata: dataSetMetadata }),
+      },
       callbacks: {
         onProviderSelected: (provider) => {
           spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)
@@ -186,12 +189,6 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
           }
         },
       },
-    }
-    if (dataSetMetadata) {
-      storageContextOptions.dataset = {
-        ...(storageContextOptions.dataset ?? {}),
-        metadata: dataSetMetadata,
-      }
     }
 
     const { storage, providerInfo } = await createStorageContext(synapse, logger, storageContextOptions)
@@ -211,7 +208,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       fileSize: carSize,
       logger,
       spinner,
-      ...(uploadMetadata ? { metadata: uploadMetadata } : {}),
+      ...(uploadMetadata && { metadata: uploadMetadata }),
     })
 
     // Display results

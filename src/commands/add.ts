@@ -12,21 +12,21 @@ export const addCommand = new Command('add')
   .option('--auto-fund', `Automatically ensure minimum ${MIN_RUNWAY_DAYS} days of runway before upload`)
   .action(async (path: string, options) => {
     try {
-      const { metadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
       const {
         metadata: _metadata,
         dataSetMetadata: _dataSetMetadata,
         datasetMetadata: _datasetMetadata,
         '8004Type': _erc8004Type,
         '8004Agent': _erc8004Agent,
-        ...rest
+        ...addOptionsFromCli
       } = options
+      const { metadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
 
       const addOptions: AddOptions = {
-        ...rest,
+        ...addOptionsFromCli,
         filePath: path,
-        ...(metadata ? { metadata } : {}),
-        ...(dataSetMetadata ? { dataSetMetadata } : {}),
+        ...(metadata && { metadata }),
+        ...(dataSetMetadata && { dataSetMetadata }),
       }
 
       await runAdd(addOptions)
