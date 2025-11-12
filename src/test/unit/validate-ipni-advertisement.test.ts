@@ -231,7 +231,7 @@ describe('validateIPNIAdvertisement', () => {
       expect(mockFetch).toHaveBeenCalledTimes(2)
     })
 
-    it('should retry when the IPNI response contains no provider results', async () => {
+    it('should retry when the IPNI response is empty', async () => {
       const provider = createProviderInfo('https://expected.example.com')
       const expectedMultiaddr = '/dns/expected.example.com/tcp/443/https'
       mockFetch
