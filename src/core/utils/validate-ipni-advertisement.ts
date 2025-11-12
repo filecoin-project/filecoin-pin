@@ -206,7 +206,7 @@ export async function validateIPNIAdvertisement(
             if (!isValid) {
               // Log validation gap
               const missing = expectedMultiaddrs.filter((addr) => !matchedMultiaddrs.has(addr))
-              lastFailureReason = `Missing advertisement for expected multiaddr(s): ${missing.join(', ')}`
+              lastFailureReason = `Missing provider records with expected multiaddr(s): ${missing.join(', ')}`
               options?.logger?.info(
                 {
                   expectation: `multiaddr(s): ${expectedMultiaddrs.join(', ')}`,
