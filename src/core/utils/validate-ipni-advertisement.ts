@@ -97,7 +97,7 @@ export interface ValidateIPNIAdvertisementOptions {
   onProgress?: ProgressEventHandler<ValidateIPNIProgressEvents>
 
   /**
-   * IPNI indexer URL to query for content advertisements.
+   * IPNI indexer URL to query for provider records to confirm that advertisements were processed.
    *
    * @default 'https://filecoinpin.contact'
    */
