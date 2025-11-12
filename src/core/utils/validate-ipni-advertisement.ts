@@ -131,7 +131,7 @@ export async function validateIPNIAdvertisement(
   const hasProviderExpectations = expectedMultiaddrs.length > 0
 
   // Log a warning if we expected providers but couldn't derive their multiaddrs
-  // In this case, we fall back to generic validation (just checking if any provider advertises)
+  // In this case, we fall back to generic validation (just checking if there are any provider records for the CID)
   if (!hasProviderExpectations && expectedProviders.length > 0 && skippedProviderCount > 0) {
     options?.logger?.info(
       { skippedProviderExpectationCount: skippedProviderCount, expectedProviders: expectedProviders.length },
