@@ -4,7 +4,7 @@ import type { Logger } from 'pino'
 import type { ProgressEvent, ProgressEventHandler } from './types.js'
 
 /**
- * Response structure from the filecoinpin.contact IPNI gateway.
+ * Response structure from the filecoinpin.contact IPNI indexer.
  *
  * The Indexer returns provider records corresponding with each SP that advertised
  * a given CID to the IPNI indexer. 
