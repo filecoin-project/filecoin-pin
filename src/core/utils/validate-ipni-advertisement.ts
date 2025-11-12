@@ -210,7 +210,8 @@ export async function validateIPNIAdvertisement(
             expectedProviders.length,
             options?.logger
           )
-        } else {
+        } else if (lastFailureReason == null) {
+          // Only set generic message if we don't already have a more specific reason (e.g., parse error)
           lastFailureReason = 'IPNI response did not include any provider results'
           options?.logger?.info(
             { providerResultsCount: providerResults?.length ?? 0 },
@@ -486,14 +487,9 @@ function formatAndLogValidationGap(
   let message: string
 
   if (hasProviderExpectations) {
+    // If we're here, validation failed, so there must be missing multiaddrs
     const missing = expectedMultiaddrs.filter((addr) => !matchedMultiaddrs.has(addr))
-
-    if (missing.length === 0) {
-      // All multiaddrs are present, but maybe not all with addresses yet
-      message = 'Expected providers not yet advertising reachable addresses'
-    } else {
-      message = `Missing advertisement for expected multiaddr(s): ${missing.join(', ')}`
-    }
+    message = `Missing advertisement for expected multiaddr(s): ${missing.join(', ')}`
 
     logger?.info(
       {

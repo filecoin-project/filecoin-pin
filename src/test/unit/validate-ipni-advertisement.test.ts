@@ -368,5 +368,21 @@ describe('validateIPNIAdvertisement', () => {
 
       expect(result).toBe(true)
     })
+
+    it('should preserve parse error message instead of overwriting with generic message', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn(async () => {
+          throw new Error('Invalid JSON')
+        }),
+      })
+
+      const promise = validateIPNIAdvertisement(testCid, { maxAttempts: 1 })
+      // Should preserve the specific "Failed to parse" message, not overwrite with generic message
+      const expectPromise = expect(promise).rejects.toThrow('Failed to parse IPNI response body')
+
+      await vi.runAllTimersAsync()
+      await expectPromise
+    })
   })
 })
