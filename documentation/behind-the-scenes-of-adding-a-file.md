@@ -133,7 +133,7 @@ Below are the set of steps that are particularly unique from traditional IPFS us
 
 Filecoin Pin needs to interface with the Filecoin blockchain to authorize and send payment to [storage providers](glossary.md#storage-provider) (SPs) for their work of storing and proving possession of data.  This requires having a secret key to sign messages sent to the blockchain.
 
-Currently `filecoin-pin` expects to be explicitly passed a private key via environment variable or command line argument.  filecoin-pin-website as [pin.filecoin.cloud](http://pin.filecoin.cloud) uses a global [session key](glossary.md#session-key) which can be embedded into source code since it scopes down the set of actions that can be performed.
+Currently `filecoin-pin` expects to be explicitly passed a private key via environment variable or command line argument.  [filecoin-pin-website](glossary.md#filecoin-pin-website) as [pin.filecoin.cloud](http://pin.filecoin.cloud) uses a global [session key](glossary.md#session-key) which can be embedded into source code since it scopes down the set of actions that can be performed.
 
 *Outputs:*
 
