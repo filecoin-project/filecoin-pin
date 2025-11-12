@@ -194,7 +194,7 @@ describe('validateIPNIAdvertisement', () => {
       await expectPromise
     })
 
-    it('should reject when not all expected providers are advertised', async () => {
+    it('should reject when not all expected providers are in the IPNI ProviderResults', async () => {
       const providerA = createProviderInfo('https://a.example.com')
       const providerB = createProviderInfo('https://b.example.com')
       mockFetch.mockResolvedValueOnce(successResponse(['/dns/a.example.com/tcp/443/https']))
