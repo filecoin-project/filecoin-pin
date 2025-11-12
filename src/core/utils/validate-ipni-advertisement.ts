@@ -6,9 +6,9 @@ import type { ProgressEvent, ProgressEventHandler } from './types.js'
 /**
  * Response structure from the filecoinpin.contact IPNI gateway.
  *
- * The gateway returns information about which storage providers have advertised
- * a given CID through the InterPlanetary Network Indexer (IPNI). Each provider
- * includes their peer ID and multiaddrs for retrieval.
+ * The Indexer returns provider records corresponding with each SP that advertised
+ * a given CID to the IPNI indexer. 
+ * Each provider includes their peer ID and multiaddrs.
  */
 interface FilecoinPinContactResponse {
   MultihashResults?: Array<{
