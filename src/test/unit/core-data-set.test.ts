@@ -42,6 +42,7 @@ const {
     getPieceMetadata: vi.fn(async (_dataSetId: number, pieceId: number) => {
       return state.pieceMetadata[pieceId] ?? {}
     }),
+    getServiceProviderRegistryAddress: vi.fn(async () => '0xsp-registry'),
   }
 
   const mockWarmStorageCreate = vi.fn(async () => mockWarmStorageInstance)
@@ -83,6 +84,17 @@ vi.mock('@filoz/synapse-sdk', async () => {
   }
 })
 
+// Mock piece size calculation
+vi.mock('@filoz/synapse-sdk/piece', () => ({
+  getSizeFromPieceCID: vi.fn((cid: { toString: () => string } | string) => {
+    // Map specific CIDs to sizes for testing
+    const cidString = typeof cid === 'string' ? cid : cid.toString()
+    if (cidString === 'bafkpiece0') return 1048576 // 1 MiB
+    if (cidString === 'bafkpiece1') return 2097152 // 2 MiB
+    if (cidString === 'bafkpiece2') return 4194304 // 4 MiB
+    throw new Error(`Invalid piece CID: ${cidString}`)
+  }),
+}))
 vi.mock('@filoz/synapse-sdk/sp-registry', () => {
   return {
     SPRegistryService: vi.fn().mockImplementation(() => {
@@ -125,7 +137,7 @@ describe('listDataSets', () => {
     state.datasets = [expectedDataSet]
     mockGetProviders.mockRejectedValueOnce(new Error('Network error'))
 
-    const result = await listDataSets(mockSynapse as any)
+    const result = await listDataSets(mockSynapse as any, { withProviderDetails: true })
 
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({
@@ -164,7 +176,7 @@ describe('listDataSets', () => {
     ]
     state.providers = [provider]
 
-    const result = await listDataSets(mockSynapse as any)
+    const result = await listDataSets(mockSynapse as any, { withProviderDetails: true })
 
     expect(result).toHaveLength(1)
     expect(result[0]?.provider).toEqual(provider)
@@ -221,7 +233,7 @@ describe('listDataSets', () => {
     ]
     state.providers = [provider1]
 
-    const result = await listDataSets(mockSynapse as any)
+    const result = await listDataSets(mockSynapse as any, { withProviderDetails: true })
 
     expect(result).toHaveLength(2)
     expect(result[0]?.provider).toEqual(provider1)
@@ -447,5 +459,57 @@ describe('getDataSetPieces', () => {
     expect(result.pieces[0]?.metadata).toMatchObject({
       label: 'no-cid-file.txt',
     })
+  })
+
+  it('calculates piece sizes from piece CIDs', async () => {
+    state.pieces = [
+      { pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } },
+      { pieceId: 1, pieceCid: { toString: () => 'bafkpiece1' } },
+    ]
+
+    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+
+    expect(result.pieces).toHaveLength(2)
+    expect(result.pieces[0]?.size).toBe(1048576) // 1 MiB
+    expect(result.pieces[1]?.size).toBe(2097152) // 2 MiB
+  })
+
+  it('calculates total size as sum of all piece sizes', async () => {
+    state.pieces = [
+      { pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } }, // 1 MiB
+      { pieceId: 1, pieceCid: { toString: () => 'bafkpiece1' } }, // 2 MiB
+      { pieceId: 2, pieceCid: { toString: () => 'bafkpiece2' } }, // 4 MiB
+    ]
+
+    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+
+    expect(result.pieces).toHaveLength(3)
+    expect(result.totalSizeBytes).toBe(BigInt(1048576 + 2097152 + 4194304)) // 7 MiB total
+  })
+
+  it('returns undefined totalSizeBytes when no pieces have sizes', async () => {
+    state.pieces = []
+
+    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+
+    expect(result.pieces).toHaveLength(0)
+    expect(result.totalSizeBytes).toBeUndefined()
+  })
+
+  it('handles size calculation failures gracefully', async () => {
+    state.pieces = [
+      { pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } }, // Valid
+      { pieceId: 1, pieceCid: { toString: () => 'invalid-cid' } }, // Will throw
+      { pieceId: 2, pieceCid: { toString: () => 'bafkpiece2' } }, // Valid
+    ]
+
+    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+
+    expect(result.pieces).toHaveLength(3)
+    expect(result.pieces[0]?.size).toBe(1048576)
+    expect(result.pieces[1]?.size).toBeUndefined() // Size calculation failed
+    expect(result.pieces[2]?.size).toBe(4194304)
+    // Total should only include pieces with valid sizes
+    expect(result.totalSizeBytes).toBe(BigInt(1048576 + 4194304))
   })
 })

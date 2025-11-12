@@ -18,14 +18,59 @@ import {
   getPaymentStatus,
 } from '../core/payments/index.js'
 import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
-import { formatUSDFC } from '../core/utils/format.js'
+import { formatFIL, formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { displayDepositWarning } from './setup.js'
 
-interface StatusOptions extends CLIAuthOptions {}
+interface StatusOptions extends CLIAuthOptions {
+  includeRails?: boolean
+}
+
+const STORAGE_DISPLAY_PRECISION_DIGITS = 6
+const STORAGE_DISPLAY_PRECISION = 10n ** BigInt(STORAGE_DISPLAY_PRECISION_DIGITS)
+
+/**
+ * Derives the current warm storage size from the Filecoin Pay spend rate.
+ *
+ * rateUsed represents the USDFC burn per epoch while pricePerTiBPerEpoch
+ * represents the quoted USDFC price for storing 1 TiB for the same duration.
+ * Dividing the two gives the actively billed TiB, which we convert to GiB for
+ * display with a small fixed precision.
+ */
+function formatStorageGiB(rateUsed: bigint, pricePerTiBPerEpoch: bigint): string {
+  if (rateUsed === 0n || pricePerTiBPerEpoch === 0n) {
+    return pc.gray('Stored: no active usage')
+  }
+
+  if (pricePerTiBPerEpoch < 0n) {
+    // pricePerTiBPerEpoch should always be positive
+    return pc.gray('Stored: unknown')
+  }
+
+  const storedTiBScaled = (rateUsed * STORAGE_DISPLAY_PRECISION) / pricePerTiBPerEpoch
+  if (storedTiBScaled <= 0n) {
+    return pc.gray('Stored: no active usage')
+  }
+
+  const storedGiB = Number(ethers.formatUnits(storedTiBScaled * 1024n, STORAGE_DISPLAY_PRECISION_DIGITS))
+
+  if (storedGiB < 0.1) {
+    return 'Stored: < 0.1 GiB'
+  }
+
+  let digits = 1
+  if (storedGiB < 10) {
+    digits = 2
+  }
+  const formatted = storedGiB.toLocaleString(undefined, {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits,
+  })
+  return `Stored: ~${formatted} GiB`
+}
 
 /**
  * Display current payment status
@@ -104,52 +149,72 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     const storageInfo = await synapse.storage.getStorageInfo()
     const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
 
-    const paymentRailsData = await fetchPaymentRailsData(synapse)
+    let paymentRailsData: PaymentRailsData | null = null
+    if (options.includeRails === true) {
+      paymentRailsData = await fetchPaymentRailsData(synapse)
+    }
     spinner.stop(`${pc.green('✓')} Configuration loaded`)
 
     // Display all status information
     log.line('━━━ Current Status ━━━')
 
-    log.line(`Address: ${address}`)
-    log.line(`Network: ${pc.bold(network)}`)
-    log.line('')
-
     // Show wallet balances
     log.line(pc.bold('Wallet'))
-    const filUnit = filStatus.isCalibnet ? 'tFIL' : 'FIL'
-    log.indent(`${ethers.formatEther(filStatus.balance)} ${filUnit}`)
-    log.indent(`${formatUSDFC(walletUsdfcBalance)} USDFC`)
+    log.indent(`Owner address: ${address}`)
+    log.indent(`Network: ${network}`)
+    log.indent(`FIL: ${formatFIL(filStatus.balance, filStatus.isCalibnet)}`)
+    log.indent(`USDFC: ${formatUSDFC(walletUsdfcBalance)} USDFC`)
     log.line('')
 
     // Show deposit and capacity
+    const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
+    const rateUsed = status.currentAllowances.rateUsed ?? 0n
+    const availableDeposit = status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n
     const capacity = calculateDepositCapacity(status.filecoinPayBalance, pricePerTiBPerEpoch)
-    log.line(pc.bold('Storage Deposit'))
-    log.indent(`${formatUSDFC(status.filecoinPayBalance)} USDFC deposited`)
-    if (capacity.gibPerMonth > 0) {
-      const asTiB = capacity.tibPerMonth
-      const tibStr = asTiB >= 100 ? Math.round(asTiB).toLocaleString() : asTiB.toFixed(1)
-      log.indent(`Capacity: ~${tibStr} TiB/month ${pc.gray('(includes 10-day safety reserve)')}`)
-    } else if (status.filecoinPayBalance > 0n) {
-      log.indent(pc.gray('(insufficient for storage)'))
-    }
-    log.flush()
-
-    // Show payment rails summary
-    displayPaymentRailsSummary(paymentRailsData, log)
-
-    // Show spend summaries (rateUsed, runway)
     const runway = calculateStorageRunway(status)
     const runwayDisplay = formatRunwaySummary(runway)
-    const maxLockup = status.currentAllowances.maxLockupPeriod
-    const lockupDays = maxLockup != null ? Number(maxLockup / TIME_CONSTANTS.EPOCHS_PER_DAY) : 10
+    const dailyCost = runway.perDay
+    const monthlyCost = dailyCost * TIME_CONSTANTS.DAYS_PER_MONTH
 
+    log.line(pc.bold('Filecoin Pay'))
+    log.indent(`Balance: ${formatUSDFC(status.filecoinPayBalance)} USDFC`)
+    log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC (30-day reserve)`)
+    log.indent(`Available: ${formatUSDFC(availableDeposit)} USDFC`)
+    if (rateUsed > 0n) {
+      log.indent(`Epoch cost: ${formatUSDFC(rateUsed)} USDFC`)
+      log.indent(`Daily cost: ${formatUSDFC(dailyCost)} USDFC`)
+      log.indent(`Monthly cost: ${formatUSDFC(monthlyCost)} USDFC`)
+    } else {
+      log.indent(`Epoch cost: ${pc.gray('0 USDFC')}`)
+      log.indent(`Daily cost: ${pc.gray('0 USDFC')}`)
+      log.indent(`Monthly cost: ${pc.gray('0 USDFC')}`)
+    }
+    if (paymentRailsData != null) {
+      displayPaymentRailsSummary(paymentRailsData, 1)
+    }
+    log.line('')
+
+    // Show storage usage details
     log.line(pc.bold('WarmStorage Usage'))
+    if (rateUsed > 0n) {
+      log.indent(formatStorageGiB(rateUsed, pricePerTiBPerEpoch))
+    } else if (status.filecoinPayBalance > 0n) {
+      log.indent(pc.gray('Stored: no active usage'))
+    } else {
+      log.indent(pc.gray('Stored: none'))
+    }
     if (runway.state === 'active') {
-      log.indent(`Spend rate: ${formatUSDFC(runway.rateUsed)} USDFC/epoch`)
-      log.indent(`Locked: ${formatUSDFC(runway.lockupUsed)} USDFC (~${lockupDays}-day reserve)`)
       log.indent(`Runway: ~${runwayDisplay}`)
     } else {
-      log.indent(pc.gray(runwayDisplay))
+      log.indent(pc.gray(`Runway: ${runwayDisplay}`))
+    }
+    const capacityTiB =
+      capacity.tibPerMonth >= 100 ? Math.round(capacity.tibPerMonth).toLocaleString() : capacity.tibPerMonth.toFixed(1)
+    const capacityLine = `Funding could cover ~${capacityTiB} TiB for one month`
+    if (capacity.gibPerMonth > 0) {
+      log.indent(capacityLine)
+    } else {
+      log.indent(pc.gray(capacityLine))
     }
     log.flush()
 
@@ -251,38 +316,26 @@ async function fetchPaymentRailsData(synapse: Synapse): Promise<PaymentRailsData
 /**
  * Display payment rails summary
  */
-function displayPaymentRailsSummary(data: PaymentRailsData, log: any): void {
-  log.line(pc.bold('Payment Rails'))
+function displayPaymentRailsSummary(data: PaymentRailsData, indentLevel: number = 1): void {
+  log.indent(pc.bold('Payment Rails'), indentLevel)
 
   if (data.error) {
-    log.indent(pc.gray(data.error))
-    log.flush()
+    log.indent(pc.gray(data.error), indentLevel + 1)
     return
   }
 
   if (data.activeRails === 0 && data.terminatedRails === 0) {
-    log.indent(pc.gray('No active payment rails'))
-    log.flush()
+    log.indent(pc.gray('No active payment rails'), indentLevel + 1)
     return
   }
 
-  log.indent(`${data.activeRails} active, ${data.terminatedRails} terminated`)
-
-  if (data.activeRails > 0) {
-    const dailyCost = data.totalActiveRate * 2880n // 2880 epochs per day
-    const monthlyCost = dailyCost * 30n
-
-    log.indent(`Daily cost: ${formatUSDFC(dailyCost)} USDFC`)
-    log.indent(`Monthly cost: ${formatUSDFC(monthlyCost)} USDFC`)
-  }
+  log.indent(`${data.activeRails} active, ${data.terminatedRails} terminated`, indentLevel + 1)
 
   if (data.totalPendingSettlements > 0n) {
-    log.indent(`Pending settlement: ${formatUSDFC(data.totalPendingSettlements)} USDFC`)
+    log.indent(`Pending settlement: ${formatUSDFC(data.totalPendingSettlements)} USDFC`, indentLevel + 1)
   }
 
   if (data.railsNeedingSettlement > 0) {
-    log.indent(`${data.railsNeedingSettlement} rail(s) need settlement`)
+    log.indent(`${data.railsNeedingSettlement} rail(s) need settlement`, indentLevel + 1)
   }
-
-  log.flush()
 }
