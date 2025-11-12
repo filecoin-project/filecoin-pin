@@ -386,6 +386,53 @@ describe('validateIPNIAdvertisement', () => {
       await expectPromise
     })
 
+    it('should clear stale multiaddrs when parse error occurs after successful response', async () => {
+      // Attempt 1: successful response with multiaddrs but doesn't match expectations
+      // Attempt 2: parse error - should clear the multiaddrs from attempt 1
+      const provider = createProviderInfo('https://expected.example.com')
+      mockFetch.mockResolvedValueOnce(successResponse(['/dns/other.example.com/tcp/443/https'])).mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn(async () => {
+          throw new Error('Invalid JSON')
+        }),
+      })
+
+      const promise = validateIPNIAdvertisement(testCid, {
+        maxAttempts: 2,
+        expectedProviders: [provider],
+      })
+
+      const expectPromise = expect(promise).rejects.toThrow(
+        'Failed to parse IPNI response body. Expected multiaddrs: [/dns/expected.example.com/tcp/443/https]. Actual multiaddrs in response: []'
+      )
+
+      await vi.runAllTimersAsync()
+      await expectPromise
+    })
+
+    it('should update failure reason on each attempt instead of preserving first error', async () => {
+      // Attempt 1: parse error
+      // Attempt 2: successful parse but empty results
+      // Final error should report empty results as last observation, not parse error
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: vi.fn(async () => {
+            throw new Error('Invalid JSON')
+          }),
+        })
+        .mockResolvedValueOnce(emptyProviderResponse())
+
+      const promise = validateIPNIAdvertisement(testCid, { maxAttempts: 2 })
+
+      const expectPromise = expect(promise).rejects.toThrow(
+        'Last observation: IPNI response did not include any provider results'
+      )
+
+      await vi.runAllTimersAsync()
+      await expectPromise
+    })
+
     it('should use custom IPNI indexer URL when provided', async () => {
       const customIndexerUrl = 'https://custom-indexer.example.com'
       mockFetch.mockResolvedValueOnce(successResponse())

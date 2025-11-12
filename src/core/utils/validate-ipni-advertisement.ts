@@ -184,16 +184,18 @@ export async function validateIPNIAdvertisement(
           const body = (await response.json()) as IpniIndexerResponse
           // Extract provider results
           providerResults = (body.MultihashResults ?? []).flatMap((r) => r.ProviderResults ?? [])
+          // Extract all multiaddrs from provider results
+          lastActualMultiaddrs = providerResults.flatMap((pr) => pr.Provider?.Addrs ?? [])
+          lastFailureReason = undefined
         } catch (parseError) {
+          // Clear actual multiaddrs on parse error
+          lastActualMultiaddrs = []
           lastFailureReason = 'Failed to parse IPNI response body'
           options?.logger?.warn({ error: parseError }, `${lastFailureReason}. Retrying...`)
         }
 
         // Check if we have provider results to validate
         if (providerResults.length > 0) {
-          // Extract all multiaddrs from provider results
-          lastActualMultiaddrs = providerResults.flatMap((pr) => pr.Provider?.Addrs ?? [])
-
           let isValid = false
 
           if (hasProviderExpectations) {
