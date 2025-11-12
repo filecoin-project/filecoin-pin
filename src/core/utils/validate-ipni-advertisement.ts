@@ -220,7 +220,7 @@ export async function validateIPNIAdvertisement(
             // Generic validation: just need any provider with addresses
             isValid = lastActualMultiaddrs.length > 0
             if (!isValid) {
-              lastFailureReason = 'Expected provider advertisement to include at least one reachable address'
+              lastFailureReason = 'Expected at least one provider record'
               options?.logger?.info(`${lastFailureReason}. Retrying...`)
             }
           }
