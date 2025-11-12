@@ -23,6 +23,8 @@ interface IpniIndexerResponse {
  * Contains the provider's libp2p peer ID and an array of multiaddrs where
  * the content can be retrieved. These multiaddrs typically include the
  * provider's PDP service endpoint (e.g., /dns/provider.example.com/tcp/443/https).
+ * Note: this format matches what IPNI indexers return
+ * (see https://cid.contact/cid/bafybeigvgzoolc3drupxhlevdp2ugqcrbcsqfmcek2zxiw5wctk3xjpjwy for an example) 
  */
 interface ProviderResult {
   Provider?: {
