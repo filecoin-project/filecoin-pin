@@ -178,7 +178,7 @@ describe('validateIPNIAdvertisement', () => {
       await expectPromise
       expect(mockFetch).toHaveBeenCalledTimes(1)
     })
-    it('should reject when an expected provider is missing from the advertisement', async () => {
+    it('should reject when an expected provider is missing from the  IPNI ProviderResults', async () => {
       const provider = createProviderInfo('https://expected.example.com')
       mockFetch.mockResolvedValueOnce(successResponse(['/dns/other.example.com/tcp/443/https']))
 
