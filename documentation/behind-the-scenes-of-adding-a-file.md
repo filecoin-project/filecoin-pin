@@ -17,7 +17,7 @@ graph TD
     %% Non-blockchain nodes
     Start([User: Select File to Add])
     CreateCAR[FP: Create CAR<br/><br/>✓ IPFS Root CID known]
-    UploadCAR[FP: Upload CAR to SP<br/><br/>✓ /piece/$pieceCid retrieval]
+    UploadCAR[FP: Upload CAR to SP<br/><br/>✓ SP /piece/$pieceCid retrieval]
     IndexCAR{{SP: Index CAR CIDs<br/><br/>✓ SP /ipfs/$cid retrieval}}
     AdvertiseCAR{{SP: Advertise CAR CIDs to IPNI}}
     AwaitIPNIIndexing[FP: Await IPNI Indexing<br/><br/>✓ IPNI provider records<br/>✓ IPFS Mainnet retrieval possible]
