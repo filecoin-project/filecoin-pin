@@ -188,18 +188,16 @@ export async function validateIPNIAdvertisement(
 
         // Check if we have provider results to validate
         if (providerResults != null && providerResults.length > 0) {
-          // Perform appropriate validation based on whether we have expectations
-          const hasGenericProvider = hasAnyProviderWithAddresses(providerResults)
-          const matchedMultiaddrs = hasProviderExpectations
-            ? findMatchingMultiaddrs(providerResults, expectedMultiaddrsSet)
-            : new Set<string>()
+          let matchedMultiaddrs = new Set<string>()
+          let isValid = false
 
-          const isValid = isValidationSuccessful(
-            hasGenericProvider,
-            matchedMultiaddrs,
-            expectedMultiaddrsSet,
-            hasProviderExpectations
-          )
+          if (hasProviderExpectations) {
+            matchedMultiaddrs = findMatchingMultiaddrs(providerResults, expectedMultiaddrsSet)
+            isValid = matchedMultiaddrs.size === expectedMultiaddrs.length
+          } else {
+            // Generic validation: just need any provider with addresses
+            isValid = hasAnyProviderWithMultiaddrs(providerResults)
+          }
 
           if (isValid) {
             // Validation succeeded!
@@ -396,7 +394,7 @@ function deriveExpectedMultiaddrs(
  * @param providerResults - Provider results from IPNI response
  * @returns True if at least one provider has non-empty addresses
  */
-function hasAnyProviderWithAddresses(providerResults: ProviderResult[]): boolean {
+function hasAnyProviderWithMultiaddrs(providerResults: ProviderResult[]): boolean {
   for (const providerResult of providerResults) {
     const provider = providerResult.Provider
     if (!provider) continue
@@ -437,34 +435,6 @@ function findMatchingMultiaddrs(providerResults: ProviderResult[], expectedMulti
   }
 
   return matched
-}
-
-/**
- * Check if the IPNI response satisfies the validation requirements.
- *
- * For generic validation (no expected providers): Passes if any provider has addresses.
- * For specific validation (with expected providers): Passes only if ALL expected
- * multiaddrs are present in the response.
- *
- * @param hasGenericProvider - True if any provider advertises with addresses
- * @param matchedMultiaddrs - Set of expected multiaddrs found in response
- * @param expectedMultiaddrs - Set of all expected multiaddrs
- * @param hasProviderExpectations - Whether we're doing specific provider validation
- * @returns True if validation requirements are satisfied
- */
-function isValidationSuccessful(
-  hasGenericProvider: boolean,
-  matchedMultiaddrs: Set<string>,
-  expectedMultiaddrs: Set<string>,
-  hasProviderExpectations: boolean
-): boolean {
-  if (!hasProviderExpectations) {
-    // Generic validation: just need any provider with addresses
-    return hasGenericProvider
-  }
-
-  // Specific validation: need ALL expected multiaddrs to be present
-  return matchedMultiaddrs.size === expectedMultiaddrs.size
 }
 
 /**
