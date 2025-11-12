@@ -36,9 +36,9 @@ interface ProviderResult {
 }
 
 export type ValidateIPNIProgressEvents =
-  | ProgressEvent<'ipniAdvertisement.retryUpdate', { retryCount: number }>
-  | ProgressEvent<'ipniAdvertisement.complete', { result: true; retryCount: number }>
-  | ProgressEvent<'ipniAdvertisement.failed', { error: Error }>
+  | ProgressEvent<'ipniProviderResults.retryUpdate', { retryCount: number }>
+  | ProgressEvent<'ipniProviderResults.complete', { result: true; retryCount: number }>
+  | ProgressEvent<'ipniProviderResults.failed', { error: Error }>
 
 export interface WaitForIpniProviderResultsOptions {
   /**
@@ -70,7 +70,7 @@ export interface WaitForIpniProviderResultsOptions {
   logger?: Logger | undefined
 
   /**
-   * Providers that are expected to appear in the IPNI advertisement. All
+   * Providers that are expected to appear in the IPNI provider results. All
    * providers supplied here must be present in the response for the validation
    * to succeed. When omitted or empty, the validation succeeds once the IPNI
    * response includes any provider entry that advertises at least one address
@@ -153,7 +153,7 @@ export async function waitForIpniProviderResults(
 
       // Emit progress event for this attempt
       try {
-        options?.onProgress?.({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount } })
+        options?.onProgress?.({ type: 'ipniProviderResults.retryUpdate', data: { retryCount } })
       } catch (error) {
         options?.logger?.warn({ error }, 'Error in consumer onProgress callback for retryUpdate event')
       }
@@ -220,7 +220,7 @@ export async function waitForIpniProviderResults(
           if (isValid) {
             // Validation succeeded!
             try {
-              options?.onProgress?.({ type: 'ipniAdvertisement.complete', data: { result: true, retryCount } })
+              options?.onProgress?.({ type: 'ipniProviderResults.complete', data: { result: true, retryCount } })
             } catch (error) {
               options?.logger?.warn({ error }, 'Error in consumer onProgress callback for complete event')
             }
@@ -270,7 +270,7 @@ export async function waitForIpniProviderResults(
 
     check().catch((error) => {
       try {
-        options?.onProgress?.({ type: 'ipniAdvertisement.failed', data: { error } })
+        options?.onProgress?.({ type: 'ipniProviderResults.failed', data: { error } })
       } catch (callbackError) {
         options?.logger?.warn({ error: callbackError }, 'Error in consumer onProgress callback for failed event')
       }
@@ -287,7 +287,7 @@ export async function waitForIpniProviderResults(
  * to IPNI, they include multiaddrs in libp2p format (e.g., "/dns/provider.example.com/tcp/8443/https").
  *
  * This function converts between these representations to enable validation that a
- * provider's IPNI advertisement matches their registered service endpoint.
+ * provider's IPNI provider records matches their registered service endpoint.
  *
  * @param serviceURL - HTTP/HTTPS URL of the provider's PDP service
  * @param logger - Optional logger for warnings

@@ -178,17 +178,17 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
           console.log(`Piece ID(s): ${event.data.pieceIds.join(', ')}`)
           break
         }
-        // IPNI advertisement progress events
-        case 'ipniAdvertisement.retryUpdate': {
-          console.log(`IPNI advertisement validation attempt #${event.data.retryCount + 1}...`)
+        // IPNI provider results progress events
+        case 'ipniProviderResults.retryUpdate': {
+          console.log(`IPNI provider results check attempt #${event.data.retryCount + 1}...`)
           break
         }
-        case 'ipniAdvertisement.complete': {
-          console.log(event.data.result ? '✓ IPNI advertisement successful' : '✗ IPNI advertisement failed')
+        case 'ipniProviderResults.complete': {
+          console.log(event.data.result ? '✓ IPNI provider results found' : '✗ IPNI provider results not found')
           break
         }
-        case 'ipniAdvertisement.failed': {
-          console.log('✗ IPNI advertisement failed')
+        case 'ipniProviderResults.failed': {
+          console.log('✗ IPNI provider results not found')
           console.log(`Error: ${event.data.error.message}`)
           break
         }

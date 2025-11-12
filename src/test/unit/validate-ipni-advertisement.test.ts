@@ -72,9 +72,9 @@ describe('waitForIpniProviderResults', () => {
       })
 
       // Should emit retryUpdate for attempt 0 and a final complete(true)
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 0 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 0 } })
       expect(onProgress).toHaveBeenCalledWith({
-        type: 'ipniAdvertisement.complete',
+        type: 'ipniProviderResults.complete',
         data: { result: true, retryCount: 0 },
       })
     })
@@ -95,12 +95,12 @@ describe('waitForIpniProviderResults', () => {
       expect(mockFetch).toHaveBeenCalledTimes(4)
 
       // Expect retryUpdate with counts 0,1,2,3 and final complete with retryCount 3
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 0 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 1 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 2 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 3 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 0 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 1 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 2 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 3 } })
       expect(onProgress).toHaveBeenCalledWith({
-        type: 'ipniAdvertisement.complete',
+        type: 'ipniProviderResults.complete',
         data: { result: true, retryCount: 3 },
       })
     })
@@ -150,17 +150,17 @@ describe('waitForIpniProviderResults', () => {
       expect(mockFetch).toHaveBeenCalledTimes(3)
 
       // Expect retryUpdate with counts 0,1,2 and final failed event (no complete event on failure)
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 0 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 1 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount: 2 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 0 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 1 } })
+      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 2 } })
       // Should emit failed event, not complete(false)
       expect(onProgress).toHaveBeenCalledWith({
-        type: 'ipniAdvertisement.failed',
+        type: 'ipniProviderResults.failed',
         data: { error: expect.any(Error) },
       })
       // Should NOT emit complete event
       expect(onProgress).not.toHaveBeenCalledWith({
-        type: 'ipniAdvertisement.complete',
+        type: 'ipniProviderResults.complete',
         data: { result: false, retryCount: expect.any(Number) },
       })
     })

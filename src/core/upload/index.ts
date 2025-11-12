@@ -254,7 +254,7 @@ export async function executeUpload(
 
           // Start validation (runs in parallel with other operations)
           ipniValidationPromise = waitForIpniProviderResults(rootCid, validationOptions).catch((error) => {
-            logger.warn({ error }, 'IPNI advertisement validation promise rejected')
+            logger.warn({ error }, 'IPNI provider results check was rejected')
             return false
           })
         }
@@ -288,7 +288,7 @@ export async function executeUpload(
     try {
       ipniValidated = await ipniValidationPromise
     } catch (error) {
-      logger.error({ error }, 'Could not validate IPNI advertisement')
+      logger.error({ error }, 'Could not validate IPNI provider records')
       ipniValidated = false
     }
   }
