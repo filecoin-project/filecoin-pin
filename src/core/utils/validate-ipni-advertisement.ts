@@ -182,7 +182,8 @@ export async function validateIPNIAdvertisement(
         let providerResults: ProviderResult[] | undefined
         try {
           const body = (await response.json()) as IpniIndexerResponse
-          providerResults = extractProviderResults(body)
+          // Extract provider results
+          providerResults = (body.MultihashResults ?? []).flatMap((r) => r.ProviderResults ?? [])
         } catch (parseError) {
           lastFailureReason = 'Failed to parse IPNI response body'
           options?.logger?.warn({ error: parseError }, `${lastFailureReason}. Retrying...`)
@@ -190,18 +191,36 @@ export async function validateIPNIAdvertisement(
 
         // Check if we have provider results to validate
         if (providerResults != null && providerResults.length > 0) {
-          // Track actual multiaddrs found in response for error reporting
-          lastActualMultiaddrs = extractAllMultiaddrs(providerResults)
+          // Extract all multiaddrs from provider results
+          lastActualMultiaddrs = providerResults.flatMap((pr) => pr.Provider?.Addrs ?? [])
 
-          let matchedMultiaddrs = new Set<string>()
           let isValid = false
 
           if (hasProviderExpectations) {
-            matchedMultiaddrs = findMatchingMultiaddrs(lastActualMultiaddrs, expectedMultiaddrsSet)
+            // Find matching multiaddrs - inline filter + Set
+            const matchedMultiaddrs = new Set(lastActualMultiaddrs.filter((addr) => expectedMultiaddrsSet.has(addr)))
             isValid = matchedMultiaddrs.size === expectedMultiaddrs.length
+
+            if (!isValid) {
+              // Log validation gap
+              const missing = expectedMultiaddrs.filter((addr) => !matchedMultiaddrs.has(addr))
+              lastFailureReason = `Missing advertisement for expected multiaddr(s): ${missing.join(', ')}`
+              options?.logger?.info(
+                {
+                  expectation: `multiaddr(s): ${expectedMultiaddrs.join(', ')}`,
+                  providerCount: expectedProviders.length,
+                  matchedMultiaddrs: Array.from(matchedMultiaddrs),
+                },
+                `${lastFailureReason}. Retrying...`
+              )
+            }
           } else {
             // Generic validation: just need any provider with addresses
             isValid = lastActualMultiaddrs.length > 0
+            if (!isValid) {
+              lastFailureReason = 'Expected provider advertisement to include at least one reachable address'
+              options?.logger?.info(`${lastFailureReason}. Retrying...`)
+            }
           }
 
           if (isValid) {
@@ -214,15 +233,6 @@ export async function validateIPNIAdvertisement(
             resolve(true)
             return
           }
-
-          // Validation not yet successful - log why and retry
-          lastFailureReason = formatAndLogValidationGap(
-            matchedMultiaddrs,
-            expectedMultiaddrs,
-            hasProviderExpectations,
-            expectedProviders.length,
-            options?.logger
-          )
         } else if (lastFailureReason == null) {
           // Only set generic message if we don't already have a more specific reason (e.g., parse error)
           lastFailureReason = 'IPNI response did not include any provider results'
@@ -329,29 +339,6 @@ export function serviceURLToMultiaddr(serviceURL: string, logger?: Logger): stri
 }
 
 /**
- * Extract all provider results from the IPNI indexer response.
- *
- * The response can contain multiple providers results, each with multiple multiaddr esults.
- * This flattens them into a single array for easier processing.
- *
- * @param response - Raw response from the IPNI indexer
- * @returns Flat array of all provider results, or empty array if none found
- */
-function extractProviderResults(response: IpniIndexerResponse): ProviderResult[] {
-  const results = response.MultihashResults
-  if (!Array.isArray(results)) {
-    return []
-  }
-
-  return results.flatMap(({ ProviderResults }) => {
-    if (!Array.isArray(ProviderResults)) {
-      return []
-    }
-    return ProviderResults
-  })
-}
-
-/**
  * Derive expected IPNI multiaddrs from provider information.
  *
  * For each provider, attempts to extract their PDP serviceURL and convert it to
@@ -402,87 +389,4 @@ function deriveExpectedMultiaddrs(
     expectedMultiaddrs,
     skippedProviderCount,
   }
-}
-
-/**
- * Extract all multiaddrs from provider results.
- *
- * @param providerResults - Provider results from IPNI response
- * @returns Array of all multiaddrs found in the response
- */
-function extractAllMultiaddrs(providerResults: ProviderResult[]): string[] {
-  const allMultiaddrs: string[] = []
-  for (const providerResult of providerResults) {
-    const provider = providerResult.Provider
-    if (!provider) continue
-    const providerAddrs = provider.Addrs ?? []
-    allMultiaddrs.push(...providerAddrs)
-  }
-  return allMultiaddrs
-}
-
-/**
- * Find which expected multiaddrs are present in the IPNI response.
- *
- * This is used for specific provider validation. Returns the set of expected
- * multiaddrs that were found, allowing the caller to check if ALL expected
- * providers are advertising.
- *
- * @param allMultiaddrs - All multiaddrs found in the IPNI response
- * @param expectedMultiaddrs - Set of multiaddrs we expect to find
- * @returns Set of expected multiaddrs that were found in the response
- */
-function findMatchingMultiaddrs(allMultiaddrs: string[], expectedMultiaddrs: Set<string>): Set<string> {
-  const matched = new Set<string>()
-
-  for (const addr of allMultiaddrs) {
-    if (expectedMultiaddrs.has(addr)) {
-      matched.add(addr)
-    }
-  }
-
-  return matched
-}
-
-/**
- * Format and log diagnostics about why validation hasn't passed yet.
- *
- * This provides actionable feedback about what's missing from the IPNI response,
- * helping users understand what the validation is waiting for.
- *
- * @param matchedMultiaddrs - Multiaddrs from expected set that were found
- * @param expectedMultiaddrs - All expected multiaddrs (as array for iteration)
- * @param hasProviderExpectations - Whether we're doing specific provider validation
- * @param expectedProvidersCount - Number of providers we're expecting
- * @param logger - Optional logger for output
- * @returns Human-readable message describing what's missing
- */
-function formatAndLogValidationGap(
-  matchedMultiaddrs: Set<string>,
-  expectedMultiaddrs: string[],
-  hasProviderExpectations: boolean,
-  expectedProvidersCount: number,
-  logger: Logger | undefined
-): string {
-  let message: string
-
-  if (hasProviderExpectations) {
-    // If we're here, validation failed, so there must be missing multiaddrs
-    const missing = expectedMultiaddrs.filter((addr) => !matchedMultiaddrs.has(addr))
-    message = `Missing advertisement for expected multiaddr(s): ${missing.join(', ')}`
-
-    logger?.info(
-      {
-        expectation: `multiaddr(s): ${expectedMultiaddrs.join(', ')}`,
-        providerCount: expectedProvidersCount,
-        matchedMultiaddrs: Array.from(matchedMultiaddrs),
-      },
-      `${message}. Retrying...`
-    )
-  } else {
-    message = 'Expected provider advertisement to include at least one reachable address'
-    logger?.info(`${message}. Retrying...`)
-  }
-
-  return message
 }
