@@ -2,11 +2,15 @@ Filecoin Pin brings multiple technologies together (e.g., traditional Filecoin b
 
 ## Calibration Network
 
-The “test network” of Filecoin’s Mainnet, where developers can have more realistic network conditions without using truly valuable tokens.  TODO: add a link to filecoin-docs.
+The “test network” of Filecoin’s Mainnet, where developers can have more realistic network conditions without using truly valuable tokens.  See https://docs.filecoin.io/networks/calibration
 
 ## CAR
 
 A CAR is a container and transport to hold your "IPFS data" (i.e., IPLD blocks).  It just happens to take file form sometimes.  See https://docs.ipfs.tech/concepts/glossary/#car for more info.
+
+## CommP
+
+CommP (Commitment of Piece) is a cryptographic hash function used in Filecoin to create piece commitments. CommP is the hash of a piece's data processed sequentially without regard to its internal DAG structure. This differs from content-addressed CIDs used in IPFS which depend on the merkle DAG structure. The CommP hash of a CAR file uploaded by `filecoin-pin` produces the Piece CID.
 
 ## Curio
 
@@ -19,7 +23,9 @@ Curio is the software that Filecoin Warm Storage Service Storage Provider run, w
 
 ## Data Set
 
-Collections of stored data (Pieces) managed by Filecoin Warm Storage Service. Each Data Set has a corresponding SP, Pieces, metadata, and an associated payment rail between Filecoin Pay and the SP that handles the ongoing storage payments.
+Collections of stored data (Pieces) managed by Filecoin Warm Storage Service. Each Data Set is tied to exactly one Storage Provider; all pieces in a Data Set are stored by the same SP. Each Data Set has metadata keys, Pieces, and an associated payment rail between Filecoin Pay and the SP that handles ongoing storage payments.
+
+filecoin-pin reuses existing Data Sets by default, matching on metadata keys (`source='filecoin-pin'`). If multiple exist, it uses the one storing the most data.
 
 ## FIL
 
@@ -41,21 +47,23 @@ This is the collection of DePIN services offered on Filecoin using shared/consis
 
 This is often abbreviated as “FOC”, which yes, does phonetically resonate with more colorful language 😉.
 
-## filecoin-pin
+## Filecoin Pin
 
 https://github.com/FilOzone/filecoin-pin
 
 Serves as an IPFS-oriented sets of tools for interfacing with Filecoin Onchain Cloud built on top of Synapse.  
 
-`filecoin-pin` CLI is one such tool.
+## `filecoin-pin`
+
+`filecoin-pin` is a CLI tool affordance for Filecoin Pin.
 
 ## filecoin-pin-website
 
 https://github.com/filecoin-project/filecoin-pin-website
 
-Example of filecoin-pin in action within a web-browser.  Its purposes are:
+Example of Filecoin Pin in action within a web-browser.  Its purposes are:
 
-1. Demonstrate that filecoin-pin is usable.  Drag and drop and you’re good to go!
+1. Demonstrate that Filecoin Pin is usable.  Drag and drop and you’re good to go!
 2. Serve as a starter or inspiration for dApp builders wanting to use Filecoin Onchain Cloud.
 
 filecoin-pin-website is also hosted at [pin.filecoin.cloud](http://pin.filecoin.cloud), with hardcoded wallet and session key on the Calibration network.  In future, [integration with tools like Metamask will be supported](https://github.com/filecoin-project/filecoin-pin-website/issues/77).  
@@ -76,15 +84,22 @@ This is one of two retrieval endpoints that SPs expose.  This endpoint conforms 
 
 See https://docs.ipfs.tech/concepts/glossary/#ipni.
 
-IPNI is the content routing system that Filecoin Pin relies upon for retrieval to work for standard IPFS tooling.  Storage Providers announce their advertisement changes to IPNI indexer like [filecoinpin.contact](http://filecoinpin.contact) and cid.contact, and the advertised CIDs become discoverable for IPFS Standard tooling.  
+IPNI is the content routing system that Filecoin Pin relies upon for retrieval to work for standard IPFS tooling.  Storage Providers announce their advertisement changes to IPNI indexer like [filecoinpin.contact](http://filecoinpin.contact) and cid.contact, and the advertised CIDs become discoverable for IPFS Standard tooling.
+
+## Metadata Keys
+
+Key-value pairs stored on-chain, either scoped to Data Sets or Pieces. Filecoin Pin uses specific metadata keys:
+
+Key | Purpose | Scope
+`source` | Set to 'filecoin-pin' to identify data created by this tool | Data Set
+`withIPFSIndexing` | Set to empty string to signal the SP to index and advertise the data to IPNI | Piece
+`ipfsRootCid` | Stored on each Piece to link the Piece CID back to the IPFS Root CID.  While this is a convention that Filecoin Pin follows, there is nothing onchain enforcing a correct link between `ipfsRootCid` and `pieceCid`. | Piece
 
 ## Piece
 
 A Piece is an individual unit of data identified by PieceCID. Multiple Pieces can be added to a Data Set for storage.
 
-A Piece is an array of bytes.  Sometimes these bytes come from a single file, but it can also be directories with more directories files within it.
-
-filecoin-pin creates a new piece for each “add” operation.  Whatever file or directory is “added” is converted to a CAR and uploaded as a piece.
+With Filecoin Pin, the Piece is the CAR file itself; an array of bytes representing the serialized content. Each `filecoin-pin add` operation creates exactly one Piece by converting the input file or directory to a CAR file, which then becomes the Piece that is uploaded and stored.  
 
 ## Piece CID
 
@@ -92,7 +107,7 @@ A CID for a Piece using the CommP hash function.  This is a common CID type used
 
 ## `/piece` Retrieval
 
-This is a Filecoin-defined retrieval specification outlined in TODO_FILL_ME_IN.  It is for retrieving pieces by Piece CID, optionally taking a range.
+This is a Filecoin-defined retrieval specification outlined in https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0066.md.  It is for retrieving pieces by Piece CID, optionally taking a range.
 
 It takes the form of https://sp.domain/piece/$pieceCid. 
 
@@ -106,15 +121,17 @@ This is usually abbreviated as “PDP”.
 
 ## RPC Provider
 
-HTTP endpoint/infrastructure for reading or writing blockchain state.  These RPC providers run native blockchain clients and likely are storing blockchain state in optimized state for faster reads.  See TODO ADD LINK for for more information about Filecoin RPC providers.  
+HTTP endpoint/infrastructure for reading or writing blockchain state.  These RPC providers run native blockchain clients and likely are storing blockchain state in optimized state for faster reads.  See https://docs.filecoin.io/networks/mainnet/rpcs for for more information about Filecoin RPC providers.  
 
 ## Service Provider Registry
 
-An onchain registry of Storage Providers who are participating in Filecoin Onchain Cloud.  They can be view at [https://filecoin.cloud/providers](https://filecoin.services/providers).  By default, only "Approved Providers" are used by filecoin-pin because they have been vetted to support IPFS Mainnet retrievals.
+An onchain registry of Storage Providers who are participating in Filecoin Onchain Cloud.  They can be view at https://filecoin.cloud/providers.  By default, only "Approved Providers" are used by Filecoin Pin because they have been vetted to support IPFS Mainnet retrievals.
 
 ## Session Key
 
-Credentials that are permitted to perform a scoped down set of tasks on behalf of a wallet within an expiration window.  For example, the filecoin-pin-website using a shared session key so that anonymous users can test out the tool without bringing their own wallet or funds.  The session key is scoped to allowing the creation of data sets and pieces, but prevents transferring of funds for example. 
+Credentials that are permitted to perform a scoped down set of tasks on behalf of a wallet within an expiration window.  For example, the filecoin-pin-website uses a shared session key so that anonymous users can test out the tool without bringing their own wallet or funds.
+
+Session keys require specific permissions (such as CREATE_DATA_SET and ADD_PIECES) and have expiration timestamps.  The filecoin-pin-website session key is scoped to allowing the creation of data sets and pieces, but prevents transferring of funds for example. 
 
 ## Standard IPFS Tooling
 
@@ -128,8 +145,8 @@ This is usually abbreviated as “SP”.
 
 ## synapse
 
-Synapse is the TypeScript SDK for interfacing with Filecoin Onchain Cloud.  It abstracts RPC Provider calls, reading/writing smart contract state, and Storage Provider interactions.  Read more at https://synapse.filecoin.cloud.
+Synapse is the TypeScript SDK for interfacing with Filecoin Onchain Cloud.  It abstracts RPC Provider calls, reading/writing smart contract state, and Storage Provider interactions. Published as `@filoz/synapse-sdk` on npm, it provides TypeScript types and handles all blockchain interactions. Read more at https://synapse.filecoin.cloud.
 
 ## USDFC
 
-A US dollar denominated "stable coin" that is backed by FIL.  USDFC is the currency used by Storage Providers in Filecoin Onchain Cloud.
+A US dollar denominated "stable coin" that is backed by FIL.  USDFC is the currency used by Storage Providers in Filecoin Onchain Cloud.  USDFC is an ERC-20 token. Read more at https://docs.secured.finance/usdfc-stablecoin.

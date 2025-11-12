@@ -1,3 +1,5 @@
+## Purpose
+
 The steps outlined below are taken to "add a file with `filecoin-pin`".  This document is intended to provide more info about what happens "behind the scenes" as it uses underlying libraries like `synapse` and the Filecoin Onchain Cloud offering.
 
 ## Diagram
@@ -14,11 +16,9 @@ We should also have a note about some of the unlocks or abilities the user has a
 | --- | --- | --- |
 | Select a file to “add” |  | No |
 | Create CAR | Client knows the IPFS Root Cid | No |
-| Upload CAR | Client know the Piece CID.
-SP can serve https://sp.domain/piece/$pieceCid requests. | No |
+| Upload CAR | Client knows the Piece CID. SP can serve https://sp.domain/piece/$pieceCid requests. | No |
 | Index CAR CIDs | SP can serve https://sp.domain/ipfs/$cid requests. | No |
-| Advertise CAR CIDs | IPNI indexers should have corresponding provider records for https://filecoinpin.com/cid/$cid calls.
-IPFS Mainnet retrieval of  | No |
+| Advertise CAR CIDs | IPNI indexers should have corresponding provider records for https://filecoinpin.com/cid/$cid calls. IPFS Mainnet retrieval of content becomes possible via standard IPFS tooling. | No |
 | Retrieve Data | ipfs://$cid works | No |
 | Connect Wallet | Wallet balances | Yes |
 | Setup Filecoin Pay | Filecoin Pay account balance | Yes |
@@ -34,27 +34,35 @@ These are the set of steps that that are done client side (i.e., where the `file
 
 *What/why:*
 
-The provided file needs to be turned into a merkle DAG and have the DAG’s blocks shipped off.  CAR is a common container format for transporting blocks in the IPFS ecosystem and is used with `filecoin-pin`.  It is `filecoin-pin` client to dagify the content so that it knows the CIDs of the blocks so it doesn’t need to trust the Storage Provider (SP).
+The provided file needs to be turned into a merkle DAG and have the DAG's blocks shipped off.  CAR is a common container format for transporting blocks in the IPFS ecosystem and is used with `filecoin-pin`.  `filecoin-pin` DAGifies the content so that it knows the CIDs of the blocks so it doesn't need to trust the Storage Provider (SP).
+
+Implementation notes:
+- The CAR file is created using Helia for UnixFS DAG creation. 
+- Individual files are wrapped in a directory so that the filename is preserved via UnixFS metadata.
 
 *Outputs:*
 
-v1 CAR containing the merkle DAG representing the provided file.  There is one root in the CAR, and it represents the root of the DAG for the input file.  This is referred to as the “IPFS Root CID”.  
+v1 CAR containing the merkle DAG representing the provided file.  There is one root in the CAR, and it represents the root of the DAG for the input file.  This is referred to as the "IPFS Root CID".
 
-*Expected duration:* 
+*Expected duration:*
 
-This is a function of the size of the input file and the hardware, but a 1Gb input file can take upwards of a minute to dagify and package as a CAR.  As the car is being created, it can be streamed to an SP.
+This is a function of the size of the input file and the hardware, but a 1Gb input file can take upwards of a minute to DAGify and package as a CAR.  As the car is being created, it can be streamed to an SP.
 
 ### Upload CAR
 
 *What/why:*
 
-The Storage Provider (SP) needs to be given the bytes to store so it can serve retrievals and prove to the chain that it possesses them.   This is done via an HTTP `PUT /pdp/piece/upload`.  
+The Storage Provider (SP) needs to be given the bytes to store so it can serve retrievals and prove to the chain that it possesses them.   This is done via an HTTP `PUT /pdp/piece/upload`.
+
+The upload includes metadata that will be stored on-chain:
+- `ipfsRootCid`: The IPFS Root CID, linking the Piece back to IPFS
+- `withIPFSIndexing`: Signals the SP to index and advertise to IPNI
 
 *Outputs:*
 
-SP parks the piece and queues it up for processing, while the client gets an HTTP response with a status code.
+SP parks the Piece and queues it up for processing, while the client gets an HTTP response with the Piece CID.  The `filecoin-pin` client confirms that the Piece CID calculated by the server matches what was computed locally.
 
-Since the SP has the data for the Piece, it can be retrieved with https://sp.domain/piece retrieval.
+Since the SP has the data for the Piece, it can be retrieved with https://sp.domain/piece/$pieceCid retrieval.
 
 *Expected duration:*
 
@@ -64,15 +72,17 @@ This is a function of the CAR size and the throughput between between the client
 
 *What/why:*
 
-At some point after receiving the uploaded CAR, an SP indexing task process the CAR and creates a local mapping of CIDs to offsets within the CAR.  Following that, an SP IPNI tasks picks up the local index, makes IPNI advertisement chain, and then announces the advertisement chain to IPNI indexers like [filecoinpin.contact](http://filecoinpin.contact) and cid.contact so they know to come and get the advertisement chain to build up their own index.  
+At some point after receiving the uploaded CAR, an SP indexing task process the CAR and creates a local mapping of CIDs to offsets within the CAR.  Following that, an SP IPNI tasks picks up the local index, makes and IPNI advertisement chain, and then announces the advertisement chain to IPNI indexers like filecoinpin.contact and cid.contact so they know to come and get the advertisement chain to build up their own index.
+
+filecoin-pin validates the IPNI advertisement process by polling `https://filecoinpin.contact/cid/$cid` (NOT cid.contact due to [negative caching issues discussed below](#how-long-does-an-ipni-indexer-cache-results)). 
 
 *Outputs:*
 
-Once the SP has indexed the CAR, it can be directly retrieved from the SP (i.e., bypassing IPFS Mainnet content routing) using https://sp.domain/ipfs/$cid retrieval. 
+Once the SP has indexed the CAR, it can be directly retrieved from the SP (i.e., bypassing IPFS Mainnet content routing) using https://sp.domain/ipfs/$cid retrieval.
 
-The SP produces a new or updated advertisments chain.  By the end, IPNI indexers should have additional provider records for the advertised CIDs.
+The SP produces a new or updated advertisement chain.  By the end, IPNI indexers should have additional provider records for the advertised CIDs.
 
-*Expected duration:* 
+*Expected duration:*
 
 Local indexing of the CAR is quick as the CAR already contains a list of CIDs and their offsets, which is verified and reused.  Creating/updating an advertisement chain and announcing it to IPNI indexers is also quick.  There is a delay in an IPNI indexer on the order of seconds for coming to grab the advertisements plus some ingestion delay on the IPNI indexer side.
 
@@ -106,7 +116,7 @@ To prepare to make a “deal” with an SP to store data, these actions need to 
 2. Approve FilecoinWarmStorage as an operator of Filecoin Pay funds.  This is a one-time authorization.  
 3. Deposit at least enough funds into Filecoin Pay to cover the lock-up period for the created CAR.
 
-If they haven’t occurred before, then they will be handled as part of the first deposit into the Filecoin Pay account from filecoin pin.  A single `depositWithPermitAndApproveOperator` transaction handles all of these actions.
+If they haven't occurred before, then they will be handled as part of the first deposit into the Filecoin Pay account from filecoin pin.  A single `depositWithPermitAndApproveOperator` transaction handles all of these actions.
 
 *Outputs:*
 
@@ -122,7 +132,7 @@ As a single transaction, this takes ~30 seconds to be confirmed onchain.
 
 In order to upload a CAR, filecoin-pin needs to identify the SP to upload to.  This strategy is followed (assuming no overrides are provided):
 
-1. If the chain has record of a Data Set created by the wallet with the dataset metadata key “TODO fill this in” set to “filecoin-pin”, then that DataSet ID and corresponding SP are used.  If there are multiple, then the one storing the most data will be used.
+1. If the chain has record of a Data Set created by the wallet with the Data Set metadata key `source` set to 'filecoin-pin', then that DataSet ID and corresponding SP are used.  If there are multiple, then the one storing the most data will be used.
 2. If there is no existing Data Set, then a new Data Set is created using an approved Storage Provider from the Storage Provider Registry.
 
 *Outputs:*
@@ -152,7 +162,7 @@ As a single transaction, this takes ~30 seconds to be confirmed onchain.
 
 ### Will indexed CIDs from Calibration be mixed with CIDs from Mainnet?
 
-Yes.  IPNI indexers are not are not chain aware.  They key on the CID and will point to whatever providers have “recently” advertised the CID.  This means that if a given piece is created with a Calibration SP and also with a Mainnet SP, the CIDs will list both SPs as providers.
+Yes.  IPNI indexers are not chain aware.  They key on the CID and will point to whatever providers have "recently" advertised the CID.  This means that if a given piece is created with a Calibration SP and also with a Mainnet SP, the CIDs will list both SPs as providers.
 
 ### What happens when a piece is deleted?
 
