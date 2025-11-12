@@ -28,9 +28,9 @@ export const PERMISSION_TYPE_HASHES = {
 
 export interface SessionKeyResult {
   /**
-   * The newly generated session key wallet
+   * The newly generated or provided session key wallet
    */
-  sessionWallet: HDNodeWallet
+  sessionWallet: HDNodeWallet | Wallet
 
   /**
    * The owner wallet used to authorize the session key
@@ -65,6 +65,12 @@ export interface CreateSessionKeyOptions {
   privateKey: string
 
   /**
+   * Optional private key for the session wallet
+   * If provided, this will be used instead of generating a random wallet
+   */
+  sessionPrivateKey?: string
+
+  /**
    * Number of days the session key should be valid (default: 10)
    */
   validityDays?: number
@@ -90,7 +96,7 @@ export interface CreateSessionKeyOptions {
  * Creates and authorizes a new session key for use with Synapse SDK
  *
  * This function:
- * 1. Generates a new random wallet (session key)
+ * 1. Creates a session wallet from provided private key, or generates a new random wallet
  * 2. Calculates the expiry timestamp based on validity days
  * 3. Calls the registry contract's login() function to authorize the session key
  * 4. Returns all relevant information for the user
@@ -102,6 +108,7 @@ export interface CreateSessionKeyOptions {
  * ```typescript
  * const result = await createSessionKey({
  *   privateKey: '0x...',
+ *   sessionPrivateKey: '0x...', // Optional: use existing session key
  *   validityDays: 30,
  *   onProgress: (step, details) => console.log(step, details)
  * })
@@ -111,16 +118,34 @@ export interface CreateSessionKeyOptions {
  * ```
  */
 export async function createSessionKey(options: CreateSessionKeyOptions): Promise<SessionKeyResult> {
-  const { privateKey, validityDays = 10, rpcUrl = RPC_URLS.calibration.http, warmStorageAddress, onProgress } = options
+  const {
+    privateKey,
+    sessionPrivateKey,
+    validityDays = 10,
+    rpcUrl = RPC_URLS.calibration.http,
+    warmStorageAddress,
+    onProgress,
+  } = options
 
-  // Step 1: Generate new session key
-  onProgress?.('Generating new session key...', {})
-  const sessionWallet = Wallet.createRandom()
-  onProgress?.('Generated session key', {
-    address: sessionWallet.address,
-    // Only show first 20 chars of private key for security
-    privateKey: `${sessionWallet.privateKey.slice(0, 20)}...`,
-  })
+  // Step 1: Create or generate session key
+  let sessionWallet: HDNodeWallet | Wallet
+  if (sessionPrivateKey) {
+    onProgress?.('Using provided session private key...', {})
+    sessionWallet = new Wallet(sessionPrivateKey)
+    onProgress?.('Using provided session key', {
+      address: sessionWallet.address,
+      // Only show first 20 chars of private key for security
+      privateKey: `${sessionWallet.privateKey.slice(0, 20)}...`,
+    })
+  } else {
+    onProgress?.('Generating new session key...', {})
+    sessionWallet = Wallet.createRandom()
+    onProgress?.('Generated session key', {
+      address: sessionWallet.address,
+      // Only show first 20 chars of private key for security
+      privateKey: `${sessionWallet.privateKey.slice(0, 20)}...`,
+    })
+  }
 
   // Step 2: Calculate expiry timestamp
   onProgress?.('Calculating expiry timestamp...', {})

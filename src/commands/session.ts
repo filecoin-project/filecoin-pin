@@ -21,6 +21,7 @@ export const sessionCommand = new Command('session').description(
 const createCommand = new Command('create')
   .description('Create and authorize a new session key')
   .option('--validity-days <days>', 'Number of days the session key should be valid', '10')
+  .option('--session-private-key <key>', 'Private key for the session wallet (can also use SESSION_PRIVATE_KEY env)')
   .action(async (options) => {
     try {
       // Get private key from options or environment
@@ -29,6 +30,9 @@ const createCommand = new Command('create')
         console.error(picocolors.red('Error: PRIVATE_KEY environment variable or --private-key option is required'))
         process.exit(1)
       }
+
+      // Get session private key from options or environment (optional)
+      const sessionPrivateKey = options.sessionPrivateKey || process.env.SESSION_PRIVATE_KEY
 
       const validityDays = Number.parseInt(options.validityDays, 10)
       if (Number.isNaN(validityDays) || validityDays <= 0) {
@@ -47,6 +51,7 @@ const createCommand = new Command('create')
       // Create session key with progress logging
       const result = await createSessionKey({
         privateKey,
+        sessionPrivateKey,
         validityDays,
         rpcUrl,
         warmStorageAddress: options.warmStorageAddress,
