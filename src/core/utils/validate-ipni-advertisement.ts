@@ -391,7 +391,7 @@ function deriveExpectedMultiaddrs(
  * Check if any provider in the IPNI response has at least one address.
  *
  * This is used for generic IPNI validation when no specific provider is expected.
- * Passes if IPNI shows ANY provider advertising the content with addresses.
+ * Passes if IPNI has ANY provider records for the CID.
  *
  * @param providerResults - Provider results from IPNI response
  * @returns True if at least one provider has non-empty addresses
