@@ -23,8 +23,8 @@ interface IpniIndexerResponse {
  * Contains the provider's libp2p peer ID and an array of multiaddrs where
  * the content can be retrieved. These multiaddrs typically include the
  * provider's PDP service endpoint (e.g., /dns/provider.example.com/tcp/443/https).
- * Note: this format matches what IPNI indexers return
- * (see https://cid.contact/cid/bafybeigvgzoolc3drupxhlevdp2ugqcrbcsqfmcek2zxiw5wctk3xjpjwy for an example) 
+ *
+ * Note: this format matches what IPNI indexers return (see https://cid.contact/cid/bafybeigvgzoolc3drupxhlevdp2ugqcrbcsqfmcek2zxiw5wctk3xjpjwy for an example)
  */
 interface ProviderResult {
   Provider?: {
@@ -143,6 +143,8 @@ export async function validateIPNIAdvertisement(
     let retryCount = 0
     // Tracks the most recent validation failure reason for error reporting
     let lastFailureReason: string | undefined
+    // Tracks the actual multiaddrs found in the last IPNI response for error reporting
+    let lastActualMultiaddrs: string[] | undefined
 
     const check = async (): Promise<void> => {
       if (options?.signal?.aborted) {
@@ -188,15 +190,18 @@ export async function validateIPNIAdvertisement(
 
         // Check if we have provider results to validate
         if (providerResults != null && providerResults.length > 0) {
+          // Track actual multiaddrs found in response for error reporting
+          lastActualMultiaddrs = extractAllMultiaddrs(providerResults)
+
           let matchedMultiaddrs = new Set<string>()
           let isValid = false
 
           if (hasProviderExpectations) {
-            matchedMultiaddrs = findMatchingMultiaddrs(providerResults, expectedMultiaddrsSet)
+            matchedMultiaddrs = findMatchingMultiaddrs(lastActualMultiaddrs, expectedMultiaddrsSet)
             isValid = matchedMultiaddrs.size === expectedMultiaddrs.length
           } else {
             // Generic validation: just need any provider with addresses
-            isValid = hasAnyProviderWithMultiaddrs(providerResults)
+            isValid = lastActualMultiaddrs.length > 0
           }
 
           if (isValid) {
@@ -221,6 +226,8 @@ export async function validateIPNIAdvertisement(
         } else if (lastFailureReason == null) {
           // Only set generic message if we don't already have a more specific reason (e.g., parse error)
           lastFailureReason = 'IPNI response did not include any provider results'
+          // Track that we got an empty response
+          lastActualMultiaddrs = []
           options?.logger?.info(
             { providerResultsCount: providerResults?.length ?? 0 },
             `${lastFailureReason}. Retrying...`
@@ -243,7 +250,19 @@ export async function validateIPNIAdvertisement(
       } else {
         // Max attempts reached - validation failed
         const msgBase = `IPFS root CID "${ipfsRootCid.toString()}" not announced to IPNI after ${maxAttempts} attempt${maxAttempts === 1 ? '' : 's'}`
-        const msg = lastFailureReason != null ? `${msgBase}. Last observation: ${lastFailureReason}` : msgBase
+        let msg = msgBase
+        if (lastFailureReason != null) {
+          msg = `${msgBase}. Last observation: ${lastFailureReason}`
+        }
+        // Include expected and actual multiaddrs for debugging
+        if (hasProviderExpectations && expectedMultiaddrs.length > 0) {
+          msg = `${msg}. Expected multiaddrs: [${expectedMultiaddrs.join(', ')}]`
+        }
+        if (lastActualMultiaddrs != null && lastActualMultiaddrs.length > 0) {
+          msg = `${msg}. Actual multiaddrs in response: [${lastActualMultiaddrs.join(', ')}]`
+        } else if (lastActualMultiaddrs != null) {
+          msg = `${msg}. Actual multiaddrs in response: [] (no multiaddrs found)`
+        }
         const error = new Error(msg)
         options?.logger?.warn({ error }, msg)
         throw error
@@ -312,7 +331,7 @@ export function serviceURLToMultiaddr(serviceURL: string, logger?: Logger): stri
 /**
  * Extract all provider results from the IPNI indexer response.
  *
- * The response can contain multiple providers results, each with multiple multiaddr esults. 
+ * The response can contain multiple providers results, each with multiple multiaddr esults.
  * This flattens them into a single array for easier processing.
  *
  * @param response - Raw response from the IPNI indexer
@@ -386,26 +405,20 @@ function deriveExpectedMultiaddrs(
 }
 
 /**
- * Check if any provider in the IPNI response has at least one address.
- *
- * This is used for generic IPNI validation when no specific provider is expected.
- * Passes if IPNI has ANY provider records for the CID.
+ * Extract all multiaddrs from provider results.
  *
  * @param providerResults - Provider results from IPNI response
- * @returns True if at least one provider has non-empty addresses
+ * @returns Array of all multiaddrs found in the response
  */
-function hasAnyProviderWithMultiaddrs(providerResults: ProviderResult[]): boolean {
+function extractAllMultiaddrs(providerResults: ProviderResult[]): string[] {
+  const allMultiaddrs: string[] = []
   for (const providerResult of providerResults) {
     const provider = providerResult.Provider
     if (!provider) continue
-
     const providerAddrs = provider.Addrs ?? []
-    if (providerAddrs.length > 0) {
-      return true
-    }
+    allMultiaddrs.push(...providerAddrs)
   }
-
-  return false
+  return allMultiaddrs
 }
 
 /**
@@ -415,22 +428,16 @@ function hasAnyProviderWithMultiaddrs(providerResults: ProviderResult[]): boolea
  * multiaddrs that were found, allowing the caller to check if ALL expected
  * providers are advertising.
  *
- * @param providerResults - Provider results from IPNI response
+ * @param allMultiaddrs - All multiaddrs found in the IPNI response
  * @param expectedMultiaddrs - Set of multiaddrs we expect to find
  * @returns Set of expected multiaddrs that were found in the response
  */
-function findMatchingMultiaddrs(providerResults: ProviderResult[], expectedMultiaddrs: Set<string>): Set<string> {
+function findMatchingMultiaddrs(allMultiaddrs: string[], expectedMultiaddrs: Set<string>): Set<string> {
   const matched = new Set<string>()
 
-  for (const providerResult of providerResults) {
-    const provider = providerResult.Provider
-    if (!provider) continue
-
-    const providerAddrs = provider.Addrs ?? []
-    for (const addr of providerAddrs) {
-      if (expectedMultiaddrs.has(addr)) {
-        matched.add(addr)
-      }
+  for (const addr of allMultiaddrs) {
+    if (expectedMultiaddrs.has(addr)) {
+      matched.add(addr)
     }
   }
 
