@@ -13,31 +13,54 @@ non-blockchain step | blockchain step | Filecoin Pin | Storage Provider
 ```mermaid
 graph TD
 
-    %% Non-blockchain steps with embedded annotations
-    Start([User: Select File to Add]) --> CreateCAR
-    CreateCAR[FP: Create CAR<br/><br/>✓ IPFS Root CID known] --> UploadCAR[FP: Upload CAR to SP<br/><br/>✓ /piece/$pieceCid retrieval]
-    UploadCAR --> IndexCAR{{SP: Index CAR CIDs<br/><br/>✓ SP /ipfs/$cid retrieval}}
-    IndexCAR --> AdvertiseCAR{{SP: Advertise CAR CIDs to IPNI<br/><br/>✓ IPNI provider records<br/>}}
-    AdvertiseCAR --> FilecoinPinAddDone{Filecoin Pin Add Done}
-    FilecoinPinAddDone --> RetrieveData(Any: Retrieve with IPFS Mainnet<br/><br/>✓ ipfs://$cid works)
+    %% Node Definitions
+    %% Non-blockchain nodes
+    Start([User: Select File to Add])
+    CreateCAR[FP: Create CAR<br/><br/>✓ IPFS Root CID known]
+    UploadCAR[FP: Upload CAR to SP<br/><br/>✓ /piece/$pieceCid retrieval]
+    IndexCAR{{SP: Index CAR CIDs<br/><br/>✓ SP /ipfs/$cid retrieval}}
+    AdvertiseCAR{{SP: Advertise CAR CIDs to IPNI}}
+    AwaitIPNIIndexing[FP: Await IPNI Indexing<br/><br/>✓ IPNI provider records<br/>✓ IPFS Mainnet retrieval possible]
+    RetrieveData(Any: Retrieve with IPFS Mainnet<br/><br/>✓ ipfs://$cid works)
 
-    %% Blockchain steps path with embedded annotations
+    %% Blockchain nodes
     ConnectWallet([User: Connect Wallet<br/><br/>✓ Wallet balances visible])
-    ConnectWallet --> SetupPay[FP: Setup Filecoin Pay Account<br/><br/>✓ Filecoin Pay balance visible]
-    SetupPay --> IdentifyDataSet[FP: Identify Data Set SP and ID]
+    SetupPay[FP: Setup Filecoin Pay Account<br/><br/>✓ Filecoin Pay balance visible]
+    IdentifyDataSet[FP: Identify Data Set SP and ID]
+    CreateDataSet{{SP: Create Data Set & Add Piece<br/><br/>✓ Blockchain Transaction}}
+    ConfirmBlockchainTx[FP: Confirm Blockchain Transaction<br/><br/>✓ IPNI provider records<br/>✓ Data Set & Piece metadata onchain]
+    ProveData{{SP: Prove Data Possession<br/><br/>✓ Cryptographic proofs onchain and visible on explorers}}
 
-    %% Convergence point
-    UploadCAR --> IdentifyDataSet
-    IdentifyDataSet --> CreateDataSet{{SP: Create Data Set & Add Piece<br/><br/>✓ Data Set & Piece metadata onchain}}
-    CreateDataSet --> FilecoinPinAddDone
-    FilecoinPinAddDone --> ProveData{{SP: Prove Data Possession<br/><br/>✓ Cryptographic proofs onchain and visible on explorers}}
+    %% Milestone
+    FilecoinPinAddDone{FP: `Add` Done}
+
+    %% Relationships
+    %% Non-blockchain flow
+    Start --> CreateCAR
+    CreateCAR --> UploadCAR
+    UploadCAR --> IndexCAR
+    IndexCAR --> AdvertiseCAR
+    AdvertiseCAR --> AwaitIPNIIndexing
+    AwaitIPNIIndexing --> FilecoinPinAddDone
+    FilecoinPinAddDone --> RetrieveData
+
+    %% Blockchain flow
+    ConnectWallet --> SetupPay
+    SetupPay --> IdentifyDataSet
+    IdentifyDataSet --> CreateDataSet
+
+    %% Convergence
+    UploadCAR --> CreateDataSet
+    CreateDataSet --> ConfirmBlockchainTx
+    ConfirmBlockchainTx --> FilecoinPinAddDone
+    FilecoinPinAddDone --> ProveData
 
     %% Styling
     classDef nonBlockchain fill:#e1f5ff,stroke:#0288d1,stroke-width:2px,color:#000
     classDef blockchain fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
 
-    class Start,CreateCAR,UploadCAR,IndexCAR,AdvertiseCAR,RetrieveData nonBlockchain
-    class ConnectWallet,SetupPay,IdentifyDataSet,CreateDataSet,ProveData blockchain
+    class Start,CreateCAR,UploadCAR,IndexCAR,AdvertiseCAR,AwaitIPNIIndexing,RetrieveData nonBlockchain
+    class ConnectWallet,SetupPay,IdentifyDataSet,CreateDataSet,ConfirmBlockchainTx,ProveData blockchain
 ```
 
 ## Steps without Blockchain Interactions
