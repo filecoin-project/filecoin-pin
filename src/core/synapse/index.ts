@@ -458,22 +458,17 @@ export async function createStorageContext(
     } else if (options?.dataset?.createNew === true) {
       // If explicitly creating a new dataset in session key mode, verify we have permission
       if (isSessionKeyMode(synapse)) {
-        const client = synapse.getClient()
-        let sessionKey: any = client
-        if ('signer' in client && client.signer) {
-          sessionKey = client.signer
-        }
+        const signer = synapse.getSigner()
+        const sessionKey = synapse.createSessionKey(signer)
 
-        if (sessionKey && typeof sessionKey.fetchExpiries === 'function') {
-          const expiries = await sessionKey.fetchExpiries([CREATE_DATA_SET_TYPEHASH])
-          const createDataSetExpiry = Number(expiries[CREATE_DATA_SET_TYPEHASH])
+        const expiries = await sessionKey.fetchExpiries([CREATE_DATA_SET_TYPEHASH])
+        const createDataSetExpiry = Number(expiries[CREATE_DATA_SET_TYPEHASH])
 
-          if (createDataSetExpiry === 0) {
-            throw new Error(
-              'Cannot create new dataset: Session key does not have CREATE_DATA_SET permission. ' +
-                'Either use an existing dataset or obtain a session key with dataset creation rights.'
-            )
-          }
+        if (createDataSetExpiry === 0) {
+          throw new Error(
+            'Cannot create new dataset: Session key does not have CREATE_DATA_SET permission. ' +
+              'Either use an existing dataset or obtain a session key with dataset creation rights.'
+          )
         }
       }
 
