@@ -1,6 +1,6 @@
 ## Purpose
 
-The steps outlined below are taken to "add a file with `filecoin-pin`".  This document is intended to provide more info about what happens "behind the scenes" as it uses underlying libraries like `synapse` and the Filecoin Onchain Cloud offering.
+The steps outlined below are taken to "add a file with Filecoin Pin".  This document is intended to provide more info about what happens "behind the scenes" as it uses underlying libraries like [`synapse`](glossary.md#synapse) and the [Filecoin Onchain Cloud](glossary.md#filecoin-onchain-cloud) offering.
 
 ## Diagram
 
@@ -14,35 +14,35 @@ We should also have a note about some of the unlocks or abilities the user has a
 
 | Step | Note of what is now available  | Has Blockchain Interaction |
 | --- | --- | --- |
-| Select a file to “add” |  | No |
-| Create CAR | Client knows the IPFS Root Cid | No |
-| Upload CAR | Client knows the Piece CID. SP can serve https://sp.domain/piece/$pieceCid requests. | No |
+| Select a file to "add" |  | No |
+| Create [CAR](glossary.md#car) | Client knows the [IPFS Root CID](glossary.md#ipfs-root-cid) | No |
+| Upload CAR | Client knows the [Piece CID](glossary.md#piece-cid). [SP](glossary.md#storage-provider) can serve https://sp.domain/piece/$pieceCid requests. | No |
 | Index CAR CIDs | SP can serve https://sp.domain/ipfs/$cid requests. | No |
-| Advertise CAR CIDs | IPNI indexers should have corresponding provider records for https://filecoinpin.com/cid/$cid calls. IPFS Mainnet retrieval of content becomes possible via standard IPFS tooling. | No |
+| Advertise CAR CIDs | [IPNI](glossary.md#ipni) indexers should have corresponding provider records for https://filecoinpin.com/cid/$cid calls. IPFS Mainnet retrieval of content becomes possible via standard IPFS tooling. | No |
 | Retrieve Data | ipfs://$cid works | No |
 | Connect Wallet | Wallet balances | Yes |
-| Setup Filecoin Pay | Filecoin Pay account balance | Yes |
-| Identify a Data Set SP and ID |  | Yes |
-| Create Data Set if necessary and Add Piece | Ability to explore the metadata of a Data Set and its Pieces | Yes |
-| Prove Data Possession | Explore proving records stored onchain of a Data Set and its Pieces | Yes |
+| Setup [Filecoin Pay](glossary.md#filecoin-pay) | Filecoin Pay account balance | Yes |
+| Identify a [Data Set](glossary.md#data-set) SP and ID |  | Yes |
+| Create Data Set if necessary and Add [Piece](glossary.md#piece) | Ability to explore the metadata of a Data Set and its Pieces | Yes |
+| Prove [Data Possession](glossary.md#proof-of-data-possession) | Explore proving records stored onchain of a Data Set and its Pieces | Yes |
 
 ## Steps without Blockchain Interactions
 
-These are the set of steps that that are done client side (i.e., where the `filecoin-pin` code is running) and with a Storage Provider that don’t involve the Filecoin blockchain.  These steps in isolation though don’t yield a committed cryptographic proof of the data being possessed by and retrievable from an SP, but they are necessary preconditions.
+These are the set of steps that that are done client side (i.e., where the Filecoin Pin code is running) and with a [Storage Provider](glossary.md#storage-provider) that don't involve the Filecoin blockchain.  These steps in isolation though don't yield a committed cryptographic proof of the data being possessed by and retrievable from an SP, but they are necessary preconditions.
 
 ### Create CAR
 
 *What/why:*
 
-The provided file needs to be turned into a merkle DAG and have the DAG's blocks shipped off.  CAR is a common container format for transporting blocks in the IPFS ecosystem and is used with `filecoin-pin`.  `filecoin-pin` DAGifies the content so that it knows the CIDs of the blocks so it doesn't need to trust the Storage Provider (SP).
+The provided file needs to be turned into a merkle DAG and have the DAG's blocks shipped off.  [CAR](glossary.md#car) is a common container format for transporting blocks in the IPFS ecosystem and is used with Filecoin Pin.  Filecoin Pin DAGifies the content so that it knows the CIDs of the blocks so it doesn't need to trust the [Storage Provider](glossary.md#storage-provider) (SP).
 
 Implementation notes:
-- The CAR file is created using Helia for UnixFS DAG creation. 
+- The CAR file is created using Helia for UnixFS DAG creation.
 - Individual files are wrapped in a directory so that the filename is preserved via UnixFS metadata.
 
 *Outputs:*
 
-v1 CAR containing the merkle DAG representing the provided file.  There is one root in the CAR, and it represents the root of the DAG for the input file.  This is referred to as the "IPFS Root CID".
+v1 CAR containing the merkle DAG representing the provided file.  There is one root in the CAR, and it represents the root of the DAG for the input file.  This is referred to as the "[IPFS Root CID](glossary.md#ipfs-root-cid)".
 
 *Expected duration:*
 
@@ -52,15 +52,15 @@ This is a function of the size of the input file and the hardware, but a 1Gb inp
 
 *What/why:*
 
-The Storage Provider (SP) needs to be given the bytes to store so it can serve retrievals and prove to the chain that it possesses them.   This is done via an HTTP `PUT /pdp/piece/upload`.
+The [Storage Provider](glossary.md#storage-provider) (SP) needs to be given the bytes to store so it can serve retrievals and prove to the chain that it possesses them.   This is done via an HTTP `PUT /pdp/piece/upload`.
 
-The upload includes metadata that will be stored on-chain:
-- `ipfsRootCid`: The IPFS Root CID, linking the Piece back to IPFS
-- `withIPFSIndexing`: Signals the SP to index and advertise to IPNI
+The upload includes [metadata](glossary.md#metadata-keys) that will be stored on-chain:
+- `ipfsRootCid`: The IPFS Root CID, linking the [Piece](glossary.md#piece) back to IPFS
+- `withIPFSIndexing`: Signals the SP to index and advertise to [IPNI](glossary.md#ipni)
 
 *Outputs:*
 
-SP parks the Piece and queues it up for processing, while the client gets an HTTP response with the Piece CID.  The `filecoin-pin` client confirms that the Piece CID calculated by the server matches what was computed locally.
+SP parks the Piece and queues it up for processing, while the client gets an HTTP response with the [Piece CID](glossary.md#piece-cid).  The Filecoin Pin client confirms that the Piece CID calculated by the server matches what was computed locally.
 
 Since the SP has the data for the Piece, it can be retrieved with https://sp.domain/piece/$pieceCid retrieval.
 
@@ -72,9 +72,9 @@ This is a function of the CAR size and the throughput between between the client
 
 *What/why:*
 
-At some point after receiving the uploaded CAR, an SP indexing task process the CAR and creates a local mapping of CIDs to offsets within the CAR.  Following that, an SP IPNI tasks picks up the local index, makes and IPNI advertisement chain, and then announces the advertisement chain to IPNI indexers like filecoinpin.contact and cid.contact so they know to come and get the advertisement chain to build up their own index.
+At some point after receiving the uploaded [CAR](glossary.md#car), an SP indexing task process the CAR and creates a local mapping of CIDs to offsets within the CAR.  Following that, an SP [IPNI](glossary.md#ipni) tasks picks up the local index, makes and IPNI advertisement chain, and then announces the advertisement chain to IPNI indexers like filecoinpin.contact and cid.contact so they know to come and get the advertisement chain to build up their own index.
 
-filecoin-pin validates the IPNI advertisement process by polling `https://filecoinpin.contact/cid/$cid` (NOT cid.contact due to [negative caching issues discussed below](#how-long-does-an-ipni-indexer-cache-results)). 
+Filecoin Pin validates the IPNI advertisement process by polling `https://filecoinpin.contact/cid/$cid` (NOT cid.contact due to [negative caching issues discussed below](#how-long-does-an-ipni-indexer-cache-results)). 
 
 *Outputs:*
 
@@ -94,13 +94,13 @@ Below are the set of steps that are particularly unique from traditional IPFS us
 
 *What/why:*
 
-`filecoin-pin` needs to interface with the Filecoin blockchain to authorize and send payment to storage providers (SPs) for their work of storing and proving possession of data.  This requires having a secret key to sign messages sent to the blockchain.  
+Filecoin Pin needs to interface with the Filecoin blockchain to authorize and send payment to [storage providers](glossary.md#storage-provider) (SPs) for their work of storing and proving possession of data.  This requires having a secret key to sign messages sent to the blockchain.
 
-Currently `filecoin-pin` expects to be explicitly passed a private key via environment variable or command line argument.  filecoin-pin-website as [pin.filecoin.cloud](http://pin.filecoin.cloud) uses a global session key which can be embedded into source code since it scopes down the set of actions that can be performed.  
+Currently `filecoin-pin` expects to be explicitly passed a private key via environment variable or command line argument.  filecoin-pin-website as [pin.filecoin.cloud](http://pin.filecoin.cloud) uses a global [session key](glossary.md#session-key) which can be embedded into source code since it scopes down the set of actions that can be performed.
 
 *Outputs:*
 
-Once a wallet is connected, USDFC and FIL balances  in the wallet itself can be inspected.
+Once a wallet is connected, [USDFC](glossary.md#usdfc) and [FIL](glossary.md#fil) balances  in the wallet itself can be inspected.
 
 *Expected duration:* 
 
@@ -110,11 +110,11 @@ Less than 1 second once a wallet private key is provided.
 
 *What/why:*
 
-To prepare to make a “deal” with an SP to store data, these actions need to occur:
+To prepare to make a "deal" with an SP to store data, these actions need to occur:
 
-1. Permit the user's Filecoin Pay account to use USDFC.  This is a one-time authorization.
-2. Approve FilecoinWarmStorage as an operator of Filecoin Pay funds.  This is a one-time authorization.  
-3. Deposit at least enough funds into Filecoin Pay to cover the lock-up period for the created CAR.
+1. Permit the user's [Filecoin Pay](glossary.md#filecoin-pay) account to use [USDFC](glossary.md#usdfc).  This is a one-time authorization.
+2. Approve FilecoinWarmStorage as an operator of Filecoin Pay funds.  This is a one-time authorization.
+3. Deposit at least enough funds into Filecoin Pay to cover the lock-up period for the created [CAR](glossary.md#car).
 
 If they haven't occurred before, then they will be handled as part of the first deposit into the Filecoin Pay account from filecoin pin.  A single `depositWithPermitAndApproveOperator` transaction handles all of these actions.
 
@@ -130,10 +130,10 @@ As a single transaction, this takes ~30 seconds to be confirmed onchain.
 
 *What/why:*
 
-In order to upload a CAR, filecoin-pin needs to identify the SP to upload to.  This strategy is followed (assuming no overrides are provided):
+In order to upload a [CAR](glossary.md#car), Filecoin Pin needs to identify the SP to upload to.  This strategy is followed (assuming no overrides are provided):
 
-1. If the chain has record of a Data Set created by the wallet with the Data Set metadata key `source` set to 'filecoin-pin', then that DataSet ID and corresponding SP are used.  If there are multiple, then the one storing the most data will be used.
-2. If there is no existing Data Set, then a new Data Set is created using an approved Storage Provider from the Storage Provider Registry.
+1. If the chain has record of a [Data Set](glossary.md#data-set) created by the wallet with the Data Set [metadata key](glossary.md#metadata-keys) `source` set to 'filecoin-pin', then that DataSet ID and corresponding SP are used.  If there are multiple, then the one storing the most data will be used.
+2. If there is no existing Data Set, then a new Data Set is created using an approved [Storage Provider](glossary.md#storage-provider) from the [Storage Provider Registry](glossary.md#service-provider-registry).
 
 *Outputs:*
 
@@ -148,7 +148,7 @@ This should take less than a couple of seconds as it involves hitting RPC provid
 
 *What/why:*
 
-A single blockchain transaction that create a Data Set if one doesn't already exist and adds a Piece to the Data Set for the corresponding CAR file.  This is done as one operation rather than just “Create Data Set” and “Add Piece” to improve interaction latency.  The Piece uses a Filecoin-internal hash function called CommP, resulting in a Piece CID, which is what is stored onchain.  The Filecoin Warm Storage Service then has record of what SP is storing which data that it needs to periodically proof it has possession of.  filecoin-pin stores additional metadata on the piece denoting that the uploaded data should be indexed by the SP and advertised to IPNI indexers.  
+A single blockchain transaction that create a [Data Set](glossary.md#data-set) if one doesn't already exist and adds a [Piece](glossary.md#piece) to the Data Set for the corresponding [CAR](glossary.md#car) file.  This is done as one operation rather than just "Create Data Set" and "Add Piece" to improve interaction latency.  The Piece uses a Filecoin-internal hash function called [CommP](glossary.md#commp), resulting in a [Piece CID](glossary.md#piece-cid), which is what is stored onchain.  The [Filecoin Warm Storage Service](glossary.md#filecoin-warm-storage-service) then has record of what SP is storing which data that it needs to periodically proof it has possession of.  Filecoin Pin stores additional [metadata](glossary.md#metadata-keys) on the piece denoting that the uploaded data should be indexed by the SP and advertised to [IPNI](glossary.md#ipni) indexers.  
 
 *Outputs:*
 
@@ -162,35 +162,35 @@ As a single transaction, this takes ~30 seconds to be confirmed onchain.
 
 ### Will indexed CIDs from Calibration be mixed with CIDs from Mainnet?
 
-Yes.  IPNI indexers are not chain aware.  They key on the CID and will point to whatever providers have "recently" advertised the CID.  This means that if a given piece is created with a Calibration SP and also with a Mainnet SP, the CIDs will list both SPs as providers.
+Yes.  [IPNI](glossary.md#ipni) indexers are not chain aware.  They key on the CID and will point to whatever providers have "recently" advertised the CID.  This means that if a given piece is created with a [Calibration](glossary.md#calibration-network) SP and also with a Mainnet SP, the CIDs will list both SPs as providers.
 
 ### What happens when a piece is deleted?
 
-When an SP is instructed to delete a piece, it announces a new advertisement to IPNI that includes the removal of the CIDs within the piece.  This update to IPNI goes through the normal IPNI flow of receiving advertisement announcements and then asynchronously fetching the advertisements from the provider.  As a result, delete pieces should take seconds to low minutes for IPNI index state to be updated.
+When an SP is instructed to delete a [piece](glossary.md#piece), it announces a new advertisement to [IPNI](glossary.md#ipni) that includes the removal of the CIDs within the piece.  This update to IPNI goes through the normal IPNI flow of receiving advertisement announcements and then asynchronously fetching the advertisements from the provider.  As a result, delete pieces should take seconds to low minutes for IPNI index state to be updated.
 
 ### What happens if a SP goes offline?
 
-In this case, the IPNI indexer will still attempt to auto-sync with the publisher until 7 days (168 hours) have passed.  Once this timeout is hit, the offline-SP’s advertised CIDs will be removed from the index.
+In this case, the [IPNI](glossary.md#ipni) indexer will still attempt to auto-sync with the publisher until 7 days (168 hours) have passed.  Once this timeout is hit, the offline-SP's advertised CIDs will be removed from the index.
 
 ### What happens if an SP loses index state?
 
-In the event that an SP wipes their existing index state, the previously announced advertisements will still be stored by the IPNI indexer if no further action is done.  If the underlying advertisement disappears, but has already been processed by IPNI, this does not affect the availability of records, so long as the provider is still reachable. For the records to disappear, it is necessary to either:
+In the event that an SP wipes their existing index state, the previously announced advertisements will still be stored by the [IPNI](glossary.md#ipni) indexer if no further action is done.  If the underlying advertisement disappears, but has already been processed by IPNI, this does not affect the availability of records, so long as the provider is still reachable. For the records to disappear, it is necessary to either:
 
 1. publish a removal advertisement for the CIDs that need to be deleted OR
 2. have the SP create a new advertisement chain under a new peer ID so as to let the old provider records die out (7 days per above)
 
 ### How long does an IPNI indexer cache results?
 
-This depends on both the Indexer instance (e.g., cid.contact, filecoinpin.contact) and whether there is a cache hit or cache miss.
+This depends on both the [IPNI](glossary.md#ipni) indexer instance (e.g., cid.contact, filecoinpin.contact) and whether there is a cache hit or cache miss.
 
 [cid.contact](http://cid.contact) for example tends to cache hits for multiple hours and cache misses (negative cache) for minutes.  As a result of this, there are “gotchas” we have to be careful to avoid or can unavoidably fall into.
 
-- [cid.contact](http://cid.contact) cache miss "gotcha" - Because cid.contact caches misses (i.e., negative cache), it's important for filecoin-pin to not poll cid.contact after an advertisement has been announced.  The act of polling could cause the empty result set to get cached for minutes.  Instead, filecoin-pin polls [filecoinpin.contact](http://filecoinpin.contact) which doesn't have negative caching.  Once filecoin-pin sees the expected results from filecoinpin.contact it then proceeds to give IPFS Mainnet retrieval URLs since it should be safe to invoke a request path that hits cid.contact because cid.contact should now not get a non-empty result.
+- [cid.contact](http://cid.contact) cache miss "gotcha" - Because cid.contact caches misses (i.e., negative cache), it's important for Filecoin Pin to not poll cid.contact after an advertisement has been announced.  The act of polling could cause the empty result set to get cached for minutes.  Instead, Filecoin Pin polls [filecoinpin.contact](http://filecoinpin.contact) which doesn't have negative caching.  Once Filecoin Pin sees the expected results from filecoinpin.contact it then proceeds to give IPFS Mainnet retrieval URLs since it should be safe to invoke a request path that hits cid.contact because cid.contact should now not get a non-empty result.
 - [cid.contact](http://cid.contact) cache hit "gotcha" - If cid.contact has a provider record(s) for CID X, but CID X is not currently from any of those provider(s), then cid.contact could be caching non-retrievable result for hours even though filecoinpin.contact has a provider that makes CID X retrievable. We currently don't have a workaround for this…
 
 ### Why is there [filecoinpin.contact](http://filecoinpin.contact) and cid.contact?
 
 [filecoinpin.contact](http://filecoinpin.contact) serves two purposes currently:
 
-1. Serve as a fallback in case [cid.contact](http://cid.contact) has issues keeping its global index updated.  To help with availability, cid.contact has the ability to delegate requests other IPNI indexers like [filecoinpin.contact](http://filecoinpin.contact) in case they have results.
+1. Serve as a fallback in case [cid.contact](http://cid.contact) has issues keeping its global index updated.  To help with availability, cid.contact has the ability to delegate requests other [IPNI](glossary.md#ipni) indexers like [filecoinpin.contact](http://filecoinpin.contact) in case they have results.
 2. Validate IPNI announcing/advertising independently of [cid.contact](http://cid.contact).  Per the "[cid.contact](http://cid.contact) cache miss gotcha" above, the act of polling cid.contact can actually delay how long it takes before cid.contact returns a non-empty result for a given CID.  [filecoinpin.contact](http://filecoinpin.contact) has different caching configuration so that polling can be done safely.
