@@ -138,6 +138,41 @@ export class MockSynapse extends EventEmitter {
   }
 
   /**
+   * Mock session key creation
+   */
+  createSessionKey(_sessionWallet: any): any {
+    const now = Math.floor(Date.now() / 1000)
+    const oneYear = 365 * 24 * 60 * 60 // One year from now
+
+    return {
+      /**
+       * Fetch expiries for various permission types
+       * Returns a map of typehash -> expiry timestamp
+       *
+       * By default, mock both CREATE_DATA_SET and ADD_PIECES with valid future expiries
+       * Tests can override this to simulate different scenarios:
+       * - CREATE_DATA_SET = 0: No permission to create datasets
+       * - CREATE_DATA_SET < now + 30min: Expired/expiring soon
+       */
+      fetchExpiries: async (typehashes: string[]) => {
+        const expiries: Record<string, bigint> = {}
+        for (const typehash of typehashes) {
+          // By default, all permissions valid for one year
+          expiries[typehash] = BigInt(now + oneYear)
+        }
+        return expiries
+      },
+    }
+  }
+
+  /**
+   * Mock session key setter
+   */
+  setSession(_sessionKey: any): void {
+    // No-op in mock
+  }
+
+  /**
    * Create a storage context with lifecycle callbacks
    *
    * Real process:

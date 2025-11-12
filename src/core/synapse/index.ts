@@ -273,16 +273,37 @@ async function setupSessionKey(synapse: Synapse, sessionWallet: Wallet, logger: 
   const now = Math.floor(Date.now() / 1000)
   const bufferTime = 30 * 60 // 30 minutes in seconds
   const minValidTime = now + bufferTime
-  const createExpiry = Number(expiries[CREATE_DATA_SET_TYPEHASH])
-  const addExpiry = Number(expiries[ADD_PIECES_TYPEHASH])
+  const createDataSetExpiry = Number(expiries[CREATE_DATA_SET_TYPEHASH])
+  const addPiecesExpiry = Number(expiries[ADD_PIECES_TYPEHASH])
 
-  if (createExpiry <= minValidTime || addExpiry <= minValidTime) {
+  // For CREATE_DATA_SET:
+  // - 0 means no permission granted (OK - can still add to existing datasets)
+  // - > 0 but < minValidTime means expired/expiring (ERROR)
+  // - >= minValidTime means valid (OK)
+  const hasCreateDataSetPermission = createDataSetExpiry > 0
+  const isCreatePermissionUnavailable = createDataSetExpiry > 0 && createDataSetExpiry < minValidTime
+
+  // For ADD_PIECES:
+  // - Must always have valid permission
+  const isAddPiecesPermissionUnavailable = addPiecesExpiry <= minValidTime
+
+  if (isCreatePermissionUnavailable || isAddPiecesPermissionUnavailable) {
     throw new Error(
-      `Session key expired or expiring soon (requires 30+ minutes validity). CreateDataSet: ${new Date(createExpiry * 1000).toISOString()}, AddPieces: ${new Date(addExpiry * 1000).toISOString()}`
+      `Session key expired or expiring soon (requires 30+ minutes validity). CreateDataSet: ${new Date(createDataSetExpiry * 1000).toISOString()}, AddPieces: ${new Date(addPiecesExpiry * 1000).toISOString()}`
     )
   }
 
-  logger.info({ event: 'synapse.session_key.verified', createExpiry, addExpiry }, 'Session key verified')
+  if (!hasCreateDataSetPermission) {
+    logger.info(
+      { event: 'synapse.session_key.limited_permissions' },
+      'Session key can only add pieces to existing datasets (no CREATE_DATA_SET permission)'
+    )
+  }
+
+  logger.info(
+    { event: 'synapse.session_key.verified', createExpiry: createDataSetExpiry, addExpiry: addPiecesExpiry },
+    'Session key verified'
+  )
 
   synapse.setSession(sessionKey)
   logger.info({ event: 'synapse.session_key.activated' }, 'Session key activated')
