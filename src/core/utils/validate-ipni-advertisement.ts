@@ -167,7 +167,7 @@ export async function validateIPNIAdvertisement(
         options?.logger?.warn({ error }, 'Error in consumer onProgress callback for retryUpdate event')
       }
 
-      // Fetch IPNI advertisement
+      // Fetch IPNI provider records
       const fetchOptions: RequestInit = {
         headers: { Accept: 'application/json' },
       }
