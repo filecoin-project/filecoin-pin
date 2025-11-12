@@ -288,7 +288,7 @@ export async function validateIPNIAdvertisement(
 /**
  * Convert a PDP service URL to an IPNI multiaddr format.
  *
- * Storage providers expose their PDP (Piece Data Provider) service via HTTP/HTTPS
+ * Storage providers expose their PDP (Proof of Data Possession) service via HTTP/HTTPS
  * endpoints (e.g., "https://provider.example.com:8443"). When they advertise content
  * to IPNI, they include multiaddrs in libp2p format (e.g., "/dns/provider.example.com/tcp/8443/https").
  *
