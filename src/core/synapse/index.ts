@@ -281,15 +281,21 @@ async function setupSessionKey(synapse: Synapse, sessionWallet: Wallet, logger: 
   // - > 0 but < minValidTime means expired/expiring (ERROR)
   // - >= minValidTime means valid (OK)
   const hasCreateDataSetPermission = createDataSetExpiry > 0
-  const isCreatePermissionUnavailable = createDataSetExpiry > 0 && createDataSetExpiry < minValidTime
+  const isCreateDataSetPermissionUnavailable = hasCreateDataSetPermission && createDataSetExpiry < minValidTime
 
   // For ADD_PIECES:
   // - Must always have valid permission
   const isAddPiecesPermissionUnavailable = addPiecesExpiry <= minValidTime
 
-  if (isCreatePermissionUnavailable || isAddPiecesPermissionUnavailable) {
+  if (isCreateDataSetPermissionUnavailable) {
     throw new Error(
-      `Session key expired or expiring soon (requires 30+ minutes validity). CreateDataSet: ${new Date(createDataSetExpiry * 1000).toISOString()}, AddPieces: ${new Date(addPiecesExpiry * 1000).toISOString()}`
+      `Session key expired or expiring soon (requires 30+ minutes validity). CreateDataSet: ${new Date(createDataSetExpiry * 1000).toISOString()}`
+    )
+  }
+
+  if (isAddPiecesPermissionUnavailable) {
+    throw new Error(
+      `Session key expired or expiring soon (requires 30+ minutes validity). AddPieces: ${new Date(addPiecesExpiry * 1000).toISOString()}`
     )
   }
 
@@ -450,17 +456,24 @@ export async function createStorageContext(
         'Connecting to existing dataset'
       )
     } else if (options?.dataset?.createNew === true) {
-      // If explicitly creating a new dataset, verify we have permission (session key mode only)
-      const sessionKey = (synapse as any)._sessionKey
-      if (sessionKey && typeof sessionKey.fetchExpiries === 'function') {
-        const expiries = await sessionKey.fetchExpiries([CREATE_DATA_SET_TYPEHASH])
-        const createDataSetExpiry = Number(expiries[CREATE_DATA_SET_TYPEHASH])
+      // If explicitly creating a new dataset in session key mode, verify we have permission
+      if (isSessionKeyMode(synapse)) {
+        const client = synapse.getClient()
+        let sessionKey: any = client
+        if ('signer' in client && client.signer) {
+          sessionKey = client.signer
+        }
 
-        if (createDataSetExpiry === 0) {
-          throw new Error(
-            'Cannot create new dataset: Session key does not have CREATE_DATA_SET permission. ' +
-              'Either use an existing dataset or obtain a session key with dataset creation rights.'
-          )
+        if (sessionKey && typeof sessionKey.fetchExpiries === 'function') {
+          const expiries = await sessionKey.fetchExpiries([CREATE_DATA_SET_TYPEHASH])
+          const createDataSetExpiry = Number(expiries[CREATE_DATA_SET_TYPEHASH])
+
+          if (createDataSetExpiry === 0) {
+            throw new Error(
+              'Cannot create new dataset: Session key does not have CREATE_DATA_SET permission. ' +
+                'Either use an existing dataset or obtain a session key with dataset creation rights.'
+            )
+          }
         }
       }
 
