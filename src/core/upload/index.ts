@@ -15,7 +15,7 @@ import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 import {
   type ValidateIPNIAdvertisementOptions,
   type ValidateIPNIProgressEvents,
-  validateIPNIAdvertisement,
+  waitForIpniProviderResults,
 } from '../utils/validate-ipni-advertisement.js'
 import { type SynapseUploadResult, type UploadProgressEvents, uploadToSynapse } from './synapse.js'
 
@@ -253,7 +253,7 @@ export async function executeUpload(
           }
 
           // Start validation (runs in parallel with other operations)
-          ipniValidationPromise = validateIPNIAdvertisement(rootCid, validationOptions).catch((error) => {
+          ipniValidationPromise = waitForIpniProviderResults(rootCid, validationOptions).catch((error) => {
             logger.warn({ error }, 'IPNI advertisement validation promise rejected')
             return false
           })

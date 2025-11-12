@@ -1,7 +1,7 @@
 import type { ProviderInfo } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { validateIPNIAdvertisement } from '../../core/utils/validate-ipni-advertisement.js'
+import { waitForIpniProviderResults } from '../../core/utils/validate-ipni-advertisement.js'
 
 describe('validateIPNIAdvertisement', () => {
   const testCid = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
@@ -61,7 +61,7 @@ describe('validateIPNIAdvertisement', () => {
       mockFetch.mockResolvedValueOnce(successResponse())
       const onProgress = vi.fn()
 
-      const promise = validateIPNIAdvertisement(testCid, { onProgress })
+      const promise = waitForIpniProviderResults(testCid, { onProgress })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -87,7 +87,7 @@ describe('validateIPNIAdvertisement', () => {
         .mockResolvedValueOnce(successResponse())
 
       const onProgress = vi.fn()
-      const promise = validateIPNIAdvertisement(testCid, { maxAttempts: 5, onProgress })
+      const promise = waitForIpniProviderResults(testCid, { maxAttempts: 5, onProgress })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -110,7 +110,7 @@ describe('validateIPNIAdvertisement', () => {
       const expectedMultiaddr = '/dns/example.com/tcp/443/https'
       mockFetch.mockResolvedValueOnce(successResponse([expectedMultiaddr]))
 
-      const promise = validateIPNIAdvertisement(testCid, { expectedProviders: [provider] })
+      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [provider] })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -127,7 +127,7 @@ describe('validateIPNIAdvertisement', () => {
 
       mockFetch.mockResolvedValueOnce(successResponse(expectedMultiaddrs))
 
-      const promise = validateIPNIAdvertisement(testCid, { expectedProviders: [providerA, providerB] })
+      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [providerA, providerB] })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -139,7 +139,7 @@ describe('validateIPNIAdvertisement', () => {
     it('should reject after custom maxAttempts and emit a failed event', async () => {
       mockFetch.mockResolvedValue({ ok: false })
       const onProgress = vi.fn()
-      const promise = validateIPNIAdvertisement(testCid, { maxAttempts: 3, onProgress })
+      const promise = waitForIpniProviderResults(testCid, { maxAttempts: 3, onProgress })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow(
         `IPFS root CID "${testCid.toString()}" not announced to IPNI after 3 attempts`
@@ -168,7 +168,7 @@ describe('validateIPNIAdvertisement', () => {
     it('should reject immediately when maxAttempts is 1', async () => {
       mockFetch.mockResolvedValue({ ok: false })
 
-      const promise = validateIPNIAdvertisement(testCid, { maxAttempts: 1 })
+      const promise = waitForIpniProviderResults(testCid, { maxAttempts: 1 })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow(
         `IPFS root CID "${testCid.toString()}" not announced to IPNI after 1 attempt`
@@ -182,7 +182,7 @@ describe('validateIPNIAdvertisement', () => {
       const provider = createProviderInfo('https://expected.example.com')
       mockFetch.mockResolvedValueOnce(successResponse(['/dns/other.example.com/tcp/443/https']))
 
-      const promise = validateIPNIAdvertisement(testCid, {
+      const promise = waitForIpniProviderResults(testCid, {
         maxAttempts: 1,
         expectedProviders: [provider],
       })
@@ -199,7 +199,7 @@ describe('validateIPNIAdvertisement', () => {
       const providerB = createProviderInfo('https://b.example.com')
       mockFetch.mockResolvedValueOnce(successResponse(['/dns/a.example.com/tcp/443/https']))
 
-      const promise = validateIPNIAdvertisement(testCid, {
+      const promise = waitForIpniProviderResults(testCid, {
         maxAttempts: 1,
         expectedProviders: [providerA, providerB],
       })
@@ -218,7 +218,7 @@ describe('validateIPNIAdvertisement', () => {
         .mockResolvedValueOnce(successResponse(['/dns/other.example.com/tcp/443/https']))
         .mockResolvedValueOnce(successResponse([expectedMultiaddr]))
 
-      const promise = validateIPNIAdvertisement(testCid, {
+      const promise = waitForIpniProviderResults(testCid, {
         maxAttempts: 3,
         expectedProviders: [provider],
         delayMs: 1,
@@ -238,7 +238,7 @@ describe('validateIPNIAdvertisement', () => {
         .mockResolvedValueOnce(emptyProviderResponse())
         .mockResolvedValueOnce(successResponse([expectedMultiaddr]))
 
-      const promise = validateIPNIAdvertisement(testCid, {
+      const promise = waitForIpniProviderResults(testCid, {
         maxAttempts: 3,
         expectedProviders: [provider],
         delayMs: 1,
@@ -257,7 +257,7 @@ describe('validateIPNIAdvertisement', () => {
       const abortController = new AbortController()
       abortController.abort()
 
-      const promise = validateIPNIAdvertisement(testCid, { signal: abortController.signal })
+      const promise = waitForIpniProviderResults(testCid, { signal: abortController.signal })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow('Check IPNI announce aborted')
 
@@ -270,7 +270,7 @@ describe('validateIPNIAdvertisement', () => {
       const abortController = new AbortController()
       mockFetch.mockResolvedValue({ ok: false })
 
-      const promise = validateIPNIAdvertisement(testCid, { signal: abortController.signal, maxAttempts: 5 })
+      const promise = waitForIpniProviderResults(testCid, { signal: abortController.signal, maxAttempts: 5 })
 
       // Let first check complete
       await vi.advanceTimersByTimeAsync(0)
@@ -292,7 +292,7 @@ describe('validateIPNIAdvertisement', () => {
       const abortController = new AbortController()
       mockFetch.mockResolvedValueOnce(successResponse())
 
-      const promise = validateIPNIAdvertisement(testCid, { signal: abortController.signal })
+      const promise = waitForIpniProviderResults(testCid, { signal: abortController.signal })
       await vi.runAllTimersAsync()
       await promise
 
@@ -307,7 +307,7 @@ describe('validateIPNIAdvertisement', () => {
     it('should handle fetch throwing an error', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network error'))
 
-      const promise = validateIPNIAdvertisement(testCid, {})
+      const promise = waitForIpniProviderResults(testCid, {})
       const expectPromise = expect(promise).rejects.toThrow('Network error')
 
       await vi.runAllTimersAsync()
@@ -318,7 +318,7 @@ describe('validateIPNIAdvertisement', () => {
       const v0Cid = CID.parse('QmNT6isqrhH6LZWg8NeXQYTD9wPjJo2BHHzyezpf9BdHbD')
       mockFetch.mockResolvedValueOnce(successResponse())
 
-      const promise = validateIPNIAdvertisement(v0Cid, {})
+      const promise = waitForIpniProviderResults(v0Cid, {})
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -345,7 +345,7 @@ describe('validateIPNIAdvertisement', () => {
         })),
       })
 
-      const promise = validateIPNIAdvertisement(testCid, { maxAttempts: 1 })
+      const promise = waitForIpniProviderResults(testCid, { maxAttempts: 1 })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -363,7 +363,7 @@ describe('validateIPNIAdvertisement', () => {
 
       mockFetch.mockResolvedValueOnce(successResponse())
 
-      const promise = validateIPNIAdvertisement(testCid, { expectedProviders: [providerWithoutURL] })
+      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [providerWithoutURL] })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -378,7 +378,7 @@ describe('validateIPNIAdvertisement', () => {
         }),
       })
 
-      const promise = validateIPNIAdvertisement(testCid, { maxAttempts: 1 })
+      const promise = waitForIpniProviderResults(testCid, { maxAttempts: 1 })
       // Should preserve the specific "Failed to parse" message, not overwrite with generic message
       const expectPromise = expect(promise).rejects.toThrow('Failed to parse IPNI response body')
 
@@ -397,7 +397,7 @@ describe('validateIPNIAdvertisement', () => {
         }),
       })
 
-      const promise = validateIPNIAdvertisement(testCid, {
+      const promise = waitForIpniProviderResults(testCid, {
         maxAttempts: 2,
         expectedProviders: [provider],
       })
@@ -423,7 +423,7 @@ describe('validateIPNIAdvertisement', () => {
         })
         .mockResolvedValueOnce(emptyProviderResponse())
 
-      const promise = validateIPNIAdvertisement(testCid, { maxAttempts: 2 })
+      const promise = waitForIpniProviderResults(testCid, { maxAttempts: 2 })
 
       const expectPromise = expect(promise).rejects.toThrow(
         'Last observation: IPNI response did not include any provider results'
@@ -437,7 +437,7 @@ describe('validateIPNIAdvertisement', () => {
       const customIndexerUrl = 'https://custom-indexer.example.com'
       mockFetch.mockResolvedValueOnce(successResponse())
 
-      const promise = validateIPNIAdvertisement(testCid, { ipniIndexerUrl: customIndexerUrl })
+      const promise = waitForIpniProviderResults(testCid, { ipniIndexerUrl: customIndexerUrl })
       await vi.runAllTimersAsync()
       const result = await promise
 

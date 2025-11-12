@@ -96,7 +96,11 @@ export interface ValidateIPNIAdvertisementOptions {
 }
 
 /**
- * Check if the SP has announced the IPFS root CID to IPNI.
+ * Check if the IPNI Indexer has the provided ProviderResults for the provided ipfsRootCid.
+ * This effectively verifies the entire SP flow that:
+ * - The advertisement was announce to the IPNI indexer(s)
+ * - The IPNI indexer(s) pulled the advertisement
+ * - The IPNI indexer(s) updated their index
  *
  * This should not be called until you receive confirmation from the SP that the piece has been parked, i.e. `onPieceAdded` in the `synapse.storage.upload` callbacks.
  *
@@ -104,7 +108,7 @@ export interface ValidateIPNIAdvertisementOptions {
  * @param options - Options for the check
  * @returns True if the IPNI announce succeeded, false otherwise
  */
-export async function validateIPNIAdvertisement(
+export async function waitForIpniProviderResults(
   ipfsRootCid: CID,
   options?: ValidateIPNIAdvertisementOptions
 ): Promise<boolean> {
