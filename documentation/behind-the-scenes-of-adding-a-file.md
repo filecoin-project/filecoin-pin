@@ -65,7 +65,7 @@ graph TD
 
 ## Steps without Blockchain Interactions
 
-These are the set of steps that that are done client side (i.e., where the Filecoin Pin code is running) and with a [Storage Provider](glossary.md#storage-provider) that don't involve the Filecoin blockchain.  These steps in isolation though don't yield a committed cryptographic proof of the data being possessed by and retrievable from an SP, but they are necessary preconditions.
+These are the set of steps that are done client side (i.e., where the Filecoin Pin code is running) and with a [Storage Provider](glossary.md#storage-provider) that don't involve the Filecoin blockchain.  These steps in isolation though don't yield a committed cryptographic proof of the data being possessed by and retrievable from an SP, but they are necessary preconditions.
 
 ### Create CAR
 
@@ -103,13 +103,13 @@ Since the SP has the data for the Piece, it can be retrieved with https://sp.dom
 
 *Expected duration:*
 
-This is a function of the CAR size and the throughput between between the client and the SP.  
+This is a function of the CAR size and the throughput between the client and the SP.  
 
 ### Index and Advertise CAR CIDs
 
 *What/why:*
 
-At some point after receiving the uploaded [CAR](glossary.md#car), an SP indexing task process the CAR and creates a local mapping of CIDs to offsets within the CAR.  Following that, an SP [IPNI](glossary.md#ipni) tasks picks up the local index, makes and IPNI advertisement chain, and then announces the advertisement chain to IPNI indexers like filecoinpin.contact and cid.contact so they know to come and get the advertisement chain to build up their own index.
+At some point after receiving the uploaded [CAR](glossary.md#car), an SP indexing task processes the CAR and creates a local mapping of CIDs to offsets within the CAR.  Following that, an SP [IPNI](glossary.md#ipni) tasks picks up the local index, makes and IPNI advertisement chain, and then announces the advertisement chain to IPNI indexers like filecoinpin.contact and cid.contact so they know to come and get the advertisement chain to build up their own index.
 
 Filecoin Pin validates the IPNI advertisement process by polling `https://filecoinpin.contact/cid/$cid` (NOT cid.contact due to [negative caching issues discussed below](#how-long-does-an-ipni-indexer-cache-results)). 
 
@@ -185,7 +185,7 @@ This should take less than a couple of seconds as it involves hitting RPC provid
 
 *What/why:*
 
-A single blockchain transaction that create a [Data Set](glossary.md#data-set) if one doesn't already exist and adds a [Piece](glossary.md#piece) to the Data Set for the corresponding [CAR](glossary.md#car) file.  This is done as one operation rather than just "Create Data Set" and "Add Piece" to improve interaction latency.  The Piece uses a Filecoin-internal hash function called [CommP](glossary.md#commp), resulting in a [Piece CID](glossary.md#piece-cid), which is what is stored onchain.  The [Filecoin Warm Storage Service](glossary.md#filecoin-warm-storage-service) then has record of what SP is storing which data that it needs to periodically proof it has possession of.  Filecoin Pin stores additional [metadata](glossary.md#metadata-keys) on the piece denoting that the uploaded data should be indexed by the SP and advertised to [IPNI](glossary.md#ipni) indexers.  
+A single blockchain transaction that create a [Data Set](glossary.md#data-set) if one doesn't already exist and adds a [Piece](glossary.md#piece) to the Data Set for the corresponding [CAR](glossary.md#car) file.  This is done as one operation rather than just "Create Data Set" and "Add Piece" to improve interaction latency.  The Piece uses a Filecoin-internal hash function called [CommP](glossary.md#commp), resulting in a [Piece CID](glossary.md#piece-cid), which is what is stored onchain.  The [Filecoin Warm Storage Service](glossary.md#filecoin-warm-storage-service) then has record of what SP is storing which data that it needs to periodically prove it has possession of.  Filecoin Pin stores additional [metadata](glossary.md#metadata-keys) on the piece denoting that the uploaded data should be indexed by the SP and advertised to [IPNI](glossary.md#ipni) indexers.  
 
 *Outputs:*
 
@@ -203,7 +203,7 @@ Yes.  [IPNI](glossary.md#ipni) indexers are not chain aware.  They key on the CI
 
 ### What happens when a piece is deleted?
 
-When an SP is instructed to delete a [piece](glossary.md#piece), it announces a new advertisement to [IPNI](glossary.md#ipni) that includes the removal of the CIDs within the piece.  This update to IPNI goes through the normal IPNI flow of receiving advertisement announcements and then asynchronously fetching the advertisements from the provider.  As a result, delete pieces should take seconds to low minutes for IPNI index state to be updated.
+When an SP is instructed to delete a [piece](glossary.md#piece), it announces a new advertisement to [IPNI](glossary.md#ipni) that includes the removal of the CIDs within the piece.  This update to IPNI goes through the normal IPNI flow of receiving advertisement announcements and then asynchronously fetching the advertisements from the provider.  As a result, deleted pieces should take seconds to low minutes for IPNI index state to be updated.
 
 ### What happens if a SP goes offline?
 
@@ -229,5 +229,5 @@ This depends on both the [IPNI](glossary.md#ipni) indexer instance (e.g., cid.co
 
 [filecoinpin.contact](http://filecoinpin.contact) serves two purposes currently:
 
-1. Serve as a fallback in case [cid.contact](http://cid.contact) has issues keeping its global index updated.  To help with availability, cid.contact has the ability to delegate requests other [IPNI](glossary.md#ipni) indexers like [filecoinpin.contact](http://filecoinpin.contact) in case they have results.
+1. Serve as a fallback in case [cid.contact](http://cid.contact) has issues keeping its global index updated.  To help with availability, cid.contact has the ability to delegate requests to other [IPNI](glossary.md#ipni) indexers like [filecoinpin.contact](http://filecoinpin.contact) in case they have results.
 2. Validate IPNI announcing/advertising independently of [cid.contact](http://cid.contact).  Per the "[cid.contact](http://cid.contact) cache miss gotcha" above, the act of polling cid.contact can actually delay how long it takes before cid.contact returns a non-empty result for a given CID.  [filecoinpin.contact](http://filecoinpin.contact) has different caching configuration so that polling can be done safely.

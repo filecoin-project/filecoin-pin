@@ -35,8 +35,6 @@ FIL is Filecoin's native token.  While [Filecoin Onchain Cloud](#filecoin-onchai
 
 Filecoin Pay is a generic payment solution between users and various [Filecoin Onchain Cloud](#filecoin-onchain-cloud) services.
 
-Think of it like…
-
 Learn more at https://github.com/FilOzone/filecoin-pay
 
 ## Filecoin Onchain Cloud
@@ -51,7 +49,7 @@ This is often abbreviated as “FOC”, which yes, does phonetically resonate wi
 
 https://github.com/FilOzone/filecoin-pin
 
-Serves as an IPFS-oriented sets of tools for interfacing with [Filecoin Onchain Cloud](#filecoin-onchain-cloud) built on top of [Synapse](#synapse).
+Serves as an IPFS-oriented set of tools for interfacing with [Filecoin Onchain Cloud](#filecoin-onchain-cloud) built on top of [Synapse](#synapse).
 
 ## `filecoin-pin`
 
@@ -78,7 +76,7 @@ The CID for the root of a merkle DAG that is usually encoding a file or director
 
 ## `/ipfs` Retrieval
 
-This is one of two retrieval endpoints that [Storage Providers](#storage-provider) expose.  This endpoint conforms with the [IPFS Trustless Gateway Specification](https://specs.ipfs.tech/http-gateways/trustless-gateway/).  All CIDs that are indexed by the SP should be retrievable via this endpoint.  This is endpoint that is announced through the provider records stored by [IPNI](#ipni) Indexers.
+This is one of two retrieval endpoints that [Storage Providers](#storage-provider) expose.  This endpoint conforms with the [IPFS Trustless Gateway Specification](https://specs.ipfs.tech/http-gateways/trustless-gateway/).  All CIDs that are indexed by the SP should be retrievable via this endpoint.  This is the endpoint that is announced through the provider records stored by [IPNI](#ipni) Indexers.
 
 ## IPNI
 
@@ -121,13 +119,14 @@ This is usually abbreviated as “PDP”.
 
 ## RPC Provider
 
-HTTP endpoint/infrastructure for reading or writing blockchain state.  These RPC providers run native blockchain clients and likely are storing blockchain state in optimized state for faster reads.  See https://docs.filecoin.io/networks/mainnet/rpcs for for more information about Filecoin RPC providers.  
 
-## Service Provider Registry
+HTTP endpoint/infrastructure for reading or writing blockchain state.  These RPC providers run native blockchain clients and likely are storing blockchain state in an optimized format for faster reads.  See https://docs.filecoin.io/networks/mainnet/rpcs for for more information about Filecoin RPC providers. 
 
-An onchain registry of [Storage Providers](#storage-provider) who are participating in [Filecoin Onchain Cloud](#filecoin-onchain-cloud).  They can be view at https://filecoin.cloud/providers.  By default, only "Approved Providers" are used by [Filecoin Pin](#filecoin-pin) because they have been vetted to support IPFS Mainnet retrievals.
+  
+
 
 ## Session Key
+An onchain registry of [Storage Providers](#storage-provider) who are participating in [Filecoin Onchain Cloud](#filecoin-onchain-cloud).  They can be viewed at https://filecoin.cloud/providers.  By default, only "Approved Providers" are used by [Filecoin Pin](#filecoin-pin) because they have been vetted to support IPFS Mainnet retrievals.
 
 Credentials that are permitted to perform a scoped down set of tasks on behalf of a wallet within an expiration window.  For example, the [filecoin-pin-website](#filecoin-pin-website) uses a shared session key so that anonymous users can test out the tool without bringing their own wallet or funds.
 
