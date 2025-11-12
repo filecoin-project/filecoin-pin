@@ -314,8 +314,8 @@ export function serviceURLToMultiaddr(serviceURL: string, logger?: Logger): stri
 /**
  * Extract all provider results from the IPNI indexer response.
  *
- * The response can contain multiple multihash results, each with multiple provider
- * results. This flattens them into a single array for easier processing.
+ * The response can contain multiple providers results, each with multiple multiaddr esults. 
+ * This flattens them into a single array for easier processing.
  *
  * @param response - Raw response from the IPNI indexer
  * @returns Flat array of all provider results, or empty array if none found
