@@ -120,7 +120,7 @@ describe('validateIPNIAdvertisement', () => {
       })
     })
 
-    it('should succeed when all expected providers are advertised', async () => {
+    it('should succeed when all expected providers are in the IPNI ProviderResults', async () => {
       const providerA = createProviderInfo('https://a.example.com')
       const providerB = createProviderInfo('https://b.example.com:8443')
       const expectedMultiaddrs = ['/dns/a.example.com/tcp/443/https', '/dns/b.example.com/tcp/8443/https']
