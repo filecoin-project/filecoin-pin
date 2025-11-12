@@ -81,15 +81,6 @@ export interface ValidateIPNIAdvertisementOptions {
   expectedProviders?: ProviderInfo[] | undefined
 
   /**
-   * Additional provider multiaddrs that must be present in the IPNI
-   * advertisement. These are merged with the derived multiaddrs from
-   * {@link expectedProviders}.
-   *
-   * @default: undefined
-   */
-  expectedProviderMultiaddrs?: string[] | undefined
-
-  /**
    * Callback for progress updates
    *
    * @default: undefined
@@ -121,11 +112,7 @@ export async function validateIPNIAdvertisement(
   const maxAttempts = options?.maxAttempts ?? 20
   const ipniIndexerUrl = options?.ipniIndexerUrl ?? 'https://filecoinpin.contact'
   const expectedProviders = options?.expectedProviders?.filter((provider) => provider != null) ?? []
-  const { expectedMultiaddrs, skippedProviderCount } = deriveExpectedMultiaddrs(
-    expectedProviders,
-    options?.expectedProviderMultiaddrs,
-    options?.logger
-  )
+  const { expectedMultiaddrs, skippedProviderCount } = deriveExpectedMultiaddrs(expectedProviders, options?.logger)
   const expectedMultiaddrsSet = new Set(expectedMultiaddrs)
 
   const hasProviderExpectations = expectedMultiaddrs.length > 0
@@ -332,13 +319,11 @@ export function serviceURLToMultiaddr(serviceURL: string, logger?: Logger): stri
  * Note: ProviderInfo should contain the serviceURL at `products.PDP.data.serviceURL`.
  *
  * @param providers - Array of provider info objects from synapse SDK
- * @param extraMultiaddrs - Additional multiaddrs to include in expectations
  * @param logger - Optional logger for diagnostics
  * @returns Expected multiaddrs and count of providers that couldn't be processed
  */
 function deriveExpectedMultiaddrs(
   providers: ProviderInfo[],
-  extraMultiaddrs: string[] | undefined,
   logger: Logger | undefined
 ): {
   expectedMultiaddrs: string[]
@@ -366,11 +351,8 @@ function deriveExpectedMultiaddrs(
     derivedMultiaddrs.push(derivedMultiaddr)
   }
 
-  const additionalMultiaddrs = extraMultiaddrs?.filter((addr) => addr != null && addr !== '') ?? []
-  const expectedMultiaddrs = Array.from(new Set<string>([...additionalMultiaddrs, ...derivedMultiaddrs]))
-
   return {
-    expectedMultiaddrs,
+    expectedMultiaddrs: derivedMultiaddrs,
     skippedProviderCount,
   }
 }
