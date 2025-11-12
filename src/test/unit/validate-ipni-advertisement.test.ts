@@ -5,6 +5,7 @@ import { validateIPNIAdvertisement } from '../../core/utils/validate-ipni-advert
 
 describe('validateIPNIAdvertisement', () => {
   const testCid = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
+  const defaultIndexerUrl = 'https://filecoinpin.contact'
   const mockFetch = vi.fn()
 
   const createProviderInfo = (serviceURL: string): ProviderInfo =>
@@ -66,7 +67,7 @@ describe('validateIPNIAdvertisement', () => {
 
       expect(result).toBe(true)
       expect(mockFetch).toHaveBeenCalledTimes(1)
-      expect(mockFetch).toHaveBeenCalledWith(`https://filecoinpin.contact/cid/${testCid}`, {
+      expect(mockFetch).toHaveBeenCalledWith(`${defaultIndexerUrl}/cid/${testCid}`, {
         headers: { Accept: 'application/json' },
       })
 
@@ -114,7 +115,7 @@ describe('validateIPNIAdvertisement', () => {
       const result = await promise
 
       expect(result).toBe(true)
-      expect(mockFetch).toHaveBeenCalledWith(`https://filecoinpin.contact/cid/${testCid}`, {
+      expect(mockFetch).toHaveBeenCalledWith(`${defaultIndexerUrl}/cid/${testCid}`, {
         headers: { Accept: 'application/json' },
       })
     })
@@ -295,7 +296,7 @@ describe('validateIPNIAdvertisement', () => {
       await vi.runAllTimersAsync()
       await promise
 
-      expect(mockFetch).toHaveBeenCalledWith(`https://filecoinpin.contact/cid/${testCid}`, {
+      expect(mockFetch).toHaveBeenCalledWith(`${defaultIndexerUrl}/cid/${testCid}`, {
         headers: { Accept: 'application/json' },
         signal: abortController.signal,
       })
@@ -322,7 +323,7 @@ describe('validateIPNIAdvertisement', () => {
       const result = await promise
 
       expect(result).toBe(true)
-      expect(mockFetch).toHaveBeenCalledWith(`https://filecoinpin.contact/cid/${v0Cid}`, {
+      expect(mockFetch).toHaveBeenCalledWith(`${defaultIndexerUrl}/cid/${v0Cid}`, {
         headers: { Accept: 'application/json' },
       })
     })
@@ -383,6 +384,20 @@ describe('validateIPNIAdvertisement', () => {
 
       await vi.runAllTimersAsync()
       await expectPromise
+    })
+
+    it('should use custom IPNI indexer URL when provided', async () => {
+      const customIndexerUrl = 'https://custom-indexer.example.com'
+      mockFetch.mockResolvedValueOnce(successResponse())
+
+      const promise = validateIPNIAdvertisement(testCid, { ipniIndexerUrl: customIndexerUrl })
+      await vi.runAllTimersAsync()
+      const result = await promise
+
+      expect(result).toBe(true)
+      expect(mockFetch).toHaveBeenCalledWith(`${customIndexerUrl}/cid/${testCid}`, {
+        headers: { Accept: 'application/json' },
+      })
     })
   })
 })

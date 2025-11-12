@@ -4,13 +4,13 @@ import type { Logger } from 'pino'
 import type { ProgressEvent, ProgressEventHandler } from './types.js'
 
 /**
- * Response structure from the filecoinpin.contact IPNI indexer.
+ * Response structure from an IPNI indexer.
  *
- * The Indexer returns provider records corresponding with each SP that advertised
- * a given CID to the IPNI indexer. 
+ * The indexer returns provider records corresponding with each SP that advertised
+ * a given CID to IPNI.
  * Each provider includes their peer ID and multiaddrs.
  */
-interface FilecoinPinContactResponse {
+interface IpniIndexerResponse {
   MultihashResults?: Array<{
     Multihash?: string
     ProviderResults?: ProviderResult[]
@@ -18,7 +18,7 @@ interface FilecoinPinContactResponse {
 }
 
 /**
- * A single provider's advertisement from IPNI.
+ * A single provider's provider record from IPNI.
  *
  * Contains the provider's libp2p peer ID and an array of multiaddrs where
  * the content can be retrieved. These multiaddrs typically include the
@@ -93,6 +93,13 @@ export interface ValidateIPNIAdvertisementOptions {
    * @default: undefined
    */
   onProgress?: ProgressEventHandler<ValidateIPNIProgressEvents>
+
+  /**
+   * IPNI indexer URL to query for content advertisements.
+   *
+   * @default 'https://filecoinpin.contact'
+   */
+  ipniIndexerUrl?: string | undefined
 }
 
 /**
@@ -110,6 +117,7 @@ export async function validateIPNIAdvertisement(
 ): Promise<boolean> {
   const delayMs = options?.delayMs ?? 5000
   const maxAttempts = options?.maxAttempts ?? 20
+  const ipniIndexerUrl = options?.ipniIndexerUrl ?? 'https://filecoinpin.contact'
   const expectedProviders = options?.expectedProviders?.filter((provider) => provider != null) ?? []
   const { expectedMultiaddrs, skippedProviderCount } = deriveExpectedMultiaddrs(
     expectedProviders,
@@ -163,13 +171,13 @@ export async function validateIPNIAdvertisement(
         fetchOptions.signal = options?.signal
       }
 
-      const response = await fetch(`https://filecoinpin.contact/cid/${ipfsRootCid}`, fetchOptions)
+      const response = await fetch(`${ipniIndexerUrl}/cid/${ipfsRootCid}`, fetchOptions)
 
       // Parse and validate response
       if (response.ok) {
         let providerResults: ProviderResult[] | undefined
         try {
-          const body = (await response.json()) as FilecoinPinContactResponse
+          const body = (await response.json()) as IpniIndexerResponse
           providerResults = extractProviderResults(body)
         } catch (parseError) {
           lastFailureReason = 'Failed to parse IPNI response body'
@@ -302,15 +310,15 @@ export function serviceURLToMultiaddr(serviceURL: string, logger?: Logger): stri
 }
 
 /**
- * Extract all provider results from the IPNI gateway response.
+ * Extract all provider results from the IPNI indexer response.
  *
  * The response can contain multiple multihash results, each with multiple provider
  * results. This flattens them into a single array for easier processing.
  *
- * @param response - Raw response from filecoinpin.contact
+ * @param response - Raw response from the IPNI indexer
  * @returns Flat array of all provider results, or empty array if none found
  */
-function extractProviderResults(response: FilecoinPinContactResponse): ProviderResult[] {
+function extractProviderResults(response: IpniIndexerResponse): ProviderResult[] {
   const results = response.MultihashResults
   if (!Array.isArray(results)) {
     return []
