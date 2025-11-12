@@ -3,7 +3,7 @@ import { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { waitForIpniProviderResults } from '../../core/utils/validate-ipni-advertisement.js'
 
-describe('validateIPNIAdvertisement', () => {
+describe('waitForIpniProviderResults', () => {
   const testCid = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
   const defaultIndexerUrl = 'https://filecoinpin.contact'
   const mockFetch = vi.fn()
@@ -188,7 +188,7 @@ describe('validateIPNIAdvertisement', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS root CID "${testCid.toString()}" not announced to IPNI after 1 attempt. Last observation: Missing advertisement for expected multiaddr(s): /dns/expected.example.com/tcp/443/https`
+        `IPFS root CID "${testCid.toString()}" not announced to IPNI after 1 attempt. Last observation: Missing provider records with expected multiaddr(s): /dns/expected.example.com/tcp/443/https`
       )
       await vi.runAllTimersAsync()
       await expectPromise
@@ -205,7 +205,7 @@ describe('validateIPNIAdvertisement', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS root CID "${testCid.toString()}" not announced to IPNI after 1 attempt. Last observation: Missing advertisement for expected multiaddr(s): /dns/b.example.com/tcp/443/https`
+        `IPFS root CID "${testCid.toString()}" not announced to IPNI after 1 attempt. Last observation: Missing provider records with expected multiaddr(s): /dns/b.example.com/tcp/443/https`
       )
       await vi.runAllTimersAsync()
       await expectPromise

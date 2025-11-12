@@ -13,8 +13,8 @@ import {
 import { isSessionKeyMode, type SynapseService } from '../synapse/index.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 import {
-  type ValidateIPNIAdvertisementOptions,
   type ValidateIPNIProgressEvents,
+  type WaitForIpniProviderResultsOptions,
   waitForIpniProviderResults,
 } from '../utils/validate-ipni-advertisement.js'
 import { type SynapseUploadResult, type UploadProgressEvents, uploadToSynapse } from './synapse.js'
@@ -195,7 +195,7 @@ export interface UploadExecutionOptions {
      * @default: true
      */
     enabled?: boolean
-  } & Omit<ValidateIPNIAdvertisementOptions, 'onProgress'>
+  } & Omit<WaitForIpniProviderResultsOptions, 'onProgress'>
 }
 
 export interface UploadExecutionResult extends SynapseUploadResult {
@@ -233,7 +233,7 @@ export async function executeUpload(
           const { enabled: _enabled, expectedProviders, ...restOptions } = options.ipniValidation ?? {}
 
           // Build validation options
-          const validationOptions: ValidateIPNIAdvertisementOptions = {
+          const validationOptions: WaitForIpniProviderResultsOptions = {
             ...restOptions,
             logger,
           }

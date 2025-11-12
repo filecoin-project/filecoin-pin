@@ -40,7 +40,7 @@ export type ValidateIPNIProgressEvents =
   | ProgressEvent<'ipniAdvertisement.complete', { result: true; retryCount: number }>
   | ProgressEvent<'ipniAdvertisement.failed', { error: Error }>
 
-export interface ValidateIPNIAdvertisementOptions {
+export interface WaitForIpniProviderResultsOptions {
   /**
    * maximum number of attempts
    *
@@ -110,7 +110,7 @@ export interface ValidateIPNIAdvertisementOptions {
  */
 export async function waitForIpniProviderResults(
   ipfsRootCid: CID,
-  options?: ValidateIPNIAdvertisementOptions
+  options?: WaitForIpniProviderResultsOptions
 ): Promise<boolean> {
   const delayMs = options?.delayMs ?? 5000
   const maxAttempts = options?.maxAttempts ?? 20
@@ -119,7 +119,7 @@ export async function waitForIpniProviderResults(
   const { expectedMultiaddrs, skippedProviderCount } = deriveExpectedMultiaddrs(expectedProviders, options?.logger)
   const expectedMultiaddrsSet = new Set(expectedMultiaddrs)
 
-  const hasProviderExpectations = expectedMultiaddrs.length > 0
+  const hasProviderExpectations = expectedMultiaddrs.size > 0
 
   // Log a warning if we expected providers but couldn't derive their multiaddrs
   // In this case, we fall back to generic validation (just checking if there are any provider records for the CID)
@@ -135,7 +135,7 @@ export async function waitForIpniProviderResults(
     // Tracks the most recent validation failure reason for error reporting
     let lastFailureReason: string | undefined
     // Tracks the actual multiaddrs found in the last IPNI response for error reporting
-    let lastActualMultiaddrs: string[] = []
+    let lastActualMultiaddrs: Set<string> = new Set()
 
     const check = async (): Promise<void> => {
       if (options?.signal?.aborted) {
@@ -176,11 +176,11 @@ export async function waitForIpniProviderResults(
           // Extract provider results
           providerResults = (body.MultihashResults ?? []).flatMap((r) => r.ProviderResults ?? [])
           // Extract all multiaddrs from provider results
-          lastActualMultiaddrs = providerResults.flatMap((pr) => pr.Provider?.Addrs ?? [])
+          lastActualMultiaddrs = new Set(providerResults.flatMap((pr) => pr.Provider?.Addrs ?? []))
           lastFailureReason = undefined
         } catch (parseError) {
           // Clear actual multiaddrs on parse error
-          lastActualMultiaddrs = []
+          lastActualMultiaddrs = new Set()
           lastFailureReason = 'Failed to parse IPNI response body'
           options?.logger?.warn({ error: parseError }, `${lastFailureReason}. Retrying...`)
         }
@@ -190,26 +190,27 @@ export async function waitForIpniProviderResults(
           let isValid = false
 
           if (hasProviderExpectations) {
-            // Find matching multiaddrs - inline filter + Set
-            const matchedMultiaddrs = new Set(lastActualMultiaddrs.filter((addr) => expectedMultiaddrsSet.has(addr)))
-            isValid = matchedMultiaddrs.size === expectedMultiaddrs.length
+            // Find matching multiaddrs
+
+            const matchedMultiaddrs = lastActualMultiaddrs.intersection(expectedMultiaddrsSet)
+            isValid = matchedMultiaddrs.size === expectedMultiaddrs.size
 
             if (!isValid) {
               // Log validation gap
-              const missing = expectedMultiaddrs.filter((addr) => !matchedMultiaddrs.has(addr))
-              lastFailureReason = `Missing provider records with expected multiaddr(s): ${missing.join(', ')}`
+              const missingMultiaddrs = expectedMultiaddrsSet.difference(matchedMultiaddrs)
+              lastFailureReason = `Missing provider records with expected multiaddr(s): ${Array.from(missingMultiaddrs).join(', ')}`
               options?.logger?.info(
                 {
-                  expectation: `multiaddr(s): ${expectedMultiaddrs.join(', ')}`,
-                  providerCount: expectedProviders.length,
-                  matchedMultiaddrs: Array.from(matchedMultiaddrs),
+                  receivedMultiaddrs: lastActualMultiaddrs,
+                  matchedMultiaddrs,
+                  missingMultiaddrs,
                 },
                 `${lastFailureReason}. Retrying...`
               )
             }
           } else {
             // Generic validation: just need any provider with addresses
-            isValid = lastActualMultiaddrs.length > 0
+            isValid = lastActualMultiaddrs.size > 0
             if (!isValid) {
               lastFailureReason = 'Expected at least one provider record'
               options?.logger?.info(`${lastFailureReason}. Retrying...`)
@@ -230,7 +231,7 @@ export async function waitForIpniProviderResults(
           // Only set generic message if we don't already have a more specific reason (e.g., parse error)
           lastFailureReason = 'IPNI response did not include any provider results'
           // Track that we got an empty response
-          lastActualMultiaddrs = []
+          lastActualMultiaddrs = new Set()
           options?.logger?.info(
             { providerResultsCount: providerResults?.length ?? 0 },
             `${lastFailureReason}. Retrying...`
@@ -259,7 +260,7 @@ export async function waitForIpniProviderResults(
         }
         // Include expected and actual multiaddrs for debugging
         if (hasProviderExpectations) {
-          msg = `${msg}. Expected multiaddrs: [${expectedMultiaddrs.join(', ')}]. Actual multiaddrs in response: [${lastActualMultiaddrs.join(', ')}]`
+          msg = `${msg}. Expected multiaddrs: [${Array.from(expectedMultiaddrs).join(', ')}]. Actual multiaddrs in response: [${Array.from(lastActualMultiaddrs).join(', ')}]`
         }
         const error = new Error(msg)
         options?.logger?.warn({ error }, msg)
@@ -330,10 +331,10 @@ function deriveExpectedMultiaddrs(
   providers: ProviderInfo[],
   logger: Logger | undefined
 ): {
-  expectedMultiaddrs: string[]
+  expectedMultiaddrs: Set<string>
   skippedProviderCount: number
 } {
-  const derivedMultiaddrs: string[] = []
+  const derivedMultiaddrs: Set<string> = new Set()
   let skippedProviderCount = 0
 
   for (const provider of providers) {
@@ -352,7 +353,7 @@ function deriveExpectedMultiaddrs(
       continue
     }
 
-    derivedMultiaddrs.push(derivedMultiaddr)
+    derivedMultiaddrs.add(derivedMultiaddr)
   }
 
   return {
