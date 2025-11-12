@@ -245,15 +245,11 @@ export async function executeUpload(
 
           // Determine which providers to expect in IPNI
           // Priority: user-provided expectedProviders > current provider > none (generic validation)
-          const providersToExpect =
-            expectedProviders && expectedProviders.length > 0
-              ? expectedProviders
-              : synapseService.providerInfo != null
-                ? [synapseService.providerInfo]
-                : []
-
-          if (providersToExpect.length > 0) {
-            validationOptions.expectedProviders = providersToExpect
+          // Note: If expectedProviders is explicitly [], we respect that (no provider expectations)
+          if (expectedProviders != null) {
+            validationOptions.expectedProviders = expectedProviders
+          } else if (synapseService.providerInfo != null) {
+            validationOptions.expectedProviders = [synapseService.providerInfo]
           }
 
           // Start validation (runs in parallel with other operations)
@@ -262,8 +258,6 @@ export async function executeUpload(
             return false
           })
         }
-
-        // Capture transaction hash if available
         if (event.data.txHash != null) {
           transactionHash = event.data.txHash
         }
