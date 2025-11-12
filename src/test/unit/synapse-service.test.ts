@@ -4,6 +4,7 @@ import type { Logger } from 'pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createConfig } from '../../config.js'
 import {
+  createStorageContext,
   getSynapseService,
   resetSynapseService,
   type SynapseSetupConfig,
@@ -414,6 +415,57 @@ describe('synapse-service', () => {
 
       // Should throw - expired ADD_PIECES permission (always required)
       await expect(setupSynapse(mockConfig as any, logger)).rejects.toThrow('Session key expired or expiring soon')
+    })
+
+    it('should reject creating new dataset when session key lacks CREATE_DATA_SET permission', async () => {
+      const mockConfig = {
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      }
+
+      // Mock session key with no CREATE_DATA_SET permission (expiry = 0)
+      const mockSessionKey = {
+        fetchExpiries: async (typehashes: string[]) => {
+          const now = Math.floor(Date.now() / 1000)
+          const oneYear = 365 * 24 * 60 * 60
+          const expiries: Record<string, bigint> = {}
+          for (const typehash of typehashes) {
+            if (typehash.includes('1234567890abcdef')) {
+              // CREATE_DATA_SET - no permission
+              expiries[typehash] = BigInt(0)
+            } else {
+              // ADD_PIECES - valid
+              expiries[typehash] = BigInt(now + oneYear)
+            }
+          }
+          return expiries
+        },
+      }
+
+      const mockCreateSessionKey = vi.fn(() => mockSessionKey)
+
+      // Override the mock once for initialization
+      const originalCreate = synapseSdk.Synapse.create
+      const createSpy = vi.fn(async (options) => {
+        const synapse = await originalCreate(options)
+        ;(synapse as any).createSessionKey = mockCreateSessionKey
+        ;(synapse as any)._sessionKey = mockSessionKey
+        return synapse
+      })
+
+      vi.mocked(synapseSdk.Synapse.create).mockImplementationOnce(createSpy)
+
+      // Initialize should succeed (only validates AddPieces)
+      const service = await setupSynapse(mockConfig as any, logger)
+      expect(service).toBeDefined()
+
+      // But trying to force create a new dataset should fail
+      await expect(
+        createStorageContext(service.synapse, logger, {
+          dataset: { createNew: true },
+        })
+      ).rejects.toThrow('Cannot create new dataset: Session key does not have CREATE_DATA_SET permission')
     })
   })
 })
