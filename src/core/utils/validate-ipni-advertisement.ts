@@ -340,8 +340,6 @@ function extractProviderResults(response: IpniIndexerResponse): ProviderResult[]
  * specific providers have advertised the content.
  *
  * Note: ProviderInfo should contain the serviceURL at `products.PDP.data.serviceURL`.
- * In some SDK versions, it may be at the top level. This function checks both locations
- * to maintain compatibility.
  *
  * @param providers - Array of provider info objects from synapse SDK
  * @param extraMultiaddrs - Additional multiaddrs to include in expectations
@@ -360,12 +358,7 @@ function deriveExpectedMultiaddrs(
   let skippedProviderCount = 0
 
   for (const provider of providers) {
-    // Primary path: products.PDP.data.serviceURL (current SDK structure)
-    // Fallback path: top-level serviceURL (for compatibility with older SDK versions)
-    const serviceURL =
-      provider.products?.PDP?.data?.serviceURL ??
-      (provider as unknown as { serviceURL?: string }).serviceURL ??
-      undefined
+    const serviceURL = provider.products?.PDP?.data?.serviceURL
 
     if (!serviceURL) {
       skippedProviderCount++
