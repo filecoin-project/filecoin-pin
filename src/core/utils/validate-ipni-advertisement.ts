@@ -144,7 +144,7 @@ export async function validateIPNIAdvertisement(
     // Tracks the most recent validation failure reason for error reporting
     let lastFailureReason: string | undefined
     // Tracks the actual multiaddrs found in the last IPNI response for error reporting
-    let lastActualMultiaddrs: string[] | undefined
+    let lastActualMultiaddrs: string[] = []
 
     const check = async (): Promise<void> => {
       if (options?.signal?.aborted) {
@@ -179,7 +179,7 @@ export async function validateIPNIAdvertisement(
 
       // Parse and validate response
       if (response.ok) {
-        let providerResults: ProviderResult[] | undefined
+        let providerResults: ProviderResult[] = []
         try {
           const body = (await response.json()) as IpniIndexerResponse
           // Extract provider results
@@ -190,7 +190,7 @@ export async function validateIPNIAdvertisement(
         }
 
         // Check if we have provider results to validate
-        if (providerResults != null && providerResults.length > 0) {
+        if (providerResults.length > 0) {
           // Extract all multiaddrs from provider results
           lastActualMultiaddrs = providerResults.flatMap((pr) => pr.Provider?.Addrs ?? [])
 
@@ -265,13 +265,8 @@ export async function validateIPNIAdvertisement(
           msg = `${msgBase}. Last observation: ${lastFailureReason}`
         }
         // Include expected and actual multiaddrs for debugging
-        if (hasProviderExpectations && expectedMultiaddrs.length > 0) {
-          msg = `${msg}. Expected multiaddrs: [${expectedMultiaddrs.join(', ')}]`
-        }
-        if (lastActualMultiaddrs != null && lastActualMultiaddrs.length > 0) {
-          msg = `${msg}. Actual multiaddrs in response: [${lastActualMultiaddrs.join(', ')}]`
-        } else if (lastActualMultiaddrs != null) {
-          msg = `${msg}. Actual multiaddrs in response: [] (no multiaddrs found)`
+        if (hasProviderExpectations) {
+          msg = `${msg}. Expected multiaddrs: [${expectedMultiaddrs.join(', ')}]. Actual multiaddrs in response: [${lastActualMultiaddrs.join(', ')}]`
         }
         const error = new Error(msg)
         options?.logger?.warn({ error }, msg)
@@ -315,21 +310,8 @@ export async function validateIPNIAdvertisement(
 export function serviceURLToMultiaddr(serviceURL: string, logger?: Logger): string | undefined {
   try {
     const url = new URL(serviceURL)
-    const port =
-      url.port !== ''
-        ? Number.parseInt(url.port, 10)
-        : url.protocol === 'https:'
-          ? 443
-          : url.protocol === 'http:'
-            ? 80
-            : undefined
-
-    if (Number.isNaN(port) || port == null) {
-      return undefined
-    }
-
-    const protocolComponent =
-      url.protocol === 'https:' ? 'https' : url.protocol === 'http:' ? 'http' : url.protocol.replace(':', '')
+    const port = url.port || (url.protocol === 'https:' ? '443' : '80')
+    const protocolComponent = url.protocol.replace(':', '')
 
     return `/dns/${url.hostname}/tcp/${port}/${protocolComponent}`
   } catch (error) {
