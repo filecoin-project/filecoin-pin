@@ -4,27 +4,41 @@ The steps outlined below are taken to "add a file with Filecoin Pin".  This docu
 
 ## Diagram
 
-TODO: show a Mermaid diagram of the connection between the different steps
+_Key_ 
+Blue | Orange | FP | SP
+-- | -- | -- | --
+non-blockchain step | blockchain step | Filecoin Pin | Storage Provider
 
-The diagram can surface these steps and show where they happen in parallel.  
 
-We should highlight the blockchain steps vs. the non-blockchain steps.  
+```mermaid
+graph TD
 
-We should also have a note about some of the unlocks or abilities the user has as a result of a given step.
+    %% Non-blockchain steps with embedded annotations
+    Start([User: Select File to Add]) --> CreateCAR
+    CreateCAR[FP: Create CAR<br/><br/>✓ IPFS Root CID known] --> UploadCAR[FP: Upload CAR to SP<br/><br/>✓ /piece/$pieceCid retrieval]
+    UploadCAR --> IndexCAR{{SP: Index CAR CIDs<br/><br/>✓ SP /ipfs/$cid retrieval}}
+    IndexCAR --> AdvertiseCAR{{SP: Advertise CAR CIDs to IPNI<br/><br/>✓ IPNI provider records<br/>}}
+    AdvertiseCAR --> FilecoinPinAddDone{Filecoin Pin Add Done}
+    FilecoinPinAddDone --> RetrieveData(Any: Retrieve with IPFS Mainnet<br/><br/>✓ ipfs://$cid works)
 
-| Step | Note of what is now available  | Has Blockchain Interaction |
-| --- | --- | --- |
-| Select a file to "add" |  | No |
-| Create [CAR](glossary.md#car) | Client knows the [IPFS Root CID](glossary.md#ipfs-root-cid) | No |
-| Upload CAR | Client knows the [Piece CID](glossary.md#piece-cid). [SP](glossary.md#storage-provider) can serve https://sp.domain/piece/$pieceCid requests. | No |
-| Index CAR CIDs | SP can serve https://sp.domain/ipfs/$cid requests. | No |
-| Advertise CAR CIDs | [IPNI](glossary.md#ipni) indexers should have corresponding provider records for https://filecoinpin.com/cid/$cid calls. IPFS Mainnet retrieval of content becomes possible via standard IPFS tooling. | No |
-| Retrieve Data | ipfs://$cid works | No |
-| Connect Wallet | Wallet balances | Yes |
-| Setup [Filecoin Pay](glossary.md#filecoin-pay) | Filecoin Pay account balance | Yes |
-| Identify a [Data Set](glossary.md#data-set) SP and ID |  | Yes |
-| Create Data Set if necessary and Add [Piece](glossary.md#piece) | Ability to explore the metadata of a Data Set and its Pieces | Yes |
-| Prove [Data Possession](glossary.md#proof-of-data-possession) | Explore proving records stored onchain of a Data Set and its Pieces | Yes |
+    %% Blockchain steps path with embedded annotations
+    ConnectWallet([User: Connect Wallet<br/><br/>✓ Wallet balances visible])
+    ConnectWallet --> SetupPay[FP: Setup Filecoin Pay Account<br/><br/>✓ Filecoin Pay balance visible]
+    SetupPay --> IdentifyDataSet[FP: Identify Data Set SP and ID]
+
+    %% Convergence point
+    UploadCAR --> IdentifyDataSet
+    IdentifyDataSet --> CreateDataSet{{SP: Create Data Set & Add Piece<br/><br/>✓ Data Set & Piece metadata onchain}}
+    CreateDataSet --> FilecoinPinAddDone
+    FilecoinPinAddDone --> ProveData{{SP: Prove Data Possession<br/><br/>✓ Cryptographic proofs onchain and visible on explorers}}
+
+    %% Styling
+    classDef nonBlockchain fill:#e1f5ff,stroke:#0288d1,stroke-width:2px,color:#000
+    classDef blockchain fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+
+    class Start,CreateCAR,UploadCAR,IndexCAR,AdvertiseCAR,RetrieveData nonBlockchain
+    class ConnectWallet,SetupPay,IdentifyDataSet,CreateDataSet,ProveData blockchain
+```
 
 ## Steps without Blockchain Interactions
 
