@@ -252,7 +252,7 @@ export async function waitForIpniProviderResults(
         await check()
       } else {
         // Max attempts reached - validation failed
-        const msgBase = `IPFS root CID "${ipfsRootCid.toString()}" not announced to IPNI after ${maxAttempts} attempt${maxAttempts === 1 ? '' : 's'}`
+        const msgBase = `IPFS root CID "${ipfsRootCid.toString()}" does not have expected IPNI ProviderResults after ${maxAttempts} attempt${maxAttempts === 1 ? '' : 's'}`
         let msg = msgBase
         if (lastFailureReason != null) {
           msg = `${msgBase}. Last observation: ${lastFailureReason}`
