@@ -100,7 +100,7 @@ export interface WaitForIpniProviderResultsOptions {
  * - The SP announced the advertisement chain to the IPNI indexer(s)
  * - The IPNI indexer(s) pulled the advertisement chain from the SP
  * - The IPNI indexer(s) updated their index
- * This doesn't check individual steps, but rather the end ProviderResults reponse from the IPNI indexer.  
+ * This doesn't check individual steps, but rather the end ProviderResults reponse from the IPNI indexer.
  * If the IPNI indexer ProviderResults have the expected providers, then the steps abomove must have completed.
  * This doesn't actually do any IPFS Mainnet retrieval checks of the ipfsRootCid.
  *
