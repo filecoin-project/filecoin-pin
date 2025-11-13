@@ -90,7 +90,7 @@ export function addProviderOptions(command: Command): Command {
 
 export function addNetworkOptions(command: Command): Command {
   return command.addOption(
-    new Option('--network <network>', 'Filecoin network to use (can also use NETWORK env)')
+    new Option('--network <network>', 'Filecoin network to use')
       .choices(['mainnet', 'calibration'])
       .env('NETWORK')
       .default('calibration')
