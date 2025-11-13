@@ -1,5 +1,5 @@
 import { RPC_URLS } from '@filoz/synapse-sdk'
-import { CLIAuthOptions } from '../utils/cli-auth.js'
+import type { CLIAuthOptions } from '../utils/cli-auth.js'
 
 /**
  * Get the RPC URL from the CLI options and environment variables

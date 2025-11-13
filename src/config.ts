@@ -1,7 +1,7 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
-import type { Config } from './core/synapse/index.js'
 import { getRpcUrl } from './common/get-rpc-url.js'
+import type { Config } from './core/synapse/index.js'
 
 function getDataDirectory(): string {
   const home = homedir()
@@ -39,7 +39,7 @@ export function createConfig(): Config {
   const dataDir = getDataDirectory()
 
   // Determine RPC URL: RPC_URL env var takes precedence, then NETWORK, then default to calibration
-  let rpcUrl = getRpcUrl({
+  const rpcUrl = getRpcUrl({
     network: process.env.NETWORK,
     rpcUrl: process.env.RPC_URL,
   })

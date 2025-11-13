@@ -7,10 +7,10 @@
 
 import type { Synapse } from '@filoz/synapse-sdk'
 import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
+import { getRpcUrl } from '../common/get-rpc-url.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { createLogger } from '../logger.js'
-import { getRpcUrl } from '../common/get-rpc-url.js'
 
 /**
  * Common CLI authentication options interface
