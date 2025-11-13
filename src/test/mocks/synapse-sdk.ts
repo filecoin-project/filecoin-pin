@@ -90,6 +90,11 @@ export const METADATA_KEYS = {
   IPFS_ROOT_CID: 'ipfsRootCid',
 }
 
+// Export mock permission type hashes (keccak256 hashes of EIP-712 type strings)
+// These match the actual values from the SDK
+export const CREATE_DATA_SET_TYPEHASH = '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef'
+export const ADD_PIECES_TYPEHASH = '0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321'
+
 // Export types for test compatibility
 // In real code, import these from '@filoz/synapse-sdk'
 export type SynapseOptions = any
