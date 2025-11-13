@@ -304,14 +304,15 @@ describe('waitForIpniProviderResults', () => {
   })
 
   describe('edge cases', () => {
-    it('should handle fetch throwing an error', async () => {
-      mockFetch.mockRejectedValueOnce(new Error('Network error'))
+    it('should retry when fetch throws before succeeding within maxAttempts', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error')).mockResolvedValueOnce(successResponse())
 
-      const promise = waitForIpniProviderResults(testCid, {})
-      const expectPromise = expect(promise).rejects.toThrow('Network error')
-
+      const promise = waitForIpniProviderResults(testCid, { maxAttempts: 2, delayMs: 1 })
       await vi.runAllTimersAsync()
-      await expectPromise
+      const result = await promise
+
+      expect(result).toBe(true)
+      expect(mockFetch).toHaveBeenCalledTimes(2)
     })
 
     it('should handle different CID formats', async () => {
@@ -403,7 +404,7 @@ describe('waitForIpniProviderResults', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        'Failed to parse IPNI response body. Expected multiaddrs: [/dns/expected.example.com/tcp/443/https]. Actual multiaddrs in response: []'
+        `IPFS root CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 2 attempts. Last observation: Failed to parse IPNI response body: Invalid JSON. Expected multiaddrs: [/dns/expected.example.com/tcp/443/https]. Actual multiaddrs in response: []`
       )
 
       await vi.runAllTimersAsync()
