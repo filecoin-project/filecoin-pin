@@ -44,7 +44,7 @@ export interface Config {
 /**
  * Common options for all Synapse configurations
  */
-interface BaseSynapseConfig {
+interface BaseSynapseConfig extends Omit<SynapseOptions, 'withCDN' | 'warmStorageAddress' | 'telemetry'> {
   /** RPC endpoint for the target Filecoin network. Defaults to calibration. */
   rpcUrl?: string | undefined
   /** Optional override for WarmStorage contract address */
@@ -299,6 +299,7 @@ async function setupSessionKey(synapse: Synapse, sessionWallet: Wallet, logger: 
  * @returns Initialized Synapse instance
  */
 export async function initializeSynapse(config: Partial<SynapseSetupConfig>, logger: Logger): Promise<Synapse> {
+  const { withCDN, warmStorageAddress, telemetry, ...restConfig } = config
   try {
     const authMode = validateAuthConfig(config)
 
@@ -313,16 +314,17 @@ export async function initializeSynapse(config: Partial<SynapseSetupConfig>, log
     logger.info({ event: 'synapse.init', authMode, rpcUrl: rpcURL }, 'Initializing Synapse SDK')
 
     const synapseOptions: SynapseOptions = {
+      ...restConfig,
       rpcURL,
       withIpni: true, // Always filter for IPNI-enabled providers
     }
-    if (config.withCDN) {
+    if (withCDN) {
       synapseOptions.withCDN = true
     }
-    if (config.warmStorageAddress) {
-      synapseOptions.warmStorageAddress = config.warmStorageAddress
+    if (warmStorageAddress) {
+      synapseOptions.warmStorageAddress = warmStorageAddress
     }
-    synapseOptions.telemetry = getTelemetryConfig(config.telemetry)
+    synapseOptions.telemetry = getTelemetryConfig(telemetry)
 
     let synapse: Synapse
 
