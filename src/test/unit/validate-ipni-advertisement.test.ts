@@ -304,14 +304,15 @@ describe('waitForIpniProviderResults', () => {
   })
 
   describe('edge cases', () => {
-    it('should handle fetch throwing an error', async () => {
-      mockFetch.mockRejectedValueOnce(new Error('Network error'))
+    it('should retry when fetch throws before succeeding within maxAttempts', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error')).mockResolvedValueOnce(successResponse())
 
-      const promise = waitForIpniProviderResults(testCid, {})
-      const expectPromise = expect(promise).rejects.toThrow('Network error')
-
+      const promise = waitForIpniProviderResults(testCid, { maxAttempts: 2, delayMs: 1 })
       await vi.runAllTimersAsync()
-      await expectPromise
+      const result = await promise
+
+      expect(result).toBe(true)
+      expect(mockFetch).toHaveBeenCalledTimes(2)
     })
 
     it('should handle different CID formats', async () => {
