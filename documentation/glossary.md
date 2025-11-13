@@ -16,6 +16,10 @@ See https://docs.ipfs.tech/concepts/glossary/#cid.
 
 A common term used in place of [PieceCID](#piececid).
 
+## Content Routing
+
+How an IPFS node (including IPFS HTTP Gateways) find other IPFS nodes providing the CIDs.  Content routing refers to the way in which IPFS determines where to find a given CID on the network; specifically, which network peers are providing the CIDs you are requesting. In other words, a node cannot simply find data in the network with a CID alone; it requires information about the IP addresses and ports of its peers on the network.  Read more about [content routing in Filecoin Pin](content-routing-faq.md).
+
 ## Curio
 
 Curio is the software that [Filecoin Warm Storage Service](#filecoin-warm-storage-service) [Storage Providers](#storage-provider) run, which handles:
