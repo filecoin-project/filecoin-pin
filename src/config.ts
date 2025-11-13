@@ -1,7 +1,7 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
-import { RPC_URLS } from '@filoz/synapse-sdk'
 import type { Config } from './core/synapse/index.js'
+import { getRpcUrl } from './common/get-rpc-url.js'
 
 function getDataDirectory(): string {
   const home = homedir()
@@ -39,22 +39,10 @@ export function createConfig(): Config {
   const dataDir = getDataDirectory()
 
   // Determine RPC URL: RPC_URL env var takes precedence, then NETWORK, then default to calibration
-  let rpcUrl: string
-  if (process.env.RPC_URL) {
-    rpcUrl = process.env.RPC_URL
-  } else if (process.env.NETWORK) {
-    const network = process.env.NETWORK.toLowerCase().trim()
-    if (network !== 'mainnet' && network !== 'calibration') {
-      throw new Error(`Invalid NETWORK environment variable: "${network}". Must be "mainnet" or "calibration"`)
-    }
-    const networkRpcUrl = RPC_URLS[network as 'mainnet' | 'calibration']?.websocket
-    if (!networkRpcUrl) {
-      throw new Error(`RPC URL not available for network: "${network}"`)
-    }
-    rpcUrl = networkRpcUrl
-  } else {
-    rpcUrl = RPC_URLS.calibration.websocket
-  }
+  let rpcUrl = getRpcUrl({
+    network: process.env.NETWORK,
+    rpcUrl: process.env.RPC_URL,
+  })
 
   return {
     // Application-specific configuration

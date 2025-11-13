@@ -6,7 +6,7 @@
  */
 
 import { RPC_URLS } from '@filoz/synapse-sdk'
-import type { Command } from 'commander'
+import { type Command, Option } from 'commander'
 
 /**
  * Decorator to add common authentication options to a Commander command
@@ -39,15 +39,12 @@ import type { Command } from 'commander'
  * ```
  */
 export function addAuthOptions(command: Command): Command {
-  return command
+  command
     .option('--private-key <key>', 'Private key for standard auth (can also use PRIVATE_KEY env)')
     .option('--wallet-address <address>', 'Wallet address for session key auth (can also use WALLET_ADDRESS env)')
     .option('--session-key <key>', 'Session key for session key auth (can also use SESSION_KEY env)')
-    .option(
-      '--network <network>',
-      'Filecoin network to use: mainnet or calibration (can also use NETWORK env)',
-      'calibration'
-    )
+
+  return addNetworkOptions(command)
     .option(
       '--rpc-url <url>',
       'RPC endpoint (can also use RPC_URL env, overrides --network)',
@@ -89,4 +86,13 @@ export function addProviderOptions(command: Command): Command {
       'Override provider selection by address (can also use PROVIDER_ADDRESS env)'
     )
     .option('--provider-id <id>', 'Override provider selection by ID (can also use PROVIDER_ID env)')
+}
+
+export function addNetworkOptions(command: Command): Command {
+  return command.addOption(
+    new Option('--network <network>', 'Filecoin network to use (can also use NETWORK env)')
+      .choices(['mainnet', 'calibration'])
+      .env('NETWORK')
+      .default('calibration')
+  )
 }

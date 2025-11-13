@@ -1,6 +1,7 @@
 import { RPC_URLS } from '@filoz/synapse-sdk'
 import { Command } from 'commander'
 import { startServer } from '../server.js'
+import { addNetworkOptions } from '../utils/cli-options.js'
 
 export const serverCommand = new Command('server')
   .description('Start the IPFS Pinning Service API server')
@@ -9,11 +10,8 @@ export const serverCommand = new Command('server')
   .option('--car-storage <path>', 'path for CAR file storage', './cars')
   .option('--database <path>', 'path to SQLite database', './pins.db')
   .option('--private-key <key>', 'private key for Synapse (or use PRIVATE_KEY env var)')
-  .option(
-    '--network <network>',
-    'Filecoin network to use: mainnet or calibration (can also use NETWORK env)',
-    'calibration'
-  )
+
+addNetworkOptions(serverCommand)
   .option(
     '--rpc-url <url>',
     'RPC URL for Filecoin network (overrides --network, can also use RPC_URL env)',
