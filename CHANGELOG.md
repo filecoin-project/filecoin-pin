@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.12.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.11.1...v0.12.0) (2025-11-13)
+
+
+### Features
+
+* add core/data-set methods ([#210](https://github.com/filecoin-project/filecoin-pin/issues/210)) ([6d81508](https://github.com/filecoin-project/filecoin-pin/commit/6d815080a985e8e6e6134430b4ded4ac803b6997))
+* data-set CLI uses filecoin-pin/core/data-set ([#211](https://github.com/filecoin-project/filecoin-pin/issues/211)) ([443e285](https://github.com/filecoin-project/filecoin-pin/commit/443e285534c3312282d6184a0e3c223a288e736b))
+* deposit with permit integration ([#202](https://github.com/filecoin-project/filecoin-pin/issues/202)) ([121e342](https://github.com/filecoin-project/filecoin-pin/commit/121e3426fcc097cc971cdc5b1b6980641132366f))
+* perform update checks ([#219](https://github.com/filecoin-project/filecoin-pin/issues/219)) ([d27e6e6](https://github.com/filecoin-project/filecoin-pin/commit/d27e6e62736366640db84d6fc79af1189b7f1555))
+
+
+### Bug Fixes
+
+* add/import validate capacity with floor pricing ([#218](https://github.com/filecoin-project/filecoin-pin/issues/218)) ([70e780f](https://github.com/filecoin-project/filecoin-pin/commit/70e780f131ed7724460fcddfcc72a3546c045c84))
+* filecoin-pin/upload-action always builds filecoin-pin ([#204](https://github.com/filecoin-project/filecoin-pin/issues/204)) ([ecfb9e0](https://github.com/filecoin-project/filecoin-pin/commit/ecfb9e08508ce768961040f634b05afd4f72e15a))
+* IPNI validation confirms provider in indexer response ([#231](https://github.com/filecoin-project/filecoin-pin/issues/231)) ([71f157d](https://github.com/filecoin-project/filecoin-pin/commit/71f157d90ebbfd778e315bae5cd2c58a0abe363f))
+* piece metadata is displayed as is ([#222](https://github.com/filecoin-project/filecoin-pin/issues/222)) ([00e7ff9](https://github.com/filecoin-project/filecoin-pin/commit/00e7ff9352382c73334e02de90c431ac095b63d5))
+* refresh payments status CLI output ([#223](https://github.com/filecoin-project/filecoin-pin/issues/223)) ([13f557e](https://github.com/filecoin-project/filecoin-pin/commit/13f557e498951e6d96cf1f0df8a80d7832637ad6))
+* remove known-good-providers recommendation in examples ([#214](https://github.com/filecoin-project/filecoin-pin/issues/214)) ([f46eab4](https://github.com/filecoin-project/filecoin-pin/commit/f46eab4e07cfa4c67d9c424587bdb00277daee47))
+* upload-action pr comment uses consistent spacing ([#206](https://github.com/filecoin-project/filecoin-pin/issues/206)) ([39a03c0](https://github.com/filecoin-project/filecoin-pin/commit/39a03c0b868b6f29e924ca809deec66928093bbd))
+
+
+### Chores
+
+* add dataset alias for 'data-set' subcommand ([#224](https://github.com/filecoin-project/filecoin-pin/issues/224)) ([391cd79](https://github.com/filecoin-project/filecoin-pin/commit/391cd79c3abd2059fbd5ce08f6b4c48e08529309))
+* **deps-dev:** bump @biomejs/biome from 2.3.3 to 2.3.4 ([#212](https://github.com/filecoin-project/filecoin-pin/issues/212)) ([4edab90](https://github.com/filecoin-project/filecoin-pin/commit/4edab901d2d31edfd86ffa4589479d93094ca3a2))
+
 ## [0.11.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.11.0...v0.11.1) (2025-11-04)
 
 
