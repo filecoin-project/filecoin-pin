@@ -191,7 +191,7 @@ export async function waitForIpniProviderResults(
         } catch (parseError) {
           // Clear actual multiaddrs on parse error
           lastActualMultiaddrs = new Set()
-          lastFailureReason = 'Failed to parse IPNI response body'
+          lastFailureReason = `Failed to parse IPNI response body: ${getErrorMessage(parseError)}`
           options?.logger?.warn({ error: parseError }, `${lastFailureReason}. Retrying...`)
         }
 
@@ -326,7 +326,8 @@ export function serviceURLToMultiaddr(serviceURL: string, logger?: Logger): stri
 
     return `/dns/${url.hostname}/tcp/${port}/${protocolComponent}`
   } catch (error) {
-    logger?.warn({ serviceURL, error }, 'Unable to derive IPNI multiaddr from serviceURL')
+    const reason = getErrorMessage(error)
+    logger?.warn({ serviceURL, error }, `Unable to derive IPNI multiaddr from serviceURL: ${reason}`)
     return undefined
   }
 }

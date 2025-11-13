@@ -404,7 +404,7 @@ describe('waitForIpniProviderResults', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        'Failed to parse IPNI response body. Expected multiaddrs: [/dns/expected.example.com/tcp/443/https]. Actual multiaddrs in response: []'
+        `IPFS root CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 2 attempts. Last observation: Failed to parse IPNI response body: Invalid JSON. Expected multiaddrs: [/dns/expected.example.com/tcp/443/https]. Actual multiaddrs in response: []`
       )
 
       await vi.runAllTimersAsync()
