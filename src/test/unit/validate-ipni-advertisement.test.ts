@@ -142,7 +142,7 @@ describe('waitForIpniProviderResults', () => {
       const promise = waitForIpniProviderResults(testCid, { maxAttempts: 3, onProgress })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS root CID "${testCid.toString()}" not announced to IPNI after 3 attempts`
+        `IPFS root CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 3 attempts`
       )
 
       await vi.runAllTimersAsync()
@@ -171,7 +171,7 @@ describe('waitForIpniProviderResults', () => {
       const promise = waitForIpniProviderResults(testCid, { maxAttempts: 1 })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS root CID "${testCid.toString()}" not announced to IPNI after 1 attempt`
+        `IPFS root CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt`
       )
 
       await vi.runAllTimersAsync()
@@ -188,7 +188,7 @@ describe('waitForIpniProviderResults', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS root CID "${testCid.toString()}" not announced to IPNI after 1 attempt. Last observation: Missing provider records with expected multiaddr(s): /dns/expected.example.com/tcp/443/https`
+        `IPFS root CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing provider records with expected multiaddr(s): /dns/expected.example.com/tcp/443/https`
       )
       await vi.runAllTimersAsync()
       await expectPromise
@@ -205,7 +205,7 @@ describe('waitForIpniProviderResults', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS root CID "${testCid.toString()}" not announced to IPNI after 1 attempt. Last observation: Missing provider records with expected multiaddr(s): /dns/b.example.com/tcp/443/https`
+        `IPFS root CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing provider records with expected multiaddr(s): /dns/b.example.com/tcp/443/https`
       )
       await vi.runAllTimersAsync()
       await expectPromise
