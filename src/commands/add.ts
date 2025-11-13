@@ -20,12 +20,12 @@ export const addCommand = new Command('add')
         '8004Agent': _erc8004Agent,
         ...addOptionsFromCli
       } = options
-      const { metadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
+      const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
 
       const addOptions: AddOptions = {
         ...addOptionsFromCli,
         filePath: path,
-        ...(metadata && { metadata }),
+        ...(pieceMetadata && { pieceMetadata }),
         ...(dataSetMetadata && { dataSetMetadata }),
       }
 

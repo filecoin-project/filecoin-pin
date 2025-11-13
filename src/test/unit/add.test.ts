@@ -199,21 +199,18 @@ describe('Add Command', () => {
         filePath: testFile,
         privateKey: 'test-private-key',
         rpcUrl: 'wss://test.rpc.url',
-        metadata: { region: 'us-west', note: '' },
+        pieceMetadata: { region: 'us-west', note: '' },
         dataSetMetadata: { purpose: 'erc8004' },
       })
+      const { createStorageContext, initializeSynapse } = await import('../../core/synapse/index.js')
 
-      const { performUpload } = await import('../../common/upload-flow.js')
-      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.anything(),
-        expect.anything(),
+      expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
         expect.objectContaining({
-          metadata: { region: 'us-west', note: '' },
-        })
+          dataSetMetadata: { purpose: 'erc8004' },
+        }),
+        expect.anything()
       )
 
-      const { createStorageContext, initializeSynapse } = await import('../../core/synapse/index.js')
       expect(vi.mocked(createStorageContext)).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
@@ -224,11 +221,14 @@ describe('Add Command', () => {
         })
       )
 
-      expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
         expect.objectContaining({
-          dataSetMetadata: { purpose: 'erc8004' },
-        }),
-        expect.anything()
+          metadata: { region: 'us-west', note: '' },
+        })
       )
     })
 

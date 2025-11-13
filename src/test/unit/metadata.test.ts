@@ -4,13 +4,13 @@ import { normalizeMetadataConfig } from '../../core/metadata/index.js'
 describe('normalizeMetadataConfig', () => {
   it('returns undefined metadata when nothing provided', () => {
     const result = normalizeMetadataConfig({})
-    expect(result.metadata).toBeUndefined()
+    expect(result.pieceMetadata).toBeUndefined()
     expect(result.dataSetMetadata).toBeUndefined()
   })
 
   it('sanitizes metadata entries and trims keys', () => {
     const result = normalizeMetadataConfig({
-      metadata: {
+      pieceMetadata: {
         ' key ': 'value',
       },
       dataSetMetadata: {
@@ -18,20 +18,20 @@ describe('normalizeMetadataConfig', () => {
       },
     })
 
-    expect(result.metadata).toEqual({ key: 'value' })
+    expect(result.pieceMetadata).toEqual({ key: 'value' })
     expect(result.dataSetMetadata).toEqual({ note: 'demo' })
   })
 
   it('applies ERC-8004 sugar to metadata and dataset metadata', () => {
     const result = normalizeMetadataConfig({
-      metadata: {
+      pieceMetadata: {
         custom: '1',
       },
       erc8004Type: 'registration',
       erc8004Agent: 'did:key:z123',
     })
 
-    expect(result.metadata).toEqual({
+    expect(result.pieceMetadata).toEqual({
       custom: '1',
       '8004registration': 'did:key:z123',
     })
@@ -51,7 +51,7 @@ describe('normalizeMetadataConfig', () => {
   it('throws when metadata values are not strings', () => {
     expect(() =>
       normalizeMetadataConfig({
-        metadata: {
+        pieceMetadata: {
           example: 123 as unknown as string,
         },
       })

@@ -7,7 +7,7 @@ export interface AddOptions extends CLIAuthOptions {
   /** Auto-fund: automatically ensure minimum 30 days of runway */
   autoFund?: boolean
   /** Piece metadata attached to each upload */
-  metadata?: Record<string, string>
+  pieceMetadata?: Record<string, string>
   /** Data set metadata applied when creating or updating the storage context */
   dataSetMetadata?: Record<string, string>
 }

@@ -70,8 +70,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
   const spinner = createSpinner()
 
-  const { metadata: uploadMetadata, dataSetMetadata } = normalizeMetadataConfig({
-    metadata: options.metadata,
+  const { pieceMetadata, dataSetMetadata } = normalizeMetadataConfig({
+    pieceMetadata: options.pieceMetadata,
     dataSetMetadata: options.dataSetMetadata,
   })
 
@@ -208,7 +208,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       fileSize: carSize,
       logger,
       spinner,
-      ...(uploadMetadata && { metadata: uploadMetadata }),
+      ...(pieceMetadata && { metadata: pieceMetadata }),
     })
 
     // Display results

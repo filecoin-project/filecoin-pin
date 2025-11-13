@@ -427,23 +427,20 @@ describe('CAR Import', () => {
       const options: ImportOptions = {
         filePath: carPath,
         privateKey: testPrivateKey,
-        metadata: { ics: '8004' },
+        pieceMetadata: { ics: '8004' },
         dataSetMetadata: { erc8004Files: '' },
       }
 
       await runCarImport(options)
+      const { createStorageContext, initializeSynapse } = await import('../../core/synapse/index.js')
 
-      const { performUpload } = await import('../../common/upload-flow.js')
-      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
-        expect.any(Object),
-        expect.any(Uint8Array),
-        expect.any(Object),
+      expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
         expect.objectContaining({
-          metadata: { ics: '8004' },
-        })
+          dataSetMetadata: { erc8004Files: '' },
+        }),
+        expect.any(Object)
       )
 
-      const { createStorageContext, initializeSynapse } = await import('../../core/synapse/index.js')
       expect(vi.mocked(createStorageContext)).toHaveBeenCalledWith(
         expect.any(Object),
         expect.any(Object),
@@ -453,11 +450,15 @@ describe('CAR Import', () => {
           },
         })
       )
-      expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.any(Uint8Array),
+        expect.any(Object),
         expect.objectContaining({
-          dataSetMetadata: { erc8004Files: '' },
-        }),
-        expect.any(Object)
+          pieceMetadata: { ics: '8004' },
+        })
       )
     })
   })

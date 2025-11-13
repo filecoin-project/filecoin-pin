@@ -3,19 +3,19 @@ export const ERC8004_TYPES = ['registration', 'validationrequest', 'validationre
 export type ERC8004Type = (typeof ERC8004_TYPES)[number]
 
 export interface MetadataConfigInput {
-  metadata?: Record<string, string> | undefined
+  pieceMetadata?: Record<string, string> | undefined
   dataSetMetadata?: Record<string, string> | undefined
   erc8004Type?: ERC8004Type
   erc8004Agent?: string
 }
 
 export interface MetadataConfigResult {
-  metadata?: Record<string, string> | undefined
+  pieceMetadata?: Record<string, string> | undefined
   dataSetMetadata?: Record<string, string> | undefined
 }
 
 export function normalizeMetadataConfig(input: MetadataConfigInput): MetadataConfigResult {
-  const metadata = sanitizeRecord(input.metadata)
+  const pieceMetadata = sanitizeRecord(input.pieceMetadata)
   const dataSetMetadata = sanitizeRecord(input.dataSetMetadata)
 
   if ((input.erc8004Type && !input.erc8004Agent) || (!input.erc8004Type && input.erc8004Agent)) {
@@ -24,12 +24,12 @@ export function normalizeMetadataConfig(input: MetadataConfigInput): MetadataCon
 
   if (input.erc8004Type && input.erc8004Agent) {
     const key = `8004${input.erc8004Type}`
-    mergeRecord(metadata, key, input.erc8004Agent, 'ERC-8004 metadata', 'metadata')
+    mergeRecord(pieceMetadata, key, input.erc8004Agent, 'ERC-8004 metadata', 'metadata')
     mergeRecord(dataSetMetadata, 'erc8004Files', '', 'ERC-8004 metadata', 'data set metadata')
   }
 
   return {
-    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+    pieceMetadata: Object.keys(pieceMetadata).length > 0 ? pieceMetadata : undefined,
     dataSetMetadata: Object.keys(dataSetMetadata).length > 0 ? dataSetMetadata : undefined,
   }
 }

@@ -86,7 +86,7 @@ export interface MetadataResolutionConfig {
 }
 
 export interface ResolvedMetadataOptions {
-  metadata?: Record<string, string>
+  pieceMetadata?: Record<string, string>
   dataSetMetadata?: Record<string, string>
 }
 
@@ -112,16 +112,16 @@ export function resolveMetadataOptions(
   const parsedMetadata = parseKeyValuePairs(metadataPairs, '--metadata')
   const parsedDataSetMetadata = parseKeyValuePairs(dsMetadataPairs, '--data-set-metadata')
 
-  const { metadata, dataSetMetadata } = normalizeMetadataConfig({
-    metadata: Object.keys(parsedMetadata).length > 0 ? parsedMetadata : undefined,
+  const { pieceMetadata, dataSetMetadata } = normalizeMetadataConfig({
+    pieceMetadata: Object.keys(parsedMetadata).length > 0 ? parsedMetadata : undefined,
     dataSetMetadata: Object.keys(parsedDataSetMetadata).length > 0 ? parsedDataSetMetadata : undefined,
     erc8004Type: config.includeErc8004 ? options['8004Type'] : undefined,
     erc8004Agent: config.includeErc8004 ? options['8004Agent'] : undefined,
   })
 
   const resolved: ResolvedMetadataOptions = {}
-  if (metadata) {
-    resolved.metadata = metadata
+  if (pieceMetadata) {
+    resolved.pieceMetadata = pieceMetadata
   }
   if (dataSetMetadata) {
     resolved.dataSetMetadata = dataSetMetadata

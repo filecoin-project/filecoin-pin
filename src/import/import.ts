@@ -128,8 +128,8 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
   const spinner = createSpinner()
 
-  const { metadata: uploadMetadata, dataSetMetadata } = normalizeMetadataConfig({
-    metadata: options.metadata,
+  const { pieceMetadata, dataSetMetadata } = normalizeMetadataConfig({
+    pieceMetadata: options.pieceMetadata,
     dataSetMetadata: options.dataSetMetadata,
   })
 
@@ -253,7 +253,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       fileSize: fileStat.size,
       logger,
       spinner,
-      ...(uploadMetadata && { metadata: uploadMetadata }),
+      ...(pieceMetadata && { pieceMetadata }),
     })
 
     // Step 6: Display results

@@ -20,11 +20,11 @@ export const importCommand = new Command('import')
         ...importOptionsFromCli
       } = options
 
-      const { metadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
+      const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
       const importOptions: ImportOptions = {
         ...importOptionsFromCli,
         filePath: file,
-        ...(metadata && { metadata }),
+        ...(pieceMetadata && { pieceMetadata }),
         ...(dataSetMetadata && { dataSetMetadata }),
       }
 
