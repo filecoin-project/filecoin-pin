@@ -1,17 +1,50 @@
+import type { ProviderInfo } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import type { ProgressEvent, ProgressEventHandler } from './types.js'
 
-export type ValidateIPNIProgressEvents =
-  | ProgressEvent<'ipniAdvertisement.retryUpdate', { retryCount: number }>
-  | ProgressEvent<'ipniAdvertisement.complete', { result: true; retryCount: number }>
-  | ProgressEvent<'ipniAdvertisement.failed', { error: Error }>
+/**
+ * Response structure from an IPNI indexer.
+ *
+ * The indexer returns provider records corresponding with each SP that advertised
+ * a given CID to IPNI.
+ * Each provider includes their peer ID and multiaddrs.
+ */
+interface IpniIndexerResponse {
+  MultihashResults?: Array<{
+    Multihash?: string
+    ProviderResults?: ProviderResult[]
+  }>
+}
 
-export interface ValidateIPNIAdvertisementOptions {
+/**
+ * A single provider's provider record from IPNI.
+ *
+ * Contains the provider's libp2p peer ID and an array of multiaddrs where
+ * the content can be retrieved. These multiaddrs typically include the
+ * provider's PDP service endpoint (e.g., /dns/provider.example.com/tcp/443/https).
+ *
+ * Note: this format matches what IPNI indexers return (see https://cid.contact/cid/bafybeigvgzoolc3drupxhlevdp2ugqcrbcsqfmcek2zxiw5wctk3xjpjwy for an example)
+ */
+interface ProviderResult {
+  Provider?: {
+    /** Libp2p peer ID of the storage provider */
+    ID?: string
+    /** Multiaddrs where this provider can serve the content */
+    Addrs?: string[]
+  }
+}
+
+export type ValidateIPNIProgressEvents =
+  | ProgressEvent<'ipniProviderResults.retryUpdate', { retryCount: number }>
+  | ProgressEvent<'ipniProviderResults.complete', { result: true; retryCount: number }>
+  | ProgressEvent<'ipniProviderResults.failed', { error: Error }>
+
+export interface WaitForIpniProviderResultsOptions {
   /**
    * maximum number of attempts
    *
-   * @default: 10
+   * @default: 20
    */
   maxAttempts?: number | undefined
 
@@ -37,15 +70,39 @@ export interface ValidateIPNIAdvertisementOptions {
   logger?: Logger | undefined
 
   /**
+   * Providers that are expected to appear in the IPNI provider results. All
+   * providers supplied here must be present in the response for the validation
+   * to succeed. When omitted or empty, the validation when the IPNI
+   * response is non-empty.
+   *
+   * @default: []
+   */
+  expectedProviders?: ProviderInfo[] | undefined
+
+  /**
    * Callback for progress updates
    *
    * @default: undefined
    */
   onProgress?: ProgressEventHandler<ValidateIPNIProgressEvents>
+
+  /**
+   * IPNI indexer URL to query for provider records to confirm that advertisements were processed.
+   *
+   * @default 'https://filecoinpin.contact'
+   */
+  ipniIndexerUrl?: string | undefined
 }
 
 /**
- * Check if the SP has announced the IPFS root CID to IPNI.
+ * Check if the IPNI Indexer has the provided ProviderResults for the provided ipfsRootCid.
+ * This effectively verifies the entire SP<->IPNI flow, including:
+ * - The SP announced the advertisement chain to the IPNI indexer(s)
+ * - The IPNI indexer(s) pulled the advertisement chain from the SP
+ * - The IPNI indexer(s) updated their index
+ * This doesn't check individual steps, but rather the end ProviderResults reponse from the IPNI indexer.
+ * If the IPNI indexer ProviderResults have the expected providers, then the steps abomove must have completed.
+ * This doesn't actually do any IPFS Mainnet retrieval checks of the ipfsRootCid.
  *
  * This should not be called until you receive confirmation from the SP that the piece has been parked, i.e. `onPieceAdded` in the `synapse.storage.upload` callbacks.
  *
@@ -53,19 +110,40 @@ export interface ValidateIPNIAdvertisementOptions {
  * @param options - Options for the check
  * @returns True if the IPNI announce succeeded, false otherwise
  */
-export async function validateIPNIAdvertisement(
+export async function waitForIpniProviderResults(
   ipfsRootCid: CID,
-  options?: ValidateIPNIAdvertisementOptions
+  options?: WaitForIpniProviderResultsOptions
 ): Promise<boolean> {
   const delayMs = options?.delayMs ?? 5000
-  const maxAttempts = options?.maxAttempts ?? 10
+  const maxAttempts = options?.maxAttempts ?? 20
+  const ipniIndexerUrl = options?.ipniIndexerUrl ?? 'https://filecoinpin.contact'
+  const expectedProviders = options?.expectedProviders?.filter((provider) => provider != null) ?? []
+  const { expectedMultiaddrs, skippedProviderCount } = deriveExpectedMultiaddrs(expectedProviders, options?.logger)
+  const expectedMultiaddrsSet = new Set(expectedMultiaddrs)
+
+  const hasProviderExpectations = expectedMultiaddrs.size > 0
+
+  // Log a warning if we expected providers but couldn't derive their multiaddrs
+  // In this case, we fall back to generic validation (just checking if there are any provider records for the CID)
+  if (!hasProviderExpectations && expectedProviders.length > 0 && skippedProviderCount > 0) {
+    options?.logger?.info(
+      { skippedProviderExpectationCount: skippedProviderCount, expectedProviders: expectedProviders.length },
+      'No provider multiaddrs derived from expected providers; falling back to generic IPNI validation'
+    )
+  }
 
   return new Promise<boolean>((resolve, reject) => {
     let retryCount = 0
+    // Tracks the most recent validation failure reason for error reporting
+    let lastFailureReason: string | undefined
+    // Tracks the actual multiaddrs found in the last IPNI response for error reporting
+    let lastActualMultiaddrs: Set<string> = new Set()
+
     const check = async (): Promise<void> => {
       if (options?.signal?.aborted) {
         throw new Error('Check IPNI announce aborted', { cause: options?.signal })
       }
+
       options?.logger?.info(
         {
           event: 'check-ipni-announce',
@@ -74,27 +152,96 @@ export async function validateIPNIAdvertisement(
         'Checking IPNI for announcement of IPFS Root CID "%s"',
         ipfsRootCid.toString()
       )
-      const fetchOptions: RequestInit = {}
-      if (options?.signal) {
-        fetchOptions.signal = options?.signal
-      }
+
+      // Emit progress event for this attempt
       try {
-        options?.onProgress?.({ type: 'ipniAdvertisement.retryUpdate', data: { retryCount } })
+        options?.onProgress?.({ type: 'ipniProviderResults.retryUpdate', data: { retryCount } })
       } catch (error) {
         options?.logger?.warn({ error }, 'Error in consumer onProgress callback for retryUpdate event')
       }
 
-      const response = await fetch(`https://filecoinpin.contact/cid/${ipfsRootCid}`, fetchOptions)
-      if (response.ok) {
-        try {
-          options?.onProgress?.({ type: 'ipniAdvertisement.complete', data: { result: true, retryCount } })
-        } catch (error) {
-          options?.logger?.warn({ error }, 'Error in consumer onProgress callback for complete event')
-        }
-        resolve(true)
-        return
+      // Fetch IPNI provider records
+      const fetchOptions: RequestInit = {
+        headers: { Accept: 'application/json' },
+      }
+      if (options?.signal) {
+        fetchOptions.signal = options?.signal
       }
 
+      const response = await fetch(`${ipniIndexerUrl}/cid/${ipfsRootCid}`, fetchOptions)
+
+      // Parse and validate response
+      if (response.ok) {
+        let providerResults: ProviderResult[] = []
+        try {
+          const body = (await response.json()) as IpniIndexerResponse
+          // Extract provider results
+          providerResults = (body.MultihashResults ?? []).flatMap((r) => r.ProviderResults ?? [])
+          // Extract all multiaddrs from provider results
+          lastActualMultiaddrs = new Set(providerResults.flatMap((pr) => pr.Provider?.Addrs ?? []))
+          lastFailureReason = undefined
+        } catch (parseError) {
+          // Clear actual multiaddrs on parse error
+          lastActualMultiaddrs = new Set()
+          lastFailureReason = 'Failed to parse IPNI response body'
+          options?.logger?.warn({ error: parseError }, `${lastFailureReason}. Retrying...`)
+        }
+
+        // Check if we have provider results to validate
+        if (providerResults.length > 0) {
+          let isValid = false
+
+          if (hasProviderExpectations) {
+            // Find matching multiaddrs
+
+            const matchedMultiaddrs = lastActualMultiaddrs.intersection(expectedMultiaddrsSet)
+            isValid = matchedMultiaddrs.size === expectedMultiaddrs.size
+
+            if (!isValid) {
+              // Log validation gap
+              const missingMultiaddrs = expectedMultiaddrsSet.difference(matchedMultiaddrs)
+              lastFailureReason = `Missing provider records with expected multiaddr(s): ${Array.from(missingMultiaddrs).join(', ')}`
+              options?.logger?.info(
+                {
+                  receivedMultiaddrs: lastActualMultiaddrs,
+                  matchedMultiaddrs,
+                  missingMultiaddrs,
+                },
+                `${lastFailureReason}. Retrying...`
+              )
+            }
+          } else {
+            // Generic validation: just need any provider with addresses
+            isValid = lastActualMultiaddrs.size > 0
+            if (!isValid) {
+              lastFailureReason = 'Expected at least one provider record'
+              options?.logger?.info(`${lastFailureReason}. Retrying...`)
+            }
+          }
+
+          if (isValid) {
+            // Validation succeeded!
+            try {
+              options?.onProgress?.({ type: 'ipniProviderResults.complete', data: { result: true, retryCount } })
+            } catch (error) {
+              options?.logger?.warn({ error }, 'Error in consumer onProgress callback for complete event')
+            }
+            resolve(true)
+            return
+          }
+        } else if (lastFailureReason == null) {
+          // Only set generic message if we don't already have a more specific reason (e.g., parse error)
+          lastFailureReason = 'IPNI response did not include any provider results'
+          // Track that we got an empty response
+          lastActualMultiaddrs = new Set()
+          options?.logger?.info(
+            { providerResultsCount: providerResults?.length ?? 0 },
+            `${lastFailureReason}. Retrying...`
+          )
+        }
+      }
+
+      // Retry or fail
       if (++retryCount < maxAttempts) {
         options?.logger?.info(
           { retryCount, maxAttempts },
@@ -107,9 +254,16 @@ export async function validateIPNIAdvertisement(
         await new Promise((resolve) => setTimeout(resolve, delayMs))
         await check()
       } else {
-        // Max attempts reached - don't emit 'complete' event, just throw
-        // The outer catch handler will emit 'failed' event
-        const msg = `IPFS root CID "${ipfsRootCid.toString()}" not announced to IPNI after ${maxAttempts} attempt${maxAttempts === 1 ? '' : 's'}`
+        // Max attempts reached - validation failed
+        const msgBase = `IPFS root CID "${ipfsRootCid.toString()}" does not have expected IPNI ProviderResults after ${maxAttempts} attempt${maxAttempts === 1 ? '' : 's'}`
+        let msg = msgBase
+        if (lastFailureReason != null) {
+          msg = `${msgBase}. Last observation: ${lastFailureReason}`
+        }
+        // Include expected and actual multiaddrs for debugging
+        if (hasProviderExpectations) {
+          msg = `${msg}. Expected multiaddrs: [${Array.from(expectedMultiaddrs).join(', ')}]. Actual multiaddrs in response: [${Array.from(lastActualMultiaddrs).join(', ')}]`
+        }
         const error = new Error(msg)
         options?.logger?.warn({ error }, msg)
         throw error
@@ -118,11 +272,94 @@ export async function validateIPNIAdvertisement(
 
     check().catch((error) => {
       try {
-        options?.onProgress?.({ type: 'ipniAdvertisement.failed', data: { error } })
+        options?.onProgress?.({ type: 'ipniProviderResults.failed', data: { error } })
       } catch (callbackError) {
         options?.logger?.warn({ error: callbackError }, 'Error in consumer onProgress callback for failed event')
       }
       reject(error)
     })
   })
+}
+
+/**
+ * Convert a PDP service URL to an IPNI multiaddr format.
+ *
+ * Storage providers expose their PDP (Proof of Data Possession) service via HTTP/HTTPS
+ * endpoints (e.g., "https://provider.example.com:8443"). When they advertise content
+ * to IPNI, they include multiaddrs in libp2p format (e.g., "/dns/provider.example.com/tcp/8443/https").
+ *
+ * This function converts between these representations to enable validation that a
+ * provider's IPNI provider records matches their registered service endpoint.
+ *
+ * @param serviceURL - HTTP/HTTPS URL of the provider's PDP service
+ * @param logger - Optional logger for warnings
+ * @returns Multiaddr string in libp2p format, or undefined if conversion fails
+ *
+ * @example
+ * serviceURLToMultiaddr('https://provider.example.com')
+ * // Returns: '/dns/provider.example.com/tcp/443/https'
+ *
+ * @example
+ * serviceURLToMultiaddr('http://provider.example.com:8080')
+ * // Returns: '/dns/provider.example.com/tcp/8080/http'
+ */
+export function serviceURLToMultiaddr(serviceURL: string, logger?: Logger): string | undefined {
+  try {
+    const url = new URL(serviceURL)
+    const port = url.port || (url.protocol === 'https:' ? '443' : '80')
+    const protocolComponent = url.protocol.replace(':', '')
+
+    return `/dns/${url.hostname}/tcp/${port}/${protocolComponent}`
+  } catch (error) {
+    logger?.warn({ serviceURL, error }, 'Unable to derive IPNI multiaddr from serviceURL')
+    return undefined
+  }
+}
+
+/**
+ * Derive expected IPNI multiaddrs from provider information.
+ *
+ * For each provider, attempts to extract their PDP serviceURL and convert it to
+ * the multiaddr format used in IPNI advertisements. This allows validation that
+ * specific providers have advertised the content.
+ *
+ * Note: ProviderInfo should contain the serviceURL at `products.PDP.data.serviceURL`.
+ *
+ * @param providers - Array of provider info objects from synapse SDK
+ * @param logger - Optional logger for diagnostics
+ * @returns Expected multiaddrs and count of providers that couldn't be processed
+ */
+function deriveExpectedMultiaddrs(
+  providers: ProviderInfo[],
+  logger: Logger | undefined
+): {
+  expectedMultiaddrs: Set<string>
+  skippedProviderCount: number
+} {
+  const derivedMultiaddrs: Set<string> = new Set()
+  let skippedProviderCount = 0
+
+  for (const provider of providers) {
+    const serviceURL = provider.products?.PDP?.data?.serviceURL
+
+    if (!serviceURL) {
+      skippedProviderCount++
+      logger?.warn({ provider }, 'Expected provider is missing a PDP serviceURL; skipping IPNI multiaddr expectation')
+      continue
+    }
+
+    const derivedMultiaddr = serviceURLToMultiaddr(serviceURL, logger)
+    if (!derivedMultiaddr) {
+      skippedProviderCount++
+      logger?.warn({ provider, serviceURL }, 'Unable to derive IPNI multiaddr from serviceURL; skipping expectation')
+      continue
+    }
+
+    derivedMultiaddrs.add(derivedMultiaddr)
+  }
+
+  return {
+    expectedMultiaddrs: derivedMultiaddrs,
+    skippedProviderCount,
+  }
 }

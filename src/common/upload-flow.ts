@@ -267,7 +267,7 @@ export async function performUpload(
 
   let pieceCid: PieceCID | undefined
   function getIpniAdvertisementMsg(attemptCount: number): string {
-    return `Checking for IPNI advertisement (check #${attemptCount})`
+    return `Checking for IPNI provider records (check #${attemptCount})`
   }
 
   const uploadResult = await executeUpload(synapseService, carData, rootCid, {
@@ -321,14 +321,14 @@ export async function performUpload(
           break
         }
 
-        case 'ipniAdvertisement.retryUpdate': {
+        case 'ipniProviderResults.retryUpdate': {
           const attemptCount = event.data.retryCount === 0 ? 1 : event.data.retryCount + 1
           flow.addOperation('ipni', getIpniAdvertisementMsg(attemptCount))
           break
         }
-        case 'ipniAdvertisement.complete': {
+        case 'ipniProviderResults.complete': {
           // complete event is only emitted when result === true (success)
-          flow.completeOperation('ipni', 'IPNI advertisement successful. IPFS retrieval possible.', {
+          flow.completeOperation('ipni', 'IPNI provider records found. IPFS retrieval possible.', {
             type: 'success',
             details: {
               title: 'IPFS Retrieval URLs',
@@ -341,12 +341,12 @@ export async function performUpload(
           })
           break
         }
-        case 'ipniAdvertisement.failed': {
-          flow.completeOperation('ipni', 'IPNI advertisement failed.', {
+        case 'ipniProviderResults.failed': {
+          flow.completeOperation('ipni', 'IPNI provider records not found.', {
             type: 'warning',
             details: {
               title: 'IPFS retrieval is not possible yet.',
-              content: [pc.gray(`IPNI advertisement does not exist at http://filecoinpin.contact/cid/${rootCid}`)],
+              content: [pc.gray(`IPNI provider records for this SP does not exist for the provided root CID`)],
             },
           })
           break

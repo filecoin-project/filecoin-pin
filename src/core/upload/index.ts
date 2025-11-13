@@ -13,9 +13,9 @@ import {
 import { isSessionKeyMode, type SynapseService } from '../synapse/index.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 import {
-  type ValidateIPNIAdvertisementOptions,
   type ValidateIPNIProgressEvents,
-  validateIPNIAdvertisement,
+  type WaitForIpniProviderResultsOptions,
+  waitForIpniProviderResults,
 } from '../utils/validate-ipni-advertisement.js'
 import { type SynapseUploadResult, type UploadProgressEvents, uploadToSynapse } from './synapse.js'
 
@@ -195,7 +195,7 @@ export interface UploadExecutionOptions {
      * @default: true
      */
     enabled?: boolean
-  } & Omit<ValidateIPNIAdvertisementOptions, 'onProgress'>
+  } & Omit<WaitForIpniProviderResultsOptions, 'onProgress'>
 }
 
 export interface UploadExecutionResult extends SynapseUploadResult {
@@ -230,13 +230,31 @@ export async function executeUpload(
       case 'onPieceAdded': {
         // Begin IPNI validation as soon as the piece is added and parked in the data set
         if (options.ipniValidation?.enabled !== false && ipniValidationPromise == null) {
-          const { enabled: _enabled, ...rest } = options.ipniValidation ?? {}
-          ipniValidationPromise = validateIPNIAdvertisement(rootCid, {
-            ...rest,
+          const { enabled: _enabled, expectedProviders, ...restOptions } = options.ipniValidation ?? {}
+
+          // Build validation options
+          const validationOptions: WaitForIpniProviderResultsOptions = {
+            ...restOptions,
             logger,
-            ...(options?.onProgress != null ? { onProgress: options.onProgress } : {}),
-          }).catch((error) => {
-            logger.warn({ error }, 'IPNI advertisement validation promise rejected')
+          }
+
+          // Forward progress events to caller if they provided a handler
+          if (options?.onProgress != null) {
+            validationOptions.onProgress = options.onProgress
+          }
+
+          // Determine which providers to expect in IPNI
+          // Priority: user-provided expectedProviders > current provider > none (generic validation)
+          // Note: If expectedProviders is explicitly [], we respect that (no provider expectations)
+          if (expectedProviders != null) {
+            validationOptions.expectedProviders = expectedProviders
+          } else if (synapseService.providerInfo != null) {
+            validationOptions.expectedProviders = [synapseService.providerInfo]
+          }
+
+          // Start validation (runs in parallel with other operations)
+          ipniValidationPromise = waitForIpniProviderResults(rootCid, validationOptions).catch((error) => {
+            logger.warn({ error }, 'IPNI provider results check was rejected')
             return false
           })
         }
@@ -270,7 +288,7 @@ export async function executeUpload(
     try {
       ipniValidated = await ipniValidationPromise
     } catch (error) {
-      logger.error({ error }, 'Could not validate IPNI advertisement')
+      logger.error({ error }, 'Could not validate IPNI provider records')
       ipniValidated = false
     }
   }
