@@ -27,9 +27,9 @@ Curio is the software that [Filecoin Warm Storage Service](#filecoin-warm-storag
 
 ## Data Set
 
-Collections of stored data ([Pieces](#piece)) managed by [Filecoin Warm Storage Service](#filecoin-warm-storage-service). Each Data Set is tied to exactly one [Storage Provider](#storage-provider); all pieces in a Data Set are stored by the same SP. Each Data Set has [metadata](#metadata-keys), Pieces, and an associated payment rail between [Filecoin Pay](#filecoin-pay) and the SP that handles ongoing storage payments.
+Collections of stored data ([Pieces](#piece)) managed by [Filecoin Warm Storage Service](#filecoin-warm-storage-service). Each Data Set is tied to exactly one [Storage Provider](#storage-provider); all pieces in a Data Set are stored by the same SP. Each Data Set has [metadata](#metadata), Pieces, and an associated payment rail between [Filecoin Pay](#filecoin-pay) and the SP that handles ongoing storage payments.
 
-Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metadata-keys) (`source='filecoin-pin'`). If multiple exist, it uses the one storing the most data.
+Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metadata) (`source='filecoin-pin'`). If multiple exist, it uses the one storing the most data.
 
 ## FIL
 
@@ -96,7 +96,7 @@ See https://docs.ipfs.tech/concepts/glossary/#ipni.
 
 IPNI is the content routing system that [Filecoin Pin](#filecoin-pin) relies upon for retrieval to work for [standard IPFS tooling](#standard-ipfs-tooling).  [Storage Providers](#storage-provider) announce their advertisement changes to IPNI indexer like [filecoinpin.contact](http://filecoinpin.contact) and cid.contact, and the advertised CIDs become discoverable for IPFS Standard tooling.
 
-## Metadata Keys
+## Metadata
 
 Key-value pairs stored on-chain, either scoped to [Data Sets](#data-set) or [Pieces](#piece). [Filecoin Pin](#filecoin-pin) uses specific metadata keys:
 
@@ -155,7 +155,7 @@ Storage Providers receive uploaded piece data and then cryptographically prove t
 
 This is usually abbreviated as "SP".
 
-Note that within [Filecoin Onchain Cloud](#filecoin-onchain-cloud), "storage providers" are a form of **Serivce Provider**, and these two terms are often used interchangeably.
+Note that within [Filecoin Onchain Cloud](#filecoin-onchain-cloud), "storage providers" are a form of **Service Provider**, and these two terms are often used interchangeably.
 
 ## synapse
 

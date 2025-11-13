@@ -15,7 +15,7 @@ graph TD
 
     %% Node Definitions
     %% Non-blockchain nodes
-    Start([User: Select File to Add])
+    Start([User: Select File or Directory to Add])
     CreateCAR[FP: Create CAR<br/><br/>✓ IPFS Root CID known]
     UploadCAR[FP: Upload CAR to SP<br/><br/>✓ SP /piece/$pieceCid retrieval]
     IndexCAR{{SP: Index CAR CIDs<br/><br/>✓ SP /ipfs/$cid retrieval}}
@@ -28,7 +28,7 @@ graph TD
     SetupPay[FP: Setup Filecoin Pay Account<br/><br/>✓ Filecoin Pay balance visible]
     IdentifyDataSet[FP: Identify Data Set SP and ID]
     CreateDataSet{{SP: Create Data Set & Add Piece<br/><br/>✓ Blockchain Transaction}}
-    ConfirmBlockchainTx[FP: Confirm Blockchain Transaction<br/><br/>✓ IPNI provider records<br/>✓ Data Set & Piece metadata onchain]
+    ConfirmBlockchainTx[FP: Confirm Blockchain Transaction<br/><br/>✓ Data Set & Piece metadata onchain]
     ProveData{{SP: Prove Data Possession<br/><br/>✓ Cryptographic proofs onchain and visible on explorers}}
 
     %% Milestone
@@ -71,7 +71,7 @@ These are the set of steps that are done client side (i.e., where the Filecoin P
 
 *What/why:*
 
-The provided file needs to be turned into a merkle DAG and have the DAG's blocks shipped off.  [CAR](glossary.md#car) is a common container format for transporting blocks in the IPFS ecosystem and is used with Filecoin Pin.  Filecoin Pin DAGifies the content so that it knows the CIDs of the blocks so it doesn't need to trust the [Storage Provider](glossary.md#storage-provider) (SP).
+The provided file needs to be turned into a Merkle DAG and have the DAG's blocks transported to an SP.  [CAR](glossary.md#car) is a common container format for transporting blocks in the IPFS ecosystem and is used with Filecoin Pin.  Storage providers store and prove contiguous sequence of bytes, but generating IPFS compatible data from files and directories creates potentially very many small "blocks" of data, which we pack into a single CAR container for [Storage Providers](glossary.md#storage-provider) (SPs) to store and prove. The process of packing in IPFS form, or "DAGifying" the file data, allows us to reference and verify smaller units of our content, and gives us the ability to interact _trustlessly_ with SPs to serve and retrieve our file data.
 
 Implementation notes:
 - The CAR file is created using Helia for UnixFS DAG creation.
@@ -79,11 +79,11 @@ Implementation notes:
 
 *Outputs:*
 
-v1 CAR containing the merkle DAG representing the provided file.  There is one root in the CAR, and it represents the root of the DAG for the input file.  This is referred to as the "[IPFS Root CID](glossary.md#ipfs-root-cid)".
+v1 CAR containing the Merkle DAG representing the provided file.  There is one root in the CAR, and it represents the root of the DAG for the input file.  This is referred to as the "[IPFS Root CID](glossary.md#ipfs-root-cid)".
 
 *Expected duration:*
 
-This is a function of the size of the input file and the hardware, but a 1Gb input file can take upwards of a minute to DAGify and package as a CAR.  As the car is being created, it can be streamed to an SP.
+This is a function of the size of the input file and the hardware. Typical DAGification of files and directories is relatively quick as it's simply a matter of chunking and hashing using common algorithms. The most time-consuming part is the generation of the ["Piece CID](glossary.md#piece-cid) of the whole CAR on the client side prior to upload, where a a 1Gb input can take upwards of a minute.  As the car is being created, it can be streamed to an SP, which is most likely the bottleneck.
 
 ### Upload CAR
 
@@ -91,13 +91,13 @@ This is a function of the size of the input file and the hardware, but a 1Gb inp
 
 The [Storage Provider](glossary.md#storage-provider) (SP) needs to be given the bytes to store so it can serve retrievals and prove to the chain that it possesses them.   This is done via an HTTP `PUT /pdp/piece/upload`.
 
-The upload includes [metadata](glossary.md#metadata-keys) that will be stored on-chain:
+The upload includes [metadata](glossary.md#metadata) that will be stored on-chain:
 - `ipfsRootCid`: The IPFS Root CID, linking the [Piece](glossary.md#piece) back to IPFS
 - `withIPFSIndexing`: Signals the SP to index and advertise to [IPNI](glossary.md#ipni)
 
 *Outputs:*
 
-SP parks the Piece and queues it up for processing, while the client gets an HTTP response with the [Piece CID](glossary.md#piece-cid).  The Filecoin Pin client confirms that the Piece CID calculated by the server matches what was computed locally.
+SP parks the Piece and queues it up for processing, while the client gets an HTTP response with the [Piece CID](glossary.md#piece-cid).  The server calculates the Piece CID for the data and confirms that it matches the Piece CID calculated and provided by the Filecoin Pin client to provide assurance that we are providing the exact bytes we expect.
 
 Since the SP has the data for the Piece, it can be retrieved with https://sp.domain/piece/$pieceCid retrieval.
 
@@ -109,7 +109,7 @@ This is a function of the CAR size and the throughput between the client and the
 
 *What/why:*
 
-At some point after receiving the uploaded [CAR](glossary.md#car), an SP indexing task processes the CAR and creates a local mapping of CIDs to offsets within the CAR.  Following that, an SP [IPNI](glossary.md#ipni) task picks up the local index, makes an IPNI advertisement chain, and then announces the advertisement chain to IPNI indexers like filecoinpin.contact and cid.contact so they know to come and get the advertisement chain to build up their own index.
+At some point after receiving the uploaded [CAR](glossary.md#car), an SP indexing task processes the CAR and creates a local mapping of CIDs to offsets within the CAR so it can serve IPFS style retrievals.  Following that, an SP [IPNI](glossary.md#ipni) tasks picks up the local index, makes and IPNI advertisement chain, and then announces the advertisement chain to IPNI indexers like filecoinpin.contact and cid.contact so they know to come and get the advertisement chain to build up their own index.
 
 Filecoin Pin validates the IPNI advertisement process by polling `https://filecoinpin.contact/cid/$cid` (NOT cid.contact due to [negative caching issues discussed below](#how-long-does-an-ipni-indexer-cache-results)). 
 
@@ -133,7 +133,7 @@ Below are the set of steps that are particularly unique from traditional IPFS us
 
 Filecoin Pin needs to interface with the Filecoin blockchain to authorize and send payment to [storage providers](glossary.md#storage-provider) (SPs) for their work of storing and proving possession of data.  This requires having a secret key to sign messages sent to the blockchain.
 
-Currently `filecoin-pin` expects to be explicitly passed a private key via environment variable or command line argument.  [filecoin-pin-website](glossary.md#filecoin-pin-website) as [pin.filecoin.cloud](http://pin.filecoin.cloud) uses a global [session key](glossary.md#session-key) which can be embedded into source code since it scopes down the set of actions that can be performed.
+Currently `filecoin-pin` expects to be explicitly passed a private key via environment variable or command line argument.  [filecoin-pin-website](glossary.md#filecoin-pin-website) as [pin.filecoin.cloud](http://pin.filecoin.cloud) uses a global [session key](glossary.md#session-key) which can be embedded into source code since it scopes down the set of actions that can be performed and alleviating the need for a user to provide a wallet to perform operations.
 
 *Outputs:*
 
@@ -169,12 +169,12 @@ As a single transaction, this takes ~30 seconds to be confirmed onchain.
 
 In order to upload a [CAR](glossary.md#car), Filecoin Pin needs to identify the SP to upload to.  This strategy is followed (assuming no overrides are provided):
 
-1. If the chain has record of a [Data Set](glossary.md#data-set) created by the wallet with the Data Set [metadata key](glossary.md#metadata-keys) `source` set to 'filecoin-pin', then that DataSet ID and corresponding SP are used.  If there are multiple, then the one storing the most data will be used.
+1. If the chain has record of a [Data Set](glossary.md#data-set) created by the wallet with the Data Set [metadata key](glossary.md#metadata) `source` set to 'filecoin-pin', then that DataSet ID and corresponding SP are used.  If there are multiple, then the one storing the most data will be used.
 2. If there is no existing Data Set, then a new Data Set is created using an approved [Storage Provider](glossary.md#storage-provider) from the [Storage Provider Registry](glossary.md#service-provider-registry).
 
 *Outputs:*
 
-- An existing Data Set id to use or empty if a new Data Set should be created
+- An existing Data Set ID to use or empty if a new Data Set should be created
 - SP id to use for CAR upload and Data Set creation (if needed).
 
 *Expected duration:*
@@ -185,7 +185,7 @@ This should take less than a couple of seconds as it involves hitting RPC provid
 
 *What/why:*
 
-A single blockchain transaction that create a [Data Set](glossary.md#data-set) if one doesn't already exist and adds a [Piece](glossary.md#piece) to the Data Set for the corresponding [CAR](glossary.md#car) file.  This is done as one operation rather than just "Create Data Set" and "Add Piece" to improve interaction latency.  The Piece uses a Filecoin-internal hash function called [CommP](glossary.md#commp), resulting in a [Piece CID](glossary.md#piece-cid), which is what is stored onchain.  The [Filecoin Warm Storage Service](glossary.md#filecoin-warm-storage-service) then has record of what SP is storing which data that it needs to periodically prove it has possession of.  Filecoin Pin stores additional [metadata](glossary.md#metadata-keys) on the piece denoting that the uploaded data should be indexed by the SP and advertised to [IPNI](glossary.md#ipni) indexers.  
+A single blockchain transaction that create a [Data Set](glossary.md#data-set) if one doesn't already exist and adds a [Piece](glossary.md#piece) to the Data Set for the corresponding [CAR](glossary.md#car) file.  This is done as one operation rather than just "Create Data Set" and "Add Piece" to improve interaction latency.  The Piece uses a Filecoin-internal hash function resulting in a [Piece CID](glossary.md#piece-cid), which is what is stored onchain.  The [Filecoin Warm Storage Service](glossary.md#filecoin-warm-storage-service) then has record of what SP is storing which data that it needs to periodically prove it has possession of.  Filecoin Pin stores additional [metadata](glossary.md#metadata) on the piece denoting that the uploaded data should be indexed by the SP and advertised to [IPNI](glossary.md#ipni) indexers.  
 
 *Outputs:*
 

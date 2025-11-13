@@ -67,6 +67,9 @@ Web-based management console for monitoring and managing your Filecoin Pin deplo
 - **Status**: Planned
 - **Tracking**: See [issue #74](https://github.com/filecoin-project/filecoin-pin/issues/74) for updates.  Please leave a comment about your usecase if this would be particularly beneficial.
 
+## Documentation
+See [/documentation](/documentation/).
+
 ## Examples
 
 See Filecoin Pin in action:

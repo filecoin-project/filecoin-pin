@@ -1,0 +1,3 @@
+* [Filecoin Pin glossary](.glossary.md) - A unified place for the defining the plethora of terms for the various technologies coming together under Filecoin Pin (e.g., existing Filecoin blockchain and storage providers, new Filecoin initiatives including Filecoin Onchain Cloud, IPFS).
+* [Explainer: behind the scenes of adding a file](.behind-the-scenes-of-adding-a-file.md) - Provides more technical info about what happens "behind the scenes" of as Filecoin Pin as it uses the underlying [`synapse` library](.glossary.md#synapse) and [Filecoin Onchain Cloud](.glossary.md#filecoin-onchain-cloud) offering.
+* [Builder Cookbook](https://docs.filecoin.io/builder-cookbook/filecoin-pin)
