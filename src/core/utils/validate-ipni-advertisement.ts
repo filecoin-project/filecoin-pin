@@ -96,10 +96,13 @@ export interface WaitForIpniProviderResultsOptions {
 
 /**
  * Check if the IPNI Indexer has the provided ProviderResults for the provided ipfsRootCid.
- * This effectively verifies the entire SP flow that:
- * - The advertisement was announce to the IPNI indexer(s)
- * - The IPNI indexer(s) pulled the advertisement
+ * This effectively verifies the entire SP<->IPNI flow, including:
+ * - The SP announced the advertisement chain to the IPNI indexer(s)
+ * - The IPNI indexer(s) pulled the advertisement chain from the SP
  * - The IPNI indexer(s) updated their index
+ * This doesn't check individual steps, but rather the end ProviderResults reponse from the IPNI indexer.  
+ * If the IPNI indexer ProviderResults have the expected providers, then the steps abomove must have completed.
+ * This doesn't actually do any IPFS Mainnet retrieval checks of the ipfsRootCid.
  *
  * This should not be called until you receive confirmation from the SP that the piece has been parked, i.e. `onPieceAdded` in the `synapse.storage.upload` callbacks.
  *
