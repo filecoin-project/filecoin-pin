@@ -22,7 +22,7 @@ How an IPFS node (including IPFS HTTP Gateways) find other IPFS nodes providing 
 
 ## Curio
 
-Curio is the software that [Filecoin Warm Storage Service](#filecoin-warm-storage-service) [Storage Providers](#storage-provider) run, which handles:
+Curio is the software that [Filecoin Warm Storage Service](#filecoin-warm-storage-service) [Service Providers](#service-provider) run, which handles:
 
 1. interfacing with data writing clients like [Synapse](#synapse)/filecoin-pin
 2. interfacing with [IPNI](#ipni) indexing for content routing
@@ -31,7 +31,7 @@ Curio is the software that [Filecoin Warm Storage Service](#filecoin-warm-storag
 
 ## Data Set
 
-Collections of stored data ([Pieces](#piece)) managed by [Filecoin Warm Storage Service](#filecoin-warm-storage-service). Each Data Set is tied to exactly one [Storage Provider](#storage-provider); all pieces in a Data Set are stored by the same SP. Each Data Set has [metadata](#metadata), Pieces, and an associated payment rail between [Filecoin Pay](#filecoin-pay) and the SP that handles ongoing storage payments.
+Collections of stored data ([Pieces](#piece)) managed by [Filecoin Warm Storage Service](#filecoin-warm-storage-service). Each Data Set is tied to exactly one [Service Provider](#service-provider); all pieces in a Data Set are stored by the same SP. Each Data Set has [metadata](#metadata), Pieces, and an associated payment rail between [Filecoin Pay](#filecoin-pay) and the SP that handles ongoing storage payments.
 
 Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metadata) (`source='filecoin-pin'`). If multiple exist, it uses the one storing the most data.
 
@@ -82,7 +82,7 @@ Example of [Filecoin Pin](#filecoin-pin) in action within a reusable GitHub Acti
 
 ## Filecoin Warm Storage Service
 
-This is the primary smart contract used when interacting with the warm storage functionality offered in [Filecoin Onchain Cloud](#filecoin-onchain-cloud).  It acts as both a "service" contract and a "validator" contract for payment management and settlements, ensuring the warm storage service is actually delivered before payments are released to the [Storage Provider](#storage-provider).
+This is the primary smart contract used when interacting with the warm storage functionality offered in [Filecoin Onchain Cloud](#filecoin-onchain-cloud).  It acts as both a "service" contract and a "validator" contract for payment management and settlements, ensuring the warm storage service is actually delivered before payments are released to the [Service Provider](#service-provider).
 
 ## IPFS Root CID
 
@@ -90,7 +90,7 @@ The CID for the root of a merkle DAG that is usually encoding a file or director
 
 ## `/ipfs` Retrieval
 
-This is one of two retrieval endpoints that [Storage Providers](#storage-provider) expose.  This endpoint conforms with the [IPFS Trustless Gateway Specification](https://specs.ipfs.tech/http-gateways/trustless-gateway/).  All CIDs that are indexed by the SP should be retrievable via this endpoint.  This is the endpoint that is announced through the provider records stored by [IPNI](#ipni) Indexers. 
+This is one of two retrieval endpoints that [Service Providers](#service-provider) expose.  This endpoint conforms with the [IPFS Trustless Gateway Specification](https://specs.ipfs.tech/http-gateways/trustless-gateway/).  All CIDs that are indexed by the SP should be retrievable via this endpoint.  This is the endpoint that is announced through the provider records stored by [IPNI](#ipni) Indexers. 
 
 As a "trustless" protocol, retrieval of IPFS data using this mechanism provides assurance that data has not been tampered with and that what is being retrieved is _exactly_ what was requested. This is in contrast to a "trusted" gateway where IPFS data is reassembled into a form appropriate for rendering. Developers and users are encouraged to perform this reassembly step as close as possible to the user, using existing IPFS technologies such as [Kubo](https://github.com/ipfs/kubo) and [Helia](https://github.com/ipfs/helia). For example, Helia's [`verified-fetch` package](https://www.npmjs.com/package/@helia/verified-fetch) is able to perform this within a browser context and is powering https://inbrowser.link/.
 
@@ -98,7 +98,7 @@ As a "trustless" protocol, retrieval of IPFS data using this mechanism provides 
 
 See https://docs.ipfs.tech/concepts/glossary/#ipni.
 
-IPNI is the content routing system that [Filecoin Pin](#filecoin-pin) relies upon for retrieval to work for [standard IPFS tooling](#standard-ipfs-tooling).  [Storage Providers](#storage-provider) announce their advertisement changes to IPNI indexer like [filecoinpin.contact](http://filecoinpin.contact) and cid.contact, and the advertised CIDs become discoverable for IPFS Standard tooling.
+IPNI is the content routing system that [Filecoin Pin](#filecoin-pin) relies upon for retrieval to work for [standard IPFS tooling](#standard-ipfs-tooling).  [Service Providers](#service-provider) announce their advertisement changes to IPNI indexer like [filecoinpin.contact](http://filecoinpin.contact) and cid.contact, and the advertised CIDs become discoverable for IPFS Standard tooling.
 
 ## Metadata
 
@@ -106,7 +106,7 @@ Key-value pairs stored on-chain, either scoped to [Data Sets](#data-set) or [Pie
 
 Key | Purpose | Scope
 `source` | Set to 'filecoin-pin' to identify data created by this tool | Data Set
-`withIPFSIndexing` | Set to empty string to signal the [SP](#storage-provider) to index and advertise the data to [IPNI](#ipni) | Data Set
+`withIPFSIndexing` | Set to empty string to signal the [SP](#service-provider) to index and advertise the data to [IPNI](#ipni) | Data Set
 `ipfsRootCid` | Stored on each Piece to link the [Piece CID](#piece-cid) back to the [IPFS Root CID](#ipfs-root-cid).  While this is a convention that Filecoin Pin follows, there is nothing onchain enforcing a correct link between `ipfsRootCid` and `pieceCid`. | Piece
 
 ## Piece
@@ -129,7 +129,7 @@ It takes the form of https://sp.domain/piece/$pieceCid.
 
 https://github.com/FilOzone/pdp
 
-The cryptographic protocol that verifies [storage providers](#storage-provider) are actually storing the data they claim to store. Providers must periodically prove they possess the data.  This is distinct from the existing Filecoin proof system, "PoRep" or "Proof of Replication".
+The cryptographic protocol that verifies [service providers](#service-provider) are actually storing the data they claim to store. Providers must periodically prove they possess the data.  This is distinct from the existing Filecoin proof system, "PoRep" or "Proof of Replication".
 
 This is usually abbreviated as "PDP".
 
@@ -137,9 +137,17 @@ This is usually abbreviated as "PDP".
 
 HTTP endpoint/infrastructure for reading or writing blockchain state.  These RPC providers run native blockchain clients and likely are storing blockchain state in an optimized format for faster reads. Filecoin provides support for the common set of Ethereum-style APIs in its RPC endpoints, meaning that most standard Ethereum tooling can interact with Filecoin without significant modification.  See https://docs.filecoin.io/networks/mainnet/rpcs for more information about Filecoin RPC providers.
 
+## Service Provider
+
+Service Providers receive uploaded piece data and then cryptographically prove that they have possession of the uploaded data.  Service providers do this in exchange for payment through [Filecoin Pay](#filecoin-pay) as validated and authorized by [Filecoin Warm Storage Service](#filecoin-warm-storage-service).  Service Providers at least currently run [Curio](#curio).
+
+This is usually abbreviated as "SP".
+
+Note that within [Filecoin Onchain Cloud](#filecoin-onchain-cloud), service providers in the context of warm storage are also commonly referred to as [Storage Providers](#storage-provider), and these two terms are often used interchangeably.
+
 ## Service Provider Registry
 
-An onchain registry of [Storage Providers](#storage-provider) who are participating in [Filecoin Onchain Cloud](#filecoin-onchain-cloud).  They can be viewed at https://filecoin.cloud/providers.  By default, only "Approved Providers" are used by [Filecoin Pin](#filecoin-pin) because they have been vetted to support IPFS Mainnet retrievals.
+An onchain registry of [Service Providers](#service-provider) who are participating in [Filecoin Onchain Cloud](#filecoin-onchain-cloud).  They can be viewed at https://filecoin.cloud/providers.  By default, only "Approved Providers" are used by [Filecoin Pin](#filecoin-pin) because they have been vetted to support IPFS Mainnet retrievals.
 
 ## Session Key
 
@@ -149,22 +157,20 @@ A session key acts as a credential that permits a scoped-down set of tasks on be
 
 Session keys require specific permissions (such as CREATE_DATA_SET and ADD_PIECES) and have expiration timestamps.  The filecoin-pin-website session key is scoped to allowing the creation of [data sets](#data-set) and [pieces](#piece), but prevents transferring of funds for example.
 
+
+
 ## Standard IPFS Tooling
 
 This is shorthand way of referring to all the tooling the traditional IPFS ecosystem has built up for finding and retrieving content on [IPFS Mainnet](https://docs.ipfs.tech/concepts/glossary/#mainnet).  This includes tools like Kubo, Helia, and HTTP gateways.  A goal of filecoin-pin is to make sure data stored with it is retrievable with standard IPFS tooling without any special configuration.
 
 ## Storage Provider
 
-Storage Providers receive uploaded piece data and then cryptographically prove that they have possession of the uploaded data.  Storage providers do this in exchange for payment through [Filecoin Pay](#filecoin-pay) as validated and authorized by [Filecoin Warm Storage Service](#filecoin-warm-storage-service).  Storage Providers at least currently run [Curio](#curio).
+A common term used in place of [Service Provider](#service-provider).  Before [Filecoin Onchain Cloud](#filecoin-onchain-cloud), when Filecoin was just focused on storage, SP referred to "Storage Providers".  Now with the broader scope and utility of FOC, the more general "Service Provider" name is preferred.
 
-This is usually abbreviated as "SP".
+## Synapse
 
-Note that within [Filecoin Onchain Cloud](#filecoin-onchain-cloud), "storage providers" are a form of **Service Provider**, and these two terms are often used interchangeably.
-
-## synapse
-
-Synapse is the TypeScript SDK for interfacing with [Filecoin Onchain Cloud](#filecoin-onchain-cloud).  It abstracts [RPC Provider](#rpc-provider) calls, reading/writing smart contract state, and [Storage Provider](#storage-provider) interactions. Published as `@filoz/synapse-sdk` on npm, it provides TypeScript types and handles all blockchain interactions. Read more at https://synapse.filecoin.cloud.
+Synapse is the TypeScript SDK for interfacing with [Filecoin Onchain Cloud](#filecoin-onchain-cloud).  It abstracts [RPC Provider](#rpc-provider) calls, reading/writing smart contract state, and [Service Provider](#service-provider) interactions. Published as `@filoz/synapse-sdk` on npm, it provides TypeScript types and handles all blockchain interactions. Read more at https://synapse.filecoin.cloud.
 
 ## USDFC
 
-A US dollar denominated "stable coin" that is backed by [FIL](#fil).  USDFC is the currency used by [Storage Providers](#storage-provider) in [Filecoin Onchain Cloud](#filecoin-onchain-cloud).  USDFC is an ERC-20 token. Read more at https://docs.secured.finance/usdfc-stablecoin.
+A US dollar denominated "stable coin" that is backed by [FIL](#fil).  USDFC is the currency used by [Service Providers](#service-provider) in [Filecoin Onchain Cloud](#filecoin-onchain-cloud).  USDFC is an ERC-20 token. Read more at https://docs.secured.finance/usdfc-stablecoin.

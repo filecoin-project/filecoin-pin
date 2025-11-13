@@ -7,7 +7,7 @@ The steps outlined below are taken to "add a file with Filecoin Pin".  This docu
 _Key_ 
 Blue | Orange | FP | SP
 -- | -- | -- | --
-non-blockchain step | blockchain step | Filecoin Pin | Storage Provider
+non-blockchain step | blockchain step | Filecoin Pin | Service Provider
 
 
 ```mermaid
@@ -65,13 +65,13 @@ graph TD
 
 ## Steps without Blockchain Interactions
 
-These are the set of steps that are done client side (i.e., where the Filecoin Pin code is running) and with a [Storage Provider](glossary.md#storage-provider) that don't involve the Filecoin blockchain.  These steps in isolation though don't yield a committed cryptographic proof of the data being possessed by and retrievable from an SP, but they are necessary preconditions.
+These are the set of steps that are done client side (i.e., where the Filecoin Pin code is running) and with a [Service Provider](glossary.md#service-provider) that don't involve the Filecoin blockchain.  These steps in isolation though don't yield a committed cryptographic proof of the data being possessed by and retrievable from an SP, but they are necessary preconditions.
 
 ### Create CAR
 
 *What/why:*
 
-The provided file needs to be turned into a Merkle DAG and have the DAG's blocks transported to an SP.  [CAR](glossary.md#car) is a common container format for transporting blocks in the IPFS ecosystem and is used with Filecoin Pin.  Storage providers store and prove contiguous sequence of bytes, but generating IPFS compatible data from files and directories creates potentially very many small "blocks" of data, which we pack into a single CAR container for [Storage Providers](glossary.md#storage-provider) (SPs) to store and prove. The process of packing in IPFS form, or "DAGifying" the file data, allows us to reference and verify smaller units of our content, and gives us the ability to interact _trustlessly_ with SPs to serve and retrieve our file data.
+The provided file needs to be turned into a Merkle DAG and have the DAG's blocks transported to an SP.  [CAR](glossary.md#car) is a common container format for transporting blocks in the IPFS ecosystem and is used with Filecoin Pin.  [Service Providers](glossary.md#service-provider) (SPs) store and prove contiguous sequence of bytes, but generating IPFS compatible data from files and directories creates potentially very many small "blocks" of data, which we pack into a single CAR container for SPs to store and prove. The process of packing in IPFS form, or "DAGifying" the file data, allows us to reference and verify smaller units of our content, and gives us the ability to interact _trustlessly_ with SPs to serve and retrieve our file data.
 
 Implementation notes:
 - The CAR file is created using Helia for UnixFS DAG creation.
@@ -89,7 +89,7 @@ This is a function of the size of the input file and the hardware. Typical DAGif
 
 *What/why:*
 
-The [Storage Provider](glossary.md#storage-provider) (SP) needs to be given the bytes to store so it can serve retrievals and prove to the chain that it possesses them.   This is done via an HTTP `PUT /pdp/piece/upload`.
+The [Service Provider](glossary.md#service-provider) needs to be given the bytes to store so it can serve retrievals and prove to the chain that it possesses them.   This is done via an HTTP `PUT /pdp/piece/upload`.
 
 The upload includes [metadata](glossary.md#metadata) that will be stored on-chain:
 - `ipfsRootCid`: The IPFS Root CID, linking the [Piece](glossary.md#piece) back to IPFS
@@ -131,7 +131,7 @@ Below are the set of steps that are particularly unique from traditional IPFS us
 
 *What/why:*
 
-Filecoin Pin needs to interface with the Filecoin blockchain to authorize and send payment to [storage providers](glossary.md#storage-provider) (SPs) for their work of storing and proving possession of data.  This requires having a secret key to sign messages sent to the blockchain.
+Filecoin Pin needs to interface with the Filecoin blockchain to authorize and send payment to [service providers](glossary.md#service-provider) (SPs) for their work of storing and proving possession of data.  This requires having a secret key to sign messages sent to the blockchain.
 
 Currently `filecoin-pin` expects to be explicitly passed a private key via environment variable or command line argument.  [filecoin-pin-website](glossary.md#filecoin-pin-website) as [pin.filecoin.cloud](http://pin.filecoin.cloud) uses a global [session key](glossary.md#session-key) which can be embedded into source code since it scopes down the set of actions that can be performed and alleviating the need for a user to provide a wallet to perform operations.
 
@@ -170,7 +170,7 @@ As a single transaction, this takes ~30 seconds to be confirmed onchain.
 In order to upload a [CAR](glossary.md#car), Filecoin Pin needs to identify the SP to upload to.  This strategy is followed (assuming no overrides are provided):
 
 1. If the chain has record of a [Data Set](glossary.md#data-set) created by the wallet with the Data Set [metadata key](glossary.md#metadata) `source` set to 'filecoin-pin', then that DataSet ID and corresponding SP are used.  If there are multiple, then the one storing the most data will be used.
-2. If there is no existing Data Set, then a new Data Set is created using an approved [Storage Provider](glossary.md#storage-provider) from the [Storage Provider Registry](glossary.md#service-provider-registry).
+2. If there is no existing Data Set, then a new Data Set is created using an approved [Service Provider](glossary.md#service-provider) from the [Service Provider Registry](glossary.md#service-provider-registry).
 
 *Outputs:*
 
