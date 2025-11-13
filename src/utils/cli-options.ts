@@ -43,8 +43,16 @@ export function addAuthOptions(command: Command): Command {
     .option('--private-key <key>', 'Private key for standard auth (can also use PRIVATE_KEY env)')
     .option('--wallet-address <address>', 'Wallet address for session key auth (can also use WALLET_ADDRESS env)')
     .option('--session-key <key>', 'Session key for session key auth (can also use SESSION_KEY env)')
-    .option('--network <network>', 'Filecoin network to use: mainnet or calibration (can also use NETWORK env)', 'calibration')
-    .option('--rpc-url <url>', 'RPC endpoint (can also use RPC_URL env, overrides --network)', RPC_URLS.calibration.websocket)
+    .option(
+      '--network <network>',
+      'Filecoin network to use: mainnet or calibration (can also use NETWORK env)',
+      'calibration'
+    )
+    .option(
+      '--rpc-url <url>',
+      'RPC endpoint (can also use RPC_URL env, overrides --network)',
+      RPC_URLS.calibration.websocket
+    )
     .option(
       '--warm-storage-address <address>',
       'Warm storage contract address override (can also use WARM_STORAGE_ADDRESS env)'

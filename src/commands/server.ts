@@ -9,8 +9,16 @@ export const serverCommand = new Command('server')
   .option('--car-storage <path>', 'path for CAR file storage', './cars')
   .option('--database <path>', 'path to SQLite database', './pins.db')
   .option('--private-key <key>', 'private key for Synapse (or use PRIVATE_KEY env var)')
-  .option('--network <network>', 'Filecoin network to use: mainnet or calibration (can also use NETWORK env)', 'calibration')
-  .option('--rpc-url <url>', 'RPC URL for Filecoin network (overrides --network, can also use RPC_URL env)', RPC_URLS.calibration.websocket)
+  .option(
+    '--network <network>',
+    'Filecoin network to use: mainnet or calibration (can also use NETWORK env)',
+    'calibration'
+  )
+  .option(
+    '--rpc-url <url>',
+    'RPC URL for Filecoin network (overrides --network, can also use RPC_URL env)',
+    RPC_URLS.calibration.websocket
+  )
   .action(async (options) => {
     // Override environment variables with CLI options if provided
     if (options.privateKey) {
