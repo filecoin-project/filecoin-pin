@@ -72,9 +72,8 @@ export interface WaitForIpniProviderResultsOptions {
   /**
    * Providers that are expected to appear in the IPNI provider results. All
    * providers supplied here must be present in the response for the validation
-   * to succeed. When omitted or empty, the validation succeeds once the IPNI
-   * response includes any provider entry that advertises at least one address
-   * for the root CID (no retrieval attempt is made here).
+   * to succeed. When omitted or empty, the validation when the IPNI
+   * response is non-empty.
    *
    * @default: []
    */
