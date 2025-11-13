@@ -31,11 +31,30 @@ function getDataDirectory(): string {
  *
  * This demonstrates configuration best practices for Synapse SDK:
  * - PRIVATE_KEY: Required for transaction signing (keep secure!)
- * - RPC_URL: Filecoin network endpoint (mainnet or calibration)
+ * - RPC_URL: Filecoin network endpoint (mainnet or calibration) - takes precedence over NETWORK
+ * - NETWORK: Filecoin network name (mainnet or calibration) - used if RPC_URL not set
  * - WARM_STORAGE_ADDRESS: Optional override for testing custom contracts
  */
 export function createConfig(): Config {
   const dataDir = getDataDirectory()
+
+  // Determine RPC URL: RPC_URL env var takes precedence, then NETWORK, then default to calibration
+  let rpcUrl: string
+  if (process.env.RPC_URL) {
+    rpcUrl = process.env.RPC_URL
+  } else if (process.env.NETWORK) {
+    const network = process.env.NETWORK.toLowerCase().trim()
+    if (network !== 'mainnet' && network !== 'calibration') {
+      throw new Error(`Invalid NETWORK environment variable: "${network}". Must be "mainnet" or "calibration"`)
+    }
+    const networkRpcUrl = RPC_URLS[network as 'mainnet' | 'calibration']?.websocket
+    if (!networkRpcUrl) {
+      throw new Error(`RPC URL not available for network: "${network}"`)
+    }
+    rpcUrl = networkRpcUrl
+  } else {
+    rpcUrl = RPC_URLS.calibration.websocket
+  }
 
   return {
     // Application-specific configuration
@@ -44,7 +63,7 @@ export function createConfig(): Config {
 
     // Synapse SDK configuration
     privateKey: process.env.PRIVATE_KEY, // Required: Ethereum-compatible private key
-    rpcUrl: process.env.RPC_URL ?? RPC_URLS.calibration.websocket, // Default: calibration testnet websocket
+    rpcUrl, // Determined from RPC_URL, NETWORK, or default to calibration
     warmStorageAddress: process.env.WARM_STORAGE_ADDRESS, // Optional: custom contract address
 
     // Storage paths

@@ -6,6 +6,7 @@
  */
 
 import type { Synapse } from '@filoz/synapse-sdk'
+import { RPC_URLS } from '@filoz/synapse-sdk'
 import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
@@ -22,7 +23,9 @@ export interface CLIAuthOptions {
   walletAddress?: string | undefined
   /** Session key private key */
   sessionKey?: string | undefined
-  /** RPC endpoint URL */
+  /** Filecoin network: mainnet or calibration */
+  network?: string | undefined
+  /** RPC endpoint URL (overrides network if specified) */
   rpcUrl?: string | undefined
   /** Optional warm storage address override */
   warmStorageAddress?: string | undefined
@@ -38,6 +41,12 @@ export interface CLIAuthOptions {
  * This function handles reading from CLI options and environment variables,
  * and returns a config ready for initializeSynapse().
  *
+ * Network selection priority:
+ * 1. Explicit --rpc-url (highest priority)
+ * 2. RPC_URL environment variable
+ * 3. --network flag or NETWORK environment variable (converted to RPC URL)
+ * 4. Default to calibration
+ *
  * Note: Validation is performed by initializeSynapse() via validateAuthConfig()
  *
  * @param options - CLI authentication options
@@ -48,8 +57,28 @@ export function parseCLIAuth(options: CLIAuthOptions): Partial<SynapseSetupConfi
   const privateKey = options.privateKey || process.env.PRIVATE_KEY
   const walletAddress = options.walletAddress || process.env.WALLET_ADDRESS
   const sessionKey = options.sessionKey || process.env.SESSION_KEY
-  const rpcUrl = options.rpcUrl || process.env.RPC_URL
   const warmStorageAddress = options.warmStorageAddress || process.env.WARM_STORAGE_ADDRESS
+
+  // Determine RPC URL with priority: explicit rpcUrl > RPC_URL env > network flag/env > default
+  let rpcUrl: string | undefined
+  if (options.rpcUrl || process.env.RPC_URL) {
+    // Explicit RPC URL takes highest priority
+    rpcUrl = options.rpcUrl || process.env.RPC_URL
+  } else {
+    // Try to use network flag/env var
+    const network = (options.network || process.env.NETWORK)?.toLowerCase().trim()
+    if (network) {
+      // Validate network value
+      if (network !== 'mainnet' && network !== 'calibration') {
+        throw new Error(`Invalid network: "${network}". Must be "mainnet" or "calibration"`)
+      }
+      // Convert network to RPC URL
+      rpcUrl = RPC_URLS[network as 'mainnet' | 'calibration']?.websocket
+      if (!rpcUrl) {
+        throw new Error(`RPC URL not available for network: "${network}"`)
+      }
+    }
+  }
 
   // Build config - only include defined values, validation happens in initializeSynapse()
   const config: any = {}

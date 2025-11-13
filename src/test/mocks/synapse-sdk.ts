@@ -82,6 +82,9 @@ export const RPC_URLS = {
   calibration: {
     websocket: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
   },
+  mainnet: {
+    websocket: 'wss://wss.node.glif.io/apigw/lotus/rpc/v1',
+  },
 }
 
 // Export mock METADATA_KEYS matching SDK's structure
