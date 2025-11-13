@@ -1,0 +1,4 @@
+* [Filecoin Pin glossary](glossary.md) - A unified place for the defining the plethora of terms for the various technologies coming together under Filecoin Pin (e.g., existing Filecoin blockchain and storage providers, new Filecoin initiatives including Filecoin Onchain Cloud, IPFS).
+* [Explainer: behind the scenes of adding a file](behind-the-scenes-of-adding-a-file.md) - Provides more technical info about what happens for a Filecoin Pin `add` as it uses the underlying [Synapse library](glossary.md#synapse) and [Filecoin Onchain Cloud](glossary.md#filecoin-onchain-cloud) offering.
+* [Content Routing FAQ](content-routing-faq.md) - Frequently asked questions about content routing with IPNI, which Filecoin Pin relies upon, including caching behavior, provider management, and indexer operations.
+* [Builder Cookbook](https://docs.filecoin.io/builder-cookbook/filecoin-pin)

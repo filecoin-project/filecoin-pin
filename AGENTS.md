@@ -73,6 +73,15 @@ src/
 4. Clean up CAR files and Helia instances on failure
 5. Browser vs Node variants (check package.json exports)
 
+## Documentation
+
+**Glossary**: `documentation/glossary.md` is the authoritative terminology reference.
+
+- Documentation files in `documentation/` should reference and link to glossary entries for key terms (e.g., `[Storage Provider](glossary.md#storage-provider)`)
+- Glossary entries should cross-link to related terms using anchor links (e.g., `[Data Set](#data-set)`)
+- Avoid overlinking: link first mention of a term in each section, not every occurrence
+- Update glossary when introducing new concepts or terminology
+
 ## CLI & Environment
 
 **Commands**: `payments setup --auto`, `add <file>`, `payments status`, `data-set <id>`, `server`
