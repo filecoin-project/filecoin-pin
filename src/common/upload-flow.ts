@@ -298,16 +298,17 @@ export async function performUpload(
           if (event.data.txHash) {
             transactionHash = event.data.txHash
           }
+          const network = synapseService.synapse.getNetwork()
+          const explorerUrls = [pc.gray(`Piece: https://pdp.vxb.ai/${network}/piece/${pieceCid}`)]
+          if (transactionHash) {
+            const filfoxBase = network === 'mainnet' ? 'https://filfox.info' : `https://${network}.filfox.info`
+            explorerUrls.push(pc.gray(`Transaction: ${filfoxBase}/en/message/${transactionHash}`))
+          }
           flow.completeOperation('add-to-dataset', 'Piece added to DataSet (unconfirmed on-chain)', {
             type: 'success',
             details: {
               title: 'Explorer URLs',
-              content: [
-                pc.gray(`Piece: https://pdp.vxb.ai/calibration/piece/${pieceCid}`),
-                pc.gray(
-                  `Transaction: https://${synapseService.synapse.getNetwork()}.filfox.info/en/message/${transactionHash}`
-                ),
-              ],
+              content: explorerUrls,
             },
           })
           // Start chain confirmation operation
