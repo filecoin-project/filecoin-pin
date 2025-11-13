@@ -1,3 +1,6 @@
+import * as core from '@actions/core'
+import { checkForUpdate } from 'filecoin-pin/version-check'
+
 import { runBuild } from './build.js'
 import { getErrorMessage, handleError } from './errors.js'
 import { cleanupSynapse } from './filecoin.js'
@@ -5,7 +8,24 @@ import { completeCheck, createCheck } from './github.js'
 import { getOutputSummary } from './outputs.js'
 import { runUpload } from './upload.js'
 
+async function maybeNotifyAboutUpdates() {
+  try {
+    const result = await checkForUpdate()
+    if (result.status === 'update-available') {
+      core.notice(
+        `New filecoin-pin version available (${result.currentVersion} → ${result.latestVersion}). ` +
+          'Update your workflow to use the latest release: https://github.com/filecoin-project/filecoin-pin/releases'
+      )
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'unknown error'
+    core.debug(`Update check failed: ${message}`)
+  }
+}
+
 async function main() {
+  // Check for updates in the background.
+  void maybeNotifyAboutUpdates()
   // Create/reuse check run (may already exist from early action step for fast UI feedback)
   await createCheck('Filecoin Upload')
 

@@ -1,6 +1,6 @@
 {
   "name": "filecoin-pin",
-  "version": "0.11.1",
+  "version": "0.12.0",
   "description": "Bridge IPFS content to Filecoin Onchain Cloud using familiar tools",
   "type": "module",
   "main": "dist/index.js",
@@ -53,6 +53,10 @@
     "./core/utils": {
       "types": "./dist/core/utils/index.d.ts",
       "default": "./dist/core/utils/index.js"
+    },
+    "./version-check": {
+      "types": "./dist/common/version-check.d.ts",
+      "default": "./dist/common/version-check.js"
     }
   },
   "bin": {
@@ -68,7 +72,7 @@
     "LICENSE.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/write-version.mjs",
     "dev": "tsx watch src/cli.ts server",
     "start": "node dist/cli.js server",
     "test": "npm run lint && npm run typecheck && npm run test:unit && npm run test:integration",
@@ -109,12 +113,14 @@
     "it-to-buffer": "^4.0.10",
     "multiformats": "^13.4.1",
     "picocolors": "^1.1.1",
-    "pino": "^10.0.0"
+    "pino": "^10.0.0",
+    "semver": "^7.6.3"
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.4",
     "@ipld/dag-cbor": "^9.2.5",
     "@types/node": "^24.5.1",
+    "@types/semver": "^7.5.8",
     "@vitest/coverage-v8": "^3.2.4",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",

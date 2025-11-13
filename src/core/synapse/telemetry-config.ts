@@ -1,6 +1,6 @@
 import type { TelemetryConfig } from '@filoz/synapse-sdk'
-// biome-ignore lint/correctness/useImportExtensions: package.json is bundled for browser and node
-import packageJson from '../../../package.json' with { type: 'json' }
+
+import { name as packageName, version as packageVersion } from '../utils/version.js'
 
 export const getTelemetryConfig = (config?: TelemetryConfig | undefined): TelemetryConfig => {
   return {
@@ -12,7 +12,7 @@ export const getTelemetryConfig = (config?: TelemetryConfig | undefined): Teleme
     },
     sentrySetTags: {
       ...config?.sentrySetTags,
-      filecoinPinVersion: `${packageJson.name}@v${packageJson.version}`,
+      filecoinPinVersion: `${packageName}@v${packageVersion}`,
     },
   }
 }

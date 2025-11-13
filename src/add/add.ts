@@ -133,7 +133,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     // Check payment setup (may configure permissions if needed)
     // Actual CAR size will be checked later
     spinner.start('Checking payment setup...')
-    await validatePaymentSetup(synapse, 0, spinner)
+    await validatePaymentSetup(synapse, 0, spinner, { suppressSuggestions: true })
 
     // Create CAR from file or directory
     const packingMsg = isDirectory

@@ -109,11 +109,18 @@ export async function performAutoFunding(synapse: Synapse, fileSize: number, spi
  * Validate payment setup and capacity for upload
  *
  * @param synapse - Initialized Synapse instance
- * @param fileSize - Size of file to upload in bytes
+ * @param fileSize - Size of file to upload in bytes (use 0 for minimum setup check)
  * @param spinner - Optional spinner for progress
+ * @param options - Optional configuration
+ * @param options.suppressSuggestions - If true, don't display suggestion warnings
  * @returns true if validation passes, exits process if not
  */
-export async function validatePaymentSetup(synapse: Synapse, fileSize: number, spinner?: Spinner): Promise<void> {
+export async function validatePaymentSetup(
+  synapse: Synapse,
+  fileSize: number,
+  spinner?: Spinner,
+  options?: { suppressSuggestions?: boolean }
+): Promise<void> {
   const readiness = await checkUploadReadiness({
     synapse,
     fileSize,
@@ -191,16 +198,19 @@ export async function validatePaymentSetup(synapse: Synapse, fileSize: number, s
   }
 
   // Show warning if suggestions exist (even if upload is possible)
-  if (suggestions.length > 0 && capacity?.canUpload) {
+  if (suggestions.length > 0 && capacity?.canUpload && !options?.suppressSuggestions) {
     spinner?.stop(`${pc.yellow('⚠')} Payment capacity check passed with warnings`)
-    log.line('')
     log.line(pc.bold('Suggestions:'))
     suggestions.forEach((suggestion) => {
       log.indent(`• ${suggestion}`)
     })
     log.flush()
+  } else if (fileSize === 0) {
+    // Different message based on whether this is minimum setup (fileSize=0) or actual capacity check
+    // Note: 0.06 USDFC is the floor price, but with 10% buffer, ~0.066 USDFC is actually required
+    spinner?.stop(`${pc.green('✓')} Minimum payment setup verified (~0.066 USDFC required)`)
   } else {
-    spinner?.stop(`${pc.green('✓')} Payment capacity verified`)
+    spinner?.stop(`${pc.green('✓')} Payment capacity verified for ${formatFileSize(fileSize)}`)
   }
 }
 
@@ -209,14 +219,14 @@ export async function validatePaymentSetup(synapse: Synapse, fileSize: number, s
  */
 function displayPaymentIssues(capacityCheck: PaymentCapacityCheck, fileSize: number, spinner?: Spinner): void {
   spinner?.stop(`${pc.red('✗')} Insufficient deposit for this file`)
-  log.line('')
   log.line(pc.bold('File Requirements:'))
-  log.indent(`File size: ${formatFileSize(fileSize)} (${capacityCheck.storageTiB.toFixed(4)} TiB)`)
+  if (fileSize === 0) {
+    log.indent(`File size: ${formatFileSize(fileSize)} (${capacityCheck.storageTiB.toFixed(4)} TiB)`)
+  }
   log.indent(`Storage cost: ${formatUSDFC(capacityCheck.required.rateAllowance)} USDFC/epoch`)
   log.indent(
-    `Required deposit: ${formatUSDFC(capacityCheck.required.lockupAllowance + capacityCheck.required.lockupAllowance / 10n)} USDFC`
+    `Required deposit: ${formatUSDFC(capacityCheck.required.lockupAllowance + capacityCheck.required.lockupAllowance / 10n)} USDFC ${pc.gray(`(includes ${DEFAULT_LOCKUP_DAYS}-day safety reserve)`)}`
   )
-  log.indent(pc.gray(`(includes ${DEFAULT_LOCKUP_DAYS}-day safety reserve)`))
   log.line('')
 
   log.line(pc.bold('Suggested actions:'))
@@ -262,7 +272,7 @@ export async function performUpload(
 
   let pieceCid: PieceCID | undefined
   function getIpniAdvertisementMsg(attemptCount: number): string {
-    return `Checking for IPNI advertisement (check #${attemptCount})`
+    return `Checking for IPNI provider records (check #${attemptCount})`
   }
 
   const uploadResult = await executeUpload(synapseService, carData, rootCid, {
@@ -317,14 +327,14 @@ export async function performUpload(
           break
         }
 
-        case 'ipniAdvertisement.retryUpdate': {
+        case 'ipniProviderResults.retryUpdate': {
           const attemptCount = event.data.retryCount === 0 ? 1 : event.data.retryCount + 1
           flow.addOperation('ipni', getIpniAdvertisementMsg(attemptCount))
           break
         }
-        case 'ipniAdvertisement.complete': {
+        case 'ipniProviderResults.complete': {
           // complete event is only emitted when result === true (success)
-          flow.completeOperation('ipni', 'IPNI advertisement successful. IPFS retrieval possible.', {
+          flow.completeOperation('ipni', 'IPNI provider records found. IPFS retrieval possible.', {
             type: 'success',
             details: {
               title: 'IPFS Retrieval URLs',
@@ -337,12 +347,12 @@ export async function performUpload(
           })
           break
         }
-        case 'ipniAdvertisement.failed': {
-          flow.completeOperation('ipni', 'IPNI advertisement failed.', {
+        case 'ipniProviderResults.failed': {
+          flow.completeOperation('ipni', 'IPNI provider records not found.', {
             type: 'warning',
             details: {
               title: 'IPFS retrieval is not possible yet.',
-              content: [pc.gray(`IPNI advertisement does not exist at http://filecoinpin.contact/cid/${rootCid}`)],
+              content: [pc.gray(`IPNI provider records for this SP does not exist for the provided root CID`)],
             },
           })
           break
