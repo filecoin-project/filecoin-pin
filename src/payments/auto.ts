@@ -49,12 +49,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
 
   try {
     // Parse and validate authentication
-    const authConfig = parseCLIAuth({
-      privateKey: options.privateKey,
-      walletAddress: options.walletAddress,
-      sessionKey: options.sessionKey,
-      rpcUrl: options.rpcUrl,
-    })
+    const authConfig = parseCLIAuth(options)
 
     const logger = getCLILogger()
     const synapse = await initializeSynapse(

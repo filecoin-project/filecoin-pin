@@ -4,8 +4,6 @@
  * This module provides reusable option definitions for Commander.js commands
  * to ensure consistency across all CLI commands.
  */
-
-import { RPC_URLS } from '@filoz/synapse-sdk'
 import { type Command, Option } from 'commander'
 
 /**
@@ -45,10 +43,9 @@ export function addAuthOptions(command: Command): Command {
     .option('--session-key <key>', 'Session key for session key auth (can also use SESSION_KEY env)')
 
   return addNetworkOptions(command)
-    .option(
-      '--rpc-url <url>',
-      'RPC endpoint (can also use RPC_URL env, overrides --network)',
-      RPC_URLS.calibration.websocket
+    .addOption(
+      new Option('--rpc-url <url>', 'RPC endpoint').env('RPC_URL')
+      // default rpcUrl value is defined in ../common/get-rpc-url.ts
     )
     .option(
       '--warm-storage-address <address>',
@@ -89,10 +86,13 @@ export function addProviderOptions(command: Command): Command {
 }
 
 export function addNetworkOptions(command: Command): Command {
-  return command.addOption(
-    new Option('--network <network>', 'Filecoin network to use')
-      .choices(['mainnet', 'calibration'])
-      .env('NETWORK')
-      .default('calibration')
-  )
+  command
+    .addOption(
+      new Option('--network <network>', 'Filecoin network to use')
+        .choices(['mainnet', 'calibration'])
+        .env('NETWORK')
+        .default('calibration')
+    )
+    .addOption(new Option('--mainnet', 'Use mainnet (shorthand for --network mainnet)').implies({ network: 'mainnet' }))
+  return command
 }

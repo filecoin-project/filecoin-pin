@@ -1,5 +1,4 @@
-import { RPC_URLS } from '@filoz/synapse-sdk'
-import { Command } from 'commander'
+import { Command, Option } from 'commander'
 import { startServer } from '../server.js'
 import { addNetworkOptions } from '../utils/cli-options.js'
 
@@ -12,10 +11,9 @@ export const serverCommand = new Command('server')
   .option('--private-key <key>', 'private key for Synapse (or use PRIVATE_KEY env var)')
 
 addNetworkOptions(serverCommand)
-  .option(
-    '--rpc-url <url>',
-    'RPC URL for Filecoin network (overrides --network, can also use RPC_URL env)',
-    RPC_URLS.calibration.websocket
+  .addOption(
+    new Option('--rpc-url <url>', 'RPC URL for Filecoin network (overrides --network)').env('RPC_URL')
+    // default rpcUrl value is defined in ../common/get-rpc-url.ts
   )
   .action(async (options) => {
     // Override environment variables with CLI options if provided
