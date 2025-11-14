@@ -11,6 +11,7 @@ import {
   setServiceApprovals,
 } from '../../core/payments/index.js'
 import { formatFIL, formatUSDFC } from '../../core/utils/format.js'
+import { assertPriceNonZero } from '../../core/utils/validate-pricing.js'
 import { parseStorageAllowance } from '../../payments/setup.js'
 
 // Mock Synapse SDK
@@ -55,6 +56,20 @@ vi.mock('@filoz/synapse-sdk', () => {
       IPFS_ROOT_CID: 'ipfsRootCid',
     },
   }
+})
+
+describe('assertPriceNonZero', () => {
+  it('throws when pricePerTiBPerEpoch is zero', () => {
+    expect(() => assertPriceNonZero(0n)).toThrow('Invalid pricePerTiBPerEpoch: must be positive non-zero value')
+  })
+
+  it('throws when pricePerTiBPerEpoch is negative', () => {
+    expect(() => assertPriceNonZero(-10n)).toThrow('Invalid pricePerTiBPerEpoch: must be positive non-zero value')
+  })
+
+  it('does not throw for positive price', () => {
+    expect(() => assertPriceNonZero(1n)).not.toThrow()
+  })
 })
 
 describe('Payment Setup Tests', () => {
@@ -342,9 +357,10 @@ describe('Payment Setup Tests', () => {
       expect(capacityTiB).toBeCloseTo(expectedTiB, 5)
     })
 
-    it('should handle zero price gracefully', () => {
-      const capacityTiB = calculateActualCapacity(ethers.parseUnits('1', 18), 0n)
-      expect(capacityTiB).toBe(0)
+    it('throws when pricePerTiBPerEpoch is zero', () => {
+      expect(() => calculateActualCapacity(ethers.parseUnits('1', 18), 0n)).toThrow(
+        'Invalid pricePerTiBPerEpoch: must be positive non-zero value'
+      )
     })
   })
 
@@ -360,19 +376,10 @@ describe('Payment Setup Tests', () => {
       expect(capacityTiB).toBeCloseTo(expectedTiB, 5)
     })
 
-    it('should handle zero price gracefully', () => {
-      const capacityTiB = calculateStorageFromUSDFC(ethers.parseUnits('1', 18), 0n)
-      expect(capacityTiB).toBe(0)
-    })
-
-    // FIXME: if pricePerTiBPerEpoch is 0, shouldn't we throw an error or return Infinity?
-    // See https://github.com/filecoin-project/filecoin-pin/issues/38
-    it('returns 0 if pricePerTiBPerEpoch is 0', () => {
-      const usdfcAmount = ethers.parseUnits('1', 18)
-      const pricePerTiBPerEpoch = ethers.parseUnits('0', 18)
-      const capacityTiB = calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch)
-
-      expect(capacityTiB).toBe(0)
+    it('throws when pricePerTiBPerEpoch is zero', () => {
+      expect(() => calculateStorageFromUSDFC(ethers.parseUnits('1', 18), 0n)).toThrow(
+        'Invalid pricePerTiBPerEpoch: must be positive non-zero value'
+      )
     })
 
     it('returns 0 if usdfcAmount is 0', () => {

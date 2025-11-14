@@ -18,6 +18,7 @@
 import { SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import { isSessionKeyMode } from '../synapse/index.js'
+import { assertPriceNonZero } from '../utils/validate-pricing.js'
 import {
   BUFFER_DENOMINATOR,
   BUFFER_NUMERATOR,
@@ -508,7 +509,7 @@ export function calculateStorageAllowances(storageTiB: number, pricePerTiBPerEpo
  * @returns Storage capacity in TiB that can be supported
  */
 export function calculateActualCapacity(rateAllowance: bigint, pricePerTiBPerEpoch: bigint): number {
-  if (pricePerTiBPerEpoch === 0n) return 0
+  assertPriceNonZero(pricePerTiBPerEpoch)
 
   // Calculate TiB capacity from rate allowance
   const scaledQuotient = (rateAllowance * STORAGE_SCALE_MAX_BI) / pricePerTiBPerEpoch
@@ -536,7 +537,7 @@ export function calculateActualCapacity(rateAllowance: bigint, pricePerTiBPerEpo
  * @returns Storage capacity in TiB/month
  */
 export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpoch: bigint): number {
-  if (pricePerTiBPerEpoch === 0n) return 0
+  assertPriceNonZero(pricePerTiBPerEpoch)
 
   // Calculate how much this covers for lockup
   const epochsInLockupDays = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
