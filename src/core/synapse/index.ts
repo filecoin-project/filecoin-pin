@@ -50,6 +50,8 @@ interface BaseSynapseConfig {
   /** Optional override for WarmStorage contract address */
   warmStorageAddress?: string | undefined
   withCDN?: boolean | undefined
+  /** Default metadata to apply when creating or reusing datasets */
+  dataSetMetadata?: Record<string, string>
   /**
    * Telemetry configuration.
    * Defaults to enabled unless explicitly disabled.
@@ -271,16 +273,43 @@ async function setupSessionKey(synapse: Synapse, sessionWallet: Wallet, logger: 
   const now = Math.floor(Date.now() / 1000)
   const bufferTime = 30 * 60 // 30 minutes in seconds
   const minValidTime = now + bufferTime
-  const createExpiry = Number(expiries[CREATE_DATA_SET_TYPEHASH])
-  const addExpiry = Number(expiries[ADD_PIECES_TYPEHASH])
+  const createDataSetExpiry = Number(expiries[CREATE_DATA_SET_TYPEHASH])
+  const addPiecesExpiry = Number(expiries[ADD_PIECES_TYPEHASH])
 
-  if (createExpiry <= minValidTime || addExpiry <= minValidTime) {
+  // For CREATE_DATA_SET:
+  // - 0 means no permission granted (OK - can still add to existing datasets)
+  // - > 0 but < minValidTime means expired/expiring (ERROR)
+  // - >= minValidTime means valid (OK)
+  const hasCreateDataSetPermission = createDataSetExpiry > 0
+  const isCreateDataSetPermissionUnavailable = hasCreateDataSetPermission && createDataSetExpiry < minValidTime
+
+  // For ADD_PIECES:
+  // - Must always have valid permission
+  const isAddPiecesPermissionUnavailable = addPiecesExpiry <= minValidTime
+
+  if (isCreateDataSetPermissionUnavailable) {
     throw new Error(
-      `Session key expired or expiring soon (requires 30+ minutes validity). CreateDataSet: ${new Date(createExpiry * 1000).toISOString()}, AddPieces: ${new Date(addExpiry * 1000).toISOString()}`
+      `Session key expired or expiring soon (requires 30+ minutes validity). CreateDataSet: ${new Date(createDataSetExpiry * 1000).toISOString()}`
     )
   }
 
-  logger.info({ event: 'synapse.session_key.verified', createExpiry, addExpiry }, 'Session key verified')
+  if (isAddPiecesPermissionUnavailable) {
+    throw new Error(
+      `Session key expired or expiring soon (requires 30+ minutes validity). AddPieces: ${new Date(addPiecesExpiry * 1000).toISOString()}`
+    )
+  }
+
+  if (!hasCreateDataSetPermission) {
+    logger.info(
+      { event: 'synapse.session_key.limited_permissions' },
+      'Session key can only add pieces to existing datasets (no CREATE_DATA_SET permission)'
+    )
+  }
+
+  logger.info(
+    { event: 'synapse.session_key.verified', createExpiry: createDataSetExpiry, addExpiry: addPiecesExpiry },
+    'Session key verified'
+  )
 
   synapse.setSession(sessionKey)
   logger.info({ event: 'synapse.session_key.activated' }, 'Session key activated')
@@ -427,6 +456,22 @@ export async function createStorageContext(
         'Connecting to existing dataset'
       )
     } else if (options?.dataset?.createNew === true) {
+      // If explicitly creating a new dataset in session key mode, verify we have permission
+      if (isSessionKeyMode(synapse)) {
+        const signer = synapse.getSigner()
+        const sessionKey = synapse.createSessionKey(signer)
+
+        const expiries = await sessionKey.fetchExpiries([CREATE_DATA_SET_TYPEHASH])
+        const createDataSetExpiry = Number(expiries[CREATE_DATA_SET_TYPEHASH])
+
+        if (createDataSetExpiry === 0) {
+          throw new Error(
+            'Cannot create new dataset: Session key does not have CREATE_DATA_SET permission. ' +
+              'Either use an existing dataset or obtain a session key with dataset creation rights.'
+          )
+        }
+      }
+
       sdkOptions.forceCreateDataSet = true
       logger.info({ event: 'synapse.storage.dataset.create_new' }, 'Forcing creation of new dataset')
     }
@@ -568,7 +613,21 @@ export async function setupSynapse(
   const synapse = await initializeSynapse(config, logger)
 
   // Create storage context
-  const { storage, providerInfo } = await createStorageContext(synapse, logger, options)
+  let storageOptions = options ? { ...options } : undefined
+  if (config.dataSetMetadata && Object.keys(config.dataSetMetadata).length > 0) {
+    storageOptions = {
+      ...(storageOptions ?? {}),
+      dataset: {
+        ...(storageOptions?.dataset ?? {}),
+        metadata: {
+          ...config.dataSetMetadata,
+          ...(storageOptions?.dataset?.metadata ?? {}),
+        },
+      },
+    }
+  }
+
+  const { storage, providerInfo } = await createStorageContext(synapse, logger, storageOptions)
 
   return { synapse, storage, providerInfo }
 }

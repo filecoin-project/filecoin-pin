@@ -184,7 +184,7 @@ export interface UploadExecutionOptions {
   /** Optional umbrella onProgress receiving child progress events. */
   onProgress?: ProgressEventHandler<(UploadProgressEvents | ValidateIPNIProgressEvents) & {}>
   /** Optional metadata to associate with the upload. */
-  metadata?: Record<string, string>
+  pieceMetadata?: Record<string, string>
   /**
    * Optional IPNI validation behaviour. When enabled (default), the upload flow will wait for the IPFS Root CID to be announced to IPNI.
    */
@@ -276,8 +276,8 @@ export async function executeUpload(
   if (contextId) {
     uploadOptions.contextId = contextId
   }
-  if (options.metadata) {
-    uploadOptions.metadata = options.metadata
+  if (options.pieceMetadata) {
+    uploadOptions.pieceMetadata = options.pieceMetadata
   }
 
   const uploadResult = await uploadToSynapse(synapseService, carData, rootCid, logger, uploadOptions)

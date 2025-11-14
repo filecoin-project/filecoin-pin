@@ -194,6 +194,44 @@ describe('Add Command', () => {
       )
     })
 
+    it('passes metadata options through to upload and storage context', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        pieceMetadata: { region: 'us-west', note: '' },
+        dataSetMetadata: { purpose: 'erc8004' },
+      })
+      const { createStorageContext, initializeSynapse } = await import('../../core/synapse/index.js')
+
+      expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dataSetMetadata: { purpose: 'erc8004' },
+        }),
+        expect.anything()
+      )
+
+      expect(vi.mocked(createStorageContext)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          dataset: {
+            metadata: { purpose: 'erc8004' },
+          },
+        })
+      )
+
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          metadata: { region: 'us-west', note: '' },
+        })
+      )
+    })
+
     it('should reject when file does not exist', async () => {
       const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => {
         throw new Error('process.exit called')

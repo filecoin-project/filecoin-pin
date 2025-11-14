@@ -3,6 +3,7 @@ import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import { runCarImport } from '../import/import.js'
 import type { ImportOptions } from '../import/types.js'
 import { addAuthOptions, addProviderOptions } from '../utils/cli-options.js'
+import { addMetadataOptions, resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 
 export const importCommand = new Command('import')
   .description('Import an existing CAR file to Filecoin via Synapse')
@@ -10,10 +11,21 @@ export const importCommand = new Command('import')
   .option('--auto-fund', `Automatically ensure minimum ${MIN_RUNWAY_DAYS} days of runway before upload`)
   .action(async (file: string, options) => {
     try {
+      const {
+        metadata: _metadata,
+        dataSetMetadata: _dataSetMetadata,
+        datasetMetadata: _datasetMetadata,
+        '8004Type': _erc8004Type,
+        '8004Agent': _erc8004Agent,
+        ...importOptionsFromCli
+      } = options
+
+      const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
       const importOptions: ImportOptions = {
-        ...options,
+        ...importOptionsFromCli,
         filePath: file,
-        autoFund: options.autoFund,
+        ...(pieceMetadata && { pieceMetadata }),
+        ...(dataSetMetadata && { dataSetMetadata }),
       }
 
       await runCarImport(importOptions)
@@ -25,3 +37,4 @@ export const importCommand = new Command('import')
 
 addAuthOptions(importCommand)
 addProviderOptions(importCommand)
+addMetadataOptions(importCommand, { includePieceMetadata: true, includeDataSetMetadata: true, includeErc8004: true })

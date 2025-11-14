@@ -26,6 +26,23 @@ const ZERO_CID = 'bafkqaaa' // Zero CID used when CAR has no roots
 
 // Mock modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
+vi.mock('../../common/upload-flow.js', () => ({
+  validatePaymentSetup: vi.fn(),
+  performUpload: vi.fn().mockResolvedValue({
+    pieceCid: 'bafkzcibtest1234567890',
+    pieceId: 789,
+    dataSetId: '123',
+    network: 'calibration',
+    transactionHash: '0xabc123',
+    providerInfo: {
+      id: 1,
+      name: 'Test Provider',
+      serviceURL: 'http://test.provider',
+    },
+  }),
+  displayUploadResults: vi.fn(),
+  performAutoFunding: vi.fn(),
+}))
 vi.mock('../../core/payments/index.js', async () => {
   const actual = await vi.importActual<typeof import('../../core/payments/index.js')>('../../core/payments/index.js')
   return {
@@ -400,6 +417,48 @@ describe('CAR Import', () => {
           rpcUrl: customRpcUrl,
         }),
         expect.any(Object)
+      )
+    })
+
+    it('passes metadata options through to upload and storage context', async () => {
+      const carPath = join(testDir, 'metadata.car')
+      await createTestCarFile(carPath, [], [{ content: 'test content' }])
+
+      const options: ImportOptions = {
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        pieceMetadata: { ics: '8004' },
+        dataSetMetadata: { erc8004Files: '' },
+      }
+
+      await runCarImport(options)
+      const { createStorageContext, initializeSynapse } = await import('../../core/synapse/index.js')
+
+      expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dataSetMetadata: { erc8004Files: '' },
+        }),
+        expect.any(Object)
+      )
+
+      expect(vi.mocked(createStorageContext)).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.any(Object),
+        expect.objectContaining({
+          dataset: {
+            metadata: { erc8004Files: '' },
+          },
+        })
+      )
+
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.any(Uint8Array),
+        expect.any(Object),
+        expect.objectContaining({
+          pieceMetadata: { ics: '8004' },
+        })
       )
     })
   })

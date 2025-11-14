@@ -30,7 +30,7 @@ export interface SynapseUploadOptions {
   /**
    * Optional metadata to associate with the upload
    */
-  metadata?: Record<string, string>
+  pieceMetadata?: Record<string, string>
 }
 
 export interface SynapseUploadResult {
@@ -132,7 +132,7 @@ export async function uploadToSynapse(
   const uploadOptions: UploadOptions = {
     ...uploadCallbacks,
     metadata: {
-      ...(options.metadata ?? {}),
+      ...(options.pieceMetadata ?? {}),
       [METADATA_KEYS.IPFS_ROOT_CID]: rootCid.toString(), // Associate piece with IPFS root CID
     },
   }

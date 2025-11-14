@@ -46,6 +46,11 @@ export interface UploadFlowOptions {
    * Optional spinner for progress updates
    */
   spinner?: Spinner
+
+  /**
+   * Optional metadata attached to the upload request
+   */
+  pieceMetadata?: Record<string, string>
 }
 
 export interface UploadFlowResult extends SynapseUploadResult {
@@ -255,7 +260,7 @@ export async function performUpload(
   rootCid: CID,
   options: UploadFlowOptions
 ): Promise<UploadFlowResult> {
-  const { contextType, logger, spinner } = options
+  const { contextType, logger, spinner, pieceMetadata } = options
 
   // Create spinner flow manager for tracking all operations
   const flow = createSpinnerFlow(spinner)
@@ -273,6 +278,7 @@ export async function performUpload(
   const uploadResult = await executeUpload(synapseService, carData, rootCid, {
     logger,
     contextId: `${contextType}-${Date.now()}`,
+    ...(pieceMetadata && { pieceMetadata }),
     onProgress(event) {
       switch (event.type) {
         case 'onUploadComplete': {

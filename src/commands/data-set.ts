@@ -2,6 +2,7 @@ import { Command } from 'commander'
 import { runDataSetDetailsCommand, runDataSetListCommand } from '../data-set/run.js'
 import type { DataSetCommandOptions, DataSetListCommandOptions } from '../data-set/types.js'
 import { addAuthOptions, addProviderOptions } from '../utils/cli-options.js'
+import { addMetadataOptions, resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 
 export const dataSetCommand = new Command('data-set')
   .alias('dataset')
@@ -32,9 +33,19 @@ export const dataSetListCommand = new Command('list')
   .alias('ls')
   .description('List all data sets for the configured account')
   .option('--all', 'Show all data sets, not just the ones created with filecoin-pin', false)
-  .action(async (options: DataSetListCommandOptions) => {
+  .action(async (options) => {
     try {
-      await runDataSetListCommand(options)
+      const {
+        dataSetMetadata: _dataSetMetadata,
+        datasetMetadata: _datasetMetadata,
+        ...dataSetListOptionsFromCli
+      } = options
+      const { dataSetMetadata } = resolveMetadataOptions(options)
+      const normalizedOptions: DataSetListCommandOptions = {
+        ...dataSetListOptionsFromCli,
+        ...(dataSetMetadata ? { dataSetMetadata } : {}),
+      }
+      await runDataSetListCommand(normalizedOptions)
     } catch (error) {
       console.error('Data set list command failed:', error instanceof Error ? error.message : error)
       process.exit(1)
@@ -42,6 +53,7 @@ export const dataSetListCommand = new Command('list')
   })
 addAuthOptions(dataSetListCommand)
 addProviderOptions(dataSetListCommand)
+addMetadataOptions(dataSetListCommand, { includePieceMetadata: false, includeDataSetMetadata: true })
 
 dataSetCommand.addCommand(dataSetShowCommand)
 dataSetCommand.addCommand(dataSetListCommand)

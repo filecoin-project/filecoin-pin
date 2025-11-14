@@ -282,4 +282,138 @@ describe('synapse-service', () => {
       expect(result.providerInfo.products?.PDP?.data?.serviceURL).toBeUndefined()
     })
   })
+
+  describe('Session Key Authentication', () => {
+    it('should accept session key with valid ADD_PIECES permission even without CREATE_DATA_SET', async () => {
+      const mockConfig = {
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      }
+
+      // Mock session key with no CREATE_DATA_SET permission (expiry = 0)
+      const mockCreateSessionKey = vi.fn(() => {
+        const now = Math.floor(Date.now() / 1000)
+        const oneYear = 365 * 24 * 60 * 60
+
+        return {
+          fetchExpiries: async (typehashes: string[]) => {
+            const expiries: Record<string, bigint> = {}
+            for (const typehash of typehashes) {
+              // CREATE_DATA_SET has no permission (0)
+              // ADD_PIECES has valid future expiry
+              if (typehash.includes('1234567890abcdef')) {
+                // This is CREATE_DATA_SET_TYPEHASH
+                expiries[typehash] = 0n
+              } else {
+                // This is ADD_PIECES_TYPEHASH
+                expiries[typehash] = BigInt(now + oneYear)
+              }
+            }
+            return expiries
+          },
+        }
+      })
+
+      // Override the mock
+      const originalCreate = synapseSdk.Synapse.create
+      vi.mocked(synapseSdk.Synapse.create).mockImplementationOnce(async (options) => {
+        const synapse = await originalCreate(options)
+        ;(synapse as any).createSessionKey = mockCreateSessionKey
+        ;(synapse as any).setSession = vi.fn()
+        return synapse
+      })
+
+      // Should not throw - session key with only ADD_PIECES is valid for reusing datasets
+      const service = await setupSynapse(mockConfig as any, logger)
+      expect(service).toBeDefined()
+      expect(mockCreateSessionKey).toHaveBeenCalled()
+    })
+
+    it('should reject session key with expired CREATE_DATA_SET permission', async () => {
+      const mockConfig = {
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      }
+
+      // Mock session key with expired CREATE_DATA_SET permission
+      const mockCreateSessionKey = vi.fn(() => {
+        const now = Math.floor(Date.now() / 1000)
+        const oneYear = 365 * 24 * 60 * 60
+
+        return {
+          fetchExpiries: async (typehashes: string[]) => {
+            const expiries: Record<string, bigint> = {}
+            for (const typehash of typehashes) {
+              // CREATE_DATA_SET expired 1 hour ago
+              // ADD_PIECES has valid future expiry
+              if (typehash.includes('1234567890abcdef')) {
+                // This is CREATE_DATA_SET_TYPEHASH - expired
+                expiries[typehash] = BigInt(now - 3600)
+              } else {
+                // This is ADD_PIECES_TYPEHASH - valid
+                expiries[typehash] = BigInt(now + oneYear)
+              }
+            }
+            return expiries
+          },
+        }
+      })
+
+      // Override the mock
+      const originalCreate = synapseSdk.Synapse.create
+      vi.mocked(synapseSdk.Synapse.create).mockImplementationOnce(async (options) => {
+        const synapse = await originalCreate(options)
+        ;(synapse as any).createSessionKey = mockCreateSessionKey
+        return synapse
+      })
+
+      // Should throw - expired CREATE_DATA_SET permission
+      await expect(setupSynapse(mockConfig as any, logger)).rejects.toThrow('Session key expired or expiring soon')
+    })
+
+    it('should reject session key with expired ADD_PIECES permission', async () => {
+      const mockConfig = {
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      }
+
+      // Mock session key with expired ADD_PIECES permission
+      const mockCreateSessionKey = vi.fn(() => {
+        const now = Math.floor(Date.now() / 1000)
+        const oneYear = 365 * 24 * 60 * 60
+
+        return {
+          fetchExpiries: async (typehashes: string[]) => {
+            const expiries: Record<string, bigint> = {}
+            for (const typehash of typehashes) {
+              // CREATE_DATA_SET has valid permission
+              // ADD_PIECES expired 1 hour ago
+              if (typehash.includes('1234567890abcdef')) {
+                // This is CREATE_DATA_SET_TYPEHASH - valid
+                expiries[typehash] = BigInt(now + oneYear)
+              } else {
+                // This is ADD_PIECES_TYPEHASH - expired
+                expiries[typehash] = BigInt(now - 3600)
+              }
+            }
+            return expiries
+          },
+        }
+      })
+
+      // Override the mock
+      const originalCreate = synapseSdk.Synapse.create
+      vi.mocked(synapseSdk.Synapse.create).mockImplementationOnce(async (options) => {
+        const synapse = await originalCreate(options)
+        ;(synapse as any).createSessionKey = mockCreateSessionKey
+        return synapse
+      })
+
+      // Should throw - expired ADD_PIECES permission (always required)
+      await expect(setupSynapse(mockConfig as any, logger)).rejects.toThrow('Session key expired or expiring soon')
+    })
+  })
 })
