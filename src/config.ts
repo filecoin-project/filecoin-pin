@@ -1,6 +1,6 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
-import { RPC_URLS } from '@filoz/synapse-sdk'
+import { getRpcUrl } from './common/get-rpc-url.js'
 import type { Config } from './core/synapse/index.js'
 
 function getDataDirectory(): string {
@@ -31,11 +31,18 @@ function getDataDirectory(): string {
  *
  * This demonstrates configuration best practices for Synapse SDK:
  * - PRIVATE_KEY: Required for transaction signing (keep secure!)
- * - RPC_URL: Filecoin network endpoint (mainnet or calibration)
+ * - RPC_URL: Filecoin network endpoint (mainnet or calibration) - takes precedence over NETWORK
+ * - NETWORK: Filecoin network name (mainnet or calibration) - used if RPC_URL not set
  * - WARM_STORAGE_ADDRESS: Optional override for testing custom contracts
  */
 export function createConfig(): Config {
   const dataDir = getDataDirectory()
+
+  // Determine RPC URL: RPC_URL env var takes precedence, then NETWORK, then default to calibration
+  const rpcUrl = getRpcUrl({
+    network: process.env.NETWORK,
+    rpcUrl: process.env.RPC_URL,
+  })
 
   return {
     // Application-specific configuration
@@ -44,7 +51,7 @@ export function createConfig(): Config {
 
     // Synapse SDK configuration
     privateKey: process.env.PRIVATE_KEY, // Required: Ethereum-compatible private key
-    rpcUrl: process.env.RPC_URL ?? RPC_URLS.calibration.websocket, // Default: calibration testnet websocket
+    rpcUrl, // Determined from RPC_URL, NETWORK, or default to calibration
     warmStorageAddress: process.env.WARM_STORAGE_ADDRESS, // Optional: custom contract address
 
     // Storage paths

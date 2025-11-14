@@ -6,7 +6,7 @@
 
 ## Status
 
-**⚠️ Not ready yet for production** - At least as of 2025-10-15, Filecoin Pin runs on Filecoin Calibration testnet only.  It's not ready for production use yet.
+**⚠️ Not ready yet for production** - Filecoin Pin supports both Filecoin Mainnet and Calibration testnet. The CLI defaults to Calibration testnet for safety, but you can use `--network mainnet` to connect to Mainnet, but filecoin-pin is not ready for production use yet.
 
 Register for updates and a later 2025 Q4 GA announcement at [filecoin.cloud](https://filecoin.cloud/).
 
@@ -125,9 +125,13 @@ If using a different affordance like the CLI or example GitHub Action, then the 
 ### Prerequisites
 
 - **Node.js 24+** for CLI and library usage
-- **Filecoin Calibration testnet wallet** with:
-  - Test FIL for transaction gas ([Faucet](https://faucet.calibnet.chainsafe-fil.io/funds.html))
-  - Test USDFC stablecoin for storage payments ([USDFC Faucet](https://forest-explorer.chainsafe.dev/faucet/calibnet_usdfc))
+- **Filecoin wallet** (Calibration testnet or Mainnet) with:
+  - **For Calibration testnet:**
+    - Test FIL for transaction gas ([Faucet](https://faucet.calibnet.chainsafe-fil.io/funds.html))
+    - Test USDFC stablecoin for storage payments ([USDFC Faucet](https://forest-explorer.chainsafe.dev/faucet/calibnet_usdfc))
+  - **For Mainnet:**
+    - FIL for transaction gas
+    - USDFC stablecoin for storage payments
 
 ### Installation
 
@@ -143,11 +147,14 @@ npm install -g filecoin-pin
 # 1. Configure payment permissions (one-time setup)
 filecoin-pin payments setup --auto
 
-# 2. Upload a file to Filecoin
+# 2. Upload a file to Filecoin (defaults to Calibration testnet)
 filecoin-pin add myfile.txt
 
 # 3. Verify storage with cryptographic proofs
 filecoin-pin data-set <dataset-id>
+
+# To use Mainnet instead:
+filecoin-pin add myfile.txt --network mainnet
 ```
 
 For detailed guides, see:
@@ -159,13 +166,47 @@ Configuration of the Filecoin Pin CLI can be performed either with arguments, or
 
 The Pinning Server requires the use of environment variables, as detailed below.
 
+### Network Selection
+
+Filecoin Pin supports both **Mainnet** and **Calibration testnet**. By default, the CLI uses Calibration testnet during development.
+
+**Using the CLI:**
+```bash
+# Use Calibration testnet (default)
+filecoin-pin add myfile.txt
+
+# Use Mainnet
+filecoin-pin add myfile.txt --network mainnet
+
+# Explicitly specify Calibration
+filecoin-pin add myfile.txt --network calibration
+```
+
+**Using environment variables:**
+```bash
+# Set network via environment variable
+export NETWORK=mainnet
+filecoin-pin add myfile.txt
+
+# Or override RPC URL directly
+export RPC_URL=wss://wss.node.glif.io/apigw/lotus/rpc/v1
+filecoin-pin add myfile.txt
+```
+
+**Priority order:**
+1. `--rpc-url` flag (highest priority)
+2. `RPC_URL` environment variable
+3. `--network` flag or `NETWORK` environment variable
+4. Default to Calibration testnet
+
 ### Common CLI Arguments
 
 * `-h`, `--help`: Display help information for each command
 * `-V`, `--version`: Output the version number
 * `-v`, `--verbose`: Verbose output
 * `--private-key`: Ethereum-style (`0x`) private key, funded with USDFC (required)
-* `--rpc-url`: Filecoin RPC endpoint (default: Calibration testnet)
+* `--network`: Filecoin network to use: `mainnet` or `calibration` (default: `calibration`)
+* `--rpc-url`: Filecoin RPC endpoint (overrides `--network` if specified)
 
 Other arguments are possible for individual commands, use `--help` to find out more.
 
@@ -175,8 +216,11 @@ Other arguments are possible for individual commands, use `--help` to find out m
 # Required
 PRIVATE_KEY=0x...              # Ethereum private key with USDFC tokens
 
-# Optional
-RPC_URL=wss://...              # Filecoin RPC endpoint (default: Calibration testnet)
+# Optional - Network Configuration
+NETWORK=mainnet                # Network to use: mainnet or calibration (default: calibration)
+RPC_URL=wss://...              # Filecoin RPC endpoint (overrides NETWORK if specified)
+                                # Mainnet: wss://wss.node.glif.io/apigw/lotus/rpc/v1
+                                # Calibration: wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1
 
 # Optional for Pinning Server Daemon
 PORT=3456                      # Daemon server port

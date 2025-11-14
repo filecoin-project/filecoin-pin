@@ -7,6 +7,7 @@
 
 import type { Synapse } from '@filoz/synapse-sdk'
 import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
+import { getRpcUrl } from '../common/get-rpc-url.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { createLogger } from '../logger.js'
@@ -22,7 +23,9 @@ export interface CLIAuthOptions {
   walletAddress?: string | undefined
   /** Session key private key */
   sessionKey?: string | undefined
-  /** RPC endpoint URL */
+  /** Filecoin network: mainnet or calibration */
+  network?: string | undefined
+  /** RPC endpoint URL (overrides network if specified) */
   rpcUrl?: string | undefined
   /** Optional warm storage address override */
   warmStorageAddress?: string | undefined
@@ -48,8 +51,9 @@ export function parseCLIAuth(options: CLIAuthOptions): Partial<SynapseSetupConfi
   const privateKey = options.privateKey || process.env.PRIVATE_KEY
   const walletAddress = options.walletAddress || process.env.WALLET_ADDRESS
   const sessionKey = options.sessionKey || process.env.SESSION_KEY
-  const rpcUrl = options.rpcUrl || process.env.RPC_URL
   const warmStorageAddress = options.warmStorageAddress || process.env.WARM_STORAGE_ADDRESS
+
+  const rpcUrl = getRpcUrl(options)
 
   // Build config - only include defined values, validation happens in initializeSynapse()
   const config: any = {}
