@@ -18,6 +18,7 @@
 import { SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import { isSessionKeyMode } from '../synapse/index.js'
+import { assertPriceNonZero } from '../utils/validate-pricing.js'
 import {
   BUFFER_DENOMINATOR,
   BUFFER_NUMERATOR,
@@ -30,7 +31,6 @@ import {
   USDFC_DECIMALS,
 } from './constants.js'
 import { applyFloorPricing } from './floor-pricing.js'
-import { assertPriceNonZero } from '../utils/validate-pricing.js'
 import type { PaymentStatus, ServiceApprovalStatus, StorageAllowances, StorageRunwaySummary } from './types.js'
 
 // Re-export all constants
