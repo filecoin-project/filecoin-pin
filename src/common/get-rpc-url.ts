@@ -17,21 +17,22 @@ export function getRpcUrl(options: CLIAuthOptions): string {
     // Explicit RPC URL takes highest priority
     rpcUrl = options.rpcUrl || process.env.RPC_URL
   }
-  if (!rpcUrl) {
-    // Try to use network flag/env var
-    const network = (options.network || process.env.NETWORK)?.toLowerCase().trim()
-    if (network) {
-      // Validate network value
-      if (network !== 'mainnet' && network !== 'calibration') {
-        throw new Error(`Invalid network: "${network}". Must be "mainnet" or "calibration"`)
-      }
-      // Convert network to RPC URL
-      rpcUrl = RPC_URLS[network as 'mainnet' | 'calibration']?.websocket
-      if (!rpcUrl) {
-        throw new Error(`RPC URL not available for network: "${network}"`)
-      }
-      return rpcUrl
+  if (rpcUrl) {
+    return rpcUrl
+  }
+  // Try to use network flag/env var
+  const network = (options.network || process.env.NETWORK)?.toLowerCase().trim()
+  if (network) {
+    // Validate network value
+    if (network !== 'mainnet' && network !== 'calibration') {
+      throw new Error(`Invalid network: "${network}". Must be "mainnet" or "calibration"`)
     }
+    // Convert network to RPC URL
+    rpcUrl = RPC_URLS[network as 'mainnet' | 'calibration']?.websocket
+    if (!rpcUrl) {
+      throw new Error(`RPC URL not available for network: "${network}"`)
+    }
+    return rpcUrl
   }
 
   return RPC_URLS.calibration.websocket
