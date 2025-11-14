@@ -1,6 +1,7 @@
 import type { ProviderInfo } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
+import { getErrorMessage } from './errors.js'
 import type { ProgressEvent, ProgressEventHandler } from './types.js'
 
 /**
@@ -168,10 +169,17 @@ export async function waitForIpniProviderResults(
         fetchOptions.signal = options?.signal
       }
 
-      const response = await fetch(`${ipniIndexerUrl}/cid/${ipfsRootCid}`, fetchOptions)
+      let response: Response | undefined
+      try {
+        response = await fetch(`${ipniIndexerUrl}/cid/${ipfsRootCid}`, fetchOptions)
+      } catch (fetchError) {
+        lastActualMultiaddrs = new Set()
+        lastFailureReason = `Failed to query IPNI indexer: ${getErrorMessage(fetchError)}`
+        options?.logger?.warn({ error: fetchError }, `${lastFailureReason}. Retrying...`)
+      }
 
       // Parse and validate response
-      if (response.ok) {
+      if (response?.ok) {
         let providerResults: ProviderResult[] = []
         try {
           const body = (await response.json()) as IpniIndexerResponse
@@ -183,7 +191,7 @@ export async function waitForIpniProviderResults(
         } catch (parseError) {
           // Clear actual multiaddrs on parse error
           lastActualMultiaddrs = new Set()
-          lastFailureReason = 'Failed to parse IPNI response body'
+          lastFailureReason = `Failed to parse IPNI response body: ${getErrorMessage(parseError)}`
           options?.logger?.warn({ error: parseError }, `${lastFailureReason}. Retrying...`)
         }
 
@@ -239,6 +247,13 @@ export async function waitForIpniProviderResults(
             `${lastFailureReason}. Retrying...`
           )
         }
+      } else if (response != null) {
+        lastActualMultiaddrs = new Set()
+        lastFailureReason = `IPNI indexer request failed with status ${response.status}`
+        options?.logger?.info(
+          { status: response.status, statusText: response.statusText },
+          `${lastFailureReason}. Retrying...`
+        )
       }
 
       // Retry or fail
@@ -311,7 +326,8 @@ export function serviceURLToMultiaddr(serviceURL: string, logger?: Logger): stri
 
     return `/dns/${url.hostname}/tcp/${port}/${protocolComponent}`
   } catch (error) {
-    logger?.warn({ serviceURL, error }, 'Unable to derive IPNI multiaddr from serviceURL')
+    const reason = getErrorMessage(error)
+    logger?.warn({ serviceURL, error }, `Unable to derive IPNI multiaddr from serviceURL: ${reason}`)
     return undefined
   }
 }
