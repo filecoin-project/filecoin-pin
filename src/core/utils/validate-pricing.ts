@@ -1,5 +1,5 @@
 /**
- * Validation utility for core financial calculation.
+ * Validation utility for core financial calculations.
  * Keeps pricing inputs non-zero and positive.
  *
  * @param pricePerTiBPerEpoch - Current pricing from storage service
