@@ -5,7 +5,6 @@
 
 ### Features
 
-* add --network flag for mainnet and calibration network selection ([ced63da](https://github.com/filecoin-project/filecoin-pin/commit/ced63da1cb4d0b9b3f9cd777a1e11d7acae4ee4c))
 * add --network flag for mainnet and calibration network selection ([#240](https://github.com/filecoin-project/filecoin-pin/issues/240)) ([ced63da](https://github.com/filecoin-project/filecoin-pin/commit/ced63da1cb4d0b9b3f9cd777a1e11d7acae4ee4c))
 * allow passing metadata via cli commands ([#226](https://github.com/filecoin-project/filecoin-pin/issues/226)) ([f5a1e6e](https://github.com/filecoin-project/filecoin-pin/commit/f5a1e6e2c086b7891f646cc83f0528fc3324fa85))
 
