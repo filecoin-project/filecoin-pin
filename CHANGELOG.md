@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.13.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.12.0...v0.13.0) (2025-11-14)
+
+
+### Features
+
+* add --network flag for mainnet and calibration network selection ([ced63da](https://github.com/filecoin-project/filecoin-pin/commit/ced63da1cb4d0b9b3f9cd777a1e11d7acae4ee4c))
+* add --network flag for mainnet and calibration network selection ([#240](https://github.com/filecoin-project/filecoin-pin/issues/240)) ([ced63da](https://github.com/filecoin-project/filecoin-pin/commit/ced63da1cb4d0b9b3f9cd777a1e11d7acae4ee4c))
+* allow passing metadata via cli commands ([#226](https://github.com/filecoin-project/filecoin-pin/issues/226)) ([f5a1e6e](https://github.com/filecoin-project/filecoin-pin/commit/f5a1e6e2c086b7891f646cc83f0528fc3324fa85))
+
+
+### Bug Fixes
+
+* correct Filfox explorer URL format for mainnet and use dynamic network in PDP URLs ([ff610e6](https://github.com/filecoin-project/filecoin-pin/commit/ff610e6fb6a9057fe1839ff8dc47bdb65861e17a))
+* correct Filfox explorer URL format for mainnet and use dynamic network in PDP URLs ([#239](https://github.com/filecoin-project/filecoin-pin/issues/239)) ([ff610e6](https://github.com/filecoin-project/filecoin-pin/commit/ff610e6fb6a9057fe1839ff8dc47bdb65861e17a))
+* ipni indexer fetch errors are caught ([#241](https://github.com/filecoin-project/filecoin-pin/issues/241)) ([996af92](https://github.com/filecoin-project/filecoin-pin/commit/996af929f9697b967644997f21a59dcd97733d6d))
+* network option works ([#243](https://github.com/filecoin-project/filecoin-pin/issues/243)) ([40c400b](https://github.com/filecoin-project/filecoin-pin/commit/40c400b2dbd0e946f363fc15e3ca51433a387992))
+
+
+### Documentation
+
+* add glossary, `add` explainer, and content routing FAQ ([#233](https://github.com/filecoin-project/filecoin-pin/issues/233)) ([65f13b0](https://github.com/filecoin-project/filecoin-pin/commit/65f13b0db6c3b683e7842a4508ac0d0eada2702b))
+
 ## [0.12.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.11.1...v0.12.0) (2025-11-13)
 
 
