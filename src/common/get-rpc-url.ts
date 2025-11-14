@@ -2,7 +2,9 @@ import { RPC_URLS } from '@filoz/synapse-sdk'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 
 /**
- * Get the RPC URL from the CLI options and environment variables
+ * Get the RPC URL from the CLI options.
+ *
+ * This should only be called from commands using commander, so ENV vars are already handled.
  *
  * Network selection priority:
  * 1. Explicit --rpc-url (highest priority)
@@ -13,15 +15,13 @@ import type { CLIAuthOptions } from '../utils/cli-auth.js'
 export function getRpcUrl(options: CLIAuthOptions): string {
   // Determine RPC URL with priority: explicit rpcUrl > RPC_URL env > network flag/env > default
   let rpcUrl: string | undefined
-  if (options.rpcUrl || process.env.RPC_URL) {
+  if (options.rpcUrl) {
     // Explicit RPC URL takes highest priority
-    rpcUrl = options.rpcUrl || process.env.RPC_URL
+    return options.rpcUrl
   }
-  if (rpcUrl) {
-    return rpcUrl
-  }
-  // Try to use network flag/env var
-  const network = (options.network || process.env.NETWORK)?.toLowerCase().trim()
+
+  // Try to use network flag/env var (commander already handles env vars, so we don't need to check process.env.NETWORK)
+  const network = options.network?.toLowerCase().trim()
   if (network) {
     // Validate network value
     if (network !== 'mainnet' && network !== 'calibration') {
