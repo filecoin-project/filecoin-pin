@@ -11,7 +11,6 @@
 
 ### Bug Fixes
 
-* correct Filfox explorer URL format for mainnet and use dynamic network in PDP URLs ([ff610e6](https://github.com/filecoin-project/filecoin-pin/commit/ff610e6fb6a9057fe1839ff8dc47bdb65861e17a))
 * correct Filfox explorer URL format for mainnet and use dynamic network in PDP URLs ([#239](https://github.com/filecoin-project/filecoin-pin/issues/239)) ([ff610e6](https://github.com/filecoin-project/filecoin-pin/commit/ff610e6fb6a9057fe1839ff8dc47bdb65861e17a))
 * ipni indexer fetch errors are caught ([#241](https://github.com/filecoin-project/filecoin-pin/issues/241)) ([996af92](https://github.com/filecoin-project/filecoin-pin/commit/996af929f9697b967644997f21a59dcd97733d6d))
 * network option works ([#243](https://github.com/filecoin-project/filecoin-pin/issues/243)) ([40c400b](https://github.com/filecoin-project/filecoin-pin/commit/40c400b2dbd0e946f363fc15e3ca51433a387992))
