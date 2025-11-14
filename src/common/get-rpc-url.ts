@@ -20,7 +20,7 @@ export function getRpcUrl(options: CLIAuthOptions): string {
     return options.rpcUrl
   }
 
-  // Try to use network flag/env var (commander already handles env vars, so we don't need to check process.env.NETWORK)
+  // Try to use network flag
   const network = options.network?.toLowerCase().trim()
   if (network) {
     // Validate network value
