@@ -26,6 +26,7 @@ import {
   MAX_LOCKUP_ALLOWANCE,
   MAX_RATE_ALLOWANCE,
   MIN_FIL_FOR_GAS,
+  padSizeToPDPLeaves,
   STORAGE_SCALE_MAX,
   STORAGE_SCALE_MAX_BI,
   USDFC_DECIMALS,
@@ -826,7 +827,8 @@ export function calculateDepositCapacity(
  * @returns Required allowances for the piece
  */
 export function calculateRequiredAllowances(pieceSizeBytes: number, pricePerTiBPerEpoch: bigint): StorageAllowances {
-  const storageTiB = pieceSizeBytes / Number(SIZE_CONSTANTS.TiB)
+  const paddedSizeBytes = padSizeToPDPLeaves(pieceSizeBytes)
+  const storageTiB = paddedSizeBytes / Number(SIZE_CONSTANTS.TiB)
   return calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
 }
 
