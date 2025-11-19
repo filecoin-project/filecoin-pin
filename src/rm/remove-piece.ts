@@ -1,0 +1,137 @@
+/**
+ * Remove piece functionality
+ *
+ * This module handles removing pieces from Data Sets via Synapse SDK.
+ */
+
+import pc from 'picocolors'
+import pino from 'pino'
+import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
+import { type RemovePieceProgressEvents, removePiece } from '../core/piece/index.js'
+import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { parseCLIAuth } from '../utils/cli-auth.js'
+import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
+import { log } from '../utils/cli-logger.js'
+import type { RmPieceOptions, RmPieceResult } from './types.js'
+
+/**
+ * Run the remove piece process
+ *
+ * @param options - Remove configuration
+ */
+export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult> {
+  intro(pc.bold('Filecoin Pin Remove'))
+
+  const spinner = createSpinner()
+
+  // Initialize logger (silent for CLI output)
+  const logger = pino({
+    level: process.env.LOG_LEVEL || 'silent',
+  })
+
+  const { piece: pieceCid, dataSet } = options
+
+  // Validate inputs
+  if (!pieceCid || !dataSet) {
+    spinner.stop(`${pc.red('✗')} Piece CID and DataSet ID are required`)
+    cancel('Remove cancelled')
+    throw new Error('Piece CID and DataSet ID are required')
+  }
+
+  const dataSetId = Number(dataSet)
+  if (!Number.isInteger(dataSetId) || dataSetId < 0) {
+    spinner.stop(`${pc.red('✗')} DataSet ID must be a positive integer`)
+    cancel('Remove cancelled')
+    throw new Error('DataSet ID must be a positive integer')
+  }
+
+  try {
+    // Initialize Synapse SDK
+    spinner.start('Initializing Synapse SDK...')
+
+    const authConfig = parseCLIAuth(options)
+    const synapse = await initializeSynapse(
+      { ...authConfig, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
+      logger
+    )
+    const network = synapse.getNetwork()
+
+    spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
+
+    log.spinnerSection('Remove Configuration', [
+      pc.gray(`Piece CID: ${pieceCid}`),
+      pc.gray(`Data Set ID: ${dataSetId}`),
+    ])
+
+    // Track transaction details
+    let txHash = ''
+    let isConfirmed = false
+
+    // Remove piece with progress tracking
+    const onProgress = (event: RemovePieceProgressEvents): void => {
+      switch (event.type) {
+        case 'remove-piece:submitting':
+          spinner.start('Submitting remove transaction...')
+          break
+
+        case 'remove-piece:submitted':
+          spinner.message(`Transaction submitted: ${event.data.txHash}`)
+          txHash = event.data.txHash
+          break
+
+        case 'remove-piece:confirming':
+          spinner.message('Waiting for transaction confirmation...')
+          break
+
+        case 'remove-piece:confirmation-failed':
+          spinner.message(`${pc.yellow('⚠')} Confirmation wait timed out: ${event.data.message}`)
+          break
+
+        case 'remove-piece:complete':
+          isConfirmed = event.data.confirmed
+          txHash = event.data.txHash
+          spinner.stop(`${pc.green('✓')} Piece removed${isConfirmed ? ' and confirmed' : ' (confirmation pending)'}`)
+          break
+      }
+    }
+
+    txHash = await removePiece(pieceCid, {
+      synapse,
+      dataSetId,
+      logger,
+      onProgress,
+      waitForConfirmation: options.waitForConfirmation ?? false,
+    })
+
+    // Display results
+
+    log.spinnerSection('Results', [
+      pc.gray(`Transaction Hash: ${txHash}`),
+      pc.gray(`Status: ${isConfirmed ? 'Confirmed' : 'Pending confirmation'}`),
+      pc.gray(`Network: ${network}`),
+    ])
+
+    const result: RmPieceResult = {
+      pieceCid,
+      dataSetId,
+      transactionHash: txHash,
+      confirmed: isConfirmed,
+    }
+
+    // Clean up WebSocket providers to allow process termination
+    await cleanupSynapseService()
+
+    outro('Remove completed successfully')
+
+    return result
+  } catch (error) {
+    spinner.stop(`${pc.red('✗')} Remove failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    logger.error({ event: 'rm.failed', error }, 'Remove failed')
+
+    cancel('Remove failed')
+    throw error
+  } finally {
+    // Always cleanup WebSocket providers
+    await cleanupSynapseService()
+  }
+}
