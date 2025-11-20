@@ -26,13 +26,13 @@ import {
   MAX_LOCKUP_ALLOWANCE,
   MAX_RATE_ALLOWANCE,
   MIN_FIL_FOR_GAS,
-  padSizeToPDPLeaves,
   STORAGE_SCALE_MAX,
   STORAGE_SCALE_MAX_BI,
   USDFC_DECIMALS,
 } from './constants.js'
 import { applyFloorPricing } from './floor-pricing.js'
 import type { PaymentStatus, ServiceApprovalStatus, StorageAllowances, StorageRunwaySummary } from './types.js'
+import { padSizeToPDPLeaves } from './utils.js'
 
 // Re-export all constants
 export * from './constants.js'

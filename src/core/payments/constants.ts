@@ -57,13 +57,3 @@ export const STORAGE_SCALE_MAX_BI = BigInt(STORAGE_SCALE_MAX)
  * @see - https://github.com/FilOzone/synapse-sdk/issues/339#issue-3539254596
  */
 export const PDP_LEAF_SIZE = 32
-
-/**
- * Pad raw size to the next multiple of 32 bytes
- *
- * @param rawSizeBytes - The actual size in bytes
- * @returns Padded size (next multiple of 32)
- */
-export function padSizeToPDPLeaves(rawSizeBytes: number): number {
-  return Math.ceil(rawSizeBytes / PDP_LEAF_SIZE) * PDP_LEAF_SIZE
-}
