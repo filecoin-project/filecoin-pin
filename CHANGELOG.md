@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.13.0...v0.13.1) (2025-11-21)
+
+
+### Bug Fixes
+
+* add shared guard to prevent zero pricing ([#237](https://github.com/filecoin-project/filecoin-pin/issues/237)) ([7e87f4c](https://github.com/filecoin-project/filecoin-pin/commit/7e87f4c89617690558be8b3ab903755bdbc73a5a))
+* intializeSynapse extends synapse.create options ([#242](https://github.com/filecoin-project/filecoin-pin/issues/242)) ([5d1ca39](https://github.com/filecoin-project/filecoin-pin/commit/5d1ca3956b63edaa1c2a393824236d8906cab6e1))
+
 ## [0.13.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.12.0...v0.13.0) (2025-11-14)
 
 
