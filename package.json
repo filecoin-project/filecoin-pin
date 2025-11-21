@@ -117,7 +117,7 @@
     "semver": "^7.6.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.3.4",
+    "@biomejs/biome": "2.3.7",
     "@ipld/dag-cbor": "^9.2.5",
     "@types/node": "^24.5.1",
     "@types/semver": "^7.5.8",
