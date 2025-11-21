@@ -97,7 +97,7 @@ vi.mock('@filoz/synapse-sdk/piece', () => ({
 }))
 vi.mock('@filoz/synapse-sdk/sp-registry', () => {
   return {
-    SPRegistryService: vi.fn().mockImplementation(() => {
+    SPRegistryService: vi.fn().mockImplementation(function () {
       return {
         getProviders: mockGetProviders,
       }
