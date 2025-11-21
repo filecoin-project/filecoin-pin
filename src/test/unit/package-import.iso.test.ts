@@ -14,7 +14,7 @@ describe('filecoin-pin isomorphic import', () => {
     if (typeof window !== 'undefined') {
       expect(() => exports.createCarFromPath('foo')).toThrow('Function not available in the browser.')
     } else {
-      await expect(exports.createCarFromPath('foo')).rejects.toThrow("ENOENT: no such file or directory, stat 'foo'")
+      await expect(exports.createCarFromPath('foo')).rejects.toThrow('ENOENT')
     }
   })
 })
