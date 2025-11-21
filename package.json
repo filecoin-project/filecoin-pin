@@ -7,6 +7,10 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "browser": {
+        "types": "./dist/index.browser.d.ts",
+        "default": "./dist/index.browser.js"
+      },
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
@@ -75,9 +79,10 @@
     "build": "tsc && node scripts/write-version.mjs",
     "dev": "tsx watch src/cli.ts server",
     "start": "node dist/cli.js server",
-    "test": "npm run lint && npm run typecheck && npm run test:unit && npm run test:integration",
-    "test:unit": "vitest run src/test/unit",
-    "test:integration": "vitest run src/test/integration",
+    "test": "npm run lint && npm run typecheck && vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:browser": "vitest run --project browser",
     "test:watch": "vitest",
     "lint": "tsc && biome check --no-errors-on-unmatched --files-ignore-unknown=true .",
     "lint:fix": "biome check --no-errors-on-unmatched --files-ignore-unknown=true --fix .",
@@ -121,10 +126,13 @@
     "@ipld/dag-cbor": "^9.2.5",
     "@types/node": "^24.5.1",
     "@types/semver": "^7.5.8",
-    "@vitest/coverage-v8": "^4.0.12",
+    "@vitest/browser-playwright": "^4.0.13",
+    "@vitest/coverage-v8": "^4.0.13",
+    "playwright": "npm:playwright-chromium@^1.56.1",
+    "playwright-chromium": "^1.56.1",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
-    "vitest": "^4.0.12"
+    "vitest": "^4.0.13"
   },
   "publishConfig": {
     "access": "public"

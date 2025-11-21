@@ -97,6 +97,7 @@ vi.mock('@filoz/synapse-sdk/piece', () => ({
 }))
 vi.mock('@filoz/synapse-sdk/sp-registry', () => {
   return {
+    // biome-ignore lint/complexity/useArrowFunction: vitest requires function declarations for mocks now
     SPRegistryService: vi.fn().mockImplementation(function () {
       return {
         getProviders: mockGetProviders,
