@@ -7,6 +7,7 @@ import { dataSetCommand } from './commands/data-set.js'
 import { importCommand } from './commands/import.js'
 import { paymentsCommand } from './commands/payments.js'
 import { serverCommand } from './commands/server.js'
+import { sessionCommand } from './commands/session.js'
 import { checkForUpdate, type UpdateCheckStatus } from './common/version-check.js'
 import { version as packageVersion } from './core/utils/version.js'
 
@@ -24,6 +25,7 @@ program.addCommand(paymentsCommand)
 program.addCommand(dataSetCommand)
 program.addCommand(importCommand)
 program.addCommand(addCommand)
+program.addCommand(sessionCommand)
 
 // Default action - show help if no command specified
 program.action(() => {
