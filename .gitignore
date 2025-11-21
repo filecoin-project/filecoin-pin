@@ -4,6 +4,7 @@ package-lock.json
 boxo/
 kubo/
 dist/
+docs/
 .vite/
 *.car
 test-output/
