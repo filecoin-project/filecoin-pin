@@ -268,6 +268,7 @@ node ./dist/cli.js
 npm run test             # All tests
 npm run test:unit        # Unit tests only
 npm run test:integration # Integration tests
+npm run test:browser     # Browser tests
 npm run lint:fix         # Fix formatting
 ```
 
