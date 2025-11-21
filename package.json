@@ -128,7 +128,6 @@
     "@types/semver": "^7.5.8",
     "@vitest/browser-playwright": "^4.0.13",
     "@vitest/coverage-v8": "^4.0.13",
-    "playwright": "npm:playwright-chromium@^1.56.1",
     "playwright-chromium": "^1.56.1",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
