@@ -87,6 +87,7 @@
     "lint": "tsc && biome check --no-errors-on-unmatched --files-ignore-unknown=true .",
     "lint:fix": "biome check --no-errors-on-unmatched --files-ignore-unknown=true --fix .",
     "typecheck": "tsc --noEmit",
+    "docs": "typedoc",
     "prepublishOnly": "npm run build"
   },
   "repository": {
@@ -130,6 +131,7 @@
     "@vitest/coverage-v8": "^4.0.13",
     "playwright-chromium": "^1.56.1",
     "tsx": "^4.20.5",
+    "typedoc": "^0.28.14",
     "typescript": "^5.9.2",
     "vitest": "^4.0.13"
   },
