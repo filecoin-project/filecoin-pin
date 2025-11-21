@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-describe('package import in Node.js', () => {
-  it('doesnt throw when importing filecoin-pin', () => {
-    expect(() => {
-      import('filecoin-pin')
-    }).not.toThrow()
+describe('filecoin-pin isomorphic import', () => {
+  it('doesnt throw when importing filecoin-pin', async () => {
+    await expect(import('filecoin-pin')).resolves.toBeDefined()
   })
 
   it('browser and node.js exports are handled properly', async () => {
