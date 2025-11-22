@@ -51,3 +51,9 @@ export const BUFFER_DENOMINATOR = 10n
  */
 export const STORAGE_SCALE_MAX = 10_000_000
 export const STORAGE_SCALE_MAX_BI = BigInt(STORAGE_SCALE_MAX)
+
+/** PDP Leaf Size - the payment rate is based on `rawSize` bytes rounded up to the next multiple of 32.
+ *
+ * @see - https://github.com/FilOzone/synapse-sdk/issues/339#issue-3539254596
+ */
+export const PDP_LEAF_SIZE = 32
