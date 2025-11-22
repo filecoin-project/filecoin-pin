@@ -34,6 +34,10 @@
       "types": "./dist/core/payments/index.d.ts",
       "default": "./dist/core/payments/index.js"
     },
+    "./core/piece": {
+      "types": "./dist/core/piece/index.d.ts",
+      "default": "./dist/core/piece/index.js"
+    },
     "./core/synapse": {
       "types": "./dist/core/synapse/index.d.ts",
       "default": "./dist/core/synapse/index.js"
