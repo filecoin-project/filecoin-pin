@@ -137,7 +137,7 @@ export async function uploadToSynapse(
     },
   }
 
-  const synapseResult = await synapseService.storage.upload(carData, uploadOptions)
+  const synapseResult = await synapseService.synapse.storage.upload(carData, uploadOptions)
 
   // Log success
   logger.info(
