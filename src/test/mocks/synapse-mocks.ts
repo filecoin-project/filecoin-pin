@@ -98,6 +98,7 @@ export class MockSynapse extends EventEmitter {
   // Storage namespace matches SDK structure
   public readonly storage = {
     createContext: this.createStorageContext.bind(this),
+    upload: (data: any, options: any) => this._storageContext?.upload(data, options),
   }
 
   /**
