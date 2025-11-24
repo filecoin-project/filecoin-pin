@@ -25,6 +25,27 @@ let storageInstance: StorageContext | null = null
 let currentProviderInfo: ProviderInfo | null = null
 let activeProvider: any = null // Track the provider for cleanup
 
+export const noopLogger: Partial<Logger> = {
+  info: () => {
+    /* no-op */
+  },
+  error: () => {
+    /* no-op */
+  },
+  warn: () => {
+    /* no-op */
+  },
+  debug: () => {
+    /* no-op */
+  },
+  trace: () => {
+    /* no-op */
+  },
+  fatal: () => {
+    /* no-op */
+  },
+}
+
 /**
  * Complete application configuration interface
  * This is the main config interface that can be imported by CLI and other consumers
@@ -172,6 +193,11 @@ export interface CreateStorageContextOptions {
    * Override provider selection by ID.
    */
   providerId?: number
+
+  /**
+   *
+   */
+  logger?: Partial<Logger>
 }
 
 /**
@@ -437,13 +463,26 @@ export async function initializeSynapse(config: Partial<SynapseSetupConfig>, log
  */
 export async function createStorageContext(
   synapse: Synapse,
-  logger: Logger,
-  options?: CreateStorageContextOptions
+  loggerOrOptions?: Logger | CreateStorageContextOptions,
+  justOptions?: CreateStorageContextOptions
 ): Promise<{ storage: StorageContext; providerInfo: ProviderInfo }> {
+  let options: CreateStorageContextOptions | undefined
+  let logger: Partial<Logger>
+
+  if (loggerOrOptions && 'info' in loggerOrOptions) {
+    // backwards compatible with logger param: (synapse, logger, options)
+    logger = loggerOrOptions as Logger
+    options = justOptions
+  } else {
+    // new mode with logger as part of options: (synapse, options)
+    options = loggerOrOptions as CreateStorageContextOptions
+    logger = options?.logger ?? noopLogger
+  }
+
   try {
     // Create storage context with comprehensive event tracking
     // The storage context manages the data set and provider interactions
-    logger.info({ event: 'synapse.storage.create' }, 'Creating storage context')
+    logger.info?.({ event: 'synapse.storage.create' }, 'Creating storage context')
 
     // Convert our curated options to Synapse SDK options
     const sdkOptions: StorageServiceOptions = {
@@ -453,7 +492,7 @@ export async function createStorageContext(
     // Apply dataset options
     if (options?.dataset?.useExisting != null) {
       sdkOptions.dataSetId = options.dataset.useExisting
-      logger.info(
+      logger.info?.(
         { event: 'synapse.storage.dataset.existing', dataSetId: options.dataset.useExisting },
         'Connecting to existing dataset'
       )
@@ -475,7 +514,7 @@ export async function createStorageContext(
       }
 
       sdkOptions.forceCreateDataSet = true
-      logger.info({ event: 'synapse.storage.dataset.create_new' }, 'Forcing creation of new dataset')
+      logger.info?.({ event: 'synapse.storage.dataset.create_new' }, 'Forcing creation of new dataset')
     }
 
     // Merge metadata (dataset metadata takes precedence)
@@ -492,7 +531,7 @@ export async function createStorageContext(
       onProviderSelected: (provider) => {
         currentProviderInfo = provider
 
-        logger.info(
+        logger.info?.(
           {
             event: 'synapse.storage.provider_selected',
             provider: {
@@ -508,7 +547,7 @@ export async function createStorageContext(
         options?.callbacks?.onProviderSelected?.(provider)
       },
       onDataSetResolved: (info) => {
-        logger.info(
+        logger.info?.(
           {
             event: 'synapse.storage.data_set_resolved',
             dataSetId: info.dataSetId,
@@ -526,13 +565,13 @@ export async function createStorageContext(
     // Apply provider override if present
     if (options?.providerAddress) {
       sdkOptions.providerAddress = options.providerAddress
-      logger.info(
+      logger.info?.(
         { event: 'synapse.storage.provider_override', providerAddress: options.providerAddress },
         'Overriding provider by address'
       )
     } else if (options?.providerId != null && Number.isFinite(options.providerId)) {
       sdkOptions.providerId = options.providerId
-      logger.info(
+      logger.info?.(
         { event: 'synapse.storage.provider_override', providerId: options.providerId },
         'Overriding provider by ID'
       )
@@ -540,7 +579,7 @@ export async function createStorageContext(
 
     const storage = await synapse.storage.createContext(sdkOptions)
 
-    logger.info(
+    logger.info?.(
       {
         event: 'synapse.storage.created',
         dataSetId: storage.dataSetId,
@@ -561,7 +600,7 @@ export async function createStorageContext(
     return { storage, providerInfo: currentProviderInfo }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
-    logger.error(
+    logger.error?.(
       {
         event: 'synapse.storage.create.failed',
         error: errorMessage,
@@ -629,7 +668,10 @@ export async function setupSynapse(
     }
   }
 
-  const { storage, providerInfo } = await createStorageContext(synapse, logger, storageOptions)
+  const { storage, providerInfo } = await createStorageContext(synapse, {
+    ...(storageOptions ?? {}),
+    logger,
+  })
 
   return { synapse, storage, providerInfo }
 }
