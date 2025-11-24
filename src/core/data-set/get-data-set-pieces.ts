@@ -11,10 +11,10 @@ import { METADATA_KEYS, type StorageContext, type Synapse, WarmStorageService } 
 import { isStorageContextWithDataSetId } from './type-guards.js'
 import type {
   DataSetPiecesResult,
+  DataSetWarning,
   GetDataSetPiecesOptions,
   PieceInfo,
   StorageContextWithDataSetId,
-  Warning,
 } from './types.js'
 
 /**
@@ -57,7 +57,7 @@ export async function getDataSetPieces(
   }
 
   const pieces: PieceInfo[] = []
-  const warnings: Warning[] = []
+  const warnings: DataSetWarning[] = []
 
   // Use the async generator to fetch all pieces
   try {
@@ -119,7 +119,7 @@ async function enrichPiecesWithMetadata(
   synapse: Synapse,
   storageContext: StorageContextWithDataSetId,
   pieces: PieceInfo[],
-  warnings: Warning[],
+  warnings: DataSetWarning[],
   logger?: GetDataSetPiecesOptions['logger']
 ): Promise<void> {
   const dataSetId = storageContext.dataSetId

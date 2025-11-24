@@ -12,6 +12,8 @@ import type { CreateCarOptions } from './core/unixfs/car-builder.js'
 import * as upload from './core/upload/index.js'
 import type { FilecoinPinAPI } from './index-types.js'
 
+// Browser-specific CAR types
+export type { CreateCarOptions, CreateCarResult } from './core/unixfs/browser-car-builder.js'
 export * from './index-types.js'
 
 const publicApi = {

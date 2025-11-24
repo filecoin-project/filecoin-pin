@@ -25,10 +25,10 @@ export type { ProviderInfo } from '@filoz/synapse-sdk'
 export type {
   DataSetPiecesResult,
   DataSetSummary,
+  DataSetWarning,
   GetDataSetPiecesOptions,
   ListDataSetsOptions,
   PieceInfo,
-  Warning as DataSetWarning,
 } from './core/data-set/index.js'
 export type { PaymentCapacityCheck, PaymentStatus, SetMaxAllowancesResult } from './core/payments/index.js'
 export type { ServiceApprovalStatus, StorageAllowances } from './core/payments/types.js'
@@ -41,11 +41,7 @@ export type {
   SynapseService,
   SynapseSetupConfig,
 } from './core/synapse/index.js'
-export type {
-  CreateCarOptions as BrowserCreateCarOptions,
-  CreateCarResult as BrowserCreateCarResult,
-} from './core/unixfs/browser-car-builder.js'
-export type { CreateCarOptions, CreateCarResult, Spinner } from './core/unixfs/car-builder.js'
+export type { Spinner } from './core/unixfs/car-builder.js'
 export type {
   SynapseUploadOptions,
   SynapseUploadResult,
