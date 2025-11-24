@@ -22,7 +22,6 @@ export const {
   getPaymentStatus,
   validatePaymentCapacity,
   cleanupSynapseService,
-  initializeSynapse,
   setupSynapse,
   createCarFromFile,
   createCarFromFiles,
