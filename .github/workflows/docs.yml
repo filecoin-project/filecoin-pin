@@ -1,4 +1,4 @@
-name: Documentation
+name: Build API docs and deploy to GitHub Pages
 
 on:
   push:
@@ -26,7 +26,6 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 'lts/*'
-          cache: 'npm'
 
       - name: Install Dependencies
         run: npm install --no-progress
