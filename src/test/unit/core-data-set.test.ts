@@ -85,7 +85,7 @@ vi.mock('@filoz/synapse-sdk', async () => {
 })
 
 // Mock piece size calculation
-vi.mock('@filoz/synapse-sdk/piece', () => ({
+vi.mock('@filoz/synapse-core/piece', () => ({
   getSizeFromPieceCID: vi.fn((cid: { toString: () => string } | string) => {
     // Map specific CIDs to sizes for testing
     const cidString = typeof cid === 'string' ? cid : cid.toString()
@@ -97,12 +97,11 @@ vi.mock('@filoz/synapse-sdk/piece', () => ({
 }))
 vi.mock('@filoz/synapse-sdk/sp-registry', () => {
   return {
-    // biome-ignore lint/complexity/useArrowFunction: vitest requires function declarations for mocks now
-    SPRegistryService: vi.fn().mockImplementation(function () {
-      return {
-        getProviders: mockGetProviders,
+    SPRegistryService: class {
+      async getProviders(providerIds: number[]) {
+        return mockGetProviders(providerIds)
       }
-    }),
+    },
   }
 })
 
