@@ -1,10 +1,9 @@
 /**
  * High-level API for filecoin-pin
  *
- * This file exports the most common functions and types for interacting with the filecoin-pin library.
+ * This file exports the most common functions and types for interacting with the filecoin-pin library in the browser.
  * For more advanced use cases, you can import from the granular `./core/*` modules.
  */
-
 import * as dataSet from './core/data-set/index.js'
 import * as payments from './core/payments/index.js'
 import * as synapse from './core/synapse/index.js'
@@ -23,7 +22,6 @@ const publicApi = {
   setMaxAllowances: payments.setMaxAllowances,
   validatePaymentCapacity: payments.validatePaymentCapacity,
   cleanupSynapseService: synapse.cleanupSynapseService,
-  initializeSynapse: synapse.initializeSynapse,
   setupSynapse: synapse.setupSynapse,
   createCarFromFile: browserCar.createCarFromFile,
   createCarFromFiles: browserCar.createCarFromFiles,
@@ -40,8 +38,6 @@ const publicApi = {
   executeUpload: upload.executeUpload,
 } satisfies FilecoinPinAPI
 
-export default publicApi
-
 export const {
   getDataSetPieces,
   getDetailedDataSet,
@@ -50,7 +46,6 @@ export const {
   setMaxAllowances,
   validatePaymentCapacity,
   cleanupSynapseService,
-  initializeSynapse,
   setupSynapse,
   createCarFromFile,
   createCarFromFiles,

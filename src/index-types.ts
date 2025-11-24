@@ -1,6 +1,6 @@
 import type { getDataSetPieces, getDetailedDataSet, listDataSets } from './core/data-set/index.js'
 import type { getPaymentStatus, setMaxAllowances, validatePaymentCapacity } from './core/payments/index.js'
-import type { cleanupSynapseService, initializeSynapse, setupSynapse } from './core/synapse/index.js'
+import type { cleanupSynapseService, setupSynapse } from './core/synapse/index.js'
 import type { createCarFromFile, createCarFromFiles } from './core/unixfs/browser-car-builder.js'
 import type { createCarFromPath } from './core/unixfs/car-builder.js'
 import type { checkUploadReadiness, executeUpload } from './core/upload/index.js'
@@ -13,7 +13,6 @@ export interface FilecoinPinAPI {
   setMaxAllowances: typeof setMaxAllowances
   validatePaymentCapacity: typeof validatePaymentCapacity
   cleanupSynapseService: typeof cleanupSynapseService
-  initializeSynapse: typeof initializeSynapse
   setupSynapse: typeof setupSynapse
   createCarFromFile: typeof createCarFromFile
   createCarFromFiles: typeof createCarFromFiles
@@ -42,11 +41,11 @@ export type {
   SynapseService,
   SynapseSetupConfig,
 } from './core/synapse/index.js'
-export type { CreateCarOptions, CreateCarResult, Spinner } from './core/unixfs/car-builder.js'
 export type {
   CreateCarOptions as BrowserCreateCarOptions,
   CreateCarResult as BrowserCreateCarResult,
 } from './core/unixfs/browser-car-builder.js'
+export type { CreateCarOptions, CreateCarResult, Spinner } from './core/unixfs/car-builder.js'
 export type {
   SynapseUploadOptions,
   SynapseUploadResult,

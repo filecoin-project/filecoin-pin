@@ -23,7 +23,7 @@ jobs:
       # The following steps only run if a release is created
       - name: Checkout
         if: ${{ steps.release.outputs.release_created }}
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
         if: ${{ steps.release.outputs.release_created }}
