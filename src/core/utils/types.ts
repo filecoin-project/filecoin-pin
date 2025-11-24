@@ -1,4 +1,4 @@
-type AnyProgressEvent = { type: string; data?: unknown }
+export type AnyProgressEvent = { type: string; data?: unknown }
 
 export type ProgressEvent<T extends string = string, D = undefined> = D extends undefined
   ? { type: T }

@@ -5,5 +5,5 @@
   "excludeExternals": true,
   "excludePrivate": true,
   "excludeInternal": true,
-  "excludeNotDocumented": true
+  "excludeNotDocumented": false
 }

@@ -43,7 +43,7 @@ Upload IPFS files directly to Filecoin via the command line. Perfect for develop
 ### GitHub Action
 Automatically publish websites or build artifacts to IPFS and Filecoin as part of your CI/CD pipeline. Ideal for static websites, documentation sites, and automated deployment workflows.
 
-- **Repository**: This repo ([see upload-action/](./upload-action))
+- **Repository**: This repo ([see upload-action/](./upload-action/README.md))
 - **Documentation**:
    - [GitHub Action Walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/github-action)
 - **Example in Production**: [filecoin-pin-website CI pipeline](https://github.com/filecoin-project/filecoin-pin-website/tree/main/.github/workflows)
@@ -72,7 +72,7 @@ Web-based management console for monitoring and managing your Filecoin Pin deplo
 - **Tracking**: See [issue #74](https://github.com/filecoin-project/filecoin-pin/issues/74) for updates.  Please leave a comment about your usecase if this would be particularly beneficial.
 
 ## Documentation
-See [/documentation](/documentation/).
+See [/documentation](/documentation/README.md).
 
 ## Examples
 
@@ -288,10 +288,10 @@ Interested in contributing? Please read our [Contributing Guidelines](CONTRIBUTI
 
 ### Documentation
 
-- **[documentation/](documentation/)** - (Coming Soon) Additional documentation about how filecoin-pin works, design decisions, etc.
+- **[documentation/](documentation/README.md)** - Additional documentation about how filecoin-pin works, design decisions, etc.
 - **[docs.filecoin.io](https://docs.filecoin.io/builder-cookbook/filecoin-pin)** - Filecoin Pin guides and tutorials
 
 
 ## License
 
-Dual-licensed under [MIT](LICENSE-MIT) + [Apache 2.0](LICENSE-APACHE)
+Dual-licensed under [MIT + Apache 2.0](LICENSE.md)
