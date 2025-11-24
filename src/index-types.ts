@@ -1,5 +1,5 @@
 import type { getDataSetPieces, getDetailedDataSet, listDataSets } from './core/data-set/index.js'
-import type { getPaymentStatus, validatePaymentCapacity } from './core/payments/index.js'
+import type { getPaymentStatus, setMaxAllowances, validatePaymentCapacity } from './core/payments/index.js'
 import type { cleanupSynapseService, setupSynapse } from './core/synapse/index.js'
 import type { createCarFromFile, createCarFromFiles } from './core/unixfs/browser-car-builder.js'
 import type { createCarFromPath } from './core/unixfs/car-builder.js'
@@ -10,6 +10,7 @@ export interface FilecoinPinAPI {
   getDetailedDataSet: typeof getDetailedDataSet
   listDataSets: typeof listDataSets
   getPaymentStatus: typeof getPaymentStatus
+  setMaxAllowances: typeof setMaxAllowances
   validatePaymentCapacity: typeof validatePaymentCapacity
   cleanupSynapseService: typeof cleanupSynapseService
   setupSynapse: typeof setupSynapse
@@ -24,19 +25,23 @@ export type { ProviderInfo } from '@filoz/synapse-sdk'
 export type {
   DataSetPiecesResult,
   DataSetSummary,
+  DataSetWarning,
   GetDataSetPiecesOptions,
   ListDataSetsOptions,
   PieceInfo,
-  Warning as DataSetWarning,
 } from './core/data-set/index.js'
-export type { PaymentCapacityCheck, PaymentStatus } from './core/payments/index.js'
+export type { PaymentCapacityCheck, PaymentStatus, SetMaxAllowancesResult } from './core/payments/index.js'
+export type { ServiceApprovalStatus, StorageAllowances } from './core/payments/types.js'
 export type {
   CreateStorageContextOptions,
   DatasetOptions,
+  PrivateKeyConfig,
+  SessionKeyConfig,
+  SignerConfig,
   SynapseService,
   SynapseSetupConfig,
 } from './core/synapse/index.js'
-export type { CreateCarOptions, CreateCarResult } from './core/unixfs/car-builder.js'
+export type { Spinner } from './core/unixfs/car-builder.js'
 export type {
   SynapseUploadOptions,
   SynapseUploadResult,
@@ -44,5 +49,11 @@ export type {
   UploadExecutionResult,
   UploadProgressEvents,
   UploadReadinessOptions,
+  UploadReadinessProgressEvents,
   UploadReadinessResult,
 } from './core/upload/index.js'
+export type { AnyProgressEvent, ProgressEvent, ProgressEventHandler } from './core/utils/types.js'
+export type {
+  ValidateIPNIProgressEvents,
+  WaitForIpniProviderResultsOptions,
+} from './core/utils/validate-ipni-advertisement.js'

@@ -376,6 +376,16 @@ export async function checkAllowances(synapse: Synapse): Promise<{
 }
 
 /**
+ * Result of setting maximum allowances for WarmStorage
+ */
+export interface SetMaxAllowancesResult {
+  /** Transaction hash of the allowance update */
+  transactionHash: string
+  /** Updated allowance status after the transaction */
+  currentAllowances: ServiceApprovalStatus
+}
+
+/**
  * Set WarmStorage allowances to maximum
  *
  * This function sets the allowances for WarmStorage to maximum values,
@@ -384,10 +394,7 @@ export async function checkAllowances(synapse: Synapse): Promise<{
  * @param synapse - Initialized Synapse instance
  * @returns Transaction hash and updated allowances
  */
-export async function setMaxAllowances(synapse: Synapse): Promise<{
-  transactionHash: string
-  currentAllowances: ServiceApprovalStatus
-}> {
+export async function setMaxAllowances(synapse: Synapse): Promise<SetMaxAllowancesResult> {
   const warmStorageAddress = synapse.getWarmStorageAddress()
 
   // Set to maximum allowances

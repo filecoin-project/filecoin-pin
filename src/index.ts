@@ -8,6 +8,8 @@ import { createCarFromPath as createCarFromPathCore } from './core/unixfs/car-bu
 import * as browser from './index.browser.js'
 import type { FilecoinPinAPI } from './index-types.js'
 
+// Node.js-specific CAR types
+export type { CreateCarOptions, CreateCarResult } from './core/unixfs/car-builder.js'
 export * from './index-types.js'
 
 const publicApi = {
@@ -20,6 +22,7 @@ export const {
   getDetailedDataSet,
   listDataSets,
   getPaymentStatus,
+  setMaxAllowances,
   validatePaymentCapacity,
   cleanupSynapseService,
   setupSynapse,

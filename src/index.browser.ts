@@ -12,6 +12,8 @@ import type { CreateCarOptions } from './core/unixfs/car-builder.js'
 import * as upload from './core/upload/index.js'
 import type { FilecoinPinAPI } from './index-types.js'
 
+// Browser-specific CAR types
+export type { CreateCarOptions, CreateCarResult } from './core/unixfs/browser-car-builder.js'
 export * from './index-types.js'
 
 const publicApi = {
@@ -19,6 +21,7 @@ const publicApi = {
   getDetailedDataSet: dataSet.getDetailedDataSet,
   listDataSets: dataSet.listDataSets,
   getPaymentStatus: payments.getPaymentStatus,
+  setMaxAllowances: payments.setMaxAllowances,
   validatePaymentCapacity: payments.validatePaymentCapacity,
   cleanupSynapseService: synapse.cleanupSynapseService,
   setupSynapse: synapse.setupSynapse,
@@ -42,6 +45,7 @@ export const {
   getDetailedDataSet,
   listDataSets,
   getPaymentStatus,
+  setMaxAllowances,
   validatePaymentCapacity,
   cleanupSynapseService,
   setupSynapse,

@@ -43,17 +43,20 @@ Upload IPFS files directly to Filecoin via the command line. Perfect for develop
 ### GitHub Action
 Automatically publish websites or build artifacts to IPFS and Filecoin as part of your CI/CD pipeline. Ideal for static websites, documentation sites, and automated deployment workflows.
 
-- **Repository**: This repo ([see upload-action/](./upload-action))
+- **Repository**: This repo ([see upload-action/](./upload-action/README.md))
 - **Documentation**:
    - [GitHub Action Walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/github-action)
 - **Example in Production**: [filecoin-pin-website CI pipeline](https://github.com/filecoin-project/filecoin-pin-website/tree/main/.github/workflows)
 
-### JavaScript "core" Library
-Opinionated JavaScript library with utilities for common functionality across different use cases. Use these modules directly in your Node.js or browser applications.
+### JavaScript Library
+Use Filecoin Pin programmatically in your Node.js or browser applications. The library provides both a high-level API for common use cases and granular core modules for advanced customization.
 
-- **Repository**: This repo (see [`src/core/`](./src/core) and package exports).
-- **Installation**: `npm install filecoin-pin`
-- **Exports**: Core modules for CAR files, payments, Synapse SDK integration, uploads, and UnixFS operations
+- **Repository**: This repo ([filecoin-project/filecoin-pin](https://github.com/filecoin-project/filecoin-pin))
+- **Documentation**:
+  - [API Reference](https://filecoin-project.github.io/filecoin-pin/) (TypeDoc-generated documentation)
+  - High-level API: `import { … } from 'filecoin-pin'` (recommended for most use cases)
+  - Core modules: `import { … } from 'filecoin-pin/core/*'` (CAR files, payments, Synapse SDK, uploads, UnixFS)
+- **Installation**: `npm install --save filecoin-pin`
 
 ### IPFS Pinning Server (Daemon Mode)
 Run a localhost IPFS Pinning Service API server that implements the [IPFS Pinning Service API specification](https://ipfs.github.io/pinning-services-api-spec/). This allows you to use standard IPFS tooling (like `ipfs pin remote`) while storing data on Filecoin.
@@ -69,7 +72,7 @@ Web-based management console for monitoring and managing your Filecoin Pin deplo
 - **Tracking**: See [issue #74](https://github.com/filecoin-project/filecoin-pin/issues/74) for updates.  Please leave a comment about your usecase if this would be particularly beneficial.
 
 ## Documentation
-See [/documentation](/documentation/).
+See [/documentation](/documentation/README.md).
 
 ## Examples
 
@@ -285,10 +288,10 @@ Interested in contributing? Please read our [Contributing Guidelines](CONTRIBUTI
 
 ### Documentation
 
-- **[documentation/](documentation/)** - (Coming Soon) Additional documentation about how filecoin-pin works, design decisions, etc.
+- **[documentation/](documentation/README.md)** - Additional documentation about how filecoin-pin works, design decisions, etc.
 - **[docs.filecoin.io](https://docs.filecoin.io/builder-cookbook/filecoin-pin)** - Filecoin Pin guides and tutorials
 
 
 ## License
 
-Dual-licensed under [MIT](LICENSE-MIT) + [Apache 2.0](LICENSE-APACHE)
+Dual-licensed under [MIT + Apache 2.0](LICENSE.md)
