@@ -39,8 +39,6 @@ const publicApi = {
   executeUpload: upload.executeUpload,
 } satisfies FilecoinPinAPI
 
-export default publicApi
-
 export const {
   getDataSetPieces,
   getDetailedDataSet,
