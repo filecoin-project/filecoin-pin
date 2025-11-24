@@ -6,8 +6,8 @@
  * @module core/data-set/get-data-set-pieces
  */
 
+import { getSizeFromPieceCID } from '@filoz/synapse-core/piece'
 import { METADATA_KEYS, type StorageContext, type Synapse, WarmStorageService } from '@filoz/synapse-sdk'
-import { getSizeFromPieceCID } from '@filoz/synapse-sdk/piece'
 import { isStorageContextWithDataSetId } from './type-guards.js'
 import type {
   DataSetPiecesResult,

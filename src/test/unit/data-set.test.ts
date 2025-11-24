@@ -160,7 +160,7 @@ vi.mock('@filoz/synapse-sdk', async () => {
 })
 
 // Mock piece size calculation
-vi.mock('@filoz/synapse-sdk/piece', () => ({
+vi.mock('@filoz/synapse-core/piece', () => ({
   getSizeFromPieceCID: vi.fn(() => {
     // Return a realistic piece size (1 MiB = 1048576 bytes)
     return 1048576
