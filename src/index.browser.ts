@@ -1,7 +1,7 @@
 /**
  * High-level API for filecoin-pin
  *
- * This file exports the most common functions and types for interacting with the filecoin-pin library.
+ * This file exports the most common functions and types for interacting with the filecoin-pin library in the browser.
  * For more advanced use cases, you can import from the granular `./core/*` modules.
  */
 

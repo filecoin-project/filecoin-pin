@@ -6,11 +6,11 @@ describe('filecoin-pin isomorphic import', () => {
   })
 
   it('browser and node.js exports are handled properly', async () => {
-    const exports = await import('filecoin-pin')
+    const { createCarFromPath, createCarFromFiles } = await import('filecoin-pin')
 
-    expect(typeof exports.createCarFromFile).toBe('function')
-    expect(typeof exports.createCarFromFiles).toBe('function')
-    expect(typeof exports.createCarFromPath).toBe('function')
+    expect(typeof createCarFromPath).toBe('function')
+    expect(typeof createCarFromFiles).toBe('function')
+    expect(typeof createCarFromPath).toBe('function')
     if (typeof window !== 'undefined') {
       expect(() => exports.createCarFromPath('foo')).toThrow('Function not available in the browser.')
     } else {
