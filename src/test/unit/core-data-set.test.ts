@@ -85,7 +85,7 @@ vi.mock('@filoz/synapse-sdk', async () => {
 })
 
 // Mock piece size calculation
-vi.mock('@filoz/synapse-sdk/piece', () => ({
+vi.mock('@filoz/synapse-core/piece', () => ({
   getSizeFromPieceCID: vi.fn((cid: { toString: () => string } | string) => {
     // Map specific CIDs to sizes for testing
     const cidString = typeof cid === 'string' ? cid : cid.toString()
@@ -97,11 +97,11 @@ vi.mock('@filoz/synapse-sdk/piece', () => ({
 }))
 vi.mock('@filoz/synapse-sdk/sp-registry', () => {
   return {
-    SPRegistryService: vi.fn().mockImplementation(() => {
-      return {
-        getProviders: mockGetProviders,
+    SPRegistryService: class {
+      async getProviders(providerIds: number[]) {
+        return mockGetProviders(providerIds)
       }
-    }),
+    },
   }
 })
 

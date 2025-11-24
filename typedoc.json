@@ -1,0 +1,9 @@
+{
+  "entryPoints": ["src/index.ts", "src/index.browser.ts"],
+  "out": "docs/api",
+  "tsconfig": "tsconfig.json",
+  "excludeExternals": true,
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "excludeNotDocumented": false
+}

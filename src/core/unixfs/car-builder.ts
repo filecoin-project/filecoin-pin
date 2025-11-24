@@ -18,7 +18,7 @@ import type { Logger } from 'pino'
 import { CARWritingBlockstore } from '../car/index.js'
 
 // Spinner type for progress reporting
-type Spinner = {
+export type Spinner = {
   start(msg: string): void
   stop(msg: string): void
   message(msg: string): void

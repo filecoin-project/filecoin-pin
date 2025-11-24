@@ -38,13 +38,13 @@ export interface DataSetPiecesResult {
   /** Total size of all pieces in bytes (sum of individual piece sizes) */
   totalSizeBytes?: bigint
   /** Non-fatal warnings encountered during retrieval */
-  warnings?: Warning[]
+  warnings?: DataSetWarning[]
 }
 
 /**
  * Structured warning for non-fatal issues
  */
-export interface Warning {
+export interface DataSetWarning {
   /** Machine-readable warning code (e.g., 'METADATA_FETCH_FAILED') */
   code: string
   /** Human-readable warning message */

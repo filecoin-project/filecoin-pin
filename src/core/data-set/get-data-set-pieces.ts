@@ -6,15 +6,15 @@
  * @module core/data-set/get-data-set-pieces
  */
 
+import { getSizeFromPieceCID } from '@filoz/synapse-core/piece'
 import { METADATA_KEYS, type StorageContext, type Synapse, WarmStorageService } from '@filoz/synapse-sdk'
-import { getSizeFromPieceCID } from '@filoz/synapse-sdk/piece'
 import { isStorageContextWithDataSetId } from './type-guards.js'
 import type {
   DataSetPiecesResult,
+  DataSetWarning,
   GetDataSetPiecesOptions,
   PieceInfo,
   StorageContextWithDataSetId,
-  Warning,
 } from './types.js'
 
 /**
@@ -57,7 +57,7 @@ export async function getDataSetPieces(
   }
 
   const pieces: PieceInfo[] = []
-  const warnings: Warning[] = []
+  const warnings: DataSetWarning[] = []
 
   // Use the async generator to fetch all pieces
   try {
@@ -119,7 +119,7 @@ async function enrichPiecesWithMetadata(
   synapse: Synapse,
   storageContext: StorageContextWithDataSetId,
   pieces: PieceInfo[],
-  warnings: Warning[],
+  warnings: DataSetWarning[],
   logger?: GetDataSetPiecesOptions['logger']
 ): Promise<void> {
   const dataSetId = storageContext.dataSetId
