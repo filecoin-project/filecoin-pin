@@ -10,7 +10,7 @@ import type { FilecoinPinAPI } from './index-types.js'
 
 export * from './index-types.js'
 
-export const publicApi = {
+const publicApi = {
   ...browser,
   createCarFromPath: createCarFromPathCore,
 } satisfies FilecoinPinAPI
