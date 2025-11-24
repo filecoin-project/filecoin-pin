@@ -4,7 +4,7 @@
  * This module provides a reusable upload pattern for CAR files to Filecoin
  * via Synapse SDK, used by both the import command and pinning server.
  */
-import type { PieceCID, UploadOptions } from '@filoz/synapse-sdk'
+import type { PieceCID } from '@filoz/synapse-sdk'
 import { METADATA_KEYS, type ProviderInfo, type UploadCallbacks } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
@@ -129,12 +129,13 @@ export async function uploadToSynapse(
   }
 
   // Upload using Synapse with IPFS root CID metadata
-  const uploadOptions: UploadOptions = {
+  const uploadOptions: Parameters<typeof synapseService.synapse.storage.upload>[1] = {
     ...uploadCallbacks,
     metadata: {
       ...(options.pieceMetadata ?? {}),
       [METADATA_KEYS.IPFS_ROOT_CID]: rootCid.toString(), // Associate piece with IPFS root CID
     },
+    context: synapseService.storage,
   }
 
   const synapseResult = await synapseService.synapse.storage.upload(carData, uploadOptions)
