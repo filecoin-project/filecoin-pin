@@ -372,8 +372,8 @@ describe('CAR Import', () => {
       // Verify progress callbacks were provided to createStorageContext
       expect(createContextSpy).toHaveBeenCalledWith(
         expect.any(Object), // synapse
-        expect.any(Object), // logger
         expect.objectContaining({
+          logger: expect.anything(),
           callbacks: expect.objectContaining({
             onProviderSelected: expect.any(Function),
             onDataSetResolved: expect.any(Function),
@@ -443,11 +443,11 @@ describe('CAR Import', () => {
 
       expect(vi.mocked(createStorageContext)).toHaveBeenCalledWith(
         expect.any(Object),
-        expect.any(Object),
         expect.objectContaining({
           dataset: {
             metadata: { erc8004Files: '' },
           },
+          logger:expect.anything(),
         })
       )
 

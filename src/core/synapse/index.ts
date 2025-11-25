@@ -463,22 +463,10 @@ export async function initializeSynapse(config: Partial<SynapseSetupConfig>, log
  */
 export async function createStorageContext(
   synapse: Synapse,
-  loggerOrOptions?: Logger | CreateStorageContextOptions,
-  justOptions?: CreateStorageContextOptions
+  options?: CreateStorageContextOptions
 ): Promise<{ storage: StorageContext; providerInfo: ProviderInfo }> {
-  let options: CreateStorageContextOptions | undefined
-  let logger: Partial<Logger>
-
-  if (loggerOrOptions && 'info' in loggerOrOptions) {
-    // backwards compatible with logger param: (synapse, logger, options)
-    logger = loggerOrOptions as Logger
-    options = justOptions
-  } else {
-    // new mode with logger as part of options: (synapse, options)
-    options = loggerOrOptions as CreateStorageContextOptions
-    logger = options?.logger ?? noopLogger
-  }
-
+  const logger = options?.logger ?? noopLogger
+  
   try {
     // Create storage context with comprehensive event tracking
     // The storage context manages the data set and provider interactions

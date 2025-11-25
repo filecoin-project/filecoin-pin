@@ -18,6 +18,7 @@ import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import {
   cleanupSynapseService,
   createStorageContext,
+  CreateStorageContextOptions,
   initializeSynapse,
   type SynapseService,
 } from '../core/synapse/index.js'
@@ -215,7 +216,8 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     // Parse provider selection from CLI options and environment variables
     const providerOptions = parseProviderOptions(options)
 
-    const storageContextOptions: Parameters<typeof createStorageContext>[2] = {
+    const storageContextOptions: CreateStorageContextOptions = {
+      logger,
       ...providerOptions,
       dataset: {
         ...(dataSetMetadata && { metadata: dataSetMetadata }),
@@ -234,7 +236,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       },
     }
 
-    const { storage, providerInfo } = await createStorageContext(synapse, logger, storageContextOptions)
+    const { storage, providerInfo } = await createStorageContext(synapse, storageContextOptions)
 
     spinner.stop(`${pc.green('✓')} Storage context ready`)
 
