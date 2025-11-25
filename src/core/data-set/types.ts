@@ -12,6 +12,23 @@ import type { EnhancedDataSetInfo, ProviderInfo, StorageContext } from '@filoz/s
 import type { Logger } from 'pino'
 
 /**
+ * Status of the piece, e.g. "pending removal", "active", "orphaned"
+ *
+ * - "pending-removal": the piece is scheduled for deletion, but still showing on chain
+ * - "active": the piece is active, onchain and known by the provider
+ * - "onchain-orphaned": the piece is not known by the provider, but still on chain
+ * - "offchain-orphaned": the piece is known by the provider, but not on chain
+ *
+ * The orphaned states should not happen, but have been observed and should be logged and displayed to the user.
+ */
+export enum PieceStatus {
+  ACTIVE = 'ACTIVE',
+  PENDING_REMOVAL = 'PENDING_REMOVAL',
+  ONCHAIN_ORPHANED = 'ONCHAIN_ORPHANED',
+  OFFCHAIN_ORPHANED = 'OFFCHAIN_ORPHANED',
+}
+
+/**
  * Information about a single piece in a dataset
  */
 export interface PieceInfo {
@@ -19,10 +36,7 @@ export interface PieceInfo {
   pieceId: number
   /** Piece Commitment (CommP) as string */
   pieceCid: string
-  /**
-   * Whether the piece is scheduled for deletion
-   */
-  isPendingRemoval: boolean
+  status: PieceStatus
   /** Root IPFS CID (from metadata, if available) */
   rootIpfsCid?: string
   /** Piece size in bytes (if available) */

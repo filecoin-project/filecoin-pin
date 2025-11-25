@@ -102,6 +102,21 @@ export class PDPVerifier {
   }
 }
 
+/**
+ * Mock PDPServer for testing piece data from provider
+ */
+export class PDPServer {
+  async getDataSet(_dataSetId: number): Promise<{ pieces: any[] }> {
+    return { pieces: [] }
+  }
+}
+
+// Mock DataSetPieceData type
+export type DataSetPieceData = {
+  pieceId: number
+  pieceCid: string
+}
+
 // Export mock permission type hashes (keccak256 hashes of EIP-712 type strings)
 // These match the actual values from the SDK
 export const CREATE_DATA_SET_TYPEHASH = '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef'

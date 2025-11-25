@@ -1,6 +1,7 @@
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import type { DataSetSummary, PieceInfo } from '../core/data-set/types.js'
+import { PieceStatus } from '../core/data-set/types.js'
 import { formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 
@@ -173,10 +174,25 @@ function renderMetadata(metadata: Record<string, string>, indentLevel: number = 
 function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
   const sizeDisplay = piece.size != null ? formatFileSize(piece.size) : pc.gray('unknown')
 
-  log.indent(
-    pc.bold(`#${piece.pieceId} ${piece.isPendingRemoval ? `(${pc.yellow('pending removal')})` : ''}`),
-    baseIndentLevel
-  )
+  let pieceStatusDisplay: string
+  switch (piece.status) {
+    case PieceStatus.ACTIVE:
+      pieceStatusDisplay = pc.green('active')
+      break
+    case PieceStatus.PENDING_REMOVAL:
+      pieceStatusDisplay = pc.yellow('pending removal')
+      break
+    case PieceStatus.ONCHAIN_ORPHANED:
+      pieceStatusDisplay = pc.red('onchain orphaned')
+      break
+    case PieceStatus.OFFCHAIN_ORPHANED:
+      pieceStatusDisplay = pc.red('offchain orphaned')
+      break
+    default:
+      pieceStatusDisplay = pc.gray('unknown')
+      break
+  }
+  log.indent(pc.bold(`#${piece.pieceId} (${pieceStatusDisplay})`), baseIndentLevel)
   log.indent(`PieceCID: ${piece.pieceCid}`, baseIndentLevel + 1)
   log.indent(`Size: ${sizeDisplay}`, baseIndentLevel + 1)
   const extraMetadataEntries = Object.entries(piece.metadata ?? {})

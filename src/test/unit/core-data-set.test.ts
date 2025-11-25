@@ -17,6 +17,7 @@ const {
   mockGetProviders,
   mockGetPieces,
   mockGetAddress,
+  mockPDPServerGetDataSet,
   state,
 } = vi.hoisted(() => {
   const state = {
@@ -24,6 +25,7 @@ const {
     providers: [] as any[],
     pieces: [] as Array<{ pieceId: number; pieceCid: { toString: () => string } }>,
     pieceMetadata: {} as Record<number, Record<string, string>>,
+    pdpServerPieces: [] as Array<{ pieceId: number; pieceCid: string }>,
   }
 
   const mockGetAddress = vi.fn(async () => '0xtest-address')
@@ -37,6 +39,18 @@ const {
     }
   })
   const mockGetNetwork = vi.fn(() => ({ chainId: 314159n, name: 'calibration' }))
+  const mockGetProviderInfo = vi.fn(async () => ({
+    products: {
+      PDP: {
+        data: {
+          serviceURL: 'http://localhost:8888/pdp',
+        },
+      },
+    },
+  }))
+  const mockPDPServerGetDataSet = vi.fn(async (_dataSetId: number) => ({
+    pieces: state.pdpServerPieces,
+  }))
 
   const mockWarmStorageInstance = {
     getPieceMetadata: vi.fn(async (_dataSetId: number, pieceId: number) => {
@@ -52,6 +66,9 @@ const {
     dataSetId: 123,
     synapse: null as any, // will be set in tests
     getPieces: mockGetPieces,
+    provider: {
+      serviceProvider: '0xservice-provider',
+    },
   }
 
   const mockSynapse = {
@@ -59,6 +76,7 @@ const {
     getProvider: () => ({}),
     getNetwork: mockGetNetwork,
     getWarmStorageAddress: () => '0xwarm-storage',
+    getProviderInfo: mockGetProviderInfo,
     storage: {
       findDataSets: mockFindDataSets,
     },
@@ -73,6 +91,8 @@ const {
     mockGetProviders,
     mockGetPieces,
     mockGetAddress,
+    mockGetProviderInfo,
+    mockPDPServerGetDataSet,
     state,
   }
 })
@@ -82,6 +102,11 @@ vi.mock('@filoz/synapse-sdk', async () => {
   return {
     ...sharedMock,
     WarmStorageService: { create: mockWarmStorageCreate },
+    PDPServer: class {
+      async getDataSet(dataSetId: number) {
+        return mockPDPServerGetDataSet(dataSetId)
+      }
+    },
   }
 })
 
@@ -313,6 +338,7 @@ describe('getDataSetPieces', () => {
     vi.clearAllMocks()
     state.pieces = []
     state.pieceMetadata = {}
+    state.pdpServerPieces = []
     mockStorageContext.synapse = mockSynapse
   })
 
@@ -328,6 +354,10 @@ describe('getDataSetPieces', () => {
     state.pieces = [
       { pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } },
       { pieceId: 1, pieceCid: { toString: () => 'bafkpiece1' } },
+    ]
+    state.pdpServerPieces = [
+      { pieceId: 0, pieceCid: 'bafkpiece0' },
+      { pieceId: 1, pieceCid: 'bafkpiece1' },
     ]
 
     const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any, {
@@ -350,6 +380,10 @@ describe('getDataSetPieces', () => {
     state.pieces = [
       { pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } },
       { pieceId: 1, pieceCid: { toString: () => 'bafkpiece1' } },
+    ]
+    state.pdpServerPieces = [
+      { pieceId: 0, pieceCid: 'bafkpiece0' },
+      { pieceId: 1, pieceCid: 'bafkpiece1' },
     ]
     state.pieceMetadata = {
       0: {
@@ -384,6 +418,11 @@ describe('getDataSetPieces', () => {
       { pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } },
       { pieceId: 1, pieceCid: { toString: () => 'bafkpiece1' } },
     ]
+    // Set pdpServerPieces to match onchain pieces (no orphaned warnings)
+    state.pdpServerPieces = [
+      { pieceId: 0, pieceCid: 'bafkpiece0' },
+      { pieceId: 1, pieceCid: 'bafkpiece1' },
+    ]
     state.pieceMetadata = {
       0: {
         [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot0',
@@ -417,6 +456,7 @@ describe('getDataSetPieces', () => {
 
   it('adds warning when WarmStorage initialization fails', async () => {
     state.pieces = [{ pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } }]
+    // Don't set pdpServerPieces - when WarmStorage fails, PDPServer.getDataSet() is never called
     // Both WarmStorage calls should fail (first for scheduled removals, second for metadata)
     mockWarmStorageCreate
       .mockRejectedValueOnce(new Error('WarmStorage unavailable'))
@@ -428,10 +468,17 @@ describe('getDataSetPieces', () => {
 
     expect(result.pieces).toHaveLength(1)
     expect(result.pieces[0]?.metadata).toBeUndefined()
-    expect(result.warnings).toHaveLength(1)
-    expect(result.warnings?.[0]).toMatchObject({
+    // Expect 2 warnings: ONCHAIN_ORPHANED (because pdpServerPieces is empty) and WARM_STORAGE_INIT_FAILED
+    expect(result.warnings).toHaveLength(2)
+    expect(result.warnings).toContainEqual({
+      code: 'ONCHAIN_ORPHANED',
+      message: 'Piece is on-chain but the provider does not report it',
+      context: { pieceId: 0, pieceCid: { toString: expect.any(Function) } },
+    })
+    expect(result.warnings).toContainEqual({
       code: 'WARM_STORAGE_INIT_FAILED',
       message: 'Failed to initialize WarmStorageService for metadata enrichment',
+      context: { error: 'Error: WarmStorage unavailable' },
     })
   })
 
@@ -448,6 +495,7 @@ describe('getDataSetPieces', () => {
 
   it('handles pieces without root IPFS CID in metadata', async () => {
     state.pieces = [{ pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } }]
+    state.pdpServerPieces = [{ pieceId: 0, pieceCid: 'bafkpiece0' }]
     state.pieceMetadata = {
       0: {
         label: 'no-cid-file.txt',
@@ -471,6 +519,10 @@ describe('getDataSetPieces', () => {
       { pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } },
       { pieceId: 1, pieceCid: { toString: () => 'bafkpiece1' } },
     ]
+    state.pdpServerPieces = [
+      { pieceId: 0, pieceCid: 'bafkpiece0' },
+      { pieceId: 1, pieceCid: 'bafkpiece1' },
+    ]
 
     const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
 
@@ -484,6 +536,11 @@ describe('getDataSetPieces', () => {
       { pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } }, // 1 MiB
       { pieceId: 1, pieceCid: { toString: () => 'bafkpiece1' } }, // 2 MiB
       { pieceId: 2, pieceCid: { toString: () => 'bafkpiece2' } }, // 4 MiB
+    ]
+    state.pdpServerPieces = [
+      { pieceId: 0, pieceCid: 'bafkpiece0' },
+      { pieceId: 1, pieceCid: 'bafkpiece1' },
+      { pieceId: 2, pieceCid: 'bafkpiece2' },
     ]
 
     const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
@@ -507,6 +564,11 @@ describe('getDataSetPieces', () => {
       { pieceId: 1, pieceCid: { toString: () => 'invalid-cid' } }, // Will throw
       { pieceId: 2, pieceCid: { toString: () => 'bafkpiece2' } }, // Valid
     ]
+    state.pdpServerPieces = [
+      { pieceId: 0, pieceCid: 'bafkpiece0' },
+      { pieceId: 1, pieceCid: 'invalid-cid' },
+      { pieceId: 2, pieceCid: 'bafkpiece2' },
+    ]
 
     const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
 
@@ -516,5 +578,84 @@ describe('getDataSetPieces', () => {
     expect(result.pieces[2]?.size).toBe(4194304)
     // Total should only include pieces with valid sizes
     expect(result.totalSizeBytes).toBe(BigInt(1048576 + 4194304))
+  })
+
+  it('adds ONCHAIN_ORPHANED warning when piece is on-chain but not reported by provider', async () => {
+    state.pieces = [
+      { pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } },
+      { pieceId: 1, pieceCid: { toString: () => 'bafkpiece1' } },
+    ]
+    // PDPServer only reports piece 0, so piece 1 will be flagged as ONCHAIN_ORPHANED
+    state.pdpServerPieces = [{ pieceId: 0, pieceCid: 'bafkpiece0' }]
+
+    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+
+    expect(result.pieces).toHaveLength(2)
+    expect(result.warnings).toHaveLength(1)
+    expect(result.warnings?.[0]).toMatchObject({
+      code: 'ONCHAIN_ORPHANED',
+      message: 'Piece is on-chain but the provider does not report it',
+      context: {
+        pieceId: 1,
+        pieceCid: { toString: expect.any(Function) },
+      },
+    })
+  })
+
+  it('adds OFFCHAIN_ORPHANED warning when piece is reported by provider but not on-chain', async () => {
+    state.pieces = [{ pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } }]
+    // PDPServer reports 2 pieces, but only piece 0 is on-chain
+    state.pdpServerPieces = [
+      { pieceId: 0, pieceCid: 'bafkpiece0' },
+      { pieceId: 1, pieceCid: 'bafkpiece1' },
+    ]
+
+    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+
+    // Should have 2 pieces: 1 from on-chain and 1 from provider
+    expect(result.pieces).toHaveLength(2)
+    expect(result.warnings).toHaveLength(1)
+    expect(result.warnings?.[0]).toMatchObject({
+      code: 'OFFCHAIN_ORPHANED',
+      message: 'Piece is reported by provider but not on-chain',
+      context: {
+        pieceId: 1,
+        pieceCid: 'bafkpiece1',
+      },
+    })
+  })
+
+  it('handles both ONCHAIN_ORPHANED and OFFCHAIN_ORPHANED warnings in same result', async () => {
+    state.pieces = [
+      { pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } },
+      { pieceId: 2, pieceCid: { toString: () => 'bafkpiece2' } },
+    ]
+    // PDPServer reports pieces 0 and 1, but on-chain has pieces 0 and 2
+    state.pdpServerPieces = [
+      { pieceId: 0, pieceCid: 'bafkpiece0' },
+      { pieceId: 1, pieceCid: 'bafkpiece1' },
+    ]
+
+    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+
+    // Should have 3 pieces total: 0 (active), 1 (offchain orphaned), 2 (onchain orphaned)
+    expect(result.pieces).toHaveLength(3)
+    expect(result.warnings).toHaveLength(2)
+    expect(result.warnings).toContainEqual({
+      code: 'ONCHAIN_ORPHANED',
+      message: 'Piece is on-chain but the provider does not report it',
+      context: {
+        pieceId: 2,
+        pieceCid: { toString: expect.any(Function) },
+      },
+    })
+    expect(result.warnings).toContainEqual({
+      code: 'OFFCHAIN_ORPHANED',
+      message: 'Piece is reported by provider but not on-chain',
+      context: {
+        pieceId: 1,
+        pieceCid: 'bafkpiece1',
+      },
+    })
   })
 })

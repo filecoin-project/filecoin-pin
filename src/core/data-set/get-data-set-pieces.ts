@@ -7,7 +7,15 @@
  */
 
 import { getSizeFromPieceCID } from '@filoz/synapse-core/piece'
-import { METADATA_KEYS, PDPVerifier, type StorageContext, type Synapse, WarmStorageService } from '@filoz/synapse-sdk'
+import {
+  type DataSetPieceData,
+  METADATA_KEYS,
+  PDPServer,
+  PDPVerifier,
+  type StorageContext,
+  type Synapse,
+  WarmStorageService,
+} from '@filoz/synapse-sdk'
 import { isStorageContextWithDataSetId } from './type-guards.js'
 import type {
   DataSetPiecesResult,
@@ -16,6 +24,7 @@ import type {
   PieceInfo,
   StorageContextWithDataSetId,
 } from './types.js'
+import { PieceStatus } from './types.js'
 
 /**
  * Get all pieces for a dataset from a StorageContext
@@ -61,10 +70,15 @@ export async function getDataSetPieces(
 
   // call PDPVerifier.getScheduledRemovals to get the list of pieces that are scheduled for removal
   let scheduledRemovals: number[] = []
+  let pdpServerPieces: DataSetPieceData[] = []
   try {
     const warmStorage = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
     const pdpVerifier = new PDPVerifier(synapse.getProvider(), warmStorage.getPDPVerifierAddress())
     scheduledRemovals = await pdpVerifier.getScheduledRemovals(storageContext.dataSetId)
+    const providerInfo = await synapse.getProviderInfo(storageContext.provider.serviceProvider)
+    const pdpServer = new PDPServer(null, providerInfo.products?.PDP?.data?.serviceURL ?? '')
+    const dataSet = await pdpServer.getDataSet(storageContext.dataSetId)
+    pdpServerPieces = dataSet.pieces
   } catch (error) {
     logger?.warn({ error }, 'Failed to create WarmStorageService or PDPVerifier for scheduled removals')
   }
@@ -72,13 +86,24 @@ export async function getDataSetPieces(
   // Use the async generator to fetch all pieces
   try {
     const getPiecesOptions = { ...(signal && { signal }) }
+    const providerPiecesById = new Map(pdpServerPieces.map((piece) => [piece.pieceId, piece]))
     for await (const piece of storageContext.getPieces(getPiecesOptions)) {
       const pieceId = piece.pieceId
       const pieceCid = piece.pieceCid
+      const status = getPieceStatus(pieceId, scheduledRemovals, providerPiecesById)
       const pieceInfo: PieceInfo = {
         pieceId,
         pieceCid: pieceCid.toString(),
-        isPendingRemoval: scheduledRemovals.includes(pieceId),
+        status,
+      }
+      if (status === PieceStatus.ONCHAIN_ORPHANED) {
+        warnings.push({
+          code: 'ONCHAIN_ORPHANED',
+          message: 'Piece is on-chain but the provider does not report it',
+          context: { pieceId, pieceCid },
+        })
+      } else if (status === PieceStatus.ACTIVE) {
+        providerPiecesById.delete(pieceId)
       }
 
       // Calculate piece size from CID
@@ -93,6 +118,20 @@ export async function getDataSetPieces(
 
       pieces.push(pieceInfo)
     }
+    for (const piece of providerPiecesById.values()) {
+      // add the rest of the pieces to the pieces list
+      pieces.push({
+        pieceId: piece.pieceId,
+        pieceCid: piece.pieceCid.toString(),
+        status: PieceStatus.OFFCHAIN_ORPHANED,
+      })
+      warnings.push({
+        code: 'OFFCHAIN_ORPHANED',
+        message: 'Piece is reported by provider but not on-chain',
+        context: { pieceId: piece.pieceId, pieceCid: piece.pieceCid.toString() },
+      })
+    }
+    pieces.sort((a, b) => a.pieceId - b.pieceId)
   } catch (error) {
     // If getPieces fails completely, throw - this is a critical error
     logger?.error({ dataSetId: storageContext.dataSetId, error }, 'Failed to retrieve pieces from dataset')
@@ -118,6 +157,20 @@ export async function getDataSetPieces(
   }
 
   return result
+}
+
+function getPieceStatus(
+  pieceId: number,
+  scheduledRemovals: number[],
+  providerPiecesById: Map<DataSetPieceData['pieceId'], DataSetPieceData>
+): PieceStatus {
+  if (scheduledRemovals.includes(pieceId)) {
+    return PieceStatus.PENDING_REMOVAL
+  }
+  if (providerPiecesById.has(pieceId)) {
+    return PieceStatus.ACTIVE
+  }
+  return PieceStatus.ONCHAIN_ORPHANED
 }
 
 /**
