@@ -1,4 +1,4 @@
-Filecoin Pin brings multiple technologies together (i.e., existing Filecoin blockchain and storage providers, new Filecoin initiatives including Filecoin Onchain Cloud, IPFS).  As a result, terminology from all these areas is used for describing Filecoin Pin.  This glossary serves as a primer of the key terminology.  Rather than seeking to be the comprehensive source of truth, it seeks to point to where to find authoritative and more in depth information.  Many additional IPFS-related terms can be found in https://docs.ipfs.tech/concepts/glossary.  
+Filecoin Pin brings multiple technologies together (i.e., existing Filecoin blockchain and storage providers, new Filecoin initiatives including Filecoin Onchain Cloud, IPFS).  As a result, terminology from all these areas is used for describing Filecoin Pin.  This glossary serves as a primer of the key terminology.  Rather than seeking to be the comprehensive source of truth, it seeks to point to where to find authoritative and more in depth information.  Many additional IPFS-related terms can be found in https://docs.ipfs.tech/concepts/glossary.
 
 ## Calibration Network
 
@@ -72,7 +72,7 @@ Example of [Filecoin Pin](#filecoin-pin) in action within a web-browser.  Its pu
 1. Demonstrate that Filecoin Pin is usable.  Drag and drop and you're good to go!
 2. Serve as a starter or inspiration for dApp builders wanting to use [Filecoin Onchain Cloud](#filecoin-onchain-cloud).
 
-filecoin-pin-website is also hosted at [pin.filecoin.cloud](http://pin.filecoin.cloud), with hardcoded wallet and [session key](#session-key) on the [Calibration](#calibration-network) network.  In future, [integration with tools like Metamask will be supported](https://github.com/filecoin-project/filecoin-pin-website/issues/77).  
+filecoin-pin-website is also hosted at [pin.filecoin.cloud](http://pin.filecoin.cloud), with hardcoded wallet and [session key](#session-key) on the [Calibration](#calibration-network) network.  In future, [integration with tools like Metamask will be supported](https://github.com/filecoin-project/filecoin-pin-website/issues/77).
 
 ## Filecoin Pin example GitHub Action
 
@@ -90,7 +90,7 @@ The CID for the root of a merkle DAG that is usually encoding a file or director
 
 ## `/ipfs` Retrieval
 
-This is one of two retrieval endpoints that [Service Providers](#service-provider) expose.  This endpoint conforms with the [IPFS Trustless Gateway Specification](https://specs.ipfs.tech/http-gateways/trustless-gateway/).  All CIDs that are indexed by the SP should be retrievable via this endpoint.  This is the endpoint that is announced through the provider records stored by [IPNI](#ipni) Indexers. 
+This is one of two retrieval endpoints that [Service Providers](#service-provider) expose.  This endpoint conforms with the [IPFS Trustless Gateway Specification](https://specs.ipfs.tech/http-gateways/trustless-gateway/).  All CIDs that are indexed by the SP should be retrievable via this endpoint.  This is the endpoint that is announced through the provider records stored by [IPNI](#ipni) Indexers.
 
 As a "trustless" protocol, retrieval of IPFS data using this mechanism provides assurance that data has not been tampered with and that what is being retrieved is _exactly_ what was requested. This is in contrast to a "trusted" gateway where IPFS data is reassembled into a form appropriate for rendering. Developers and users are encouraged to perform this reassembly step as close as possible to the user, using existing IPFS technologies such as [Kubo](https://github.com/ipfs/kubo) and [Helia](https://github.com/ipfs/helia). For example, Helia's [`verified-fetch` package](https://www.npmjs.com/package/@helia/verified-fetch) is able to perform this within a browser context and is powering https://inbrowser.link/.
 
@@ -147,7 +147,7 @@ Note that within [Filecoin Onchain Cloud](#filecoin-onchain-cloud), service prov
 
 ## Service Provider Registry
 
-An onchain registry of [Service Providers](#service-provider) who are participating in [Filecoin Onchain Cloud](#filecoin-onchain-cloud).  They can be viewed at https://filecoin.cloud/providers.  By default, only "Approved Providers" are used by [Filecoin Pin](#filecoin-pin) because they have been vetted to support IPFS Mainnet retrievals.
+An onchain registry of [Service Providers](#service-provider) who are participating in [Filecoin Onchain Cloud](#filecoin-onchain-cloud).  They can be viewed at https://filecoin.cloud/service-providers.  By default, only "Approved Providers" are used by [Filecoin Pin](#filecoin-pin) because they have been vetted to support IPFS Mainnet retrievals.
 
 ## Session Key
 
