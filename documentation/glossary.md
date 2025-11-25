@@ -72,7 +72,7 @@ Example of [Filecoin Pin](#filecoin-pin) in action within a web-browser.  Its pu
 1. Demonstrate that Filecoin Pin is usable.  Drag and drop and you're good to go!
 2. Serve as a starter or inspiration for dApp builders wanting to use [Filecoin Onchain Cloud](#filecoin-onchain-cloud).
 
-filecoin-pin-website is also hosted at [pin.filecoin.cloud](http://pin.filecoin.cloud), with hardcoded wallet and [session key](#session-key) on the [Calibration](#calibration-network) network.  In future, [integration with tools like Metamask will be supported](https://github.com/filecoin-project/filecoin-pin-website/issues/77).
+filecoin-pin-website is also hosted at [pin.filecoin.cloud](http://pin.filecoin.cloud), with hardcoded wallet and [session key](#session-key) on the [Calibration](#calibration-network) network.  In future, [integration with tools like Metamask will be supported](https://github.com/filecoin-project/filecoin-pin-website/issues/77).  
 
 ## Filecoin Pin example GitHub Action
 
