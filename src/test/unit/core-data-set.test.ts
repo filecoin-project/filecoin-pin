@@ -468,12 +468,15 @@ describe('getDataSetPieces', () => {
 
     expect(result.pieces).toHaveLength(1)
     expect(result.pieces[0]?.metadata).toBeUndefined()
-    // Expect 2 warnings: ONCHAIN_ORPHANED (because pdpServerPieces is empty) and WARM_STORAGE_INIT_FAILED
+    // Expect 2 warnings: SCHEDULED_REMOVALS_UNAVAILABLE and WARM_STORAGE_INIT_FAILED
     expect(result.warnings).toHaveLength(2)
     expect(result.warnings).toContainEqual({
-      code: 'ONCHAIN_ORPHANED',
-      message: 'Piece is on-chain but the provider does not report it',
-      context: { pieceId: 0, pieceCid: { toString: expect.any(Function) } },
+      code: 'SCHEDULED_REMOVALS_UNAVAILABLE',
+      message: 'Failed to get scheduled removals',
+      context: {
+        dataSetId: 123,
+        error: 'Error: WarmStorage unavailable',
+      },
     })
     expect(result.warnings).toContainEqual({
       code: 'WARM_STORAGE_INIT_FAILED',

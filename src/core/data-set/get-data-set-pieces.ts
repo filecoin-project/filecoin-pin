@@ -70,23 +70,37 @@ export async function getDataSetPieces(
 
   // call PDPVerifier.getScheduledRemovals to get the list of pieces that are scheduled for removal
   let scheduledRemovals: number[] = []
-  let pdpServerPieces: DataSetPieceData[] = []
+  let pdpServerPieces: DataSetPieceData[] | null = null
   try {
     const warmStorage = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
     const pdpVerifier = new PDPVerifier(synapse.getProvider(), warmStorage.getPDPVerifierAddress())
     scheduledRemovals = await pdpVerifier.getScheduledRemovals(storageContext.dataSetId)
-    const providerInfo = await synapse.getProviderInfo(storageContext.provider.serviceProvider)
-    const pdpServer = new PDPServer(null, providerInfo.products?.PDP?.data?.serviceURL ?? '')
-    const dataSet = await pdpServer.getDataSet(storageContext.dataSetId)
-    pdpServerPieces = dataSet.pieces
+    try {
+      const providerInfo = await synapse.getProviderInfo(storageContext.provider.serviceProvider)
+      const pdpServer = new PDPServer(null, providerInfo.products?.PDP?.data?.serviceURL ?? '')
+      const dataSet = await pdpServer.getDataSet(storageContext.dataSetId)
+      pdpServerPieces = dataSet.pieces
+    } catch (error) {
+      logger?.warn({ error }, 'Failed to fetch provider data for scheduled removals and orphan detection')
+      warnings.push({
+        code: 'PROVIDER_DATA_UNAVAILABLE',
+        message: 'Failed to fetch provider data; orphan detection disabled',
+        context: { dataSetId: storageContext.dataSetId, error: String(error) },
+      })
+    }
   } catch (error) {
-    logger?.warn({ error }, 'Failed to create WarmStorageService or PDPVerifier for scheduled removals')
+    logger?.warn({ error }, 'Failed to get scheduled removals')
+    warnings.push({
+      code: 'SCHEDULED_REMOVALS_UNAVAILABLE',
+      message: 'Failed to get scheduled removals',
+      context: { dataSetId: storageContext.dataSetId, error: String(error) },
+    })
   }
 
   // Use the async generator to fetch all pieces
   try {
     const getPiecesOptions = { ...(signal && { signal }) }
-    const providerPiecesById = new Map(pdpServerPieces.map((piece) => [piece.pieceId, piece]))
+    const providerPiecesById = pdpServerPieces ? new Map(pdpServerPieces.map((piece) => [piece.pieceId, piece])) : null
     for await (const piece of storageContext.getPieces(getPiecesOptions)) {
       const pieceId = piece.pieceId
       const pieceCid = piece.pieceCid
@@ -102,7 +116,7 @@ export async function getDataSetPieces(
           message: 'Piece is on-chain but the provider does not report it',
           context: { pieceId, pieceCid },
         })
-      } else if (status === PieceStatus.ACTIVE) {
+      } else if (status === PieceStatus.ACTIVE && providerPiecesById) {
         providerPiecesById.delete(pieceId)
       }
 
@@ -118,18 +132,20 @@ export async function getDataSetPieces(
 
       pieces.push(pieceInfo)
     }
-    for (const piece of providerPiecesById.values()) {
-      // add the rest of the pieces to the pieces list
-      pieces.push({
-        pieceId: piece.pieceId,
-        pieceCid: piece.pieceCid.toString(),
-        status: PieceStatus.OFFCHAIN_ORPHANED,
-      })
-      warnings.push({
-        code: 'OFFCHAIN_ORPHANED',
-        message: 'Piece is reported by provider but not on-chain',
-        context: { pieceId: piece.pieceId, pieceCid: piece.pieceCid.toString() },
-      })
+    if (providerPiecesById !== null) {
+      for (const piece of providerPiecesById.values()) {
+        // add the rest of the pieces to the pieces list
+        pieces.push({
+          pieceId: piece.pieceId,
+          pieceCid: piece.pieceCid.toString(),
+          status: PieceStatus.OFFCHAIN_ORPHANED,
+        })
+        warnings.push({
+          code: 'OFFCHAIN_ORPHANED',
+          message: 'Piece is reported by provider but not on-chain',
+          context: { pieceId: piece.pieceId, pieceCid: piece.pieceCid.toString() },
+        })
+      }
     }
     pieces.sort((a, b) => a.pieceId - b.pieceId)
   } catch (error) {
@@ -162,12 +178,13 @@ export async function getDataSetPieces(
 function getPieceStatus(
   pieceId: number,
   scheduledRemovals: number[],
-  providerPiecesById: Map<DataSetPieceData['pieceId'], DataSetPieceData>
+  providerPiecesById: Map<DataSetPieceData['pieceId'], DataSetPieceData> | null
 ): PieceStatus {
   if (scheduledRemovals.includes(pieceId)) {
     return PieceStatus.PENDING_REMOVAL
   }
-  if (providerPiecesById.has(pieceId)) {
+  if (providerPiecesById === null || providerPiecesById.has(pieceId)) {
+    // if we were unable to get the provider pieces, or the provider knows about the piece, we will consider the piece active
     return PieceStatus.ACTIVE
   }
   return PieceStatus.ONCHAIN_ORPHANED
