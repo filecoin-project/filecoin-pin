@@ -23,6 +23,7 @@ export async function getDetailedDataSet(
 
   const storageContext = await synapse.storage.createContext({
     dataSetId: dataSet.dataSetId,
+    providerId: dataSet.providerId,
   })
 
   const piecesResult = await getDataSetPieces(synapse, storageContext, {

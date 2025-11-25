@@ -173,12 +173,13 @@ function renderMetadata(metadata: Record<string, string>, indentLevel: number = 
 function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
   const sizeDisplay = piece.size != null ? formatFileSize(piece.size) : pc.gray('unknown')
 
-  log.indent(pc.bold(`#${piece.pieceId}`), baseIndentLevel)
+  log.indent(
+    pc.bold(`#${piece.pieceId} ${piece.isPendingRemoval ? `(${pc.yellow('pending removal')})` : ''}`),
+    baseIndentLevel
+  )
   log.indent(`PieceCID: ${piece.pieceCid}`, baseIndentLevel + 1)
   log.indent(`Size: ${sizeDisplay}`, baseIndentLevel + 1)
-
   const extraMetadataEntries = Object.entries(piece.metadata ?? {})
-
   renderMetadata(Object.fromEntries(extraMetadataEntries), baseIndentLevel + 1)
 }
 

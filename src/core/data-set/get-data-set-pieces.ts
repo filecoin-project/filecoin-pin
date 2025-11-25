@@ -7,7 +7,7 @@
  */
 
 import { getSizeFromPieceCID } from '@filoz/synapse-core/piece'
-import { METADATA_KEYS, type StorageContext, type Synapse, WarmStorageService } from '@filoz/synapse-sdk'
+import { METADATA_KEYS, PDPVerifier, type StorageContext, type Synapse, WarmStorageService } from '@filoz/synapse-sdk'
 import { isStorageContextWithDataSetId } from './type-guards.js'
 import type {
   DataSetPiecesResult,
@@ -59,13 +59,27 @@ export async function getDataSetPieces(
   const pieces: PieceInfo[] = []
   const warnings: DataSetWarning[] = []
 
+  // call PDPVerifier.getScheduledRemovals to get the list of pieces that are scheduled for removal
+  let scheduledRemovals: number[] = []
+  try {
+    const warmStorage = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
+    const pdpVerifier = new PDPVerifier(synapse.getProvider(), warmStorage.getPDPVerifierAddress())
+    scheduledRemovals = await pdpVerifier.getScheduledRemovals(storageContext.dataSetId)
+  } catch (error) {
+    logger?.warn({ error }, 'Failed to create WarmStorageService or PDPVerifier for scheduled removals')
+  }
+
   // Use the async generator to fetch all pieces
   try {
     const getPiecesOptions = { ...(signal && { signal }) }
     for await (const piece of storageContext.getPieces(getPiecesOptions)) {
       const pieceId = piece.pieceId
       const pieceCid = piece.pieceCid
-      const pieceInfo: PieceInfo = { pieceId, pieceCid: pieceCid.toString() }
+      const pieceInfo: PieceInfo = {
+        pieceId,
+        pieceCid: pieceCid.toString(),
+        isPendingRemoval: scheduledRemovals.includes(pieceId),
+      }
 
       // Calculate piece size from CID
       try {

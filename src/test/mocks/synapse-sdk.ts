@@ -93,6 +93,15 @@ export const METADATA_KEYS = {
   IPFS_ROOT_CID: 'ipfsRootCid',
 }
 
+/**
+ * Mock PDPVerifier for testing scheduled removals
+ */
+export class PDPVerifier {
+  async getScheduledRemovals(_dataSetId: number): Promise<number[]> {
+    return []
+  }
+}
+
 // Export mock permission type hashes (keccak256 hashes of EIP-712 type strings)
 // These match the actual values from the SDK
 export const CREATE_DATA_SET_TYPEHASH = '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef'

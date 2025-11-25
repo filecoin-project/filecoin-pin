@@ -19,6 +19,10 @@ export interface PieceInfo {
   pieceId: number
   /** Piece Commitment (CommP) as string */
   pieceCid: string
+  /**
+   * Whether the piece is scheduled for deletion
+   */
+  isPendingRemoval: boolean
   /** Root IPFS CID (from metadata, if available) */
   rootIpfsCid?: string
   /** Piece size in bytes (if available) */

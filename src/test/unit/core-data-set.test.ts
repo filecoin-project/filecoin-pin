@@ -43,6 +43,7 @@ const {
       return state.pieceMetadata[pieceId] ?? {}
     }),
     getServiceProviderRegistryAddress: vi.fn(async () => '0xsp-registry'),
+    getPDPVerifierAddress: vi.fn(() => '0xpdp-verifier'),
   }
 
   const mockWarmStorageCreate = vi.fn(async () => mockWarmStorageInstance)
@@ -94,6 +95,7 @@ vi.mock('@filoz/synapse-core/piece', () => ({
     if (cidString === 'bafkpiece2') return 4194304 // 4 MiB
     throw new Error(`Invalid piece CID: ${cidString}`)
   }),
+  MAX_UPLOAD_SIZE: 32 * 1024 * 1024 * 1024, // 32 GiB
 }))
 vi.mock('@filoz/synapse-sdk/sp-registry', () => {
   return {
@@ -415,7 +417,10 @@ describe('getDataSetPieces', () => {
 
   it('adds warning when WarmStorage initialization fails', async () => {
     state.pieces = [{ pieceId: 0, pieceCid: { toString: () => 'bafkpiece0' } }]
-    mockWarmStorageCreate.mockRejectedValueOnce(new Error('WarmStorage unavailable'))
+    // Both WarmStorage calls should fail (first for scheduled removals, second for metadata)
+    mockWarmStorageCreate
+      .mockRejectedValueOnce(new Error('WarmStorage unavailable'))
+      .mockRejectedValueOnce(new Error('WarmStorage unavailable'))
 
     const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any, {
       includeMetadata: true,

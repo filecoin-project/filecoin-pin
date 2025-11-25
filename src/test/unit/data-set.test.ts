@@ -165,6 +165,7 @@ vi.mock('@filoz/synapse-core/piece', () => ({
     // Return a realistic piece size (1 MiB = 1048576 bytes)
     return 1048576
   }),
+  MAX_UPLOAD_SIZE: 32 * 1024 * 1024 * 1024, // 32 GiB
 }))
 
 describe('runDataSetCommand', () => {
