@@ -13,9 +13,9 @@ import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import {
+  type CreateStorageContextOptions,
   cleanupSynapseService,
   createStorageContext,
-  CreateStorageContextOptions,
   initializeSynapse,
   type SynapseService,
 } from '../core/synapse/index.js'

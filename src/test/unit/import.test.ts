@@ -447,7 +447,7 @@ describe('CAR Import', () => {
           dataset: {
             metadata: { erc8004Files: '' },
           },
-          logger:expect.anything(),
+          logger: expect.anything(),
         })
       )
 

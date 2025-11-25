@@ -466,7 +466,7 @@ export async function createStorageContext(
   options?: CreateStorageContextOptions
 ): Promise<{ storage: StorageContext; providerInfo: ProviderInfo }> {
   const logger = options?.logger ?? noopLogger
-  
+
   try {
     // Create storage context with comprehensive event tracking
     // The storage context manages the data set and provider interactions
