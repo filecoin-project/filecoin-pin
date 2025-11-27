@@ -233,41 +233,35 @@ describe('Add Command', () => {
     })
 
     it('should reject when file does not exist', async () => {
-      const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => {
-        throw new Error('process.exit called')
-      })
+      const mockExit = vi.spyOn(process, 'exit')
 
       await expect(
         runAdd({
           filePath: '/non/existent/file.txt',
           privateKey: 'test-key',
         })
-      ).rejects.toThrow('process.exit called')
+      ).rejects.toThrow('Path not found')
 
-      expect(mockExit).toHaveBeenCalledWith(1)
+      expect(mockExit).not.toHaveBeenCalled()
       mockExit.mockRestore()
     })
 
     it('should reject when private key is missing', async () => {
-      const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => {
-        throw new Error('process.exit called')
-      })
+      const mockExit = vi.spyOn(process, 'exit')
 
       await expect(
         runAdd({
           filePath: testFile,
           // No private key
         })
-      ).rejects.toThrow('process.exit called')
+      ).rejects.toThrow()
 
-      expect(mockExit).toHaveBeenCalledWith(1)
+      expect(mockExit).not.toHaveBeenCalled()
       mockExit.mockRestore()
     })
 
     it('should reject --bare flag with directories', async () => {
-      const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => {
-        throw new Error('process.exit called')
-      })
+      const mockExit = vi.spyOn(process, 'exit')
 
       await expect(
         runAdd({
@@ -275,9 +269,9 @@ describe('Add Command', () => {
           privateKey: 'test-key',
           bare: true, // --bare flag should not work with directories
         })
-      ).rejects.toThrow('process.exit called')
+      ).rejects.toThrow('--bare flag is not supported for directories')
 
-      expect(mockExit).toHaveBeenCalledWith(1)
+      expect(mockExit).not.toHaveBeenCalled()
       mockExit.mockRestore()
     })
   })
