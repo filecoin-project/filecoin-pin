@@ -1,8 +1,3 @@
-/**
- * Calculate actual storage across all data sets for an address.
- * More accurate than billing-derived estimates, especially when floor pricing
- * skews small files.
- */
 import type { Synapse } from '@filoz/synapse-sdk'
 import PQueue from 'p-queue'
 import type { Logger } from 'pino'
@@ -214,35 +209,9 @@ export async function calculateActualStorage(
       return globalQueue.add(() => providerQueue.add(() => processDataSet(dataSet), jobOptions), jobOptions)
     })
 
-    const allResults = Promise.allSettled(scheduledPromises)
-    const abortRace =
-      signal != null
-        ? new Promise<'aborted'>((resolve) => {
-            signal.addEventListener(
-              'abort',
-              () => {
-                resolve('aborted')
-              },
-              { once: true }
-            )
-          })
-        : null
-
-    const results = (await (abortRace ? Promise.race([allResults, abortRace]) : allResults)) as
-      | PromiseSettledResult<void>[]
-      | 'aborted'
-
-    // Check if any AbortErrors occurred
-    if (Array.isArray(results)) {
-      for (const result of results) {
-        if (result.status === 'rejected') {
-          const reason = result.reason
-          if (reason instanceof Error && reason.name !== 'AbortError') {
-            logger?.warn({ error: String(reason) }, 'Dataset processing failed')
-          }
-        }
-      }
-    }
+    await (signal
+      ? Promise.race([Promise.allSettled(scheduledPromises), waitForAbort(signal)])
+      : Promise.allSettled(scheduledPromises))
 
     // Derive timedOut from signal state
     const timedOut = signal?.aborted ?? false
@@ -310,4 +279,20 @@ export async function calculateActualStorage(
 
     throw new Error(`Failed to calculate actual storage: ${errorMessage}`)
   }
+}
+
+function waitForAbort(signal: AbortSignal): Promise<'aborted'> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve('aborted')
+      return
+    }
+    signal.addEventListener(
+      'abort',
+      () => {
+        resolve('aborted')
+      },
+      { once: true }
+    )
+  })
 }
