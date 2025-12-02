@@ -106,14 +106,21 @@ export function formatFileSize(bytes: number | bigint): string {
 }
 
 function formatFileSizeBigInt(bytes: bigint): string {
-  let size = bytes
   let unitIndex = 0
+  let divisor = 1n
 
-  while (size >= 1024n && unitIndex < units.length - 1) {
-    size /= 1024n
+  while (bytes >= divisor * 1024n && unitIndex < units.length - 1) {
+    divisor *= 1024n
     unitIndex++
   }
-  const sizeFloat = Number(size * 10000n) / 10000
+
+  const divisorNumber = Number(divisor)
+  const asNumber = Number(bytes) / divisorNumber
+  const sizeFloat =
+    Number.isFinite(asNumber) && asNumber > 0
+      ? asNumber
+      : Number(bytes / divisor) + Number(bytes % divisor) / divisorNumber
+
   return `${sizeFloat.toFixed(1)} ${units[unitIndex]}`
 }
 

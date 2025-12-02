@@ -17,6 +17,8 @@ import {
   calculateStorageRunway,
   checkFILBalance,
   checkUSDFCBalance,
+  FLOOR_PRICE_DAYS,
+  FLOOR_PRICE_PER_30_DAYS,
   getPaymentStatus,
 } from '../core/payments/index.js'
 import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
@@ -36,31 +38,34 @@ const STORAGE_DISPLAY_PRECISION = 10n ** BigInt(STORAGE_DISPLAY_PRECISION_DIGITS
 const { TiB } = SIZE_CONSTANTS
 
 /**
- * Derives the current potential warm storage size from the Filecoin Pay spend rate.
+ * Convert a payment rate (USDFC per epoch) to storage bytes using the provider's pricing.
  *
- * rateUsed represents the USDFC burn per epoch while pricePerTiBPerEpoch
- * represents the quoted USDFC price for storing 1 TiB for the same duration.
- * Dividing the two gives the actively billed TiB, which we convert to GiB for
- * display with a small fixed precision.
+ * This calculates: "How much storage does this payment rate cover?"
  *
- * NOTE: This calculation assumes a linear relationship between billing rate and
+ * Formula: storageBytes = (rate / pricePerTiBPerEpoch) * TiB
+ *
+ * NOTE: This calculation assumes a linear relationship between payment rate and
  * storage size, which breaks down when floor pricing is applied to small files.
- * The result represents "billed capacity" (what you're charged for), not actual bytes stored.
+ * The result represents "storage equivalent" at the given rate, not actual bytes stored.
  * Use calculateActualStorage() from core/data-set for accurate byte counts.
+ *
+ * @param ratePerEpoch - Payment rate in USDFC per epoch
+ * @param pricePerTiBPerEpoch - Provider's price for 1 TiB per epoch in USDFC
+ * @returns Storage bytes that the rate covers, or null if invalid inputs
  */
-function calculateBilledCapacityBytes(rateUsed: bigint, pricePerTiBPerEpoch: bigint): bigint | null {
-  if (rateUsed <= 0n || pricePerTiBPerEpoch <= 0n) {
+function convertRateToStorageBytes(ratePerEpoch: bigint, pricePerTiBPerEpoch: bigint): bigint | null {
+  if (ratePerEpoch <= 0n || pricePerTiBPerEpoch <= 0n) {
     return null
   }
 
-  // storedTiBScaled preserves fractional precision using STORAGE_DISPLAY_PRECISION scaling
-  const storedTiBScaled = (rateUsed * STORAGE_DISPLAY_PRECISION) / pricePerTiBPerEpoch
-  if (storedTiBScaled <= 0n) {
+  // storageTiBScaled preserves fractional precision using STORAGE_DISPLAY_PRECISION scaling
+  const storageTiBScaled = (ratePerEpoch * STORAGE_DISPLAY_PRECISION) / pricePerTiBPerEpoch
+  if (storageTiBScaled <= 0n) {
     return null
   }
 
   // Convert scaled TiB to bytes: TiB * 1024^4 bytes, then unscale
-  return (storedTiBScaled * TiB) / STORAGE_DISPLAY_PRECISION
+  return (storageTiBScaled * TiB) / STORAGE_DISPLAY_PRECISION
 }
 
 /**
@@ -248,12 +253,18 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
 
     log.flush()
 
-    const billedBytes = calculateBilledCapacityBytes(rateUsed, pricePerTiBPerEpoch)
+    const billedBytes = convertRateToStorageBytes(rateUsed, pricePerTiBPerEpoch)
     if (billedBytes != null) {
+      // Calculate what storage the floor price represents at current pricing
+      const epochsInFloorPeriod = BigInt(FLOOR_PRICE_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
+      const floorRatePerEpoch = FLOOR_PRICE_PER_30_DAYS / epochsInFloorPeriod
+      const floorEquivalentBytes = convertRateToStorageBytes(floorRatePerEpoch, pricePerTiBPerEpoch)
+      const floorEquivalentFormatted = floorEquivalentBytes ? formatFileSize(floorEquivalentBytes) : '~24.6 GiB'
+
       const sectionContent = [
-        pc.gray('Filecoin Onchain Cloud uses floor pricing for data sets.'),
-        pc.gray('Each data set is billed a minimum of 0.06 USDFC per 30 days.'),
-        pc.gray('This is equivalent to ~24.6 GiB per month.'),
+        pc.gray('Filecoin Onchain Cloud uses floor pricing for DataSets.'),
+        pc.gray(`Each DataSet is billed a minimum of ${formatUSDFC(FLOOR_PRICE_PER_30_DAYS, 2)} USDFC per 30 days.`),
+        pc.gray(`This is equivalent to ~${floorEquivalentFormatted} per month.`),
         `Billed capacity: ~${formatFileSize(Number(billedBytes))}`,
       ]
       if (actualStorageResult != null && billedBytes > actualStorageResult.totalBytes) {
