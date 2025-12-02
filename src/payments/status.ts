@@ -202,7 +202,6 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
 
       spinner.start('Calculating actual storage from data sets...')
       actualStorageResult = await calculateActualStorage(synapse, dataSets, {
-        signal: AbortSignal.timeout(10000),
         logger,
         onProgress: (progress) => {
           if (progress.type === 'actual-storage:progress') {
@@ -230,7 +229,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       }
 
       if (actualStorageResult.totalBytes > 0n) {
-        const formattedSize = formatFileSize(Number(actualStorageResult.totalBytes))
+        const formattedSize = formatFileSize(actualStorageResult.totalBytes)
         log.indent(`Stored: ${formattedSize}`)
       } else {
         log.indent(pc.gray('Stored: 0 B'))
@@ -265,11 +264,11 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
         pc.gray('Filecoin Onchain Cloud uses floor pricing for DataSets.'),
         pc.gray(`Each DataSet is billed a minimum of ${formatUSDFC(FLOOR_PRICE_PER_30_DAYS, 2)} USDFC per 30 days.`),
         pc.gray(`This is equivalent to ~${floorEquivalentFormatted} per month.`),
-        `Billed capacity: ~${formatFileSize(Number(billedBytes))}`,
+        `Billed capacity: ~${formatFileSize(billedBytes)}`,
       ]
       if (actualStorageResult != null && billedBytes > actualStorageResult.totalBytes) {
         const additionalStorage = billedBytes - actualStorageResult.totalBytes
-        sectionContent.push(`Storage remaining: ~${formatFileSize(Number(additionalStorage))}`)
+        sectionContent.push(`Storage remaining: ~${formatFileSize(additionalStorage)}`)
       }
       log.indent(pc.bold('Storage usage details:'))
       for (const content of sectionContent) {
