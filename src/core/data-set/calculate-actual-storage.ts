@@ -1,11 +1,7 @@
 /**
- * Calculate Actual Storage
- *
- * Functions for calculating the actual storage size across all data sets for an address.
- * This is more accurate than deriving storage from billing rates, especially when floor
- * pricing is applied to small files.
- *
- * @module core/data-set
+ * Calculate actual storage across all data sets for an address.
+ * More accurate than billing-derived estimates, especially when floor pricing
+ * skews small files.
  */
 import type { Synapse } from '@filoz/synapse-sdk'
 import PQueue from 'p-queue'
