@@ -30,7 +30,7 @@ export const addCommand = new Command('add')
       }
 
       await runAdd(addOptions)
-    } catch (_error) {
+    } catch {
       process.exit(1)
     }
   })
