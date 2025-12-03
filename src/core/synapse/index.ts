@@ -428,17 +428,19 @@ export async function initializeSynapse(config: Partial<SynapseSetupConfig>, log
  * @example
  * ```typescript
  * // Create a new dataset (multi-user scenario)
- * const { storage } = await createStorageContext(synapse, logger, {
+ * const { storage } = await createStorageContext(synapse, {
+ *   logger,
  *   dataset: { createNew: true }
  * })
  *
  * // Connect to existing dataset
- * const { storage } = await createStorageContext(synapse, logger, {
+ * const { storage } = await createStorageContext(synapse, {
+ *   logger,
  *   dataset: { useExisting: 123 }
  * })
  *
  * // Default behavior (reuse wallet's dataset)
- * const { storage } = await createStorageContext(synapse, logger)
+ * const { storage } = await createStorageContext(synapse, { logger })
  * ```
  */
 export async function createStorageContext(
