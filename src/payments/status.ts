@@ -5,23 +5,27 @@
  * This provides a quick overview of the user's payment setup without making changes.
  */
 
+import { SIZE_CONSTANTS } from '@filoz/synapse-core/utils'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
 import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
+import { type ActualStorageResult, calculateActualStorage, listDataSets } from '../core/data-set/index.js'
 import {
   calculateDepositCapacity,
   calculateStorageRunway,
   checkFILBalance,
   checkUSDFCBalance,
+  FLOOR_PRICE_DAYS,
+  FLOOR_PRICE_PER_30_DAYS,
   getPaymentStatus,
 } from '../core/payments/index.js'
 import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
 import { formatFIL, formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
-import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
+import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { displayDepositWarning } from './setup.js'
 
@@ -31,45 +35,37 @@ interface StatusOptions extends CLIAuthOptions {
 
 const STORAGE_DISPLAY_PRECISION_DIGITS = 6
 const STORAGE_DISPLAY_PRECISION = 10n ** BigInt(STORAGE_DISPLAY_PRECISION_DIGITS)
+const { TiB } = SIZE_CONSTANTS
 
 /**
- * Derives the current warm storage size from the Filecoin Pay spend rate.
+ * Convert a payment rate (USDFC per epoch) to storage bytes using the provider's pricing.
  *
- * rateUsed represents the USDFC burn per epoch while pricePerTiBPerEpoch
- * represents the quoted USDFC price for storing 1 TiB for the same duration.
- * Dividing the two gives the actively billed TiB, which we convert to GiB for
- * display with a small fixed precision.
+ * This calculates: "How much storage does this payment rate cover?"
+ *
+ * Formula: storageBytes = (rate / pricePerTiBPerEpoch) * TiB
+ *
+ * NOTE: This calculation assumes a linear relationship between payment rate and
+ * storage size, which breaks down when floor pricing is applied to small files.
+ * The result represents "storage equivalent" at the given rate, not actual bytes stored.
+ * Use calculateActualStorage() from core/data-set for accurate byte counts.
+ *
+ * @param ratePerEpoch - Payment rate in USDFC per epoch
+ * @param pricePerTiBPerEpoch - Provider's price for 1 TiB per epoch in USDFC
+ * @returns Storage bytes that the rate covers, or null if invalid inputs
  */
-function formatStorageGiB(rateUsed: bigint, pricePerTiBPerEpoch: bigint): string {
-  if (rateUsed === 0n || pricePerTiBPerEpoch === 0n) {
-    return pc.gray('Stored: no active usage')
+function convertRateToStorageBytes(ratePerEpoch: bigint, pricePerTiBPerEpoch: bigint): bigint | null {
+  if (ratePerEpoch <= 0n || pricePerTiBPerEpoch <= 0n) {
+    return null
   }
 
-  if (pricePerTiBPerEpoch < 0n) {
-    // pricePerTiBPerEpoch should always be positive
-    return pc.gray('Stored: unknown')
+  // storageTiBScaled preserves fractional precision using STORAGE_DISPLAY_PRECISION scaling
+  const storageTiBScaled = (ratePerEpoch * STORAGE_DISPLAY_PRECISION) / pricePerTiBPerEpoch
+  if (storageTiBScaled <= 0n) {
+    return null
   }
 
-  const storedTiBScaled = (rateUsed * STORAGE_DISPLAY_PRECISION) / pricePerTiBPerEpoch
-  if (storedTiBScaled <= 0n) {
-    return pc.gray('Stored: no active usage')
-  }
-
-  const storedGiB = Number(ethers.formatUnits(storedTiBScaled * 1024n, STORAGE_DISPLAY_PRECISION_DIGITS))
-
-  if (storedGiB < 0.1) {
-    return 'Stored: < 0.1 GiB'
-  }
-
-  let digits = 1
-  if (storedGiB < 10) {
-    digits = 2
-  }
-  const formatted = storedGiB.toLocaleString(undefined, {
-    maximumFractionDigits: digits,
-    minimumFractionDigits: digits,
-  })
-  return `Stored: ~${formatted} GiB`
+  // Convert scaled TiB to bytes: TiB * 1024^4 bytes, then unscale
+  return (storageTiBScaled * TiB) / STORAGE_DISPLAY_PRECISION
 }
 
 /**
@@ -191,27 +187,94 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
 
     // Show storage usage details
     log.line(pc.bold('WarmStorage Usage'))
-    if (rateUsed > 0n) {
-      log.indent(formatStorageGiB(rateUsed, pricePerTiBPerEpoch))
-    } else if (status.filecoinPayBalance > 0n) {
-      log.indent(pc.gray('Stored: no active usage'))
-    } else {
-      log.indent(pc.gray('Stored: none'))
+
+    let actualStorageResult: ActualStorageResult | null = null
+    try {
+      spinner.start('Fetching data sets...')
+      // Get all active data sets for this address
+      const dataSets = await listDataSets(synapse, {
+        withProviderDetails: false,
+        address,
+        filter: (ds) => ds.isLive, // Only count active/live data sets
+        logger,
+      })
+      spinner.stop(`${pc.green('✓')} Data sets fetched`)
+
+      spinner.start('Calculating actual storage from data sets...')
+      actualStorageResult = await calculateActualStorage(synapse, dataSets, {
+        logger,
+        onProgress: (progress) => {
+          if (progress.type === 'actual-storage:progress') {
+            spinner.message(
+              `Calculating actual storage from data sets (${progress.data.dataSetsProcessed}/${progress.data.dataSetCount})`
+            )
+          }
+        },
+      })
+
+      if (actualStorageResult.timedOut) {
+        spinner.stop(`${pc.yellow('⚠')} Calculation timed out`)
+      } else if (actualStorageResult.warnings.length > 0) {
+        spinner.stop(
+          `${pc.yellow('⚠')} Actual storage calculated with ${actualStorageResult.warnings.length} warning(s)`
+        )
+      } else {
+        spinner.stop(`${pc.green('✓')} Actual storage calculated`)
+      }
+
+      if (actualStorageResult.warnings.length > 0) {
+        for (const warning of actualStorageResult.warnings) {
+          log.indent(pc.yellow(`⚠ ${warning.message}`))
+        }
+      }
+
+      if (actualStorageResult.totalBytes > 0n) {
+        const formattedSize = formatFileSize(actualStorageResult.totalBytes)
+        log.indent(`Stored: ${formattedSize}`)
+      } else {
+        log.indent(pc.gray('Stored: 0 B'))
+      }
+    } catch (error) {
+      spinner.stop(`${pc.yellow('⚠')} Could not calculate actual storage`)
+      log.indent(pc.gray(`  Error: ${error instanceof Error ? error.message : String(error)}`))
     }
+
     if (runway.state === 'active') {
       log.indent(`Runway: ~${runwayDisplay}`)
     } else {
       log.indent(pc.gray(`Runway: ${runwayDisplay}`))
     }
-    const capacityTiB =
-      capacity.tibPerMonth >= 100 ? Math.round(capacity.tibPerMonth).toLocaleString() : capacity.tibPerMonth.toFixed(1)
-    const capacityLine = `Funding could cover ~${capacityTiB} TiB for one month`
-    if (capacity.gibPerMonth > 0) {
-      log.indent(capacityLine)
-    } else {
-      log.indent(pc.gray(capacityLine))
-    }
+
+    const capacityTibPerMonth = ethers.parseUnits(capacity.tibPerMonth.toString(), 18)
+    const capacityBytes = (capacityTibPerMonth * TiB) / 10n ** 18n
+    const capacityLine = `Funding could cover ~${formatFileSize(capacityBytes)} for one month`
+    log.indent(capacityLine)
+
     log.flush()
+
+    const billedBytes = convertRateToStorageBytes(rateUsed, pricePerTiBPerEpoch)
+    if (billedBytes != null) {
+      // Calculate what storage the floor price represents at current pricing
+      const epochsInFloorPeriod = BigInt(FLOOR_PRICE_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
+      const floorRatePerEpoch = FLOOR_PRICE_PER_30_DAYS / epochsInFloorPeriod
+      const floorEquivalentBytes = convertRateToStorageBytes(floorRatePerEpoch, pricePerTiBPerEpoch)
+      const floorEquivalentFormatted = floorEquivalentBytes ? formatFileSize(floorEquivalentBytes) : '~24.6 GiB'
+
+      const sectionContent = [
+        pc.gray('Filecoin Onchain Cloud uses floor pricing for DataSets.'),
+        pc.gray(`Each DataSet is billed a minimum of ${formatUSDFC(FLOOR_PRICE_PER_30_DAYS, 2)} USDFC per 30 days.`),
+        pc.gray(`This is equivalent to ~${floorEquivalentFormatted} per month.`),
+        `Billed capacity: ~${formatFileSize(billedBytes)}`,
+      ]
+      if (actualStorageResult != null && billedBytes > actualStorageResult.totalBytes) {
+        const additionalStorage = billedBytes - actualStorageResult.totalBytes
+        sectionContent.push(`Storage remaining: ~${formatFileSize(additionalStorage)}`)
+      }
+      log.indent(pc.bold('Storage usage details:'))
+      for (const content of sectionContent) {
+        log.indent(content, 2)
+      }
+    }
 
     // Show deposit warning if needed
     displayDepositWarning(status.filecoinPayBalance, status.currentAllowances.lockupUsed)
