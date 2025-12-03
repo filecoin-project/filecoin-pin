@@ -174,7 +174,8 @@ export interface CreateStorageContextOptions {
   providerId?: number
 
   /**
-   *
+   * Optional logger instance for detailed operation tracking and progress callbacks.
+   * If not provided, logging will be skipped.
    */
   logger?: Partial<Logger> | undefined
 }
