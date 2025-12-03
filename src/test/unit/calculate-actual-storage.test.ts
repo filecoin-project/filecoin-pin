@@ -9,32 +9,21 @@ import { calculateActualStorage } from '../../core/data-set/calculate-actual-sto
 import type { DataSetSummary } from '../../core/data-set/types.js'
 
 // Mock the dependencies
-const { mockSynapse, mockCreateStorageContext, mockGetDataSetPieces, state } = vi.hoisted(() => {
+const {
+  mockSynapse,
+  mockCreateStorageContext,
+  mockGetDataSetPieces,
+  defaultCreateStorageContext,
+  defaultGetDataSetPieces,
+  state,
+} = vi.hoisted(() => {
   const state = {
     pieces: [] as Array<{ pieceId: number; pieceCid: string; size?: number }>,
-    shouldAbort: false,
-    abortAtIndex: -1,
   }
 
   const mockGetAddress = vi.fn(async () => '0xtest-address')
 
-  const mockStorageContext = {
-    dataSetId: 1,
-    getPieces: vi.fn(async function* () {
-      for (const piece of state.pieces) {
-        if (state.shouldAbort) throw new Error('Aborted')
-        yield piece
-      }
-    }),
-  }
-
-  const mockCreateStorageContext = vi.fn(async () => ({
-    storage: mockStorageContext,
-    providerInfo: { id: 1 },
-  }))
-
-  const mockGetDataSetPieces = vi.fn(async (_synapse: any, _context: any, _options?: any) => {
-    // Check if aborted
+  const defaultGetDataSetPieces = async (_synapse: any, _context: any, _options?: any) => {
     if (_options?.signal?.aborted) {
       const error = new Error('This operation was aborted')
       error.name = 'AbortError'
@@ -51,21 +40,31 @@ const { mockSynapse, mockCreateStorageContext, mockGetDataSetPieces, state } = v
 
     return {
       pieces,
-      dataSetId: 1,
+      dataSetId: _context?.dataSetId ?? 1,
       totalSizeBytes,
       warnings: [],
     }
+  }
+
+  const mockGetDataSetPieces = vi.fn(defaultGetDataSetPieces)
+
+  const defaultCreateStorageContext = async (_synapse: any, dataSetId: number) => ({
+    storage: { dataSetId },
+    providerInfo: { id: 1 },
   })
+
+  const mockCreateStorageContext = vi.fn(defaultCreateStorageContext)
 
   const mockSynapse = {
     getClient: () => ({ getAddress: mockGetAddress }),
-    getProvider: () => ({}),
   }
 
   return {
     mockSynapse,
     mockCreateStorageContext,
     mockGetDataSetPieces,
+    defaultCreateStorageContext,
+    defaultGetDataSetPieces,
     state,
   }
 })
@@ -81,10 +80,11 @@ vi.mock('../../core/data-set/get-data-set-pieces.js', () => ({
 
 describe('calculateActualStorage', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
     state.pieces = []
-    state.shouldAbort = false
-    state.abortAtIndex = -1
+
+    mockCreateStorageContext.mockImplementation(defaultCreateStorageContext)
+    mockGetDataSetPieces.mockImplementation(defaultGetDataSetPieces)
   })
 
   describe('basic calculation', () => {
@@ -105,8 +105,8 @@ describe('calculateActualStorage', () => {
         } as DataSetSummary,
       ]
 
-      // Mock pieces for dataset 1: 2 pieces of 1 GiB each
       const oneGiB = 1024n * 1024n * 1024n
+      // pieces apply to both data sets
       state.pieces = [
         { pieceId: 1, pieceCid: 'bafy1', size: Number(oneGiB) },
         { pieceId: 2, pieceCid: 'bafy2', size: Number(oneGiB) },
@@ -177,58 +177,6 @@ describe('calculateActualStorage', () => {
       expect(result.warnings.some((w) => w.code === 'CALCULATION_ABORTED')).toBe(true)
     })
 
-    it('should handle abort during processing', async () => {
-      const dataSets: DataSetSummary[] = [
-        {
-          dataSetId: 1,
-          providerId: 1,
-          serviceProvider: '0xprovider1',
-          isLive: true,
-        } as DataSetSummary,
-        {
-          dataSetId: 2,
-          providerId: 2,
-          serviceProvider: '0xprovider2',
-          isLive: true,
-        } as DataSetSummary,
-      ]
-
-      state.pieces = [{ pieceId: 1, pieceCid: 'bafy1', size: 1024 }]
-
-      const controller = new AbortController()
-
-      // Abort after first dataset processes
-      let callCount = 0
-      mockGetDataSetPieces.mockImplementation(async (_synapse: any, _context: any, _options?: any) => {
-        callCount++
-        if (callCount === 2) {
-          controller.abort()
-          const error = new Error('This operation was aborted')
-          error.name = 'AbortError'
-          throw error
-        }
-
-        return {
-          pieces: state.pieces.map((p) => ({
-            pieceId: p.pieceId,
-            pieceCid: p.pieceCid,
-            size: p.size ?? undefined,
-          })),
-          dataSetId: 1,
-          totalSizeBytes: 1024n,
-          warnings: [],
-        }
-      })
-
-      const result = await calculateActualStorage(mockSynapse as any, dataSets, {
-        signal: controller.signal,
-      })
-
-      expect(result.timedOut).toBe(true)
-      expect(result.dataSetsProcessed).toBeGreaterThan(0)
-      expect(result.dataSetsProcessed).toBeLessThan(dataSets.length)
-    })
-
     it('should return partial results on abort', async () => {
       const dataSets: DataSetSummary[] = [
         {
@@ -273,6 +221,8 @@ describe('calculateActualStorage', () => {
       expect(result.timedOut).toBe(true)
       expect(result.totalBytes).toBe(1024n) // Partial result from first dataset
       expect(result.dataSetsProcessed).toBe(1)
+      expect(result.pieceCount).toBe(1)
+      expect(result.warnings.some((w) => w.code === 'CALCULATION_ABORTED')).toBe(true)
     })
   })
 
