@@ -142,7 +142,7 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
   // Set CDN flag if requested
   if (withCDN) process.env.WITH_CDN = 'true'
 
-  const { storage, providerInfo } = await createStorageContext(synapse, logger, storageOptions)
+  const { storage, providerInfo } = await createStorageContext(synapse, { logger, ...storageOptions })
 
   // Upload to Filecoin via core upload function
   const synapseService = { synapse, storage, providerInfo }

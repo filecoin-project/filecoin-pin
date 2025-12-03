@@ -213,11 +213,11 @@ describe('Add Command', () => {
 
       expect(vi.mocked(createStorageContext)).toHaveBeenCalledWith(
         expect.anything(),
-        expect.anything(),
         expect.objectContaining({
           dataset: {
             metadata: { purpose: 'erc8004' },
           },
+          logger: expect.anything(),
         })
       )
 

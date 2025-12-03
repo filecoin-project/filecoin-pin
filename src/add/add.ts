@@ -13,6 +13,7 @@ import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import {
+  type CreateStorageContextOptions,
   cleanupSynapseService,
   createStorageContext,
   initializeSynapse,
@@ -172,7 +173,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     // Parse provider selection from CLI options and environment variables
     const providerOptions = parseProviderOptions(options)
 
-    const storageContextOptions: Parameters<typeof createStorageContext>[2] = {
+    const storageContextOptions: CreateStorageContextOptions = {
+      logger,
       ...providerOptions,
       dataset: {
         ...(dataSetMetadata && { metadata: dataSetMetadata }),
@@ -191,7 +193,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       },
     }
 
-    const { storage, providerInfo } = await createStorageContext(synapse, logger, storageContextOptions)
+    const { storage, providerInfo } = await createStorageContext(synapse, storageContextOptions)
 
     spinner.stop(`${pc.green('✓')} Storage context ready`)
     log.spinnerSection('Storage Context', [
