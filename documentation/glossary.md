@@ -147,7 +147,7 @@ Note that within [Filecoin Onchain Cloud](#filecoin-onchain-cloud), service prov
 
 ## Service Provider Registry
 
-An onchain registry of [Service Providers](#service-provider) who are participating in [Filecoin Onchain Cloud](#filecoin-onchain-cloud).  They can be viewed at https://filecoin.cloud/providers.  By default, only "Approved Providers" are used by [Filecoin Pin](#filecoin-pin) because they have been vetted to support IPFS Mainnet retrievals.
+An onchain registry of [Service Providers](#service-provider) who are participating in [Filecoin Onchain Cloud](#filecoin-onchain-cloud).  They can be viewed at https://filecoin.cloud/service-providers.  By default, only "Approved Providers" are used by [Filecoin Pin](#filecoin-pin) because they have been vetted to support IPFS Mainnet retrievals.
 
 ## Session Key
 
