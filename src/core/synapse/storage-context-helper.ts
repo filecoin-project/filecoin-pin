@@ -166,14 +166,9 @@ async function getApprovedProviderInfo(
   } else {
     // otherwise, get all approved provider ids and randomly select one.
     const approvedProviderIds = await warmStorage.getApprovedProviderIds()
-    if (approvedProviderIds.length === 0) {
-      throw new Error('No approved storage providers available for new data set creation')
-    }
+
     // select a random approved provider id
-    const randomApprovedProviderId = approvedProviderIds[Math.floor(Math.random() * approvedProviderIds.length)]
-    if (randomApprovedProviderId == null) {
-      throw new Error('No approved storage providers available for new data set creation')
-    }
+    const randomApprovedProviderId = pickRandom(approvedProviderIds)
     providerInfo = await spRegistry.getProvider(randomApprovedProviderId)
   }
 
@@ -184,4 +179,9 @@ async function getApprovedProviderInfo(
   return providerInfo
 }
 
+function pickRandom<T>(providerIds: T[]): T {
+  if (providerIds.length === 0) throw new Error('No approved storage providers available for new data set creation')
+
+  return providerIds[Math.floor(Math.random() * providerIds.length)] as T
+}
 export default createStorageContextFromDataSetId
