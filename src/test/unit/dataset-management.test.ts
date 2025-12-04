@@ -46,7 +46,7 @@ describe('Dataset Management', () => {
       const synapse = await initializeSynapse(config, logger)
       const createContextSpy = vi.spyOn(synapse.storage, 'createContext')
 
-      await createStorageContext(synapse, logger)
+      await createStorageContext(synapse, { logger })
 
       // Should NOT have forceCreateDataSet or dataSetId set
       const callArgs = createContextSpy.mock.calls[0]?.[0]
@@ -61,7 +61,8 @@ describe('Dataset Management', () => {
       const synapse = await initializeSynapse(config, logger)
       const createContextSpy = vi.spyOn(synapse.storage, 'createContext')
 
-      await createStorageContext(synapse, logger, {
+      await createStorageContext(synapse, {
+        logger,
         dataset: { createNew: true },
       })
 
@@ -85,7 +86,8 @@ describe('Dataset Management', () => {
       const infoSpy = vi.spyOn(logger, 'info')
       const synapse = await initializeSynapse(config, logger)
 
-      await createStorageContext(synapse, logger, {
+      await createStorageContext(synapse, {
+        logger,
         dataset: { createNew: true },
       })
 
@@ -101,7 +103,8 @@ describe('Dataset Management', () => {
       const synapse = await initializeSynapse(config, logger)
       const createContextSpy = vi.spyOn(synapse.storage, 'createContext')
 
-      await createStorageContext(synapse, logger, {
+      await createStorageContext(synapse, {
+        logger,
         dataset: {
           createNew: true,
           metadata: {
@@ -128,7 +131,8 @@ describe('Dataset Management', () => {
       const createContextSpy = vi.spyOn(synapse.storage, 'createContext')
       const datasetId = 456
 
-      await createStorageContext(synapse, logger, {
+      await createStorageContext(synapse, {
+        logger,
         dataset: { useExisting: datasetId },
       })
 
@@ -144,7 +148,8 @@ describe('Dataset Management', () => {
       const synapse = await initializeSynapse(config, logger)
       const datasetId = 789
 
-      await createStorageContext(synapse, logger, {
+      await createStorageContext(synapse, {
+        logger,
         dataset: { useExisting: datasetId },
       })
 
@@ -162,7 +167,8 @@ describe('Dataset Management', () => {
       const createContextSpy = vi.spyOn(synapse.storage, 'createContext')
       const datasetId = 999
 
-      await createStorageContext(synapse, logger, {
+      await createStorageContext(synapse, {
+        logger,
         dataset: {
           useExisting: datasetId,
           createNew: true, // This should be ignored
@@ -182,7 +188,8 @@ describe('Dataset Management', () => {
       const onDataSetResolved = vi.fn()
       const synapse = await initializeSynapse(config, logger)
 
-      await createStorageContext(synapse, logger, {
+      await createStorageContext(synapse, {
+        logger,
         callbacks: { onDataSetResolved },
       })
 
@@ -199,7 +206,8 @@ describe('Dataset Management', () => {
       const onProviderSelected = vi.fn()
       const synapse = await initializeSynapse(config, logger)
 
-      await createStorageContext(synapse, logger, {
+      await createStorageContext(synapse, {
+        logger,
         callbacks: { onProviderSelected },
       })
 

@@ -8,12 +8,14 @@
  * Key features:
  * - List datasets with optional provider enrichment
  * - Get pieces from a StorageContext with optional metadata
+ * - Calculate actual storage across all data sets
  * - Graceful error handling with structured warnings
  * - Clean separation of concerns (follows SOLID principles)
  *
  * @module core/data-set
  */
 
+export * from './calculate-actual-storage.js'
 export * from './get-data-set-pieces.js'
 export * from './get-detailed-data-set.js'
 export * from './list-data-sets.js'

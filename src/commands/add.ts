@@ -30,8 +30,7 @@ export const addCommand = new Command('add')
       }
 
       await runAdd(addOptions)
-    } catch (error) {
-      console.error('Add failed:', error instanceof Error ? error.message : error)
+    } catch {
       process.exit(1)
     }
   })

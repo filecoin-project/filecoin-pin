@@ -149,6 +149,9 @@ export async function getDataSetPieces(
     }
     pieces.sort((a, b) => a.pieceId - b.pieceId)
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw error
+    }
     // If getPieces fails completely, throw - this is a critical error
     logger?.error({ dataSetId: storageContext.dataSetId, error }, 'Failed to retrieve pieces from dataset')
     throw new Error(`Failed to retrieve pieces for dataset ${storageContext.dataSetId}: ${String(error)}`)

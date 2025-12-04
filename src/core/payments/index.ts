@@ -32,6 +32,7 @@ import {
 } from './constants.js'
 import { applyFloorPricing } from './floor-pricing.js'
 import type { PaymentStatus, ServiceApprovalStatus, StorageAllowances, StorageRunwaySummary } from './types.js'
+import { padSizeToPDPLeaves } from './utils.js'
 
 // Re-export all constants
 export * from './constants.js'
@@ -833,7 +834,8 @@ export function calculateDepositCapacity(
  * @returns Required allowances for the piece
  */
 export function calculateRequiredAllowances(pieceSizeBytes: number, pricePerTiBPerEpoch: bigint): StorageAllowances {
-  const storageTiB = pieceSizeBytes / Number(SIZE_CONSTANTS.TiB)
+  const paddedSizeBytes = padSizeToPDPLeaves(pieceSizeBytes)
+  const storageTiB = paddedSizeBytes / Number(SIZE_CONSTANTS.TiB)
   return calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
 }
 

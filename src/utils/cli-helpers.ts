@@ -86,11 +86,14 @@ export function outro(message: string): void {
   }
 }
 
+const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
 /**
  * Format file size for human-readable display
  */
-export function formatFileSize(bytes: number): string {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+export function formatFileSize(bytes: number | bigint): string {
+  if (typeof bytes === 'bigint') {
+    return formatFileSizeBigInt(bytes)
+  }
   let size = bytes
   let unitIndex = 0
 
@@ -100,6 +103,25 @@ export function formatFileSize(bytes: number): string {
   }
 
   return `${size.toFixed(1)} ${units[unitIndex]}`
+}
+
+function formatFileSizeBigInt(bytes: bigint): string {
+  let unitIndex = 0
+  let divisor = 1n
+
+  while (bytes >= divisor * 1024n && unitIndex < units.length - 1) {
+    divisor *= 1024n
+    unitIndex++
+  }
+
+  const divisorNumber = Number(divisor)
+  const asNumber = Number(bytes) / divisorNumber
+  const sizeFloat =
+    Number.isFinite(asNumber) && asNumber > 0
+      ? asNumber
+      : Number(bytes / divisor) + Number(bytes % divisor) / divisorNumber
+
+  return `${sizeFloat.toFixed(1)} ${units[unitIndex]}`
 }
 
 /**
