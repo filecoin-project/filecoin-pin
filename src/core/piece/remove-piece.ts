@@ -73,11 +73,8 @@ interface RemovePieceOptionsBase {
 interface RemovePieceOptionsWithDataSetId extends RemovePieceOptionsBase {
   /** The Data Set ID containing the piece to remove */
   dataSetId: number
-  /**
-   * Logger instance (required for storage context creation)
-   * @see https://github.com/filecoin-project/filecoin-pin/issues/252
-   */
-  logger: Logger
+  /** Optional logger for tracking removal operations */
+  logger?: Logger | undefined
 }
 
 /**
@@ -119,7 +116,7 @@ export type RemovePieceOptions = RemovePieceOptionsWithDataSetId | RemovePieceOp
  *
  * Pattern 2 - With existing StorageContext (library/server usage):
  * ```typescript
- * const { storage } = await createStorageContext(synapse, logger, {...})
+ * const { storage } = await createStorageContext(synapse, { logger, ... })
  * const txHash = await removePiece('baga...', {
  *   synapse,
  *   storage,
