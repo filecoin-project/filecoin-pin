@@ -205,7 +205,7 @@ async function executeRemovePiece(
       // Confirmation timeout is non-fatal - transaction may still succeed
       onProgress?.({
         type: 'remove-piece:confirmation-failed',
-        data: { pieceCid, dataSetId, txHash, message: getErrorMessage(error) as string },
+        data: { pieceCid, dataSetId, txHash, message: getErrorMessage(error) },
       })
     }
   }
