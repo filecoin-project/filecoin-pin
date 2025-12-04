@@ -1,7 +1,11 @@
 /**
- * Remove piece functionality
+ * CLI entrypoint for removing a piece from a Data Set.
  *
- * This module handles removing pieces from Data Sets via Synapse SDK.
+ * Responsibilities:
+ * - Validate required CLI arguments (piece CID, dataSet)
+ * - Initialize Synapse with CLI auth/env configuration
+ * - Wire up progress events to spinner output
+ * - Return transaction hash and confirmation status (or throw on failure)
  */
 import pc from 'picocolors'
 import pino from 'pino'
@@ -14,9 +18,16 @@ import { log } from '../utils/cli-logger.js'
 import type { RmPieceOptions, RmPieceResult } from './types.js'
 
 /**
- * Run the remove piece process
+ * Run the remove piece process.
  *
- * @param options - Remove configuration
+ * @param options - CLI options including piece CID and dataSet id
+ * @returns Transaction hash, confirmation status, and identifiers used
+ *
+ * Behavior:
+ * - Requires both `piece` and `dataSet`; throws if missing/invalid
+ * - Uses CLI auth env/flags via parseCLIAuth
+ * - Streams progress to spinner and exits with cancel on failure
+ * - Always calls cleanupSynapseService to close providers
  */
 export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult> {
   intro(pc.bold('Filecoin Pin Remove'))
