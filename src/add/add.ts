@@ -87,7 +87,6 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     const proceed = await warnAboutCDNPricingLimitations()
     if (!proceed) {
       cancel('Add cancelled')
-      process.exitCode = 1
       throw new Error('CDN pricing limitations warning cancelled')
     }
   }
@@ -102,7 +101,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     if (!pathValidation.exists || !pathValidation.stats) {
       spinner.stop(`${pc.red('✗')} ${pathValidation.error}`)
       cancel('Add cancelled')
-      process.exit(1)
+      throw new Error(pathValidation.error)
     }
 
     const pathStat = pathValidation.stats
@@ -249,6 +248,6 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     }
 
     cancel('Add failed')
-    process.exit(1)
+    throw error
   }
 }
