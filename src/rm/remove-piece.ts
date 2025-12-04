@@ -3,7 +3,6 @@
  *
  * This module handles removing pieces from Data Sets via Synapse SDK.
  */
-
 import pc from 'picocolors'
 import pino from 'pino'
 import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
