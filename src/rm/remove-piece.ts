@@ -46,7 +46,6 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
   }
 
   try {
-    // Initialize Synapse SDK
     spinner.start('Initializing Synapse SDK...')
 
     const authConfig = parseCLIAuth(options)
