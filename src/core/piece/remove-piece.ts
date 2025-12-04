@@ -67,8 +67,6 @@ interface RemovePieceOptionsBase {
  *
  * This is the typical CLI usage pattern - you know the dataSetId and want
  * to remove a piece from it. A temporary storage context will be created.
- *
- * Note: logger is required in this mode for storage context creation.
  */
 interface RemovePieceOptionsWithDataSetId extends RemovePieceOptionsBase {
   /** The Data Set ID containing the piece to remove */
