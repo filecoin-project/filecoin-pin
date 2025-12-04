@@ -104,7 +104,6 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
     })
 
     // Display results
-
     log.spinnerSection('Results', [
       pc.gray(`Transaction Hash: ${txHash}`),
       pc.gray(`Status: ${isConfirmed ? 'Confirmed' : 'Pending confirmation'}`),
