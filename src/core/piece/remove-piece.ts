@@ -136,7 +136,7 @@ export async function removePiece(pieceCid: string, options: RemovePieceOptions)
   // Check dataSetId first
   if (isRemovePieceOptionsWithDataSetId(options)) {
     const { dataSetId, logger, synapse } = options
-    const { storage } = await createStorageContext(synapse, logger, { dataset: { useExisting: dataSetId } })
+    const { storage } = await createStorageContext(synapse, { logger, dataset: { useExisting: dataSetId } })
     return executeRemovePiece(pieceCid, dataSetId, storage, options)
   }
 
