@@ -49,7 +49,7 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
   }
 
   const dataSetId = Number(dataSet)
-  if (!Number.isInteger(dataSetId) || dataSetId < 0) {
+  if (!Number.isInteger(dataSetId) || dataSetId <= 0) {
     spinner.stop(`${pc.red('✗')} DataSet ID must be a positive integer`)
     cancel('Remove cancelled')
     throw new Error('DataSet ID must be a positive integer')
