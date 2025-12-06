@@ -10,6 +10,7 @@
 
 import type { EnhancedDataSetInfo, ProviderInfo, StorageContext } from '@filoz/synapse-sdk'
 import type { Logger } from 'pino'
+import type { Warning } from '../utils/types.js'
 
 /**
  * Status of the piece, e.g. "pending removal", "active", "orphaned"
@@ -56,19 +57,7 @@ export interface DataSetPiecesResult {
   /** Total size of all pieces in bytes (sum of individual piece sizes) */
   totalSizeBytes?: bigint
   /** Non-fatal warnings encountered during retrieval */
-  warnings?: DataSetWarning[]
-}
-
-/**
- * Structured warning for non-fatal issues
- */
-export interface DataSetWarning {
-  /** Machine-readable warning code (e.g., 'METADATA_FETCH_FAILED') */
-  code: string
-  /** Human-readable warning message */
-  message: string
-  /** Additional context data (e.g., { pieceId: 123, dataSetId: 456 }) */
-  context?: Record<string, unknown>
+  warnings?: Warning[]
 }
 
 /**

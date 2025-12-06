@@ -16,14 +16,10 @@ import {
   type Synapse,
   WarmStorageService,
 } from '@filoz/synapse-sdk'
+import { reconcilePieceStatus } from '../piece/piece-status.js'
+import type { Warning } from '../utils/types.js'
 import { isStorageContextWithDataSetId } from './type-guards.js'
-import type {
-  DataSetPiecesResult,
-  DataSetWarning,
-  GetDataSetPiecesOptions,
-  PieceInfo,
-  StorageContextWithDataSetId,
-} from './types.js'
+import type { DataSetPiecesResult, GetDataSetPiecesOptions, PieceInfo, StorageContextWithDataSetId } from './types.js'
 import { PieceStatus } from './types.js'
 
 /**
@@ -66,7 +62,7 @@ export async function getDataSetPieces(
   }
 
   const pieces: PieceInfo[] = []
-  const warnings: DataSetWarning[] = []
+  const warnings: Warning[] = []
 
   // call PDPVerifier.getScheduledRemovals to get the list of pieces that are scheduled for removal
   let scheduledRemovals: number[] = []
@@ -104,20 +100,19 @@ export async function getDataSetPieces(
     for await (const piece of storageContext.getPieces(getPiecesOptions)) {
       const pieceId = piece.pieceId
       const pieceCid = piece.pieceCid
-      const status = getPieceStatus(pieceId, scheduledRemovals, providerPiecesById)
+      const { status, warning } = reconcilePieceStatus({
+        pieceId,
+        pieceCid,
+        scheduledRemovals,
+        providerPiecesById,
+      })
       const pieceInfo: PieceInfo = {
         pieceId,
         pieceCid: pieceCid.toString(),
         status,
       }
-      if (status === PieceStatus.ONCHAIN_ORPHANED) {
-        warnings.push({
-          code: 'ONCHAIN_ORPHANED',
-          message: 'Piece is on-chain but the provider does not report it',
-          context: { pieceId, pieceCid },
-        })
-      } else if (status === PieceStatus.ACTIVE && providerPiecesById) {
-        providerPiecesById.delete(pieceId)
+      if (warning) {
+        warnings.push(warning)
       }
 
       // Calculate piece size from CID
@@ -133,6 +128,8 @@ export async function getDataSetPieces(
       pieces.push(pieceInfo)
     }
     if (providerPiecesById !== null) {
+      // reconcilePieceStatus removes provider matches as we stream on-chain pieces.
+      // Remaining entries are only reported by the provider, which are off-chain orphans.
       for (const piece of providerPiecesById.values()) {
         // add the rest of the pieces to the pieces list
         pieces.push({
@@ -178,21 +175,6 @@ export async function getDataSetPieces(
   return result
 }
 
-function getPieceStatus(
-  pieceId: number,
-  scheduledRemovals: number[],
-  providerPiecesById: Map<DataSetPieceData['pieceId'], DataSetPieceData> | null
-): PieceStatus {
-  if (scheduledRemovals.includes(pieceId)) {
-    return PieceStatus.PENDING_REMOVAL
-  }
-  if (providerPiecesById === null || providerPiecesById.has(pieceId)) {
-    // if we were unable to get the provider pieces, or the provider knows about the piece, we will consider the piece active
-    return PieceStatus.ACTIVE
-  }
-  return PieceStatus.ONCHAIN_ORPHANED
-}
-
 /**
  * Internal helper: Enrich pieces with metadata from WarmStorage
  *
@@ -206,7 +188,7 @@ async function enrichPiecesWithMetadata(
   synapse: Synapse,
   storageContext: StorageContextWithDataSetId,
   pieces: PieceInfo[],
-  warnings: DataSetWarning[],
+  warnings: Warning[],
   logger?: GetDataSetPiecesOptions['logger']
 ): Promise<void> {
   const dataSetId = storageContext.dataSetId
