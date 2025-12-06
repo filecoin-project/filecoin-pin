@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { RemovePieceOptions } from '../../core/piece/remove-piece.js'
 import { runRmPiece } from '../../rm/remove-piece.js'
 import type { RmPieceOptions } from '../../rm/types.js'
 
@@ -11,6 +10,7 @@ const {
   mockCreateSpinner,
   mockParseCLIAuth,
   mockInitializeSynapse,
+  mockCreateStorageContext,
   mockCleanupSynapseService,
   mockRemovePiece,
   mockLogSection,
@@ -35,20 +35,20 @@ const {
     getNetwork: () => 'calibration',
   }))
 
-  const mockRemovePiece = vi.fn(
-    async (_pieceCid: string, opts: RemovePieceOptions & { onProgress?: RemovePieceOptions['onProgress'] }) => {
-      const dataSetId = 'dataSetId' in opts ? opts.dataSetId : opts.storage?.dataSetId
-      opts.onProgress?.({
-        type: 'remove-piece:submitted',
-        data: { pieceCid: _pieceCid, dataSetId: Number(dataSetId), txHash: '0xtx' },
-      })
-      opts.onProgress?.({
-        type: 'remove-piece:complete',
-        data: { txHash: '0xtx', confirmed: true },
-      })
-      return '0xtx'
-    }
-  )
+  const mockStorageContext = { dataSetId: 123 }
+  const mockCreateStorageContext = vi.fn(async () => ({ storage: mockStorageContext }))
+
+  const mockRemovePiece = vi.fn(async (_pieceCid: string, _storage: any, opts: { onProgress?: any }) => {
+    opts.onProgress?.({
+      type: 'remove-piece:submitted',
+      data: { pieceCid: _pieceCid, dataSetId: mockStorageContext.dataSetId, txHash: '0xtx' },
+    })
+    opts.onProgress?.({
+      type: 'remove-piece:complete',
+      data: { txHash: '0xtx', confirmed: true },
+    })
+    return '0xtx'
+  })
 
   return {
     spinner,
@@ -58,6 +58,7 @@ const {
     mockCreateSpinner,
     mockParseCLIAuth,
     mockInitializeSynapse,
+    mockCreateStorageContext,
     mockCleanupSynapseService,
     mockRemovePiece,
     mockLogSection,
@@ -81,6 +82,7 @@ vi.mock('../../utils/cli-logger.js', () => ({
 
 vi.mock('../../core/synapse/index.js', () => ({
   initializeSynapse: mockInitializeSynapse,
+  createStorageContext: mockCreateStorageContext,
   cleanupSynapseService: mockCleanupSynapseService,
 }))
 
@@ -114,12 +116,16 @@ describe('runRmPiece', () => {
     )
     expect(mockRemovePiece).toHaveBeenCalledWith(
       'bafkzcibpiece',
+      expect.objectContaining({ dataSetId: 123 }),
       expect.objectContaining({
-        dataSetId: 123,
         waitForConfirmation: true,
         onProgress: expect.any(Function),
       })
     )
+    expect(mockCreateStorageContext).toHaveBeenCalledWith(expect.anything(), {
+      logger: expect.anything(),
+      dataset: { useExisting: 123 },
+    })
     expect(spinner.stop).toHaveBeenCalledWith(expect.stringContaining('Piece removed'))
     expect(mockCleanupSynapseService).toHaveBeenCalled()
     expect(mockIntro).toHaveBeenCalled()
