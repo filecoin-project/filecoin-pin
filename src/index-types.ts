@@ -25,10 +25,10 @@ export type { ProviderInfo } from '@filoz/synapse-sdk'
 export type {
   DataSetPiecesResult,
   DataSetSummary,
-  DataSetWarning,
   GetDataSetPiecesOptions,
   ListDataSetsOptions,
   PieceInfo,
+  PieceStatus,
 } from './core/data-set/index.js'
 export type { PaymentCapacityCheck, PaymentStatus, SetMaxAllowancesResult } from './core/payments/index.js'
 export type { ServiceApprovalStatus, StorageAllowances } from './core/payments/types.js'
@@ -52,7 +52,7 @@ export type {
   UploadReadinessProgressEvents,
   UploadReadinessResult,
 } from './core/upload/index.js'
-export type { AnyProgressEvent, ProgressEvent, ProgressEventHandler } from './core/utils/types.js'
+export type { AnyProgressEvent, ProgressEvent, ProgressEventHandler, Warning } from './core/utils/types.js'
 export type {
   ValidateIPNIProgressEvents,
   WaitForIpniProviderResultsOptions,

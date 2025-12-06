@@ -2,9 +2,9 @@ import type { Synapse } from '@filoz/synapse-sdk'
 import PQueue from 'p-queue'
 import type { Logger } from 'pino'
 import { createStorageContextFromDataSetId } from '../synapse/storage-context-helper.js'
-import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
+import type { ProgressEvent, ProgressEventHandler, Warning } from '../utils/types.js'
 import { getDataSetPieces } from './get-data-set-pieces.js'
-import type { DataSetSummary, DataSetWarning } from './types.js'
+import type { DataSetSummary } from './types.js'
 
 export interface ActualStorageResult {
   /** Total storage in bytes across all active data sets */
@@ -18,7 +18,7 @@ export interface ActualStorageResult {
   /** Whether the calculation timed out */
   timedOut?: boolean
   /** Non-fatal warnings encountered during calculation */
-  warnings: DataSetWarning[]
+  warnings: Warning[]
 }
 
 export type ActualStorageProgressEvents = ProgressEvent<
@@ -101,7 +101,7 @@ export async function calculateActualStorage(
   const maxParallelPerProvider = Math.max(1, options?.maxParallelPerProvider ?? 10)
   const onProgress = options?.onProgress
 
-  const warnings: DataSetWarning[] = []
+  const warnings: Warning[] = []
   let totalBytes = 0n
   let pieceCount = 0
   let dataSetsProcessed = 0
