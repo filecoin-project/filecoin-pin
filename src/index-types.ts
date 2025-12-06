@@ -52,7 +52,7 @@ export type {
   UploadReadinessProgressEvents,
   UploadReadinessResult,
 } from './core/upload/index.js'
-export type { AnyProgressEvent, ProgressEvent, ProgressEventHandler } from './core/utils/types.js'
+export type { AnyProgressEvent, ProgressEvent, ProgressEventHandler, Warning } from './core/utils/types.js'
 export type {
   ValidateIPNIProgressEvents,
   WaitForIpniProviderResultsOptions,
