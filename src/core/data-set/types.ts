@@ -15,10 +15,10 @@ import type { Warning } from '../utils/types.js'
 /**
  * Status of the piece, e.g. "pending removal", "active", "orphaned"
  *
- * - "pending-removal": the piece is scheduled for deletion, but still showing on chain
- * - "active": the piece is active, onchain and known by the provider
- * - "onchain-orphaned": the piece is not known by the provider, but still on chain
- * - "offchain-orphaned": the piece is known by the provider, but not on chain
+ * - PENDING_REMOVAL: the piece is scheduled for deletion, but still showing on chain
+ * - ACTIVE: the piece is active, onchain and known by the provider
+ * - ONCHAIN_ORPHANED: the piece is not known by the provider, but still on chain
+ * - OFFCHAIN_ORPHANED: the piece is known by the provider, but not on chain
  *
  * The orphaned states should not happen, but have been observed and should be logged and displayed to the user.
  */
