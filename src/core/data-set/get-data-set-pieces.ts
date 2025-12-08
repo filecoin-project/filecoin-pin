@@ -7,15 +7,20 @@
  */
 
 import { getSizeFromPieceCID } from '@filoz/synapse-core/piece'
-import { METADATA_KEYS, type StorageContext, type Synapse, WarmStorageService } from '@filoz/synapse-sdk'
+import {
+  type DataSetPieceData,
+  METADATA_KEYS,
+  PDPServer,
+  PDPVerifier,
+  type StorageContext,
+  type Synapse,
+  WarmStorageService,
+} from '@filoz/synapse-sdk'
+import { reconcilePieceStatus } from '../piece/piece-status.js'
+import type { Warning } from '../utils/types.js'
 import { isStorageContextWithDataSetId } from './type-guards.js'
-import type {
-  DataSetPiecesResult,
-  DataSetWarning,
-  GetDataSetPiecesOptions,
-  PieceInfo,
-  StorageContextWithDataSetId,
-} from './types.js'
+import type { DataSetPiecesResult, GetDataSetPiecesOptions, PieceInfo, StorageContextWithDataSetId } from './types.js'
+import { PieceStatus } from './types.js'
 
 /**
  * Get all pieces for a dataset from a StorageContext
@@ -57,15 +62,58 @@ export async function getDataSetPieces(
   }
 
   const pieces: PieceInfo[] = []
-  const warnings: DataSetWarning[] = []
+  const warnings: Warning[] = []
+
+  // call PDPVerifier.getScheduledRemovals to get the list of pieces that are scheduled for removal
+  let scheduledRemovals: number[] = []
+  let pdpServerPieces: DataSetPieceData[] | null = null
+  try {
+    const warmStorage = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
+    const pdpVerifier = new PDPVerifier(synapse.getProvider(), warmStorage.getPDPVerifierAddress())
+    scheduledRemovals = await pdpVerifier.getScheduledRemovals(storageContext.dataSetId)
+    try {
+      const providerInfo = await synapse.getProviderInfo(storageContext.provider.serviceProvider)
+      const pdpServer = new PDPServer(null, providerInfo.products?.PDP?.data?.serviceURL ?? '')
+      const dataSet = await pdpServer.getDataSet(storageContext.dataSetId)
+      pdpServerPieces = dataSet.pieces
+    } catch (error) {
+      logger?.warn({ error }, 'Failed to fetch provider data for scheduled removals and orphan detection')
+      warnings.push({
+        code: 'PROVIDER_DATA_UNAVAILABLE',
+        message: 'Failed to fetch provider data; orphan detection disabled',
+        context: { dataSetId: storageContext.dataSetId, error: String(error) },
+      })
+    }
+  } catch (error) {
+    logger?.warn({ error }, 'Failed to get scheduled removals')
+    warnings.push({
+      code: 'SCHEDULED_REMOVALS_UNAVAILABLE',
+      message: 'Failed to get scheduled removals',
+      context: { dataSetId: storageContext.dataSetId, error: String(error) },
+    })
+  }
 
   // Use the async generator to fetch all pieces
   try {
     const getPiecesOptions = { ...(signal && { signal }) }
+    const providerPiecesById = pdpServerPieces ? new Map(pdpServerPieces.map((piece) => [piece.pieceId, piece])) : null
     for await (const piece of storageContext.getPieces(getPiecesOptions)) {
       const pieceId = piece.pieceId
       const pieceCid = piece.pieceCid
-      const pieceInfo: PieceInfo = { pieceId, pieceCid: pieceCid.toString() }
+      const { status, warning } = reconcilePieceStatus({
+        pieceId,
+        pieceCid,
+        scheduledRemovals,
+        providerPiecesById,
+      })
+      const pieceInfo: PieceInfo = {
+        pieceId,
+        pieceCid: pieceCid.toString(),
+        status,
+      }
+      if (warning) {
+        warnings.push(warning)
+      }
 
       // Calculate piece size from CID
       try {
@@ -79,6 +127,24 @@ export async function getDataSetPieces(
 
       pieces.push(pieceInfo)
     }
+    if (providerPiecesById !== null) {
+      // reconcilePieceStatus removes provider matches as we stream on-chain pieces.
+      // Remaining entries are only reported by the provider, which are off-chain orphans.
+      for (const piece of providerPiecesById.values()) {
+        // add the rest of the pieces to the pieces list
+        pieces.push({
+          pieceId: piece.pieceId,
+          pieceCid: piece.pieceCid.toString(),
+          status: PieceStatus.OFFCHAIN_ORPHANED,
+        })
+        warnings.push({
+          code: 'OFFCHAIN_ORPHANED',
+          message: 'Piece is reported by provider but not on-chain',
+          context: { pieceId: piece.pieceId, pieceCid: piece.pieceCid.toString() },
+        })
+      }
+    }
+    pieces.sort((a, b) => a.pieceId - b.pieceId)
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw error
@@ -122,7 +188,7 @@ async function enrichPiecesWithMetadata(
   synapse: Synapse,
   storageContext: StorageContextWithDataSetId,
   pieces: PieceInfo[],
-  warnings: DataSetWarning[],
+  warnings: Warning[],
   logger?: GetDataSetPiecesOptions['logger']
 ): Promise<void> {
   const dataSetId = storageContext.dataSetId

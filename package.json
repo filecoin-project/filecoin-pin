@@ -38,6 +38,10 @@
       "types": "./dist/core/payments/index.d.ts",
       "default": "./dist/core/payments/index.js"
     },
+    "./core/piece": {
+      "types": "./dist/core/piece/index.d.ts",
+      "default": "./dist/core/piece/index.js"
+    },
     "./core/synapse": {
       "types": "./dist/core/synapse/index.d.ts",
       "default": "./dist/core/synapse/index.js"
@@ -109,8 +113,8 @@
   "homepage": "https://github.com/filecoin-project/filecoin-pin#readme",
   "dependencies": {
     "@clack/prompts": "^0.11.0",
-    "@filoz/synapse-core": "^0.1.3",
-    "@filoz/synapse-sdk": "^0.36.0",
+    "@filoz/synapse-core": "^0.1.4",
+    "@filoz/synapse-sdk": "^0.36.1",
     "@helia/unixfs": "^6.0.1",
     "@ipld/car": "^5.4.2",
     "commander": "^14.0.1",
