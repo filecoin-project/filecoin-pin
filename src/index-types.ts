@@ -36,6 +36,7 @@ export type {
   CreateStorageContextOptions,
   DatasetOptions,
   PrivateKeyConfig,
+  ReadOnlyConfig,
   SessionKeyConfig,
   SignerConfig,
   SynapseService,

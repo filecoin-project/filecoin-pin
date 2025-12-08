@@ -112,7 +112,9 @@ vi.mock('../../core/synapse/index.js', async () => {
       const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
 
       if (!hasStandardAuth && !hasSessionKeyAuth) {
-        throw new Error('Authentication required: provide either a privateKey or walletAddress + sessionKey')
+        throw new Error(
+          'Authentication required: provide either privateKey, walletAddress + sessionKey, view-address, or signer'
+        )
       }
 
       const mockSynapse = new MockSynapse()
