@@ -40,10 +40,7 @@ import { type Command, Option } from 'commander'
 export function addAuthOptions(command: Command): Command {
   command
     .option('--private-key <key>', 'Private key for standard auth (can also use PRIVATE_KEY env)')
-    .option(
-      '--wallet-address <address>',
-      'Wallet address for session key auth (can also use WALLET_ADDRESS env)'
-    )
+    .option('--wallet-address <address>', 'Wallet address for session key auth (can also use WALLET_ADDRESS env)')
     .option('--session-key <key>', 'Session key for session key auth (can also use SESSION_KEY env)')
     .addOption(
       new Option('--view-address <address>', 'View-only mode (no signing) for the specified wallet address').env(
