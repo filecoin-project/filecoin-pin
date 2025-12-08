@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createConfig } from '../../config.js'
 import {
   getSynapseService,
+  initializeSynapse,
   resetSynapseService,
   type SynapseSetupConfig,
   setupSynapse,
@@ -76,6 +77,28 @@ describe('synapse-service', () => {
       expect(infoSpy).toHaveBeenCalledWith(
         expect.objectContaining({ event: 'synapse.init.success' }),
         'Synapse SDK initialized'
+      )
+    })
+
+    it('should initialize Synapse in read-only mode when requested', async () => {
+      const readOnlyConfig: SynapseSetupConfig = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        readOnly: true,
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      }
+
+      const infoSpy = vi.spyOn(logger, 'info')
+
+      const synapse = await initializeSynapse(readOnlyConfig, logger)
+
+      expect(synapse).toBeDefined()
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'synapse.init',
+          authMode: 'read-only',
+          rpcUrl: readOnlyConfig.rpcUrl,
+        }),
+        'Initializing Synapse SDK'
       )
     })
 

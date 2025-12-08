@@ -82,9 +82,12 @@ const {
     // Validate auth like the real initializeSynapse does
     const hasStandardAuth = config.privateKey != null
     const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
+    const hasViewOnlyAuth = config.readOnly === true && config.walletAddress != null
 
-    if (!hasStandardAuth && !hasSessionKeyAuth) {
-      throw new Error('Authentication required: provide either a privateKey or walletAddress + sessionKey')
+    if (!hasStandardAuth && !hasSessionKeyAuth && !hasViewOnlyAuth) {
+      throw new Error(
+        'Authentication required: provide either privateKey, walletAddress + sessionKey, view-address, or signer'
+      )
     }
 
     return {

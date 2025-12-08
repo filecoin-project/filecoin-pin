@@ -19,11 +19,13 @@ import { getTelemetryConfig } from './telemetry-config.js'
 export * from './constants.js'
 
 const WEBSOCKET_REGEX = /^ws(s)?:\/\//i
+const AUTH_MODE_SYMBOL = Symbol.for('filecoin-pin.authMode')
 
 let synapseInstance: Synapse | null = null
 let storageInstance: StorageContext | null = null
 let currentProviderInfo: ProviderInfo | null = null
 let activeProvider: any = null // Track the provider for cleanup
+type AuthMode = 'standard' | 'session-key' | 'read-only' | 'signer'
 
 /**
  * Complete application configuration interface
@@ -49,6 +51,8 @@ interface BaseSynapseConfig extends Omit<SynapseOptions, 'withCDN' | 'warmStorag
   rpcUrl?: string | undefined
   /** Optional override for WarmStorage contract address */
   warmStorageAddress?: string | undefined
+  /** Optional flag for read-only auth (address-only signer) */
+  readOnly?: boolean | undefined
   withCDN?: boolean | undefined
   /** Default metadata to apply when creating or reusing datasets */
   dataSetMetadata?: Record<string, string>
@@ -84,6 +88,16 @@ export interface SessionKeyConfig extends BaseSynapseConfig {
 }
 
 /**
+ * Read-only authentication using an address-only signer
+ *
+ * This supports querying balances and status without signing transactions.
+ */
+export interface ReadOnlyConfig extends BaseSynapseConfig {
+  walletAddress: string
+  readOnly: true
+}
+
+/**
  * Signer-based authentication with ethers Signer
  */
 export interface SignerConfig extends BaseSynapseConfig {
@@ -100,7 +114,7 @@ export interface SignerConfig extends BaseSynapseConfig {
  * 2. Session Key: walletAddress + sessionKey
  * 3. Signer: ethers Signer instance
  */
-export type SynapseSetupConfig = PrivateKeyConfig | SessionKeyConfig | SignerConfig
+export type SynapseSetupConfig = PrivateKeyConfig | SessionKeyConfig | ReadOnlyConfig | SignerConfig
 
 /**
  * Structured service object containing the fully initialized Synapse SDK and
@@ -190,6 +204,18 @@ export function resetSynapseService(): void {
   activeProvider = null
 }
 
+function setAuthMode(synapse: Synapse, mode: AuthMode): void {
+  ;(synapse as any)[AUTH_MODE_SYMBOL] = mode
+}
+
+export function isViewOnlyMode(synapse: Synapse): boolean {
+  try {
+    return (synapse as any)[AUTH_MODE_SYMBOL] === 'read-only'
+  } catch {
+    return false
+  }
+}
+
 /**
  * Check if Synapse is using session key authentication
  *
@@ -203,6 +229,10 @@ export function resetSynapseService(): void {
  */
 export function isSessionKeyMode(synapse: Synapse): boolean {
   try {
+    const markedMode = (synapse as any)[AUTH_MODE_SYMBOL]
+    if (markedMode === 'session-key') return true
+    if (markedMode === 'read-only') return false
+
     const client = synapse.getClient()
 
     // The client might be wrapped in a NonceManager, check the underlying signer
@@ -231,6 +261,10 @@ function isSessionKeyConfig(config: Partial<SynapseSetupConfig>): config is Sess
   )
 }
 
+function isReadOnlyConfig(config: Partial<SynapseSetupConfig>): config is ReadOnlyConfig {
+  return config.readOnly === true && 'walletAddress' in config && config.walletAddress != null
+}
+
 function isSignerConfig(config: Partial<SynapseSetupConfig>): config is SignerConfig {
   return 'signer' in config && config.signer != null
 }
@@ -238,23 +272,29 @@ function isSignerConfig(config: Partial<SynapseSetupConfig>): config is SignerCo
 /**
  * Validate authentication configuration
  */
-function validateAuthConfig(config: Partial<SynapseSetupConfig>): 'standard' | 'session-key' | 'signer' {
+function validateAuthConfig(config: Partial<SynapseSetupConfig>): 'standard' | 'session-key' | 'read-only' | 'signer' {
   const hasPrivateKey = isPrivateKeyConfig(config)
   const hasSessionKey = isSessionKeyConfig(config)
+  const hasReadOnly = isReadOnlyConfig(config)
   const hasSigner = isSignerConfig(config)
 
-  const authCount = [hasPrivateKey, hasSessionKey, hasSigner].filter(Boolean).length
+  const authCount = [hasPrivateKey, hasSessionKey, hasReadOnly, hasSigner].filter(Boolean).length
 
   if (authCount === 0) {
-    throw new Error('Authentication required: provide either privateKey, walletAddress + sessionKey, or signer')
+    throw new Error(
+      'Authentication required: provide either privateKey, walletAddress + sessionKey, view-address, or signer'
+    )
   }
 
   if (authCount > 1) {
-    throw new Error('Conflicting authentication: provide only one of privateKey, walletAddress + sessionKey, or signer')
+    throw new Error(
+      'Conflicting authentication: provide only one of privateKey, walletAddress + sessionKey, view-address, or signer'
+    )
   }
 
   if (hasPrivateKey) return 'standard'
   if (hasSessionKey) return 'session-key'
+  if (hasReadOnly) return 'read-only'
   return 'signer'
 }
 
@@ -382,6 +422,23 @@ export async function initializeSynapse(config: Partial<SynapseSetupConfig>, log
         signer: ownerSigner,
       })
       await setupSessionKey(synapse, sessionWallet, logger)
+      setAuthMode(synapse, 'session-key')
+    } else if (authMode === 'read-only') {
+      // Read-only mode - type guard ensures walletAddress is defined
+      if (!isReadOnlyConfig(config)) {
+        throw new Error('Internal error: read-only mode but config type mismatch')
+      }
+
+      const provider = createProvider(rpcURL)
+      activeProvider = provider
+
+      const readOnlySigner = new AddressOnlySigner(config.walletAddress, provider)
+
+      synapse = await Synapse.create({
+        ...synapseOptions,
+        signer: readOnlySigner,
+      })
+      setAuthMode(synapse, 'read-only')
     } else if (authMode === 'signer') {
       // Signer mode - type guard ensures signer is defined
       if (!isSignerConfig(config)) {
@@ -390,6 +447,7 @@ export async function initializeSynapse(config: Partial<SynapseSetupConfig>, log
 
       synapse = await Synapse.create({ ...synapseOptions, signer: config.signer })
       activeProvider = synapse.getProvider()
+      setAuthMode(synapse, 'signer')
     } else {
       // Private key mode - type guard ensures privateKey is defined
       if (!isPrivateKeyConfig(config)) {
@@ -398,6 +456,7 @@ export async function initializeSynapse(config: Partial<SynapseSetupConfig>, log
 
       synapse = await Synapse.create({ ...synapseOptions, privateKey: config.privateKey })
       activeProvider = synapse.getProvider()
+      setAuthMode(synapse, 'standard')
     }
 
     const network = synapse.getNetwork()

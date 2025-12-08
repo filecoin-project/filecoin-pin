@@ -13,6 +13,7 @@ import { type Command, Option } from 'commander'
  * - --private-key for standard authentication
  * - --wallet-address for session key authentication
  * - --session-key for session key authentication
+ * - --view-address for read-only authentication (no signing, requires wallet address)
  * - --network for network selection (mainnet or calibration)
  * - --rpc-url for network configuration (overrides --network)
  *
@@ -28,8 +29,8 @@ import { type Command, Option } from 'commander'
  *   .description('Do something')
  *   .option('--my-option <value>', 'My custom option')
  *   .action(async (options) => {
- *     // options will include: privateKey, walletAddress, sessionKey, network, rpcUrl, myOption
- *     const { privateKey, walletAddress, sessionKey, network, rpcUrl, myOption } = options
+ *     // options will include: privateKey, walletAddress, sessionKey, viewAddress, network, rpcUrl, myOption
+ *     const { privateKey, walletAddress, sessionKey, viewAddress, network, rpcUrl, myOption } = options
  *   })
  *
  * // Add authentication options after the command is fully defined
@@ -41,6 +42,11 @@ export function addAuthOptions(command: Command): Command {
     .option('--private-key <key>', 'Private key for standard auth (can also use PRIVATE_KEY env)')
     .option('--wallet-address <address>', 'Wallet address for session key auth (can also use WALLET_ADDRESS env)')
     .option('--session-key <key>', 'Session key for session key auth (can also use SESSION_KEY env)')
+    .addOption(
+      new Option('--view-address <address>', 'View-only mode (no signing) for the specified wallet address').env(
+        'VIEW_ADDRESS'
+      )
+    )
 
   return addNetworkOptions(command)
     .addOption(
