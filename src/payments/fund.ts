@@ -231,8 +231,8 @@ export async function runFund(options: FundOptions): Promise<void> {
     spinner.start('Calculating funding plan...')
     const planResult = await planFilecoinPayFunding({
       synapse,
-      targetRunwayDays: targetDays,
-      targetDeposit,
+      targetRunwayDays: hasDays ? targetDays : undefined,
+      targetDeposit: hasAmount ? targetDeposit : undefined,
       mode: options.mode ?? 'exact',
       allowWithdraw: options.mode !== 'minimum',
     })
@@ -314,7 +314,7 @@ export async function runFund(options: FundOptions): Promise<void> {
       spinner.stop()
       console.error(
         pc.red(
-          `✗ Insufficient USDFC in wallet (need ${formatUSDFC(plan.delta)} USDFC, have ${formatUSDFC(plan.delta - plan.walletShortfall)} USDFC)`
+          `✗ Insufficient USDFC in wallet (need ${formatUSDFC(plan.delta)} USDFC, have ${formatUSDFC(planResult.status.walletUsdfcBalance)} USDFC)`
         )
       )
       cancel('Fund adjustment aborted')

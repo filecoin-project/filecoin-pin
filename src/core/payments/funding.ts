@@ -165,10 +165,10 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     throw new Error('pricePerTiBPerEpoch is required when pieceSizeBytes is provided')
   }
 
-  let delta = 0n
+  let delta: bigint
   let projectedDeposit = status.filecoinPayBalance
   let projectedRateUsed = status.currentAllowances.rateUsed ?? 0n
-  let projectedLockupUsed = status.currentAllowances.lockupUsed ?? 0n
+  let projectedLockupUsed: bigint
   let resolvedTargetDeposit: bigint | undefined
   let reasonCode: FundingReasonCode = 'none'
   const targetType = targetRunwayDays != null ? 'runway-days' : 'deposit'
@@ -275,13 +275,13 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
  */
 export interface PlanFilecoinPayFundingOptions {
   synapse: Synapse
-  targetRunwayDays?: number
-  targetDeposit?: bigint
-  pieceSizeBytes?: number
-  pricePerTiBPerEpoch?: bigint
-  mode?: FundingMode
-  allowWithdraw?: boolean
-  ensureAllowances?: boolean
+  targetRunwayDays?: number | undefined
+  targetDeposit?: bigint | undefined
+  pieceSizeBytes?: number | undefined
+  pricePerTiBPerEpoch?: bigint | undefined
+  mode?: FundingMode | undefined
+  allowWithdraw?: boolean | undefined
+  ensureAllowances?: boolean | undefined
 }
 
 /**
@@ -374,6 +374,17 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
   }
 }
 
+/**
+ * Execute a Filecoin Pay funding plan by depositing or withdrawing USDFC.
+ *
+ * - No-op when `plan.delta` is 0 (returns projected insights unchanged).
+ * - Deposits when delta > 0, withdraws when delta < 0.
+ * - Returns updated balances/runway after execution.
+ *
+ * @param synapse - Initialized Synapse instance
+ * @param plan - Funding plan produced by calculate/plan helpers
+ * @returns Execution result with transaction hash (if any) and updated insights
+ */
 export async function executeFilecoinPayFunding(
   synapse: Synapse,
   plan: FilecoinPayFundingPlan

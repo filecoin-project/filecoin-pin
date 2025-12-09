@@ -140,6 +140,60 @@ describe('planFilecoinPayFunding', () => {
     expect(plan.current.runway.state).toBe('no-spend')
     expect(plan.projected.runway.state).toBe('no-spend')
   })
+
+  it('throws when both runway and deposit targets are provided', async () => {
+    const status = makeStatus({ filecoinPayBalance: 0n, wallet: 1_000n })
+    vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(status)
+    vi.spyOn(paymentsIndex, 'checkAndSetAllowances').mockResolvedValue({
+      updated: false,
+      currentAllowances: status.currentAllowances,
+    })
+    vi.spyOn(paymentsIndex, 'validatePaymentRequirements').mockReturnValue({ isValid: true })
+
+    await expect(
+      planFilecoinPayFunding({
+        synapse: synapseStub as any,
+        targetRunwayDays: 10,
+        targetDeposit: 1_000n,
+      })
+    ).rejects.toThrow('Specify either targetRunwayDays or targetDeposit, not both')
+  })
+
+  it('throws when no target is provided', async () => {
+    const status = makeStatus({ filecoinPayBalance: 0n, wallet: 1_000n })
+    vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(status)
+    vi.spyOn(paymentsIndex, 'checkAndSetAllowances').mockResolvedValue({
+      updated: false,
+      currentAllowances: status.currentAllowances,
+    })
+    vi.spyOn(paymentsIndex, 'validatePaymentRequirements').mockReturnValue({ isValid: true })
+
+    await expect(
+      planFilecoinPayFunding({
+        synapse: synapseStub as any,
+      })
+    ).rejects.toThrow('A funding target is required')
+  })
+
+  it('fetches pricing when pieceSizeBytes is provided without pricePerTiBPerEpoch', async () => {
+    const status = makeStatus({ filecoinPayBalance: 0n, wallet: 1_000n })
+    vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(status)
+    vi.spyOn(paymentsIndex, 'checkAndSetAllowances').mockResolvedValue({
+      updated: false,
+      currentAllowances: status.currentAllowances,
+    })
+    vi.spyOn(paymentsIndex, 'validatePaymentRequirements').mockReturnValue({ isValid: true })
+
+    const { plan } = await planFilecoinPayFunding({
+      synapse: synapseStub as any,
+      targetRunwayDays: 10,
+      pieceSizeBytes: 1024,
+    })
+
+    expect(plan.pricePerTiBPerEpoch).toBe(1n)
+    expect(plan.delta).toBeGreaterThan(0n)
+    expect(plan.reasonCode).toBe('runway-with-piece')
+  })
 })
 
 describe('executeFilecoinPayFunding', () => {
