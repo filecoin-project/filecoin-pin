@@ -83,7 +83,7 @@ v1 CAR containing the Merkle DAG representing the provided file.  There is one r
 
 *Expected duration:*
 
-This is a function of the size of the input file and the hardware. Typical DAGification of files and directories is relatively quick as it's simply a matter of chunking and hashing using common algorithms. The most time-consuming part is the generation of the ["Piece CID](glossary.md#piece-cid) of the whole CAR on the client side prior to upload, where a a 1Gb input can take upwards of a minute.  As the car is being created, it can be streamed to an SP, which is most likely the bottleneck.
+Depends on input size, local disk/CPU, and uplink speed. DAGification itself is mostly chunk-and-hash and is fast on modern hardware. As we build the CAR, we stream it directly to the SP (no full buffering); [Synapse](glossary.md#synapse) overlaps DAG creation, [Piece CID](glossary.md#piece-cid) calculation, and upload, so on a fast machine the bottleneck is usually your upload bandwidth.
 
 ### Upload CAR
 
@@ -97,13 +97,13 @@ The upload includes [metadata](glossary.md#metadata) that will be stored on-chai
 
 *Outputs:*
 
-SP parks the Piece and queues it up for processing, while the client gets an HTTP response with the [Piece CID](glossary.md#piece-cid).  The server calculates the Piece CID for the data and confirms that it matches the Piece CID calculated and provided by the Filecoin Pin client to provide assurance that we are providing the exact bytes we expect.
+SP parks the Piece and queues it up for processing, while the client gets an HTTP response with the [Piece CID](glossary.md#piece-cid).  Synapse now handles Piece CID calculation/validation while streaming, keeping client and SP in sync without an extra buffer round-trip.
 
 Since the SP has the data for the Piece, it can be retrieved with https://sp.domain/piece/$pieceCid retrieval.
 
 *Expected duration:*
 
-This is a function of the CAR size and the throughput between the client and the SP.  
+This is a function of the CAR size and the throughput between the client and the SP. The current maximum piece size is dictated by Synapse + SP limits (tracked in https://github.com/FilOzone/synapse-sdk/issues/110).
 
 ### Index and Advertise CAR CIDs
 
