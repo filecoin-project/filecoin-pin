@@ -13,6 +13,7 @@ import { createWriteStream } from 'node:fs'
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
+import { ReadableStream } from 'node:stream/web'
 import { CarWriter } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
@@ -455,10 +456,9 @@ describe('CAR Import', () => {
       )
 
       const { performUpload } = await import('../../common/upload-flow.js')
-      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
-        expect.any(Object),
-        expect.any(Uint8Array),
-        expect.any(Object),
+      const lastCall = vi.mocked(performUpload).mock.calls.at(-1)
+      expect(lastCall?.[1]).toBeInstanceOf(ReadableStream)
+      expect(lastCall?.[3]).toEqual(
         expect.objectContaining({
           pieceMetadata: { ics: '8004' },
         })

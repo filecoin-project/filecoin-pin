@@ -1,6 +1,8 @@
 import { EventEmitter } from 'node:events'
-import { readFile, unlink } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import type { Helia } from 'helia'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
@@ -304,12 +306,11 @@ export class FilecoinPinStore extends EventEmitter {
       // 3. Track the returned piece information in application state
       // 4. Handle errors gracefully with proper cleanup
       try {
-        // Read the CAR file (streaming not yet supported in Synapse)
-        // TODO: When Synapse supports streaming, this could be optimized
-        const carData = await readFile(pinStatus.filecoin.carFilePath)
+        // Stream the CAR file to Synapse to avoid buffering large data in memory
+        const carStream = Readable.toWeb(createReadStream(pinStatus.filecoin.carFilePath)) as ReadableStream<Uint8Array>
 
         // Upload using shared function with pinId as context and IPFS root CID metadata
-        const uploadResult = await uploadToSynapse(this.synapseService, carData, cid, this.logger, {
+        const uploadResult = await uploadToSynapse(this.synapseService, carStream, cid, this.logger, {
           contextId: pinId,
         })
 
