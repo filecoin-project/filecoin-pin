@@ -290,7 +290,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     log.flush()
 
     cancel('Status check failed')
-    process.exitCode = 1
+    throw error
   } finally {
     await cleanupSynapseService()
   }
