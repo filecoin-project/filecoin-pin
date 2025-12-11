@@ -2,6 +2,8 @@ import { Command } from 'commander'
 import { runAdd } from '../add/add.js'
 import type { AddOptions } from '../add/types.js'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
+import { isCarFile } from '../utils/car-detection.js'
+import { log } from '../utils/cli-logger.js'
 import { addAuthOptions, addProviderOptions } from '../utils/cli-options.js'
 import { addMetadataOptions, resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 
@@ -27,6 +29,15 @@ export const addCommand = new Command('add')
         filePath: path,
         ...(pieceMetadata && { pieceMetadata }),
         ...(dataSetMetadata && { dataSetMetadata }),
+      }
+
+      // Check if the file is a CAR file and warn the user
+      if (await isCarFile(path)) {
+        log.warn(
+          `Warning: You are adding a CAR file. Did you mean to 'import' it?
+'add' wraps the file in a new UnixFS DAG.
+To import existing CAR data, use 'filecoin-pin import'.`
+        )
       }
 
       await runAdd(addOptions)
