@@ -29,8 +29,7 @@ export const importCommand = new Command('import')
       }
 
       await runCarImport(importOptions)
-    } catch (error) {
-      console.error('Import failed:', error instanceof Error ? error.message : error)
+    } catch {
       process.exit(1)
     }
   })

@@ -145,7 +145,6 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     const proceed = await warnAboutCDNPricingLimitations()
     if (!proceed) {
       cancel('Import cancelled')
-      process.exitCode = 1
       throw new Error('CDN pricing limitations warning cancelled')
     }
   }
@@ -158,7 +157,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     if (!fileValidation.exists || !fileValidation.stats) {
       spinner.stop(`${pc.red('✗')} ${fileValidation.error}`)
       cancel('Import cancelled')
-      process.exit(1)
+      throw new Error(fileValidation.error)
     }
     const fileStat = fileValidation.stats
 
@@ -169,7 +168,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     } catch (error) {
       spinner.stop(`${pc.red('✗')} Invalid CAR file: ${error instanceof Error ? error.message : 'Unknown error'}`)
       cancel('Import cancelled')
-      process.exit(1)
+      throw new Error('Invalid CAR file')
     }
 
     // Step 3: Handle root CID cases
@@ -290,6 +289,6 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     await cleanupSynapseService()
 
     cancel('Import failed')
-    process.exit(1)
+    throw error
   }
 }
