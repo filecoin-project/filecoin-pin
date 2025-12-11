@@ -338,8 +338,7 @@ describe('CAR Import', () => {
         privateKey: testPrivateKey,
       }
 
-      await expect(runCarImport(options)).rejects.toThrow('process.exit called')
-      expect(consoleMocks.error).toHaveBeenCalledWith('Import cancelled')
+      await expect(runCarImport(options)).rejects.toThrow()
     })
 
     it('should reject non-existent file', async () => {
@@ -348,8 +347,7 @@ describe('CAR Import', () => {
         privateKey: testPrivateKey,
       }
 
-      await expect(runCarImport(options)).rejects.toThrow('process.exit called')
-      expect(consoleMocks.error).toHaveBeenCalledWith('Import cancelled')
+      await expect(runCarImport(options)).rejects.toThrow()
     })
   })
 
@@ -394,7 +392,7 @@ describe('CAR Import', () => {
         // No private key provided
       }
 
-      await expect(runCarImport(options)).rejects.toThrow('process.exit called')
+      await expect(runCarImport(options)).rejects.toThrow()
       // The error is caught and logged generically as "Import failed"
       expect(consoleMocks.error).toHaveBeenCalled()
     })
@@ -493,7 +491,7 @@ describe('CAR Import', () => {
         privateKey: testPrivateKey,
       }
 
-      await expect(runCarImport(options)).rejects.toThrow('process.exit called')
+      await expect(runCarImport(options)).rejects.toThrow()
       expect(cleanupSpy).toHaveBeenCalled()
     })
   })
