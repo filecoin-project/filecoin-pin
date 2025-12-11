@@ -371,7 +371,7 @@ export async function runFund(options: FundOptions): Promise<void> {
     spinner.stop()
     console.error(pc.red('✗ Fund adjustment failed'))
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
-    process.exitCode = 1
+    throw error
   } finally {
     await cleanupSynapseService()
   }
