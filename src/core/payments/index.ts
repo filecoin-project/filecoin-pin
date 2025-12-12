@@ -38,6 +38,7 @@ import { padSizeToPDPLeaves } from './utils.js'
 export * from './constants.js'
 
 export * from './floor-pricing.js'
+export * from './funding.js'
 export * from './top-up.js'
 export * from './types.js'
 

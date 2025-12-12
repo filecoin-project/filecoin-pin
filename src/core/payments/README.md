@@ -39,6 +39,7 @@ Comprehensive payment rail management for Filecoin Pay:
 - **Token Operations**: ERC20 approve/deposit patterns
 - **Service Approvals**: Storage operator authorization
 - **Capacity Calculations**: Human-friendly storage unit conversions
+- **Funding Planner**: Build and execute Filecoin Pay funding plans for runway or fixed deposits
 
 ## Filecoin Pin Use Examples
 
@@ -97,7 +98,9 @@ console.log(`Download URL: ${result.providerInfo?.downloadURL}`)
 ```typescript
 import {
   calculateStorageAllowances,
+  executeFilecoinPayFunding,
   depositUSDFC,
+  planFilecoinPayFunding,
   setServiceApprovals,
 } from 'filecoin-pin/core/payments'
 import { ethers } from 'ethers'
@@ -117,4 +120,18 @@ const txHash = await setServiceApprovals(
   allowances.rateAllowance,
   allowances.lockupAllowance
 )
+
+// Plan and execute a Filecoin Pay top-up for 30 days of runway
+const { plan } = await planFilecoinPayFunding({
+  synapse,
+  targetRunwayDays: 30,
+  ensureAllowances: true, // also sets WarmStorage allowances
+})
+
+if (plan.delta > 0n) {
+  const execution = await executeFilecoinPayFunding(synapse, plan)
+  console.log(`Deposited ${execution.delta} wei USDFC for ~${execution.newRunwayDays} day(s) runway`)
+} else {
+  console.log('No additional funding required')
+}
 ```
