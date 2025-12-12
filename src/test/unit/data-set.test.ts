@@ -309,9 +309,6 @@ describe('runDataSetCommand', () => {
     // Should stop spinner with error message
     expect(spinnerMock.stop).toHaveBeenCalledWith(expect.stringContaining('Failed to list data sets'))
 
-    // Should set exitCode to 1 due to authentication error
-    // expect(process.exitCode).toBe(1)
-
     // Should not call display function since it failed early
     expect(displayDataSetListMock).not.toHaveBeenCalled()
   })
