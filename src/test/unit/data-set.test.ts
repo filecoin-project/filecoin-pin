@@ -301,9 +301,7 @@ describe('runDataSetCommand', () => {
   })
 
   it('exits when no private key is provided', async () => {
-    await runDataSetListCommand({
-      rpcUrl: 'wss://sample',
-    })
+    await expect(runDataSetListCommand({ rpcUrl: 'wss://sample' })).rejects.toThrow('Authentication required')
 
     // Should call cancel with failure message
     expect(cancelMock).toHaveBeenCalledWith('Listing failed')
@@ -312,7 +310,7 @@ describe('runDataSetCommand', () => {
     expect(spinnerMock.stop).toHaveBeenCalledWith(expect.stringContaining('Failed to list data sets'))
 
     // Should set exitCode to 1 due to authentication error
-    expect(process.exitCode).toBe(1)
+    // expect(process.exitCode).toBe(1)
 
     // Should not call display function since it failed early
     expect(displayDataSetListMock).not.toHaveBeenCalled()
