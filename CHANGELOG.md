@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.15.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.14.0...v0.15.0) (2025-12-11)
+
+
+### Features
+
+* allow read-only operations with wallet addr ([#284](https://github.com/filecoin-project/filecoin-pin/issues/284)) ([167c148](https://github.com/filecoin-project/filecoin-pin/commit/167c1488a84289bcfd673ebbd60cc04f6ed56f82))
+
+
+### Chores
+
+* **deps-dev:** bump @types/node from 24.10.3 to 25.0.0 ([#289](https://github.com/filecoin-project/filecoin-pin/issues/289)) ([a320f51](https://github.com/filecoin-project/filecoin-pin/commit/a320f51b6b450de7ac849ca4520b3dd4c152c592))
+
 ## [0.14.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.13.0...v0.14.0) (2025-12-08)
 
 
