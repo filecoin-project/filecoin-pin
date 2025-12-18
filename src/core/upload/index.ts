@@ -17,9 +17,9 @@ import {
   type WaitForIpniProviderResultsOptions,
   waitForIpniProviderResults,
 } from '../utils/validate-ipni-advertisement.js'
-import { type SynapseUploadResult, type UploadProgressEvents, uploadToSynapse } from './synapse.js'
+import { type SynapseUploadResult, type UploadData, type UploadProgressEvents, uploadToSynapse } from './synapse.js'
 
-export type { SynapseUploadOptions, SynapseUploadResult, UploadProgressEvents } from './synapse.js'
+export type { SynapseUploadOptions, SynapseUploadResult, UploadData, UploadProgressEvents } from './synapse.js'
 export { getDownloadURL, getServiceURL, uploadToSynapse } from './synapse.js'
 
 /**
@@ -217,7 +217,7 @@ export interface UploadExecutionResult extends SynapseUploadResult {
  */
 export async function executeUpload(
   synapseService: SynapseService,
-  carData: Uint8Array,
+  carData: UploadData,
   rootCid: CID,
   options: UploadExecutionOptions
 ): Promise<UploadExecutionResult> {

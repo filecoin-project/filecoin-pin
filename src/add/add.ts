@@ -5,7 +5,9 @@
  * It encodes content as UnixFS, creates CAR files, and uploads to Filecoin.
  */
 
-import { readFile, stat } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { stat } from 'node:fs/promises'
+import { Readable } from 'node:stream'
 import pc from 'picocolors'
 import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
@@ -151,11 +153,12 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     spinner.stop(`${pc.green('✓')} ${isDirectory ? 'Directory' : 'File'} packed with root CID: ${rootCid.toString()}`)
 
-    // Read CAR data
-    spinner.start('Loading packed IPFS content ...')
-    const carData = await readFile(tempCarPath)
-    const carSize = carData.length
-    spinner.stop(`${pc.green('✓')} IPFS content loaded (${formatFileSize(carSize)})`)
+    // Prepare CAR data stream
+    spinner.start('Preparing packed IPFS content for upload...')
+    const carStats = await stat(tempCarPath)
+    const carSize = carStats.size
+    const carStream = Readable.toWeb(createReadStream(tempCarPath)) as ReadableStream<Uint8Array>
+    spinner.stop(`${pc.green('✓')} IPFS content ready (${formatFileSize(carSize)})`)
 
     if (options.autoFund) {
       // Perform auto-funding if requested (now that we know the file size)
@@ -204,7 +207,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     const synapseService: SynapseService = { synapse, storage, providerInfo }
 
     // Upload to Synapse
-    const uploadResult = await performUpload(synapseService, carData, rootCid, {
+    const uploadResult = await performUpload(synapseService, carStream, rootCid, {
       contextType: 'add',
       fileSize: carSize,
       logger,
