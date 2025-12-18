@@ -1,9 +1,9 @@
 import { promises as fs } from 'node:fs'
 import {
-  calculateRequiredTopUp,
+  calculateFilecoinPayFundingPlan,
   calculateStorageRunway,
   executeTopUp,
-  formatTopUpReason,
+  formatFundingReason,
   getPaymentStatus,
 } from 'filecoin-pin/core/payments'
 import { cleanupSynapseService, createStorageContext } from 'filecoin-pin/core/synapse'
@@ -68,20 +68,23 @@ export async function handlePayments(synapse, options, logger) {
   console.log(`Current Filecoin Pay balance: ${initialFilecoinPayBalance} USDFC`)
   console.log(`Wallet USDFC balance: ${initialWalletBalance} USDFC`)
 
-  // Calculate required top-up with pricing info
-  const topUpCalculation = calculateRequiredTopUp(rawStatus, {
-    minStorageDays,
+  // Calculate required funding using the comprehensive funding planner
+  const fundingPlan = calculateFilecoinPayFundingPlan({
+    status: rawStatus,
+    mode: 'minimum', // Only deposit if below minimum
+    allowWithdraw: false, // Never withdraw in upload-action
+    targetRunwayDays: minStorageDays,
     pieceSizeBytes,
     pricePerTiBPerEpoch: storageInfo.pricing.noCDN.perTiBPerEpoch,
   })
 
-  if (topUpCalculation.requiredTopUp > 0n) {
-    const reasonMessage = formatTopUpReason(topUpCalculation)
-    console.log(`\n${reasonMessage}: ${formatUSDFC(topUpCalculation.requiredTopUp)} USDFC`)
+  if (fundingPlan.delta > 0n) {
+    const reasonMessage = formatFundingReason(fundingPlan.reasonCode, fundingPlan)
+    console.log(`\n${reasonMessage}: ${formatUSDFC(fundingPlan.delta)} USDFC`)
   }
 
   // Execute top-up with balance limit checking
-  const topUpResult = await executeTopUp(synapse, topUpCalculation.requiredTopUp, {
+  const topUpResult = await executeTopUp(synapse, fundingPlan.delta, {
     balanceLimit: filecoinPayBalanceLimit,
     logger,
   })
