@@ -25,11 +25,11 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
     amount = ethers.parseUnits(String(options.amount), 18)
   } catch {
     console.error(pc.red(`Error: Invalid amount '${options.amount}'`))
-    process.exit(1)
+    throw new Error(`Invalid amount '${options.amount}'`)
   }
   if (amount <= 0n) {
     console.error(pc.red('Error: Amount must be greater than 0'))
-    process.exit(1)
+    throw new Error('Amount must be greater than 0')
   }
 
   spinner.start('Connecting...')
@@ -77,7 +77,7 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
     spinner.stop()
     console.error(pc.red('✗ Withdraw failed'))
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
-    process.exitCode = 1
+    throw error
   } finally {
     await cleanupSynapseService()
   }
