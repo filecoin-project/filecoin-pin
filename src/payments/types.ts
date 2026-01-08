@@ -1,9 +1,16 @@
 import type { Synapse } from '@filoz/synapse-sdk'
+import type { FundingMode } from '../core/payments/types.js'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 import type { Spinner } from '../utils/cli-helpers.js'
 
 // Re-export payment types from the core module
-export type { PaymentStatus, StorageAllowances } from '../core/payments/index.js'
+export type {
+  FilecoinPayFundingExecution,
+  FilecoinPayFundingPlan,
+  FundingMode,
+  PaymentStatus,
+  StorageAllowances,
+} from '../core/payments/index.js'
 
 export interface PaymentSetupOptions extends CLIAuthOptions {
   auto: boolean
@@ -35,8 +42,6 @@ export interface FundingAdjustmentResult {
   newRunwayHours: number
 }
 
-export type FundMode = 'exact' | 'minimum'
-
 export interface FundOptions extends CLIAuthOptions {
   days?: number
   amount?: string
@@ -47,5 +52,5 @@ export interface FundOptions extends CLIAuthOptions {
    * exact: Adjust funds to exactly match a target runway (days) or a target deposited amount.
    * minimum: Adjust funds to match a minimum runway (days) or a minimum deposited amount.
    */
-  mode?: FundMode
+  mode?: FundingMode
 }
