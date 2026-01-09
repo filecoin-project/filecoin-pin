@@ -46,7 +46,7 @@ TBD: depends on https://github.com/filecoin-project/filecoin-pin/issues/298
 
 If you want to quickly try out changes via CLI that were made in `filecoin-pin` only (i.e., not relying on unpublished changes in `synapse-sdk`):
 
-```
+```bash
 npx tsx src/cli.ts $COMMAND
 ```
 
@@ -54,9 +54,17 @@ npx tsx src/cli.ts $COMMAND
 
 If you want within the `filecoin-pin` CLI to try out out `synapse-sdk` changes made locally that haven't been published:
 
-```
+```bash
 # Commands for building Synapse
 # Commands for adjusting filecoin-pin to use local Synapse 
 npx tsx src/cli.ts $COMMAND
 ```
 
+### Quickly adding unique data
+
+Because of content addressing, it's valuable to post unique data.  Various quick ways to do this:
+
+1. Use temp file with the date/time.  The file is small, it's very likely to be unique, and it's easy to verify in retrievals rather than random data.  
+```bash
+TMPFILE=$(mktemp) && date > $TMPFILE && filecoin-pin add $TMPFILE
+```
