@@ -1,19 +1,19 @@
 import {
-  ADD_PIECES_TYPEHASH,
-  CREATE_DATA_SET_TYPEHASH,
   type ProviderInfo,
   RPC_URLS,
-  type StorageContext,
   type StorageContextCallbacks,
   type StorageServiceOptions,
   Synapse,
   type SynapseOptions,
   type TelemetryConfig,
 } from '@filoz/synapse-sdk'
+import { ADD_PIECES_TYPEHASH, CREATE_DATA_SET_TYPEHASH } from '@filoz/synapse-sdk/session'
+import { StorageContext } from '@filoz/synapse-sdk/storage'
 import { type Provider as EthersProvider, JsonRpcProvider, type Signer, Wallet, WebSocketProvider } from 'ethers'
 import type { Logger } from 'pino'
 import { ADDRESS_ONLY_SIGNER_SYMBOL, AddressOnlySigner } from './address-only-signer.js'
 import { DEFAULT_DATA_SET_METADATA, DEFAULT_STORAGE_CONTEXT_CONFIG } from './constants.js'
+import { FilecoinPinHTTPLogger, type HTTPLogger } from './http-logger.js'
 import { getTelemetryConfig } from './telemetry-config.js'
 
 export * from './constants.js'
@@ -590,6 +590,16 @@ export async function createStorageContext(
     }
 
     sdkOptions.callbacks = callbacks
+
+    // Create HTTP logger if logger is available and has debug method (for logging HTTP requests to Curio)
+    if (logger != null && typeof logger.debug === 'function') {
+      // Type assertion needed because published @filoz/synapse-sdk doesn't have httpLogger yet
+      const httpLogger = new FilecoinPinHTTPLogger(logger as Logger)
+      ;(sdkOptions as StorageServiceOptions & { httpLogger?: HTTPLogger | null }).httpLogger = httpLogger
+      logger.debug('HTTP logger created and attached to storage context')
+    } else {
+      logger?.warn('HTTP logger not created: logger is null or missing debug method')
+    }
 
     // Apply provider override if present
     if (options?.providerAddress) {

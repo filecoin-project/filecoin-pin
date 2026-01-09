@@ -16,7 +16,7 @@
  */
 
 import type { Synapse, WarmStorageService } from '@filoz/synapse-sdk'
-import { StorageContext } from '@filoz/synapse-sdk'
+import { StorageContext } from '@filoz/synapse-sdk/storage'
 import { type ProviderInfo, SPRegistryService } from '@filoz/synapse-sdk/sp-registry'
 import type { Logger } from 'pino'
 import { DEFAULT_DATA_SET_METADATA, DEFAULT_STORAGE_CONTEXT_CONFIG } from './index.js'

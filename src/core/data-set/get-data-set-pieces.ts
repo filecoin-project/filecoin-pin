@@ -10,12 +10,11 @@ import { getSizeFromPieceCID } from '@filoz/synapse-core/piece'
 import {
   type DataSetPieceData,
   METADATA_KEYS,
-  PDPServer,
-  PDPVerifier,
-  type StorageContext,
   type Synapse,
-  WarmStorageService,
 } from '@filoz/synapse-sdk'
+import { PDPServer, PDPVerifier } from '@filoz/synapse-sdk/pdp'
+import { StorageContext } from '@filoz/synapse-sdk/storage'
+import { WarmStorageService } from '@filoz/synapse-sdk/warm-storage'
 import { reconcilePieceStatus } from '../piece/piece-status.js'
 import type { Warning } from '../utils/types.js'
 import { isStorageContextWithDataSetId } from './type-guards.js'

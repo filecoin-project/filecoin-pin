@@ -7,7 +7,7 @@
  */
 
 import type { ProviderInfo, Synapse } from '@filoz/synapse-sdk'
-import { WarmStorageService } from '@filoz/synapse-sdk'
+import { WarmStorageService } from '@filoz/synapse-sdk/warm-storage'
 import { SPRegistryService } from '@filoz/synapse-sdk/sp-registry'
 import { DEFAULT_DATA_SET_METADATA } from '../synapse/constants.js'
 import type { DataSetSummary, ListDataSetsOptions } from './types.js'
