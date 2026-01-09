@@ -223,14 +223,37 @@ describe('Add Command', () => {
           logger: expect.anything(),
         })
       )
+    })
 
-      const { performUpload } = await import('../../common/upload-flow.js')
-      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.anything(),
+    it('passes dataset selection options to storage context', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        datasetId: 123,
+      })
+      const { createStorageContext } = await import('../../core/synapse/index.js')
+      expect(vi.mocked(createStorageContext)).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
-          metadata: { region: 'us-west', note: '' },
+          dataset: expect.objectContaining({
+            useExisting: 123,
+          }),
+        })
+      )
+
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        createNewDataset: true,
+      })
+      expect(vi.mocked(createStorageContext)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          dataset: expect.objectContaining({
+            createNew: true,
+          }),
         })
       )
     })

@@ -10,6 +10,8 @@ export const addCommand = new Command('add')
   .argument('<path>', 'Path to the file or directory to add')
   .option('--bare', 'Add file without directory wrapper (files only, not supported for directories)')
   .option('--auto-fund', `Automatically ensure minimum ${MIN_RUNWAY_DAYS} days of runway before upload`)
+  .option('--dataset <id>', 'ID of the existing dataset to use')
+  .option('--new-dataset', 'Create a new dataset instead of using an existing one')
   .action(async (path: string, options) => {
     try {
       const {
@@ -18,6 +20,8 @@ export const addCommand = new Command('add')
         datasetMetadata: _datasetMetadata,
         '8004Type': _erc8004Type,
         '8004Agent': _erc8004Agent,
+        dataset,
+        newDataset,
         ...addOptionsFromCli
       } = options
       const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
@@ -25,6 +29,8 @@ export const addCommand = new Command('add')
       const addOptions: AddOptions = {
         ...addOptionsFromCli,
         filePath: path,
+        ...(dataset && { datasetId: parseInt(dataset, 10) }),
+        ...(newDataset && { createNewDataset: true }),
         ...(pieceMetadata && { pieceMetadata }),
         ...(dataSetMetadata && { dataSetMetadata }),
       }
