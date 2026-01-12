@@ -39,8 +39,27 @@ Below are various tips and suggestions for doing development with `filecoin-pin`
 ### Debug Logging
 Prefix your `filecoin-pin` command with `LOG_LEVEL=debug`.
 
-### HTTP Tracing
-TBD: depends on https://github.com/filecoin-project/filecoin-pin/issues/298
+### HTTP Tracing on the CLI
+
+If you want to see the HTTP calls and their response codes when running the `filecoin-pin` CLI, simply set `NODE_DEBUG=fetch`.
+
+For example: 
+
+```bash
+NODE_DEBUG=fetch filecoin-pin add $TMPFILE
+```
+
+This will yield log lines like:
+
+```bash
+FETCH 84357: connecting to calib2.ezpdpz.net using https:undefined
+FETCH 84357: connected to calib2.ezpdpz.net using https:h1
+FETCH 84357: sending request to POST https://calib2.ezpdpz.net//pdp/piece/uploads
+FETCH 84357: received response to POST https://calib2.ezpdpz.net//pdp/piece/uploads - HTTP 201
+FETCH 84357: trailers received from POST https://calib2.ezpdpz.net//pdp/piece/uploads
+```
+
+Note that this doesn't show query string, headers, request/response payload.  
 
 ### Running CLI changes made to `filecoin-pin` only
 
@@ -62,7 +81,7 @@ npx tsx src/cli.ts $COMMAND
 
 ### Quickly adding unique data
 
-Because of content addressing, it's valuable to post unique data.  Various quick ways to do this:
+Because of content addressing, it's valuable to upload unique data to make sure there is no deduplication in the end-to-end store and retrieval flow.  Various quick ways to do this:
 
 1. Use temp file with the date/time.  The file is small, it's very likely to be unique, and it's easy to verify in retrievals rather than random data.  
 ```bash
