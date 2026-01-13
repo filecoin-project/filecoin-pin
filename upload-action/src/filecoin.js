@@ -1,4 +1,5 @@
-import { promises as fs } from 'node:fs'
+import { createReadStream } from 'node:fs'
+import { Readable } from 'node:stream'
 import {
   calculateRequiredTopUp,
   calculateStorageRunway,
@@ -125,8 +126,8 @@ export async function handlePayments(synapse, options, logger) {
 export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options, logger) {
   const { withCDN, providerAddress, providerId } = options
 
-  // Read CAR data
-  const carBytes = await fs.readFile(carPath)
+  // Stream CAR data
+  const carStream = Readable.toWeb(createReadStream(carPath))
 
   // Create storage context with provider selection
   /** @type {CreateStorageContextOptions} */
@@ -151,7 +152,7 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
   console.log('\nStarting upload to storage provider...')
   console.log('⏳ Uploading data to PDP server...')
 
-  const uploadResult = await executeUpload(synapseService, carBytes, cid, {
+  const uploadResult = await executeUpload(synapseService, carStream, cid, {
     logger,
     contextId: `gha-upload-${Date.now()}`,
     onProgress: (event) => {
