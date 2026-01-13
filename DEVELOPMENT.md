@@ -59,7 +59,7 @@ FETCH 84357: received response to POST https://calib2.ezpdpz.net//pdp/piece/uplo
 FETCH 84357: trailers received from POST https://calib2.ezpdpz.net//pdp/piece/uploads
 ```
 
-Note that this doesn't show query string, headers, request/response payload.  
+Note that this doesn't show headers or request/response payloads.
 
 ### Running CLI changes made to `filecoin-pin` only
 
