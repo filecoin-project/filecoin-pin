@@ -249,6 +249,7 @@ Want to contribute to Filecoin Pin or run it locally?
 git clone https://github.com/filecoin-project/filecoin-pin
 cd filecoin-pin
 npm install
+npm install --prefix upload-action
 
 # Run the Pinning Server
 npm run dev
