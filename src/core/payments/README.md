@@ -125,7 +125,7 @@ const txHash = await setServiceApprovals(
 const { plan } = await planFilecoinPayFunding({
   synapse,
   targetRunwayDays: 30,
-  ensureAllowances: true, // also sets WarmStorage allowances
+  ensureAllowances: true, // also checks and sets WarmStorage allowances
 })
 
 if (plan.delta > 0n) {
