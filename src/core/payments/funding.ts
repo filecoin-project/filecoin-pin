@@ -45,9 +45,16 @@ function calculateDepletionTiming(
 }
 
 /**
- * Internal helper to build funding insights from payment status
+ * Get funding insights for a payment status
+ *
+ * This function calculates runway projections, depletion times, and spend rates
+ * based on current or projected balances and usage.
+ *
+ * @param status - Current payment status
+ * @param overrides - Optional overrides for projected scenarios
+ * @returns Funding insights including runway and depletion predictions
  */
-function buildFilecoinPayFundingInsights(
+export function getFilecoinPayFundingInsights(
   status: PaymentStatus,
   overrides?: { depositedBalance?: bigint; rateUsed?: bigint; lockupUsed?: bigint }
 ): FilecoinPayFundingInsights {
@@ -80,23 +87,6 @@ function buildFilecoinPayFundingInsights(
     ownerDepletionSeconds: ownerDepletion?.seconds ?? null,
     ownerDepletionTimestampMs: ownerDepletion?.timestampMs ?? null,
   }
-}
-
-/**
- * Get funding insights for a payment status
- *
- * This function calculates runway projections, depletion times, and spend rates
- * based on current or projected balances and usage.
- *
- * @param status - Current payment status
- * @param overrides - Optional overrides for projected scenarios
- * @returns Funding insights including runway and depletion predictions
- */
-export function getFilecoinPayFundingInsights(
-  status: PaymentStatus,
-  overrides?: { depositedBalance?: bigint; rateUsed?: bigint; lockupUsed?: bigint }
-): FilecoinPayFundingInsights {
-  return buildFilecoinPayFundingInsights(status, overrides)
 }
 
 /**
@@ -237,8 +227,8 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
   const walletShortfall =
     delta > 0n && delta > status.walletUsdfcBalance ? delta - status.walletUsdfcBalance : undefined
 
-  const currentInsights = buildFilecoinPayFundingInsights(status)
-  const projectedInsights = buildFilecoinPayFundingInsights(status, {
+  const currentInsights = getFilecoinPayFundingInsights(status)
+  const projectedInsights = getFilecoinPayFundingInsights(status, {
     depositedBalance: projectedDeposit,
     rateUsed: projectedRateUsed,
     lockupUsed: projectedLockupUsed,
@@ -411,7 +401,7 @@ export async function executeFilecoinPayFunding(
   }
 
   const updatedStatus = await getPaymentStatus(synapse)
-  const updatedInsights = buildFilecoinPayFundingInsights(updatedStatus)
+  const updatedInsights = getFilecoinPayFundingInsights(updatedStatus)
 
   return {
     adjusted: true,
