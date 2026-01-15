@@ -115,7 +115,7 @@ export function formatFundingReason(reasonCode: FundingReasonCode, plan?: Fileco
     case 'withdrawal-excess':
       return 'Excess funds available for withdrawal'
     default:
-      return 'Required funding'
+      return 'Unknown funding reason'
   }
 }
 
