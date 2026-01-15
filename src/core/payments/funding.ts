@@ -161,22 +161,32 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
   let projectedLockupUsed: bigint
   let resolvedTargetDeposit: bigint | undefined
   let reasonCode: FundingReasonCode = 'none'
-  const targetType = targetRunwayDays != null ? 'runway-days' : 'deposit'
+  let targetType: 'runway-days' | 'deposit'
 
-  if (targetType === 'runway-days') {
-    const days = targetRunwayDays ?? 0
+  if (targetRunwayDays != null) {
+    targetType = 'runway-days'
     if (pieceSizeBytes != null) {
       if (pricePerTiBPerEpoch == null) {
         throw new Error('pricePerTiBPerEpoch is required when planning with pieceSizeBytes')
       }
-      const adjustment = computeAdjustmentForExactDaysWithPiece(status, days, pieceSizeBytes, pricePerTiBPerEpoch)
+      const adjustment = computeAdjustmentForExactDaysWithPiece(
+        status,
+        targetRunwayDays,
+        pieceSizeBytes,
+        pricePerTiBPerEpoch
+      )
       delta = adjustment.delta
       resolvedTargetDeposit = adjustment.targetDeposit
       projectedRateUsed = adjustment.newRateUsed
       projectedLockupUsed = adjustment.newLockupUsed
 
       // Determine reason: piece upload with or without runway
-      if (days === 0) {
+      if (targetRunwayDays === 0) {
+        /**
+         * Special case: targetRunwayDays === 0 means "fund this upload only" (no runway target).
+         * Even with 0 days, onboarding a new piece can still require additional deposit to satisfy
+         * the piece's lockup requirement (and the small safety buffer). If delta <= 0, no adjustment needed.
+         */
         reasonCode = delta > 0n ? 'piece-upload' : 'none'
       } else if (delta > 0n) {
         reasonCode = 'runway-with-piece'
@@ -184,7 +194,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
         reasonCode = 'withdrawal-excess'
       }
     } else {
-      const adjustment = computeAdjustmentForExactDays(status, days)
+      const adjustment = computeAdjustmentForExactDays(status, targetRunwayDays)
       delta = adjustment.delta
       projectedRateUsed = adjustment.rateUsed
       projectedLockupUsed = adjustment.lockupUsed
@@ -198,6 +208,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
       }
     }
   } else {
+    targetType = 'deposit'
     const adjustment = computeAdjustmentForExactDeposit(status, targetDeposit ?? 0n)
     delta = adjustment.delta
     resolvedTargetDeposit = adjustment.clampedTarget
