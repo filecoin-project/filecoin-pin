@@ -5,22 +5,18 @@
  */
 
 import { confirm } from '@clack/prompts'
-import { type Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
+import type { Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
 import { MIN_RUNWAY_DAYS, TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import {
   calculateStorageRunway,
-  checkAndSetAllowances,
-  checkFILBalance,
   checkUSDFCBalance,
-  computeAdjustmentForExactDays,
-  computeAdjustmentForExactDaysWithPiece,
-  computeAdjustmentForExactDeposit,
   DEFAULT_LOCKUP_DAYS,
   depositUSDFC,
+  executeFilecoinPayFunding,
   getPaymentStatus,
-  validatePaymentRequirements,
+  planFilecoinPayFunding,
   withdrawUSDFC,
 } from '../core/payments/index.js'
 import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
@@ -142,77 +138,50 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
 
   spinner?.message('Checking wallet readiness...')
 
-  const [filStatus, walletUsdfcBalance] = await Promise.all([checkFILBalance(synapse), checkUSDFCBalance(synapse)])
+  const planResult = await planFilecoinPayFunding({
+    synapse,
+    targetRunwayDays: MIN_RUNWAY_DAYS,
+    pieceSizeBytes: fileSize,
+    ensureAllowances: true,
+    allowWithdraw: false,
+  })
+  const { plan, status, allowances } = planResult
 
-  const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
-  if (!validation.isValid) {
-    const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
-    throw new Error(`${validation.errorMessage}${help}`)
-  }
-
-  spinner?.message('Ensuring WarmStorage permissions...')
-  const allowanceResult = await checkAndSetAllowances(synapse)
   spinner?.message(
-    allowanceResult.updated ? 'WarmStorage permissions configured' : 'WarmStorage permissions already configured'
+    allowances.updated ? 'WarmStorage permissions configured' : 'WarmStorage permissions already configured'
   )
-
   spinner?.message('Calculating funding requirements...')
 
-  // Get current payment status and pricing after ensuring permissions
-  const [status, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
-  const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
-
-  // Calculate funding needed to maintain MIN_RUNWAY_DAYS after uploading this piece
-  // This accounts for both the piece's lockup AND its impact on ongoing costs
-  const adj = computeAdjustmentForExactDaysWithPiece(status, MIN_RUNWAY_DAYS, fileSize, pricePerTiBPerEpoch)
-  const delta = adj.delta
-
   // Auto-fund only deposits, never withdraws
-  if (delta <= 0n) {
+  if (plan.delta <= 0n) {
     spinner?.message('No additional funding required')
-    // Funding already sufficient
-    const updated = await getPaymentStatus(synapse)
-    const newAvailable = updated.filecoinPayBalance - (updated.currentAllowances.lockupUsed ?? 0n)
-    const newPerDay = (updated.currentAllowances.rateUsed ?? 0n) * TIME_CONSTANTS.EPOCHS_PER_DAY
-    const newRunway = newPerDay > 0n ? Number(newAvailable / newPerDay) : 0
-    const newRunwayHours = newPerDay > 0n ? Number(((newAvailable % newPerDay) * 24n) / newPerDay) : 0
-
     return {
       adjusted: false,
       delta: 0n,
-      newDepositedAmount: updated.filecoinPayBalance,
-      newRunwayDays: newRunway,
-      newRunwayHours: newRunwayHours,
+      newDepositedAmount: plan.projected.depositedBalance,
+      newRunwayDays: plan.projected.runway.days,
+      newRunwayHours: plan.projected.runway.hours,
     }
   }
 
-  if (delta > walletUsdfcBalance) {
+  if (plan.walletShortfall != null && plan.walletShortfall > 0n) {
     throw new Error(
-      `Insufficient USDFC in wallet (need ${formatUSDFC(delta)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
+      `Insufficient USDFC in wallet (need ${formatUSDFC(plan.delta)} USDFC, have ${formatUSDFC(status.walletUsdfcBalance)} USDFC)`
     )
   }
 
-  // Perform deposit
-  const depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to ensure ${MIN_RUNWAY_DAYS} day(s) runway...`
+  const depositMsg = `Depositing ${formatUSDFC(plan.delta)} USDFC to ensure ${MIN_RUNWAY_DAYS} day(s) runway...`
   spinner?.message(depositMsg)
-  const depositResult = await depositUSDFC(synapse, delta)
-  const transactionHash = depositResult.depositTx
+  const execution = await executeFilecoinPayFunding(synapse, plan)
   spinner?.message(`${pc.green('✓')} Deposit complete`)
 
-  // Get updated status
-  const updated = await getPaymentStatus(synapse)
-  const newAvailable = updated.filecoinPayBalance - (updated.currentAllowances.lockupUsed ?? 0n)
-  const newPerDay = (updated.currentAllowances.rateUsed ?? 0n) * TIME_CONSTANTS.EPOCHS_PER_DAY
-  const newRunway = newPerDay > 0n ? Number(newAvailable / newPerDay) : 0
-  const newRunwayHours = newPerDay > 0n ? Number(((newAvailable % newPerDay) * 24n) / newPerDay) : 0
-
   return {
-    adjusted: true,
-    delta,
-    transactionHash,
-    newDepositedAmount: updated.filecoinPayBalance,
-    newRunwayDays: newRunway,
-    newRunwayHours: newRunwayHours,
+    adjusted: execution.adjusted,
+    delta: plan.delta,
+    transactionHash: execution.transactionHash,
+    newDepositedAmount: execution.newDepositedAmount,
+    newRunwayDays: execution.newRunwayDays,
+    newRunwayHours: execution.newRunwayHours,
   }
 }
 
@@ -243,30 +212,14 @@ export async function runFund(options: FundOptions): Promise<void> {
       logger
     )
 
-    const filStatus = await checkFILBalance(synapse)
-    if (!filStatus.hasSufficientGas) {
-      spinner.stop()
-      log.line(`${pc.red('✗')} Insufficient FIL for gas fees`)
-      const help = filStatus.isCalibnet
-        ? 'Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'
-        : 'Acquire FIL for gas from an exchange'
-      log.line(`  ${pc.cyan(help)}`)
-      log.flush()
-      cancel('Fund adjustment aborted')
-      throw new Error('Insufficient FIL for gas fees')
-    }
-
-    const status = await getPaymentStatus(synapse)
-    // Finish connection phase spinner before proceeding
     spinner.stop(`${pc.green('✓')} Connected`)
 
-    // Unified planning: derive delta and target context for both modes
-    const rateUsed = status.currentAllowances.rateUsed ?? 0n
-    const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
-
-    // user provided days or 0 if not provided
     const targetDays: number = hasDays ? Number(options.days) : 0
-    // user provided amount or 0n if not provided
+    if (hasDays && (!Number.isFinite(targetDays) || targetDays < 0)) {
+      console.error(pc.red('Error: --days must be a non-negative number'))
+      throw new Error('Invalid --days')
+    }
+
     let targetDeposit: bigint = 0n
     try {
       targetDeposit = options.amount != null ? ethers.parseUnits(String(options.amount), 18) : 0n
@@ -274,82 +227,41 @@ export async function runFund(options: FundOptions): Promise<void> {
       console.error(pc.red(`Error: Invalid --amount '${options.amount}'`))
       throw new Error('Invalid --amount')
     }
-    let delta: bigint
-    let clampedTarget: bigint | null = null
-    let runwayCheckDays: number | null = null
-    let alreadyMessage: string
-    let depositMsg: string
-    let withdrawMsg: string
 
-    if (hasDays) {
-      if (!Number.isFinite(targetDays) || targetDays < 0) {
-        console.error(pc.red('Error: --days must be a non-negative number'))
-        throw new Error('Invalid --days')
-      }
+    spinner.start('Calculating funding plan...')
+    const planResult = await planFilecoinPayFunding({
+      synapse,
+      targetRunwayDays: hasDays ? targetDays : undefined,
+      targetDeposit: hasAmount ? targetDeposit : undefined,
+      mode: options.mode ?? 'exact',
+      allowWithdraw: options.mode !== 'minimum',
+    })
+    const { plan } = planResult
+    spinner.stop(`${pc.green('✓')} Funding plan prepared`)
 
-      const adj = computeAdjustmentForExactDays(status, targetDays)
-      if (adj.rateUsed === 0n) {
-        log.line(`${pc.red('✗')} No active spend detected (rateUsed = 0). Cannot compute runway.`)
-        log.line('Use --amount to set a target deposit instead.')
-        log.flush()
-        cancel('Fund adjustment aborted')
-        throw new Error('No active spend')
-      }
-
-      delta = adj.delta
-      runwayCheckDays = targetDays
-      alreadyMessage = `Already at target of ~${targetDays} day(s). No changes needed.`
-      depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to reach ~${targetDays} day(s) runway...`
-      withdrawMsg = `Withdrawing ${formatUSDFC(-delta)} USDFC to reach ~${targetDays} day(s) runway...`
-    } else {
-      const adj = computeAdjustmentForExactDeposit(status, targetDeposit)
-      delta = adj.delta
-      clampedTarget = adj.clampedTarget
-
-      if (targetDeposit < lockupUsed && options.mode !== 'minimum') {
-        log.line(pc.yellow('⚠ Target amount is below locked funds. Clamping to locked amount.'))
-        log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC`)
-        log.flush()
-      }
-
-      if (rateUsed > 0n) {
-        const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
-        const availableAfter = clampedTarget > lockupUsed ? clampedTarget - lockupUsed : 0n
-        runwayCheckDays = Number(availableAfter / perDay)
-      }
-
-      const targetLabel = clampedTarget != null ? formatUSDFC(clampedTarget) : String(options.amount)
-      alreadyMessage = `Already at target deposit of ${targetLabel} USDFC. No changes needed.`
-      depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to reach ${targetLabel} USDFC total...`
-      withdrawMsg = `Withdrawing ${formatUSDFC(-delta)} USDFC to reach ${targetLabel} USDFC total...`
+    if (plan.targetType === 'runway-days' && plan.current.runway.rateUsed === 0n) {
+      log.line(`${pc.red('✗')} No active spend detected (rateUsed = 0). Cannot compute runway.`)
+      log.line('Use --amount to set a target deposit instead.')
+      log.flush()
+      cancel('Fund adjustment aborted')
+      throw new Error('No active spend')
     }
 
-    if (options.mode === 'minimum') {
-      if (delta > 0n) {
-        if (hasAmount) {
-          depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to reach minimum of ${formatUSDFC(
-            targetDeposit
-          )} USDFC total...`
-        } else if (targetDays > 0) {
-          depositMsg = `Depositing ${formatUSDFC(delta)} USDFC to reach minimum of ${targetDays} day(s) runway...`
-        }
-      } else {
-        if (delta < 0n) {
-          if (hasAmount) {
-            alreadyMessage = `Already above minimum deposit of ${formatUSDFC(targetDeposit)} USDFC. No changes needed.`
-          } else if (targetDays > 0) {
-            alreadyMessage = `Already above minimum of ${targetDays} day(s) runway. No changes needed.`
-          }
-        }
-        delta = 0n
-      }
-    } else if (runwayCheckDays != null && runwayCheckDays < Number(TIME_CONSTANTS.DEFAULT_LOCKUP_DAYS)) {
-      const line1 = hasDays
-        ? 'Requested runway below 30-day safety baseline.'
-        : 'Target deposit implies less than 30 days of runway at current spend.'
-      const line2 = hasDays
-        ? 'WarmStorage reserves 30 days of costs; a shorter runway risks termination.'
-        : 'Increase target or accept risk: shorter runway may cause termination.'
+    let projectedRunwayTarget: number | null = null
+    if (plan.projected.runway.state === 'active') {
+      projectedRunwayTarget =
+        plan.targetType === 'runway-days' ? (plan.targetRunwayDays ?? 0) : plan.projected.runway.days
+    }
+
+    if (plan.mode !== 'minimum' && projectedRunwayTarget != null && projectedRunwayTarget < DEFAULT_LOCKUP_DAYS) {
+      const line1 =
+        plan.targetType === 'runway-days'
+          ? 'Requested runway below 30-day safety baseline.'
+          : 'Target deposit implies less than 30 days of runway at current spend.'
+      const line2 =
+        plan.targetType === 'runway-days'
+          ? 'WarmStorage reserves 30 days of costs; a shorter runway risks termination.'
+          : 'Increase target or accept risk: shorter runway may cause termination.'
       await ensureBelowThirtyDaysAllowed({
         spinner,
         warningLine1: line1,
@@ -357,13 +269,59 @@ export async function runFund(options: FundOptions): Promise<void> {
       })
     }
 
-    if (delta === 0n) {
+    const targetDepositLabel = formatUSDFC(plan.targetDeposit ?? targetDeposit)
+
+    let alreadyMessage: string
+    if (plan.targetType === 'runway-days') {
+      const runwayLabel = plan.targetRunwayDays ?? 0
+      alreadyMessage =
+        plan.mode === 'minimum'
+          ? `Already above minimum of ${runwayLabel} day(s) runway. No changes needed.`
+          : `Already at target of ~${runwayLabel} day(s). No changes needed.`
+    } else {
+      alreadyMessage =
+        plan.mode === 'minimum'
+          ? `Already above minimum deposit of ${targetDepositLabel} USDFC. No changes needed.`
+          : `Already at target deposit of ${targetDepositLabel} USDFC. No changes needed.`
+    }
+
+    let depositMsg: string
+    let withdrawMsg: string
+    if (plan.targetType === 'runway-days') {
+      const runwayLabel = plan.targetRunwayDays ?? 0
+      depositMsg = `Depositing ${formatUSDFC(plan.delta)} USDFC to reach ~${runwayLabel} day(s) runway...`
+      withdrawMsg = `Withdrawing ${formatUSDFC(-plan.delta)} USDFC to reach ~${runwayLabel} day(s) runway...`
+    } else {
+      depositMsg = `Depositing ${formatUSDFC(plan.delta)} USDFC to reach ${targetDepositLabel} USDFC total...`
+      withdrawMsg = `Withdrawing ${formatUSDFC(-plan.delta)} USDFC to reach ${targetDepositLabel} USDFC total...`
+    }
+
+    if (plan.mode === 'minimum' && plan.delta > 0n) {
+      if (hasAmount) {
+        depositMsg = `Depositing ${formatUSDFC(plan.delta)} USDFC to reach minimum of ${targetDepositLabel} USDFC total...`
+      } else if (targetDays > 0) {
+        depositMsg = `Depositing ${formatUSDFC(plan.delta)} USDFC to reach minimum of ${targetDays} day(s) runway...`
+      }
+    }
+
+    if (plan.delta === 0n) {
       await printSummary(synapse, 'No Changes Needed')
       outro(alreadyMessage)
       return
     }
 
-    await performAdjustment({ synapse, spinner, delta, depositMsg, withdrawMsg })
+    if (plan.walletShortfall != null && plan.walletShortfall > 0n) {
+      spinner.stop()
+      console.error(
+        pc.red(
+          `✗ Insufficient USDFC in wallet (need ${formatUSDFC(plan.delta)} USDFC, have ${formatUSDFC(planResult.status.walletUsdfcBalance)} USDFC)`
+        )
+      )
+      cancel('Fund adjustment aborted')
+      throw new Error('Insufficient USDFC in wallet')
+    }
+
+    await performAdjustment({ synapse, spinner, delta: plan.delta, depositMsg, withdrawMsg })
 
     await printSummary(synapse)
     outro('Fund adjustment completed')
