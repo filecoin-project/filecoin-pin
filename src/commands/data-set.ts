@@ -56,22 +56,9 @@ addProviderOptions(dataSetListCommand)
 addMetadataOptions(dataSetListCommand, { includePieceMetadata: false, includeDataSetMetadata: true })
 
 export const dataSetTerminateCommand = new Command('terminate')
-  .description("Terminate a data set")
+  .description('Terminate a data set and associated payment rails')
   .argument('<dataSetId>', 'Data set ID to terminate')
-  .action(async (dataSetId: string | undefined, options) => {
-    if (dataSetId == null) {
-      try {
-        const normalizedOptions: DataSetListCommandOptions = {
-          ...options,
-        }
-        await runDataSetListCommand(normalizedOptions)
-      } catch (error) {
-        console.error('Data set command failed:', error instanceof Error ? error.message : error)
-        process.exit(1)
-      }
-      return
-    }
-
+  .action(async (dataSetId: string, options) => {
     try {
       const commandOptions: DataSetCommandOptions = {
         ...options,
@@ -81,13 +68,9 @@ export const dataSetTerminateCommand = new Command('terminate')
         throw new Error('Invalid data set ID')
       }
 
-      if (options.terminate === true) {
-        await runTerminateDataSetCommand(dataSetIdNumber, commandOptions)
-      } else {
-        await runDataSetDetailsCommand(dataSetIdNumber, commandOptions)
-      }
+      await runTerminateDataSetCommand(dataSetIdNumber, commandOptions)
     } catch (error) {
-      console.error('Data set command failed:', error instanceof Error ? error.message : error)
+      console.error('Data set terminate command failed:', error instanceof Error ? error.message : error)
       process.exit(1)
     }
   })

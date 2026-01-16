@@ -155,11 +155,14 @@ export async function runTerminateDataSetCommand(
       return
     }
 
-    // Check if already terminated
-    if (!dataSet.isLive && dataSet.pdpEndEpoch > 0) {
+    // Check if already terminated (rail terminated means dataset is effectively terminated)
+    if (dataSet.pdpEndEpoch > 0) {
       spinner.stop(`${pc.yellow('⚠')} Data set already terminated`)
       log.line('')
       log.line(`Data set ${dataSetId} was terminated at epoch ${dataSet.pdpEndEpoch}`)
+      if (dataSet.isLive) {
+        log.line(pc.gray('Note: Dataset shows as live but payment rail is terminated'))
+      }
       log.flush()
       outro('Data set is already terminated')
       return
@@ -209,7 +212,7 @@ export async function runTerminateDataSetCommand(
     const txResponse = await warmStorageService.terminateDataSet(signer, dataSetId)
     const txHash = txResponse.hash
 
-    spinner.message(`Transaction submitted: ${txHash}`)
+    spinner.stop(`Transaction submitted: ${txHash}`)
 
     // Display results
     log.line('')
