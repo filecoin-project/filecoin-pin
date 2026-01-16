@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.15.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.14.0...v0.15.0) (2026-01-16)
+
+
+### Features
+
+* add filecoin pay funding planner ([#286](https://github.com/filecoin-project/filecoin-pin/issues/286)) ([f22a6c6](https://github.com/filecoin-project/filecoin-pin/commit/f22a6c64f1737d3e95feff2332f00a95364d02b1))
+* allow read-only operations with wallet addr ([#284](https://github.com/filecoin-project/filecoin-pin/issues/284)) ([167c148](https://github.com/filecoin-project/filecoin-pin/commit/167c1488a84289bcfd673ebbd60cc04f6ed56f82))
+
+
+### Bug Fixes
+
+* allow validation of descendent CIDs ([#304](https://github.com/filecoin-project/filecoin-pin/issues/304)) ([57ada31](https://github.com/filecoin-project/filecoin-pin/commit/57ada3126b3a58a4f7ed7afaa275590f75b585aa))
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.3.10 to 2.3.11 ([#297](https://github.com/filecoin-project/filecoin-pin/issues/297)) ([049d750](https://github.com/filecoin-project/filecoin-pin/commit/049d750cdc0c4d28f3280c94a22005b3200c274c))
+* **deps-dev:** bump @biomejs/biome from 2.3.8 to 2.3.10 ([#294](https://github.com/filecoin-project/filecoin-pin/issues/294)) ([61eda02](https://github.com/filecoin-project/filecoin-pin/commit/61eda02045333a830046c0d9c3d6e016a21203c1))
+* **deps-dev:** bump @types/node from 24.10.3 to 25.0.0 ([#289](https://github.com/filecoin-project/filecoin-pin/issues/289)) ([a320f51](https://github.com/filecoin-project/filecoin-pin/commit/a320f51b6b450de7ac849ca4520b3dd4c152c592))
+* **deps:** bump @helia/unixfs from 6.0.4 to 7.0.0 ([#301](https://github.com/filecoin-project/filecoin-pin/issues/301)) ([d74b6b5](https://github.com/filecoin-project/filecoin-pin/commit/d74b6b5eacc63b3abfbdb04370e2e7cac268ae4b))
+
+
+### Documentation
+
+* fix missing `upload-action` npm install step ([#302](https://github.com/filecoin-project/filecoin-pin/issues/302)) ([81e5884](https://github.com/filecoin-project/filecoin-pin/commit/81e5884f174c5eedfc9ab493816468d00555286b))
+
 ## [0.14.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.13.0...v0.14.0) (2025-12-08)
 
 
