@@ -1,6 +1,6 @@
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 
-export interface DataSetCommandOptions extends CLIAuthOptions {}
+export interface DataSetCommandOptions extends CLIAuthOptions { }
 
 export interface DataSetListCommandOptions extends CLIAuthOptions {
   /**

@@ -1,5 +1,5 @@
 import { Command } from 'commander'
-import { runDataSetDetailsCommand, runDataSetListCommand } from '../data-set/run.js'
+import { runDataSetDetailsCommand, runDataSetListCommand, runTerminateDataSetCommand } from '../data-set/run.js'
 import type { DataSetCommandOptions, DataSetListCommandOptions } from '../data-set/types.js'
 import { addAuthOptions, addProviderOptions } from '../utils/cli-options.js'
 import { addMetadataOptions, resolveMetadataOptions } from '../utils/cli-options-metadata.js'
@@ -57,3 +57,6 @@ addMetadataOptions(dataSetListCommand, { includePieceMetadata: false, includeDat
 
 dataSetCommand.addCommand(dataSetShowCommand)
 dataSetCommand.addCommand(dataSetListCommand)
+
+export const dataSetTerminateCommand = new Command('terminate')
+
