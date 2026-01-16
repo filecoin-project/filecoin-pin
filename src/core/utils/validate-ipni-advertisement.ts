@@ -185,7 +185,8 @@ export async function waitForIpniProviderResults(
     }
 
     try {
-      const retryCount = Math.max(0, totalChecks - 1)
+      // totalChecks is incremented before each emitted retryUpdate, so last retryCount is totalChecks - 1
+      const retryCount = totalChecks > 0 ? totalChecks - 1 : 0
       options?.onProgress?.({ type: 'ipniProviderResults.complete', data: { result: true, retryCount } })
     } catch (error) {
       options?.logger?.warn({ error }, 'Error in consumer onProgress callback for complete event')

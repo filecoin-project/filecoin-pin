@@ -198,6 +198,41 @@ describe('waitForIpniProviderResults', () => {
   })
 
   describe('failed announcement', () => {
+    it('should fail when a child block does not validate after root succeeds', async () => {
+      const childCid = CID.parse('bafkreia7wx2ue2r5x2bwsxns2r4jtrsu7dzw2r3abjtw3obqckm3w2b2mu')
+      mockFetch.mockResolvedValueOnce(successResponse()).mockResolvedValueOnce({ ok: false })
+      const onProgress = vi.fn()
+
+      const promise = waitForIpniProviderResults(testCid, { childBlocks: [childCid], maxAttempts: 1, onProgress })
+      const expectPromise = expect(promise).rejects.toThrow(
+        `IPFS CID "${childCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt`
+      )
+
+      await vi.runAllTimersAsync()
+      await expectPromise
+
+      expect(onProgress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ipniProviderResults.retryUpdate',
+          data: expect.objectContaining({ retryCount: 0 }),
+        })
+      )
+      expect(onProgress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ipniProviderResults.retryUpdate',
+          data: expect.objectContaining({ retryCount: 1 }),
+        })
+      )
+      expect(onProgress).toHaveBeenCalledWith({
+        type: 'ipniProviderResults.failed',
+        data: { error: expect.any(Error) },
+      })
+      expect(onProgress).not.toHaveBeenCalledWith({
+        type: 'ipniProviderResults.complete',
+        data: { result: true, retryCount: expect.any(Number) },
+      })
+    })
+
     it('should reject after custom maxAttempts and emit a failed event', async () => {
       mockFetch.mockResolvedValue({ ok: false })
       const onProgress = vi.fn()
