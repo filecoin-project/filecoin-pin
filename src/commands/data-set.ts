@@ -55,8 +55,46 @@ addAuthOptions(dataSetListCommand)
 addProviderOptions(dataSetListCommand)
 addMetadataOptions(dataSetListCommand, { includePieceMetadata: false, includeDataSetMetadata: true })
 
+export const dataSetTerminateCommand = new Command('terminate')
+  .description("Terminate a data set")
+  .argument('<dataSetId>', 'Data set ID to terminate')
+  .action(async (dataSetId: string | undefined, options) => {
+    if (dataSetId == null) {
+      try {
+        const normalizedOptions: DataSetListCommandOptions = {
+          ...options,
+        }
+        await runDataSetListCommand(normalizedOptions)
+      } catch (error) {
+        console.error('Data set command failed:', error instanceof Error ? error.message : error)
+        process.exit(1)
+      }
+      return
+    }
+
+    try {
+      const commandOptions: DataSetCommandOptions = {
+        ...options,
+      }
+      const dataSetIdNumber = Number.parseInt(dataSetId, 10)
+      if (Number.isNaN(dataSetIdNumber)) {
+        throw new Error('Invalid data set ID')
+      }
+
+      if (options.terminate === true) {
+        await runTerminateDataSetCommand(dataSetIdNumber, commandOptions)
+      } else {
+        await runDataSetDetailsCommand(dataSetIdNumber, commandOptions)
+      }
+    } catch (error) {
+      console.error('Data set command failed:', error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+  })
+addAuthOptions(dataSetTerminateCommand)
+addProviderOptions(dataSetTerminateCommand)
+addMetadataOptions(dataSetTerminateCommand, { includePieceMetadata: false, includeDataSetMetadata: true })
+
 dataSetCommand.addCommand(dataSetShowCommand)
 dataSetCommand.addCommand(dataSetListCommand)
-
-export const dataSetTerminateCommand = new Command('terminate')
-
+dataSetCommand.addCommand(dataSetTerminateCommand)
