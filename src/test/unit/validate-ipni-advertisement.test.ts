@@ -72,7 +72,12 @@ describe('waitForIpniProviderResults', () => {
       })
 
       // Should emit retryUpdate for attempt 0 and a final complete(true)
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 0 } })
+      expect(onProgress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ipniProviderResults.retryUpdate',
+          data: expect.objectContaining({ retryCount: 0 }),
+        })
+      )
       expect(onProgress).toHaveBeenCalledWith({
         type: 'ipniProviderResults.complete',
         data: { result: true, retryCount: 0 },
@@ -94,11 +99,31 @@ describe('waitForIpniProviderResults', () => {
       expect(result).toBe(true)
       expect(mockFetch).toHaveBeenCalledTimes(4)
 
-      // Expect retryUpdate with counts 0,1,2,3 and final complete with retryCount 3
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 0 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 1 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 2 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 3 } })
+      // Expect retryUpdate with counts 0,1,2,3 and final complete after all checks
+      expect(onProgress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ipniProviderResults.retryUpdate',
+          data: expect.objectContaining({ retryCount: 0 }),
+        })
+      )
+      expect(onProgress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ipniProviderResults.retryUpdate',
+          data: expect.objectContaining({ retryCount: 1 }),
+        })
+      )
+      expect(onProgress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ipniProviderResults.retryUpdate',
+          data: expect.objectContaining({ retryCount: 2 }),
+        })
+      )
+      expect(onProgress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ipniProviderResults.retryUpdate',
+          data: expect.objectContaining({ retryCount: 3 }),
+        })
+      )
       expect(onProgress).toHaveBeenCalledWith({
         type: 'ipniProviderResults.complete',
         data: { result: true, retryCount: 3 },
@@ -133,6 +158,43 @@ describe('waitForIpniProviderResults', () => {
 
       expect(result).toBe(true)
     })
+
+    it('should validate child blocks and emit complete only after all pass', async () => {
+      const childCid = CID.parse('bafkreia7wx2ue2r5x2bwsxns2r4jtrsu7dzw2r3abjtw3obqckm3w2b2mu')
+      mockFetch.mockResolvedValueOnce(successResponse()).mockResolvedValueOnce(successResponse())
+      const onProgress = vi.fn()
+
+      const promise = waitForIpniProviderResults(testCid, { childBlocks: [childCid], onProgress })
+      await vi.runAllTimersAsync()
+      const result = await promise
+
+      expect(result).toBe(true)
+      expect(mockFetch).toHaveBeenCalledWith(`${defaultIndexerUrl}/cid/${testCid}`, {
+        headers: { Accept: 'application/json' },
+      })
+      expect(mockFetch).toHaveBeenCalledWith(`${defaultIndexerUrl}/cid/${childCid}`, {
+        headers: { Accept: 'application/json' },
+      })
+
+      expect(onProgress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ipniProviderResults.retryUpdate',
+          data: expect.objectContaining({ retryCount: 0 }),
+        })
+      )
+      expect(onProgress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ipniProviderResults.retryUpdate',
+          data: expect.objectContaining({ retryCount: 1 }),
+        })
+      )
+      const completeEvents = onProgress.mock.calls.filter(([event]) => event.type === 'ipniProviderResults.complete')
+      expect(completeEvents).toHaveLength(1)
+      expect(completeEvents[0]?.[0]).toEqual({
+        type: 'ipniProviderResults.complete',
+        data: { result: true, retryCount: 1 },
+      })
+    })
   })
 
   describe('failed announcement', () => {
@@ -142,7 +204,7 @@ describe('waitForIpniProviderResults', () => {
       const promise = waitForIpniProviderResults(testCid, { maxAttempts: 3, onProgress })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS root CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 3 attempts`
+        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 3 attempts`
       )
 
       await vi.runAllTimersAsync()
@@ -150,9 +212,24 @@ describe('waitForIpniProviderResults', () => {
       expect(mockFetch).toHaveBeenCalledTimes(3)
 
       // Expect retryUpdate with counts 0,1,2 and final failed event (no complete event on failure)
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 0 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 1 } })
-      expect(onProgress).toHaveBeenCalledWith({ type: 'ipniProviderResults.retryUpdate', data: { retryCount: 2 } })
+      expect(onProgress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ipniProviderResults.retryUpdate',
+          data: expect.objectContaining({ retryCount: 0 }),
+        })
+      )
+      expect(onProgress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ipniProviderResults.retryUpdate',
+          data: expect.objectContaining({ retryCount: 1 }),
+        })
+      )
+      expect(onProgress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ipniProviderResults.retryUpdate',
+          data: expect.objectContaining({ retryCount: 2 }),
+        })
+      )
       // Should emit failed event, not complete(false)
       expect(onProgress).toHaveBeenCalledWith({
         type: 'ipniProviderResults.failed',
@@ -171,7 +248,7 @@ describe('waitForIpniProviderResults', () => {
       const promise = waitForIpniProviderResults(testCid, { maxAttempts: 1 })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS root CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt`
+        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt`
       )
 
       await vi.runAllTimersAsync()
@@ -188,7 +265,7 @@ describe('waitForIpniProviderResults', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS root CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing provider records with expected multiaddr(s): /dns/expected.example.com/tcp/443/https`
+        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing provider records with expected multiaddr(s): /dns/expected.example.com/tcp/443/https`
       )
       await vi.runAllTimersAsync()
       await expectPromise
@@ -205,7 +282,7 @@ describe('waitForIpniProviderResults', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS root CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing provider records with expected multiaddr(s): /dns/b.example.com/tcp/443/https`
+        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing provider records with expected multiaddr(s): /dns/b.example.com/tcp/443/https`
       )
       await vi.runAllTimersAsync()
       await expectPromise
@@ -404,7 +481,7 @@ describe('waitForIpniProviderResults', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS root CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 2 attempts. Last observation: Failed to parse IPNI response body: Invalid JSON. Expected multiaddrs: [/dns/expected.example.com/tcp/443/https]. Actual multiaddrs in response: []`
+        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 2 attempts. Last observation: Failed to parse IPNI response body: Invalid JSON. Expected multiaddrs: [/dns/expected.example.com/tcp/443/https]. Actual multiaddrs in response: []`
       )
 
       await vi.runAllTimersAsync()
