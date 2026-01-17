@@ -1,11 +1,11 @@
+import { confirm } from '@clack/prompts'
 import type { EnhancedDataSetInfo, Synapse } from '@filoz/synapse-sdk'
 import { WarmStorageService } from '@filoz/synapse-sdk'
-import { confirm } from '@clack/prompts'
 import pc from 'picocolors'
 import { type DataSetSummary, getDetailedDataSet, listDataSets } from '../core/data-set/index.js'
 import { cleanupSynapseService } from '../core/synapse/index.js'
 import { getCliSynapse } from '../utils/cli-auth.js'
-import { cancel, createSpinner, intro, outro, isInteractive } from '../utils/cli-helpers.js'
+import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { displayDataSets } from './display.js'
 import type { DataSetCommandOptions, DataSetListCommandOptions } from './types.js'
@@ -122,10 +122,7 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
  * @param dataSetId - Dataset identifier to terminate
  * @param options - CLI options including confirmation and wait settings
  */
-export async function runTerminateDataSetCommand(
-  dataSetId: number,
-  options: DataSetCommandOptions
-): Promise<void> {
+export async function runTerminateDataSetCommand(dataSetId: number, options: DataSetCommandOptions): Promise<void> {
   intro(pc.bold(`Terminate Filecoin Onchain Cloud Data Set #${dataSetId}`))
   const spinner = createSpinner()
   spinner.start('Connecting to Synapse...')
@@ -140,22 +137,19 @@ export async function runTerminateDataSetCommand(
 
     spinner.message('Fetching data set details...')
 
-    // Fetch dataset details to validate and show what will be terminated
     const dataSet: DataSetSummary = await getDetailedDataSet(synapse, dataSetId)
+    
+        if (dataSet.payer.toLowerCase() !== address.toLowerCase()) {
+          spinner.stop(`${pc.red('✗')} Permission denied`)
+          log.line('')
+          log.line(`${pc.red('Error:')} Data set ${dataSetId} is not owned by ${address}`)
+          log.line(`  Owner: ${dataSet.payer}`)
+          log.flush()
+          cancel('Termination failed')
+          process.exitCode = 1
+          return
+        }
 
-    // Validate ownership
-    if (dataSet.payer.toLowerCase() !== address.toLowerCase()) {
-      spinner.stop(`${pc.red('✗')} Permission denied`)
-      log.line('')
-      log.line(`${pc.red('Error:')} Data set ${dataSetId} is not owned by ${address}`)
-      log.line(`  Owner: ${dataSet.payer}`)
-      log.flush()
-      cancel('Termination failed')
-      process.exitCode = 1
-      return
-    }
-
-    // Check if already terminated (rail terminated means dataset is effectively terminated)
     if (dataSet.pdpEndEpoch > 0) {
       spinner.stop(`${pc.yellow('⚠')} Data set already terminated`)
       log.line('')
@@ -174,6 +168,7 @@ export async function runTerminateDataSetCommand(
     // Show rails that will be terminated
     log.line('')
     log.line(pc.bold('Payment Rails to Terminate:'))
+    log.indent(`Dataset ID: ${dataSetId}`, 1)
     log.indent(`PDP Rail ID: ${dataSet.pdpRailId}`, 1)
     if (dataSet.withCDN) {
       if (dataSet.cdnRailId > 0) {
@@ -202,15 +197,15 @@ export async function runTerminateDataSetCommand(
     }
 
     // Get WarmStorage service and terminate
-    const warmStorageService = await WarmStorageService.create(
-      synapse.getProvider(),
-      synapse.getWarmStorageAddress()
-    )
+    const warmStorageService = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
     const signer = synapse.getSigner()
 
     spinner.message('Submitting termination transaction...')
     const txResponse = await warmStorageService.terminateDataSet(signer, dataSetId)
     const txHash = txResponse.hash
+
+    dataSet.isLive = false
+    
 
     spinner.stop(`Transaction submitted: ${txHash}`)
 
@@ -230,7 +225,11 @@ export async function runTerminateDataSetCommand(
     }
     log.spinnerSection('Termination Results', resultsContent)
 
-    outro('Data set termination complete')
+    log.line('')
+    log.line(pc.bold('Updated Data Set Status:'))
+    displayDataSets([dataSet], network, address)
+
+    spinner.stop('Data set termination complete')
   } catch (error) {
     spinner.stop(`${pc.red('✗')} Failed to terminate data set`)
 
