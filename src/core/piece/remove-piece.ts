@@ -1,4 +1,5 @@
-import type { StorageContext, Synapse } from '@filoz/synapse-sdk'
+import type { Synapse } from '@filoz/synapse-sdk'
+import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import type { Logger } from 'pino'
 import { getErrorMessage } from '../utils/errors.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'

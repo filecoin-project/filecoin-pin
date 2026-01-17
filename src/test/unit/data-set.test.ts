@@ -156,11 +156,18 @@ vi.mock('@filoz/synapse-sdk', async () => {
   const sharedMock = await import('../mocks/synapse-sdk.js')
   return {
     ...sharedMock,
-    WarmStorageService: { create: mockWarmStorageCreate },
-    PDPVerifier: MockPDPVerifier,
-    PDPServer: MockPDPServer,
   }
 })
+
+// Mock subpath exports
+vi.mock('@filoz/synapse-sdk/warm-storage', () => ({
+  WarmStorageService: { create: mockWarmStorageCreate },
+}))
+
+vi.mock('@filoz/synapse-sdk/pdp', () => ({
+  PDPVerifier: MockPDPVerifier,
+  PDPServer: MockPDPServer,
+}))
 
 // Mock piece size calculation
 vi.mock('@filoz/synapse-core/piece', () => ({
@@ -177,8 +184,7 @@ describe('runDataSetCommand', () => {
     providerId: 2,
     isManaged: true,
     withCDN: false,
-    currentPieceCount: 3,
-    nextPieceId: 3,
+    activePieceCount: 3,
     clientDataSetId: 1,
     pdpRailId: 327,
     cdnRailId: 0,

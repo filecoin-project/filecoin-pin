@@ -1,4 +1,4 @@
-import type { TelemetryConfig } from '@filoz/synapse-sdk'
+import type { TelemetryConfig } from '@filoz/synapse-sdk/telemetry'
 
 import { name as packageName, version as packageVersion } from '../utils/version.js'
 
