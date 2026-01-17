@@ -1,15 +1,14 @@
 import {
-  ADD_PIECES_TYPEHASH,
-  CREATE_DATA_SET_TYPEHASH,
   type ProviderInfo,
   RPC_URLS,
-  type StorageContext,
   type StorageContextCallbacks,
   type StorageServiceOptions,
   Synapse,
   type SynapseOptions,
-  type TelemetryConfig,
 } from '@filoz/synapse-sdk'
+import { ADD_PIECES_TYPEHASH, CREATE_DATA_SET_TYPEHASH } from '@filoz/synapse-sdk/session'
+import { type StorageContext } from '@filoz/synapse-sdk/storage'
+import { type TelemetryConfig } from '@filoz/synapse-sdk/telemetry'
 import { type Provider as EthersProvider, JsonRpcProvider, type Signer, Wallet, WebSocketProvider } from 'ethers'
 import type { Logger } from 'pino'
 import { ADDRESS_ONLY_SIGNER_SYMBOL, AddressOnlySigner } from './address-only-signer.js'

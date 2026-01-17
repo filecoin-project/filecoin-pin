@@ -7,7 +7,7 @@
  */
 
 import type { ProviderInfo, Synapse } from '@filoz/synapse-sdk'
-import { WarmStorageService } from '@filoz/synapse-sdk'
+import { WarmStorageService } from '@filoz/synapse-sdk/warm-storage'
 import { SPRegistryService } from '@filoz/synapse-sdk/sp-registry'
 import { DEFAULT_DATA_SET_METADATA } from '../synapse/constants.js'
 import type { DataSetSummary, ListDataSetsOptions } from './types.js'
@@ -21,7 +21,7 @@ import type { DataSetSummary, ListDataSetsOptions } from './types.js'
  * const datasets = await listDataSets(synapse)
  *
  * for (const ds of datasets) {
- *   console.log(`Dataset ${ds.dataSetId}: ${ds.currentPieceCount} pieces`)
+ *   console.log(`Dataset ${ds.dataSetId}: ${ds.activePieceCount} pieces`)
  *   if (ds.provider) {
  *     console.log(`  Provider: ${ds.provider.name}`)
  *   }

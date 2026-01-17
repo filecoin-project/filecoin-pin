@@ -8,7 +8,8 @@
  * @module core/data-set/types
  */
 
-import type { EnhancedDataSetInfo, ProviderInfo, StorageContext } from '@filoz/synapse-sdk'
+import type { EnhancedDataSetInfo, ProviderInfo } from '@filoz/synapse-sdk'
+import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import type { Logger } from 'pino'
 import type { Warning } from '../utils/types.js'
 
@@ -67,7 +68,7 @@ export interface DataSetPiecesResult {
  * This includes all fields needed by both the CLI and website:
  * - Rail IDs (pdpRailId, cdnRailId, cacheMissRailId)
  * - Contract details (commissionBps, pdpEndEpoch, cdnEndEpoch)
- * - Piece tracking (nextPieceId, currentPieceCount)
+ * - Piece tracking (activePieceCount)
  * - Provider enrichment (optional provider field)
  * - Dataset metadata (inherited from EnhancedDataSetInfo.metadata - key-value pairs from WarmStorage)
  * - Filecoin-pin creation flag (indicates if created by filecoin-pin)

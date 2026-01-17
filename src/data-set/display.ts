@@ -201,7 +201,7 @@ function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
 
 function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
   log.indent(pc.bold('Pieces'), indentLevel)
-  log.indent(`Total pieces: ${dataSet.currentPieceCount}`, indentLevel + 1)
+  log.indent(`Total pieces: ${dataSet.activePieceCount}`, indentLevel + 1)
   if (dataSet.pieces == null || dataSet.pieces.length === 0) {
     log.line('')
     return
