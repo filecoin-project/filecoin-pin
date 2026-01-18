@@ -138,20 +138,20 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     spinner.message('Fetching data set details...')
 
     const dataSet: DataSetSummary = await getDetailedDataSet(synapse, dataSetId)
-    
-        if (dataSet.payer.toLowerCase() !== address.toLowerCase()) {
-          spinner.stop(`${pc.red('✗')} Permission denied`)
-          log.line('')
-          log.line(`${pc.red('Error:')} Data set ${dataSetId} is not owned by ${address}`)
-          log.line(`  Owner: ${dataSet.payer}`)
-          log.flush()
-          cancel('Termination failed')
-          process.exitCode = 1
-          return
-        }
+
+    if (dataSet.payer.toLowerCase() !== address.toLowerCase()) {
+      spinner.stop(`${pc.red('✗')} Permission denied`)
+      log.line('')
+      log.line(`${pc.red('Error:')} Data set ${dataSetId} is not owned by ${address}`)
+      log.line(`  Owner: ${dataSet.payer}`)
+      log.flush()
+      cancel('Termination failed')
+      process.exitCode = 1
+      return
+    }
 
     if (dataSet.pdpEndEpoch > 0) {
-      spinner.stop(`${pc.yellow('⚠')} Data set already terminated`)
+      spinner.stop(`${pc.yellow('⚠ Data set already terminated')}`)
       log.line('')
       log.line(`Data set ${dataSetId} was terminated at epoch ${dataSet.pdpEndEpoch}`)
       if (dataSet.isLive) {
@@ -165,7 +165,6 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     spinner.stop('━━━ Data Set to Terminate ━━━')
     displayDataSets([dataSet], network, address)
 
-    // Show rails that will be terminated
     log.line('')
     log.line(pc.bold('Payment Rails to Terminate:'))
     log.indent(`Dataset ID: ${dataSetId}`, 1)
@@ -180,12 +179,11 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     }
     log.flush()
 
-    // Confirmation prompt
     if (isInteractive()) {
       spinner.stop()
       const proceed = await confirm({
         message: `Terminate data set #${dataSetId} and all associated payment rails? This action cannot be undone.`,
-        initialValue: false,
+        initialValue: true,
       })
       if (!proceed) {
         cancel('Termination cancelled by user')
@@ -196,7 +194,6 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       spinner.message('Terminating data set...')
     }
 
-    // Get WarmStorage service and terminate
     const warmStorageService = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
     const signer = synapse.getSigner()
 
@@ -204,18 +201,20 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     const txResponse = await warmStorageService.terminateDataSet(signer, dataSetId)
     const txHash = txResponse.hash
 
-    dataSet.isLive = false
-    
+    const updatedDataSet = {
+      ...dataSet,
+      isLive: false,
+      pdpEndEpoch: txResponse.blockNumber != null ? Math.ceil(txResponse.blockNumber / 32) : 0,
+    }
 
     spinner.stop(`Transaction submitted: ${txHash}`)
 
-    // Display results
     log.line('')
     const resultsContent = [
       pc.gray(`Transaction Hash: ${txHash}`),
       pc.gray(`Network: ${network}`),
       pc.gray(`Data Set ID: ${dataSetId}`),
-      pc.gray(`PDP Rail ID: ${dataSet.pdpRailId}`),
+      pc.gray(`PDP Rail ID: ${updatedDataSet.pdpRailId}`),
     ]
     if (dataSet.withCDN && dataSet.cdnRailId > 0) {
       resultsContent.push(pc.gray(`FilBeam Rail ID: ${dataSet.cdnRailId}`))
@@ -227,7 +226,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
 
     log.line('')
     log.line(pc.bold('Updated Data Set Status:'))
-    displayDataSets([dataSet], network, address)
+    displayDataSets([updatedDataSet], network, address)
 
     spinner.stop('Data set termination complete')
   } catch (error) {

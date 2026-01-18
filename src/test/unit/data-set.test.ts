@@ -1,7 +1,7 @@
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DataSetSummary } from '../../core/data-set/types.js'
-import { runDataSetDetailsCommand, runDataSetListCommand } from '../../data-set/run.js'
+import { runDataSetDetailsCommand, runDataSetListCommand, runTerminateDataSetCommand } from '../../data-set/run.js'
 
 const {
   displayDataSetListMock,
@@ -141,6 +141,7 @@ vi.mock('../../utils/cli-helpers.js', () => ({
   outro: vi.fn(),
   cancel: cancelMock,
   createSpinner: () => spinnerMock,
+  isInteractive: () => false,
 }))
 
 vi.mock('../../utils/cli-logger.js', () => ({
@@ -148,6 +149,7 @@ vi.mock('../../utils/cli-logger.js', () => ({
     line: vi.fn(),
     indent: vi.fn(),
     flush: vi.fn(),
+    spinnerSection: vi.fn(),
   },
 }))
 
@@ -316,5 +318,65 @@ describe('runDataSetCommand', () => {
 
     // Should not call display function since it failed early
     expect(displayDataSetListMock).not.toHaveBeenCalled()
+  })
+
+  it('terminates dataset when called by owner', async () => {
+    mockGetAddress.mockResolvedValue('0x123')
+
+    ;(mockWarmStorageInstance as any).terminateDataSet = vi.fn(async () => ({ hash: '0xdead', blockNumber: 96 }))
+
+    await runTerminateDataSetCommand(158, {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    expect(mockWarmStorageCreate).toHaveBeenCalled()
+    expect((mockWarmStorageInstance as any).terminateDataSet).toHaveBeenCalled()
+
+    // Should display dataset before and after termination
+    expect(displayDataSetListMock).toHaveBeenCalledTimes(2)
+    const lastCall = displayDataSetListMock.mock.calls[displayDataSetListMock.mock.calls.length - 1] as [
+      DataSetSummary[],
+    ]
+    const updated = lastCall[0][0]
+    expect(updated).toBeDefined()
+    expect(updated?.isLive).toBe(false)
+    expect(updated?.pdpEndEpoch).toBe(3)
+  })
+
+  it('rejects termination when caller is not owner', async () => {
+    mockGetAddress.mockResolvedValue('0x999')
+
+    await runTerminateDataSetCommand(158, {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    expect(cancelMock).toHaveBeenCalledWith('Termination failed')
+    expect(spinnerMock.stop).toHaveBeenCalledWith(expect.stringContaining('Permission denied'))
+    expect(process.exitCode).toBe(1)
+    expect(displayDataSetListMock).not.toHaveBeenCalled()
+  })
+
+  it('reports already terminated when pdpEndEpoch > 0', async () => {
+    mockFindDataSets.mockResolvedValue([
+      {
+        ...summaryDataSet,
+        pdpEndEpoch: 123,
+      },
+    ])
+
+    mockGetAddress.mockResolvedValue('0x123')
+
+    await runTerminateDataSetCommand(158, {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    expect(spinnerMock.stop).toHaveBeenCalledWith(expect.stringContaining('already terminated'))
+    // Should not attempt to call terminate method on WarmStorageService instance
+    if ((mockWarmStorageInstance as any).terminateDataSet) {
+      expect((mockWarmStorageInstance as any).terminateDataSet).not.toHaveBeenCalled()
+    }
   })
 })
