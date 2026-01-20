@@ -8,13 +8,11 @@ import {
   type StorageServiceOptions,
   Synapse,
   type SynapseOptions,
-  type TelemetryConfig,
 } from '@filoz/synapse-sdk'
 import { type Provider as EthersProvider, JsonRpcProvider, type Signer, Wallet, WebSocketProvider } from 'ethers'
 import type { Logger } from 'pino'
 import { ADDRESS_ONLY_SIGNER_SYMBOL, AddressOnlySigner } from './address-only-signer.js'
 import { DEFAULT_DATA_SET_METADATA, DEFAULT_STORAGE_CONTEXT_CONFIG } from './constants.js'
-import { getTelemetryConfig } from './telemetry-config.js'
 
 export * from './constants.js'
 
@@ -46,7 +44,7 @@ export interface Config {
 /**
  * Common options for all Synapse configurations
  */
-interface BaseSynapseConfig extends Omit<SynapseOptions, 'withCDN' | 'warmStorageAddress' | 'telemetry'> {
+interface BaseSynapseConfig extends Omit<SynapseOptions, 'withCDN' | 'warmStorageAddress'> {
   /** RPC endpoint for the target Filecoin network. Defaults to calibration. */
   rpcUrl?: string | undefined
   /** Optional override for WarmStorage contract address */
@@ -56,20 +54,6 @@ interface BaseSynapseConfig extends Omit<SynapseOptions, 'withCDN' | 'warmStorag
   withCDN?: boolean | undefined
   /** Default metadata to apply when creating or reusing datasets */
   dataSetMetadata?: Record<string, string>
-  /**
-   * Telemetry configuration.
-   * Defaults to enabled unless explicitly disabled.
-   * @example
-   * {
-   *   sentryInitOptions: {
-   *     enabled: false, // if want to disable telemetry.
-   *   },
-   *   sentrySetTags: {
-   *     appName: "${your-app-name}",
-   *   },
-   * }
-   */
-  telemetry?: TelemetryConfig
 }
 
 /**
@@ -353,7 +337,11 @@ async function setupSessionKey(synapse: Synapse, sessionWallet: Wallet, logger: 
   }
 
   logger.info(
-    { event: 'synapse.session_key.verified', createExpiry: createDataSetExpiry, addExpiry: addPiecesExpiry },
+    {
+      event: 'synapse.session_key.verified',
+      createExpiry: createDataSetExpiry,
+      addExpiry: addPiecesExpiry,
+    },
     'Session key verified'
   )
 
@@ -374,7 +362,7 @@ async function setupSessionKey(synapse: Synapse, sessionWallet: Wallet, logger: 
  * @returns Initialized Synapse instance
  */
 export async function initializeSynapse(config: Partial<SynapseSetupConfig>, logger: Logger): Promise<Synapse> {
-  const { withCDN, warmStorageAddress, telemetry, ...restConfig } = config
+  const { withCDN, warmStorageAddress, ...restConfig } = config
   try {
     const authMode = validateAuthConfig(config)
 
@@ -399,7 +387,6 @@ export async function initializeSynapse(config: Partial<SynapseSetupConfig>, log
     if (warmStorageAddress) {
       synapseOptions.warmStorageAddress = warmStorageAddress
     }
-    synapseOptions.telemetry = getTelemetryConfig(telemetry)
 
     let synapse: Synapse
 
@@ -445,7 +432,10 @@ export async function initializeSynapse(config: Partial<SynapseSetupConfig>, log
         throw new Error('Internal error: signer mode but config type mismatch')
       }
 
-      synapse = await Synapse.create({ ...synapseOptions, signer: config.signer })
+      synapse = await Synapse.create({
+        ...synapseOptions,
+        signer: config.signer,
+      })
       activeProvider = synapse.getProvider()
       setAuthMode(synapse, 'signer')
     } else {
@@ -454,7 +444,10 @@ export async function initializeSynapse(config: Partial<SynapseSetupConfig>, log
         throw new Error('Internal error: private key mode but config type mismatch')
       }
 
-      synapse = await Synapse.create({ ...synapseOptions, privateKey: config.privateKey })
+      synapse = await Synapse.create({
+        ...synapseOptions,
+        privateKey: config.privateKey,
+      })
       activeProvider = synapse.getProvider()
       setAuthMode(synapse, 'standard')
     }
@@ -522,7 +515,10 @@ export async function createStorageContext(
     if (options?.dataset?.useExisting != null) {
       sdkOptions.dataSetId = options.dataset.useExisting
       logger?.info?.(
-        { event: 'synapse.storage.dataset.existing', dataSetId: options.dataset.useExisting },
+        {
+          event: 'synapse.storage.dataset.existing',
+          dataSetId: options.dataset.useExisting,
+        },
         'Connecting to existing dataset'
       )
     } else if (options?.dataset?.createNew === true) {
@@ -595,13 +591,19 @@ export async function createStorageContext(
     if (options?.providerAddress) {
       sdkOptions.providerAddress = options.providerAddress
       logger?.info?.(
-        { event: 'synapse.storage.provider_override', providerAddress: options.providerAddress },
+        {
+          event: 'synapse.storage.provider_override',
+          providerAddress: options.providerAddress,
+        },
         'Overriding provider by address'
       )
     } else if (options?.providerId != null && Number.isFinite(options.providerId)) {
       sdkOptions.providerId = options.providerId
       logger?.info?.(
-        { event: 'synapse.storage.provider_override', providerId: options.providerId },
+        {
+          event: 'synapse.storage.provider_override',
+          providerId: options.providerId,
+        },
         'Overriding provider by ID'
       )
     }
@@ -761,11 +763,6 @@ export async function cleanupProvider(provider: any): Promise<void> {
  * and allow the process to terminate
  */
 export async function cleanupSynapseService(): Promise<void> {
-  // Close telemetry to flush pending events and shutdown cleanly
-  if (synapseInstance) {
-    await synapseInstance.telemetry?.sentry?.close()
-  }
-
   if (activeProvider) {
     await cleanupProvider(activeProvider)
   }

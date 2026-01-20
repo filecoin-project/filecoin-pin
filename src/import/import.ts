@@ -12,7 +12,6 @@ import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
-import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import {
@@ -57,7 +56,11 @@ async function validateCarFile(filePath: string): Promise<CID[]> {
  * Resolve the root CID from CAR file roots
  * Handles multiple cases: no roots, single root, multiple roots
  */
-function resolveRootCID(roots: CID[]): { cid: CID; cidString: string; message?: string } {
+function resolveRootCID(roots: CID[]): {
+  cid: CID
+  cidString: string
+  message?: string
+} {
   if (roots.length === 0) {
     // No roots - use zero CID
     return {
@@ -115,7 +118,10 @@ async function validateFilePath(filePath: string): Promise<{ exists: boolean; st
       return { exists: false, error: `File not found: ${filePath}` }
     }
     // Other errors like permission denied, etc.
-    return { exists: false, error: `Cannot access file: ${filePath} (${error?.message || 'unknown error'})` }
+    return {
+      exists: false,
+      error: `Cannot access file: ${filePath} (${error?.message || 'unknown error'})`,
+    }
   }
 }
 
@@ -192,10 +198,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     if (withCDN) config.withCDN = true
 
     // Initialize just the Synapse SDK
-    const synapse = await initializeSynapse(
-      { ...config, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
-      logger
-    )
+    const synapse = await initializeSynapse(config, logger)
     const network = synapse.getNetwork()
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)

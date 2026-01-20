@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import './instrument.js'
 import { Command } from 'commander'
 import pc from 'picocolors'
 

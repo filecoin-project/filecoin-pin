@@ -147,7 +147,6 @@ export async function runUpload(buildContext = {}) {
       {
         privateKey: walletPrivateKey,
         network: inputNetwork,
-        telemetry: { sentrySetTags: { appName: 'filecoinPinGitHubAction' } },
       },
       logger
     )
@@ -161,7 +160,11 @@ export async function runUpload(buildContext = {}) {
 
     paymentStatus = await handlePayments(
       synapse,
-      { minStorageDays, filecoinPayBalanceLimit, pieceSizeBytes: context.carSize },
+      {
+        minStorageDays,
+        filecoinPayBalanceLimit,
+        pieceSizeBytes: context.carSize,
+      },
       logger
     )
 

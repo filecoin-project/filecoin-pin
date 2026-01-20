@@ -21,7 +21,6 @@ import {
   validatePaymentRequirements,
 } from '../core/payments/index.js'
 import { cleanupProvider, cleanupSynapseService } from '../core/synapse/index.js'
-import { getTelemetryConfig } from '../core/synapse/telemetry-config.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
@@ -91,11 +90,12 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     const rpcUrl = options.rpcUrl || RPC_URLS.calibration.websocket
 
     const synapse = await Synapse.create({
-      telemetry: getTelemetryConfig(),
       privateKey,
       rpcURL: rpcUrl,
       withIpni: true, // Always filter for IPNI-enabled providers
-      ...(options.warmStorageAddress && { warmStorageAddress: options.warmStorageAddress }),
+      ...(options.warmStorageAddress && {
+        warmStorageAddress: options.warmStorageAddress,
+      }),
     })
     const network = synapse.getNetwork()
     const client = synapse.getClient()

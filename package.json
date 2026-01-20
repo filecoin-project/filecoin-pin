@@ -117,6 +117,7 @@
     "@filoz/synapse-sdk": "^0.36.1",
     "@helia/unixfs": "^7.0.0",
     "@ipld/car": "^5.4.2",
+    "@sentry/node": "^10.35.0",
     "commander": "^14.0.1",
     "ethers": "^6.15.0",
     "fastify": "^5.6.0",
