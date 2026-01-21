@@ -6,7 +6,6 @@
  */
 
 import type { Synapse } from '@filoz/synapse-sdk'
-import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import { getRpcUrl } from '../common/get-rpc-url.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
@@ -126,8 +125,5 @@ export function getCLILogger() {
 export async function getCliSynapse(options: CLIAuthOptions): Promise<Synapse> {
   const authConfig = parseCLIAuth(options)
   const logger = getCLILogger()
-  return await initializeSynapse(
-    { ...authConfig, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
-    logger
-  )
+  return await initializeSynapse(authConfig, logger)
 }

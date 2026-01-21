@@ -9,7 +9,6 @@ import { readFile, stat } from 'node:fs/promises'
 import pc from 'picocolors'
 import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
-import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import {
@@ -45,7 +44,10 @@ async function validatePath(
     if (stats.isDirectory()) {
       // Check if bare flag is used with directory
       if (options.bare) {
-        return { exists: false, error: `--bare flag is not supported for directories` }
+        return {
+          exists: false,
+          error: `--bare flag is not supported for directories`,
+        }
       }
       return { exists: true, stats, isDirectory: true }
     }
@@ -57,7 +59,10 @@ async function validatePath(
       return { exists: false, error: `Path not found: ${path}` }
     }
     // Other errors like permission denied, etc.
-    return { exists: false, error: `Cannot access path: ${path} (${error?.message || 'unknown error'})` }
+    return {
+      exists: false,
+      error: `Cannot access path: ${path} (${error?.message || 'unknown error'})`,
+    }
   }
 }
 
@@ -122,10 +127,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     if (withCDN) config.withCDN = true
 
     // Initialize just the Synapse SDK
-    const synapse = await initializeSynapse(
-      { ...config, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
-      logger
-    )
+    const synapse = await initializeSynapse(config, logger)
     const network = synapse.getNetwork()
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
@@ -133,7 +135,9 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     // Check payment setup (may configure permissions if needed)
     // Actual CAR size will be checked later
     spinner.start('Checking payment setup...')
-    await validatePaymentSetup(synapse, 0, spinner, { suppressSuggestions: true })
+    await validatePaymentSetup(synapse, 0, spinner, {
+      suppressSuggestions: true,
+    })
 
     // Create CAR from file or directory
     const packingMsg = isDirectory

@@ -8,7 +8,7 @@ import { confirm } from '@clack/prompts'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { MIN_RUNWAY_DAYS, TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
+import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import {
   calculateStorageRunway,
   checkUSDFCBalance,
@@ -207,10 +207,7 @@ export async function runFund(options: FundOptions): Promise<void> {
     const authConfig = parseCLIAuth(options)
 
     const logger = getCLILogger()
-    const synapse = await initializeSynapse(
-      { ...authConfig, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
-      logger
-    )
+    const synapse = await initializeSynapse(authConfig, logger)
 
     spinner.stop(`${pc.green('✓')} Connected`)
 
@@ -321,7 +318,13 @@ export async function runFund(options: FundOptions): Promise<void> {
       throw new Error('Insufficient USDFC in wallet')
     }
 
-    await performAdjustment({ synapse, spinner, delta: plan.delta, depositMsg, withdrawMsg })
+    await performAdjustment({
+      synapse,
+      spinner,
+      delta: plan.delta,
+      depositMsg,
+      withdrawMsg,
+    })
 
     await printSummary(synapse)
     outro('Fund adjustment completed')
