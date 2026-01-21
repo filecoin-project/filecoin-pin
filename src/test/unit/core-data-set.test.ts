@@ -101,14 +101,25 @@ vi.mock('@filoz/synapse-sdk', async () => {
   const sharedMock = await import('../mocks/synapse-sdk.js')
   return {
     ...sharedMock,
-    WarmStorageService: { create: mockWarmStorageCreate },
-    PDPServer: class {
-      async getDataSet(dataSetId: number) {
-        return mockPDPServerGetDataSet(dataSetId)
-      }
-    },
   }
 })
+
+vi.mock('@filoz/synapse-sdk/warm-storage', () => ({
+  WarmStorageService: { create: mockWarmStorageCreate },
+}))
+
+vi.mock('@filoz/synapse-sdk/pdp', () => ({
+  PDPServer: class {
+    async getDataSet(dataSetId: number) {
+      return mockPDPServerGetDataSet(dataSetId)
+    }
+  },
+  PDPVerifier: class {
+    async getScheduledRemovals() {
+      return []
+    }
+  },
+}))
 
 // Mock piece size calculation
 vi.mock('@filoz/synapse-core/piece', () => ({
@@ -153,7 +164,7 @@ describe('listDataSets', () => {
       clientDataSetId: 100n,
       providerId: 2,
       metadata: { source: 'filecoin-pin' },
-      currentPieceCount: 5,
+      activePieceCount: 5,
       isManaged: true,
       withCDN: false,
       isLive: true,
@@ -192,7 +203,7 @@ describe('listDataSets', () => {
         clientDataSetId: 100n,
         providerId: 2,
         metadata: {},
-        currentPieceCount: 3,
+        activePieceCount: 3,
         isManaged: true,
         withCDN: false,
         isLive: true,
@@ -236,7 +247,7 @@ describe('listDataSets', () => {
         clientDataSetId: 100n,
         providerId: 1,
         metadata: {},
-        currentPieceCount: 2,
+        activePieceCount: 2,
         isManaged: true,
         withCDN: false,
         isLive: true,
@@ -249,7 +260,7 @@ describe('listDataSets', () => {
         clientDataSetId: 101n,
         providerId: 999, // Provider not in registry
         metadata: {},
-        currentPieceCount: 1,
+        activePieceCount: 1,
         isManaged: false,
         withCDN: true,
         isLive: true,
@@ -280,7 +291,7 @@ describe('listDataSets', () => {
           [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
           source: 'filecoin-pin',
         },
-        currentPieceCount: 5,
+        activePieceCount: 5,
         isManaged: true,
         withCDN: false,
         isLive: true,
@@ -297,7 +308,7 @@ describe('listDataSets', () => {
           [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
           source: 'other-tool',
         },
-        currentPieceCount: 3,
+        activePieceCount: 3,
         isManaged: false,
         withCDN: false,
         isLive: true,
@@ -313,7 +324,7 @@ describe('listDataSets', () => {
           // Has source but no WITH_IPFS_INDEXING
           source: 'filecoin-pin',
         },
-        currentPieceCount: 2,
+        activePieceCount: 2,
         isManaged: false,
         withCDN: false,
         isLive: true,

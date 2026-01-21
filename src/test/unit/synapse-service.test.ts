@@ -16,6 +16,26 @@ import { createLogger } from '../../logger.js'
 // Mock the Synapse SDK - vi.mock requires async import for ES modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
 
+// Mock subpath exports
+vi.mock('@filoz/synapse-sdk/session', async () => {
+  const sharedMock = await import('../mocks/synapse-sdk.js')
+  return {
+    ADD_PIECES_TYPEHASH: sharedMock.ADD_PIECES_TYPEHASH,
+    CREATE_DATA_SET_TYPEHASH: sharedMock.CREATE_DATA_SET_TYPEHASH,
+  }
+})
+
+vi.mock('@filoz/synapse-sdk/storage', async () => {
+  const sharedMock = await import('../mocks/synapse-sdk.js')
+  return {
+    StorageContext: sharedMock.StorageContext,
+  }
+})
+
+vi.mock('@filoz/synapse-sdk/telemetry', () => ({
+  // TelemetryConfig is just a type, no runtime export needed
+}))
+
 // Test CID for upload tests
 const TEST_CID = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
 

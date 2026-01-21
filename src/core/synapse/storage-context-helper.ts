@@ -15,9 +15,10 @@
  * TODO: Replace with synapse.storage.createContextFromDataSetId() once PR #438 is published
  */
 
-import type { Synapse, WarmStorageService } from '@filoz/synapse-sdk'
-import { StorageContext } from '@filoz/synapse-sdk'
-import { type ProviderInfo, SPRegistryService } from '@filoz/synapse-sdk/sp-registry'
+import type { ProviderInfo, Synapse } from '@filoz/synapse-sdk'
+import { SPRegistryService } from '@filoz/synapse-sdk/sp-registry'
+import { StorageContext } from '@filoz/synapse-sdk/storage'
+import type { WarmStorageService } from '@filoz/synapse-sdk/warm-storage'
 import type { Logger } from 'pino'
 import { DEFAULT_DATA_SET_METADATA, DEFAULT_STORAGE_CONTEXT_CONFIG } from './index.js'
 export type StorageContextHelperResult = {
@@ -44,8 +45,7 @@ export async function createStorageContextFromDataSetId(
 ): Promise<StorageContextHelperResult> {
   const { checkProviderApproval = false } = options ?? {}
   // Access Synapse's internal WarmStorageService (avoids creating a new one)
-  // @ts-expect-error - Accessing private _warmStorageService temporarily until SDK is updated
-  const warmStorage = synapse.storage._warmStorageService
+  const warmStorage = (synapse.storage as any)._warmStorageService
   if (!warmStorage) {
     throw new Error('WarmStorageService not available on Synapse instance')
   }
@@ -109,8 +109,7 @@ export async function createStorageContextForNewDataSet(
   synapse: Synapse,
   options: CreateNewStorageContextOptions = {}
 ): Promise<StorageContextHelperResult> {
-  // @ts-expect-error - Accessing private _warmStorageService temporarily until SDK is updated
-  const warmStorage = options.warmStorage ?? synapse.storage._warmStorageService
+  const warmStorage = options.warmStorage ?? (synapse.storage as any)._warmStorageService
   if (!warmStorage) {
     throw new Error('WarmStorageService not available on Synapse instance')
   }
