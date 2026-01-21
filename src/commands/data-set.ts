@@ -22,8 +22,7 @@ export const dataSetShowCommand = new Command('show')
       }
 
       await runDataSetDetailsCommand(dataSetIdNumber, commandOptions)
-    } catch (error) {
-      console.error('Data set command failed:', error instanceof Error ? error.message : error)
+    } catch {
       process.exit(1)
     }
   })
@@ -46,8 +45,7 @@ export const dataSetListCommand = new Command('list')
         ...(dataSetMetadata ? { dataSetMetadata } : {}),
       }
       await runDataSetListCommand(normalizedOptions)
-    } catch (error) {
-      console.error('Data set list command failed:', error instanceof Error ? error.message : error)
+    } catch {
       process.exit(1)
     }
   })
