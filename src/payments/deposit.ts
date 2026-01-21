@@ -43,7 +43,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
 
   if ((hasAmount && hasDays) || (!hasAmount && !hasDays)) {
     console.error(pc.red('Error: Specify exactly one of --amount <USDFC> or --days <N>'))
-    process.exit(1)
+    throw new Error('Error: Specify exactly one of --amount <USDFC> or --days <N>')
   }
 
   // Connect
@@ -159,7 +159,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     spinner.stop()
     console.error(pc.red('✗ Deposit failed'))
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
-    process.exitCode = 1
+    throw error
   } finally {
     await cleanupSynapseService()
   }
