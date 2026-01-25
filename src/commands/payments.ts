@@ -26,6 +26,7 @@ const setupCommand = new Command('setup')
         auto: options.auto || false,
         deposit: options.deposit || '1',
         rateAllowance: options.rateAllowance || '1TiB/month',
+        network: options.mainnet ? 'mainnet' : 'calibration'
       }
 
       if (setupOptions.auto) {

@@ -87,7 +87,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     const s = createSpinner()
     s.start('Initializing connection...')
 
-    const rpcUrl = options.rpcUrl || RPC_URLS.calibration.websocket
+    const rpcUrl = options.network == 'mainnet' ? RPC_URLS.mainnet.websocket : options.rpcUrl || RPC_URLS.calibration.websocket
 
     const synapse = await Synapse.create({
       privateKey,
