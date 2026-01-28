@@ -1,4 +1,4 @@
-import { confirm } from '@clack/prompts'
+import { confirm, isCancel } from '@clack/prompts'
 import type { EnhancedDataSetInfo, Synapse } from '@filoz/synapse-sdk'
 import { WarmStorageService } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
@@ -185,6 +185,10 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
         message: `Terminate data set #${dataSetId} and all associated payment rails? This action cannot be undone.`,
         initialValue: true,
       })
+      if (isCancel(proceed)) {
+        cancel('Termination cancelled')
+        process.exit(1)
+      }
       if (!proceed) {
         cancel('Termination cancelled by user')
         return

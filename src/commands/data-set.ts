@@ -75,8 +75,6 @@ export const dataSetTerminateCommand = new Command('terminate')
     }
   })
 addAuthOptions(dataSetTerminateCommand)
-addProviderOptions(dataSetTerminateCommand)
-addMetadataOptions(dataSetTerminateCommand, { includePieceMetadata: false, includeDataSetMetadata: true })
 
 dataSetCommand.addCommand(dataSetShowCommand)
 dataSetCommand.addCommand(dataSetListCommand)
