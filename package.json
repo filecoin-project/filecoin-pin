@@ -112,7 +112,7 @@
   },
   "homepage": "https://github.com/filecoin-project/filecoin-pin#readme",
   "dependencies": {
-    "@clack/prompts": "^0.11.0",
+    "@clack/prompts": "^1.0.0",
     "@filoz/synapse-core": "^0.1.4",
     "@filoz/synapse-sdk": "^0.36.1",
     "@helia/unixfs": "^7.0.0",
