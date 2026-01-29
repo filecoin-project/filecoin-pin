@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.15.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.15.0...v0.15.1) (2026-01-29)
+
+
+### Bug Fixes
+
+* mainnet flag consideration in payments setup ([#311](https://github.com/filecoin-project/filecoin-pin/issues/311)) ([e74f504](https://github.com/filecoin-project/filecoin-pin/commit/e74f504e1a9520aec1ccb9691caefbc706dada57))
+* pass callbacks to synapse-sdk properly ([#316](https://github.com/filecoin-project/filecoin-pin/issues/316)) ([be6f3e8](https://github.com/filecoin-project/filecoin-pin/commit/be6f3e8a151b6395e3f4412a648960f1071b9b9a))
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.3.11 to 2.3.13 ([#312](https://github.com/filecoin-project/filecoin-pin/issues/312)) ([8c1db16](https://github.com/filecoin-project/filecoin-pin/commit/8c1db166e9227ea6dc010940f6a97f4d1cf76537))
+
 ## [0.15.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.14.0...v0.15.0) (2026-01-16)
 
 
