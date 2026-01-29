@@ -181,6 +181,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       ...providerOptions,
       dataset: {
         ...(dataSetMetadata && { metadata: dataSetMetadata }),
+        ...(options.dataSetId && { useExisting: options.dataSetId }),
+        ...(options.createNewDataSet && { createNew: true }),
       },
       callbacks: {
         onProviderSelected: (provider) => {

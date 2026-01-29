@@ -4,6 +4,10 @@ import type { CLIAuthOptions } from '../utils/cli-auth.js'
 export interface AddOptions extends CLIAuthOptions {
   filePath: string
   bare?: boolean
+  /** ID of the existing data set to use */
+  dataSetId?: number
+  /** Create a new data set instead of using an existing one */
+  createNewDataSet?: boolean
   /** Auto-fund: automatically ensure minimum 30 days of runway */
   autoFund?: boolean
   /** Piece metadata attached to each upload */

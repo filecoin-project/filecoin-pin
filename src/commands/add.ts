@@ -1,4 +1,4 @@
-import { Command } from 'commander'
+import { Command, Option } from 'commander'
 import { runAdd } from '../add/add.js'
 import type { AddOptions } from '../add/types.js'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
@@ -10,30 +10,39 @@ export const addCommand = new Command('add')
   .argument('<path>', 'Path to the file or directory to add')
   .option('--bare', 'Add file without directory wrapper (files only, not supported for directories)')
   .option('--auto-fund', `Automatically ensure minimum ${MIN_RUNWAY_DAYS} days of runway before upload`)
-  .action(async (path: string, options) => {
-    try {
-      const {
-        metadata: _metadata,
-        dataSetMetadata: _dataSetMetadata,
-        datasetMetadata: _datasetMetadata,
-        '8004Type': _erc8004Type,
-        '8004Agent': _erc8004Agent,
-        ...addOptionsFromCli
-      } = options
-      const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
 
-      const addOptions: AddOptions = {
-        ...addOptionsFromCli,
-        filePath: path,
-        ...(pieceMetadata && { pieceMetadata }),
-        ...(dataSetMetadata && { dataSetMetadata }),
-      }
+// Add data set selection options
+addCommand.addOption(new Option('--data-set <id>', 'ID of the existing data set to use'))
+addCommand.addOption(new Option('--new-data-set', 'Create a new data set instead of using an existing one'))
 
-      await runAdd(addOptions)
-    } catch {
-      process.exit(1)
+addCommand.action(async (path: string, options: any) => {
+  try {
+    const {
+      metadata: _metadata,
+      dataSetMetadata: _dataSetMetadata,
+      datasetMetadata: _datasetMetadata,
+      '8004Type': _erc8004Type,
+      '8004Agent': _erc8004Agent,
+      dataSet,
+      newDataSet,
+      ...addOptionsFromCli
+    } = options
+    const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
+
+    const addOptions: AddOptions = {
+      ...addOptionsFromCli,
+      filePath: path,
+      ...(dataSet && { dataSetId: parseInt(dataSet, 10) }),
+      ...(newDataSet && { createNewDataSet: true }),
+      ...(pieceMetadata && { pieceMetadata }),
+      ...(dataSetMetadata && { dataSetMetadata }),
     }
-  })
+
+    await runAdd(addOptions)
+  } catch {
+    process.exit(1)
+  }
+})
 
 addAuthOptions(addCommand)
 addProviderOptions(addCommand)
