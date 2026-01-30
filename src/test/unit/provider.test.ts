@@ -86,14 +86,17 @@ describe('provider command', () => {
         vi.spyOn(process, 'exit').mockImplementation((() => { }) as any)
     })
 
-    it('info command should list all approved providers when no arg is passed', async () => {
-        await program.parseAsync(['node', 'test', 'provider', 'info'])
+    it('list command should list all approved providers when no arg is passed', async () => {
+        await program.parseAsync(['node', 'test', 'provider', 'list'])
         expect(mockWarmStorage.getApprovedProviderIds).toHaveBeenCalled()
+        // list command calls getProvider for each ID, so expect it to be called
+        // for IDs 1 and 2 (from mockWarmStorage.getApprovedProviderIds returning [1, 2])
         expect(mockGetProvider).toHaveBeenCalledWith(1)
+        expect(mockGetProvider).toHaveBeenCalledWith(2)
     })
 
-    it('info command should show specific provider when arg is passed', async () => {
-        await program.parseAsync(['node', 'test', 'provider', 'info', '1'])
+    it('show command should show specific provider when arg is passed', async () => {
+        await program.parseAsync(['node', 'test', 'provider', 'show', '1'])
         expect(mockGetProvider).toHaveBeenCalledWith(1)
     })
 
@@ -116,14 +119,14 @@ describe('provider command', () => {
     })
 
     it('should use default public auth if no credentials provided', async () => {
-        await program.parseAsync(['node', 'test', 'provider', 'info'])
+        await program.parseAsync(['node', 'test', 'provider', 'list'])
         expect(cliAuthModule.getCliSynapse).toHaveBeenCalledWith(expect.objectContaining({
             viewAddress: '0x0000000000000000000000000000000000000000'
         }))
     })
 
-    it('info command should list all active providers with --all flag', async () => {
-        await program.parseAsync(['node', 'test', 'provider', 'info', '--all'])
+    it('list command should list all active providers with --all flag', async () => {
+        await program.parseAsync(['node', 'test', 'provider', 'list', '--all'])
         expect(mockGetAllActiveProviders).toHaveBeenCalled()
         expect(mockWarmStorage.getApprovedProviderIds).not.toHaveBeenCalled()
     })
