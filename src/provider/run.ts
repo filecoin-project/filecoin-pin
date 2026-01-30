@@ -15,7 +15,7 @@ export async function runProviderList(options: ProviderListOptions): Promise<voi
   try {
     ensurePublicAuth(options)
     const synapse = await getCliSynapse(options)
-    
+
     // Access Synapse's internal WarmStorageService
     // @ts-expect-error - Accessing private _warmStorageService
     const warmStorage = synapse.storage._warmStorageService
@@ -34,7 +34,7 @@ export async function runProviderList(options: ProviderListOptions): Promise<voi
       const approvedIds = await warmStorage.getApprovedProviderIds()
       spinner.message(`Fetching details for ${approvedIds.length} approved providers...`)
       const providersOrNull = await Promise.all(approvedIds.map((id: number) => spRegistry.getProvider(id)))
-      providers = providersOrNull.filter(p => p !== null)
+      providers = providersOrNull.filter((p) => p !== null)
       spinner.stop(`Found ${providers.length} approved providers:`)
     }
 
@@ -62,7 +62,7 @@ export async function runProviderShow(providerIdOrAddr: string, options: Provide
   try {
     ensurePublicAuth(options)
     const synapse = await getCliSynapse(options)
-    
+
     // Access Synapse's internal WarmStorageService
     // @ts-expect-error - Accessing private _warmStorageService
     const warmStorage = synapse.storage._warmStorageService
@@ -73,11 +73,11 @@ export async function runProviderShow(providerIdOrAddr: string, options: Provide
 
     spinner.message(`Fetching details for ${providerIdOrAddr}...`)
 
-    let provider
-    const id = parseInt(providerIdOrAddr)
+    let provider: any
+    const id = parseInt(providerIdOrAddr, 10)
 
     // If it looks like a number, try fetching by ID
-    if (!isNaN(id) && id.toString() === providerIdOrAddr) {
+    if (!Number.isNaN(id) && id.toString() === providerIdOrAddr) {
       provider = await spRegistry.getProvider(id)
     } else {
       // NOTE: Querying by address is not directly supported by the registry service yet in this context cleanly without iterating all
@@ -92,7 +92,7 @@ export async function runProviderShow(providerIdOrAddr: string, options: Provide
 
     spinner.stop('Provider found')
     printProvider(provider)
-    
+
     outro('Provider inspection complete')
   } catch (error) {
     spinner.stop(`${pc.red('✗')} Failed to show provider`)
@@ -105,7 +105,10 @@ export async function runProviderShow(providerIdOrAddr: string, options: Provide
   }
 }
 
-export async function runProviderPing(providerIdOrAddr: string | undefined, options: ProviderPingOptions): Promise<void> {
+export async function runProviderPing(
+  providerIdOrAddr: string | undefined,
+  options: ProviderPingOptions
+): Promise<void> {
   const spinner = createSpinner()
   intro(pc.bold('Ping Providers'))
   spinner.start('Connecting to Synapse...')
@@ -113,7 +116,7 @@ export async function runProviderPing(providerIdOrAddr: string | undefined, opti
   try {
     ensurePublicAuth(options)
     const synapse = await getCliSynapse(options)
-    
+
     // @ts-expect-error - Accessing private _warmStorageService
     const warmStorage = synapse.storage._warmStorageService
     if (!warmStorage) throw new Error('WarmStorageService not available')
@@ -125,8 +128,8 @@ export async function runProviderPing(providerIdOrAddr: string | undefined, opti
 
     if (providerIdOrAddr) {
       spinner.message(`Fetching provider ${providerIdOrAddr}...`)
-      const id = parseInt(providerIdOrAddr)
-      if (isNaN(id)) throw new Error('Please provide a numeric Provider ID')
+      const id = parseInt(providerIdOrAddr, 10)
+      if (Number.isNaN(id)) throw new Error('Please provide a numeric Provider ID')
 
       const provider = await spRegistry.getProvider(id)
       if (!provider) {
@@ -141,7 +144,7 @@ export async function runProviderPing(providerIdOrAddr: string | undefined, opti
       } else {
         const approvedIds = await warmStorage.getApprovedProviderIds()
         const providers = await Promise.all(approvedIds.map((id: number) => spRegistry.getProvider(id)))
-        providersToPing.push(...providers.filter(p => p !== null))
+        providersToPing.push(...providers.filter((p) => p !== null))
       }
     }
 
@@ -174,13 +177,19 @@ export async function runProviderPing(providerIdOrAddr: string | undefined, opti
         const prefix = `[ID:${p.id}]`.padEnd(8)
 
         if (res.ok) {
-          console.log(`${pc.green('✔')} ${prefix} ${p.name || 'Unknown'}: ${pc.green('OK')} ${pc.gray(`(${ms}ms)`)} -> ${pingUrl}`)
+          console.log(
+            `${pc.green('✔')} ${prefix} ${p.name || 'Unknown'}: ${pc.green('OK')} ${pc.gray(`(${ms}ms)`)} -> ${pingUrl}`
+          )
         } else {
-          console.log(`${pc.red('✖')} ${prefix} ${p.name || 'Unknown'}: ${pc.red(`HTTP ${res.status}`)} ${pc.gray(`(${ms}ms)`)} -> ${pingUrl}`)
+          console.log(
+            `${pc.red('✖')} ${prefix} ${p.name || 'Unknown'}: ${pc.red(`HTTP ${res.status}`)} ${pc.gray(`(${ms}ms)`)} -> ${pingUrl}`
+          )
         }
       } catch (err: any) {
         const prefix = `[ID:${p.id}]`.padEnd(8)
-        console.log(`${pc.red('✖')} ${prefix} ${p.name || 'Unknown'}: ${pc.red('FAILED')} ${pc.gray(`(${err.message})`)} -> ${serviceUrl}`)
+        console.log(
+          `${pc.red('✖')} ${prefix} ${p.name || 'Unknown'}: ${pc.red('FAILED')} ${pc.gray(`(${err.message})`)} -> ${serviceUrl}`
+        )
       } finally {
         if (timeout) clearTimeout(timeout)
       }
@@ -192,7 +201,7 @@ export async function runProviderPing(providerIdOrAddr: string | undefined, opti
     log.line('')
     log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
     cancel('Ping failed')
-    throw error // Re-throw to let command wiring handle process exit code if needed, though we usually just exit 1 
+    throw error // Re-throw to let command wiring handle process exit code if needed, though we usually just exit 1
   } finally {
     await cleanupSynapseService()
   }
@@ -213,8 +222,10 @@ function printProvider(p: any) {
   if (data) {
     if (data.minPieceSizeInBytes != null) console.log(`  Min Piece Size: ${formatFileSize(data.minPieceSizeInBytes)}`)
     if (data.maxPieceSizeInBytes != null) console.log(`  Max Piece Size: ${formatFileSize(data.maxPieceSizeInBytes)}`)
-    if (data.storagePricePerTibPerDay != null) console.log(`  Storage Price: ${formatUSDFC(BigInt(data.storagePricePerTibPerDay))} USDFC/TiB/Day`)
-    if (data.minProvingPeriodInEpochs != null) console.log(`  Min Proving Period: ${data.minProvingPeriodInEpochs} epochs`)
+    if (data.storagePricePerTibPerDay != null)
+      console.log(`  Storage Price: ${formatUSDFC(BigInt(data.storagePricePerTibPerDay))} USDFC/TiB/Day`)
+    if (data.minProvingPeriodInEpochs != null)
+      console.log(`  Min Proving Period: ${data.minProvingPeriodInEpochs} epochs`)
   }
 }
 
@@ -227,41 +238,43 @@ function printTable(providers: any[]) {
     { header: 'Name', key: 'name', width: 20 },
     { header: 'Address', key: 'serviceProvider', width: 42 },
     { header: 'Location', key: 'location', width: 15 },
-    { header: 'Service URL', key: 'serviceUrl', width: 35 }
+    { header: 'Service URL', key: 'serviceUrl', width: 35 },
   ]
 
   // extract data for table
-  const rows = providers.map(p => ({
+  const rows = providers.map((p) => ({
     id: p.id?.toString() || '?',
     name: p.name || 'Unknown',
     serviceProvider: p.serviceProvider || '',
     location: p.products?.PDP?.data?.location || '-',
-    serviceUrl: p.products?.PDP?.data?.serviceURL || '-'
+    serviceUrl: p.products?.PDP?.data?.serviceURL || '-',
   }))
 
   // adjust widths based on content
-  rows.forEach(r => {
-    columns.forEach(c => {
+  rows.forEach((r) => {
+    columns.forEach((c) => {
       const val = (r as any)[c.key] || ''
       if (val.length > c.width) c.width = Math.min(val.length, 60) // cap max width
     })
   })
 
   // Header
-  const headerRow = columns.map(c => c.header.padEnd(c.width)).join('  ')
+  const headerRow = columns.map((c) => c.header.padEnd(c.width)).join('  ')
   console.log(pc.gray(headerRow))
   console.log(pc.gray('-'.repeat(headerRow.length)))
 
   // Rows
-  rows.forEach(r => {
-    const line = columns.map(c => {
-      let val = (r as any)[c.key] || ''
-      // Truncate if exceeds width
-      if (val.length > c.width) {
-        val = val.substring(0, c.width - 1) + '…'
-      }
-      return val.padEnd(c.width)
-    }).join('  ')
+  rows.forEach((r) => {
+    const line = columns
+      .map((c) => {
+        let val = (r as any)[c.key] || ''
+        // Truncate if exceeds width
+        if (val.length > c.width) {
+          val = `${val.substring(0, c.width - 1)}…`
+        }
+        return val.padEnd(c.width)
+      })
+      .join('  ')
     console.log(line)
   })
 }

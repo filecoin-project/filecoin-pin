@@ -3,8 +3,7 @@ import { runProviderList, runProviderPing, runProviderShow } from '../provider/i
 import type { ProviderListOptions, ProviderPingOptions, ProviderShowOptions } from '../provider/types.js'
 import { addAuthOptions } from '../utils/cli-options.js'
 
-export const providerCommand = new Command('provider')
-  .description('Inspect and interact with storage providers')
+export const providerCommand = new Command('provider').description('Inspect and interact with storage providers')
 
 const listCommand = new Command('list')
   .alias('ls')
@@ -13,7 +12,7 @@ const listCommand = new Command('list')
   .action(async (options) => {
     try {
       const listOptions: ProviderListOptions = {
-        ...options
+        ...options,
       }
       await runProviderList(listOptions)
     } catch {
@@ -29,7 +28,7 @@ const showCommand = new Command('show')
   .action(async (providerId, options) => {
     try {
       const showOptions: ProviderShowOptions = {
-        ...options
+        ...options,
       }
       await runProviderShow(providerId, showOptions)
     } catch {
@@ -46,7 +45,7 @@ const pingCommand = new Command('ping')
   .action(async (providerId, options) => {
     try {
       const pingOptions: ProviderPingOptions = {
-        ...options
+        ...options,
       }
       await runProviderPing(providerId, pingOptions)
     } catch {
