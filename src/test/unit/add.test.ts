@@ -206,6 +206,7 @@ describe('Add Command', () => {
         dataSetMetadata: { purpose: 'erc8004' },
       })
       const { createStorageContext, initializeSynapse } = await import('../../core/synapse/index.js')
+      const { performUpload } = await import('../../common/upload-flow.js')
 
       expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -221,6 +222,15 @@ describe('Add Command', () => {
             metadata: { purpose: 'erc8004' },
           },
           logger: expect.anything(),
+        })
+      )
+
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          metadata: { region: 'us-west', note: '' },
         })
       )
     })
