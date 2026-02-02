@@ -13,13 +13,14 @@ export const addCommand = new Command('add')
 
 // Add data set selection options
 addCommand.addOption(
-  new Option('--data-set <id>', 'ID of the existing data set to use')
-    .conflicts(['newDataSet', 'new-data-set'])
+  new Option('--data-set <id>', 'ID of the existing data set to use').conflicts(['newDataSet', 'new-data-set'])
 )
 
 addCommand.addOption(
-  new Option('--new-data-set', 'Create a new data set instead of using an existing one')
-    .conflicts(['dataSet', 'data-set'])
+  new Option('--new-data-set', 'Create a new data set instead of using an existing one').conflicts([
+    'dataSet',
+    'data-set',
+  ])
 )
 
 addCommand.action(async (path: string, options: any) => {
@@ -42,7 +43,7 @@ addCommand.action(async (path: string, options: any) => {
 
     if (rawDataSetId) {
       dataSetId = parseInt(rawDataSetId, 10)
-      if (isNaN(dataSetId) || dataSetId < 0 || dataSetId.toString() !== rawDataSetId) {
+      if (Number.isNaN(dataSetId) || dataSetId < 0 || dataSetId.toString() !== rawDataSetId) {
         console.error('Error: Data set ID must be a valid positive integer')
         process.exit(1)
       }
