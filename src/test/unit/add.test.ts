@@ -206,6 +206,7 @@ describe('Add Command', () => {
         dataSetMetadata: { purpose: 'erc8004' },
       })
       const { createStorageContext, initializeSynapse } = await import('../../core/synapse/index.js')
+      const { performUpload } = await import('../../common/upload-flow.js')
 
       expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -224,13 +225,45 @@ describe('Add Command', () => {
         })
       )
 
-      const { performUpload } = await import('../../common/upload-flow.js')
       expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
         expect.anything(),
         expect.objectContaining({
           metadata: { region: 'us-west', note: '' },
+        })
+      )
+    })
+
+    it('passes data set selection options to storage context', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        dataSetId: 123,
+      })
+      const { createStorageContext } = await import('../../core/synapse/index.js')
+      expect(vi.mocked(createStorageContext)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          dataset: expect.objectContaining({
+            useExisting: 123,
+          }),
+        })
+      )
+
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        createNewDataSet: true,
+      })
+      expect(vi.mocked(createStorageContext)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          dataset: expect.objectContaining({
+            createNew: true,
+          }),
         })
       )
     })
