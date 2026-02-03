@@ -17,6 +17,7 @@ import {
   getDownloadURL,
   getServiceURL,
   type SynapseUploadResult,
+  type UploadData,
 } from '../core/upload/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { autoFund } from '../payments/fund.js'
@@ -256,7 +257,7 @@ function displayPaymentIssues(capacityCheck: PaymentCapacityCheck, fileSize: num
  */
 export async function performUpload(
   synapseService: SynapseService,
-  carData: Uint8Array,
+  carData: UploadData,
   rootCid: CID,
   options: UploadFlowOptions
 ): Promise<UploadFlowResult> {
