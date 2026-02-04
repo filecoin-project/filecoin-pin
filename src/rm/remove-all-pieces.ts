@@ -138,7 +138,7 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
     const onProgress = (event: RemoveAllPiecesProgressEvents): void => {
       switch (event.type) {
         case 'remove-all:fetching':
-          spinner.start('Fetching pieces...')
+          spinner.message('Fetching pieces...')
           break
 
         case 'remove-all:fetched':
@@ -160,9 +160,7 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
           break
 
         case 'remove-all:complete':
-          spinner.stop(
-            `${pc.green('✓')} Removal complete: ${event.data.removedCount}/${event.data.totalPieces} succeeded, ${event.data.failedCount} failed`
-          )
+          // Main flow will handle stopping the spinner
           break
       }
     }
@@ -174,6 +172,9 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
       onProgress,
       waitForConfirmation: options.waitForConfirmation ?? false,
     })
+
+    // Ensure spinner is stopped before displaying results
+    spinner.stop(`${pc.green('✓')} Removal complete: ${result.removedCount}/${result.totalPieces} succeeded, ${result.failedCount} failed`)
 
     // Display results
     log.spinnerSection('Results', [

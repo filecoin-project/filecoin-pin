@@ -76,7 +76,7 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
     const onProgress = (event: RemovePieceProgressEvents): void => {
       switch (event.type) {
         case 'remove-piece:submitting':
-          spinner.start('Submitting remove transaction...')
+          spinner.message('Submitting remove transaction...')
           break
 
         case 'remove-piece:submitted':
@@ -95,7 +95,7 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
         case 'remove-piece:complete':
           isConfirmed = event.data.confirmed
           txHash = event.data.txHash
-          spinner.stop(`${pc.green('✓')} Piece removed${isConfirmed ? ' and confirmed' : ' (confirmation pending)'}`)
+          // Main flow will handle stopping the spinner
           break
       }
     }
@@ -115,6 +115,9 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
       onProgress,
       waitForConfirmation: options.waitForConfirmation ?? false,
     })
+
+    // Ensure spinner is stopped before displaying results
+    spinner.stop(`${pc.green('✓')} Piece removed${isConfirmed ? ' and confirmed' : ' (confirmation pending)'}`)
 
     // Display results
     log.spinnerSection('Results', [
