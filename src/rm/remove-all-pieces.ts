@@ -74,15 +74,29 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
     })
 
     // Get piece count for confirmation
-    const { pieces } = await import('../core/data-set/get-data-set-pieces.js').then((m) =>
+    const { pieces: allPieces } = await import('../core/data-set/get-data-set-pieces.js').then((m) =>
       m.getDataSetPieces(synapse, storage, { logger })
     )
-    const pieceCount = pieces.length
+    const { PieceStatus } = await import('../core/data-set/types.js')
+    const activePieces = allPieces.filter((p) => p.status === PieceStatus.ACTIVE)
+    const pendingRemovalPieces = allPieces.filter((p) => p.status === PieceStatus.PENDING_REMOVAL)
+    const pieceCount = activePieces.length
+    const pendingRemovalCount = pendingRemovalPieces.length
 
-    spinner.stop(`${pc.green('✓')} Found ${pc.bold(String(pieceCount))} piece(s) in DataSet ${dataSetId}`)
+    if (pendingRemovalCount > 0) {
+      spinner.stop(
+        `${pc.green('✓')} Found ${pc.bold(String(pieceCount))} active piece(s) in DataSet ${dataSetId} (${pendingRemovalCount} already pending removal)`
+      )
+    } else {
+      spinner.stop(`${pc.green('✓')} Found ${pc.bold(String(pieceCount))} piece(s) in DataSet ${dataSetId}`)
+    }
 
     if (pieceCount === 0) {
-      outro('No pieces to remove')
+      if (pendingRemovalCount > 0) {
+        outro(`No active pieces to remove (${pendingRemovalCount} piece(s) already pending removal)`)
+      } else {
+        outro('No pieces to remove')
+      }
       return {
         dataSetId,
         totalPieces: 0,

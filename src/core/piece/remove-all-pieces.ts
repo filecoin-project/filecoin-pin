@@ -9,6 +9,7 @@
 import type { StorageContext, Synapse } from '@filoz/synapse-sdk'
 import type { Logger } from 'pino'
 import { getDataSetPieces } from '../data-set/get-data-set-pieces.js'
+import { PieceStatus } from '../data-set/types.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 import { removePiece } from './remove-piece.js'
 
@@ -96,8 +97,16 @@ export async function removeAllPieces(
   // Fetch all pieces from the dataset
   onProgress?.({ type: 'remove-all:fetching', data: { dataSetId } })
 
-  const { pieces } = await getDataSetPieces(synapse, storageContext, { logger })
+  const { pieces: allPieces } = await getDataSetPieces(synapse, storageContext, { logger })
+
+  // Filter out pieces that are already pending removal - no need to delete them again
+  const pieces = allPieces.filter((p) => p.status === PieceStatus.ACTIVE)
   const totalPieces = pieces.length
+  const skippedCount = allPieces.length - pieces.length
+
+  if (skippedCount > 0) {
+    logger?.info({ skipped: skippedCount, total: allPieces.length }, 'Skipped pieces already pending removal')
+  }
 
   onProgress?.({ type: 'remove-all:fetched', data: { dataSetId, totalPieces } })
 
