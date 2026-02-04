@@ -174,7 +174,9 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
     })
 
     // Ensure spinner is stopped before displaying results
-    spinner.stop(`${pc.green('✓')} Removal complete: ${result.removedCount}/${result.totalPieces} succeeded, ${result.failedCount} failed`)
+    spinner.stop(
+      `${pc.green('✓')} Removal complete: ${result.removedCount}/${result.totalPieces} succeeded, ${result.failedCount} failed`
+    )
 
     // Display results
     log.spinnerSection('Results', [
