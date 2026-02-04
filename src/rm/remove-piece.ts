@@ -10,7 +10,8 @@
 import pc from 'picocolors'
 import pino from 'pino'
 import { type RemovePieceProgressEvents, removePiece } from '../core/piece/index.js'
-import { cleanupSynapseService, createStorageContext, initializeSynapse } from '../core/synapse/index.js'
+import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { createStorageContextFromDataSetId } from '../core/synapse/storage-context-helper.js'
 import { parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -101,10 +102,7 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
     }
 
     spinner.start('Creating storage context...')
-    const { storage } = await createStorageContext(synapse, {
-      logger,
-      dataset: { useExisting: dataSetId },
-    })
+    const { storage } = await createStorageContextFromDataSetId(synapse, dataSetId)
 
     spinner.stop(`${pc.green('✓')} Storage context created`)
 

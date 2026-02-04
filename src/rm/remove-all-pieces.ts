@@ -12,7 +12,8 @@ import { confirm, isCancel } from '@clack/prompts'
 import pc from 'picocolors'
 import pino from 'pino'
 import { type RemoveAllPiecesProgressEvents, removeAllPieces } from '../core/piece/index.js'
-import { cleanupSynapseService, createStorageContext, initializeSynapse } from '../core/synapse/index.js'
+import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { createStorageContextFromDataSetId } from '../core/synapse/storage-context-helper.js'
 import { parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -68,10 +69,7 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
 
     // Create storage context to fetch pieces
     spinner.start('Fetching pieces from DataSet...')
-    const { storage } = await createStorageContext(synapse, {
-      logger,
-      dataset: { useExisting: dataSetId },
-    })
+    const { storage } = await createStorageContextFromDataSetId(synapse, dataSetId)
 
     // Get piece count for confirmation
     const { pieces: allPieces } = await import('../core/data-set/get-data-set-pieces.js').then((m) =>
