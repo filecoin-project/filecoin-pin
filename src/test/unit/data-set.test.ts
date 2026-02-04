@@ -16,6 +16,8 @@ const {
   mockSynapseCreate,
   MockPDPServer,
   MockPDPVerifier,
+  MockStorageContext,
+  MockSPRegistryService,
   state,
 } = vi.hoisted(() => {
   const displayDataSetListMock = vi.fn()
@@ -38,6 +40,22 @@ const {
   const mockWarmStorageInstance = {
     getPDPVerifierAddress: () => '0xverifier',
     getPieceMetadata: vi.fn(async () => ({ ...state.pieceMetadata })),
+    getDataSet: vi.fn(async (dataSetId: number) => ({
+      dataSetId: BigInt(dataSetId),
+      providerId: BigInt(2),
+      payer: '0x123',
+      payee: '0x456',
+      pdpRailId: BigInt(327),
+      cdnRailId: BigInt(0),
+      cacheMissRailId: BigInt(0),
+      commissionBps: 100,
+    })),
+    getDataSetMetadata: vi.fn(async () => ({
+      [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+      source: 'filecoin-pin',
+      note: 'demo',
+    })),
+    getServiceProviderRegistryAddress: () => '0xregistry',
   }
 
   const mockWarmStorageCreate = vi.fn(async () => mockWarmStorageInstance)
@@ -61,9 +79,15 @@ const {
     }
   }
 
-  const mockStorageContext = {
-    dataSetId: 158,
-    getPieces: async function* () {
+  class MockStorageContext {
+    dataSetId = 158
+    serviceProvider = '0xservice'
+    provider = {
+      id: BigInt(2),
+      name: 'Test Provider',
+      serviceProvider: '0xservice',
+    }
+    async *getPieces() {
       for (const piece of state.pieceList) {
         yield {
           pieceId: piece.pieceId,
@@ -72,8 +96,31 @@ const {
           },
         }
       }
-    },
+    }
   }
+
+  class MockSPRegistryService {
+    async getProvider() {
+      return {
+        id: BigInt(2),
+        name: 'Test Provider',
+        serviceProvider: '0xservice',
+        description: 'demo provider',
+        payee: '0x456',
+        active: true,
+        products: {
+          PDP: {
+            type: 'PDP',
+            isActive: true,
+            capabilities: {},
+            data: { serviceURL: 'https://pdp.local' },
+          },
+        },
+      }
+    }
+  }
+
+  const mockStorageContext = new MockStorageContext()
 
   const mockCreateContext = vi.fn(async () => mockStorageContext)
 
@@ -121,6 +168,8 @@ const {
     mockSynapseCreate,
     mockCreateContext,
     mockStorageContext,
+    MockStorageContext,
+    MockSPRegistryService,
     MockPDPServer,
     MockPDPVerifier,
     state,
@@ -159,8 +208,14 @@ vi.mock('@filoz/synapse-sdk', async () => {
     WarmStorageService: { create: mockWarmStorageCreate },
     PDPVerifier: MockPDPVerifier,
     PDPServer: MockPDPServer,
+    StorageContext: MockStorageContext,
   }
 })
+
+// Mock SPRegistryService for getDetailedDataSet
+vi.mock('@filoz/synapse-sdk/sp-registry', () => ({
+  SPRegistryService: MockSPRegistryService,
+}))
 
 // Mock piece size calculation
 vi.mock('@filoz/synapse-core/piece', () => ({
