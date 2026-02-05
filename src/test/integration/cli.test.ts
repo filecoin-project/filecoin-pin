@@ -1,8 +1,8 @@
 import { execSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 
-describe('ESM import compatibility', () => {
-  it('CLI entrypoint loads without ESM import errors', { timeout: 15000 }, () => {
+describe('CLI entrypoint', () => {
+  it('CLI entrypoint loads without throwing an error', { timeout: 15000 }, () => {
     // This test catches ESM compatibility issues like:
     // - Default imports on packages that only have named exports
     // - Missing exports in ESM modules
@@ -19,6 +19,4 @@ describe('ESM import compatibility', () => {
       })
     }).not.toThrow()
   })
-
-
 })
