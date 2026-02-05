@@ -1,4 +1,4 @@
-import Sentry from '@sentry/node'
+import * as Sentry from '@sentry/node'
 import { name as packageName, version as packageVersion } from './core/utils/version.js'
 
 // Ensure to call this before requiring any other modules!
