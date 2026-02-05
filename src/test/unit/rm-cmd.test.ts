@@ -10,7 +10,7 @@ const {
   mockCreateSpinner,
   mockParseCLIAuth,
   mockInitializeSynapse,
-  mockCreateStorageContext,
+  mockCreateStorageContextFromDataSetId,
   mockCleanupSynapseService,
   mockRemovePiece,
   mockLogSection,
@@ -36,7 +36,7 @@ const {
   }))
 
   const mockStorageContext = { dataSetId: 123 }
-  const mockCreateStorageContext = vi.fn(async () => ({ storage: mockStorageContext }))
+  const mockCreateStorageContextFromDataSetId = vi.fn(async () => ({ storage: mockStorageContext, providerInfo: {} }))
 
   const mockRemovePiece = vi.fn(async (_pieceCid: string, _storage: any, opts: { onProgress?: any }) => {
     opts.onProgress?.({
@@ -58,7 +58,7 @@ const {
     mockCreateSpinner,
     mockParseCLIAuth,
     mockInitializeSynapse,
-    mockCreateStorageContext,
+    mockCreateStorageContextFromDataSetId,
     mockCleanupSynapseService,
     mockRemovePiece,
     mockLogSection,
@@ -82,8 +82,11 @@ vi.mock('../../utils/cli-logger.js', () => ({
 
 vi.mock('../../core/synapse/index.js', () => ({
   initializeSynapse: mockInitializeSynapse,
-  createStorageContext: mockCreateStorageContext,
   cleanupSynapseService: mockCleanupSynapseService,
+}))
+
+vi.mock('../../core/synapse/storage-context-helper.js', () => ({
+  createStorageContextFromDataSetId: mockCreateStorageContextFromDataSetId,
 }))
 
 vi.mock('../../core/piece/index.js', () => ({
@@ -122,10 +125,7 @@ describe('runRmPiece', () => {
         onProgress: expect.any(Function),
       })
     )
-    expect(mockCreateStorageContext).toHaveBeenCalledWith(expect.anything(), {
-      logger: expect.anything(),
-      dataset: { useExisting: 123 },
-    })
+    expect(mockCreateStorageContextFromDataSetId).toHaveBeenCalledWith(expect.anything(), 123)
     expect(spinner.stop).toHaveBeenCalledWith(expect.stringContaining('Piece removed'))
     expect(mockCleanupSynapseService).toHaveBeenCalled()
     expect(mockIntro).toHaveBeenCalled()
