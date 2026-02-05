@@ -54,7 +54,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     if (!privateKey) {
       const input = await password({
         message: 'Enter your private key',
-        validate: (value: string) => {
+        validate: (value) => {
           if (!value) return 'Private key is required'
 
           // Add 0x prefix if missing
@@ -202,7 +202,8 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
         message: 'How much USDFC would you like to deposit?',
         placeholder: '10.0',
         initialValue: status.filecoinPayBalance === 0n ? '10.0' : '5.0',
-        validate: (value: string) => {
+        validate: (value) => {
+          if (!value) return 'Amount is required'
           try {
             const amount = ethers.parseUnits(value, 18)
             if (amount <= 0n) return 'Amount must be greater than 0'
