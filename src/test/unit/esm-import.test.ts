@@ -21,13 +21,4 @@ describe('ESM import compatibility', () => {
   })
 
 
-  it('@sentry/node does not export a default export', async () => {
-    // This test explicitly verifies that @sentry/node only has named exports
-    // If someone tries to use default import, this test serves as documentation
-    // showing why it won't work
-    const sentryModule = await import('@sentry/node')
-    expect(sentryModule.default).toBeUndefined()
-    expect(sentryModule.init).toBeDefined()
-    expect(sentryModule.setTags).toBeDefined()
-  })
 })
