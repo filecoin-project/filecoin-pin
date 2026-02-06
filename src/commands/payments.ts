@@ -26,6 +26,7 @@ const setupCommand = new Command('setup')
         auto: options.auto || false,
         deposit: options.deposit || '1',
         rateAllowance: options.rateAllowance || '1TiB/month',
+        network: options.mainnet ? 'mainnet' : options.network,
       }
 
       if (setupOptions.auto) {
@@ -33,8 +34,7 @@ const setupCommand = new Command('setup')
       } else {
         await runInteractiveSetup(setupOptions)
       }
-    } catch (error) {
-      console.error('Payment setup failed:', error instanceof Error ? error.message : error)
+    } catch {
       process.exit(1)
     }
   })
@@ -60,8 +60,7 @@ const fundCommand = new Command('fund')
       }
       if (options.days != null) fundOptions.days = Number(options.days)
       await runFund(fundOptions)
-    } catch (error) {
-      console.error('Failed to adjust funds:', error instanceof Error ? error.message : error)
+    } catch {
       process.exit(1)
     }
   })
@@ -79,8 +78,7 @@ const withdrawCommand = new Command('withdraw')
         ...options,
         amount: options.amount,
       })
-    } catch (error) {
-      console.error('Failed to withdraw:', error instanceof Error ? error.message : error)
+    } catch {
       process.exit(1)
     }
   })
@@ -97,8 +95,7 @@ const statusCommand = new Command('status')
       await showPaymentStatus({
         ...options,
       })
-    } catch (error) {
-      console.error('Failed to get payment status:', error instanceof Error ? error.message : error)
+    } catch {
       process.exit(1)
     }
   })
@@ -118,8 +115,7 @@ const depositCommand = new Command('deposit')
         amount: options.amount,
         days: options.days != null ? Number(options.days) : undefined, // Only pass days if explicitly provided
       })
-    } catch (error) {
-      console.error('Failed to perform deposit:', error instanceof Error ? error.message : error)
+    } catch {
       process.exit(1)
     }
   })

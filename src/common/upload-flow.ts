@@ -271,8 +271,18 @@ export async function performUpload(
   let transactionHash: string | undefined
 
   let pieceCid: PieceCID | undefined
-  function getIpniAdvertisementMsg(attemptCount: number): string {
-    return `Checking for IPNI provider records (check #${attemptCount})`
+  function getIpniAdvertisementMsg(details: {
+    attempt: number
+    totalAttempts: number
+    cidAttempt: number
+    cidMaxAttempts: number
+    cidIndex: number
+    cidCount: number
+  }): string {
+    const { attempt, totalAttempts, cidAttempt, cidMaxAttempts, cidIndex, cidCount } = details
+    const overallPart = totalAttempts > 0 ? `${attempt}/${totalAttempts}` : `${attempt}`
+    const cidPart = cidCount > 1 ? `, CID ${cidIndex}/${cidCount} attempt ${cidAttempt}/${cidMaxAttempts}` : ''
+    return `Checking for IPNI provider records (${overallPart}${cidPart})`
   }
 
   const uploadResult = await executeUpload(synapseService, carData, rootCid, {
@@ -329,8 +339,18 @@ export async function performUpload(
         }
 
         case 'ipniProviderResults.retryUpdate': {
-          const attemptCount = event.data.retryCount === 0 ? 1 : event.data.retryCount + 1
-          flow.addOperation('ipni', getIpniAdvertisementMsg(attemptCount))
+          const attempt = event.data.attempt ?? (event.data.retryCount === 0 ? 1 : event.data.retryCount + 1)
+          flow.addOperation(
+            'ipni',
+            getIpniAdvertisementMsg({
+              attempt,
+              totalAttempts: event.data.totalAttempts ?? attempt,
+              cidAttempt: event.data.cidAttempt ?? attempt,
+              cidMaxAttempts: event.data.cidMaxAttempts ?? event.data.totalAttempts ?? attempt,
+              cidIndex: event.data.cidIndex ?? 1,
+              cidCount: event.data.cidCount ?? 1,
+            })
+          )
           break
         }
         case 'ipniProviderResults.complete': {

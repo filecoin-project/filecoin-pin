@@ -9,7 +9,6 @@
  */
 import pc from 'picocolors'
 import pino from 'pino'
-import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import { type RemovePieceProgressEvents, removePiece } from '../core/piece/index.js'
 import { cleanupSynapseService, createStorageContext, initializeSynapse } from '../core/synapse/index.js'
 import { parseCLIAuth } from '../utils/cli-auth.js'
@@ -59,10 +58,7 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
     spinner.start('Initializing Synapse SDK...')
 
     const authConfig = parseCLIAuth(options)
-    const synapse = await initializeSynapse(
-      { ...authConfig, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
-      logger
-    )
+    const synapse = await initializeSynapse(authConfig, logger)
     const network = synapse.getNetwork()
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
@@ -105,7 +101,10 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
     }
 
     spinner.start('Creating storage context...')
-    const { storage } = await createStorageContext(synapse, { logger, dataset: { useExisting: dataSetId } })
+    const { storage } = await createStorageContext(synapse, {
+      logger,
+      dataset: { useExisting: dataSetId },
+    })
 
     spinner.stop(`${pc.green('✓')} Storage context created`)
 

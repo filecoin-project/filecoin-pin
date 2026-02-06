@@ -4,7 +4,6 @@
 
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import { checkFILBalance, getPaymentStatus, withdrawUSDFC } from '../core/payments/index.js'
 import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
@@ -25,11 +24,11 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
     amount = ethers.parseUnits(String(options.amount), 18)
   } catch {
     console.error(pc.red(`Error: Invalid amount '${options.amount}'`))
-    process.exit(1)
+    throw new Error(`Invalid amount '${options.amount}'`)
   }
   if (amount <= 0n) {
     console.error(pc.red('Error: Amount must be greater than 0'))
-    process.exit(1)
+    throw new Error('Amount must be greater than 0')
   }
 
   spinner.start('Connecting...')
@@ -38,10 +37,7 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
     const authConfig = parseCLIAuth(options)
 
     const logger = getCLILogger()
-    const synapse = await initializeSynapse(
-      { ...authConfig, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
-      logger
-    )
+    const synapse = await initializeSynapse(authConfig, logger)
     const filStatus = await checkFILBalance(synapse)
     if (!filStatus.hasSufficientGas) {
       spinner.stop()
@@ -77,7 +73,7 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
     spinner.stop()
     console.error(pc.red('✗ Withdraw failed'))
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
-    process.exitCode = 1
+    throw error
   } finally {
     await cleanupSynapseService()
   }

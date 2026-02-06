@@ -45,7 +45,7 @@ export async function runDataSetDetailsCommand(dataSetId: number, options: DataS
     log.flush()
 
     cancel('Inspection failed')
-    process.exitCode = 1
+    throw error
   } finally {
     await cleanupSynapseService()
   }
@@ -110,7 +110,7 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
     log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
     log.flush()
     cancel('Listing failed')
-    process.exitCode = 1
+    throw error
   } finally {
     await cleanupSynapseService()
   }

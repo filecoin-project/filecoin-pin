@@ -21,7 +21,6 @@ import {
   validatePaymentRequirements,
 } from '../core/payments/index.js'
 import { cleanupProvider, cleanupSynapseService } from '../core/synapse/index.js'
-import { getTelemetryConfig } from '../core/synapse/telemetry-config.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
@@ -55,7 +54,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     if (!privateKey) {
       const input = await password({
         message: 'Enter your private key',
-        validate: (value: string) => {
+        validate: (value) => {
           if (!value) return 'Private key is required'
 
           // Add 0x prefix if missing
@@ -88,14 +87,16 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     const s = createSpinner()
     s.start('Initializing connection...')
 
-    const rpcUrl = options.rpcUrl || RPC_URLS.calibration.websocket
+    const defaultRpcUrl = options.network === 'mainnet' ? RPC_URLS.mainnet.websocket : RPC_URLS.calibration.websocket
+    const rpcUrl = options.rpcUrl || defaultRpcUrl
 
     const synapse = await Synapse.create({
-      telemetry: getTelemetryConfig(),
       privateKey,
       rpcURL: rpcUrl,
       withIpni: true, // Always filter for IPNI-enabled providers
-      ...(options.warmStorageAddress && { warmStorageAddress: options.warmStorageAddress }),
+      ...(options.warmStorageAddress && {
+        warmStorageAddress: options.warmStorageAddress,
+      }),
     })
     const network = synapse.getNetwork()
     const client = synapse.getClient()
@@ -201,7 +202,8 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
         message: 'How much USDFC would you like to deposit?',
         placeholder: '10.0',
         initialValue: status.filecoinPayBalance === 0n ? '10.0' : '5.0',
-        validate: (value: string) => {
+        validate: (value) => {
+          if (!value) return 'Amount is required'
           try {
             const amount = ethers.parseUnits(value, 18)
             if (amount <= 0n) return 'Amount must be greater than 0'

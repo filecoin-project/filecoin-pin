@@ -37,7 +37,19 @@ interface ProviderResult {
 }
 
 export type ValidateIPNIProgressEvents =
-  | ProgressEvent<'ipniProviderResults.retryUpdate', { retryCount: number }>
+  | ProgressEvent<
+      'ipniProviderResults.retryUpdate',
+      {
+        retryCount: number
+        attempt: number
+        totalAttempts: number
+        cid: CID
+        cidIndex: number
+        cidCount: number
+        cidAttempt: number
+        cidMaxAttempts: number
+      }
+    >
   | ProgressEvent<'ipniProviderResults.complete', { result: true; retryCount: number }>
   | ProgressEvent<'ipniProviderResults.failed', { error: Error }>
 
@@ -93,6 +105,11 @@ export interface WaitForIpniProviderResultsOptions {
    * @default 'https://filecoinpin.contact'
    */
   ipniIndexerUrl?: string | undefined
+
+  /**
+   * Child blocks that must also be validated against expected providers.
+   */
+  childBlocks?: CID[] | undefined
 }
 
 /**
@@ -121,6 +138,7 @@ export async function waitForIpniProviderResults(
   const expectedProviders = options?.expectedProviders?.filter((provider) => provider != null) ?? []
   const { expectedMultiaddrs, skippedProviderCount } = deriveExpectedMultiaddrs(expectedProviders, options?.logger)
   const expectedMultiaddrsSet = new Set(expectedMultiaddrs)
+  const childBlocks = options?.childBlocks?.filter((cid) => cid != null) ?? []
 
   const hasProviderExpectations = expectedMultiaddrs.size > 0
 
@@ -132,6 +150,88 @@ export async function waitForIpniProviderResults(
       'No provider multiaddrs derived from expected providers; falling back to generic IPNI validation'
     )
   }
+
+  const cidsToValidate: CID[] = []
+  const seenCidStrings = new Set<string>()
+  for (const cid of [ipfsRootCid, ...childBlocks]) {
+    const cidString = cid.toString()
+    if (!seenCidStrings.has(cidString)) {
+      cidsToValidate.push(cid)
+      seenCidStrings.add(cidString)
+    }
+  }
+
+  const totalAttempts = cidsToValidate.length * maxAttempts
+  let totalChecks = 0
+
+  try {
+    for (const [index, cid] of cidsToValidate.entries()) {
+      await waitForIpniProviderResultsForCid(cid, {
+        delayMs,
+        maxAttempts,
+        ipniIndexerUrl,
+        expectedMultiaddrs,
+        expectedMultiaddrsSet,
+        hasProviderExpectations,
+        cidIndex: index + 1,
+        cidCount: cidsToValidate.length,
+        totalAttempts,
+        onRetryUpdate: () => {
+          totalChecks++
+          return { retryCount: totalChecks - 1, attempt: totalChecks }
+        },
+        options,
+      })
+    }
+
+    try {
+      // totalChecks is incremented before each emitted retryUpdate, so last retryCount is totalChecks - 1
+      const retryCount = totalChecks > 0 ? totalChecks - 1 : 0
+      options?.onProgress?.({ type: 'ipniProviderResults.complete', data: { result: true, retryCount } })
+    } catch (error) {
+      options?.logger?.warn({ error }, 'Error in consumer onProgress callback for complete event')
+    }
+
+    return true
+  } catch (error) {
+    try {
+      options?.onProgress?.({ type: 'ipniProviderResults.failed', data: { error: error as Error } })
+    } catch (callbackError) {
+      options?.logger?.warn({ error: callbackError }, 'Error in consumer onProgress callback for failed event')
+    }
+    throw error
+  }
+}
+
+async function waitForIpniProviderResultsForCid(
+  cid: CID,
+  config: {
+    delayMs: number
+    maxAttempts: number
+    ipniIndexerUrl: string
+    expectedMultiaddrs: Set<string>
+    expectedMultiaddrsSet: Set<string>
+    hasProviderExpectations: boolean
+    cidIndex: number
+    cidCount: number
+    totalAttempts: number
+    onRetryUpdate: (() => { retryCount: number; attempt: number }) | undefined
+    options: WaitForIpniProviderResultsOptions | undefined
+  }
+): Promise<boolean> {
+  const {
+    delayMs,
+    maxAttempts,
+    ipniIndexerUrl,
+    expectedMultiaddrs,
+    expectedMultiaddrsSet,
+    hasProviderExpectations,
+    cidIndex,
+    cidCount,
+    totalAttempts,
+  } = config
+  const { onRetryUpdate } = config
+  const { options } = config
 
   return new Promise<boolean>((resolve, reject) => {
     let retryCount = 0
@@ -148,15 +248,28 @@ export async function waitForIpniProviderResults(
       options?.logger?.info(
         {
           event: 'check-ipni-announce',
-          ipfsRootCid: ipfsRootCid.toString(),
+          ipfsRootCid: cid.toString(),
         },
-        'Checking IPNI for announcement of IPFS Root CID "%s"',
-        ipfsRootCid.toString()
+        'Checking IPNI for announcement of IPFS CID "%s"',
+        cid.toString()
       )
 
       // Emit progress event for this attempt
+      const emittedRetryMetadata = onRetryUpdate?.()
       try {
-        options?.onProgress?.({ type: 'ipniProviderResults.retryUpdate', data: { retryCount } })
+        options?.onProgress?.({
+          type: 'ipniProviderResults.retryUpdate',
+          data: {
+            retryCount: emittedRetryMetadata?.retryCount ?? retryCount,
+            attempt: emittedRetryMetadata?.attempt ?? retryCount + 1,
+            totalAttempts,
+            cid,
+            cidIndex,
+            cidCount,
+            cidAttempt: retryCount + 1,
+            cidMaxAttempts: maxAttempts,
+          },
+        })
       } catch (error) {
         options?.logger?.warn({ error }, 'Error in consumer onProgress callback for retryUpdate event')
       }
@@ -171,7 +284,7 @@ export async function waitForIpniProviderResults(
 
       let response: Response | undefined
       try {
-        response = await fetch(`${ipniIndexerUrl}/cid/${ipfsRootCid}`, fetchOptions)
+        response = await fetch(`${ipniIndexerUrl}/cid/${cid}`, fetchOptions)
       } catch (fetchError) {
         lastActualMultiaddrs = new Set()
         lastFailureReason = `Failed to query IPNI indexer: ${getErrorMessage(fetchError)}`
@@ -229,11 +342,6 @@ export async function waitForIpniProviderResults(
 
           if (isValid) {
             // Validation succeeded!
-            try {
-              options?.onProgress?.({ type: 'ipniProviderResults.complete', data: { result: true, retryCount } })
-            } catch (error) {
-              options?.logger?.warn({ error }, 'Error in consumer onProgress callback for complete event')
-            }
             resolve(true)
             return
           }
@@ -260,8 +368,8 @@ export async function waitForIpniProviderResults(
       if (++retryCount < maxAttempts) {
         options?.logger?.info(
           { retryCount, maxAttempts },
-          'IPFS Root CID "%s" not announced to IPNI yet (%d/%d). Retrying in %dms...',
-          ipfsRootCid.toString(),
+          'IPFS CID "%s" not announced to IPNI yet (%d/%d). Retrying in %dms...',
+          cid.toString(),
           retryCount,
           maxAttempts,
           delayMs
@@ -270,7 +378,7 @@ export async function waitForIpniProviderResults(
         await check()
       } else {
         // Max attempts reached - validation failed
-        const msgBase = `IPFS root CID "${ipfsRootCid.toString()}" does not have expected IPNI ProviderResults after ${maxAttempts} attempt${maxAttempts === 1 ? '' : 's'}`
+        const msgBase = `IPFS CID "${cid.toString()}" does not have expected IPNI ProviderResults after ${maxAttempts} attempt${maxAttempts === 1 ? '' : 's'}`
         let msg = msgBase
         if (lastFailureReason != null) {
           msg = `${msgBase}. Last observation: ${lastFailureReason}`
@@ -285,14 +393,7 @@ export async function waitForIpniProviderResults(
       }
     }
 
-    check().catch((error) => {
-      try {
-        options?.onProgress?.({ type: 'ipniProviderResults.failed', data: { error } })
-      } catch (callbackError) {
-        options?.logger?.warn({ error: callbackError }, 'Error in consumer onProgress callback for failed event')
-      }
-      reject(error)
-    })
+    check().catch(reject)
   })
 }
 

@@ -10,7 +10,6 @@ import type { Synapse } from '@filoz/synapse-sdk'
 import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
 import { type ActualStorageResult, calculateActualStorage, listDataSets } from '../core/data-set/index.js'
 import {
   calculateDepositCapacity,
@@ -84,10 +83,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     const authConfig = parseCLIAuth(options)
 
     const logger = getCLILogger()
-    const synapse = await initializeSynapse(
-      { ...authConfig, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
-      logger
-    )
+    const synapse = await initializeSynapse(authConfig, logger)
     const network = synapse.getNetwork()
     const client = synapse.getClient()
     const address = await client.getAddress()
@@ -290,7 +286,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     log.flush()
 
     cancel('Status check failed')
-    process.exitCode = 1
+    throw error
   } finally {
     await cleanupSynapseService()
   }

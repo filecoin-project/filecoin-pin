@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import './instrument.js'
 import { Command } from 'commander'
 import pc from 'picocolors'
 
@@ -6,6 +7,7 @@ import { addCommand } from './commands/add.js'
 import { dataSetCommand } from './commands/data-set.js'
 import { importCommand } from './commands/import.js'
 import { paymentsCommand } from './commands/payments.js'
+import { providerCommand } from './commands/provider.js'
 import { rmCommand } from './commands/rm.js'
 import { serverCommand } from './commands/server.js'
 import { checkForUpdate, type UpdateCheckStatus } from './common/version-check.js'
@@ -26,6 +28,7 @@ program.addCommand(dataSetCommand)
 program.addCommand(importCommand)
 program.addCommand(addCommand)
 program.addCommand(rmCommand)
+program.addCommand(providerCommand)
 
 // Default action - show help if no command specified
 program.action(() => {
