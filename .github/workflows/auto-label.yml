@@ -3,7 +3,9 @@ name: Auto-label issues and PRs
 on:
   issues:
     types: [opened]
-  pull_request:
+  # We do pull_request_target instead of pull_request to support PR's from forks.  
+  # This is safe here because we're not checking out or executing any code from the fork; we're just adding labels.
+  pull_request_target:
     types: [opened]
 
 jobs:
