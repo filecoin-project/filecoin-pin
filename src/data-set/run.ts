@@ -130,23 +130,51 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
   let synapse: Synapse | null = null
 
   try {
+    if (Number.isNaN(dataSetId) || dataSetId <= 0) {
+      spinner.stop(`${pc.red('✗')} Invalid data set ID`)
+      log.line('')
+      log.line(`${pc.red('Error:')} Provided data set ID is invalid or not a number`)
+      log.flush()
+      cancel('Termination failed')
+      return
+    }
+
     synapse = await getCliSynapse(options)
     const network = synapse.getNetwork()
     const client = synapse.getClient()
-    const address = await client.getAddress()
+    let address: string
+    try {
+      address = await client.getAddress()
+    } catch (getAddrError) {
+      spinner.stop(`${pc.red('✗')} Could not retrieve wallet address`)
+      log.line('')
+      log.line(`${pc.red('Error:')} ${getAddrError instanceof Error ? getAddrError.message : String(getAddrError)}`)
+      log.flush()
+      cancel('Termination failed')
+      return
+    }
 
     spinner.message('Fetching data set details...')
 
-    const dataSet: DataSetSummary = await getDetailedDataSet(synapse, dataSetId)
+    let dataSet: DataSetSummary
+    try {
+      dataSet = await getDetailedDataSet(synapse, dataSetId)
+    } catch (dsError) {
+      spinner.stop(`${pc.red('✗')} Data set not found`)
+      log.line('')
+      log.line(`${pc.red('Error:')} Could not find data set with ID ${dataSetId}`)
+      log.flush()
+      cancel('Termination failed')
+      return
+    }
 
-    if (dataSet.payer.toLowerCase() !== address.toLowerCase()) {
+    if (dataSet.payer?.toLowerCase() !== address?.toLowerCase()) {
       spinner.stop(`${pc.red('✗')} Permission denied`)
       log.line('')
-      log.line(`${pc.red('Error:')} Data set ${dataSetId} is not owned by ${address}`)
+      log.line(`${pc.red('Error:')} Data set ${dataSetId} is not owned by address ${address}`)
       log.line(`  Owner: ${dataSet.payer}`)
       log.flush()
       cancel('Termination failed')
-      process.exitCode = 1
       return
     }
 
@@ -187,7 +215,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       })
       if (isCancel(proceed)) {
         cancel('Termination cancelled')
-        process.exit(1)
+        return
       }
       if (!proceed) {
         cancel('Termination cancelled by user')
@@ -198,12 +226,33 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       spinner.message('Terminating data set...')
     }
 
-    const warmStorageService = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
-    const signer = synapse.getSigner()
+    let warmStorageService
+    try {
+      warmStorageService = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
+    } catch (serviceError) {
+      spinner.stop(`${pc.red('✗')} Failed to initialize storage service`)
+      log.line('')
+      log.line(`${pc.red('Error:')} ${serviceError instanceof Error ? serviceError.message : String(serviceError)}`)
+      log.flush()
+      cancel('Termination failed')
+      return
+    }
 
-    spinner.message('Submitting termination transaction...')
-    const txResponse = await warmStorageService.terminateDataSet(signer, dataSetId)
-    const txHash = txResponse.hash
+    let txResponse
+    let txHash
+    try {
+      const signer = synapse.getSigner()
+      spinner.message('Submitting termination transaction...')
+      txResponse = await warmStorageService.terminateDataSet(signer, dataSetId)
+      txHash = txResponse.hash
+    } catch (txErr) {
+      spinner.stop(`${pc.red('✗')} Failed to submit termination transaction`)
+      log.line('')
+      log.line(`${pc.red('Error:')} ${txErr instanceof Error ? txErr.message : String(txErr)}`)
+      log.flush()
+      cancel('Termination failed')
+      return
+    }
 
     const updatedDataSet = {
       ...dataSet,
@@ -241,7 +290,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     log.flush()
 
     cancel('Termination failed')
-    process.exitCode = 1
+    return
   } finally {
     await cleanupSynapseService()
   }
