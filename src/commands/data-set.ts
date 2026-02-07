@@ -18,11 +18,11 @@ export const dataSetShowCommand = new Command('show')
       }
       const dataSetIdNumber = Number.parseInt(dataSetId, 10)
       if (Number.isNaN(dataSetIdNumber)) {
-        process.exit(1)
+        throw new Error('Invalid data set ID')
       }
 
       await runDataSetDetailsCommand(dataSetIdNumber, commandOptions)
-    } catch (_error) {
+    } catch {
       process.exit(1)
     }
   })
@@ -45,7 +45,7 @@ export const dataSetListCommand = new Command('list')
         ...(dataSetMetadata ? { dataSetMetadata } : {}),
       }
       await runDataSetListCommand(normalizedOptions)
-    } catch (_error) {
+    } catch {
       process.exit(1)
     }
   })
@@ -63,11 +63,11 @@ export const dataSetTerminateCommand = new Command('terminate')
       }
       const dataSetIdNumber = Number.parseInt(dataSetId, 10)
       if (Number.isNaN(dataSetIdNumber)) {
-        process.exit(1)
+        throw new Error('Invalid data set ID')
       }
 
       await runTerminateDataSetCommand(dataSetIdNumber, commandOptions)
-    } catch (_error) {
+    } catch {
       process.exit(1)
     }
   })

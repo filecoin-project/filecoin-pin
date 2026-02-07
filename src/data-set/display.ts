@@ -182,14 +182,14 @@ function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
     case PieceStatus.PENDING_REMOVAL:
       pieceStatusDisplay = pc.yellow('pending removal')
       break
-    case PieceStatus.TERMINATED:
-      pieceStatusDisplay = pc.gray('terminated')
-      break
     case PieceStatus.ONCHAIN_ORPHANED:
       pieceStatusDisplay = pc.red('onchain orphaned')
       break
     case PieceStatus.OFFCHAIN_ORPHANED:
       pieceStatusDisplay = pc.red('offchain orphaned')
+      break
+    case PieceStatus.TERMINATED:
+      pieceStatusDisplay = pc.red('terminated')
       break
     default:
       pieceStatusDisplay = pc.gray('unknown')
