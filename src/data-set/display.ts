@@ -182,6 +182,9 @@ function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
     case PieceStatus.PENDING_REMOVAL:
       pieceStatusDisplay = pc.yellow('pending removal')
       break
+    case PieceStatus.TERMINATED:
+      pieceStatusDisplay = pc.gray('terminated')
+      break
     case PieceStatus.ONCHAIN_ORPHANED:
       pieceStatusDisplay = pc.red('onchain orphaned')
       break
@@ -217,7 +220,7 @@ function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
 
   if (dataSet.pdpEndEpoch > 0) {
     for (const piece of dataSet.pieces) {
-      renderPiece({ ...piece, status: PieceStatus.ONCHAIN_ORPHANED }, indentLevel + 1)
+      renderPiece({ ...piece, status: PieceStatus.TERMINATED }, indentLevel + 1)
     }
   } else {
     for (const piece of dataSet.pieces) {

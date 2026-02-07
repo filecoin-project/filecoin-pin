@@ -136,7 +136,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       log.line(`${pc.red('Error:')} Provided data set ID is invalid or not a number`)
       log.flush()
       cancel('Termination failed')
-      return
+      throw new Error('Invalid data set ID')
     }
 
     synapse = await getCliSynapse(options)
@@ -145,13 +145,13 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     let address: string
     try {
       address = await client.getAddress()
-    } catch (getAddrError) {
+    } catch (error) {
       spinner.stop(`${pc.red('✗')} Could not retrieve wallet address`)
       log.line('')
-      log.line(`${pc.red('Error:')} ${getAddrError instanceof Error ? getAddrError.message : String(getAddrError)}`)
+      log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
       log.flush()
       cancel('Termination failed')
-      return
+      throw error
     }
 
     spinner.message('Fetching data set details...')
@@ -159,23 +159,24 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     let dataSet: DataSetSummary
     try {
       dataSet = await getDetailedDataSet(synapse, dataSetId)
-    } catch (dsError) {
+    } catch (error) {
       spinner.stop(`${pc.red('✗')} Data set not found`)
       log.line('')
       log.line(`${pc.red('Error:')} Could not find data set with ID ${dataSetId}`)
       log.flush()
       cancel('Termination failed')
-      return
+      throw error
     }
 
     if (dataSet.payer?.toLowerCase() !== address?.toLowerCase()) {
+      const errorMsg = `Data set ${dataSetId} is not owned by address ${address}`
       spinner.stop(`${pc.red('✗')} Permission denied`)
       log.line('')
-      log.line(`${pc.red('Error:')} Data set ${dataSetId} is not owned by address ${address}`)
+      log.line(`${pc.red('Error:')} ${errorMsg}`)
       log.line(`  Owner: ${dataSet.payer}`)
       log.flush()
       cancel('Termination failed')
-      return
+      throw new Error(errorMsg)
     }
 
     if (dataSet.pdpEndEpoch > 0) {
@@ -187,7 +188,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       }
       log.flush()
       outro('Data set is already terminated')
-      return
+      throw new Error('Data set is already terminated')
     }
 
     spinner.stop('━━━ Data Set to Terminate ━━━')
@@ -215,18 +216,17 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       })
       if (isCancel(proceed)) {
         cancel('Termination cancelled')
-        return
+        throw new Error('Termination cancelled')
       }
       if (!proceed) {
         cancel('Termination cancelled by user')
-        return
+        throw new Error('Termination cancelled by user')
       }
       spinner.start('Terminating data set...')
-    } else {
       spinner.message('Terminating data set...')
     }
 
-    let warmStorageService
+    let warmStorageService: WarmStorageService
     try {
       warmStorageService = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
     } catch (serviceError) {
@@ -235,23 +235,23 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       log.line(`${pc.red('Error:')} ${serviceError instanceof Error ? serviceError.message : String(serviceError)}`)
       log.flush()
       cancel('Termination failed')
-      return
+      throw serviceError
     }
 
-    let txResponse
-    let txHash
+    let txResponse: { hash: string; blockNumber?: number | null }
+    let txHash: string
     try {
       const signer = synapse.getSigner()
       spinner.message('Submitting termination transaction...')
       txResponse = await warmStorageService.terminateDataSet(signer, dataSetId)
       txHash = txResponse.hash
-    } catch (txErr) {
+    } catch (error) {
       spinner.stop(`${pc.red('✗')} Failed to submit termination transaction`)
       log.line('')
-      log.line(`${pc.red('Error:')} ${txErr instanceof Error ? txErr.message : String(txErr)}`)
+      log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
       log.flush()
       cancel('Termination failed')
-      return
+      throw error
     }
 
     const updatedDataSet = {
@@ -290,7 +290,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     log.flush()
 
     cancel('Termination failed')
-    return
+    throw error
   } finally {
     await cleanupSynapseService()
   }

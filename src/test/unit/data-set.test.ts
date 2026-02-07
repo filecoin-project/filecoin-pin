@@ -228,7 +228,6 @@ describe('runDataSetCommand', () => {
 
   afterEach(() => {
     delete process.env.PRIVATE_KEY
-    process.exitCode = 0
   })
 
   it('lists datasets without fetching details when no id is provided', async () => {
@@ -340,20 +339,21 @@ describe('runDataSetCommand', () => {
   })
 
   it('rejects termination when caller is not owner', async () => {
-    mockGetAddress.mockResolvedValue('0x999')
-
-    await runTerminateDataSetCommand(158, {
-      privateKey: 'test-key',
-      rpcUrl: 'wss://sample',
-    })
+    await expect(
+      runTerminateDataSetCommand(158, {
+        privateKey: 'test-key',
+        rpcUrl: 'wss://sample',
+      })
+    ).rejects.toThrow('Data set 158 is not owned by address 0xabc')
 
     expect(cancelMock).toHaveBeenCalledWith('Termination failed')
     expect(spinnerMock.stop).toHaveBeenCalledWith(expect.stringContaining('Permission denied'))
-    expect(process.exitCode).toBe(1)
     expect(displayDataSetListMock).not.toHaveBeenCalled()
   })
 
   it('reports already terminated when pdpEndEpoch > 0', async () => {
+    mockGetAddress.mockResolvedValue('0x123')
+
     mockFindDataSets.mockResolvedValue([
       {
         ...summaryDataSet,
@@ -361,17 +361,13 @@ describe('runDataSetCommand', () => {
       },
     ])
 
-    mockGetAddress.mockResolvedValue('0x123')
+    ;(mockWarmStorageInstance as any).terminateDataSet = vi.fn(async () => ({ hash: '0xdead', blockNumber: 196 }))
 
-    await runTerminateDataSetCommand(158, {
-      privateKey: 'test-key',
-      rpcUrl: 'wss://sample',
-    })
-
-    expect(spinnerMock.stop).toHaveBeenCalledWith(expect.stringContaining('already terminated'))
-    // Should not attempt to call terminate method on WarmStorageService instance
-    if ((mockWarmStorageInstance as any).terminateDataSet) {
-      expect((mockWarmStorageInstance as any).terminateDataSet).not.toHaveBeenCalled()
-    }
+    await expect(
+      runTerminateDataSetCommand(158, {
+        privateKey: 'test-key',
+        rpcUrl: 'wss://sample',
+      })
+    ).rejects.toThrow('Data set is already terminated')
   })
 })

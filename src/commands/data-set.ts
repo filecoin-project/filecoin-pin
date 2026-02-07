@@ -22,7 +22,7 @@ export const dataSetShowCommand = new Command('show')
       }
 
       await runDataSetDetailsCommand(dataSetIdNumber, commandOptions)
-    } catch (error) {
+    } catch (_error) {
       process.exit(1)
     }
   })
@@ -45,7 +45,7 @@ export const dataSetListCommand = new Command('list')
         ...(dataSetMetadata ? { dataSetMetadata } : {}),
       }
       await runDataSetListCommand(normalizedOptions)
-    } catch (error) {
+    } catch (_error) {
       process.exit(1)
     }
   })
@@ -67,7 +67,7 @@ export const dataSetTerminateCommand = new Command('terminate')
       }
 
       await runTerminateDataSetCommand(dataSetIdNumber, commandOptions)
-    } catch (error) {
+    } catch (_error) {
       process.exit(1)
     }
   })
