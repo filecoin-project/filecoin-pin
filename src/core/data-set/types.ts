@@ -19,6 +19,7 @@ import type { Warning } from '../utils/types.js'
  * - ACTIVE: the piece is active, onchain and known by the provider
  * - ONCHAIN_ORPHANED: the piece is not known by the provider, but still on chain
  * - OFFCHAIN_ORPHANED: the piece is known by the provider, but not on chain
+ * - TERMINATED: the piece belongs to a dataset that was terminated (pdpEndEpoch > 0)
  *
  * The orphaned states should not happen, but have been observed and should be logged and displayed to the user.
  */
@@ -27,6 +28,7 @@ export enum PieceStatus {
   PENDING_REMOVAL = 'PENDING_REMOVAL',
   ONCHAIN_ORPHANED = 'ONCHAIN_ORPHANED',
   OFFCHAIN_ORPHANED = 'OFFCHAIN_ORPHANED',
+  TERMINATED = 'TERMINATED',
 }
 
 /**
