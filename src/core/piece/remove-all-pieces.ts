@@ -90,7 +90,7 @@ export async function removeAllPieces(
 
   if (dataSetId == null) {
     throw new Error(
-      'Storage context must be bound to a Data Set before removing pieces. Use createStorageContext with dataset.useExisting to bind to a Data Set.'
+      'Storage context must be bound to a Data Set before removing pieces. Use createStorageContextFromDataSetId to bind to an existing Data Set.'
     )
   }
 

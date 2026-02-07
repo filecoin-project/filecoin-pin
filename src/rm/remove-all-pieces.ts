@@ -107,8 +107,7 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
     // Confirmation prompt (unless --force is specified)
     if (!force) {
       if (!isInteractive()) {
-        spinner.stop(`${pc.red('✗')} Confirmation required for destructive operation`)
-        console.error(pc.red('Use --force to skip confirmation in non-interactive mode'))
+        spinner.stop(`${pc.red('✗')} Confirmation required. Use --force to skip in non-interactive mode`)
         cancel('Remove cancelled')
         throw new Error('Confirmation required for destructive operation')
       }
@@ -183,9 +182,6 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
       pc.gray(`Failed: ${result.failedCount}`),
       pc.gray(`Network: ${network}`),
     ])
-
-    // Clean up WebSocket providers to allow process termination
-    await cleanupSynapseService()
 
     if (result.failedCount > 0) {
       outro(`Remove completed with ${result.failedCount} failure(s)`)
