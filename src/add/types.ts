@@ -1,29 +1,29 @@
-import type { ProviderInfo } from '@filoz/synapse-sdk'
-import type { CLIAuthOptions } from '../utils/cli-auth.js'
+import type { ProviderInfo } from "@filoz/synapse-sdk/sp-registry";
+import type { CLIAuthOptions } from "../utils/cli-auth.js";
 
 export interface AddOptions extends CLIAuthOptions {
-  filePath: string
-  bare?: boolean
+  filePath: string;
+  bare?: boolean;
   /** ID of the existing data set to use */
-  dataSetId?: number
+  dataSetId?: bigint;
   /** Create a new data set instead of using an existing one */
-  createNewDataSet?: boolean
+  createNewDataSet?: boolean;
   /** Auto-fund: automatically ensure minimum 30 days of runway */
-  autoFund?: boolean
+  autoFund?: boolean;
   /** Piece metadata attached to each upload */
-  pieceMetadata?: Record<string, string>
+  pieceMetadata?: Record<string, string>;
   /** Data set metadata applied when creating or updating the storage context */
-  dataSetMetadata?: Record<string, string>
+  dataSetMetadata?: Record<string, string>;
 }
 
 export interface AddResult {
-  filePath: string
-  fileSize: number
-  isDirectory?: boolean
-  rootCid: string
-  pieceCid: string
-  pieceId?: number | undefined
-  dataSetId: string
-  transactionHash?: string | undefined
-  providerInfo: ProviderInfo
+  filePath: string;
+  fileSize: number;
+  isDirectory?: boolean;
+  rootCid: string;
+  pieceCid: string;
+  pieceId?: number | undefined;
+  dataSetId: string;
+  transactionHash?: string | undefined;
+  providerInfo: ProviderInfo;
 }

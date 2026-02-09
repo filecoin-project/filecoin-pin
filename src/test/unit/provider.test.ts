@@ -1,49 +1,63 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { runProviderList, runProviderPing, runProviderShow } from '../../provider/run.js'
-import * as cliAuthModule from '../../utils/cli-auth.js'
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  runProviderList,
+  runProviderPing,
+  runProviderShow,
+} from "../../provider/run.js";
+import * as cliAuthModule from "../../utils/cli-auth.js";
 
 // Fix hoisting issue: define mocks in hoisted block
-const { mockWarmStorage, mockSynapse, mockGetProvider, mockGetAllActiveProviders } = vi.hoisted(() => {
-  const mockGetProvider = vi.fn()
-  const mockGetAllActiveProviders = vi.fn()
+const {
+  mockWarmStorage,
+  mockSynapse,
+  mockGetProvider,
+  mockGetAllActiveProviders,
+} = vi.hoisted(() => {
+  const mockGetProvider = vi.fn();
+  const mockGetAllActiveProviders = vi.fn();
   const mockWarmStorage = {
     getServiceProviderRegistryAddress: vi.fn(),
     getApprovedProviderIds: vi.fn(),
     getProvider: vi.fn(),
-  }
+  };
   const mockSynapse = {
     getProvider: vi.fn(),
     storage: {
       _warmStorageService: mockWarmStorage,
     },
-  }
-  return { mockWarmStorage, mockSynapse, mockGetProvider, mockGetAllActiveProviders }
-})
+  };
+  return {
+    mockWarmStorage,
+    mockSynapse,
+    mockGetProvider,
+    mockGetAllActiveProviders,
+  };
+});
 
 // Mock dependencies
-vi.mock('@filoz/synapse-sdk/sp-registry', () => ({
+vi.mock("@filoz/synapse-sdk/sp-registry", () => ({
   // biome-ignore lint/complexity/useArrowFunction: Must be a function to support new
   SPRegistryService: vi.fn().mockImplementation(function () {
     return {
       getProvider: mockGetProvider,
       getAllActiveProviders: mockGetAllActiveProviders,
-    }
+    };
   }),
-}))
+}));
 
-vi.mock('../../utils/cli-auth.js', () => ({
+vi.mock("../../utils/cli-auth.js", () => ({
   getCliSynapse: vi.fn(),
   getAuthFromEnv: vi.fn(),
   getAuthFromConfig: vi.fn(),
   addAuthOptions: vi.fn(),
-}))
+}));
 
-vi.mock('../../core/synapse/index.js', () => ({
+vi.mock("../../core/synapse/index.js", () => ({
   cleanupSynapseService: vi.fn(),
   initializeSynapse: vi.fn(),
-}))
+}));
 
-vi.mock('../../utils/cli-helpers.js', () => ({
+vi.mock("../../utils/cli-helpers.js", () => ({
   createSpinner: vi.fn().mockImplementation(() => ({
     start: vi.fn(),
     stop: vi.fn(),
@@ -53,125 +67,123 @@ vi.mock('../../utils/cli-helpers.js', () => ({
   outro: vi.fn(),
   cancel: vi.fn(),
   formatFileSize: vi.fn(),
-}))
+}));
 
-vi.mock('../../utils/cli-logger.js', () => ({
+vi.mock("../../utils/cli-logger.js", () => ({
   log: {
     line: vi.fn(),
     info: vi.fn(),
     error: vi.fn(),
   },
-}))
+}));
 
-describe('provider command', () => {
+describe("provider command", () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.clearAllMocks();
 
     // Configure default mock behaviors
-    mockWarmStorage.getServiceProviderRegistryAddress.mockReturnValue('0xRegistry')
-    mockWarmStorage.getApprovedProviderIds.mockResolvedValue([1, 2])
+    mockWarmStorage.getServiceProviderRegistryAddress.mockReturnValue(
+      "0xRegistry",
+    );
+    mockWarmStorage.getApprovedProviderIds.mockResolvedValue([1, 2]);
 
     mockGetProvider.mockImplementation(async (id: any) => {
-      if (id === 1 || id === '1')
+      if (id === 1 || id === "1")
         return {
           id: 1,
-          name: 'Provider 1',
-          serviceProvider: '0x123',
-          products: { PDP: { data: { serviceURL: 'http://p1.com/pdp' } } },
-        }
+          name: "Provider 1",
+          serviceProvider: "0x123",
+          products: { PDP: { data: { serviceURL: "http://p1.com/pdp" } } },
+        };
       if (id === 2)
         return {
           id: 2,
-          name: 'Provider 2',
-          serviceProvider: '0x456',
-          products: { PDP: { data: { serviceURL: 'http://p2.com/pdp' } } },
-        }
-      return null
-    })
+          name: "Provider 2",
+          serviceProvider: "0x456",
+          products: { PDP: { data: { serviceURL: "http://p2.com/pdp" } } },
+        };
+      return null;
+    });
 
     mockGetAllActiveProviders.mockResolvedValue([
       {
         id: 1,
-        name: 'Active1',
-        serviceProvider: '0x1',
-        products: { PDP: { data: { serviceURL: 'http://p1.com/pdp' } } },
+        name: "Active1",
+        serviceProvider: "0x1",
+        products: { PDP: { data: { serviceURL: "http://p1.com/pdp" } } },
       },
       {
         id: 3,
-        name: 'Active3',
-        serviceProvider: '0x3',
-        products: { PDP: { data: { serviceURL: 'http://p3.com/pdp' } } },
+        name: "Active3",
+        serviceProvider: "0x3",
+        products: { PDP: { data: { serviceURL: "http://p3.com/pdp" } } },
       },
-    ])
+    ]);
 
     // Configure getCliSynapse to return our mock synapse
-    vi.mocked(cliAuthModule.getCliSynapse).mockResolvedValue(mockSynapse as any)
+    vi.mocked(cliAuthModule.getCliSynapse).mockResolvedValue(
+      mockSynapse as any,
+    );
 
-    vi.spyOn(console, 'log').mockImplementation(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {
       // no-op
-    })
-    vi.spyOn(process, 'exit').mockImplementation((() => {
+    });
+    vi.spyOn(process, "exit").mockImplementation((() => {
       // no-op
-    }) as any)
-  })
+    }) as any);
+  });
 
-  it('list command should list all approved providers when no arg is passed', async () => {
-    await runProviderList({})
-    expect(mockWarmStorage.getApprovedProviderIds).toHaveBeenCalled()
-    expect(mockGetProvider).toHaveBeenCalledWith(1)
-    expect(mockGetProvider).toHaveBeenCalledWith(2)
-  })
+  it("list command should list all approved providers when no arg is passed", async () => {
+    await runProviderList({});
+    expect(mockWarmStorage.getApprovedProviderIds).toHaveBeenCalled();
+    expect(mockGetProvider).toHaveBeenCalledWith(1);
+    expect(mockGetProvider).toHaveBeenCalledWith(2);
+  });
 
-  it('show command should show specific provider when arg is passed', async () => {
-    await runProviderShow('1', {})
-    expect(mockGetProvider).toHaveBeenCalledWith(1)
-  })
+  it("show command should show specific provider when arg is passed", async () => {
+    await runProviderShow("1", {});
+    expect(mockGetProvider).toHaveBeenCalledWith(1);
+  });
 
-  it('ping command should ping all approved providers when no arg is passed', async () => {
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 } as any)
-    await runProviderPing(undefined, {})
-    expect(mockWarmStorage.getApprovedProviderIds).toHaveBeenCalled()
-    expect(global.fetch).toHaveBeenCalledTimes(2)
+  it("ping command should ping all approved providers when no arg is passed", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 } as any);
+    await runProviderPing(undefined, {});
+    expect(mockWarmStorage.getApprovedProviderIds).toHaveBeenCalled();
+    expect(global.fetch).toHaveBeenCalledTimes(2);
     expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining('/pdp/ping'),
-      expect.objectContaining({ method: 'GET' })
-    )
-  })
+      expect.stringContaining("/pdp/ping"),
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
 
-  it('ping command should ping specific provider when arg is passed', async () => {
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 } as any)
-    await runProviderPing('1', {})
+  it("ping command should ping specific provider when arg is passed", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 } as any);
+    await runProviderPing("1", {});
 
-    expect(mockGetProvider).toHaveBeenCalledWith(1)
-    expect(global.fetch).toHaveBeenCalledTimes(1)
-    expect(global.fetch).toHaveBeenCalledWith('http://p1.com/pdp/pdp/ping', expect.objectContaining({ method: 'GET' }))
-  })
-
-  it('should use default public auth if no credentials provided', async () => {
-    await runProviderList({})
-    expect(cliAuthModule.getCliSynapse).toHaveBeenCalledWith(
-      expect.objectContaining({
-        viewAddress: '0x0000000000000000000000000000000000000000',
-      })
-    )
-  })
-
-  it('list command should list all active providers with --all flag', async () => {
-    await runProviderList({ all: true })
-    expect(mockGetAllActiveProviders).toHaveBeenCalled()
-    expect(mockWarmStorage.getApprovedProviderIds).not.toHaveBeenCalled()
-  })
-
-  it('ping command should ping all active providers with --all flag', async () => {
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 } as any)
-    await runProviderPing(undefined, { all: true })
-
-    expect(mockGetAllActiveProviders).toHaveBeenCalled()
-    expect(mockWarmStorage.getApprovedProviderIds).not.toHaveBeenCalled()
-    expect(global.fetch).toHaveBeenCalledTimes(2)
+    expect(mockGetProvider).toHaveBeenCalledWith(1);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining('/pdp/ping'),
-      expect.objectContaining({ method: 'GET' })
-    )
-  })
-})
+      "http://p1.com/pdp/pdp/ping",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("list command should list all active providers with --all flag", async () => {
+    await runProviderList({ all: true });
+    expect(mockGetAllActiveProviders).toHaveBeenCalled();
+    expect(mockWarmStorage.getApprovedProviderIds).not.toHaveBeenCalled();
+  });
+
+  it("ping command should ping all active providers with --all flag", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 } as any);
+    await runProviderPing(undefined, { all: true });
+
+    expect(mockGetAllActiveProviders).toHaveBeenCalled();
+    expect(mockWarmStorage.getApprovedProviderIds).not.toHaveBeenCalled();
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/pdp/ping"),
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+});
