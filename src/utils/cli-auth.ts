@@ -5,11 +5,11 @@
  * and preparing them for use with the Synapse SDK.
  */
 
-import type { Synapse } from "@filoz/synapse-sdk";
-import { getRpcUrl } from "../common/get-rpc-url.js";
-import type { SynapseSetupConfig } from "../core/synapse/index.js";
-import { initializeSynapse } from "../core/synapse/index.js";
-import { createLogger } from "../logger.js";
+import type { Synapse } from '@filoz/synapse-sdk'
+import { getRpcUrl } from '../common/get-rpc-url.js'
+import type { SynapseSetupConfig } from '../core/synapse/index.js'
+import { initializeSynapse } from '../core/synapse/index.js'
+import { createLogger } from '../logger.js'
 
 /**
  * Common CLI authentication options interface
@@ -17,21 +17,21 @@ import { createLogger } from "../logger.js";
  */
 export interface CLIAuthOptions {
   /** Private key for standard authentication */
-  privateKey?: string | undefined;
+  privateKey?: string | undefined
   /** Wallet address for session key mode */
-  walletAddress?: string | undefined;
+  walletAddress?: string | undefined
   /** Session key private key */
-  sessionKey?: string | undefined;
+  sessionKey?: string | undefined
   /** Filecoin network: mainnet or calibration */
-  network?: string | undefined;
+  network?: string | undefined
   /** RPC endpoint URL (overrides network if specified) */
-  rpcUrl?: string | undefined;
+  rpcUrl?: string | undefined
   /** Optional warm storage address override */
-  warmStorageAddress?: string | undefined;
+  warmStorageAddress?: string | undefined
   /** Optional provider address override */
-  providerAddress?: string | undefined;
+  providerAddress?: string | undefined
   /** Optional provider ID override */
-  providerId?: string | undefined;
+  providerId?: string | undefined
 }
 
 /**
@@ -45,30 +45,27 @@ export interface CLIAuthOptions {
  * @param options - CLI authentication options
  * @returns Synapse setup config (validation happens in initializeSynapse)
  */
-export function parseCLIAuth(
-  options: CLIAuthOptions,
-): Partial<SynapseSetupConfig> {
+export function parseCLIAuth(options: CLIAuthOptions): Partial<SynapseSetupConfig> {
   // Read from CLI options or environment variables
-  const privateKey = options.privateKey || process.env.PRIVATE_KEY;
-  const walletAddress = options.walletAddress || process.env.WALLET_ADDRESS;
-  const sessionKey = options.sessionKey || process.env.SESSION_KEY;
-  const warmStorageAddress =
-    options.warmStorageAddress || process.env.WARM_STORAGE_ADDRESS;
+  const privateKey = options.privateKey || process.env.PRIVATE_KEY
+  const walletAddress = options.walletAddress || process.env.WALLET_ADDRESS
+  const sessionKey = options.sessionKey || process.env.SESSION_KEY
+  const warmStorageAddress = options.warmStorageAddress || process.env.WARM_STORAGE_ADDRESS
 
-  const rpcUrl = getRpcUrl(options);
+  const rpcUrl = getRpcUrl(options)
 
   // Build config - only include defined values, validation happens in initializeSynapse()
-  const config: any = {};
+  const config: any = {}
 
-  if (privateKey) config.privateKey = privateKey;
+  if (privateKey) config.privateKey = privateKey
   if (walletAddress) {
-    config.walletAddress = walletAddress;
+    config.walletAddress = walletAddress
   }
-  if (sessionKey) config.sessionKey = sessionKey;
-  if (rpcUrl) config.rpcUrl = rpcUrl;
-  if (warmStorageAddress) config.warmStorageAddress = warmStorageAddress;
+  if (sessionKey) config.sessionKey = sessionKey
+  if (rpcUrl) config.rpcUrl = rpcUrl
+  if (warmStorageAddress) config.warmStorageAddress = warmStorageAddress
 
-  return config;
+  return config
 }
 
 /**
@@ -76,9 +73,9 @@ export function parseCLIAuth(
  */
 export interface ProviderSelectionOptions {
   /** Provider address override */
-  providerAddress?: string;
+  providerAddress?: string
   /** Provider ID override */
-  providerId?: number;
+  providerId?: number
 }
 
 /**
@@ -90,33 +87,24 @@ export interface ProviderSelectionOptions {
  * @param options - CLI authentication options (may contain provider fields)
  * @returns Provider selection options ready for createStorageContext()
  */
-export function parseProviderOptions(
-  options?: CLIAuthOptions,
-): ProviderSelectionOptions {
+export function parseProviderOptions(options?: CLIAuthOptions): ProviderSelectionOptions {
   // Read from CLI options or environment variables
-  const providerAddress = (
-    options?.providerAddress || process.env.PROVIDER_ADDRESS
-  )?.trim();
-  const providerIdRaw = (
-    options?.providerId || process.env.PROVIDER_ID
-  )?.trim();
+  const providerAddress = (options?.providerAddress || process.env.PROVIDER_ADDRESS)?.trim()
+  const providerIdRaw = (options?.providerId || process.env.PROVIDER_ID)?.trim()
 
   // Parse provider ID as number if present and non-empty
-  const providerId =
-    providerIdRaw != null && providerIdRaw !== ""
-      ? Number(providerIdRaw)
-      : undefined;
+  const providerId = providerIdRaw != null && providerIdRaw !== '' ? Number(providerIdRaw) : undefined
 
   // Build result with only defined values
-  const result: ProviderSelectionOptions = {};
+  const result: ProviderSelectionOptions = {}
   if (providerAddress) {
-    result.providerAddress = providerAddress;
+    result.providerAddress = providerAddress
   }
   if (providerId != null) {
-    result.providerId = providerId;
+    result.providerId = providerId
   }
 
-  return result;
+  return result
 }
 
 /**
@@ -125,11 +113,11 @@ export function parseProviderOptions(
  * @returns Logger configured for CLI use
  */
 export function getCLILogger() {
-  return createLogger({ logLevel: process.env.LOG_LEVEL });
+  return createLogger({ logLevel: process.env.LOG_LEVEL })
 }
 
 export async function getCliSynapse(options: CLIAuthOptions): Promise<Synapse> {
-  const authConfig = parseCLIAuth(options);
-  const logger = getCLILogger();
-  return await initializeSynapse(authConfig, logger);
+  const authConfig = parseCLIAuth(options)
+  const logger = getCLILogger()
+  return await initializeSynapse(authConfig, logger)
 }

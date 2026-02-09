@@ -1,60 +1,58 @@
+// import { SessionKey } from "@filoz/synapse-sdk/session";
 import {
+  calibration,
+  type mainnet,
   // ADD_PIECES_TYPEHASH,
   // CREATE_DATA_SET_TYPEHASH,
   type StorageContextCallbacks,
   type StorageServiceOptions,
   Synapse,
   type SynapseOptions,
-} from "@filoz/synapse-sdk";
-// import { SessionKey } from "@filoz/synapse-sdk/session";
-import { mainnet, calibration } from "@filoz/synapse-sdk";
-import type { ProviderInfo } from "@filoz/synapse-sdk/sp-registry";
-import type { StorageContext } from "@filoz/synapse-sdk/storage";
-import type { Logger } from "pino";
-import {
-  DEFAULT_DATA_SET_METADATA,
-  DEFAULT_STORAGE_CONTEXT_CONFIG,
-} from "./constants.js";
-import { privateKeyToAccount } from "viem/accounts";
+} from '@filoz/synapse-sdk'
+import type { ProviderInfo } from '@filoz/synapse-sdk/sp-registry'
+import type { StorageContext } from '@filoz/synapse-sdk/storage'
+import type { Logger } from 'pino'
+import { privateKeyToAccount } from 'viem/accounts'
+import { DEFAULT_DATA_SET_METADATA, DEFAULT_STORAGE_CONTEXT_CONFIG } from './constants.js'
 
-export * from "./constants.js";
+export * from './constants.js'
 
-const AUTH_MODE_SYMBOL = Symbol.for("filecoin-pin.authMode");
+const AUTH_MODE_SYMBOL = Symbol.for('filecoin-pin.authMode')
 
-let synapseInstance: Synapse | null = null;
-let storageInstance: StorageContext | null = null;
-let currentProviderInfo: ProviderInfo | null = null;
-type AuthMode = "standard"; /* | "session-key" */
+let synapseInstance: Synapse | null = null
+let storageInstance: StorageContext | null = null
+let currentProviderInfo: ProviderInfo | null = null
+type AuthMode = 'standard' /* | "session-key" */
 
 /**
  * Complete application configuration interface
  * This is the main config interface that can be imported by CLI and other consumers
  */
 export interface Config {
-  port: number;
-  host: string;
-  privateKey: `0x${string}` | undefined;
-  databasePath: string;
+  port: number
+  host: string
+  privateKey: `0x${string}` | undefined
+  databasePath: string
   // TODO: remove this from core?
-  carStoragePath: string;
-  logLevel: string;
+  carStoragePath: string
+  logLevel: string
 }
 
 /**
  * Common options for all Synapse configurations
  */
-interface BaseSynapseConfig extends Omit<SynapseOptions, "withCDN"> {
-  chain?: typeof mainnet | typeof calibration;
-  withCDN?: boolean | undefined;
+interface BaseSynapseConfig extends Omit<SynapseOptions, 'withCDN'> {
+  chain?: typeof mainnet | typeof calibration
+  withCDN?: boolean | undefined
   /** Default metadata to apply when creating or reusing datasets */
-  dataSetMetadata?: Record<string, string>;
+  dataSetMetadata?: Record<string, string>
 }
 
 /**
  * Standard authentication with private key
  */
 export interface PrivateKeyConfig extends BaseSynapseConfig {
-  account: `0x${string}`;
+  account: `0x${string}`
 }
 
 // /**
@@ -73,7 +71,7 @@ export interface PrivateKeyConfig extends BaseSynapseConfig {
  * 2. Session Key: walletAddress + sessionKey
  * 3. Signer: ethers Signer instance
  */
-export type SynapseSetupConfig = PrivateKeyConfig;
+export type SynapseSetupConfig = PrivateKeyConfig
 // | SessionKeyConfig
 // | SignerConfig;
 
@@ -82,9 +80,9 @@ export type SynapseSetupConfig = PrivateKeyConfig;
  * its storage context
  */
 export interface SynapseService {
-  synapse: Synapse;
-  storage: StorageContext;
-  providerInfo: ProviderInfo;
+  synapse: Synapse
+  storage: StorageContext
+  providerInfo: ProviderInfo
 }
 
 /**
@@ -102,7 +100,7 @@ export interface DatasetOptions {
    *
    * @default false
    */
-  createNew?: boolean;
+  createNew?: boolean
 
   /**
    * Connect to a specific dataset by ID.
@@ -112,7 +110,7 @@ export interface DatasetOptions {
    *
    * Takes precedence over `createNew` if both are provided.
    */
-  useExisting?: bigint;
+  useExisting?: bigint
 
   /**
    * Custom metadata to attach to the dataset.
@@ -120,7 +118,7 @@ export interface DatasetOptions {
    * Note: If `useExisting` is provided, metadata is ignored since you're
    * connecting to an existing dataset.
    */
-  metadata?: Record<string, string>;
+  metadata?: Record<string, string>
 }
 
 /**
@@ -130,42 +128,42 @@ export interface CreateStorageContextOptions {
   /**
    * Dataset selection options.
    */
-  dataset?: DatasetOptions;
+  dataset?: DatasetOptions
 
   /**
    * Progress callbacks for tracking creation.
    */
-  callbacks?: StorageContextCallbacks;
+  callbacks?: StorageContextCallbacks
 
   /**
    * Override provider selection by address.
    * Takes precedence over providerId if both are specified.
    */
-  providerAddress?: `0x${string}`;
+  providerAddress?: `0x${string}`
 
   /**
    * Override provider selection by ID.
    */
-  providerId?: bigint;
+  providerId?: bigint
 
   /**
    * Optional logger instance for detailed operation tracking and progress callbacks.
    * If not provided, logging will be skipped.
    */
-  logger?: Partial<Logger> | undefined;
+  logger?: Partial<Logger> | undefined
 }
 
 /**
  * Reset the service instances (for testing)
  */
 export function resetSynapseService(): void {
-  synapseInstance = null;
-  storageInstance = null;
-  currentProviderInfo = null;
+  synapseInstance = null
+  storageInstance = null
+  currentProviderInfo = null
 }
 
 function setAuthMode(synapse: Synapse, mode: AuthMode): void {
-  (synapse as any)[AUTH_MODE_SYMBOL] = mode;
+  ;(synapse as any)[AUTH_MODE_SYMBOL] = mode
 }
 
 // /**
@@ -203,10 +201,8 @@ function setAuthMode(synapse: Synapse, mode: AuthMode): void {
 /**
  * Type guards for authentication configuration
  */
-function isPrivateKeyConfig(
-  config: Partial<SynapseSetupConfig>,
-): config is PrivateKeyConfig {
-  return "privateKey" in config && config.privateKey != null;
+function isPrivateKeyConfig(config: Partial<SynapseSetupConfig>): config is PrivateKeyConfig {
+  return 'privateKey' in config && config.privateKey != null
 }
 
 // function isSessionKeyConfig(
@@ -220,40 +216,36 @@ function isPrivateKeyConfig(
 //   );
 // }
 
-function isSignerConfig(
-  config: Partial<SynapseSetupConfig>,
-): config is SignerConfig {
-  return "signer" in config && config.signer != null;
+function isSignerConfig(config: Partial<SynapseSetupConfig>): config is SignerConfig {
+  return 'signer' in config && config.signer != null
 }
 
 /**
  * Validate authentication configuration
  */
-function validateAuthConfig(
-  config: Partial<SynapseSetupConfig>,
-): "standard" | /* "session-key" | */ "signer" {
-  const hasPrivateKey = isPrivateKeyConfig(config);
+function validateAuthConfig(config: Partial<SynapseSetupConfig>): 'standard' | /* "session-key" | */ 'signer' {
+  const hasPrivateKey = isPrivateKeyConfig(config)
   // const hasSessionKey = isSessionKeyConfig(config);
   // const hasSigner = isSignerConfig(config);
 
-  const authCount = [hasPrivateKey /* hasSessionKey, */].filter(Boolean).length;
+  const authCount = [hasPrivateKey /* hasSessionKey, */].filter(Boolean).length
 
   if (authCount === 0) {
     throw new Error(
-      "Authentication required: provide privateKey",
+      'Authentication required: provide privateKey'
       // + " or walletAddress + sessionKey" +
-    );
+    )
   }
 
   if (authCount > 1) {
     throw new Error(
-      "Conflicting authentication: provide only one of privateKey",
+      'Conflicting authentication: provide only one of privateKey'
       // + " or walletAddress + sessionKey" +
-    );
+    )
   }
 
   // if (hasSessionKey) return "session-key";
-  return "standard";
+  return 'standard'
 }
 
 // /**
@@ -336,32 +328,26 @@ function validateAuthConfig(
  * @param logger - Logger instance for detailed operation tracking
  * @returns Initialized Synapse instance
  */
-export async function initializeSynapse(
-  config: Partial<SynapseSetupConfig>,
-  logger: Logger,
-): Promise<Synapse> {
-  const { withCDN, ...restConfig } = config;
+export async function initializeSynapse(config: Partial<SynapseSetupConfig>, logger: Logger): Promise<Synapse> {
+  const { withCDN, ...restConfig } = config
   try {
-    const authMode = validateAuthConfig(config);
+    const authMode = validateAuthConfig(config)
 
     // Determine RPC URL based on auth mode
-    const chain = isSignerConfig(config) ? config.chain : calibration;
+    const chain = isSignerConfig(config) ? config.chain : calibration
 
-    logger.info(
-      { event: "synapse.init", authMode, chain },
-      "Initializing Synapse SDK",
-    );
+    logger.info({ event: 'synapse.init', authMode, chain }, 'Initializing Synapse SDK')
 
     const synapseOptions: SynapseOptions = {
       ...restConfig,
       chain,
       withIpni: true, // Always filter for IPNI-enabled providers
-    };
+    }
     if (withCDN) {
-      synapseOptions.withCDN = true;
+      synapseOptions.withCDN = true
     }
 
-    let synapse: Synapse;
+    let synapse: Synapse
 
     // if (authMode === "session-key") {
     //   // Session key mode - type guard ensures these are defined
@@ -387,31 +373,23 @@ export async function initializeSynapse(
     // } else {
     // Private key mode - type guard ensures privateKey is defined
     if (!isPrivateKeyConfig(config)) {
-      throw new Error(
-        "Internal error: private key mode but config type mismatch",
-      );
+      throw new Error('Internal error: private key mode but config type mismatch')
     }
 
     synapse = await Synapse.create({
       ...synapseOptions,
       account: privateKeyToAccount(config.account),
-    });
-    setAuthMode(synapse, "standard");
+    })
+    setAuthMode(synapse, 'standard')
     // }
-    logger.info(
-      { event: "synapse.init.success", network: synapse.chain.name },
-      "Synapse SDK initialized",
-    );
+    logger.info({ event: 'synapse.init.success', network: synapse.chain.name }, 'Synapse SDK initialized')
 
-    synapseInstance = synapse;
-    return synapse;
+    synapseInstance = synapse
+    return synapse
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error(
-      { event: "synapse.init.failed", error: errorMessage },
-      "Failed to initialize Synapse SDK",
-    );
-    throw error;
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    logger.error({ event: 'synapse.init.failed', error: errorMessage }, 'Failed to initialize Synapse SDK')
+    throw error
   }
 }
 
@@ -448,33 +426,30 @@ export async function initializeSynapse(
  */
 export async function createStorageContext(
   synapse: Synapse,
-  options?: CreateStorageContextOptions,
+  options?: CreateStorageContextOptions
 ): Promise<{ storage: StorageContext; providerInfo: ProviderInfo }> {
-  const logger = options?.logger;
+  const logger = options?.logger
 
   try {
     // Create storage context with comprehensive event tracking
     // The storage context manages the data set and provider interactions
-    logger?.info?.(
-      { event: "synapse.storage.create" },
-      "Creating storage context",
-    );
+    logger?.info?.({ event: 'synapse.storage.create' }, 'Creating storage context')
 
     // Convert our curated options to Synapse SDK options
     const sdkOptions: StorageServiceOptions = {
       ...DEFAULT_STORAGE_CONTEXT_CONFIG,
-    };
+    }
 
     // Apply dataset options
     if (options?.dataset?.useExisting != null) {
-      sdkOptions.dataSetId = options.dataset.useExisting;
+      sdkOptions.dataSetId = options.dataset.useExisting
       logger?.info?.(
         {
-          event: "synapse.storage.dataset.existing",
+          event: 'synapse.storage.dataset.existing',
           dataSetId: options.dataset.useExisting,
         },
-        "Connecting to existing dataset",
-      );
+        'Connecting to existing dataset'
+      )
     } else if (options?.dataset?.createNew === true) {
       // // If explicitly creating a new dataset in session key mode, verify we have permission
       // if (isSessionKeyMode(synapse)) {
@@ -494,18 +469,15 @@ export async function createStorageContext(
       //   }
       // }
 
-      sdkOptions.forceCreateDataSet = true;
-      logger?.info?.(
-        { event: "synapse.storage.dataset.create_new" },
-        "Forcing creation of new dataset",
-      );
+      sdkOptions.forceCreateDataSet = true
+      logger?.info?.({ event: 'synapse.storage.dataset.create_new' }, 'Forcing creation of new dataset')
     }
 
     // Merge metadata (dataset metadata takes precedence)
     sdkOptions.metadata = {
       ...DEFAULT_DATA_SET_METADATA,
       ...options?.dataset?.metadata,
-    };
+    }
 
     /**
      * Callbacks provide visibility into the storage lifecycle
@@ -513,11 +485,11 @@ export async function createStorageContext(
      */
     const callbacks: StorageContextCallbacks = {
       onProviderSelected: (provider) => {
-        currentProviderInfo = provider;
+        currentProviderInfo = provider
 
         logger?.info?.(
           {
-            event: "synapse.storage.provider_selected",
+            event: 'synapse.storage.provider_selected',
             provider: {
               id: provider.id,
               serviceProvider: provider.serviceProvider,
@@ -525,84 +497,79 @@ export async function createStorageContext(
               serviceURL: provider.pdp.serviceURL,
             },
           },
-          "Selected storage provider",
-        );
+          'Selected storage provider'
+        )
 
-        options?.callbacks?.onProviderSelected?.(provider);
+        options?.callbacks?.onProviderSelected?.(provider)
       },
       onDataSetResolved: (info) => {
         logger?.info?.(
           {
-            event: "synapse.storage.data_set_resolved",
+            event: 'synapse.storage.data_set_resolved',
             dataSetId: info.dataSetId,
             isExisting: info.isExisting,
           },
-          info.isExisting ? "Using existing data set" : "Created new data set",
-        );
+          info.isExisting ? 'Using existing data set' : 'Created new data set'
+        )
 
-        options?.callbacks?.onDataSetResolved?.(info);
+        options?.callbacks?.onDataSetResolved?.(info)
       },
-    };
+    }
 
-    sdkOptions.callbacks = callbacks;
+    sdkOptions.callbacks = callbacks
 
     // Apply provider override if present
     if (options?.providerAddress) {
-      sdkOptions.providerAddress = options.providerAddress;
+      sdkOptions.providerAddress = options.providerAddress
       logger?.info?.(
         {
-          event: "synapse.storage.provider_override",
+          event: 'synapse.storage.provider_override',
           providerAddress: options.providerAddress,
         },
-        "Overriding provider by address",
-      );
-    } else if (
-      options?.providerId != null &&
-      Number.isFinite(options.providerId)
-    ) {
-      sdkOptions.providerId = options.providerId;
+        'Overriding provider by address'
+      )
+    } else if (options?.providerId != null && Number.isFinite(options.providerId)) {
+      sdkOptions.providerId = options.providerId
       logger?.info?.(
         {
-          event: "synapse.storage.provider_override",
+          event: 'synapse.storage.provider_override',
           providerId: options.providerId,
         },
-        "Overriding provider by ID",
-      );
+        'Overriding provider by ID'
+      )
     }
 
-    const storage = await synapse.storage.createContext(sdkOptions);
+    const storage = await synapse.storage.createContext(sdkOptions)
 
     logger?.info?.(
       {
-        event: "synapse.storage.created",
+        event: 'synapse.storage.created',
         dataSetId: storage.dataSetId,
         serviceProvider: storage.serviceProvider,
       },
-      "Storage context created successfully",
-    );
+      'Storage context created successfully'
+    )
 
     // Store instance
-    storageInstance = storage;
+    storageInstance = storage
 
     // Ensure we always have provider info
     if (!currentProviderInfo) {
       // This should not happen as provider is selected during context creation
-      throw new Error(
-        "Provider information not available after storage context creation",
-      );
+      throw new Error('Provider information not available after storage context creation')
     }
 
-    return { storage, providerInfo: currentProviderInfo };
+    return { storage, providerInfo: currentProviderInfo }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = error instanceof Error ? error.message : String(error)
     logger?.error?.(
       {
-        event: "synapse.storage.create.failed",
+        event: 'synapse.storage.create.failed',
         error: errorMessage,
       },
-      `Failed to create storage context: ${errorMessage}`,
-    );
-    throw error;
+      `Failed to create storage context: ${errorMessage}`
+    )
+    throw error
   }
 }
 
@@ -643,17 +610,14 @@ export async function createStorageContext(
 export async function setupSynapse(
   config: SynapseSetupConfig,
   logger: Logger,
-  options?: CreateStorageContextOptions,
+  options?: CreateStorageContextOptions
 ): Promise<SynapseService> {
   // Initialize SDK
-  const synapse = await initializeSynapse(config, logger);
+  const synapse = await initializeSynapse(config, logger)
 
   // Create storage context
-  let storageOptions = options ? { ...options } : undefined;
-  if (
-    config.dataSetMetadata &&
-    Object.keys(config.dataSetMetadata).length > 0
-  ) {
+  let storageOptions = options ? { ...options } : undefined
+  if (config.dataSetMetadata && Object.keys(config.dataSetMetadata).length > 0) {
     storageOptions = {
       ...(storageOptions ?? {}),
       dataset: {
@@ -663,15 +627,15 @@ export async function setupSynapse(
           ...(storageOptions?.dataset?.metadata ?? {}),
         },
       },
-    };
+    }
   }
 
   const { storage, providerInfo } = await createStorageContext(synapse, {
     ...(storageOptions ?? {}),
     logger,
-  });
+  })
 
-  return { synapse, storage, providerInfo };
+  return { synapse, storage, providerInfo }
 }
 
 /**
@@ -688,7 +652,7 @@ export function getDefaultStorageContextConfig(overrides: any = {}) {
       ...DEFAULT_DATA_SET_METADATA,
       ...overrides.metadata,
     },
-  };
+  }
 }
 
 /**
@@ -699,26 +663,22 @@ export function getDefaultStorageContextConfig(overrides: any = {}) {
  */
 export async function cleanupSynapseService(): Promise<void> {
   // Clear references
-  synapseInstance = null;
-  storageInstance = null;
-  currentProviderInfo = null;
+  synapseInstance = null
+  storageInstance = null
+  currentProviderInfo = null
 }
 
 /**
  * Get the initialized Synapse service
  */
 export function getSynapseService(): SynapseService | null {
-  if (
-    synapseInstance == null ||
-    storageInstance == null ||
-    currentProviderInfo == null
-  ) {
-    return null;
+  if (synapseInstance == null || storageInstance == null || currentProviderInfo == null) {
+    return null
   }
 
   return {
     synapse: synapseInstance,
     storage: storageInstance,
     providerInfo: currentProviderInfo,
-  };
+  }
 }
