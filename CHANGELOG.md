@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.16.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.15.1...v0.16.0) (2026-02-07)
+
+
+### Features
+
+* add --data-set and --new-data-set flags to add command ([#296](https://github.com/filecoin-project/filecoin-pin/issues/296)) ([e03719b](https://github.com/filecoin-project/filecoin-pin/commit/e03719b32f74456cf2f71f30d7c5c8e32dfc2ed7))
+* add provider command with info and ping subcommands ([#295](https://github.com/filecoin-project/filecoin-pin/issues/295)) ([c52ebbf](https://github.com/filecoin-project/filecoin-pin/commit/c52ebbff83612c16c4d637e768ccc62ae01bd6b9))
+
+
+### Bug Fixes
+
+* use namespace import for Sentry SDK v8+ ESM compatibility ([#319](https://github.com/filecoin-project/filecoin-pin/issues/319)) ([320a461](https://github.com/filecoin-project/filecoin-pin/commit/320a461f1328d254160af11bae2ef783cc326e2a))
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.3.13 to 2.3.14 ([#318](https://github.com/filecoin-project/filecoin-pin/issues/318)) ([97f6f1b](https://github.com/filecoin-project/filecoin-pin/commit/97f6f1b3384bbfb616dc053d8683327f910dddc3))
+* **deps:** bump @clack/prompts from 0.11.0 to 1.0.0 ([#315](https://github.com/filecoin-project/filecoin-pin/issues/315)) ([63b34e0](https://github.com/filecoin-project/filecoin-pin/commit/63b34e0030527d6c8534804e895fe79cc729cc1e))
+
 ## [0.15.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.15.0...v0.15.1) (2026-01-29)
 
 
