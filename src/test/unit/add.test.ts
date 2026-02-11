@@ -90,11 +90,19 @@ vi.mock('../../utils/cli-helpers.js', () => ({
 }))
 
 // We need to partially mock fs/promises to keep real file operations for test setup
-// but mock readFile for the CAR reading part
+// but mock readFile/stat for the CAR handling part
 vi.mock('node:fs/promises', async () => {
   const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
   return {
     ...actual,
+    stat: vi.fn((path: string) => {
+      if (path === '/tmp/test.car') {
+        return Promise.resolve({
+          size: 1024,
+        } as any)
+      }
+      return actual.stat(path as any)
+    }),
     readFile: vi.fn((path: string) => {
       // If it's reading the temp CAR, return mock data
       if (path === '/tmp/test.car') {

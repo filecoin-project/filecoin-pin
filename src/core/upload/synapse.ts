@@ -11,6 +11,8 @@ import type { Logger } from 'pino'
 import type { SynapseService } from '../synapse/index.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 
+export type UploadData = Uint8Array | ReadableStream<Uint8Array>
+
 export type UploadProgressEvents =
   | ProgressEvent<'onUploadComplete', { pieceCid: PieceCID }>
   | ProgressEvent<'onPieceAdded', { txHash: `0x${string}` | undefined }>
@@ -64,7 +66,7 @@ export function getServiceURL(providerInfo: ProviderInfo): string {
  * 3. Return piece information
  *
  * @param synapseService - Initialized Synapse service
- * @param carData - CAR file data as Uint8Array
+ * @param carData - CAR file data as Uint8Array or streaming source
  * @param rootCid - The IPFS root CID to associate with this piece
  * @param logger - Logger instance for tracking
  * @param options - Optional callbacks and context
@@ -72,7 +74,7 @@ export function getServiceURL(providerInfo: ProviderInfo): string {
  */
 export async function uploadToSynapse(
   synapseService: SynapseService,
-  carData: Uint8Array,
+  carData: UploadData,
   rootCid: CID,
   logger: Logger,
   options: SynapseUploadOptions = {}
