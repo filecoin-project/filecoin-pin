@@ -13,7 +13,6 @@ export async function runProviderList(options: ProviderListOptions): Promise<voi
   spinner.start('Connecting to Synapse...')
 
   try {
-    ensurePublicAuth(options)
     const synapse = await getCliSynapse(options)
 
     // Access Synapse's internal WarmStorageService
@@ -168,7 +167,10 @@ export async function runProviderPing(
 
         const start = Date.now()
         // Use GET for specific ping endpoint
-        const res = await fetch(pingUrl, { method: 'GET', signal: controller.signal }).catch(async () => {
+        const res = await fetch(pingUrl, {
+          method: 'GET',
+          signal: controller.signal,
+        }).catch(async () => {
           if (controller.signal.aborted) throw new Error('Timeout')
           throw new Error('Network Error')
         })
@@ -277,22 +279,4 @@ function printTable(providers: any[]) {
       .join('  ')
     console.log(line)
   })
-}
-
-function ensurePublicAuth(options: any) {
-  // Check if any auth options are provided (env vars are checked in cli-auth but we check keys here)
-  const hasAuth =
-    options.privateKey ||
-    options.walletAddress ||
-    options.sessionKey ||
-    options.viewAddress ||
-    process.env.PRIVATE_KEY ||
-    process.env.WALLET_ADDRESS ||
-    process.env.SESSION_KEY ||
-    process.env.VIEW_ADDRESS
-
-  if (!hasAuth) {
-    // If no auth provided, default to public read-only mode using zero address
-    options.viewAddress = '0x0000000000000000000000000000000000000000'
-  }
 }

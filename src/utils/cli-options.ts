@@ -29,8 +29,8 @@ import { type Command, Option } from 'commander'
  *   .description('Do something')
  *   .option('--my-option <value>', 'My custom option')
  *   .action(async (options) => {
- *     // options will include: privateKey, walletAddress, sessionKey, viewAddress, network, rpcUrl, myOption
- *     const { privateKey, walletAddress, sessionKey, viewAddress, network, rpcUrl, myOption } = options
+ *     // options will include: privateKey, walletAddress, sessionKey, network, rpcUrl, myOption
+ *     const { privateKey, walletAddress, sessionKey, network, rpcUrl, myOption } = options
  *   })
  *
  * // Add authentication options after the command is fully defined

@@ -30,13 +30,19 @@ export type {
   PieceInfo,
   PieceStatus,
 } from './core/data-set/index.js'
-export type { PaymentCapacityCheck, PaymentStatus, SetMaxAllowancesResult } from './core/payments/index.js'
-export type { ServiceApprovalStatus, StorageAllowances } from './core/payments/types.js'
+export type {
+  PaymentCapacityCheck,
+  PaymentStatus,
+  SetMaxAllowancesResult,
+} from './core/payments/index.js'
+export type {
+  ServiceApprovalStatus,
+  StorageAllowances,
+} from './core/payments/types.js'
 export type {
   CreateStorageContextOptions,
   DatasetOptions,
   PrivateKeyConfig,
-  ReadOnlyConfig,
   SessionKeyConfig,
   SignerConfig,
   SynapseService,
@@ -53,7 +59,12 @@ export type {
   UploadReadinessProgressEvents,
   UploadReadinessResult,
 } from './core/upload/index.js'
-export type { AnyProgressEvent, ProgressEvent, ProgressEventHandler, Warning } from './core/utils/types.js'
+export type {
+  AnyProgressEvent,
+  ProgressEvent,
+  ProgressEventHandler,
+  Warning,
+} from './core/utils/types.js'
 export type {
   ValidateIPNIProgressEvents,
   WaitForIpniProviderResultsOptions,

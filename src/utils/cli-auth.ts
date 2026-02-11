@@ -22,8 +22,6 @@ export interface CLIAuthOptions {
   walletAddress?: string | undefined
   /** Session key private key */
   sessionKey?: string | undefined
-  /** View-only wallet address (no signing) */
-  viewAddress?: string | undefined
   /** Filecoin network: mainnet or calibration */
   network?: string | undefined
   /** RPC endpoint URL (overrides network if specified) */
@@ -52,7 +50,6 @@ export function parseCLIAuth(options: CLIAuthOptions): Partial<SynapseSetupConfi
   const privateKey = options.privateKey || process.env.PRIVATE_KEY
   const walletAddress = options.walletAddress || process.env.WALLET_ADDRESS
   const sessionKey = options.sessionKey || process.env.SESSION_KEY
-  const viewAddress = options.viewAddress || process.env.VIEW_ADDRESS
   const warmStorageAddress = options.warmStorageAddress || process.env.WARM_STORAGE_ADDRESS
 
   const rpcUrl = getRpcUrl(options)
@@ -61,10 +58,7 @@ export function parseCLIAuth(options: CLIAuthOptions): Partial<SynapseSetupConfi
   const config: any = {}
 
   if (privateKey) config.privateKey = privateKey
-  if (viewAddress) {
-    config.walletAddress = viewAddress
-    config.readOnly = true
-  } else if (walletAddress) {
+  if (walletAddress) {
     config.walletAddress = walletAddress
   }
   if (sessionKey) config.sessionKey = sessionKey

@@ -17,7 +17,12 @@ const { mockWarmStorage, mockSynapse, mockGetProvider, mockGetAllActiveProviders
       _warmStorageService: mockWarmStorage,
     },
   }
-  return { mockWarmStorage, mockSynapse, mockGetProvider, mockGetAllActiveProviders }
+  return {
+    mockWarmStorage,
+    mockSynapse,
+    mockGetProvider,
+    mockGetAllActiveProviders,
+  }
 })
 
 // Mock dependencies
@@ -145,15 +150,6 @@ describe('provider command', () => {
     expect(mockGetProvider).toHaveBeenCalledWith(1)
     expect(global.fetch).toHaveBeenCalledTimes(1)
     expect(global.fetch).toHaveBeenCalledWith('http://p1.com/pdp/pdp/ping', expect.objectContaining({ method: 'GET' }))
-  })
-
-  it('should use default public auth if no credentials provided', async () => {
-    await runProviderList({})
-    expect(cliAuthModule.getCliSynapse).toHaveBeenCalledWith(
-      expect.objectContaining({
-        viewAddress: '0x0000000000000000000000000000000000000000',
-      })
-    )
   })
 
   it('list command should list all active providers with --all flag', async () => {

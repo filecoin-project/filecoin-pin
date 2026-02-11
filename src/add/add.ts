@@ -128,9 +128,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     // Initialize just the Synapse SDK
     const synapse = await initializeSynapse(config, logger)
-    const network = synapse.getNetwork()
 
-    spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
+    spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(synapse.chain.name)}`)
 
     // Check payment setup (may configure permissions if needed)
     // Actual CAR size will be checked later
@@ -233,7 +232,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       providerInfo: uploadResult.providerInfo,
     }
 
-    displayUploadResults(result, 'Add', network)
+    displayUploadResults(result, 'Add', synapse.chain.name)
 
     // Clean up WebSocket providers to allow process termination
     await cleanupSynapseService()

@@ -80,28 +80,6 @@ describe('synapse-service', () => {
       )
     })
 
-    it('should initialize Synapse in read-only mode when requested', async () => {
-      const readOnlyConfig: SynapseSetupConfig = {
-        walletAddress: '0x0000000000000000000000000000000000000002',
-        readOnly: true,
-        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-      }
-
-      const infoSpy = vi.spyOn(logger, 'info')
-
-      const synapse = await initializeSynapse(readOnlyConfig, logger)
-
-      expect(synapse).toBeDefined()
-      expect(infoSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          event: 'synapse.init',
-          authMode: 'read-only',
-          rpcUrl: readOnlyConfig.rpcUrl,
-        }),
-        'Initializing Synapse SDK'
-      )
-    })
-
     it('should call provider selection callback', async () => {
       const callbacks: any[] = []
       const originalCreate = synapseSdk.Synapse.create
@@ -157,7 +135,9 @@ describe('synapse-service', () => {
       const data = new Uint8Array([1, 2, 3])
       const contextId = 'pin-123'
 
-      const result = await uploadToSynapse(service, data, TEST_CID, logger, { contextId })
+      const result = await uploadToSynapse(service, data, TEST_CID, logger, {
+        contextId,
+      })
 
       expect(result).toHaveProperty('pieceCid')
       expect(result).toHaveProperty('pieceId')

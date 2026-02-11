@@ -1,0 +1,3 @@
+overrides:
+  '@filoz/synapse-core': link:../../../Library/pnpm/global/5/node_modules/@filoz/synapse-core
+  '@filoz/synapse-sdk': link:../../../Library/pnpm/global/5/node_modules/@filoz/synapse-sdk
