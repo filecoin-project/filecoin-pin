@@ -1,5 +1,5 @@
 import { Command } from 'commander'
-import { runDataSetDetailsCommand, runDataSetListCommand } from '../data-set/run.js'
+import { runDataSetDetailsCommand, runDataSetListCommand, runTerminateDataSetCommand } from '../data-set/run.js'
 import type { DataSetCommandOptions, DataSetListCommandOptions } from '../data-set/types.js'
 import { addAuthOptions, addProviderOptions } from '../utils/cli-options.js'
 import { addMetadataOptions, resolveMetadataOptions } from '../utils/cli-options-metadata.js'
@@ -53,5 +53,26 @@ addAuthOptions(dataSetListCommand)
 addProviderOptions(dataSetListCommand)
 addMetadataOptions(dataSetListCommand, { includePieceMetadata: false, includeDataSetMetadata: true })
 
+export const dataSetTerminateCommand = new Command('terminate')
+  .description('Terminate a data set and associated payment rails')
+  .argument('<dataSetId>', 'Data set ID to terminate')
+  .action(async (dataSetId: string, options) => {
+    try {
+      const commandOptions: DataSetCommandOptions = {
+        ...options,
+      }
+      const dataSetIdNumber = Number.parseInt(dataSetId, 10)
+      if (Number.isNaN(dataSetIdNumber)) {
+        throw new Error('Invalid data set ID')
+      }
+
+      await runTerminateDataSetCommand(dataSetIdNumber, commandOptions)
+    } catch {
+      process.exit(1)
+    }
+  })
+addAuthOptions(dataSetTerminateCommand)
+
 dataSetCommand.addCommand(dataSetShowCommand)
 dataSetCommand.addCommand(dataSetListCommand)
+dataSetCommand.addCommand(dataSetTerminateCommand)
