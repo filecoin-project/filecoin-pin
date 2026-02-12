@@ -10,7 +10,8 @@
 import pc from 'picocolors'
 import pino from 'pino'
 import { type RemovePieceProgressEvents, removePiece } from '../core/piece/index.js'
-import { cleanupSynapseService, createStorageContext, initializeSynapse } from '../core/synapse/index.js'
+import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { createStorageContextFromDataSetId } from '../core/synapse/storage-context-helper.js'
 import { parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -76,7 +77,7 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
     const onProgress = (event: RemovePieceProgressEvents): void => {
       switch (event.type) {
         case 'remove-piece:submitting':
-          spinner.start('Submitting remove transaction...')
+          spinner.message('Submitting remove transaction...')
           break
 
         case 'remove-piece:submitted':
@@ -95,16 +96,13 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
         case 'remove-piece:complete':
           isConfirmed = event.data.confirmed
           txHash = event.data.txHash
-          spinner.stop(`${pc.green('✓')} Piece removed${isConfirmed ? ' and confirmed' : ' (confirmation pending)'}`)
+          // Main flow will handle stopping the spinner
           break
       }
     }
 
     spinner.start('Creating storage context...')
-    const { storage } = await createStorageContext(synapse, {
-      logger,
-      dataset: { useExisting: dataSetId },
-    })
+    const { storage } = await createStorageContextFromDataSetId(synapse, dataSetId)
 
     spinner.stop(`${pc.green('✓')} Storage context created`)
 
@@ -115,6 +113,9 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
       onProgress,
       waitForConfirmation: options.waitForConfirmation ?? false,
     })
+
+    // Ensure spinner is stopped before displaying results
+    spinner.stop(`${pc.green('✓')} Piece removed${isConfirmed ? ' and confirmed' : ' (confirmation pending)'}`)
 
     // Display results
     log.spinnerSection('Results', [
