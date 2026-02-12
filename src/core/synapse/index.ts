@@ -511,17 +511,12 @@ export async function createStorageContext(
       ...DEFAULT_STORAGE_CONTEXT_CONFIG,
     }
 
-    // Apply dataset options
+    // Use existing dataset if specified
     if (options?.dataset?.useExisting != null) {
       sdkOptions.dataSetId = options.dataset.useExisting
-      logger?.info?.(
-        {
-          event: 'synapse.storage.dataset.existing',
-          dataSetId: options.dataset.useExisting,
-        },
-        'Connecting to existing dataset'
-      )
-    } else if (options?.dataset?.createNew === true) {
+    }
+
+    if (options?.dataset?.createNew === true) {
       // If explicitly creating a new dataset in session key mode, verify we have permission
       if (isSessionKeyMode(synapse)) {
         const signer = synapse.getSigner()
