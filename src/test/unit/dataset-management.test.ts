@@ -15,7 +15,7 @@ import { createLogger } from '../../logger.js'
 // Mock the Synapse SDK
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
 
-// Mock SPRegistryService for fast path optimization
+// Mock SPRegistryService
 vi.mock('@filoz/synapse-sdk/sp-registry', () => ({
   SPRegistryService: class MockSPRegistryService {
     async getProvider() {
@@ -154,9 +154,6 @@ describe('Dataset Management', () => {
       const synapse = await initializeSynapse(config, logger)
       const datasetId = 456
 
-      // With the fast path optimization, createStorageContext now uses
-      // createStorageContextFromDataSetId instead of synapse.storage.createContext
-      // So we just verify the call completes without error
       const { storage, providerInfo } = await createStorageContext(synapse, {
         logger,
         dataset: { useExisting: datasetId },
@@ -167,9 +164,9 @@ describe('Dataset Management', () => {
       expect(providerInfo).toBeDefined()
     })
 
-    it('should log connection to existing dataset', async () => {
-      const infoSpy = vi.spyOn(logger, 'info')
+    it('should pass dataSetId to SDK createContext', async () => {
       const synapse = await initializeSynapse(config, logger)
+      const createContextSpy = vi.spyOn(synapse.storage, 'createContext')
       const datasetId = 789
 
       await createStorageContext(synapse, {
@@ -177,16 +174,14 @@ describe('Dataset Management', () => {
         dataset: { useExisting: datasetId },
       })
 
-      expect(infoSpy).toHaveBeenCalledWith(
+      expect(createContextSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          event: 'synapse.storage.dataset.existing',
           dataSetId: datasetId,
-        }),
-        'Connecting to existing dataset (fast path)'
+        })
       )
     })
 
-    it('useExisting should use fast path, not createContext', async () => {
+    it('useExisting should set dataSetId on SDK options', async () => {
       const synapse = await initializeSynapse(config, logger)
       const createContextSpy = vi.spyOn(synapse.storage, 'createContext')
       const datasetId = 999
@@ -195,12 +190,16 @@ describe('Dataset Management', () => {
         logger,
         dataset: {
           useExisting: datasetId,
-          createNew: true, // This should be ignored
+          createNew: true, // forceCreateDataSet should also be set
         },
       })
 
-      // With fast path, createContext should NOT be called
-      expect(createContextSpy).not.toHaveBeenCalled()
+      // createContext should be called with dataSetId
+      expect(createContextSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dataSetId: datasetId,
+        })
+      )
     })
   })
 

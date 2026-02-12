@@ -506,47 +506,14 @@ export async function createStorageContext(
     // The storage context manages the data set and provider interactions
     logger?.info?.({ event: 'synapse.storage.create' }, 'Creating storage context')
 
-    // FAST PATH: If a specific dataSetId is provided, use the optimized helper
-    // This avoids SDK's expensive resolveByDataSetId which makes redundant RPC calls
-    if (options?.dataset?.useExisting != null) {
-      const { createStorageContextFromDataSetId } = await import('./storage-context-helper.js')
-
-      logger?.info?.(
-        {
-          event: 'synapse.storage.dataset.existing',
-          dataSetId: options.dataset.useExisting,
-        },
-        'Connecting to existing dataset (fast path)'
-      )
-
-      const { storage, providerInfo } = await createStorageContextFromDataSetId(synapse, options.dataset.useExisting)
-
-      // Fire callbacks for consistency
-      currentProviderInfo = providerInfo
-      options?.callbacks?.onProviderSelected?.(providerInfo)
-      options?.callbacks?.onDataSetResolved?.({
-        isExisting: true,
-        dataSetId: storage.dataSetId ?? 0,
-        provider: providerInfo,
-      })
-
-      logger?.info?.(
-        {
-          event: 'synapse.storage.created',
-          dataSetId: storage.dataSetId,
-          serviceProvider: storage.serviceProvider,
-        },
-        'Storage context created successfully (fast path)'
-      )
-
-      storageInstance = storage
-      return { storage, providerInfo }
-    }
-
-    // STANDARD PATH: SDK's createContext for auto-selection or new dataset creation
     // Convert our curated options to Synapse SDK options
     const sdkOptions: StorageServiceOptions = {
       ...DEFAULT_STORAGE_CONTEXT_CONFIG,
+    }
+
+    // Use existing dataset if specified
+    if (options?.dataset?.useExisting != null) {
+      sdkOptions.dataSetId = options.dataset.useExisting
     }
 
     if (options?.dataset?.createNew === true) {

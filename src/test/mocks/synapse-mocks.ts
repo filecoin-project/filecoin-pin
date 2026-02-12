@@ -99,7 +99,7 @@ export class MockSynapse extends EventEmitter {
   public readonly storage = {
     createContext: this.createStorageContext.bind(this),
     upload: (data: any, options: any) => this._storageContext?.upload(data, options),
-    // Mock _warmStorageService for fast path optimization
+    // Mock _warmStorageService for tests that access internal SDK state
     _warmStorageService: {
       getDataSet: async (dataSetId: number) => ({
         dataSetId: BigInt(dataSetId),

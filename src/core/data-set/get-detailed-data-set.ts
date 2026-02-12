@@ -1,9 +1,7 @@
 /**
  * Get Detailed Data Set
  *
- * Optimized function to retrieve a single dataset with full details.
- * Uses createStorageContextFromDataSetId for O(1) direct lookup instead
- * of fetching all datasets and filtering.
+ * Retrieves a single dataset with full details using direct O(1) lookup.
  *
  * @module core/data-set/get-detailed-data-set
  */
@@ -24,13 +22,11 @@ export async function getDetailedDataSet(
   const withProviderDetails = options?.withProviderDetails ?? true
 
   try {
-    // 1. Create WarmStorageService
     const warmStorageService = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
 
-    // 2. Fetch dataset info directly (O(1) instead of O(N))
     const dataSetInfo = await warmStorageService.getDataSet(dataSetId)
 
-    // 3. Fetch metadata and provider info in parallel
+    // Fetch metadata and provider info in parallel
     const metadataPromise = warmStorageService.getDataSetMetadata(dataSetId)
     const providerInfoPromise = withProviderDetails
       ? (async () => {
@@ -42,13 +38,10 @@ export async function getDetailedDataSet(
 
     const [metadata, provider] = await Promise.all([metadataPromise, providerInfoPromise])
 
-    // 4. Check if created with filecoin-pin
     const createdWithFilecoinPin = Object.entries(DEFAULT_DATA_SET_METADATA).every(
       ([key, value]) => metadata[key] === value
     )
 
-    // 5. Create StorageContext using the optimized helper pattern (direct instantiation)
-    // This avoids the expensive resolveByDataSetId path in SDK
     if (provider == null) {
       throw new Error(`Provider info is required to create StorageContext for dataset ${dataSetId}`)
     }
@@ -58,13 +51,11 @@ export async function getDetailedDataSet(
     const warmStorage = synapse.storage._warmStorageService ?? warmStorageService
     const storageContext = new StorageContext(synapse, warmStorage, provider, dataSetId, { withCDN }, metadata)
 
-    // 6. Get pieces
     const piecesResult = await getDataSetPieces(synapse, storageContext, {
       includeMetadata: true,
       logger,
     })
 
-    // 7. Construct summary
     const result: DataSetSummary = {
       ...dataSetInfo,
       pdpVerifierDataSetId: Number(dataSetInfo.dataSetId),
