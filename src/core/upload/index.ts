@@ -188,6 +188,12 @@ export interface UploadExecutionOptions {
   /**
    * Optional IPNI validation behaviour. When enabled (default), the upload flow will wait for the IPFS Root CID to be announced to IPNI.
    */
+
+  /**
+   * Optional AbortSignal to cancel the upload operation.
+   */
+  signal?: AbortSignal
+
   ipniValidation?: {
     /**
      * Enable the IPNI validation wait.
@@ -221,6 +227,9 @@ export async function executeUpload(
   rootCid: CID,
   options: UploadExecutionOptions
 ): Promise<UploadExecutionResult> {
+  // Fail fast if the operation was already aborted before starting
+  options.signal?.throwIfAborted()
+
   const { logger, contextId } = options
   let transactionHash: string | undefined
   let ipniValidationPromise: Promise<boolean> | undefined
@@ -278,6 +287,10 @@ export async function executeUpload(
   }
   if (options.pieceMetadata) {
     uploadOptions.pieceMetadata = options.pieceMetadata
+  }
+  //  Only include `signal` when defined to satisfy `exactOptionalPropertyTypes`
+  if (options.signal != null) {
+    uploadOptions.signal = options.signal
   }
 
   const uploadResult = await uploadToSynapse(synapseService, carData, rootCid, logger, uploadOptions)

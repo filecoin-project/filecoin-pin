@@ -31,6 +31,11 @@ export interface SynapseUploadOptions {
    * Optional metadata to associate with the upload
    */
   pieceMetadata?: Record<string, string>
+
+  /**
+   * Optional AbortSignal to cancel the upload operation.
+   */
+  signal?: AbortSignal
 }
 
 export interface SynapseUploadResult {
@@ -77,6 +82,9 @@ export async function uploadToSynapse(
   logger: Logger,
   options: SynapseUploadOptions = {}
 ): Promise<SynapseUploadResult> {
+  // Fail fast if the operation was already aborted before starting
+  options.signal?.throwIfAborted()
+
   const { onProgress, contextId = 'upload' } = options
 
   // Merge provided callbacks with logging callbacks
@@ -136,6 +144,11 @@ export async function uploadToSynapse(
       [METADATA_KEYS.IPFS_ROOT_CID]: rootCid.toString(), // Associate piece with IPFS root CID
     },
     context: synapseService.storage,
+  }
+
+  //  Only include `signal` when defined to satisfy `exactOptionalPropertyTypes`
+  if (options.signal != null) {
+    uploadOptions.signal = options.signal
   }
 
   const synapseResult = await synapseService.synapse.storage.upload(carData, uploadOptions)
