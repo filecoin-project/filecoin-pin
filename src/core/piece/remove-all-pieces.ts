@@ -9,6 +9,7 @@
 import type { StorageContext, Synapse } from '@filoz/synapse-sdk'
 import type { Logger } from 'pino'
 import { getDataSetPieces } from '../data-set/get-data-set-pieces.js'
+import type { PieceInfo } from '../data-set/types.js'
 import { PieceStatus } from '../data-set/types.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 import { removePiece } from './remove-piece.js'
@@ -57,6 +58,10 @@ export interface RemoveAllPiecesOptions {
   waitForConfirmation?: boolean
   /** Optional logger for tracking removal operations */
   logger?: Logger
+  /** Optional AbortSignal for cancelling the operation */
+  signal?: AbortSignal
+  /** Pre-fetched pieces to remove (skips internal fetch if provided) */
+  pieces?: PieceInfo[]
 }
 
 /**
@@ -72,10 +77,11 @@ export interface RemoveAllPiecesOptions {
  * ```
  *
  * Process:
- * 1. Fetch all pieces from the dataset using getDataSetPieces
- * 2. Iterate through each piece and call removePiece
- * 3. Track success/failure for each removal
- * 4. Return aggregated results
+ * 1. Fetch all pieces from the dataset (or use pre-fetched `pieces` if provided)
+ * 2. Filter to ACTIVE pieces only
+ * 3. Iterate through each piece and call removePiece (respects `signal` for early abort)
+ * 4. Track success/failure for each removal
+ * 5. Return aggregated results
  *
  * @param storageContext - Storage context bound to a Data Set
  * @param options - Configuration including synapse instance and callbacks
@@ -85,7 +91,7 @@ export async function removeAllPieces(
   storageContext: StorageContext,
   options: RemoveAllPiecesOptions
 ): Promise<RemoveAllPiecesResult> {
-  const { synapse, onProgress, waitForConfirmation = false, logger } = options
+  const { synapse, onProgress, waitForConfirmation = false, logger, signal, pieces: providedPieces } = options
   const dataSetId = storageContext.dataSetId
 
   if (dataSetId == null) {
@@ -94,21 +100,30 @@ export async function removeAllPieces(
     )
   }
 
-  // Fetch all pieces from the dataset
-  onProgress?.({ type: 'remove-all:fetching', data: { dataSetId } })
+  let pieces: PieceInfo[]
 
-  const { pieces: allPieces } = await getDataSetPieces(synapse, storageContext, { logger })
+  if (providedPieces) {
+    // Use pre-fetched pieces (already filtered by caller)
+    pieces = providedPieces.filter((p) => p.status === PieceStatus.ACTIVE)
+    onProgress?.({ type: 'remove-all:fetched', data: { dataSetId, totalPieces: pieces.length } })
+  } else {
+    // Fetch all pieces from the dataset
+    onProgress?.({ type: 'remove-all:fetching', data: { dataSetId } })
 
-  // Filter out pieces that are already pending removal - no need to delete them again
-  const pieces = allPieces.filter((p) => p.status === PieceStatus.ACTIVE)
-  const totalPieces = pieces.length
-  const skippedCount = allPieces.length - pieces.length
+    const { pieces: allPieces } = await getDataSetPieces(synapse, storageContext, { logger })
 
-  if (skippedCount > 0) {
-    logger?.info({ skipped: skippedCount, total: allPieces.length }, 'Skipped pieces already pending removal')
+    // Filter out pieces that are already pending removal - no need to delete them again
+    pieces = allPieces.filter((p) => p.status === PieceStatus.ACTIVE)
+    const skippedCount = allPieces.length - pieces.length
+
+    if (skippedCount > 0) {
+      logger?.info({ skipped: skippedCount, total: allPieces.length }, 'Skipped pieces already pending removal')
+    }
+
+    onProgress?.({ type: 'remove-all:fetched', data: { dataSetId, totalPieces: pieces.length } })
   }
 
-  onProgress?.({ type: 'remove-all:fetched', data: { dataSetId, totalPieces } })
+  const totalPieces = pieces.length
 
   if (totalPieces === 0) {
     onProgress?.({ type: 'remove-all:complete', data: { totalPieces: 0, removedCount: 0, failedCount: 0 } })
@@ -127,6 +142,12 @@ export async function removeAllPieces(
   let failedCount = 0
 
   for (let i = 0; i < pieces.length; i++) {
+    // Check if abort was signalled
+    if (signal?.aborted) {
+      logger?.info({ current: i, total: totalPieces }, 'Removal aborted by signal')
+      break
+    }
+
     const piece = pieces[i]
     if (!piece) continue
 

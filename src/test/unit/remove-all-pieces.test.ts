@@ -154,4 +154,60 @@ describe('removeAllPieces', () => {
       })
     ).rejects.toThrow(/Storage context must be bound to a Data Set/)
   })
+
+  it('stops removing pieces when signal is aborted', async () => {
+    const controller = new AbortController()
+
+    // Abort after the first piece is removed
+    mockRemovePiece.mockImplementation(async () => {
+      controller.abort()
+      return '0xhash'
+    })
+
+    const result = await removeAllPieces(mockStorageContext as any, {
+      synapse: mockSynapse as any,
+      signal: controller.signal,
+    })
+
+    // Should have removed only the first piece before signal check stops the loop
+    expect(result.removedCount).toBe(1)
+    expect(mockRemovePiece).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips internal fetch when pieces are provided', async () => {
+    const providedPieces = [
+      { pieceId: 1, pieceCid: 'bafkprovided1', status: 'ACTIVE' },
+      { pieceId: 2, pieceCid: 'bafkprovided2', status: 'ACTIVE' },
+    ]
+
+    const result = await removeAllPieces(mockStorageContext as any, {
+      synapse: mockSynapse as any,
+      pieces: providedPieces as any,
+    })
+
+    // getDataSetPieces should NOT be called
+    expect(mockGetDataSetPieces).not.toHaveBeenCalled()
+    expect(result.totalPieces).toBe(2)
+    expect(result.removedCount).toBe(2)
+    expect(mockRemovePiece).toHaveBeenCalledWith('bafkprovided1', expect.anything(), expect.anything())
+    expect(mockRemovePiece).toHaveBeenCalledWith('bafkprovided2', expect.anything(), expect.anything())
+  })
+
+  it('filters provided pieces to only remove ACTIVE ones', async () => {
+    const providedPieces = [
+      { pieceId: 1, pieceCid: 'bafkactive', status: 'ACTIVE' },
+      { pieceId: 2, pieceCid: 'bafkpending', status: 'PENDING_REMOVAL' },
+    ]
+
+    const result = await removeAllPieces(mockStorageContext as any, {
+      synapse: mockSynapse as any,
+      pieces: providedPieces as any,
+    })
+
+    expect(mockGetDataSetPieces).not.toHaveBeenCalled()
+    expect(result.totalPieces).toBe(1)
+    expect(result.removedCount).toBe(1)
+    expect(mockRemovePiece).toHaveBeenCalledWith('bafkactive', expect.anything(), expect.anything())
+    expect(mockRemovePiece).not.toHaveBeenCalledWith('bafkpending', expect.anything(), expect.anything())
+  })
 })

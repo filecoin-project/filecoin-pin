@@ -107,7 +107,7 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
     // Confirmation prompt (unless --force is specified)
     if (!force) {
       if (!isInteractive()) {
-        spinner.stop(`${pc.red('✗')} Confirmation required. Use --force to skip in non-interactive mode`)
+        spinner.stop(`${pc.red('✗')} Confirmation required. Use --force to skip in interactive mode`)
         cancel('Remove cancelled')
         throw new Error('Confirmation required for destructive operation')
       }
@@ -168,6 +168,7 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
       logger,
       onProgress,
       waitForConfirmation: options.waitForConfirmation ?? false,
+      pieces: activePieces,
     })
 
     // Ensure spinner is stopped before displaying results
