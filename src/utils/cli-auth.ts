@@ -6,9 +6,13 @@
  */
 
 import type { Synapse } from '@filoz/synapse-sdk'
-import { getRpcUrl } from '../common/get-rpc-url.js'
+import type { Hex } from 'viem'
+import { getRpcUrl, RPC_URLS } from '../common/get-rpc-url.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
+
+export { RPC_URLS }
+
 import { createLogger } from '../logger.js'
 
 /**
@@ -55,14 +59,14 @@ export function parseCLIAuth(options: CLIAuthOptions): Partial<SynapseSetupConfi
   const rpcUrl = getRpcUrl(options)
 
   // Build config - only include defined values, validation happens in initializeSynapse()
-  const config: any = {}
+  const config: Record<string, unknown> = {}
 
-  if (privateKey) config.privateKey = privateKey
+  if (privateKey) config.account = privateKey as Hex
   if (walletAddress) {
     config.walletAddress = walletAddress
   }
   if (sessionKey) config.sessionKey = sessionKey
-  if (rpcUrl) config.rpcUrl = rpcUrl
+  if (rpcUrl) (config as Record<string, string>).rpcUrl = rpcUrl
   if (warmStorageAddress) config.warmStorageAddress = warmStorageAddress
 
   return config

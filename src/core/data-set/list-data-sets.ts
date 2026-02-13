@@ -6,9 +6,9 @@
  * @module core/data-set/list-data-sets
  */
 
-import type { ProviderInfo, Synapse } from '@filoz/synapse-sdk'
-import { WarmStorageService } from '@filoz/synapse-sdk'
+import type { PDPProvider, Synapse } from '@filoz/synapse-sdk'
 import { SPRegistryService } from '@filoz/synapse-sdk/sp-registry'
+import type { Hex } from 'viem'
 import { DEFAULT_DATA_SET_METADATA } from '../synapse/constants.js'
 import type { DataSetSummary, ListDataSetsOptions } from './types.js'
 
@@ -21,7 +21,7 @@ import type { DataSetSummary, ListDataSetsOptions } from './types.js'
  * const datasets = await listDataSets(synapse)
  *
  * for (const ds of datasets) {
- *   console.log(`Dataset ${ds.dataSetId}: ${ds.currentPieceCount} pieces`)
+ *   console.log(`Dataset ${ds.dataSetId}: ${ds.activePieceCount} pieces`)
  *   if (ds.provider) {
  *     console.log(`  Provider: ${ds.provider.name}`)
  *   }
@@ -34,12 +34,12 @@ import type { DataSetSummary, ListDataSetsOptions } from './types.js'
  */
 export async function listDataSets(synapse: Synapse, options?: ListDataSetsOptions): Promise<DataSetSummary[]> {
   const logger = options?.logger
-  const address = options?.address ?? (await synapse.getClient().getAddress())
+  const address = (options?.address ?? synapse.client.account.address) as Hex
   const withProviderDetails = options?.withProviderDetails ?? false
   const filter = options?.filter
 
   // Step 1: Find data sets
-  const dataSets = await synapse.storage.findDataSets(address)
+  const dataSets = await synapse.storage.findDataSets({ address })
 
   const filteredDataSets = filter ? dataSets.filter(filter) : dataSets
 
@@ -47,13 +47,11 @@ export async function listDataSets(synapse: Synapse, options?: ListDataSetsOptio
   const uniqueProviderIds = withProviderDetails ? Array.from(new Set(filteredDataSets.map((ds) => ds.providerId))) : []
 
   // Step 3: Fetch provider info for the specific provider IDs using sp-registry
-  let providerMap: Map<number, ProviderInfo> = new Map()
+  let providerMap: Map<bigint, PDPProvider> = new Map()
   if (uniqueProviderIds.length > 0) {
     try {
-      const warmStorageService = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
-      const serviceProviderRegistryAddress = await warmStorageService.getServiceProviderRegistryAddress()
-      const spRegistry = new SPRegistryService(synapse.getProvider(), serviceProviderRegistryAddress)
-      const providers = await spRegistry.getProviders(uniqueProviderIds)
+      const spRegistry = new SPRegistryService({ client: synapse.client })
+      const providers = await spRegistry.getProviders({ providerIds: uniqueProviderIds })
       providerMap = new Map(providers.map((provider) => [provider.id, provider]))
     } catch (error) {
       logger?.warn({ error }, 'Failed to fetch provider info from sp-registry for provider enrichment')
@@ -72,7 +70,7 @@ export async function listDataSets(synapse: Synapse, options?: ListDataSetsOptio
       dataSetId: ds.pdpVerifierDataSetId,
       provider: providerMap.get(ds.providerId),
       createdWithFilecoinPin,
-    }
+    } as DataSetSummary
     return summary
   })
 }

@@ -34,8 +34,8 @@ vi.mock('../../common/upload-flow.js', () => ({
 
 vi.mock('../../core/synapse/index.js', () => ({
   initializeSynapse: vi.fn().mockImplementation(async (config: any) => {
-    // Validate auth config (mirrors validateAuthConfig in actual code)
-    const hasStandardAuth = config.privateKey != null
+    // Validate auth config (mirrors validateAuthConfig: standard = account, session-key = walletAddress + sessionKey)
+    const hasStandardAuth = config.account != null
     const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
 
     if (!hasStandardAuth && !hasSessionKeyAuth) {
@@ -44,6 +44,7 @@ vi.mock('../../core/synapse/index.js', () => ({
 
     return {
       getNetwork: () => 'calibration',
+      chain: { name: 'calibration' },
     }
   }),
   createStorageContext: vi.fn().mockResolvedValue({
@@ -237,14 +238,14 @@ describe('Add Command', () => {
         filePath: testFile,
         privateKey: 'test-private-key',
         rpcUrl: 'wss://test.rpc.url',
-        dataSetId: 123,
+        dataSetId: 123n,
       })
       const { createStorageContext } = await import('../../core/synapse/index.js')
       expect(vi.mocked(createStorageContext)).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
           dataset: expect.objectContaining({
-            useExisting: 123,
+            useExisting: 123n,
           }),
         })
       )

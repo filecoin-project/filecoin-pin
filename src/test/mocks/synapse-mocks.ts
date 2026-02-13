@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import type { ProviderInfo } from '@filoz/synapse-sdk'
+import type { PDPProvider } from '@filoz/synapse-sdk'
 
 /**
  * Test utilities for mocking Synapse SDK components
@@ -13,35 +13,23 @@ import type { ProviderInfo } from '@filoz/synapse-sdk'
  */
 
 // Mock provider info matching real PDP provider structure
-export const mockProviderInfo: ProviderInfo = {
-  id: 1,
-  serviceProvider: '0x78bF4d833fC2ba1Abd42Bc772edbC788EC76A28F', // Provider's contract address
-  payee: '0x78bF4d833fC2ba1Abd42Bc772edbC788EC76A28F', // Payment recipient
+export const mockProviderInfo: PDPProvider = {
+  id: 1n,
+  serviceProvider: '0x78bF4d833fC2ba1Abd42Bc772edbC788EC76A28F',
+  payee: '0x78bF4d833fC2ba1Abd42Bc772edbC788EC76A28F',
   name: 'Mock Provider',
   description: 'Mock provider for testing',
-  active: true, // Provider is accepting new data
-  products: {
-    PDP: {
-      // Proof of Data Possession service
-      type: 'PDP',
-      isActive: true,
-      capabilities: {},
-      data: {
-        // PDP-specific configuration
-        serviceURL: 'http://localhost:8888/pdp', // Where to upload data
-        minPieceSizeInBytes: 127n, // Minimum piece size (127 bytes)
-        maxPieceSizeInBytes: 34359738368n, // Maximum piece size (32 GiB)
-        ipniPiece: false, // IPNI indexing capabilities
-        ipniHttp: false,
-        ipniBitswap: false,
-        storagePricePerTibPerMonth: 5000000000000000000n, // Price in attoFIL
-        location: 'Test Location',
-        bandwidth: 1000, // Mbps
-        throughput: 100, // MB/s
-        storageCapacity: 1000n, // TiB total capacity
-        storageAvailable: 800n, // TiB available
-      } as any,
-    },
+  isActive: true,
+  pdp: {
+    serviceURL: 'http://localhost:8888/pdp',
+    minPieceSizeInBytes: 127n,
+    maxPieceSizeInBytes: 34359738368n,
+    storagePricePerTibPerDay: 5000000000000000000n,
+    minProvingPeriodInEpochs: 1n,
+    location: 'Test Location',
+    paymentTokenAddress: '0x0000000000000000000000000000000000000000',
+    ipniPiece: false,
+    ipniIpfs: false,
   },
 }
 
@@ -57,6 +45,7 @@ export const mockProviderInfo: ProviderInfo = {
 export class MockStorageContext extends EventEmitter {
   public readonly dataSetId = 123 // Simulated on-chain data set ID
   public readonly serviceProvider = mockProviderInfo.serviceProvider
+  public readonly provider = mockProviderInfo
 
   async upload(_data: ArrayBuffer | Uint8Array, options?: any): Promise<any> {
     // Extract callbacks from options (handle both old and new API)
@@ -69,14 +58,23 @@ export class MockStorageContext extends EventEmitter {
     const pieceCid = `bafkzcib${Math.random().toString(36).substring(2, 15)}`
     const pieceId = Math.floor(Math.random() * 1000) // Piece index in data set
 
-    // Simulate callback sequence matching real SDK behavior
+    // Simulate callback sequence
     if (callbacks?.onUploadComplete != null) {
-      // First: data uploaded to PDP server
       callbacks.onUploadComplete(pieceCid)
     }
+    const txHash = `0x${Math.random().toString(16).substring(2)}` as const
+    const pieces = [{ pieceId: BigInt(pieceId), pieceCid }]
+    if (callbacks?.onPiecesAdded != null) {
+      callbacks.onPiecesAdded(txHash, pieces)
+    }
     if (callbacks?.onPieceAdded != null) {
-      // Second: piece registered (may require transaction)
-      callbacks.onPieceAdded()
+      callbacks.onPieceAdded(txHash)
+    }
+    if (callbacks?.onPiecesConfirmed != null) {
+      callbacks.onPiecesConfirmed(BigInt(Number(this.dataSetId)), pieces)
+    }
+    if (callbacks?.onPieceConfirmed != null) {
+      callbacks.onPieceConfirmed([pieceId])
     }
 
     return { pieceCid, pieceId, size: 1024 }
@@ -101,41 +99,25 @@ export class MockSynapse extends EventEmitter {
     upload: (data: any, options: any) => this._storageContext?.upload(data, options),
   }
 
-  /**
-   * Mock network identification
-   * Real networks: 314 (mainnet), 314159 (calibration testnet)
-   */
-  getNetwork(): any {
-    return { chainId: 314159n, name: 'calibration' }
-  }
+  /** Mock chain (matches new SDK API) */
+  readonly chain = { chainId: 314159n, name: 'calibration' as const }
 
   /**
-   * Mock provider getter - returns a mock provider with destroy method
+   * Mock client (viem-style with account)
    */
-  getProvider(): any {
-    return {
-      destroy: async () => {
-        // Mock provider cleanup
-      },
-    }
+  readonly client = {
+    account: { address: '0x1234567890123456789012345678901234567890' },
+    getAddress: async () => '0x1234567890123456789012345678901234567890' as const,
   }
 
-  /**
-   * Mock signer getter
-   */
-  getSigner(): any {
-    return {
-      getAddress: async () => '0x1234567890123456789012345678901234567890',
-    }
+  /** @deprecated Use chain.name */
+  getNetwork(): string {
+    return this.chain.name
   }
 
-  /**
-   * Mock client getter (returns owner wallet)
-   */
-  getClient(): any {
-    return {
-      getAddress: async () => '0x1234567890123456789012345678901234567890',
-    }
+  /** @deprecated Use client */
+  getClient() {
+    return this.client
   }
 
   /**
@@ -191,12 +173,23 @@ export class MockSynapse extends EventEmitter {
     // Simulate data set creation or reuse
     if (options?.callbacks?.onDataSetResolved != null) {
       options.callbacks.onDataSetResolved({
-        dataSetId: 123,
-        isExisting: false, // false = new data set created
+        dataSetId: 123n,
+        isExisting: false,
+        provider: mockProviderInfo,
       })
     }
 
     this._storageContext = new MockStorageContext()
     return this._storageContext
   }
+}
+
+// Add calibration export directly to the module to match @filoz/synapse-sdk exports
+export const calibration = { chainId: 314159n, name: 'calibration' as const }
+
+// Mock parseUnits from viem/ethers as exported by synapse-sdk
+export function parseUnits(value: string, decimals: number): bigint {
+  const [db, da] = value.split('.')
+  const v = BigInt(db ?? '0') * 10n ** BigInt(decimals) + BigInt(da?.padEnd(decimals, '0') || 0)
+  return v
 }

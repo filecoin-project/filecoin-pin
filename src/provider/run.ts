@@ -15,13 +15,11 @@ export async function runProviderList(options: ProviderListOptions): Promise<voi
   try {
     const synapse = await getCliSynapse(options)
 
-    // Access Synapse's internal WarmStorageService
+    const spRegistry = new SPRegistryService({ client: synapse.client })
+
+    // Access Synapse's internal WarmStorageService for approved IDs
     // @ts-expect-error - Accessing private _warmStorageService
     const warmStorage = synapse.storage._warmStorageService
-    if (!warmStorage) throw new Error('WarmStorageService not available')
-
-    const registryAddress = warmStorage.getServiceProviderRegistryAddress()
-    const spRegistry = new SPRegistryService(synapse.getProvider(), registryAddress)
 
     spinner.message('Fetching providers...')
 
@@ -30,9 +28,12 @@ export async function runProviderList(options: ProviderListOptions): Promise<voi
       providers = await spRegistry.getAllActiveProviders()
       spinner.stop(`Found ${providers.length} active providers (all):`)
     } else {
+      if (!warmStorage) throw new Error('WarmStorageService not available')
       const approvedIds = await warmStorage.getApprovedProviderIds()
       spinner.message(`Fetching details for ${approvedIds.length} approved providers...`)
-      const providersOrNull = await Promise.all(approvedIds.map((id: number) => spRegistry.getProvider(id)))
+      const providersOrNull = await Promise.all(
+        approvedIds.map((id: bigint) => spRegistry.getProvider({ providerId: id }))
+      )
       providers = providersOrNull.filter((p) => p !== null)
       spinner.stop(`Found ${providers.length} approved providers:`)
     }
@@ -59,25 +60,17 @@ export async function runProviderShow(providerIdOrAddr: string, options: Provide
   spinner.start('Connecting to Synapse...')
 
   try {
-    ensurePublicAuth(options)
     const synapse = await getCliSynapse(options)
-
-    // Access Synapse's internal WarmStorageService
-    // @ts-expect-error - Accessing private _warmStorageService
-    const warmStorage = synapse.storage._warmStorageService
-    if (!warmStorage) throw new Error('WarmStorageService not available')
-
-    const registryAddress = warmStorage.getServiceProviderRegistryAddress()
-    const spRegistry = new SPRegistryService(synapse.getProvider(), registryAddress)
+    const spRegistry = new SPRegistryService({ client: synapse.client })
 
     spinner.message(`Fetching details for ${providerIdOrAddr}...`)
 
-    let provider: any
+    let provider: any = null
     const id = parseInt(providerIdOrAddr, 10)
 
     // If it looks like a number, try fetching by ID
     if (!Number.isNaN(id) && id.toString() === providerIdOrAddr) {
-      provider = await spRegistry.getProvider(id)
+      provider = await spRegistry.getProvider({ providerId: BigInt(id) })
     } else {
       // NOTE: Querying by address is not directly supported by the registry service yet in this context cleanly without iterating all
       spinner.stop(pc.yellow('Querying by address is not directly supported, trying as ID if numeric.'))
@@ -113,15 +106,11 @@ export async function runProviderPing(
   spinner.start('Connecting to Synapse...')
 
   try {
-    ensurePublicAuth(options)
     const synapse = await getCliSynapse(options)
+    const spRegistry = new SPRegistryService({ client: synapse.client })
 
     // @ts-expect-error - Accessing private _warmStorageService
     const warmStorage = synapse.storage._warmStorageService
-    if (!warmStorage) throw new Error('WarmStorageService not available')
-
-    const registryAddress = warmStorage.getServiceProviderRegistryAddress()
-    const spRegistry = new SPRegistryService(synapse.getProvider(), registryAddress)
 
     const providersToPing = []
 
@@ -130,7 +119,7 @@ export async function runProviderPing(
       const id = parseInt(providerIdOrAddr, 10)
       if (Number.isNaN(id)) throw new Error('Please provide a numeric Provider ID')
 
-      const provider = await spRegistry.getProvider(id)
+      const provider = await spRegistry.getProvider({ providerId: BigInt(id) })
       if (!provider) {
         throw new Error(`Provider ${id} not found`)
       }
@@ -141,8 +130,9 @@ export async function runProviderPing(
         const active = await spRegistry.getAllActiveProviders()
         providersToPing.push(...active)
       } else {
+        if (!warmStorage) throw new Error('WarmStorageService not available')
         const approvedIds = await warmStorage.getApprovedProviderIds()
-        const providers = await Promise.all(approvedIds.map((id: number) => spRegistry.getProvider(id)))
+        const providers = await Promise.all(approvedIds.map((id: bigint) => spRegistry.getProvider({ providerId: id })))
         providersToPing.push(...providers.filter((p) => p !== null))
       }
     }
@@ -150,7 +140,7 @@ export async function runProviderPing(
     spinner.stop(`Pinging ${providersToPing.length} provider(s)...`)
 
     for (const p of providersToPing) {
-      const serviceUrl = p.products?.PDP?.data?.serviceURL
+      const serviceUrl = p?.pdp?.serviceURL
       if (!serviceUrl) {
         console.log(`${pc.yellow('⚠')} ${p.name || p.id} [${p.serviceProvider}]: ${pc.gray('No PDP Service URL')}`)
         continue
@@ -213,21 +203,20 @@ function printProvider(p: any) {
   console.log(`Provider: ${pc.cyan(p.name || 'Unknown')} (ID: ${p.id})`)
   console.log(`  Address: ${p.serviceProvider}`)
   if (p.description) console.log(`  Description: ${p.description}`)
-  if (p.products?.PDP?.data?.serviceURL) {
-    console.log(`  PDP Service: ${p.products.PDP.data.serviceURL}`)
+  if (p.pdp?.serviceURL) {
+    console.log(`  PDP Service: ${p.pdp.serviceURL}`)
   }
-  const location = p.products?.PDP?.data?.location
+  const location = p.pdp?.location
   if (location) console.log(`  Location: ${location}`)
 
-  // Additional Details
-  const data = p.products?.PDP?.data
-  if (data) {
-    if (data.minPieceSizeInBytes != null) console.log(`  Min Piece Size: ${formatFileSize(data.minPieceSizeInBytes)}`)
-    if (data.maxPieceSizeInBytes != null) console.log(`  Max Piece Size: ${formatFileSize(data.maxPieceSizeInBytes)}`)
-    if (data.storagePricePerTibPerDay != null)
-      console.log(`  Storage Price: ${formatUSDFC(BigInt(data.storagePricePerTibPerDay))} USDFC/TiB/Day`)
-    if (data.minProvingPeriodInEpochs != null)
-      console.log(`  Min Proving Period: ${data.minProvingPeriodInEpochs} epochs`)
+  const pdp = p.pdp
+  if (pdp) {
+    if (pdp.minPieceSizeInBytes != null) console.log(`  Min Piece Size: ${formatFileSize(pdp.minPieceSizeInBytes)}`)
+    if (pdp.maxPieceSizeInBytes != null) console.log(`  Max Piece Size: ${formatFileSize(pdp.maxPieceSizeInBytes)}`)
+    if (pdp.storagePricePerTibPerDay != null)
+      console.log(`  Storage Price: ${formatUSDFC(BigInt(pdp.storagePricePerTibPerDay))} USDFC/TiB/Day`)
+    if (pdp.minProvingPeriodInEpochs != null)
+      console.log(`  Min Proving Period: ${pdp.minProvingPeriodInEpochs} epochs`)
   }
 }
 
@@ -248,8 +237,8 @@ function printTable(providers: any[]) {
     id: p.id?.toString() || '?',
     name: p.name || 'Unknown',
     serviceProvider: p.serviceProvider || '',
-    location: p.products?.PDP?.data?.location || '-',
-    serviceUrl: p.products?.PDP?.data?.serviceURL || '-',
+    location: p.pdp?.location || '-',
+    serviceUrl: p.pdp?.serviceURL || '-',
   }))
 
   // adjust widths based on content

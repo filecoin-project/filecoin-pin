@@ -7,15 +7,10 @@
  */
 
 import { getSizeFromPieceCID } from '@filoz/synapse-core/piece'
-import {
-  type DataSetPieceData,
-  METADATA_KEYS,
-  PDPServer,
-  PDPVerifier,
-  type StorageContext,
-  type Synapse,
-  WarmStorageService,
-} from '@filoz/synapse-sdk'
+import { getDataSet as getDataSetFromPDP } from '@filoz/synapse-core/sp'
+import { type DataSetPieceData, METADATA_KEYS, type Synapse } from '@filoz/synapse-sdk'
+import type { StorageContext } from '@filoz/synapse-sdk/storage'
+import { WarmStorageService } from '@filoz/synapse-sdk/warm-storage'
 import { reconcilePieceStatus } from '../piece/piece-status.js'
 import type { Warning } from '../utils/types.js'
 import { isStorageContextWithDataSetId } from './type-guards.js'
@@ -64,18 +59,20 @@ export async function getDataSetPieces(
   const pieces: PieceInfo[] = []
   const warnings: Warning[] = []
 
-  // call PDPVerifier.getScheduledRemovals to get the list of pieces that are scheduled for removal
-  let scheduledRemovals: number[] = []
+  let scheduledRemovals: bigint[] = []
   let pdpServerPieces: DataSetPieceData[] | null = null
   try {
-    const warmStorage = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
-    const pdpVerifier = new PDPVerifier(synapse.getProvider(), warmStorage.getPDPVerifierAddress())
-    scheduledRemovals = await pdpVerifier.getScheduledRemovals(storageContext.dataSetId)
+    scheduledRemovals = [...(await storageContext.getScheduledRemovals())]
     try {
-      const providerInfo = await synapse.getProviderInfo(storageContext.provider.serviceProvider)
-      const pdpServer = new PDPServer(null, providerInfo.products?.PDP?.data?.serviceURL ?? '')
-      const dataSet = await pdpServer.getDataSet(storageContext.dataSetId)
-      pdpServerPieces = dataSet.pieces
+      const serviceURL = storageContext.provider.pdp.serviceURL
+      const dataSetId = storageContext.dataSetId
+      if (dataSetId != null) {
+        const dataSet = await getDataSetFromPDP({
+          serviceURL,
+          dataSetId,
+        })
+        pdpServerPieces = dataSet.pieces
+      }
     } catch (error) {
       logger?.warn({ error }, 'Failed to fetch provider data for scheduled removals and orphan detection')
       warnings.push({
@@ -95,7 +92,10 @@ export async function getDataSetPieces(
 
   // Use the async generator to fetch all pieces
   try {
-    const getPiecesOptions = { ...(signal && { signal }) }
+    const getPiecesOptions: { batchSize?: bigint; signal?: AbortSignal } = {}
+    if (signal) {
+      getPiecesOptions.signal = signal
+    }
     const providerPiecesById = pdpServerPieces ? new Map(pdpServerPieces.map((piece) => [piece.pieceId, piece])) : null
     for await (const piece of storageContext.getPieces(getPiecesOptions)) {
       const pieceId = piece.pieceId
@@ -144,7 +144,7 @@ export async function getDataSetPieces(
         })
       }
     }
-    pieces.sort((a, b) => a.pieceId - b.pieceId)
+    pieces.sort((a, b) => Number(a.pieceId - b.pieceId))
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw error
@@ -193,10 +193,9 @@ async function enrichPiecesWithMetadata(
 ): Promise<void> {
   const dataSetId = storageContext.dataSetId
 
-  // Create WarmStorage service instance
   let warmStorage: WarmStorageService
   try {
-    warmStorage = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
+    warmStorage = new WarmStorageService({ client: synapse.client })
   } catch (error) {
     // If we can't create the service, warn and return
     logger?.warn({ error }, 'Failed to create WarmStorageService for metadata enrichment')
@@ -211,7 +210,10 @@ async function enrichPiecesWithMetadata(
   // Fetch metadata for each piece
   for (const piece of pieces) {
     try {
-      const metadata = await warmStorage.getPieceMetadata(dataSetId, piece.pieceId)
+      const metadata = await warmStorage.getPieceMetadata({
+        dataSetId,
+        pieceId: piece.pieceId,
+      })
 
       // Extract root IPFS CID if available
       const rootIpfsCid = metadata[METADATA_KEYS.IPFS_ROOT_CID]

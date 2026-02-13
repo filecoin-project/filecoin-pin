@@ -25,7 +25,8 @@ const {
   const mockOutro = vi.fn()
   const mockCancel = vi.fn()
   const mockCreateSpinner = vi.fn(() => spinner)
-  const mockParseCLIAuth = vi.fn(() => ({ privateKey: '0xabc', rpcUrl: 'wss://rpc' }))
+  // 0.37: parseCLIAuth sets config.account (not privateKey)
+  const mockParseCLIAuth = vi.fn(() => ({ account: '0xabc', rpcUrl: 'wss://rpc' }))
   const mockCleanupSynapseService = vi.fn(async () => {
     // no-op for tests
   })
@@ -33,6 +34,7 @@ const {
 
   const mockInitializeSynapse = vi.fn(async () => ({
     getNetwork: () => 'calibration',
+    chain: { name: 'calibration' },
   }))
 
   const mockStorageContext = { dataSetId: 123 }
@@ -111,7 +113,7 @@ describe('runRmPiece', () => {
     })
 
     expect(mockInitializeSynapse).toHaveBeenCalledWith(
-      expect.objectContaining({ privateKey: '0xabc', rpcUrl: 'wss://rpc' }),
+      expect.objectContaining({ account: '0xabc', rpcUrl: 'wss://rpc' }),
       expect.anything()
     )
     expect(mockRemovePiece).toHaveBeenCalledWith(
@@ -124,7 +126,7 @@ describe('runRmPiece', () => {
     )
     expect(mockCreateStorageContext).toHaveBeenCalledWith(expect.anything(), {
       logger: expect.anything(),
-      dataset: { useExisting: 123 },
+      dataset: { useExisting: 123n },
     })
     expect(spinner.stop).toHaveBeenCalledWith(expect.stringContaining('Piece removed'))
     expect(mockCleanupSynapseService).toHaveBeenCalled()

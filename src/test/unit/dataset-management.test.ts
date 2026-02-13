@@ -1,6 +1,8 @@
 /**
  * Tests for dataset management in multi-tenant scenarios
  */
+
+import type { Hex } from 'viem'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createConfig } from '../../config.js'
 import {
@@ -22,9 +24,9 @@ describe('Dataset Management', () => {
   beforeEach(() => {
     config = {
       ...createConfig(),
-      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+      account: '0x0000000000000000000000000000000000000000000000000000000000000001' as Hex,
       rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-    }
+    } as any
     logger = createLogger({ logLevel: 'info' })
     resetSynapseService()
     vi.clearAllMocks()
@@ -129,7 +131,7 @@ describe('Dataset Management', () => {
     it('should connect to specific dataset by ID', async () => {
       const synapse = await initializeSynapse(config, logger)
       const createContextSpy = vi.spyOn(synapse.storage, 'createContext')
-      const datasetId = 456
+      const datasetId = 456n
 
       await createStorageContext(synapse, {
         logger,
@@ -146,7 +148,7 @@ describe('Dataset Management', () => {
     it('should log connection to existing dataset', async () => {
       const infoSpy = vi.spyOn(logger, 'info')
       const synapse = await initializeSynapse(config, logger)
-      const datasetId = 789
+      const datasetId = 789n
 
       await createStorageContext(synapse, {
         logger,
@@ -165,7 +167,7 @@ describe('Dataset Management', () => {
     it('useExisting should take precedence over createNew', async () => {
       const synapse = await initializeSynapse(config, logger)
       const createContextSpy = vi.spyOn(synapse.storage, 'createContext')
-      const datasetId = 999
+      const datasetId = 999n
 
       await createStorageContext(synapse, {
         logger,
@@ -196,7 +198,7 @@ describe('Dataset Management', () => {
       // Mock SDK fires this callback, our wrapper should pass it through
       expect(onDataSetResolved).toHaveBeenCalledWith(
         expect.objectContaining({
-          dataSetId: expect.any(Number),
+          dataSetId: expect.any(BigInt),
           isExisting: expect.any(Boolean),
         })
       )
@@ -213,7 +215,7 @@ describe('Dataset Management', () => {
 
       expect(onProviderSelected).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: expect.any(Number),
+          id: expect.any(BigInt),
           serviceProvider: expect.any(String),
         })
       )

@@ -1,4 +1,4 @@
-import type { ProviderInfo } from '@filoz/synapse-sdk'
+import type { PDPProvider } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { getErrorMessage } from './errors.js'
@@ -90,7 +90,7 @@ export interface WaitForIpniProviderResultsOptions {
    *
    * @default: []
    */
-  expectedProviders?: ProviderInfo[] | undefined
+  expectedProviders?: PDPProvider[] | undefined
 
   /**
    * Callback for progress updates
@@ -440,14 +440,14 @@ export function serviceURLToMultiaddr(serviceURL: string, logger?: Logger): stri
  * the multiaddr format used in IPNI advertisements. This allows validation that
  * specific providers have advertised the content.
  *
- * Note: ProviderInfo should contain the serviceURL at `products.PDP.data.serviceURL`.
+ * Note: PDPProvider has serviceURL at `provider.pdp.serviceURL`.
  *
  * @param providers - Array of provider info objects from synapse SDK
  * @param logger - Optional logger for diagnostics
  * @returns Expected multiaddrs and count of providers that couldn't be processed
  */
 function deriveExpectedMultiaddrs(
-  providers: ProviderInfo[],
+  providers: PDPProvider[],
   logger: Logger | undefined
 ): {
   expectedMultiaddrs: Set<string>
@@ -457,7 +457,7 @@ function deriveExpectedMultiaddrs(
   let skippedProviderCount = 0
 
   for (const provider of providers) {
-    const serviceURL = provider.products?.PDP?.data?.serviceURL
+    const serviceURL = provider.pdp.serviceURL
 
     if (!serviceURL) {
       skippedProviderCount++

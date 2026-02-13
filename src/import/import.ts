@@ -11,6 +11,7 @@ import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
+import type { Hex } from 'viem'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
@@ -199,7 +200,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     // Initialize just the Synapse SDK
     const synapse = await initializeSynapse(config, logger)
-    const network = synapse.getNetwork()
+    const network = synapse.chain.name.toLowerCase()
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
@@ -220,7 +221,10 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     const storageContextOptions: CreateStorageContextOptions = {
       logger,
-      ...providerOptions,
+      ...(providerOptions.providerAddress && {
+        providerAddress: providerOptions.providerAddress as Hex,
+      }),
+      ...(providerOptions.providerId != null && { providerId: BigInt(providerOptions.providerId) }),
       dataset: {
         ...(dataSetMetadata && { metadata: dataSetMetadata }),
       },

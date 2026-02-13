@@ -6,7 +6,7 @@
  * options to complete the setup without user interaction.
  */
 
-import { ethers } from 'ethers'
+import { parseUnits } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import {
   calculateDepositCapacity,
@@ -37,7 +37,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
   // Parse and validate deposit amount
   let targetFilecoinPayBalance: bigint
   try {
-    targetFilecoinPayBalance = ethers.parseUnits(options.deposit, 18)
+    targetFilecoinPayBalance = parseUnits(options.deposit, 18)
   } catch {
     console.error(pc.red(`Error: Invalid deposit amount '${options.deposit}'`))
     process.exit(1)
@@ -52,9 +52,8 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
 
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)
-    const network = synapse.getNetwork()
-    const client = synapse.getClient()
-    const address = await client.getAddress()
+    const network = synapse.chain.name.toLowerCase()
+    const address = synapse.client.account.address
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 

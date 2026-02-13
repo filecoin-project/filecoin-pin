@@ -4,8 +4,9 @@
  * This module provides a reusable upload pattern for CAR files to Filecoin
  * via Synapse SDK, used by both the import command and pinning server.
  */
-import type { PieceCID, StorageManager } from '@filoz/synapse-sdk'
-import { METADATA_KEYS, type ProviderInfo, type UploadCallbacks } from '@filoz/synapse-sdk'
+import type { PDPProvider, PieceCID } from '@filoz/synapse-sdk'
+import { METADATA_KEYS, type UploadCallbacks } from '@filoz/synapse-sdk'
+import type { StorageManager } from '@filoz/synapse-sdk/storage'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import type { SynapseService } from '../synapse/index.js'
@@ -37,22 +38,22 @@ export interface SynapseUploadResult {
   pieceCid: string
   pieceId?: number | undefined
   dataSetId: string
-  providerInfo: ProviderInfo
+  providerInfo: PDPProvider
 }
 
 /**
  * Get the direct download URL for a piece from a provider
  */
-export function getDownloadURL(providerInfo: ProviderInfo, pieceCid: string): string {
-  const serviceURL = providerInfo.products?.PDP?.data?.serviceURL
+export function getDownloadURL(providerInfo: PDPProvider, pieceCid: string): string {
+  const serviceURL = providerInfo.pdp.serviceURL
   return serviceURL ? `${serviceURL.replace(/\/$/, '')}/piece/${pieceCid}` : ''
 }
 
 /**
  * Get the service URL from provider info
  */
-export function getServiceURL(providerInfo: ProviderInfo): string {
-  return providerInfo.products?.PDP?.data?.serviceURL ?? ''
+export function getServiceURL(providerInfo: PDPProvider): string {
+  return providerInfo.pdp.serviceURL ?? ''
 }
 
 /**
@@ -93,13 +94,13 @@ export async function uploadToSynapse(
       onProgress?.({ type: 'onUploadComplete', data: { pieceCid } })
     },
 
-    onPieceAdded: (txHash) => {
+    onPiecesAdded: (txHash) => {
       if (txHash != null) {
         logger.info(
           {
             event: 'synapse.upload.piece_added',
             contextId,
-            txHash: txHash,
+            txHash,
           },
           'Piece addition transaction submitted'
         )
@@ -115,7 +116,8 @@ export async function uploadToSynapse(
       onProgress?.({ type: 'onPieceAdded', data: { txHash } })
     },
 
-    onPieceConfirmed: (pieceIds) => {
+    onPiecesConfirmed: (_dataSetId, pieces) => {
+      const pieceIds = pieces.map((p) => Number(p.pieceId))
       logger.info(
         {
           event: 'synapse.upload.piece_confirmed',

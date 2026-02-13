@@ -8,7 +8,8 @@
  * @module core/data-set/types
  */
 
-import type { EnhancedDataSetInfo, ProviderInfo, StorageContext } from '@filoz/synapse-sdk'
+import type { EnhancedDataSetInfo, PDPProvider } from '@filoz/synapse-sdk'
+import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import type { Logger } from 'pino'
 import type { Warning } from '../utils/types.js'
 
@@ -34,7 +35,7 @@ export enum PieceStatus {
  */
 export interface PieceInfo {
   /** Unique piece identifier (within dataset) */
-  pieceId: number
+  pieceId: bigint
   /** Piece Commitment (CommP) as string */
   pieceCid: string
   status: PieceStatus
@@ -53,7 +54,7 @@ export interface DataSetPiecesResult {
   /** List of pieces in the dataset */
   pieces: PieceInfo[]
   /** Dataset ID these pieces belong to */
-  dataSetId: number
+  dataSetId: bigint
   /** Total size of all pieces in bytes (sum of individual piece sizes) */
   totalSizeBytes?: bigint
   /** Non-fatal warnings encountered during retrieval */
@@ -67,7 +68,7 @@ export interface DataSetPiecesResult {
  * This includes all fields needed by both the CLI and website:
  * - Rail IDs (pdpRailId, cdnRailId, cacheMissRailId)
  * - Contract details (commissionBps, pdpEndEpoch, cdnEndEpoch)
- * - Piece tracking (nextPieceId, currentPieceCount)
+ * - Piece tracking (nextPieceId, activePieceCount)
  * - Provider enrichment (optional provider field)
  * - Dataset metadata (inherited from EnhancedDataSetInfo.metadata - key-value pairs from WarmStorage)
  * - Filecoin-pin creation flag (indicates if created by filecoin-pin)
@@ -75,11 +76,11 @@ export interface DataSetPiecesResult {
  *
  * The dataSetId alias makes pdpVerifierDataSetId more discoverable.
  */
-export interface DataSetSummary extends EnhancedDataSetInfo {
+export interface DataSetSummary extends Omit<EnhancedDataSetInfo, 'dataSetId'> {
   /** PDP Verifier dataset ID (alias for pdpVerifierDataSetId) */
-  dataSetId: number
+  dataSetId: bigint
   /** Provider information (enriched from getStorageInfo if available) */
-  provider: ProviderInfo | undefined
+  provider: PDPProvider | undefined
   /** Total size in bytes (optional, calculated from piece sizes) */
   totalSizeBytes?: bigint
   /** Pieces in the dataset (optional, populated when fetching detailed info) */
@@ -127,4 +128,4 @@ export interface GetDataSetPiecesOptions {
   logger?: Logger | undefined
 }
 
-export type StorageContextWithDataSetId = StorageContext & { dataSetId: number }
+export type StorageContextWithDataSetId = StorageContext & { dataSetId: bigint }

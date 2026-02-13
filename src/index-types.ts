@@ -21,7 +21,7 @@ export interface FilecoinPinAPI {
   executeUpload: typeof executeUpload
 }
 
-export type { ProviderInfo } from '@filoz/synapse-sdk'
+export type { PDPProvider } from '@filoz/synapse-sdk'
 export type {
   DataSetPiecesResult,
   DataSetSummary,
@@ -43,8 +43,6 @@ export type {
   CreateStorageContextOptions,
   DatasetOptions,
   PrivateKeyConfig,
-  SessionKeyConfig,
-  SignerConfig,
   SynapseService,
   SynapseSetupConfig,
 } from './core/synapse/index.js'

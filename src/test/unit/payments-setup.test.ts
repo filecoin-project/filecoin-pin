@@ -1,4 +1,4 @@
-import { ethers } from 'ethers'
+import { parseUnits } from '@filoz/synapse-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   calculateActualCapacity,
@@ -37,12 +37,31 @@ vi.mock('@filoz/synapse-sdk', () => {
     },
   }
 
+  function parseUnits(value: string, decimals: number): bigint {
+    const [db, da] = value.split('.')
+    const intPart = db ?? '0'
+    const fracPart = da?.padEnd(decimals, '0') ?? '0'.padStart(decimals, '0')
+    return BigInt(intPart) * 10n ** BigInt(decimals) + BigInt(fracPart)
+  }
+
+  function formatUnits(value: bigint, decimalsOrOpts: number | { decimals: number }): string {
+    const decimals = typeof decimalsOrOpts === 'number' ? decimalsOrOpts : decimalsOrOpts.decimals
+    const divisor = 10n ** BigInt(decimals)
+    const int = value / divisor
+    const frac = value % divisor
+    const fracStr = frac.toString().padStart(decimals, '0').replace(/0+$/, '') || '0'
+    return fracStr ? `${int}.${fracStr}` : String(int)
+  }
+
   return {
+    parseUnits,
+    formatUnits,
     Synapse: {
       create: vi.fn().mockResolvedValue(mockSynapse),
     },
     TOKENS: {
       USDFC: 'USDFC',
+      FIL: 'FIL',
     },
     TIME_CONSTANTS: {
       EPOCHS_PER_DAY: 2880n,
@@ -83,7 +102,7 @@ describe('Payment Setup Tests', () => {
 
     // Create mock instances
     mockProvider = {
-      getBalance: vi.fn().mockResolvedValue(ethers.parseEther('5')),
+      getBalance: vi.fn().mockResolvedValue(parseUnits('5', 18)),
     }
 
     mockSigner = {
@@ -91,43 +110,53 @@ describe('Payment Setup Tests', () => {
     }
 
     // Create mock Synapse instance
+    const mockClient = {
+      account: { address: '0x1234567890123456789012345678901234567890' },
+      getAddress: mockSigner.getAddress,
+    }
     mockSynapse = {
       getProvider: vi.fn().mockReturnValue(mockProvider),
       getSigner: vi.fn().mockReturnValue(mockSigner),
-      getClient: vi.fn().mockReturnValue(mockSigner),
+      getClient: vi.fn().mockReturnValue(mockClient),
+      client: mockClient,
       getNetwork: vi.fn().mockReturnValue('calibration'),
+      chain: {
+        name: 'calibration',
+        id: 314_159,
+        contracts: {
+          fwss: { address: '0xfwss' },
+          filecoinPay: { address: '0xfilecoinPay' },
+        },
+      },
       getPaymentsAddress: vi.fn().mockReturnValue('0xpayments'),
       getWarmStorageAddress: vi.fn().mockReturnValue('0xwarmstorage'),
       payments: {
-        walletBalance: vi.fn().mockResolvedValue(ethers.parseUnits('100', 18)),
-        balance: vi.fn().mockResolvedValue(ethers.parseUnits('10', 18)),
+        walletBalance: vi
+          .fn()
+          .mockImplementation((opts: { token: string }) =>
+            opts.token === 'FIL' ? Promise.resolve(parseUnits('5', 18)) : Promise.resolve(parseUnits('100', 18))
+          ),
+        balance: vi.fn().mockResolvedValue(parseUnits('10', 18)),
         serviceApproval: vi.fn().mockResolvedValue({
-          rateAllowance: ethers.parseUnits('0.0001', 18),
-          lockupAllowance: ethers.parseUnits('2', 18),
+          rateAllowance: parseUnits('0.0001', 18),
+          lockupAllowance: parseUnits('2', 18),
           rateUsed: 0n,
           lockupUsed: 0n,
         }),
-        allowance: vi.fn().mockResolvedValue(ethers.parseUnits('0', 18)),
-        depositWithPermitAndApproveOperator: vi.fn().mockResolvedValue({
-          wait: vi.fn(),
-          hash: '0xdepositWithPermitAndApproveOperator',
-        }),
-        deposit: vi.fn().mockResolvedValue({
-          wait: vi.fn(),
-          hash: '0xdeposit',
-        }),
-        approveService: vi.fn().mockResolvedValue({
-          wait: vi.fn(),
-          hash: '0xservice',
-        }),
+        allowance: vi.fn().mockResolvedValue(parseUnits('0', 18)),
+        depositWithPermitAndApproveOperator: vi
+          .fn()
+          .mockResolvedValue('0xdepositWithPermitAndApproveOperator' as `0x${string}`),
+        deposit: vi.fn().mockResolvedValue('0xdeposit' as `0x${string}`),
+        approveService: vi.fn().mockResolvedValue('0xservice' as `0x${string}`),
       },
       storage: {
         getStorageInfo: vi.fn().mockResolvedValue({
           pricing: {
             noCDN: {
-              perTiBPerEpoch: ethers.parseUnits('0.00002893519', 18), // 2.5 USDFC/TiB/month
-              perTiBPerDay: ethers.parseUnits('0.08333333', 18),
-              perTiBPerMonth: ethers.parseUnits('2.5', 18),
+              perTiBPerEpoch: parseUnits('0.00002893519', 18), // 2.5 USDFC/TiB/month
+              perTiBPerDay: parseUnits('0.08333333', 18),
+              perTiBPerMonth: parseUnits('2.5', 18),
             },
           },
         }),
@@ -139,13 +168,15 @@ describe('Payment Setup Tests', () => {
     it('should check FIL balance and network correctly', async () => {
       const result = await checkFILBalance(mockSynapse)
 
-      expect(result.balance).toBe(ethers.parseEther('5'))
+      expect(result.balance).toBe(parseUnits('5', 18))
       expect(result.isCalibnet).toBe(true)
       expect(result.hasSufficientGas).toBe(true)
     })
 
     it('should detect insufficient gas', async () => {
-      mockProvider.getBalance.mockResolvedValue(ethers.parseEther('0.05'))
+      mockSynapse.payments.walletBalance.mockImplementation((opts: { token: string }) =>
+        opts.token === 'FIL' ? Promise.resolve(parseUnits('0.05', 18)) : Promise.resolve(parseUnits('100', 18))
+      )
 
       const result = await checkFILBalance(mockSynapse)
 
@@ -157,8 +188,8 @@ describe('Payment Setup Tests', () => {
     it('should return USDFC wallet balance', async () => {
       const balance = await checkUSDFCBalance(mockSynapse)
 
-      expect(balance).toBe(ethers.parseUnits('100', 18))
-      expect(mockSynapse.payments.walletBalance).toHaveBeenCalledWith('USDFC')
+      expect(balance).toBe(parseUnits('100', 18))
+      expect(mockSynapse.payments.walletBalance).toHaveBeenCalledWith({ token: 'USDFC' })
     })
   })
 
@@ -168,27 +199,27 @@ describe('Payment Setup Tests', () => {
 
       expect(status.network).toBe('calibration')
       expect(status.address).toBe('0x1234567890123456789012345678901234567890')
-      expect(status.filBalance).toBe(ethers.parseEther('5'))
-      expect(status.walletUsdfcBalance).toBe(ethers.parseUnits('100', 18))
-      expect(status.filecoinPayBalance).toBe(ethers.parseUnits('10', 18))
-      expect(status.currentAllowances.rateAllowance).toBe(ethers.parseUnits('0.0001', 18))
+      expect(status.filBalance).toBe(parseUnits('5', 18))
+      expect(status.walletUsdfcBalance).toBe(parseUnits('100', 18))
+      expect(status.filecoinPayBalance).toBe(parseUnits('10', 18))
+      expect(status.currentAllowances.rateAllowance).toBe(parseUnits('0.0001', 18))
     })
   })
 
   describe('depositUSDFC', () => {
     it('should deposit USDFC without approval when allowance sufficient', async () => {
-      mockSynapse.payments.allowance.mockResolvedValue(ethers.parseUnits('10', 18))
+      mockSynapse.payments.allowance.mockResolvedValue(parseUnits('10', 18))
 
-      const result = await depositUSDFC(mockSynapse, ethers.parseUnits('5', 18))
+      const result = await depositUSDFC(mockSynapse, parseUnits('5', 18))
 
       expect(result.depositTx).toBe('0xdepositWithPermitAndApproveOperator')
       expect(mockSynapse.payments.depositWithPermitAndApproveOperator).toHaveBeenCalled()
     })
 
     it('should approve and deposit when allowance insufficient', async () => {
-      mockSynapse.payments.allowance.mockResolvedValue(ethers.parseUnits('0', 18))
+      mockSynapse.payments.allowance.mockResolvedValue(parseUnits('0', 18))
 
-      const result = await depositUSDFC(mockSynapse, ethers.parseUnits('5', 18))
+      const result = await depositUSDFC(mockSynapse, parseUnits('5', 18))
 
       expect(result.depositTx).toBe('0xdepositWithPermitAndApproveOperator')
       expect(mockSynapse.payments.depositWithPermitAndApproveOperator).toHaveBeenCalled()
@@ -197,57 +228,57 @@ describe('Payment Setup Tests', () => {
 
   describe('setServiceApprovals', () => {
     it('should set service approvals with correct parameters', async () => {
-      const rateAllowance = ethers.parseUnits('0.0001', 18)
-      const lockupAllowance = ethers.parseUnits('2', 18)
+      const rateAllowance = parseUnits('0.0001', 18)
+      const lockupAllowance = parseUnits('2', 18)
 
       const txHash = await setServiceApprovals(mockSynapse, rateAllowance, lockupAllowance)
 
       expect(txHash).toBe('0xservice')
-      expect(mockSynapse.payments.approveService).toHaveBeenCalledWith(
-        '0xwarmstorage',
+      expect(mockSynapse.payments.approveService).toHaveBeenCalledWith({
+        service: '0xfwss',
         rateAllowance,
         lockupAllowance,
-        86400n, // 30 days * 2880 epochs/day (bigint)
-        'USDFC'
-      )
+        maxLockupPeriod: 86400n, // 30 days * 2880 epochs/day (bigint)
+        token: 'USDFC',
+      })
     })
   })
 
   describe('calculateStorageAllowances', () => {
     it('should calculate allowances for 1 TiB/month', () => {
-      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const pricePerTiBPerEpoch = parseUnits('0.0000565', 18)
       const allowances = calculateStorageAllowances(1, pricePerTiBPerEpoch)
 
       expect(allowances.storageCapacityTiB).toBe(1)
-      expect(allowances.rateAllowance).toBe(ethers.parseUnits('0.0000565', 18))
+      expect(allowances.rateAllowance).toBe(parseUnits('0.0000565', 18))
       expect(allowances.lockupAllowance).toBe(
-        ethers.parseUnits('0.0000565', 18) * 2880n * 30n // rate * epochs/day * 30 days
+        parseUnits('0.0000565', 18) * 2880n * 30n // rate * epochs/day * 30 days
       )
     })
 
     it('should calculate allowances for fractional TiB', () => {
-      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const pricePerTiBPerEpoch = parseUnits('0.0000565', 18)
       const allowances = calculateStorageAllowances(0.5, pricePerTiBPerEpoch)
 
       expect(allowances.storageCapacityTiB).toBe(0.5)
       // 0.5 TiB
-      expect(allowances.rateAllowance).toBe(ethers.parseUnits('0.00002825', 18))
+      expect(allowances.rateAllowance).toBe(parseUnits('0.00002825', 18))
     })
 
     it('should calculate allowances for 1.5 TiB correctly', async () => {
-      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const pricePerTiBPerEpoch = parseUnits('0.0000565', 18)
       const allowances = calculateStorageAllowances(1.5, pricePerTiBPerEpoch)
 
       expect(allowances.storageCapacityTiB).toBe(1.5)
       // 1.5 TiB
-      expect(allowances.rateAllowance).toBe(ethers.parseUnits('0.00008475', 18))
+      expect(allowances.rateAllowance).toBe(parseUnits('0.00008475', 18))
       expect(allowances.lockupAllowance).toBe(
-        ethers.parseUnits('0.00008475', 18) * 2880n * 30n // rate * epochs/day * 30 days
+        parseUnits('0.00008475', 18) * 2880n * 30n // rate * epochs/day * 30 days
       )
     })
 
     it('should calculate allowances for 1 GiB/month (small storage amount)', () => {
-      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const pricePerTiBPerEpoch = parseUnits('0.0000565', 18)
       const storageTiB = 1 / 1024 // 1 GiB = 1/1024 TiB ~= 0.0009765625 TiB
       const allowances = calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
 
@@ -260,7 +291,7 @@ describe('Payment Setup Tests', () => {
     })
 
     it('should calculate allowances for 512 MiB/month', () => {
-      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const pricePerTiBPerEpoch = parseUnits('0.0000565', 18)
       const storageTiB = 512 / (1024 * 1024) // 512 MiB = 512/(1024*1024) TiB ~= 0.00048828125 TiB
       const allowances = calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
 
@@ -273,7 +304,7 @@ describe('Payment Setup Tests', () => {
     })
 
     it('should calculate allowances for 1 MiB/month', () => {
-      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const pricePerTiBPerEpoch = parseUnits('0.0000565', 18)
       const storageTiB = 1 / (1024 * 1024) // 1 MiB in TiB
       const allowances = calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
 
@@ -286,7 +317,7 @@ describe('Payment Setup Tests', () => {
     })
 
     it('should handle very large TiB values without overflow', () => {
-      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const pricePerTiBPerEpoch = parseUnits('0.0000565', 18)
       // 900 billion TiB (if we multiplied this by STORAGE_SCALE_MAX, it would overflow)
       const storageTiB = 900_000_000_000
 
@@ -330,24 +361,24 @@ describe('Payment Setup Tests', () => {
 
   describe('formatUSDFC', () => {
     it('should format USDFC amounts correctly', () => {
-      expect(formatUSDFC(ethers.parseUnits('1.2345', 18))).toBe('1.2345')
-      expect(formatUSDFC(ethers.parseUnits('1.23456789', 18))).toBe('1.2346')
-      expect(formatUSDFC(ethers.parseUnits('1000', 18))).toBe('1000.0000')
-      expect(formatUSDFC(ethers.parseUnits('0.0001', 18), 6)).toBe('0.000100')
+      expect(formatUSDFC(parseUnits('1.2345', 18))).toBe('1.2345')
+      expect(formatUSDFC(parseUnits('1.23456789', 18))).toBe('1.2346')
+      expect(formatUSDFC(parseUnits('1000', 18))).toBe('1000.0000')
+      expect(formatUSDFC(parseUnits('0.0001', 18), 6)).toBe('0.000100')
     })
   })
 
   describe('formatFIL', () => {
     it('should format FIL amounts with correct unit', () => {
-      expect(formatFIL(ethers.parseEther('1.5'), false)).toBe('1.5000 FIL')
-      expect(formatFIL(ethers.parseEther('1.5'), true)).toBe('1.5000 tFIL')
-      expect(formatFIL(ethers.parseEther('0.0001'), false)).toBe('0.0001 FIL')
+      expect(formatFIL(parseUnits('1.5', 18), false)).toBe('1.5000 FIL')
+      expect(formatFIL(parseUnits('1.5', 18), true)).toBe('1.5000 tFIL')
+      expect(formatFIL(parseUnits('0.0001', 18), false)).toBe('0.0001 FIL')
     })
   })
 
   describe('calculateActualCapacity', () => {
     it('should calculate capacity from rate allowance with high precision', () => {
-      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const pricePerTiBPerEpoch = parseUnits('0.0000565', 18)
       const storageTiB = 1 / 1024 // 1 GiB/month
       const rateAllowance = calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch).rateAllowance
 
@@ -358,7 +389,7 @@ describe('Payment Setup Tests', () => {
     })
 
     it('throws when pricePerTiBPerEpoch is zero', () => {
-      expect(() => calculateActualCapacity(ethers.parseUnits('1', 18), 0n)).toThrow(
+      expect(() => calculateActualCapacity(parseUnits('1', 18), 0n)).toThrow(
         'Invalid pricePerTiBPerEpoch: must be positive non-zero value'
       )
     })
@@ -366,9 +397,9 @@ describe('Payment Setup Tests', () => {
 
   describe('calculateStorageFromUSDFC', () => {
     it('should calculate storage capacity from USDFC amount with high precision', () => {
-      const pricePerTiBPerEpoch = ethers.parseUnits('0.0000565', 18)
+      const pricePerTiBPerEpoch = parseUnits('0.0000565', 18)
       // 30 days worth of 1GiB/month = 0.0047644416 USDFC
-      const usdfcAmount = ethers.parseUnits('0.0047644416', 18)
+      const usdfcAmount = parseUnits('0.0047644416', 18)
 
       const capacityTiB = calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch)
 
@@ -377,14 +408,14 @@ describe('Payment Setup Tests', () => {
     })
 
     it('throws when pricePerTiBPerEpoch is zero', () => {
-      expect(() => calculateStorageFromUSDFC(ethers.parseUnits('1', 18), 0n)).toThrow(
+      expect(() => calculateStorageFromUSDFC(parseUnits('1', 18), 0n)).toThrow(
         'Invalid pricePerTiBPerEpoch: must be positive non-zero value'
       )
     })
 
     it('returns 0 if usdfcAmount is 0', () => {
-      const usdfcAmount = ethers.parseUnits('0', 18)
-      const pricePerTiBPerEpoch = ethers.parseUnits('0.0005', 18)
+      const usdfcAmount = parseUnits('0', 18)
+      const pricePerTiBPerEpoch = parseUnits('0.0005', 18)
       const capacityTiB = calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch)
 
       expect(capacityTiB).toBe(0)
@@ -394,29 +425,29 @@ describe('Payment Setup Tests', () => {
     // With 30-day lockup: 1 USDFC / (30 days * 2880 epochs/day) = 1 USDFC / 86400 epochs
     // For 1 TiB capacity: pricePerTiBPerEpoch = 1 / 86400 = 0.000011574074 USDFC
     it('should return capacity of 1 when pricePerTibPerEpoch is low', () => {
-      const usdfcAmount = ethers.parseUnits('1', 18)
-      const pricePerTiBPerEpoch = ethers.parseUnits('0.000011574074', 18)
+      const usdfcAmount = parseUnits('1', 18)
+      const pricePerTiBPerEpoch = parseUnits('0.000011574074', 18)
       const capacityTiB = calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch)
       // within 10 decimal places accuracy of 1
       expect(capacityTiB).toBeCloseTo(1, 10)
     })
 
     it('should return lower capacity as pricePerTibPerEpoch increases', () => {
-      const usdfcAmount = ethers.parseUnits('1', 18)
-      const pricePerTiBPerEpoch = ethers.parseUnits('0.00005', 18)
+      const usdfcAmount = parseUnits('1', 18)
+      const pricePerTiBPerEpoch = parseUnits('0.00005', 18)
       const capacityTiB = calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch)
-      expect(
-        calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch + ethers.parseUnits('0.00001', 18))
-      ).toBeLessThan(capacityTiB)
+      expect(calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch + parseUnits('0.00001', 18))).toBeLessThan(
+        capacityTiB
+      )
     })
 
     it('should return higher capacity as pricePerTibPerEpoch decreases', () => {
-      const usdfcAmount = ethers.parseUnits('1', 18)
-      const pricePerTiBPerEpoch = ethers.parseUnits('0.00005', 18)
+      const usdfcAmount = parseUnits('1', 18)
+      const pricePerTiBPerEpoch = parseUnits('0.00005', 18)
       const capacityTiB = calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch)
-      expect(
-        calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch - ethers.parseUnits('0.00001', 18))
-      ).toBeGreaterThan(capacityTiB)
+      expect(calculateStorageFromUSDFC(usdfcAmount, pricePerTiBPerEpoch - parseUnits('0.00001', 18))).toBeGreaterThan(
+        capacityTiB
+      )
     })
   })
 })

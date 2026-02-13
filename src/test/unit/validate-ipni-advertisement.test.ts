@@ -1,4 +1,4 @@
-import type { ProviderInfo } from '@filoz/synapse-sdk'
+import type { PDPProvider } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { waitForIpniProviderResults } from '../../core/utils/validate-ipni-advertisement.js'
@@ -6,21 +6,28 @@ import { waitForIpniProviderResults } from '../../core/utils/validate-ipni-adver
 describe('waitForIpniProviderResults', () => {
   const testCid = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
   const defaultIndexerUrl = 'https://filecoinpin.contact'
-  const mockFetch = vi.fn()
+  let mockFetch: ReturnType<typeof vi.fn>
 
-  const createProviderInfo = (serviceURL: string): ProviderInfo =>
+  const createProviderInfo = (serviceURL: string): PDPProvider =>
     ({
-      id: 1234,
+      id: 1234n,
       serviceProvider: 'f01234',
+      payee: 'f01234',
       name: 'Test Provider',
-      products: {
-        PDP: {
-          data: {
-            serviceURL,
-          },
-        },
+      description: 'Test',
+      isActive: true,
+      pdp: {
+        serviceURL,
+        minPieceSizeInBytes: 0n,
+        maxPieceSizeInBytes: 0n,
+        storagePricePerTibPerDay: 0n,
+        minProvingPeriodInEpochs: 0n,
+        location: '',
+        paymentTokenAddress: '0x0',
+        ipniPiece: false,
+        ipniIpfs: false,
       },
-    }) as ProviderInfo
+    }) as unknown as PDPProvider
 
   const successResponse = (multiaddrs: string[] = ['/dns/example.com/tcp/443/https']) => ({
     ok: true,
@@ -46,6 +53,7 @@ describe('waitForIpniProviderResults', () => {
   })
 
   beforeEach(() => {
+    mockFetch = vi.fn()
     vi.stubGlobal('fetch', mockFetch)
     vi.useFakeTimers()
   })
@@ -472,7 +480,8 @@ describe('waitForIpniProviderResults', () => {
         serviceProvider: 'f01234',
         name: 'Test Provider',
         products: { PDP: { data: {} } },
-      } as ProviderInfo
+        pdp: { serviceURL: undefined },
+      } as unknown as PDPProvider
 
       mockFetch.mockResolvedValueOnce(successResponse())
 

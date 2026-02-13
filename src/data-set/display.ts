@@ -100,8 +100,8 @@ function renderProviderDetails(dataSet: DataSetSummary, indentLevel: number = 0)
   }
   log.indent(`Name: ${dataSet.provider.name}`, indentLevel + 1)
   log.indent(`Description: ${dataSet.provider.description}`, indentLevel + 1)
-  log.indent(`Service URL: ${dataSet.provider.products.PDP?.data?.serviceURL ?? 'unknown'}`, indentLevel + 1)
-  log.indent(`Active: ${dataSet.provider.active ? 'yes' : 'no'}`, indentLevel + 1)
+  log.indent(`Service URL: ${dataSet.provider.pdp?.serviceURL ?? 'unknown'}`, indentLevel + 1)
+  log.indent(`Active: ${dataSet.provider.isActive ? 'yes' : 'no'}`, indentLevel + 1)
   /**
    * We purposefully do not show these fields because they are either not currently relevant to the user, or not fully/accurately representative of FOC and FWSS details.
    */
@@ -121,13 +121,13 @@ function renderProviderDetails(dataSet: DataSetSummary, indentLevel: number = 0)
   //   `Min proving period: ${dataSet.provider.products.PDP?.data?.minProvingPeriodInEpochs ?? 0} epochs`,
   //   indentLevel + 1
   // )
-  log.indent(`Location: ${dataSet.provider.products.PDP?.data?.location ?? 'unknown'}`, indentLevel + 1)
+  log.indent(`Location: ${dataSet.provider.pdp?.location ?? 'unknown'}`, indentLevel + 1)
   // log.indent(
   //   `Payment token: ${formatPaymentToken(dataSet.provider.products.PDP?.data?.paymentTokenAddress ?? 'unknown')}`,
   //   indentLevel + 1
   // )
   if (dataSet.commissionBps > 0) {
-    log.indent(`Commission: ${formatCommission(dataSet.commissionBps)}`, indentLevel + 1)
+    log.indent(`Commission: ${formatCommission(Number(dataSet.commissionBps))}`, indentLevel + 1)
   }
   log.line('')
 }
@@ -136,9 +136,9 @@ function renderPaymentDetails(dataSet: DataSetSummary, indentLevel: number = 0):
   log.indent(pc.bold('Payment'), indentLevel)
   log.indent(`PDP rail ID: ${dataSet.pdpRailId}`, indentLevel + 1)
   if (dataSet.withCDN) {
-    log.indent(`FilBeam rail ID: ${dataSet.cdnRailId > 0 ? dataSet.cdnRailId : 'none'}`, indentLevel + 1)
+    log.indent(`FilBeam rail ID: ${(dataSet.cdnRailId ?? 0n) > 0n ? dataSet.cdnRailId : 'none'}`, indentLevel + 1)
     log.indent(
-      `FilBeam cache-miss rail ID: ${dataSet.cacheMissRailId > 0 ? dataSet.cacheMissRailId : 'none'}`,
+      `FilBeam cache-miss rail ID: ${(dataSet.cacheMissRailId ?? 0n) > 0n ? dataSet.cacheMissRailId : 'none'}`,
       indentLevel + 1
     )
   }
@@ -201,7 +201,7 @@ function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
 
 function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
   log.indent(pc.bold('Pieces'), indentLevel)
-  log.indent(`Total pieces: ${dataSet.currentPieceCount}`, indentLevel + 1)
+  log.indent(`Total pieces: ${dataSet.activePieceCount}`, indentLevel + 1)
   if (dataSet.pieces == null || dataSet.pieces.length === 0) {
     log.line('')
     return
@@ -231,7 +231,7 @@ export function displayDataSets(dataSets: DataSetSummary[], network: string, add
   }
   renderNetworkDetails(network, address)
 
-  const ordered = [...dataSets].sort((a, b) => a.dataSetId - b.dataSetId)
+  const ordered = [...dataSets].sort((a, b) => (a.dataSetId < b.dataSetId ? -1 : a.dataSetId > b.dataSetId ? 1 : 0))
 
   for (const dataSet of ordered) {
     renderDataSetHeader(dataSet)

@@ -1,4 +1,4 @@
-import type { ProviderInfo } from '@filoz/synapse-sdk/sp-registry'
+import type { PDPProvider } from '@filoz/synapse-sdk'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 
 export interface AddOptions extends CLIAuthOptions {
@@ -25,5 +25,5 @@ export interface AddResult {
   pieceId?: number | undefined
   dataSetId: string
   transactionHash?: string | undefined
-  providerInfo: ProviderInfo
+  providerInfo: PDPProvider
 }

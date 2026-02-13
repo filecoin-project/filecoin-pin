@@ -6,7 +6,7 @@
 
 import { confirm } from '@clack/prompts'
 import type { Synapse } from '@filoz/synapse-sdk'
-import { ethers } from 'ethers'
+import { parseUnits } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import {
@@ -219,7 +219,7 @@ export async function runFund(options: FundOptions): Promise<void> {
 
     let targetDeposit: bigint = 0n
     try {
-      targetDeposit = options.amount != null ? ethers.parseUnits(String(options.amount), 18) : 0n
+      targetDeposit = options.amount != null ? parseUnits(String(options.amount), 18) : 0n
     } catch {
       console.error(pc.red(`Error: Invalid --amount '${options.amount}'`))
       throw new Error('Invalid --amount')

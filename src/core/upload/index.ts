@@ -10,7 +10,7 @@ import {
   validatePaymentCapacity,
   validatePaymentRequirements,
 } from '../payments/index.js'
-import { isSessionKeyMode, type SynapseService } from '../synapse/index.js'
+import type { SynapseService } from '../synapse/index.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 import {
   type ValidateIPNIProgressEvents,
@@ -95,8 +95,8 @@ type CapacityStatus = 'sufficient' | 'warning' | 'insufficient'
 export async function checkUploadReadiness(options: UploadReadinessOptions): Promise<UploadReadinessResult> {
   const { synapse, fileSize, autoConfigureAllowances = true, onProgress } = options
 
-  // Detect session key mode - payment operations cannot be performed
-  const sessionKeyMode = isSessionKeyMode(synapse)
+  // Session key mode is currently disabled - always allow allowance configuration
+  const sessionKeyMode = false
   const canConfigureAllowances = autoConfigureAllowances && !sessionKeyMode
 
   onProgress?.({ type: 'checking-balances' })
@@ -295,7 +295,7 @@ export async function executeUpload(
 
   const result: UploadExecutionResult = {
     ...uploadResult,
-    network: synapseService.synapse.getNetwork(),
+    network: synapseService.synapse.chain.name.toLowerCase(),
     transactionHash,
     ipniValidated,
   }

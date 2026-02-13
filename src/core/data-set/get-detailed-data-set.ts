@@ -5,14 +5,14 @@ import type { DataSetSummary, ListDataSetsOptions } from './types.js'
 
 export async function getDetailedDataSet(
   synapse: Synapse,
-  dataSetId: number,
+  dataSetId: bigint | number,
   options?: ListDataSetsOptions
 ): Promise<DataSetSummary> {
   const logger = options?.logger
   const dataSets = await listDataSets(synapse, {
     ...options,
     withProviderDetails: true,
-    filter: (dataSet) => dataSet.pdpVerifierDataSetId === dataSetId,
+    filter: (dataSet) => dataSet.pdpVerifierDataSetId === BigInt(dataSetId),
   })
 
   const dataSet = dataSets[0]
@@ -22,7 +22,7 @@ export async function getDetailedDataSet(
   }
 
   const storageContext = await synapse.storage.createContext({
-    dataSetId: dataSet.dataSetId,
+    dataSetId: dataSet.pdpVerifierDataSetId,
   })
 
   const piecesResult = await getDataSetPieces(synapse, storageContext, {

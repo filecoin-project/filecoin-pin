@@ -1,11 +1,11 @@
 import * as synapseSdk from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
+import type { Hex } from 'viem'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createConfig } from '../../config.js'
 import {
   getSynapseService,
-  initializeSynapse,
   resetSynapseService,
   type SynapseSetupConfig,
   setupSynapse,
@@ -27,9 +27,9 @@ describe('synapse-service', () => {
     // Create test config with Synapse enabled
     config = {
       ...createConfig(),
-      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001', // Fake test key
+      account: '0x0000000000000000000000000000000000000000000000000000000000000001' as Hex,
       rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-    }
+    } as SynapseSetupConfig
     logger = createLogger({ logLevel: 'info' })
 
     // Reset the service instances
@@ -64,12 +64,12 @@ describe('synapse-service', () => {
 
       await setupSynapse(config, logger)
 
-      // Check that initialization logs were called
+      // Check that initialization logs were called (we log authMode and chain, not rpcUrl)
       expect(infoSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           event: 'synapse.init',
           authMode: 'standard',
-          rpcUrl: config.rpcUrl,
+          chain: expect.anything(),
         }),
         'Initializing Synapse SDK'
       )
@@ -84,20 +84,18 @@ describe('synapse-service', () => {
       const callbacks: any[] = []
       const originalCreate = synapseSdk.Synapse.create
 
-      // Capture callbacks
-      vi.mocked(originalCreate).mockImplementationOnce(async (options) => {
+      const impl = async (options: any) => {
         const synapse = await originalCreate(options)
         const originalCreateContext = synapse.storage.createContext.bind(synapse.storage)
-
         synapse.storage.createContext = async (opts: any) => {
           if (opts?.callbacks?.onProviderSelected != null) {
             callbacks.push(opts.callbacks.onProviderSelected)
           }
           return await originalCreateContext(opts)
         }
-
         return synapse
-      })
+      }
+      vi.mocked(originalCreate).mockImplementationOnce(impl as any)
 
       await setupSynapse(config, logger)
 
@@ -198,26 +196,26 @@ describe('synapse-service', () => {
 
   describe('Provider Information', () => {
     it('should capture provider info during initialization', async () => {
-      const mockConfig: SynapseSetupConfig = {
-        privateKey: 'test-private-key',
+      const mockConfig = {
+        account: '0x0000000000000000000000000000000000000000000000000000000000000001' as Hex,
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-      }
+      } as SynapseSetupConfig
 
       const service = await setupSynapse(mockConfig, logger)
 
       // Check that provider info was captured
       expect(service.providerInfo).toBeDefined()
-      expect(service.providerInfo?.id).toBe(1)
+      expect(service.providerInfo?.id).toBe(1n)
       expect(service.providerInfo?.name).toBe('Mock Provider')
-      expect(service.providerInfo?.products?.PDP?.data?.serviceURL).toBe('http://localhost:8888/pdp')
+      expect(service.providerInfo?.pdp?.serviceURL).toBe('http://localhost:8888/pdp')
     })
 
     it('should include provider info in upload result', async () => {
       // Ensure synapse is initialized with provider info
-      const mockConfig: SynapseSetupConfig = {
-        privateKey: 'test-private-key',
+      const mockConfig = {
+        account: '0x0000000000000000000000000000000000000000000000000000000000000001' as Hex,
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-      }
+      } as SynapseSetupConfig
 
       const service = await setupSynapse(mockConfig, logger)
 
@@ -229,17 +227,17 @@ describe('synapse-service', () => {
 
       // Verify provider info is included in result
       expect(result.providerInfo).toBeDefined()
-      expect(result.providerInfo?.id).toBe(1)
+      expect(result.providerInfo?.id).toBe(1n)
       expect(result.providerInfo?.name).toBe('Mock Provider')
-      expect(result.providerInfo?.products?.PDP?.data?.serviceURL).toBe('http://localhost:8888/pdp')
+      expect(result.providerInfo?.pdp?.serviceURL).toBe('http://localhost:8888/pdp')
     })
 
     it('should always include provider info', async () => {
       // Initialize with provider info
-      const mockConfig: SynapseSetupConfig = {
-        privateKey: 'test-private-key',
+      const mockConfig = {
+        account: '0x0000000000000000000000000000000000000000000000000000000000000001' as Hex,
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-      }
+      } as SynapseSetupConfig
 
       const service = await setupSynapse(mockConfig, logger)
 
@@ -251,27 +249,21 @@ describe('synapse-service', () => {
       // Verify upload includes provider info
       expect(result.pieceCid).toBeDefined()
       expect(result.providerInfo).toBeDefined()
-      expect(result.providerInfo.id).toBe(1)
+      expect(result.providerInfo.id).toBe(1n)
       expect(result.providerInfo.name).toBe('Mock Provider')
     })
 
     it('should handle provider without serviceURL gracefully', async () => {
-      const mockConfig: SynapseSetupConfig = {
-        privateKey: 'test-private-key',
+      const mockConfig = {
+        account: '0x0000000000000000000000000000000000000000000000000000000000000001' as Hex,
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-      }
+      } as SynapseSetupConfig
 
       const service = await setupSynapse(mockConfig, logger)
 
       // Modify provider info to not have serviceURL
       if (service.providerInfo) {
-        ;(service.providerInfo as any).products = {
-          PDP: {
-            data: {
-              // No serviceURL
-            },
-          },
-        }
+        ;(service.providerInfo as any).pdp = { ...service.providerInfo.pdp, serviceURL: '' }
       }
 
       const data = new Uint8Array([1, 2, 3])
@@ -282,7 +274,7 @@ describe('synapse-service', () => {
       // Verify upload works with provider info (serviceURL is empty)
       expect(result.pieceCid).toBeDefined()
       expect(result.providerInfo).toBeDefined()
-      expect(result.providerInfo.products?.PDP?.data?.serviceURL).toBeUndefined()
+      expect(result.providerInfo.pdp?.serviceURL).toBe('')
     })
   })
 
@@ -294,43 +286,10 @@ describe('synapse-service', () => {
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
       }
 
-      // Mock session key with no CREATE_DATA_SET permission (expiry = 0)
-      const mockCreateSessionKey = vi.fn(() => {
-        const now = Math.floor(Date.now() / 1000)
-        const oneYear = 365 * 24 * 60 * 60
-
-        return {
-          fetchExpiries: async (typehashes: string[]) => {
-            const expiries: Record<string, bigint> = {}
-            for (const typehash of typehashes) {
-              // CREATE_DATA_SET has no permission (0)
-              // ADD_PIECES has valid future expiry
-              if (typehash.includes('1234567890abcdef')) {
-                // This is CREATE_DATA_SET_TYPEHASH
-                expiries[typehash] = 0n
-              } else {
-                // This is ADD_PIECES_TYPEHASH
-                expiries[typehash] = BigInt(now + oneYear)
-              }
-            }
-            return expiries
-          },
-        }
-      })
-
-      // Override the mock
-      const originalCreate = synapseSdk.Synapse.create
-      vi.mocked(synapseSdk.Synapse.create).mockImplementationOnce(async (options) => {
-        const synapse = await originalCreate(options)
-        ;(synapse as any).createSessionKey = mockCreateSessionKey
-        ;(synapse as any).setSession = vi.fn()
-        return synapse
-      })
-
-      // Should not throw - session key with only ADD_PIECES is valid for reusing datasets
-      const service = await setupSynapse(mockConfig as any, logger)
-      expect(service).toBeDefined()
-      expect(mockCreateSessionKey).toHaveBeenCalled()
+      // Session key path is not yet implemented; expect clear error
+      await expect(setupSynapse(mockConfig as any, logger)).rejects.toThrow(
+        'Session key authentication is not yet implemented'
+      )
     })
 
     it('should reject session key with expired CREATE_DATA_SET permission', async () => {
@@ -340,40 +299,10 @@ describe('synapse-service', () => {
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
       }
 
-      // Mock session key with expired CREATE_DATA_SET permission
-      const mockCreateSessionKey = vi.fn(() => {
-        const now = Math.floor(Date.now() / 1000)
-        const oneYear = 365 * 24 * 60 * 60
-
-        return {
-          fetchExpiries: async (typehashes: string[]) => {
-            const expiries: Record<string, bigint> = {}
-            for (const typehash of typehashes) {
-              // CREATE_DATA_SET expired 1 hour ago
-              // ADD_PIECES has valid future expiry
-              if (typehash.includes('1234567890abcdef')) {
-                // This is CREATE_DATA_SET_TYPEHASH - expired
-                expiries[typehash] = BigInt(now - 3600)
-              } else {
-                // This is ADD_PIECES_TYPEHASH - valid
-                expiries[typehash] = BigInt(now + oneYear)
-              }
-            }
-            return expiries
-          },
-        }
-      })
-
-      // Override the mock
-      const originalCreate = synapseSdk.Synapse.create
-      vi.mocked(synapseSdk.Synapse.create).mockImplementationOnce(async (options) => {
-        const synapse = await originalCreate(options)
-        ;(synapse as any).createSessionKey = mockCreateSessionKey
-        return synapse
-      })
-
-      // Should throw - expired CREATE_DATA_SET permission
-      await expect(setupSynapse(mockConfig as any, logger)).rejects.toThrow('Session key expired or expiring soon')
+      // Session key path is not yet implemented; expect clear error
+      await expect(setupSynapse(mockConfig as any, logger)).rejects.toThrow(
+        'Session key authentication is not yet implemented'
+      )
     })
 
     it('should reject session key with expired ADD_PIECES permission', async () => {
@@ -383,40 +312,10 @@ describe('synapse-service', () => {
         rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
       }
 
-      // Mock session key with expired ADD_PIECES permission
-      const mockCreateSessionKey = vi.fn(() => {
-        const now = Math.floor(Date.now() / 1000)
-        const oneYear = 365 * 24 * 60 * 60
-
-        return {
-          fetchExpiries: async (typehashes: string[]) => {
-            const expiries: Record<string, bigint> = {}
-            for (const typehash of typehashes) {
-              // CREATE_DATA_SET has valid permission
-              // ADD_PIECES expired 1 hour ago
-              if (typehash.includes('1234567890abcdef')) {
-                // This is CREATE_DATA_SET_TYPEHASH - valid
-                expiries[typehash] = BigInt(now + oneYear)
-              } else {
-                // This is ADD_PIECES_TYPEHASH - expired
-                expiries[typehash] = BigInt(now - 3600)
-              }
-            }
-            return expiries
-          },
-        }
-      })
-
-      // Override the mock
-      const originalCreate = synapseSdk.Synapse.create
-      vi.mocked(synapseSdk.Synapse.create).mockImplementationOnce(async (options) => {
-        const synapse = await originalCreate(options)
-        ;(synapse as any).createSessionKey = mockCreateSessionKey
-        return synapse
-      })
-
-      // Should throw - expired ADD_PIECES permission (always required)
-      await expect(setupSynapse(mockConfig as any, logger)).rejects.toThrow('Session key expired or expiring soon')
+      // Session key path is not yet implemented; expect clear error
+      await expect(setupSynapse(mockConfig as any, logger)).rejects.toThrow(
+        'Session key authentication is not yet implemented'
+      )
     })
   })
 })

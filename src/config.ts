@@ -1,5 +1,6 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
+import type { Hex } from 'viem'
 import { getRpcUrl } from './common/get-rpc-url.js'
 import type { Config } from './core/synapse/index.js'
 
@@ -45,16 +46,11 @@ export function createConfig(): Config {
   })
 
   return {
-    // Application-specific configuration
     port: parseInt(process.env.PORT ?? '3456', 10),
     host: process.env.HOST ?? 'localhost',
-
-    // Synapse SDK configuration
-    privateKey: process.env.PRIVATE_KEY, // Required: Ethereum-compatible private key
-    rpcUrl, // Determined from RPC_URL, NETWORK, or default to calibration
-    warmStorageAddress: process.env.WARM_STORAGE_ADDRESS, // Optional: custom contract address
-
-    // Storage paths
+    privateKey: process.env.PRIVATE_KEY as Hex | undefined,
+    rpcUrl,
+    warmStorageAddress: process.env.WARM_STORAGE_ADDRESS,
     databasePath: process.env.DATABASE_PATH ?? join(dataDir, 'pins.db'),
     carStoragePath: process.env.CAR_STORAGE_PATH ?? join(dataDir, 'cars'),
 

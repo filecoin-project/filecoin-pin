@@ -8,6 +8,7 @@
 import { readFile, stat } from 'node:fs/promises'
 import pc from 'picocolors'
 import pino from 'pino'
+import type { Hex } from 'viem'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
@@ -177,10 +178,13 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     const storageContextOptions: CreateStorageContextOptions = {
       logger,
-      ...providerOptions,
+      ...(providerOptions.providerAddress && {
+        providerAddress: providerOptions.providerAddress as Hex,
+      }),
+      ...(providerOptions.providerId != null && { providerId: BigInt(providerOptions.providerId) }),
       dataset: {
         ...(dataSetMetadata && { metadata: dataSetMetadata }),
-        ...(options.dataSetId && { useExisting: options.dataSetId }),
+        ...(options.dataSetId != null && { useExisting: BigInt(options.dataSetId) }),
         ...(options.createNewDataSet && { createNew: true }),
       },
       callbacks: {

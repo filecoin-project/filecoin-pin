@@ -107,8 +107,8 @@ vi.mock('../../core/synapse/index.js', async () => {
   return {
     isSessionKeyMode: vi.fn(() => false),
     initializeSynapse: vi.fn(async (config: any, _logger: any) => {
-      // Validate auth config (mirrors validateAuthConfig in actual code)
-      const hasStandardAuth = config.privateKey != null
+      // Validate auth config (mirrors validateAuthConfig: standard = account, session-key = walletAddress + sessionKey)
+      const hasStandardAuth = config.account != null
       const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
 
       if (!hasStandardAuth && !hasSessionKeyAuth) {
@@ -118,12 +118,11 @@ vi.mock('../../core/synapse/index.js', async () => {
       const mockSynapse = new MockSynapse()
       return mockSynapse
     }),
-    createStorageContext: vi.fn(async (_synapse: any, _logger: any, options?: any) => {
+    createStorageContext: vi.fn(async (_synapse: any, options?: any) => {
       const mockSynapse = new MockSynapse()
 
-      // Simulate progress callbacks
+      // Simulate progress callbacks (real API: createStorageContext(synapse, options))
       if (options?.callbacks) {
-        // Simulate provider selection
         setTimeout(() => {
           options.callbacks.onProviderSelected?.({
             id: 1,
@@ -132,10 +131,9 @@ vi.mock('../../core/synapse/index.js', async () => {
           })
         }, 10)
 
-        // Simulate dataset resolution
         setTimeout(() => {
           options.callbacks.onDataSetResolved?.({
-            dataSetId: 123,
+            dataSetId: 123n,
             isExisting: false,
           })
         }, 20)
@@ -143,7 +141,6 @@ vi.mock('../../core/synapse/index.js', async () => {
 
       const mockStorage = await mockSynapse.storage.createContext()
       return {
-        synapse: mockSynapse as any,
         storage: mockStorage,
         providerInfo: {
           id: 1,

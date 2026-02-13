@@ -7,8 +7,7 @@
 
 import { SIZE_CONSTANTS } from '@filoz/synapse-core/utils'
 import type { Synapse } from '@filoz/synapse-sdk'
-import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
-import { ethers } from 'ethers'
+import { parseUnits, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { type ActualStorageResult, calculateActualStorage, listDataSets } from '../core/data-set/index.js'
 import {
@@ -84,9 +83,8 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
 
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)
-    const network = synapse.getNetwork()
-    const client = synapse.getClient()
-    const address = await client.getAddress()
+    const network = synapse.chain.name.toLowerCase()
+    const address = synapse.client.account.address
 
     // Check balances and status
     const filStatus = await checkFILBalance(synapse)
@@ -241,7 +239,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       log.indent(pc.gray(`Runway: ${runwayDisplay}`))
     }
 
-    const capacityTibPerMonth = ethers.parseUnits(capacity.tibPerMonth.toString(), 18)
+    const capacityTibPerMonth = parseUnits(capacity.tibPerMonth.toString(), 18)
     const capacityBytes = (capacityTibPerMonth * TiB) / 10n ** 18n
     const capacityLine = `Funding could cover ~${formatFileSize(capacityBytes)} for one month`
     log.indent(capacityLine)
@@ -328,8 +326,8 @@ async function fetchPaymentRailsData(synapse: Synapse): Promise<PaymentRailsData
 
     for (const rail of payerRails) {
       try {
-        const railDetails = await synapse.payments.getRail(rail.railId)
-        const settlementPreview = await synapse.payments.getSettlementAmounts(rail.railId)
+        const railDetails = await synapse.payments.getRail({ railId: rail.railId })
+        const settlementPreview = await synapse.payments.getSettlementAmounts({ railId: rail.railId })
 
         if (rail.isTerminated) {
           terminatedRails++

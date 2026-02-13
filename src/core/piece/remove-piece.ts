@@ -1,5 +1,8 @@
-import type { StorageContext, Synapse } from '@filoz/synapse-sdk'
+import type { Synapse } from '@filoz/synapse-sdk'
+import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import type { Logger } from 'pino'
+import type { Hex } from 'viem'
+import { waitForTransactionReceipt } from 'viem/actions'
 import { getErrorMessage } from '../utils/errors.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 
@@ -96,22 +99,26 @@ export async function removePiece(
     throw new Error('A Synapse instance is required when waitForConfirmation is true')
   }
 
-  onProgress?.({ type: 'remove-piece:submitting', data: { pieceCid, dataSetId } })
-  const txHash = await storageContext.deletePiece(pieceCid)
-  onProgress?.({ type: 'remove-piece:submitted', data: { pieceCid, dataSetId, txHash } })
+  onProgress?.({ type: 'remove-piece:submitting', data: { pieceCid, dataSetId: Number(dataSetId) } })
+  const txHash = await storageContext.deletePiece({ piece: pieceCid })
+  onProgress?.({ type: 'remove-piece:submitted', data: { pieceCid, dataSetId: Number(dataSetId), txHash } })
 
   let isConfirmed = false
   if (isWaitForConfirmationOptions(options)) {
     const { synapse } = options
-    onProgress?.({ type: 'remove-piece:confirming', data: { pieceCid, dataSetId, txHash } })
+    onProgress?.({ type: 'remove-piece:confirming', data: { pieceCid, dataSetId: Number(dataSetId), txHash } })
     try {
-      await synapse.getProvider().waitForTransaction(txHash, WAIT_CONFIRMATIONS, WAIT_TIMEOUT_MS)
+      await waitForTransactionReceipt(synapse.client, {
+        hash: txHash as Hex,
+        confirmations: WAIT_CONFIRMATIONS,
+        timeout: WAIT_TIMEOUT_MS,
+      })
       isConfirmed = true
     } catch (error: unknown) {
       // Confirmation timeout is non-fatal - transaction may still succeed
       onProgress?.({
         type: 'remove-piece:confirmation-failed',
-        data: { pieceCid, dataSetId, txHash, message: getErrorMessage(error) },
+        data: { pieceCid, dataSetId: Number(dataSetId), txHash, message: getErrorMessage(error) },
       })
     }
   }

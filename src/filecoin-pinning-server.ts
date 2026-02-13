@@ -1,6 +1,7 @@
 import fastify, { type FastifyInstance, type FastifyRequest } from 'fastify'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
+import type { Hex } from 'viem'
 import type { Config } from './core/synapse/index.js'
 import { setupSynapse } from './core/synapse/index.js'
 import { FilecoinPinStore, type PinOptions } from './filecoin-pin-store.js'
@@ -33,14 +34,21 @@ export async function createFilecoinPinningServer(
 
   // Parse provider selection from environment variables
   const providerOptions = parseProviderOptions()
+  const storageOptions = {
+    ...(providerOptions.providerAddress && {
+      providerAddress: providerOptions.providerAddress as Hex,
+    }),
+    ...(providerOptions.providerId != null && { providerId: BigInt(providerOptions.providerId) }),
+  }
 
   const synapseService = await setupSynapse(
     {
-      ...config,
-      privateKey: config.privateKey,
+      account: config.privateKey,
+      rpcUrl: config.rpcUrl,
+      ...(config.warmStorageAddress != null && { warmStorageAddress: config.warmStorageAddress }),
     },
     logger,
-    providerOptions
+    Object.keys(storageOptions).length > 0 ? storageOptions : undefined
   )
 
   // Create our custom Filecoin pin store with Synapse service

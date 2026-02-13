@@ -9,70 +9,66 @@ import { calculateActualStorage } from '../../core/data-set/calculate-actual-sto
 import type { DataSetSummary } from '../../core/data-set/types.js'
 
 // Mock the dependencies
-const {
-  mockSynapse,
-  mockCreateStorageContext,
-  mockGetDataSetPieces,
-  defaultCreateStorageContext,
-  defaultGetDataSetPieces,
-  state,
-} = vi.hoisted(() => {
-  const state = {
-    pieces: [] as Array<{ pieceId: number; pieceCid: string; size?: number }>,
-  }
-
-  const mockGetAddress = vi.fn(async () => '0xtest-address')
-
-  const defaultGetDataSetPieces = async (_synapse: any, _context: any, _options?: any) => {
-    if (_options?.signal?.aborted) {
-      const error = new Error('This operation was aborted')
-      error.name = 'AbortError'
-      throw error
+const { mockSynapse, mockCreateContexts, mockGetDataSetPieces, defaultCreateContexts, defaultGetDataSetPieces, state } =
+  vi.hoisted(() => {
+    const state = {
+      pieces: [] as Array<{ pieceId: number; pieceCid: string; size?: number }>,
     }
 
-    const pieces = state.pieces.map((p) => ({
-      pieceId: p.pieceId,
-      pieceCid: p.pieceCid,
-      size: p.size ?? undefined,
-    }))
+    const defaultGetDataSetPieces = async (_synapse: any, _context: any, _options?: any) => {
+      if (_options?.signal?.aborted) {
+        const error = new Error('This operation was aborted')
+        error.name = 'AbortError'
+        throw error
+      }
 
-    const totalSizeBytes = pieces.reduce((sum, p) => sum + BigInt(p.size ?? 0), 0n)
+      const pieces = state.pieces.map((p) => ({
+        pieceId: p.pieceId,
+        pieceCid: p.pieceCid,
+        size: p.size ?? undefined,
+      }))
+
+      const totalSizeBytes = pieces.reduce((sum, p) => sum + BigInt(p.size ?? 0), 0n)
+
+      return {
+        pieces,
+        dataSetId: _context?.dataSetId ?? 1,
+        totalSizeBytes,
+        warnings: [],
+      }
+    }
+
+    const mockGetDataSetPieces = vi.fn(defaultGetDataSetPieces)
+
+    // Production uses synapse.storage.createContexts({ dataSetIds }); return context-like objects for getDataSetPieces mock
+    const defaultCreateContexts = async ({ dataSetIds }: { dataSetIds: bigint[] }) =>
+      dataSetIds.map((dataSetId) => ({
+        dataSetId,
+        provider: { pdp: { serviceURL: 'http://test' } },
+        getPieces: async function* () {
+          // Empty: no pieces in this mock
+        },
+        getScheduledRemovals: async () => [] as bigint[],
+      }))
+
+    const mockCreateContexts = vi.fn(defaultCreateContexts)
+
+    const mockSynapse = {
+      client: { account: { address: '0x1234567890123456789012345678901234567890' } },
+      storage: {
+        createContexts: mockCreateContexts,
+      },
+    }
 
     return {
-      pieces,
-      dataSetId: _context?.dataSetId ?? 1,
-      totalSizeBytes,
-      warnings: [],
+      mockSynapse,
+      mockCreateContexts,
+      mockGetDataSetPieces,
+      defaultCreateContexts,
+      defaultGetDataSetPieces,
+      state,
     }
-  }
-
-  const mockGetDataSetPieces = vi.fn(defaultGetDataSetPieces)
-
-  const defaultCreateStorageContext = async (_synapse: any, dataSetId: number) => ({
-    storage: { dataSetId },
-    providerInfo: { id: 1 },
   })
-
-  const mockCreateStorageContext = vi.fn(defaultCreateStorageContext)
-
-  const mockSynapse = {
-    getClient: () => ({ getAddress: mockGetAddress }),
-  }
-
-  return {
-    mockSynapse,
-    mockCreateStorageContext,
-    mockGetDataSetPieces,
-    defaultCreateStorageContext,
-    defaultGetDataSetPieces,
-    state,
-  }
-})
-
-// Mock the imports
-vi.mock('../../core/synapse/storage-context-helper.js', () => ({
-  createStorageContextFromDataSetId: mockCreateStorageContext,
-}))
 
 vi.mock('../../core/data-set/get-data-set-pieces.js', () => ({
   getDataSetPieces: mockGetDataSetPieces,
@@ -83,7 +79,7 @@ describe('calculateActualStorage', () => {
     vi.resetAllMocks()
     state.pieces = []
 
-    mockCreateStorageContext.mockImplementation(defaultCreateStorageContext)
+    mockCreateContexts.mockImplementation(defaultCreateContexts)
     mockGetDataSetPieces.mockImplementation(defaultGetDataSetPieces)
   })
 
@@ -92,17 +88,17 @@ describe('calculateActualStorage', () => {
       // Setup: 2 data sets with different piece sizes
       const dataSets: DataSetSummary[] = [
         {
-          dataSetId: 1,
-          providerId: 1,
+          dataSetId: 1n,
+          providerId: 1n,
           serviceProvider: '0xprovider1',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
         {
-          dataSetId: 2,
-          providerId: 1,
+          dataSetId: 2n,
+          providerId: 1n,
           serviceProvider: '0xprovider1',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
       ]
 
       const oneGiB = 1024n * 1024n * 1024n
@@ -135,11 +131,11 @@ describe('calculateActualStorage', () => {
     it('should handle data sets with no pieces', async () => {
       const dataSets: DataSetSummary[] = [
         {
-          dataSetId: 1,
-          providerId: 1,
+          dataSetId: 1n,
+          providerId: 1n,
           serviceProvider: '0xprovider1',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
       ]
 
       state.pieces = []
@@ -157,11 +153,11 @@ describe('calculateActualStorage', () => {
     it('should handle immediate abort', async () => {
       const dataSets: DataSetSummary[] = [
         {
-          dataSetId: 1,
-          providerId: 1,
+          dataSetId: 1n,
+          providerId: 1n,
           serviceProvider: '0xprovider1',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
       ]
 
       // Create already-aborted signal
@@ -180,17 +176,17 @@ describe('calculateActualStorage', () => {
     it('should return partial results on abort', async () => {
       const dataSets: DataSetSummary[] = [
         {
-          dataSetId: 1,
-          providerId: 1,
+          dataSetId: 1n,
+          providerId: 1n,
           serviceProvider: '0xprovider1',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
         {
-          dataSetId: 2,
-          providerId: 2,
+          dataSetId: 2n,
+          providerId: 2n,
           serviceProvider: '0xprovider2',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
       ]
 
       const controller = new AbortController()
@@ -230,17 +226,17 @@ describe('calculateActualStorage', () => {
     it('should continue processing other datasets when one fails', async () => {
       const dataSets: DataSetSummary[] = [
         {
-          dataSetId: 1,
-          providerId: 1,
+          dataSetId: 1n,
+          providerId: 1n,
           serviceProvider: '0xprovider1',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
         {
-          dataSetId: 2,
-          providerId: 2,
+          dataSetId: 2n,
+          providerId: 2n,
           serviceProvider: '0xprovider2',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
       ]
 
       let callCount = 0

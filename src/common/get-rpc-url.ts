@@ -1,5 +1,17 @@
-import { RPC_URLS } from '@filoz/synapse-sdk'
+import { calibration, mainnet } from '@filoz/synapse-core/chains'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
+
+/** RPC URLs derived from chain config (synapse-core chains) */
+export const RPC_URLS = {
+  mainnet: {
+    http: mainnet.rpcUrls.default.http[0],
+    webSocket: mainnet.rpcUrls.default.webSocket?.[0] ?? mainnet.rpcUrls.default.http[0],
+  },
+  calibration: {
+    http: calibration.rpcUrls.default.http[0],
+    webSocket: calibration.rpcUrls.default.webSocket?.[0] ?? calibration.rpcUrls.default.http[0],
+  },
+} as const
 
 /**
  * Get the RPC URL from the CLI options.
@@ -13,8 +25,6 @@ import type { CLIAuthOptions } from '../utils/cli-auth.js'
  * 4. Default to calibration
  */
 export function getRpcUrl(options: CLIAuthOptions): string {
-  // Determine RPC URL with priority: explicit rpcUrl > RPC_URL env > network flag/env > default
-  let rpcUrl: string | undefined
   if (options.rpcUrl) {
     // Explicit RPC URL takes highest priority
     return options.rpcUrl
@@ -27,13 +37,12 @@ export function getRpcUrl(options: CLIAuthOptions): string {
     if (network !== 'mainnet' && network !== 'calibration') {
       throw new Error(`Invalid network: "${network}". Must be "mainnet" or "calibration"`)
     }
-    // Convert network to RPC URL
-    rpcUrl = RPC_URLS[network as 'mainnet' | 'calibration']?.websocket
+    const rpcUrl = RPC_URLS[network as 'mainnet' | 'calibration']?.webSocket
     if (!rpcUrl) {
       throw new Error(`RPC URL not available for network: "${network}"`)
     }
     return rpcUrl
   }
 
-  return RPC_URLS.calibration.websocket
+  return RPC_URLS.calibration.webSocket ?? RPC_URLS.calibration.http ?? 'https://api.calibration.node.glif.io/rpc/v1'
 }

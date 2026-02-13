@@ -5,7 +5,8 @@
  * decimals, lockup periods, buffer configurations, and pricing minimums.
  */
 
-import { ethers } from 'ethers'
+import { parseUnits } from '@filoz/synapse-sdk'
+import { maxUint256 } from 'viem'
 
 /**
  * USDFC token decimals (ERC20 standard)
@@ -15,7 +16,7 @@ export const USDFC_DECIMALS = 18
 /**
  * Minimum FIL balance required for gas fees
  */
-export const MIN_FIL_FOR_GAS = ethers.parseEther('0.1')
+export const MIN_FIL_FOR_GAS = parseUnits('0.1', 18)
 
 /**
  * Default lockup period required by WarmStorage (in days)
@@ -26,7 +27,7 @@ export const DEFAULT_LOCKUP_DAYS = 30
  * Floor price per piece for WarmStorage (minimum cost regardless of size)
  * This is 0.06 USDFC per 30 days per piece
  */
-export const FLOOR_PRICE_PER_30_DAYS = ethers.parseUnits('0.06', USDFC_DECIMALS)
+export const FLOOR_PRICE_PER_30_DAYS = parseUnits('0.06', USDFC_DECIMALS)
 
 /**
  * Number of days the floor price covers
@@ -37,8 +38,8 @@ export const FLOOR_PRICE_DAYS = 30
  * Maximum allowances for trusted WarmStorage service
  * Using MaxUint256 which MetaMask displays as "Unlimited"
  */
-export const MAX_RATE_ALLOWANCE = ethers.MaxUint256
-export const MAX_LOCKUP_ALLOWANCE = ethers.MaxUint256
+export const MAX_RATE_ALLOWANCE = maxUint256
+export const MAX_LOCKUP_ALLOWANCE = maxUint256
 
 /**
  * Standard buffer configuration (10%) used across deposit/lockup calculations

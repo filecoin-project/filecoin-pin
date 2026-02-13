@@ -13,6 +13,7 @@ const { mockWarmStorage, mockSynapse, mockGetProvider, mockGetAllActiveProviders
   }
   const mockSynapse = {
     getProvider: vi.fn(),
+    client: {}, // 0.37: SPRegistryService({ client: synapse.client })
     storage: {
       _warmStorageService: mockWarmStorage,
     },
@@ -74,38 +75,40 @@ describe('provider command', () => {
 
     // Configure default mock behaviors
     mockWarmStorage.getServiceProviderRegistryAddress.mockReturnValue('0xRegistry')
-    mockWarmStorage.getApprovedProviderIds.mockResolvedValue([1, 2])
+    mockWarmStorage.getApprovedProviderIds.mockResolvedValue([1n, 2n])
 
-    mockGetProvider.mockImplementation(async (id: any) => {
-      if (id === 1 || id === '1')
+    // 0.37: getProvider({ providerId: bigint })
+    mockGetProvider.mockImplementation(async (opts: { providerId: bigint | number }) => {
+      const id = typeof opts?.providerId === 'bigint' ? Number(opts.providerId) : opts?.providerId
+      if (id === 1)
         return {
-          id: 1,
+          id: 1n,
           name: 'Provider 1',
           serviceProvider: '0x123',
-          products: { PDP: { data: { serviceURL: 'http://p1.com/pdp' } } },
+          pdp: { serviceURL: 'http://p1.com/pdp' },
         }
       if (id === 2)
         return {
-          id: 2,
+          id: 2n,
           name: 'Provider 2',
           serviceProvider: '0x456',
-          products: { PDP: { data: { serviceURL: 'http://p2.com/pdp' } } },
+          pdp: { serviceURL: 'http://p2.com/pdp' },
         }
       return null
     })
 
     mockGetAllActiveProviders.mockResolvedValue([
       {
-        id: 1,
+        id: 1n,
         name: 'Active1',
         serviceProvider: '0x1',
-        products: { PDP: { data: { serviceURL: 'http://p1.com/pdp' } } },
+        pdp: { serviceURL: 'http://p1.com/pdp' },
       },
       {
-        id: 3,
+        id: 3n,
         name: 'Active3',
         serviceProvider: '0x3',
-        products: { PDP: { data: { serviceURL: 'http://p3.com/pdp' } } },
+        pdp: { serviceURL: 'http://p3.com/pdp' },
       },
     ])
 
@@ -123,13 +126,13 @@ describe('provider command', () => {
   it('list command should list all approved providers when no arg is passed', async () => {
     await runProviderList({})
     expect(mockWarmStorage.getApprovedProviderIds).toHaveBeenCalled()
-    expect(mockGetProvider).toHaveBeenCalledWith(1)
-    expect(mockGetProvider).toHaveBeenCalledWith(2)
+    expect(mockGetProvider).toHaveBeenCalledWith({ providerId: 1n })
+    expect(mockGetProvider).toHaveBeenCalledWith({ providerId: 2n })
   })
 
   it('show command should show specific provider when arg is passed', async () => {
     await runProviderShow('1', {})
-    expect(mockGetProvider).toHaveBeenCalledWith(1)
+    expect(mockGetProvider).toHaveBeenCalledWith({ providerId: 1n })
   })
 
   it('ping command should ping all approved providers when no arg is passed', async () => {
@@ -147,7 +150,7 @@ describe('provider command', () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 } as any)
     await runProviderPing('1', {})
 
-    expect(mockGetProvider).toHaveBeenCalledWith(1)
+    expect(mockGetProvider).toHaveBeenCalledWith({ providerId: 1n })
     expect(global.fetch).toHaveBeenCalledTimes(1)
     expect(global.fetch).toHaveBeenCalledWith('http://p1.com/pdp/pdp/ping', expect.objectContaining({ method: 'GET' }))
   })

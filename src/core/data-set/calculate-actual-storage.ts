@@ -1,7 +1,6 @@
 import type { Synapse } from '@filoz/synapse-sdk'
 import PQueue from 'p-queue'
 import type { Logger } from 'pino'
-import { createStorageContextFromDataSetId } from '../synapse/storage-context-helper.js'
 import type { ProgressEvent, ProgressEventHandler, Warning } from '../utils/types.js'
 import { getDataSetPieces } from './get-data-set-pieces.js'
 import type { DataSetSummary } from './types.js'
@@ -31,9 +30,9 @@ export type ActualStorageProgressEvents = ProgressEvent<
  * @param dataSet - The data set to get the key for
  * @returns The unique Provider-scoped key for the data set
  */
-const getProviderKey = ({ providerId, serviceProvider, dataSetId }: DataSetSummary): string | number => {
+const getProviderKey = ({ providerId, serviceProvider, dataSetId }: DataSetSummary): string => {
   if (providerId !== undefined) {
-    return providerId
+    return providerId.toString()
   }
   if (serviceProvider) {
     return serviceProvider
@@ -95,7 +94,7 @@ export async function calculateActualStorage(
   }
 ): Promise<ActualStorageResult> {
   const logger = options?.logger
-  const address = options?.address ?? (await synapse.getClient().getAddress())
+  const address = options?.address ?? synapse.client.account.address
   const signal = options?.signal
   const maxParallelProviders = Math.max(1, options?.maxParallelProviders ?? 10)
   const maxParallelPerProvider = Math.max(1, options?.maxParallelPerProvider ?? 10)
@@ -108,7 +107,7 @@ export async function calculateActualStorage(
   let dataSetCount = 0
   // Process data sets with provider-scoped concurrency (one at a time per provider)
   const globalQueue = new PQueue({ concurrency: maxParallelProviders })
-  const providerQueues = new Map<string | number, PQueue>()
+  const providerQueues = new Map<string, PQueue>()
 
   if (signal) {
     signal.addEventListener(
@@ -143,7 +142,10 @@ export async function calculateActualStorage(
       signal?.throwIfAborted()
 
       try {
-        const { storage: storageContext } = await createStorageContextFromDataSetId(synapse, dataSet.dataSetId)
+        const [storageContext] = await synapse.storage.createContexts({ dataSetIds: [dataSet.dataSetId] })
+        if (storageContext == null) {
+          throw new Error(`Failed to create storage context for data set ${dataSet.dataSetId}`)
+        }
 
         signal?.throwIfAborted()
 

@@ -2,7 +2,7 @@
  * Withdraw command for Filecoin Pay
  */
 
-import { ethers } from 'ethers'
+import { parseUnits } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { checkFILBalance, getPaymentStatus, withdrawUSDFC } from '../core/payments/index.js'
 import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
@@ -21,7 +21,7 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
 
   let amount: bigint
   try {
-    amount = ethers.parseUnits(String(options.amount), 18)
+    amount = parseUnits(String(options.amount), 18)
   } catch {
     console.error(pc.red(`Error: Invalid amount '${options.amount}'`))
     throw new Error(`Invalid amount '${options.amount}'`)

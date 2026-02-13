@@ -5,8 +5,7 @@
  * building on the shared payment operations exposed from `src/core/payments`.
  */
 
-import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
-import { ethers } from 'ethers'
+import { parseUnits, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import {
   calculateActualCapacity,
@@ -56,7 +55,7 @@ export function parseStorageAllowance(input: string): number | null {
 
   // Validate that it's a valid number for USDFC per epoch
   try {
-    ethers.parseUnits(input, USDFC_DECIMALS)
+    parseUnits(input, USDFC_DECIMALS)
     return null // Valid USDFC amount, but need pricing to convert to TiB
   } catch {
     throw new Error(

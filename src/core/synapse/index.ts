@@ -1,17 +1,17 @@
 // import { SessionKey } from "@filoz/synapse-sdk/session";
+
+import type { PDPProvider } from '@filoz/synapse-sdk'
 import {
   calibration,
   type mainnet,
-  // ADD_PIECES_TYPEHASH,
-  // CREATE_DATA_SET_TYPEHASH,
   type StorageContextCallbacks,
   type StorageServiceOptions,
   Synapse,
   type SynapseOptions,
 } from '@filoz/synapse-sdk'
-import type { ProviderInfo } from '@filoz/synapse-sdk/sp-registry'
 import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import type { Logger } from 'pino'
+import { type Hex, http, webSocket } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { DEFAULT_DATA_SET_METADATA, DEFAULT_STORAGE_CONTEXT_CONFIG } from './constants.js'
 
@@ -21,7 +21,7 @@ const AUTH_MODE_SYMBOL = Symbol.for('filecoin-pin.authMode')
 
 let synapseInstance: Synapse | null = null
 let storageInstance: StorageContext | null = null
-let currentProviderInfo: ProviderInfo | null = null
+let currentProviderInfo: PDPProvider | null = null
 type AuthMode = 'standard' /* | "session-key" */
 
 /**
@@ -32,6 +32,8 @@ export interface Config {
   port: number
   host: string
   privateKey: `0x${string}` | undefined
+  rpcUrl: string
+  warmStorageAddress?: string | undefined
   databasePath: string
   // TODO: remove this from core?
   carStoragePath: string
@@ -44,24 +46,33 @@ export interface Config {
 interface BaseSynapseConfig extends Omit<SynapseOptions, 'withCDN'> {
   chain?: typeof mainnet | typeof calibration
   withCDN?: boolean | undefined
+  /** RPC URL for chain connection (used to create transport) */
+  rpcUrl?: string
+  /** Optional warm storage contract address override */
+  warmStorageAddress?: string
   /** Default metadata to apply when creating or reusing datasets */
   dataSetMetadata?: Record<string, string>
 }
 
 /**
- * Standard authentication with private key
+ * Standard authentication with private key (hex string)
  */
 export interface PrivateKeyConfig extends BaseSynapseConfig {
-  account: `0x${string}`
+  /** Private key as hex string (0x...) - used with privateKeyToAccount */
+  account: Hex
 }
 
-// /**
-//  * Session key authentication with wallet address and session key
-//  */
-// export interface SessionKeyConfig extends BaseSynapseConfig {
-//   walletAddress: string;
-//   sessionKey: string;
-// }
+/**
+ * Session key authentication with wallet address and session key
+ */
+export interface SessionKeyConfig extends BaseSynapseConfig {
+  walletAddress: string
+  sessionKey: string
+}
+
+export interface SignerConfig extends BaseSynapseConfig {
+  signer: any // Signer
+}
 
 /**
  * Configuration for Synapse initialization
@@ -71,9 +82,7 @@ export interface PrivateKeyConfig extends BaseSynapseConfig {
  * 2. Session Key: walletAddress + sessionKey
  * 3. Signer: ethers Signer instance
  */
-export type SynapseSetupConfig = PrivateKeyConfig
-// | SessionKeyConfig
-// | SignerConfig;
+export type SynapseSetupConfig = PrivateKeyConfig | SessionKeyConfig // | SignerConfig
 
 /**
  * Structured service object containing the fully initialized Synapse SDK and
@@ -82,7 +91,7 @@ export type SynapseSetupConfig = PrivateKeyConfig
 export interface SynapseService {
   synapse: Synapse
   storage: StorageContext
-  providerInfo: ProviderInfo
+  providerInfo: PDPProvider
 }
 
 /**
@@ -200,21 +209,17 @@ function setAuthMode(synapse: Synapse, mode: AuthMode): void {
 
 /**
  * Type guards for authentication configuration
+ * Standard auth is recognized by config.account (set from private key by parseCLIAuth).
  */
 function isPrivateKeyConfig(config: Partial<SynapseSetupConfig>): config is PrivateKeyConfig {
-  return 'privateKey' in config && config.privateKey != null
+  return 'account' in config && config.account != null
 }
 
-// function isSessionKeyConfig(
-//   config: Partial<SynapseSetupConfig>,
-// ): config is SessionKeyConfig {
-//   return (
-//     "walletAddress" in config &&
-//     "sessionKey" in config &&
-//     config.walletAddress != null &&
-//     config.sessionKey != null
-//   );
-// }
+function isSessionKeyConfig(config: Partial<SynapseSetupConfig>): config is SessionKeyConfig {
+  return (
+    'walletAddress' in config && 'sessionKey' in config && config.walletAddress != null && config.sessionKey != null
+  )
+}
 
 function isSignerConfig(config: Partial<SynapseSetupConfig>): config is SignerConfig {
   return 'signer' in config && config.signer != null
@@ -223,12 +228,12 @@ function isSignerConfig(config: Partial<SynapseSetupConfig>): config is SignerCo
 /**
  * Validate authentication configuration
  */
-function validateAuthConfig(config: Partial<SynapseSetupConfig>): 'standard' | /* "session-key" | */ 'signer' {
+function validateAuthConfig(config: Partial<SynapseSetupConfig>): 'standard' | 'session-key' | 'signer' {
   const hasPrivateKey = isPrivateKeyConfig(config)
-  // const hasSessionKey = isSessionKeyConfig(config);
-  // const hasSigner = isSignerConfig(config);
+  const hasSessionKey = isSessionKeyConfig(config)
+  const hasSigner = isSignerConfig(config)
 
-  const authCount = [hasPrivateKey /* hasSessionKey, */].filter(Boolean).length
+  const authCount = [hasPrivateKey, hasSigner, hasSessionKey].filter(Boolean).length
 
   if (authCount === 0) {
     throw new Error(
@@ -244,7 +249,9 @@ function validateAuthConfig(config: Partial<SynapseSetupConfig>): 'standard' | /
     )
   }
 
-  // if (hasSessionKey) return "session-key";
+  if (hasSessionKey) return 'session-key'
+  if (hasSigner) return 'signer'
+
   return 'standard'
 }
 
@@ -338,16 +345,13 @@ export async function initializeSynapse(config: Partial<SynapseSetupConfig>, log
 
     logger.info({ event: 'synapse.init', authMode, chain }, 'Initializing Synapse SDK')
 
-    const synapseOptions: SynapseOptions = {
-      ...restConfig,
-      chain,
-      withIpni: true, // Always filter for IPNI-enabled providers
+    const rpcUrl = (restConfig as { rpcUrl?: string }).rpcUrl ?? calibration.rpcUrls.default.http[0] ?? ''
+    const transport = rpcUrl.startsWith('ws') ? webSocket(rpcUrl) : http(rpcUrl)
+    const synapseOptions: Omit<SynapseOptions, 'account'> = {
+      chain: chain as typeof mainnet | typeof calibration,
+      transport,
+      withCDN: withCDN === true,
     }
-    if (withCDN) {
-      synapseOptions.withCDN = true
-    }
-
-    let synapse: Synapse
 
     // if (authMode === "session-key") {
     //   // Session key mode - type guard ensures these are defined
@@ -371,12 +375,15 @@ export async function initializeSynapse(config: Partial<SynapseSetupConfig>, log
     //   await setupSessionKey(synapse, sessionWallet, logger);
     //   setAuthMode(synapse, "session-key");
     // } else {
-    // Private key mode - type guard ensures privateKey is defined
+    if (authMode === 'session-key') {
+      throw new Error('Session key authentication is not yet implemented; use account (private key) authentication.')
+    }
+    // Private key mode - type guard ensures account is defined
     if (!isPrivateKeyConfig(config)) {
       throw new Error('Internal error: private key mode but config type mismatch')
     }
 
-    synapse = await Synapse.create({
+    const synapse = await Synapse.create({
       ...synapseOptions,
       account: privateKeyToAccount(config.account),
     })
@@ -427,7 +434,7 @@ export async function initializeSynapse(config: Partial<SynapseSetupConfig>, log
 export async function createStorageContext(
   synapse: Synapse,
   options?: CreateStorageContextOptions
-): Promise<{ storage: StorageContext; providerInfo: ProviderInfo }> {
+): Promise<{ storage: StorageContext; providerInfo: PDPProvider }> {
   const logger = options?.logger
 
   try {
@@ -520,7 +527,7 @@ export async function createStorageContext(
 
     // Apply provider override if present
     if (options?.providerAddress) {
-      sdkOptions.providerAddress = options.providerAddress
+      sdkOptions.providerAddress = options.providerAddress as Hex
       logger?.info?.(
         {
           event: 'synapse.storage.provider_override',
@@ -528,8 +535,8 @@ export async function createStorageContext(
         },
         'Overriding provider by address'
       )
-    } else if (options?.providerId != null && Number.isFinite(options.providerId)) {
-      sdkOptions.providerId = options.providerId
+    } else if (options?.providerId != null) {
+      sdkOptions.providerId = typeof options.providerId === 'bigint' ? options.providerId : BigInt(options.providerId)
       logger?.info?.(
         {
           event: 'synapse.storage.provider_override',
@@ -552,14 +559,9 @@ export async function createStorageContext(
 
     // Store instance
     storageInstance = storage
+    currentProviderInfo = storage.provider
 
-    // Ensure we always have provider info
-    if (!currentProviderInfo) {
-      // This should not happen as provider is selected during context creation
-      throw new Error('Provider information not available after storage context creation')
-    }
-
-    return { storage, providerInfo: currentProviderInfo }
+    return { storage, providerInfo: storage.provider }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     logger?.error?.(

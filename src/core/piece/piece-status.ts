@@ -3,20 +3,11 @@ import { PieceStatus } from '../data-set/types.js'
 import type { Warning } from '../utils/types.js'
 
 interface PieceStatusContext {
-  pieceId: number
+  pieceId: bigint
   pieceCid: unknown
-  /**
-   * List of pieceIds that are scheduled for removal.
-   *
-   * This list is obtained from the PDPVerifier.getScheduledRemovals() method.
-   */
-  scheduledRemovals: number[]
-  /**
-   * Map of provider-reported pieces keyed by pieceId.
-   *
-   * This map is mutated: when we confirm a piece is both on-chain and reported
-   * by the provider, we delete it so leftovers represent provider-only pieces.
-   */
+  /** List of pieceIds that are scheduled for removal */
+  scheduledRemovals: bigint[]
+  /** Map of provider-reported pieces keyed by pieceId (mutated when matching) */
   providerPiecesById: Map<DataSetPieceData['pieceId'], DataSetPieceData> | null
 }
 
@@ -45,7 +36,7 @@ interface PieceStatusResult {
 export function reconcilePieceStatus(context: PieceStatusContext): PieceStatusResult {
   const { pieceId, pieceCid, scheduledRemovals, providerPiecesById } = context
 
-  if (scheduledRemovals.includes(pieceId)) {
+  if (scheduledRemovals.some((id) => id === pieceId)) {
     return { status: PieceStatus.PENDING_REMOVAL }
   }
 

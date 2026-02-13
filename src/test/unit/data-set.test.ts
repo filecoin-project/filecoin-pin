@@ -3,21 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DataSetSummary } from '../../core/data-set/types.js'
 import { runDataSetDetailsCommand, runDataSetListCommand } from '../../data-set/run.js'
 
-const {
-  displayDataSetListMock,
-  cleanupSynapseServiceMock,
-  spinnerMock,
-  cancelMock,
-  mockFindDataSets,
-  mockGetStorageInfo,
-  mockGetAddress,
-  mockWarmStorageCreate,
-  mockWarmStorageInstance,
-  mockSynapseCreate,
-  MockPDPServer,
-  MockPDPVerifier,
-  state,
-} = vi.hoisted(() => {
+const dataSetHoisted = vi.hoisted(() => {
   const displayDataSetListMock = vi.fn()
   const cleanupSynapseServiceMock = vi.fn()
   const cancelMock = vi.fn()
@@ -62,7 +48,9 @@ const {
   }
 
   const mockStorageContext = {
-    dataSetId: 158,
+    dataSetId: 158n,
+    getScheduledRemovals: vi.fn().mockResolvedValue([]),
+    provider: { pdp: { serviceURL: 'https://pdp.local' } },
     getPieces: async function* () {
       for (const piece of state.pieceList) {
         yield {
@@ -79,8 +67,8 @@ const {
 
   // TODO: we should not need to mock synapseCreate, and should use mocks/synapse-sdk.ts instead
   const mockSynapseCreate = vi.fn(async (config: any) => {
-    // Validate auth like the real initializeSynapse does
-    const hasStandardAuth = config.privateKey != null
+    // Validate auth like the real initializeSynapse (standard = account, session-key = walletAddress + sessionKey)
+    const hasStandardAuth = config.account != null
     const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
 
     if (!hasStandardAuth && !hasSessionKeyAuth) {
@@ -89,11 +77,17 @@ const {
 
     return {
       getNetwork: () => 'calibration',
+      chain: { name: 'calibration' },
+      client: {
+        account: { address: '0x1234567890123456789012345678901234567890' },
+        getAddress: mockGetAddress,
+      },
       getSigner: () => ({
         getAddress: mockGetAddress,
       }),
       getClient: () => ({
         getAddress: mockGetAddress,
+        account: { address: '0x1234567890123456789012345678901234567890' },
       }),
       storage: {
         findDataSets: mockFindDataSets,
@@ -124,20 +118,31 @@ const {
   }
 })
 
+const {
+  displayDataSetListMock,
+  spinnerMock,
+  cancelMock,
+  mockFindDataSets,
+  mockGetStorageInfo,
+  mockGetAddress,
+  mockWarmStorageInstance,
+  state,
+} = dataSetHoisted
+
 vi.mock('../../data-set/display.js', () => ({
-  displayDataSets: displayDataSetListMock,
+  displayDataSets: dataSetHoisted.displayDataSetListMock,
 }))
 
 vi.mock('../../core/synapse/index.js', () => ({
-  initializeSynapse: mockSynapseCreate,
-  cleanupSynapseService: cleanupSynapseServiceMock,
+  initializeSynapse: dataSetHoisted.mockSynapseCreate,
+  cleanupSynapseService: dataSetHoisted.cleanupSynapseServiceMock,
 }))
 
 vi.mock('../../utils/cli-helpers.js', () => ({
   intro: vi.fn(),
   outro: vi.fn(),
-  cancel: cancelMock,
-  createSpinner: () => spinnerMock,
+  cancel: dataSetHoisted.cancelMock,
+  createSpinner: () => dataSetHoisted.spinnerMock,
 }))
 
 vi.mock('../../utils/cli-logger.js', () => ({
@@ -153,9 +158,9 @@ vi.mock('@filoz/synapse-sdk', async () => {
   const sharedMock = await import('../mocks/synapse-sdk.js')
   return {
     ...sharedMock,
-    WarmStorageService: { create: mockWarmStorageCreate },
-    PDPVerifier: MockPDPVerifier,
-    PDPServer: MockPDPServer,
+    WarmStorageService: { create: dataSetHoisted.mockWarmStorageCreate },
+    PDPVerifier: dataSetHoisted.MockPDPVerifier,
+    PDPServer: dataSetHoisted.MockPDPServer,
   }
 })
 
@@ -168,13 +173,30 @@ vi.mock('@filoz/synapse-core/piece', () => ({
   }),
 }))
 
+// 0.37: getDataSetPieces uses WarmStorageService for metadata; constructor returns instance
+vi.mock('@filoz/synapse-sdk/warm-storage', () => ({
+  WarmStorageService: vi.fn().mockImplementation(function (this: unknown) {
+    return dataSetHoisted.mockWarmStorageInstance
+  }),
+}))
+
+// getDataSetPieces calls getDataSet( { serviceURL, dataSetId } ) for provider pieces
+vi.mock('@filoz/synapse-core/sp', () => ({
+  getDataSet: vi.fn().mockImplementation(() => ({
+    pieces: dataSetHoisted.state.pieceList.map((p: { pieceId: number; pieceCid: string }) => ({
+      pieceId: p.pieceId,
+      pieceCid: { toString: () => p.pieceCid },
+    })),
+  })),
+}))
+
 describe('runDataSetCommand', () => {
   const summaryDataSet = {
-    pdpVerifierDataSetId: 158,
-    providerId: 2,
+    pdpVerifierDataSetId: 158n,
+    providerId: 2n,
     isManaged: true,
     withCDN: false,
-    currentPieceCount: 3,
+    activePieceCount: 3n,
     nextPieceId: 3,
     clientDataSetId: 1,
     pdpRailId: 327,
@@ -194,7 +216,7 @@ describe('runDataSetCommand', () => {
   }
 
   const provider = {
-    id: 2,
+    id: 2n,
     name: 'Test Provider',
     serviceProvider: '0xservice',
     description: 'demo provider',
@@ -239,7 +261,7 @@ describe('runDataSetCommand', () => {
     expect(context).toHaveLength(1)
     const summary = context[0]
     expect(summary).toBeDefined()
-    expect(summary?.dataSetId).toBe(158)
+    expect(summary?.dataSetId).toBe(158n)
     expect(summary?.createdWithFilecoinPin).toBe(true)
   })
 
@@ -252,7 +274,7 @@ describe('runDataSetCommand', () => {
 
     const [dataSets] = displayDataSetListMock.mock.calls[0] as [DataSetSummary[]]
     expect(dataSets).toHaveLength(1)
-    expect(dataSets[0]?.dataSetId).toBe(158)
+    expect(dataSets[0]?.dataSetId).toBe(158n)
   })
 
   it('excludes datasets that do not match metadata filters', async () => {

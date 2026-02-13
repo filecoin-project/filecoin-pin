@@ -314,7 +314,7 @@ export async function performUpload(
           if (event.data.txHash) {
             transactionHash = event.data.txHash
           }
-          const network = synapseService.synapse.getNetwork()
+          const network = synapseService.synapse.chain.name.toLowerCase()
           const explorerUrls = [pc.gray(`Piece: https://pdp.vxb.ai/${network}/piece/${pieceCid}`)]
           if (transactionHash) {
             const filfoxBase = network === 'mainnet' ? 'https://filfox.info' : `https://${network}.filfox.info`
@@ -387,7 +387,7 @@ export async function performUpload(
 
   return {
     ...uploadResult,
-    network: synapseService.synapse.getNetwork(),
+    network: synapseService.synapse.chain.name.toLowerCase(),
     transactionHash: uploadResult.transactionHash,
   }
 }

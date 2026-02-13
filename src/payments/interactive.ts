@@ -7,9 +7,10 @@
  */
 
 import { cancel, confirm, isCancel, password, text } from '@clack/prompts'
-import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
-import { ethers } from 'ethers'
+import { parseUnits } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
+import type { Hex } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
 import {
   calculateDepositCapacity,
   checkAndSetAllowances,
@@ -20,8 +21,9 @@ import {
   getPaymentStatus,
   validatePaymentRequirements,
 } from '../core/payments/index.js'
-import { cleanupProvider, cleanupSynapseService } from '../core/synapse/index.js'
+import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
+import { parseCLIAuth } from '../utils/cli-auth.js'
 import { createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
 import { displayAccountInfo, displayDepositWarning, displayPricing } from './setup.js'
@@ -44,9 +46,6 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
   intro(pc.bold('Filecoin Onchain Cloud Payment Setup'))
 
-  // Store provider reference for cleanup if it's a WebSocket provider
-  let provider: any = null
-
   try {
     // Get private key
     let privateKey = options.privateKey || process.env.PRIVATE_KEY
@@ -66,7 +65,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
           }
 
           try {
-            new ethers.Wallet(key)
+            privateKeyToAccount(key as Hex)
             return undefined
           } catch {
             return 'Invalid private key format'
@@ -83,29 +82,19 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       privateKey = input.startsWith('0x') ? input : `0x${input}`
     }
 
-    // Initialize Synapse
     const s = createSpinner()
     s.start('Initializing connection...')
 
-    const defaultRpcUrl = options.network === 'mainnet' ? RPC_URLS.mainnet.websocket : RPC_URLS.calibration.websocket
-    const rpcUrl = options.rpcUrl || defaultRpcUrl
-
-    const synapse = await Synapse.create({
+    const authConfig = parseCLIAuth({
       privateKey,
-      rpcURL: rpcUrl,
-      withIpni: true, // Always filter for IPNI-enabled providers
-      ...(options.warmStorageAddress && {
-        warmStorageAddress: options.warmStorageAddress,
-      }),
+      rpcUrl: options.rpcUrl,
+      network: options.network,
+      warmStorageAddress: options.warmStorageAddress,
     })
-    const network = synapse.getNetwork()
-    const client = synapse.getClient()
-    const address = await client.getAddress()
-
-    // Store provider reference for cleanup if it's a WebSocket provider
-    if (rpcUrl.match(/^wss?:\/\//)) {
-      provider = synapse.getProvider()
-    }
+    const logger = log as unknown as import('pino').Logger
+    const synapse = await initializeSynapse(authConfig, logger)
+    const network = synapse.chain.name.toLowerCase()
+    const address = synapse.client.account.address
 
     s.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
@@ -204,7 +193,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
         initialValue: status.filecoinPayBalance === 0n ? '10.0' : '5.0',
         validate: (value: string) => {
           try {
-            const amount = ethers.parseUnits(value, 18)
+            const amount = parseUnits(value, 18)
             if (amount <= 0n) return 'Amount must be greater than 0'
             if (amount > walletUsdfcBalance)
               return `Insufficient balance (have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
@@ -220,7 +209,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
         process.exit(1)
       }
 
-      depositAmount = ethers.parseUnits(amountStr, 18)
+      depositAmount = parseUnits(amountStr, 18)
 
       s.start('Depositing USDFC...')
       const { depositTx } = await depositUSDFC(synapse, depositAmount)
@@ -288,7 +277,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     console.error(`\n${pc.red('Error:')}`, error instanceof Error ? error.message : error)
     process.exitCode = 1
   } finally {
-    await cleanupProvider(provider)
+    await cleanupSynapseService()
     process.exit()
   }
 }

@@ -6,7 +6,7 @@
  * - By duration: --days <N> (fund enough to keep current usage alive for N days)
  */
 
-import { ethers } from 'ethers'
+import { parseUnits } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import {
   calculateStorageRunway,
@@ -78,7 +78,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
 
     if (hasAmount) {
       try {
-        depositAmount = ethers.parseUnits(String(options.amount), 18)
+        depositAmount = parseUnits(String(options.amount), 18)
       } catch {
         throw new Error(`Invalid amount '${options.amount}'`)
       }

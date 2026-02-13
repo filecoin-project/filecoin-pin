@@ -1,6 +1,7 @@
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
+import type { Hex } from 'viem'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createConfig } from '../../config.js'
 import { FilecoinPinStore } from '../../filecoin-pin-store.js'
@@ -66,7 +67,7 @@ describe('FilecoinPinStore (Unit)', () => {
     const config = {
       ...createConfig(),
       carStoragePath: './test-output',
-      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001', // Fake test key
+      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001' as Hex,
     }
     const logger = createLogger(config)
 
@@ -167,7 +168,7 @@ describe('FilecoinPinStore (Unit)', () => {
     it('should handle start/stop', async () => {
       const config = {
         ...createConfig(),
-        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001', // Fake test key
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001' as Hex,
       }
 
       const newPinStore = new FilecoinPinStore({

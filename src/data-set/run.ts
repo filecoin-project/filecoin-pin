@@ -23,13 +23,12 @@ export async function runDataSetDetailsCommand(dataSetId: number, options: DataS
 
   try {
     synapse = await getCliSynapse(options)
-    const network = synapse.getNetwork()
-    const client = synapse.getClient()
-    const address = await client.getAddress()
+    const network = synapse.chain.name.toLowerCase()
+    const address = synapse.client.account.address
 
     spinner.message('Fetching data set details...')
 
-    const dataSet: DataSetSummary = await getDetailedDataSet(synapse, dataSetId)
+    const dataSet: DataSetSummary = await getDetailedDataSet(synapse, BigInt(dataSetId))
 
     spinner.stop('━━━ Data Set ━━━')
     displayDataSets([dataSet], network, address)
@@ -58,9 +57,13 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
 
   try {
     // Parse and validate provider ID
-    const providerId: number | undefined = options.providerId != null ? Number(options.providerId) : undefined
-    if (providerId != null && Number.isNaN(providerId)) {
-      throw new Error('Invalid provider ID')
+    let providerId: bigint | undefined
+    if (options.providerId != null && options.providerId !== '') {
+      try {
+        providerId = BigInt(options.providerId)
+      } catch {
+        throw new Error('Invalid provider ID')
+      }
     }
     const metadataEntries = options.dataSetMetadata ? Object.entries(options.dataSetMetadata) : []
     let filter: ((dataSet: EnhancedDataSetInfo) => boolean) | undefined
@@ -83,9 +86,8 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
 
     synapse = await getCliSynapse(options)
 
-    const network = synapse.getNetwork()
-    const client = synapse.getClient()
-    const address = await client.getAddress()
+    const network = synapse.chain.name.toLowerCase()
+    const address = synapse.client.account.address
 
     spinner.message('Fetching data sets...')
 
