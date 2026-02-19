@@ -186,14 +186,12 @@ export interface UploadExecutionOptions {
   /** Optional metadata to associate with the upload. */
   pieceMetadata?: Record<string, string>
   /**
-   * Optional IPNI validation behaviour. When enabled (default), the upload flow will wait for the IPFS Root CID to be announced to IPNI.
-   */
-
-  /**
    * Optional AbortSignal to cancel the upload operation.
    */
   signal?: AbortSignal
-
+  /**
+   * Optional IPNI validation behaviour. When enabled (default), the upload flow will wait for the IPFS Root CID to be announced to IPNI.
+   */
   ipniValidation?: {
     /**
      * Enable the IPNI validation wait.
@@ -239,12 +237,19 @@ export async function executeUpload(
       case 'onPieceAdded': {
         // Begin IPNI validation as soon as the piece is added and parked in the data set
         if (options.ipniValidation?.enabled !== false && ipniValidationPromise == null) {
-          const { enabled: _enabled, expectedProviders, ...restOptions } = options.ipniValidation ?? {}
+          const {
+            enabled: _enabled,
+            expectedProviders,
+            signal: ipniSignal,
+            ...restOptions
+          } = options.ipniValidation ?? {}
 
           // Build validation options
+          // Use top-level signal as default, but allow ipniValidation.signal to override
           const validationOptions: WaitForIpniProviderResultsOptions = {
             ...restOptions,
             logger,
+            signal: ipniSignal ?? options.signal,
           }
 
           // Forward progress events to caller if they provided a handler
@@ -295,12 +300,21 @@ export async function executeUpload(
 
   const uploadResult = await uploadToSynapse(synapseService, carData, rootCid, logger, uploadOptions)
 
+  // Check if aborted after upload completes
+  options.signal?.throwIfAborted()
+
   // Optionally validate IPNI advertisement of the root CID before returning
   let ipniValidated = false
   if (ipniValidationPromise != null) {
     try {
       ipniValidated = await ipniValidationPromise
+      // Check if aborted after IPNI validation completes
+      options.signal?.throwIfAborted()
     } catch (error) {
+      // Re-throw abort errors
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw error
+      }
       logger.error({ error }, 'Could not validate IPNI provider records')
       ipniValidated = false
     }

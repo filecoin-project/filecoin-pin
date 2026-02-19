@@ -59,10 +59,16 @@ export class MockStorageContext extends EventEmitter {
   public readonly serviceProvider = mockProviderInfo.serviceProvider
 
   async upload(_data: ArrayBuffer | Uint8Array, options?: any): Promise<any> {
+    // Check if already aborted
+    options?.signal?.throwIfAborted()
+
     // Extract callbacks from options (handle both old and new API)
     const callbacks = options?.onUploadComplete ? options : options?.callbacks || options
     // Simulate network delay for realistic testing
     await new Promise((resolve) => setTimeout(resolve, 100))
+
+    // Check if aborted during delay
+    options?.signal?.throwIfAborted()
 
     // Generate mock CommP (piece commitment) with correct prefix
     // Real CommP: bafkzcib... (raw multibase + CID with CommP codec)
