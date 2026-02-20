@@ -99,6 +99,24 @@ export class MockSynapse extends EventEmitter {
   public readonly storage = {
     createContext: this.createStorageContext.bind(this),
     upload: (data: any, options: any) => this._storageContext?.upload(data, options),
+    // Mock _warmStorageService for tests that access internal SDK state
+    _warmStorageService: {
+      getDataSet: async (dataSetId: number) => ({
+        dataSetId: BigInt(dataSetId),
+        providerId: BigInt(1),
+        payer: '0x1234567890123456789012345678901234567890',
+        payee: mockProviderInfo.payee,
+        pdpRailId: BigInt(1),
+        cdnRailId: BigInt(0),
+        cacheMissRailId: BigInt(0),
+        commissionBps: 100,
+      }),
+      validateDataSet: async () => true,
+      getDataSetMetadata: async () => ({
+        source: 'filecoin-pin',
+      }),
+      getServiceProviderRegistryAddress: () => '0xregistry',
+    },
   }
 
   /**
