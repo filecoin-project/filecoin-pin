@@ -153,9 +153,6 @@ export async function uploadToSynapse(
 
   const synapseResult = await synapseService.synapse.storage.upload(carData, uploadOptions)
 
-  // Check if aborted after upload completes
-  options.signal?.throwIfAborted()
-
   // Log success
   logger.info(
     {

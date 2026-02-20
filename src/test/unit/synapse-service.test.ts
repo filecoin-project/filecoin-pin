@@ -245,39 +245,6 @@ describe('synapse-service', () => {
         })
       )
     })
-
-    it('should throw if aborted after upload completes', async () => {
-      const data = new Uint8Array([1, 2, 3])
-      const abortController = new AbortController()
-      const uploadSpy = vi.spyOn(service.synapse.storage, 'upload')
-
-      // Make upload resolve successfully, then abort
-      uploadSpy.mockImplementationOnce(async (_data, options: any) => {
-        // Simulate upload completing
-        const pieceCid = { toString: () => 'bafkzcibtest' }
-        const pieceId = 1
-
-        // Call callbacks
-        if (options?.callbacks?.onUploadComplete != null) {
-          options.callbacks.onUploadComplete(pieceCid)
-        }
-        if (options?.callbacks?.onPieceAdded != null) {
-          options.callbacks.onPieceAdded()
-        }
-
-        // Abort after upload completes but before we return
-        abortController.abort()
-
-        return { pieceCid, pieceId, size: 1024 }
-      })
-
-      await expect(
-        uploadToSynapse(service, data, TEST_CID, logger, {
-          contextId: 'pin-abort-after',
-          signal: abortController.signal,
-        })
-      ).rejects.toThrow('This operation was aborted')
-    })
   })
 
   describe('Provider Information', () => {
