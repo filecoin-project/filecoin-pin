@@ -308,13 +308,9 @@ export async function executeUpload(
   if (ipniValidationPromise != null) {
     try {
       ipniValidated = await ipniValidationPromise
-      // Check if aborted after IPNI validation completes
-      options.signal?.throwIfAborted()
     } catch (error) {
       // Re-throw abort errors
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw error
-      }
+      options.signal?.throwIfAborted()
       logger.error({ error }, 'Could not validate IPNI provider records')
       ipniValidated = false
     }
