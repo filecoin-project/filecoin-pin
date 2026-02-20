@@ -214,6 +214,37 @@ describe('synapse-service', () => {
       expect(uploadCompleteCallbackCalled).toBe(true)
       expect(pieceAddedCallbackCalled).toBe(true)
     })
+
+    it('should throw immediately when signal is already aborted', async () => {
+      const data = new Uint8Array([1, 2, 3])
+      const abortController = new AbortController()
+      abortController.abort()
+
+      await expect(
+        uploadToSynapse(service, data, TEST_CID, logger, {
+          contextId: 'pin-abort',
+          signal: abortController.signal,
+        })
+      ).rejects.toThrow('This operation was aborted')
+    })
+
+    it('should pass signal to synapse.storage.upload', async () => {
+      const data = new Uint8Array([1, 2, 3])
+      const abortController = new AbortController()
+      const uploadSpy = vi.spyOn(service.synapse.storage, 'upload')
+
+      await uploadToSynapse(service, data, TEST_CID, logger, {
+        contextId: 'pin-signal',
+        signal: abortController.signal,
+      })
+
+      expect(uploadSpy).toHaveBeenCalledWith(
+        data,
+        expect.objectContaining({
+          signal: abortController.signal,
+        })
+      )
+    })
   })
 
   describe('Provider Information', () => {

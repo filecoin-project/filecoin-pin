@@ -186,6 +186,10 @@ export interface UploadExecutionOptions {
   /** Optional metadata to associate with the upload. */
   pieceMetadata?: Record<string, string>
   /**
+   * Optional AbortSignal to cancel the upload operation.
+   */
+  signal?: AbortSignal
+  /**
    * Optional IPNI validation behaviour. When enabled (default), the upload flow will wait for the IPFS Root CID to be announced to IPNI.
    */
   ipniValidation?: {
@@ -221,6 +225,9 @@ export async function executeUpload(
   rootCid: CID,
   options: UploadExecutionOptions
 ): Promise<UploadExecutionResult> {
+  // Fail fast if the operation was already aborted before starting
+  options.signal?.throwIfAborted()
+
   const { logger, contextId } = options
   let transactionHash: string | undefined
   let ipniValidationPromise: Promise<boolean> | undefined
@@ -230,12 +237,19 @@ export async function executeUpload(
       case 'onPieceAdded': {
         // Begin IPNI validation as soon as the piece is added and parked in the data set
         if (options.ipniValidation?.enabled !== false && ipniValidationPromise == null) {
-          const { enabled: _enabled, expectedProviders, ...restOptions } = options.ipniValidation ?? {}
+          const {
+            enabled: _enabled,
+            expectedProviders,
+            signal: ipniSignal,
+            ...restOptions
+          } = options.ipniValidation ?? {}
 
           // Build validation options
+          // Use top-level signal as default, but allow ipniValidation.signal to override
           const validationOptions: WaitForIpniProviderResultsOptions = {
             ...restOptions,
             logger,
+            signal: ipniSignal ?? options.signal,
           }
 
           // Forward progress events to caller if they provided a handler
@@ -279,8 +293,15 @@ export async function executeUpload(
   if (options.pieceMetadata) {
     uploadOptions.pieceMetadata = options.pieceMetadata
   }
+  //  Only include `signal` when defined to satisfy `exactOptionalPropertyTypes`
+  if (options.signal != null) {
+    uploadOptions.signal = options.signal
+  }
 
   const uploadResult = await uploadToSynapse(synapseService, carData, rootCid, logger, uploadOptions)
+
+  // Check if aborted after upload completes
+  options.signal?.throwIfAborted()
 
   // Optionally validate IPNI advertisement of the root CID before returning
   let ipniValidated = false
@@ -288,6 +309,8 @@ export async function executeUpload(
     try {
       ipniValidated = await ipniValidationPromise
     } catch (error) {
+      // Re-throw abort errors
+      options.signal?.throwIfAborted()
       logger.error({ error }, 'Could not validate IPNI provider records')
       ipniValidated = false
     }
