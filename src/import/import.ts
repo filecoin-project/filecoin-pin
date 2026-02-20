@@ -6,7 +6,8 @@
  */
 
 import { createReadStream } from 'node:fs'
-import { readFile, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
+import { Readable } from 'node:stream'
 import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
@@ -246,13 +247,12 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     const synapseService: SynapseService = { synapse, storage, providerInfo }
 
     // Step 7: Read CAR file and upload to Synapse
-    spinner.start('Uploading to Filecoin...')
+    spinner.start('Uploading to Filecoin (streaming)...')
 
-    // Read the entire CAR file (streaming not yet supported in Synapse)
-    const carData = await readFile(options.filePath)
+    const carStream = Readable.toWeb(createReadStream(options.filePath)) as ReadableStream<Uint8Array>
 
     // Upload using common upload flow
-    const uploadResult = await performUpload(synapseService, carData, rootCid, {
+    const uploadResult = await performUpload(synapseService, carStream, rootCid, {
       contextType: 'import',
       fileSize: fileStat.size,
       logger,
