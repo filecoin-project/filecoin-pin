@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.16.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.16.0...v0.16.1) (2026-02-20)
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.3.14 to 2.3.15 ([#331](https://github.com/filecoin-project/filecoin-pin/issues/331)) ([6cb403e](https://github.com/filecoin-project/filecoin-pin/commit/6cb403e5d02045e7fa196cee4f9e2c70d71b3409))
+* **deps-dev:** bump @biomejs/biome from 2.3.15 to 2.4.2 ([#336](https://github.com/filecoin-project/filecoin-pin/issues/336)) ([2119892](https://github.com/filecoin-project/filecoin-pin/commit/21198920721fd016b25e2bd93542234458f98869))
+* **deps-dev:** bump @biomejs/biome from 2.4.2 to 2.4.3 ([#337](https://github.com/filecoin-project/filecoin-pin/issues/337)) ([a4b3730](https://github.com/filecoin-project/filecoin-pin/commit/a4b3730fd7faf9a29dcc81021ba7a4dace4052c2))
+
 ## [0.16.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.15.1...v0.16.0) (2026-02-07)
 
 
