@@ -188,6 +188,9 @@ function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
     case PieceStatus.OFFCHAIN_ORPHANED:
       pieceStatusDisplay = pc.red('offchain orphaned')
       break
+    case PieceStatus.TERMINATED:
+      pieceStatusDisplay = pc.red('terminated')
+      break
     default:
       pieceStatusDisplay = pc.gray('unknown')
       break
@@ -215,8 +218,14 @@ function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
   log.indent(`Unique IPFS Root CIDs: ${uniqueRootCids.size}`, indentLevel + 1)
   log.line('')
 
-  for (const piece of dataSet.pieces) {
-    renderPiece(piece, indentLevel + 1)
+  if (dataSet.pdpEndEpoch > 0) {
+    for (const piece of dataSet.pieces) {
+      renderPiece({ ...piece, status: PieceStatus.TERMINATED }, indentLevel + 1)
+    }
+  } else {
+    for (const piece of dataSet.pieces) {
+      renderPiece(piece, indentLevel + 1)
+    }
   }
 }
 
