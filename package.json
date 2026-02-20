@@ -114,7 +114,7 @@
   "dependencies": {
     "@clack/prompts": "^1.0.0",
     "@filoz/synapse-core": "^0.1.4",
-    "@filoz/synapse-sdk": "^0.36.1",
+    "@filoz/synapse-sdk": "^0.37.0",
     "@helia/unixfs": "^7.0.0",
     "@ipld/car": "^5.4.2",
     "@sentry/node": "^10.35.0",
