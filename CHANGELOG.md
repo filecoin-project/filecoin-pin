@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.17.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.16.0...v0.17.0) (2026-02-23)
+
+
+### Features
+
+* **rm:** add --all option to remove all pieces from DataSet ([#320](https://github.com/filecoin-project/filecoin-pin/issues/320)) ([b27050c](https://github.com/filecoin-project/filecoin-pin/commit/b27050cde026826043c0fd38c6635732aafa7293))
+
+
+### Bug Fixes
+
+* executeUpload and uploadToSynapse to use abortSignals ([#332](https://github.com/filecoin-project/filecoin-pin/issues/332)) ([060257e](https://github.com/filecoin-project/filecoin-pin/commit/060257e0331a416c0e2a1402973c61f16dba03b2))
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.3.14 to 2.3.15 ([#331](https://github.com/filecoin-project/filecoin-pin/issues/331)) ([6cb403e](https://github.com/filecoin-project/filecoin-pin/commit/6cb403e5d02045e7fa196cee4f9e2c70d71b3409))
+* **deps-dev:** bump @biomejs/biome from 2.3.15 to 2.4.2 ([#336](https://github.com/filecoin-project/filecoin-pin/issues/336)) ([2119892](https://github.com/filecoin-project/filecoin-pin/commit/21198920721fd016b25e2bd93542234458f98869))
+* **deps-dev:** bump @biomejs/biome from 2.4.2 to 2.4.3 ([#337](https://github.com/filecoin-project/filecoin-pin/issues/337)) ([a4b3730](https://github.com/filecoin-project/filecoin-pin/commit/a4b3730fd7faf9a29dcc81021ba7a4dace4052c2))
+* **deps-dev:** bump @biomejs/biome from 2.4.3 to 2.4.4 ([#338](https://github.com/filecoin-project/filecoin-pin/issues/338)) ([5926600](https://github.com/filecoin-project/filecoin-pin/commit/59266007cf2b79914eea81e7897b6108ef30f646))
+
 ## [0.16.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.15.1...v0.16.0) (2026-02-07)
 
 
