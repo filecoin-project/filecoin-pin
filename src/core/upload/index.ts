@@ -268,6 +268,7 @@ export async function executeUpload(
 
           // Start validation (runs in parallel with other operations)
           ipniValidationPromise = waitForIpniProviderResults(rootCid, validationOptions).catch((error) => {
+            validationOptions.signal?.throwIfAborted()
             logger.warn({ error }, 'IPNI provider results check was rejected')
             return false
           })
