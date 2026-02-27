@@ -12,8 +12,7 @@ import { confirm, isCancel } from '@clack/prompts'
 import pc from 'picocolors'
 import pino from 'pino'
 import { type RemoveAllPiecesProgressEvents, removeAllPieces } from '../core/piece/index.js'
-import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
-import { createStorageContextFromDataSetId } from '../core/synapse/storage-context-helper.js'
+import { initializeSynapse } from '../core/synapse/index.js'
 import { parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -63,13 +62,13 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
 
     const authConfig = parseCLIAuth(options)
     const synapse = await initializeSynapse(authConfig, logger)
-    const network = synapse.getNetwork()
+    const network = synapse.chain.name
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
     // Create storage context to fetch pieces
     spinner.start('Fetching pieces from DataSet...')
-    const { storage } = await createStorageContextFromDataSetId(synapse, dataSetId)
+    const storage = await synapse.storage.createContext({ dataSetId: BigInt(dataSetId) })
 
     // Get piece count for confirmation
     const { pieces: allPieces } = await import('../core/data-set/get-data-set-pieces.js').then((m) =>
@@ -203,8 +202,5 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
 
     cancel('Remove failed')
     throw error
-  } finally {
-    // Always cleanup WebSocket providers
-    await cleanupSynapseService()
   }
 }

@@ -1,11 +1,12 @@
 import { EventEmitter } from 'node:events'
 import { readFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { Synapse } from '@filoz/synapse-sdk'
 import type { Helia } from 'helia'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import type { CARBlockstoreStats, CARWritingBlockstore } from './core/car/index.js'
-import type { Config, SynapseService } from './core/synapse/index.js'
+import type { Config } from './core/synapse/index.js'
 import { uploadToSynapse } from './core/upload/index.js'
 import { createPinningHeliaNode } from './create-pinning-helia.js'
 
@@ -39,7 +40,7 @@ export interface FilecoinPinMetadata {
   pinStarted: number
   pinCompleted?: number
   synapsePieceCid?: string
-  synapsePieceId?: number
+  synapsePieceId?: string
   synapseDataSetId?: string
 }
 
@@ -50,7 +51,7 @@ export interface FilecoinStoredPinStatus extends StoredPinStatus {
 export interface FilecoinPinStoreInit {
   config: Config
   logger: Logger
-  synapseService: SynapseService
+  synapse: Synapse
 }
 
 /**
@@ -59,7 +60,7 @@ export interface FilecoinPinStoreInit {
 export class FilecoinPinStore extends EventEmitter {
   private readonly config: Config
   private readonly logger: Logger
-  private readonly synapseService: SynapseService
+  private readonly synapse: Synapse
   private readonly pins = new Map<string, FilecoinStoredPinStatus>()
   private readonly activePins = new Map<
     string,
@@ -76,7 +77,7 @@ export class FilecoinPinStore extends EventEmitter {
     super()
     this.config = init.config
     this.logger = init.logger
-    this.synapseService = init.synapseService
+    this.synapse = init.synapse
   }
 
   async start(): Promise<void> {
@@ -308,24 +309,24 @@ export class FilecoinPinStore extends EventEmitter {
         // TODO: When Synapse supports streaming, this could be optimized
         const carData = await readFile(pinStatus.filecoin.carFilePath)
 
-        // Upload using shared function with pinId as context and IPFS root CID metadata
-        const uploadResult = await uploadToSynapse(this.synapseService, carData, cid, this.logger, {
+        const uploadResult = await uploadToSynapse(this.synapse, carData, cid, this.logger, {
           contextId: pinId,
         })
 
-        // Store Synapse metadata
+        // Store Synapse metadata from the primary copy
+        const primaryCopy = uploadResult.copies.find((c) => c.role === 'primary')
         pinStatus.filecoin.synapsePieceCid = uploadResult.pieceCid
-        if (uploadResult.pieceId !== undefined) {
-          pinStatus.filecoin.synapsePieceId = uploadResult.pieceId
+        if (primaryCopy != null) {
+          pinStatus.filecoin.synapsePieceId = String(primaryCopy.pieceId)
+          pinStatus.filecoin.synapseDataSetId = String(primaryCopy.dataSetId)
         }
-        pinStatus.filecoin.synapseDataSetId = uploadResult.dataSetId
 
         // Add to info for API response
         pinStatus.info = {
           ...pinStatus.info,
           synapse_piece_cid: uploadResult.pieceCid,
-          synapse_piece_id: (uploadResult.pieceId ?? 0).toString(),
-          synapse_data_set_id: uploadResult.dataSetId,
+          synapse_piece_id: primaryCopy != null ? String(primaryCopy.pieceId) : '0',
+          synapse_data_set_id: primaryCopy != null ? String(primaryCopy.dataSetId) : '',
         }
       } catch (error) {
         // Rollback on Synapse failure

@@ -5,19 +5,12 @@
  * including payment validation, storage context creation, and result display.
  */
 
-import type { PieceCID, Synapse } from '@filoz/synapse-sdk'
+import type { CopyResult, FailedCopy, Synapse } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
 import { DEFAULT_LOCKUP_DAYS, type PaymentCapacityCheck } from '../core/payments/index.js'
-import { cleanupSynapseService, type SynapseService } from '../core/synapse/index.js'
-import {
-  checkUploadReadiness,
-  executeUpload,
-  getDownloadURL,
-  getServiceURL,
-  type SynapseUploadResult,
-} from '../core/upload/index.js'
+import { checkUploadReadiness, executeUpload, getNetworkSlug, type SynapseUploadResult } from '../core/upload/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { autoFund } from '../payments/fund.js'
 import type { AutoFundOptions } from '../payments/types.js'
@@ -48,14 +41,28 @@ export interface UploadFlowOptions {
   spinner?: Spinner
 
   /**
-   * Optional metadata attached to the upload request
+   * Optional metadata attached to the upload request (per-piece)
    */
   pieceMetadata?: Record<string, string>
+
+  /** Number of storage copies to create. */
+  count?: number
+
+  /** Specific provider IDs to use. */
+  providerIds?: bigint[]
+
+  /** Specific data set IDs to use. */
+  dataSetIds?: bigint[]
+
+  /** Provider IDs to exclude from selection. */
+  excludeProviderIds?: bigint[]
+
+  /** Data set metadata applied when creating or matching contexts. */
+  metadata?: Record<string, string>
 }
 
 export interface UploadFlowResult extends SynapseUploadResult {
   network: string
-  transactionHash?: string | undefined
 }
 
 /**
@@ -99,7 +106,6 @@ export async function performAutoFunding(synapse: Synapse, fileSize: number, spi
     log.line('')
     log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
     log.flush()
-    await cleanupSynapseService()
     cancel('Operation cancelled - auto-funding failed')
     process.exit(1)
   }
@@ -172,7 +178,6 @@ export async function validatePaymentSetup(
     log.indent(pc.cyan('filecoin-pin payments status'))
     log.flush()
 
-    await cleanupSynapseService()
     cancel('Operation cancelled - payment setup required')
     process.exit(1)
   }
@@ -192,7 +197,6 @@ export async function validatePaymentSetup(
     if (capacity) {
       displayPaymentIssues(capacity, fileSize, spinner)
     }
-    await cleanupSynapseService()
     cancel('Operation cancelled - insufficient payment capacity')
     process.exit(1)
   }
@@ -246,31 +250,44 @@ function displayPaymentIssues(capacityCheck: PaymentCapacityCheck, fileSize: num
 }
 
 /**
- * Upload CAR data to Synapse with progress tracking
+ * Format a role label for spinner output (e.g., "[Primary]" or "[Secondary]")
+ */
+function roleLabel(role: 'primary' | 'secondary'): string {
+  return role === 'primary' ? pc.cyan('[Primary]') : pc.magenta('[Secondary]')
+}
+
+/**
+ * Upload CAR data to Synapse with multi-copy progress tracking
  *
- * @param synapseService - Initialized Synapse service with storage context
+ * @param synapse - Initialized Synapse instance
  * @param carData - CAR file data as Uint8Array
  * @param rootCid - Root CID of the content
  * @param options - Upload flow options
- * @returns Upload result with transaction hash
+ * @returns Upload result with copies and failures
  */
 export async function performUpload(
-  synapseService: SynapseService,
+  synapse: Synapse,
   carData: Uint8Array,
   rootCid: CID,
   options: UploadFlowOptions
 ): Promise<UploadFlowResult> {
   const { contextType, logger, spinner, pieceMetadata } = options
 
-  // Create spinner flow manager for tracking all operations
   const flow = createSpinnerFlow(spinner)
 
   // Start with upload operation
   flow.addOperation('upload', 'Uploading to Filecoin...')
 
-  let transactionHash: string | undefined
+  // Track primary provider ID from onStored to label subsequent events
+  let primaryProviderId: bigint | undefined
 
-  let pieceCid: PieceCID | undefined
+  function getRole(providerId: bigint): 'primary' | 'secondary' {
+    if (primaryProviderId == null || providerId === primaryProviderId) {
+      return 'primary'
+    }
+    return 'secondary'
+  }
+
   function getIpniAdvertisementMsg(details: {
     attempt: number
     totalAttempts: number
@@ -285,56 +302,79 @@ export async function performUpload(
     return `Checking for IPNI provider records (${overallPart}${cidPart})`
   }
 
-  const uploadResult = await executeUpload(synapseService, carData, rootCid, {
+  const network = getNetworkSlug(synapse.chain)
+
+  const uploadResult = await executeUpload(synapse, carData, rootCid, {
     logger,
     contextId: `${contextType}-${Date.now()}`,
     ...(pieceMetadata && { pieceMetadata }),
+    ...(options.count != null && { count: options.count }),
+    ...(options.providerIds != null && { providerIds: options.providerIds }),
+    ...(options.dataSetIds != null && { dataSetIds: options.dataSetIds }),
+    ...(options.excludeProviderIds != null && { excludeProviderIds: options.excludeProviderIds }),
+    ...(options.metadata != null && { metadata: options.metadata }),
     onProgress(event) {
       switch (event.type) {
-        case 'onUploadComplete': {
-          pieceCid = event.data.pieceCid
-          flow.completeOperation('upload', 'Upload complete', {
+        case 'onStored': {
+          primaryProviderId = event.data.providerId
+          flow.completeOperation('upload', `${roleLabel('primary')} Stored on provider ${event.data.providerId}`, {
             type: 'success',
-            details: (() => {
-              const serviceURL = getServiceURL(synapseService.providerInfo)
-              if (serviceURL != null && serviceURL !== '') {
-                return {
-                  title: 'Download IPFS CAR from SP',
-                  content: [pc.gray(`${serviceURL.replace(/\/$/, '')}/ipfs/${rootCid}`)],
-                }
-              }
-              return
-            })(),
           })
-          // Start adding piece to dataset operation
-          flow.addOperation('add-to-dataset', 'Adding piece to DataSet...')
+          // Commit happens later (onPiecesAdded), not here.
           break
         }
-        case 'onPieceAdded': {
+        case 'onPullProgress': {
+          flow.addOperation(
+            `secondary-pull-${event.data.providerId}`,
+            `${roleLabel('secondary')} Pulling to provider ${event.data.providerId}...`
+          )
+          break
+        }
+        case 'onCopyComplete': {
+          flow.completeOperation(
+            `secondary-pull-${event.data.providerId}`,
+            `${roleLabel('secondary')} Stored on provider ${event.data.providerId}`,
+            { type: 'success' }
+          )
+          break
+        }
+        case 'onCopyFailed': {
+          flow.completeOperation(
+            `secondary-pull-${event.data.providerId}`,
+            `${roleLabel('secondary')} Failed: provider ${event.data.providerId} - ${event.data.error.message}`,
+            { type: 'warning' }
+          )
+          break
+        }
+        case 'onPiecesAdded': {
+          const role = getRole(event.data.providerId)
+
+          const commitId = `commit-${event.data.providerId}`
+          flow.addOperation(commitId, `${roleLabel(role)} Adding piece to DataSet...`)
+
+          // Show per-SP transaction URL as indented line under the "added" message
+          const afterLines: string[] = []
           if (event.data.txHash) {
-            transactionHash = event.data.txHash
-          }
-          const network = synapseService.synapse.getNetwork()
-          const explorerUrls = [pc.gray(`Piece: https://pdp.vxb.ai/${network}/piece/${pieceCid}`)]
-          if (transactionHash) {
             const filfoxBase = network === 'mainnet' ? 'https://filfox.info' : `https://${network}.filfox.info`
-            explorerUrls.push(pc.gray(`Transaction: ${filfoxBase}/en/message/${transactionHash}`))
+            afterLines.push(pc.gray(`Tx: ${filfoxBase}/en/message/${event.data.txHash}`))
           }
-          flow.completeOperation('add-to-dataset', 'Piece added to DataSet (unconfirmed on-chain)', {
+          flow.completeOperation(commitId, `${roleLabel(role)} Piece added to DataSet (unconfirmed on-chain)`, {
             type: 'success',
-            details: {
-              title: 'Explorer URLs',
-              content: explorerUrls,
-            },
+            ...(afterLines.length > 0 && { afterLines }),
           })
-          // Start chain confirmation operation
-          flow.addOperation('chain', 'Confirming piece added to DataSet on-chain')
+          flow.addOperation(
+            `chain-${event.data.providerId}`,
+            `${roleLabel(role)} Confirming piece added to DataSet on-chain`
+          )
           break
         }
-        case 'onPieceConfirmed': {
-          flow.completeOperation('chain', 'Piece added to DataSet (confirmed on-chain)', {
-            type: 'success',
-          })
+        case 'onPiecesConfirmed': {
+          const role = getRole(event.data.providerId)
+          flow.completeOperation(
+            `chain-${event.data.providerId}`,
+            `${roleLabel(role)} Piece added to DataSet (confirmed on-chain)`,
+            { type: 'success' }
+          )
           break
         }
 
@@ -354,7 +394,6 @@ export async function performUpload(
           break
         }
         case 'ipniProviderResults.complete': {
-          // complete event is only emitted when result === true (success)
           flow.completeOperation('ipni', 'IPNI provider records found. IPFS retrieval possible.', {
             type: 'success',
             details: {
@@ -385,11 +424,7 @@ export async function performUpload(
     },
   })
 
-  return {
-    ...uploadResult,
-    network: synapseService.synapse.getNetwork(),
-    transactionHash: uploadResult.transactionHash,
-  }
+  return uploadResult
 }
 
 /**
@@ -397,6 +432,7 @@ export async function performUpload(
  *
  * @param result - Result data to display
  * @param operation - Operation name ('Import' or 'Add')
+ * @param network - Network name
  */
 export function displayUploadResults(
   result: {
@@ -404,10 +440,9 @@ export function displayUploadResults(
     fileSize: number
     rootCid: string
     pieceCid: string
-    pieceId?: number | undefined
-    dataSetId: string
-    providerInfo: any
-    transactionHash?: string | undefined
+    size?: number
+    copies: CopyResult[]
+    failures: FailedCopy[]
   },
   operation: string,
   network: string
@@ -423,22 +458,35 @@ export function displayUploadResults(
 
   log.line(pc.bold('Filecoin Storage'))
   log.indent(`Piece CID: ${result.pieceCid}`)
-  log.indent(`Piece ID: ${result.pieceId?.toString() || 'N/A'}`)
-  log.indent(`Data Set ID: ${result.dataSetId}`)
-
+  if (result.size != null) {
+    log.indent(`Piece Size: ${formatFileSize(result.size)}`)
+  }
+  log.indent(`Explorer: ${pc.gray(`https://pdp.vxb.ai/${network}/piece/${result.pieceCid}`)}`)
   log.line('')
-  log.line(pc.bold('Storage Provider'))
-  log.indent(`Provider ID: ${result.providerInfo.id}`)
-  log.indent(`Name: ${result.providerInfo.name}`)
-  const downloadURL = getDownloadURL(result.providerInfo, result.pieceCid)
-  if (downloadURL) {
-    log.indent(`Direct Download URL: ${downloadURL}`)
+
+  if (result.copies.length > 0) {
+    log.line(pc.bold('Copies'))
+    for (const copy of result.copies) {
+      const label = copy.role === 'primary' ? pc.cyan('[Primary]') : pc.magenta('[Secondary]')
+      log.indent(`${label} Provider ${copy.providerId}`)
+      log.indent(`  Data Set ID: ${copy.dataSetId}`)
+      log.indent(`  Piece ID: ${copy.pieceId}`)
+      if (copy.retrievalUrl) {
+        log.indent(`  Retrieval URL: ${copy.retrievalUrl}`)
+      }
+      if (copy.isNewDataSet) {
+        log.indent(`  ${pc.gray('(new data set created)')}`)
+      }
+    }
   }
 
-  if (result.transactionHash) {
+  if (result.failures.length > 0) {
     log.line('')
-    log.line(pc.bold('Transaction'))
-    log.indent(`Hash: ${result.transactionHash}`)
+    log.line(pc.bold(pc.yellow('Warnings')))
+    for (const failure of result.failures) {
+      const label = failure.role === 'primary' ? pc.cyan('[Primary]') : pc.magenta('[Secondary]')
+      log.indent(`${pc.yellow('⚠')} ${label} Provider ${failure.providerId} failed: ${failure.error}`)
+    }
   }
 
   log.flush()

@@ -1,4 +1,4 @@
-import type { ProviderInfo } from '@filoz/synapse-sdk'
+import type { CopyResult, FailedCopy } from '@filoz/synapse-sdk'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 
 export interface ImportOptions extends CLIAuthOptions {
@@ -16,8 +16,7 @@ export interface ImportResult {
   fileSize: number
   rootCid: string
   pieceCid: string
-  pieceId?: number | undefined
-  dataSetId: string
-  transactionHash?: string | undefined
-  providerInfo: ProviderInfo
+  size: number
+  copies: CopyResult[]
+  failures: FailedCopy[]
 }

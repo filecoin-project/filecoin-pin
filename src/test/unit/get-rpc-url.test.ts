@@ -1,7 +1,11 @@
-import { RPC_URLS } from '@filoz/synapse-sdk'
+import { calibration, mainnet } from '@filoz/synapse-sdk'
 import { describe, expect, it } from 'vitest'
 import { getRpcUrl } from '../../common/get-rpc-url.js'
 import type { CLIAuthOptions } from '../../utils/cli-auth.js'
+
+// Extract expected WebSocket URLs from chain definitions
+const mainnetWsUrl = mainnet.rpcUrls.default.webSocket?.[0]
+const calibrationWsUrl = calibration.rpcUrls.default.webSocket?.[0] ?? calibration.rpcUrls.default.http[0]
 
 /**
  * In production Commander already maps env vars (NETWORK/RPC_URL) into CLI options.
@@ -20,8 +24,8 @@ describe('getRpcUrl', () => {
   })
 
   it.each([
-    ['mainnet', RPC_URLS.mainnet.websocket],
-    ['calibration', RPC_URLS.calibration.websocket],
+    ['mainnet', mainnetWsUrl],
+    ['calibration', calibrationWsUrl],
   ])('returns RPC URL for %s network', (network, expected) => {
     expect(getRpcUrl({ network } satisfies CLIAuthOptions)).toBe(expected)
   })
@@ -31,23 +35,23 @@ describe('getRpcUrl', () => {
       getRpcUrl({
         network: '  MAINNET  ',
       })
-    ).toBe(RPC_URLS.mainnet.websocket)
+    ).toBe(mainnetWsUrl)
 
     expect(
       getRpcUrl({
         network: '\tCaLiBrAtIoN\n',
       })
-    ).toBe(RPC_URLS.calibration.websocket)
+    ).toBe(calibrationWsUrl)
   })
 
   it('defaults to calibration when network is missing or blank', () => {
-    expect(getRpcUrl({})).toBe(RPC_URLS.calibration.websocket)
-    expect(getRpcUrl({ network: '' })).toBe(RPC_URLS.calibration.websocket)
-    expect(getRpcUrl({ network: '   ' })).toBe(RPC_URLS.calibration.websocket)
+    expect(getRpcUrl({})).toBe(calibrationWsUrl)
+    expect(getRpcUrl({ network: '' })).toBe(calibrationWsUrl)
+    expect(getRpcUrl({ network: '   ' })).toBe(calibrationWsUrl)
   })
 
   it('treats empty rpcUrl as falsy and falls back to defaults', () => {
-    expect(getRpcUrl({ rpcUrl: '' })).toBe(RPC_URLS.calibration.websocket)
+    expect(getRpcUrl({ rpcUrl: '' })).toBe(calibrationWsUrl)
   })
 
   it('throws for unsupported networks', () => {

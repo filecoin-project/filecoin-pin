@@ -3,14 +3,12 @@ import { PieceStatus } from '../data-set/types.js'
 import type { Warning } from '../utils/types.js'
 
 interface PieceStatusContext {
-  pieceId: number
+  pieceId: bigint
   pieceCid: unknown
   /**
    * List of pieceIds that are scheduled for removal.
-   *
-   * This list is obtained from the PDPVerifier.getScheduledRemovals() method.
    */
-  scheduledRemovals: number[]
+  scheduledRemovals: readonly bigint[]
   /**
    * Map of provider-reported pieces keyed by pieceId.
    *
@@ -26,21 +24,16 @@ interface PieceStatusResult {
 }
 
 /**
- * Reconcile a piece's status across the two data sources we have:
+ * Reconcile a piece's status across on-chain and provider-reported data.
  *
- * - On-chain: StorageContext.getPieces() (source of truth for what the PDP verifier knows)
- * - Provider-reported: PDPServer.getDataSet() (what the storage provider says it stores)
+ * On-chain (StorageContext.getPieces()) and provider-reported (PDPServer.getDataSet())
+ * views can drift -- see https://github.com/filecoin-project/curio/issues/815.
  *
- * https://github.com/filecoin-project/curio/issues/815 showed these can drift. This helper documents the rules we apply
- * to flag mismatches without blocking the listing flow:
- *
- * 1. If PDPVerifier marked the piece for removal, treat as PENDING_REMOVAL.
- * 2. If provider data is unavailable, assume ACTIVE (best effort).
- * 3. If provider reports the piece, treat as ACTIVE and remove it from the map so
- *    any leftover entries become OFFCHAIN_ORPHANED later.
- * 4. Otherwise, the piece is on-chain but missing from the provider => ONCHAIN_ORPHANED.
- *
- * The optional warning conveys orphan cases to callers for user-facing messaging.
+ * Rules:
+ * 1. If PDPVerifier marked the piece for removal => PENDING_REMOVAL
+ * 2. If provider data is unavailable, assume ACTIVE (best effort)
+ * 3. If provider reports the piece => ACTIVE (remove from map for orphan detection)
+ * 4. Otherwise, on-chain but missing from provider => ONCHAIN_ORPHANED
  */
 export function reconcilePieceStatus(context: PieceStatusContext): PieceStatusResult {
   const { pieceId, pieceCid, scheduledRemovals, providerPiecesById } = context
@@ -55,7 +48,7 @@ export function reconcilePieceStatus(context: PieceStatusContext): PieceStatusRe
   }
 
   if (providerPiecesById.has(pieceId)) {
-    // Provider matches on-chain; remove so leftovers can be flagged as off-chain orphans.
+    // Provider confirms this piece; remove from map so leftovers become off-chain orphans.
     providerPiecesById.delete(pieceId)
     return { status: PieceStatus.ACTIVE }
   }
@@ -65,7 +58,7 @@ export function reconcilePieceStatus(context: PieceStatusContext): PieceStatusRe
     warning: {
       code: 'ONCHAIN_ORPHANED',
       message: 'Piece is on-chain but the provider does not report it',
-      context: { pieceId, pieceCid },
+      context: { pieceId: pieceId.toString(), pieceCid },
     },
   }
 }

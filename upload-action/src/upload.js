@@ -1,9 +1,9 @@
 import { access } from 'node:fs/promises'
-import { initializeSynapse } from 'filecoin-pin/core/synapse'
+import { calibration, initializeSynapse, mainnet } from 'filecoin-pin/core/synapse'
 import pc from 'picocolors'
 import pino from 'pino'
 import { commentOnPR } from './comments/comment.js'
-import { cleanupSynapse, handlePayments, uploadCarToFilecoin } from './filecoin.js'
+import { handlePayments, uploadCarToFilecoin } from './filecoin.js'
 import { ensurePullRequestContext, updateCheck } from './github.js'
 import { parseInputs } from './inputs.js'
 import { writeOutputs, writeSummary } from './outputs.js'
@@ -41,8 +41,7 @@ export async function runUpload(buildContext = {}) {
     minStorageDays,
     filecoinPayBalanceLimit,
     withCDN,
-    providerAddress,
-    providerId,
+    providerIds,
     dryRun,
   } = inputs
 
@@ -143,10 +142,12 @@ export async function runUpload(buildContext = {}) {
       ...context.paymentStatus,
     }
   } else {
+    const chain = inputNetwork === 'mainnet' ? mainnet : calibration
     const synapse = await initializeSynapse(
       {
-        privateKey: walletPrivateKey,
-        network: inputNetwork,
+        privateKey: /** @type {`0x${string}`} */ (walletPrivateKey),
+        chain,
+        ...(withCDN && { withCDN }),
       },
       logger
     )
@@ -178,7 +179,7 @@ export async function runUpload(buildContext = {}) {
     })
 
     /** @type {UploadConfig} */
-    const uploadOptions = { withCDN, providerId, providerAddress }
+    const uploadOptions = { withCDN, providerIds }
 
     const uploadResult = await uploadCarToFilecoin(synapse, carPath, rootCid, uploadOptions, logger)
     pieceCid = uploadResult.pieceCid
@@ -238,8 +239,6 @@ export async function runUpload(buildContext = {}) {
 
   // Comment on PR
   await commentOnPR(context)
-
-  await cleanupSynapse()
 
   return context
 }

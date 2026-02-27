@@ -10,8 +10,7 @@
 import pc from 'picocolors'
 import pino from 'pino'
 import { type RemovePieceProgressEvents, removePiece } from '../core/piece/index.js'
-import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
-import { createStorageContextFromDataSetId } from '../core/synapse/storage-context-helper.js'
+import { initializeSynapse } from '../core/synapse/index.js'
 import { parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -60,7 +59,7 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
 
     const authConfig = parseCLIAuth(options)
     const synapse = await initializeSynapse(authConfig, logger)
-    const network = synapse.getNetwork()
+    const network = synapse.chain.name
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
@@ -102,7 +101,7 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
     }
 
     spinner.start('Creating storage context...')
-    const { storage } = await createStorageContextFromDataSetId(synapse, dataSetId)
+    const storage = await synapse.storage.createContext({ dataSetId: BigInt(dataSetId) })
 
     spinner.stop(`${pc.green('✓')} Storage context created`)
 
@@ -132,7 +131,7 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
     }
 
     // Clean up WebSocket providers to allow process termination
-    await cleanupSynapseService()
+    // Synapse instances don't require explicit cleanup
 
     outro('Remove completed successfully')
 
@@ -143,8 +142,5 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
 
     cancel('Remove failed')
     throw error
-  } finally {
-    // Always cleanup WebSocket providers
-    await cleanupSynapseService()
   }
 }

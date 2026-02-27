@@ -1,4 +1,4 @@
-import type { Synapse } from '@filoz/synapse-sdk'
+import { calibration, type Synapse } from '@filoz/synapse-sdk'
 import { MIN_FIL_FOR_GAS } from './constants.js'
 import {
   calculateStorageRunway,
@@ -343,7 +343,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     currentAllowances: status.currentAllowances,
   }
 
-  const isCalibnet = status.network === 'calibration'
+  const isCalibnet = status.chainId === calibration.id
   const hasSufficientGas = status.filBalance >= MIN_FIL_FOR_GAS
   const validation = validatePaymentRequirements(hasSufficientGas, status.walletUsdfcBalance, isCalibnet)
   if (!validation.isValid) {

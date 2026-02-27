@@ -60,7 +60,7 @@ program.hook('preAction', () => {
   }).unref()
 })
 
-program.hook('postAction', async () => {
+program.hook('postAction', async (_thisCommand, actionCommand) => {
   if (updateCheckResult?.status === 'update-available') {
     const result = updateCheckResult
     updateCheckResult = null
@@ -70,6 +70,13 @@ program.hook('postAction', async () => {
     const instruction = `Visit ${releasesLink} to view release notes or download the latest version.`
     console.log(header)
     console.log(instruction)
+  }
+
+  // Viem transports (especially WebSocket) hold persistent connections that
+  // prevent the process from exiting. The server command manages its own
+  // lifecycle via SIGINT/SIGTERM handlers, so only exit for CLI commands.
+  if (actionCommand.name() !== 'server') {
+    process.exit(0)
   }
 })
 

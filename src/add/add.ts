@@ -11,15 +11,9 @@ import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
-import {
-  type CreateStorageContextOptions,
-  cleanupSynapseService,
-  createStorageContext,
-  initializeSynapse,
-  type SynapseService,
-} from '../core/synapse/index.js'
+import { initializeSynapse } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
-import { parseCLIAuth, parseProviderOptions } from '../utils/cli-auth.js'
+import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import type { AddOptions, AddResult } from './types.js'
@@ -116,28 +110,36 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     const sizeDisplay = isDirectory ? '' : ` (${formatFileSize(pathStat.size)})`
     spinner.stop(`${pc.green('✓')} ${pathType} validated${sizeDisplay}`)
 
-    // Initialize Synapse SDK (without storage context)
+    // Validate context selection options early (before expensive operations)
+    let contextSelection: ReturnType<typeof parseContextSelectionOptions>
+    try {
+      contextSelection = parseContextSelectionOptions(options)
+    } catch (error) {
+      cancel(error instanceof Error ? error.message : 'Invalid options')
+      process.exit(1)
+    }
+
+    // Initialize Synapse SDK
     spinner.start('Initializing Synapse SDK...')
 
-    // Parse authentication options from CLI and environment
     const config = parseCLIAuth(options)
     if (dataSetMetadata) {
       config.dataSetMetadata = dataSetMetadata
     }
     if (withCDN) config.withCDN = true
 
-    // Initialize just the Synapse SDK
     const synapse = await initializeSynapse(config, logger)
-    const network = synapse.getNetwork()
+    const network = synapse.chain.name
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
     // Check payment setup (may configure permissions if needed)
-    // Actual CAR size will be checked later
-    spinner.start('Checking payment setup...')
-    await validatePaymentSetup(synapse, 0, spinner, {
-      suppressSuggestions: true,
-    })
+    if (!options.autoFund) {
+      spinner.start('Checking payment setup...')
+      await validatePaymentSetup(synapse, 0, spinner, {
+        suppressSuggestions: true,
+      })
+    }
 
     // Create CAR from file or directory
     const packingMsg = isDirectory
@@ -162,61 +164,31 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     spinner.stop(`${pc.green('✓')} IPFS content loaded (${formatFileSize(carSize)})`)
 
     if (options.autoFund) {
-      // Perform auto-funding if requested (now that we know the file size)
       await performAutoFunding(synapse, carSize, spinner)
     } else {
-      // Check payment setup and capacity for actual file size
       spinner.start('Checking payment capacity...')
       await validatePaymentSetup(synapse, carSize, spinner)
     }
 
-    // Create storage context
-    spinner.start('Creating storage context...')
-
-    // Parse provider selection from CLI options and environment variables
-    const providerOptions = parseProviderOptions(options)
-
-    const storageContextOptions: CreateStorageContextOptions = {
-      logger,
-      ...providerOptions,
-      dataset: {
-        ...(dataSetMetadata && { metadata: dataSetMetadata }),
-        ...(options.dataSetId && { useExisting: options.dataSetId }),
-        ...(options.createNewDataSet && { createNew: true }),
-      },
-      callbacks: {
-        onProviderSelected: (provider) => {
-          spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)
-        },
-        onDataSetResolved: (info) => {
-          if (info.isExisting) {
-            spinner.message(`Using existing data set #${info.dataSetId}`)
-          } else {
-            spinner.message(`Created new data set #${info.dataSetId}`)
-          }
-        },
-      },
-    }
-
-    const { storage, providerInfo } = await createStorageContext(synapse, storageContextOptions)
-
-    spinner.stop(`${pc.green('✓')} Storage context ready`)
-    log.spinnerSection('Storage Context', [
-      pc.gray(`Data Set ID: ${storage.dataSetId}`),
-      pc.gray(`Provider: ${providerInfo.name || providerInfo.serviceProvider}`),
-    ])
-
-    // Create service object for upload function
-    const synapseService: SynapseService = { synapse, storage, providerInfo }
-
-    // Upload to Synapse
-    const uploadResult = await performUpload(synapseService, carData, rootCid, {
+    const uploadOptions: Parameters<typeof performUpload>[3] = {
       contextType: 'add',
       fileSize: carSize,
       logger,
       spinner,
-      ...(pieceMetadata && { metadata: pieceMetadata }),
-    })
+      ...(pieceMetadata && { pieceMetadata }),
+      ...(dataSetMetadata && { metadata: dataSetMetadata }),
+    }
+    if (contextSelection.providerIds) {
+      uploadOptions.providerIds = contextSelection.providerIds.map(BigInt)
+      uploadOptions.count = contextSelection.providerIds.length
+    }
+    if (contextSelection.dataSetIds) {
+      uploadOptions.dataSetIds = contextSelection.dataSetIds.map(BigInt)
+      uploadOptions.count = contextSelection.dataSetIds.length
+    }
+
+    // Upload to Synapse (SDK handles provider selection and multi-copy)
+    const uploadResult = await performUpload(synapse, carData, rootCid, uploadOptions)
 
     // Display results
     spinner.stop('━━━ Add Complete ━━━')
@@ -227,26 +199,32 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       ...(isDirectory && { isDirectory }),
       rootCid: rootCid.toString(),
       pieceCid: uploadResult.pieceCid,
-      pieceId: uploadResult.pieceId,
-      dataSetId: uploadResult.dataSetId,
-      transactionHash: uploadResult.transactionHash,
-      providerInfo: uploadResult.providerInfo,
+      size: uploadResult.size,
+      copies: uploadResult.copies,
+      failures: uploadResult.failures,
     }
 
     displayUploadResults(result, 'Add', network)
 
-    // Clean up WebSocket providers to allow process termination
-    await cleanupSynapseService()
-
-    outro('Add completed successfully')
+    // Exit non-zero if any copies failed
+    if (uploadResult.failures.length > 0) {
+      log.line('')
+      log.line(
+        pc.yellow(
+          `${pc.yellow('⚠')} ${uploadResult.failures.length} copy failure(s). Data is stored but with reduced redundancy.`
+        )
+      )
+      log.flush()
+      outro('Add completed with warnings')
+      process.exitCode = 1
+    } else {
+      outro('Add completed successfully')
+    }
 
     return result
   } catch (error) {
     spinner.stop(`${pc.red('✗')} Add failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     logger.error({ event: 'add.failed', error }, 'Add failed')
-
-    // Clean up even on error
-    await cleanupSynapseService()
 
     // Always cleanup temp CAR even on error
     if (tempCarPath) {

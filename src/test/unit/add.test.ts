@@ -19,21 +19,25 @@ vi.mock('../../common/upload-flow.js', () => ({
   validatePaymentSetup: vi.fn(),
   performUpload: vi.fn().mockResolvedValue({
     pieceCid: 'bafkzcibtest1234567890',
-    pieceId: 789,
-    dataSetId: '456',
+    size: 1024,
+    copies: [
+      {
+        providerId: 1n,
+        dataSetId: 123n,
+        pieceId: 789n,
+        role: 'primary',
+        retrievalUrl: 'http://test.provider/pdp/piece/bafkzcibtest1234567890',
+        isNewDataSet: false,
+      },
+    ],
+    failures: [],
     network: 'calibration',
-    transactionHash: '0xabc123',
-    providerInfo: {
-      id: 1,
-      name: 'Test Provider',
-      serviceURL: 'http://test.provider',
-    },
   }),
   displayUploadResults: vi.fn(),
 }))
 
 vi.mock('../../core/synapse/index.js', () => ({
-  initializeSynapse: vi.fn().mockImplementation(async (config: any) => {
+  initializeSynapse: vi.fn().mockImplementation((config: any) => {
     // Validate auth config (mirrors validateAuthConfig in actual code)
     const hasStandardAuth = config.privateKey != null
     const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
@@ -46,18 +50,13 @@ vi.mock('../../core/synapse/index.js', () => ({
     }
 
     return {
-      getNetwork: () => 'calibration',
+      chain: { name: 'calibration', id: 314159 },
+      client: { account: { address: '0x1234567890123456789012345678901234567890' } },
+      storage: {
+        upload: vi.fn(),
+      },
     }
   }),
-  createStorageContext: vi.fn().mockResolvedValue({
-    storage: {},
-    providerInfo: {
-      id: 1,
-      name: 'Test Provider',
-      serviceURL: 'http://test.provider',
-    },
-  }),
-  cleanupSynapseService: vi.fn(),
 }))
 
 vi.mock('../../core/unixfs/index.js', () => ({
@@ -85,6 +84,7 @@ vi.mock('../../utils/cli-helpers.js', () => ({
     start: vi.fn(),
     stop: vi.fn(),
     message: vi.fn(),
+    clear: vi.fn(),
   })),
   formatFileSize: vi.fn((size: number) => `${size} bytes`),
 }))
@@ -137,20 +137,17 @@ describe('Add Command', () => {
         rpcUrl: 'wss://test.rpc.url',
       })
 
-      // Verify the result structure (should use directory wrapper CID by default)
+      // Verify the result structure (multi-copy format)
       expect(result).toMatchObject({
         filePath: testFile,
         fileSize: expect.any(Number),
-        rootCid: TEST_DIR_WRAPPED_CID, // Directory wrapper CID
+        rootCid: TEST_DIR_WRAPPED_CID,
         pieceCid: TEST_PIECE_CID,
-        pieceId: 789,
-        dataSetId: '456',
-        transactionHash: '0xabc123',
-        providerInfo: {
-          id: 1,
-          name: 'Test Provider',
-        },
+        size: 1024,
       })
+      expect(result.copies).toHaveLength(1)
+      expect(result.copies[0]?.role).toBe('primary')
+      expect(result.failures).toHaveLength(0)
 
       // Verify createCarFromPath was called without bare flag
       const { createCarFromPath } = await import('../../core/unixfs/index.js')
@@ -171,20 +168,16 @@ describe('Add Command', () => {
         bare: true,
       })
 
-      // Verify the result structure (should use bare mode CID)
+      // Verify the result structure (multi-copy format)
       expect(result).toMatchObject({
         filePath: testFile,
         fileSize: expect.any(Number),
-        rootCid: TEST_BARE_CID, // Bare mode CID
+        rootCid: TEST_BARE_CID,
         pieceCid: TEST_PIECE_CID,
-        pieceId: 789,
-        dataSetId: '456',
-        transactionHash: '0xabc123',
-        providerInfo: {
-          id: 1,
-          name: 'Test Provider',
-        },
+        size: 1024,
       })
+      expect(result.copies).toHaveLength(1)
+      expect(result.failures).toHaveLength(0)
 
       // Verify createCarFromPath was called with bare flag
       const { createCarFromPath } = await import('../../core/unixfs/index.js')
@@ -197,7 +190,7 @@ describe('Add Command', () => {
       )
     })
 
-    it('passes metadata options through to upload and storage context', async () => {
+    it('passes metadata options through to upload', async () => {
       await runAdd({
         filePath: testFile,
         privateKey: 'test-private-key',
@@ -205,7 +198,7 @@ describe('Add Command', () => {
         pieceMetadata: { region: 'us-west', note: '' },
         dataSetMetadata: { purpose: 'erc8004' },
       })
-      const { createStorageContext, initializeSynapse } = await import('../../core/synapse/index.js')
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
       const { performUpload } = await import('../../common/upload-flow.js')
 
       expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
@@ -215,55 +208,36 @@ describe('Add Command', () => {
         expect.anything()
       )
 
-      expect(vi.mocked(createStorageContext)).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          dataset: {
-            metadata: { purpose: 'erc8004' },
-          },
-          logger: expect.anything(),
-        })
-      )
-
+      // pieceMetadata goes through to performUpload
       expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
         expect.anything(),
         expect.objectContaining({
-          metadata: { region: 'us-west', note: '' },
+          pieceMetadata: { region: 'us-west', note: '' },
+          metadata: { purpose: 'erc8004' },
         })
       )
     })
 
-    it('passes data set selection options to storage context', async () => {
+    it('passes data set selection options to performUpload', async () => {
       await runAdd({
         filePath: testFile,
         privateKey: 'test-private-key',
         rpcUrl: 'wss://test.rpc.url',
-        dataSetId: 123,
+        dataSetIds: '123',
       })
-      const { createStorageContext } = await import('../../core/synapse/index.js')
-      expect(vi.mocked(createStorageContext)).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          dataset: expect.objectContaining({
-            useExisting: 123,
-          }),
-        })
-      )
 
-      await runAdd({
-        filePath: testFile,
-        privateKey: 'test-private-key',
-        rpcUrl: 'wss://test.rpc.url',
-        createNewDataSet: true,
-      })
-      expect(vi.mocked(createStorageContext)).toHaveBeenCalledWith(
+      const { performUpload } = await import('../../common/upload-flow.js')
+
+      // dataSetIds is parsed and passed through to performUpload
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
         expect.anything(),
         expect.objectContaining({
-          dataset: expect.objectContaining({
-            createNew: true,
-          }),
+          dataSetIds: [123n],
+          count: 1,
         })
       )
     })

@@ -14,6 +14,7 @@ export interface ServiceApprovalStatus {
  */
 export interface PaymentStatus {
   network: string
+  chainId: number
   address: string
   filBalance: bigint
   /** USDFC tokens sitting in the owner wallet (not yet deposited) */

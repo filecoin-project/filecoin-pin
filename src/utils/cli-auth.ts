@@ -28,12 +28,10 @@ export interface CLIAuthOptions {
   network?: string | undefined
   /** RPC endpoint URL (overrides network if specified) */
   rpcUrl?: string | undefined
-  /** Optional warm storage address override */
-  warmStorageAddress?: string | undefined
-  /** Optional provider address override */
-  providerAddress?: string | undefined
-  /** Optional provider ID override */
-  providerId?: string | undefined
+  /** Optional provider ID overrides (comma-separated) */
+  providerIds?: string | undefined
+  /** Optional data set ID overrides (comma-separated) */
+  dataSetIds?: string | undefined
 }
 
 /**
@@ -47,18 +45,22 @@ export interface CLIAuthOptions {
  * @param options - CLI authentication options
  * @returns Synapse setup config (validation happens in initializeSynapse)
  */
-export function parseCLIAuth(options: CLIAuthOptions): Partial<SynapseSetupConfig> {
+export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   // Read from CLI options or environment variables
   const privateKey = options.privateKey || process.env.PRIVATE_KEY
   const walletAddress = options.walletAddress || process.env.WALLET_ADDRESS
   const sessionKey = options.sessionKey || process.env.SESSION_KEY
   const viewAddress = options.viewAddress || process.env.VIEW_ADDRESS
-  const warmStorageAddress = options.warmStorageAddress || process.env.WARM_STORAGE_ADDRESS
-
   const rpcUrl = getRpcUrl(options)
 
-  // Build config - only include defined values, validation happens in initializeSynapse()
-  const config: any = {}
+  // Build config incrementally; initializeSynapse() validates the final shape
+  const config: {
+    privateKey?: string
+    walletAddress?: string
+    sessionKey?: string
+    readOnly?: boolean
+    rpcUrl?: string
+  } = {}
 
   if (privateKey) config.privateKey = privateKey
   if (viewAddress) {
@@ -69,48 +71,71 @@ export function parseCLIAuth(options: CLIAuthOptions): Partial<SynapseSetupConfi
   }
   if (sessionKey) config.sessionKey = sessionKey
   if (rpcUrl) config.rpcUrl = rpcUrl
-  if (warmStorageAddress) config.warmStorageAddress = warmStorageAddress
-
-  return config
+  return config as SynapseSetupConfig
 }
 
 /**
- * Provider selection options for storage context
+ * Context selection options for upload (provider IDs and/or data set IDs)
  */
-export interface ProviderSelectionOptions {
-  /** Provider address override */
-  providerAddress?: string
-  /** Provider ID override */
-  providerId?: number
+export interface ContextSelectionOptions {
+  /** Provider ID overrides for targeting specific providers */
+  providerIds?: number[]
+  /** Data set ID overrides for targeting specific data sets */
+  dataSetIds?: number[]
 }
 
 /**
- * Parse provider selection from CLI options and environment variables
- *
- * Reads provider address and ID from CLI options or environment variables,
- * parses and validates the provider ID as a number.
- *
- * @param options - CLI authentication options (may contain provider fields)
- * @returns Provider selection options ready for createStorageContext()
+ * Parse a comma-separated list of numeric IDs, validating and deduplicating.
+ * Throws on non-numeric values or duplicate IDs.
  */
-export function parseProviderOptions(options?: CLIAuthOptions): ProviderSelectionOptions {
-  // Read from CLI options or environment variables
-  const providerAddress = (options?.providerAddress || process.env.PROVIDER_ADDRESS)?.trim()
-  const providerIdRaw = (options?.providerId || process.env.PROVIDER_ID)?.trim()
+function parseIdList(raw: string, label: string): number[] {
+  const ids = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s !== '')
+    .map(Number)
 
-  // Parse provider ID as number if present and non-empty
-  const providerId = providerIdRaw != null && providerIdRaw !== '' ? Number(providerIdRaw) : undefined
-
-  // Build result with only defined values
-  const result: ProviderSelectionOptions = {}
-  if (providerAddress) {
-    result.providerAddress = providerAddress
-  }
-  if (providerId != null) {
-    result.providerId = providerId
+  if (ids.some(Number.isNaN)) {
+    throw new Error(`Invalid ${label}: "${raw}". Provide comma-separated numeric IDs.`)
   }
 
-  return result
+  const unique = [...new Set(ids)]
+  if (unique.length !== ids.length) {
+    const dupes = ids.filter((id, i) => ids.indexOf(id) !== i)
+    throw new Error(`Duplicate ${label}: ${[...new Set(dupes)].join(', ')}`)
+  }
+
+  return ids
+}
+
+/**
+ * Parse context selection from CLI options and environment variables.
+ *
+ * Reads provider IDs from --provider-ids / PROVIDER_IDS and
+ * data set IDs from --data-set-ids / DATA_SET_IDS. Both accept
+ * comma-separated numeric values. They are mutually exclusive.
+ *
+ * @param options - CLI authentication options (may contain provider/data-set fields)
+ * @returns Context selection options
+ */
+export function parseContextSelectionOptions(options?: CLIAuthOptions): ContextSelectionOptions {
+  const providerRaw = (options?.providerIds || process.env.PROVIDER_IDS)?.trim()
+  const dataSetRaw = (options?.dataSetIds || process.env.DATA_SET_IDS)?.trim()
+
+  const hasProviders = providerRaw != null && providerRaw !== ''
+  const hasDataSets = dataSetRaw != null && dataSetRaw !== ''
+
+  if (hasProviders && hasDataSets) {
+    throw new Error('Cannot specify both --provider-ids and --data-set-ids. Use one or the other.')
+  }
+
+  if (hasProviders) {
+    return { providerIds: parseIdList(providerRaw, 'provider ID(s)') }
+  }
+  if (hasDataSets) {
+    return { dataSetIds: parseIdList(dataSetRaw, 'data set ID(s)') }
+  }
+  return {}
 }
 
 /**
@@ -125,5 +150,5 @@ export function getCLILogger() {
 export async function getCliSynapse(options: CLIAuthOptions): Promise<Synapse> {
   const authConfig = parseCLIAuth(options)
   const logger = getCLILogger()
-  return await initializeSynapse(authConfig, logger)
+  return initializeSynapse(authConfig, logger)
 }

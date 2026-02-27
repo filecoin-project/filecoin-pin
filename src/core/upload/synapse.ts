@@ -1,20 +1,27 @@
 /**
  * Shared Synapse upload functionality
  *
- * This module provides a reusable upload pattern for CAR files to Filecoin
- * via Synapse SDK, used by both the import command and pinning server.
+ * Provides a reusable upload pattern for CAR data to Filecoin via Synapse SDK,
+ * used by both CLI commands and the pinning server. Uses the StorageManager for
+ * provider selection and multi-copy orchestration.
  */
-import type { PieceCID, StorageManager } from '@filoz/synapse-sdk'
-import { METADATA_KEYS, type ProviderInfo, type UploadCallbacks } from '@filoz/synapse-sdk'
+import type { CopyResult, FailedCopy, PieceCID, PullStatus, Synapse, UploadResult } from '@filoz/synapse-sdk'
+import { METADATA_KEYS, type PDPProvider } from '@filoz/synapse-sdk'
+import type { StorageManagerUploadOptions } from '@filoz/synapse-sdk/storage'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import type { SynapseService } from '../synapse/index.js'
+import { DEFAULT_DATA_SET_METADATA } from '../synapse/constants.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 
 export type UploadProgressEvents =
-  | ProgressEvent<'onUploadComplete', { pieceCid: PieceCID }>
-  | ProgressEvent<'onPieceAdded', { txHash: `0x${string}` | undefined }>
-  | ProgressEvent<'onPieceConfirmed', { pieceIds: number[] }>
+  | ProgressEvent<'onStored', { providerId: bigint; pieceCid: PieceCID }>
+  | ProgressEvent<'onPiecesAdded', { txHash: `0x${string}`; providerId: bigint }>
+  | ProgressEvent<'onPiecesConfirmed', { dataSetId: bigint; providerId: bigint; pieceIds: bigint[] }>
+  | ProgressEvent<'onCopyComplete', { providerId: bigint; pieceCid: PieceCID }>
+  | ProgressEvent<'onCopyFailed', { providerId: bigint; pieceCid: PieceCID; error: Error }>
+  | ProgressEvent<'onPullProgress', { providerId: bigint; pieceCid: PieceCID; status: PullStatus }>
+  | ProgressEvent<'onProviderSelected', { provider: PDPProvider }>
+  | ProgressEvent<'onDataSetResolved', { dataSetId: bigint; provider: PDPProvider }>
 
 export interface SynapseUploadOptions {
   /**
@@ -28,7 +35,7 @@ export interface SynapseUploadOptions {
   contextId?: string
 
   /**
-   * Optional metadata to associate with the upload
+   * Optional metadata to associate with the upload (per-piece)
    */
   pieceMetadata?: Record<string, string>
 
@@ -36,141 +43,240 @@ export interface SynapseUploadOptions {
    * Optional AbortSignal to cancel the upload operation.
    */
   signal?: AbortSignal
+
+  /**
+   * Number of storage copies to create (default determined by SDK).
+   */
+  count?: number
+
+  /**
+   * Specific provider IDs to use (mutually exclusive with dataSetIds).
+   */
+  providerIds?: bigint[]
+
+  /**
+   * Specific data set IDs to use (mutually exclusive with providerIds).
+   */
+  dataSetIds?: bigint[]
+
+  /**
+   * Provider IDs to exclude from selection.
+   */
+  excludeProviderIds?: bigint[]
+
+  /**
+   * Data set metadata applied when creating or matching contexts.
+   */
+  metadata?: Record<string, string>
 }
 
 export interface SynapseUploadResult {
   pieceCid: string
-  pieceId?: number | undefined
-  dataSetId: string
-  providerInfo: ProviderInfo
+  size: number
+  copies: CopyResult[]
+  failures: FailedCopy[]
 }
 
 /**
  * Get the direct download URL for a piece from a provider
  */
-export function getDownloadURL(providerInfo: ProviderInfo, pieceCid: string): string {
-  const serviceURL = providerInfo.products?.PDP?.data?.serviceURL
+export function getDownloadURL(providerInfo: PDPProvider, pieceCid: string): string {
+  const serviceURL = providerInfo.pdp?.serviceURL
   return serviceURL ? `${serviceURL.replace(/\/$/, '')}/piece/${pieceCid}` : ''
 }
 
 /**
  * Get the service URL from provider info
  */
-export function getServiceURL(providerInfo: ProviderInfo): string {
-  return providerInfo.products?.PDP?.data?.serviceURL ?? ''
+export function getServiceURL(providerInfo: PDPProvider): string {
+  return providerInfo.pdp?.serviceURL ?? ''
 }
 
 /**
- * Upload a CAR file to Filecoin via Synapse.
+ * Upload a CAR to Filecoin via Synapse.
  *
- * This function encapsulates the common upload pattern:
- * 1. Submit CAR data to Synapse storage
- * 2. Track upload progress via callbacks
- * 3. Return piece information
+ * Uses the StorageManager for multi-copy orchestration. The SDK handles
+ * provider selection, data set creation, and SP-to-SP pull for secondary
+ * copies.
  *
- * @param synapseService - Initialized Synapse service
- * @param carData - CAR file data as Uint8Array
+ * @param synapse - Initialized Synapse instance
+ * @param carData - CAR data as Uint8Array
  * @param rootCid - The IPFS root CID to associate with this piece
  * @param logger - Logger instance for tracking
- * @param options - Optional callbacks and context
- * @returns Upload result with piece information
+ * @param options - Upload options including context selection and callbacks
+ * @returns Upload result with copies and failures
  */
 export async function uploadToSynapse(
-  synapseService: SynapseService,
+  synapse: Synapse,
   carData: Uint8Array,
   rootCid: CID,
   logger: Logger,
   options: SynapseUploadOptions = {}
 ): Promise<SynapseUploadResult> {
-  // Fail fast if the operation was already aborted before starting
   options.signal?.throwIfAborted()
 
   const { onProgress, contextId = 'upload' } = options
 
-  // Merge provided callbacks with logging callbacks
-  const uploadCallbacks: UploadCallbacks = {
-    onUploadComplete: (pieceCid) => {
-      logger.info(
-        {
-          event: 'synapse.upload.piece_uploaded',
-          contextId,
-          pieceCid: pieceCid.toString(),
-        },
-        'Upload to PDP server complete'
-      )
-      onProgress?.({ type: 'onUploadComplete', data: { pieceCid } })
+  const uploadOptions: StorageManagerUploadOptions = {
+    pieceMetadata: {
+      ...(options.pieceMetadata ?? {}),
+      [METADATA_KEYS.IPFS_ROOT_CID]: rootCid.toString(),
     },
 
-    onPieceAdded: (txHash) => {
-      if (txHash != null) {
+    callbacks: {
+      onProviderSelected: (provider) => {
         logger.info(
           {
-            event: 'synapse.upload.piece_added',
+            event: 'synapse.upload.provider_selected',
             contextId,
-            txHash: txHash,
+            providerId: String(provider.id),
+            providerName: provider.name,
+          },
+          'Provider selected'
+        )
+        onProgress?.({ type: 'onProviderSelected', data: { provider } })
+      },
+
+      onDataSetResolved: (info) => {
+        logger.info(
+          {
+            event: 'synapse.upload.dataset_resolved',
+            contextId,
+            dataSetId: String(info.dataSetId),
+            providerId: String(info.provider.id),
+          },
+          'Data set resolved'
+        )
+        onProgress?.({ type: 'onDataSetResolved', data: { dataSetId: info.dataSetId, provider: info.provider } })
+      },
+
+      onStored: (providerId, pieceCid) => {
+        logger.info(
+          {
+            event: 'synapse.upload.stored',
+            contextId,
+            providerId: String(providerId),
+            pieceCid: pieceCid.toString(),
+          },
+          'Piece stored on provider'
+        )
+        onProgress?.({ type: 'onStored', data: { providerId, pieceCid } })
+      },
+
+      onPiecesAdded: (txHash, providerId, pieces) => {
+        logger.info(
+          {
+            event: 'synapse.upload.pieces_added',
+            contextId,
+            txHash,
+            providerId: String(providerId),
+            pieceCount: pieces.length,
           },
           'Piece addition transaction submitted'
         )
-      } else {
+        onProgress?.({ type: 'onPiecesAdded', data: { txHash, providerId } })
+      },
+
+      onPiecesConfirmed: (dataSetId, providerId, pieces) => {
+        const pieceIds = pieces.map((p) => p.pieceId)
         logger.info(
           {
-            event: 'synapse.upload.piece_added',
+            event: 'synapse.upload.pieces_confirmed',
             contextId,
+            dataSetId: String(dataSetId),
+            providerId: String(providerId),
+            pieceIds: pieceIds.map(String),
           },
-          'Piece added to data set'
+          'Piece addition confirmed on-chain'
         )
-      }
-      onProgress?.({ type: 'onPieceAdded', data: { txHash } })
-    },
+        onProgress?.({ type: 'onPiecesConfirmed', data: { dataSetId, providerId, pieceIds } })
+      },
 
-    onPieceConfirmed: (pieceIds) => {
-      logger.info(
-        {
-          event: 'synapse.upload.piece_confirmed',
-          contextId,
-          pieceIds,
-        },
-        'Piece addition confirmed on-chain'
-      )
-      onProgress?.({ type: 'onPieceConfirmed', data: { pieceIds } })
+      onCopyComplete: (providerId, pieceCid) => {
+        logger.info(
+          {
+            event: 'synapse.upload.copy_complete',
+            contextId,
+            providerId: String(providerId),
+            pieceCid: pieceCid.toString(),
+          },
+          'Secondary copy complete'
+        )
+        onProgress?.({ type: 'onCopyComplete', data: { providerId, pieceCid } })
+      },
+
+      onCopyFailed: (providerId, pieceCid, error) => {
+        logger.warn(
+          {
+            event: 'synapse.upload.copy_failed',
+            contextId,
+            providerId: String(providerId),
+            pieceCid: pieceCid.toString(),
+            error: error.message,
+          },
+          'Secondary copy failed'
+        )
+        onProgress?.({ type: 'onCopyFailed', data: { providerId, pieceCid, error } })
+      },
+
+      onPullProgress: (providerId, pieceCid, status) => {
+        logger.debug(
+          {
+            event: 'synapse.upload.pull_progress',
+            contextId,
+            providerId: String(providerId),
+            pieceCid: pieceCid.toString(),
+            status,
+          },
+          'Pull progress update'
+        )
+        onProgress?.({ type: 'onPullProgress', data: { providerId, pieceCid, status } })
+      },
     },
   }
 
-  // Upload using Synapse with IPFS root CID metadata
-  const uploadOptions: Parameters<StorageManager['upload']>[1] = {
-    callbacks: uploadCallbacks,
-    metadata: {
-      ...(options.pieceMetadata ?? {}),
-      [METADATA_KEYS.IPFS_ROOT_CID]: rootCid.toString(), // Associate piece with IPFS root CID
-    },
-    context: synapseService.storage,
+  // Always include default data set metadata (withIPFSIndexing, source).
+  // User-supplied metadata can extend but not remove these defaults.
+  uploadOptions.metadata = {
+    ...DEFAULT_DATA_SET_METADATA,
+    ...(options.metadata ?? {}),
   }
 
-  //  Only include `signal` when defined to satisfy `exactOptionalPropertyTypes`
+  // Pass through context selection options
+  if (options.count != null) {
+    uploadOptions.count = options.count
+  }
+  if (options.providerIds != null) {
+    uploadOptions.providerIds = options.providerIds
+  }
+  if (options.dataSetIds != null) {
+    uploadOptions.dataSetIds = options.dataSetIds
+  }
+  if (options.excludeProviderIds != null) {
+    uploadOptions.excludeProviderIds = options.excludeProviderIds
+  }
   if (options.signal != null) {
     uploadOptions.signal = options.signal
   }
 
-  const synapseResult = await synapseService.synapse.storage.upload(carData, uploadOptions)
+  const synapseResult: UploadResult = await synapse.storage.upload(carData, uploadOptions)
 
-  // Log success
   logger.info(
     {
       event: 'synapse.upload.success',
       contextId,
-      pieceCid: synapseResult.pieceCid,
-      pieceId: synapseResult.pieceId,
-      dataSetId: synapseService.storage.dataSetId,
+      pieceCid: synapseResult.pieceCid.toString(),
+      size: synapseResult.size,
+      copies: synapseResult.copies.length,
+      failures: synapseResult.failures.length,
     },
     'Successfully uploaded to Filecoin with Synapse'
   )
 
-  const result: SynapseUploadResult = {
+  return {
     pieceCid: synapseResult.pieceCid.toString(),
-    pieceId: synapseResult.pieceId !== undefined ? Number(synapseResult.pieceId) : undefined,
-    dataSetId: String(synapseService.storage.dataSetId),
-    providerInfo: synapseService.providerInfo,
+    size: synapseResult.size,
+    copies: synapseResult.copies,
+    failures: synapseResult.failures,
   }
-
-  return result
 }

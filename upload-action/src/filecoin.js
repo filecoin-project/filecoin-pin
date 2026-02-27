@@ -6,15 +6,13 @@ import {
   formatFundingReason,
   getPaymentStatus,
 } from 'filecoin-pin/core/payments'
-import { cleanupSynapseService, createStorageContext } from 'filecoin-pin/core/synapse'
 import { createUnixfsCarBuilder } from 'filecoin-pin/core/unixfs'
-import { executeUpload, getDownloadURL } from 'filecoin-pin/core/upload'
+import { executeUpload } from 'filecoin-pin/core/upload'
 import { formatRunwaySummary, formatUSDFC } from 'filecoin-pin/core/utils'
 import { CID } from 'multiformats/cid'
 import { getErrorMessage } from './errors.js'
 
 /**
- * @typedef {import('./types.js').CreateStorageContextOptions} CreateStorageContextOptions
  * @typedef {import('./types.js').ParsedInputs} ParsedInputs
  * @typedef {import('./types.js').BuildResult} BuildResult
  * @typedef {import('./types.js').UploadResult} UploadResult
@@ -118,7 +116,7 @@ export async function handlePayments(synapse, options, logger) {
 
 /**
  * Upload CAR to Filecoin using core upload functionality
- * @param {Synapse} synapse - Synapse service
+ * @param {Synapse} synapse - Synapse instance
  * @param {string} carPath - Path to CAR file
  * @param {string} ipfsRootCid - Root CID
  * @param {UploadConfig} options - Upload options
@@ -126,72 +124,65 @@ export async function handlePayments(synapse, options, logger) {
  * @returns {Promise<UploadResult>} Upload result
  */
 export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options, logger) {
-  const { withCDN, providerAddress, providerId } = options
-
-  // Read CAR data
   const carBytes = await fs.readFile(carPath)
-
-  // Create storage context with provider selection
-  /** @type {CreateStorageContextOptions} */
-  const storageOptions = {}
-  if (providerAddress) {
-    storageOptions.providerAddress = providerAddress
-    logger.info({ event: 'upload.provider_override', providerAddress }, 'Using provider address override')
-  } else if (providerId != null) {
-    storageOptions.providerId = providerId
-    logger.info({ event: 'upload.provider_override', providerId }, 'Using provider ID override')
-  }
-
-  // Set CDN flag if requested
-  if (withCDN) process.env.WITH_CDN = 'true'
-
-  const { storage, providerInfo } = await createStorageContext(synapse, { logger, ...storageOptions })
-
-  // Upload to Filecoin via core upload function
-  const synapseService = { synapse, storage, providerInfo }
   const cid = CID.parse(ipfsRootCid)
 
-  console.log('\nStarting upload to storage provider...')
-  console.log('⏳ Uploading data to PDP server...')
+  /** @type {bigint[] | undefined} */
+  let providerIds
+  if (options.providerIds != null && options.providerIds.length > 0) {
+    providerIds = options.providerIds.map((id) => BigInt(id))
+    logger.info(
+      { event: 'upload.provider_override', providerIds: providerIds.map(String) },
+      'Using provider ID override'
+    )
+  }
 
-  const uploadResult = await executeUpload(synapseService, carBytes, cid, {
+  console.log('\nStarting upload to storage provider...')
+  console.log('Uploading data to PDP server...')
+
+  const uploadResult = await executeUpload(synapse, carBytes, cid, {
     logger,
     contextId: `gha-upload-${Date.now()}`,
+    ...(providerIds != null && { providerIds }),
     onProgress: (event) => {
       switch (event.type) {
-        // Upload progress events
-        case 'onUploadComplete': {
-          console.log('✓ Data uploaded to PDP server successfully')
+        case 'onStored': {
+          console.log(`✓ Data stored on provider ${event.data.providerId}`)
           console.log(`Piece CID: ${event.data.pieceCid}`)
-          console.log('\n⏳ Registering piece in data set...')
           break
         }
-        case 'onPieceAdded': {
+        case 'onPiecesAdded': {
           if (event.data.txHash) {
             console.log('✓ Piece registration transaction submitted')
             console.log(`Transaction hash: ${event.data.txHash}`)
-            console.log('\n⏳ Waiting for on-chain confirmation...')
-          } else {
-            console.log('✓ Piece added to data set (no transaction)')
           }
           break
         }
-        case 'onPieceConfirmed': {
-          console.log('✓ Piece confirmed on-chain')
-          console.log(`Piece ID(s): ${event.data.pieceIds.join(', ')}`)
+        case 'onPiecesConfirmed': {
+          console.log(`✓ Piece confirmed on-chain (data set ${event.data.dataSetId})`)
           break
         }
-        // IPNI provider results progress events
+        case 'onCopyComplete': {
+          console.log(`✓ Secondary copy complete on provider ${event.data.providerId}`)
+          break
+        }
+        case 'onCopyFailed': {
+          console.log(
+            `Warning: Secondary copy failed on provider ${event.data.providerId}: ${event.data.error.message}`
+          )
+          break
+        }
         case 'ipniProviderResults.retryUpdate': {
-          console.log(`IPNI provider results check attempt #${event.data.retryCount + 1}...`)
+          const attempt = event.data.attempt ?? (event.data.retryCount === 0 ? 1 : event.data.retryCount + 1)
+          console.log(`IPNI provider results check attempt #${attempt}...`)
           break
         }
         case 'ipniProviderResults.complete': {
-          console.log(event.data.result ? '✓ IPNI provider results found' : '✗ IPNI provider results not found')
+          console.log(event.data.result ? '✓ IPNI provider results found' : 'IPNI provider results not found')
           break
         }
         case 'ipniProviderResults.failed': {
-          console.log('✗ IPNI provider results not found')
+          console.log('IPNI provider results not found')
           console.log(`Error: ${event.data.error.message}`)
           break
         }
@@ -204,29 +195,30 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
 
   console.log('\n✓ Upload to Filecoin complete!')
 
-  const providerIdStr = String(providerInfo.id ?? '')
-  const providerName = providerInfo.name ?? (providerInfo.serviceProvider || '')
-  const previewUrl = getDownloadURL(providerInfo, uploadResult.pieceCid)
+  // Extract primary copy details for backwards-compatible output
+  const primaryCopy = uploadResult.copies.find((c) => c.role === 'primary')
+
+  if (primaryCopy == null) {
+    const failureCount = uploadResult.failures.length
+    throw new Error(
+      failureCount > 0
+        ? `Upload failed: all ${failureCount} copy attempt(s) failed`
+        : 'Upload failed: no copies were created'
+    )
+  }
 
   return {
     pieceCid: uploadResult.pieceCid,
-    pieceId: uploadResult.pieceId != null ? String(uploadResult.pieceId) : '',
-    dataSetId: uploadResult.dataSetId,
-    provider: { id: providerIdStr, name: providerName, address: providerInfo.serviceProvider ?? '' },
-    previewUrl,
+    pieceId: String(primaryCopy.pieceId),
+    dataSetId: String(primaryCopy.dataSetId),
+    provider: {
+      id: String(primaryCopy.providerId),
+      name: '',
+    },
+    previewUrl: primaryCopy.retrievalUrl ?? '',
     network: uploadResult.network,
     ipniValidated: uploadResult.ipniValidated,
-  }
-}
-
-/**
- * Cleanup filecoin-pin service using core functionality
- * @returns {Promise<void>}
- */
-export async function cleanupSynapse() {
-  try {
-    await cleanupSynapseService()
-  } catch (error) {
-    console.error('Cleanup failed:', getErrorMessage(error))
+    copies: uploadResult.copies,
+    failures: uploadResult.failures,
   }
 }

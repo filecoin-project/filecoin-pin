@@ -6,7 +6,8 @@
  * @module core/piece/remove-all-pieces
  */
 
-import type { StorageContext, Synapse } from '@filoz/synapse-sdk'
+import type { Synapse } from '@filoz/synapse-sdk'
+import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import type { Logger } from 'pino'
 import { getDataSetPieces } from '../data-set/get-data-set-pieces.js'
 import type { PieceInfo } from '../data-set/types.js'
@@ -18,8 +19,8 @@ import { removePiece } from './remove-piece.js'
  * Progress events emitted during batch piece removal
  */
 export type RemoveAllPiecesProgressEvents =
-  | ProgressEvent<'remove-all:fetching', { dataSetId: number }>
-  | ProgressEvent<'remove-all:fetched', { dataSetId: number; totalPieces: number }>
+  | ProgressEvent<'remove-all:fetching', { dataSetId: bigint }>
+  | ProgressEvent<'remove-all:fetched', { dataSetId: bigint; totalPieces: number }>
   | ProgressEvent<'remove-all:removing', { current: number; total: number; pieceCid: string }>
   | ProgressEvent<'remove-all:removed', { current: number; total: number; pieceCid: string; txHash: string }>
   | ProgressEvent<'remove-all:failed', { current: number; total: number; pieceCid: string; error: string }>
@@ -39,7 +40,7 @@ export interface PieceRemovalResult {
  * Result of removing all pieces from a dataset
  */
 export interface RemoveAllPiecesResult {
-  dataSetId: number
+  dataSetId: bigint
   totalPieces: number
   removedCount: number
   failedCount: number
@@ -96,7 +97,7 @@ export async function removeAllPieces(
 
   if (dataSetId == null) {
     throw new Error(
-      'Storage context must be bound to a Data Set before removing pieces. Use createStorageContextFromDataSetId to bind to an existing Data Set.'
+      'Storage context must be bound to a Data Set before removing pieces. Use synapse.storage.createContext({ dataSetId }) to bind to a Data Set.'
     )
   }
 

@@ -6,8 +6,8 @@
 
 import { confirm } from '@clack/prompts'
 import type { Synapse } from '@filoz/synapse-sdk'
-import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { parseUnits } from 'viem'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import {
   calculateStorageRunway,
@@ -19,7 +19,7 @@ import {
   planFilecoinPayFunding,
   withdrawUSDFC,
 } from '../core/payments/index.js'
-import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
 import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
@@ -219,7 +219,7 @@ export async function runFund(options: FundOptions): Promise<void> {
 
     let targetDeposit: bigint = 0n
     try {
-      targetDeposit = options.amount != null ? ethers.parseUnits(String(options.amount), 18) : 0n
+      targetDeposit = options.amount != null ? parseUnits(String(options.amount), 18) : 0n
     } catch {
       console.error(pc.red(`Error: Invalid --amount '${options.amount}'`))
       throw new Error('Invalid --amount')
@@ -333,7 +333,5 @@ export async function runFund(options: FundOptions): Promise<void> {
     console.error(pc.red('✗ Fund adjustment failed'))
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
     throw error
-  } finally {
-    await cleanupSynapseService()
   }
 }

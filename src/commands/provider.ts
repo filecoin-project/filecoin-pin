@@ -9,6 +9,7 @@ const listCommand = new Command('list')
   .alias('ls')
   .description('List providers')
   .option('--all', 'List all active providers (ignoring approval status)')
+  .option('--endorsed', 'List only endorsed providers')
   .action(async (options) => {
     try {
       const listOptions: ProviderListOptions = {
