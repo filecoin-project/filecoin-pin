@@ -1,6 +1,11 @@
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 
-export interface DataSetCommandOptions extends CLIAuthOptions {}
+export interface DataSetCommandOptions extends CLIAuthOptions {
+  /**
+   * Whether to wait for the transaction to be confirmed.
+   */
+  wait?: boolean
+}
 
 export interface DataSetListCommandOptions extends CLIAuthOptions {
   /**
