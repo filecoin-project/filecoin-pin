@@ -128,7 +128,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     // Initialize just the Synapse SDK
     const synapse = await initializeSynapse(config, logger)
-    const network = synapse.getNetwork()
+    const network = synapse.chain.name
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
@@ -189,7 +189,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
           spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)
         },
         onDataSetResolved: (info) => {
-          if (info.isExisting) {
+          if (info.dataSetId) {
             spinner.message(`Using existing data set #${info.dataSetId}`)
           } else {
             spinner.message(`Created new data set #${info.dataSetId}`)
