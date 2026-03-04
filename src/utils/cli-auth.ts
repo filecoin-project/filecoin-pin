@@ -79,24 +79,29 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
  */
 export interface ContextSelectionOptions {
   /** Provider ID overrides for targeting specific providers */
-  providerIds?: number[]
+  providerIds?: bigint[]
   /** Data set ID overrides for targeting specific data sets */
-  dataSetIds?: number[]
+  dataSetIds?: bigint[]
 }
 
 /**
  * Parse a comma-separated list of numeric IDs, validating and deduplicating.
+ * Returns bigint[] since all downstream consumers (SDK, contracts) use bigint.
  * Throws on non-numeric values or duplicate IDs.
  */
-function parseIdList(raw: string, label: string): number[] {
-  const ids = raw
+function parseIdList(raw: string, label: string): bigint[] {
+  const parts = raw
     .split(',')
     .map((s) => s.trim())
     .filter((s) => s !== '')
-    .map(Number)
 
-  if (ids.some(Number.isNaN)) {
-    throw new Error(`Invalid ${label}: "${raw}". Provide comma-separated numeric IDs.`)
+  const ids: bigint[] = []
+  for (const part of parts) {
+    try {
+      ids.push(BigInt(part))
+    } catch {
+      throw new Error(`Invalid ${label}: "${raw}". Provide comma-separated numeric IDs.`)
+    }
   }
 
   const unique = [...new Set(ids)]

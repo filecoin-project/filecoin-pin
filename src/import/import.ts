@@ -219,11 +219,11 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       ...(dataSetMetadata && { metadata: dataSetMetadata }),
     }
     if (contextSelection.providerIds) {
-      uploadOptions.providerIds = contextSelection.providerIds.map(BigInt)
+      uploadOptions.providerIds = contextSelection.providerIds
       uploadOptions.count = contextSelection.providerIds.length
     }
     if (contextSelection.dataSetIds) {
-      uploadOptions.dataSetIds = contextSelection.dataSetIds.map(BigInt)
+      uploadOptions.dataSetIds = contextSelection.dataSetIds
       uploadOptions.count = contextSelection.dataSetIds.length
     }
 

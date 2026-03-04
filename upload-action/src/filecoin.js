@@ -128,9 +128,8 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
   const cid = CID.parse(ipfsRootCid)
 
   /** @type {bigint[] | undefined} */
-  let providerIds
-  if (options.providerIds != null && options.providerIds.length > 0) {
-    providerIds = options.providerIds.map((id) => BigInt(id))
+  const providerIds = options.providerIds != null && options.providerIds.length > 0 ? options.providerIds : undefined
+  if (providerIds) {
     logger.info(
       { event: 'upload.provider_override', providerIds: providerIds.map(String) },
       'Using provider ID override'

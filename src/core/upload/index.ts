@@ -30,9 +30,9 @@ export function getNetworkSlug(chain: Chain): string {
   switch (chain.id) {
     case 314:
       return 'mainnet'
-    case 314_159:
+    case 314159:
       return 'calibration'
-    case 31_415_926:
+    case 31415926:
       return 'devnet'
     default:
       return chain.name
@@ -261,7 +261,7 @@ export async function executeUpload(
 
   const { logger, contextId } = options
 
-  // Collect providers from selection events for IPNI validation
+  // Collect providers from `onProviderSelected` events for IPNI validation
   const selectedProviders: PDPProvider[] = []
   let ipniValidationPromise: Promise<boolean> | undefined
 

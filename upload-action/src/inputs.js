@@ -137,16 +137,23 @@ export function parseInputs(phase = 'single') {
   // selection. Example: PROVIDER_IDS="1,2"
   //
   // When omitted the SDK handles provider selection automatically (recommended).
-  /** @type {number[] | undefined} */
+  /** @type {bigint[] | undefined} */
   let providerIds
-  const envProviderIds = process.env.PROVIDER_IDS
+  const envProviderIds = process.env.PROVIDER_IDS?.trim()
   if (envProviderIds) {
-    const parsed = envProviderIds
+    const parts = envProviderIds
       .split(',')
-      .map((s) => Number.parseInt(s.trim(), 10))
-      .filter((n) => Number.isFinite(n))
-    if (parsed.length > 0) {
-      providerIds = parsed
+      .map((s) => s.trim())
+      .filter((s) => s !== '')
+    if (parts.length > 0) {
+      try {
+        providerIds = parts.map((s) => BigInt(s))
+      } catch {
+        throw new FilecoinPinError(
+          `Invalid PROVIDER_IDS: "${envProviderIds}". Provide comma-separated numeric IDs.`,
+          ERROR_CODES.INVALID_INPUT
+        )
+      }
     }
   }
 
