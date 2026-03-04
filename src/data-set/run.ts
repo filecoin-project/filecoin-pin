@@ -1,10 +1,8 @@
 import { confirm, isCancel } from '@clack/prompts'
 import type { EnhancedDataSetInfo, Synapse } from '@filoz/synapse-sdk'
-import { WarmStorageService } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { type DataSetSummary, getDetailedDataSet, listDataSets } from '../core/data-set/index.js'
-import { ADDRESS_ONLY_SIGNER_SYMBOL } from '../core/synapse/address-only-signer.js'
-import { cleanupSynapseService, isViewOnlyMode } from '../core/synapse/index.js'
+import { getClientAddress } from '../core/synapse/index.js'
 import { getCliSynapse } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -22,17 +20,14 @@ export async function runDataSetDetailsCommand(dataSetId: number, options: DataS
   const spinner = createSpinner()
   spinner.start('Connecting to Synapse...')
 
-  let synapse: Synapse | null = null
-
   try {
-    synapse = await getCliSynapse(options)
-    const network = synapse.getNetwork()
-    const client = synapse.getClient()
-    const address = await client.getAddress()
+    const synapse = await getCliSynapse(options)
+    const network = synapse.chain.name
+    const address = getClientAddress(synapse)
 
     spinner.message('Fetching data set details...')
 
-    const dataSet: DataSetSummary = await getDetailedDataSet(synapse, dataSetId)
+    const dataSet: DataSetSummary = await getDetailedDataSet(synapse, BigInt(dataSetId))
 
     spinner.stop('━━━ Data Set ━━━')
     displayDataSets([dataSet], network, address)
@@ -47,8 +42,6 @@ export async function runDataSetDetailsCommand(dataSetId: number, options: DataS
 
     cancel('Inspection failed')
     throw error
-  } finally {
-    await cleanupSynapseService()
   }
 }
 
@@ -61,10 +54,11 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
 
   try {
     // Parse and validate provider ID
-    const providerId: number | undefined = options.providerId != null ? Number(options.providerId) : undefined
-    if (providerId != null && Number.isNaN(providerId)) {
+    const providerIdRaw = options.providerId != null ? Number(options.providerId) : undefined
+    if (providerIdRaw != null && Number.isNaN(providerIdRaw)) {
       throw new Error('Invalid provider ID')
     }
+    const providerId = providerIdRaw != null ? BigInt(providerIdRaw) : undefined
     const metadataEntries = options.dataSetMetadata ? Object.entries(options.dataSetMetadata) : []
     let filter: ((dataSet: EnhancedDataSetInfo) => boolean) | undefined
 
@@ -86,9 +80,8 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
 
     synapse = await getCliSynapse(options)
 
-    const network = synapse.getNetwork()
-    const client = synapse.getClient()
-    const address = await client.getAddress()
+    const network = synapse.chain.name
+    const address = getClientAddress(synapse)
 
     spinner.message('Fetching data sets...')
 
@@ -112,23 +105,13 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
     log.flush()
     cancel('Listing failed')
     throw error
-  } finally {
-    await cleanupSynapseService()
   }
 }
 
-/**
- * Terminate a dataset and associated payment rails
- *
- * @param dataSetId - Dataset identifier to terminate
- * @param options - CLI options including confirmation and wait settings
- */
 export async function runTerminateDataSetCommand(dataSetId: number, options: DataSetCommandOptions): Promise<void> {
   intro(pc.bold(`Terminate Filecoin Onchain Cloud Data Set #${dataSetId}`))
   const spinner = createSpinner()
   spinner.start('Connecting to Synapse...')
-
-  let synapse: Synapse | null = null
 
   try {
     if (Number.isNaN(dataSetId) || dataSetId <= 0) {
@@ -140,11 +123,12 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       throw new Error('Invalid data set ID')
     }
 
-    synapse = await getCliSynapse(options)
-    const network = synapse.getNetwork()
+    const synapse = await getCliSynapse(options)
+    const network = synapse.chain.name
+    const address = getClientAddress(synapse)
 
-    const signer = synapse.getSigner()
-    if (isViewOnlyMode(synapse) || (signer as any)[ADDRESS_ONLY_SIGNER_SYMBOL]) {
+    // Read-only mode (bare address, no session key) cannot sign transactions
+    if (typeof synapse.client.account === 'string' && synapse.sessionClient == null) {
       spinner.stop(`${pc.red('✗')} Signing required`)
       log.line('')
       log.line(
@@ -156,23 +140,11 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       throw new Error('Signing required for termination')
     }
 
-    let address: string
-    try {
-      address = await signer.getAddress()
-    } catch (error) {
-      spinner.stop(`${pc.red('✗')} Could not retrieve wallet address`)
-      log.line('')
-      log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
-      log.flush()
-      cancel('Termination failed')
-      throw error
-    }
-
     spinner.message('Fetching data set details...')
 
     let dataSet: DataSetSummary
     try {
-      dataSet = await getDetailedDataSet(synapse, dataSetId)
+      dataSet = await getDetailedDataSet(synapse, BigInt(dataSetId))
     } catch (error) {
       spinner.stop(`${pc.red('✗')} Data set not found`)
       log.line('')
@@ -194,7 +166,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     }
 
     if (dataSet.pdpEndEpoch > 0) {
-      spinner.stop(`${pc.yellow('⚠ Data set already terminated')}`)
+      spinner.stop(`${pc.yellow('! Data set already terminated')}`)
       log.line('')
       log.line(`Data set ${dataSetId} was terminated at epoch ${dataSet.pdpEndEpoch}`)
       if (dataSet.isLive) {
@@ -205,10 +177,8 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       return
     }
 
-    spinner.stop('━━━ Data Set to Terminate ━━━')
+    spinner.stop('--- Data Set to Terminate ---')
     displayDataSets([dataSet], network, address)
-
-    spinner.start('Terminating data set...')
 
     log.line('')
     log.line(pc.bold('Payment Rails to Terminate:'))
@@ -226,17 +196,12 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
 
     let shouldWait = options.wait
     if (isInteractive()) {
-      spinner.stop()
       const proceed = await confirm({
         message: `Terminate data set #${dataSetId} and all associated payment rails? This action cannot be undone.`,
         initialValue: true,
       })
-      if (isCancel(proceed)) {
+      if (isCancel(proceed) || !proceed) {
         cancel('Termination cancelled')
-        return
-      }
-      if (!proceed) {
-        cancel('Termination cancelled by user')
         return
       }
 
@@ -249,74 +214,31 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
           shouldWait = waitConfirm
         }
       }
-
-      spinner.start('Terminating data set...')
-      spinner.message('Terminating data set...')
     }
 
-    let warmStorageService: WarmStorageService
-    try {
-      warmStorageService = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
-    } catch (serviceError) {
-      spinner.stop(`${pc.red('✗')} Failed to initialize storage service`)
-      log.line('')
-      log.line(`${pc.red('Error:')} ${serviceError instanceof Error ? serviceError.message : String(serviceError)}`)
-      log.flush()
-      cancel('Termination failed')
-      throw serviceError
-    }
+    spinner.start('Submitting termination transaction...')
 
-    let txHash: string
-    let txResponse: any
-    try {
-      const signer = synapse.getSigner()
-      const provider = synapse.getProvider()
-      spinner.message('Submitting termination transaction...')
-      txResponse = await warmStorageService.terminateDataSet(signer, dataSetId)
-      txHash = txResponse.hash
+    const txHash = await synapse.storage.terminateDataSet({ dataSetId: BigInt(dataSetId) })
 
-      if (shouldWait) {
-        spinner.message(`Waiting for confirmation: ${txHash}...`)
-        const receipt = await provider.waitForTransaction(txHash)
-        if (receipt == null) {
-          throw new Error(`Termination transaction was not confirmed: ${txHash}`)
-        }
-        if (receipt.status == null || Number(receipt.status) !== 1) {
-          throw new Error(`Termination transaction reverted: ${txHash}`)
-        }
-        spinner.message('Transaction confirmed, fetching final status...')
-        try {
-          const finalDataSet = await getDetailedDataSet(synapse, dataSetId)
-          dataSet = {
-            ...finalDataSet,
-            isLive: finalDataSet.pdpEndEpoch === 0,
-            pdpEndEpoch: finalDataSet.pdpEndEpoch,
-          }
-        } catch (_) {
-          dataSet = {
-            ...dataSet,
-            isLive: false,
-            pdpEndEpoch: receipt.blockNumber != null ? Math.ceil(receipt.blockNumber / 32) : 0,
-          }
-        }
-      } else {
+    if (shouldWait) {
+      spinner.message(`Waiting for confirmation: ${txHash}...`)
+      const receipt = await synapse.client.waitForTransactionReceipt({ hash: txHash })
+      if (receipt.status !== 'success') {
+        throw new Error(`Termination transaction reverted: ${txHash}`)
+      }
+      spinner.message('Transaction confirmed, fetching final status...')
+      try {
+        dataSet = await getDetailedDataSet(synapse, BigInt(dataSetId))
+      } catch {
         dataSet = {
           ...dataSet,
           isLive: false,
-          pdpEndEpoch: txResponse.blockNumber != null ? Math.ceil(txResponse.blockNumber / 32) : 0,
         }
       }
-    } catch (error) {
-      spinner.stop(`${pc.red('✗')} Failed to submit termination transaction`)
-      log.line('')
-      log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
-      log.flush()
-      cancel('Termination failed')
-      throw error
     }
 
     if (shouldWait) {
-      spinner.stop(`${pc.green('✓')} Data set termination confirmed: ${txHash}`)
+      spinner.stop(`${pc.green('*')} Data set termination confirmed: ${txHash}`)
     } else {
       spinner.stop(`Transaction submitted: ${txHash}`)
       log.line('')
@@ -344,7 +266,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     log.line(pc.bold(shouldWait ? 'Final Data Set Status:' : 'Updated Data Set Status (Pending):'))
     displayDataSets([dataSet], network, address)
 
-    spinner.stop(shouldWait ? 'Data set termination complete' : 'Termination transaction submitted')
+    outro(shouldWait ? 'Data set termination complete' : 'Termination transaction submitted')
   } catch (error) {
     spinner.stop(`${pc.red('✗')} Failed to terminate data set`)
 
@@ -353,7 +275,6 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     log.flush()
 
     cancel('Termination failed')
-  } finally {
-    await cleanupSynapseService()
+    throw error
   }
 }
