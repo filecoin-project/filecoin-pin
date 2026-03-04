@@ -72,11 +72,14 @@ program.hook('postAction', async (_thisCommand, actionCommand) => {
     console.log(instruction)
   }
 
-  // Viem transports (especially WebSocket) hold persistent connections that
-  // prevent the process from exiting. The server command manages its own
-  // lifecycle via SIGINT/SIGTERM handlers, so only exit for CLI commands.
+  // Viem's WebSocket transport holds persistent connections (with keepAlive
+  // and auto-reconnect) that prevent the Node.js event loop from draining.
+  // There is no clean way to close these from the outside -- viem's close()
+  // triggers reconnect, and the Synapse SDK wraps transports in custom()
+  // which hides the underlying socket. The server command manages its own
+  // lifecycle via SIGINT/SIGTERM, so only force-exit for CLI commands.
   if (actionCommand.name() !== 'server') {
-    process.exit(0)
+    process.exit(process.exitCode ?? 0)
   }
 })
 

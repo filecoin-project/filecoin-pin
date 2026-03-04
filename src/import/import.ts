@@ -182,13 +182,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     }
 
     // Validate context selection options early (before expensive operations)
-    let contextSelection: ReturnType<typeof parseContextSelectionOptions>
-    try {
-      contextSelection = parseContextSelectionOptions(options)
-    } catch (error) {
-      cancel(error instanceof Error ? error.message : 'Invalid options')
-      process.exit(1)
-    }
+    const contextSelection = parseContextSelectionOptions(options)
 
     // Initialize Synapse SDK
     spinner.start('Initializing Synapse SDK...')
