@@ -233,6 +233,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       uploadOptions.count = contextSelection.dataSetIds.length
     }
 
+    const requestedCopies = uploadOptions.count ?? 2
     const uploadResult = await performUpload(synapse, carData, rootCid, uploadOptions)
 
     // Display results
@@ -250,17 +251,22 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     displayUploadResults(result, 'Import', network)
 
-    // Exit non-zero if any copies failed
-    if (uploadResult.failures.length > 0) {
+    if (uploadResult.copies.length < requestedCopies) {
       log.line('')
       log.line(
         pc.yellow(
-          `${pc.yellow('⚠')} ${uploadResult.failures.length} copy failure(s). Data is stored but with reduced redundancy.`
+          `${uploadResult.failures.length} copy failure(s). ` +
+            `Got ${uploadResult.copies.length}/${requestedCopies} copies. Data is stored but with reduced redundancy.`
         )
       )
       log.flush()
-      outro('Import completed with warnings')
+      outro('Import completed with errors')
       process.exitCode = 1
+    } else if (uploadResult.failures.length > 0) {
+      log.line('')
+      log.line(pc.gray(`${uploadResult.failures.length} non-critical copy failure(s) during upload.`))
+      log.flush()
+      outro('Import completed successfully')
     } else {
       outro('Import completed successfully')
     }

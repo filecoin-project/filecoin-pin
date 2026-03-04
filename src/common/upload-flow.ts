@@ -252,7 +252,9 @@ function displayPaymentIssues(capacityCheck: PaymentCapacityCheck, fileSize: num
 /**
  * Format a role label for spinner output (e.g., "[Primary]" or "[Secondary]")
  */
-function roleLabel(role: 'primary' | 'secondary'): string {
+type CopyRole = 'primary' | 'secondary'
+
+function roleLabel(role: CopyRole): string {
   return role === 'primary' ? pc.cyan('[Primary]') : pc.magenta('[Secondary]')
 }
 
@@ -281,7 +283,7 @@ export async function performUpload(
   // Track primary provider ID from onStored to label subsequent events
   let primaryProviderId: bigint | undefined
 
-  function getRole(providerId: bigint): 'primary' | 'secondary' {
+  function getRole(providerId: bigint): CopyRole {
     if (primaryProviderId == null || providerId === primaryProviderId) {
       return 'primary'
     }
@@ -350,7 +352,7 @@ export async function performUpload(
           const role = getRole(event.data.providerId)
 
           const commitId = `commit-${event.data.providerId}`
-          flow.addOperation(commitId, `${roleLabel(role)} Adding piece to DataSet...`)
+          flow.addOperation(commitId, `${roleLabel(role)} Adding piece to Data Set...`)
 
           // Show per-SP transaction URL as indented line under the "added" message
           const afterLines: string[] = []
@@ -358,13 +360,13 @@ export async function performUpload(
             const filfoxBase = network === 'mainnet' ? 'https://filfox.info' : `https://${network}.filfox.info`
             afterLines.push(pc.gray(`Tx: ${filfoxBase}/en/message/${event.data.txHash}`))
           }
-          flow.completeOperation(commitId, `${roleLabel(role)} Piece added to DataSet (unconfirmed on-chain)`, {
+          flow.completeOperation(commitId, `${roleLabel(role)} Piece added to Data Set (unconfirmed on-chain)`, {
             type: 'success',
             ...(afterLines.length > 0 && { afterLines }),
           })
           flow.addOperation(
             `chain-${event.data.providerId}`,
-            `${roleLabel(role)} Confirming piece added to DataSet on-chain`
+            `${roleLabel(role)} Confirming piece added to Data Set on-chain`
           )
           break
         }
@@ -372,7 +374,7 @@ export async function performUpload(
           const role = getRole(event.data.providerId)
           flow.completeOperation(
             `chain-${event.data.providerId}`,
-            `${roleLabel(role)} Piece added to DataSet (confirmed on-chain)`,
+            `${roleLabel(role)} Piece added to Data Set (confirmed on-chain)`,
             { type: 'success' }
           )
           break

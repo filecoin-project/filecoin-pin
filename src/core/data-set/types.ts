@@ -11,6 +11,7 @@
 import type { EnhancedDataSetInfo, PDPProvider } from '@filoz/synapse-sdk'
 import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import type { Logger } from 'pino'
+import type { Hex } from 'viem'
 import type { Warning } from '../utils/types.js'
 
 /**
@@ -94,7 +95,7 @@ export interface DataSetSummary extends EnhancedDataSetInfo {
  */
 export interface ListDataSetsOptions {
   /** Address to list datasets for (defaults to synapse client address) */
-  address?: `0x${string}`
+  address?: Hex
   /** Logger instance for debugging (optional) */
   logger?: Logger | undefined
   /**

@@ -52,37 +52,34 @@ export async function getDataSetPieces(
   let scheduledRemovals: readonly bigint[] = []
   let providerPiecesById: Map<bigint, DataSetPieceData> | null = null
 
-  const scheduledRemovalsPromise = storageContext.getScheduledRemovals().catch((error) => {
-    logger?.warn({ error }, 'Failed to get scheduled removals')
+  const [scheduledRemovalsResult, providerPiecesResult] = await Promise.allSettled([
+    storageContext.getScheduledRemovals(),
+    getProviderDataSet({
+      serviceURL: storageContext.provider.pdp?.serviceURL ?? '',
+      dataSetId: storageContext.dataSetId,
+    }),
+  ])
+
+  if (scheduledRemovalsResult.status === 'fulfilled') {
+    scheduledRemovals = scheduledRemovalsResult.value
+  } else {
+    logger?.warn({ error: scheduledRemovalsResult.reason }, 'Failed to get scheduled removals')
     warnings.push({
       code: 'SCHEDULED_REMOVALS_UNAVAILABLE',
       message: 'Failed to get scheduled removals',
-      context: { dataSetId: storageContext.dataSetId.toString(), error: String(error) },
+      context: { dataSetId: storageContext.dataSetId.toString(), error: String(scheduledRemovalsResult.reason) },
     })
-    return [] as readonly bigint[]
-  })
+  }
 
-  const providerPiecesPromise = getProviderDataSet({
-    serviceURL: storageContext.provider.pdp?.serviceURL ?? '',
-    dataSetId: storageContext.dataSetId,
-  }).catch((error) => {
-    logger?.warn({ error }, 'Failed to get provider-side pieces for orphan detection')
+  if (providerPiecesResult.status === 'fulfilled') {
+    providerPiecesById = new Map(providerPiecesResult.value.pieces.map((p) => [p.pieceId, p]))
+  } else {
+    logger?.warn({ error: providerPiecesResult.reason }, 'Failed to get provider-side pieces for orphan detection')
     warnings.push({
       code: 'PROVIDER_PIECES_UNAVAILABLE',
       message: 'Failed to fetch provider-side pieces',
-      context: { dataSetId: storageContext.dataSetId.toString(), error: String(error) },
+      context: { dataSetId: storageContext.dataSetId.toString(), error: String(providerPiecesResult.reason) },
     })
-    return null
-  })
-
-  const [scheduledRemovalsResult, providerDataSet] = await Promise.all([
-    scheduledRemovalsPromise,
-    providerPiecesPromise,
-  ])
-  scheduledRemovals = scheduledRemovalsResult
-
-  if (providerDataSet) {
-    providerPiecesById = new Map(providerDataSet.pieces.map((p) => [p.pieceId, p]))
   }
 
   // Fetch on-chain pieces and reconcile with provider data

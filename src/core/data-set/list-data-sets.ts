@@ -44,10 +44,10 @@ export async function listDataSets(synapse: Synapse, options?: ListDataSetsOptio
   // Fetch provider info for unique provider IDs
   let providerMap: Map<bigint, PDPProvider> = new Map()
   if (withProviderDetails) {
-    const uniqueProviderIds = Array.from(new Set(filteredDataSets.map((ds) => ds.providerId)))
-    if (uniqueProviderIds.length > 0) {
+    const uniqueProviderIds = new Set(filteredDataSets.map((ds) => ds.providerId))
+    if (uniqueProviderIds.size > 0) {
       try {
-        const providers = await synapse.providers.getProviders({ providerIds: uniqueProviderIds })
+        const providers = await synapse.providers.getProviders({ providerIds: Array.from(uniqueProviderIds) })
         providerMap = new Map(providers.map((provider) => [provider.id, provider]))
       } catch (error) {
         logger?.warn({ error }, 'Failed to fetch provider info for provider enrichment')
