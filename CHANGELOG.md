@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.17.0...v0.18.0) (2026-03-06)
+
+
+### Features
+
+* add `terminate` command to terminate a dataset ([#307](https://github.com/filecoin-project/filecoin-pin/issues/307)) ([50179c2](https://github.com/filecoin-project/filecoin-pin/commit/50179c2d4cb598a700ca21985033087b9c30b8fd))
+* upgrade to synapse-sdk 0.38 and synapse-core 0.2 ([#343](https://github.com/filecoin-project/filecoin-pin/issues/343)) ([9a87038](https://github.com/filecoin-project/filecoin-pin/commit/9a870383119bc6902ff66501cca31e21afc129b3))
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.4.4 to 2.4.5 ([#346](https://github.com/filecoin-project/filecoin-pin/issues/346)) ([43fd0ce](https://github.com/filecoin-project/filecoin-pin/commit/43fd0ce79877ad0ae0bcaca7e0b5e073fdbeb3a8))
+
 ## [0.17.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.16.0...v0.17.0) (2026-02-23)
 
 
