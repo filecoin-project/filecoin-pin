@@ -1,10 +1,43 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { calibration } from '@filoz/synapse-sdk'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createConfig } from '../../config.js'
 
 describe('Config', () => {
+  const originalEnv = {
+    host: process.env.HOST,
+    logLevel: process.env.LOG_LEVEL,
+    network: process.env.NETWORK,
+    port: process.env.PORT,
+    rpcUrl: process.env.RPC_URL,
+  }
+
+  beforeEach(() => {
+    delete process.env.HOST
+    delete process.env.LOG_LEVEL
+    delete process.env.NETWORK
+    delete process.env.PORT
+    delete process.env.RPC_URL
+  })
+
+  afterEach(() => {
+    if (originalEnv.host === undefined) delete process.env.HOST
+    else process.env.HOST = originalEnv.host
+
+    if (originalEnv.logLevel === undefined) delete process.env.LOG_LEVEL
+    else process.env.LOG_LEVEL = originalEnv.logLevel
+
+    if (originalEnv.network === undefined) delete process.env.NETWORK
+    else process.env.NETWORK = originalEnv.network
+
+    if (originalEnv.port === undefined) delete process.env.PORT
+    else process.env.PORT = originalEnv.port
+
+    if (originalEnv.rpcUrl === undefined) delete process.env.RPC_URL
+    else process.env.RPC_URL = originalEnv.rpcUrl
+  })
+
   it('should create default config', () => {
     const config = createConfig()
 
@@ -43,10 +76,5 @@ describe('Config', () => {
     expect(config.port).toBe(8080)
     expect(config.host).toBe('0.0.0.0')
     expect(config.logLevel).toBe('debug')
-
-    // Clean up
-    delete process.env.PORT
-    delete process.env.HOST
-    delete process.env.LOG_LEVEL
   })
 })
