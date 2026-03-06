@@ -1,16 +1,17 @@
 version: 2
 updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: github-actions
+    directory: /
+    open-pull-requests-limit: 5
     schedule:
-      interval: "daily"
-    commit-message:
-      prefix: "chore"
-      include: "scope"
-  - package-ecosystem: "npm"
-    directory: "/"
+      interval: monthly
+  - package-ecosystem: npm
+    directory: /
+    open-pull-requests-limit: 5
     schedule:
-      interval: "daily"
-    commit-message:
-      prefix: "chore"
-      include: "scope"
+      interval: weekly
+    cooldown:
+      default-days: 2
+    ignore:
+      - dependency-name: "@biomejs/biome"
+        update-types: ["version-update:semver-patch"]

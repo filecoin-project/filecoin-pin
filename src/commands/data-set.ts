@@ -1,7 +1,7 @@
 import { Command } from 'commander'
 import { runDataSetDetailsCommand, runDataSetListCommand, runTerminateDataSetCommand } from '../data-set/run.js'
 import type { DataSetCommandOptions, DataSetListCommandOptions } from '../data-set/types.js'
-import { addAuthOptions, addProviderOptions } from '../utils/cli-options.js'
+import { addAuthOptions } from '../utils/cli-options.js'
 import { addMetadataOptions, resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 
 export const dataSetCommand = new Command('data-set')
@@ -50,7 +50,7 @@ export const dataSetListCommand = new Command('list')
     }
   })
 addAuthOptions(dataSetListCommand)
-addProviderOptions(dataSetListCommand)
+dataSetListCommand.option('--provider-id <id>', 'Filter data sets by provider ID')
 addMetadataOptions(dataSetListCommand, { includePieceMetadata: false, includeDataSetMetadata: true })
 
 export const dataSetTerminateCommand = new Command('terminate')

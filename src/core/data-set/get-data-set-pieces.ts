@@ -7,44 +7,29 @@
  */
 
 import { getSizeFromPieceCID } from '@filoz/synapse-core/piece'
-import {
-  type DataSetPieceData,
-  METADATA_KEYS,
-  PDPServer,
-  PDPVerifier,
-  type StorageContext,
-  type Synapse,
-  WarmStorageService,
-} from '@filoz/synapse-sdk'
+import { getDataSet as getProviderDataSet } from '@filoz/synapse-core/sp'
+import { type DataSetPieceData, METADATA_KEYS, type Synapse } from '@filoz/synapse-sdk'
+import type { StorageContext } from '@filoz/synapse-sdk/storage'
+import { WarmStorageService } from '@filoz/synapse-sdk/warm-storage'
 import { reconcilePieceStatus } from '../piece/piece-status.js'
 import type { Warning } from '../utils/types.js'
 import { isStorageContextWithDataSetId } from './type-guards.js'
-import type { DataSetPiecesResult, GetDataSetPiecesOptions, PieceInfo, StorageContextWithDataSetId } from './types.js'
-import { PieceStatus } from './types.js'
+import {
+  type DataSetPiecesResult,
+  type GetDataSetPiecesOptions,
+  type PieceInfo,
+  PieceStatus,
+  type StorageContextWithDataSetId,
+} from './types.js'
 
 /**
  * Get all pieces for a dataset from a StorageContext
  *
- * This function uses the StorageContext.getPieces() async generator to retrieve
- * all pieces in a dataset. Optionally fetches metadata for each piece from WarmStorage.
+ * Uses StorageContext.getPieces() async generator to retrieve all pieces.
+ * Optionally fetches metadata for each piece from WarmStorage.
  *
- * Example usage:
- * ```typescript
- * const result = await getDataSetPieces(storageContext, {
- *   includeMetadata: true,
- *   batchSize: 100
- * })
- *
- * console.log(`Found ${result.pieces.length} pieces`)
- * for (const piece of result.pieces) {
- *   console.log(`  ${piece.pieceCid}`)
- *   if (piece.rootIpfsCid) {
- *     console.log(`    IPFS: ${piece.rootIpfsCid}`)
- *   }
- * }
- * ```
- *
- * @param storageContext - Storage context from upload or dataset resolution
+ * @param synapse - Initialized Synapse instance
+ * @param storageContext - Storage context bound to a dataset
  * @param options - Optional configuration
  * @returns Pieces and warnings
  */
@@ -55,7 +40,6 @@ export async function getDataSetPieces(
 ): Promise<DataSetPiecesResult> {
   const logger = options?.logger
   const includeMetadata = options?.includeMetadata ?? false
-  const signal = options?.signal
 
   if (!isStorageContextWithDataSetId(storageContext)) {
     throw new Error('Storage context does not have a dataset ID')
@@ -64,40 +48,43 @@ export async function getDataSetPieces(
   const pieces: PieceInfo[] = []
   const warnings: Warning[] = []
 
-  // call PDPVerifier.getScheduledRemovals to get the list of pieces that are scheduled for removal
-  let scheduledRemovals: number[] = []
-  let pdpServerPieces: DataSetPieceData[] | null = null
-  try {
-    const warmStorage = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
-    const pdpVerifier = new PDPVerifier(synapse.getProvider(), warmStorage.getPDPVerifierAddress())
-    scheduledRemovals = await pdpVerifier.getScheduledRemovals(storageContext.dataSetId)
-    try {
-      const providerInfo = await synapse.getProviderInfo(storageContext.provider.serviceProvider)
-      const pdpServer = new PDPServer(null, providerInfo.products?.PDP?.data?.serviceURL ?? '')
-      const dataSet = await pdpServer.getDataSet(storageContext.dataSetId)
-      pdpServerPieces = dataSet.pieces
-    } catch (error) {
-      logger?.warn({ error }, 'Failed to fetch provider data for scheduled removals and orphan detection')
-      warnings.push({
-        code: 'PROVIDER_DATA_UNAVAILABLE',
-        message: 'Failed to fetch provider data; orphan detection disabled',
-        context: { dataSetId: storageContext.dataSetId, error: String(error) },
-      })
-    }
-  } catch (error) {
-    logger?.warn({ error }, 'Failed to get scheduled removals')
+  // Fetch scheduled removals and provider-side pieces in parallel
+  let scheduledRemovals: readonly bigint[] = []
+  let providerPiecesById: Map<bigint, DataSetPieceData> | null = null
+
+  const [scheduledRemovalsResult, providerPiecesResult] = await Promise.allSettled([
+    storageContext.getScheduledRemovals(),
+    getProviderDataSet({
+      serviceURL: storageContext.provider.pdp?.serviceURL ?? '',
+      dataSetId: storageContext.dataSetId,
+    }),
+  ])
+
+  if (scheduledRemovalsResult.status === 'fulfilled') {
+    scheduledRemovals = scheduledRemovalsResult.value
+  } else {
+    logger?.warn({ error: scheduledRemovalsResult.reason }, 'Failed to get scheduled removals')
     warnings.push({
       code: 'SCHEDULED_REMOVALS_UNAVAILABLE',
       message: 'Failed to get scheduled removals',
-      context: { dataSetId: storageContext.dataSetId, error: String(error) },
+      context: { dataSetId: storageContext.dataSetId.toString(), error: String(scheduledRemovalsResult.reason) },
     })
   }
 
-  // Use the async generator to fetch all pieces
+  if (providerPiecesResult.status === 'fulfilled') {
+    providerPiecesById = new Map(providerPiecesResult.value.pieces.map((p) => [p.pieceId, p]))
+  } else {
+    logger?.warn({ error: providerPiecesResult.reason }, 'Failed to get provider-side pieces for orphan detection')
+    warnings.push({
+      code: 'PROVIDER_PIECES_UNAVAILABLE',
+      message: 'Failed to fetch provider-side pieces',
+      context: { dataSetId: storageContext.dataSetId.toString(), error: String(providerPiecesResult.reason) },
+    })
+  }
+
+  // Fetch on-chain pieces and reconcile with provider data
   try {
-    const getPiecesOptions = { ...(signal && { signal }) }
-    const providerPiecesById = pdpServerPieces ? new Map(pdpServerPieces.map((piece) => [piece.pieceId, piece])) : null
-    for await (const piece of storageContext.getPieces(getPiecesOptions)) {
+    for await (const piece of storageContext.getPieces()) {
       const pieceId = piece.pieceId
       const pieceCid = piece.pieceCid
       const { status, warning } = reconcilePieceStatus({
@@ -120,37 +107,43 @@ export async function getDataSetPieces(
         pieceInfo.size = getSizeFromPieceCID(pieceCid)
       } catch (error) {
         logger?.warn(
-          { pieceId: piece.pieceId, pieceCid: piece.pieceCid.toString(), error },
+          { pieceId: piece.pieceId.toString(), pieceCid: piece.pieceCid.toString(), error },
           'Failed to calculate piece size from CID'
         )
       }
 
       pieces.push(pieceInfo)
     }
-    if (providerPiecesById !== null) {
-      // reconcilePieceStatus removes provider matches as we stream on-chain pieces.
-      // Remaining entries are only reported by the provider, which are off-chain orphans.
-      for (const piece of providerPiecesById.values()) {
-        // add the rest of the pieces to the pieces list
-        pieces.push({
-          pieceId: piece.pieceId,
-          pieceCid: piece.pieceCid.toString(),
+
+    // Leftover entries in providerPiecesById are pieces the provider reports
+    // but that are not on-chain (offchain orphans)
+    if (providerPiecesById) {
+      for (const [pieceId, providerPiece] of providerPiecesById) {
+        const pieceInfo: PieceInfo = {
+          pieceId,
+          pieceCid: providerPiece.pieceCid.toString(),
           status: PieceStatus.OFFCHAIN_ORPHANED,
-        })
+        }
+        try {
+          pieceInfo.size = getSizeFromPieceCID(providerPiece.pieceCid)
+        } catch {
+          // size calculation is best-effort
+        }
+        pieces.push(pieceInfo)
         warnings.push({
           code: 'OFFCHAIN_ORPHANED',
-          message: 'Piece is reported by provider but not on-chain',
-          context: { pieceId: piece.pieceId, pieceCid: piece.pieceCid.toString() },
+          message: 'Piece reported by provider but not found on-chain',
+          context: { pieceId: pieceId.toString(), pieceCid: providerPiece.pieceCid.toString() },
         })
       }
     }
-    pieces.sort((a, b) => a.pieceId - b.pieceId)
+
+    pieces.sort((a, b) => Number(a.pieceId - b.pieceId))
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw error
     }
-    // If getPieces fails completely, throw - this is a critical error
-    logger?.error({ dataSetId: storageContext.dataSetId, error }, 'Failed to retrieve pieces from dataset')
+    logger?.error({ dataSetId: storageContext.dataSetId.toString(), error }, 'Failed to retrieve pieces from dataset')
     throw new Error(`Failed to retrieve pieces for dataset ${storageContext.dataSetId}: ${String(error)}`)
   }
 
@@ -177,12 +170,6 @@ export async function getDataSetPieces(
 
 /**
  * Internal helper: Enrich pieces with metadata from WarmStorage
- *
- * This function fetches metadata for each piece and extracts:
- * - rootIpfsCid (from METADATA_KEYS.IPFS_ROOT_CID)
- * - Full metadata object
- *
- * Non-fatal errors are added to the warnings array.
  */
 async function enrichPiecesWithMetadata(
   synapse: Synapse,
@@ -193,12 +180,10 @@ async function enrichPiecesWithMetadata(
 ): Promise<void> {
   const dataSetId = storageContext.dataSetId
 
-  // Create WarmStorage service instance
   let warmStorage: WarmStorageService
   try {
-    warmStorage = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
+    warmStorage = new WarmStorageService({ client: synapse.client })
   } catch (error) {
-    // If we can't create the service, warn and return
     logger?.warn({ error }, 'Failed to create WarmStorageService for metadata enrichment')
     warnings.push({
       code: 'WARM_STORAGE_INIT_FAILED',
@@ -208,36 +193,27 @@ async function enrichPiecesWithMetadata(
     return
   }
 
-  // Fetch metadata for each piece
   for (const piece of pieces) {
     try {
-      const metadata = await warmStorage.getPieceMetadata(dataSetId, piece.pieceId)
+      const metadata = await warmStorage.getPieceMetadata({ dataSetId, pieceId: piece.pieceId })
 
-      // Extract root IPFS CID if available
       const rootIpfsCid = metadata[METADATA_KEYS.IPFS_ROOT_CID]
       if (rootIpfsCid) {
         piece.rootIpfsCid = rootIpfsCid
       }
 
-      // Store full metadata
       piece.metadata = metadata
     } catch (error) {
-      // Non-fatal: piece exists but metadata fetch failed
       logger?.warn(
-        {
-          dataSetId,
-          pieceId: piece.pieceId,
-          error,
-        },
+        { dataSetId: dataSetId.toString(), pieceId: piece.pieceId.toString(), error },
         'Failed to fetch metadata for piece'
       )
-
       warnings.push({
         code: 'METADATA_FETCH_FAILED',
         message: `Failed to fetch metadata for piece ${piece.pieceId}`,
         context: {
-          pieceId: piece.pieceId,
-          dataSetId,
+          pieceId: piece.pieceId.toString(),
+          dataSetId: dataSetId.toString(),
           error: String(error),
         },
       })

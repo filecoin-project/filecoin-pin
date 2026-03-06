@@ -1,6 +1,6 @@
-import { SPRegistryService } from '@filoz/synapse-sdk/sp-registry'
+import { getProviderIds as getEndorsedProviders } from '@filoz/synapse-core/endorsements'
+import { getApprovedProviders } from '@filoz/synapse-core/warm-storage'
 import pc from 'picocolors'
-import { cleanupSynapseService } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { getCliSynapse } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
@@ -16,24 +16,25 @@ export async function runProviderList(options: ProviderListOptions): Promise<voi
     ensurePublicAuth(options)
     const synapse = await getCliSynapse(options)
 
-    // Access Synapse's internal WarmStorageService
-    // @ts-expect-error - Accessing private _warmStorageService
-    const warmStorage = synapse.storage._warmStorageService
-    if (!warmStorage) throw new Error('WarmStorageService not available')
-
-    const registryAddress = warmStorage.getServiceProviderRegistryAddress()
-    const spRegistry = new SPRegistryService(synapse.getProvider(), registryAddress)
-
     spinner.message('Fetching providers...')
 
     let providers = []
     if (options.all) {
-      providers = await spRegistry.getAllActiveProviders()
+      providers = await synapse.providers.getAllActiveProviders()
       spinner.stop(`Found ${providers.length} active providers (all):`)
+    } else if (options.endorsed) {
+      const endorsedIds = await getEndorsedProviders(synapse.client)
+      const ids = [...endorsedIds]
+      spinner.message(`Fetching details for ${ids.length} endorsed providers...`)
+      const providersOrNull = await Promise.all(ids.map((id) => synapse.providers.getProvider({ providerId: id })))
+      providers = providersOrNull.filter((p) => p !== null)
+      spinner.stop(`Found ${providers.length} endorsed providers:`)
     } else {
-      const approvedIds = await warmStorage.getApprovedProviderIds()
+      const approvedIds = await getApprovedProviders(synapse.client)
       spinner.message(`Fetching details for ${approvedIds.length} approved providers...`)
-      const providersOrNull = await Promise.all(approvedIds.map((id: number) => spRegistry.getProvider(id)))
+      const providersOrNull = await Promise.all(
+        approvedIds.map((id: bigint) => synapse.providers.getProvider({ providerId: id }))
+      )
       providers = providersOrNull.filter((p) => p !== null)
       spinner.stop(`Found ${providers.length} approved providers:`)
     }
@@ -49,8 +50,6 @@ export async function runProviderList(options: ProviderListOptions): Promise<voi
     log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
     cancel('Listing failed')
     throw error
-  } finally {
-    await cleanupSynapseService()
   }
 }
 
@@ -63,14 +62,6 @@ export async function runProviderShow(providerIdOrAddr: string, options: Provide
     ensurePublicAuth(options)
     const synapse = await getCliSynapse(options)
 
-    // Access Synapse's internal WarmStorageService
-    // @ts-expect-error - Accessing private _warmStorageService
-    const warmStorage = synapse.storage._warmStorageService
-    if (!warmStorage) throw new Error('WarmStorageService not available')
-
-    const registryAddress = warmStorage.getServiceProviderRegistryAddress()
-    const spRegistry = new SPRegistryService(synapse.getProvider(), registryAddress)
-
     spinner.message(`Fetching details for ${providerIdOrAddr}...`)
 
     let provider: any
@@ -78,9 +69,8 @@ export async function runProviderShow(providerIdOrAddr: string, options: Provide
 
     // If it looks like a number, try fetching by ID
     if (!Number.isNaN(id) && id.toString() === providerIdOrAddr) {
-      provider = await spRegistry.getProvider(id)
+      provider = await synapse.providers.getProvider({ providerId: BigInt(id) })
     } else {
-      // NOTE: Querying by address is not directly supported by the registry service yet in this context cleanly without iterating all
       spinner.stop(pc.yellow('Querying by address is not directly supported, trying as ID if numeric.'))
       throw new Error('Please provide a numeric Provider ID')
     }
@@ -90,8 +80,17 @@ export async function runProviderShow(providerIdOrAddr: string, options: Provide
       throw new Error(`Provider ${providerIdOrAddr} not found`)
     }
 
+    spinner.message('Checking endorsement and approval status...')
+    const [endorsedIds, approvedIds] = await Promise.all([
+      getEndorsedProviders(synapse.client),
+      getApprovedProviders(synapse.client),
+    ])
+    const providerId = BigInt(id)
+    const isEndorsed = endorsedIds.has(providerId)
+    const isApproved = approvedIds.includes(providerId)
+
     spinner.stop('Provider found')
-    printProvider(provider)
+    printProvider(provider, { isEndorsed, isApproved })
 
     outro('Provider inspection complete')
   } catch (error) {
@@ -100,8 +99,6 @@ export async function runProviderShow(providerIdOrAddr: string, options: Provide
     log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
     cancel('Inspection failed')
     throw error
-  } finally {
-    await cleanupSynapseService()
   }
 }
 
@@ -117,13 +114,6 @@ export async function runProviderPing(
     ensurePublicAuth(options)
     const synapse = await getCliSynapse(options)
 
-    // @ts-expect-error - Accessing private _warmStorageService
-    const warmStorage = synapse.storage._warmStorageService
-    if (!warmStorage) throw new Error('WarmStorageService not available')
-
-    const registryAddress = warmStorage.getServiceProviderRegistryAddress()
-    const spRegistry = new SPRegistryService(synapse.getProvider(), registryAddress)
-
     const providersToPing = []
 
     if (providerIdOrAddr) {
@@ -131,7 +121,7 @@ export async function runProviderPing(
       const id = parseInt(providerIdOrAddr, 10)
       if (Number.isNaN(id)) throw new Error('Please provide a numeric Provider ID')
 
-      const provider = await spRegistry.getProvider(id)
+      const provider = await synapse.providers.getProvider({ providerId: BigInt(id) })
       if (!provider) {
         throw new Error(`Provider ${id} not found`)
       }
@@ -139,11 +129,13 @@ export async function runProviderPing(
     } else {
       spinner.message('Fetching provider list...')
       if (options.all) {
-        const active = await spRegistry.getAllActiveProviders()
+        const active = await synapse.providers.getAllActiveProviders()
         providersToPing.push(...active)
       } else {
-        const approvedIds = await warmStorage.getApprovedProviderIds()
-        const providers = await Promise.all(approvedIds.map((id: number) => spRegistry.getProvider(id)))
+        const approvedIds = await getApprovedProviders(synapse.client)
+        const providers = await Promise.all(
+          approvedIds.map((id: bigint) => synapse.providers.getProvider({ providerId: id }))
+        )
         providersToPing.push(...providers.filter((p) => p !== null))
       }
     }
@@ -151,7 +143,7 @@ export async function runProviderPing(
     spinner.stop(`Pinging ${providersToPing.length} provider(s)...`)
 
     for (const p of providersToPing) {
-      const serviceUrl = p.products?.PDP?.data?.serviceURL
+      const serviceUrl = p.pdp?.serviceURL
       if (!serviceUrl) {
         console.log(`${pc.yellow('⚠')} ${p.name || p.id} [${p.serviceProvider}]: ${pc.gray('No PDP Service URL')}`)
         continue
@@ -162,12 +154,10 @@ export async function runProviderPing(
         const controller = new AbortController()
         timeout = setTimeout(() => controller.abort(), 5000)
 
-        // Construct ping URL: append /pdp/ping
         const baseUrl = serviceUrl.endsWith('/') ? serviceUrl.slice(0, -1) : serviceUrl
         const pingUrl = `${baseUrl}/pdp/ping`
 
         const start = Date.now()
-        // Use GET for specific ping endpoint
         const res = await fetch(pingUrl, { method: 'GET', signal: controller.signal }).catch(async () => {
           if (controller.signal.aborted) throw new Error('Timeout')
           throw new Error('Network Error')
@@ -201,38 +191,40 @@ export async function runProviderPing(
     log.line('')
     log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
     cancel('Ping failed')
-    throw error // Re-throw to let command wiring handle process exit code if needed, though we usually just exit 1
-  } finally {
-    await cleanupSynapseService()
+    throw error
   }
 }
 
-function printProvider(p: any) {
+function printProvider(p: any, status?: { isEndorsed: boolean; isApproved: boolean }) {
   console.log(`Provider: ${pc.cyan(p.name || 'Unknown')} (ID: ${p.id})`)
   console.log(`  Address: ${p.serviceProvider}`)
-  if (p.description) console.log(`  Description: ${p.description}`)
-  if (p.products?.PDP?.data?.serviceURL) {
-    console.log(`  PDP Service: ${p.products.PDP.data.serviceURL}`)
+  if (status) {
+    console.log(`  Endorsed: ${status.isEndorsed ? pc.green('yes') : 'no'}`)
+    console.log(`  Approved: ${status.isApproved ? pc.green('yes') : 'no'}`)
   }
-  const location = p.products?.PDP?.data?.location
+  if (p.description) console.log(`  Description: ${p.description}`)
+  if (p.pdp?.serviceURL) {
+    console.log(`  PDP Service: ${p.pdp.serviceURL}`)
+  }
+  const location = p.pdp?.location
   if (location) console.log(`  Location: ${location}`)
 
-  // Additional Details
-  const data = p.products?.PDP?.data
-  if (data) {
-    if (data.minPieceSizeInBytes != null) console.log(`  Min Piece Size: ${formatFileSize(data.minPieceSizeInBytes)}`)
-    if (data.maxPieceSizeInBytes != null) console.log(`  Max Piece Size: ${formatFileSize(data.maxPieceSizeInBytes)}`)
-    if (data.storagePricePerTibPerDay != null)
-      console.log(`  Storage Price: ${formatUSDFC(BigInt(data.storagePricePerTibPerDay))} USDFC/TiB/Day`)
-    if (data.minProvingPeriodInEpochs != null)
-      console.log(`  Min Proving Period: ${data.minProvingPeriodInEpochs} epochs`)
+  const pdp = p.pdp
+  if (pdp) {
+    if (pdp.minPieceSizeInBytes != null)
+      console.log(`  Min Piece Size: ${formatFileSize(Number(pdp.minPieceSizeInBytes))}`)
+    if (pdp.maxPieceSizeInBytes != null)
+      console.log(`  Max Piece Size: ${formatFileSize(Number(pdp.maxPieceSizeInBytes))}`)
+    if (pdp.storagePricePerTibPerDay != null)
+      console.log(`  Storage Price: ${formatUSDFC(pdp.storagePricePerTibPerDay)} USDFC/TiB/Day`)
+    if (pdp.minProvingPeriodInEpochs != null)
+      console.log(`  Min Proving Period: ${pdp.minProvingPeriodInEpochs} epochs`)
   }
 }
 
 function printTable(providers: any[]) {
   if (!providers.length) return
 
-  // Define columns
   const columns = [
     { header: 'ID', key: 'id', width: 5 },
     { header: 'Name', key: 'name', width: 20 },
@@ -241,36 +233,31 @@ function printTable(providers: any[]) {
     { header: 'Service URL', key: 'serviceUrl', width: 35 },
   ]
 
-  // extract data for table
   const rows = providers.map((p) => ({
     id: p.id?.toString() || '?',
     name: p.name || 'Unknown',
     serviceProvider: p.serviceProvider || '',
-    location: p.products?.PDP?.data?.location || '-',
-    serviceUrl: p.products?.PDP?.data?.serviceURL || '-',
+    location: p.pdp?.location || '-',
+    serviceUrl: p.pdp?.serviceURL || '-',
   }))
 
-  // adjust widths based on content
   rows.forEach((r) => {
     columns.forEach((c) => {
       const val = (r as any)[c.key] || ''
-      if (val.length > c.width) c.width = Math.min(val.length, 60) // cap max width
+      if (val.length > c.width) c.width = Math.min(val.length, 60)
     })
   })
 
-  // Header
   const headerRow = columns.map((c) => c.header.padEnd(c.width)).join('  ')
   console.log(pc.gray(headerRow))
   console.log(pc.gray('-'.repeat(headerRow.length)))
 
-  // Rows
   rows.forEach((r) => {
     const line = columns
       .map((c) => {
         let val = (r as any)[c.key] || ''
-        // Truncate if exceeds width
         if (val.length > c.width) {
-          val = `${val.substring(0, c.width - 1)}…`
+          val = `${val.substring(0, c.width - 1)}...`
         }
         return val.padEnd(c.width)
       })
@@ -280,7 +267,6 @@ function printTable(providers: any[]) {
 }
 
 function ensurePublicAuth(options: any) {
-  // Check if any auth options are provided (env vars are checked in cli-auth but we check keys here)
   const hasAuth =
     options.privateKey ||
     options.walletAddress ||
@@ -292,7 +278,6 @@ function ensurePublicAuth(options: any) {
     process.env.VIEW_ADDRESS
 
   if (!hasAuth) {
-    // If no auth provided, default to public read-only mode using zero address
     options.viewAddress = '0x0000000000000000000000000000000000000000'
   }
 }

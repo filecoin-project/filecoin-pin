@@ -33,7 +33,6 @@ function getDataDirectory(): string {
  * - PRIVATE_KEY: Required for transaction signing (keep secure!)
  * - RPC_URL: Filecoin network endpoint (mainnet or calibration) - takes precedence over NETWORK
  * - NETWORK: Filecoin network name (mainnet or calibration) - used if RPC_URL not set
- * - WARM_STORAGE_ADDRESS: Optional override for testing custom contracts
  */
 export function createConfig(): Config {
   const dataDir = getDataDirectory()
@@ -52,8 +51,6 @@ export function createConfig(): Config {
     // Synapse SDK configuration
     privateKey: process.env.PRIVATE_KEY, // Required: Ethereum-compatible private key
     rpcUrl, // Determined from RPC_URL, NETWORK, or default to calibration
-    warmStorageAddress: process.env.WARM_STORAGE_ADDRESS, // Optional: custom contract address
-
     // Storage paths
     databasePath: process.env.DATABASE_PATH ?? join(dataDir, 'pins.db'),
     carStoragePath: process.env.CAR_STORAGE_PATH ?? join(dataDir, 'cars'),

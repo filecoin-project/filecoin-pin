@@ -1,4 +1,4 @@
-import type { ProviderInfo } from '@filoz/synapse-sdk'
+import type { PDPProvider } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { waitForIpniProviderResults } from '../../core/utils/validate-ipni-advertisement.js'
@@ -8,19 +8,18 @@ describe('waitForIpniProviderResults', () => {
   const defaultIndexerUrl = 'https://filecoinpin.contact'
   const mockFetch = vi.fn()
 
-  const createProviderInfo = (serviceURL: string): ProviderInfo =>
+  const createPDPProvider = (serviceURL: string): PDPProvider =>
     ({
-      id: 1234,
+      id: 1234n,
       serviceProvider: 'f01234',
       name: 'Test Provider',
-      products: {
-        PDP: {
-          data: {
-            serviceURL,
-          },
-        },
+      description: '',
+      isActive: true,
+      payee: '0x0000000000000000000000000000000000000000',
+      pdp: {
+        serviceURL,
       },
-    }) as ProviderInfo
+    }) as unknown as PDPProvider
 
   const successResponse = (multiaddrs: string[] = ['/dns/example.com/tcp/443/https']) => ({
     ok: true,
@@ -131,7 +130,7 @@ describe('waitForIpniProviderResults', () => {
     })
 
     it('should succeed when the expected provider advertises the derived multiaddr', async () => {
-      const provider = createProviderInfo('https://example.com')
+      const provider = createPDPProvider('https://example.com')
       const expectedMultiaddr = '/dns/example.com/tcp/443/https'
       mockFetch.mockResolvedValueOnce(successResponse([expectedMultiaddr]))
 
@@ -146,8 +145,8 @@ describe('waitForIpniProviderResults', () => {
     })
 
     it('should succeed when all expected providers are in the IPNI ProviderResults', async () => {
-      const providerA = createProviderInfo('https://a.example.com')
-      const providerB = createProviderInfo('https://b.example.com:8443')
+      const providerA = createPDPProvider('https://a.example.com')
+      const providerB = createPDPProvider('https://b.example.com:8443')
       const expectedMultiaddrs = ['/dns/a.example.com/tcp/443/https', '/dns/b.example.com/tcp/8443/https']
 
       mockFetch.mockResolvedValueOnce(successResponse(expectedMultiaddrs))
@@ -291,7 +290,7 @@ describe('waitForIpniProviderResults', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1)
     })
     it('should reject when an expected provider is missing from the  IPNI ProviderResults', async () => {
-      const provider = createProviderInfo('https://expected.example.com')
+      const provider = createPDPProvider('https://expected.example.com')
       mockFetch.mockResolvedValueOnce(successResponse(['/dns/other.example.com/tcp/443/https']))
 
       const promise = waitForIpniProviderResults(testCid, {
@@ -307,8 +306,8 @@ describe('waitForIpniProviderResults', () => {
     })
 
     it('should reject when not all expected providers are in the IPNI ProviderResults', async () => {
-      const providerA = createProviderInfo('https://a.example.com')
-      const providerB = createProviderInfo('https://b.example.com')
+      const providerA = createPDPProvider('https://a.example.com')
+      const providerB = createPDPProvider('https://b.example.com')
       mockFetch.mockResolvedValueOnce(successResponse(['/dns/a.example.com/tcp/443/https']))
 
       const promise = waitForIpniProviderResults(testCid, {
@@ -324,7 +323,7 @@ describe('waitForIpniProviderResults', () => {
     })
 
     it('should retry until the expected provider appears in subsequent attempts', async () => {
-      const provider = createProviderInfo('https://expected.example.com')
+      const provider = createPDPProvider('https://expected.example.com')
       const expectedMultiaddr = '/dns/expected.example.com/tcp/443/https'
       mockFetch
         .mockResolvedValueOnce(successResponse(['/dns/other.example.com/tcp/443/https']))
@@ -344,7 +343,7 @@ describe('waitForIpniProviderResults', () => {
     })
 
     it('should retry when the IPNI response is empty', async () => {
-      const provider = createProviderInfo('https://expected.example.com')
+      const provider = createPDPProvider('https://expected.example.com')
       const expectedMultiaddr = '/dns/expected.example.com/tcp/443/https'
       mockFetch
         .mockResolvedValueOnce(emptyProviderResponse())
@@ -468,11 +467,14 @@ describe('waitForIpniProviderResults', () => {
 
     it('should handle provider without serviceURL by falling back to generic validation', async () => {
       const providerWithoutURL = {
-        id: 1234,
+        id: 1234n,
         serviceProvider: 'f01234',
         name: 'Test Provider',
-        products: { PDP: { data: {} } },
-      } as ProviderInfo
+        description: '',
+        isActive: true,
+        payee: '0x0000000000000000000000000000000000000000',
+        pdp: {},
+      } as unknown as PDPProvider
 
       mockFetch.mockResolvedValueOnce(successResponse())
 
@@ -502,7 +504,7 @@ describe('waitForIpniProviderResults', () => {
     it('should clear stale multiaddrs when parse error occurs after successful response', async () => {
       // Attempt 1: successful response with multiaddrs but doesn't match expectations
       // Attempt 2: parse error - should clear the multiaddrs from attempt 1
-      const provider = createProviderInfo('https://expected.example.com')
+      const provider = createPDPProvider('https://expected.example.com')
       mockFetch.mockResolvedValueOnce(successResponse(['/dns/other.example.com/tcp/443/https'])).mockResolvedValueOnce({
         ok: true,
         json: vi.fn(async () => {

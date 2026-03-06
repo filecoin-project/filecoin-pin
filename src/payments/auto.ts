@@ -6,8 +6,8 @@
  * options to complete the setup without user interaction.
  */
 
-import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { parseUnits } from 'viem'
 import {
   calculateDepositCapacity,
   checkAndSetAllowances,
@@ -17,7 +17,7 @@ import {
   getPaymentStatus,
   validatePaymentRequirements,
 } from '../core/payments/index.js'
-import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
@@ -37,7 +37,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
   // Parse and validate deposit amount
   let targetFilecoinPayBalance: bigint
   try {
-    targetFilecoinPayBalance = ethers.parseUnits(options.deposit, 18)
+    targetFilecoinPayBalance = parseUnits(options.deposit, 18)
   } catch {
     console.error(pc.red(`Error: Invalid deposit amount '${options.deposit}'`))
     process.exit(1)
@@ -52,9 +52,8 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
 
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)
-    const network = synapse.getNetwork()
-    const client = synapse.getClient()
-    const address = await client.getAddress()
+    const network = synapse.chain.name
+    const address = getClientAddress(synapse)
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
@@ -171,7 +170,6 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
 
     process.exitCode = 1
   } finally {
-    await cleanupSynapseService()
     process.exit()
   }
 }

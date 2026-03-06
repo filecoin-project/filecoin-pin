@@ -1,4 +1,4 @@
-import type { Synapse } from '@filoz/synapse-sdk'
+import type { Chain, PDPProvider, Synapse } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import {
@@ -10,7 +10,7 @@ import {
   validatePaymentCapacity,
   validatePaymentRequirements,
 } from '../payments/index.js'
-import { isSessionKeyMode, type SynapseService } from '../synapse/index.js'
+import { isSessionKeyMode } from '../synapse/index.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 import {
   type ValidateIPNIProgressEvents,
@@ -21,6 +21,23 @@ import { type SynapseUploadResult, type UploadProgressEvents, uploadToSynapse } 
 
 export type { SynapseUploadOptions, SynapseUploadResult, UploadProgressEvents } from './synapse.js'
 export { getDownloadURL, getServiceURL, uploadToSynapse } from './synapse.js'
+
+/**
+ * Derive a URL-safe network slug from the chain definition.
+ * Falls back to the chain name for unknown chains.
+ */
+export function getNetworkSlug(chain: Chain): string {
+  switch (chain.id) {
+    case 314:
+      return 'mainnet'
+    case 314159:
+      return 'calibration'
+    case 31415926:
+      return 'devnet'
+    default:
+      return chain.name
+  }
+}
 
 /**
  * Options for evaluating whether an upload can proceed.
@@ -183,14 +200,15 @@ export interface UploadExecutionOptions {
   contextId?: string
   /** Optional umbrella onProgress receiving child progress events. */
   onProgress?: ProgressEventHandler<(UploadProgressEvents | ValidateIPNIProgressEvents) & {}>
-  /** Optional metadata to associate with the upload. */
+  /** Optional metadata to associate with the upload (per-piece). */
   pieceMetadata?: Record<string, string>
   /**
    * Optional AbortSignal to cancel the upload operation.
    */
   signal?: AbortSignal
   /**
-   * Optional IPNI validation behaviour. When enabled (default), the upload flow will wait for the IPFS Root CID to be announced to IPNI.
+   * Optional IPNI validation behaviour. When enabled (default), the upload
+   * flow will wait for the IPFS Root CID to be announced to IPNI.
    */
   ipniValidation?: {
     /**
@@ -200,42 +218,61 @@ export interface UploadExecutionOptions {
      */
     enabled?: boolean
   } & Omit<WaitForIpniProviderResultsOptions, 'onProgress'>
+
+  /** Number of storage copies to create (default determined by SDK). */
+  count?: number
+
+  /** Specific provider IDs to use. */
+  providerIds?: bigint[]
+
+  /** Specific data set IDs to use. */
+  dataSetIds?: bigint[]
+
+  /** Provider IDs to exclude from selection. */
+  excludeProviderIds?: bigint[]
+
+  /** Data set metadata applied when creating or matching contexts. */
+  metadata?: Record<string, string>
 }
 
 export interface UploadExecutionResult extends SynapseUploadResult {
   /** Active network derived from the Synapse instance. */
   network: string
-  /** Transaction hash from the piece-addition step (if available). */
-  transactionHash?: string | undefined
   /**
    * True if the IPFS Root CID was observed on filecoinpin.contact (IPNI).
    *
-   * You should block any displaying, or attempting to access, of IPFS download URLs unless the IPNI validation is successful.
+   * You should block any displaying, or attempting to access, of IPFS
+   * download URLs unless the IPNI validation is successful.
    */
   ipniValidated: boolean
 }
 
 /**
  * Execute the upload to Synapse, returning the same structured data used by the
- * CLI and GitHub Action.
+ * CLI and GitHub Action. Supports multi-copy uploads via the StorageManager.
  */
 export async function executeUpload(
-  synapseService: SynapseService,
+  synapse: Synapse,
   carData: Uint8Array,
   rootCid: CID,
   options: UploadExecutionOptions
 ): Promise<UploadExecutionResult> {
-  // Fail fast if the operation was already aborted before starting
   options.signal?.throwIfAborted()
 
   const { logger, contextId } = options
-  let transactionHash: string | undefined
+
+  // Collect providers from `onProviderSelected` events for IPNI validation
+  const selectedProviders: PDPProvider[] = []
   let ipniValidationPromise: Promise<boolean> | undefined
 
   const onProgress: ProgressEventHandler<UploadProgressEvents | ValidateIPNIProgressEvents> = (event) => {
     switch (event.type) {
-      case 'onPieceAdded': {
-        // Begin IPNI validation as soon as the piece is added and parked in the data set
+      case 'onProviderSelected': {
+        selectedProviders.push(event.data.provider)
+        break
+      }
+      case 'onPiecesAdded': {
+        // Begin IPNI validation on the first onPiecesAdded event
         if (options.ipniValidation?.enabled !== false && ipniValidationPromise == null) {
           const {
             enabled: _enabled,
@@ -244,37 +281,28 @@ export async function executeUpload(
             ...restOptions
           } = options.ipniValidation ?? {}
 
-          // Build validation options
-          // Use top-level signal as default, but allow ipniValidation.signal to override
           const validationOptions: WaitForIpniProviderResultsOptions = {
             ...restOptions,
             logger,
             signal: ipniSignal ?? options.signal,
           }
 
-          // Forward progress events to caller if they provided a handler
-          if (options?.onProgress != null) {
+          if (options.onProgress != null) {
             validationOptions.onProgress = options.onProgress
           }
 
-          // Determine which providers to expect in IPNI
-          // Priority: user-provided expectedProviders > current provider > none (generic validation)
-          // Note: If expectedProviders is explicitly [], we respect that (no provider expectations)
+          // Use providers collected from selection events for IPNI validation
           if (expectedProviders != null) {
             validationOptions.expectedProviders = expectedProviders
-          } else if (synapseService.providerInfo != null) {
-            validationOptions.expectedProviders = [synapseService.providerInfo]
+          } else if (selectedProviders.length > 0) {
+            validationOptions.expectedProviders = selectedProviders
           }
 
-          // Start validation (runs in parallel with other operations)
           ipniValidationPromise = waitForIpniProviderResults(rootCid, validationOptions).catch((error) => {
             validationOptions.signal?.throwIfAborted()
             logger.warn({ error }, 'IPNI provider results check was rejected')
             return false
           })
-        }
-        if (event.data.txHash != null) {
-          transactionHash = event.data.txHash
         }
         break
       }
@@ -294,35 +322,43 @@ export async function executeUpload(
   if (options.pieceMetadata) {
     uploadOptions.pieceMetadata = options.pieceMetadata
   }
-  //  Only include `signal` when defined to satisfy `exactOptionalPropertyTypes`
   if (options.signal != null) {
     uploadOptions.signal = options.signal
   }
+  if (options.count != null) {
+    uploadOptions.count = options.count
+  }
+  if (options.providerIds != null) {
+    uploadOptions.providerIds = options.providerIds
+  }
+  if (options.dataSetIds != null) {
+    uploadOptions.dataSetIds = options.dataSetIds
+  }
+  if (options.excludeProviderIds != null) {
+    uploadOptions.excludeProviderIds = options.excludeProviderIds
+  }
+  if (options.metadata != null) {
+    uploadOptions.metadata = options.metadata
+  }
 
-  const uploadResult = await uploadToSynapse(synapseService, carData, rootCid, logger, uploadOptions)
+  const uploadResult = await uploadToSynapse(synapse, carData, rootCid, logger, uploadOptions)
 
-  // Check if aborted after upload completes
   options.signal?.throwIfAborted()
 
-  // Optionally validate IPNI advertisement of the root CID before returning
   let ipniValidated = false
   if (ipniValidationPromise != null) {
     try {
       ipniValidated = await ipniValidationPromise
     } catch (error) {
-      // Re-throw abort errors
       options.signal?.throwIfAborted()
       logger.error({ error }, 'Could not validate IPNI provider records')
       ipniValidated = false
     }
   }
 
-  const result: UploadExecutionResult = {
+  return {
     ...uploadResult,
-    network: synapseService.synapse.getNetwork(),
-    transactionHash,
+    network: getNetworkSlug(synapse.chain),
     ipniValidated,
   }
-
-  return result
 }

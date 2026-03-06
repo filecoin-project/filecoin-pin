@@ -26,8 +26,7 @@ export interface OperationCompletionOptions {
    */
   type?: OperationStatus
   /**
-   * Optional details section to display after completion
-   * Format: { title: string, content: string[] }
+   * Optional details section to display after completion (with title)
    */
   details?:
     | {
@@ -35,6 +34,11 @@ export interface OperationCompletionOptions {
         content: string[]
       }
     | undefined
+  /**
+   * Optional indented lines to display after the completion message
+   * (no title/section header, just indented content)
+   */
+  afterLines?: string[]
 }
 
 /**
@@ -123,6 +127,26 @@ export class MultiOperationSpinner {
   }
 
   /**
+   * Print a section while the spinner may be running.
+   * Stops the spinner with the section title as the stop message,
+   * then prints content below it. This avoids a stray empty stop
+   * marker and double bar-line spacing.
+   */
+  printSection(title: string, content: string[]): void {
+    if (this.spinnerRunning) {
+      this.spinner?.stop(pc.bold(title))
+      this.spinnerRunning = false
+    } else {
+      log.line('')
+      log.line(pc.bold(title))
+    }
+    for (const line of content) {
+      log.indent(line)
+    }
+    log.flush()
+  }
+
+  /**
    * Complete an operation
    * @param id - Operation identifier
    * @param message - Completion message
@@ -134,7 +158,7 @@ export class MultiOperationSpinner {
       return
     }
 
-    const { type = 'success', details } = options
+    const { type = 'success', details, afterLines } = options
 
     // Remove from active operations
     this.operations.delete(id)
@@ -146,6 +170,14 @@ export class MultiOperationSpinner {
     // Stop spinner with completion message
     this.spinner?.stop(completionMessage)
     this.spinnerRunning = false
+
+    // Display indented lines directly after completion (no section header)
+    if (afterLines != null && afterLines.length > 0) {
+      for (const line of afterLines) {
+        log.indent(line)
+      }
+      log.flush()
+    }
 
     // Display details section if provided
     if (details != null) {

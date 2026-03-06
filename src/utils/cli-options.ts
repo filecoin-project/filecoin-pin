@@ -48,47 +48,35 @@ export function addAuthOptions(command: Command): Command {
       )
     )
 
-  return addNetworkOptions(command)
-    .addOption(
-      new Option('--rpc-url <url>', 'RPC endpoint').env('RPC_URL')
-      // default rpcUrl value is defined in ../common/get-rpc-url.ts
-    )
-    .option(
-      '--warm-storage-address <address>',
-      'Warm storage contract address override (can also use WARM_STORAGE_ADDRESS env)'
-    )
+  return addNetworkOptions(command).addOption(
+    new Option('--rpc-url <url>', 'RPC endpoint').env('RPC_URL')
+    // default rpcUrl value is defined in ../common/get-rpc-url.ts
+  )
 }
 
 /**
- * Decorator to add provider selection options to a Commander command
+ * Decorator to add context selection options to a Commander command
  *
- * This adds options for overriding the automatic provider selection:
- * - --provider-address for selecting by provider address
- * - --provider-id for selecting by provider ID
- *
- * The function modifies the command in-place and returns it for chaining.
+ * Adds --provider-ids and --data-set-ids for overriding automatic selection.
+ * These are mutually exclusive.
  *
  * @param command - The Commander command to add options to
  * @returns The same command with options added (for chaining)
- *
- * @example
- * ```typescript
- * const myCommand = new Command('upload')
- *   .description('Upload data')
- *   .action(async (options) => {
- *     const { providerAddress, providerId } = options
- *   })
- *
- * addProviderOptions(myCommand)
- * ```
  */
-export function addProviderOptions(command: Command): Command {
+export function addContextSelectionOptions(command: Command): Command {
   return command
-    .option(
-      '--provider-address <address>',
-      'Override provider selection by address (can also use PROVIDER_ADDRESS env)'
+    .addOption(
+      new Option(
+        '--provider-ids <ids>',
+        'Target specific providers by ID, comma-separated (can also use PROVIDER_IDS env)'
+      ).conflicts('dataSetIds')
     )
-    .option('--provider-id <id>', 'Override provider selection by ID (can also use PROVIDER_ID env)')
+    .addOption(
+      new Option(
+        '--data-set-ids <ids>',
+        'Target specific data sets by ID, comma-separated (can also use DATA_SET_IDS env)'
+      ).conflicts('providerIds')
+    )
 }
 
 export function addNetworkOptions(command: Command): Command {

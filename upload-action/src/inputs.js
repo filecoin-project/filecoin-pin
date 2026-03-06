@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
-import { ethers } from 'ethers'
-import { ERROR_CODES, FilecoinPinError, getErrorMessage } from './errors.js'
+import { isHex, parseUnits } from 'viem'
+import { ERROR_CODES, FilecoinPinError } from './errors.js'
 
 /**
  * @typedef {import('./types.js').ParsedInputs} ParsedInputs
@@ -111,12 +111,9 @@ export function parseInputs(phase = 'single') {
 
   // Validate wallet private key format early to avoid network calls
   if (phase !== 'compute' && walletPrivateKey) {
-    try {
-      // Try to create a wallet from the private key to validate format
-      new ethers.Wallet(walletPrivateKey)
-    } catch (error) {
+    if (!isHex(walletPrivateKey) || walletPrivateKey.length !== 66) {
       throw new FilecoinPinError(
-        `Invalid wallet private key format: ${getErrorMessage(error)}`,
+        'Invalid wallet private key format: expected 0x-prefixed 32-byte hex string',
         ERROR_CODES.INVALID_PRIVATE_KEY
       )
     }
@@ -126,33 +123,36 @@ export function parseInputs(phase = 'single') {
   let minStorageDays = Number(minStorageDaysRaw)
   if (!Number.isFinite(minStorageDays) || minStorageDays < 0) minStorageDays = 0
 
-  const filecoinPayBalanceLimit = filecoinPayBalanceLimitRaw
-    ? ethers.parseUnits(filecoinPayBalanceLimitRaw, 18)
-    : undefined
+  const filecoinPayBalanceLimit = filecoinPayBalanceLimitRaw ? parseUnits(filecoinPayBalanceLimitRaw, 18) : undefined
 
   if (minStorageDays > 0 && filecoinPayBalanceLimit == null) {
     throw new Error('filecoinPayBalanceLimit must be set when minStorageDays is provided')
   }
 
-  // Parse provider overrides from environment variables only:
-  // 1. PROVIDER_ADDRESS environment variable (highest priority)
-  // 2. PROVIDER_ID environment variable (only if no address specified)
-  // 3. Automatic provider selection by SDK (default if none specified)
+  // Parse provider override from environment variable.
   //
-  // Note: providerAddress always takes precedence over providerId because
-  // address is more specific than numeric ID.
-  let providerAddress
-  let providerId
-
-  const envProviderAddress = process.env.PROVIDER_ADDRESS
-  if (envProviderAddress) {
-    providerAddress = envProviderAddress
-  } else {
-    const envProviderId = process.env.PROVIDER_ID
-    if (envProviderId) {
-      const parsed = Number.parseInt(envProviderId, 10)
-      if (Number.isFinite(parsed)) {
-        providerId = parsed
+  // PROVIDER_IDS (comma-separated) targets specific storage providers by their
+  // numeric on-chain IDs. With multi-copy uploads the SDK selects an endorsed
+  // primary and approved secondaries automatically; setting this overrides that
+  // selection. Example: PROVIDER_IDS="1,2"
+  //
+  // When omitted the SDK handles provider selection automatically (recommended).
+  /** @type {bigint[] | undefined} */
+  let providerIds
+  const envProviderIds = process.env.PROVIDER_IDS?.trim()
+  if (envProviderIds) {
+    const parts = envProviderIds
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s !== '')
+    if (parts.length > 0) {
+      try {
+        providerIds = parts.map((s) => BigInt(s))
+      } catch {
+        throw new FilecoinPinError(
+          `Invalid PROVIDER_IDS: "${envProviderIds}". Provide comma-separated numeric IDs.`,
+          ERROR_CODES.INVALID_INPUT
+        )
       }
     }
   }
@@ -165,8 +165,7 @@ export function parseInputs(phase = 'single') {
     minStorageDays,
     filecoinPayBalanceLimit,
     withCDN,
-    providerAddress,
-    providerId,
+    providerIds,
     dryRun,
   }
 

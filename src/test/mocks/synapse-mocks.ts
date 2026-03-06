@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import type { ProviderInfo } from '@filoz/synapse-sdk'
+import type { PDPProvider } from '@filoz/synapse-sdk'
 
 /**
  * Test utilities for mocking Synapse SDK components
@@ -13,35 +13,23 @@ import type { ProviderInfo } from '@filoz/synapse-sdk'
  */
 
 // Mock provider info matching real PDP provider structure
-export const mockProviderInfo: ProviderInfo = {
-  id: 1,
-  serviceProvider: '0x78bF4d833fC2ba1Abd42Bc772edbC788EC76A28F', // Provider's contract address
-  payee: '0x78bF4d833fC2ba1Abd42Bc772edbC788EC76A28F', // Payment recipient
+export const mockPDPProvider: PDPProvider = {
+  id: 1n,
+  serviceProvider: '0x78bF4d833fC2ba1Abd42Bc772edbC788EC76A28F',
+  payee: '0x78bF4d833fC2ba1Abd42Bc772edbC788EC76A28F',
   name: 'Mock Provider',
   description: 'Mock provider for testing',
-  active: true, // Provider is accepting new data
-  products: {
-    PDP: {
-      // Proof of Data Possession service
-      type: 'PDP',
-      isActive: true,
-      capabilities: {},
-      data: {
-        // PDP-specific configuration
-        serviceURL: 'http://localhost:8888/pdp', // Where to upload data
-        minPieceSizeInBytes: 127n, // Minimum piece size (127 bytes)
-        maxPieceSizeInBytes: 34359738368n, // Maximum piece size (32 GiB)
-        ipniPiece: false, // IPNI indexing capabilities
-        ipniHttp: false,
-        ipniBitswap: false,
-        storagePricePerTibPerMonth: 5000000000000000000n, // Price in attoFIL
-        location: 'Test Location',
-        bandwidth: 1000, // Mbps
-        throughput: 100, // MB/s
-        storageCapacity: 1000n, // TiB total capacity
-        storageAvailable: 800n, // TiB available
-      } as any,
-    },
+  isActive: true,
+  pdp: {
+    serviceURL: 'http://localhost:8888/pdp',
+    minPieceSizeInBytes: 127n,
+    maxPieceSizeInBytes: 34359738368n,
+    storagePricePerTibPerDay: 5000000000000000000n,
+    minProvingPeriodInEpochs: 240n,
+    location: 'Test Location',
+    paymentTokenAddress: '0x0000000000000000000000000000000000000000',
+    ipniPiece: false,
+    ipniIpfs: false,
   },
 }
 
@@ -55,15 +43,14 @@ export const mockProviderInfo: ProviderInfo = {
  * - Provider health monitoring
  */
 export class MockStorageContext extends EventEmitter {
-  public readonly dataSetId = 123 // Simulated on-chain data set ID
-  public readonly serviceProvider = mockProviderInfo.serviceProvider
+  public readonly dataSetId = 123n
+  public readonly provider = mockPDPProvider
+  public readonly serviceProvider = mockPDPProvider.serviceProvider
 
   async upload(_data: ArrayBuffer | Uint8Array, options?: any): Promise<any> {
     // Check if already aborted
     options?.signal?.throwIfAborted()
 
-    // Extract callbacks from options (handle both old and new API)
-    const callbacks = options?.onUploadComplete ? options : options?.callbacks || options
     // Simulate network delay for realistic testing
     await new Promise((resolve) => setTimeout(resolve, 100))
 
@@ -71,21 +58,38 @@ export class MockStorageContext extends EventEmitter {
     options?.signal?.throwIfAborted()
 
     // Generate mock CommP (piece commitment) with correct prefix
-    // Real CommP: bafkzcib... (raw multibase + CID with CommP codec)
     const pieceCid = `bafkzcib${Math.random().toString(36).substring(2, 15)}`
-    const pieceId = Math.floor(Math.random() * 1000) // Piece index in data set
+    const pieceId = BigInt(Math.floor(Math.random() * 1000))
+    const providerId = mockPDPProvider.id
 
-    // Simulate callback sequence matching real SDK behavior
-    if (callbacks?.onUploadComplete != null) {
-      // First: data uploaded to PDP server
-      callbacks.onUploadComplete(pieceCid)
+    // Simulate callback sequence matching real SDK behavior.
+    // StorageManagerUploadOptions nests callbacks under `callbacks`.
+    const callbacks = options?.callbacks
+    if (callbacks?.onStored != null) {
+      callbacks.onStored(providerId, pieceCid)
     }
-    if (callbacks?.onPieceAdded != null) {
-      // Second: piece registered (may require transaction)
-      callbacks.onPieceAdded()
+    if (callbacks?.onPiecesAdded != null) {
+      callbacks.onPiecesAdded('0x1234', providerId, [{ pieceCid }])
+    }
+    if (callbacks?.onPiecesConfirmed != null) {
+      callbacks.onPiecesConfirmed(123n, providerId, [{ pieceId, pieceCid }])
     }
 
-    return { pieceCid, pieceId, size: 1024 }
+    return {
+      pieceCid,
+      size: 1024,
+      copies: [
+        {
+          providerId,
+          dataSetId: 123n,
+          pieceId,
+          role: 'primary' as const,
+          retrievalUrl: `http://localhost:8888/pdp/piece/${pieceCid}`,
+          isNewDataSet: false,
+        },
+      ],
+      failures: [],
+    }
   }
 }
 
@@ -101,125 +105,48 @@ export class MockStorageContext extends EventEmitter {
 export class MockSynapse extends EventEmitter {
   private _storageContext: MockStorageContext | null = null
 
-  // Storage namespace matches SDK structure
-  public readonly storage = {
-    createContext: this.createStorageContext.bind(this),
-    upload: (data: any, options: any) => this._storageContext?.upload(data, options),
-    // Mock _warmStorageService for tests that access internal SDK state
-    _warmStorageService: {
-      getDataSet: async (dataSetId: number) => ({
-        dataSetId: BigInt(dataSetId),
-        providerId: BigInt(1),
-        payer: '0x1234567890123456789012345678901234567890',
-        payee: mockProviderInfo.payee,
-        pdpRailId: BigInt(1),
-        cdnRailId: BigInt(0),
-        cacheMissRailId: BigInt(0),
-        commissionBps: 100,
-      }),
-      validateDataSet: async () => true,
-      getDataSetMetadata: async () => ({
-        source: 'filecoin-pin',
-      }),
-      getServiceProviderRegistryAddress: () => '0xregistry',
+  // Chain info matches SDK structure
+  public readonly chain = {
+    id: 314159,
+    name: 'calibration',
+  }
+
+  // Client info
+  public readonly client = {
+    account: {
+      address: '0x1234567890123456789012345678901234567890' as const,
     },
   }
 
-  /**
-   * Mock network identification
-   * Real networks: 314 (mainnet), 314159 (calibration testnet)
-   */
-  getNetwork(): any {
-    return { chainId: 314159n, name: 'calibration' }
+  // Providers namespace
+  public readonly providers = {
+    getProvider: async (_opts: { providerId: bigint }) => mockPDPProvider,
+    getAllActiveProviders: async () => [mockPDPProvider],
   }
 
-  /**
-   * Mock provider getter - returns a mock provider with destroy method
-   */
-  getProvider(): any {
-    return {
-      destroy: async () => {
-        // Mock provider cleanup
+  // Storage namespace matches SDK structure
+  public readonly storage = {
+    createContext: this.createStorageContext.bind(this),
+    upload: async (data: any, options: any) => {
+      if (this._storageContext == null) {
+        this._storageContext = new MockStorageContext()
+      }
+      return this._storageContext.upload(data, options)
+    },
+    getStorageInfo: async () => ({
+      pricing: {
+        noCDN: {
+          perTiBPerEpoch: 1000000000000000n,
+          perTiBPerMonth: 86400000000000000000n,
+        },
       },
-    }
+    }),
   }
 
   /**
-   * Mock signer getter
+   * Create a storage context
    */
-  getSigner(): any {
-    return {
-      getAddress: async () => '0x1234567890123456789012345678901234567890',
-    }
-  }
-
-  /**
-   * Mock client getter (returns owner wallet)
-   */
-  getClient(): any {
-    return {
-      getAddress: async () => '0x1234567890123456789012345678901234567890',
-    }
-  }
-
-  /**
-   * Mock session key creation
-   */
-  createSessionKey(_sessionWallet: any): any {
-    const now = Math.floor(Date.now() / 1000)
-    const oneYear = 365 * 24 * 60 * 60 // One year from now
-
-    return {
-      /**
-       * Fetch expiries for various permission types
-       * Returns a map of typehash -> expiry timestamp
-       *
-       * By default, mock both CREATE_DATA_SET and ADD_PIECES with valid future expiries
-       * Tests can override this to simulate different scenarios:
-       * - CREATE_DATA_SET = 0: No permission to create datasets
-       * - CREATE_DATA_SET < now + 30min: Expired/expiring soon
-       */
-      fetchExpiries: async (typehashes: string[]) => {
-        const expiries: Record<string, bigint> = {}
-        for (const typehash of typehashes) {
-          // By default, all permissions valid for one year
-          expiries[typehash] = BigInt(now + oneYear)
-        }
-        return expiries
-      },
-    }
-  }
-
-  /**
-   * Mock session key setter
-   */
-  setSession(_sessionKey: any): void {
-    // No-op in mock
-  }
-
-  /**
-   * Create a storage context with lifecycle callbacks
-   *
-   * Real process:
-   * 1. Query on-chain registry for active providers
-   * 2. Select best provider based on criteria
-   * 3. Check for existing data set or create new one
-   * 4. Initialize upload session
-   */
-  async createStorageContext(options?: any): Promise<any> {
-    // Simulate provider discovery and selection
-    if (options?.callbacks?.onProviderSelected != null) {
-      options.callbacks.onProviderSelected(mockProviderInfo)
-    }
-
-    // Simulate data set creation or reuse
-    if (options?.callbacks?.onDataSetResolved != null) {
-      options.callbacks.onDataSetResolved({
-        dataSetId: 123,
-        isExisting: false, // false = new data set created
-      })
-    }
-
+  async createStorageContext(_options?: any): Promise<MockStorageContext> {
     this._storageContext = new MockStorageContext()
     return this._storageContext
   }

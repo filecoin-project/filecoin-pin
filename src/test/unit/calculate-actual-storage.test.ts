@@ -21,8 +21,6 @@ const {
     pieces: [] as Array<{ pieceId: number; pieceCid: string; size?: number }>,
   }
 
-  const mockGetAddress = vi.fn(async () => '0xtest-address')
-
   const defaultGetDataSetPieces = async (_synapse: any, _context: any, _options?: any) => {
     if (_options?.signal?.aborted) {
       const error = new Error('This operation was aborted')
@@ -48,7 +46,7 @@ const {
 
   const mockGetDataSetPieces = vi.fn(defaultGetDataSetPieces)
 
-  const defaultCreateStorageContext = async (_synapse: any, dataSetId: number) => ({
+  const defaultCreateStorageContext = async ({ dataSetId }: any) => ({
     storage: { dataSetId },
     providerInfo: { id: 1 },
   })
@@ -56,7 +54,14 @@ const {
   const mockCreateStorageContext = vi.fn(defaultCreateStorageContext)
 
   const mockSynapse = {
-    getClient: () => ({ getAddress: mockGetAddress }),
+    client: {
+      account: {
+        address: '0xtest-address' as const,
+      },
+    },
+    storage: {
+      createContext: mockCreateStorageContext,
+    },
   }
 
   return {
@@ -68,11 +73,6 @@ const {
     state,
   }
 })
-
-// Mock the imports
-vi.mock('../../core/synapse/storage-context-helper.js', () => ({
-  createStorageContextFromDataSetId: mockCreateStorageContext,
-}))
 
 vi.mock('../../core/data-set/get-data-set-pieces.js', () => ({
   getDataSetPieces: mockGetDataSetPieces,
@@ -96,13 +96,13 @@ describe('calculateActualStorage', () => {
           providerId: 1,
           serviceProvider: '0xprovider1',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
         {
           dataSetId: 2,
           providerId: 1,
           serviceProvider: '0xprovider1',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
       ]
 
       const oneGiB = 1024n * 1024n * 1024n
@@ -139,7 +139,7 @@ describe('calculateActualStorage', () => {
           providerId: 1,
           serviceProvider: '0xprovider1',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
       ]
 
       state.pieces = []
@@ -161,7 +161,7 @@ describe('calculateActualStorage', () => {
           providerId: 1,
           serviceProvider: '0xprovider1',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
       ]
 
       // Create already-aborted signal
@@ -184,13 +184,13 @@ describe('calculateActualStorage', () => {
           providerId: 1,
           serviceProvider: '0xprovider1',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
         {
           dataSetId: 2,
           providerId: 2,
           serviceProvider: '0xprovider2',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
       ]
 
       const controller = new AbortController()
@@ -234,13 +234,13 @@ describe('calculateActualStorage', () => {
           providerId: 1,
           serviceProvider: '0xprovider1',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
         {
           dataSetId: 2,
           providerId: 2,
           serviceProvider: '0xprovider2',
           isLive: true,
-        } as DataSetSummary,
+        } as unknown as DataSetSummary,
       ]
 
       let callCount = 0

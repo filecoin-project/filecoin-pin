@@ -26,6 +26,7 @@ function makeStatus(params: {
 
   return {
     network: 'calibration',
+    chainId: 314159,
     address: '0x0000000000000000000000000000000000000000',
     filBalance: params.filBalance ?? 1_000_000_000_000_000_000n,
     walletUsdfcBalance: params.wallet ?? 0n,

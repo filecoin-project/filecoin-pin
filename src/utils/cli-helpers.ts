@@ -18,6 +18,7 @@ export type Spinner = {
   start: (msg: string) => void
   message: (msg: string) => void
   stop: (msg?: string) => void
+  clear: () => void
 }
 
 /**
@@ -44,6 +45,9 @@ export function createSpinner(): Spinner {
           // Only print the final completion message
           log.message(msg)
         }
+      },
+      clear() {
+        // No-op in non-TTY
       },
     }
   }

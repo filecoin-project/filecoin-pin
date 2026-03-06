@@ -6,16 +6,8 @@ import { createConfig } from '../../config.js'
 import { FilecoinPinStore } from '../../filecoin-pin-store.js'
 import { createLogger } from '../../logger.js'
 
-// Mock Synapse service - minimal mock since unit tests don't test background processing
-const mockSynapseService = {
-  synapse: {} as any,
-  storage: {} as any,
-  providerInfo: {
-    id: 1,
-    name: 'Mock Provider',
-    serviceProvider: '0x1234567890123456789012345678901234567890',
-  } as any,
-}
+// Minimal mock since unit tests don't test background processing
+const mockSynapse = {} as any
 
 // Mock the heavy dependencies
 vi.mock('../../create-pinning-helia.js', () => ({
@@ -74,7 +66,7 @@ describe('FilecoinPinStore (Unit)', () => {
     pinStore = new FilecoinPinStore({
       config,
       logger,
-      synapseService: mockSynapseService,
+      synapse: mockSynapse,
     })
 
     await pinStore.start()
@@ -173,7 +165,7 @@ describe('FilecoinPinStore (Unit)', () => {
       const newPinStore = new FilecoinPinStore({
         config,
         logger: createLogger(config),
-        synapseService: mockSynapseService,
+        synapse: mockSynapse,
       })
 
       await expect(newPinStore.start()).resolves.not.toThrow()

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createConfig } from '../../config.js'
 import { FilecoinPinStore } from '../../filecoin-pin-store.js'
 import { createLogger } from '../../logger.js'
-import { MockSynapse, mockProviderInfo } from '../mocks/synapse-mocks.js'
+import { MockSynapse } from '../mocks/synapse-mocks.js'
 import { createTestHelia } from '../mocks/test-helia.js'
 
 // Mock the Synapse SDK - vi.mock requires async import for ES modules
@@ -37,16 +37,12 @@ describe('Simple Pin Test', () => {
     contentOriginHelia = await createTestHelia()
     await contentOriginHelia.blockstore.put(testCID, testBlock)
 
-    // Create mock Synapse service
     const mockSynapse = new MockSynapse()
-    const mockStorage = await mockSynapse.storage.createContext()
-    const synapseService = { synapse: mockSynapse as any, storage: mockStorage, providerInfo: mockProviderInfo }
 
-    // Create Filecoin pin store with mock Synapse
     pinStore = new FilecoinPinStore({
       config,
       logger,
-      synapseService,
+      synapse: mockSynapse as any,
     })
 
     await pinStore.start()

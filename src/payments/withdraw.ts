@@ -2,10 +2,10 @@
  * Withdraw command for Filecoin Pay
  */
 
-import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { parseUnits } from 'viem'
 import { checkFILBalance, getPaymentStatus, withdrawUSDFC } from '../core/payments/index.js'
-import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
@@ -21,7 +21,7 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
 
   let amount: bigint
   try {
-    amount = ethers.parseUnits(String(options.amount), 18)
+    amount = parseUnits(String(options.amount), 18)
   } catch {
     console.error(pc.red(`Error: Invalid amount '${options.amount}'`))
     throw new Error(`Invalid amount '${options.amount}'`)
@@ -74,7 +74,5 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
     console.error(pc.red('✗ Withdraw failed'))
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
     throw error
-  } finally {
-    await cleanupSynapseService()
   }
 }

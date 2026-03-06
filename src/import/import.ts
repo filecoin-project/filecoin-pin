@@ -14,14 +14,8 @@ import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
-import {
-  type CreateStorageContextOptions,
-  cleanupSynapseService,
-  createStorageContext,
-  initializeSynapse,
-  type SynapseService,
-} from '../core/synapse/index.js'
-import { parseCLIAuth, parseProviderOptions } from '../utils/cli-auth.js'
+import { initializeSynapse } from '../core/synapse/index.js'
+import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import type { ImportOptions, ImportResult } from './types.js'
@@ -156,7 +150,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
   }
 
   try {
-    // Step 1: Validate file exists and is readable
+    // Validate file exists and is readable
     spinner.start('Validating CAR file...')
 
     const fileValidation = await validateFilePath(options.filePath)
@@ -167,7 +161,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     }
     const fileStat = fileValidation.stats
 
-    // Step 2: Validate CAR format and extract roots
+    // Validate CAR format and extract roots
     let roots: CID[]
     try {
       roots = await validateCarFile(options.filePath)
@@ -177,7 +171,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       throw new Error('Invalid CAR file')
     }
 
-    // Step 3: Handle root CID cases
+    // Handle root CID cases
     const rootCidInfo = resolveRootCID(roots)
     const { cid: rootCid, cidString: rootCidString, message } = rootCidInfo
 
@@ -187,80 +181,57 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       log.flush()
     }
 
-    // Step 4: Initialize Synapse SDK (without storage context)
+    // Validate context selection options early (before expensive operations)
+    const contextSelection = parseContextSelectionOptions(options)
+
+    // Initialize Synapse SDK
     spinner.start('Initializing Synapse SDK...')
 
-    // Parse authentication options from CLI and environment
     const config = parseCLIAuth(options)
     if (dataSetMetadata) {
       config.dataSetMetadata = dataSetMetadata
     }
     if (withCDN) config.withCDN = true
 
-    // Initialize just the Synapse SDK
     const synapse = await initializeSynapse(config, logger)
-    const network = synapse.getNetwork()
+    const network = synapse.chain.name
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
     if (options.autoFund) {
-      // Step 5: Perform auto-funding if requested (now that we know the file size)
       await performAutoFunding(synapse, fileStat.size, spinner)
     } else {
-      // Step 5: Validate payment setup (may configure permissions if needed)
       spinner.start('Checking payment capacity...')
       await validatePaymentSetup(synapse, fileStat.size, spinner)
     }
 
-    // Step 6: Create storage context now that payments are validated
-    spinner.start('Creating storage context...')
-
-    // Parse provider selection from CLI options and environment variables
-    const providerOptions = parseProviderOptions(options)
-
-    const storageContextOptions: CreateStorageContextOptions = {
-      logger,
-      ...providerOptions,
-      dataset: {
-        ...(dataSetMetadata && { metadata: dataSetMetadata }),
-      },
-      callbacks: {
-        onProviderSelected: (provider) => {
-          spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)
-        },
-        onDataSetResolved: (info) => {
-          if (info.isExisting) {
-            spinner.message(`Using existing data set #${info.dataSetId}`)
-          } else {
-            spinner.message(`Created new data set #${info.dataSetId}`)
-          }
-        },
-      },
-    }
-
-    const { storage, providerInfo } = await createStorageContext(synapse, storageContextOptions)
-
-    spinner.stop(`${pc.green('✓')} Storage context ready`)
-
-    // Create service object for upload function
-    const synapseService: SynapseService = { synapse, storage, providerInfo }
-
-    // Step 7: Read CAR file and upload to Synapse
+    // Read CAR file and upload to Synapse
     spinner.start('Uploading to Filecoin...')
 
-    // Read the entire CAR file (streaming not yet supported in Synapse)
     const carData = await readFile(options.filePath)
 
-    // Upload using common upload flow
-    const uploadResult = await performUpload(synapseService, carData, rootCid, {
+    const uploadOptions: Parameters<typeof performUpload>[3] = {
       contextType: 'import',
       fileSize: fileStat.size,
       logger,
       spinner,
       ...(pieceMetadata && { pieceMetadata }),
-    })
+      ...(dataSetMetadata && { metadata: dataSetMetadata }),
+      ...(options.count != null && { count: options.count }),
+    }
+    if (contextSelection.providerIds) {
+      uploadOptions.providerIds = contextSelection.providerIds
+      uploadOptions.count = contextSelection.providerIds.length
+    }
+    if (contextSelection.dataSetIds) {
+      uploadOptions.dataSetIds = contextSelection.dataSetIds
+      uploadOptions.count = contextSelection.dataSetIds.length
+    }
 
-    // Step 6: Display results
+    const requestedCopies = uploadOptions.count ?? 2
+    const uploadResult = await performUpload(synapse, carData, rootCid, uploadOptions)
+
+    // Display results
     spinner.stop('━━━ Import Complete ━━━')
 
     const result: ImportResult = {
@@ -268,28 +239,37 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       fileSize: fileStat.size,
       rootCid: rootCidString,
       pieceCid: uploadResult.pieceCid,
-      pieceId: uploadResult.pieceId !== undefined ? uploadResult.pieceId : undefined,
-      dataSetId: uploadResult.dataSetId,
-      transactionHash: uploadResult.transactionHash !== undefined ? uploadResult.transactionHash : undefined,
-      providerInfo,
+      size: uploadResult.size,
+      copies: uploadResult.copies,
+      failures: uploadResult.failures,
     }
 
-    // Display the results
     displayUploadResults(result, 'Import', network)
 
-    // Clean up WebSocket providers to allow process termination
-    await cleanupSynapseService()
-
-    // Show success outro
-    outro('Import completed successfully')
+    if (uploadResult.copies.length < requestedCopies) {
+      log.line('')
+      log.line(
+        pc.yellow(
+          `${uploadResult.failures.length} copy failure(s). ` +
+            `Got ${uploadResult.copies.length}/${requestedCopies} copies. Data is stored but with reduced redundancy.`
+        )
+      )
+      log.flush()
+      outro('Import completed with errors')
+      process.exitCode = 1
+    } else if (uploadResult.failures.length > 0) {
+      log.line('')
+      log.line(pc.gray(`${uploadResult.failures.length} non-critical copy failure(s) during upload.`))
+      log.flush()
+      outro('Import completed successfully')
+    } else {
+      outro('Import completed successfully')
+    }
 
     return result
   } catch (error) {
     spinner.stop(`${pc.red('✗')} Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     logger.error({ event: 'import.failed', error }, 'Import failed')
-
-    // Clean up even on error
-    await cleanupSynapseService()
 
     cancel('Import failed')
     throw error

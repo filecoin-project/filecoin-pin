@@ -1,4 +1,5 @@
-import type { StorageContext, Synapse } from '@filoz/synapse-sdk'
+import type { Synapse } from '@filoz/synapse-sdk'
+import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import type { Logger } from 'pino'
 import { getErrorMessage } from '../utils/errors.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
@@ -16,14 +17,14 @@ import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
  * Note: Errors are propagated via thrown exceptions, not events (similar to upload pattern)
  */
 export type RemovePieceProgressEvents =
-  | ProgressEvent<'remove-piece:submitting', { pieceCid: string; dataSetId: number }>
-  | ProgressEvent<'remove-piece:submitted', { pieceCid: string; dataSetId: number; txHash: `0x${string}` | string }>
-  | ProgressEvent<'remove-piece:confirming', { pieceCid: string; dataSetId: number; txHash: `0x${string}` | string }>
+  | ProgressEvent<'remove-piece:submitting', { pieceCid: string; dataSetId: bigint }>
+  | ProgressEvent<'remove-piece:submitted', { pieceCid: string; dataSetId: bigint; txHash: `0x${string}` }>
+  | ProgressEvent<'remove-piece:confirming', { pieceCid: string; dataSetId: bigint; txHash: `0x${string}` }>
   | ProgressEvent<
       'remove-piece:confirmation-failed',
-      { pieceCid: string; dataSetId: number; txHash: `0x${string}` | string; message: string }
+      { pieceCid: string; dataSetId: bigint; txHash: `0x${string}`; message: string }
     >
-  | ProgressEvent<'remove-piece:complete', { txHash: `0x${string}` | string; confirmed: boolean }>
+  | ProgressEvent<'remove-piece:complete', { txHash: `0x${string}`; confirmed: boolean }>
 
 /**
  * Number of block confirmations to wait for when waitForConfirmation=true
@@ -69,11 +70,6 @@ export type RemovePieceOptions = RemovePieceOptionsBase | RemovePieceOptionsWith
  * })
  * ```
  *
- * Process:
- * 1. Submit the transaction via storageContext.deletePiece
- * 2. Optionally wait for confirmation using Synapse provider
- * 3. Emit progress events for each stage
- *
  * @param pieceCid - Piece CID to remove
  * @param storageContext - Storage context bound to a Data Set
  * @param options - Callbacks and confirmation settings (synapse required if waiting)
@@ -83,13 +79,13 @@ export async function removePiece(
   pieceCid: string,
   storageContext: StorageContext,
   options: RemovePieceOptions
-): Promise<`0x${string}` | string> {
+): Promise<`0x${string}`> {
   const { onProgress, waitForConfirmation } = options
   const dataSetId = storageContext.dataSetId
 
   if (dataSetId == null) {
     throw new Error(
-      'Storage context must be bound to a Data Set before removing pieces. Use createStorageContext with dataset.useExisting to bind to a Data Set.'
+      'Storage context must be bound to a Data Set before removing pieces. Use synapse.storage.createContext({ dataSetId }) to bind to a Data Set.'
     )
   }
   if (waitForConfirmation === true && !isWaitForConfirmationOptions(options)) {
@@ -97,7 +93,7 @@ export async function removePiece(
   }
 
   onProgress?.({ type: 'remove-piece:submitting', data: { pieceCid, dataSetId } })
-  const txHash = await storageContext.deletePiece(pieceCid)
+  const txHash = await storageContext.deletePiece({ piece: pieceCid })
   onProgress?.({ type: 'remove-piece:submitted', data: { pieceCid, dataSetId, txHash } })
 
   let isConfirmed = false
@@ -105,7 +101,11 @@ export async function removePiece(
     const { synapse } = options
     onProgress?.({ type: 'remove-piece:confirming', data: { pieceCid, dataSetId, txHash } })
     try {
-      await synapse.getProvider().waitForTransaction(txHash, WAIT_CONFIRMATIONS, WAIT_TIMEOUT_MS)
+      await synapse.client.waitForTransactionReceipt({
+        hash: txHash,
+        confirmations: WAIT_CONFIRMATIONS,
+        timeout: WAIT_TIMEOUT_MS,
+      })
       isConfirmed = true
     } catch (error: unknown) {
       // Confirmation timeout is non-fatal - transaction may still succeed

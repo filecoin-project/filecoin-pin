@@ -1,6 +1,6 @@
 import type { getDataSetPieces, getDetailedDataSet, listDataSets } from './core/data-set/index.js'
 import type { getPaymentStatus, setMaxAllowances, validatePaymentCapacity } from './core/payments/index.js'
-import type { cleanupSynapseService, setupSynapse } from './core/synapse/index.js'
+import type { initializeSynapse } from './core/synapse/index.js'
 import type { createCarFromFile, createCarFromFiles } from './core/unixfs/browser-car-builder.js'
 import type { createCarFromPath } from './core/unixfs/car-builder.js'
 import type { checkUploadReadiness, executeUpload } from './core/upload/index.js'
@@ -12,8 +12,7 @@ export interface FilecoinPinAPI {
   getPaymentStatus: typeof getPaymentStatus
   setMaxAllowances: typeof setMaxAllowances
   validatePaymentCapacity: typeof validatePaymentCapacity
-  cleanupSynapseService: typeof cleanupSynapseService
-  setupSynapse: typeof setupSynapse
+  initializeSynapse: typeof initializeSynapse
   createCarFromFile: typeof createCarFromFile
   createCarFromFiles: typeof createCarFromFiles
   createCarFromPath: typeof createCarFromPath
@@ -21,7 +20,7 @@ export interface FilecoinPinAPI {
   executeUpload: typeof executeUpload
 }
 
-export type { ProviderInfo } from '@filoz/synapse-sdk'
+export type { CopyResult, FailedCopy, PDPProvider } from '@filoz/synapse-sdk'
 export type {
   DataSetPiecesResult,
   DataSetSummary,
@@ -33,13 +32,9 @@ export type {
 export type { PaymentCapacityCheck, PaymentStatus, SetMaxAllowancesResult } from './core/payments/index.js'
 export type { ServiceApprovalStatus, StorageAllowances } from './core/payments/types.js'
 export type {
-  CreateStorageContextOptions,
-  DatasetOptions,
   PrivateKeyConfig,
   ReadOnlyConfig,
   SessionKeyConfig,
-  SignerConfig,
-  SynapseService,
   SynapseSetupConfig,
 } from './core/synapse/index.js'
 export type { Spinner } from './core/unixfs/car-builder.js'

@@ -2,13 +2,14 @@ import { Command } from 'commander'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import { runCarImport } from '../import/import.js'
 import type { ImportOptions } from '../import/types.js'
-import { addAuthOptions, addProviderOptions } from '../utils/cli-options.js'
+import { addAuthOptions, addContextSelectionOptions } from '../utils/cli-options.js'
 import { addMetadataOptions, resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 
 export const importCommand = new Command('import')
   .description('Import an existing CAR file to Filecoin via Synapse')
   .argument('<file>', 'Path to the CAR file to import')
   .option('--auto-fund', `Automatically ensure minimum ${MIN_RUNWAY_DAYS} days of runway before upload`)
+  .option('--count <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
   .action(async (file: string, options) => {
     try {
       const {
@@ -35,5 +36,5 @@ export const importCommand = new Command('import')
   })
 
 addAuthOptions(importCommand)
-addProviderOptions(importCommand)
+addContextSelectionOptions(importCommand)
 addMetadataOptions(importCommand, { includePieceMetadata: true, includeDataSetMetadata: true, includeErc8004: true })

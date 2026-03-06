@@ -6,8 +6,8 @@
  * - By duration: --days <N> (fund enough to keep current usage alive for N days)
  */
 
-import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { parseUnits } from 'viem'
 import {
   calculateStorageRunway,
   checkFILBalance,
@@ -16,7 +16,7 @@ import {
   depositUSDFC,
   getPaymentStatus,
 } from '../core/payments/index.js'
-import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
@@ -78,7 +78,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
 
     if (hasAmount) {
       try {
-        depositAmount = ethers.parseUnits(String(options.amount), 18)
+        depositAmount = parseUnits(String(options.amount), 18)
       } catch {
         throw new Error(`Invalid amount '${options.amount}'`)
       }
@@ -156,7 +156,5 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     console.error(pc.red('✗ Deposit failed'))
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
     throw error
-  } finally {
-    await cleanupSynapseService()
   }
 }

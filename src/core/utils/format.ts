@@ -1,4 +1,4 @@
-import { ethers } from 'ethers'
+import { formatEther, formatUnits } from 'viem'
 import type { StorageRunwaySummary } from '../payments/index.js'
 import { USDFC_DECIMALS } from '../payments/index.js'
 
@@ -13,7 +13,7 @@ const DAYS_PER_YEAR = 365
  * @returns Formatted string
  */
 export function formatUSDFC(amount: bigint, decimals = 4): string {
-  const formatted = ethers.formatUnits(amount, USDFC_DECIMALS)
+  const formatted = formatUnits(amount, USDFC_DECIMALS)
   const num = parseFloat(formatted)
 
   // If the number rounds to 0 with the requested decimals, show more
@@ -38,7 +38,7 @@ export function formatUSDFC(amount: bigint, decimals = 4): string {
  * @returns Formatted string
  */
 export function formatFIL(amount: bigint, isTestnet: boolean, decimals = 4): string {
-  const formatted = ethers.formatEther(amount)
+  const formatted = formatEther(amount)
   const num = parseFloat(formatted)
 
   // If the number rounds to 0 with the requested decimals, show more

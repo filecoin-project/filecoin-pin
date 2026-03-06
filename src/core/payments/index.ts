@@ -15,9 +15,9 @@
  * @module synapse/payments
  */
 
-import { SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
-import { ethers } from 'ethers'
-import { isSessionKeyMode } from '../synapse/index.js'
+import { calibration, SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
+import { formatUnits } from 'viem'
+import { getClientAddress, isSessionKeyMode } from '../synapse/index.js'
 import { assertPriceNonZero } from '../utils/validate-pricing.js'
 import {
   BUFFER_DENOMINATOR,
@@ -32,6 +32,29 @@ import {
 } from './constants.js'
 import { applyFloorPricing } from './floor-pricing.js'
 import type { PaymentStatus, ServiceApprovalStatus, StorageAllowances, StorageRunwaySummary } from './types.js'
+
+/**
+ * Map SDK service approval fields to our internal ServiceApprovalStatus type.
+ *
+ * The SDK returns `lockupUsage`/`rateUsage` while our internal type uses
+ * `lockupUsed`/`rateUsed`.
+ */
+function mapServiceApproval(sdkApprovals: {
+  rateAllowance: bigint
+  lockupAllowance: bigint
+  lockupUsage: bigint
+  maxLockupPeriod: bigint
+  rateUsage: bigint
+}): ServiceApprovalStatus {
+  return {
+    rateAllowance: sdkApprovals.rateAllowance,
+    lockupAllowance: sdkApprovals.lockupAllowance,
+    lockupUsed: sdkApprovals.lockupUsage,
+    maxLockupPeriod: sdkApprovals.maxLockupPeriod,
+    rateUsed: sdkApprovals.rateUsage,
+  }
+}
+
 import { padSizeToPDPLeaves } from './utils.js'
 
 // Re-export all constants
@@ -86,18 +109,10 @@ export async function checkFILBalance(synapse: Synapse): Promise<{
   isCalibnet: boolean
   hasSufficientGas: boolean
 }> {
-  const network = synapse.getNetwork()
-  const isCalibnet = network === 'calibration'
+  const isCalibnet = synapse.chain.id === calibration.id
 
   try {
-    const provider = synapse.getProvider()
-    const signer = synapse.getClient() // owner wallet
-    const address = await signer.getAddress()
-
-    // Get native token balance
-    const balance = await provider.getBalance(address)
-
-    // Check if balance is sufficient for gas
+    const balance = await synapse.payments.walletBalance({ token: TOKENS.FIL })
     const hasSufficientGas = balance >= MIN_FIL_FOR_GAS
 
     return {
@@ -126,7 +141,7 @@ export async function checkFILBalance(synapse: Synapse): Promise<{
  * if (walletUsdfcBalance === 0n) {
  *   console.log('No USDFC tokens found')
  * } else {
- *   const formatted = ethers.formatUnits(walletUsdfcBalance, USDFC_DECIMALS)
+ *   const formatted = formatUnits(walletUsdfcBalance, USDFC_DECIMALS)
  *   console.log(`USDFC Balance: ${formatted}`)
  * }
  * ```
@@ -137,7 +152,7 @@ export async function checkFILBalance(synapse: Synapse): Promise<{
 export async function checkUSDFCBalance(synapse: Synapse): Promise<bigint> {
   try {
     // Get wallet balance (not deposited balance)
-    const balance = await synapse.payments.walletBalance(TOKENS.USDFC)
+    const balance = await synapse.payments.walletBalance({ token: TOKENS.USDFC })
     return balance
   } catch (_error) {
     // Account doesn't exist, has no FIL for gas, or contract call failed
@@ -156,7 +171,7 @@ export async function checkUSDFCBalance(synapse: Synapse): Promise<bigint> {
  * @returns Deposited USDFC balance in its smallest unit
  */
 export async function getDepositedBalance(synapse: Synapse): Promise<bigint> {
-  const filecoinPayBalance = await synapse.payments.balance(TOKENS.USDFC)
+  const filecoinPayBalance = await synapse.payments.balance({ token: TOKENS.USDFC })
   return filecoinPayBalance
 }
 
@@ -167,30 +182,32 @@ export async function getDepositedBalance(synapse: Synapse): Promise<bigint> {
  * ```typescript
  * const status = await getPaymentStatus(synapse)
  * console.log(`Address: ${status.address}`)
- * console.log(`FIL Balance: ${ethers.formatEther(status.filBalance)}`)
- * console.log(`USDFC Balance: ${ethers.formatUnits(status.walletUsdfcBalance, 18)}`)
- * console.log(`Deposited: ${ethers.formatUnits(status.filecoinPayBalance, 18)}`)
+ * console.log(`FIL Balance: ${formatUnits(status.filBalance, 18)}`)
+ * console.log(`USDFC Balance: ${formatUnits(status.walletUsdfcBalance, 18)}`)
+ * console.log(`Deposited: ${formatUnits(status.filecoinPayBalance, 18)}`)
  * ```
  *
  * @param synapse - Initialized Synapse instance
  * @returns Complete payment status
  */
 export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus> {
-  const client = synapse.getClient() // Use owner wallet, not session key
-  const network = synapse.getNetwork()
-  const warmStorageAddress = synapse.getWarmStorageAddress()
+  const network = synapse.chain.name
+  const fwssAddress = synapse.chain.contracts.fwss.address
+  const address = getClientAddress(synapse)
 
   // Run all async operations in parallel for efficiency
-  const [address, filStatus, walletUsdfcBalance, filecoinPayBalance, currentAllowances] = await Promise.all([
-    client.getAddress(),
+  const [filStatus, walletUsdfcBalance, filecoinPayBalance, sdkApprovals] = await Promise.all([
     checkFILBalance(synapse),
     checkUSDFCBalance(synapse),
     getDepositedBalance(synapse),
-    synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC),
+    synapse.payments.serviceApproval({ service: fwssAddress }),
   ])
+
+  const currentAllowances = mapServiceApproval(sdkApprovals)
 
   return {
     network,
+    chainId: synapse.chain.id,
     address,
     filBalance: filStatus.balance,
     walletUsdfcBalance,
@@ -243,7 +260,7 @@ export function validatePaymentRequirements(
  *
  * Example usage:
  * ```typescript
- * const amountToDeposit = ethers.parseUnits('100', 18) // 100 USDFC
+ * const amountToDeposit = parseUnits('100', 18) // 100 USDFC
  * const { depositTx } = await depositUSDFC(synapse, amountToDeposit)
  * console.log(`Deposit transaction: ${depositTx}`)
  * ```
@@ -260,25 +277,25 @@ export async function depositUSDFC(
 }> {
   const needsAllowanceUpdate = (await checkAllowances(synapse)).needsUpdate
   const amountMoreThanCurrentAllowance =
-    (await synapse.payments.allowance(synapse.getPaymentsAddress(), TOKENS.USDFC)) < amount
+    (await synapse.payments.allowance({ spender: synapse.chain.contracts.filecoinPay.address })) < amount
 
-  let tx: ethers.TransactionResponse
+  let txHash: `0x${string}`
 
   if (amountMoreThanCurrentAllowance || needsAllowanceUpdate) {
-    tx = await synapse.payments.depositWithPermitAndApproveOperator(
+    txHash = await synapse.payments.depositWithPermitAndApproveOperator({
       amount,
-      synapse.getWarmStorageAddress(),
-      MAX_RATE_ALLOWANCE,
-      MAX_LOCKUP_ALLOWANCE,
-      BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
-    )
+      operator: synapse.chain.contracts.fwss.address,
+      rateAllowance: MAX_RATE_ALLOWANCE,
+      lockupAllowance: MAX_LOCKUP_ALLOWANCE,
+      maxLockupPeriod: BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY,
+    })
   } else {
-    tx = await synapse.payments.deposit(amount, TOKENS.USDFC)
+    txHash = await synapse.payments.deposit({ amount })
   }
 
-  await tx.wait()
+  await synapse.client.waitForTransactionReceipt({ hash: txHash })
 
-  return { depositTx: tx.hash }
+  return { depositTx: txHash }
 }
 
 /**
@@ -286,7 +303,7 @@ export async function depositUSDFC(
  *
  * Example usage:
  * ```typescript
- * const amountToWithdraw = ethers.parseUnits('10', 18) // 10 USDFC
+ * const amountToWithdraw = parseUnits('10', 18) // 10 USDFC
  * const txHash = await withdrawUSDFC(synapse, amountToWithdraw)
  * console.log(`Withdraw transaction: ${txHash}`)
  * ```
@@ -296,9 +313,9 @@ export async function depositUSDFC(
  * @returns Transaction hash for the withdrawal
  */
 export async function withdrawUSDFC(synapse: Synapse, amount: bigint): Promise<string> {
-  const tx = await synapse.payments.withdraw(amount, TOKENS.USDFC)
-  await tx.wait()
-  return tx.hash
+  const txHash = await synapse.payments.withdraw({ amount })
+  await synapse.client.waitForTransactionReceipt({ hash: txHash })
+  return txHash
 }
 
 /**
@@ -313,8 +330,8 @@ export async function withdrawUSDFC(synapse: Synapse, amount: bigint): Promise<s
  * Example usage:
  * ```typescript
  * // Allow up to 10 USDFC per epoch rate, 1000 USDFC total lockup
- * const rate = ethers.parseUnits('10', 18)
- * const lockup = ethers.parseUnits('1000', 18)
+ * const rate = parseUnits('10', 18)
+ * const lockup = parseUnits('1000', 18)
  * const txHash = await setServiceApprovals(synapse, rate, lockup)
  * console.log(`Approval transaction: ${txHash}`)
  * ```
@@ -329,22 +346,21 @@ export async function setServiceApprovals(
   rateAllowance: bigint,
   lockupAllowance: bigint
 ): Promise<string> {
-  const warmStorageAddress = synapse.getWarmStorageAddress()
+  const fwssAddress = synapse.chain.contracts.fwss.address
 
   // Max lockup period is always 30 days worth of epochs for WarmStorage
   const maxLockupPeriod = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
 
   // Set the service approval
-  const tx = await synapse.payments.approveService(
-    warmStorageAddress,
+  const txHash = await synapse.payments.approveService({
+    service: fwssAddress,
     rateAllowance,
     lockupAllowance,
     maxLockupPeriod,
-    TOKENS.USDFC
-  )
+  })
 
-  await tx.wait()
-  return tx.hash
+  await synapse.client.waitForTransactionReceipt({ hash: txHash })
+  return txHash
 }
 
 /**
@@ -360,10 +376,11 @@ export async function checkAllowances(synapse: Synapse): Promise<{
   needsUpdate: boolean
   currentAllowances: ServiceApprovalStatus
 }> {
-  const warmStorageAddress = synapse.getWarmStorageAddress()
+  const fwssAddress = synapse.chain.contracts.fwss.address
 
-  // Get current allowances
-  const currentAllowances = await synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC)
+  // Get current allowances from SDK and map to our internal type
+  const sdkApprovals = await synapse.payments.serviceApproval({ service: fwssAddress })
+  const currentAllowances = mapServiceApproval(sdkApprovals)
 
   // Check if we need to update (not at max or max lockup period is not enough)
   const needsUpdate =
@@ -397,17 +414,18 @@ export interface SetMaxAllowancesResult {
  * @returns Transaction hash and updated allowances
  */
 export async function setMaxAllowances(synapse: Synapse): Promise<SetMaxAllowancesResult> {
-  const warmStorageAddress = synapse.getWarmStorageAddress()
+  const fwssAddress = synapse.chain.contracts.fwss.address
 
   // Set to maximum allowances
   const txHash = await setServiceApprovals(synapse, MAX_RATE_ALLOWANCE, MAX_LOCKUP_ALLOWANCE)
 
   // Return updated allowances
-  const updatedAllowances = await synapse.payments.serviceApproval(warmStorageAddress, TOKENS.USDFC)
+  const sdkApprovals = await synapse.payments.serviceApproval({ service: fwssAddress })
+  const currentAllowances = mapServiceApproval(sdkApprovals)
 
   return {
     transactionHash: txHash,
-    currentAllowances: updatedAllowances,
+    currentAllowances,
   }
 }
 
@@ -481,7 +499,7 @@ export async function checkAndSetAllowances(synapse: Synapse): Promise<{
  *
  * // Calculate allowances for 10 TiB/month
  * const allowances = calculateStorageAllowances(10, pricing)
- * console.log(`Rate needed: ${ethers.formatUnits(allowances.rateAllowance, 18)} USDFC/epoch`)
+ * console.log(`Rate needed: ${formatUnits(allowances.rateAllowance, 18)} USDFC/epoch`)
  * ```
  *
  * @param storageTiB - Desired storage capacity in TiB/month
@@ -527,8 +545,8 @@ export function calculateActualCapacity(rateAllowance: bigint, pricePerTiBPerEpo
   }
 
   // fallback for very small values that underflow to 0 after integer division
-  const rateFloat = Number(ethers.formatUnits(rateAllowance, USDFC_DECIMALS))
-  const priceFloat = Number(ethers.formatUnits(pricePerTiBPerEpoch, USDFC_DECIMALS))
+  const rateFloat = Number(formatUnits(rateAllowance, USDFC_DECIMALS))
+  const priceFloat = Number(formatUnits(pricePerTiBPerEpoch, USDFC_DECIMALS))
   if (!Number.isFinite(rateFloat) || !Number.isFinite(priceFloat) || priceFloat === 0) {
     return 0
   }
@@ -1000,14 +1018,14 @@ export async function validatePaymentCapacity(synapse: Synapse, pieceSizeBytes: 
   if (uploadRequirements.insufficientDeposit > 0n) {
     result.canUpload = false
     result.issues.insufficientDeposit = uploadRequirements.insufficientDeposit
-    const depositNeeded = ethers.formatUnits(uploadRequirements.insufficientDeposit, 18)
+    const depositNeeded = formatUnits(uploadRequirements.insufficientDeposit, 18)
     result.suggestions.push(`Deposit at least ${depositNeeded} USDFC`)
   }
 
   // Add warning if approaching deposit limit
   const totalLockupAfter = status.currentAllowances.lockupUsed + uploadRequirements.required.lockupAllowance
   if (totalLockupAfter > withoutBuffer(status.filecoinPayBalance) && result.canUpload) {
-    const additionalDeposit = ethers.formatUnits(withBuffer(totalLockupAfter) - status.filecoinPayBalance, 18)
+    const additionalDeposit = formatUnits(withBuffer(totalLockupAfter) - status.filecoinPayBalance, 18)
     result.suggestions.push(`Consider depositing ${additionalDeposit} more USDFC for safety margin`)
   }
 

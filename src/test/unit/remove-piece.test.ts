@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { removePiece } from '../../core/piece/index.js'
 
-const { mockDeletePiece, mockWaitForTransaction, mockSynapse, storageContext, state } = vi.hoisted(() => {
+const { mockDeletePiece, mockWaitForTransactionReceipt, mockSynapse, storageContext, state } = vi.hoisted(() => {
   const state = {
-    txHash: '0xtest-hash',
-    dataSetId: 99,
+    txHash: '0xtest-hash' as `0x${string}`,
+    dataSetId: 99n,
   }
 
   const mockDeletePiece = vi.fn(async () => state.txHash)
@@ -13,21 +13,21 @@ const { mockDeletePiece, mockWaitForTransaction, mockSynapse, storageContext, st
     deletePiece: mockDeletePiece,
   }
 
-  const mockWaitForTransaction = vi.fn(async () => undefined)
+  const mockWaitForTransactionReceipt = vi.fn(async () => undefined)
   const mockSynapse = {
-    getProvider: () => ({
-      waitForTransaction: mockWaitForTransaction,
-    }),
+    client: {
+      waitForTransactionReceipt: mockWaitForTransactionReceipt,
+    },
   }
 
-  return { mockDeletePiece, mockWaitForTransaction, mockSynapse, storageContext, state }
+  return { mockDeletePiece, mockWaitForTransactionReceipt, mockSynapse, storageContext, state }
 })
 
 describe('removePiece', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     state.txHash = '0xtest-hash'
-    state.dataSetId = 99
+    state.dataSetId = 99n
     storageContext.dataSetId = state.dataSetId
   })
 
@@ -35,8 +35,8 @@ describe('removePiece', () => {
     const result = await removePiece('bafkzcibpiece', storageContext as any, {})
 
     expect(result).toBe(state.txHash)
-    expect(mockDeletePiece).toHaveBeenCalledWith('bafkzcibpiece')
-    expect(mockWaitForTransaction).not.toHaveBeenCalled()
+    expect(mockDeletePiece).toHaveBeenCalledWith({ piece: 'bafkzcibpiece' })
+    expect(mockWaitForTransactionReceipt).not.toHaveBeenCalled()
   })
 
   it('throws when storage context is not bound to a data set', async () => {
@@ -49,7 +49,7 @@ describe('removePiece', () => {
 
   it('emits progress events and waits for confirmation when requested', async () => {
     const onProgress = vi.fn()
-    mockWaitForTransaction.mockResolvedValueOnce(undefined)
+    mockWaitForTransactionReceipt.mockResolvedValueOnce(undefined)
 
     const result = await removePiece('bafkzcibpiece', storageContext as any, {
       synapse: mockSynapse as any,
@@ -58,18 +58,22 @@ describe('removePiece', () => {
     })
 
     expect(result).toBe(state.txHash)
-    expect(mockWaitForTransaction).toHaveBeenCalledWith(state.txHash, 1, 120000)
+    expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith({
+      hash: state.txHash,
+      confirmations: 1,
+      timeout: 120000,
+    })
     expect(onProgress).toHaveBeenNthCalledWith(1, {
       type: 'remove-piece:submitting',
-      data: { pieceCid: 'bafkzcibpiece', dataSetId: 99 },
+      data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n },
     })
     expect(onProgress).toHaveBeenNthCalledWith(2, {
       type: 'remove-piece:submitted',
-      data: { pieceCid: 'bafkzcibpiece', dataSetId: 99, txHash: state.txHash },
+      data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n, txHash: state.txHash },
     })
     expect(onProgress).toHaveBeenNthCalledWith(3, {
       type: 'remove-piece:confirming',
-      data: { pieceCid: 'bafkzcibpiece', dataSetId: 99, txHash: state.txHash },
+      data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n, txHash: state.txHash },
     })
     expect(onProgress).toHaveBeenNthCalledWith(4, {
       type: 'remove-piece:complete',
@@ -79,7 +83,7 @@ describe('removePiece', () => {
 
   it('emits confirmation-failed and still completes when confirmation times out', async () => {
     const onProgress = vi.fn()
-    mockWaitForTransaction.mockRejectedValueOnce(new Error('timeout'))
+    mockWaitForTransactionReceipt.mockRejectedValueOnce(new Error('timeout'))
 
     const result = await removePiece('bafkzcibpiece', storageContext as any, {
       synapse: mockSynapse as any,
@@ -88,10 +92,14 @@ describe('removePiece', () => {
     })
 
     expect(result).toBe(state.txHash)
-    expect(mockWaitForTransaction).toHaveBeenCalledWith(state.txHash, 1, 120000)
+    expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith({
+      hash: state.txHash,
+      confirmations: 1,
+      timeout: 120000,
+    })
     expect(onProgress).toHaveBeenCalledWith({
       type: 'remove-piece:confirmation-failed',
-      data: { pieceCid: 'bafkzcibpiece', dataSetId: 99, txHash: state.txHash, message: 'timeout' },
+      data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n, txHash: state.txHash, message: 'timeout' },
     })
     expect(onProgress).toHaveBeenLastCalledWith({
       type: 'remove-piece:complete',
@@ -105,14 +113,14 @@ describe('removePiece', () => {
     const result = await removePiece('bafkzcibpiece', storageContext as any, { onProgress })
 
     expect(result).toBe(state.txHash)
-    expect(mockWaitForTransaction).not.toHaveBeenCalled()
+    expect(mockWaitForTransactionReceipt).not.toHaveBeenCalled()
     expect(onProgress).toHaveBeenNthCalledWith(1, {
       type: 'remove-piece:submitting',
-      data: { pieceCid: 'bafkzcibpiece', dataSetId: 99 },
+      data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n },
     })
     expect(onProgress).toHaveBeenNthCalledWith(2, {
       type: 'remove-piece:submitted',
-      data: { pieceCid: 'bafkzcibpiece', dataSetId: 99, txHash: state.txHash },
+      data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n, txHash: state.txHash },
     })
     expect(onProgress).toHaveBeenNthCalledWith(3, {
       type: 'remove-piece:complete',
