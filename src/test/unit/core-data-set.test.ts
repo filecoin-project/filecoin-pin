@@ -11,8 +11,7 @@ import { getDataSetPieces, listDataSets } from '../../core/data-set/index.js'
 const {
   mockSynapse,
   mockStorageContext,
-  mockWarmStorageInstance,
-  mockWarmStorageConstructor,
+  mockGetAllPieceMetadata,
   mockFindDataSets,
   mockGetProviders,
   mockGetPieces,
@@ -55,13 +54,9 @@ const {
     return { id: 123n, nextChallengeEpoch: 100, pieces }
   })
 
-  const mockWarmStorageInstance = {
-    getPieceMetadata: vi.fn(async ({ pieceId }: any) => {
-      return state.pieceMetadata[Number(pieceId)] ?? {}
-    }),
-  }
-
-  const mockWarmStorageConstructor = vi.fn((_options: any) => mockWarmStorageInstance)
+  const mockGetAllPieceMetadata = vi.fn(async (_client: any, { pieceId }: any) => {
+    return state.pieceMetadata[Number(pieceId)] ?? {}
+  })
 
   const mockStorageContext = {
     dataSetId: 123n,
@@ -83,8 +78,7 @@ const {
   return {
     mockSynapse,
     mockStorageContext,
-    mockWarmStorageInstance,
-    mockWarmStorageConstructor,
+    mockGetAllPieceMetadata,
     mockFindDataSets,
     mockGetProviders,
     mockGetPieces,
@@ -101,13 +95,8 @@ vi.mock('@filoz/synapse-sdk', async () => {
   }
 })
 
-vi.mock('@filoz/synapse-sdk/warm-storage', () => ({
-  WarmStorageService: class {
-    constructor(options: any) {
-      mockWarmStorageConstructor(options)
-      Object.assign(this, mockWarmStorageInstance)
-    }
-  },
+vi.mock('@filoz/synapse-core/warm-storage', () => ({
+  getAllPieceMetadata: mockGetAllPieceMetadata,
 }))
 
 vi.mock('@filoz/synapse-core/sp', () => ({
@@ -395,7 +384,7 @@ describe('getDataSetPieces', () => {
         label: 'test-file-0.txt',
       },
     })
-    expect(mockWarmStorageConstructor).toHaveBeenCalledWith({ client: mockSynapse.client })
+    expect(mockGetAllPieceMetadata).toHaveBeenCalledWith(mockSynapse.client, { dataSetId: 123n, pieceId: 0n })
   })
 
   it('handles metadata fetch failures gracefully with warnings', async () => {
@@ -409,7 +398,7 @@ describe('getDataSetPieces', () => {
       },
     }
     // Simulate failure for piece 1
-    mockWarmStorageInstance.getPieceMetadata.mockImplementation(async ({ pieceId }: any) => {
+    mockGetAllPieceMetadata.mockImplementation(async (_client: any, { pieceId }: any) => {
       const metadata = state.pieceMetadata[Number(pieceId)]
       if (metadata == null) {
         throw new Error('Metadata not found')
@@ -433,26 +422,6 @@ describe('getDataSetPieces', () => {
         dataSetId: '123',
         error: expect.any(String),
       },
-    })
-  })
-
-  it('adds warning when WarmStorage initialization fails', async () => {
-    state.pieces = [{ pieceId: 0n, pieceCid: { toString: () => 'bafkpiece0' } }]
-    mockWarmStorageConstructor.mockImplementationOnce(() => {
-      throw new Error('WarmStorage unavailable')
-    })
-
-    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any, {
-      includeMetadata: true,
-    })
-
-    expect(result.pieces).toHaveLength(1)
-    expect(result.pieces[0]?.metadata).toBeUndefined()
-    expect(result.warnings).toHaveLength(1)
-    expect(result.warnings).toContainEqual({
-      code: 'WARM_STORAGE_INIT_FAILED',
-      message: 'Failed to initialize WarmStorageService for metadata enrichment',
-      context: { error: 'Error: WarmStorage unavailable' },
     })
   })
 
