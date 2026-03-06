@@ -176,12 +176,17 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
     )
 
     // Display results
-    log.spinnerSection('Results', [
+    const resultLines = [
       pc.gray(`Total Pieces: ${result.totalPieces}`),
       pc.gray(`Removed: ${result.removedCount}`),
       pc.gray(`Failed: ${result.failedCount}`),
       pc.gray(`Network: ${network}`),
-    ])
+    ]
+    const failures = result.transactions.filter((t) => !t.success)
+    for (const f of failures) {
+      resultLines.push(pc.red(`  ${f.pieceCid}: ${f.error ?? 'unknown error'}`))
+    }
+    log.spinnerSection('Results', resultLines)
 
     if (result.failedCount > 0) {
       outro(`Remove completed with ${result.failedCount} failure(s)`)

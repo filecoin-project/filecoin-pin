@@ -5,6 +5,8 @@ export interface ImportOptions extends CLIAuthOptions {
   filePath: string
   /** Auto-fund: automatically ensure minimum 30 days of runway */
   autoFund?: boolean
+  /** Number of storage copies to create */
+  count?: number
   /** Piece metadata attached to the imported CAR */
   pieceMetadata?: Record<string, string>
   /** Data set metadata applied when creating or updating the storage context */

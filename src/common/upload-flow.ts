@@ -463,7 +463,7 @@ export function displayUploadResults(
   if (result.size != null) {
     log.indent(`Piece Size: ${formatFileSize(result.size)}`)
   }
-  log.indent(`Explorer: ${pc.gray(`https://pdp.vxb.ai/${network}/piece/${result.pieceCid}`)}`)
+  log.indent(`Explorer: ${pc.gray(`https://pdp.vxb.ai/${encodeURIComponent(network)}/piece/${result.pieceCid}`)}`)
   log.line('')
 
   if (result.copies.length > 0) {

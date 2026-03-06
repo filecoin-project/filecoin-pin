@@ -171,6 +171,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       spinner,
       ...(pieceMetadata && { pieceMetadata }),
       ...(dataSetMetadata && { metadata: dataSetMetadata }),
+      ...(options.count != null && { count: options.count }),
     }
     if (contextSelection.providerIds) {
       uploadOptions.providerIds = contextSelection.providerIds
