@@ -12,6 +12,8 @@ export interface AddOptions extends CLIAuthOptions {
   pieceMetadata?: Record<string, string>
   /** Data set metadata applied when creating or updating the storage context */
   dataSetMetadata?: Record<string, string>
+  /** Skip IPNI advertisement verification after upload */
+  skipIpni?: boolean
 }
 
 export interface AddResult {

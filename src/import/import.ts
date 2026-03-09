@@ -12,6 +12,7 @@ import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
+import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
@@ -210,11 +211,15 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     const carData = await readFile(options.filePath)
 
+    // Auto-skip IPNI on devnet (no IPNI infrastructure available)
+    const skipIpni = options.skipIpni || synapse.chain.id === DEVNET_CHAIN_ID
+
     const uploadOptions: Parameters<typeof performUpload>[3] = {
       contextType: 'import',
       fileSize: fileStat.size,
       logger,
       spinner,
+      skipIpni,
       ...(pieceMetadata && { pieceMetadata }),
       ...(dataSetMetadata && { metadata: dataSetMetadata }),
       ...(options.count != null && { count: options.count }),

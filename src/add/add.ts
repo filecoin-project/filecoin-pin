@@ -9,6 +9,7 @@ import { readFile, stat } from 'node:fs/promises'
 import pc from 'picocolors'
 import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
+import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
@@ -164,11 +165,15 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       await validatePaymentSetup(synapse, carSize, spinner)
     }
 
+    // Auto-skip IPNI on devnet (no IPNI infrastructure available)
+    const skipIpni = options.skipIpni || synapse.chain.id === DEVNET_CHAIN_ID
+
     const uploadOptions: Parameters<typeof performUpload>[3] = {
       contextType: 'add',
       fileSize: carSize,
       logger,
       spinner,
+      skipIpni,
       ...(pieceMetadata && { pieceMetadata }),
       ...(dataSetMetadata && { metadata: dataSetMetadata }),
       ...(options.count != null && { count: options.count }),

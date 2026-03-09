@@ -82,11 +82,27 @@ export function addContextSelectionOptions(command: Command): Command {
 export function addNetworkOptions(command: Command): Command {
   command
     .addOption(
-      new Option('--network <network>', 'Filecoin network to use')
-        .choices(['mainnet', 'calibration'])
+      new Option(
+        '--network <network>',
+        'Filecoin network to use. "devnet" reads config from foc-devnet ' +
+          '(env: FOC_DEVNET_BASEDIR or DEVNET_INFO_PATH, DEVNET_USER_INDEX)'
+      )
+        .choices(['mainnet', 'calibration', 'devnet'])
         .env('NETWORK')
         .default('calibration')
     )
     .addOption(new Option('--mainnet', 'Use mainnet (shorthand for --network mainnet)').implies({ network: 'mainnet' }))
   return command
+}
+
+/**
+ * Add upload-specific options (skip-ipni) to a command.
+ * Used by `add` and `import` commands.
+ */
+export function addUploadOptions(command: Command): Command {
+  return command.addOption(
+    new Option('--skip-ipni', 'Skip IPNI advertisement verification after upload (automatic for devnet)').env(
+      'SKIP_IPNI'
+    )
+  )
 }

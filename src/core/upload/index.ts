@@ -1,6 +1,8 @@
 import type { Chain, PDPProvider, Synapse } from '@filoz/synapse-sdk'
+import { calibration, mainnet } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
+import { DEVNET_CHAIN_ID } from '../../common/get-rpc-url.js'
 import {
   checkAllowances,
   checkFILBalance,
@@ -28,11 +30,11 @@ export { getDownloadURL, getServiceURL, uploadToSynapse } from './synapse.js'
  */
 export function getNetworkSlug(chain: Chain): string {
   switch (chain.id) {
-    case 314:
+    case mainnet.id:
       return 'mainnet'
-    case 314159:
+    case calibration.id:
       return 'calibration'
-    case 31415926:
+    case DEVNET_CHAIN_ID:
       return 'devnet'
     default:
       return chain.name
