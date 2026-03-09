@@ -5,8 +5,8 @@
  * and preparing them for use with the Synapse SDK.
  */
 
-import type { Synapse } from '@filoz/synapse-sdk'
-import { getRpcUrl } from '../common/get-rpc-url.js'
+import type { Chain, Synapse } from '@filoz/synapse-sdk'
+import { getRpcUrl, NETWORK_CHAINS } from '../common/get-rpc-url.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { createLogger } from '../logger.js'
@@ -52,6 +52,8 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   const sessionKey = options.sessionKey || process.env.SESSION_KEY
   const viewAddress = options.viewAddress || process.env.VIEW_ADDRESS
   const rpcUrl = getRpcUrl(options)
+  const network = options.network?.toLowerCase().trim() as keyof typeof NETWORK_CHAINS | undefined
+  const chain: Chain | undefined = network ? NETWORK_CHAINS[network] : undefined
 
   // Build config incrementally; initializeSynapse() validates the final shape
   const config: {
@@ -60,6 +62,7 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
     sessionKey?: string
     readOnly?: boolean
     rpcUrl?: string
+    chain?: Chain
   } = {}
 
   if (privateKey) config.privateKey = privateKey
@@ -71,6 +74,7 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   }
   if (sessionKey) config.sessionKey = sessionKey
   if (rpcUrl) config.rpcUrl = rpcUrl
+  if (chain) config.chain = chain
   return config as SynapseSetupConfig
 }
 

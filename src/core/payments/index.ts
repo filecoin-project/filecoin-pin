@@ -222,6 +222,18 @@ export interface PaymentValidationResult {
   helpMessage?: string
 }
 
+export function getUsdfcAcquisitionHelpMessage(isCalibnet: boolean): string {
+  if (isCalibnet) {
+    return 'Get test USDFC from: https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet'
+  }
+
+  return [
+    'Bridge USDFC to Filecoin mainnet: https://app.usdfc.net/#/bridge',
+    'Or swap FIL -> USDFC on Sushi: https://www.sushi.com/filecoin/swap?token0=NATIVE&token1=0x80b98d3aa09ffff255c3ba4a241111ff1262f045',
+    'Minting guide: https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step',
+  ].join('\n  ')
+}
+
 export function validatePaymentRequirements(
   hasSufficientGas: boolean,
   walletUsdfcBalance: bigint,
@@ -242,9 +254,7 @@ export function validatePaymentRequirements(
     return {
       isValid: false,
       errorMessage: 'No USDFC tokens found',
-      helpMessage: isCalibnet
-        ? 'Get test USDFC from: https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet'
-        : 'Mint USDFC with FIL: https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step',
+      helpMessage: getUsdfcAcquisitionHelpMessage(isCalibnet),
     }
   }
 

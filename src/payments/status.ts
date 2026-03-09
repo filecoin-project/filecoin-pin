@@ -19,6 +19,7 @@ import {
   FLOOR_PRICE_DAYS,
   FLOOR_PRICE_PER_30_DAYS,
   getPaymentStatus,
+  getUsdfcAcquisitionHelpMessage,
 } from '../core/payments/index.js'
 import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatFIL, formatUSDFC } from '../core/utils/format.js'
@@ -119,9 +120,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       log.line('')
       log.line(`${pc.red('✗')} No USDFC tokens found`)
       log.line('')
-      const helpMessage = filStatus.isCalibnet
-        ? 'Get test USDFC from: https://docs.secured.finance/usdfc-stablecoin/getting-started/getting-test-usdfc-on-testnet'
-        : 'Mint USDFC with FIL: https://docs.secured.finance/usdfc-stablecoin/getting-started/minting-usdfc-step-by-step'
+      const helpMessage = getUsdfcAcquisitionHelpMessage(filStatus.isCalibnet)
       log.line(`  ${pc.cyan(helpMessage)}`)
       log.flush()
 

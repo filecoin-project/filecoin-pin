@@ -3,7 +3,7 @@ import type { CLIAuthOptions } from '../utils/cli-auth.js'
 
 const NETWORK_CHAINS = {
   mainnet,
-  calibration: calibration,
+  calibration,
 } as const
 
 /**
@@ -42,3 +42,5 @@ export function getRpcUrl(options: CLIAuthOptions): string {
   }
   return defaultUrl
 }
+
+export { NETWORK_CHAINS }
