@@ -8,19 +8,12 @@
 
 import { getSizeFromPieceCID } from '@filoz/synapse-core/piece'
 import { getDataSet as getProviderDataSet } from '@filoz/synapse-core/sp'
+import { getAllPieceMetadata } from '@filoz/synapse-core/warm-storage'
 import { type DataSetPieceData, METADATA_KEYS, type Synapse } from '@filoz/synapse-sdk'
 import type { StorageContext } from '@filoz/synapse-sdk/storage'
-import { WarmStorageService } from '@filoz/synapse-sdk/warm-storage'
 import { reconcilePieceStatus } from '../piece/piece-status.js'
 import type { Warning } from '../utils/types.js'
-import { isStorageContextWithDataSetId } from './type-guards.js'
-import {
-  type DataSetPiecesResult,
-  type GetDataSetPiecesOptions,
-  type PieceInfo,
-  PieceStatus,
-  type StorageContextWithDataSetId,
-} from './types.js'
+import { type DataSetPiecesResult, type GetDataSetPiecesOptions, type PieceInfo, PieceStatus } from './types.js'
 
 /**
  * Get all pieces for a dataset from a StorageContext
@@ -41,9 +34,10 @@ export async function getDataSetPieces(
   const logger = options?.logger
   const includeMetadata = options?.includeMetadata ?? false
 
-  if (!isStorageContextWithDataSetId(storageContext)) {
+  if (storageContext.dataSetId == null) {
     throw new Error('Storage context does not have a dataset ID')
   }
+  const dataSetId = storageContext.dataSetId
 
   const pieces: PieceInfo[] = []
   const warnings: Warning[] = []
@@ -56,7 +50,7 @@ export async function getDataSetPieces(
     storageContext.getScheduledRemovals(),
     getProviderDataSet({
       serviceURL: storageContext.provider.pdp?.serviceURL ?? '',
-      dataSetId: storageContext.dataSetId,
+      dataSetId,
     }),
   ])
 
@@ -67,7 +61,7 @@ export async function getDataSetPieces(
     warnings.push({
       code: 'SCHEDULED_REMOVALS_UNAVAILABLE',
       message: 'Failed to get scheduled removals',
-      context: { dataSetId: storageContext.dataSetId.toString(), error: String(scheduledRemovalsResult.reason) },
+      context: { dataSetId: dataSetId.toString(), error: String(scheduledRemovalsResult.reason) },
     })
   }
 
@@ -78,7 +72,7 @@ export async function getDataSetPieces(
     warnings.push({
       code: 'PROVIDER_PIECES_UNAVAILABLE',
       message: 'Failed to fetch provider-side pieces',
-      context: { dataSetId: storageContext.dataSetId.toString(), error: String(providerPiecesResult.reason) },
+      context: { dataSetId: dataSetId.toString(), error: String(providerPiecesResult.reason) },
     })
   }
 
@@ -143,13 +137,13 @@ export async function getDataSetPieces(
     if (error instanceof Error && error.name === 'AbortError') {
       throw error
     }
-    logger?.error({ dataSetId: storageContext.dataSetId.toString(), error }, 'Failed to retrieve pieces from dataset')
-    throw new Error(`Failed to retrieve pieces for dataset ${storageContext.dataSetId}: ${String(error)}`)
+    logger?.error({ dataSetId: dataSetId.toString(), error }, 'Failed to retrieve pieces from dataset')
+    throw new Error(`Failed to retrieve pieces for dataset ${dataSetId}: ${String(error)}`)
   }
 
   // Optionally enrich with metadata
   if (includeMetadata && pieces.length > 0) {
-    await enrichPiecesWithMetadata(synapse, storageContext, pieces, warnings, logger)
+    await enrichPiecesWithMetadata(synapse, dataSetId, pieces, warnings, logger)
   }
 
   // Calculate total size from pieces that have sizes
@@ -157,7 +151,7 @@ export async function getDataSetPieces(
 
   const result: DataSetPiecesResult = {
     pieces,
-    dataSetId: storageContext.dataSetId,
+    dataSetId: dataSetId,
     warnings,
   }
 
@@ -169,33 +163,18 @@ export async function getDataSetPieces(
 }
 
 /**
- * Internal helper: Enrich pieces with metadata from WarmStorage
+ * Internal helper: Enrich pieces with metadata from WarmStorage via synapse-core
  */
 async function enrichPiecesWithMetadata(
   synapse: Synapse,
-  storageContext: StorageContextWithDataSetId,
+  dataSetId: bigint,
   pieces: PieceInfo[],
   warnings: Warning[],
   logger?: GetDataSetPiecesOptions['logger']
 ): Promise<void> {
-  const dataSetId = storageContext.dataSetId
-
-  let warmStorage: WarmStorageService
-  try {
-    warmStorage = new WarmStorageService({ client: synapse.client })
-  } catch (error) {
-    logger?.warn({ error }, 'Failed to create WarmStorageService for metadata enrichment')
-    warnings.push({
-      code: 'WARM_STORAGE_INIT_FAILED',
-      message: 'Failed to initialize WarmStorageService for metadata enrichment',
-      context: { error: String(error) },
-    })
-    return
-  }
-
   for (const piece of pieces) {
     try {
-      const metadata = await warmStorage.getPieceMetadata({ dataSetId, pieceId: piece.pieceId })
+      const metadata = await getAllPieceMetadata(synapse.client, { dataSetId, pieceId: piece.pieceId })
 
       const rootIpfsCid = metadata[METADATA_KEYS.IPFS_ROOT_CID]
       if (rootIpfsCid) {

@@ -9,8 +9,7 @@ const {
   cancelMock,
   mockFindDataSets,
   mockGetProvider,
-  mockWarmStorageConstructor,
-  mockWarmStorageInstance,
+  mockGetAllPieceMetadata,
   mockTerminateDataSet,
   mockWaitForTransactionReceipt,
   mockSynapseCreate,
@@ -26,16 +25,12 @@ const {
   }
   const mockFindDataSets = vi.fn()
   const mockGetProvider = vi.fn()
-  const mockWarmStorageConstructor = vi.fn()
+  const mockGetAllPieceMetadata = vi.fn(async () => ({ ...state.pieceMetadata }))
   const mockTerminateDataSet = vi.fn()
   const mockWaitForTransactionReceipt = vi.fn()
   const state = {
     pieceMetadata: {} as Record<string, string>,
     pieceList: [] as Array<{ pieceId: bigint; pieceCid: string }>,
-  }
-
-  const mockWarmStorageInstance = {
-    getPieceMetadata: vi.fn(async () => ({ ...state.pieceMetadata })),
   }
 
   const mockCreateContext = vi.fn(async () => ({
@@ -101,8 +96,7 @@ const {
     spinnerMock,
     mockFindDataSets,
     mockGetProvider,
-    mockWarmStorageConstructor,
-    mockWarmStorageInstance,
+    mockGetAllPieceMetadata,
     mockTerminateDataSet,
     mockWaitForTransactionReceipt,
     mockSynapseCreate,
@@ -150,13 +144,8 @@ vi.mock('@filoz/synapse-sdk', async () => {
   }
 })
 
-vi.mock('@filoz/synapse-sdk/warm-storage', () => ({
-  WarmStorageService: class {
-    constructor(options: any) {
-      mockWarmStorageConstructor(options)
-      Object.assign(this, mockWarmStorageInstance)
-    }
-  },
+vi.mock('@filoz/synapse-core/warm-storage', () => ({
+  getAllPieceMetadata: mockGetAllPieceMetadata,
 }))
 
 vi.mock('@filoz/synapse-core/sp', () => ({
@@ -224,7 +213,7 @@ describe('runDataSetCommand', () => {
     state.pieceList = []
     mockFindDataSets.mockResolvedValue([summaryDataSet])
     mockGetProvider.mockResolvedValue(provider)
-    mockWarmStorageInstance.getPieceMetadata.mockResolvedValue({})
+    mockGetAllPieceMetadata.mockResolvedValue({})
   })
 
   afterEach(() => {
@@ -279,7 +268,7 @@ describe('runDataSetCommand', () => {
       custom: 'value',
     }
     state.pieceMetadata = pieceMetadata
-    mockWarmStorageInstance.getPieceMetadata.mockResolvedValue(pieceMetadata)
+    mockGetAllPieceMetadata.mockResolvedValue(pieceMetadata)
 
     await runDataSetDetailsCommand(158, {
       privateKey: 'test-key',
@@ -361,7 +350,7 @@ describe('runTerminateDataSetCommand', () => {
     state.pieceList = []
     mockFindDataSets.mockResolvedValue([terminatableDataSet])
     mockGetProvider.mockResolvedValue(provider)
-    mockWarmStorageInstance.getPieceMetadata.mockResolvedValue({})
+    mockGetAllPieceMetadata.mockResolvedValue({})
     mockTerminateDataSet.mockResolvedValue('0xtxhash123')
     mockWaitForTransactionReceipt.mockResolvedValue({ status: 'success' })
   })

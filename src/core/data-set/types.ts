@@ -9,7 +9,6 @@
  */
 
 import type { EnhancedDataSetInfo, PDPProvider } from '@filoz/synapse-sdk'
-import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import type { Logger } from 'pino'
 import type { Hex } from 'viem'
 import type { Warning } from '../utils/types.js'
@@ -128,5 +127,3 @@ export interface GetDataSetPiecesOptions {
   /** Logger instance for debugging (optional) */
   logger?: Logger | undefined
 }
-
-export type StorageContextWithDataSetId = StorageContext & { dataSetId: bigint }
