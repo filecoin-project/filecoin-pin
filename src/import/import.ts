@@ -16,6 +16,7 @@ import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
+import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -195,6 +196,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     if (withCDN) config.withCDN = true
 
     const synapse = await initializeSynapse(config, logger)
+    const networkSlug = getNetworkSlug(synapse.chain)
     const network = synapse.chain.name
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
@@ -249,7 +251,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       failures: uploadResult.failures,
     }
 
-    displayUploadResults(result, 'Import', network)
+    displayUploadResults(result, 'Import', network, networkSlug)
 
     if (uploadResult.copies.length < requestedCopies) {
       log.line('')

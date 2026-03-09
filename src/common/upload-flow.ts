@@ -455,9 +455,10 @@ export function displayUploadResults(
     failures: FailedCopy[]
   },
   operation: string,
-  network: string
+  networkDisplay: string,
+  networkSlug: string
 ): void {
-  log.line(`Network: ${pc.bold(network)}`)
+  log.line(`Network: ${pc.bold(networkDisplay)}`)
   log.line('')
 
   log.line(pc.bold(`${operation} Details`))
@@ -471,8 +472,8 @@ export function displayUploadResults(
   if (result.size != null) {
     log.indent(`Piece Size: ${formatFileSize(result.size)}`)
   }
-  if (network !== 'devnet') {
-    log.indent(`Explorer: ${pc.gray(`https://pdp.vxb.ai/${encodeURIComponent(network)}/piece/${result.pieceCid}`)}`)
+  if (networkSlug !== 'devnet') {
+    log.indent(`Explorer: ${pc.gray(`https://pdp.vxb.ai/${encodeURIComponent(networkSlug)}/piece/${result.pieceCid}`)}`)
   }
   log.line('')
 
