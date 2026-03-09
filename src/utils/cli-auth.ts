@@ -6,7 +6,7 @@
  */
 
 import type { Chain, Synapse } from '@filoz/synapse-sdk'
-import { getConfiguredChain, getRpcUrl } from '../common/get-rpc-url.js'
+import { getRpcUrl, NETWORK_CHAINS } from '../common/get-rpc-url.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { createLogger } from '../logger.js'
@@ -26,8 +26,6 @@ export interface CLIAuthOptions {
   viewAddress?: string | undefined
   /** Filecoin network: mainnet or calibration */
   network?: string | undefined
-  /** Commander shorthand for --network mainnet */
-  mainnet?: boolean | undefined
   /** RPC endpoint URL (overrides network if specified) */
   rpcUrl?: string | undefined
   /** Optional provider ID overrides (comma-separated) */
@@ -54,7 +52,8 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   const sessionKey = options.sessionKey || process.env.SESSION_KEY
   const viewAddress = options.viewAddress || process.env.VIEW_ADDRESS
   const rpcUrl = getRpcUrl(options)
-  const chain = getConfiguredChain(options)
+  const network = options.network?.toLowerCase().trim() as keyof typeof NETWORK_CHAINS | undefined
+  const chain: Chain | undefined = network ? NETWORK_CHAINS[network] : undefined
 
   // Build config incrementally; initializeSynapse() validates the final shape
   const config: {

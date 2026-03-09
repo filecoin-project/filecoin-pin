@@ -30,10 +30,6 @@ describe('getRpcUrl', () => {
     expect(getRpcUrl({ network } satisfies CLIAuthOptions)).toBe(expected)
   })
 
-  it('uses --mainnet shorthand when provided', () => {
-    expect(getRpcUrl({ mainnet: true })).toBe(mainnetWsUrl)
-  })
-
   it('normalizes network casing and whitespace', () => {
     expect(
       getRpcUrl({

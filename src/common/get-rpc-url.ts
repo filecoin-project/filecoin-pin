@@ -1,31 +1,10 @@
-import { type Chain, calibration, mainnet } from '@filoz/synapse-sdk'
+import { calibration, mainnet } from '@filoz/synapse-sdk'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 
 const NETWORK_CHAINS = {
   mainnet,
   calibration,
 } as const
-
-type ConfiguredNetwork = keyof typeof NETWORK_CHAINS
-
-function getConfiguredNetwork(options: CLIAuthOptions): ConfiguredNetwork | undefined {
-  const network = (options.mainnet === true ? 'mainnet' : options.network)?.toLowerCase().trim()
-  if (!network) {
-    return undefined
-  }
-  if (network !== 'mainnet' && network !== 'calibration') {
-    throw new Error(`Invalid network: "${network}". Must be "mainnet" or "calibration"`)
-  }
-  return network
-}
-
-export function getConfiguredChain(options: CLIAuthOptions): Chain | undefined {
-  const network = getConfiguredNetwork(options)
-  if (!network) {
-    return undefined
-  }
-  return NETWORK_CHAINS[network]
-}
 
 /**
  * Get the RPC URL from the CLI options.
@@ -43,9 +22,14 @@ export function getRpcUrl(options: CLIAuthOptions): string {
     return options.rpcUrl
   }
 
-  const network = getConfiguredNetwork(options)
+  // Try to use network flag
+  const network = options.network?.toLowerCase().trim()
   if (network) {
-    const wsUrl = NETWORK_CHAINS[network].rpcUrls.default.webSocket?.[0]
+    if (network !== 'mainnet' && network !== 'calibration') {
+      throw new Error(`Invalid network: "${network}". Must be "mainnet" or "calibration"`)
+    }
+    const chain = NETWORK_CHAINS[network]
+    const wsUrl = chain.rpcUrls.default.webSocket?.[0]
     if (!wsUrl) {
       throw new Error(`WebSocket RPC URL not available for network: "${network}"`)
     }
@@ -58,3 +42,5 @@ export function getRpcUrl(options: CLIAuthOptions): string {
   }
   return defaultUrl
 }
+
+export { NETWORK_CHAINS }
