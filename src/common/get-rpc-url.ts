@@ -5,13 +5,12 @@ import { toChain, validateDevnetInfo } from '@filoz/synapse-core/devnet'
 import type { Chain } from '@filoz/synapse-sdk'
 import { calibration, mainnet } from '@filoz/synapse-sdk'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
+import { DEVNET_CHAIN_ID } from './constants.js'
 
 const NETWORK_CHAINS = {
   mainnet,
   calibration,
 } as const
-
-const DEVNET_CHAIN_ID = 31415926
 function getDefaultDevnetInfoPath(): string {
   const baseDir = process.env.FOC_DEVNET_BASEDIR?.trim() || join(homedir(), '.foc-devnet')
   return join(baseDir, 'state', 'latest', 'devnet-info.json')

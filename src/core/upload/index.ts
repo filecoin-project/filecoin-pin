@@ -2,7 +2,7 @@ import type { Chain, PDPProvider, Synapse } from '@filoz/synapse-sdk'
 import { calibration, mainnet } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import { DEVNET_CHAIN_ID } from '../../common/get-rpc-url.js'
+import { DEVNET_CHAIN_ID } from '../../common/constants.js'
 import {
   checkAllowances,
   checkFILBalance,
