@@ -165,7 +165,7 @@ The Pinning Server requires the use of environment variables, as detailed below.
 
 ### Network Selection
 
-Filecoin Pin supports both **Mainnet** and **Calibration testnet**. By default, the CLI uses Calibration testnet during development.
+Filecoin Pin supports **Mainnet**, **Calibration testnet**, and local **devnet** networks. By default, the CLI uses Calibration testnet.
 
 **Using the CLI:**
 ```bash
@@ -177,6 +177,9 @@ filecoin-pin add myfile.txt --network mainnet
 
 # Explicitly specify Calibration
 filecoin-pin add myfile.txt --network calibration
+
+# Use a local foc-devnet (reads config from devnet-info.json, details below)
+filecoin-pin add myfile.txt --network devnet
 ```
 
 **Using environment variables:**
@@ -196,13 +199,30 @@ filecoin-pin add myfile.txt
 3. `--network` flag or `NETWORK` environment variable
 4. Default to Calibration testnet
 
+### Local Development with foc-devnet
+
+When using `--network devnet`, Filecoin Pin reads connection details from a running [foc-devnet](https://github.com/filecoin-project/foc-devnet) instance:
+
+- **Private key**: Automatically resolved from `devnet-info.json` (no `PRIVATE_KEY` needed)
+- **RPC URL**: Read from the devnet chain configuration
+- **Contract addresses**: Resolved from the devnet chain definition
+- **IPNI verification**: Automatically skipped (no IPNI infrastructure on devnet)
+
+**Environment variables for devnet:**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `FOC_DEVNET_BASEDIR` | Override the foc-devnet base directory | `~/.foc-devnet` |
+| `DEVNET_INFO_PATH` | Explicit path to `devnet-info.json` (overrides basedir) | `<basedir>/state/latest/devnet-info.json` |
+| `DEVNET_USER_INDEX` | Which user from `devnet-info.json` to use | `0` |
+
 ### Common CLI Arguments
 
 * `-h`, `--help`: Display help information for each command
 * `-V`, `--version`: Output the version number
 * `-v`, `--verbose`: Verbose output
 * `--private-key`: Ethereum-style (`0x`) private key, funded with USDFC (required)
-* `--network`: Filecoin network to use: `mainnet` or `calibration` (default: `calibration`)
+* `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `calibration`)
 * `--rpc-url`: Filecoin RPC endpoint (overrides `--network` if specified)
 
 Other arguments are possible for individual commands, use `--help` to find out more.
@@ -214,10 +234,10 @@ Other arguments are possible for individual commands, use `--help` to find out m
 PRIVATE_KEY=0x...              # Ethereum private key with USDFC tokens
 
 # Optional - Network Configuration
-NETWORK=mainnet                # Network to use: mainnet or calibration (default: calibration)
+NETWORK=mainnet                # Network to use: mainnet, calibration, or devnet (default: calibration)
 RPC_URL=wss://...              # Filecoin RPC endpoint (overrides NETWORK if specified)
-                                # Mainnet: wss://wss.node.glif.io/apigw/lotus/rpc/v1
-                                # Calibration: wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1
+                               # Mainnet: wss://wss.node.glif.io/apigw/lotus/rpc/v1
+                               # Calibration: wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1
 
 # Optional for Pinning Server Daemon
 PORT=3456                      # Daemon server port

@@ -2,7 +2,7 @@ import { Command } from 'commander'
 import { runAdd } from '../add/add.js'
 import type { AddOptions } from '../add/types.js'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
-import { addAuthOptions, addContextSelectionOptions } from '../utils/cli-options.js'
+import { addAuthOptions, addContextSelectionOptions, addUploadOptions } from '../utils/cli-options.js'
 import { addMetadataOptions, resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 
 export const addCommand = new Command('add')
@@ -39,4 +39,5 @@ addCommand.action(async (path: string, options: any) => {
 
 addAuthOptions(addCommand)
 addContextSelectionOptions(addCommand)
+addUploadOptions(addCommand)
 addMetadataOptions(addCommand, { includePieceMetadata: true, includeDataSetMetadata: true, includeErc8004: true })

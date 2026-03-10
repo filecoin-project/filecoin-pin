@@ -59,6 +59,9 @@ export interface UploadFlowOptions {
 
   /** Data set metadata applied when creating or matching contexts. */
   metadata?: Record<string, string>
+
+  /** Skip IPNI advertisement verification after upload */
+  skipIpniVerification?: boolean
 }
 
 export interface UploadFlowResult extends SynapseUploadResult {
@@ -315,6 +318,7 @@ export async function performUpload(
     ...(options.dataSetIds != null && { dataSetIds: options.dataSetIds }),
     ...(options.excludeProviderIds != null && { excludeProviderIds: options.excludeProviderIds }),
     ...(options.metadata != null && { metadata: options.metadata }),
+    ...(options.skipIpniVerification && { ipniValidation: { enabled: false } }),
     onProgress(event) {
       switch (event.type) {
         case 'onStored': {
@@ -357,8 +361,12 @@ export async function performUpload(
           // Show per-SP transaction URL as indented line under the "added" message
           const afterLines: string[] = []
           if (event.data.txHash) {
-            const filfoxBase = network === 'mainnet' ? 'https://filfox.info' : `https://${network}.filfox.info`
-            afterLines.push(pc.gray(`Tx: ${filfoxBase}/en/message/${event.data.txHash}`))
+            if (network === 'devnet') {
+              afterLines.push(pc.gray(`Tx: ${event.data.txHash}`))
+            } else {
+              const filfoxBase = network === 'mainnet' ? 'https://filfox.info' : `https://${network}.filfox.info`
+              afterLines.push(pc.gray(`Tx: ${filfoxBase}/en/message/${event.data.txHash}`))
+            }
           }
           flow.completeOperation(commitId, `${roleLabel(role)} Piece added to Data Set (unconfirmed on-chain)`, {
             type: 'success',
@@ -447,9 +455,10 @@ export function displayUploadResults(
     failures: FailedCopy[]
   },
   operation: string,
-  network: string
+  networkDisplay: string,
+  networkSlug: string
 ): void {
-  log.line(`Network: ${pc.bold(network)}`)
+  log.line(`Network: ${pc.bold(networkDisplay)}`)
   log.line('')
 
   log.line(pc.bold(`${operation} Details`))
@@ -463,7 +472,9 @@ export function displayUploadResults(
   if (result.size != null) {
     log.indent(`Piece Size: ${formatFileSize(result.size)}`)
   }
-  log.indent(`Explorer: ${pc.gray(`https://pdp.vxb.ai/${encodeURIComponent(network)}/piece/${result.pieceCid}`)}`)
+  if (networkSlug !== 'devnet') {
+    log.indent(`Explorer: ${pc.gray(`https://pdp.vxb.ai/${encodeURIComponent(networkSlug)}/piece/${result.pieceCid}`)}`)
+  }
   log.line('')
 
   if (result.copies.length > 0) {

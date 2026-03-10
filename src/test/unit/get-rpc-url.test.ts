@@ -56,7 +56,7 @@ describe('getRpcUrl', () => {
 
   it('throws for unsupported networks', () => {
     expect(() => getRpcUrl({ network: 'invalid' })).toThrow(
-      'Invalid network: "invalid". Must be "mainnet" or "calibration"'
+      'Invalid network: "invalid". Must be "mainnet", "calibration", or "devnet"'
     )
   })
 })
