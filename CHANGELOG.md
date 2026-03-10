@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.18.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.17.0...v0.18.0) (2026-03-10)
+
+
+### Features
+
+* add `terminate` command to terminate a dataset ([#307](https://github.com/filecoin-project/filecoin-pin/issues/307)) ([50179c2](https://github.com/filecoin-project/filecoin-pin/commit/50179c2d4cb598a700ca21985033087b9c30b8fd))
+* add devnet network support and --skip-ipni-verification flag ([#354](https://github.com/filecoin-project/filecoin-pin/issues/354)) ([f4eb4fc](https://github.com/filecoin-project/filecoin-pin/commit/f4eb4fca0b303b290bcb776de50b4cb10a94e1de))
+* upgrade to synapse-sdk 0.38 and synapse-core 0.2 ([#343](https://github.com/filecoin-project/filecoin-pin/issues/343)) ([9a87038](https://github.com/filecoin-project/filecoin-pin/commit/9a870383119bc6902ff66501cca31e21afc129b3))
+
+
+### Bug Fixes
+
+* support mainnet CLI network and payment guidance ([#353](https://github.com/filecoin-project/filecoin-pin/issues/353)) ([3e4e330](https://github.com/filecoin-project/filecoin-pin/commit/3e4e330064e2383ac5b8415656bb4ce5e8ab6b8b))
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.4.4 to 2.4.5 ([#346](https://github.com/filecoin-project/filecoin-pin/issues/346)) ([43fd0ce](https://github.com/filecoin-project/filecoin-pin/commit/43fd0ce79877ad0ae0bcaca7e0b5e073fdbeb3a8))
+
 ## [0.17.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.16.0...v0.17.0) (2026-02-23)
 
 
