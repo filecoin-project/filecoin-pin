@@ -2,12 +2,17 @@
 
 ## [0.18.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.17.0...v0.18.0) (2026-03-10)
 
+This release introduces **multi-copy storage** for data durability. Uploads now automatically store 2 copies of your data across independent Filecoin storage providers. Each copy is independently proven on-chain, so a single provider failure doesn't result in data loss. The number of copies can be controlled with `--count`, and you only upload your data once regardless of copy count.
+
+Also adds Mainnet support to the CLI, a `terminate` command for dataset lifecycle management, and local devnet support for development.
+
 
 ### Features
 
+* **multi-copy storage:** uploads now create 2 independently-proven copies across different storage providers by default for data durability (synapse-sdk 0.38, synapse-core 0.2) ([#343](https://github.com/filecoin-project/filecoin-pin/issues/343)) ([9a87038](https://github.com/filecoin-project/filecoin-pin/commit/9a870383119bc6902ff66501cca31e21afc129b3))
+* **provider selection:** target specific providers with `--provider-ids` or specific data sets with `--data-set-ids`, and control copy count with `--count` ([#343](https://github.com/filecoin-project/filecoin-pin/issues/343))
 * add `terminate` command to terminate a dataset ([#307](https://github.com/filecoin-project/filecoin-pin/issues/307)) ([50179c2](https://github.com/filecoin-project/filecoin-pin/commit/50179c2d4cb598a700ca21985033087b9c30b8fd))
-* add devnet network support and --skip-ipni-verification flag ([#354](https://github.com/filecoin-project/filecoin-pin/issues/354)) ([f4eb4fc](https://github.com/filecoin-project/filecoin-pin/commit/f4eb4fca0b303b290bcb776de50b4cb10a94e1de))
-* upgrade to synapse-sdk 0.38 and synapse-core 0.2 ([#343](https://github.com/filecoin-project/filecoin-pin/issues/343)) ([9a87038](https://github.com/filecoin-project/filecoin-pin/commit/9a870383119bc6902ff66501cca31e21afc129b3))
+* add devnet network support and `--skip-ipni-verification` flag ([#354](https://github.com/filecoin-project/filecoin-pin/issues/354)) ([f4eb4fc](https://github.com/filecoin-project/filecoin-pin/commit/f4eb4fca0b303b290bcb776de50b4cb10a94e1de))
 
 
 ### Bug Fixes
