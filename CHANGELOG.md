@@ -4,7 +4,7 @@
 
 This release introduces **multi-copy storage** for data durability. Uploads now automatically store 2 copies of your data across independent Filecoin storage providers. Each copy is independently proven on-chain, so a single provider failure doesn't result in data loss. The number of copies can be controlled with `--count`, and you only upload your data once regardless of copy count.
 
-Also adds Mainnet support to the CLI, a `terminate` command for dataset lifecycle management, and local devnet support for development.
+Also fixes `--mainnet` support across the CLI, a `terminate` command for dataset lifecycle management, and local devnet support for development.
 
 
 ### Features
