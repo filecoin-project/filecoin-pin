@@ -214,14 +214,14 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     const carData = await readFile(options.filePath)
 
     // Auto-skip IPNI on devnet (no IPNI infrastructure available)
-    const skipIpni = options.skipIpni || synapse.chain.id === DEVNET_CHAIN_ID
+    const skipIpniVerification = options.skipIpniVerification || synapse.chain.id === DEVNET_CHAIN_ID
 
     const uploadOptions: Parameters<typeof performUpload>[3] = {
       contextType: 'import',
       fileSize: fileStat.size,
       logger,
       spinner,
-      skipIpni,
+      skipIpniVerification,
       ...(pieceMetadata && { pieceMetadata }),
       ...(dataSetMetadata && { metadata: dataSetMetadata }),
       ...(options.count != null && { count: options.count }),

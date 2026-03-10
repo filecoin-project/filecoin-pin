@@ -168,14 +168,14 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     }
 
     // Auto-skip IPNI on devnet (no IPNI infrastructure available)
-    const skipIpni = options.skipIpni || synapse.chain.id === DEVNET_CHAIN_ID
+    const skipIpniVerification = options.skipIpniVerification || synapse.chain.id === DEVNET_CHAIN_ID
 
     const uploadOptions: Parameters<typeof performUpload>[3] = {
       contextType: 'add',
       fileSize: carSize,
       logger,
       spinner,
-      skipIpni,
+      skipIpniVerification,
       ...(pieceMetadata && { pieceMetadata }),
       ...(dataSetMetadata && { metadata: dataSetMetadata }),
       ...(options.count != null && { count: options.count }),

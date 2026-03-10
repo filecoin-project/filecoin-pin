@@ -85,7 +85,8 @@ export function addNetworkOptions(command: Command): Command {
       new Option(
         '--network <network>',
         'Filecoin network to use. "devnet" reads config from foc-devnet ' +
-          '(env: FOC_DEVNET_BASEDIR or DEVNET_INFO_PATH, DEVNET_USER_INDEX)'
+          '(https://github.com/filecoin-project/foc-devnet, ' +
+          'env: FOC_DEVNET_BASEDIR or DEVNET_INFO_PATH, DEVNET_USER_INDEX)'
       )
         .choices(['mainnet', 'calibration', 'devnet'])
         .env('NETWORK')
@@ -96,13 +97,14 @@ export function addNetworkOptions(command: Command): Command {
 }
 
 /**
- * Add upload-specific options (skip-ipni) to a command.
+ * Add upload-specific options to a command.
  * Used by `add` and `import` commands.
  */
 export function addUploadOptions(command: Command): Command {
   return command.addOption(
-    new Option('--skip-ipni', 'Skip IPNI advertisement verification after upload (automatic for devnet)').env(
-      'SKIP_IPNI'
-    )
+    new Option(
+      '--skip-ipni-verification',
+      'Skip IPNI advertisement verification after upload (automatic for devnet)'
+    ).env('SKIP_IPNI_VERIFICATION')
   )
 }

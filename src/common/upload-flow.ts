@@ -61,7 +61,7 @@ export interface UploadFlowOptions {
   metadata?: Record<string, string>
 
   /** Skip IPNI advertisement verification after upload */
-  skipIpni?: boolean
+  skipIpniVerification?: boolean
 }
 
 export interface UploadFlowResult extends SynapseUploadResult {
@@ -318,7 +318,7 @@ export async function performUpload(
     ...(options.dataSetIds != null && { dataSetIds: options.dataSetIds }),
     ...(options.excludeProviderIds != null && { excludeProviderIds: options.excludeProviderIds }),
     ...(options.metadata != null && { metadata: options.metadata }),
-    ...(options.skipIpni && { ipniValidation: { enabled: false } }),
+    ...(options.skipIpniVerification && { ipniValidation: { enabled: false } }),
     onProgress(event) {
       switch (event.type) {
         case 'onStored': {
