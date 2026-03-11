@@ -222,7 +222,7 @@ export interface UploadExecutionOptions {
   } & Omit<WaitForIpniProviderResultsOptions, 'onProgress'>
 
   /** Number of storage copies to create (default determined by SDK). */
-  count?: number
+  copies?: number
 
   /** Specific provider IDs to use. */
   providerIds?: bigint[]
@@ -327,8 +327,8 @@ export async function executeUpload(
   if (options.signal != null) {
     uploadOptions.signal = options.signal
   }
-  if (options.count != null) {
-    uploadOptions.count = options.count
+  if (options.copies != null) {
+    uploadOptions.copies = options.copies
   }
   if (options.providerIds != null) {
     uploadOptions.providerIds = options.providerIds

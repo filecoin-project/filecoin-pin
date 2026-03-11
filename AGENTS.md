@@ -52,7 +52,7 @@ src/
 
 ## Key Patterns
 
-**Synapse SDK**: Initialize via `initializeSynapse()` in `src/core/synapse/index.ts`. Upload via `executeUpload()` in `src/core/upload/index.ts` with progress events (`onStored`, `onPullProgress`, `onCopyComplete`, `onPiecesAdded`, `onPiecesConfirmed`). Returns `{pieceCid, size, copies, failures}`.
+**Synapse SDK**: Initialize via `initializeSynapse()` in `src/core/synapse/index.ts`. Upload via `executeUpload()` in `src/core/upload/index.ts` with progress events (`onStored`, `onPullProgress`, `onCopyComplete`, `onPiecesAdded`, `onPiecesConfirmed`). Returns `{pieceCid, size, copies, failedAttempts}`. Check `complete` on the SDK's `UploadResult` to determine overall success.
 
 **CAR files**: CARv1 streaming, handle 3 root cases (single/multiple/none), use zero CID for no roots. See `src/core/car/car-blockstore.ts`.
 

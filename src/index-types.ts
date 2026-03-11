@@ -20,7 +20,7 @@ export interface FilecoinPinAPI {
   executeUpload: typeof executeUpload
 }
 
-export type { CopyResult, FailedCopy, PDPProvider } from '@filoz/synapse-sdk'
+export type { CopyResult, CopyRole, FailedAttempt, PDPProvider } from '@filoz/synapse-sdk'
 export type {
   DataSetPiecesResult,
   DataSetSummary,

@@ -88,7 +88,7 @@ export class MockStorageContext extends EventEmitter {
           isNewDataSet: false,
         },
       ],
-      failures: [],
+      failedAttempts: [],
     }
   }
 }

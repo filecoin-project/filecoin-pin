@@ -5,7 +5,7 @@
  * including payment validation, storage context creation, and result display.
  */
 
-import type { CopyResult, FailedCopy, Synapse } from '@filoz/synapse-sdk'
+import type { CopyResult, CopyRole, FailedAttempt, Synapse } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
@@ -46,7 +46,7 @@ export interface UploadFlowOptions {
   pieceMetadata?: Record<string, string>
 
   /** Number of storage copies to create. */
-  count?: number
+  copies?: number
 
   /** Specific provider IDs to use. */
   providerIds?: bigint[]
@@ -255,8 +255,6 @@ function displayPaymentIssues(capacityCheck: PaymentCapacityCheck, fileSize: num
 /**
  * Format a role label for spinner output (e.g., "[Primary]" or "[Secondary]")
  */
-type CopyRole = 'primary' | 'secondary'
-
 function roleLabel(role: CopyRole): string {
   return role === 'primary' ? pc.cyan('[Primary]') : pc.magenta('[Secondary]')
 }
@@ -268,7 +266,7 @@ function roleLabel(role: CopyRole): string {
  * @param carData - CAR file data as Uint8Array
  * @param rootCid - Root CID of the content
  * @param options - Upload flow options
- * @returns Upload result with copies and failures
+ * @returns Upload result with copies and completion status
  */
 export async function performUpload(
   synapse: Synapse,
@@ -313,7 +311,7 @@ export async function performUpload(
     logger,
     contextId: `${contextType}-${Date.now()}`,
     ...(pieceMetadata && { pieceMetadata }),
-    ...(options.count != null && { count: options.count }),
+    ...(options.copies != null && { copies: options.copies }),
     ...(options.providerIds != null && { providerIds: options.providerIds }),
     ...(options.dataSetIds != null && { dataSetIds: options.dataSetIds }),
     ...(options.excludeProviderIds != null && { excludeProviderIds: options.excludeProviderIds }),
@@ -452,7 +450,7 @@ export function displayUploadResults(
     pieceCid: string
     size?: number
     copies: CopyResult[]
-    failures: FailedCopy[]
+    failedAttempts: FailedAttempt[]
   },
   operation: string,
   networkDisplay: string,
@@ -493,12 +491,12 @@ export function displayUploadResults(
     }
   }
 
-  if (result.failures.length > 0) {
+  if (result.failedAttempts.length > 0) {
     log.line('')
     log.line(pc.bold(pc.yellow('Warnings')))
-    for (const failure of result.failures) {
-      const label = failure.role === 'primary' ? pc.cyan('[Primary]') : pc.magenta('[Secondary]')
-      log.indent(`${pc.yellow('⚠')} ${label} Provider ${failure.providerId} failed: ${failure.error}`)
+    for (const attempt of result.failedAttempts) {
+      const label = attempt.role === 'primary' ? pc.cyan('[Primary]') : pc.magenta('[Secondary]')
+      log.indent(`${pc.yellow('⚠')} ${label} Provider ${attempt.providerId} failed: ${attempt.error}`)
     }
   }
 
