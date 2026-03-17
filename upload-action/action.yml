@@ -164,7 +164,7 @@ runs:
     - name: Install filecoin-pin dependencies
       shell: bash
       working-directory: ${{ github.action_path }}
-      run: npm install --prefix ../
+      run: npm ci --prefix ../
 
     - name: Build filecoin-pin package
       shell: bash
