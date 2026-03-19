@@ -344,7 +344,7 @@ describe('waitForIpniProviderResults', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing provider records with expected URI(s): https://expected.example.com`
+        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing expected provider(s): https://expected.example.com`
       )
       await vi.runAllTimersAsync()
       await expectPromise
@@ -361,7 +361,7 @@ describe('waitForIpniProviderResults', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing provider records with expected URI(s): https://b.example.com`
+        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing expected provider(s): https://a.example.com, https://b.example.com`
       )
       await vi.runAllTimersAsync()
       await expectPromise
@@ -563,7 +563,7 @@ describe('waitForIpniProviderResults', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 2 attempts. Last observation: Failed to parse IPNI response body: Invalid JSON. Expected URIs: [https://expected.example.com]. Actual URIs in response: []`
+        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 2 attempts. Last observation: Failed to parse IPNI response body: Invalid JSON. Expected serviceURLs: [https://expected.example.com]. Actual multiaddrs in response: []`
       )
 
       await vi.runAllTimersAsync()

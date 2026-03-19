@@ -138,18 +138,21 @@ export async function waitForIpniProviderResults(
   const maxAttempts = options?.maxAttempts ?? 20
   const ipniIndexerUrl = options?.ipniIndexerUrl ?? 'https://filecoinpin.contact'
   const expectedProviders = options?.expectedProviders?.filter((provider) => provider != null) ?? []
-  const { expectedUris, skippedProviderCount } = deriveExpectedUris(expectedProviders, options?.logger)
+  const { expectedUris, expectedServiceUrls, skippedProviderCount } = deriveExpectedUris(
+    expectedProviders,
+    options?.logger
+  )
   const expectedUrisSet = new Set(expectedUris)
   const childBlocks = options?.childBlocks?.filter((cid) => cid != null) ?? []
 
   const hasProviderExpectations = expectedUris.size > 0
 
-  // Log a warning if we expected providers but couldn't derive their multiaddrs
+  // Log a warning if we expected providers but couldn't derive their URIs
   // In this case, we fall back to generic validation (just checking if there are any provider records for the CID)
   if (!hasProviderExpectations && expectedProviders.length > 0 && skippedProviderCount > 0) {
     options?.logger?.info(
       { skippedProviderExpectationCount: skippedProviderCount, expectedProviders: expectedProviders.length },
-      'No provider multiaddrs derived from expected providers; falling back to generic IPNI validation'
+      'No provider URIs derived from expected providers; falling back to generic IPNI validation'
     )
   }
 
@@ -174,6 +177,7 @@ export async function waitForIpniProviderResults(
         ipniIndexerUrl,
         expectedUris,
         expectedUrisSet,
+        expectedServiceUrls,
         hasProviderExpectations,
         cidIndex: index + 1,
         cidCount: cidsToValidate.length,
@@ -213,6 +217,7 @@ async function waitForIpniProviderResultsForCid(
     ipniIndexerUrl: string
     expectedUris: Set<string>
     expectedUrisSet: Set<string>
+    expectedServiceUrls: string[]
     hasProviderExpectations: boolean
     cidIndex: number
     cidCount: number
@@ -227,6 +232,7 @@ async function waitForIpniProviderResultsForCid(
     ipniIndexerUrl,
     expectedUris,
     expectedUrisSet,
+    expectedServiceUrls,
     hasProviderExpectations,
     cidIndex,
     cidCount,
@@ -239,8 +245,9 @@ async function waitForIpniProviderResultsForCid(
     let retryCount = 0
     // Tracks the most recent validation failure reason for error reporting
     let lastFailureReason: string | undefined
-    // Tracks the normalized URIs (derived from provider multiaddrs) found in the last IPNI response for error reporting
+    // Tracks the normalized URIs (for comparison) and raw multiaddrs (for display) from the last IPNI response
     let lastActualUris: Set<string> = new Set()
+    let lastActualMultiaddrs: Set<string> = new Set()
 
     const check = async (): Promise<void> => {
       if (options?.signal?.aborted) {
@@ -288,6 +295,7 @@ async function waitForIpniProviderResultsForCid(
       try {
         response = await fetch(`${ipniIndexerUrl}/cid/${cid}`, fetchOptions)
       } catch (fetchError) {
+        lastActualMultiaddrs = new Set()
         lastActualUris = new Set()
         lastFailureReason = `Failed to query IPNI indexer: ${getErrorMessage(fetchError)}`
         options?.logger?.warn({ error: fetchError }, `${lastFailureReason}. Retrying...`)
@@ -300,15 +308,16 @@ async function waitForIpniProviderResultsForCid(
           const body = (await response.json()) as IpniIndexerResponse
           // Extract provider results
           providerResults = (body.MultihashResults ?? []).flatMap((r) => r.ProviderResults ?? [])
-          // Extract all multiaddrs from provider results and convert to URIs.
+          // Extract raw multiaddrs for display and normalized URIs for comparison.
           // URI comparison is format-agnostic: both `/dns/host/tcp/443/https`
           // and `/dns/host/https` normalize to `https://host`.
-          lastActualUris = new Set(
-            providerResults.flatMap((pr) => pr.Provider?.Addrs ?? []).map(multiaddrToNormalizedUri)
-          )
+          const rawAddrs = providerResults.flatMap((pr) => pr.Provider?.Addrs ?? [])
+          lastActualMultiaddrs = new Set(rawAddrs)
+          lastActualUris = new Set(rawAddrs.map(multiaddrToNormalizedUri))
           lastFailureReason = undefined
         } catch (parseError) {
           // Clear actual multiaddrs on parse error
+          lastActualMultiaddrs = new Set()
           lastActualUris = new Set()
           lastFailureReason = `Failed to parse IPNI response body: ${getErrorMessage(parseError)}`
           options?.logger?.warn({ error: parseError }, `${lastFailureReason}. Retrying...`)
@@ -325,14 +334,12 @@ async function waitForIpniProviderResultsForCid(
             isValid = matchedUris.size === expectedUris.size
 
             if (!isValid) {
-              // Log validation gap
-              const missingUris = expectedUrisSet.difference(matchedUris)
-              lastFailureReason = `Missing provider records with expected URI(s): ${Array.from(missingUris).join(', ')}`
+              // Log validation gap — show serviceURLs for expected, raw multiaddrs for actual
+              lastFailureReason = `Missing expected provider(s): ${expectedServiceUrls.join(', ')}`
               options?.logger?.info(
                 {
-                  actualUris: lastActualUris,
-                  matchedUris,
-                  missingUris,
+                  expectedServiceUrls,
+                  actualMultiaddrs: Array.from(lastActualMultiaddrs),
                 },
                 `${lastFailureReason}. Retrying...`
               )
@@ -355,6 +362,7 @@ async function waitForIpniProviderResultsForCid(
           // Only set generic message if we don't already have a more specific reason (e.g., parse error)
           lastFailureReason = 'IPNI response did not include any provider results'
           // Track that we got an empty response
+          lastActualMultiaddrs = new Set()
           lastActualUris = new Set()
           options?.logger?.info(
             { providerResultsCount: providerResults?.length ?? 0 },
@@ -362,6 +370,7 @@ async function waitForIpniProviderResultsForCid(
           )
         }
       } else if (response != null) {
+        lastActualMultiaddrs = new Set()
         lastActualUris = new Set()
         lastFailureReason = `IPNI indexer request failed with status ${response.status}`
         options?.logger?.info(
@@ -389,9 +398,8 @@ async function waitForIpniProviderResultsForCid(
         if (lastFailureReason != null) {
           msg = `${msgBase}. Last observation: ${lastFailureReason}`
         }
-        // Include expected and actual URIs for debugging
         if (hasProviderExpectations) {
-          msg = `${msg}. Expected URIs: [${Array.from(expectedUris).join(', ')}]. Actual URIs in response: [${Array.from(lastActualUris).join(', ')}]`
+          msg = `${msg}. Expected serviceURLs: [${expectedServiceUrls.join(', ')}]. Actual multiaddrs in response: [${Array.from(lastActualMultiaddrs).join(', ')}]`
         }
         const error = new Error(msg)
         options?.logger?.warn({ error }, msg)
@@ -476,9 +484,11 @@ function deriveExpectedUris(
   logger: Logger | undefined
 ): {
   expectedUris: Set<string>
+  expectedServiceUrls: string[]
   skippedProviderCount: number
 } {
   const derivedUris: Set<string> = new Set()
+  const serviceUrls: string[] = []
   let skippedProviderCount = 0
 
   for (const provider of providers) {
@@ -492,10 +502,13 @@ function deriveExpectedUris(
 
     try {
       // Normalize the service URL to match multiaddrToUri output format.
-      // new URL adds a trailing slash to bare origins, but multiaddrToUri does not,
-      // so we strip it for consistent comparison. Paths are preserved.
+      // new URL adds a trailing slash to bare origins (e.g. "https://host" → "https://host/"),
+      // but multiaddrToUri does not, so we strip the trailing slash only for bare origins.
+      // Intentional path-trailing slashes (e.g. "https://host/api/v1/") are preserved.
       const url = new URL(serviceURL)
-      derivedUris.add(url.href.replace(/\/$/, ''))
+      const normalized = url.pathname === '/' && !url.search && !url.hash ? url.href.replace(/\/$/, '') : url.href
+      derivedUris.add(normalized)
+      serviceUrls.push(serviceURL)
     } catch (error) {
       skippedProviderCount++
       const reason = getErrorMessage(error)
@@ -505,6 +518,7 @@ function deriveExpectedUris(
 
   return {
     expectedUris: derivedUris,
+    expectedServiceUrls: serviceUrls,
     skippedProviderCount,
   }
 }
