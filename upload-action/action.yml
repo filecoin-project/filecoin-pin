@@ -113,24 +113,6 @@ runs:
             console.warn('Failed to create check:', error.message);
           }
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '24.x'
-
-    - name: Get package-lock.json hash
-      id: lockfile-hash
-      shell: bash
-      working-directory: ${{ github.action_path }}
-      run: |
-        if [ ! -f package-lock.json ]; then
-          echo "ERROR: package-lock.json not found in action directory"
-          echo "This file is required for npm ci to work properly"
-          exit 1
-        fi
-        HASH=$(sha256sum package-lock.json | cut -d' ' -f1 | cut -c1-8)
-        echo "hash=$HASH" >> $GITHUB_OUTPUT
-
     - name: Get action path
       id: action-path
       shell: bash
@@ -139,37 +121,36 @@ runs:
         ACTION_PATH=$(cd "$ACTION_PATH" && pwd)
         echo "path=$ACTION_PATH" >> $GITHUB_OUTPUT
 
-    - name: Restore action dependencies cache
-      uses: actions/cache/restore@v4
-      id: npm-cache
-      with:
-        path: ${{ steps.action-path.outputs.path }}/node_modules
-        key: ${{ runner.os }}-filecoin-action-deps-${{ steps.lockfile-hash.outputs.hash }}
-        restore-keys: |
-          ${{ runner.os }}-filecoin-action-deps-
-
-    - name: Install action deps
-      if: ${{ steps.npm-cache.outputs.cache-hit != 'true' }}
+    - name: Get repo root
+      id: repo-root
       shell: bash
-      working-directory: ${{ github.action_path }}
-      run: npm ci --omit=dev --no-audit --no-fund
+      run: |
+        REPO_ROOT="${{ steps.action-path.outputs.path }}/.."
+        REPO_ROOT=$(cd "$REPO_ROOT" && pwd)
+        echo "path=$REPO_ROOT" >> $GITHUB_OUTPUT
 
-    - name: Save action dependencies cache
-      if: ${{ always() && steps.npm-cache.outputs.cache-hit != 'true' }}
-      uses: actions/cache/save@v4
+    - name: Set up pnpm
+      uses: pnpm/action-setup@v4
       with:
-        path: ${{ steps.action-path.outputs.path }}/node_modules
-        key: ${{ runner.os }}-filecoin-action-deps-${{ steps.lockfile-hash.outputs.hash }}
+        version: 10.32.1
+        run_install: false
 
-    - name: Install filecoin-pin dependencies
+    - name: Set up Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '24.x'
+        cache: pnpm
+        cache-dependency-path: ${{ steps.repo-root.outputs.path }}/pnpm-lock.yaml
+
+    - name: Install workspace dependencies
       shell: bash
-      working-directory: ${{ github.action_path }}
-      run: npm ci --prefix ../
+      working-directory: ${{ steps.repo-root.outputs.path }}
+      run: pnpm install --frozen-lockfile
 
     - name: Build filecoin-pin package
       shell: bash
-      working-directory: ${{ github.action_path }}
-      run: npm run build --prefix ../
+      working-directory: ${{ steps.repo-root.outputs.path }}
+      run: pnpm run build
 
     - name: Propagate Actions runtime token
       uses: actions/github-script@v7

@@ -16,7 +16,7 @@
     "typescript": "^5.9.3"
   },
   "scripts": {
-    "lint": "npm run typecheck && biome check --no-errors-on-unmatched --files-ignore-unknown=true .",
+    "lint": "pnpm run typecheck && biome check --no-errors-on-unmatched --files-ignore-unknown=true .",
     "lint:fix": "biome check --no-errors-on-unmatched --files-ignore-unknown=true --fix .",
     "typecheck": "tsc --noEmit"
   }

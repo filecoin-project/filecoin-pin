@@ -42,9 +42,11 @@ src/
 
 ## Development
 
-**Setup**: `npm install && npm run build && npm test`
+**Prerequisite**: `pnpm` available locally (`corepack enable` once if needed)
 
-**Scripts**: `npm run build` (tsc), `npm run dev` (tsx watch), `npm test` (lint + typecheck + unit + integration), `npm run lint:fix`
+**Setup**: `pnpm install && pnpm run build && pnpm test`
+
+**Scripts**: `pnpm run build` (tsc), `pnpm run dev` (tsx watch), `pnpm test` (lint + typecheck + unit + integration), `pnpm run lint:fix`
 
 **Requirements**: Node.js 24+, TypeScript ES modules, Biome linting
 

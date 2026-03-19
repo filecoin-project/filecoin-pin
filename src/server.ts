@@ -63,7 +63,7 @@ export async function startServer(): Promise<void> {
     if (errorMessage.includes('PRIVATE_KEY')) {
       console.error('\n❌ Error: PRIVATE_KEY environment variable is required')
       console.error('   Please set your private key: export PRIVATE_KEY=0x...')
-      console.error('   Or run with: PRIVATE_KEY=0x... npm start\n')
+      console.error('   Or run with: PRIVATE_KEY=0x... pnpm start\n')
     }
 
     process.exit(1)
