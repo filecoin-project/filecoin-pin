@@ -17,6 +17,7 @@ import { fromSecp256k1 } from '@filoz/synapse-core/session-key'
 import type { Logger } from 'pino'
 import { type Account, custom, getAddress, type HttpTransport, http, type WebSocketTransport, webSocket } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
+import { DEFAULT_DATA_SET_METADATA } from './constants.js'
 
 export * from './constants.js'
 
@@ -157,7 +158,11 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
     )
   }
 
-  const synapseOptions: SynapseOptions = { account, chain }
+  const synapseOptions: SynapseOptions = {
+    account,
+    chain,
+    source: DEFAULT_DATA_SET_METADATA.source,
+  }
 
   if (transport) {
     // Synapse SDK rejects non-custom transports for json-rpc accounts (where

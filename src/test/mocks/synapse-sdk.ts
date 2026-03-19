@@ -55,5 +55,6 @@ export type SynapseOptions = any
 export type UploadCallbacks = any
 export type PDPProvider = typeof mockPDPProvider
 export type PieceCID = string
+export type FailedAttempt = any
 
 export { mockPDPProvider }

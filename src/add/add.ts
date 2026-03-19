@@ -178,19 +178,19 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       skipIpniVerification,
       ...(pieceMetadata && { pieceMetadata }),
       ...(dataSetMetadata && { metadata: dataSetMetadata }),
-      ...(options.count != null && { count: options.count }),
+      ...(options.copies != null && { copies: options.copies }),
     }
     if (contextSelection.providerIds) {
       uploadOptions.providerIds = contextSelection.providerIds
-      uploadOptions.count = contextSelection.providerIds.length
+      uploadOptions.copies = contextSelection.providerIds.length
     }
     if (contextSelection.dataSetIds) {
       uploadOptions.dataSetIds = contextSelection.dataSetIds
-      uploadOptions.count = contextSelection.dataSetIds.length
+      uploadOptions.copies = contextSelection.dataSetIds.length
     }
 
     // Upload to Synapse (SDK handles provider selection and multi-copy)
-    const requestedCopies = uploadOptions.count ?? 2
+    const requestedCopies = uploadOptions.copies ?? 2
     const uploadResult = await performUpload(synapse, carData, rootCid, uploadOptions)
 
     // Display results
@@ -204,7 +204,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       pieceCid: uploadResult.pieceCid,
       size: uploadResult.size,
       copies: uploadResult.copies,
-      failures: uploadResult.failures,
+      failedAttempts: uploadResult.failedAttempts,
     }
 
     displayUploadResults(result, 'Add', network, networkSlug)
@@ -213,16 +213,16 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       log.line('')
       log.line(
         pc.yellow(
-          `${uploadResult.failures.length} copy failure(s). ` +
+          `${uploadResult.failedAttempts.length} copy failure(s). ` +
             `Got ${uploadResult.copies.length}/${requestedCopies} copies. Data is stored but with reduced redundancy.`
         )
       )
       log.flush()
       outro('Add completed with errors')
       process.exitCode = 1
-    } else if (uploadResult.failures.length > 0) {
+    } else if (uploadResult.failedAttempts.length > 0) {
       log.line('')
-      log.line(pc.gray(`${uploadResult.failures.length} non-critical copy failure(s) during upload.`))
+      log.line(pc.gray(`${uploadResult.failedAttempts.length} non-critical copy failure(s) during upload.`))
       log.flush()
       outro('Add completed successfully')
     } else {

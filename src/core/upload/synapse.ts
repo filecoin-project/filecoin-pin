@@ -5,7 +5,7 @@
  * used by both CLI commands and the pinning server. Uses the StorageManager for
  * provider selection and multi-copy orchestration.
  */
-import type { CopyResult, FailedCopy, PieceCID, PullStatus, Synapse, UploadResult } from '@filoz/synapse-sdk'
+import type { CopyResult, FailedAttempt, PieceCID, PullStatus, Synapse, UploadResult } from '@filoz/synapse-sdk'
 import { METADATA_KEYS, type PDPProvider } from '@filoz/synapse-sdk'
 import type { StorageManagerUploadOptions } from '@filoz/synapse-sdk/storage'
 import type { CID } from 'multiformats/cid'
@@ -47,7 +47,7 @@ export interface SynapseUploadOptions {
   /**
    * Number of storage copies to create (default determined by SDK).
    */
-  count?: number
+  copies?: number
 
   /**
    * Specific provider IDs to use (mutually exclusive with dataSetIds).
@@ -74,7 +74,7 @@ export interface SynapseUploadResult {
   pieceCid: string
   size: number
   copies: CopyResult[]
-  failures: FailedCopy[]
+  failedAttempts: FailedAttempt[]
 }
 
 /**
@@ -104,7 +104,7 @@ export function getServiceURL(providerInfo: PDPProvider): string {
  * @param rootCid - The IPFS root CID to associate with this piece
  * @param logger - Logger instance for tracking
  * @param options - Upload options including context selection and callbacks
- * @returns Upload result with copies and failures
+ * @returns Upload result with copies and completion status
  */
 export async function uploadToSynapse(
   synapse: Synapse,
@@ -243,8 +243,8 @@ export async function uploadToSynapse(
   }
 
   // Pass through context selection options
-  if (options.count != null) {
-    uploadOptions.count = options.count
+  if (options.copies != null) {
+    uploadOptions.copies = options.copies
   }
   if (options.providerIds != null) {
     uploadOptions.providerIds = options.providerIds
@@ -268,7 +268,7 @@ export async function uploadToSynapse(
       pieceCid: synapseResult.pieceCid.toString(),
       size: synapseResult.size,
       copies: synapseResult.copies.length,
-      failures: synapseResult.failures.length,
+      failedAttempts: synapseResult.failedAttempts.length,
     },
     'Successfully uploaded to Filecoin with Synapse'
   )
@@ -277,6 +277,6 @@ export async function uploadToSynapse(
     pieceCid: synapseResult.pieceCid.toString(),
     size: synapseResult.size,
     copies: synapseResult.copies,
-    failures: synapseResult.failures,
+    failedAttempts: synapseResult.failedAttempts,
   }
 }

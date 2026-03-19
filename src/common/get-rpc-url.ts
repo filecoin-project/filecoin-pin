@@ -58,10 +58,13 @@ export function resolveDevnetConfig(): DevnetConfig {
   }
 
   const user = info.users[userIndex]
+  if (user == null) {
+    throw new Error(`DEVNET_USER_INDEX=${userIndex} did not resolve to a user in devnet-info.json`)
+  }
 
   cachedDevnetConfig = {
     chain: toChain(devnetInfo),
-    privateKey: user?.private_key_hex,
+    privateKey: user.private_key_hex,
   }
   return cachedDevnetConfig
 }

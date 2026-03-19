@@ -1,4 +1,4 @@
-import type { CopyResult, FailedCopy } from '@filoz/synapse-sdk'
+import type { CopyResult, FailedAttempt } from '@filoz/synapse-sdk'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 
 export interface ImportOptions extends CLIAuthOptions {
@@ -6,7 +6,7 @@ export interface ImportOptions extends CLIAuthOptions {
   /** Auto-fund: automatically ensure minimum 30 days of runway */
   autoFund?: boolean
   /** Number of storage copies to create */
-  count?: number
+  copies?: number
   /** Piece metadata attached to the imported CAR */
   pieceMetadata?: Record<string, string>
   /** Data set metadata applied when creating or updating the storage context */
@@ -22,5 +22,5 @@ export interface ImportResult {
   pieceCid: string
   size: number
   copies: CopyResult[]
-  failures: FailedCopy[]
+  failedAttempts: FailedAttempt[]
 }
