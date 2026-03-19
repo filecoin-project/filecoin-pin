@@ -239,7 +239,7 @@ async function waitForIpniProviderResultsForCid(
     let retryCount = 0
     // Tracks the most recent validation failure reason for error reporting
     let lastFailureReason: string | undefined
-    // Tracks the actual multiaddrs found in the last IPNI response for error reporting
+    // Tracks the normalized URIs (derived from provider multiaddrs) found in the last IPNI response for error reporting
     let lastActualUris: Set<string> = new Set()
 
     const check = async (): Promise<void> => {
