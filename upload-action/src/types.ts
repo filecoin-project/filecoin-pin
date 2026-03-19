@@ -2,7 +2,7 @@
  * TypeScript type definitions for the Filecoin Upload Action
  */
 
-import type { CopyResult, FailedCopy } from '@filoz/synapse-sdk'
+import type { CopyResult, FailedAttempt } from '@filoz/synapse-sdk'
 import type { PaymentStatus as FilecoinPinPaymentStatus } from 'filecoin-pin/core/payments'
 import type { initializeSynapse } from 'filecoin-pin/core/synapse'
 import type { Logger as PinoLogger } from 'pino'
@@ -26,7 +26,7 @@ export interface UploadResult {
   network: string
   ipniValidated: boolean
   copies: CopyResult[]
-  failures: FailedCopy[]
+  failedAttempts: FailedAttempt[]
 }
 
 export interface BuildResult {

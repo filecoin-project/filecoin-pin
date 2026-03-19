@@ -198,7 +198,7 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
   const primaryCopy = uploadResult.copies.find((c) => c.role === 'primary')
 
   if (primaryCopy == null) {
-    const failureCount = uploadResult.failures.length
+    const failureCount = uploadResult.failedAttempts.length
     throw new Error(
       failureCount > 0
         ? `Upload failed: all ${failureCount} copy attempt(s) failed`
@@ -218,6 +218,6 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
     network: uploadResult.network,
     ipniValidated: uploadResult.ipniValidated,
     copies: uploadResult.copies,
-    failures: uploadResult.failures,
+    failedAttempts: uploadResult.failedAttempts,
   }
 }
