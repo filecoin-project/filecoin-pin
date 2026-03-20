@@ -459,11 +459,10 @@ function deriveExpectedUris(
 
     try {
       // Normalize the service URL to match multiaddrToUri output format.
-      // new URL adds a trailing slash to bare origins (e.g. "https://host" → "https://host/"),
-      // but multiaddrToUri does not, so we strip the trailing slash only for bare origins.
-      // Intentional path-trailing slashes (e.g. "https://host/api/v1/") are preserved.
+      // multiaddrToUri never produces trailing slashes, so we strip them
+      // from the URL to ensure consistent comparison.
       const url = new URL(serviceURL)
-      const normalized = url.pathname === '/' && !url.search && !url.hash ? url.href.replace(/\/$/, '') : url.href
+      const normalized = url.href.replace(/\/+$/, '')
       uriToServiceUrl.set(normalized, serviceURL)
     } catch (error) {
       skippedProviderCount++

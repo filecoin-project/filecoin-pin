@@ -189,6 +189,18 @@ describe('waitForIpniProviderResults', () => {
       expect(result).toBe(true)
     })
 
+    it('should match when service URL has trailing slash (normalized away for comparison)', async () => {
+      const provider = createPDPProvider('https://example.com/api/v1/')
+      // multiaddrToUri strips trailing slashes, so both sides normalize to https://example.com/api/v1
+      mockFetch.mockResolvedValueOnce(successResponse(['/dns/example.com/https/http-path/api%2Fv1']))
+
+      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [provider] })
+      await vi.runAllTimersAsync()
+      const result = await promise
+
+      expect(result).toBe(true)
+    })
+
     it('should succeed when all expected providers are in the IPNI ProviderResults', async () => {
       const providerA = createPDPProvider('https://a.example.com')
       const providerB = createPDPProvider('https://b.example.com:8443')
