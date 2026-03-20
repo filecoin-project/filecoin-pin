@@ -78,6 +78,8 @@ export class MockStorageContext extends EventEmitter {
     return {
       pieceCid,
       size: 1024,
+      requestedCopies: 1,
+      complete: true,
       copies: [
         {
           providerId,
@@ -88,7 +90,7 @@ export class MockStorageContext extends EventEmitter {
           isNewDataSet: false,
         },
       ],
-      failures: [],
+      failedAttempts: [],
     }
   }
 }

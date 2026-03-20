@@ -90,10 +90,10 @@ describe('synapse-service', () => {
 
       expect(result).toHaveProperty('pieceCid')
       expect(result).toHaveProperty('copies')
-      expect(result).toHaveProperty('failures')
+      expect(result).toHaveProperty('failedAttempts')
       expect(result.pieceCid).toMatch(/^bafkzcib/)
       expect(result.copies).toHaveLength(1)
-      expect(result.failures).toHaveLength(0)
+      expect(result.failedAttempts).toHaveLength(0)
     })
 
     it('should log upload events', async () => {
@@ -197,7 +197,7 @@ describe('synapse-service', () => {
       expect(primaryCopy?.retrievalUrl).toContain('/pdp/piece/')
     })
 
-    it('should return empty failures array on success', async () => {
+    it('should return empty failedAttempts array on success', async () => {
       const mockSynapse = new MockSynapse()
       await mockSynapse.createStorageContext()
 
@@ -206,8 +206,8 @@ describe('synapse-service', () => {
         contextId: 'test-upload',
       })
 
-      expect(result.failures).toBeDefined()
-      expect(result.failures).toHaveLength(0)
+      expect(result.failedAttempts).toBeDefined()
+      expect(result.failedAttempts).toHaveLength(0)
     })
   })
 })

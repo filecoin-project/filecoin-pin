@@ -9,7 +9,7 @@ export const importCommand = new Command('import')
   .description('Import an existing CAR file to Filecoin via Synapse')
   .argument('<file>', 'Path to the CAR file to import')
   .option('--auto-fund', `Automatically ensure minimum ${MIN_RUNWAY_DAYS} days of runway before upload`)
-  .option('--count <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
+  .option('--copies <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
   .action(async (file: string, options) => {
     try {
       const {
