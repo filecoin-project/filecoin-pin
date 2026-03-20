@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.0.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.18.0...v1.0.0) (2026-03-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* compare IPNI providers as normalized URIs ([#368](https://github.com/filecoin-project/filecoin-pin/issues/368))
+* update to synapse-sdk@0.40.0 ([#369](https://github.com/filecoin-project/filecoin-pin/issues/369))
+
+### Features
+
+* update to synapse-sdk@0.40.0 ([#369](https://github.com/filecoin-project/filecoin-pin/issues/369)) ([83da89d](https://github.com/filecoin-project/filecoin-pin/commit/83da89de16c8a6dd48ec77a293b3d9d686a4d08c))
+
+
+### Bug Fixes
+
+* compare IPNI providers as normalized URIs ([#368](https://github.com/filecoin-project/filecoin-pin/issues/368)) ([7994400](https://github.com/filecoin-project/filecoin-pin/commit/7994400213c96fea0c4faede729c74b9865251c2))
+* use pnpm ([#370](https://github.com/filecoin-project/filecoin-pin/issues/370)) ([6563a33](https://github.com/filecoin-project/filecoin-pin/commit/6563a33654ad1b571be4e48b78a53e30601d6922))
+
+
+### Chores
+
+* 7day dep update cooldown, use `npm ci` for stable install in action ([#359](https://github.com/filecoin-project/filecoin-pin/issues/359)) ([56d5f69](https://github.com/filecoin-project/filecoin-pin/commit/56d5f69bc27f3a26caea57f3251972f5cb4de40b))
+* **deps:** bump undici from 6.23.0 to 6.24.1 in /upload-action ([#361](https://github.com/filecoin-project/filecoin-pin/issues/361)) ([ef7062f](https://github.com/filecoin-project/filecoin-pin/commit/ef7062fdcf539b4b533f82b7d128e1c1a148f5c7))
+* **docs:** changelog tweak ([#355](https://github.com/filecoin-project/filecoin-pin/issues/355)) ([751032f](https://github.com/filecoin-project/filecoin-pin/commit/751032f2e4939039d00e13f971297358827903e6))
+
+
+### Documentation
+
+* add a security policy ([#358](https://github.com/filecoin-project/filecoin-pin/issues/358)) ([79a8a9a](https://github.com/filecoin-project/filecoin-pin/commit/79a8a9a180c615aa245cb265037d63310bd87321))
+
 ## [0.18.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.17.0...v0.18.0) (2026-03-10)
 
 This release introduces **multi-copy storage** for data durability. Uploads now automatically store 2 copies of your data across independent Filecoin storage providers. Each copy is independently proven on-chain, so a single provider failure doesn't result in data loss. The number of copies can be controlled with `--count`, and you only upload your data once regardless of copy count.
