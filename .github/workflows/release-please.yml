@@ -25,11 +25,19 @@ jobs:
         if: ${{ steps.release.outputs.release_created }}
         uses: actions/checkout@v6
 
+      - name: Set up pnpm
+        if: ${{ steps.release.outputs.release_created }}
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
       - name: Setup Node.js
         if: ${{ steps.release.outputs.release_created }}
         uses: actions/setup-node@v6
         with:
           node-version: 'lts/*'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
           registry-url: 'https://registry.npmjs.org'
 
       # Ensure npm 11.5.1 or later is installed
@@ -39,11 +47,11 @@ jobs:
 
       - name: Install dependencies
         if: ${{ steps.release.outputs.release_created }}
-        run: npm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build
         if: ${{ steps.release.outputs.release_created }}
-        run: npm run build
+        run: pnpm run build
 
       - name: Publish to npm
         if: ${{ steps.release.outputs.release_created }}
