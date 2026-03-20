@@ -1,4 +1,6 @@
 import type { PDPProvider } from '@filoz/synapse-sdk'
+import { multiaddr } from '@multiformats/multiaddr'
+import { multiaddrToUri } from '@multiformats/multiaddr-to-uri'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { getErrorMessage } from './errors.js'
@@ -136,18 +138,18 @@ export async function waitForIpniProviderResults(
   const maxAttempts = options?.maxAttempts ?? 20
   const ipniIndexerUrl = options?.ipniIndexerUrl ?? 'https://filecoinpin.contact'
   const expectedProviders = options?.expectedProviders?.filter((provider) => provider != null) ?? []
-  const { expectedMultiaddrs, skippedProviderCount } = deriveExpectedMultiaddrs(expectedProviders, options?.logger)
-  const expectedMultiaddrsSet = new Set(expectedMultiaddrs)
+  const { uriToServiceUrl, skippedProviderCount } = deriveExpectedUris(expectedProviders, options?.logger)
+  const expectedUris = new Set(uriToServiceUrl.keys())
   const childBlocks = options?.childBlocks?.filter((cid) => cid != null) ?? []
 
-  const hasProviderExpectations = expectedMultiaddrs.size > 0
+  const hasProviderExpectations = expectedUris.size > 0
 
-  // Log a warning if we expected providers but couldn't derive their multiaddrs
+  // Log a warning if we expected providers but couldn't derive their URIs
   // In this case, we fall back to generic validation (just checking if there are any provider records for the CID)
   if (!hasProviderExpectations && expectedProviders.length > 0 && skippedProviderCount > 0) {
     options?.logger?.info(
       { skippedProviderExpectationCount: skippedProviderCount, expectedProviders: expectedProviders.length },
-      'No provider multiaddrs derived from expected providers; falling back to generic IPNI validation'
+      'No provider URIs derived from expected providers; falling back to generic IPNI validation'
     )
   }
 
@@ -170,8 +172,8 @@ export async function waitForIpniProviderResults(
         delayMs,
         maxAttempts,
         ipniIndexerUrl,
-        expectedMultiaddrs,
-        expectedMultiaddrsSet,
+        expectedUris,
+        uriToServiceUrl,
         hasProviderExpectations,
         cidIndex: index + 1,
         cidCount: cidsToValidate.length,
@@ -209,8 +211,8 @@ async function waitForIpniProviderResultsForCid(
     delayMs: number
     maxAttempts: number
     ipniIndexerUrl: string
-    expectedMultiaddrs: Set<string>
-    expectedMultiaddrsSet: Set<string>
+    expectedUris: Set<string>
+    uriToServiceUrl: Map<string, string>
     hasProviderExpectations: boolean
     cidIndex: number
     cidCount: number
@@ -223,8 +225,8 @@ async function waitForIpniProviderResultsForCid(
     delayMs,
     maxAttempts,
     ipniIndexerUrl,
-    expectedMultiaddrs,
-    expectedMultiaddrsSet,
+    expectedUris,
+    uriToServiceUrl,
     hasProviderExpectations,
     cidIndex,
     cidCount,
@@ -237,7 +239,8 @@ async function waitForIpniProviderResultsForCid(
     let retryCount = 0
     // Tracks the most recent validation failure reason for error reporting
     let lastFailureReason: string | undefined
-    // Tracks the actual multiaddrs found in the last IPNI response for error reporting
+    // Tracks the normalized URIs (for comparison) and raw multiaddrs (for display) from the last IPNI response
+    let lastActualUris: Set<string> = new Set()
     let lastActualMultiaddrs: Set<string> = new Set()
 
     const check = async (): Promise<void> => {
@@ -287,6 +290,7 @@ async function waitForIpniProviderResultsForCid(
         response = await fetch(`${ipniIndexerUrl}/cid/${cid}`, fetchOptions)
       } catch (fetchError) {
         lastActualMultiaddrs = new Set()
+        lastActualUris = new Set()
         lastFailureReason = `Failed to query IPNI indexer: ${getErrorMessage(fetchError)}`
         options?.logger?.warn({ error: fetchError }, `${lastFailureReason}. Retrying...`)
       }
@@ -298,12 +302,17 @@ async function waitForIpniProviderResultsForCid(
           const body = (await response.json()) as IpniIndexerResponse
           // Extract provider results
           providerResults = (body.MultihashResults ?? []).flatMap((r) => r.ProviderResults ?? [])
-          // Extract all multiaddrs from provider results
-          lastActualMultiaddrs = new Set(providerResults.flatMap((pr) => pr.Provider?.Addrs ?? []))
+          // Extract raw multiaddrs for display and normalized URIs for comparison.
+          // URI comparison is format-agnostic: both `/dns/host/tcp/443/https`
+          // and `/dns/host/https` normalize to `https://host`.
+          const rawAddrs = providerResults.flatMap((pr) => pr.Provider?.Addrs ?? [])
+          lastActualMultiaddrs = new Set(rawAddrs)
+          lastActualUris = new Set(rawAddrs.map(multiaddrToNormalizedUri))
           lastFailureReason = undefined
         } catch (parseError) {
           // Clear actual multiaddrs on parse error
           lastActualMultiaddrs = new Set()
+          lastActualUris = new Set()
           lastFailureReason = `Failed to parse IPNI response body: ${getErrorMessage(parseError)}`
           options?.logger?.warn({ error: parseError }, `${lastFailureReason}. Retrying...`)
         }
@@ -313,27 +322,26 @@ async function waitForIpniProviderResultsForCid(
           let isValid = false
 
           if (hasProviderExpectations) {
-            // Find matching multiaddrs
-
-            const matchedMultiaddrs = lastActualMultiaddrs.intersection(expectedMultiaddrsSet)
-            isValid = matchedMultiaddrs.size === expectedMultiaddrs.size
+            // Find matching URIs and compute which are missing
+            const matchedUris = lastActualUris.intersection(expectedUris)
+            isValid = matchedUris.size === expectedUris.size
 
             if (!isValid) {
-              // Log validation gap
-              const missingMultiaddrs = expectedMultiaddrsSet.difference(matchedMultiaddrs)
-              lastFailureReason = `Missing provider records with expected multiaddr(s): ${Array.from(missingMultiaddrs).join(', ')}`
+              // Compute only the missing serviceURLs for precise diagnostics
+              const missingUris = expectedUris.difference(matchedUris)
+              const missingServiceUrls = Array.from(missingUris).map((uri) => uriToServiceUrl.get(uri) ?? uri)
+              lastFailureReason = `Missing expected provider(s): ${missingServiceUrls.join(', ')}`
               options?.logger?.info(
                 {
-                  receivedMultiaddrs: lastActualMultiaddrs,
-                  matchedMultiaddrs,
-                  missingMultiaddrs,
+                  missingServiceUrls,
+                  actualMultiaddrs: Array.from(lastActualMultiaddrs),
                 },
                 `${lastFailureReason}. Retrying...`
               )
             }
           } else {
             // Generic validation: just need any provider with addresses
-            isValid = lastActualMultiaddrs.size > 0
+            isValid = lastActualUris.size > 0
             if (!isValid) {
               lastFailureReason = 'Expected at least one provider record'
               options?.logger?.info(`${lastFailureReason}. Retrying...`)
@@ -350,6 +358,7 @@ async function waitForIpniProviderResultsForCid(
           lastFailureReason = 'IPNI response did not include any provider results'
           // Track that we got an empty response
           lastActualMultiaddrs = new Set()
+          lastActualUris = new Set()
           options?.logger?.info(
             { providerResultsCount: providerResults?.length ?? 0 },
             `${lastFailureReason}. Retrying...`
@@ -357,6 +366,7 @@ async function waitForIpniProviderResultsForCid(
         }
       } else if (response != null) {
         lastActualMultiaddrs = new Set()
+        lastActualUris = new Set()
         lastFailureReason = `IPNI indexer request failed with status ${response.status}`
         options?.logger?.info(
           { status: response.status, statusText: response.statusText },
@@ -383,9 +393,8 @@ async function waitForIpniProviderResultsForCid(
         if (lastFailureReason != null) {
           msg = `${msgBase}. Last observation: ${lastFailureReason}`
         }
-        // Include expected and actual multiaddrs for debugging
         if (hasProviderExpectations) {
-          msg = `${msg}. Expected multiaddrs: [${Array.from(expectedMultiaddrs).join(', ')}]. Actual multiaddrs in response: [${Array.from(lastActualMultiaddrs).join(', ')}]`
+          msg = `${msg}. Expected serviceURLs: [${Array.from(uriToServiceUrl.values()).join(', ')}]. Actual multiaddrs in response: [${Array.from(lastActualMultiaddrs).join(', ')}]`
         }
         const error = new Error(msg)
         options?.logger?.warn({ error }, msg)
@@ -398,62 +407,45 @@ async function waitForIpniProviderResultsForCid(
 }
 
 /**
- * Convert a PDP service URL to an IPNI multiaddr format.
+ * Convert a multiaddr string to a normalized URI for comparison.
  *
- * Storage providers expose their PDP (Proof of Data Possession) service via HTTP/HTTPS
- * endpoints (e.g., "https://provider.example.com:8443"). When they advertise content
- * to IPNI, they include multiaddrs in libp2p format (e.g., "/dns/provider.example.com/tcp/8443/https").
+ * Different multiaddr representations of the same endpoint (e.g.
+ * `/dns/host/tcp/443/https` and `/dns/host/https`) produce the same URI
+ * (`https://host`), making comparison format-agnostic.
  *
- * This function converts between these representations to enable validation that a
- * provider's IPNI provider records matches their registered service endpoint.
+ * Uses `@multiformats/multiaddr` + `@multiformats/multiaddr-to-uri` to parse
+ * and convert. Paths (via `http-path`) are preserved.
  *
- * @param serviceURL - HTTP/HTTPS URL of the provider's PDP service
- * @param logger - Optional logger for warnings
- * @returns Multiaddr string in libp2p format, or undefined if conversion fails
- *
- * @example
- * serviceURLToMultiaddr('https://provider.example.com')
- * // Returns: '/dns/provider.example.com/tcp/443/https'
- *
- * @example
- * serviceURLToMultiaddr('http://provider.example.com:8080')
- * // Returns: '/dns/provider.example.com/tcp/8080/http'
+ * @param addr - A multiaddr string from an IPNI provider record
+ * @returns The URI form, or the original string if conversion fails
  */
-export function serviceURLToMultiaddr(serviceURL: string, logger?: Logger): string | undefined {
+function multiaddrToNormalizedUri(addr: string): string {
   try {
-    const url = new URL(serviceURL)
-    const port = url.port || (url.protocol === 'https:' ? '443' : '80')
-    const protocolComponent = url.protocol.replace(':', '')
-
-    return `/dns/${url.hostname}/tcp/${port}/${protocolComponent}`
-  } catch (error) {
-    const reason = getErrorMessage(error)
-    logger?.warn({ serviceURL, error }, `Unable to derive IPNI multiaddr from serviceURL: ${reason}`)
-    return undefined
+    return multiaddrToUri(multiaddr(addr))
+  } catch {
+    return addr
   }
 }
 
 /**
- * Derive expected IPNI multiaddrs from provider information.
+ * Derive expected URIs from provider information for IPNI validation.
  *
- * For each provider, attempts to extract their PDP serviceURL and convert it to
- * the multiaddr format used in IPNI advertisements. This allows validation that
- * specific providers have advertised the content.
- *
- * Note: PDPProvider should contain the serviceURL at `pdp.serviceURL`.
+ * For each provider, extracts their PDP serviceURL and normalizes it for
+ * comparison against URIs derived from IPNI multiaddrs. This enables
+ * format-agnostic matching regardless of multiaddr representation.
  *
  * @param providers - Array of provider info objects from synapse SDK
  * @param logger - Optional logger for diagnostics
- * @returns Expected multiaddrs and count of providers that couldn't be processed
+ * @returns Map from normalized URI to original serviceURL, and count of providers that couldn't be processed
  */
-function deriveExpectedMultiaddrs(
+function deriveExpectedUris(
   providers: PDPProvider[],
   logger: Logger | undefined
 ): {
-  expectedMultiaddrs: Set<string>
+  uriToServiceUrl: Map<string, string>
   skippedProviderCount: number
 } {
-  const derivedMultiaddrs: Set<string> = new Set()
+  const uriToServiceUrl = new Map<string, string>()
   let skippedProviderCount = 0
 
   for (const provider of providers) {
@@ -461,22 +453,26 @@ function deriveExpectedMultiaddrs(
 
     if (!serviceURL) {
       skippedProviderCount++
-      logger?.warn({ provider }, 'Expected provider is missing a PDP serviceURL; skipping IPNI multiaddr expectation')
+      logger?.warn({ provider }, 'Expected provider is missing a PDP serviceURL; skipping IPNI expectation')
       continue
     }
 
-    const derivedMultiaddr = serviceURLToMultiaddr(serviceURL, logger)
-    if (!derivedMultiaddr) {
+    try {
+      // Normalize the service URL to match multiaddrToUri output format.
+      // multiaddrToUri never produces trailing slashes, so we strip them
+      // from the URL to ensure consistent comparison.
+      const url = new URL(serviceURL)
+      const normalized = url.href.replace(/\/+$/, '')
+      uriToServiceUrl.set(normalized, serviceURL)
+    } catch (error) {
       skippedProviderCount++
-      logger?.warn({ provider, serviceURL }, 'Unable to derive IPNI multiaddr from serviceURL; skipping expectation')
-      continue
+      const reason = getErrorMessage(error)
+      logger?.warn({ provider, serviceURL, error }, `Unable to parse serviceURL: ${reason}; skipping IPNI expectation`)
     }
-
-    derivedMultiaddrs.add(derivedMultiaddr)
   }
 
   return {
-    expectedMultiaddrs: derivedMultiaddrs,
+    uriToServiceUrl,
     skippedProviderCount,
   }
 }

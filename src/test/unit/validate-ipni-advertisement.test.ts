@@ -144,6 +144,63 @@ describe('waitForIpniProviderResults', () => {
       })
     })
 
+    it('should succeed when IPNI returns short-form multiaddr without /tcp (Curio git_88428906+)', async () => {
+      const provider = createPDPProvider('https://example.com')
+      // Curio now advertises /dns/host/https instead of /dns/host/tcp/443/https
+      mockFetch.mockResolvedValueOnce(successResponse(['/dns/example.com/https']))
+
+      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [provider] })
+      await vi.runAllTimersAsync()
+      const result = await promise
+
+      expect(result).toBe(true)
+    })
+
+    it('should succeed when IPNI returns short-form http multiaddr', async () => {
+      const provider = createPDPProvider('http://example.com')
+      mockFetch.mockResolvedValueOnce(successResponse(['/dns/example.com/http']))
+
+      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [provider] })
+      await vi.runAllTimersAsync()
+      const result = await promise
+
+      expect(result).toBe(true)
+    })
+
+    it('should succeed when multiaddr includes http-path and matches service URL path', async () => {
+      const provider = createPDPProvider('https://example.com/api/v1')
+      mockFetch.mockResolvedValueOnce(successResponse(['/dns/example.com/tcp/443/https/http-path/api%2Fv1']))
+
+      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [provider] })
+      await vi.runAllTimersAsync()
+      const result = await promise
+
+      expect(result).toBe(true)
+    })
+
+    it('should succeed when short-form multiaddr includes http-path', async () => {
+      const provider = createPDPProvider('https://example.com/api/v1')
+      mockFetch.mockResolvedValueOnce(successResponse(['/dns/example.com/https/http-path/api%2Fv1']))
+
+      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [provider] })
+      await vi.runAllTimersAsync()
+      const result = await promise
+
+      expect(result).toBe(true)
+    })
+
+    it('should match when service URL has trailing slash (normalized away for comparison)', async () => {
+      const provider = createPDPProvider('https://example.com/api/v1/')
+      // multiaddrToUri strips trailing slashes, so both sides normalize to https://example.com/api/v1
+      mockFetch.mockResolvedValueOnce(successResponse(['/dns/example.com/https/http-path/api%2Fv1']))
+
+      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [provider] })
+      await vi.runAllTimersAsync()
+      const result = await promise
+
+      expect(result).toBe(true)
+    })
+
     it('should succeed when all expected providers are in the IPNI ProviderResults', async () => {
       const providerA = createPDPProvider('https://a.example.com')
       const providerB = createPDPProvider('https://b.example.com:8443')
@@ -299,7 +356,7 @@ describe('waitForIpniProviderResults', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing provider records with expected multiaddr(s): /dns/expected.example.com/tcp/443/https`
+        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing expected provider(s): https://expected.example.com`
       )
       await vi.runAllTimersAsync()
       await expectPromise
@@ -316,7 +373,7 @@ describe('waitForIpniProviderResults', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing provider records with expected multiaddr(s): /dns/b.example.com/tcp/443/https`
+        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing expected provider(s): https://b.example.com`
       )
       await vi.runAllTimersAsync()
       await expectPromise
@@ -518,7 +575,7 @@ describe('waitForIpniProviderResults', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 2 attempts. Last observation: Failed to parse IPNI response body: Invalid JSON. Expected multiaddrs: [/dns/expected.example.com/tcp/443/https]. Actual multiaddrs in response: []`
+        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 2 attempts. Last observation: Failed to parse IPNI response body: Invalid JSON. Expected serviceURLs: [https://expected.example.com]. Actual multiaddrs in response: []`
       )
 
       await vi.runAllTimersAsync()

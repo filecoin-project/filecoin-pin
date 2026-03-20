@@ -124,6 +124,7 @@
     "@libp2p/identify": "^4.0.12",
     "@libp2p/tcp": "^11.0.12",
     "@multiformats/multiaddr": "^13.0.1",
+    "@multiformats/multiaddr-to-uri": "^12.0.0",
     "@sentry/node": "^10.40.0",
     "commander": "^14.0.3",
     "datastore-core": "^11.0.2",
