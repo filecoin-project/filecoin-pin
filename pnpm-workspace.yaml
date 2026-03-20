@@ -1,0 +1,10 @@
+packages:
+  - upload-action
+
+minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  - "@filoz/*"
+onlyBuiltDependencies:
+  - esbuild
+  - node-datachannel
+  - playwright-chromium
