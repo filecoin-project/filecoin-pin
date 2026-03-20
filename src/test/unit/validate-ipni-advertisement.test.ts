@@ -361,7 +361,7 @@ describe('waitForIpniProviderResults', () => {
       })
 
       const expectPromise = expect(promise).rejects.toThrow(
-        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing expected provider(s): https://a.example.com, https://b.example.com`
+        `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt. Last observation: Missing expected provider(s): https://b.example.com`
       )
       await vi.runAllTimersAsync()
       await expectPromise

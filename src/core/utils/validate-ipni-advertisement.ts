@@ -138,11 +138,8 @@ export async function waitForIpniProviderResults(
   const maxAttempts = options?.maxAttempts ?? 20
   const ipniIndexerUrl = options?.ipniIndexerUrl ?? 'https://filecoinpin.contact'
   const expectedProviders = options?.expectedProviders?.filter((provider) => provider != null) ?? []
-  const { expectedUris, expectedServiceUrls, skippedProviderCount } = deriveExpectedUris(
-    expectedProviders,
-    options?.logger
-  )
-  const expectedUrisSet = new Set(expectedUris)
+  const { uriToServiceUrl, skippedProviderCount } = deriveExpectedUris(expectedProviders, options?.logger)
+  const expectedUris = new Set(uriToServiceUrl.keys())
   const childBlocks = options?.childBlocks?.filter((cid) => cid != null) ?? []
 
   const hasProviderExpectations = expectedUris.size > 0
@@ -176,8 +173,7 @@ export async function waitForIpniProviderResults(
         maxAttempts,
         ipniIndexerUrl,
         expectedUris,
-        expectedUrisSet,
-        expectedServiceUrls,
+        uriToServiceUrl,
         hasProviderExpectations,
         cidIndex: index + 1,
         cidCount: cidsToValidate.length,
@@ -216,8 +212,7 @@ async function waitForIpniProviderResultsForCid(
     maxAttempts: number
     ipniIndexerUrl: string
     expectedUris: Set<string>
-    expectedUrisSet: Set<string>
-    expectedServiceUrls: string[]
+    uriToServiceUrl: Map<string, string>
     hasProviderExpectations: boolean
     cidIndex: number
     cidCount: number
@@ -231,8 +226,7 @@ async function waitForIpniProviderResultsForCid(
     maxAttempts,
     ipniIndexerUrl,
     expectedUris,
-    expectedUrisSet,
-    expectedServiceUrls,
+    uriToServiceUrl,
     hasProviderExpectations,
     cidIndex,
     cidCount,
@@ -328,17 +322,18 @@ async function waitForIpniProviderResultsForCid(
           let isValid = false
 
           if (hasProviderExpectations) {
-            // Find matching multiaddrs
-
-            const matchedUris = lastActualUris.intersection(expectedUrisSet)
+            // Find matching URIs and compute which are missing
+            const matchedUris = lastActualUris.intersection(expectedUris)
             isValid = matchedUris.size === expectedUris.size
 
             if (!isValid) {
-              // Log validation gap — show serviceURLs for expected, raw multiaddrs for actual
-              lastFailureReason = `Missing expected provider(s): ${expectedServiceUrls.join(', ')}`
+              // Compute only the missing serviceURLs for precise diagnostics
+              const missingUris = expectedUris.difference(matchedUris)
+              const missingServiceUrls = Array.from(missingUris).map((uri) => uriToServiceUrl.get(uri) ?? uri)
+              lastFailureReason = `Missing expected provider(s): ${missingServiceUrls.join(', ')}`
               options?.logger?.info(
                 {
-                  expectedServiceUrls,
+                  missingServiceUrls,
                   actualMultiaddrs: Array.from(lastActualMultiaddrs),
                 },
                 `${lastFailureReason}. Retrying...`
@@ -399,7 +394,7 @@ async function waitForIpniProviderResultsForCid(
           msg = `${msgBase}. Last observation: ${lastFailureReason}`
         }
         if (hasProviderExpectations) {
-          msg = `${msg}. Expected serviceURLs: [${expectedServiceUrls.join(', ')}]. Actual multiaddrs in response: [${Array.from(lastActualMultiaddrs).join(', ')}]`
+          msg = `${msg}. Expected serviceURLs: [${Array.from(uriToServiceUrl.values()).join(', ')}]. Actual multiaddrs in response: [${Array.from(lastActualMultiaddrs).join(', ')}]`
         }
         const error = new Error(msg)
         options?.logger?.warn({ error }, msg)
@@ -409,42 +404,6 @@ async function waitForIpniProviderResultsForCid(
 
     check().catch(reject)
   })
-}
-
-/**
- * Convert a PDP service URL to an IPNI multiaddr format.
- *
- * Storage providers expose their PDP (Proof of Data Possession) service via HTTP/HTTPS
- * endpoints (e.g., "https://provider.example.com:8443"). When they advertise content
- * to IPNI, they include multiaddrs in libp2p format (e.g., "/dns/provider.example.com/tcp/8443/https").
- *
- * This function converts between these representations to enable validation that a
- * provider's IPNI provider records matches their registered service endpoint.
- *
- * @param serviceURL - HTTP/HTTPS URL of the provider's PDP service
- * @param logger - Optional logger for warnings
- * @returns Multiaddr string in libp2p format, or undefined if conversion fails
- *
- * @example
- * serviceURLToMultiaddr('https://provider.example.com')
- * // Returns: '/dns/provider.example.com/tcp/443/https'
- *
- * @example
- * serviceURLToMultiaddr('http://provider.example.com:8080')
- * // Returns: '/dns/provider.example.com/tcp/8080/http'
- */
-export function serviceURLToMultiaddr(serviceURL: string, logger?: Logger): string | undefined {
-  try {
-    const url = new URL(serviceURL)
-    const port = url.port || (url.protocol === 'https:' ? '443' : '80')
-    const protocolComponent = url.protocol.replace(':', '')
-
-    return `/dns/${url.hostname}/tcp/${port}/${protocolComponent}`
-  } catch (error) {
-    const reason = getErrorMessage(error)
-    logger?.warn({ serviceURL, error }, `Unable to derive IPNI multiaddr from serviceURL: ${reason}`)
-    return undefined
-  }
 }
 
 /**
@@ -477,18 +436,16 @@ function multiaddrToNormalizedUri(addr: string): string {
  *
  * @param providers - Array of provider info objects from synapse SDK
  * @param logger - Optional logger for diagnostics
- * @returns Expected URIs and count of providers that couldn't be processed
+ * @returns Map from normalized URI to original serviceURL, and count of providers that couldn't be processed
  */
 function deriveExpectedUris(
   providers: PDPProvider[],
   logger: Logger | undefined
 ): {
-  expectedUris: Set<string>
-  expectedServiceUrls: string[]
+  uriToServiceUrl: Map<string, string>
   skippedProviderCount: number
 } {
-  const derivedUris: Set<string> = new Set()
-  const serviceUrls: string[] = []
+  const uriToServiceUrl = new Map<string, string>()
   let skippedProviderCount = 0
 
   for (const provider of providers) {
@@ -507,8 +464,7 @@ function deriveExpectedUris(
       // Intentional path-trailing slashes (e.g. "https://host/api/v1/") are preserved.
       const url = new URL(serviceURL)
       const normalized = url.pathname === '/' && !url.search && !url.hash ? url.href.replace(/\/$/, '') : url.href
-      derivedUris.add(normalized)
-      serviceUrls.push(serviceURL)
+      uriToServiceUrl.set(normalized, serviceURL)
     } catch (error) {
       skippedProviderCount++
       const reason = getErrorMessage(error)
@@ -517,8 +473,7 @@ function deriveExpectedUris(
   }
 
   return {
-    expectedUris: derivedUris,
-    expectedServiceUrls: serviceUrls,
+    uriToServiceUrl,
     skippedProviderCount,
   }
 }
