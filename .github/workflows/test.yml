@@ -23,6 +23,8 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium
       - name: Run Lint
         run: pnpm run lint
       - name: Run Tests
