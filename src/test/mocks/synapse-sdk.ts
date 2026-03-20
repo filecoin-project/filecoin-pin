@@ -44,6 +44,7 @@ export const METADATA_KEYS = {
   WITH_CDN: 'withCDN',
   WITH_IPFS_INDEXING: 'withIPFSIndexing',
   IPFS_ROOT_CID: 'ipfsRootCid',
+  SOURCE: 'source',
 }
 
 // Export mock permission type hashes (keccak256 hashes of EIP-712 type strings)

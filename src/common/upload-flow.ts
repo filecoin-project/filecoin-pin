@@ -268,7 +268,7 @@ function roleLabel(role: CopyRole): string {
  * @param carData - CAR file data as Uint8Array
  * @param rootCid - Root CID of the content
  * @param options - Upload flow options
- * @returns Upload result with copies and completion status
+ * @returns Upload result with copies and network information
  */
 export async function performUpload(
   synapse: Synapse,

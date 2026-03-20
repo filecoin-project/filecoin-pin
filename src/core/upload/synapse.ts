@@ -104,7 +104,7 @@ export function getServiceURL(providerInfo: PDPProvider): string {
  * @param rootCid - The IPFS root CID to associate with this piece
  * @param logger - Logger instance for tracking
  * @param options - Upload options including context selection and callbacks
- * @returns Upload result with copies and completion status
+ * @returns Upload result including piece CID, size, copies, and failed attempts
  */
 export async function uploadToSynapse(
   synapse: Synapse,
