@@ -8,6 +8,7 @@ on:
 permissions:
   id-token: write  # Required for OIDC
   contents: write
+  issues: write
   pull-requests: write
 
 jobs:
@@ -17,7 +18,10 @@ jobs:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # PAT so release PRs trigger other workflows (auto-label, add-issues-and-prs-to-fs-project-board).
+          # This PAT has the permissions outlined in https://github.com/googleapis/release-please-action?tab=readme-ov-file#workflow-permissions.
+          # Using GITHUB_TOKEN suppresses follow-on workflow runs, which would mean release please PRs wouldn't get properly labeled and added to the project board.
+          token: ${{ secrets.FILOZZY_RELEASE_PLEASE_PAT }}
           config-file: release-please-config.json
 
       # The following steps only run if a release is created
