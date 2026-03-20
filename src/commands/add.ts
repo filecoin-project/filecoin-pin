@@ -10,7 +10,7 @@ export const addCommand = new Command('add')
   .argument('<path>', 'Path to the file or directory to add')
   .option('--bare', 'Add file without directory wrapper (files only, not supported for directories)')
   .option('--auto-fund', `Automatically ensure minimum ${MIN_RUNWAY_DAYS} days of runway before upload`)
-  .option('--count <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
+  .option('--copies <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
 
 addCommand.action(async (path: string, options: any) => {
   try {

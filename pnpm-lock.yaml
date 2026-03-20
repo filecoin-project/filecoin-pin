@@ -18,11 +18,11 @@ importers:
         specifier: ^1.0.1
         version: 1.1.0
       '@filoz/synapse-core':
-        specifier: ^0.2.2
-        version: 0.2.3(typescript@5.9.3)(viem@2.47.2(typescript@5.9.3)(zod@4.3.6))
+        specifier: ^0.3.1
+        version: 0.3.1(typescript@5.9.3)(viem@2.47.2(typescript@5.9.3)(zod@4.3.6))
       '@filoz/synapse-sdk':
-        specifier: ^0.38.0
-        version: 0.38.0(typescript@5.9.3)(viem@2.47.2(typescript@5.9.3)(zod@4.3.6))
+        specifier: ^0.40.0
+        version: 0.40.0(typescript@5.9.3)(viem@2.47.2(typescript@5.9.3)(zod@4.3.6))
       '@helia/block-brokers':
         specifier: ^5.1.3
         version: 5.1.3
@@ -615,13 +615,13 @@ packages:
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==}
 
-  '@filoz/synapse-core@0.2.3':
-    resolution: {integrity: sha512-RYoIZD5J+Lo1eATcDIOzwThz4Ecv17lCmcIWKv8gDXZAwc4dweFtf/h/ZVZV+hHcrXKm5EYnv0GLKouVBRsjFw==}
+  '@filoz/synapse-core@0.3.1':
+    resolution: {integrity: sha512-ulcuWFK7FbA6u4cAdJtNzqjxnIjCXm0OX2Zdr2erv6pD2TbuGW/Af9NpPW232Q1MlNUuVG1YSY/NPuo7P5cyIw==}
     peerDependencies:
       viem: 2.x
 
-  '@filoz/synapse-sdk@0.38.0':
-    resolution: {integrity: sha512-ZebghJAN+UTbgucMjsVjGQkiZBzASel9v1Q9ENmFFt9Yj5wfBwgp5imiuBJEAtMw/BKwZ2z5K9JiprNK0bmwJw==}
+  '@filoz/synapse-sdk@0.40.0':
+    resolution: {integrity: sha512-CJDkER9LGlWi34F01SzQyKrYU10OAx1WSyaWygs4jlxX8J2X3tV83iVa5kJwCkuymvhbjVMd1SiBEmb3Pdjk0g==}
     peerDependencies:
       viem: 2.x
 
@@ -2977,14 +2977,6 @@ packages:
     resolution: {integrity: sha512-MVHddDVweXZF3awtlAS+6pgKLlm/JgxZ90+/NBurBoQctVOOB/zDdVjcyPzQ+0laDGbsWgrRkflI65sQeOgT9Q==}
     engines: {node: '>=8'}
 
-  ox@0.13.2:
-    resolution: {integrity: sha512-baredVMHHOSEQkte+2bopeEdm1OJwrfzYCck8ObiTTynVUMDH9LhZCPiojuaT95i9Ha0i634JZvabWrudzm/pg==}
-    peerDependencies:
-      typescript: '>=5.4.0'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
   ox@0.14.0:
     resolution: {integrity: sha512-WLOB7IKnmI3Ol6RAqY7CJdZKl8QaI44LN91OGF1061YIeN6bL5IsFcdp7+oQShRyamE/8fW/CBRWhJAOzI35Dw==}
     peerDependencies:
@@ -4316,13 +4308,13 @@ snapshots:
       '@fastify/forwarded': 3.0.1
       ipaddr.js: 2.3.0
 
-  '@filoz/synapse-core@0.2.3(typescript@5.9.3)(viem@2.47.2(typescript@5.9.3)(zod@4.3.6))':
+  '@filoz/synapse-core@0.3.1(typescript@5.9.3)(viem@2.47.2(typescript@5.9.3)(zod@4.3.6))':
     dependencies:
       '@web3-storage/data-segment': 5.3.0
       dnum: 2.17.0
       iso-web: 2.1.0
       multiformats: 13.4.2
-      ox: 0.13.2(typescript@5.9.3)(zod@4.3.6)
+      ox: 0.14.0(typescript@5.9.3)(zod@4.3.6)
       p-locate: 7.0.0
       p-retry: 7.1.1
       p-some: 7.0.0
@@ -4331,9 +4323,9 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@filoz/synapse-sdk@0.38.0(typescript@5.9.3)(viem@2.47.2(typescript@5.9.3)(zod@4.3.6))':
+  '@filoz/synapse-sdk@0.40.0(typescript@5.9.3)(viem@2.47.2(typescript@5.9.3)(zod@4.3.6))':
     dependencies:
-      '@filoz/synapse-core': 0.2.3(typescript@5.9.3)(viem@2.47.2(typescript@5.9.3)(zod@4.3.6))
+      '@filoz/synapse-core': 0.3.1(typescript@5.9.3)(viem@2.47.2(typescript@5.9.3)(zod@4.3.6))
       multiformats: 13.4.2
       viem: 2.47.2(typescript@5.9.3)(zod@4.3.6)
     transitivePeerDependencies:
@@ -7637,21 +7629,6 @@ snapshots:
     dependencies:
       is-docker: 2.2.1
       is-wsl: 2.2.0
-
-  ox@0.13.2(typescript@5.9.3)(zod@4.3.6):
-    dependencies:
-      '@adraffy/ens-normalize': 1.11.1
-      '@noble/ciphers': 1.3.0
-      '@noble/curves': 1.9.1
-      '@noble/hashes': 1.8.0
-      '@scure/bip32': 1.7.0
-      '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@5.9.3)(zod@4.3.6)
-      eventemitter3: 5.0.1
-    optionalDependencies:
-      typescript: 5.9.3
-    transitivePeerDependencies:
-      - zod
 
   ox@0.14.0(typescript@5.9.3)(zod@4.3.6):
     dependencies:

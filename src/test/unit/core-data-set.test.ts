@@ -261,7 +261,7 @@ describe('listDataSets', () => {
         providerId: 2,
         metadata: {
           [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
-          source: 'filecoin-pin',
+          [METADATA_KEYS.SOURCE]: 'filecoin-pin',
         },
         currentPieceCount: 5,
         isManaged: true,
@@ -278,7 +278,7 @@ describe('listDataSets', () => {
         metadata: {
           // Has WITH_IPFS_INDEXING but wrong source
           [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
-          source: 'other-tool',
+          [METADATA_KEYS.SOURCE]: 'other-tool',
         },
         currentPieceCount: 3,
         isManaged: false,
@@ -294,7 +294,7 @@ describe('listDataSets', () => {
         providerId: 2,
         metadata: {
           // Has source but no WITH_IPFS_INDEXING
-          source: 'filecoin-pin',
+          [METADATA_KEYS.SOURCE]: 'filecoin-pin',
         },
         currentPieceCount: 2,
         isManaged: false,

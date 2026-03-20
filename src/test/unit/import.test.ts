@@ -41,7 +41,7 @@ vi.mock('../../common/upload-flow.js', () => ({
         isNewDataSet: false,
       },
     ],
-    failures: [],
+    failedAttempts: [],
     network: 'calibration',
   }),
   displayUploadResults: vi.fn(),
@@ -433,7 +433,7 @@ describe('CAR Import', () => {
       expect(result.copies).toHaveLength(1)
       expect(result.copies[0]?.role).toBe('primary')
       expect(result.copies[0]?.providerId).toBe(1n)
-      expect(result.failures).toHaveLength(0)
+      expect(result.failedAttempts).toHaveLength(0)
     })
   })
 })

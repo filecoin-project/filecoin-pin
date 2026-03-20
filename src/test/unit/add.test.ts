@@ -30,7 +30,7 @@ vi.mock('../../common/upload-flow.js', () => ({
         isNewDataSet: false,
       },
     ],
-    failures: [],
+    failedAttempts: [],
     network: 'calibration',
   }),
   displayUploadResults: vi.fn(),
@@ -147,7 +147,7 @@ describe('Add Command', () => {
       })
       expect(result.copies).toHaveLength(1)
       expect(result.copies[0]?.role).toBe('primary')
-      expect(result.failures).toHaveLength(0)
+      expect(result.failedAttempts).toHaveLength(0)
 
       // Verify createCarFromPath was called without bare flag
       const { createCarFromPath } = await import('../../core/unixfs/index.js')
@@ -177,7 +177,7 @@ describe('Add Command', () => {
         size: 1024,
       })
       expect(result.copies).toHaveLength(1)
-      expect(result.failures).toHaveLength(0)
+      expect(result.failedAttempts).toHaveLength(0)
 
       // Verify createCarFromPath was called with bare flag
       const { createCarFromPath } = await import('../../core/unixfs/index.js')
@@ -237,7 +237,7 @@ describe('Add Command', () => {
         expect.anything(),
         expect.objectContaining({
           dataSetIds: [123n],
-          count: 1,
+          copies: 1,
         })
       )
     })
