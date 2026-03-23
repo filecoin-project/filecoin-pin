@@ -7,7 +7,7 @@
  */
 import type { CopyResult, FailedAttempt, PieceCID, PullStatus, Synapse, UploadResult } from '@filoz/synapse-sdk'
 import { METADATA_KEYS, type PDPProvider } from '@filoz/synapse-sdk'
-import type { StorageManagerUploadOptions } from '@filoz/synapse-sdk/storage'
+import type { StorageContext, StorageManagerUploadOptions } from '@filoz/synapse-sdk/storage'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { DEFAULT_DATA_SET_METADATA } from '../synapse/constants.js'
@@ -50,12 +50,41 @@ export interface SynapseUploadOptions {
   copies?: number
 
   /**
-   * Specific provider IDs to use (mutually exclusive with dataSetIds).
+   * Pre-created storage contexts to use directly. When provided, the SDK
+   * skips provider selection and uses these contexts as-is.
+   *
+   * Mutually exclusive with `providerIds`, `dataSetIds`, and `copies`.
+   *
+   * @example Upload using a pre-resolved context
+   * ```ts
+   * const [ctx] = await synapse.storage.createContexts({ providerIds: [9n] })
+   * uploadToSynapse(synapse, carData, rootCid, logger, { contexts: [ctx] })
+   * ```
+   */
+  contexts?: StorageContext[]
+
+  /**
+   * Specific provider IDs to upload to. The SDK resolves or creates data sets
+   * on each provider automatically. Mutually exclusive with `dataSetIds` and
+   * `contexts`.
+   *
+   * This is the recommended way to target specific providers. Do not call
+   * `createContext()` to resolve data sets first. Pass provider IDs here
+   * and the SDK handles the rest.
+   *
+   * @example Upload to two specific providers
+   * ```ts
+   * uploadToSynapse(synapse, carData, rootCid, logger, { providerIds: [4n, 9n] })
+   * ```
    */
   providerIds?: bigint[]
 
   /**
-   * Specific data set IDs to use (mutually exclusive with providerIds).
+   * Specific existing data set IDs to target. Mutually exclusive with
+   * `providerIds` and `contexts`.
+   *
+   * Use only when resuming into a known data set from a prior operation.
+   * For first-time uploads to specific providers, use `providerIds` instead.
    */
   dataSetIds?: bigint[]
 
@@ -243,6 +272,9 @@ export async function uploadToSynapse(
   }
 
   // Pass through context selection options
+  if (options.contexts != null) {
+    uploadOptions.contexts = options.contexts
+  }
   if (options.copies != null) {
     uploadOptions.copies = options.copies
   }
