@@ -60,10 +60,11 @@ export async function startServer(): Promise<void> {
     )
 
     // Also print a user-friendly message to stderr for clarity
-    if (errorMessage.includes('PRIVATE_KEY')) {
-      console.error('\n❌ Error: PRIVATE_KEY environment variable is required')
-      console.error('   Please set your private key: export PRIVATE_KEY=0x...')
-      console.error('   Or run with: PRIVATE_KEY=0x... filecoin-pin server\n')
+    if (errorMessage.includes('No authentication')) {
+      console.error('\n❌ Error: Authentication is required to start the pinning server')
+      console.error('   Private key:   --private-key <key>  or  PRIVATE_KEY=0x...')
+      console.error('   Session key:   --wallet-address <addr> --session-key <key>')
+      console.error('                  or  WALLET_ADDRESS=0x... SESSION_KEY=0x...\n')
     }
 
     process.exit(1)

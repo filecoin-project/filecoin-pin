@@ -8,7 +8,9 @@ export const serverCommand = new Command('server')
   .option('--host <string>', 'server host', '127.0.0.1')
   .option('--car-storage <path>', 'path for CAR file storage', './cars')
   .option('--database <path>', 'path to SQLite database', './pins.db')
-  .option('--private-key <key>', 'private key for Synapse (or use PRIVATE_KEY env var)')
+  .option('--private-key <key>', 'private key for standard auth (or use PRIVATE_KEY env var)')
+  .option('--wallet-address <address>', 'wallet address for session key auth (or use WALLET_ADDRESS env var)')
+  .option('--session-key <key>', 'session key for session key auth (or use SESSION_KEY env var)')
 
 addNetworkOptions(serverCommand)
   .addOption(
@@ -19,6 +21,12 @@ addNetworkOptions(serverCommand)
     // Override environment variables with CLI options if provided
     if (options.privateKey) {
       process.env.PRIVATE_KEY = options.privateKey
+    }
+    if (options.walletAddress) {
+      process.env.WALLET_ADDRESS = options.walletAddress
+    }
+    if (options.sessionKey) {
+      process.env.SESSION_KEY = options.sessionKey
     }
     // RPC URL takes precedence over network flag
     if (options.rpcUrl) {
