@@ -13,7 +13,13 @@ import { type Chain, calibration, mainnet, Synapse, type SynapseOptions } from '
 export { calibration, mainnet, type Chain }
 
 import type { SessionKey } from '@filoz/synapse-core/session-key'
-import { fromSecp256k1 } from '@filoz/synapse-core/session-key'
+import {
+  AddPiecesPermission,
+  CreateDataSetPermission,
+  DefaultFwssPermissions,
+  fromSecp256k1,
+  SchedulePieceRemovalsPermission,
+} from '@filoz/synapse-core/session-key'
 import type { Logger } from 'pino'
 import { type Account, custom, getAddress, type HttpTransport, http, type WebSocketTransport, webSocket } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
@@ -116,6 +122,36 @@ function createTransport(rpcUrl: string): HttpTransport | WebSocketTransport {
   return http(rpcUrl)
 }
 
+const PERMISSION_NAMES: Record<string, string> = {
+  [CreateDataSetPermission]: 'CreateDataSet',
+  [AddPiecesPermission]: 'AddPieces',
+  [SchedulePieceRemovalsPermission]: 'SchedulePieceRemovals',
+}
+
+function checkSessionKeyPermissions(key: SessionKey<'Secp256k1'>, ownerAddress: string): void {
+  const missing = DefaultFwssPermissions.filter((p) => !key.hasPermission(p))
+  if (missing.length === 0) return
+
+  const now = BigInt(Math.floor(Date.now() / 1000))
+  const lines = missing.map((p) => {
+    const name = PERMISSION_NAMES[p] ?? p
+    const expiry = key.expirations[p] ?? 0n
+    if (expiry > 0n && expiry < now) {
+      return `  • ${name}: expired at ${new Date(Number(expiry) * 1000).toISOString()}`
+    }
+    return `  • ${name}: never authorized`
+  })
+
+  const footnotes = missing.map((p) => `  ${PERMISSION_NAMES[p] ?? p}: ${p}`)
+
+  throw new Error(
+    `Session key ${key.address} is missing ${missing.length} required permission(s):\n` +
+      lines.join('\n') +
+      `\nAuthorize this session key from owner wallet ${ownerAddress}.\nPermission hashes:\n` +
+      footnotes.join('\n')
+  )
+}
+
 /**
  * Create a Synapse instance from CLI-friendly configuration.
  *
@@ -144,6 +180,7 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
       ...(transport ? { transport } : {}),
     })
     await sessionKey.syncExpirations()
+    checkSessionKeyPermissions(sessionKey, walletAddress)
     logger?.info({ event: 'synapse.init', mode: 'session-key' }, 'Initializing Synapse (session key)')
   } else if (isPrivateKeyConfig(config)) {
     account = privateKeyToAccount(config.privateKey)
