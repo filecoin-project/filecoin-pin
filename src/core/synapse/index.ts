@@ -30,6 +30,9 @@ export interface Config {
   port: number
   host: string
   privateKey: string | undefined
+  walletAddress: string | undefined
+  sessionKey: string | undefined
+  viewAddress: string | undefined
   rpcUrl: string
   databasePath: string
   carStoragePath: string

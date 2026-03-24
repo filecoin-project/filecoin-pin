@@ -1,8 +1,9 @@
 import fastify, { type FastifyInstance, type FastifyRequest } from 'fastify'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
+import type { Address } from 'viem'
 import type { Config } from './core/synapse/index.js'
-import { initializeSynapse, type PrivateKeyConfig } from './core/synapse/index.js'
+import { initializeSynapse, type SynapseSetupConfig } from './core/synapse/index.js'
 import { FilecoinPinStore, type PinOptions } from './filecoin-pin-store.js'
 import type { ServiceInfo } from './server.js'
 
@@ -20,20 +21,34 @@ const DEFAULT_USER_INFO = {
   name: 'Default User',
 }
 
+function buildSynapseConfig(config: Config): SynapseSetupConfig {
+  const base = { rpcUrl: config.rpcUrl }
+
+  if (config.walletAddress && config.sessionKey) {
+    return {
+      ...base,
+      walletAddress: config.walletAddress as Address,
+      sessionKey: config.sessionKey as Address,
+    }
+  }
+
+  if (config.privateKey) {
+    return { ...base, privateKey: config.privateKey as Address }
+  }
+
+  throw new Error(
+    'No authentication configured. Provide a private key (--private-key / PRIVATE_KEY) ' +
+      'or session key (--wallet-address + --session-key / WALLET_ADDRESS + SESSION_KEY).'
+  )
+}
+
 export async function createFilecoinPinningServer(
   config: Config,
   logger: Logger,
   serviceInfo: ServiceInfo
 ): Promise<{ server: FastifyInstance; pinStore: FilecoinPinStore }> {
   // Set up Synapse service
-  if (!config.privateKey) {
-    throw new Error('PRIVATE_KEY environment variable is required to start the pinning server')
-  }
-
-  const synapseConfig: PrivateKeyConfig = {
-    privateKey: config.privateKey as `0x${string}`,
-    rpcUrl: config.rpcUrl,
-  }
+  const synapseConfig = buildSynapseConfig(config)
   const synapse = await initializeSynapse(synapseConfig, logger)
 
   const filecoinPinStore = new FilecoinPinStore({

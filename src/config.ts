@@ -50,6 +50,9 @@ export function createConfig(): Config {
 
     // Synapse SDK configuration
     privateKey: process.env.PRIVATE_KEY, // Required: Ethereum-compatible private key
+    walletAddress: process.env.WALLET_ADDRESS,
+    sessionKey: process.env.SESSION_KEY,
+    viewAddress: process.env.VIEW_ADDRESS,
     rpcUrl, // Determined from RPC_URL, NETWORK, or default to calibration
     // Storage paths
     databasePath: process.env.DATABASE_PATH ?? join(dataDir, 'pins.db'),
