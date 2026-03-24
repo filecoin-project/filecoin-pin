@@ -1,9 +1,8 @@
-import type { Synapse } from '@filoz/synapse-sdk'
+import { PDPVerifier, type Synapse, WarmStorageService } from '@filoz/synapse-sdk'
 import PQueue from 'p-queue'
 import type { Logger } from 'pino'
-import { createStorageContextFromDataSetId } from '../synapse/storage-context-helper.js'
+import { PDP_LEAF_SIZE } from '../payments/constants.js'
 import type { ProgressEvent, ProgressEventHandler, Warning } from '../utils/types.js'
-import { getDataSetPieces } from './get-data-set-pieces.js'
 import type { DataSetSummary } from './types.js'
 
 export interface ActualStorageResult {
@@ -44,16 +43,16 @@ const getProviderKey = ({ providerId, serviceProvider, dataSetId }: DataSetSumma
 /**
  * Calculate actual storage from all active data sets for an address
  *
- * This function queries all active/live data sets and sums up the actual piece sizes.
- * It's more accurate than deriving storage from billing rates, but can be slow for
- * users with many pieces.
+ * This function queries all active/live data sets and sums up their PDP leaf counts.
+ * It avoids fetching per-piece details, which makes it much faster than walking every
+ * piece in every data set.
  *
  * The calculation respects abort signals - if aborted, it will return partial results
  * with a timedOut flag set to true.
  *
  * Example usage:
  * ```typescript
- * const result = await calculateActualStorage(synapse, {
+ * const result = await calculateActualStorage(synapse, dataSets, {
  *   address: '0x1234...',
  *   signal: AbortSignal.timeout(30000), // 30 second timeout
  *   logger: myLogger
@@ -138,34 +137,20 @@ export async function calculateActualStorage(
     }
 
     logger?.info({ dataSetCount: dataSets.length, address }, 'Calculating actual storage across data sets')
+    signal?.throwIfAborted()
+
+    const warmStorage = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
+    const pdpVerifier = new PDPVerifier(synapse.getProvider(), warmStorage.getPDPVerifierAddress())
 
     const processDataSet = async (dataSet: (typeof dataSets)[number]): Promise<void> => {
       signal?.throwIfAborted()
 
       try {
-        const { storage: storageContext } = await createStorageContextFromDataSetId(synapse, dataSet.dataSetId)
-
-        signal?.throwIfAborted()
-
-        const getPiecesOptions: { logger?: Logger; signal?: AbortSignal } = {}
-        if (logger) {
-          getPiecesOptions.logger = logger
-        }
-        if (signal) {
-          getPiecesOptions.signal = signal
-        }
-        const result = await getDataSetPieces(synapse, storageContext, getPiecesOptions)
-
-        if (result.totalSizeBytes) {
-          totalBytes += result.totalSizeBytes
-        }
-
-        pieceCount += result.pieces.length
+        const leafCount = await pdpVerifier.getDataSetLeafCount(dataSet.dataSetId)
+        const dataSetBytes = BigInt(leafCount) * BigInt(PDP_LEAF_SIZE)
+        totalBytes += dataSetBytes
+        pieceCount += dataSet.currentPieceCount ?? 0
         dataSetsProcessed++
-
-        if (result.warnings && result.warnings.length > 0) {
-          warnings.push(...result.warnings)
-        }
 
         onProgress?.({
           type: 'actual-storage:progress',
@@ -178,16 +163,16 @@ export async function calculateActualStorage(
         })
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {
-          logger?.warn('Piece retrieval aborted')
+          logger?.warn('Leaf count retrieval aborted')
           throw error // Re-throw AbortError to propagate cancellation
         }
 
         const errorMessage = error instanceof Error ? error.message : String(error)
-        logger?.warn({ dataSetId: dataSet.dataSetId, error: errorMessage }, 'Failed to get pieces for data set')
+        logger?.warn({ dataSetId: dataSet.dataSetId, error: errorMessage }, 'Failed to get leaf count for data set')
 
         warnings.push({
           code: 'DATA_SET_QUERY_FAILED',
-          message: `Failed to query pieces for data set ${dataSet.dataSetId}`,
+          message: `Failed to query leaf count for data set ${dataSet.dataSetId}`,
           context: {
             dataSetId: dataSet.dataSetId,
             error: errorMessage,
