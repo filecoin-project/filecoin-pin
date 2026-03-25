@@ -298,16 +298,23 @@ export async function executeUpload(
 
   const { logger, contextId } = options
 
-  const targetingOptions = [
-    options.contexts != null && 'contexts',
-    options.providerIds != null && 'providerIds',
-    options.dataSetIds != null && 'dataSetIds',
-  ].filter(Boolean)
-  if (targetingOptions.length > 1) {
+  if (options.contexts != null) {
+    const conflicting = [
+      options.providerIds != null && 'providerIds',
+      options.dataSetIds != null && 'dataSetIds',
+      options.copies != null && 'copies',
+    ].filter(Boolean)
+    if (conflicting.length > 0) {
+      throw new Error(
+        `Cannot combine 'contexts' with ${conflicting.join(', ')}. ` +
+          'Pre-created contexts fully determine provider targeting and copy count.'
+      )
+    }
+  } else if (options.providerIds != null && options.dataSetIds != null) {
     throw new Error(
-      `Cannot combine targeting options: ${targetingOptions.join(', ')}. ` +
-        'Use exactly one of: contexts (pre-resolved), providerIds (recommended for targeting ' +
-        'specific providers), or dataSetIds (for resuming into known datasets).'
+      "Cannot specify both 'providerIds' and 'dataSetIds'. " +
+        'To target specific providers, use providerIds (recommended). ' +
+        'Use dataSetIds only when resuming into a known dataset from a prior operation.'
     )
   }
 
@@ -376,19 +383,21 @@ export async function executeUpload(
     uploadOptions.signal = options.signal
   }
   if (options.contexts != null) {
+    // Contexts carry their own provider/dataset bindings; no other targeting needed
     uploadOptions.contexts = options.contexts
-  }
-  if (options.copies != null) {
-    uploadOptions.copies = options.copies
-  }
-  if (options.providerIds != null) {
-    uploadOptions.providerIds = options.providerIds
-  }
-  if (options.dataSetIds != null) {
-    uploadOptions.dataSetIds = options.dataSetIds
-  }
-  if (options.excludeProviderIds != null) {
-    uploadOptions.excludeProviderIds = options.excludeProviderIds
+  } else {
+    if (options.copies != null) {
+      uploadOptions.copies = options.copies
+    }
+    if (options.providerIds != null) {
+      uploadOptions.providerIds = options.providerIds
+    }
+    if (options.dataSetIds != null) {
+      uploadOptions.dataSetIds = options.dataSetIds
+    }
+    if (options.excludeProviderIds != null) {
+      uploadOptions.excludeProviderIds = options.excludeProviderIds
+    }
   }
   if (options.metadata != null) {
     uploadOptions.metadata = options.metadata

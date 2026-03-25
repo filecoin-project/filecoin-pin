@@ -2,7 +2,7 @@ import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initializeSynapse, type SynapseSetupConfig } from '../../core/synapse/index.js'
-import { uploadToSynapse } from '../../core/upload/index.js'
+import { executeUpload, uploadToSynapse } from '../../core/upload/index.js'
 import { createLogger } from '../../logger.js'
 import { MockSynapse } from '../mocks/synapse-mocks.js'
 
@@ -208,6 +208,84 @@ describe('synapse-service', () => {
 
       expect(result.failedAttempts).toBeDefined()
       expect(result.failedAttempts).toHaveLength(0)
+    })
+  })
+
+  describe('executeUpload targeting validation', () => {
+    const noopLogger = { info: () => {}, debug: () => {}, warn: () => {}, error: () => {} } as unknown as Logger
+
+    it('should reject contexts combined with providerIds', async () => {
+      await expect(
+        executeUpload({} as any, new Uint8Array(), TEST_CID, {
+          logger: noopLogger,
+          contexts: [{} as any],
+          providerIds: [1n],
+        } as any)
+      ).rejects.toThrow("Cannot combine 'contexts'")
+    })
+
+    it('should reject contexts combined with dataSetIds', async () => {
+      await expect(
+        executeUpload({} as any, new Uint8Array(), TEST_CID, {
+          logger: noopLogger,
+          contexts: [{} as any],
+          dataSetIds: [1n],
+        } as any)
+      ).rejects.toThrow("Cannot combine 'contexts'")
+    })
+
+    it('should reject contexts combined with copies', async () => {
+      await expect(
+        executeUpload({} as any, new Uint8Array(), TEST_CID, {
+          logger: noopLogger,
+          contexts: [{} as any],
+          copies: 2,
+        } as any)
+      ).rejects.toThrow("Cannot combine 'contexts'")
+    })
+
+    it('should reject providerIds combined with dataSetIds', async () => {
+      await expect(
+        executeUpload({} as any, new Uint8Array(), TEST_CID, {
+          logger: noopLogger,
+          providerIds: [1n],
+          dataSetIds: [1n],
+        } as any)
+      ).rejects.toThrow("Cannot specify both 'providerIds' and 'dataSetIds'")
+    })
+  })
+
+  describe('uploadToSynapse contexts pass-through', () => {
+    it('should pass contexts to storage.upload', async () => {
+      const mockSynapse = new MockSynapse()
+      await mockSynapse.createStorageContext()
+      const uploadSpy = vi.spyOn(mockSynapse.storage, 'upload')
+      const fakeContexts = [{} as any]
+
+      await uploadToSynapse(mockSynapse as any, new Uint8Array([1]), TEST_CID, logger, {
+        contexts: fakeContexts,
+      })
+
+      expect(uploadSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ contexts: fakeContexts })
+      )
+    })
+
+    it('should not pass providerIds or copies when contexts is set', async () => {
+      const mockSynapse = new MockSynapse()
+      await mockSynapse.createStorageContext()
+      const uploadSpy = vi.spyOn(mockSynapse.storage, 'upload')
+
+      await uploadToSynapse(mockSynapse as any, new Uint8Array([1]), TEST_CID, logger, {
+        contexts: [{} as any],
+      })
+
+      const passedOptions = uploadSpy.mock.calls[0]?.[1]
+      expect(passedOptions?.contexts).toBeDefined()
+      expect(passedOptions?.providerIds).toBeUndefined()
+      expect(passedOptions?.dataSetIds).toBeUndefined()
+      expect(passedOptions?.copies).toBeUndefined()
     })
   })
 })
