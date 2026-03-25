@@ -46,6 +46,16 @@ describe('upload option validation', () => {
       ).rejects.toThrow("Cannot combine 'contexts'")
     })
 
+    it('rejects contexts combined with excludeProviderIds', async () => {
+      await expect(
+        executeUpload({} as any, new Uint8Array(), TEST_CID, {
+          logger: noopLogger,
+          contexts: [{} as any],
+          excludeProviderIds: [1n],
+        } as any)
+      ).rejects.toThrow("Cannot combine 'contexts'")
+    })
+
     it('rejects providerIds combined with dataSetIds', async () => {
       await expect(
         executeUpload({} as any, new Uint8Array(), TEST_CID, {
@@ -72,6 +82,15 @@ describe('upload option validation', () => {
         uploadToSynapse({} as any, new Uint8Array(), TEST_CID, noopLogger, {
           contexts: [{} as any],
           copies: 2,
+        })
+      ).rejects.toThrow("Cannot combine 'contexts'")
+    })
+
+    it('rejects contexts combined with excludeProviderIds', async () => {
+      await expect(
+        uploadToSynapse({} as any, new Uint8Array(), TEST_CID, noopLogger, {
+          contexts: [{} as any],
+          excludeProviderIds: [1n],
         })
       ).rejects.toThrow("Cannot combine 'contexts'")
     })
