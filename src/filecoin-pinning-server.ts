@@ -1,7 +1,7 @@
 import fastify, { type FastifyInstance, type FastifyRequest } from 'fastify'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import type { Address } from 'viem'
+import type { Address, Hex } from 'viem'
 import type { Config } from './core/synapse/index.js'
 import { initializeSynapse, type SynapseSetupConfig } from './core/synapse/index.js'
 import { FilecoinPinStore, type PinOptions } from './filecoin-pin-store.js'
@@ -28,12 +28,12 @@ function buildSynapseConfig(config: Config): SynapseSetupConfig {
     return {
       ...base,
       walletAddress: config.walletAddress as Address,
-      sessionKey: config.sessionKey as Address,
+      sessionKey: config.sessionKey as Hex,
     }
   }
 
   if (config.privateKey) {
-    return { ...base, privateKey: config.privateKey as Address }
+    return { ...base, privateKey: config.privateKey as Hex }
   }
 
   throw new Error(
