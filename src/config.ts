@@ -29,10 +29,14 @@ function getDataDirectory(): string {
 /**
  * Create configuration from environment variables
  *
- * This demonstrates configuration best practices for Synapse SDK:
- * - PRIVATE_KEY: Required for transaction signing (keep secure!)
- * - RPC_URL: Filecoin network endpoint (mainnet or calibration) - takes precedence over NETWORK
- * - NETWORK: Filecoin network name (mainnet or calibration) - used if RPC_URL not set
+ * Authentication (choose one):
+ * - PRIVATE_KEY: Standard private key auth
+ * - WALLET_ADDRESS + SESSION_KEY: Session key auth
+ * - VIEW_ADDRESS: Read-only mode, no signing (CLI only)
+ *
+ * Network:
+ * - RPC_URL: Filecoin RPC endpoint — takes precedence over NETWORK
+ * - NETWORK: Filecoin network name (mainnet, calibration, devnet) — used if RPC_URL not set
  */
 export function createConfig(): Config {
   const dataDir = getDataDirectory()
@@ -49,7 +53,7 @@ export function createConfig(): Config {
     host: process.env.HOST ?? 'localhost',
 
     // Synapse SDK configuration
-    privateKey: process.env.PRIVATE_KEY, // Required: Ethereum-compatible private key
+    privateKey: process.env.PRIVATE_KEY,
     walletAddress: process.env.WALLET_ADDRESS,
     sessionKey: process.env.SESSION_KEY,
     viewAddress: process.env.VIEW_ADDRESS,

@@ -62,7 +62,7 @@ Use Filecoin Pin programmatically in your Node.js or browser applications. The l
 Run a localhost IPFS Pinning Service API server that implements the [IPFS Pinning Service API specification](https://ipfs.github.io/pinning-services-api-spec/). This allows you to use standard IPFS tooling (like `ipfs pin remote`) while storing data on Filecoin.
 
 - **Repository**: This repo (`filecoin-pin server` command in CLI)
-- **Usage**: `PRIVATE_KEY=0x... npx filecoin-pin server`
+- **Usage**: `PRIVATE_KEY=0x... npx filecoin-pin server` (or use session key auth — see [Configuration](#configuration))
 - **Status**: Works and is tested, but hasn't received as many features as the CLI.  If it would benefit your usecase, please comment on [tracking issue](https://github.com/filecoin-project/filecoin-pin/issues/46) so we can be better informed when it comes to prioritizing.
 
 ### Management Console GUI
@@ -139,7 +139,11 @@ npm install -g filecoin-pin
 ### Basic Usage
 
 ```bash
-# 0. Set your PRIVATE_KEY environment variable or pass it via --private-key to each command.
+# 0. Set up authentication (choose one):
+#    Private key:   export PRIVATE_KEY=0x...
+#                   (or pass --private-key <key> to each command)
+#    Session key:   export WALLET_ADDRESS=0x... SESSION_KEY=0x...
+#                   (or pass --wallet-address <addr> --session-key <key> to each command)
 
 # 1. Configure payment permissions (one-time setup)
 filecoin-pin payments setup --auto
@@ -221,7 +225,10 @@ When using `--network devnet`, Filecoin Pin reads connection details from a runn
 * `-h`, `--help`: Display help information for each command
 * `-V`, `--version`: Output the version number
 * `-v`, `--verbose`: Verbose output
-* `--private-key`: Ethereum-style (`0x`) private key, funded with USDFC (required)
+* `--private-key`: Ethereum-style (`0x`) private key (wallet and signer), funded with USDFC
+* `--wallet-address`: Session key mode: owner wallet address
+* `--session-key`: Session key mode: scoped signing key registered to the wallet
+* `--view-address`: Read-only address for querying storage status without signing
 * `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `calibration`)
 * `--rpc-url`: Filecoin RPC endpoint (overrides `--network` if specified)
 
