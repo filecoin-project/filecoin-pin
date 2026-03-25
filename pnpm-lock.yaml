@@ -37,7 +37,7 @@ importers:
         version: 4.0.13
       '@libp2p/tcp':
         specifier: ^11.0.12
-        version: 11.0.12
+        version: 11.0.13
       '@multiformats/multiaddr':
         specifier: ^13.0.1
         version: 13.0.1
@@ -818,8 +818,8 @@ packages:
   '@libp2p/record@4.0.9':
     resolution: {integrity: sha512-ITxntqQ2GDK/yA1NhzEQc2dXpxgox96xZ1cqO507choY5z5Czhz2BxfyElVO/XYjOXvylu1XN66uh3VuGHrfkQ==}
 
-  '@libp2p/tcp@11.0.12':
-    resolution: {integrity: sha512-oz77ksfE/eQbpz2Vkx8Kr6rklOLkhDq0NC0Plc+ScIqTyYbnWJ6L3tMd/+3vaEArF+uKeeeBA7VfGgI1+TOzaQ==}
+  '@libp2p/tcp@11.0.13':
+    resolution: {integrity: sha512-YTV6rX1NpQVbixYDlsWtIAHALBkW4vYdk4DPmHbFyvvQJdtBofbeHIQakyjPexKrbUtDGaoIXgT5KC2osLRp0g==}
 
   '@libp2p/tls@3.0.12':
     resolution: {integrity: sha512-v3rF3d1Vo8umX3Wm7rULwcJYjIwSCW9Z5bd4B47m0nY9G2X3QrfI5bRhEnPVO7sk4Msce4zxsoKIUTT5AWa2ZA==}
@@ -4957,10 +4957,10 @@ snapshots:
       uint8arraylist: 2.4.8
       uint8arrays: 5.1.0
 
-  '@libp2p/tcp@11.0.12':
+  '@libp2p/tcp@11.0.13':
     dependencies:
       '@libp2p/interface': 3.1.0
-      '@libp2p/utils': 7.0.12
+      '@libp2p/utils': 7.0.13
       '@multiformats/multiaddr': 13.0.1
       '@multiformats/multiaddr-matcher': 3.0.1
       '@types/sinon': 20.0.0
@@ -6789,7 +6789,7 @@ snapshots:
       '@libp2p/mdns': 12.0.13
       '@libp2p/mplex': 12.0.13
       '@libp2p/ping': 3.0.12
-      '@libp2p/tcp': 11.0.12
+      '@libp2p/tcp': 11.0.13
       '@libp2p/tls': 3.0.12
       '@libp2p/upnp-nat': 4.0.12
       '@libp2p/webrtc': 6.0.13(react-native@0.84.1(@babel/core@7.29.0)(react@19.2.4))
