@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.19.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.19.0...v0.19.1) (2026-03-25)
+
+
+### Chores
+
+* **deps:** bump @libp2p/identify from 4.0.12 to 4.0.13 ([#381](https://github.com/filecoin-project/filecoin-pin/issues/381)) ([b4cb693](https://github.com/filecoin-project/filecoin-pin/commit/b4cb6933a7b78f10dd97252ce05331dd1e26f72e))
+* **deps:** bump @sentry/node from 10.43.0 to 10.44.0 ([#377](https://github.com/filecoin-project/filecoin-pin/issues/377)) ([95d4386](https://github.com/filecoin-project/filecoin-pin/commit/95d43866625325273b10c66b44c5e525187b73a4))
+* **deps:** bump viem from 2.47.2 to 2.47.4 ([#380](https://github.com/filecoin-project/filecoin-pin/issues/380)) ([1d4e59b](https://github.com/filecoin-project/filecoin-pin/commit/1d4e59bee06e3c0710fd20a2e836716c7f3d923e))
+
 ## [1.0.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.18.0...v1.0.0) (2026-03-20)
 
 
