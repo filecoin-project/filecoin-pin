@@ -16,7 +16,7 @@
  */
 
 import { calibration, SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
-import { formatUnits } from 'viem'
+import { formatUnits, type Hash } from 'viem'
 import { getClientAddress, isSessionKeyMode } from '../synapse/index.js'
 import { assertPriceNonZero } from '../utils/validate-pricing.js'
 import {
@@ -289,7 +289,7 @@ export async function depositUSDFC(
   const amountMoreThanCurrentAllowance =
     (await synapse.payments.allowance({ spender: synapse.chain.contracts.filecoinPay.address })) < amount
 
-  let txHash: `0x${string}`
+  let txHash: Hash
 
   if (amountMoreThanCurrentAllowance || needsAllowanceUpdate) {
     txHash = await synapse.payments.depositWithPermitAndApproveOperator({

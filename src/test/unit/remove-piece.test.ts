@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Hash } from 'viem'
 import { removePiece } from '../../core/piece/index.js'
 
 const { mockDeletePiece, mockWaitForTransactionReceipt, mockSynapse, storageContext, state } = vi.hoisted(() => {
   const state = {
-    txHash: '0xtest-hash' as `0x${string}`,
+    txHash: '0x7e27000000000000000000000000000000000000000000000000000000000000' as Hash,
     dataSetId: 99n,
   }
 
@@ -26,7 +27,7 @@ const { mockDeletePiece, mockWaitForTransactionReceipt, mockSynapse, storageCont
 describe('removePiece', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    state.txHash = '0xtest-hash'
+    state.txHash = '0x7e27000000000000000000000000000000000000000000000000000000000000'
     state.dataSetId = 99n
     storageContext.dataSetId = state.dataSetId
   })

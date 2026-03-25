@@ -15,7 +15,7 @@ export { calibration, mainnet, type Chain }
 import type { SessionKey } from '@filoz/synapse-core/session-key'
 import { fromSecp256k1 } from '@filoz/synapse-core/session-key'
 import type { Logger } from 'pino'
-import { type Account, custom, getAddress, type HttpTransport, http, type WebSocketTransport, webSocket } from 'viem'
+import { type Account, type Address, custom, getAddress, type Hex, type HttpTransport, http, type WebSocketTransport, webSocket } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { APPLICATION_SOURCE } from './constants.js'
 
@@ -57,22 +57,22 @@ interface BaseSynapseConfig {
  * Standard authentication with private key
  */
 export interface PrivateKeyConfig extends BaseSynapseConfig {
-  privateKey: `0x${string}`
+  privateKey: Hex
 }
 
 /**
  * Session key authentication with owner address and session key private key
  */
 export interface SessionKeyConfig extends BaseSynapseConfig {
-  walletAddress: `0x${string}`
-  sessionKey: `0x${string}`
+  walletAddress: Address
+  sessionKey: Hex
 }
 
 /**
  * Read-only mode using an address (cannot sign transactions)
  */
 export interface ReadOnlyConfig extends BaseSynapseConfig {
-  walletAddress: `0x${string}`
+  walletAddress: Address
   readOnly: true
 }
 
@@ -131,7 +131,7 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
   const rpcUrl = config.rpcUrl ?? chain.rpcUrls.default.webSocket?.[0] ?? chain.rpcUrls.default.http[0]
   const transport = rpcUrl ? createTransport(rpcUrl) : undefined
 
-  let account: Account | `0x${string}`
+  let account: Account | Address
   let sessionKey: SessionKey<'Secp256k1'> | undefined
 
   if (isReadOnlyConfig(config)) {
@@ -198,9 +198,9 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
  * Handles both string addresses (read-only / session key mode) and
  * full Account objects (private key mode).
  */
-export function getClientAddress(synapse: Synapse): `0x${string}` {
+export function getClientAddress(synapse: Synapse): Address {
   const account = synapse.client.account
-  return (typeof account === 'string' ? account : account.address) as `0x${string}`
+  return (typeof account === 'string' ? account : account.address) as Address
 }
 
 /**

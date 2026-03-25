@@ -1,4 +1,5 @@
 import type { Synapse } from '@filoz/synapse-sdk'
+import type { Hash } from 'viem'
 import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import type { Logger } from 'pino'
 import { getErrorMessage } from '../utils/errors.js'
@@ -18,13 +19,13 @@ import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
  */
 export type RemovePieceProgressEvents =
   | ProgressEvent<'remove-piece:submitting', { pieceCid: string; dataSetId: bigint }>
-  | ProgressEvent<'remove-piece:submitted', { pieceCid: string; dataSetId: bigint; txHash: `0x${string}` }>
-  | ProgressEvent<'remove-piece:confirming', { pieceCid: string; dataSetId: bigint; txHash: `0x${string}` }>
+  | ProgressEvent<'remove-piece:submitted', { pieceCid: string; dataSetId: bigint; txHash: Hash }>
+  | ProgressEvent<'remove-piece:confirming', { pieceCid: string; dataSetId: bigint; txHash: Hash }>
   | ProgressEvent<
       'remove-piece:confirmation-failed',
-      { pieceCid: string; dataSetId: bigint; txHash: `0x${string}`; message: string }
+      { pieceCid: string; dataSetId: bigint; txHash: Hash; message: string }
     >
-  | ProgressEvent<'remove-piece:complete', { txHash: `0x${string}`; confirmed: boolean }>
+  | ProgressEvent<'remove-piece:complete', { txHash: Hash; confirmed: boolean }>
 
 /**
  * Number of block confirmations to wait for when waitForConfirmation=true
@@ -79,7 +80,7 @@ export async function removePiece(
   pieceCid: string,
   storageContext: StorageContext,
   options: RemovePieceOptions
-): Promise<`0x${string}`> {
+): Promise<Hash> {
   const { onProgress, waitForConfirmation } = options
   const dataSetId = storageContext.dataSetId
 

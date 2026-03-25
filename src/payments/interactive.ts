@@ -9,7 +9,7 @@
 import { cancel, confirm, isCancel, password, text } from '@clack/prompts'
 import { calibration, mainnet } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import { parseUnits } from 'viem'
+import { parseUnits, type Hex } from 'viem'
 import {
   calculateDepositCapacity,
   checkAndSetAllowances,
@@ -84,7 +84,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     const rpcUrl = options.rpcUrl || defaultRpcUrl
 
     const config: PrivateKeyConfig = {
-      privateKey: privateKey as `0x${string}`,
+      privateKey: privateKey as Hex,
     }
     if (rpcUrl) {
       config.rpcUrl = rpcUrl
