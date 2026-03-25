@@ -146,6 +146,26 @@ export async function uploadToSynapse(
 
   const { onProgress, contextId = 'upload' } = options
 
+  if (options.contexts != null) {
+    const conflicting = [
+      options.providerIds != null && 'providerIds',
+      options.dataSetIds != null && 'dataSetIds',
+      options.copies != null && 'copies',
+    ].filter(Boolean)
+    if (conflicting.length > 0) {
+      throw new Error(
+        `Cannot combine 'contexts' with ${conflicting.join(', ')}. ` +
+          'Pre-created contexts fully determine provider targeting and copy count.'
+      )
+    }
+  } else if (options.providerIds != null && options.dataSetIds != null) {
+    throw new Error(
+      "Cannot specify both 'providerIds' and 'dataSetIds'. " +
+        'To target specific providers, use providerIds (recommended). ' +
+        'Use dataSetIds only when resuming into a known dataset from a prior operation.'
+    )
+  }
+
   const uploadOptions: StorageManagerUploadOptions = {
     pieceMetadata: {
       ...(options.pieceMetadata ?? {}),
@@ -273,19 +293,21 @@ export async function uploadToSynapse(
 
   // Pass through context selection options
   if (options.contexts != null) {
+    // Contexts carry their own provider/dataset bindings; no other targeting needed
     uploadOptions.contexts = options.contexts
-  }
-  if (options.copies != null) {
-    uploadOptions.copies = options.copies
-  }
-  if (options.providerIds != null) {
-    uploadOptions.providerIds = options.providerIds
-  }
-  if (options.dataSetIds != null) {
-    uploadOptions.dataSetIds = options.dataSetIds
-  }
-  if (options.excludeProviderIds != null) {
-    uploadOptions.excludeProviderIds = options.excludeProviderIds
+  } else {
+    if (options.copies != null) {
+      uploadOptions.copies = options.copies
+    }
+    if (options.providerIds != null) {
+      uploadOptions.providerIds = options.providerIds
+    }
+    if (options.dataSetIds != null) {
+      uploadOptions.dataSetIds = options.dataSetIds
+    }
+    if (options.excludeProviderIds != null) {
+      uploadOptions.excludeProviderIds = options.excludeProviderIds
+    }
   }
   if (options.signal != null) {
     uploadOptions.signal = options.signal
