@@ -50,6 +50,7 @@ export function createConfig(): Config {
 
     // Synapse SDK configuration
     privateKey: process.env.PRIVATE_KEY, // Required: Ethereum-compatible private key
+    accessToken: process.env.ACCESS_TOKEN,
     rpcUrl, // Determined from RPC_URL, NETWORK, or default to calibration
     // Storage paths
     databasePath: process.env.DATABASE_PATH ?? join(dataDir, 'pins.db'),

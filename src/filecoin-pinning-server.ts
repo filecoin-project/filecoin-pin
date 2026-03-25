@@ -126,6 +126,11 @@ export async function createFilecoinPinningServer(
       return
     }
 
+    if (config.accessToken && token !== config.accessToken) {
+      await reply.code(401).send({ error: 'Invalid access token' })
+      return
+    }
+
     // Add user to request context
     request.user = DEFAULT_USER_INFO
   })
