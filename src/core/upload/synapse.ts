@@ -151,6 +151,7 @@ export async function uploadToSynapse(
       options.providerIds != null && 'providerIds',
       options.dataSetIds != null && 'dataSetIds',
       options.copies != null && 'copies',
+      options.excludeProviderIds != null && 'excludeProviderIds',
     ].filter(Boolean)
     if (conflicting.length > 0) {
       throw new Error(
