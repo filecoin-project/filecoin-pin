@@ -53,6 +53,7 @@ export function createConfig(): Config {
     walletAddress: process.env.WALLET_ADDRESS,
     sessionKey: process.env.SESSION_KEY,
     viewAddress: process.env.VIEW_ADDRESS,
+    accessToken: process.env.ACCESS_TOKEN,
     rpcUrl, // Determined from RPC_URL, NETWORK, or default to calibration
     // Storage paths
     databasePath: process.env.DATABASE_PATH ?? join(dataDir, 'pins.db'),

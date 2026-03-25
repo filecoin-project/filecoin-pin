@@ -39,6 +39,7 @@ export interface Config {
   walletAddress: string | undefined
   sessionKey: string | undefined
   viewAddress: string | undefined
+  accessToken: string | undefined
   rpcUrl: string
   databasePath: string
   carStoragePath: string

@@ -11,6 +11,7 @@ export const serverCommand = new Command('server')
   .option('--private-key <key>', 'private key for standard auth (or use PRIVATE_KEY env var)')
   .option('--wallet-address <address>', 'wallet address for session key auth (or use WALLET_ADDRESS env var)')
   .option('--session-key <key>', 'session key for session key auth (or use SESSION_KEY env var)')
+  .option('--access-token <token>', 'bearer token required on all API requests (or use ACCESS_TOKEN env var)')
 
 addNetworkOptions(serverCommand)
   .addOption(
@@ -27,6 +28,9 @@ addNetworkOptions(serverCommand)
     }
     if (options.sessionKey) {
       process.env.SESSION_KEY = options.sessionKey
+    }
+    if (options.accessToken) {
+      process.env.ACCESS_TOKEN = options.accessToken
     }
     // RPC URL takes precedence over network flag
     if (options.rpcUrl) {
