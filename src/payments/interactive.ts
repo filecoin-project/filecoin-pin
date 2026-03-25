@@ -9,7 +9,7 @@
 import { cancel, confirm, isCancel, password, text } from '@clack/prompts'
 import { calibration, mainnet } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import { parseUnits, type Hex } from 'viem'
+import { type Hex, parseUnits } from 'viem'
 import {
   calculateDepositCapacity,
   checkAndSetAllowances,

@@ -96,9 +96,7 @@ describe('synapse-service', () => {
       // AccountConfig with null account satisfies the type but triggers the no-auth branch
       const config = { rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1' } as any
 
-      await expect(initializeSynapse(config, logger)).rejects.toThrow(
-        'No authentication provided'
-      )
+      await expect(initializeSynapse(config, logger)).rejects.toThrow('No authentication provided')
     })
   })
 

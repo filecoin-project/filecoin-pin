@@ -9,8 +9,8 @@ import type { CopyResult, FailedAttempt, PieceCID, PullStatus, Synapse, UploadRe
 import { METADATA_KEYS, type PDPProvider } from '@filoz/synapse-sdk'
 import type { StorageManagerUploadOptions } from '@filoz/synapse-sdk/storage'
 import type { CID } from 'multiformats/cid'
-import type { Hash } from 'viem'
 import type { Logger } from 'pino'
+import type { Hash } from 'viem'
 import { DEFAULT_DATA_SET_METADATA } from '../synapse/constants.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 

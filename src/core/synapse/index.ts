@@ -15,7 +15,17 @@ export { calibration, mainnet, type Chain }
 import type { SessionKey } from '@filoz/synapse-core/session-key'
 import { fromSecp256k1 } from '@filoz/synapse-core/session-key'
 import type { Logger } from 'pino'
-import { type Account, type Address, custom, getAddress, type Hex, type HttpTransport, http, type WebSocketTransport, webSocket } from 'viem'
+import {
+  type Account,
+  type Address,
+  custom,
+  getAddress,
+  type Hex,
+  type HttpTransport,
+  http,
+  type WebSocketTransport,
+  webSocket,
+} from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { APPLICATION_SOURCE } from './constants.js'
 

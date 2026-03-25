@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Hash } from 'viem'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { removePiece } from '../../core/piece/index.js'
 
 const { mockDeletePiece, mockWaitForTransactionReceipt, mockSynapse, storageContext, state } = vi.hoisted(() => {
