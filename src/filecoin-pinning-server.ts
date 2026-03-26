@@ -141,8 +141,8 @@ export async function createFilecoinPinningServer(
       return
     }
 
-    const token = authHeader.slice(7) // Remove 'Bearer ' prefix
-    if (token.trim().length === 0) {
+    const token = authHeader.slice(7).trim() // Remove 'Bearer ' prefix
+    if (token.length === 0) {
       await reply.code(401).send({ error: 'Invalid access token' })
       return
     }
