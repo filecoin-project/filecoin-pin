@@ -129,6 +129,12 @@ export async function createFilecoinPinningServer(
       return
     }
 
+    // If no access token is configured, allow all requests
+    if (!config.accessToken) {
+      request.user = DEFAULT_USER_INFO
+      return
+    }
+
     const authHeader = request.headers.authorization
     if (authHeader?.startsWith('Bearer ') !== true) {
       await reply.code(401).send({ error: 'Missing or invalid authorization header' })
@@ -141,8 +147,8 @@ export async function createFilecoinPinningServer(
       return
     }
 
-    if (config.accessToken && token !== config.accessToken) {
-      await reply.code(401).send({ error: 'Invalid access token' })
+    if (token !== config.accessToken) {
+      await reply.code(403).send({ error: 'Invalid access token' })
       return
     }
 
