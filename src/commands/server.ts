@@ -8,8 +8,8 @@ export const serverCommand = new Command('server')
   .option('--host <string>', 'server host', '127.0.0.1')
   .option('--car-storage <path>', 'path for CAR file storage', './cars')
   .option('--database <path>', 'path to SQLite database', './pins.db')
-  .option('--private-key <key>', 'private key for Synapse (or use PRIVATE_KEY env var)')
-  .option('--access-token <token>', 'bearer token required on all API requests (or use ACCESS_TOKEN env var)')
+  .option('--private-key <key>', 'private key for Synapse (env: PRIVATE_KEY)')
+  .option('--access-token <token>', 'bearer token required on all API requests except GET / (env: ACCESS_TOKEN)')
 
 addNetworkOptions(serverCommand)
   .addOption(
