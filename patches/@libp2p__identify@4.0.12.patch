@@ -1,0 +1,30 @@
+diff --git a/dist/src/identify.js b/dist/src/identify.js
+index 6a4693ad475722a680548870c0619e36c165f5b6..fd2ac01f65934dcb628efbdecd4b905fe16aba85 100644
+--- a/dist/src/identify.js
++++ b/dist/src/identify.js
+@@ -1,5 +1,5 @@
+ import { publicKeyFromProtobuf, publicKeyToProtobuf } from '@libp2p/crypto/keys';
+-import { InvalidMessageError, serviceCapabilities } from '@libp2p/interface';
++import { InvalidMessageError, StreamStateError, serviceCapabilities } from '@libp2p/interface';
+ import { peerIdFromCID } from '@libp2p/peer-id';
+ import { RecordEnvelope, PeerRecord } from '@libp2p/peer-record';
+ import { isGlobalUnicast, isPrivate, pbStream } from '@libp2p/utils';
+@@ -50,7 +50,17 @@ export class Identify extends AbstractIdentify {
+                 maxDataLength: this.maxMessageSize
+             }).pb(IdentifyMessage);
+             const message = await pb.read(options);
+-            await pb.unwrap().unwrap().close(options);
++            try {
++                await pb.unwrap().unwrap().close(options);
++            }
++            catch (err) {
++                if (!(err instanceof StreamStateError)) {
++                    throw err
++                }
++                // Remote (e.g. Kubo) may close the stream immediately after sending,
++                // causing a StreamStateError on close. The message was already read
++                // successfully, so return it rather than discarding it.
++            }
+             return message;
+         }
+         catch (err) {

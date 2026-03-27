@@ -9,6 +9,11 @@ overrides:
   ox: ^0.14.0
   zod: ^4.3.5
 
+patchedDependencies:
+  '@libp2p/identify@4.0.12':
+    hash: 661fea0e5bb44b1de7fe232c3c835dd2d5328b1c0a0fa1dc04c3f944e47bd35b
+    path: patches/@libp2p__identify@4.0.12.patch
+
 importers:
 
   .:
@@ -39,7 +44,7 @@ importers:
         version: 5.4.2
       '@libp2p/identify':
         specifier: ^4.0.12
-        version: 4.0.12
+        version: 4.0.12(patch_hash=661fea0e5bb44b1de7fe232c3c835dd2d5328b1c0a0fa1dc04c3f944e47bd35b)
       '@libp2p/tcp':
         specifier: ^11.0.12
         version: 11.0.12
@@ -4749,7 +4754,7 @@ snapshots:
       cookie: 1.1.1
       undici: 7.24.0
 
-  '@libp2p/identify@4.0.12':
+  '@libp2p/identify@4.0.12(patch_hash=661fea0e5bb44b1de7fe232c3c835dd2d5328b1c0a0fa1dc04c3f944e47bd35b)':
     dependencies:
       '@libp2p/crypto': 5.1.13
       '@libp2p/interface': 3.1.0
@@ -6728,7 +6733,7 @@ snapshots:
       '@libp2p/config': 1.1.25
       '@libp2p/dcutr': 3.0.12
       '@libp2p/http': 2.0.1
-      '@libp2p/identify': 4.0.12
+      '@libp2p/identify': 4.0.12(patch_hash=661fea0e5bb44b1de7fe232c3c835dd2d5328b1c0a0fa1dc04c3f944e47bd35b)
       '@libp2p/interface': 3.1.0
       '@libp2p/kad-dht': 16.1.5
       '@libp2p/keychain': 6.0.10
