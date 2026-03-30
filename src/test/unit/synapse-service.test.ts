@@ -98,6 +98,20 @@ describe('synapse-service', () => {
 
       await expect(initializeSynapse(config, logger)).rejects.toThrow('No authentication provided')
     })
+
+    it('should throw when walletAddress is provided without sessionKey', async () => {
+      const config = { walletAddress: '0x1234567890123456789012345678901234567890' } as any
+
+      await expect(initializeSynapse(config, logger)).rejects.toThrow('Missing: --session-key / SESSION_KEY')
+    })
+
+    it('should throw when sessionKey is provided without walletAddress', async () => {
+      const config = {
+        sessionKey: '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+      } as any
+
+      await expect(initializeSynapse(config, logger)).rejects.toThrow('Missing: --wallet-address / WALLET_ADDRESS')
+    })
   })
 
   describe('uploadToSynapse', () => {

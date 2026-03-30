@@ -165,6 +165,20 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
     account = config.account
     logger?.info({ event: 'synapse.init', mode: 'account' }, 'Initializing Synapse (pre-created account)')
   } else {
+    const hasWallet = 'walletAddress' in config && config.walletAddress != null
+    const hasSessionKey = 'sessionKey' in config && config.sessionKey != null
+    if (hasWallet && !hasSessionKey) {
+      throw new Error(
+        'Session key authentication requires both --wallet-address and --session-key. ' +
+          'Missing: --session-key / SESSION_KEY.'
+      )
+    }
+    if (hasSessionKey && !hasWallet) {
+      throw new Error(
+        'Session key authentication requires both --wallet-address and --session-key. ' +
+          'Missing: --wallet-address / WALLET_ADDRESS.'
+      )
+    }
     throw new Error(
       'No authentication provided. Supply a private key (--private-key / PRIVATE_KEY), ' +
         'wallet address (--wallet-address / WALLET_ADDRESS), or session key (--session-key / SESSION_KEY).'
