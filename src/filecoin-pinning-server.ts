@@ -1,7 +1,7 @@
 import fastify, { type FastifyInstance, type FastifyRequest } from 'fastify'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import type { Address, Hex } from 'viem'
+import { isAddress, isHex } from 'viem'
 import type { Config } from './core/synapse/index.js'
 import { initializeSynapse, type SynapseSetupConfig } from './core/synapse/index.js'
 import { FilecoinPinStore, type PinOptions } from './filecoin-pin-store.js'
@@ -25,15 +25,30 @@ function buildSynapseConfig(config: Config): SynapseSetupConfig {
   const base = { rpcUrl: config.rpcUrl }
 
   if (config.walletAddress && config.sessionKey) {
+    if (!isAddress(config.walletAddress)) {
+      throw new Error('Wallet address must be an ethereum address')
+    }
+    if (!isHex(config.sessionKey)) {
+      throw new Error('Session key must be 0x-prefixed hexadecimal')
+    }
+    if (config.sessionKey.length !== 66) {
+      throw new Error('Session key must be 32 bytes')
+    }
     return {
       ...base,
-      walletAddress: config.walletAddress as Address,
-      sessionKey: config.sessionKey as Hex,
+      walletAddress: config.walletAddress,
+      sessionKey: config.sessionKey,
     }
   }
 
   if (config.privateKey) {
-    return { ...base, privateKey: config.privateKey as Hex }
+    if (!isHex(config.privateKey)) {
+      throw new Error('Private key must be 0x-prefixed hexadecimal')
+    }
+    if (config.privateKey.length !== 66) {
+      throw new Error('Private key must be 32 bytes')
+    }
+    return { ...base, privateKey: config.privateKey }
   }
 
   throw new Error(
