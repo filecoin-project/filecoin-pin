@@ -1,6 +1,8 @@
+import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { APPLICATION_SOURCE } from '../../core/synapse/constants.js'
 import { executeUpload } from '../../core/upload/index.js'
 import { uploadToSynapse } from '../../core/upload/synapse.js'
 import { createLogger } from '../../logger.js'
@@ -154,6 +156,91 @@ describe('upload option validation', () => {
       expect(passedOptions).not.toHaveProperty('contexts')
       expect(passedOptions?.providerIds).toEqual([1n])
       expect(passedOptions?.copies).toBe(3)
+    })
+  })
+
+  describe('source metadata resolution', () => {
+    let mockSynapse: MockSynapse
+    let logger: Logger
+
+    beforeEach(async () => {
+      logger = createLogger({ logLevel: 'info' })
+      mockSynapse = new MockSynapse()
+      await mockSynapse.createStorageContext()
+      vi.clearAllMocks()
+    })
+
+    it('injects filecoin-pin source when no caller source exists', async () => {
+      const uploadSpy = vi.spyOn(mockSynapse.storage, 'upload')
+      mockSynapse.storage.source = null
+
+      await uploadToSynapse(mockSynapse as any, new Uint8Array([1]), TEST_CID, logger)
+
+      const metadata = uploadSpy.mock.calls[0]?.[1]?.metadata
+      expect(metadata?.[METADATA_KEYS.SOURCE]).toBe(APPLICATION_SOURCE)
+      expect(metadata?.[METADATA_KEYS.WITH_IPFS_INDEXING]).toBe('')
+    })
+
+    it('does not inject source when Synapse instance has one', async () => {
+      const uploadSpy = vi.spyOn(mockSynapse.storage, 'upload')
+      mockSynapse.storage.source = 'dealbot'
+
+      await uploadToSynapse(mockSynapse as any, new Uint8Array([1]), TEST_CID, logger)
+
+      const metadata = uploadSpy.mock.calls[0]?.[1]?.metadata
+      expect(metadata?.[METADATA_KEYS.SOURCE]).toBeUndefined()
+      expect(metadata?.[METADATA_KEYS.WITH_IPFS_INDEXING]).toBe('')
+    })
+
+    it('does not inject source when caller metadata has one', async () => {
+      const uploadSpy = vi.spyOn(mockSynapse.storage, 'upload')
+      mockSynapse.storage.source = null
+
+      await uploadToSynapse(mockSynapse as any, new Uint8Array([1]), TEST_CID, logger, {
+        metadata: { [METADATA_KEYS.SOURCE]: 'myapp' },
+      })
+
+      const metadata = uploadSpy.mock.calls[0]?.[1]?.metadata
+      expect(metadata?.[METADATA_KEYS.SOURCE]).toBe('myapp')
+      expect(metadata?.[METADATA_KEYS.WITH_IPFS_INDEXING]).toBe('')
+    })
+
+    it('does not inject source when context carries one', async () => {
+      const uploadSpy = vi.spyOn(mockSynapse.storage, 'upload')
+      mockSynapse.storage.source = null
+      const ctxWithSource = { dataSetMetadata: { [METADATA_KEYS.SOURCE]: 'ctx-app' } } as any
+
+      await uploadToSynapse(mockSynapse as any, new Uint8Array([1]), TEST_CID, logger, {
+        contexts: [ctxWithSource],
+      })
+
+      const metadata = uploadSpy.mock.calls[0]?.[1]?.metadata
+      expect(metadata?.[METADATA_KEYS.SOURCE]).toBeUndefined()
+    })
+
+    it('caller metadata source overrides filecoin-pin default', async () => {
+      const uploadSpy = vi.spyOn(mockSynapse.storage, 'upload')
+      mockSynapse.storage.source = null
+
+      await uploadToSynapse(mockSynapse as any, new Uint8Array([1]), TEST_CID, logger, {
+        metadata: { [METADATA_KEYS.SOURCE]: 'custom' },
+      })
+
+      const metadata = uploadSpy.mock.calls[0]?.[1]?.metadata
+      expect(metadata?.[METADATA_KEYS.SOURCE]).toBe('custom')
+    })
+
+    it('always includes withIPFSIndexing regardless of source', async () => {
+      const uploadSpy = vi.spyOn(mockSynapse.storage, 'upload')
+      mockSynapse.storage.source = 'whatever'
+
+      await uploadToSynapse(mockSynapse as any, new Uint8Array([1]), TEST_CID, logger, {
+        metadata: { custom: 'value' },
+      })
+
+      const metadata = uploadSpy.mock.calls[0]?.[1]?.metadata
+      expect(metadata?.[METADATA_KEYS.WITH_IPFS_INDEXING]).toBe('')
+      expect(metadata?.custom).toBe('value')
     })
   })
 })
