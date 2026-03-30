@@ -10,7 +10,7 @@ import { METADATA_KEYS, type PDPProvider } from '@filoz/synapse-sdk'
 import type { StorageContext, StorageManagerUploadOptions } from '@filoz/synapse-sdk/storage'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import { DEFAULT_DATA_SET_METADATA } from '../synapse/constants.js'
+import { APPLICATION_SOURCE } from '../synapse/constants.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 
 export type UploadProgressEvents =
@@ -285,10 +285,24 @@ export async function uploadToSynapse(
     },
   }
 
-  // Always include default data set metadata (withIPFSIndexing, source).
-  // User-supplied metadata can extend but not remove these defaults.
+  // Always include functional defaults (IPFS indexing). Only inject
+  // 'filecoin-pin' as source when no source is provided by the caller via
+  // explicit metadata, pre-resolved contexts, or the Synapse instance.
+  const hasCallerSource =
+    options.metadata?.[METADATA_KEYS.SOURCE] != null ||
+    options.contexts?.some((ctx) => ctx.dataSetMetadata?.[METADATA_KEYS.SOURCE] != null) ||
+    // StorageManager.source getter to be added in https://github.com/FilOzone/synapse-sdk/pull/701
+    (synapse.storage as { source?: string | null }).source != null
+
+  const baseMetadata: Record<string, string> = {
+    [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+  }
+  if (!hasCallerSource) {
+    baseMetadata[METADATA_KEYS.SOURCE] = APPLICATION_SOURCE
+  }
+
   uploadOptions.metadata = {
-    ...DEFAULT_DATA_SET_METADATA,
+    ...baseMetadata,
     ...(options.metadata ?? {}),
   }
 
