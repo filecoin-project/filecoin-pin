@@ -2,7 +2,7 @@ import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initializeSynapse, type SynapseSetupConfig } from '../../core/synapse/index.js'
-import { uploadToSynapse } from '../../core/upload/index.js'
+import { uploadToSynapse } from '../../core/upload/synapse.js'
 import { createLogger } from '../../logger.js'
 import { MockSynapse } from '../mocks/synapse-mocks.js'
 
