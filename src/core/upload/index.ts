@@ -1,5 +1,6 @@
 import type { Chain, PDPProvider, Synapse } from '@filoz/synapse-sdk'
 import { calibration, mainnet } from '@filoz/synapse-sdk'
+import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { DEVNET_CHAIN_ID } from '../../common/constants.js'
@@ -224,10 +225,44 @@ export interface UploadExecutionOptions {
   /** Number of storage copies to create (default determined by SDK). */
   copies?: number
 
-  /** Specific provider IDs to use. */
+  /**
+   * Pre-created storage contexts to use directly. When provided, the SDK
+   * skips provider selection and uses these contexts as-is. Each context
+   * carries its provider binding and (optional) data set ID.
+   *
+   * Mutually exclusive with `providerIds`, `dataSetIds`, and `copies`.
+   *
+   * @example Upload using a pre-resolved context
+   * ```ts
+   * const [ctx] = await synapse.storage.createContexts({ providerIds: [9n] })
+   * executeUpload(synapse, carData, rootCid, { contexts: [ctx], logger, ... })
+   * ```
+   */
+  contexts?: StorageContext[]
+
+  /**
+   * Specific provider IDs to upload to. The SDK resolves or creates data sets
+   * on each provider automatically. Mutually exclusive with `dataSetIds` and
+   * `contexts`.
+   *
+   * This is the recommended way to target specific providers. Do not call
+   * `createContext()` to resolve data sets first. Pass provider IDs here
+   * and the SDK handles the rest.
+   *
+   * @example Upload to two specific providers
+   * ```ts
+   * executeUpload(synapse, carData, rootCid, { providerIds: [4n, 9n], ... })
+   * ```
+   */
   providerIds?: bigint[]
 
-  /** Specific data set IDs to use. */
+  /**
+   * Specific existing data set IDs to target. Mutually exclusive with
+   * `providerIds` and `contexts`.
+   *
+   * Use only when resuming into a known data set from a prior operation.
+   * For first-time uploads to specific providers, use `providerIds` instead.
+   */
   dataSetIds?: bigint[]
 
   /** Provider IDs to exclude from selection. */
@@ -262,6 +297,27 @@ export async function executeUpload(
   options.signal?.throwIfAborted()
 
   const { logger, contextId } = options
+
+  if (options.contexts != null) {
+    const conflicting = [
+      options.providerIds != null && 'providerIds',
+      options.dataSetIds != null && 'dataSetIds',
+      options.copies != null && 'copies',
+      options.excludeProviderIds != null && 'excludeProviderIds',
+    ].filter(Boolean)
+    if (conflicting.length > 0) {
+      throw new Error(
+        `Cannot combine 'contexts' with ${conflicting.join(', ')}. ` +
+          'Pre-created contexts fully determine provider targeting and copy count.'
+      )
+    }
+  } else if (options.providerIds != null && options.dataSetIds != null) {
+    throw new Error(
+      "Cannot specify both 'providerIds' and 'dataSetIds'. " +
+        'To target specific providers, use providerIds (recommended). ' +
+        'Use dataSetIds only when resuming into a known dataset from a prior operation.'
+    )
+  }
 
   // Collect providers from `onProviderSelected` events for IPNI validation
   const selectedProviders: PDPProvider[] = []
@@ -327,17 +383,22 @@ export async function executeUpload(
   if (options.signal != null) {
     uploadOptions.signal = options.signal
   }
-  if (options.copies != null) {
-    uploadOptions.copies = options.copies
-  }
-  if (options.providerIds != null) {
-    uploadOptions.providerIds = options.providerIds
-  }
-  if (options.dataSetIds != null) {
-    uploadOptions.dataSetIds = options.dataSetIds
-  }
-  if (options.excludeProviderIds != null) {
-    uploadOptions.excludeProviderIds = options.excludeProviderIds
+  if (options.contexts != null) {
+    // Contexts carry their own provider/dataset bindings; no other targeting needed
+    uploadOptions.contexts = options.contexts
+  } else {
+    if (options.copies != null) {
+      uploadOptions.copies = options.copies
+    }
+    if (options.providerIds != null) {
+      uploadOptions.providerIds = options.providerIds
+    }
+    if (options.dataSetIds != null) {
+      uploadOptions.dataSetIds = options.dataSetIds
+    }
+    if (options.excludeProviderIds != null) {
+      uploadOptions.excludeProviderIds = options.excludeProviderIds
+    }
   }
   if (options.metadata != null) {
     uploadOptions.metadata = options.metadata
