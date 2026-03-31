@@ -291,8 +291,7 @@ export async function uploadToSynapse(
   const hasCallerSource =
     options.metadata?.[METADATA_KEYS.SOURCE] != null ||
     options.contexts?.some((ctx) => ctx.dataSetMetadata?.[METADATA_KEYS.SOURCE] != null) ||
-    // StorageManager.source getter to be added in https://github.com/FilOzone/synapse-sdk/pull/701
-    (synapse.storage as { source?: string | null }).source != null
+    synapse.storage.source != null
 
   const baseMetadata: Record<string, string> = {
     [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
