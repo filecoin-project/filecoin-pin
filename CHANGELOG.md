@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.20.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.19.0...v0.20.0) (2026-03-31)
+
+
+### Bug Fixes
+
+* **core,dx:** contexts in executeUpload, provider targeting docs, pass 'source' option through ([#373](https://github.com/filecoin-project/filecoin-pin/issues/373)) ([b307beb](https://github.com/filecoin-project/filecoin-pin/commit/b307beb7cb08e03533567f7dabccfdea795ccedb))
+
+
+### Chores
+
+* **deps:** bump @libp2p/identify from 4.0.12 to 4.0.13 ([#381](https://github.com/filecoin-project/filecoin-pin/issues/381)) ([b4cb693](https://github.com/filecoin-project/filecoin-pin/commit/b4cb6933a7b78f10dd97252ce05331dd1e26f72e))
+* **deps:** bump @libp2p/tcp from 11.0.12 to 11.0.13 ([#378](https://github.com/filecoin-project/filecoin-pin/issues/378)) ([2e386d2](https://github.com/filecoin-project/filecoin-pin/commit/2e386d2c1e6b2814633bf7c610aaf0482e7b3196))
+* **deps:** bump @sentry/node from 10.43.0 to 10.44.0 ([#377](https://github.com/filecoin-project/filecoin-pin/issues/377)) ([95d4386](https://github.com/filecoin-project/filecoin-pin/commit/95d43866625325273b10c66b44c5e525187b73a4))
+* **deps:** bump libp2p from 3.1.5 to 3.1.6 ([#379](https://github.com/filecoin-project/filecoin-pin/issues/379)) ([f594bfe](https://github.com/filecoin-project/filecoin-pin/commit/f594bfeafb2ff76286dda334211d0b5aeb93abb5))
+* **deps:** bump viem from 2.47.2 to 2.47.4 ([#380](https://github.com/filecoin-project/filecoin-pin/issues/380)) ([1d4e59b](https://github.com/filecoin-project/filecoin-pin/commit/1d4e59bee06e3c0710fd20a2e836716c7f3d923e))
+* release 0.20.0 ([baef391](https://github.com/filecoin-project/filecoin-pin/commit/baef3914fb3b99115fdf9cdb7118e206210c37bc))
+
 ## [1.0.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.18.0...v1.0.0) (2026-03-20)
 
 
