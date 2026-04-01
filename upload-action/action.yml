@@ -129,11 +129,18 @@ runs:
         REPO_ROOT=$(cd "$REPO_ROOT" && pwd)
         echo "path=$REPO_ROOT" >> $GITHUB_OUTPUT
 
+    - name: Get pnpm version
+      id: pnpm-version
+      shell: bash
+      run: |
+        VERSION=$(node -pe "require('./package.json').packageManager.split('@')[1]")
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
     - name: Set up pnpm
       uses: pnpm/action-setup@v4
       with:
         run_install: false
-        version: 10.32.1
+        version: ${{ steps.pnpm-version.version }}
 
     - name: Set up Node.js
       uses: actions/setup-node@v6
