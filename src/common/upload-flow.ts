@@ -48,10 +48,23 @@ export interface UploadFlowOptions {
   /** Number of storage copies to create. */
   copies?: number
 
-  /** Specific provider IDs to use. */
+  /**
+   * Specific provider IDs to upload to. The SDK resolves or creates data sets
+   * on each provider automatically. Mutually exclusive with `dataSetIds`.
+   *
+   * This is the recommended way to target specific providers. Do not call
+   * `createContext()` to resolve data sets first. Pass provider IDs here
+   * and the SDK handles the rest.
+   */
   providerIds?: bigint[]
 
-  /** Specific data set IDs to use. */
+  /**
+   * Specific existing data set IDs to target. Mutually exclusive with
+   * `providerIds`.
+   *
+   * Use only when resuming into a known data set from a prior operation.
+   * For first-time uploads to specific providers, use `providerIds` instead.
+   */
   dataSetIds?: bigint[]
 
   /** Provider IDs to exclude from selection. */

@@ -8,9 +8,10 @@ export const serverCommand = new Command('server')
   .option('--host <string>', 'server host', '127.0.0.1')
   .option('--car-storage <path>', 'path for CAR file storage', './cars')
   .option('--database <path>', 'path to SQLite database', './pins.db')
-  .option('--private-key <key>', 'private key for standard auth (or use PRIVATE_KEY env var)')
-  .option('--wallet-address <address>', 'wallet address for session key auth (or use WALLET_ADDRESS env var)')
-  .option('--session-key <key>', 'session key for session key auth (or use SESSION_KEY env var)')
+  .option('--private-key <key>', 'private key for Synapse (env: PRIVATE_KEY)')
+  .option('--wallet-address <address>', 'wallet address for session key auth (env: WALLET_ADDRESS)')
+  .option('--session-key <key>', 'session key for session key auth (env: SESSION_KEY)')
+  .option('--access-token <token>', 'bearer token required on all API requests except GET / (env: ACCESS_TOKEN)')
 
 addNetworkOptions(serverCommand)
   .addOption(
@@ -27,6 +28,9 @@ addNetworkOptions(serverCommand)
     }
     if (options.sessionKey) {
       process.env.SESSION_KEY = options.sessionKey
+    }
+    if (options.accessToken) {
+      process.env.ACCESS_TOKEN = options.accessToken
     }
     // RPC URL takes precedence over network flag
     if (options.rpcUrl) {
