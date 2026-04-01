@@ -30,6 +30,7 @@ export interface Config {
   port: number
   host: string
   privateKey: string | undefined
+  accessToken: string | undefined
   rpcUrl: string
   databasePath: string
   carStoragePath: string
