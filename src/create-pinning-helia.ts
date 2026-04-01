@@ -32,7 +32,17 @@ export async function createPinningHeliaNode(options: PinningHeliaOptions): Prom
 }> {
   const { logger, rootCID, outputPath, origins = [] } = options
 
-  const dialAddrs = origins.map(multiaddr)
+  // Parse origins into multiaddrs
+  const dialTargets = origins
+    .map((origin) => {
+      try {
+        return multiaddr(origin)
+      } catch (error) {
+        logger.warn({ origin, error }, 'Failed to parse origin multiaddr')
+        return null
+      }
+    })
+    .filter((addr) => addr != null)
 
   const libp2p = await createLibp2p({
     addresses: {
@@ -74,11 +84,11 @@ export async function createPinningHeliaNode(options: PinningHeliaOptions): Prom
   logger.info(`Writing blocks to CAR file: ${outputPath}`)
 
   // Connect to origin nodes if provided
-  if (dialAddrs.length > 0) {
-    logger.info({ count: dialAddrs.length }, 'Connecting to origin node')
+  if (dialTargets.length > 0) {
+    logger.info({ count: dialTargets.length }, 'Connecting to origin node')
     try {
-      await helia.libp2p.dial(dialAddrs)
-      logger.info({ count: dialAddrs.length }, 'Connected to origin node')
+      await helia.libp2p.dial(dialTargets)
+      logger.info('Connected to origin node')
     } catch (error) {
       logger.warn({ error }, 'Failed to connect to origin node')
     }
