@@ -133,7 +133,7 @@ runs:
       uses: pnpm/action-setup@v4
       with:
         run_install: false
-        package_json_file: ${{ steps.repo-root.outputs.path }}/package.json
+        package_json_file: ../package.json
 
     - name: Set up Node.js
       uses: actions/setup-node@v6
