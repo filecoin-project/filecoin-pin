@@ -82,8 +82,10 @@ export async function createPinningHeliaNode(options: PinningHeliaOptions): Prom
 
   logger.info(`Pinning Helia node started with peer ID: ${helia.libp2p.peerId.toString()}`)
   logger.info(`Writing blocks to CAR file: ${outputPath}`)
+
+  // Connect to origin node if provided
   if (dialTargets.length > 0) {
-    logger.info({ options: dialTargets.length }, 'Connecting to origin node')
+    logger.info({ origins: dialTargets.length }, 'Connecting to origin node')
     try {
       await helia.libp2p.dial(dialTargets)
       logger.info('Connected to origin node')
