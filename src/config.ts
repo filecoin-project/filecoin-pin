@@ -47,10 +47,10 @@ export function createConfig(): Config {
     // Application-specific configuration
     port: parseInt(process.env.PORT ?? '3456', 10),
     host: process.env.HOST ?? 'localhost',
+    accessToken: process.env.ACCESS_TOKEN,
 
     // Synapse SDK configuration
     privateKey: process.env.PRIVATE_KEY, // Required: Ethereum-compatible private key
-    accessToken: process.env.ACCESS_TOKEN,
     rpcUrl, // Determined from RPC_URL, NETWORK, or default to calibration
     // Storage paths
     databasePath: process.env.DATABASE_PATH ?? join(dataDir, 'pins.db'),
