@@ -106,6 +106,7 @@ export interface FilecoinPayFundingPlanOptions {
   targetDeposit?: bigint | undefined
   pieceSizeBytes?: number | undefined
   pricePerTiBPerEpoch?: bigint | undefined
+  newDataSetCount?: number | undefined
   mode?: FundingMode | undefined
   allowWithdraw?: boolean | undefined
 }
@@ -131,6 +132,7 @@ export interface FilecoinPayFundingPlan {
   mode: FundingMode
   pieceSizeBytes?: number
   pricePerTiBPerEpoch?: bigint
+  newDataSetCount?: number
   projectedDeposit: bigint
   projectedRateUsed: bigint
   projectedLockupUsed: bigint

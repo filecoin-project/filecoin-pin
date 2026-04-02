@@ -89,15 +89,22 @@ export interface UploadFlowResult extends SynapseUploadResult {
  * @param synapse - Initialized Synapse instance
  * @param fileSize - Size of file being uploaded (in bytes)
  * @param spinner - Optional spinner for progress
- * @param options - Optional auto-funding modifiers
+ * @param options - Optional auto-funding modifiers and upload targeting inputs
  * @param options.minRunwayDays - Minimum runway to maintain, in days (defaults to MIN_RUNWAY_DAYS)
  * @param options.maxBalance - Maximum Filecoin Pay balance after deposit (USDFC base units)
+ * @param options.copies - Number of storage copies used to estimate new data set fees
+ * @param options.providerIds - Provider IDs used to estimate new data set fees
+ * @param options.dataSetIds - Data set IDs used to estimate new data set fees
+ * @param options.metadata - Data set metadata used to estimate new data set fees
  */
 export async function performAutoFunding(
   synapse: Synapse,
   fileSize: number,
   spinner?: Spinner,
-  options: { minRunwayDays?: number; maxBalance?: bigint } = {}
+  options: Pick<
+    AutoFundOptions,
+    'minRunwayDays' | 'maxBalance' | 'copies' | 'providerIds' | 'dataSetIds' | 'metadata'
+  > = {}
 ): Promise<void> {
   spinner?.start('Checking funding requirements for upload...')
 
@@ -105,6 +112,10 @@ export async function performAutoFunding(
     const fundOptions: AutoFundOptions = {
       synapse,
       fileSize,
+      ...(options?.copies != null ? { copies: options.copies } : {}),
+      ...(options?.providerIds != null ? { providerIds: options.providerIds } : {}),
+      ...(options?.dataSetIds != null ? { dataSetIds: options.dataSetIds } : {}),
+      ...(options?.metadata != null ? { metadata: options.metadata } : {}),
     }
     if (spinner !== undefined) {
       fundOptions.spinner = spinner
