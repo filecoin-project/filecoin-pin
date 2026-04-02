@@ -4,7 +4,10 @@ on:
   pull_request:
 
 jobs:
-  dry-run:
+  test:
+    strategy:
+      matrix:
+        dry-run: [true, false]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -19,6 +22,6 @@ jobs:
         uses: ./upload-action
         with:
           path: .
-          walletPrivateKey: 0x000000000000000000000000000000000000dead
+          walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
           network: calibration
-          dryRun: true # TODO: Upload to calibration
+          dryRun: ${{ matrix.dry-run }}
