@@ -402,6 +402,33 @@ describe('CAR Import', () => {
         })
       )
     })
+
+    it('passes upload targeting options through to auto-funding', async () => {
+      const carPath = join(testDir, 'auto-fund.car')
+      await createTestCarFile(carPath, [], [{ content: 'test content' }])
+
+      const options: ImportOptions = {
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        autoFund: true,
+        dataSetIds: '123',
+        dataSetMetadata: { erc8004Files: '' },
+      }
+
+      await runCarImport(options)
+
+      const { performAutoFunding } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performAutoFunding)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        expect.anything(),
+        expect.objectContaining({
+          dataSetIds: [123n],
+          copies: 1,
+          metadata: { erc8004Files: '' },
+        })
+      )
+    })
   })
 
   describe('Upload Result', () => {

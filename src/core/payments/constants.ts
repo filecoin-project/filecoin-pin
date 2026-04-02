@@ -29,6 +29,11 @@ export const DEFAULT_LOCKUP_DAYS = 30
 export const FLOOR_PRICE_PER_30_DAYS = parseUnits('0.06', USDFC_DECIMALS)
 
 /**
+ * One-time sybil fee charged when creating a new WarmStorage data set
+ */
+export const USDFC_SYBIL_FEE = parseUnits('0.1', USDFC_DECIMALS)
+
+/**
  * Number of days the floor price covers
  */
 export const FLOOR_PRICE_DAYS = 30

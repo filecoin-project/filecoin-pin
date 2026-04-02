@@ -88,14 +88,24 @@ export interface UploadFlowResult extends SynapseUploadResult {
  * @param synapse - Initialized Synapse instance
  * @param fileSize - Size of file being uploaded (in bytes)
  * @param spinner - Optional spinner for progress
+ * @param options - Optional upload targeting inputs used to estimate new data set fees
  */
-export async function performAutoFunding(synapse: Synapse, fileSize: number, spinner?: Spinner): Promise<void> {
+export async function performAutoFunding(
+  synapse: Synapse,
+  fileSize: number,
+  spinner?: Spinner,
+  options?: Pick<AutoFundOptions, 'copies' | 'providerIds' | 'dataSetIds' | 'metadata'>
+): Promise<void> {
   spinner?.start('Checking funding requirements for upload...')
 
   try {
     const fundOptions: AutoFundOptions = {
       synapse,
       fileSize,
+      ...(options?.copies != null ? { copies: options.copies } : {}),
+      ...(options?.providerIds != null ? { providerIds: options.providerIds } : {}),
+      ...(options?.dataSetIds != null ? { dataSetIds: options.dataSetIds } : {}),
+      ...(options?.metadata != null ? { metadata: options.metadata } : {}),
     }
     if (spinner !== undefined) {
       fundOptions.spinner = spinner

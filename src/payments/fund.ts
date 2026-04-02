@@ -134,14 +134,23 @@ async function printSummary(synapse: Synapse, title = 'Updated'): Promise<void> 
  * @throws Error if adjustment fails or target is unsafe
  */
 export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustmentResult> {
-  const { synapse, fileSize, spinner } = options
+  const { synapse, fileSize, copies, providerIds, dataSetIds, metadata, spinner } = options
 
   spinner?.message('Checking wallet readiness...')
+
+  const contexts = await synapse.storage.createContexts({
+    ...(copies != null ? { copies } : {}),
+    ...(providerIds != null ? { providerIds } : {}),
+    ...(dataSetIds != null ? { dataSetIds } : {}),
+    ...(metadata != null ? { metadata } : {}),
+  })
+  const newDataSetCount = contexts.filter((context) => context.dataSetId == null).length
 
   const planResult = await planFilecoinPayFunding({
     synapse,
     targetRunwayDays: MIN_RUNWAY_DAYS,
     pieceSizeBytes: fileSize,
+    newDataSetCount,
     ensureAllowances: true,
     allowWithdraw: false,
   })

@@ -13,8 +13,6 @@ import { formatRunwaySummary, formatUSDFC } from 'filecoin-pin/core/utils'
 import { CID } from 'multiformats/cid'
 import { getErrorMessage } from './errors.js'
 
-const USDFC_SYBIL_FEE = 100_000_000_000_000_000n
-
 /**
  * @typedef {import('./types.js').ParsedInputs} ParsedInputs
  * @typedef {import('./types.js').BuildResult} BuildResult
@@ -123,6 +121,8 @@ export async function handlePayments(synapse, options, logger) {
   console.log(`Current Filecoin Pay balance: ${initialFilecoinPayBalance} USDFC`)
   console.log(`Wallet USDFC balance: ${initialWalletBalance} USDFC`)
 
+  const newDataSetCount = contexts.filter((context) => context.dataSetId == null).length
+
   // Calculate required funding using the comprehensive funding planner
   const fundingPlan = calculateFilecoinPayFundingPlan({
     status: rawStatus,
@@ -131,6 +131,7 @@ export async function handlePayments(synapse, options, logger) {
     targetRunwayDays: minStorageDays,
     pieceSizeBytes,
     pricePerTiBPerEpoch: storageInfo.pricing.noCDN.perTiBPerEpoch,
+    newDataSetCount,
   })
 
   if (fundingPlan.delta > 0n) {
@@ -138,20 +139,15 @@ export async function handlePayments(synapse, options, logger) {
     console.log(`\n${reasonMessage}: ${formatUSDFC(fundingPlan.delta)} USDFC`)
   }
 
-  const newDataSetCount = contexts.filter((context) => context.dataSetId == null).length
-  const sybilFeeTopUp = BigInt(newDataSetCount) * USDFC_SYBIL_FEE
-
-  if (sybilFeeTopUp > 0n) {
+  if (newDataSetCount > 0) {
     console.log(
       `Additional funding for ${newDataSetCount} new data set${newDataSetCount === 1 ? '' : 's'} ` +
-        `(sybil fee): ${formatUSDFC(sybilFeeTopUp)} USDFC`
+        '(sybil fee) is included in the planned top-up'
     )
   }
 
-  const totalTopUp = fundingPlan.delta + sybilFeeTopUp
-
   // Execute top-up with balance limit checking
-  const topUpResult = await executeTopUp(synapse, totalTopUp, {
+  const topUpResult = await executeTopUp(synapse, fundingPlan.delta, {
     balanceLimit: filecoinPayBalanceLimit,
     logger,
   })
