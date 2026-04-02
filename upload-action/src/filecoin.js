@@ -12,13 +12,15 @@ import { formatRunwaySummary, formatUSDFC } from 'filecoin-pin/core/utils'
 import { CID } from 'multiformats/cid'
 import { getErrorMessage } from './errors.js'
 
+const USDFC_SYBIL_FEE = 100_000_000_000_000_000n
+
 /**
  * @typedef {import('./types.js').ParsedInputs} ParsedInputs
  * @typedef {import('./types.js').BuildResult} BuildResult
  * @typedef {import('./types.js').UploadResult} UploadResult
  * @typedef {import('./types.js').PaymentStatus} PaymentStatus
  * @typedef {import('./types.js').SimplifiedPaymentStatus} SimplifiedPaymentStatus
- * @typedef {import('./types.js').PaymentConfig} PaymentConfig
+ * @typedef {import('./types.js').PaymentFundingConfig} PaymentFundingConfig
  * @typedef {import('./types.js').UploadConfig} UploadConfig
  * @typedef {import('./types.js').FilecoinPinPaymentStatus} FilecoinPinPaymentStatus
  * @typedef {import('./types.js').Synapse} Synapse
@@ -50,15 +52,22 @@ export async function createCarFile(targetPath, contentPath, logger) {
 /**
  * Handle payment setup and top-ups using core payment functions
  * @param {Synapse} synapse - Synapse service
- * @param {PaymentConfig} options - Payment options
+ * @param {PaymentFundingConfig} options - Payment options
  * @param {Logger | undefined} logger - Logger instance
  * @returns {Promise<SimplifiedPaymentStatus>} Updated payment status
  */
 export async function handlePayments(synapse, options, logger) {
-  const { minStorageDays, filecoinPayBalanceLimit, pieceSizeBytes } = options
+  const { minStorageDays, filecoinPayBalanceLimit, pieceSizeBytes, withCDN, providerIds } = options
 
   console.log('Checking current Filecoin Pay account balance...')
-  const [rawStatus, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
+  const [rawStatus, storageInfo, contexts] = await Promise.all([
+    getPaymentStatus(synapse),
+    synapse.storage.getStorageInfo(),
+    synapse.storage.createContexts({
+      ...(providerIds != null && providerIds.length > 0 ? { providerIds } : {}),
+      ...(withCDN ? { withCDN } : {}),
+    }),
+  ])
 
   const initialFilecoinPayBalance = formatUSDFC(rawStatus.filecoinPayBalance)
   const initialWalletBalance = formatUSDFC(rawStatus.walletUsdfcBalance)
@@ -81,8 +90,20 @@ export async function handlePayments(synapse, options, logger) {
     console.log(`\n${reasonMessage}: ${formatUSDFC(fundingPlan.delta)} USDFC`)
   }
 
+  const newDataSetCount = contexts.filter((context) => context.dataSetId == null).length
+  const sybilFeeTopUp = BigInt(newDataSetCount) * USDFC_SYBIL_FEE
+
+  if (sybilFeeTopUp > 0n) {
+    console.log(
+      `Additional funding for ${newDataSetCount} new data set${newDataSetCount === 1 ? '' : 's'} ` +
+        `(sybil fee): ${formatUSDFC(sybilFeeTopUp)} USDFC`
+    )
+  }
+
+  const totalTopUp = fundingPlan.delta + sybilFeeTopUp
+
   // Execute top-up with balance limit checking
-  const topUpResult = await executeTopUp(synapse, fundingPlan.delta, {
+  const topUpResult = await executeTopUp(synapse, totalTopUp, {
     balanceLimit: filecoinPayBalanceLimit,
     logger,
   })
