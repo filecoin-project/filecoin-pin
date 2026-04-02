@@ -165,6 +165,8 @@ export async function runUpload(buildContext = {}) {
         minStorageDays,
         filecoinPayBalanceLimit,
         pieceSizeBytes: context.carSize,
+        withCDN,
+        providerIds,
       },
       logger
     )
