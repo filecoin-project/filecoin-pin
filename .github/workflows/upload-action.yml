@@ -4,16 +4,10 @@ on:
   pull_request:
 
 jobs:
-  test:
-    strategy:
-      matrix:
-        dry-run: [true, false]
+  dry-run:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      checks: write
-      pull-requests: write
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -22,6 +16,19 @@ jobs:
         uses: ./upload-action
         with:
           path: .
+          walletPrivateKey: 0x000000000000000000000000000000000000dead
+          network: calibration
+          dryRun: true
+  upload:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Upload to Filecoin
+        uses: ./upload-action
+        with:
+          path: .
           walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
           network: calibration
-          dryRun: ${{ matrix.dry-run }}
