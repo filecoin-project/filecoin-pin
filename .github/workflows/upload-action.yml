@@ -17,7 +17,7 @@ jobs:
         uses: ./upload-action
         with:
           path: ./src
-          walletPrivateKey: 0x000000000000000000000000000000000000dead
+          walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
           network: calibration
           dryRun: true
   upload:
