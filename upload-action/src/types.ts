@@ -88,6 +88,11 @@ export interface PaymentConfig {
   pieceSizeBytes?: number | undefined
 }
 
+export interface PaymentFundingConfig extends PaymentConfig {
+  withCDN: boolean
+  providerIds?: bigint[] | undefined
+}
+
 export interface UploadConfig {
   withCDN: boolean
   providerIds?: bigint[] | undefined
