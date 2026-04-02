@@ -17,6 +17,7 @@ import { runAdd } from '../../add/add.js'
 // Mock the external dependencies at module level
 vi.mock('../../common/upload-flow.js', () => ({
   validatePaymentSetup: vi.fn(),
+  performAutoFunding: vi.fn(),
   performUpload: vi.fn().mockResolvedValue({
     pieceCid: 'bafkzcibtest1234567890',
     size: 1024,
@@ -238,6 +239,30 @@ describe('Add Command', () => {
         expect.objectContaining({
           dataSetIds: [123n],
           copies: 1,
+        })
+      )
+    })
+
+    it('passes upload targeting options through to auto-funding', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        autoFund: true,
+        providerIds: '7,8',
+        dataSetMetadata: { purpose: 'erc8004' },
+      })
+
+      const { performAutoFunding } = await import('../../common/upload-flow.js')
+
+      expect(vi.mocked(performAutoFunding)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        expect.anything(),
+        expect.objectContaining({
+          providerIds: [7n, 8n],
+          copies: 2,
+          metadata: { purpose: 'erc8004' },
         })
       )
     })

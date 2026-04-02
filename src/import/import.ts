@@ -202,7 +202,20 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
     if (options.autoFund) {
-      await performAutoFunding(synapse, fileStat.size, spinner)
+      const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {
+        ...(dataSetMetadata && { metadata: dataSetMetadata }),
+        ...(options.copies != null && { copies: options.copies }),
+      }
+      if (contextSelection.providerIds) {
+        autoFundOptions.providerIds = contextSelection.providerIds
+        autoFundOptions.copies = contextSelection.providerIds.length
+      }
+      if (contextSelection.dataSetIds) {
+        autoFundOptions.dataSetIds = contextSelection.dataSetIds
+        autoFundOptions.copies = contextSelection.dataSetIds.length
+      }
+
+      await performAutoFunding(synapse, fileStat.size, spinner, autoFundOptions)
     } else {
       spinner.start('Checking payment capacity...')
       await validatePaymentSetup(synapse, fileStat.size, spinner)

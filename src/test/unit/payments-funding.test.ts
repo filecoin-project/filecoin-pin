@@ -2,6 +2,7 @@ import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as paymentsIndex from '../../core/payments/index.js'
 import {
+  calculateFilecoinPayFundingPlan,
   executeFilecoinPayFunding,
   getFilecoinPayFundingInsights,
   type PaymentStatus,
@@ -194,6 +195,33 @@ describe('planFilecoinPayFunding', () => {
     expect(plan.pricePerTiBPerEpoch).toBe(1n)
     expect(plan.delta).toBeGreaterThan(0n)
     expect(plan.reasonCode).toBe('runway-with-piece')
+  })
+
+  it('adds sybil fees for new data sets in the shared funding plan', () => {
+    const status = makeStatus({ filecoinPayBalance: 0n, wallet: 1_000_000_000_000_000_000n })
+
+    const basePlan = calculateFilecoinPayFundingPlan({
+      status,
+      targetRunwayDays: 30,
+      pieceSizeBytes: 1024,
+      pricePerTiBPerEpoch: 1n,
+      newDataSetCount: 0,
+      mode: 'minimum',
+      allowWithdraw: false,
+    })
+
+    const withFeesPlan = calculateFilecoinPayFundingPlan({
+      status,
+      targetRunwayDays: 30,
+      pieceSizeBytes: 1024,
+      pricePerTiBPerEpoch: 1n,
+      newDataSetCount: 2,
+      mode: 'minimum',
+      allowWithdraw: false,
+    })
+
+    expect(withFeesPlan.delta - basePlan.delta).toBe(200_000_000_000_000_000n)
+    expect(withFeesPlan.targetDeposit).toBe((basePlan.targetDeposit ?? 0n) + 200_000_000_000_000_000n)
   })
 })
 
