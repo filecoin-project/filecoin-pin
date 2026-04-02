@@ -1,9 +1,8 @@
 import { promises as fs } from 'node:fs'
 import {
-  calculateFilecoinPayFundingPlan,
   calculateStorageRunway,
+  checkAndSetAllowances,
   executeTopUp,
-  formatFundingReason,
   getPaymentStatus,
 } from 'filecoin-pin/core/payments'
 import { createUnixfsCarBuilder } from 'filecoin-pin/core/unixfs'
@@ -12,13 +11,15 @@ import { formatRunwaySummary, formatUSDFC } from 'filecoin-pin/core/utils'
 import { CID } from 'multiformats/cid'
 import { getErrorMessage } from './errors.js'
 
+const EPOCHS_PER_DAY = 2880n
+
 /**
  * @typedef {import('./types.js').ParsedInputs} ParsedInputs
  * @typedef {import('./types.js').BuildResult} BuildResult
  * @typedef {import('./types.js').UploadResult} UploadResult
  * @typedef {import('./types.js').PaymentStatus} PaymentStatus
  * @typedef {import('./types.js').SimplifiedPaymentStatus} SimplifiedPaymentStatus
- * @typedef {import('./types.js').PaymentConfig} PaymentConfig
+ * @typedef {import('./types.js').PaymentFundingConfig} PaymentFundingConfig
  * @typedef {import('./types.js').UploadConfig} UploadConfig
  * @typedef {import('./types.js').FilecoinPinPaymentStatus} FilecoinPinPaymentStatus
  * @typedef {import('./types.js').Synapse} Synapse
@@ -50,15 +51,19 @@ export async function createCarFile(targetPath, contentPath, logger) {
 /**
  * Handle payment setup and top-ups using core payment functions
  * @param {Synapse} synapse - Synapse service
- * @param {PaymentConfig} options - Payment options
+ * @param {PaymentFundingConfig} options - Payment options
  * @param {Logger | undefined} logger - Logger instance
  * @returns {Promise<SimplifiedPaymentStatus>} Updated payment status
  */
 export async function handlePayments(synapse, options, logger) {
-  const { minStorageDays, filecoinPayBalanceLimit, pieceSizeBytes } = options
+  const { minStorageDays, filecoinPayBalanceLimit, pieceSizeBytes, withCDN, providerIds } = options
+
+  if (pieceSizeBytes == null) {
+    throw new Error('pieceSizeBytes is required for payment calculation')
+  }
 
   console.log('Checking current Filecoin Pay account balance...')
-  const [rawStatus, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
+  const rawStatus = await getPaymentStatus(synapse)
 
   const initialFilecoinPayBalance = formatUSDFC(rawStatus.filecoinPayBalance)
   const initialWalletBalance = formatUSDFC(rawStatus.walletUsdfcBalance)
@@ -66,23 +71,29 @@ export async function handlePayments(synapse, options, logger) {
   console.log(`Current Filecoin Pay balance: ${initialFilecoinPayBalance} USDFC`)
   console.log(`Wallet USDFC balance: ${initialWalletBalance} USDFC`)
 
-  // Calculate required funding using the comprehensive funding planner
-  const fundingPlan = calculateFilecoinPayFundingPlan({
-    status: rawStatus,
-    mode: 'minimum', // Only deposit if below minimum
-    allowWithdraw: false, // Never withdraw in upload-action
-    targetRunwayDays: minStorageDays,
-    pieceSizeBytes,
-    pricePerTiBPerEpoch: storageInfo.pricing.noCDN.perTiBPerEpoch,
+  const contexts = await synapse.storage.createContexts({
+    ...(providerIds != null && providerIds.length > 0 ? { providerIds } : {}),
+    ...(withCDN ? { withCDN } : {}),
+  })
+  const resolvedRunwayDays = Math.floor(minStorageDays)
+  const uploadCosts = await synapse.storage.calculateMultiContextCosts(contexts, {
+    dataSize: BigInt(pieceSizeBytes),
+    extraRunwayEpochs: BigInt(resolvedRunwayDays) * EPOCHS_PER_DAY,
   })
 
-  if (fundingPlan.delta > 0n) {
-    const reasonMessage = formatFundingReason(fundingPlan.reasonCode, fundingPlan)
-    console.log(`\n${reasonMessage}: ${formatUSDFC(fundingPlan.delta)} USDFC`)
+  const newDataSetCount = contexts.filter((context) => context.dataSetId == null).length
+
+  if (uploadCosts.depositNeeded > 0n) {
+    console.log(`\nRequired funding from SDK upload-cost calculation: ${formatUSDFC(uploadCosts.depositNeeded)} USDFC`)
+    console.log(
+      `Contexts: ${contexts.length} copy${contexts.length === 1 ? '' : 'ies'}, ` +
+        `${newDataSetCount} new data set${newDataSetCount === 1 ? '' : 's'}, ` +
+        `${resolvedRunwayDays} runway day${resolvedRunwayDays === 1 ? '' : 's'}`
+    )
   }
 
   // Execute top-up with balance limit checking
-  const topUpResult = await executeTopUp(synapse, fundingPlan.delta, {
+  const topUpResult = await executeTopUp(synapse, uploadCosts.depositNeeded, {
     balanceLimit: filecoinPayBalanceLimit,
     logger,
   })
@@ -97,8 +108,17 @@ export async function handlePayments(synapse, options, logger) {
     throw new Error(`Payment setup failed: ${topUpResult.message}`)
   }
 
+  if (uploadCosts.depositNeeded === 0n && uploadCosts.needsFwssMaxApproval) {
+    console.log('\nSubmitting transaction to approve Warm Storage spending allowances...')
+    const allowanceResult = await checkAndSetAllowances(synapse)
+    if (allowanceResult.updated) {
+      console.log('✓ Warm Storage allowances updated')
+      console.log(`Transaction hash: ${allowanceResult.transactionHash}`)
+    }
+  }
+
   let finalStatus = rawStatus
-  if (topUpResult.success && topUpResult.deposited > 0n) {
+  if (topUpResult.success && (topUpResult.deposited > 0n || uploadCosts.needsFwssMaxApproval)) {
     finalStatus = await getPaymentStatus(synapse)
   }
 
