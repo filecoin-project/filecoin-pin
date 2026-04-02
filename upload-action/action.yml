@@ -139,8 +139,8 @@ runs:
       uses: actions/setup-node@v6
       with:
         node-version: '24.x'
-        # cache: pnpm
-        # cache-dependency-path: ${{ steps.repo-root.outputs.path }}/pnpm-lock.yaml
+        cache: pnpm
+        cache-dependency-path: ${{ steps.repo-root.outputs.path }}/pnpm-lock.yaml
 
     - name: Install workspace dependencies
       shell: bash
