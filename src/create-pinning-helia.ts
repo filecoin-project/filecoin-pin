@@ -12,6 +12,8 @@ import type { Logger } from 'pino'
 import { CARWritingBlockstore } from './core/car/index.js'
 import type { Config } from './core/synapse/index.js'
 
+const IDENTIFY_MAX_MESSAGE_SIZE = 1024 * 64
+
 export interface PinningHeliaOptions {
   config: Config
   logger: Logger
@@ -50,7 +52,7 @@ export async function createPinningHeliaNode(options: PinningHeliaOptions): Prom
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     services: {
-      identify: identify(),
+      identify: identify({ maxMessageSize: IDENTIFY_MAX_MESSAGE_SIZE }),
     },
     // No bootstrap or mdns - we'll connect directly to origins
   })
@@ -81,19 +83,14 @@ export async function createPinningHeliaNode(options: PinningHeliaOptions): Prom
   logger.info(`Pinning Helia node started with peer ID: ${helia.libp2p.peerId.toString()}`)
   logger.info(`Writing blocks to CAR file: ${outputPath}`)
 
-  // Connect to origin nodes if provided
+  // Connect to origin node if provided
   if (dialTargets.length > 0) {
-    logger.info({ origins: dialTargets.length }, 'Connecting to origin nodes')
-
-    for (const addr of dialTargets) {
-      try {
-        if (addr != null) {
-          await helia.libp2p.dial(addr)
-          logger.info({ addr: addr.toString() }, 'Connected to origin node')
-        }
-      } catch (error) {
-        logger.warn({ addr: addr?.toString(), error }, 'Failed to connect to origin node')
-      }
+    logger.info({ origins: dialTargets.length }, 'Connecting to origin node')
+    try {
+      await helia.libp2p.dial(dialTargets)
+      logger.info('Connected to origin node')
+    } catch (error) {
+      logger.warn({ error }, 'Failed to connect to origin node')
     }
   }
 
