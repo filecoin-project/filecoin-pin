@@ -228,7 +228,6 @@ When using `--network devnet`, Filecoin Pin reads connection details from a runn
 * `--private-key`: Ethereum-style (`0x`) private key (wallet and signer), funded with USDFC
 * `--wallet-address`: Session key mode: owner wallet address
 * `--session-key`: Session key mode: scoped signing key registered to the wallet
-* `--view-address`: Read-only address for querying storage status without signing
 * `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `calibration`)
 * `--rpc-url`: Filecoin RPC endpoint (overrides `--network` if specified)
 

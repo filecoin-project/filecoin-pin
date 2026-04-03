@@ -32,7 +32,6 @@ function getDataDirectory(): string {
  * Authentication (choose one):
  * - PRIVATE_KEY: Standard private key auth
  * - WALLET_ADDRESS + SESSION_KEY: Session key auth
- * - VIEW_ADDRESS: Read-only mode, no signing (CLI only)
  *
  * Network:
  * - RPC_URL: Filecoin RPC endpoint — takes precedence over NETWORK
