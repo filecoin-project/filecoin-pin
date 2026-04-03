@@ -8,10 +8,16 @@ import { type Mock, vi } from 'vitest'
  */
 
 export const CreateDataSetPermission = '0x25ebf20299107c91b4624d5bac3a16d32cabf0db23b450ee09ab7732983b1dc9'
+export const DeleteDataSetPermission = '0xb5d6b3fc97881f05e96958136ac09d7e0bc7cbf17ea92fce7c431d88132d2b58'
 export const AddPiecesPermission = '0x954bdc254591a7eab1b73f03842464d9283a08352772737094d710a4428fd183'
 export const SchedulePieceRemovalsPermission = '0x5415701e313bb627e755b16924727217bb356574fe20e7061442c200b0822b22'
 
-export const DefaultFwssPermissions = [CreateDataSetPermission, AddPiecesPermission, SchedulePieceRemovalsPermission]
+export const DefaultFwssPermissions = [
+  CreateDataSetPermission,
+  DeleteDataSetPermission,
+  AddPiecesPermission,
+  SchedulePieceRemovalsPermission,
+]
 
 const mockExpirations = Object.fromEntries(DefaultFwssPermissions.map((p) => [p, 0n]))
 

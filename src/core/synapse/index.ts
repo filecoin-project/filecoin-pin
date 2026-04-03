@@ -17,6 +17,7 @@ import {
   AddPiecesPermission,
   CreateDataSetPermission,
   DefaultFwssPermissions,
+  DeleteDataSetPermission,
   fromSecp256k1,
   SchedulePieceRemovalsPermission,
 } from '@filoz/synapse-core/session-key'
@@ -137,6 +138,7 @@ function createTransport(rpcUrl: string): HttpTransport | WebSocketTransport {
 
 const PERMISSION_NAMES: Record<string, string> = {
   [CreateDataSetPermission]: 'CreateDataSet',
+  [DeleteDataSetPermission]: 'DeleteDataSet',
   [AddPiecesPermission]: 'AddPieces',
   [SchedulePieceRemovalsPermission]: 'SchedulePieceRemovals',
 }
