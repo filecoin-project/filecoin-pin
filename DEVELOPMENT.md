@@ -20,7 +20,7 @@ pnpm install
 ```bash
 pnpm run build            # Compile TypeScript to dist/
 pnpm run dev              # tsx watch on the pinning server (src/cli.ts server)
-pnpm test                 # Lint + typecheck + unit + integration
+pnpm test                 # Lint + typecheck + all vitest projects (unit, integration, browser)
 pnpm run test:unit        # Unit tests only
 pnpm run test:integration # Integration tests
 pnpm run test:browser     # Browser tests
