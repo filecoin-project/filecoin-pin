@@ -913,8 +913,11 @@ export function calculateStorageRunway(
     }
   }
 
-  const runwayDays = Number(available / perDay)
-  const runwayHoursRemainder = Number(((available % perDay) * 24n) / perDay)
+  // Runway is based on the total deposited balance, not available-after-lockup.
+  // The lockup represents funds already committed to covering ongoing storage costs,
+  // so they count toward the runway (they ARE being spent on storage over time).
+  const runwayDays = Number(filecoinPayBalance / perDay)
+  const runwayHoursRemainder = Number(((filecoinPayBalance % perDay) * 24n) / perDay)
 
   return {
     state: 'active',
