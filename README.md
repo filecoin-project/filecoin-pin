@@ -256,43 +256,13 @@ When `DATABASE_PATH` and `CAR_STORAGE_PATH` are not specified, data is stored in
 
 ## Development
 
-Want to contribute to Filecoin Pin or run it locally?
+Want to contribute to Filecoin Pin or run it locally? See
+[DEVELOPMENT.md](./DEVELOPMENT.md) for setup, scripts, debugging tips, HTTP
+tracing, running against a local devnet, and working with an unpublished
+`synapse-sdk` checkout.
 
-Prerequisite: have `pnpm` available locally. If needed, run `corepack enable` once.
-
-```bash
-# Clone and install
-git clone https://github.com/filecoin-project/filecoin-pin
-cd filecoin-pin
-pnpm install
-
-# Run the Pinning Server
-pnpm run dev
-
-# Run tests
-pnpm test
-
-# Compile TypeScript source
-pnpm run build
-
-# Run the cli
-# This is the equivalent of running `filecoin-pin` if you had it installed globally (e.g., `npm install filecoin-pin -g`).
-# It's like doing `npx filecoin-pin` that isn't stuck on that version until you upgrade your global install again.
-node ./dist/cli.js
-```
-
-Repository development uses `pnpm` workspaces. The published package can still be installed with `npm`, `pnpm`, or other package managers.
-
-### Testing
-
-```bash
-pnpm run test             # All tests
-pnpm run test:unit        # Unit tests only
-pnpm run test:integration # Integration tests
-pnpm run test:browser     # Browser tests
-pnpm run lint:fix         # Fix formatting
-pnpm --dir upload-action run typecheck # Action package typecheck
-```
+Repository development uses `pnpm` workspaces. The published package can still
+be installed with `npm`, `pnpm`, or other package managers.
 
 ## Community and Support
 
