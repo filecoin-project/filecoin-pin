@@ -9,6 +9,9 @@ import { MockSynapse } from '../mocks/synapse-mocks.js'
 // Mock the Synapse SDK
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
 
+// Mock the session key module so tests never hit the real network
+vi.mock('@filoz/synapse-core/session-key', async () => await import('../mocks/synapse-core-session-key.js'))
+
 // Test CID for upload tests
 const TEST_CID = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
 
@@ -70,6 +73,44 @@ describe('synapse-service', () => {
         expect.objectContaining({ event: 'synapse.init', mode: 'read-only' }),
         'Initializing Synapse (read-only)'
       )
+    })
+
+    it('should initialize Synapse in session-key mode', async () => {
+      const config: SynapseSetupConfig = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      }
+
+      const infoSpy = vi.spyOn(logger, 'info')
+      const synapse = await initializeSynapse(config, logger)
+
+      expect(synapse).toBeDefined()
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'synapse.init', mode: 'session-key' }),
+        'Initializing Synapse (session key)'
+      )
+    })
+
+    it('should throw when no authentication is provided', async () => {
+      // AccountConfig with null account satisfies the type but triggers the no-auth branch
+      const config = { rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1' } as any
+
+      await expect(initializeSynapse(config, logger)).rejects.toThrow('No authentication provided')
+    })
+
+    it('should throw when walletAddress is provided without sessionKey', async () => {
+      const config = { walletAddress: '0x1234567890123456789012345678901234567890' } as any
+
+      await expect(initializeSynapse(config, logger)).rejects.toThrow('Missing: --session-key / SESSION_KEY')
+    })
+
+    it('should throw when sessionKey is provided without walletAddress', async () => {
+      const config = {
+        sessionKey: '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+      } as any
+
+      await expect(initializeSynapse(config, logger)).rejects.toThrow('Missing: --wallet-address / WALLET_ADDRESS')
     })
   })
 

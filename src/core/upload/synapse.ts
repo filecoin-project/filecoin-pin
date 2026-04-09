@@ -10,12 +10,13 @@ import { METADATA_KEYS, type PDPProvider } from '@filoz/synapse-sdk'
 import type { StorageContext, StorageManagerUploadOptions } from '@filoz/synapse-sdk/storage'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
+import type { Hash } from 'viem'
 import { APPLICATION_SOURCE } from '../synapse/constants.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 
 export type UploadProgressEvents =
   | ProgressEvent<'onStored', { providerId: bigint; pieceCid: PieceCID }>
-  | ProgressEvent<'onPiecesAdded', { txHash: `0x${string}`; providerId: bigint }>
+  | ProgressEvent<'onPiecesAdded', { txHash: Hash; providerId: bigint }>
   | ProgressEvent<'onPiecesConfirmed', { dataSetId: bigint; providerId: bigint; pieceIds: bigint[] }>
   | ProgressEvent<'onCopyComplete', { providerId: bigint; pieceCid: PieceCID }>
   | ProgressEvent<'onCopyFailed', { providerId: bigint; pieceCid: PieceCID; error: Error }>

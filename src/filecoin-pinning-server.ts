@@ -1,8 +1,9 @@
 import fastify, { type FastifyInstance, type FastifyRequest } from 'fastify'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
+import { isAddress, isHex } from 'viem'
 import type { Config } from './core/synapse/index.js'
-import { initializeSynapse, type PrivateKeyConfig } from './core/synapse/index.js'
+import { initializeSynapse, type SynapseSetupConfig } from './core/synapse/index.js'
 import { FilecoinPinStore, type PinOptions } from './filecoin-pin-store.js'
 import type { ServiceInfo } from './server.js'
 
@@ -20,20 +21,49 @@ const DEFAULT_USER_INFO = {
   name: 'Default User',
 }
 
+function buildSynapseConfig(config: Config): SynapseSetupConfig {
+  const base = { rpcUrl: config.rpcUrl }
+
+  if (config.walletAddress && config.sessionKey) {
+    if (!isAddress(config.walletAddress)) {
+      throw new Error('Wallet address must be an ethereum address')
+    }
+    if (!isHex(config.sessionKey)) {
+      throw new Error('Session key must be 0x-prefixed hexadecimal')
+    }
+    if (config.sessionKey.length !== 66) {
+      throw new Error('Session key must be 32 bytes')
+    }
+    return {
+      ...base,
+      walletAddress: config.walletAddress,
+      sessionKey: config.sessionKey,
+    }
+  }
+
+  if (config.privateKey) {
+    if (!isHex(config.privateKey)) {
+      throw new Error('Private key must be 0x-prefixed hexadecimal')
+    }
+    if (config.privateKey.length !== 66) {
+      throw new Error('Private key must be 32 bytes')
+    }
+    return { ...base, privateKey: config.privateKey }
+  }
+
+  throw new Error(
+    'No authentication configured. Provide a private key (--private-key / PRIVATE_KEY) ' +
+      'or session key (--wallet-address + --session-key / WALLET_ADDRESS + SESSION_KEY).'
+  )
+}
+
 export async function createFilecoinPinningServer(
   config: Config,
   logger: Logger,
   serviceInfo: ServiceInfo
 ): Promise<{ server: FastifyInstance; pinStore: FilecoinPinStore }> {
   // Set up Synapse service
-  if (!config.privateKey) {
-    throw new Error('PRIVATE_KEY environment variable is required to start the pinning server')
-  }
-
-  const synapseConfig: PrivateKeyConfig = {
-    privateKey: config.privateKey as `0x${string}`,
-    rpcUrl: config.rpcUrl,
-  }
+  const synapseConfig = buildSynapseConfig(config)
   const synapse = await initializeSynapse(synapseConfig, logger)
 
   const filecoinPinStore = new FilecoinPinStore({
