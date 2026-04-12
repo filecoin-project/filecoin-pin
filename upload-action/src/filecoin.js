@@ -1,4 +1,5 @@
-import { promises as fs } from 'node:fs'
+import { createReadStream, promises as fs } from 'node:fs'
+import { CarReader } from '@ipld/car'
 import {
   calculateFilecoinPayFundingPlan,
   calculateStorageRunway,
@@ -44,6 +45,53 @@ export async function createCarFile(targetPath, contentPath, logger) {
     return { carPath, ipfsRootCid: rootCid, contentPath, carSize: size }
   } catch (error) {
     throw new Error(`Failed to create CAR file: ${getErrorMessage(error)}`)
+  }
+}
+
+/**
+ * Read a pre-built CAR file and extract its single root CID.
+ *
+ * Only the CAR header is parsed, so this is cheap even for large CARs.
+ * The CAR must declare exactly one root; multi-root and rootless CARs
+ * are rejected so the upload flow always has an unambiguous IPFS root CID.
+ *
+ * @param {string} targetPath - Absolute path to the CAR file
+ * @param {string} contentPath - Original input path for logging
+ * @param {Logger} logger - Logger instance
+ * @returns {Promise<BuildResult>} CAR file info
+ */
+export async function readCarFile(targetPath, contentPath, logger) {
+  try {
+    logger.info(`Using pre-built CAR at '${contentPath}' ...`)
+
+    const [{ size }, roots] = await Promise.all([fs.stat(targetPath), readCarRoots(targetPath)])
+
+    const [rootCid, ...extraRoots] = roots
+    if (!rootCid) {
+      throw new Error('CAR file declares no roots; a single-root CAR is required')
+    }
+    if (extraRoots.length > 0) {
+      throw new Error(`CAR file declares ${roots.length} roots; a single-root CAR is required`)
+    }
+
+    return { carPath: targetPath, ipfsRootCid: rootCid.toString(), contentPath, carSize: size }
+  } catch (error) {
+    throw new Error(`Failed to read CAR file: ${getErrorMessage(error)}`)
+  }
+}
+
+/**
+ * Stream-parse a CAR header and return its declared roots.
+ * @param {string} filePath
+ * @returns {Promise<CID[]>}
+ */
+async function readCarRoots(filePath) {
+  const stream = createReadStream(filePath)
+  try {
+    const reader = await CarReader.fromIterable(/** @type {any} */ (stream))
+    return await reader.getRoots()
+  } finally {
+    stream.destroy()
   }
 }
 

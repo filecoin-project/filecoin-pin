@@ -7,7 +7,12 @@ branding:
 inputs:
   # Core configuration
   path:
-    description: Path to content to upload (file or directory). Typically your build output directory.
+    description: >-
+      Path to content to upload. Typically your build output directory.
+      If `path` points to a file with the `.car` extension, the action skips its own CAR
+      creation and uploads the file as-is, extracting the IPFS root CID from the CAR header.
+      Otherwise (directory or non-`.car` file) the action packs the content into a CAR first.
+      Pre-built CARs must declare exactly one root; multi-root CARs are not supported.
     required: true
   walletPrivateKey:
     description: Wallet private key used to fund uploads (USDFC on Calibration/Mainnet).
