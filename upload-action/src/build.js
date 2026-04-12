@@ -13,16 +13,17 @@ import { formatSize } from './outputs.js'
  */
 
 /**
- * Run build phase: Create CAR file and return build context details
+ * Run build phase: prepare the CAR file (either pack content into a new CAR
+ * or accept a pre-built `.car` file) and return build context details.
  */
 export async function runBuild() {
   const logger = pino({ level: process.env.LOG_LEVEL || 'info' })
 
-  console.log('━━━ Build Phase: Creating CAR file ━━━')
+  console.log('━━━ Build Phase: Preparing CAR file ━━━')
 
   await updateCheck({
-    title: 'Building CAR file',
-    summary: 'Creating CAR file from content...',
+    title: 'Preparing CAR file',
+    summary: 'Preparing CAR file for upload...',
   })
 
   const event = await readEventPayload()
@@ -46,9 +47,9 @@ export async function runBuild() {
   )
 
   if (isForkPR) {
-    console.log('━━━ Fork PR Detected - Building CAR but Blocking Upload ━━━')
+    console.log('━━━ Fork PR Detected - Preparing CAR but Blocking Upload ━━━')
     console.error('::error::Fork PR support is currently disabled. Only same-repo workflows are supported.')
-    console.log('::notice::Building CAR file but upload will be blocked')
+    console.log('::notice::Preparing CAR file but upload will be blocked')
   }
 
   const inputs = /** @type {ParsedInputs} */ (parseInputs('compute'))
@@ -90,12 +91,12 @@ export async function runBuild() {
     context.pr = pr
   }
 
-  console.log('✓ Build complete. CAR file created.')
-  console.log('::notice::Build phase complete. CAR file created.')
+  console.log('✓ Build complete. CAR file ready.')
+  console.log('::notice::Build phase complete. CAR file ready.')
 
   await updateCheck({
-    title: 'CAR file built',
-    summary: `Built CAR file for IPFS Root CID: \`${ipfsRootCid}\``,
+    title: 'CAR file ready',
+    summary: `CAR file ready for IPFS Root CID: \`${ipfsRootCid}\``,
     text: carSize ? `CAR file size: ${formatSize(carSize)}` : undefined,
   })
 
