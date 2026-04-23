@@ -653,8 +653,9 @@ export function computeAdjustmentForExactDays(
   days: number
 ): {
   delta: bigint // >0 deposit, <0 withdraw, 0 none
-  // Preserved for compatibility with existing callers; for runway planning this
-  // now matches targetDeposit because runway is based on total deposited balance.
+  // Preserved for compatibility with existing callers; this is the runway-based
+  // available-balance target before applying the minimum deposit floor needed
+  // to avoid withdrawing below the current lockup.
   targetAvailable: bigint
   targetDeposit: bigint
   available: bigint
