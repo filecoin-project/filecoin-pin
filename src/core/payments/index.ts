@@ -586,9 +586,10 @@ export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpo
 /**
  * Compute the additional deposit required to fund current usage for a duration.
  *
- * The WarmStorage service maintains ~30 days of lockup (lockupUsed) and draws future
- * lockups from the available deposit (deposited - lockupUsed). To keep the current
- * rails alive for N days, ensure available >= N days of spend at the current rateUsed.
+ * The WarmStorage service maintains ~30 days of lockup (lockupUsed), but those funds
+ * remain part of the deposited balance and continue paying storage over time. To keep
+ * the current rails alive for N days, ensure the total deposited balance covers N days
+ * of spend at the current rateUsed.
  *
  * @param status - Current payment status (from getPaymentStatus)
  * @param days - Number of days to keep the current usage funded
@@ -631,7 +632,7 @@ export function computeTopUpForDuration(
   const spendNeeded = rateUsed * epochsNeeded
   const available = status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n
 
-  const topUp = spendNeeded > available ? spendNeeded - available : 0n
+  const topUp = spendNeeded > status.filecoinPayBalance ? spendNeeded - status.filecoinPayBalance : 0n
 
   return {
     topUp,
@@ -652,7 +653,10 @@ export function computeAdjustmentForExactDays(
   days: number
 ): {
   delta: bigint // >0 deposit, <0 withdraw, 0 none
+  // Preserved for compatibility with existing callers; for runway planning this
+  // now matches targetDeposit because runway is based on total deposited balance.
   targetAvailable: bigint
+  targetDeposit: bigint
   available: bigint
   rateUsed: bigint
   perDay: bigint
@@ -670,6 +674,7 @@ export function computeAdjustmentForExactDays(
     return {
       delta: 0n,
       targetAvailable: 0n,
+      targetDeposit: status.filecoinPayBalance,
       available,
       rateUsed,
       perDay,
@@ -682,11 +687,14 @@ export function computeAdjustmentForExactDays(
   const perHour = perDay / 24n
   const safety = perHour > 0n ? perHour : 1n
   const targetAvailable = BigInt(Math.floor(days)) * perDay + safety
-  const delta = targetAvailable - available
+  const minimumTargetDeposit = status.filecoinPayBalance > lockupUsed ? lockupUsed : status.filecoinPayBalance
+  const targetDeposit = targetAvailable > minimumTargetDeposit ? targetAvailable : minimumTargetDeposit
+  const delta = targetDeposit - status.filecoinPayBalance
 
   return {
     delta,
     targetAvailable,
+    targetDeposit,
     available,
     rateUsed,
     perDay,
@@ -774,9 +782,11 @@ export function computeAdjustmentForExactDaysWithPiece(
   const perHour = perDay / 24n
   const safety = perHour > 0n ? perHour : 1n
 
-  // Target: lockup (with buffer) + (days worth of ongoing cost)
+  // Keep enough deposited balance for the requested spend horizon, but never below
+  // the buffered lockup required to keep the new piece funded.
   const targetAvailable = BigInt(Math.floor(days)) * perDay + safety
-  const targetDeposit = withBuffer(newLockupUsed) + targetAvailable
+  const minimumDeposit = withBuffer(newLockupUsed)
+  const targetDeposit = targetAvailable > minimumDeposit ? targetAvailable : minimumDeposit
 
   const delta = targetDeposit - status.filecoinPayBalance
 
@@ -913,8 +923,11 @@ export function calculateStorageRunway(
     }
   }
 
-  const runwayDays = Number(available / perDay)
-  const runwayHoursRemainder = Number(((available % perDay) * 24n) / perDay)
+  // Runway is based on the total deposited balance, not available-after-lockup.
+  // The lockup represents funds already committed to covering ongoing storage costs,
+  // so they count toward the runway (they ARE being spent on storage over time).
+  const runwayDays = Number(filecoinPayBalance / perDay)
+  const runwayHoursRemainder = Number(((filecoinPayBalance % perDay) * 24n) / perDay)
 
   return {
     state: 'active',

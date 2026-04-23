@@ -143,13 +143,13 @@ describe('computeAdjustmentForExactDaysWithPiece - Floor Pricing Integration', (
     const adjustment = computeAdjustmentForExactDaysWithPiece(status, 30, 0, mockPricing)
     const floor = getFloorAllowances()
 
-    // Target deposit = buffered lockup + runway
+    // Target deposit should cover the requested runway, without double-counting lockup.
     const bufferedLockup = getBufferedFloorDeposit()
     const perDay = floor.rateAllowance * TIME_CONSTANTS.EPOCHS_PER_DAY
     const safety = perDay > 0n ? perDay / 24n : 1n
     const runwayCost = 30n * perDay + safety
 
     expect(adjustment.delta).toBeGreaterThan(0n)
-    expect(adjustment.targetDeposit).toBe(bufferedLockup + runwayCost)
+    expect(adjustment.targetDeposit).toBe(runwayCost > bufferedLockup ? runwayCost : bufferedLockup)
   })
 })

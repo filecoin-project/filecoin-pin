@@ -37,6 +37,7 @@ export type StorageRunwayState = 'unknown' | 'no-spend' | 'active'
 
 export interface StorageRunwaySummary {
   state: StorageRunwayState
+  /** Deposited balance remaining above the current lockup; useful for withdrawals and surplus calculations */
   available: bigint
   rateUsed: bigint
   perDay: bigint
@@ -83,11 +84,14 @@ export interface FilecoinPayFundingInsights {
   spendRatePerEpoch: bigint
   spendRatePerDay: bigint
   depositedBalance: bigint
+  /** Deposited balance remaining above lockup; this is not the storage runway */
   availableDeposited: bigint
   walletUsdfcBalance: bigint
   runway: StorageRunwaySummary
+  /** Time until the deposited Filecoin Pay balance is exhausted at the current spend rate */
   filecoinPayDepletionSeconds?: bigint | null
   filecoinPayDepletionTimestampMs?: number | null
+  /** Time until deposited balance plus wallet USDFC is exhausted at the current spend rate */
   ownerDepletionSeconds?: bigint | null
   ownerDepletionTimestampMs?: number | null
 }
