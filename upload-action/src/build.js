@@ -1,6 +1,7 @@
+import { promises as fs } from 'node:fs'
 import pc from 'picocolors'
 import pino from 'pino'
-import { createCarFile } from './filecoin.js'
+import { createCarFile, readCarFile } from './filecoin.js'
 import { readEventPayload, updateCheck } from './github.js'
 import { parseInputs, resolveContentPath } from './inputs.js'
 import { formatSize } from './outputs.js'
@@ -12,16 +13,17 @@ import { formatSize } from './outputs.js'
  */
 
 /**
- * Run build phase: Create CAR file and return build context details
+ * Run build phase: prepare the CAR file (either pack content into a new CAR
+ * or accept a pre-built `.car` file) and return build context details.
  */
 export async function runBuild() {
   const logger = pino({ level: process.env.LOG_LEVEL || 'info' })
 
-  console.log('━━━ Build Phase: Creating CAR file ━━━')
+  console.log('━━━ Build Phase: Preparing CAR file ━━━')
 
   await updateCheck({
-    title: 'Building CAR file',
-    summary: 'Creating CAR file from content...',
+    title: 'Preparing CAR file',
+    summary: 'Preparing CAR file for upload...',
   })
 
   const event = await readEventPayload()
@@ -45,16 +47,22 @@ export async function runBuild() {
   )
 
   if (isForkPR) {
-    console.log('━━━ Fork PR Detected - Building CAR but Blocking Upload ━━━')
+    console.log('━━━ Fork PR Detected - Preparing CAR but Blocking Upload ━━━')
     console.error('::error::Fork PR support is currently disabled. Only same-repo workflows are supported.')
-    console.log('::notice::Building CAR file but upload will be blocked')
+    console.log('::notice::Preparing CAR file but upload will be blocked')
   }
 
   const inputs = /** @type {ParsedInputs} */ (parseInputs('compute'))
   const { contentPath } = inputs
   const targetPath = resolveContentPath(contentPath)
 
-  const buildResult = /** @type {BuildResult} */ (await createCarFile(targetPath, contentPath, logger))
+  // If the user passed a path to an existing .car file, skip UnixFS packing
+  // and upload the CAR as-is. Otherwise, pack the directory/file into a CAR.
+  const buildResult = /** @type {BuildResult} */ (
+    (await isPrebuiltCar(targetPath))
+      ? await readCarFile(targetPath, contentPath, logger)
+      : await createCarFile(targetPath, contentPath, logger)
+  )
   const { carPath, ipfsRootCid, carSize } = buildResult
   console.log(`IPFS Root CID: ${pc.bold(ipfsRootCid)}`)
   console.log(`::notice::IPFS Root CID: ${ipfsRootCid}`)
@@ -83,14 +91,32 @@ export async function runBuild() {
     context.pr = pr
   }
 
-  console.log('✓ Build complete. CAR file created.')
-  console.log('::notice::Build phase complete. CAR file created.')
+  console.log('✓ Build complete. CAR file ready.')
+  console.log('::notice::Build phase complete. CAR file ready.')
 
   await updateCheck({
-    title: 'CAR file built',
-    summary: `Built CAR file for IPFS Root CID: \`${ipfsRootCid}\``,
+    title: 'CAR file ready',
+    summary: `CAR file ready for IPFS Root CID: \`${ipfsRootCid}\``,
     text: carSize ? `CAR file size: ${formatSize(carSize)}` : undefined,
   })
 
   return context
+}
+
+/**
+ * A path is treated as a pre-built CAR when it points to a regular file
+ * whose name ends in `.car`. Directories (even named `foo.car/`) fall
+ * through to the UnixFS packer.
+ *
+ * @param {string} targetPath
+ * @returns {Promise<boolean>}
+ */
+async function isPrebuiltCar(targetPath) {
+  if (!targetPath.toLowerCase().endsWith('.car')) return false
+  try {
+    const stats = await fs.stat(targetPath)
+    return stats.isFile()
+  } catch {
+    return false
+  }
 }
