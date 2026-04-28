@@ -139,6 +139,9 @@ runs:
       uses: actions/setup-node@v6
       with:
         node-version: '24.x'
+        # Disable implicit npm cache: setup-node@v6 auto-caches against
+        # the consumer's package.json/package-lock when their packageManager
+        # field is "npm". We manage our own pnpm cache below.
         package-manager-cache: false
 
     - name: Get pnpm version
