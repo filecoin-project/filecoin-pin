@@ -140,7 +140,7 @@
     "pino": "^10.3.1",
     "semver": "^7.7.4",
     "varint": "^6.0.0",
-    "viem": "^2.46.3"
+    "viem": "^2.48.3"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.5",
