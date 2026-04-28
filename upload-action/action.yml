@@ -139,6 +139,7 @@ runs:
       uses: actions/setup-node@v6
       with:
         node-version: '24.x'
+        package-manager-cache: false
 
     - name: Get pnpm version
       id: pnpm-version
@@ -147,7 +148,7 @@ runs:
       run: |
         VERSION=$(node -e "
           const pm = require('./package.json').packageManager;
-          if (typeof pm !== 'string') { console.error('package.json: packageManager field missing'); process.exit(1); }
+          if (typeof pm !== 'string') { console.error('package.json: packageManager field missing or not a string'); process.exit(1); }
           const match = pm.match(/^pnpm@(.+)$/);
           if (!match) { console.error('package.json: packageManager must be pnpm@<version>, got: ' + pm); process.exit(1); }
           process.stdout.write(match[1]);
@@ -163,9 +164,10 @@ runs:
     - name: Get pnpm store path
       id: pnpm-store
       shell: bash
+      working-directory: ${{ steps.repo-root.outputs.path }}
       run: |
         STORE_PATH=$(pnpm store path --silent)
-        echo "path=$STORE_PATH" >> $GITHUB_OUTPUT
+        printf 'path=%s\n' "$STORE_PATH" >> "$GITHUB_OUTPUT"
 
     - name: Compute pnpm-lock.yaml hash
       id: lockfile
