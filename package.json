@@ -128,7 +128,7 @@
     "@sentry/node": "^10.49.0",
     "commander": "^14.0.3",
     "datastore-core": "^11.0.2",
-    "fastify": "^5.7.4",
+    "fastify": "^5.8.5",
     "helia": "^6.0.20",
     "interface-blockstore": "^6.0.1",
     "interface-store": "^7.0.1",
