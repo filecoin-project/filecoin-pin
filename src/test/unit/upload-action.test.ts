@@ -32,6 +32,7 @@ vi.mock('filecoin-pin/core/utils', () => ({
 const TEST_CID = 'bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq'
 const inputsModulePath: string = '../../../upload-action/src/inputs.js'
 const filecoinModulePath: string = '../../../upload-action/src/filecoin.js'
+const commentsModulePath: string = '../../../upload-action/src/comments/comment.js'
 
 interface ParseInputsModule {
   parseInputs: (phase?: string) => {
@@ -57,6 +58,17 @@ interface FilecoinModule {
     requestedCopies: number
     complete: boolean
   }>
+}
+
+interface CommentsModule {
+  commentOnPR: (context: {
+    ipfsRootCid: string
+    dataSetId: string
+    pieceCid: string
+    dryRun?: boolean
+    pr?: { number: number }
+    uploadStatus?: string
+  }) => Promise<void>
 }
 
 describe('upload action inputs', () => {
@@ -166,5 +178,80 @@ describe('upload action Filecoin upload', () => {
       requestedCopies: 2,
       complete: false,
     })
+  })
+})
+
+describe('upload action PR comments', () => {
+  const originalRepository = process.env.GITHUB_REPOSITORY
+  const originalRunId = process.env.GITHUB_RUN_ID
+  const originalToken = process.env.GITHUB_TOKEN
+
+  beforeEach(() => {
+    vi.resetModules()
+    process.env.GITHUB_REPOSITORY = 'filecoin-project/filecoin-pin'
+    process.env.GITHUB_RUN_ID = '123'
+    process.env.GITHUB_TOKEN = 'test-token'
+  })
+
+  afterEach(() => {
+    if (originalRepository == null) {
+      delete process.env.GITHUB_REPOSITORY
+    } else {
+      process.env.GITHUB_REPOSITORY = originalRepository
+    }
+
+    if (originalRunId == null) {
+      delete process.env.GITHUB_RUN_ID
+    } else {
+      process.env.GITHUB_RUN_ID = originalRunId
+    }
+
+    if (originalToken == null) {
+      delete process.env.GITHUB_TOKEN
+    } else {
+      process.env.GITHUB_TOKEN = originalToken
+    }
+  })
+
+  it('does not fail the upload when GitHub rejects the PR comment', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called')
+    })
+
+    vi.doMock('../../../upload-action/src/github.js', () => ({
+      createOctokit: () => ({
+        rest: {
+          issues: {
+            listComments: vi.fn().mockResolvedValue({ data: [] }),
+            createComment: vi.fn().mockRejectedValue(new Error('Resource not accessible by integration')),
+            updateComment: vi.fn(),
+          },
+        },
+      }),
+      getGitHubEnv: () => ({
+        owner: 'filecoin-project',
+        repo: 'filecoin-pin',
+        repository: 'filecoin-project/filecoin-pin',
+        token: 'test-token',
+        sha: 'abc123',
+      }),
+    }))
+
+    const { commentOnPR } = (await import(commentsModulePath)) as CommentsModule
+
+    await expect(
+      commentOnPR({
+        ipfsRootCid: TEST_CID,
+        dataSetId: '13018',
+        pieceCid: 'bafkzcibe2hzbcd4t6clvsb3mfrezyxl75gl3gzcsqi42dd27gktq4nk75rr62ciuaq',
+        pr: { number: 399 },
+      })
+    ).resolves.toBeUndefined()
+
+    expect(exitSpy).not.toHaveBeenCalled()
+
+    exitSpy.mockRestore()
+    warnSpy.mockRestore()
   })
 })
