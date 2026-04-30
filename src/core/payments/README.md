@@ -74,7 +74,7 @@ import { Readable } from 'node:stream'
 import { uploadToSynapse } from 'filecoin-pin/core/upload'
 import { CID } from 'multiformats/cid'
 
-const carData = Readable.toWeb(createReadStream('path/to/file.car')) as ReadableStream<Uint8Array>
+const carData = Readable.toWeb(createReadStream('path/to/file.car'))
 const rootCid = CID.parse('bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi')
 
 const result = await uploadToSynapse(

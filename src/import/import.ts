@@ -6,7 +6,8 @@
  */
 
 import { createReadStream } from 'node:fs'
-import { readFile, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
+import { Readable } from 'node:stream'
 import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
@@ -208,10 +209,10 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       await validatePaymentSetup(synapse, fileStat.size, spinner)
     }
 
-    // Read CAR file and upload to Synapse
+    // Stream CAR file and upload to Synapse
     spinner.start('Uploading to Filecoin...')
 
-    const carData = await readFile(options.filePath)
+    const carData = Readable.toWeb(createReadStream(options.filePath)) as ReadableStream<Uint8Array>
 
     // Auto-skip IPNI on devnet (no IPNI infrastructure available)
     const skipIpniVerification = options.skipIpniVerification || synapse.chain.id === DEVNET_CHAIN_ID

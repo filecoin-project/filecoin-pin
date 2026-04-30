@@ -10,7 +10,13 @@ import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
 import { DEFAULT_LOCKUP_DAYS, type PaymentCapacityCheck } from '../core/payments/index.js'
-import { checkUploadReadiness, executeUpload, getNetworkSlug, type SynapseUploadResult } from '../core/upload/index.js'
+import {
+  checkUploadReadiness,
+  executeUpload,
+  getNetworkSlug,
+  type SynapseUploadData,
+  type SynapseUploadResult,
+} from '../core/upload/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { autoFund } from '../payments/fund.js'
 import type { AutoFundOptions } from '../payments/types.js'
@@ -278,14 +284,14 @@ function roleLabel(role: CopyRole): string {
  * Upload CAR data to Synapse with multi-copy progress tracking
  *
  * @param synapse - Initialized Synapse instance
- * @param carData - CAR file data as Uint8Array
+ * @param carData - CAR file data as bytes or a readable stream
  * @param rootCid - Root CID of the content
  * @param options - Upload flow options
  * @returns Upload result with copies and network information
  */
 export async function performUpload(
   synapse: Synapse,
-  carData: Uint8Array,
+  carData: SynapseUploadData,
   rootCid: CID,
   options: UploadFlowOptions
 ): Promise<UploadFlowResult> {
