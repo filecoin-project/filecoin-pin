@@ -1,5 +1,5 @@
-import { getProviderIds as getEndorsedProviders } from '@filoz/synapse-core/endorsements'
-import { getApprovedProviders } from '@filoz/synapse-core/warm-storage'
+import { getEndorsedProviderIds } from '@filoz/synapse-core/endorsements'
+import { getApprovedProviderIds } from '@filoz/synapse-core/warm-storage'
 import pc from 'picocolors'
 import { formatUSDFC } from '../core/utils/format.js'
 import { getCliSynapse } from '../utils/cli-auth.js'
@@ -23,14 +23,14 @@ export async function runProviderList(options: ProviderListOptions): Promise<voi
       providers = await synapse.providers.getAllActiveProviders()
       spinner.stop(`Found ${providers.length} active providers (all):`)
     } else if (options.endorsed) {
-      const endorsedIds = await getEndorsedProviders(synapse.client)
+      const endorsedIds = await getEndorsedProviderIds(synapse.client)
       const ids = [...endorsedIds]
       spinner.message(`Fetching details for ${ids.length} endorsed providers...`)
       const providersOrNull = await Promise.all(ids.map((id) => synapse.providers.getProvider({ providerId: id })))
       providers = providersOrNull.filter((p) => p !== null)
       spinner.stop(`Found ${providers.length} endorsed providers:`)
     } else {
-      const approvedIds = await getApprovedProviders(synapse.client)
+      const approvedIds = await getApprovedProviderIds(synapse.client)
       spinner.message(`Fetching details for ${approvedIds.length} approved providers...`)
       const providersOrNull = await Promise.all(
         approvedIds.map((id: bigint) => synapse.providers.getProvider({ providerId: id }))
@@ -82,11 +82,11 @@ export async function runProviderShow(providerIdOrAddr: string, options: Provide
 
     spinner.message('Checking endorsement and approval status...')
     const [endorsedIds, approvedIds] = await Promise.all([
-      getEndorsedProviders(synapse.client),
-      getApprovedProviders(synapse.client),
+      getEndorsedProviderIds(synapse.client),
+      getApprovedProviderIds(synapse.client),
     ])
     const providerId = BigInt(id)
-    const isEndorsed = endorsedIds.has(providerId)
+    const isEndorsed = endorsedIds.includes(providerId)
     const isApproved = approvedIds.includes(providerId)
 
     spinner.stop('Provider found')
@@ -132,7 +132,7 @@ export async function runProviderPing(
         const active = await synapse.providers.getAllActiveProviders()
         providersToPing.push(...active)
       } else {
-        const approvedIds = await getApprovedProviders(synapse.client)
+        const approvedIds = await getApprovedProviderIds(synapse.client)
         const providers = await Promise.all(
           approvedIds.map((id: bigint) => synapse.providers.getProvider({ providerId: id }))
         )

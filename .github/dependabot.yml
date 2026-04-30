@@ -5,6 +5,15 @@ updates:
     open-pull-requests-limit: 5
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
+  - package-ecosystem: github-actions
+    directory: /upload-action
+    open-pull-requests-limit: 5
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
   - package-ecosystem: npm
     directory: /
     open-pull-requests-limit: 5
