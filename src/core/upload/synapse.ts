@@ -24,6 +24,8 @@ export type UploadProgressEvents =
   | ProgressEvent<'onProviderSelected', { provider: PDPProvider }>
   | ProgressEvent<'onDataSetResolved', { dataSetId: bigint; provider: PDPProvider }>
 
+export type SynapseUploadData = Uint8Array | ReadableStream<Uint8Array>
+
 export interface SynapseUploadOptions {
   /**
    * Optional callbacks for monitoring upload progress
@@ -130,7 +132,7 @@ export function getServiceURL(providerInfo: PDPProvider): string {
  * copies.
  *
  * @param synapse - Initialized Synapse instance
- * @param carData - CAR data as Uint8Array
+ * @param carData - CAR data as bytes or a readable stream
  * @param rootCid - The IPFS root CID to associate with this piece
  * @param logger - Logger instance for tracking
  * @param options - Upload options including context selection and callbacks
@@ -138,7 +140,7 @@ export function getServiceURL(providerInfo: PDPProvider): string {
  */
 export async function uploadToSynapse(
   synapse: Synapse,
-  carData: Uint8Array,
+  carData: SynapseUploadData,
   rootCid: CID,
   logger: Logger,
   options: SynapseUploadOptions = {}

@@ -47,7 +47,7 @@ export class MockStorageContext extends EventEmitter {
   public readonly provider = mockPDPProvider
   public readonly serviceProvider = mockPDPProvider.serviceProvider
 
-  async upload(_data: ArrayBuffer | Uint8Array, options?: any): Promise<any> {
+  async upload(_data: Uint8Array | ReadableStream<Uint8Array>, options?: any): Promise<any> {
     // Check if already aborted
     options?.signal?.throwIfAborted()
 
