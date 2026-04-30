@@ -25,6 +25,8 @@ export interface UploadResult {
   previewUrl: string
   network: string
   ipniValidated: boolean
+  requestedCopies: number
+  complete: boolean
   copies: CopyResult[]
   failedAttempts: FailedAttempt[]
 }
