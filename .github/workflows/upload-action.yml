@@ -1,7 +1,10 @@
 name: Test upload action
 on:
-  push:
   pull_request:
+
+concurrency:
+  group: upload-action-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   dry-run:
@@ -11,26 +14,44 @@ jobs:
       checks: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+
+      - name: Create upload fixture
+        run: |
+          mkdir -p .filecoin-pin-upload-fixture
+          printf 'filecoin-pin upload action smoke test\n' > .filecoin-pin-upload-fixture/content.txt
 
       - name: Upload to Filecoin
         uses: ./upload-action
+        env:
+          LOG_LEVEL: warn
         with:
-          path: ./src
-          walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
+          path: ./.filecoin-pin-upload-fixture
           network: calibration
           dryRun: true
+
   upload:
     runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
       checks: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+
+      - name: Create upload fixture
+        run: |
+          mkdir -p .filecoin-pin-upload-fixture
+          printf 'filecoin-pin upload action smoke test\n' > .filecoin-pin-upload-fixture/content.txt
+
       - name: Upload to Filecoin
         uses: ./upload-action
+        env:
+          LOG_LEVEL: warn
+          PROVIDER_IDS: "2"
         with:
-          path: ./src
+          path: ./.filecoin-pin-upload-fixture
           walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
           network: calibration
+          filecoinPayBalanceLimit: "5"

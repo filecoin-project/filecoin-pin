@@ -15,8 +15,8 @@ inputs:
       Pre-built CARs must declare exactly one root; rootless and multi-root CARs are not supported.
     required: true
   walletPrivateKey:
-    description: Wallet private key used to fund uploads (USDFC on Calibration/Mainnet).
-    required: true
+    description: Wallet private key used to fund uploads (USDFC on Calibration/Mainnet). Required unless dryRun is true.
+    required: false
   network:
     description: What Filecoin network to use. Should either be "mainnet" or "calibration".
     required: true

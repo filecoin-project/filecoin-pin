@@ -103,9 +103,10 @@ export function parseInputs(phase = 'single') {
     throw new FilecoinPinError('network must be either "mainnet" or "calibration"', ERROR_CODES.INVALID_INPUT)
   }
 
-  // Validate required inputs (only for phases that need wallet)
-  // Build mode (compute phase) doesn't need the wallet
-  if (phase !== 'compute' && !walletPrivateKey) {
+  // Validate required inputs (only for phases that need wallet).
+  // Build mode and dry-run uploads do not touch payment state.
+  const requiresWallet = phase !== 'compute' && !dryRun
+  if (requiresWallet && !walletPrivateKey) {
     throw new Error('walletPrivateKey is required')
   }
 

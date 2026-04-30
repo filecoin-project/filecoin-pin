@@ -259,10 +259,13 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
 
   console.log('\n✓ Upload to Filecoin complete!')
 
-  // Extract primary copy details for backwards-compatible output
+  // Prefer the primary copy for backwards-compatible outputs, but accept any
+  // successful copy so partial StorageManager success does not look like total
+  // upload failure.
   const primaryCopy = uploadResult.copies.find((c) => c.role === 'primary')
+  const outputCopy = primaryCopy ?? uploadResult.copies[0]
 
-  if (primaryCopy == null) {
+  if (outputCopy == null) {
     const failureCount = uploadResult.failedAttempts.length
     throw new Error(
       failureCount > 0
@@ -271,17 +274,32 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
     )
   }
 
+  const requestedCopies = uploadResult.requestedCopies ?? uploadResult.copies.length
+  const complete = uploadResult.complete ?? uploadResult.copies.length >= requestedCopies
+
+  if (!complete) {
+    console.log(
+      `Warning: Upload completed with reduced redundancy (${uploadResult.copies.length}/${requestedCopies} copies).`
+    )
+  }
+
+  if (primaryCopy == null) {
+    console.log('Warning: Primary copy failed; using the first successful secondary copy for action outputs.')
+  }
+
   return {
     pieceCid: uploadResult.pieceCid,
-    pieceId: String(primaryCopy.pieceId),
-    dataSetId: String(primaryCopy.dataSetId),
+    pieceId: String(outputCopy.pieceId),
+    dataSetId: String(outputCopy.dataSetId),
     provider: {
-      id: String(primaryCopy.providerId),
+      id: String(outputCopy.providerId),
       name: '',
     },
-    previewUrl: primaryCopy.retrievalUrl ?? '',
+    previewUrl: outputCopy.retrievalUrl ?? '',
     network: uploadResult.network,
     ipniValidated: uploadResult.ipniValidated,
+    requestedCopies,
+    complete,
     copies: uploadResult.copies,
     failedAttempts: uploadResult.failedAttempts,
   }
