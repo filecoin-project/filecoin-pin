@@ -6,9 +6,16 @@ concurrency:
   group: upload-action-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# Intentionally not using a `matrix` for the `dry-run` and `upload` jobs.
+# They are nearly identical — the only meaningful difference is `dryRun` —
+# but inlining keeps the workflow easier to read at a glance.
 jobs:
   dry-run:
     runs-on: ubuntu-latest
+    # TODO: drop this gate once the action no longer exits early with
+    # `fork-pr-blocked` when `dryRun: true`. Until then, running on forks
+    # produces a misleading "skipped" check rather than real coverage.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
       checks: write
@@ -55,3 +62,4 @@ jobs:
           walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
           network: calibration
           filecoinPayBalanceLimit: "5"
+          dryRun: false
