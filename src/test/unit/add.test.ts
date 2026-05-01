@@ -14,6 +14,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runAdd } from '../../add/add.js'
 
+const { mockFindDataSets } = vi.hoisted(() => ({ mockFindDataSets: vi.fn().mockResolvedValue([]) }))
+
 // Mock the external dependencies at module level
 vi.mock('../../common/upload-flow.js', () => ({
   validatePaymentSetup: vi.fn(),
@@ -55,7 +57,7 @@ vi.mock('../../core/synapse/index.js', () => ({
       client: { account: { address: '0x1234567890123456789012345678901234567890' } },
       storage: {
         upload: vi.fn(),
-        findDataSets: vi.fn().mockResolvedValue([]),
+        findDataSets: mockFindDataSets,
       },
     }
   }),
@@ -242,6 +244,60 @@ describe('Add Command', () => {
           copies: 1,
         })
       )
+    })
+
+    it('resolves --data-set-metadata to dataSetIds and drops metadata when subset matches', async () => {
+      mockFindDataSets.mockResolvedValueOnce([
+        {
+          pdpVerifierDataSetId: 13260n,
+          providerId: 2n,
+          isLive: true,
+          metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' },
+        },
+        {
+          pdpVerifierDataSetId: 13261n,
+          providerId: 4n,
+          isLive: true,
+          metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' },
+        },
+      ])
+
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        dataSetMetadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
+      })
+
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          dataSetIds: [13260n, 13261n],
+        })
+      )
+      const lastCall = vi.mocked(performUpload).mock.calls.at(-1)
+      expect(lastCall?.[3]).not.toHaveProperty('metadata')
+    })
+
+    it('throws when --data-set-metadata is ambiguous (more matches than copies)', async () => {
+      mockFindDataSets.mockResolvedValueOnce([
+        { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
+        { pdpVerifierDataSetId: 2n, providerId: 2n, isLive: true, metadata: { source: 'storacha-migration' } },
+        { pdpVerifierDataSetId: 3n, providerId: 3n, isLive: true, metadata: { source: 'storacha-migration' } },
+        { pdpVerifierDataSetId: 4n, providerId: 4n, isLive: true, metadata: { source: 'storacha-migration' } },
+      ])
+
+      await expect(
+        runAdd({
+          filePath: testFile,
+          privateKey: 'test-private-key',
+          rpcUrl: 'wss://test.rpc.url',
+          dataSetMetadata: { source: 'storacha-migration' },
+        })
+      ).rejects.toThrow(/Ambiguous|matched 4 data sets|expected 2/)
     })
 
     it('should reject when file does not exist', async () => {

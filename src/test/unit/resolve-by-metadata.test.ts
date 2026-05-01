@@ -9,8 +9,22 @@ vi.mock('../../core/data-set/list-data-sets.js', () => ({
 
 const fakeSynapse = {} as any
 
-function dataSet(id: bigint, metadata: Record<string, string>): any {
-  return { dataSetId: id, isLive: true, metadata }
+function dataSet(id: bigint, metadata: Record<string, string>, isLive = true): any {
+  return { dataSetId: id, isLive, metadata }
+}
+
+/**
+ * Wire the mock to actually invoke the resolver-supplied filter callback against a
+ * raw fixture list. Without this, `mockResolvedValueOnce([...])` returns a pre-filtered
+ * array and the resolver's subset-matching logic never runs in the test.
+ */
+function withFixtures(fixtures: any[]): void {
+  mockListDataSets.mockImplementationOnce(async (_synapse: unknown, opts: { filter?: (ds: any) => boolean }) => {
+    if (opts?.filter == null) {
+      return fixtures
+    }
+    return fixtures.filter(opts.filter)
+  })
 }
 
 describe('resolveDataSetIdsByMetadata', () => {
@@ -21,9 +35,13 @@ describe('resolveDataSetIdsByMetadata', () => {
   })
 
   it('returns matched when subset matches expected copy count', async () => {
-    mockListDataSets.mockResolvedValueOnce([
+    withFixtures([
       dataSet(13260n, { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' }),
       dataSet(13261n, { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' }),
+      // Decoy from another space — must NOT match
+      dataSet(99n, { source: 'storacha-migration', 'space-did': 'did:key:other', withIPFSIndexing: '' }),
+      // Decoy with different source
+      dataSet(100n, { source: 'filecoin-pin', withIPFSIndexing: '' }),
     ])
 
     const result = await resolveDataSetIdsByMetadata(
@@ -36,11 +54,12 @@ describe('resolveDataSetIdsByMetadata', () => {
   })
 
   it('returns ambiguous when more datasets match than expected', async () => {
-    mockListDataSets.mockResolvedValueOnce([
+    withFixtures([
       dataSet(1n, { source: 'storacha-migration' }),
       dataSet(2n, { source: 'storacha-migration' }),
       dataSet(3n, { source: 'storacha-migration' }),
       dataSet(4n, { source: 'storacha-migration' }),
+      dataSet(5n, { source: 'filecoin-pin' }), // decoy
     ])
 
     const result = await resolveDataSetIdsByMetadata(
@@ -53,10 +72,42 @@ describe('resolveDataSetIdsByMetadata', () => {
   })
 
   it('returns no-match when zero datasets match (lets SDK create new)', async () => {
-    mockListDataSets.mockResolvedValueOnce([])
+    withFixtures([dataSet(1n, { source: 'filecoin-pin' }), dataSet(2n, { source: 'storacha-migration' })])
 
     const result = await resolveDataSetIdsByMetadata(fakeSynapse, { source: 'something-new' }, { expectedCopies: 2 })
 
     expect(result).toEqual({ kind: 'no-match' })
+  })
+
+  it('does not match datasets that lack the requested key (empty-string value gotcha)', async () => {
+    // Without the `key in metadata` guard, the resolver would treat the missing
+    // `customTag` as `''` and falsely match the second dataset.
+    withFixtures([
+      dataSet(1n, { source: 'storacha-migration', customTag: '' }),
+      dataSet(2n, { source: 'storacha-migration' }), // no customTag at all
+    ])
+
+    const result = await resolveDataSetIdsByMetadata(
+      fakeSynapse,
+      { source: 'storacha-migration', customTag: '' },
+      { expectedCopies: 1 }
+    )
+
+    expect(result).toEqual({ kind: 'matched', dataSetIds: [1n] })
+  })
+
+  it('skips non-live datasets even if metadata matches', async () => {
+    withFixtures([
+      dataSet(1n, { source: 'storacha-migration' }, false), // terminated
+      dataSet(2n, { source: 'storacha-migration' }, true),
+    ])
+
+    const result = await resolveDataSetIdsByMetadata(
+      fakeSynapse,
+      { source: 'storacha-migration' },
+      { expectedCopies: 1 }
+    )
+
+    expect(result).toEqual({ kind: 'matched', dataSetIds: [2n] })
   })
 })

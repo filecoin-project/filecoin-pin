@@ -52,7 +52,15 @@ export async function resolveDataSetIdsByMetadata(
       if (!dataSet.isLive) {
         return false
       }
-      return entries.every(([key, value]) => (dataSet.metadata?.[key] ?? '') === value)
+      const metadata = dataSet.metadata
+      if (metadata == null) {
+        return false
+      }
+      // Require key presence on the dataset, not just value equality. Treating a
+      // missing key as `''` would let `{ someKey: '' }` match datasets that don't
+      // carry `someKey` at all, which violates the "requested keys are a subset
+      // of dataset metadata" rule.
+      return entries.every(([key, value]) => key in metadata && metadata[key] === value)
     },
     ...(options.logger != null && { logger: options.logger }),
   })

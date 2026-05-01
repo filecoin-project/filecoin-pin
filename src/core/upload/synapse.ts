@@ -286,24 +286,47 @@ export async function uploadToSynapse(
     },
   }
 
-  // Always include functional defaults (IPFS indexing). Only inject
-  // 'filecoin-pin' as source when no source is provided by the caller via
-  // explicit metadata, pre-resolved contexts, or the Synapse instance.
-  const hasCallerSource =
-    options.metadata?.[METADATA_KEYS.SOURCE] != null ||
-    options.contexts?.some((ctx) => ctx.dataSetMetadata?.[METADATA_KEYS.SOURCE] != null) ||
-    synapse.storage.source != null
+  /**
+   * Inject functional + provenance defaults into upload metadata, but ONLY when
+   * the caller has not pinned a target via explicit `dataSetIds` (or pre-resolved
+   * `contexts`, which already encode their own dataset binding).
+   *
+   * Why the gate matters: synapse-sdk's metadata is used for two distinct
+   * purposes — (1) matching when smart-selecting a dataset to upload into, and
+   * (2) initializing metadata on a freshly-created dataset. When the caller has
+   * already chosen the dataset by ID, neither path applies — the SDK resolves
+   * via `resolveByDataSetId` and our injected defaults become dead weight at
+   * best, misleading at worst (a future SDK change could start consulting
+   * metadata on the dataset-id path and silently mismatch). Suppressing the
+   * defaults here keeps the contract honest: "you said which dataset; we don't
+   * second-guess your metadata."
+   *
+   * The smart-select / providerIds paths still get the defaults so existing
+   * behavior is unchanged for callers that haven't pinned a dataset.
+   */
+  const hasResolvedTarget = options.dataSetIds != null || options.contexts != null
 
-  const baseMetadata: Record<string, string> = {
-    [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
-  }
-  if (!hasCallerSource) {
-    baseMetadata[METADATA_KEYS.SOURCE] = APPLICATION_SOURCE
-  }
+  if (hasResolvedTarget) {
+    if (options.metadata != null) {
+      uploadOptions.metadata = options.metadata
+    }
+  } else {
+    const hasCallerSource =
+      options.metadata?.[METADATA_KEYS.SOURCE] != null ||
+      options.contexts?.some((ctx) => ctx.dataSetMetadata?.[METADATA_KEYS.SOURCE] != null) ||
+      synapse.storage.source != null
 
-  uploadOptions.metadata = {
-    ...baseMetadata,
-    ...(options.metadata ?? {}),
+    const baseMetadata: Record<string, string> = {
+      [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+    }
+    if (!hasCallerSource) {
+      baseMetadata[METADATA_KEYS.SOURCE] = APPLICATION_SOURCE
+    }
+
+    uploadOptions.metadata = {
+      ...baseMetadata,
+      ...(options.metadata ?? {}),
+    }
   }
 
   // Pass through context selection options

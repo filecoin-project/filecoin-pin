@@ -105,6 +105,8 @@ vi.mock('../../payments/setup.js', () => ({
   formatUSDFC: vi.fn((amount) => `${amount} USDFC`),
   validatePaymentRequirements: vi.fn().mockReturnValue({ isValid: true }),
 }))
+const { mockFindDataSets } = vi.hoisted(() => ({ mockFindDataSets: vi.fn().mockResolvedValue([]) }))
+
 vi.mock('../../core/synapse/index.js', () => ({
   isSessionKeyMode: vi.fn(() => false),
   getClientAddress: vi.fn(() => '0x1234567890123456789012345678901234567890'),
@@ -125,7 +127,7 @@ vi.mock('../../core/synapse/index.js', () => ({
       client: { account: { address: '0x1234567890123456789012345678901234567890' } },
       storage: {
         upload: vi.fn(),
-        findDataSets: vi.fn().mockResolvedValue([]),
+        findDataSets: mockFindDataSets,
       },
     }
   }),
@@ -403,6 +405,62 @@ describe('CAR Import', () => {
           pieceMetadata: { ics: '8004' },
         })
       )
+    })
+
+    it('resolves --data-set-metadata to dataSetIds and drops metadata when subset matches', async () => {
+      const carPath = join(testDir, 'resolve-match.car')
+      await createTestCarFile(carPath, [], [{ content: 'resolve match' }])
+
+      mockFindDataSets.mockResolvedValueOnce([
+        {
+          pdpVerifierDataSetId: 13260n,
+          providerId: 2n,
+          isLive: true,
+          metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' },
+        },
+        {
+          pdpVerifierDataSetId: 13261n,
+          providerId: 4n,
+          isLive: true,
+          metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' },
+        },
+      ])
+
+      await runCarImport({
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        dataSetMetadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
+      })
+
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.any(Uint8Array),
+        expect.any(Object),
+        expect.objectContaining({ dataSetIds: [13260n, 13261n] })
+      )
+      const lastCall = vi.mocked(performUpload).mock.calls.at(-1)
+      expect(lastCall?.[3]).not.toHaveProperty('metadata')
+    })
+
+    it('throws when --data-set-metadata is ambiguous (more matches than copies)', async () => {
+      const carPath = join(testDir, 'resolve-ambiguous.car')
+      await createTestCarFile(carPath, [], [{ content: 'ambiguous' }])
+
+      mockFindDataSets.mockResolvedValueOnce([
+        { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
+        { pdpVerifierDataSetId: 2n, providerId: 2n, isLive: true, metadata: { source: 'storacha-migration' } },
+        { pdpVerifierDataSetId: 3n, providerId: 3n, isLive: true, metadata: { source: 'storacha-migration' } },
+        { pdpVerifierDataSetId: 4n, providerId: 4n, isLive: true, metadata: { source: 'storacha-migration' } },
+      ])
+
+      await expect(
+        runCarImport({
+          filePath: carPath,
+          privateKey: testPrivateKey,
+          dataSetMetadata: { source: 'storacha-migration' },
+        })
+      ).rejects.toThrow(/Ambiguous|matched 4 data sets|expected 2/)
     })
   })
 
