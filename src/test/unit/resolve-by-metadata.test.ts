@@ -55,11 +55,7 @@ describe('resolveDataSetIdsByMetadata', () => {
   it('returns no-match when zero datasets match (lets SDK create new)', async () => {
     mockListDataSets.mockResolvedValueOnce([])
 
-    const result = await resolveDataSetIdsByMetadata(
-      fakeSynapse,
-      { source: 'something-new' },
-      { expectedCopies: 2 }
-    )
+    const result = await resolveDataSetIdsByMetadata(fakeSynapse, { source: 'something-new' }, { expectedCopies: 2 })
 
     expect(result).toEqual({ kind: 'no-match' })
   })
