@@ -1,7 +1,11 @@
 import type { PDPProvider } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { waitForIpniProviderResults } from '../../core/utils/validate-ipni-advertisement.js'
+import {
+  type IpniValidationOutcome,
+  waitForIpniProviderResults,
+  waitForIpniProviderResultsDetailed,
+} from '../../core/utils/validate-ipni-advertisement.js'
 
 describe('waitForIpniProviderResults', () => {
   const testCid = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
@@ -603,6 +607,149 @@ describe('waitForIpniProviderResults', () => {
 
       await vi.runAllTimersAsync()
       await expectPromise
+    })
+
+    it('should expose per-CID outcome via Error.cause on failure (issue #417)', async () => {
+      const childCid = CID.parse('bafkreia7wx2ue2r5x2bwsxns2r4jtrsu7dzw2r3abjtw3obqckm3w2b2mu')
+      // root verifies, child fails with http
+      mockFetch
+        .mockResolvedValueOnce(successResponse())
+        .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' })
+
+      const promise = waitForIpniProviderResults(testCid, { childBlocks: [childCid], maxAttempts: 1 })
+      let caught: Error | undefined
+      promise.catch((e) => {
+        caught = e
+      })
+      await vi.runAllTimersAsync()
+      await promise.catch(() => undefined)
+
+      expect(caught).toBeInstanceOf(Error)
+      const outcome = caught?.cause as IpniValidationOutcome
+      expect(outcome.success).toBe(false)
+      expect(outcome.verified).toHaveLength(1)
+      expect(outcome.verified[0]?.cid.toString()).toBe(testCid.toString())
+      expect(outcome.failed).toHaveLength(1)
+      expect(outcome.failed[0]?.cid.toString()).toBe(childCid.toString())
+      expect(outcome.failed[0]?.reason.type).toBe('http')
+    })
+
+    describe('detailed outcome (issue #417)', () => {
+      it('returns success outcome for single-CID success', async () => {
+        mockFetch.mockResolvedValueOnce(successResponse())
+        const promise = waitForIpniProviderResultsDetailed(testCid)
+        await vi.runAllTimersAsync()
+        const outcome = await promise
+
+        expect(outcome.success).toBe(true)
+        expect(outcome.verified).toEqual([{ cid: testCid, attempts: 1 }])
+        expect(outcome.failed).toEqual([])
+        expect(outcome.ipniIndexerUrl).toBe(defaultIndexerUrl)
+      })
+
+      it('returns partial verification: some CIDs verified before a failed one', async () => {
+        const childCid1 = CID.parse('bafkreia7wx2ue2r5x2bwsxns2r4jtrsu7dzw2r3abjtw3obqckm3w2b2mu')
+        const childCid2 = CID.parse('bafkreidm5pjnb6q4mwkj7s7g6kfjs5hr2ql6grnq2qg5fbq5cppxnpzqle')
+        mockFetch
+          .mockResolvedValueOnce(successResponse()) // root ✓
+          .mockResolvedValueOnce(emptyProviderResponse()) // child1 ✗
+
+        const promise = waitForIpniProviderResultsDetailed(testCid, {
+          childBlocks: [childCid1, childCid2],
+          maxAttempts: 1,
+        })
+        await vi.runAllTimersAsync()
+        const outcome = await promise
+
+        expect(outcome.success).toBe(false)
+        expect(outcome.verified.map((v) => v.cid.toString())).toEqual([testCid.toString()])
+        expect(outcome.failed.map((f) => f.cid.toString())).toEqual([childCid1.toString(), childCid2.toString()])
+        expect(outcome.failed[0]?.reason.type).toBe('missingProviders')
+        expect(outcome.failed[1]?.reason.type).toBe('notAttempted')
+      })
+
+      it('returns all-CIDs-missing outcome', async () => {
+        const childCid = CID.parse('bafkreia7wx2ue2r5x2bwsxns2r4jtrsu7dzw2r3abjtw3obqckm3w2b2mu')
+        mockFetch.mockResolvedValue(emptyProviderResponse())
+
+        const promise = waitForIpniProviderResultsDetailed(testCid, {
+          childBlocks: [childCid],
+          maxAttempts: 1,
+        })
+        await vi.runAllTimersAsync()
+        const outcome = await promise
+
+        expect(outcome.success).toBe(false)
+        expect(outcome.verified).toEqual([])
+        expect(outcome.failed).toHaveLength(2)
+        expect(outcome.failed[0]?.reason.type).toBe('missingProviders')
+        expect(outcome.failed[1]?.reason.type).toBe('notAttempted')
+      })
+
+      it('marks aborted-mid-walk CID with reason.type === aborted (signal-aware sleep)', async () => {
+        const childCid = CID.parse('bafkreia7wx2ue2r5x2bwsxns2r4jtrsu7dzw2r3abjtw3obqckm3w2b2mu')
+        const abortController = new AbortController()
+        // root succeeds, child returns ok:false then we abort during the inter-attempt sleep
+        mockFetch.mockResolvedValueOnce(successResponse()).mockResolvedValue({ ok: false })
+
+        const promise = waitForIpniProviderResultsDetailed(testCid, {
+          childBlocks: [childCid],
+          maxAttempts: 5,
+          delayMs: 10_000,
+          signal: abortController.signal,
+        })
+
+        // let root + first child fetch complete
+        await vi.advanceTimersByTimeAsync(0)
+        // child is now sleeping before its retry; abort interrupts the sleep
+        abortController.abort()
+        await vi.runAllTimersAsync()
+        const outcome = await promise
+
+        expect(outcome.success).toBe(false)
+        expect(outcome.verified.map((v) => v.cid.toString())).toEqual([testCid.toString()])
+        const childFail = outcome.failed.find((f) => f.cid.toString() === childCid.toString())
+        expect(childFail?.reason.type).toBe('aborted')
+      })
+
+      it('aborts during inter-attempt sleep without waiting for delayMs (signal-aware)', async () => {
+        const abortController = new AbortController()
+        mockFetch.mockResolvedValue({ ok: false })
+
+        const promise = waitForIpniProviderResultsDetailed(testCid, {
+          maxAttempts: 5,
+          delayMs: 60_000,
+          signal: abortController.signal,
+        })
+
+        // first attempt completes immediately
+        await vi.advanceTimersByTimeAsync(0)
+        expect(mockFetch).toHaveBeenCalledTimes(1)
+
+        // we should now be inside the 60s inter-attempt sleep — abort and verify
+        // we resolve without advancing to delayMs
+        abortController.abort()
+        const outcome = await promise
+
+        expect(outcome.success).toBe(false)
+        expect(outcome.failed[0]?.reason.type).toBe('aborted')
+        // crucially: only one fetch — sleep was interrupted before retry
+        expect(mockFetch).toHaveBeenCalledTimes(1)
+      })
+
+      it('emits ipniProviderResults.outcome event with full per-CID detail', async () => {
+        mockFetch.mockResolvedValueOnce(successResponse())
+        const onProgress = vi.fn()
+        const promise = waitForIpniProviderResults(testCid, { onProgress })
+        await vi.runAllTimersAsync()
+        await promise
+
+        const outcomeEvents = onProgress.mock.calls.filter(([e]) => e.type === 'ipniProviderResults.outcome')
+        expect(outcomeEvents).toHaveLength(1)
+        const outcome = outcomeEvents[0]?.[0].data.outcome as IpniValidationOutcome
+        expect(outcome.success).toBe(true)
+        expect(outcome.verified).toHaveLength(1)
+      })
     })
 
     it('should use custom IPNI indexer URL when provided', async () => {

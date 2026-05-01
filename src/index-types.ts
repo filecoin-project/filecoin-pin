@@ -50,6 +50,10 @@ export type {
 } from './core/upload/index.js'
 export type { AnyProgressEvent, ProgressEvent, ProgressEventHandler, Warning } from './core/utils/types.js'
 export type {
+  IpniFailedEntry,
+  IpniFailureReason,
+  IpniValidationOutcome,
+  IpniVerifiedEntry,
   ValidateIPNIProgressEvents,
   WaitForIpniProviderResultsOptions,
 } from './core/utils/validate-ipni-advertisement.js'

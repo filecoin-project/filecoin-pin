@@ -38,6 +38,51 @@ interface ProviderResult {
   }
 }
 
+/**
+ * Per-CID failure classification produced by {@link waitForIpniProviderResults}.
+ *
+ * The `type` discriminator tells consumers what happened on the *last* attempt
+ * for a given CID. Earlier intermediate failures (e.g. transient fetch errors)
+ * may have been retried away and are not reported here.
+ */
+export type IpniFailureReason =
+  | { type: 'timeout'; attempts: number; lastObservation?: string }
+  | {
+      type: 'missingProviders'
+      attempts: number
+      missingServiceUrls: string[]
+      actualMultiaddrs: string[]
+    }
+  | { type: 'fetch'; attempts: number; message: string }
+  | { type: 'parse'; attempts: number; message: string }
+  | { type: 'http'; attempts: number; status: number; statusText?: string }
+  | { type: 'aborted'; attempts: number }
+  | { type: 'notAttempted' }
+
+export interface IpniVerifiedEntry {
+  cid: CID
+  attempts: number
+}
+
+export interface IpniFailedEntry {
+  cid: CID
+  reason: IpniFailureReason
+}
+
+/**
+ * Per-CID outcome of an IPNI validation walk.
+ *
+ * `success === true` iff every CID checked produced a `verified` entry.
+ * Walk stops at the first per-CID failure; CIDs after that point appear in
+ * `failed` with reason `{ type: 'notAttempted' }`.
+ */
+export interface IpniValidationOutcome {
+  success: boolean
+  ipniIndexerUrl: string
+  verified: IpniVerifiedEntry[]
+  failed: IpniFailedEntry[]
+}
+
 export type ValidateIPNIProgressEvents =
   | ProgressEvent<
       'ipniProviderResults.retryUpdate',
@@ -52,6 +97,7 @@ export type ValidateIPNIProgressEvents =
         cidMaxAttempts: number
       }
     >
+  | ProgressEvent<'ipniProviderResults.outcome', { outcome: IpniValidationOutcome }>
   | ProgressEvent<'ipniProviderResults.complete', { result: true; retryCount: number }>
   | ProgressEvent<'ipniProviderResults.failed', { error: Error }>
 
@@ -115,25 +161,69 @@ export interface WaitForIpniProviderResultsOptions {
 }
 
 /**
- * Check if the IPNI Indexer has the provided ProviderResults for the provided ipfsRootCid.
- * This effectively verifies the entire SP<->IPNI flow, including:
- * - The SP announced the advertisement chain to the IPNI indexer(s)
- * - The IPNI indexer(s) pulled the advertisement chain from the SP
- * - The IPNI indexer(s) updated their index
- * This doesn't check individual steps, but rather the end ProviderResults reponse from the IPNI indexer.
- * If the IPNI indexer ProviderResults have the expected providers, then the steps abomove must have completed.
- * This doesn't actually do any IPFS Mainnet retrieval checks of the ipfsRootCid.
+ * Check if the IPNI Indexer has the expected ProviderResults for the provided CIDs.
  *
- * This should not be called until you receive confirmation from the SP that the piece has been parked, i.e. `onPieceAdded` in the `synapse.storage.upload` callbacks.
+ * Verifies the entire SP<->IPNI flow end-to-end:
+ * - SPs announced the advertisement chain to the IPNI indexer
+ * - The IPNI indexer pulled and indexed the chain
  *
- * @param ipfsRootCid - The IPFS root CID to check
- * @param options - Options for the check
- * @returns True if the IPNI announce succeeded, false otherwise
+ * Walks `[ipfsRootCid, ...childBlocks]` in order. Stops at the first CID that
+ * fails to verify within `maxAttempts`. Throws `Error(msg, { cause: outcome })`
+ * on any failure; the `cause` is an {@link IpniValidationOutcome} with per-CID
+ * `verified` and `failed` lists. CIDs not yet walked at failure time appear in
+ * `failed` with `reason.type === 'notAttempted'`.
+ *
+ * Should not be called until you receive confirmation from the SP that the
+ * piece has been parked (e.g. `onPieceAdded` in `synapse.storage.upload`).
+ *
+ * @returns `true` when every CID verified.
+ * @throws Error with `cause: IpniValidationOutcome` on any failure.
  */
 export async function waitForIpniProviderResults(
   ipfsRootCid: CID,
   options?: WaitForIpniProviderResultsOptions
 ): Promise<boolean> {
+  const outcome = await waitForIpniProviderResultsDetailed(ipfsRootCid, options)
+
+  try {
+    options?.onProgress?.({ type: 'ipniProviderResults.outcome', data: { outcome } })
+  } catch (error) {
+    options?.logger?.warn({ error }, 'Error in consumer onProgress callback for outcome event')
+  }
+
+  if (outcome.success) {
+    try {
+      // Legacy retryCount semantics: number of retryUpdate emissions across all CIDs minus 1.
+      const totalAttempts = outcome.verified.reduce((sum, v) => sum + v.attempts, 0)
+      const retryCount = totalAttempts > 0 ? totalAttempts - 1 : 0
+      options?.onProgress?.({ type: 'ipniProviderResults.complete', data: { result: true, retryCount } })
+    } catch (error) {
+      options?.logger?.warn({ error }, 'Error in consumer onProgress callback for complete event')
+    }
+    return true
+  }
+
+  const error = buildOutcomeError(outcome, options)
+  try {
+    options?.onProgress?.({ type: 'ipniProviderResults.failed', data: { error } })
+  } catch (callbackError) {
+    options?.logger?.warn({ error: callbackError }, 'Error in consumer onProgress callback for failed event')
+  }
+  throw error
+}
+
+/**
+ * Detailed variant: never throws on per-CID failures, always returns an
+ * {@link IpniValidationOutcome} with full per-CID verified/failed lists.
+ *
+ * Use this when you need diagnostic visibility into which specific CIDs
+ * verified vs. timed out vs. were aborted mid-walk. The boolean-returning
+ * {@link waitForIpniProviderResults} is a thin wrapper around this function.
+ */
+export async function waitForIpniProviderResultsDetailed(
+  ipfsRootCid: CID,
+  options?: WaitForIpniProviderResultsOptions
+): Promise<IpniValidationOutcome> {
   const delayMs = options?.delayMs ?? 5000
   const maxAttempts = options?.maxAttempts ?? 20
   const ipniIndexerUrl = options?.ipniIndexerUrl ?? 'https://filecoinpin.contact'
@@ -144,8 +234,6 @@ export async function waitForIpniProviderResults(
 
   const hasProviderExpectations = expectedUris.size > 0
 
-  // Log a warning if we expected providers but couldn't derive their URIs
-  // In this case, we fall back to generic validation (just checking if there are any provider records for the CID)
   if (!hasProviderExpectations && expectedProviders.length > 0 && skippedProviderCount > 0) {
     options?.logger?.info(
       { skippedProviderExpectationCount: skippedProviderCount, expectedProviders: expectedProviders.length },
@@ -166,61 +254,70 @@ export async function waitForIpniProviderResults(
   const totalAttempts = cidsToValidate.length * maxAttempts
   let totalChecks = 0
 
-  try {
-    for (const [index, cid] of cidsToValidate.entries()) {
-      await waitForIpniProviderResultsForCid(cid, {
-        delayMs,
-        maxAttempts,
-        ipniIndexerUrl,
-        expectedUris,
-        uriToServiceUrl,
-        hasProviderExpectations,
-        cidIndex: index + 1,
-        cidCount: cidsToValidate.length,
-        totalAttempts,
-        onRetryUpdate: () => {
-          totalChecks++
-          return { retryCount: totalChecks - 1, attempt: totalChecks }
-        },
-        options,
-      })
+  const verified: IpniVerifiedEntry[] = []
+  const failed: IpniFailedEntry[] = []
+
+  for (const [index, cid] of cidsToValidate.entries()) {
+    const result = await validateOneCid(cid, {
+      delayMs,
+      maxAttempts,
+      ipniIndexerUrl,
+      expectedUris,
+      uriToServiceUrl,
+      hasProviderExpectations,
+      cidIndex: index + 1,
+      cidCount: cidsToValidate.length,
+      totalAttempts,
+      onRetryUpdate: () => {
+        totalChecks++
+        return { retryCount: totalChecks - 1, attempt: totalChecks }
+      },
+      options,
+    })
+
+    if (result.verified) {
+      verified.push({ cid, attempts: result.attempts })
+      continue
     }
 
-    try {
-      // totalChecks is incremented before each emitted retryUpdate, so last retryCount is totalChecks - 1
-      const retryCount = totalChecks > 0 ? totalChecks - 1 : 0
-      options?.onProgress?.({ type: 'ipniProviderResults.complete', data: { result: true, retryCount } })
-    } catch (error) {
-      options?.logger?.warn({ error }, 'Error in consumer onProgress callback for complete event')
+    failed.push({ cid, reason: result.reason })
+    // Stop walking. Mark remaining CIDs as not attempted.
+    for (let i = index + 1; i < cidsToValidate.length; i++) {
+      const skipped = cidsToValidate[i]
+      if (skipped != null) {
+        failed.push({ cid: skipped, reason: { type: 'notAttempted' } })
+      }
     }
+    break
+  }
 
-    return true
-  } catch (error) {
-    try {
-      options?.onProgress?.({ type: 'ipniProviderResults.failed', data: { error: error as Error } })
-    } catch (callbackError) {
-      options?.logger?.warn({ error: callbackError }, 'Error in consumer onProgress callback for failed event')
-    }
-    throw error
+  return {
+    success: failed.length === 0,
+    ipniIndexerUrl,
+    verified,
+    failed,
   }
 }
 
-async function waitForIpniProviderResultsForCid(
-  cid: CID,
-  config: {
-    delayMs: number
-    maxAttempts: number
-    ipniIndexerUrl: string
-    expectedUris: Set<string>
-    uriToServiceUrl: Map<string, string>
-    hasProviderExpectations: boolean
-    cidIndex: number
-    cidCount: number
-    totalAttempts: number
-    onRetryUpdate: (() => { retryCount: number; attempt: number }) | undefined
-    options: WaitForIpniProviderResultsOptions | undefined
-  }
-): Promise<boolean> {
+type CidValidationResult =
+  | { verified: true; attempts: number }
+  | { verified: false; reason: IpniFailureReason; attempts: number }
+
+interface ValidateOneCidConfig {
+  delayMs: number
+  maxAttempts: number
+  ipniIndexerUrl: string
+  expectedUris: Set<string>
+  uriToServiceUrl: Map<string, string>
+  hasProviderExpectations: boolean
+  cidIndex: number
+  cidCount: number
+  totalAttempts: number
+  onRetryUpdate: (() => { retryCount: number; attempt: number }) | undefined
+  options: WaitForIpniProviderResultsOptions | undefined
+}
+
+async function validateOneCid(cid: CID, config: ValidateOneCidConfig): Promise<CidValidationResult> {
   const {
     delayMs,
     maxAttempts,
@@ -231,179 +328,271 @@ async function waitForIpniProviderResultsForCid(
     cidIndex,
     cidCount,
     totalAttempts,
+    onRetryUpdate,
+    options,
   } = config
-  const { onRetryUpdate } = config
-  const { options } = config
 
-  return new Promise<boolean>((resolve, reject) => {
-    let retryCount = 0
-    // Tracks the most recent validation failure reason for error reporting
-    let lastFailureReason: string | undefined
-    // Tracks the normalized URIs (for comparison) and raw multiaddrs (for display) from the last IPNI response
-    let lastActualUris: Set<string> = new Set()
-    let lastActualMultiaddrs: Set<string> = new Set()
+  let retryCount = 0
+  let lastReason: IpniFailureReason | null = null
+  let lastActualMultiaddrs: Set<string> = new Set()
+  let lastActualUris: Set<string> = new Set()
 
-    const check = async (): Promise<void> => {
-      if (options?.signal?.aborted) {
-        throw new Error('Check IPNI announce aborted', { cause: options?.signal })
-      }
-
-      options?.logger?.info(
-        {
-          event: 'check-ipni-announce',
-          ipfsRootCid: cid.toString(),
-        },
-        'Checking IPNI for announcement of IPFS CID "%s"',
-        cid.toString()
-      )
-
-      // Emit progress event for this attempt
-      const emittedRetryMetadata = onRetryUpdate?.()
-      try {
-        options?.onProgress?.({
-          type: 'ipniProviderResults.retryUpdate',
-          data: {
-            retryCount: emittedRetryMetadata?.retryCount ?? retryCount,
-            attempt: emittedRetryMetadata?.attempt ?? retryCount + 1,
-            totalAttempts,
-            cid,
-            cidIndex,
-            cidCount,
-            cidAttempt: retryCount + 1,
-            cidMaxAttempts: maxAttempts,
-          },
-        })
-      } catch (error) {
-        options?.logger?.warn({ error }, 'Error in consumer onProgress callback for retryUpdate event')
-      }
-
-      // Fetch IPNI provider records
-      const fetchOptions: RequestInit = {
-        headers: { Accept: 'application/json' },
-      }
-      if (options?.signal) {
-        fetchOptions.signal = options?.signal
-      }
-
-      let response: Response | undefined
-      try {
-        response = await fetch(`${ipniIndexerUrl}/cid/${cid}`, fetchOptions)
-      } catch (fetchError) {
-        lastActualMultiaddrs = new Set()
-        lastActualUris = new Set()
-        lastFailureReason = `Failed to query IPNI indexer: ${getErrorMessage(fetchError)}`
-        options?.logger?.warn({ error: fetchError }, `${lastFailureReason}. Retrying...`)
-      }
-
-      // Parse and validate response
-      if (response?.ok) {
-        let providerResults: ProviderResult[] = []
-        try {
-          const body = (await response.json()) as IpniIndexerResponse
-          // Extract provider results
-          providerResults = (body.MultihashResults ?? []).flatMap((r) => r.ProviderResults ?? [])
-          // Extract raw multiaddrs for display and normalized URIs for comparison.
-          // URI comparison is format-agnostic: both `/dns/host/tcp/443/https`
-          // and `/dns/host/https` normalize to `https://host`.
-          const rawAddrs = providerResults.flatMap((pr) => pr.Provider?.Addrs ?? [])
-          lastActualMultiaddrs = new Set(rawAddrs)
-          lastActualUris = new Set(rawAddrs.map(multiaddrToNormalizedUri))
-          lastFailureReason = undefined
-        } catch (parseError) {
-          // Clear actual multiaddrs on parse error
-          lastActualMultiaddrs = new Set()
-          lastActualUris = new Set()
-          lastFailureReason = `Failed to parse IPNI response body: ${getErrorMessage(parseError)}`
-          options?.logger?.warn({ error: parseError }, `${lastFailureReason}. Retrying...`)
-        }
-
-        // Check if we have provider results to validate
-        if (providerResults.length > 0) {
-          let isValid = false
-
-          if (hasProviderExpectations) {
-            // Find matching URIs and compute which are missing
-            const matchedUris = lastActualUris.intersection(expectedUris)
-            isValid = matchedUris.size === expectedUris.size
-
-            if (!isValid) {
-              // Compute only the missing serviceURLs for precise diagnostics
-              const missingUris = expectedUris.difference(matchedUris)
-              const missingServiceUrls = Array.from(missingUris).map((uri) => uriToServiceUrl.get(uri) ?? uri)
-              lastFailureReason = `Missing expected provider(s): ${missingServiceUrls.join(', ')}`
-              options?.logger?.info(
-                {
-                  missingServiceUrls,
-                  actualMultiaddrs: Array.from(lastActualMultiaddrs),
-                },
-                `${lastFailureReason}. Retrying...`
-              )
-            }
-          } else {
-            // Generic validation: just need any provider with addresses
-            isValid = lastActualUris.size > 0
-            if (!isValid) {
-              lastFailureReason = 'Expected at least one provider record'
-              options?.logger?.info(`${lastFailureReason}. Retrying...`)
-            }
-          }
-
-          if (isValid) {
-            // Validation succeeded!
-            resolve(true)
-            return
-          }
-        } else if (lastFailureReason == null) {
-          // Only set generic message if we don't already have a more specific reason (e.g., parse error)
-          lastFailureReason = 'IPNI response did not include any provider results'
-          // Track that we got an empty response
-          lastActualMultiaddrs = new Set()
-          lastActualUris = new Set()
-          options?.logger?.info(
-            { providerResultsCount: providerResults?.length ?? 0 },
-            `${lastFailureReason}. Retrying...`
-          )
-        }
-      } else if (response != null) {
-        lastActualMultiaddrs = new Set()
-        lastActualUris = new Set()
-        lastFailureReason = `IPNI indexer request failed with status ${response.status}`
-        options?.logger?.info(
-          { status: response.status, statusText: response.statusText },
-          `${lastFailureReason}. Retrying...`
-        )
-      }
-
-      // Retry or fail
-      if (++retryCount < maxAttempts) {
-        options?.logger?.info(
-          { retryCount, maxAttempts },
-          'IPFS CID "%s" not announced to IPNI yet (%d/%d). Retrying in %dms...',
-          cid.toString(),
-          retryCount,
-          maxAttempts,
-          delayMs
-        )
-        await new Promise((resolve) => setTimeout(resolve, delayMs))
-        await check()
-      } else {
-        // Max attempts reached - validation failed
-        const msgBase = `IPFS CID "${cid.toString()}" does not have expected IPNI ProviderResults after ${maxAttempts} attempt${maxAttempts === 1 ? '' : 's'}`
-        let msg = msgBase
-        if (lastFailureReason != null) {
-          msg = `${msgBase}. Last observation: ${lastFailureReason}`
-        }
-        if (hasProviderExpectations) {
-          msg = `${msg}. Expected serviceURLs: [${Array.from(uriToServiceUrl.values()).join(', ')}]. Actual multiaddrs in response: [${Array.from(lastActualMultiaddrs).join(', ')}]`
-        }
-        const error = new Error(msg)
-        options?.logger?.warn({ error }, msg)
-        throw error
-      }
+  while (true) {
+    if (options?.signal?.aborted) {
+      return { verified: false, reason: { type: 'aborted', attempts: retryCount }, attempts: retryCount }
     }
 
-    check().catch(reject)
+    options?.logger?.info(
+      { event: 'check-ipni-announce', ipfsRootCid: cid.toString() },
+      'Checking IPNI for announcement of IPFS CID "%s"',
+      cid.toString()
+    )
+
+    const emittedRetryMetadata = onRetryUpdate?.()
+    try {
+      options?.onProgress?.({
+        type: 'ipniProviderResults.retryUpdate',
+        data: {
+          retryCount: emittedRetryMetadata?.retryCount ?? retryCount,
+          attempt: emittedRetryMetadata?.attempt ?? retryCount + 1,
+          totalAttempts,
+          cid,
+          cidIndex,
+          cidCount,
+          cidAttempt: retryCount + 1,
+          cidMaxAttempts: maxAttempts,
+        },
+      })
+    } catch (error) {
+      options?.logger?.warn({ error }, 'Error in consumer onProgress callback for retryUpdate event')
+    }
+
+    const fetchOptions: RequestInit = {
+      headers: { Accept: 'application/json' },
+    }
+    if (options?.signal) {
+      fetchOptions.signal = options?.signal
+    }
+
+    let response: Response | undefined
+    try {
+      response = await fetch(`${ipniIndexerUrl}/cid/${cid}`, fetchOptions)
+    } catch (fetchError) {
+      if (options?.signal?.aborted) {
+        return { verified: false, reason: { type: 'aborted', attempts: retryCount + 1 }, attempts: retryCount + 1 }
+      }
+      lastActualMultiaddrs = new Set()
+      lastActualUris = new Set()
+      const message = getErrorMessage(fetchError)
+      lastReason = { type: 'fetch', attempts: retryCount + 1, message }
+      options?.logger?.warn({ error: fetchError }, `Failed to query IPNI indexer: ${message}. Retrying...`)
+    }
+
+    if (response?.ok) {
+      let providerResults: ProviderResult[] = []
+      try {
+        const body = (await response.json()) as IpniIndexerResponse
+        providerResults = (body.MultihashResults ?? []).flatMap((r) => r.ProviderResults ?? [])
+        const rawAddrs = providerResults.flatMap((pr) => pr.Provider?.Addrs ?? [])
+        lastActualMultiaddrs = new Set(rawAddrs)
+        lastActualUris = new Set(rawAddrs.map(multiaddrToNormalizedUri))
+        lastReason = null
+      } catch (parseError) {
+        lastActualMultiaddrs = new Set()
+        lastActualUris = new Set()
+        const message = getErrorMessage(parseError)
+        lastReason = { type: 'parse', attempts: retryCount + 1, message }
+        options?.logger?.warn({ error: parseError }, `Failed to parse IPNI response body: ${message}. Retrying...`)
+      }
+
+      if (providerResults.length > 0 && lastReason == null) {
+        let isValid = false
+
+        if (hasProviderExpectations) {
+          const matchedUris = lastActualUris.intersection(expectedUris)
+          isValid = matchedUris.size === expectedUris.size
+
+          if (!isValid) {
+            const missingUris = expectedUris.difference(matchedUris)
+            const missingServiceUrls = Array.from(missingUris).map((uri) => uriToServiceUrl.get(uri) ?? uri)
+            lastReason = {
+              type: 'missingProviders',
+              attempts: retryCount + 1,
+              missingServiceUrls,
+              actualMultiaddrs: Array.from(lastActualMultiaddrs),
+            }
+            options?.logger?.info(
+              { missingServiceUrls, actualMultiaddrs: Array.from(lastActualMultiaddrs) },
+              `Missing expected provider(s): ${missingServiceUrls.join(', ')}. Retrying...`
+            )
+          }
+        } else {
+          isValid = lastActualUris.size > 0
+          if (!isValid) {
+            lastReason = {
+              type: 'missingProviders',
+              attempts: retryCount + 1,
+              missingServiceUrls: [],
+              actualMultiaddrs: [],
+            }
+            options?.logger?.info('Expected at least one provider record. Retrying...')
+          }
+        }
+
+        if (isValid) {
+          return { verified: true, attempts: retryCount + 1 }
+        }
+      } else if (lastReason == null) {
+        lastReason = {
+          type: 'missingProviders',
+          attempts: retryCount + 1,
+          missingServiceUrls: hasProviderExpectations ? Array.from(uriToServiceUrl.values()) : [],
+          actualMultiaddrs: [],
+        }
+        lastActualMultiaddrs = new Set()
+        lastActualUris = new Set()
+        options?.logger?.info(
+          { providerResultsCount: providerResults?.length ?? 0 },
+          'IPNI response did not include any provider results. Retrying...'
+        )
+      }
+    } else if (response != null) {
+      lastActualMultiaddrs = new Set()
+      lastActualUris = new Set()
+      lastReason = {
+        type: 'http',
+        attempts: retryCount + 1,
+        status: response.status,
+        statusText: response.statusText,
+      }
+      options?.logger?.info(
+        { status: response.status, statusText: response.statusText },
+        `IPNI indexer request failed with status ${response.status}. Retrying...`
+      )
+    }
+
+    if (++retryCount < maxAttempts) {
+      options?.logger?.info(
+        { retryCount, maxAttempts },
+        'IPFS CID "%s" not announced to IPNI yet (%d/%d). Retrying in %dms...',
+        cid.toString(),
+        retryCount,
+        maxAttempts,
+        delayMs
+      )
+      try {
+        await abortableDelay(delayMs, options?.signal)
+      } catch {
+        return { verified: false, reason: { type: 'aborted', attempts: retryCount }, attempts: retryCount }
+      }
+      continue
+    }
+
+    const finalReason: IpniFailureReason = lastReason ?? {
+      type: 'timeout',
+      attempts: retryCount,
+    }
+    return { verified: false, reason: finalReason, attempts: retryCount }
+  }
+}
+
+/**
+ * Promise-based delay that rejects when `signal` aborts mid-sleep.
+ *
+ * Replaces `setTimeout` + `await` so an outer `AbortSignal.timeout(...)` does
+ * not have to wait for the next fetch boundary to take effect.
+ */
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('aborted'))
+      return
+    }
+    const timer = setTimeout(() => {
+      if (signal != null) {
+        signal.removeEventListener('abort', onAbort)
+      }
+      resolve()
+    }, ms)
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      reject(new Error('aborted'))
+    }
+    if (signal != null) {
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
   })
+}
+
+/**
+ * Build the legacy single-Error message + attach the structured outcome as
+ * `cause` so consumers that want per-CID detail can read `error.cause`.
+ *
+ * Message format is preserved verbatim from prior versions for callers that
+ * pattern-match on it (e.g. tests).
+ */
+function buildOutcomeError(
+  outcome: IpniValidationOutcome,
+  options: WaitForIpniProviderResultsOptions | undefined
+): Error {
+  const firstFailure = outcome.failed.find((f) => f.reason.type !== 'notAttempted') ?? outcome.failed[0]
+
+  if (firstFailure == null) {
+    const error = new Error('IPNI validation failed', { cause: outcome })
+    return error
+  }
+
+  if (firstFailure.reason.type === 'aborted') {
+    const error = new Error('Check IPNI announce aborted', {
+      cause: { signal: options?.signal, outcome },
+    })
+    return error
+  }
+
+  const expectedProviders = options?.expectedProviders?.filter((p) => p != null) ?? []
+  const { uriToServiceUrl } = deriveExpectedUris(expectedProviders, undefined)
+  const hasProviderExpectations = uriToServiceUrl.size > 0
+  const maxAttempts = options?.maxAttempts ?? 20
+
+  const cid = firstFailure.cid
+  const reason = firstFailure.reason
+  const attempts = 'attempts' in reason ? reason.attempts : maxAttempts
+
+  const msgBase = `IPFS CID "${cid.toString()}" does not have expected IPNI ProviderResults after ${attempts} attempt${attempts === 1 ? '' : 's'}`
+  let msg = msgBase
+  const lastObservation = formatLastObservation(reason)
+  if (lastObservation != null) {
+    msg = `${msgBase}. Last observation: ${lastObservation}`
+  }
+  if (hasProviderExpectations) {
+    const actualMultiaddrs = reason.type === 'missingProviders' ? reason.actualMultiaddrs : []
+    msg = `${msg}. Expected serviceURLs: [${Array.from(uriToServiceUrl.values()).join(', ')}]. Actual multiaddrs in response: [${actualMultiaddrs.join(', ')}]`
+  }
+
+  const error = new Error(msg, { cause: outcome })
+  options?.logger?.warn({ error }, msg)
+  return error
+}
+
+function formatLastObservation(reason: IpniFailureReason): string | undefined {
+  switch (reason.type) {
+    case 'missingProviders':
+      if (reason.missingServiceUrls.length > 0) {
+        return `Missing expected provider(s): ${reason.missingServiceUrls.join(', ')}`
+      }
+      return 'IPNI response did not include any provider results'
+    case 'fetch':
+      return `Failed to query IPNI indexer: ${reason.message}`
+    case 'parse':
+      return `Failed to parse IPNI response body: ${reason.message}`
+    case 'http':
+      return `IPNI indexer request failed with status ${reason.status}`
+    case 'timeout':
+      return reason.lastObservation
+    case 'aborted':
+    case 'notAttempted':
+      return undefined
+  }
 }
 
 /**
@@ -458,9 +647,6 @@ function deriveExpectedUris(
     }
 
     try {
-      // Normalize the service URL to match multiaddrToUri output format.
-      // multiaddrToUri never produces trailing slashes, so we strip them
-      // from the URL to ensure consistent comparison.
       const url = new URL(serviceURL)
       const normalized = url.href.replace(/\/+$/, '')
       uriToServiceUrl.set(normalized, serviceURL)
