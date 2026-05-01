@@ -16,6 +16,7 @@ import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
+import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
@@ -208,7 +209,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     // by partial metadata (e.g. source=storacha-migration).
     let effectiveDataSetMetadata = dataSetMetadata
     if (dataSetMetadata != null && contextSelection.dataSetIds == null && contextSelection.providerIds == null) {
-      const expectedCopies = options.copies ?? 2
+      const expectedCopies = options.copies ?? DEFAULT_COPIES
       spinner.start('Resolving data sets from --data-set-metadata...')
       const resolution = await resolveDataSetIdsByMetadata(synapse, dataSetMetadata, { expectedCopies, logger })
       if (resolution.kind === 'matched') {
@@ -264,7 +265,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       uploadOptions.copies = contextSelection.dataSetIds.length
     }
 
-    const requestedCopies = uploadOptions.copies ?? 2
+    const requestedCopies = uploadOptions.copies ?? DEFAULT_COPIES
     const uploadResult = await performUpload(synapse, carData, rootCid, uploadOptions)
 
     // Display results
