@@ -99,7 +99,9 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
     if (dataSets.length === 0) {
       if (explicitFilter) {
         emptyMessage = 'No data sets matched the requested filter for this account.'
-      } else if (!options.all && allDataSets.length > 0) {
+      } else if (options.all) {
+        emptyMessage = 'No data sets were found for this account.'
+      } else if (allDataSets.length > 0) {
         emptyMessage =
           'No data sets managed by filecoin-pin were found for this account. Pass --all to include data sets created by other tools.'
       }

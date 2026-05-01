@@ -297,6 +297,20 @@ describe('runDataSetCommand', () => {
     expect(call[3]).toMatch(/matched the requested filter/i)
   })
 
+  it('uses neutral empty message when --all is set and no datasets exist', async () => {
+    mockFindDataSets.mockResolvedValueOnce([])
+
+    await runDataSetListCommand({
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+      all: true,
+    })
+
+    const call = displayDataSetListMock.mock.calls[0] as [DataSetSummary[], string, string, string | undefined]
+    expect(call[0]).toHaveLength(0)
+    expect(call[3]).toBe('No data sets were found for this account.')
+  })
+
   it('hints at --all when default filter hides existing non-filecoin-pin datasets', async () => {
     const migrationDataSet = {
       ...summaryDataSet,
