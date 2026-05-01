@@ -12,6 +12,8 @@ See the two-workflow approach in the [examples directory](./examples/) for compl
 
 ## Inputs & Outputs
 
+> **Using the CLI directly?** `filecoin-pin add` and `filecoin-pin import` accept `--auto-fund`, `--min-runway-days`, and `--max-balance` flags that mirror `minStorageDays` and `filecoinPayBalanceLimit` here. See `filecoin-pin add --help`.
+
 See [action.yml](./action.yml) for complete input documentation including:
 - **Core**: `path`, `walletPrivateKey`, `network`
 - **Financial**: `minStorageDays`, `filecoinPayBalanceLimit`

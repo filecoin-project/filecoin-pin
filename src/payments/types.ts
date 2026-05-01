@@ -25,6 +25,10 @@ export interface AutoFundOptions {
   fileSize: number
   /** Optional spinner for progress updates */
   spinner?: Spinner
+  /** Minimum runway to maintain, in days. Defaults to MIN_RUNWAY_DAYS. */
+  minRunwayDays?: number
+  /** Maximum Filecoin Pay balance after deposit (USDFC base units). Skips or clamps over-projected deposits. */
+  maxBalance?: bigint
 }
 
 export interface FundingAdjustmentResult {
@@ -40,6 +44,8 @@ export interface FundingAdjustmentResult {
   newRunwayDays: number
   /** New runway hours (fractional part) */
   newRunwayHours: number
+  /** Notices about deviations from the requested plan (e.g. clamped or skipped due to maxBalance) */
+  warnings?: string[]
 }
 
 export interface FundOptions extends CLIAuthOptions {

@@ -3,8 +3,12 @@ import type { CLIAuthOptions } from '../utils/cli-auth.js'
 
 export interface ImportOptions extends CLIAuthOptions {
   filePath: string
-  /** Auto-fund: automatically ensure minimum 30 days of runway */
+  /** Auto-fund: automatically ensure minimum runway (default 30 days) before upload */
   autoFund?: boolean
+  /** Override the minimum runway (in days) targeted by auto-fund */
+  minRunwayDays?: number
+  /** Cap on Filecoin Pay balance after deposit, in USDFC base units */
+  maxBalance?: bigint
   /** Number of storage copies to create */
   copies?: number
   /** Piece metadata attached to the imported CAR */
