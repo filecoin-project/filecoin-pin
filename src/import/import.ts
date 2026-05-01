@@ -14,6 +14,7 @@ import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
+import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
@@ -201,6 +202,34 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
+    // Resolve --data-set-metadata to existing dataset IDs via local subset match
+    // when the caller has not pinned dataSetIds/providerIds explicitly. Sidesteps
+    // synapse-sdk's exact-equality matching so callers can target existing datasets
+    // by partial metadata (e.g. source=storacha-migration).
+    let effectiveDataSetMetadata = dataSetMetadata
+    if (dataSetMetadata != null && contextSelection.dataSetIds == null && contextSelection.providerIds == null) {
+      const expectedCopies = options.copies ?? 2
+      spinner.start('Resolving data sets from --data-set-metadata...')
+      const resolution = await resolveDataSetIdsByMetadata(synapse, dataSetMetadata, { expectedCopies, logger })
+      if (resolution.kind === 'matched') {
+        contextSelection.dataSetIds = resolution.dataSetIds
+        effectiveDataSetMetadata = undefined
+        spinner.stop(
+          `${pc.green('✓')} Matched existing data sets ${resolution.dataSetIds.join(', ')} via metadata filter`
+        )
+      } else if (resolution.kind === 'ambiguous') {
+        spinner.stop(`${pc.red('✗')} Ambiguous --data-set-metadata filter`)
+        throw new Error(
+          `--data-set-metadata matched ${resolution.matchedIds.length} data sets (${resolution.matchedIds.join(', ')}) ` +
+            `but expected ${resolution.expected} (use --copies <n> or --data-set-ids to pin the target).`
+        )
+      } else {
+        spinner.stop(
+          `${pc.gray('•')} No existing data sets matched --data-set-metadata; SDK will create a new data set with the requested metadata`
+        )
+      }
+    }
+
     if (options.autoFund) {
       await performAutoFunding(synapse, fileStat.size, spinner)
     } else {
@@ -223,7 +252,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       spinner,
       skipIpniVerification,
       ...(pieceMetadata && { pieceMetadata }),
-      ...(dataSetMetadata && { metadata: dataSetMetadata }),
+      ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
       ...(options.copies != null && { copies: options.copies }),
     }
     if (contextSelection.providerIds) {

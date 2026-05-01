@@ -37,6 +37,7 @@ vi.mock('../../common/upload-flow.js', () => ({
 }))
 
 vi.mock('../../core/synapse/index.js', () => ({
+  getClientAddress: vi.fn(() => '0x1234567890123456789012345678901234567890'),
   initializeSynapse: vi.fn().mockImplementation((config: any) => {
     // Validate auth config (mirrors validateAuthConfig in actual code)
     const hasStandardAuth = config.privateKey != null
@@ -54,6 +55,7 @@ vi.mock('../../core/synapse/index.js', () => ({
       client: { account: { address: '0x1234567890123456789012345678901234567890' } },
       storage: {
         upload: vi.fn(),
+        findDataSets: vi.fn().mockResolvedValue([]),
       },
     }
   }),
