@@ -4,9 +4,10 @@
  * This module provides reusable option definitions for Commander.js commands
  * to ensure consistency across all CLI commands.
  */
-import { type Command, Option } from 'commander'
+import { type Command, InvalidArgumentError, Option } from 'commander'
 import { parseUnits } from 'viem'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
+import { USDFC_DECIMALS } from '../core/payments/constants.js'
 
 /**
  * Decorator to add common authentication options to a Commander command
@@ -125,7 +126,12 @@ export function addAutoFundOptions(command: Command): Command {
     .option(
       '--min-runway-days <n>',
       'Minimum days of runway to maintain when auto-funding (requires --auto-fund)',
-      Number.parseInt
+      (v) => {
+        if (!/^\d+$/.test(v)) {
+          throw new InvalidArgumentError('Must be a positive integer.')
+        }
+        return Number(v)
+      }
     )
     .option('--max-balance <usdfc>', 'Maximum Filecoin Pay balance after deposit, e.g. 5.00 (requires --auto-fund)')
 }
@@ -174,7 +180,7 @@ export function validateAndNormalizeAutoFundOptions(raw: {
   let maxBalance: bigint | undefined
   if (raw.maxBalance !== undefined) {
     try {
-      maxBalance = parseUnits(raw.maxBalance, 18)
+      maxBalance = parseUnits(raw.maxBalance, USDFC_DECIMALS)
     } catch {
       throw new Error(`--max-balance must be a USDFC decimal value (e.g. 5.00), got: ${raw.maxBalance}`)
     }

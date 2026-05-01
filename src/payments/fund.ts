@@ -191,7 +191,10 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     )
   }
 
-  const depositMsg = `Depositing ${formatUSDFC(adjustedPlan.delta)} USDFC to ensure at least ${targetRunwayDays} day(s) runway...`
+  const depositMsg =
+    clamp.reason === 'clamped'
+      ? `Depositing ${formatUSDFC(adjustedPlan.delta)} USDFC toward ${targetRunwayDays} day(s) runway (limited by --max-balance)...`
+      : `Depositing ${formatUSDFC(adjustedPlan.delta)} USDFC to ensure at least ${targetRunwayDays} day(s) runway...`
   spinner?.message(depositMsg)
   const execution = await executeFilecoinPayFunding(synapse, adjustedPlan)
   spinner?.message(`${pc.green('✓')} Deposit complete`)

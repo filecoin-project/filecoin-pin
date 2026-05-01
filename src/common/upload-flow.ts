@@ -116,9 +116,12 @@ export async function performAutoFunding(
       fundOptions.maxBalance = options.maxBalance
     }
     const result = await autoFund(fundOptions)
-    spinner?.stop(`${pc.green('✓')} Funding requirements met`)
+    const hasWarnings = result.warnings != null && result.warnings.length > 0
+    spinner?.stop(
+      hasWarnings ? `${pc.yellow('⚠')} Funding completed with warnings` : `${pc.green('✓')} Funding requirements met`
+    )
 
-    if (result.warnings != null && result.warnings.length > 0) {
+    if (hasWarnings && result.warnings != null) {
       for (const warning of result.warnings) {
         log.line(pc.yellow(`⚠ ${warning}`))
       }
