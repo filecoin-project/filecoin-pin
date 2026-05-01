@@ -261,6 +261,63 @@ describe('runDataSetCommand', () => {
     expect(dataSets).toHaveLength(0)
   })
 
+  it('includes non-filecoin-pin datasets when explicit metadata filter is passed', async () => {
+    const migrationDataSet = {
+      ...summaryDataSet,
+      pdpVerifierDataSetId: 13260n,
+      metadata: {
+        [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+        source: 'storacha-migration',
+        'space-did': 'did:key:z6Mk',
+      },
+    }
+    mockFindDataSets.mockResolvedValueOnce([migrationDataSet])
+
+    await runDataSetListCommand({
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+      dataSetMetadata: { source: 'storacha-migration' },
+    })
+
+    const [dataSets] = displayDataSetListMock.mock.calls[0] as [DataSetSummary[]]
+    expect(dataSets).toHaveLength(1)
+    expect(dataSets[0]?.dataSetId).toBe(13260n)
+    expect(dataSets[0]?.createdWithFilecoinPin).toBe(false)
+  })
+
+  it('passes a filter-aware empty message when explicit filter matches nothing', async () => {
+    await runDataSetListCommand({
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+      dataSetMetadata: { source: 'nonexistent' },
+    })
+
+    const call = displayDataSetListMock.mock.calls[0] as [DataSetSummary[], string, string, string | undefined]
+    expect(call[0]).toHaveLength(0)
+    expect(call[3]).toMatch(/matched the requested filter/i)
+  })
+
+  it('hints at --all when default filter hides existing non-filecoin-pin datasets', async () => {
+    const migrationDataSet = {
+      ...summaryDataSet,
+      pdpVerifierDataSetId: 13260n,
+      metadata: {
+        [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+        source: 'storacha-migration',
+      },
+    }
+    mockFindDataSets.mockResolvedValueOnce([migrationDataSet])
+
+    await runDataSetListCommand({
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    const call = displayDataSetListMock.mock.calls[0] as [DataSetSummary[], string, string, string | undefined]
+    expect(call[0]).toHaveLength(0)
+    expect(call[3]).toMatch(/--all/)
+  })
+
   it('loads detailed information when a dataset id is provided', async () => {
     state.pieceList = [{ pieceId: 0n, pieceCid: 'bafkpiece0' }]
     const pieceMetadata = {

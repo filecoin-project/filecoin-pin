@@ -89,13 +89,23 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
       withProviderDetails: false,
       filter,
     })
-    const dataSets: DataSetSummary[] = options.all
-      ? allDataSets
-      : allDataSets.filter((dataSet) => dataSet.createdWithFilecoinPin)
+    const explicitFilter = filter != null
+    const dataSets: DataSetSummary[] =
+      options.all || explicitFilter ? allDataSets : allDataSets.filter((dataSet) => dataSet.createdWithFilecoinPin)
 
     spinner.stop('━━━ Data Sets ━━━')
 
-    displayDataSets(dataSets, network, address)
+    let emptyMessage: string | undefined
+    if (dataSets.length === 0) {
+      if (explicitFilter) {
+        emptyMessage = 'No data sets matched the requested filter for this account.'
+      } else if (!options.all && allDataSets.length > 0) {
+        emptyMessage =
+          'No data sets managed by filecoin-pin were found for this account. Pass --all to include data sets created by other tools.'
+      }
+    }
+
+    displayDataSets(dataSets, network, address, emptyMessage)
 
     outro('Data set list complete')
   } catch (error) {
