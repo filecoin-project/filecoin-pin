@@ -14,7 +14,7 @@ function dataSet(id: bigint, metadata: Record<string, string>): any {
 }
 
 describe('resolveDataSetIdsByMetadata', () => {
-  it('returns no-match when requested metadata is empty', async () => {
+  it('short-circuits without querying when requested metadata is empty', async () => {
     const result = await resolveDataSetIdsByMetadata(fakeSynapse, {}, { expectedCopies: 2 })
     expect(result).toEqual({ kind: 'no-match' })
     expect(mockListDataSets).not.toHaveBeenCalled()
