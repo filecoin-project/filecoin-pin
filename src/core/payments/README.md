@@ -92,6 +92,7 @@ const result = await uploadToSynapse(
 )
 
 console.log(`Piece CID: ${result.pieceCid}`)
+console.log(`Retrieval URL: ${result.copies[0]?.retrievalUrl}`)
 ```
 
 ### Setup Payments

@@ -209,7 +209,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       await validatePaymentSetup(synapse, fileStat.size, spinner)
     }
 
-    // Stream CAR file and upload to Synapse
+    // Stream CAR file to Synapse
     spinner.start('Uploading to Filecoin...')
 
     const carData = Readable.toWeb(createReadStream(options.filePath)) as ReadableStream<Uint8Array>
