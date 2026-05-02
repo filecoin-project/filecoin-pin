@@ -737,6 +737,25 @@ describe('waitForIpniProviderResults', () => {
         expect(mockFetch).toHaveBeenCalledTimes(1)
       })
 
+      it('attaches outcome via Error.cause on aborted failure (consistent with other failures)', async () => {
+        const abortController = new AbortController()
+        abortController.abort()
+
+        const promise = waitForIpniProviderResults(testCid, { signal: abortController.signal })
+        let caught: Error | undefined
+        promise.catch((e) => {
+          caught = e
+        })
+        await vi.runAllTimersAsync()
+        await promise.catch(() => undefined)
+
+        expect(caught).toBeInstanceOf(Error)
+        const cause = caught?.cause as IpniValidationOutcome
+        expect(cause).toBeDefined()
+        expect(cause.success).toBe(false)
+        expect(cause.failed[0]?.reason.type).toBe('aborted')
+      })
+
       it('emits ipniProviderResults.outcome event with full per-CID detail', async () => {
         mockFetch.mockResolvedValueOnce(successResponse())
         const onProgress = vi.fn()

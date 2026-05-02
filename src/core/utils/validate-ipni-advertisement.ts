@@ -45,8 +45,14 @@ interface ProviderResult {
  * for a given CID. Earlier intermediate failures (e.g. transient fetch errors)
  * may have been retried away and are not reported here.
  */
+/**
+ * Per-CID terminal failure classification.
+ *
+ * Whichever observation was current on the *last* attempt becomes the
+ * terminal reason — there is no separate "timeout" type, since attempts
+ * exhaustion always carries one of the per-attempt observations.
+ */
 export type IpniFailureReason =
-  | { type: 'timeout'; attempts: number; lastObservation?: string }
   | {
       type: 'missingProviders'
       attempts: number
@@ -488,9 +494,14 @@ async function validateOneCid(cid: CID, config: ValidateOneCidConfig): Promise<C
       continue
     }
 
+    // Every loop iteration that does not return success sets `lastReason`,
+    // so this fallback should be unreachable. Surface a structured fallback
+    // rather than throwing to keep the function total.
     const finalReason: IpniFailureReason = lastReason ?? {
-      type: 'timeout',
+      type: 'missingProviders',
       attempts: retryCount,
+      missingServiceUrls: [],
+      actualMultiaddrs: [],
     }
     return { verified: false, reason: finalReason, attempts: retryCount }
   }
@@ -543,10 +554,7 @@ function buildOutcomeError(
   }
 
   if (firstFailure.reason.type === 'aborted') {
-    const error = new Error('Check IPNI announce aborted', {
-      cause: { signal: options?.signal, outcome },
-    })
-    return error
+    return new Error('Check IPNI announce aborted', { cause: outcome })
   }
 
   const expectedProviders = options?.expectedProviders?.filter((p) => p != null) ?? []
@@ -587,8 +595,6 @@ function formatLastObservation(reason: IpniFailureReason): string | undefined {
       return `Failed to parse IPNI response body: ${reason.message}`
     case 'http':
       return `IPNI indexer request failed with status ${reason.status}`
-    case 'timeout':
-      return reason.lastObservation
     case 'aborted':
     case 'notAttempted':
       return undefined
