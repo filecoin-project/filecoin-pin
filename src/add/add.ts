@@ -11,7 +11,9 @@ import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
+import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
+import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
@@ -130,6 +132,37 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
+    // Resolve partial --data-set-metadata locally; SDK metadata matching requires exact equality.
+    let effectiveDataSetMetadata = dataSetMetadata
+    if (dataSetMetadata != null && contextSelection.dataSetIds == null && contextSelection.providerIds == null) {
+      const expectedCopies = options.copies ?? DEFAULT_COPIES
+      spinner.start('Resolving data sets from --data-set-metadata...')
+      const resolution = await resolveDataSetIdsByMetadata(synapse, dataSetMetadata, { expectedCopies, logger })
+      if (resolution.kind === 'matched') {
+        contextSelection.dataSetIds = resolution.dataSetIds
+        effectiveDataSetMetadata = undefined
+        spinner.stop(
+          `${pc.green('✓')} Matched existing data sets ${resolution.dataSetIds.join(', ')} via metadata filter`
+        )
+      } else if (resolution.kind === 'too-many-matches') {
+        spinner.stop(`${pc.red('✗')} --data-set-metadata matched too many data sets`)
+        throw new Error(
+          `--data-set-metadata matched ${resolution.matchedIds.length} data sets (${resolution.matchedIds.join(', ')}) ` +
+            `but expected ${resolution.expected} (narrow the filter or pass --data-set-ids to pin the target).`
+        )
+      } else if (resolution.kind === 'too-few-matches') {
+        spinner.stop(`${pc.red('✗')} --data-set-metadata matched too few data sets`)
+        throw new Error(
+          `--data-set-metadata matched only ${resolution.matchedIds.length} data set(s) (${resolution.matchedIds.join(', ')}) ` +
+            `but expected ${resolution.expected} (lower --copies, widen the filter, or pass --data-set-ids).`
+        )
+      } else {
+        spinner.stop(
+          `${pc.gray('•')} No existing data sets matched --data-set-metadata; SDK will create a new data set with the requested metadata`
+        )
+      }
+    }
+
     // Check payment setup (may configure permissions if needed)
     if (!options.autoFund) {
       spinner.start('Checking payment setup...')
@@ -197,7 +230,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       spinner,
       skipIpniVerification,
       ...(pieceMetadata && { pieceMetadata }),
-      ...(dataSetMetadata && { metadata: dataSetMetadata }),
+      ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
       ...(options.copies != null && { copies: options.copies }),
     }
     if (contextSelection.providerIds) {
@@ -210,7 +243,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     }
 
     // Upload to Synapse (SDK handles provider selection and multi-copy)
-    const requestedCopies = uploadOptions.copies ?? 2
+    const requestedCopies = uploadOptions.copies ?? DEFAULT_COPIES
     const uploadResult = await performUpload(synapse, carData, rootCid, uploadOptions)
 
     // Display results

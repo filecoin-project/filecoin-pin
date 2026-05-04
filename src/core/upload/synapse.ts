@@ -290,24 +290,33 @@ export async function uploadToSynapse(
     },
   }
 
-  // Always include functional defaults (IPFS indexing). Only inject
-  // 'filecoin-pin' as source when no source is provided by the caller via
-  // explicit metadata, pre-resolved contexts, or the Synapse instance.
-  const hasCallerSource =
-    options.metadata?.[METADATA_KEYS.SOURCE] != null ||
-    options.contexts?.some((ctx) => ctx.dataSetMetadata?.[METADATA_KEYS.SOURCE] != null) ||
-    synapse.storage.source != null
+  /**
+   * Skip injecting default metadata when the caller pinned a target by `dataSetIds`
+   * or pre-resolved `contexts`. SDK metadata is used for smart-select matching and
+   * for initializing newly-created datasets. Neither applies once the dataset is
+   * chosen by ID, and injecting defaults would risk silent mismatches if the SDK
+   * ever consults metadata on the resolve-by-id path.
+   */
+  const hasResolvedTarget = options.dataSetIds != null || options.contexts != null
 
-  const baseMetadata: Record<string, string> = {
-    [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
-  }
-  if (!hasCallerSource) {
-    baseMetadata[METADATA_KEYS.SOURCE] = APPLICATION_SOURCE
-  }
+  if (hasResolvedTarget) {
+    if (options.metadata != null) {
+      uploadOptions.metadata = options.metadata
+    }
+  } else {
+    const hasCallerSource = options.metadata?.[METADATA_KEYS.SOURCE] != null || synapse.storage.source != null
 
-  uploadOptions.metadata = {
-    ...baseMetadata,
-    ...(options.metadata ?? {}),
+    const baseMetadata: Record<string, string> = {
+      [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+    }
+    if (!hasCallerSource) {
+      baseMetadata[METADATA_KEYS.SOURCE] = APPLICATION_SOURCE
+    }
+
+    uploadOptions.metadata = {
+      ...baseMetadata,
+      ...(options.metadata ?? {}),
+    }
   }
 
   // Pass through context selection options
