@@ -12,6 +12,7 @@ import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import {
   calculateStorageRunway,
   checkUSDFCBalance,
+  clampDepositToLimit,
   DEFAULT_LOCKUP_DAYS,
   depositUSDFC,
   executeFilecoinPayFunding,
@@ -134,13 +135,14 @@ async function printSummary(synapse: Synapse, title = 'Updated'): Promise<void> 
  * @throws Error if adjustment fails or target is unsafe
  */
 export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustmentResult> {
-  const { synapse, fileSize, spinner } = options
+  const { synapse, fileSize, spinner, maxBalance } = options
+  const targetRunwayDays = options.minRunwayDays ?? MIN_RUNWAY_DAYS
 
   spinner?.message('Checking wallet readiness...')
 
   const planResult = await planFilecoinPayFunding({
     synapse,
-    targetRunwayDays: MIN_RUNWAY_DAYS,
+    targetRunwayDays,
     pieceSizeBytes: fileSize,
     ensureAllowances: true,
     allowWithdraw: false,
@@ -164,24 +166,47 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     }
   }
 
-  if (plan.walletShortfall != null && plan.walletShortfall > 0n) {
+  // Apply --max-balance ceiling (skip or clamp the planned deposit)
+  const warnings: string[] = []
+  const clamp = clampDepositToLimit(status.filecoinPayBalance, plan.delta, maxBalance)
+  if (clamp.reason === 'already-at-limit') {
+    if (clamp.message) warnings.push(clamp.message)
+    return {
+      adjusted: false,
+      delta: 0n,
+      newDepositedAmount: status.filecoinPayBalance,
+      newRunwayDays: plan.current.runway.days,
+      newRunwayHours: plan.current.runway.hours,
+      warnings,
+    }
+  }
+  if (clamp.reason === 'clamped' && clamp.message != null) {
+    warnings.push(clamp.message)
+  }
+  const adjustedPlan = clamp.deposit !== plan.delta ? { ...plan, delta: clamp.deposit } : plan
+
+  if (status.walletUsdfcBalance < adjustedPlan.delta) {
     throw new Error(
-      `Insufficient USDFC in wallet (need ${formatUSDFC(plan.delta)} USDFC, have ${formatUSDFC(status.walletUsdfcBalance)} USDFC)`
+      `Insufficient USDFC in wallet (need ${formatUSDFC(adjustedPlan.delta)} USDFC, have ${formatUSDFC(status.walletUsdfcBalance)} USDFC)`
     )
   }
 
-  const depositMsg = `Depositing ${formatUSDFC(plan.delta)} USDFC to ensure ${MIN_RUNWAY_DAYS} day(s) runway...`
+  const depositMsg =
+    clamp.reason === 'clamped'
+      ? `Depositing ${formatUSDFC(adjustedPlan.delta)} USDFC toward ${targetRunwayDays} day(s) runway (limited by --max-balance)...`
+      : `Depositing ${formatUSDFC(adjustedPlan.delta)} USDFC to ensure at least ${targetRunwayDays} day(s) runway...`
   spinner?.message(depositMsg)
-  const execution = await executeFilecoinPayFunding(synapse, plan)
+  const execution = await executeFilecoinPayFunding(synapse, adjustedPlan)
   spinner?.message(`${pc.green('✓')} Deposit complete`)
 
   return {
     adjusted: execution.adjusted,
-    delta: plan.delta,
+    delta: adjustedPlan.delta,
     transactionHash: execution.transactionHash,
     newDepositedAmount: execution.newDepositedAmount,
     newRunwayDays: execution.newRunwayDays,
     newRunwayHours: execution.newRunwayHours,
+    warnings,
   }
 }
 

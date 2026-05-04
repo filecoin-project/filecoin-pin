@@ -161,7 +161,10 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     spinner.stop(`${pc.green('✓')} IPFS content loaded (${formatFileSize(carSize)})`)
 
     if (options.autoFund) {
-      await performAutoFunding(synapse, carSize, spinner)
+      await performAutoFunding(synapse, carSize, spinner, {
+        ...(options.minRunwayDays !== undefined && { minRunwayDays: options.minRunwayDays }),
+        ...(options.maxBalance !== undefined && { maxBalance: options.maxBalance }),
+      })
     } else {
       spinner.start('Checking payment capacity...')
       await validatePaymentSetup(synapse, carSize, spinner)

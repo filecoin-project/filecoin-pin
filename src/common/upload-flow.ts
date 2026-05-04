@@ -83,13 +83,22 @@ export interface UploadFlowResult extends SynapseUploadResult {
 
 /**
  * Perform auto-funding if requested
- * Automatically ensures a minimum of 30 days of runway based on current usage + new file requirements
+ * Automatically ensures the configured minimum runway (default MIN_RUNWAY_DAYS) based on current
+ * usage + new file requirements. Optional `maxBalance` caps the resulting Filecoin Pay balance.
  *
  * @param synapse - Initialized Synapse instance
  * @param fileSize - Size of file being uploaded (in bytes)
  * @param spinner - Optional spinner for progress
+ * @param options - Optional auto-funding modifiers
+ * @param options.minRunwayDays - Minimum runway to maintain, in days (defaults to MIN_RUNWAY_DAYS)
+ * @param options.maxBalance - Maximum Filecoin Pay balance after deposit (USDFC base units)
  */
-export async function performAutoFunding(synapse: Synapse, fileSize: number, spinner?: Spinner): Promise<void> {
+export async function performAutoFunding(
+  synapse: Synapse,
+  fileSize: number,
+  spinner?: Spinner,
+  options: { minRunwayDays?: number; maxBalance?: bigint } = {}
+): Promise<void> {
   spinner?.start('Checking funding requirements for upload...')
 
   try {
@@ -100,11 +109,26 @@ export async function performAutoFunding(synapse: Synapse, fileSize: number, spi
     if (spinner !== undefined) {
       fundOptions.spinner = spinner
     }
+    if (options.minRunwayDays !== undefined) {
+      fundOptions.minRunwayDays = options.minRunwayDays
+    }
+    if (options.maxBalance !== undefined) {
+      fundOptions.maxBalance = options.maxBalance
+    }
     const result = await autoFund(fundOptions)
-    spinner?.stop(`${pc.green('✓')} Funding requirements met`)
+    const hasWarnings = result.warnings != null && result.warnings.length > 0
+    spinner?.stop(
+      hasWarnings ? `${pc.yellow('⚠')} Funding completed with warnings` : `${pc.green('✓')} Funding requirements met`
+    )
+
+    if (hasWarnings && result.warnings != null) {
+      for (const warning of result.warnings) {
+        log.line(pc.yellow(`⚠ ${warning}`))
+      }
+      log.flush()
+    }
 
     if (result.adjusted) {
-      log.line('')
       log.line(pc.bold('Auto-funding completed:'))
       log.indent(`Deposited ${formatUSDFC(result.delta)} USDFC`)
       log.indent(`Total deposited: ${formatUSDFC(result.newDepositedAmount)} USDFC`)
@@ -114,7 +138,6 @@ export async function performAutoFunding(synapse: Synapse, fileSize: number, spi
       if (result.transactionHash) {
         log.indent(pc.gray(`Transaction: ${result.transactionHash}`))
       }
-      log.line('')
       log.flush()
     }
   } catch (error) {

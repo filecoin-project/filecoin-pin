@@ -202,7 +202,10 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
     if (options.autoFund) {
-      await performAutoFunding(synapse, fileStat.size, spinner)
+      await performAutoFunding(synapse, fileStat.size, spinner, {
+        ...(options.minRunwayDays !== undefined && { minRunwayDays: options.minRunwayDays }),
+        ...(options.maxBalance !== undefined && { maxBalance: options.maxBalance }),
+      })
     } else {
       spinner.start('Checking payment capacity...')
       await validatePaymentSetup(synapse, fileStat.size, spinner)
