@@ -57,6 +57,7 @@ function makeSynapseStub() {
       deposit: vi.fn(),
     },
     storage: {
+      createContexts: async () => [],
       getStorageInfo: async () => ({
         pricing: { noCDN: { perTiBPerEpoch: 1n } },
       }),

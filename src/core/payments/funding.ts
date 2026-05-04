@@ -1,3 +1,4 @@
+import { USDFC_SYBIL_FEE } from '@filoz/synapse-core/utils'
 import { calibration, type Synapse } from '@filoz/synapse-sdk'
 import { MIN_FIL_FOR_GAS } from './constants.js'
 import {
@@ -8,7 +9,6 @@ import {
   computeAdjustmentForExactDeposit,
   depositUSDFC,
   getPaymentStatus,
-  USDFC_SYBIL_FEE,
   validatePaymentRequirements,
   withdrawUSDFC,
 } from './index.js'

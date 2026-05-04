@@ -5,6 +5,7 @@
  * decimals, lockup periods, buffer configurations, and pricing minimums.
  */
 
+import { TIME_CONSTANTS } from '@filoz/synapse-core/utils'
 import { maxUint256, parseEther, parseUnits } from 'viem'
 
 /**
@@ -20,18 +21,13 @@ export const MIN_FIL_FOR_GAS = parseEther('0.1')
 /**
  * Default lockup period required by WarmStorage (in days)
  */
-export const DEFAULT_LOCKUP_DAYS = 30
+export const DEFAULT_LOCKUP_DAYS = Number(TIME_CONSTANTS.DEFAULT_LOCKUP_DAYS)
 
 /**
  * Floor price per piece for WarmStorage (minimum cost regardless of size)
  * This is 0.06 USDFC per 30 days per piece
  */
 export const FLOOR_PRICE_PER_30_DAYS = parseUnits('0.06', USDFC_DECIMALS)
-
-/**
- * One-time sybil fee charged when creating a new WarmStorage data set
- */
-export const USDFC_SYBIL_FEE = parseUnits('0.1', USDFC_DECIMALS)
 
 /**
  * Number of days the floor price covers
