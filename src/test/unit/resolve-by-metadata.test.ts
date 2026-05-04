@@ -38,9 +38,7 @@ describe('resolveDataSetIdsByMetadata', () => {
     withFixtures([
       dataSet(13260n, { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' }),
       dataSet(13261n, { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' }),
-      // Decoy from another space — must NOT match
       dataSet(99n, { source: 'storacha-migration', 'space-did': 'did:key:other', withIPFSIndexing: '' }),
-      // Decoy with different source
       dataSet(100n, { source: 'filecoin-pin', withIPFSIndexing: '' }),
     ])
 
@@ -53,13 +51,13 @@ describe('resolveDataSetIdsByMetadata', () => {
     expect(result).toEqual({ kind: 'matched', dataSetIds: [13260n, 13261n] })
   })
 
-  it('returns ambiguous when more datasets match than expected', async () => {
+  it('returns too-many-matches when more datasets match than expected', async () => {
     withFixtures([
       dataSet(1n, { source: 'storacha-migration' }),
       dataSet(2n, { source: 'storacha-migration' }),
       dataSet(3n, { source: 'storacha-migration' }),
       dataSet(4n, { source: 'storacha-migration' }),
-      dataSet(5n, { source: 'filecoin-pin' }), // decoy
+      dataSet(5n, { source: 'filecoin-pin' }),
     ])
 
     const result = await resolveDataSetIdsByMetadata(
@@ -68,7 +66,19 @@ describe('resolveDataSetIdsByMetadata', () => {
       { expectedCopies: 2 }
     )
 
-    expect(result).toEqual({ kind: 'ambiguous', matchedIds: [1n, 2n, 3n, 4n], expected: 2 })
+    expect(result).toEqual({ kind: 'too-many-matches', matchedIds: [1n, 2n, 3n, 4n], expected: 2 })
+  })
+
+  it('returns too-few-matches when fewer datasets match than expected', async () => {
+    withFixtures([dataSet(1n, { source: 'storacha-migration' }), dataSet(2n, { source: 'filecoin-pin' })])
+
+    const result = await resolveDataSetIdsByMetadata(
+      fakeSynapse,
+      { source: 'storacha-migration' },
+      { expectedCopies: 2 }
+    )
+
+    expect(result).toEqual({ kind: 'too-few-matches', matchedIds: [1n], expected: 2 })
   })
 
   it('returns no-match when zero datasets match (lets SDK create new)', async () => {
@@ -80,11 +90,13 @@ describe('resolveDataSetIdsByMetadata', () => {
   })
 
   it('does not match datasets that lack the requested key (empty-string value gotcha)', async () => {
-    // Without the `key in metadata` guard, the resolver would treat the missing
-    // `customTag` as `''` and falsely match the second dataset.
+    /**
+     * Without the `key in metadata` guard, the resolver would treat the missing
+     * `customTag` as `''` and falsely match the second dataset.
+     */
     withFixtures([
       dataSet(1n, { source: 'storacha-migration', customTag: '' }),
-      dataSet(2n, { source: 'storacha-migration' }), // no customTag at all
+      dataSet(2n, { source: 'storacha-migration' }),
     ])
 
     const result = await resolveDataSetIdsByMetadata(
@@ -98,7 +110,7 @@ describe('resolveDataSetIdsByMetadata', () => {
 
   it('skips non-live datasets even if metadata matches', async () => {
     withFixtures([
-      dataSet(1n, { source: 'storacha-migration' }, false), // terminated
+      dataSet(1n, { source: 'storacha-migration' }, false),
       dataSet(2n, { source: 'storacha-migration' }, true),
     ])
 

@@ -443,9 +443,9 @@ describe('CAR Import', () => {
       expect(lastCall?.[3]).not.toHaveProperty('metadata')
     })
 
-    it('throws when --data-set-metadata is ambiguous (more matches than copies)', async () => {
-      const carPath = join(testDir, 'resolve-ambiguous.car')
-      await createTestCarFile(carPath, [], [{ content: 'ambiguous' }])
+    it('throws when --data-set-metadata matches too many data sets', async () => {
+      const carPath = join(testDir, 'resolve-too-many.car')
+      await createTestCarFile(carPath, [], [{ content: 'too-many' }])
 
       mockFindDataSets.mockResolvedValueOnce([
         { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
@@ -460,7 +460,24 @@ describe('CAR Import', () => {
           privateKey: testPrivateKey,
           dataSetMetadata: { source: 'storacha-migration' },
         })
-      ).rejects.toThrow(/Ambiguous|matched 4 data sets|expected 2/)
+      ).rejects.toThrow(/matched 4 data sets.*expected 2/)
+    })
+
+    it('throws when --data-set-metadata matches too few data sets', async () => {
+      const carPath = join(testDir, 'resolve-too-few.car')
+      await createTestCarFile(carPath, [], [{ content: 'too-few' }])
+
+      mockFindDataSets.mockResolvedValueOnce([
+        { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
+      ])
+
+      await expect(
+        runCarImport({
+          filePath: carPath,
+          privateKey: testPrivateKey,
+          dataSetMetadata: { source: 'storacha-migration' },
+        })
+      ).rejects.toThrow(/matched only 1 data set.*expected 2/)
     })
   })
 

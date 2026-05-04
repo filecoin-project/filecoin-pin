@@ -287,22 +287,11 @@ export async function uploadToSynapse(
   }
 
   /**
-   * Inject functional + provenance defaults into upload metadata, but ONLY when
-   * the caller has not pinned a target via explicit `dataSetIds` (or pre-resolved
-   * `contexts`, which already encode their own dataset binding).
-   *
-   * Why the gate matters: synapse-sdk's metadata is used for two distinct
-   * purposes — (1) matching when smart-selecting a dataset to upload into, and
-   * (2) initializing metadata on a freshly-created dataset. When the caller has
-   * already chosen the dataset by ID, neither path applies — the SDK resolves
-   * via `resolveByDataSetId` and our injected defaults become dead weight at
-   * best, misleading at worst (a future SDK change could start consulting
-   * metadata on the dataset-id path and silently mismatch). Suppressing the
-   * defaults here keeps the contract honest: "you said which dataset; we don't
-   * second-guess your metadata."
-   *
-   * The smart-select / providerIds paths still get the defaults so existing
-   * behavior is unchanged for callers that haven't pinned a dataset.
+   * Skip injecting default metadata when the caller pinned a target by `dataSetIds`
+   * or pre-resolved `contexts`. SDK metadata is used for smart-select matching and
+   * for initializing newly-created datasets. Neither applies once the dataset is
+   * chosen by ID, and injecting defaults would risk silent mismatches if the SDK
+   * ever consults metadata on the resolve-by-id path.
    */
   const hasResolvedTarget = options.dataSetIds != null || options.contexts != null
 
@@ -311,10 +300,7 @@ export async function uploadToSynapse(
       uploadOptions.metadata = options.metadata
     }
   } else {
-    const hasCallerSource =
-      options.metadata?.[METADATA_KEYS.SOURCE] != null ||
-      options.contexts?.some((ctx) => ctx.dataSetMetadata?.[METADATA_KEYS.SOURCE] != null) ||
-      synapse.storage.source != null
+    const hasCallerSource = options.metadata?.[METADATA_KEYS.SOURCE] != null || synapse.storage.source != null
 
     const baseMetadata: Record<string, string> = {
       [METADATA_KEYS.WITH_IPFS_INDEXING]: '',

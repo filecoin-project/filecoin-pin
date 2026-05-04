@@ -282,7 +282,7 @@ describe('Add Command', () => {
       expect(lastCall?.[3]).not.toHaveProperty('metadata')
     })
 
-    it('throws when --data-set-metadata is ambiguous (more matches than copies)', async () => {
+    it('throws when --data-set-metadata matches too many data sets', async () => {
       mockFindDataSets.mockResolvedValueOnce([
         { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
         { pdpVerifierDataSetId: 2n, providerId: 2n, isLive: true, metadata: { source: 'storacha-migration' } },
@@ -297,7 +297,22 @@ describe('Add Command', () => {
           rpcUrl: 'wss://test.rpc.url',
           dataSetMetadata: { source: 'storacha-migration' },
         })
-      ).rejects.toThrow(/Ambiguous|matched 4 data sets|expected 2/)
+      ).rejects.toThrow(/matched 4 data sets.*expected 2/)
+    })
+
+    it('throws when --data-set-metadata matches too few data sets', async () => {
+      mockFindDataSets.mockResolvedValueOnce([
+        { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
+      ])
+
+      await expect(
+        runAdd({
+          filePath: testFile,
+          privateKey: 'test-private-key',
+          rpcUrl: 'wss://test.rpc.url',
+          dataSetMetadata: { source: 'storacha-migration' },
+        })
+      ).rejects.toThrow(/matched only 1 data set.*expected 2/)
     })
 
     it('should reject when file does not exist', async () => {

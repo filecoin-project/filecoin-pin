@@ -132,10 +132,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
-    // Resolve --data-set-metadata to existing dataset IDs via local subset match
-    // when the caller has not pinned dataSetIds/providerIds explicitly. Sidesteps
-    // synapse-sdk's exact-equality matching so callers can target existing datasets
-    // by partial metadata (e.g. source=storacha-migration).
+    // Resolve partial --data-set-metadata locally; SDK metadata matching requires exact equality.
     let effectiveDataSetMetadata = dataSetMetadata
     if (dataSetMetadata != null && contextSelection.dataSetIds == null && contextSelection.providerIds == null) {
       const expectedCopies = options.copies ?? DEFAULT_COPIES
@@ -147,11 +144,17 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
         spinner.stop(
           `${pc.green('✓')} Matched existing data sets ${resolution.dataSetIds.join(', ')} via metadata filter`
         )
-      } else if (resolution.kind === 'ambiguous') {
-        spinner.stop(`${pc.red('✗')} Ambiguous --data-set-metadata filter`)
+      } else if (resolution.kind === 'too-many-matches') {
+        spinner.stop(`${pc.red('✗')} --data-set-metadata matched too many data sets`)
         throw new Error(
           `--data-set-metadata matched ${resolution.matchedIds.length} data sets (${resolution.matchedIds.join(', ')}) ` +
-            `but expected ${resolution.expected} (use --copies <n> or --data-set-ids to pin the target).`
+            `but expected ${resolution.expected} (narrow the filter or pass --data-set-ids to pin the target).`
+        )
+      } else if (resolution.kind === 'too-few-matches') {
+        spinner.stop(`${pc.red('✗')} --data-set-metadata matched too few data sets`)
+        throw new Error(
+          `--data-set-metadata matched only ${resolution.matchedIds.length} data set(s) (${resolution.matchedIds.join(', ')}) ` +
+            `but expected ${resolution.expected} (lower --copies, widen the filter, or pass --data-set-ids).`
         )
       } else {
         spinner.stop(
