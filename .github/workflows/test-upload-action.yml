@@ -59,6 +59,9 @@ jobs:
           PROVIDER_IDS: "2"
         with:
           path: ./.filecoin-pin-upload-fixture
+          # WALLET_PRIVATE_KEY backs the Calibration upload-action wallet.
+          # Public address: 0x44f08D1beFe61255b3C3A349C392C560FA333759
+          # 1Password: "filecoin-pin / filecoin-pin-website /upload-action Wallet"
           walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
           network: calibration
           filecoinPayBalanceLimit: "5"
