@@ -103,6 +103,8 @@ export interface SynapseUploadOptions {
 export interface SynapseUploadResult {
   pieceCid: string
   size: number
+  requestedCopies: number
+  complete: boolean
   copies: CopyResult[]
   failedAttempts: FailedAttempt[]
 }
@@ -345,6 +347,8 @@ export async function uploadToSynapse(
   return {
     pieceCid: synapseResult.pieceCid.toString(),
     size: synapseResult.size,
+    requestedCopies: synapseResult.requestedCopies,
+    complete: synapseResult.complete,
     copies: synapseResult.copies,
     failedAttempts: synapseResult.failedAttempts,
   }

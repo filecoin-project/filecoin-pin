@@ -202,10 +202,26 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
     if (options.autoFund) {
-      await performAutoFunding(synapse, fileStat.size, spinner, {
-        ...(options.minRunwayDays !== undefined && { minRunwayDays: options.minRunwayDays }),
-        ...(options.maxBalance !== undefined && { maxBalance: options.maxBalance }),
-      })
+      const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {
+        ...(dataSetMetadata && { metadata: dataSetMetadata }),
+        ...(options.copies != null && { copies: options.copies }),
+      }
+      if (contextSelection.providerIds) {
+        autoFundOptions.providerIds = contextSelection.providerIds
+        autoFundOptions.copies = contextSelection.providerIds.length
+      }
+      if (contextSelection.dataSetIds) {
+        autoFundOptions.dataSetIds = contextSelection.dataSetIds
+        autoFundOptions.copies = contextSelection.dataSetIds.length
+      }
+      if (options.minRunwayDays !== undefined) {
+        autoFundOptions.minRunwayDays = options.minRunwayDays
+      }
+      if (options.maxBalance !== undefined) {
+        autoFundOptions.maxBalance = options.maxBalance
+      }
+
+      await performAutoFunding(synapse, fileStat.size, spinner, autoFundOptions)
     } else {
       spinner.start('Checking payment capacity...')
       await validatePaymentSetup(synapse, fileStat.size, spinner)
