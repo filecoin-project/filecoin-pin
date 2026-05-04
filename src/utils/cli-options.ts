@@ -4,7 +4,10 @@
  * This module provides reusable option definitions for Commander.js commands
  * to ensure consistency across all CLI commands.
  */
-import { type Command, Option } from 'commander'
+import { type Command, InvalidArgumentError, Option } from 'commander'
+import { parseUnits } from 'viem'
+import { MIN_RUNWAY_DAYS } from '../common/constants.js'
+import { USDFC_DECIMALS } from '../core/payments/constants.js'
 
 /**
  * Decorator to add common authentication options to a Commander command
@@ -107,4 +110,89 @@ export function addUploadOptions(command: Command): Command {
       'Skip IPNI advertisement verification after upload (automatic for devnet)'
     ).env('SKIP_IPNI_VERIFICATION')
   )
+}
+
+/**
+ * Auto-fund option fields shared by `add` and `import` runner option types.
+ * Extend this on command-specific option interfaces so additions ripple through.
+ */
+export interface CLIAutoFundOptions {
+  autoFund?: boolean
+  minRunwayDays?: number
+  maxBalance?: bigint
+}
+
+/**
+ * Add auto-fund options to a command.
+ * Used by `add` and `import` commands. Modifiers require `--auto-fund`; validate
+ * post-parse with {@link validateAndNormalizeAutoFundOptions}.
+ */
+export function addAutoFundOptions(command: Command): Command {
+  return command
+    .addOption(
+      new Option(
+        '--auto-fund',
+        `Automatically deposit USDFC before upload to maintain runway (default: ${MIN_RUNWAY_DAYS} days)`
+      ).conflicts('viewAddress')
+    )
+    .option(
+      '--min-runway-days <n>',
+      'Minimum days of runway to maintain when auto-funding (requires --auto-fund)',
+      (v) => {
+        if (!/^\d+$/.test(v)) {
+          throw new InvalidArgumentError('Must be a positive integer.')
+        }
+        return Number(v)
+      }
+    )
+    .option('--max-balance <usdfc>', 'Maximum Filecoin Pay balance after deposit, e.g. 5.00 (requires --auto-fund)')
+}
+
+/**
+ * Validate and normalize auto-fund options parsed by Commander.
+ *
+ * Strict mode: `--min-runway-days` and `--max-balance` require `--auto-fund` (no implicit
+ * activation). The `--auto-fund` / `--view-address` conflict is enforced by Commander's
+ * `.conflicts()` on the option declaration itself.
+ *
+ * @throws Error with a flag-specific message on validation failure
+ */
+export function validateAndNormalizeAutoFundOptions(raw: {
+  autoFund?: boolean
+  minRunwayDays?: number
+  maxBalance?: string
+}): CLIAutoFundOptions {
+  const autoFund = raw.autoFund === true
+
+  if (raw.minRunwayDays !== undefined && !autoFund) {
+    throw new Error('--min-runway-days requires --auto-fund')
+  }
+  if (raw.maxBalance !== undefined && !autoFund) {
+    throw new Error('--max-balance requires --auto-fund')
+  }
+
+  let minRunwayDays: number | undefined
+  if (raw.minRunwayDays !== undefined) {
+    if (!Number.isFinite(raw.minRunwayDays) || !Number.isInteger(raw.minRunwayDays) || raw.minRunwayDays <= 0) {
+      throw new Error(`--min-runway-days must be a positive integer, got: ${raw.minRunwayDays}`)
+    }
+    minRunwayDays = raw.minRunwayDays
+  }
+
+  let maxBalance: bigint | undefined
+  if (raw.maxBalance !== undefined) {
+    try {
+      maxBalance = parseUnits(raw.maxBalance, USDFC_DECIMALS)
+    } catch {
+      throw new Error(`--max-balance must be a USDFC decimal value (e.g. 5.00), got: ${raw.maxBalance}`)
+    }
+    if (maxBalance < 0n) {
+      throw new Error(`--max-balance must be non-negative, got: ${raw.maxBalance}`)
+    }
+  }
+
+  const result: CLIAutoFundOptions = { autoFund }
+  if (minRunwayDays !== undefined) result.minRunwayDays = minRunwayDays
+  if (maxBalance !== undefined) result.maxBalance = maxBalance
+  return result
 }

@@ -39,6 +39,7 @@ export type {
 } from './core/synapse/index.js'
 export type { Spinner } from './core/unixfs/car-builder.js'
 export type {
+  SynapseUploadData,
   SynapseUploadOptions,
   SynapseUploadResult,
   UploadExecutionOptions,

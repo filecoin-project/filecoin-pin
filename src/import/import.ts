@@ -6,7 +6,8 @@
  */
 
 import { createReadStream } from 'node:fs'
-import { readFile, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
+import { Readable } from 'node:stream'
 import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
@@ -235,16 +236,35 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     }
 
     if (options.autoFund) {
-      await performAutoFunding(synapse, fileStat.size, spinner)
+      const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {
+        ...(dataSetMetadata && { metadata: dataSetMetadata }),
+        ...(options.copies != null && { copies: options.copies }),
+      }
+      if (contextSelection.providerIds) {
+        autoFundOptions.providerIds = contextSelection.providerIds
+        autoFundOptions.copies = contextSelection.providerIds.length
+      }
+      if (contextSelection.dataSetIds) {
+        autoFundOptions.dataSetIds = contextSelection.dataSetIds
+        autoFundOptions.copies = contextSelection.dataSetIds.length
+      }
+      if (options.minRunwayDays !== undefined) {
+        autoFundOptions.minRunwayDays = options.minRunwayDays
+      }
+      if (options.maxBalance !== undefined) {
+        autoFundOptions.maxBalance = options.maxBalance
+      }
+
+      await performAutoFunding(synapse, fileStat.size, spinner, autoFundOptions)
     } else {
       spinner.start('Checking payment capacity...')
       await validatePaymentSetup(synapse, fileStat.size, spinner)
     }
 
-    // Read CAR file and upload to Synapse
+    // Stream CAR file to Synapse
     spinner.start('Uploading to Filecoin...')
 
-    const carData = await readFile(options.filePath)
+    const carData = Readable.toWeb(createReadStream(options.filePath)) as ReadableStream<Uint8Array>
 
     // Auto-skip IPNI on devnet (no IPNI infrastructure available)
     const skipIpniVerification = options.skipIpniVerification || synapse.chain.id === DEVNET_CHAIN_ID

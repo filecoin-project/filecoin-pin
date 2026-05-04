@@ -108,6 +108,10 @@ function parseIdList(raw: string, label: string): bigint[] {
     .map((s) => s.trim())
     .filter((s) => s !== '')
 
+  if (parts.length === 0) {
+    throw new Error(`Invalid ${label}: "${raw}". Provide comma-separated numeric IDs.`)
+  }
+
   const ids: bigint[] = []
   for (const part of parts) {
     try {

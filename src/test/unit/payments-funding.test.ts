@@ -2,12 +2,15 @@ import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as paymentsIndex from '../../core/payments/index.js'
 import {
+  calculateFilecoinPayFundingPlan,
   executeFilecoinPayFunding,
+  type FilecoinPayFundingPlan,
   getFilecoinPayFundingInsights,
   type PaymentStatus,
   planFilecoinPayFunding,
   type ServiceApprovalStatus,
 } from '../../core/payments/index.js'
+import { autoFund } from '../../payments/fund.js'
 
 function makeStatus(params: {
   filecoinPayBalance: bigint
@@ -54,6 +57,7 @@ function makeSynapseStub() {
       deposit: vi.fn(),
     },
     storage: {
+      createContexts: async () => [],
       getStorageInfo: async () => ({
         pricing: { noCDN: { perTiBPerEpoch: 1n } },
       }),
@@ -195,6 +199,33 @@ describe('planFilecoinPayFunding', () => {
     expect(plan.delta).toBeGreaterThan(0n)
     expect(plan.reasonCode).toBe('runway-with-piece')
   })
+
+  it('adds sybil fees for new data sets in the shared funding plan', () => {
+    const status = makeStatus({ filecoinPayBalance: 0n, wallet: 1_000_000_000_000_000_000n })
+
+    const basePlan = calculateFilecoinPayFundingPlan({
+      status,
+      targetRunwayDays: 30,
+      pieceSizeBytes: 1024,
+      pricePerTiBPerEpoch: 1n,
+      newDataSetCount: 0,
+      mode: 'minimum',
+      allowWithdraw: false,
+    })
+
+    const withFeesPlan = calculateFilecoinPayFundingPlan({
+      status,
+      targetRunwayDays: 30,
+      pieceSizeBytes: 1024,
+      pricePerTiBPerEpoch: 1n,
+      newDataSetCount: 2,
+      mode: 'minimum',
+      allowWithdraw: false,
+    })
+
+    expect(withFeesPlan.delta - basePlan.delta).toBe(200_000_000_000_000_000n)
+    expect(withFeesPlan.targetDeposit).toBe((basePlan.targetDeposit ?? 0n) + 200_000_000_000_000_000n)
+  })
 })
 
 describe('executeFilecoinPayFunding', () => {
@@ -253,5 +284,80 @@ describe('getFilecoinPayFundingInsights', () => {
     expect(insights.spendRatePerDay).toBe(perDay)
     expect(insights.runway.days).toBe(3)
     expect(insights.availableDeposited).toBe(available)
+  })
+})
+
+describe('autoFund (modifiers)', () => {
+  const synapseStub = makeSynapseStub()
+
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function mockPlan(opts: { filecoinPayBalance: bigint; delta: bigint }): { status: PaymentStatus } {
+    const status = makeStatus({
+      filecoinPayBalance: opts.filecoinPayBalance,
+      rateUsed: 1n,
+      wallet: 1_000_000_000_000_000_000_000n,
+    })
+    const insights = getFilecoinPayFundingInsights(status)
+    const plan: FilecoinPayFundingPlan = {
+      targetType: 'runway-days',
+      delta: opts.delta,
+      action: opts.delta > 0n ? 'deposit' : 'none',
+      reasonCode: 'runway-insufficient',
+      mode: 'minimum',
+      projectedDeposit: opts.filecoinPayBalance + opts.delta,
+      projectedRateUsed: 1n,
+      projectedLockupUsed: 0n,
+      current: insights,
+      projected: insights,
+    }
+    vi.spyOn(paymentsIndex, 'planFilecoinPayFunding').mockResolvedValue({
+      plan,
+      status,
+      allowances: { updated: false, currentAllowances: status.currentAllowances },
+    })
+    return { status }
+  }
+
+  it('forwards minRunwayDays as targetRunwayDays to planFilecoinPayFunding', async () => {
+    mockPlan({ filecoinPayBalance: 0n, delta: 0n }) // delta 0n -> no-op return
+    await autoFund({ synapse: synapseStub as any, fileSize: 0, minRunwayDays: 60 })
+    expect(paymentsIndex.planFilecoinPayFunding).toHaveBeenCalledWith(expect.objectContaining({ targetRunwayDays: 60 }))
+  })
+
+  it('clamps the executed deposit to maxBalance when the plan would exceed it', async () => {
+    mockPlan({ filecoinPayBalance: 80n, delta: 50n })
+    vi.spyOn(paymentsIndex, 'executeFilecoinPayFunding').mockResolvedValue({
+      adjusted: true,
+      delta: 20n,
+      newDepositedAmount: 100n,
+      newRunwayDays: 30,
+      newRunwayHours: 0,
+      plan: {} as any,
+      updatedInsights: {} as any,
+    })
+
+    const result = await autoFund({ synapse: synapseStub as any, fileSize: 0, maxBalance: 100n })
+
+    const execCalls = vi.mocked(paymentsIndex.executeFilecoinPayFunding).mock.calls
+    expect(execCalls).toHaveLength(1)
+    const [, executedPlan] = execCalls[0] ?? []
+    expect(executedPlan?.delta).toBe(20n) // 100 (limit) - 80 (current) = 20
+    expect(result.delta).toBe(20n)
+    expect(result.warnings?.[0]).toContain('Reducing')
+  })
+
+  it('returns a warning and skips the deposit when already at maxBalance', async () => {
+    mockPlan({ filecoinPayBalance: 100n, delta: 50n })
+    vi.spyOn(paymentsIndex, 'executeFilecoinPayFunding')
+
+    const result = await autoFund({ synapse: synapseStub as any, fileSize: 0, maxBalance: 100n })
+
+    expect(paymentsIndex.executeFilecoinPayFunding).not.toHaveBeenCalled()
+    expect(result.adjusted).toBe(false)
+    expect(result.delta).toBe(0n)
+    expect(result.warnings?.[0]).toContain('already equals or exceeds')
   })
 })

@@ -19,7 +19,7 @@ import { getErrorMessage } from './errors.js'
  * @typedef {import('./types.js').UploadResult} UploadResult
  * @typedef {import('./types.js').PaymentStatus} PaymentStatus
  * @typedef {import('./types.js').SimplifiedPaymentStatus} SimplifiedPaymentStatus
- * @typedef {import('./types.js').PaymentConfig} PaymentConfig
+ * @typedef {import('./types.js').PaymentFundingConfig} PaymentFundingConfig
  * @typedef {import('./types.js').UploadConfig} UploadConfig
  * @typedef {import('./types.js').FilecoinPinPaymentStatus} FilecoinPinPaymentStatus
  * @typedef {import('./types.js').Synapse} Synapse
@@ -98,21 +98,30 @@ async function readCarRoots(filePath) {
 /**
  * Handle payment setup and top-ups using core payment functions
  * @param {Synapse} synapse - Synapse service
- * @param {PaymentConfig} options - Payment options
+ * @param {PaymentFundingConfig} options - Payment options
  * @param {Logger | undefined} logger - Logger instance
  * @returns {Promise<SimplifiedPaymentStatus>} Updated payment status
  */
 export async function handlePayments(synapse, options, logger) {
-  const { minStorageDays, filecoinPayBalanceLimit, pieceSizeBytes } = options
+  const { minStorageDays, filecoinPayBalanceLimit, pieceSizeBytes, withCDN, providerIds } = options
 
   console.log('Checking current Filecoin Pay account balance...')
-  const [rawStatus, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
+  const [rawStatus, storageInfo, contexts] = await Promise.all([
+    getPaymentStatus(synapse),
+    synapse.storage.getStorageInfo(),
+    synapse.storage.createContexts({
+      ...(providerIds != null && providerIds.length > 0 ? { providerIds } : {}),
+      ...(withCDN ? { withCDN } : {}),
+    }),
+  ])
 
   const initialFilecoinPayBalance = formatUSDFC(rawStatus.filecoinPayBalance)
   const initialWalletBalance = formatUSDFC(rawStatus.walletUsdfcBalance)
 
   console.log(`Current Filecoin Pay balance: ${initialFilecoinPayBalance} USDFC`)
   console.log(`Wallet USDFC balance: ${initialWalletBalance} USDFC`)
+
+  const newDataSetCount = contexts.filter((context) => context.dataSetId == null).length
 
   // Calculate required funding using the comprehensive funding planner
   const fundingPlan = calculateFilecoinPayFundingPlan({
@@ -122,11 +131,19 @@ export async function handlePayments(synapse, options, logger) {
     targetRunwayDays: minStorageDays,
     pieceSizeBytes,
     pricePerTiBPerEpoch: storageInfo.pricing.noCDN.perTiBPerEpoch,
+    newDataSetCount,
   })
 
   if (fundingPlan.delta > 0n) {
     const reasonMessage = formatFundingReason(fundingPlan.reasonCode, fundingPlan)
     console.log(`\n${reasonMessage}: ${formatUSDFC(fundingPlan.delta)} USDFC`)
+  }
+
+  if (newDataSetCount > 0) {
+    console.log(
+      `Additional funding for ${newDataSetCount} new data set${newDataSetCount === 1 ? '' : 's'} ` +
+        '(sybil fee) is included in the planned top-up'
+    )
   }
 
   // Execute top-up with balance limit checking
@@ -242,10 +259,13 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
 
   console.log('\n✓ Upload to Filecoin complete!')
 
-  // Extract primary copy details for backwards-compatible output
+  // Prefer the primary copy for backwards-compatible outputs, but accept any
+  // successful copy so partial StorageManager success does not look like total
+  // upload failure.
   const primaryCopy = uploadResult.copies.find((c) => c.role === 'primary')
+  const outputCopy = primaryCopy ?? uploadResult.copies[0]
 
-  if (primaryCopy == null) {
+  if (outputCopy == null) {
     const failureCount = uploadResult.failedAttempts.length
     throw new Error(
       failureCount > 0
@@ -254,17 +274,32 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
     )
   }
 
+  const requestedCopies = uploadResult.requestedCopies ?? uploadResult.copies.length
+  const complete = uploadResult.complete ?? uploadResult.copies.length >= requestedCopies
+
+  if (!complete) {
+    console.log(
+      `Warning: Upload completed with reduced redundancy (${uploadResult.copies.length}/${requestedCopies} copies).`
+    )
+  }
+
+  if (primaryCopy == null) {
+    console.log('Warning: Primary copy failed; using the first successful secondary copy for action outputs.')
+  }
+
   return {
     pieceCid: uploadResult.pieceCid,
-    pieceId: String(primaryCopy.pieceId),
-    dataSetId: String(primaryCopy.dataSetId),
+    pieceId: String(outputCopy.pieceId),
+    dataSetId: String(outputCopy.dataSetId),
     provider: {
-      id: String(primaryCopy.providerId),
+      id: String(outputCopy.providerId),
       name: '',
     },
-    previewUrl: primaryCopy.retrievalUrl ?? '',
+    previewUrl: outputCopy.retrievalUrl ?? '',
     network: uploadResult.network,
     ipniValidated: uploadResult.ipniValidated,
+    requestedCopies,
+    complete,
     copies: uploadResult.copies,
     failedAttempts: uploadResult.failedAttempts,
   }

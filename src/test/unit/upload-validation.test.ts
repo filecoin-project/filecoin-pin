@@ -157,6 +157,23 @@ describe('upload option validation', () => {
       expect(passedOptions?.providerIds).toEqual([1n])
       expect(passedOptions?.copies).toBe(3)
     })
+
+    it('forwards ReadableStream data through executeUpload', async () => {
+      const uploadSpy = vi.spyOn(mockSynapse.storage, 'upload')
+      const data = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array([1]))
+          controller.close()
+        },
+      })
+
+      await executeUpload(mockSynapse as any, data, TEST_CID, {
+        logger,
+        ipniValidation: { enabled: false },
+      })
+
+      expect(uploadSpy).toHaveBeenCalledWith(data, expect.anything())
+    })
   })
 
   describe('source metadata resolution', () => {

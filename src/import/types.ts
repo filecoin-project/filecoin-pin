@@ -1,10 +1,9 @@
 import type { CopyResult, FailedAttempt } from '@filoz/synapse-sdk'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
+import type { CLIAutoFundOptions } from '../utils/cli-options.js'
 
-export interface ImportOptions extends CLIAuthOptions {
+export interface ImportOptions extends CLIAuthOptions, CLIAutoFundOptions {
   filePath: string
-  /** Auto-fund: automatically ensure minimum 30 days of runway */
-  autoFund?: boolean
   /** Number of storage copies to create */
   copies?: number
   /** Piece metadata attached to the imported CAR */
