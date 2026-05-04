@@ -113,15 +113,27 @@ export function addUploadOptions(command: Command): Command {
 }
 
 /**
+ * Auto-fund option fields shared by `add` and `import` runner option types.
+ * Extend this on command-specific option interfaces so additions ripple through.
+ */
+export interface CLIAutoFundOptions {
+  autoFund?: boolean
+  minRunwayDays?: number
+  maxBalance?: bigint
+}
+
+/**
  * Add auto-fund options to a command.
  * Used by `add` and `import` commands. Modifiers require `--auto-fund`; validate
  * post-parse with {@link validateAndNormalizeAutoFundOptions}.
  */
 export function addAutoFundOptions(command: Command): Command {
   return command
-    .option(
-      '--auto-fund',
-      `Automatically deposit USDFC before upload to maintain runway (default: ${MIN_RUNWAY_DAYS} days)`
+    .addOption(
+      new Option(
+        '--auto-fund',
+        `Automatically deposit USDFC before upload to maintain runway (default: ${MIN_RUNWAY_DAYS} days)`
+      ).conflicts('viewAddress')
     )
     .option(
       '--min-runway-days <n>',
@@ -136,18 +148,12 @@ export function addAutoFundOptions(command: Command): Command {
     .option('--max-balance <usdfc>', 'Maximum Filecoin Pay balance after deposit, e.g. 5.00 (requires --auto-fund)')
 }
 
-export interface NormalizedAutoFundOptions {
-  autoFund: boolean
-  minRunwayDays?: number
-  maxBalance?: bigint
-}
-
 /**
  * Validate and normalize auto-fund options parsed by Commander.
  *
  * Strict mode: `--min-runway-days` and `--max-balance` require `--auto-fund` (no implicit
- * activation). `--view-address` (read-only auth) is incompatible with `--auto-fund` since
- * deposits require a signing wallet.
+ * activation). The `--auto-fund` / `--view-address` conflict is enforced by Commander's
+ * `.conflicts()` on the option declaration itself.
  *
  * @throws Error with a flag-specific message on validation failure
  */
@@ -155,8 +161,7 @@ export function validateAndNormalizeAutoFundOptions(raw: {
   autoFund?: boolean
   minRunwayDays?: number
   maxBalance?: string
-  viewAddress?: string
-}): NormalizedAutoFundOptions {
+}): CLIAutoFundOptions {
   const autoFund = raw.autoFund === true
 
   if (raw.minRunwayDays !== undefined && !autoFund) {
@@ -164,9 +169,6 @@ export function validateAndNormalizeAutoFundOptions(raw: {
   }
   if (raw.maxBalance !== undefined && !autoFund) {
     throw new Error('--max-balance requires --auto-fund')
-  }
-  if (autoFund && raw.viewAddress !== undefined) {
-    throw new Error('--auto-fund cannot be used with --view-address (read-only mode cannot sign deposits)')
   }
 
   let minRunwayDays: number | undefined
@@ -189,7 +191,7 @@ export function validateAndNormalizeAutoFundOptions(raw: {
     }
   }
 
-  const result: NormalizedAutoFundOptions = { autoFund }
+  const result: CLIAutoFundOptions = { autoFund }
   if (minRunwayDays !== undefined) result.minRunwayDays = minRunwayDays
   if (maxBalance !== undefined) result.maxBalance = maxBalance
   return result

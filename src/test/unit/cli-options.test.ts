@@ -14,15 +14,6 @@ describe('validateAndNormalizeAutoFundOptions', () => {
     )
   })
 
-  it('throws when --auto-fund is combined with --view-address', () => {
-    expect(() =>
-      validateAndNormalizeAutoFundOptions({
-        autoFund: true,
-        viewAddress: '0x0000000000000000000000000000000000000001',
-      })
-    ).toThrow(/--auto-fund cannot be used with --view-address/)
-  })
-
   it('parses both modifiers when --auto-fund is set', () => {
     const result = validateAndNormalizeAutoFundOptions({
       autoFund: true,
