@@ -2,6 +2,7 @@
  * Test to verify browser CAR builder generates same CID and CAR bytes as Node.js implementation
  */
 
+import { randomBytes } from 'node:crypto'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -66,6 +67,33 @@ describe('Browser CAR Builder', () => {
 
       expect(result.kind).toBe('file')
       expect(result.name).toBe('example.txt')
+    })
+
+    it('produces identical root CID and CAR bytes for chunked files across runtimes', async () => {
+      // Profile-conformance regression guard: the same input must yield
+      // the same root CID and byte-identical CAR in Node and browser
+      // builders. Use >1 MiB random data so the importer must chunk and
+      // emit a multi-block dag-pb root, exercising the profile beyond
+      // the raw-leaf fast path.
+      const testData = new Uint8Array(randomBytes(1024 * 1024 * 1.5))
+      const fileName = 'chunked.bin'
+
+      const tempPath = join(tmpdir(), `cross-runtime-${Date.now()}-${fileName}`)
+      await writeFile(tempPath, testData)
+      testFiles.push(tempPath)
+
+      const nodeResult = await createCarFromPath(tempPath)
+      testFiles.push(nodeResult.carPath)
+      const nodeCarBytes = await readFile(nodeResult.carPath)
+
+      const file = new File([testData], fileName)
+      const browserResult = await createCarFromFile(file)
+
+      expect(browserResult.rootCid.toString()).toBe(nodeResult.rootCid.toString())
+      expect(browserResult.carBytes.length).toBe(nodeCarBytes.length)
+      expect(Buffer.from(browserResult.carBytes).equals(nodeCarBytes)).toBe(true)
+
+      await cleanupTempCar(nodeResult.carPath)
     })
 
     it('should produce valid CAR that can be read back', async () => {

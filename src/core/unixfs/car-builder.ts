@@ -190,10 +190,20 @@ async function createCarFromDirectory(dirPath: string, options: CreateCarOptions
     // We match only the directory contents (/**/*), not the directory itself
     // addAll will automatically create the root directory entry with proper links
     const pattern = `${dirName}/**/*`
-    logger?.info({ absolutePath, parentDir, dirName, pattern, includeHidden }, 'Directory structure for UnixFS')
+    // If the user explicitly targets a hidden root (e.g. `add .well-known`),
+    // glob's hidden filter would discard every match because the root path
+    // segment starts with `.`. Force hidden traversal in that case; the user
+    // selected this directory, so its contents go in regardless of the
+    // dotfile-exclusion default.
+    const rootIsHidden = dirName.startsWith('.')
+    const hidden = includeHidden || rootIsHidden
+    logger?.info(
+      { absolutePath, parentDir, dirName, pattern, includeHidden, rootIsHidden, hidden },
+      'Directory structure for UnixFS'
+    )
 
     const candidates = globSource(parentDir, pattern, {
-      hidden: includeHidden,
+      hidden,
     })
 
     // Track progress

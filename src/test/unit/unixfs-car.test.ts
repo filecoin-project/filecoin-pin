@@ -309,6 +309,27 @@ describe('UnixFS CAR Creation', () => {
       await rm(dir2, { recursive: true, force: true })
     })
 
+    it('packs an explicitly-targeted hidden root directory and its contents', async () => {
+      // Regression: globSource's hidden filter would exclude every match if the
+      // root basename starts with `.`. The user selected this dir explicitly,
+      // so contents must come along regardless of the dotfile default.
+      const hiddenRoot = join(testDir, '.well-known')
+      await mkdir(hiddenRoot, { recursive: true })
+      await writeFile(join(hiddenRoot, 'visible.txt'), 'visible content')
+      await writeFile(join(hiddenRoot, 'another.json'), '{"k":"v"}')
+
+      const result = await createCarFromPath(hiddenRoot)
+      expect(result.kind).toBe('directory')
+      expect(result.name).toBe('.well-known')
+
+      const blockCount = await countBlocks(result.carPath)
+      // 2 raw leaf blocks + 1 dag-pb root linking them.
+      expect(blockCount).toBe(3)
+
+      await rm(result.carPath, { force: true })
+      await rm(hiddenRoot, { recursive: true, force: true })
+    })
+
     it('excludes hidden entries by default', async () => {
       const hiddenDir = join(testDir, 'hidden-test')
       await mkdir(hiddenDir, { recursive: true })
