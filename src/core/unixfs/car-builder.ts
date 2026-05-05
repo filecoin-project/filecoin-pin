@@ -28,9 +28,9 @@ export type Spinner = {
 // Placeholder CID used during CAR creation (will be replaced with actual root)
 const PLACEHOLDER_CID = CID.parse('bafyaaiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
 
-// Default behavior: exclude dotfiles to match Kubo's `ipfs add` default.
-// Callers can opt in via `includeHidden`.
-const INCLUDE_HIDDEN_FILES_DEFAULT = false
+// Whether to include hidden files (starting with .) when adding directories.
+// Default false to match Kubo's `ipfs add` default; callers can opt in via `includeHidden`.
+const INCLUDE_HIDDEN_FILES = false
 
 export type CarEntryKind = 'file' | 'directory'
 
@@ -175,7 +175,7 @@ async function createCarFromSingleFile(filePath: string, options: CreateCarOptio
  * @returns CAR file path and root CID
  */
 async function createCarFromDirectory(dirPath: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {
-  const { logger, spinner, includeHidden = INCLUDE_HIDDEN_FILES_DEFAULT } = options
+  const { logger, spinner, includeHidden = INCLUDE_HIDDEN_FILES } = options
 
   // Resolve to absolute path to handle cases like '.' or relative paths
   const absolutePath = resolve(dirPath)
