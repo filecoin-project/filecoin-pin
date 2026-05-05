@@ -1,5 +1,25 @@
-import { describe, expect, it } from 'vitest'
-import { validateAndNormalizeAutoFundOptions } from '../../utils/cli-options.js'
+import { Command } from 'commander'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { addNetworkOptions, validateAndNormalizeAutoFundOptions } from '../../utils/cli-options.js'
+
+describe('addNetworkOptions', () => {
+  const originalNetwork = process.env.NETWORK
+
+  beforeEach(() => {
+    delete process.env.NETWORK
+  })
+
+  afterEach(() => {
+    if (originalNetwork === undefined) delete process.env.NETWORK
+    else process.env.NETWORK = originalNetwork
+  })
+
+  it('defaults --network to mainnet', () => {
+    const command = addNetworkOptions(new Command()).exitOverride()
+    command.parse([], { from: 'user' })
+    expect(command.opts().network).toBe('mainnet')
+  })
+})
 
 describe('validateAndNormalizeAutoFundOptions', () => {
   it('throws when --min-runway-days is set without --auto-fund', () => {
