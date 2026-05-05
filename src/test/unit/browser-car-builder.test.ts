@@ -59,36 +59,13 @@ describe('Browser CAR Builder', () => {
       await cleanupTempCar(nodeResult.carPath)
     })
 
-    it('should generate same root CID with bare mode as Node.js', async () => {
-      const testContent = 'Bare mode test content'
-      const testData = new TextEncoder().encode(testContent)
-      const fileName = 'bare-test.txt' // Use consistent filename
+    it('exposes the source filename and kind', async () => {
+      const testData = new TextEncoder().encode('payload')
+      const file = new File([testData], 'example.txt', { type: 'text/plain' })
+      const result = await createCarFromFile(file)
 
-      // Write to temp file for Node.js version
-      const tempPath = join(tmpdir(), fileName)
-      await writeFile(tempPath, testData)
-      testFiles.push(tempPath)
-
-      // Node.js version with bare mode
-      const nodeResult = await createCarFromPath(tempPath, { bare: true })
-      testFiles.push(nodeResult.carPath)
-      const nodeCarBytes = await readFile(nodeResult.carPath)
-
-      // Browser version with bare mode and same filename
-      const file = new File([testData], fileName, { type: 'text/plain' })
-      const browserResult = await createCarFromFile(file, { bare: true })
-
-      // Compare CIDs - they should be identical!
-      expect(browserResult.rootCid.toString()).toBe(nodeResult.rootCid.toString())
-
-      // Compare CAR sizes
-      expect(browserResult.carBytes.length).toBe(nodeCarBytes.length)
-
-      // Compare actual bytes
-      expect(Buffer.from(browserResult.carBytes).equals(nodeCarBytes)).toBe(true)
-
-      // Cleanup
-      await cleanupTempCar(nodeResult.carPath)
+      expect(result.kind).toBe('file')
+      expect(result.name).toBe('example.txt')
     })
 
     it('should produce valid CAR that can be read back', async () => {
@@ -229,15 +206,6 @@ describe('Browser CAR Builder', () => {
 
     it('should reject when no files provided to createCarFromFiles', async () => {
       await expect(createCarFromFiles([])).rejects.toThrow('At least one file is required')
-    })
-
-    it('should reject bare mode with multiple files', async () => {
-      const file1 = new File([new TextEncoder().encode('A')], 'a.txt')
-      const file2 = new File([new TextEncoder().encode('B')], 'b.txt')
-
-      await expect(createCarFromFiles([file1, file2], { bare: true })).rejects.toThrow(
-        '--bare flag is not supported for multiple files'
-      )
     })
   })
 })

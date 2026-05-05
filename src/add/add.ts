@@ -12,7 +12,7 @@ import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
-import { normalizeMetadataConfig } from '../core/metadata/index.js'
+import { normalizeMetadataConfig, withDerivedNameMetadata } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
@@ -27,7 +27,7 @@ import type { AddOptions, AddResult } from './types.js'
  */
 async function validatePath(
   path: string,
-  options: AddOptions
+  _options: AddOptions
 ): Promise<{
   exists: boolean
   stats?: any
@@ -40,13 +40,6 @@ async function validatePath(
       return { exists: true, stats, isDirectory: false }
     }
     if (stats.isDirectory()) {
-      // Check if bare flag is used with directory
-      if (options.bare) {
-        return {
-          exists: false,
-          error: `--bare flag is not supported for directories`,
-        }
-      }
       return { exists: true, stats, isDirectory: true }
     }
     // Not a file or directory (could be symlink, socket, etc.)
@@ -74,7 +67,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
   const spinner = createSpinner()
 
-  const { pieceMetadata, dataSetMetadata } = normalizeMetadataConfig({
+  const { pieceMetadata: userPieceMetadata, dataSetMetadata } = normalizeMetadataConfig({
     pieceMetadata: options.pieceMetadata,
     dataSetMetadata: options.dataSetMetadata,
   })
@@ -172,18 +165,21 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     }
 
     // Create CAR from file or directory
-    const packingMsg = isDirectory
-      ? 'Packing directory for IPFS...'
-      : `Packing file for IPFS${options.bare ? ' (bare mode)' : ''}...`
+    const packingMsg = isDirectory ? 'Packing directory for IPFS...' : 'Packing file for IPFS...'
     spinner.start(packingMsg)
 
-    const { carPath, rootCid } = await createCarFromPath(options.filePath, {
+    const { carPath, rootCid, name, kind } = await createCarFromPath(options.filePath, {
       logger,
       spinner,
       isDirectory,
-      ...(options.bare !== undefined && { bare: options.bare }),
+      ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }),
     })
     tempCarPath = carPath
+
+    // Route the source name into piece metadata so consumers can recover
+    // the original file/directory label after retrieval. User-supplied
+    // entries take precedence; this only fills gaps.
+    const pieceMetadata = withDerivedNameMetadata(userPieceMetadata, { kind, name })
 
     spinner.stop(`${pc.green('✓')} ${isDirectory ? 'Directory' : 'File'} packed with root CID: ${rootCid.toString()}`)
 

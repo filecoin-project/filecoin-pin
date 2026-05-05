@@ -2,6 +2,19 @@ export const ERC8004_TYPES = ['registration', 'validationrequest', 'validationre
 
 export type ERC8004Type = (typeof ERC8004_TYPES)[number]
 
+/**
+ * Piece metadata key carrying the original file basename when a single
+ * file is uploaded. Synapse SDK has no canonical key for this yet; if it
+ * adopts one we will move to that constant.
+ */
+export const PIECE_METADATA_FILENAME_KEY = 'filename'
+
+/**
+ * Piece metadata key carrying the original directory name when a
+ * directory is uploaded.
+ */
+export const PIECE_METADATA_DIRNAME_KEY = 'dirname'
+
 export interface MetadataConfigInput {
   pieceMetadata?: Record<string, string> | undefined
   dataSetMetadata?: Record<string, string> | undefined
@@ -31,6 +44,33 @@ export function normalizeMetadataConfig(input: MetadataConfigInput): MetadataCon
   return {
     pieceMetadata: Object.keys(pieceMetadata).length > 0 ? pieceMetadata : undefined,
     dataSetMetadata: Object.keys(dataSetMetadata).length > 0 ? dataSetMetadata : undefined,
+  }
+}
+
+/**
+ * Merge a derived filename or directory name into existing piece metadata.
+ *
+ * User-supplied entries always win. If the user already set the same key
+ * to a different value, the user value is preserved and the derived value
+ * is dropped silently — this is auto-derived data, not a hard requirement.
+ */
+export function withDerivedNameMetadata(
+  pieceMetadata: Record<string, string> | undefined,
+  derived: { kind: 'file' | 'directory'; name: string }
+): Record<string, string> | undefined {
+  if (!derived.name) {
+    return pieceMetadata
+  }
+
+  const key = derived.kind === 'directory' ? PIECE_METADATA_DIRNAME_KEY : PIECE_METADATA_FILENAME_KEY
+  const existing = pieceMetadata?.[key]
+  if (existing != null) {
+    return pieceMetadata
+  }
+
+  return {
+    ...(pieceMetadata ?? {}),
+    [key]: derived.name,
   }
 }
 
