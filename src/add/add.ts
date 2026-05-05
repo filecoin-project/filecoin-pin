@@ -25,10 +25,7 @@ import type { AddOptions, AddResult } from './types.js'
 /**
  * Validate that a path exists and is a regular file or directory
  */
-async function validatePath(
-  path: string,
-  _options: AddOptions
-): Promise<{
+async function validatePath(path: string): Promise<{
   exists: boolean
   stats?: any
   isDirectory?: boolean
@@ -93,7 +90,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     // Validate path exists and is readable
     spinner.start('Validating path...')
 
-    const pathValidation = await validatePath(options.filePath, options)
+    const pathValidation = await validatePath(options.filePath)
     if (!pathValidation.exists || !pathValidation.stats) {
       spinner.stop(`${pc.red('✗')} ${pathValidation.error}`)
       cancel('Add cancelled')
