@@ -56,7 +56,7 @@ describe('Config', () => {
       expectedDataDir = join(home, '.filecoin-pin')
     }
 
-    const expectedRpcUrl = calibration.rpcUrls.default.webSocket?.[0] ?? calibration.rpcUrls.default.http[0]
+    const expectedRpcUrl = mainnet.rpcUrls.default.webSocket?.[0] ?? mainnet.rpcUrls.default.http[0]
 
     expect(config.port).toBe(3456)
     expect(config.host).toBe('localhost')

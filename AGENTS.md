@@ -10,7 +10,7 @@ Bridges IPFS content to Filecoin storage providers with cryptographic guarantees
 
 **Stack**: filecoin-pin → synapse-sdk → FOC contracts (FWSS, FilecoinPay, PDPVerifier, SPRegistry) + Curio.
 
-**Status**: Supports Mainnet, Calibration testnet, and local devnet (foc-devnet). CLI defaults to Calibration.
+**Status**: Supports Mainnet, Calibration testnet, and local devnet (foc-devnet). CLI defaults to Mainnet.
 
 ## Design Philosophy
 
@@ -90,7 +90,7 @@ src/
 
 **Commands**: `payments setup --auto`, `add <path>`, `import <car-file>`, `payments status`, `data-set <id>`, `server`
 
-**Network**: `--network mainnet|calibration|devnet` (default: `calibration`). Devnet reads config from foc-devnet's `devnet-info.json` and auto-resolves private key and RPC URL.
+**Network**: `--network mainnet|calibration|devnet` (default: `mainnet`). Devnet reads config from foc-devnet's `devnet-info.json` and auto-resolves private key and RPC URL.
 
 **Required env**: `PRIVATE_KEY=0x...` (with USDFC tokens; not needed for devnet)
 
