@@ -46,7 +46,7 @@ describe('UnixFS CAR Creation', () => {
     await rm(testDir, { recursive: true, force: true })
   })
 
-  describe('Bare mode (no directory wrapper)', () => {
+  describe('Single file (no directory wrapper)', () => {
     it('should create a valid CAR that can be imported', async () => {
       // Step 1: Create CAR from file using add logic
       const { carPath, rootCid } = await createCarFromPath(testFile)
@@ -80,8 +80,8 @@ describe('UnixFS CAR Creation', () => {
       await rm(carPath, { force: true })
     })
 
-    it('should produce consistent root CIDs for same content in bare mode', async () => {
-      // Create multiple CARs from same content in bare mode
+    it('should produce consistent root CIDs for the same content', async () => {
+      // Create multiple CARs from the same content
       const results = await Promise.all([
         createCarFromPath(testFile),
         createCarFromPath(testFile),
@@ -96,7 +96,7 @@ describe('UnixFS CAR Creation', () => {
       await Promise.all(results.map((r) => rm(r.carPath, { force: true })))
     })
 
-    it('should handle small single-block files correctly in bare mode', async () => {
+    it('should handle small single-block files correctly', async () => {
       const smallFile = join(testDir, 'small.txt')
       await writeFile(smallFile, 'tiny')
 
@@ -126,7 +126,7 @@ describe('UnixFS CAR Creation', () => {
       await rm(carPath, { force: true })
     })
 
-    it('should handle larger files with multiple blocks in bare mode', async () => {
+    it('should handle larger files with multiple blocks', async () => {
       // Create a file large enough to require multiple UnixFS blocks
       // UnixFS chunks at 1MiB (1048576 bytes) by default in Helia
       const largeFile = join(testDir, 'large.bin')
@@ -158,7 +158,7 @@ describe('UnixFS CAR Creation', () => {
       await rm(carPath, { force: true })
     })
 
-    it('should validate placeholder CID is replaced in bare mode', async () => {
+    it('should validate the placeholder CID is replaced', async () => {
       const { carPath, rootCid } = await createCarFromPath(testFile)
 
       // The placeholder CID should never appear in final output
