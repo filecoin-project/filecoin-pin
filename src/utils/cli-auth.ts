@@ -6,7 +6,7 @@
  */
 
 import type { Chain, Synapse } from '@filoz/synapse-sdk'
-import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rpc-url.js'
+import { getChainForNetwork, getRpcUrl, normalizeNetworkName, resolveDevnetConfig } from '../common/get-rpc-url.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { createLogger } from '../logger.js'
@@ -24,7 +24,7 @@ export interface CLIAuthOptions {
   sessionKey?: string | undefined
   /** View-only wallet address (no signing) */
   viewAddress?: string | undefined
-  /** Filecoin network: mainnet or calibration */
+  /** Filecoin network: mainnet, calibration, or devnet */
   network?: string | undefined
   /** RPC endpoint URL (overrides network if specified) */
   rpcUrl?: string | undefined
@@ -46,7 +46,7 @@ export interface CLIAuthOptions {
  * @returns Synapse setup config (validation happens in initializeSynapse)
  */
 export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
-  const network = options.network?.toLowerCase().trim()
+  const network = normalizeNetworkName(options.network)
   const isDevnet = network === 'devnet'
 
   // For devnet, fall back to the devnet user's private key if none provided
@@ -60,8 +60,8 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   let chain: Chain | undefined
   if (isDevnet) {
     chain = resolveDevnetConfig().chain
-  } else if (network) {
-    chain = NETWORK_CHAINS[network as keyof typeof NETWORK_CHAINS]
+  } else {
+    chain = getChainForNetwork(network)
   }
 
   // Build config incrementally; initializeSynapse() validates the final shape

@@ -11,6 +11,23 @@ const NETWORK_CHAINS = {
   mainnet,
   calibration,
 } as const
+
+export const DEFAULT_NETWORK = 'mainnet'
+
+export function normalizeNetworkName(network: string | undefined): string {
+  return network?.toLowerCase().trim() || DEFAULT_NETWORK
+}
+
+export function getChainForNetwork(network: string): Chain | undefined {
+  if (network === 'devnet') {
+    return resolveDevnetConfig().chain
+  }
+  if (network === 'mainnet' || network === 'calibration') {
+    return NETWORK_CHAINS[network]
+  }
+  return undefined
+}
+
 function getDefaultDevnetInfoPath(): string {
   const baseDir = process.env.FOC_DEVNET_BASEDIR?.trim() || join(homedir(), '.foc-devnet')
   return join(baseDir, 'state', 'latest', 'devnet-info.json')
@@ -78,40 +95,32 @@ export function resolveDevnetConfig(): DevnetConfig {
  * 1. Explicit --rpc-url (highest priority)
  * 2. RPC_URL environment variable
  * 3. --network flag or NETWORK environment variable (converted to RPC URL)
- * 4. Default to calibration
+ * 4. Default to mainnet
  */
 export function getRpcUrl(options: CLIAuthOptions): string {
   if (options.rpcUrl) {
     return options.rpcUrl
   }
 
-  const network = options.network?.toLowerCase().trim()
-  if (network) {
-    if (network === 'devnet') {
-      const devnet = resolveDevnetConfig()
-      const rpcUrl = devnet.chain.rpcUrls.default.http[0]
-      if (!rpcUrl) {
-        throw new Error('No RPC URL available in devnet-info.json')
-      }
-      return rpcUrl
+  const network = normalizeNetworkName(options.network)
+  if (network === 'devnet') {
+    const devnet = resolveDevnetConfig()
+    const rpcUrl = devnet.chain.rpcUrls.default.http[0]
+    if (!rpcUrl) {
+      throw new Error('No RPC URL available in devnet-info.json')
     }
-
-    if (network !== 'mainnet' && network !== 'calibration') {
-      throw new Error(`Invalid network: "${network}". Must be "mainnet", "calibration", or "devnet"`)
-    }
-    const chain = NETWORK_CHAINS[network]
-    const wsUrl = chain.rpcUrls.default.webSocket?.[0]
-    if (!wsUrl) {
-      throw new Error(`WebSocket RPC URL not available for network: "${network}"`)
-    }
-    return wsUrl
+    return rpcUrl
   }
 
-  const defaultUrl = calibration.rpcUrls.default.webSocket?.[0] ?? calibration.rpcUrls.default.http[0]
-  if (!defaultUrl) {
-    throw new Error('No RPC URL available for calibration network')
+  const chain = getChainForNetwork(network)
+  if (!chain) {
+    throw new Error(`Invalid network: "${network}". Must be "mainnet", "calibration", or "devnet"`)
   }
-  return defaultUrl
+  const wsUrl = chain.rpcUrls.default.webSocket?.[0]
+  if (!wsUrl) {
+    throw new Error(`WebSocket RPC URL not available for network: "${network}"`)
+  }
+  return wsUrl
 }
 
 export { DEVNET_CHAIN_ID, NETWORK_CHAINS }

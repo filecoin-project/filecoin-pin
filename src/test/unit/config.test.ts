@@ -1,6 +1,6 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
-import { calibration } from '@filoz/synapse-sdk'
+import { mainnet } from '@filoz/synapse-sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createConfig } from '../../config.js'
 
@@ -56,11 +56,12 @@ describe('Config', () => {
       expectedDataDir = join(home, '.filecoin-pin')
     }
 
-    const expectedRpcUrl = calibration.rpcUrls.default.webSocket?.[0] ?? calibration.rpcUrls.default.http[0]
+    const expectedRpcUrl = mainnet.rpcUrls.default.webSocket?.[0] ?? mainnet.rpcUrls.default.http[0]
 
     expect(config.port).toBe(3456)
     expect(config.host).toBe('localhost')
     expect(config.rpcUrl).toBe(expectedRpcUrl)
+    expect(config.chain?.id).toBe(mainnet.id)
     expect(config.databasePath).toBe(join(expectedDataDir, 'pins.db'))
     expect(config.carStoragePath).toBe(join(expectedDataDir, 'cars'))
     expect(config.logLevel).toBe('info')

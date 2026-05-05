@@ -1,5 +1,16 @@
+import { Command } from 'commander'
 import { describe, expect, it } from 'vitest'
-import { validateAndNormalizeAutoFundOptions } from '../../utils/cli-options.js'
+import { DEFAULT_NETWORK } from '../../common/get-rpc-url.js'
+import { addNetworkOptions, validateAndNormalizeAutoFundOptions } from '../../utils/cli-options.js'
+
+describe('addNetworkOptions', () => {
+  it('defaults shared CLI network options to mainnet', () => {
+    const command = addNetworkOptions(new Command())
+    const networkOption = command.options.find((option) => option.attributeName() === 'network')
+
+    expect(networkOption?.defaultValue).toBe(DEFAULT_NETWORK)
+  })
+})
 
 describe('validateAndNormalizeAutoFundOptions', () => {
   it('throws when --min-runway-days is set without --auto-fund', () => {

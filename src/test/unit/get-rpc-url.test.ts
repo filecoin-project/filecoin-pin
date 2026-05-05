@@ -1,10 +1,10 @@
 import { calibration, mainnet } from '@filoz/synapse-sdk'
 import { describe, expect, it } from 'vitest'
-import { getRpcUrl } from '../../common/get-rpc-url.js'
+import { DEFAULT_NETWORK, getRpcUrl } from '../../common/get-rpc-url.js'
 import type { CLIAuthOptions } from '../../utils/cli-auth.js'
 
 // Extract expected WebSocket URLs from chain definitions
-const mainnetWsUrl = mainnet.rpcUrls.default.webSocket?.[0]
+const mainnetWsUrl = mainnet.rpcUrls.default.webSocket?.[0] ?? mainnet.rpcUrls.default.http[0]
 const calibrationWsUrl = calibration.rpcUrls.default.webSocket?.[0] ?? calibration.rpcUrls.default.http[0]
 
 /**
@@ -44,14 +44,15 @@ describe('getRpcUrl', () => {
     ).toBe(calibrationWsUrl)
   })
 
-  it('defaults to calibration when network is missing or blank', () => {
-    expect(getRpcUrl({})).toBe(calibrationWsUrl)
-    expect(getRpcUrl({ network: '' })).toBe(calibrationWsUrl)
-    expect(getRpcUrl({ network: '   ' })).toBe(calibrationWsUrl)
+  it('defaults to mainnet when network is missing or blank', () => {
+    expect(DEFAULT_NETWORK).toBe('mainnet')
+    expect(getRpcUrl({})).toBe(mainnetWsUrl)
+    expect(getRpcUrl({ network: '' })).toBe(mainnetWsUrl)
+    expect(getRpcUrl({ network: '   ' })).toBe(mainnetWsUrl)
   })
 
   it('treats empty rpcUrl as falsy and falls back to defaults', () => {
-    expect(getRpcUrl({ rpcUrl: '' })).toBe(calibrationWsUrl)
+    expect(getRpcUrl({ rpcUrl: '' })).toBe(mainnetWsUrl)
   })
 
   it('throws for unsupported networks', () => {

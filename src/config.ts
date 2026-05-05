@@ -1,6 +1,6 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
-import { getRpcUrl } from './common/get-rpc-url.js'
+import { getChainForNetwork, getRpcUrl, normalizeNetworkName } from './common/get-rpc-url.js'
 import type { Config } from './core/synapse/index.js'
 
 function getDataDirectory(): string {
@@ -34,19 +34,21 @@ function getDataDirectory(): string {
  * - WALLET_ADDRESS + SESSION_KEY: Session key auth
  *
  * Network:
- * - RPC_URL: Filecoin RPC endpoint — takes precedence over NETWORK
+ * - RPC_URL: Filecoin RPC endpoint — takes precedence for endpoint selection
  * - NETWORK: Filecoin network name (mainnet, calibration, devnet) — used if RPC_URL not set
  */
 export function createConfig(): Config {
   const dataDir = getDataDirectory()
 
-  // Determine RPC URL: RPC_URL env var takes precedence, then NETWORK, then default to calibration
+  // Determine RPC URL: RPC_URL takes precedence for endpoint selection, then NETWORK, then default to mainnet
+  const network = normalizeNetworkName(process.env.NETWORK)
   const rpcUrl = getRpcUrl({
     network: process.env.NETWORK,
     rpcUrl: process.env.RPC_URL,
   })
+  const chain = getChainForNetwork(network)
 
-  return {
+  const config: Config = {
     // Application-specific configuration
     port: parseInt(process.env.PORT ?? '3456', 10),
     host: process.env.HOST ?? 'localhost',
@@ -56,7 +58,7 @@ export function createConfig(): Config {
     privateKey: process.env.PRIVATE_KEY,
     walletAddress: process.env.WALLET_ADDRESS,
     sessionKey: process.env.SESSION_KEY,
-    rpcUrl, // Determined from RPC_URL, NETWORK, or default to calibration
+    rpcUrl, // Determined from RPC_URL, NETWORK, or default to mainnet
     // Storage paths
     databasePath: process.env.DATABASE_PATH ?? join(dataDir, 'pins.db'),
     carStoragePath: process.env.CAR_STORAGE_PATH ?? join(dataDir, 'cars'),
@@ -64,4 +66,8 @@ export function createConfig(): Config {
     // Logging
     logLevel: process.env.LOG_LEVEL ?? 'info',
   }
+  if (chain) {
+    config.chain = chain
+  }
+  return config
 }

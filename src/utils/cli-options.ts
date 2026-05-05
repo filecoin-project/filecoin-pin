@@ -7,6 +7,7 @@
 import { type Command, InvalidArgumentError, Option } from 'commander'
 import { parseUnits } from 'viem'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
+import { DEFAULT_NETWORK } from '../common/get-rpc-url.js'
 import { USDFC_DECIMALS } from '../core/payments/constants.js'
 
 /**
@@ -17,7 +18,7 @@ import { USDFC_DECIMALS } from '../core/payments/constants.js'
  * - --wallet-address for session key authentication
  * - --session-key for session key authentication
  * - --view-address for read-only authentication (no signing, requires wallet address)
- * - --network for network selection (mainnet or calibration)
+ * - --network for network selection (mainnet, calibration, or devnet)
  * - --rpc-url for network configuration (overrides --network)
  *
  * The function modifies the command in-place and returns it for chaining.
@@ -93,7 +94,7 @@ export function addNetworkOptions(command: Command): Command {
       )
         .choices(['mainnet', 'calibration', 'devnet'])
         .env('NETWORK')
-        .default('calibration')
+        .default(DEFAULT_NETWORK)
     )
     .addOption(new Option('--mainnet', 'Use mainnet (shorthand for --network mainnet)').implies({ network: 'mainnet' }))
   return command

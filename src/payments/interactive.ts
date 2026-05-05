@@ -7,9 +7,8 @@
  */
 
 import { cancel, confirm, isCancel, password, text } from '@clack/prompts'
-import { calibration, mainnet } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import { type Hex, parseUnits } from 'viem'
+import { parseUnits } from 'viem'
 import {
   calculateDepositCapacity,
   checkAndSetAllowances,
@@ -20,8 +19,9 @@ import {
   getPaymentStatus,
   validatePaymentRequirements,
 } from '../core/payments/index.js'
-import { getClientAddress, initializeSynapse, type PrivateKeyConfig } from '../core/synapse/index.js'
+import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
+import { parseCLIAuth } from '../utils/cli-auth.js'
 import { createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
 import { displayAccountInfo, displayDepositWarning, displayPricing } from './setup.js'
@@ -77,18 +77,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     const s = createSpinner()
     s.start('Initializing connection...')
 
-    const defaultRpcUrl =
-      options.network === 'mainnet'
-        ? (mainnet.rpcUrls.default.webSocket?.[0] ?? mainnet.rpcUrls.default.http[0])
-        : (calibration.rpcUrls.default.webSocket?.[0] ?? calibration.rpcUrls.default.http[0])
-    const rpcUrl = options.rpcUrl || defaultRpcUrl
-
-    const config: PrivateKeyConfig = {
-      privateKey: privateKey as Hex,
-    }
-    if (rpcUrl) {
-      config.rpcUrl = rpcUrl
-    }
+    const config = parseCLIAuth({ ...options, privateKey })
     const synapse = await initializeSynapse(config)
     const network = synapse.chain.name
     const address = getClientAddress(synapse)

@@ -15,7 +15,7 @@ export const serverCommand = new Command('server')
 
 addNetworkOptions(serverCommand)
   .addOption(
-    new Option('--rpc-url <url>', 'RPC URL for Filecoin network (overrides --network)').env('RPC_URL')
+    new Option('--rpc-url <url>', 'RPC URL for the selected Filecoin network').env('RPC_URL')
     // default rpcUrl value is defined in ../common/get-rpc-url.ts
   )
   .action(async (options) => {
@@ -32,10 +32,10 @@ addNetworkOptions(serverCommand)
     if (options.accessToken) {
       process.env.ACCESS_TOKEN = options.accessToken
     }
-    // RPC URL takes precedence over network flag
     if (options.rpcUrl) {
       process.env.RPC_URL = options.rpcUrl
-    } else if (options.network) {
+    }
+    if (options.network) {
       process.env.NETWORK = options.network
     }
     if (options.carStorage) {
