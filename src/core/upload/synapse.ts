@@ -15,6 +15,7 @@ import { APPLICATION_SOURCE } from '../synapse/constants.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 
 export type UploadProgressEvents =
+  | ProgressEvent<'onProgress', { bytesUploaded: number }>
   | ProgressEvent<'onStored', { providerId: bigint; pieceCid: PieceCID }>
   | ProgressEvent<'onPiecesAdded', { txHash: Hash; providerId: bigint }>
   | ProgressEvent<'onPiecesConfirmed', { dataSetId: bigint; providerId: bigint; pieceIds: bigint[] }>
@@ -179,6 +180,18 @@ export async function uploadToSynapse(
     },
 
     callbacks: {
+      onProgress: (bytesUploaded) => {
+        logger.debug(
+          {
+            event: 'synapse.upload.progress',
+            contextId,
+            bytesUploaded,
+          },
+          'Upload progress update'
+        )
+        onProgress?.({ type: 'onProgress', data: { bytesUploaded } })
+      },
+
       onProviderSelected: (provider) => {
         logger.info(
           {

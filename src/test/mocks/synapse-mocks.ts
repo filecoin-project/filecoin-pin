@@ -66,6 +66,9 @@ export class MockStorageContext extends EventEmitter {
     // Simulate callback sequence matching real SDK behavior.
     // StorageManagerUploadOptions nests callbacks under `callbacks`.
     const callbacks = options?.callbacks
+    if (callbacks?.onProgress != null) {
+      callbacks.onProgress(getUploadSize(_data))
+    }
     if (callbacks?.onStored != null) {
       callbacks.onStored(providerId, pieceCid)
     }
@@ -94,6 +97,14 @@ export class MockStorageContext extends EventEmitter {
       failedAttempts: [],
     }
   }
+}
+
+function getUploadSize(data: SynapseUploadData): number {
+  if (data instanceof Uint8Array) {
+    return data.byteLength
+  }
+
+  return 1024
 }
 
 /**

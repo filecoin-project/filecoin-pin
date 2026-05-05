@@ -1,4 +1,5 @@
 import { createReadStream, promises as fs } from 'node:fs'
+import { Readable } from 'node:stream'
 import { CarReader } from '@ipld/car'
 import {
   calculateFilecoinPayFundingPlan,
@@ -180,6 +181,24 @@ export async function handlePayments(synapse, options, logger) {
 }
 
 /**
+ * Format byte counts for upload progress logs.
+ * @param {number} bytes
+ * @returns {string}
+ */
+function formatProgressSize(bytes) {
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
+  let size = bytes
+  let unitIndex = 0
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex++
+  }
+
+  return `${size.toFixed(1)} ${units[unitIndex]}`
+}
+
+/**
  * Upload CAR to Filecoin using core upload functionality
  * @param {Synapse} synapse - Synapse instance
  * @param {string} carPath - Path to CAR file
@@ -189,8 +208,10 @@ export async function handlePayments(synapse, options, logger) {
  * @returns {Promise<UploadResult>} Upload result
  */
 export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options, logger) {
-  const carBytes = await fs.readFile(carPath)
+  const { size } = await fs.stat(carPath)
+  const carData = /** @type {ReadableStream<Uint8Array>} */ (Readable.toWeb(createReadStream(carPath)))
   const cid = CID.parse(ipfsRootCid)
+  let lastProgressBucket = -1
 
   /** @type {bigint[] | undefined} */
   const providerIds = options.providerIds != null && options.providerIds.length > 0 ? options.providerIds : undefined
@@ -203,13 +224,27 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
 
   console.log('\nStarting upload to storage provider...')
   console.log('Uploading data to PDP server...')
+  logger.info({ event: 'upload.stream_ready', carPath, size }, 'Streaming CAR upload from disk')
 
-  const uploadResult = await executeUpload(synapse, carBytes, cid, {
+  const uploadResult = await executeUpload(synapse, carData, cid, {
     logger,
     contextId: `gha-upload-${Date.now()}`,
     ...(providerIds != null && { providerIds }),
     onProgress: (event) => {
       switch (event.type) {
+        case 'onProgress': {
+          const totalBytes = Math.max(size, 1)
+          const uploadedBytes = Math.min(event.data.bytesUploaded, totalBytes)
+          const percent = Math.min(100, Math.floor((uploadedBytes / totalBytes) * 100))
+          const bucket = percent === 100 ? 100 : Math.floor(percent / 10) * 10
+          if (bucket > lastProgressBucket) {
+            lastProgressBucket = bucket
+            console.log(
+              `Upload progress: ${percent}% (${formatProgressSize(uploadedBytes)}/${formatProgressSize(size)})`
+            )
+          }
+          break
+        }
         case 'onStored': {
           console.log(`✓ Data stored on provider ${event.data.providerId}`)
           console.log(`Piece CID: ${event.data.pieceCid}`)
