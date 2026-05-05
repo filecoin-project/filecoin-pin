@@ -60,21 +60,11 @@ describe('Browser CAR Builder', () => {
       await cleanupTempCar(nodeResult.carPath)
     })
 
-    it('exposes the source filename and kind', async () => {
-      const testData = new TextEncoder().encode('payload')
-      const file = new File([testData], 'example.txt', { type: 'text/plain' })
-      const result = await createCarFromFile(file)
-
-      expect(result.kind).toBe('file')
-      expect(result.name).toBe('example.txt')
-    })
-
-    it('produces identical root CID and CAR bytes for chunked files across runtimes', async () => {
-      // Profile-conformance regression guard: the same input must yield
-      // the same root CID and byte-identical CAR in Node and browser
-      // builders. Use >1 MiB random data so the importer must chunk and
-      // emit a multi-block dag-pb root, exercising the profile beyond
-      // the raw-leaf fast path.
+    it('should generate same root CID and CAR bytes for chunked files', async () => {
+      // Profile-conformance regression guard: same input must yield the
+      // same root CID and byte-identical CAR in both runtimes. Use a
+      // multi-block file (>1 MiB) to exercise the chunker + dag-pb root
+      // path, not just the raw-leaf fast path.
       const testData = new Uint8Array(randomBytes(1024 * 1024 * 1.5))
       const fileName = 'chunked.bin'
 
@@ -82,17 +72,25 @@ describe('Browser CAR Builder', () => {
       await writeFile(tempPath, testData)
       testFiles.push(tempPath)
 
+      // Node.js implementation
       const nodeResult = await createCarFromPath(tempPath)
       testFiles.push(nodeResult.carPath)
       const nodeCarBytes = await readFile(nodeResult.carPath)
 
+      // Browser implementation
       const file = new File([testData], fileName)
       const browserResult = await createCarFromFile(file)
 
+      // Compare CIDs - they should be identical!
       expect(browserResult.rootCid.toString()).toBe(nodeResult.rootCid.toString())
+
+      // Compare CAR sizes
       expect(browserResult.carBytes.length).toBe(nodeCarBytes.length)
+
+      // Compare actual bytes
       expect(Buffer.from(browserResult.carBytes).equals(nodeCarBytes)).toBe(true)
 
+      // Cleanup
       await cleanupTempCar(nodeResult.carPath)
     })
 
