@@ -51,6 +51,7 @@ export interface Config {
   sessionKey: string | undefined
   accessToken: string | undefined
   rpcUrl: string
+  chain?: Chain
   databasePath: string
   carStoragePath: string
   logLevel: string

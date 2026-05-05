@@ -2,7 +2,7 @@ import fastify, { type FastifyInstance, type FastifyRequest } from 'fastify'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { isAddress, isHex } from 'viem'
-import type { Config } from './core/synapse/index.js'
+import type { Chain, Config } from './core/synapse/index.js'
 import { initializeSynapse, type SynapseSetupConfig } from './core/synapse/index.js'
 import { FilecoinPinStore, type PinOptions } from './filecoin-pin-store.js'
 import type { ServiceInfo } from './server.js'
@@ -22,7 +22,10 @@ const DEFAULT_USER_INFO = {
 }
 
 function buildSynapseConfig(config: Config): SynapseSetupConfig {
-  const base = { rpcUrl: config.rpcUrl }
+  const base: { rpcUrl: string; chain?: Chain } = { rpcUrl: config.rpcUrl }
+  if (config.chain) {
+    base.chain = config.chain
+  }
 
   if (config.walletAddress && config.sessionKey) {
     if (!isAddress(config.walletAddress)) {
