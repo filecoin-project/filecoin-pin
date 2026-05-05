@@ -285,6 +285,26 @@ describe('getFilecoinPayFundingInsights', () => {
     expect(insights.runway.days).toBe(3)
     expect(insights.availableDeposited).toBe(available)
   })
+
+  it('bases runway and depletion on total deposited balance, not surplus beyond lockup', () => {
+    const rateUsed = 2n
+    const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+    const lockupUsed = perDay * 30n
+    const filecoinPayBalance = perDay * 20n
+    const status = makeStatus({
+      filecoinPayBalance,
+      rateUsed,
+      lockupUsed,
+      wallet: perDay * 2n,
+    })
+
+    const insights = getFilecoinPayFundingInsights(status)
+
+    expect(insights.runway.days).toBe(20)
+    expect(insights.availableDeposited).toBe(0n)
+    expect(insights.filecoinPayDepletionSeconds).toBe(20n * 86_400n)
+    expect(insights.ownerDepletionSeconds).toBe(22n * 86_400n)
+  })
 })
 
 describe('autoFund (modifiers)', () => {

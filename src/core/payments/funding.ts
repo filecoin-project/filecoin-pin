@@ -24,14 +24,14 @@ import type {
 } from './types.js'
 
 function calculateDepletionTiming(
-  available: bigint,
+  balance: bigint,
   perDay: bigint
 ): { seconds: bigint; timestampMs?: number | null } | null {
-  if (available <= 0n || perDay <= 0n) {
+  if (balance <= 0n || perDay <= 0n) {
     return null
   }
 
-  const seconds = (available * 86_400n) / perDay
+  const seconds = (balance * 86_400n) / perDay
   if (seconds <= 0n) {
     return null
   }
@@ -73,8 +73,8 @@ export function getFilecoinPayFundingInsights(
   })
 
   const availableDeposited = runway.available
-  const filecoinPayDepletion = calculateDepletionTiming(availableDeposited, runway.perDay)
-  const ownerDepletion = calculateDepletionTiming(availableDeposited + status.walletUsdfcBalance, runway.perDay)
+  const filecoinPayDepletion = calculateDepletionTiming(depositedBalance, runway.perDay)
+  const ownerDepletion = calculateDepletionTiming(depositedBalance + status.walletUsdfcBalance, runway.perDay)
 
   return {
     spendRatePerEpoch: rateUsed,
