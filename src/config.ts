@@ -4,11 +4,13 @@ import type { Chain } from '@filoz/synapse-sdk'
 import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from './common/get-rpc-url.js'
 import type { Config } from './core/synapse/index.js'
 
-function resolveChain(network: string | undefined): Chain | undefined {
+function resolveChain(network: string | undefined, hasExplicitRpcUrl: boolean): Chain | undefined {
   const normalized = network?.toLowerCase().trim()
   if (!normalized) return undefined
-  if (normalized === 'devnet') return resolveDevnetConfig().chain
   if (normalized === 'mainnet' || normalized === 'calibration') return NETWORK_CHAINS[normalized]
+  // Devnet's chain comes from devnet-info.json. Skip the file load when the operator
+  // overrode RPC_URL — they may just have a stale NETWORK=devnet and the file may not exist.
+  if (normalized === 'devnet' && !hasExplicitRpcUrl) return resolveDevnetConfig().chain
   return undefined
 }
 
@@ -54,7 +56,7 @@ export function createConfig(): Config {
     network: process.env.NETWORK,
     rpcUrl: process.env.RPC_URL,
   })
-  const chain = resolveChain(process.env.NETWORK)
+  const chain = resolveChain(process.env.NETWORK, process.env.RPC_URL != null && process.env.RPC_URL !== '')
 
   const config: Config = {
     // Application-specific configuration

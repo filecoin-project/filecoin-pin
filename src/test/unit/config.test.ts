@@ -1,6 +1,6 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
-import { calibration } from '@filoz/synapse-sdk'
+import { calibration, mainnet } from '@filoz/synapse-sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createConfig } from '../../config.js'
 
@@ -76,5 +76,25 @@ describe('Config', () => {
     expect(config.port).toBe(8080)
     expect(config.host).toBe('0.0.0.0')
     expect(config.logLevel).toBe('debug')
+  })
+
+  it('resolves chain from NETWORK so Synapse uses matching contracts', () => {
+    process.env.NETWORK = 'mainnet'
+    expect(createConfig().chain).toBe(mainnet)
+
+    process.env.NETWORK = 'calibration'
+    expect(createConfig().chain).toBe(calibration)
+  })
+
+  it('skips chain resolution when NETWORK is not set', () => {
+    expect(createConfig().chain).toBeUndefined()
+  })
+
+  it('does not load devnet-info.json when NETWORK=devnet but RPC_URL is set', () => {
+    process.env.NETWORK = 'devnet'
+    process.env.RPC_URL = 'wss://custom.example/rpc'
+    // Would throw "Failed to read devnet info" if we attempted the file load.
+    expect(() => createConfig()).not.toThrow()
+    expect(createConfig().chain).toBeUndefined()
   })
 })
