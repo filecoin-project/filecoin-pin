@@ -170,6 +170,8 @@ describe('upload action Filecoin upload', () => {
 
     logSpy.mockRestore()
 
+    const uploadData = mocks.executeUpload.mock.calls[0]?.[1]
+
     expect(result).toMatchObject({
       dataSetId: '13018',
       pieceId: '0',
@@ -178,6 +180,47 @@ describe('upload action Filecoin upload', () => {
       requestedCopies: 2,
       complete: false,
     })
+    expect(uploadData).toBeInstanceOf(ReadableStream)
+  })
+
+  it('logs byte-level upload progress from executeUpload callbacks', async () => {
+    mocks.executeUpload.mockImplementation(async (_synapse, _data, _cid, options) => {
+      options.onProgress?.({ type: 'onProgress', data: { bytesUploaded: 2 } })
+      return {
+        pieceCid: 'bafkzcibe2hzbcd4t6clvsb3mfrezyxl75gl3gzcsqi42dd27gktq4nk75rr62ciuaq',
+        size: 3,
+        requestedCopies: 1,
+        complete: true,
+        copies: [
+          {
+            providerId: 2n,
+            dataSetId: 13018n,
+            pieceId: 1n,
+            role: 'primary',
+            retrievalUrl: 'https://calib2.ezpdpz.net/piece/test',
+            isNewDataSet: false,
+          },
+        ],
+        failedAttempts: [],
+        network: 'calibration',
+        ipniValidated: true,
+      }
+    })
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const { uploadCarToFilecoin } = (await import(filecoinModulePath)) as FilecoinModule
+
+    await uploadCarToFilecoin(
+      {},
+      carPath,
+      TEST_CID,
+      { withCDN: false },
+      { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }
+    )
+
+    expect(logSpy).toHaveBeenCalledWith('Upload progress: 66% (2.0 B/3.0 B)')
+
+    logSpy.mockRestore()
   })
 })
 

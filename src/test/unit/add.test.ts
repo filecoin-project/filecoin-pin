@@ -14,7 +14,10 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runAdd } from '../../add/add.js'
 
-const { mockFindDataSets } = vi.hoisted(() => ({ mockFindDataSets: vi.fn().mockResolvedValue([]) }))
+const { mockCarPath, mockFindDataSets } = vi.hoisted(() => ({
+  mockCarPath: 'test-add-files/mock.car',
+  mockFindDataSets: vi.fn().mockResolvedValue([]),
+}))
 
 // Mock the external dependencies at module level
 vi.mock('../../common/upload-flow.js', () => ({
@@ -72,7 +75,7 @@ vi.mock('../../core/unixfs/index.js', () => ({
       ? 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi'
       : 'bafybeihw4ytkqxrq7q7e3p2l5s5di7zjzkhxdmfwvqfylkdamdg3xybpbq'
     return Promise.resolve({
-      carPath: '/tmp/test.car',
+      carPath: mockCarPath,
       rootCid: {
         toString: () => cid,
       },
@@ -94,27 +97,11 @@ vi.mock('../../utils/cli-helpers.js', () => ({
   formatFileSize: vi.fn((size: number) => `${size} bytes`),
 }))
 
-// We need to partially mock fs/promises to keep real file operations for test setup
-// but mock readFile for the CAR reading part
-vi.mock('node:fs/promises', async () => {
-  const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
-  return {
-    ...actual,
-    readFile: vi.fn((path: string) => {
-      // If it's reading the temp CAR, return mock data
-      if (path === '/tmp/test.car') {
-        return Promise.resolve(Buffer.from('mock-car-data'))
-      }
-      // Otherwise use real readFile
-      return actual.readFile(path)
-    }),
-  }
-})
-
 // Test CID constants (defined after vi.mock calls due to hoisting)
 const TEST_BARE_CID = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi'
 const TEST_DIR_WRAPPED_CID = 'bafybeihw4ytkqxrq7q7e3p2l5s5di7zjzkhxdmfwvqfylkdamdg3xybpbq'
 const TEST_PIECE_CID = 'bafkzcibtest1234567890'
+const TEST_CAR_CONTENT = Buffer.from('mock-car-data')
 
 describe('Add Command', () => {
   const testDir = join(process.cwd(), 'test-add-files')
@@ -126,6 +113,7 @@ describe('Add Command', () => {
     // Create test directory and file
     await mkdir(testDir, { recursive: true })
     await writeFile(testFile, testContent)
+    await writeFile(join(process.cwd(), mockCarPath), TEST_CAR_CONTENT)
   })
 
   afterEach(async () => {
@@ -163,6 +151,12 @@ describe('Add Command', () => {
           // bare is not passed when undefined, due to spread operator
         })
       )
+
+      const { performUpload } = await import('../../common/upload-flow.js')
+      const uploadData = vi.mocked(performUpload).mock.calls[0]?.[1]
+      const uploadOptions = vi.mocked(performUpload).mock.calls[0]?.[3]
+      expect(uploadData).toBeInstanceOf(ReadableStream)
+      expect(uploadOptions?.fileSize).toBe(TEST_CAR_CONTENT.length)
     })
 
     it('should successfully add a file in bare mode when specified', async () => {

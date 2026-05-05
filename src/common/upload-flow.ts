@@ -329,7 +329,7 @@ export async function performUpload(
   rootCid: CID,
   options: UploadFlowOptions
 ): Promise<UploadFlowResult> {
-  const { contextType, logger, spinner, pieceMetadata } = options
+  const { contextType, fileSize, logger, spinner, pieceMetadata } = options
 
   const flow = createSpinnerFlow(spinner)
 
@@ -338,12 +338,20 @@ export async function performUpload(
 
   // Track primary provider ID from onStored to label subsequent events
   let primaryProviderId: bigint | undefined
+  let lastUploadPercent = -1
 
   function getRole(providerId: bigint): CopyRole {
     if (primaryProviderId == null || providerId === primaryProviderId) {
       return 'primary'
     }
     return 'secondary'
+  }
+
+  function getUploadProgressMessage(bytesUploaded: number): string {
+    const totalBytes = Math.max(fileSize, 1)
+    const uploadedBytes = Math.min(bytesUploaded, totalBytes)
+    const percent = Math.min(100, Math.floor((uploadedBytes / totalBytes) * 100))
+    return `Uploading to Filecoin... ${formatFileSize(uploadedBytes)}/${formatFileSize(fileSize)} (${percent}%)`
   }
 
   function getIpniAdvertisementMsg(details: {
@@ -374,6 +382,16 @@ export async function performUpload(
     ...(options.skipIpniVerification && { ipniValidation: { enabled: false } }),
     onProgress(event) {
       switch (event.type) {
+        case 'onProgress': {
+          const totalBytes = Math.max(fileSize, 1)
+          const uploadedBytes = Math.min(event.data.bytesUploaded, totalBytes)
+          const percent = Math.min(100, Math.floor((uploadedBytes / totalBytes) * 100))
+          if (percent > lastUploadPercent) {
+            lastUploadPercent = percent
+            flow.updateOperation('upload', getUploadProgressMessage(uploadedBytes))
+          }
+          break
+        }
         case 'onStored': {
           primaryProviderId = event.data.providerId
           flow.completeOperation('upload', `${roleLabel('primary')} Stored on provider ${event.data.providerId}`, {
