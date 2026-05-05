@@ -1,7 +1,16 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
-import { getRpcUrl } from './common/get-rpc-url.js'
+import type { Chain } from '@filoz/synapse-sdk'
+import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from './common/get-rpc-url.js'
 import type { Config } from './core/synapse/index.js'
+
+function resolveChain(network: string | undefined): Chain | undefined {
+  const normalized = network?.toLowerCase().trim()
+  if (!normalized) return undefined
+  if (normalized === 'devnet') return resolveDevnetConfig().chain
+  if (normalized === 'mainnet' || normalized === 'calibration') return NETWORK_CHAINS[normalized]
+  return undefined
+}
 
 function getDataDirectory(): string {
   const home = homedir()
@@ -45,8 +54,9 @@ export function createConfig(): Config {
     network: process.env.NETWORK,
     rpcUrl: process.env.RPC_URL,
   })
+  const chain = resolveChain(process.env.NETWORK)
 
-  return {
+  const config: Config = {
     // Application-specific configuration
     port: parseInt(process.env.PORT ?? '3456', 10),
     host: process.env.HOST ?? 'localhost',
@@ -64,4 +74,8 @@ export function createConfig(): Config {
     // Logging
     logLevel: process.env.LOG_LEVEL ?? 'info',
   }
+  if (chain) {
+    config.chain = chain
+  }
+  return config
 }
