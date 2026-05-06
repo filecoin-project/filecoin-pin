@@ -51,8 +51,15 @@ async function loadAdapter(): Promise<OwsViemAdapter> {
   }
 }
 
+const EVM_ADDRESS_REGEX = /^0x[0-9a-fA-F]{40}$/
+
 /**
  * Build a viem `Account` backed by an OWS wallet.
+ *
+ * filecoin-pin signs via FEVM (Filecoin EVM), so we always request an
+ * `eip155:*` account from OWS. OWS wallets typically also expose a native
+ * Filecoin (`fil:*`, f1/f3 address) account derived from the same seed —
+ * that one is not used here, since synapse-sdk targets FEVM via viem.
  *
  * The returned account is a `LocalAccount` from viem's perspective; signing
  * calls are delegated to the OWS native core, so the private key never
@@ -65,5 +72,13 @@ export async function getOwsAccount(options: OwsAccountOptions): Promise<Account
   if (options.passphrase != null) adapterOptions.passphrase = options.passphrase
   if (options.index != null) adapterOptions.index = options.index
   if (options.vaultPath != null) adapterOptions.vaultPath = options.vaultPath
-  return owsToViemAccount(options.walletId, adapterOptions)
+  const account = owsToViemAccount(options.walletId, adapterOptions)
+  if (!EVM_ADDRESS_REGEX.test(account.address)) {
+    throw new Error(
+      `OWS returned a non-EVM address (${account.address}) for wallet "${options.walletId}". ` +
+        'filecoin-pin signs via FEVM and requires an eip155 account. ' +
+        'Check that the wallet has an eip155:* entry in `ows wallet list`.'
+    )
+  }
+  return account
 }
