@@ -10,7 +10,7 @@
 
 import { randomBytes } from 'node:crypto'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runAdd } from '../../add/add.js'
 
@@ -70,8 +70,7 @@ vi.mock('../../core/unixfs/index.js', () => ({
     const cid = isDirectory
       ? 'bafybeihw4ytkqxrq7q7e3p2l5s5di7zjzkhxdmfwvqfylkdamdg3xybpbq'
       : 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi'
-    const segments = filePath.split('/')
-    const name = segments[segments.length - 1] ?? ''
+    const name = basename(filePath)
     return Promise.resolve({
       carPath: '/tmp/test.car',
       rootCid: {
