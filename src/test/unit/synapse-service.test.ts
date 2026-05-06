@@ -136,10 +136,10 @@ describe('synapse-service', () => {
       expect(lastCall[0]).toMatchObject({ chain: calibration })
     })
 
-    it('accepts a chain hint that matches the RPC probe', async () => {
+    it('lets the RPC probe override a chain hint passed by a programmatic caller', async () => {
       const { resolveChainFromRpc } = await import('../../core/synapse/resolve-chain-from-rpc.js')
-      const { Synapse, mainnet } = await import('../mocks/synapse-sdk.js')
-      vi.mocked(resolveChainFromRpc).mockResolvedValueOnce(mainnet as never)
+      const { Synapse, mainnet, calibration } = await import('../mocks/synapse-sdk.js')
+      vi.mocked(resolveChainFromRpc).mockResolvedValueOnce(calibration as never)
 
       await initializeSynapse({
         privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
@@ -148,21 +148,7 @@ describe('synapse-service', () => {
       })
 
       const lastCall = vi.mocked(Synapse.create).mock.calls.at(-1) as unknown as [{ chain: unknown }]
-      expect(lastCall[0]).toMatchObject({ chain: mainnet })
-    })
-
-    it('throws a descriptive error when the chain hint disagrees with the RPC probe', async () => {
-      const { resolveChainFromRpc } = await import('../../core/synapse/resolve-chain-from-rpc.js')
-      const { mainnet, calibration } = await import('../mocks/synapse-sdk.js')
-      vi.mocked(resolveChainFromRpc).mockResolvedValueOnce(calibration as never)
-
-      await expect(
-        initializeSynapse({
-          privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
-          rpcUrl: 'wss://example.test/rpc',
-          chain: mainnet as never,
-        })
-      ).rejects.toThrow(/chainId 314159 \(calibration\) does not match configured chain 314 \(mainnet\)/)
+      expect(lastCall[0]).toMatchObject({ chain: calibration })
     })
 
     it('skips probing when no RPC URL is provided and falls back to mainnet', async () => {

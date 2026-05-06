@@ -58,10 +58,9 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   const viewAddress = options.viewAddress || process.env.VIEW_ADDRESS
   const rpcUrl = getRpcUrl(options)
 
-  // Chain selection rules:
-  //  - When --network is explicit, set chain so initializeSynapse can verify against the RPC probe.
-  //  - When --rpc-url is set without --network, leave chain undefined; the probe will derive it.
-  //  - When neither is set, default to mainnet to mirror the URL default in getRpcUrl.
+  // --network and --rpc-url are mutually exclusive at the Commander level. Set the chain hint
+  // only when --network was chosen; otherwise leave it undefined and let initializeSynapse probe
+  // the RPC endpoint. When neither is supplied, default to mainnet.
   let chain: Chain | undefined
   if (isDevnet) {
     chain = resolveDevnetConfig().chain

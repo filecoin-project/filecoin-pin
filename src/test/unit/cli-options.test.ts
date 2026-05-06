@@ -1,4 +1,4 @@
-import { Command } from 'commander'
+import { Command, Option } from 'commander'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { addNetworkOptions, validateAndNormalizeAutoFundOptions } from '../../utils/cli-options.js'
 
@@ -25,6 +25,23 @@ describe('addNetworkOptions', () => {
     const command = addNetworkOptions(new Command()).exitOverride()
     command.parse([], { from: 'user' })
     expect(command.opts().network).toBe('calibration')
+  })
+
+  it('errors when --network and --rpc-url are both provided', () => {
+    const command = addNetworkOptions(new Command()).exitOverride()
+    command.addOption(new Option('--rpc-url <url>').env('RPC_URL'))
+    expect(() =>
+      command.parse(['--network', 'mainnet', '--rpc-url', 'wss://example.test/rpc'], { from: 'user' })
+    ).toThrow(/cannot be used with option/)
+  })
+
+  it('errors when NETWORK and RPC_URL env vars are both set', () => {
+    process.env.NETWORK = 'mainnet'
+    process.env.RPC_URL = 'wss://example.test/rpc'
+    const command = addNetworkOptions(new Command()).exitOverride()
+    command.addOption(new Option('--rpc-url <url>').env('RPC_URL'))
+    expect(() => command.parse([], { from: 'user' })).toThrow(/cannot be used with/)
+    delete process.env.RPC_URL
   })
 })
 

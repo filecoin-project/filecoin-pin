@@ -197,13 +197,11 @@ export RPC_URL=wss://wss.node.glif.io/apigw/lotus/rpc/v1
 filecoin-pin add myfile.txt
 ```
 
-**Priority order:**
-1. `--rpc-url` flag (highest priority)
-2. `RPC_URL` environment variable
-3. `--network` flag or `NETWORK` environment variable
-4. Default to Mainnet
+**Selection rules:**
 
-When `--rpc-url` (or `RPC_URL`) is provided, Filecoin Pin probes the endpoint's `eth_chainId` at startup and uses the matching chain (mainnet, calibration, or a configured devnet). If `--network` is also set, the probed chain must agree with it; otherwise initialization fails with a chain-mismatch error so the misconfiguration is surfaced before any contract call.
+* `--network` and `--rpc-url` (and their `NETWORK` / `RPC_URL` env equivalents) are mutually exclusive. Passing both is an error.
+* When `--rpc-url` (or `RPC_URL`) is set, Filecoin Pin probes the endpoint's `eth_chainId` at startup and uses the matching chain (mainnet, calibration, or a configured devnet).
+* When neither is set, Filecoin Pin defaults to Mainnet.
 
 ### Local Development with foc-devnet
 
@@ -230,8 +228,8 @@ When using `--network devnet`, Filecoin Pin reads connection details from a runn
 * `--private-key`: Ethereum-style (`0x`) private key (wallet and signer), funded with USDFC
 * `--wallet-address`: Session key mode: owner wallet address
 * `--session-key`: Session key mode: scoped signing key registered to the wallet
-* `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `mainnet`). When `--rpc-url` is also set, this value is verified against the RPC endpoint's chainId; pass it only when you want the mismatch check.
-* `--rpc-url`: Filecoin RPC endpoint. Filecoin Pin probes its `eth_chainId` to derive the chain, so `--network` is optional when `--rpc-url` is specified.
+* `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `mainnet`). Mutually exclusive with `--rpc-url`.
+* `--rpc-url`: Filecoin RPC endpoint. Filecoin Pin probes its `eth_chainId` to derive the chain. Mutually exclusive with `--network`.
 
 Other arguments are possible for individual commands, use `--help` to find out more.
 

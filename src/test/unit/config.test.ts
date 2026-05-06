@@ -95,11 +95,9 @@ describe('Config', () => {
     expect(createConfig().chain).toBeUndefined()
   })
 
-  it('does not load devnet-info.json when NETWORK=devnet but RPC_URL is set', () => {
-    process.env.NETWORK = 'devnet'
+  it('throws when both NETWORK and RPC_URL are set', () => {
+    process.env.NETWORK = 'mainnet'
     process.env.RPC_URL = 'wss://custom.example/rpc'
-    // Would throw "Failed to read devnet info" if we attempted the file load.
-    expect(() => createConfig()).not.toThrow()
-    expect(createConfig().chain).toBeUndefined()
+    expect(() => createConfig()).toThrow(/'NETWORK' and 'RPC_URL' are mutually exclusive/)
   })
 })

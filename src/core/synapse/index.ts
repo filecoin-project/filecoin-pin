@@ -182,18 +182,12 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
   let transport: HttpTransport | WebSocketTransport | undefined
 
   if (config.rpcUrl) {
-    // Explicit RPC URL: probe its chainId so the chain object reflects what the endpoint actually serves,
-    // rather than trusting an out-of-band NETWORK hint that may disagree with the URL.
+    // Probe the RPC endpoint's chainId so the chain object reflects what the endpoint actually serves.
+    // CLI/server callers enforce that --rpc-url is mutually exclusive with --network, so any chain hint
+    // here is from a programmatic caller and is treated as advisory.
     rpcUrl = config.rpcUrl
     transport = createTransport(rpcUrl)
-    const probed = await resolveChainFromRpc(transport)
-    if (config.chain && config.chain.id !== probed.id) {
-      throw new Error(
-        `RPC URL chainId ${probed.id} (${probed.name}) does not match configured chain ${config.chain.id} (${config.chain.name}). ` +
-          'Pass --rpc-url that matches --network, or omit --network to derive the chain from the RPC URL.'
-      )
-    }
-    chain = probed
+    chain = await resolveChainFromRpc(transport)
   } else {
     chain = config.chain ?? mainnet
     rpcUrl = chain.rpcUrls.default.webSocket?.[0] ?? chain.rpcUrls.default.http[0]
