@@ -7,8 +7,9 @@
 
 import type { Chain, Synapse } from '@filoz/synapse-sdk'
 import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rpc-url.js'
+import { getOwsAccount } from '../core/ows/index.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
-import { initializeSynapse } from '../core/synapse/index.js'
+import { calibration, initializeSynapse } from '../core/synapse/index.js'
 import { createLogger } from '../logger.js'
 
 /**
@@ -18,6 +19,10 @@ import { createLogger } from '../logger.js'
 export interface CLIAuthOptions {
   /** Private key for standard authentication */
   privateKey?: string | undefined
+  /** OpenWallet Standard wallet name or ID (signs in-process, key stays in vault) */
+  wallet?: string | undefined
+  /** Optional passphrase for an OWS-managed wallet */
+  walletPassphrase?: string | undefined
   /** Wallet address for session key mode */
   walletAddress?: string | undefined
   /** Session key private key */
@@ -49,9 +54,14 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   const network = options.network?.toLowerCase().trim()
   const isDevnet = network === 'devnet'
 
-  // For devnet, fall back to the devnet user's private key if none provided
-  const privateKey =
-    options.privateKey || process.env.PRIVATE_KEY || (isDevnet ? resolveDevnetConfig().privateKey : undefined)
+  const owsWalletId = options.wallet || process.env.OWS_WALLET_ID
+  const owsPassphrase = options.walletPassphrase || process.env.OWS_WALLET_PASSPHRASE
+
+  // For devnet, fall back to the devnet user's private key if none provided.
+  // OWS wallets take precedence over PRIVATE_KEY when explicitly supplied.
+  const privateKey = owsWalletId
+    ? undefined
+    : options.privateKey || process.env.PRIVATE_KEY || (isDevnet ? resolveDevnetConfig().privateKey : undefined)
   const walletAddress = options.walletAddress || process.env.WALLET_ADDRESS
   const sessionKey = options.sessionKey || process.env.SESSION_KEY
   const viewAddress = options.viewAddress || process.env.VIEW_ADDRESS
@@ -72,9 +82,19 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
     readOnly?: boolean
     rpcUrl?: string
     chain?: Chain
+    account?: ReturnType<typeof getOwsAccount>
   } = {}
 
-  if (privateKey) config.privateKey = privateKey
+  if (owsWalletId) {
+    const owsOptions: Parameters<typeof getOwsAccount>[0] = {
+      walletId: owsWalletId,
+      chain: chain ?? calibration,
+    }
+    if (owsPassphrase != null) owsOptions.passphrase = owsPassphrase
+    config.account = getOwsAccount(owsOptions)
+  } else if (privateKey) {
+    config.privateKey = privateKey
+  }
   if (viewAddress) {
     config.walletAddress = viewAddress
     config.readOnly = true
