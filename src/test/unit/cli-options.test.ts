@@ -14,10 +14,17 @@ describe('addNetworkOptions', () => {
     else process.env.NETWORK = originalNetwork
   })
 
-  it('defaults --network to mainnet', () => {
+  it('leaves --network unset when neither flag nor env is provided', () => {
     const command = addNetworkOptions(new Command()).exitOverride()
     command.parse([], { from: 'user' })
-    expect(command.opts().network).toBe('mainnet')
+    expect(command.opts().network).toBeUndefined()
+  })
+
+  it('reads --network from the NETWORK env var', () => {
+    process.env.NETWORK = 'calibration'
+    const command = addNetworkOptions(new Command()).exitOverride()
+    command.parse([], { from: 'user' })
+    expect(command.opts().network).toBe('calibration')
   })
 })
 

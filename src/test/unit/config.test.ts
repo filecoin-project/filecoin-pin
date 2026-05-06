@@ -90,9 +90,9 @@ describe('Config', () => {
     expect(createConfig().chain).toBe(mainnet)
   })
 
-  it('defaults chain to mainnet when only RPC_URL is set', () => {
+  it('leaves chain undefined when only RPC_URL is set so initializeSynapse can probe it', () => {
     process.env.RPC_URL = 'wss://custom.example/rpc'
-    expect(createConfig().chain).toBe(mainnet)
+    expect(createConfig().chain).toBeUndefined()
   })
 
   it('does not load devnet-info.json when NETWORK=devnet but RPC_URL is set', () => {

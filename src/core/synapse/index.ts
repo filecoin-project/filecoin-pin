@@ -35,6 +35,7 @@ import {
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { APPLICATION_SOURCE } from './constants.js'
+import { resolveChainFromRpc } from './resolve-chain-from-rpc.js'
 
 export * from './constants.js'
 
@@ -176,9 +177,28 @@ function checkSessionKeyPermissions(key: SessionKey<'Secp256k1'>, ownerAddress: 
  * @returns Initialized Synapse instance
  */
 export async function initializeSynapse(config: SynapseSetupConfig, logger?: Logger): Promise<Synapse> {
-  const chain = config.chain ?? mainnet
-  const rpcUrl = config.rpcUrl ?? chain.rpcUrls.default.webSocket?.[0] ?? chain.rpcUrls.default.http[0]
-  const transport = rpcUrl ? createTransport(rpcUrl) : undefined
+  let chain: Chain
+  let rpcUrl: string | undefined
+  let transport: HttpTransport | WebSocketTransport | undefined
+
+  if (config.rpcUrl) {
+    // Explicit RPC URL: probe its chainId so the chain object reflects what the endpoint actually serves,
+    // rather than trusting an out-of-band NETWORK hint that may disagree with the URL.
+    rpcUrl = config.rpcUrl
+    transport = createTransport(rpcUrl)
+    const probed = await resolveChainFromRpc(transport)
+    if (config.chain && config.chain.id !== probed.id) {
+      throw new Error(
+        `RPC URL chainId ${probed.id} (${probed.name}) does not match configured chain ${config.chain.id} (${config.chain.name}). ` +
+          'Pass --rpc-url that matches --network, or omit --network to derive the chain from the RPC URL.'
+      )
+    }
+    chain = probed
+  } else {
+    chain = config.chain ?? mainnet
+    rpcUrl = chain.rpcUrls.default.webSocket?.[0] ?? chain.rpcUrls.default.http[0]
+    transport = rpcUrl ? createTransport(rpcUrl) : undefined
+  }
 
   let account: Account | Address
   let sessionKey: SessionKey<'Secp256k1'> | undefined

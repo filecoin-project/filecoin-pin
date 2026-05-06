@@ -56,13 +56,12 @@ export function createConfig(): Config {
     network: process.env.NETWORK,
     rpcUrl: process.env.RPC_URL,
   })
-  // Default chain to mainnet when NETWORK is unset, mirroring the CLI's Commander default
-  // and getRpcUrl's mainnet fallback. RPC_URL alone (without NETWORK) still resolves chain
-  // to mainnet; if the RPC points to a different chain, contract calls will fail loudly.
-  const chain = resolveChain(
-    process.env.NETWORK ?? 'mainnet',
-    process.env.RPC_URL != null && process.env.RPC_URL !== ''
-  )
+  // Chain selection mirrors parseCLIAuth:
+  //  - NETWORK explicit → set chain so initializeSynapse can verify against the RPC probe.
+  //  - RPC_URL set without NETWORK → leave chain undefined; probe derives it.
+  //  - Neither set → default to mainnet, mirroring getRpcUrl's URL default.
+  const hasRpcUrl = process.env.RPC_URL != null && process.env.RPC_URL !== ''
+  const chain = resolveChain(process.env.NETWORK ?? (hasRpcUrl ? undefined : 'mainnet'), hasRpcUrl)
 
   const config: Config = {
     // Application-specific configuration

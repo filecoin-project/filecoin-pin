@@ -26,10 +26,10 @@ const leaves = roots.flatMap(([root, cmd]) =>
   leafCommands(cmd).map((leaf) => [`${root} ${leaf.name()}`.trim(), leaf] as const)
 )
 
-describe('CLI --network default', () => {
-  it.each(leaves)('%s defaults --network to mainnet', (label, leaf) => {
+describe('CLI --network option', () => {
+  it.each(leaves)('%s exposes --network with the supported choices', (label, leaf) => {
     const networkOpt = leaf.options.find((o) => o.long === '--network')
     expect(networkOpt, `${label} missing --network option`).toBeDefined()
-    expect(networkOpt?.defaultValue).toBe('mainnet')
+    expect(networkOpt?.argChoices).toEqual(['mainnet', 'calibration', 'devnet'])
   })
 })
