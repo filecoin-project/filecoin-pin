@@ -51,12 +51,18 @@ function getDataDirectory(): string {
 export function createConfig(): Config {
   const dataDir = getDataDirectory()
 
-  // Determine RPC URL: RPC_URL env var takes precedence, then NETWORK, then default to calibration
+  // Determine RPC URL: RPC_URL env var takes precedence, then NETWORK, then default to mainnet
   const rpcUrl = getRpcUrl({
     network: process.env.NETWORK,
     rpcUrl: process.env.RPC_URL,
   })
-  const chain = resolveChain(process.env.NETWORK, process.env.RPC_URL != null && process.env.RPC_URL !== '')
+  // Default chain to mainnet when NETWORK is unset, mirroring the CLI's Commander default
+  // and getRpcUrl's mainnet fallback. RPC_URL alone (without NETWORK) still resolves chain
+  // to mainnet; if the RPC points to a different chain, contract calls will fail loudly.
+  const chain = resolveChain(
+    process.env.NETWORK ?? 'mainnet',
+    process.env.RPC_URL != null && process.env.RPC_URL !== ''
+  )
 
   const config: Config = {
     // Application-specific configuration
@@ -68,7 +74,7 @@ export function createConfig(): Config {
     privateKey: process.env.PRIVATE_KEY,
     walletAddress: process.env.WALLET_ADDRESS,
     sessionKey: process.env.SESSION_KEY,
-    rpcUrl, // Determined from RPC_URL, NETWORK, or default to calibration
+    rpcUrl, // Determined from RPC_URL, NETWORK, or default to mainnet
     // Storage paths
     databasePath: process.env.DATABASE_PATH ?? join(dataDir, 'pins.db'),
     carStoragePath: process.env.CAR_STORAGE_PATH ?? join(dataDir, 'cars'),

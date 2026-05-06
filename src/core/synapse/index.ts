@@ -61,9 +61,9 @@ export interface Config {
  * Common options for all Synapse configurations
  */
 interface BaseSynapseConfig {
-  /** RPC endpoint for the target Filecoin network. Defaults to calibration chain transport. */
+  /** RPC endpoint for the target Filecoin network. Defaults to mainnet chain transport. */
   rpcUrl?: string
-  /** Target chain. Defaults to calibration. */
+  /** Target chain. Defaults to mainnet. */
   chain?: Chain
   /** Enable CDN service for datasets */
   withCDN?: boolean
@@ -176,7 +176,7 @@ function checkSessionKeyPermissions(key: SessionKey<'Secp256k1'>, ownerAddress: 
  * @returns Initialized Synapse instance
  */
 export async function initializeSynapse(config: SynapseSetupConfig, logger?: Logger): Promise<Synapse> {
-  const chain = config.chain ?? calibration
+  const chain = config.chain ?? mainnet
   const rpcUrl = config.rpcUrl ?? chain.rpcUrls.default.webSocket?.[0] ?? chain.rpcUrls.default.http[0]
   const transport = rpcUrl ? createTransport(rpcUrl) : undefined
 
