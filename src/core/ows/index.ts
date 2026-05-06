@@ -6,10 +6,14 @@
  * just hands Synapse a signing surface (signMessage / signTransaction /
  * signTypedData) backed by the OWS adapter.
  *
+ * The adapter is loaded via dynamic `import()` because
+ * `@open-wallet-standard/core` is a napi-rs native binding without prebuilt
+ * artifacts for Windows or musl. A static import would crash CLI startup on
+ * those platforms even when the user never asks for OWS auth.
+ *
  * @module core/ows
  */
 
-import { owsToViemAccount } from '@open-wallet-standard/adapters/viem'
 import type { Account, Chain } from 'viem'
 
 export interface OwsAccountOptions {
@@ -25,6 +29,28 @@ export interface OwsAccountOptions {
   vaultPath?: string
 }
 
+interface OwsViemAdapter {
+  owsToViemAccount: (
+    walletNameOrId: string,
+    options?: { chain?: string; passphrase?: string; index?: number; vaultPath?: string }
+  ) => Account
+}
+
+async function loadAdapter(): Promise<OwsViemAdapter> {
+  try {
+    return (await import('@open-wallet-standard/adapters/viem')) as unknown as OwsViemAdapter
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
+    throw new Error(
+      'OpenWallet Standard is not available on this platform. ' +
+        '@open-wallet-standard/core ships napi-rs prebuilt binaries for linux-x64-gnu, ' +
+        'linux-arm64-gnu, darwin-x64, and darwin-arm64 only (no Windows or musl/Alpine artifact today). ' +
+        'Use --private-key / PRIVATE_KEY instead, or run on a supported platform.\n' +
+        `Underlying load error: ${reason}`
+    )
+  }
+}
+
 /**
  * Build a viem `Account` backed by an OWS wallet.
  *
@@ -32,7 +58,8 @@ export interface OwsAccountOptions {
  * calls are delegated to the OWS native core, so the private key never
  * materializes in the Node process.
  */
-export function getOwsAccount(options: OwsAccountOptions): Account {
+export async function getOwsAccount(options: OwsAccountOptions): Promise<Account> {
+  const { owsToViemAccount } = await loadAdapter()
   const chainId = `eip155:${options.chain.id}`
   const adapterOptions: Parameters<typeof owsToViemAccount>[1] = { chain: chainId }
   if (options.passphrase != null) adapterOptions.passphrase = options.passphrase

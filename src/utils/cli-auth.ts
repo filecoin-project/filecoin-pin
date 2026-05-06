@@ -50,7 +50,7 @@ export interface CLIAuthOptions {
  * @param options - CLI authentication options
  * @returns Synapse setup config (validation happens in initializeSynapse)
  */
-export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
+export async function parseCLIAuth(options: CLIAuthOptions): Promise<SynapseSetupConfig> {
   const network = options.network?.toLowerCase().trim()
   const isDevnet = network === 'devnet'
 
@@ -82,7 +82,7 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
     readOnly?: boolean
     rpcUrl?: string
     chain?: Chain
-    account?: ReturnType<typeof getOwsAccount>
+    account?: Awaited<ReturnType<typeof getOwsAccount>>
   } = {}
 
   if (owsWalletId) {
@@ -91,7 +91,7 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
       chain: chain ?? calibration,
     }
     if (owsPassphrase != null) owsOptions.passphrase = owsPassphrase
-    config.account = getOwsAccount(owsOptions)
+    config.account = await getOwsAccount(owsOptions)
   } else if (privateKey) {
     config.privateKey = privateKey
   }
@@ -190,7 +190,7 @@ export function getCLILogger() {
 }
 
 export async function getCliSynapse(options: CLIAuthOptions): Promise<Synapse> {
-  const authConfig = parseCLIAuth(options)
+  const authConfig = await parseCLIAuth(options)
   const logger = getCLILogger()
   return initializeSynapse(authConfig, logger)
 }
