@@ -154,7 +154,7 @@ filecoin-pin add myfile.txt
 # 3. Verify storage with cryptographic proofs
 filecoin-pin data-set <dataset-id>
 
-# To use Calibration testnet instead:
+# To use Calibration testnet (not persistent) instead:
 filecoin-pin add myfile.txt --network calibration
 ```
 
