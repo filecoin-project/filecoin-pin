@@ -39,11 +39,11 @@ const {
 
   const mockRemovePiece = vi.fn(async (_pieceCid: string, _storage: any, opts: { onProgress?: any }) => {
     opts.onProgress?.({
-      type: 'remove-piece:submitted',
+      type: 'removePiece:submitted',
       data: { pieceCid: _pieceCid, dataSetId: Number(_storage.dataSetId), txHash: '0xtx' },
     })
     opts.onProgress?.({
-      type: 'remove-piece:complete',
+      type: 'removePiece:complete',
       data: { txHash: '0xtx', confirmed: true },
     })
     return '0xtx'

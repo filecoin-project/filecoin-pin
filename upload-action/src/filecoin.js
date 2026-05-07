@@ -210,42 +210,42 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
     ...(providerIds != null && { providerIds }),
     onProgress: (event) => {
       switch (event.type) {
-        case 'onStored': {
+        case 'stored': {
           console.log(`✓ Data stored on provider ${event.data.providerId}`)
           console.log(`Piece CID: ${event.data.pieceCid}`)
           break
         }
-        case 'onPiecesAdded': {
+        case 'piecesAdded': {
           if (event.data.txHash) {
             console.log('✓ Piece registration transaction submitted')
             console.log(`Transaction hash: ${event.data.txHash}`)
           }
           break
         }
-        case 'onPiecesConfirmed': {
+        case 'piecesConfirmed': {
           console.log(`✓ Piece confirmed on-chain (data set ${event.data.dataSetId})`)
           break
         }
-        case 'onCopyComplete': {
+        case 'copyComplete': {
           console.log(`✓ Secondary copy complete on provider ${event.data.providerId}`)
           break
         }
-        case 'onCopyFailed': {
+        case 'copyFailed': {
           console.log(
             `Warning: Secondary copy failed on provider ${event.data.providerId}: ${event.data.error.message}`
           )
           break
         }
-        case 'ipniProviderResults.retryUpdate': {
+        case 'ipniProviderResults:retryUpdate': {
           const attempt = event.data.attempt ?? (event.data.retryCount === 0 ? 1 : event.data.retryCount + 1)
           console.log(`IPNI provider results check attempt #${attempt}...`)
           break
         }
-        case 'ipniProviderResults.complete': {
+        case 'ipniProviderResults:complete': {
           console.log(event.data.result ? '✓ IPNI provider results found' : 'IPNI provider results not found')
           break
         }
-        case 'ipniProviderResults.failed': {
+        case 'ipniProviderResults:failed': {
           console.log('IPNI provider results not found')
           console.log(`Error: ${event.data.error.message}`)
           break

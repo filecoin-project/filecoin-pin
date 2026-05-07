@@ -65,19 +65,19 @@ describe('removePiece', () => {
       timeout: 120000,
     })
     expect(onProgress).toHaveBeenNthCalledWith(1, {
-      type: 'remove-piece:submitting',
+      type: 'removePiece:submitting',
       data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n },
     })
     expect(onProgress).toHaveBeenNthCalledWith(2, {
-      type: 'remove-piece:submitted',
+      type: 'removePiece:submitted',
       data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n, txHash: state.txHash },
     })
     expect(onProgress).toHaveBeenNthCalledWith(3, {
-      type: 'remove-piece:confirming',
+      type: 'removePiece:confirming',
       data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n, txHash: state.txHash },
     })
     expect(onProgress).toHaveBeenNthCalledWith(4, {
-      type: 'remove-piece:complete',
+      type: 'removePiece:complete',
       data: { txHash: state.txHash, confirmed: true },
     })
   })
@@ -99,11 +99,11 @@ describe('removePiece', () => {
       timeout: 120000,
     })
     expect(onProgress).toHaveBeenCalledWith({
-      type: 'remove-piece:confirmation-failed',
+      type: 'removePiece:confirmationFailed',
       data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n, txHash: state.txHash, message: 'timeout' },
     })
     expect(onProgress).toHaveBeenLastCalledWith({
-      type: 'remove-piece:complete',
+      type: 'removePiece:complete',
       data: { txHash: state.txHash, confirmed: false },
     })
   })
@@ -116,15 +116,15 @@ describe('removePiece', () => {
     expect(result).toBe(state.txHash)
     expect(mockWaitForTransactionReceipt).not.toHaveBeenCalled()
     expect(onProgress).toHaveBeenNthCalledWith(1, {
-      type: 'remove-piece:submitting',
+      type: 'removePiece:submitting',
       data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n },
     })
     expect(onProgress).toHaveBeenNthCalledWith(2, {
-      type: 'remove-piece:submitted',
+      type: 'removePiece:submitted',
       data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n, txHash: state.txHash },
     })
     expect(onProgress).toHaveBeenNthCalledWith(3, {
-      type: 'remove-piece:complete',
+      type: 'removePiece:complete',
       data: { txHash: state.txHash, confirmed: false },
     })
   })

@@ -49,21 +49,14 @@ Below are examples of how we use our custom Synapse SDK abstractions from within
 
 ```typescript
 import { RPC_URLS } from '@filoz/synapse-sdk'
-import { setupSynapse } from 'filecoin-pin/core/synapse'
+import { initializeSynapse } from 'filecoin-pin/core/synapse'
 
 const config = {
   privateKey: process.env.PRIVATE_KEY,
   rpcUrl: RPC_URLS.calibration.websocket
 }
 
-const synapseService = await setupSynapse(config, logger, {
-  onProviderSelected: (provider) => {
-    console.log(`Selected provider: ${provider.name}`)
-  },
-  onDataSetResolved: (info) => {
-    console.log(`Dataset ID: ${info.dataSetId}`)
-  }
-})
+const synapse = await initializeSynapse(config, logger)
 ```
 
 ### Upload CAR File
@@ -84,7 +77,7 @@ const result = await uploadToSynapse(
   logger,
   {
     onProgress: (event) => {
-      if (event.type === 'onStored') {
+      if (event.type === 'stored') {
         console.log(`Stored on provider ${event.data.providerId}: ${event.data.pieceCid}`)
       }
     }
