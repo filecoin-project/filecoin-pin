@@ -59,9 +59,9 @@ https://github.com/filecoin-project/filecoin-pin
 
 Serves as an IPFS-oriented set of tools for interfacing with [Filecoin Onchain Cloud](#filecoin-onchain-cloud) built on top of [Synapse](#synapse).
 
-## `filecoin-pin`
+## `filecoin-pin` CLI
 
-`filecoin-pin` is the name of both the npm package and the CLI tool that is the primary user-facing affordance for [Filecoin Pin](#filecoin-pin). As an npm package it is published on npm as [`filecoin-pin`](https://www.npmjs.com/package/filecoin-pin) and includes both the CLI and the [JavaScript library](#filecoin-pin-javascript-library). See [CLI affordance in the README](../README.md#-cli).
+The npm package name and CLI tool for [Filecoin Pin](#filecoin-pin). The package includes both the CLI and the [JavaScript library](#filecoin-pin-javascript-library). See [CLI affordance in the README](../README.md#-cli).
 
 ## filecoin-pin-website
 
@@ -76,21 +76,19 @@ filecoin-pin-website is also hosted at [pin.filecoin.cloud](http://pin.filecoin.
 
 ## Filecoin Pin GitHub Action
 
-https://github.com/filecoin-project/filecoin-pin/tree/master/upload-action
-
-A reusable GitHub Action affordance for [Filecoin Pin](#filecoin-pin) that automatically publishes websites or build artifacts to IPFS and Filecoin as part of a CI/CD pipeline. See [GitHub Action affordance in the README](../README.md#️⃣-github-action).
+See [GitHub Action affordance in the README](../README.md#️⃣-github-action).
 
 ## Filecoin Pin JavaScript Library
 
-The [`filecoin-pin`](https://www.npmjs.com/package/filecoin-pin) npm package also exposes a JavaScript library for programmatic use in Node.js or browser applications. It provides both a high-level API (`import { … } from 'filecoin-pin'`) and granular core modules (`import { … } from 'filecoin-pin/core/*'`). The library powers the [CLI](#filecoin-pin), the [GitHub Action](#filecoin-pin-github-action), and the [filecoin-pin-website](#filecoin-pin-website). See [JavaScript Library affordance in the README](../README.md#-javascript-library).
+See [JavaScript Library affordance in the README](../README.md#-javascript-library).
 
 ## Filecoin Pin IPFS Pinning Server
 
-A daemon affordance for [Filecoin Pin](#filecoin-pin) that runs a localhost server implementing the [IPFS Pinning Service API specification](https://ipfs.github.io/pinning-services-api-spec/). This allows standard IPFS tooling (like `ipfs pin remote`) to route data to Filecoin. Started via `filecoin-pin server`. See [IPFS Pinning Server affordance in the README](../README.md#-ipfs-pinning-server-daemon-mode).
+See [IPFS Pinning Server affordance in the README](../README.md#-ipfs-pinning-server-daemon-mode).
 
 ## Filecoin Pin Management Console
 
-A planned web-based GUI affordance for [Filecoin Pin](#filecoin-pin) for monitoring and managing Filecoin Pin deployments. Tracked in [issue #74](https://github.com/filecoin-project/filecoin-pin/issues/74). See [Management Console affordance in the README](../README.md#-management-console-gui).
+See [Management Console affordance in the README](../README.md#-management-console-gui).
 
 ## Filecoin Warm Storage Service
 

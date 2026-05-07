@@ -33,7 +33,7 @@ Filecoin Pin offers multiple affordances to integrate Filecoin storage into your
 ### 💻 CLI
 Upload IPFS files directly to Filecoin via the command line. Perfect for developers who want to integrate Filecoin storage into scripts, workflows, or local development environments.
 
-- **Status**: Production-ready. Used internally by the development team (e.g., [dealbot](https://github.com/FilOzone/dealbot)) and recommended for IPFS customers.
+- **Status**: Production-ready. It has been recommended to users for months, and is used extensively by the development team.
 - **Repository**: This repo ([filecoin-project/filecoin-pin](https://github.com/filecoin-project/filecoin-pin))
 - **Documentation**:
   - Run `filecoin-pin --help` to see all available commands and options.
@@ -53,7 +53,7 @@ Automatically publish websites or build artifacts to IPFS and Filecoin as part o
 ### 📚 JavaScript Library
 Use Filecoin Pin programmatically in your Node.js or browser applications. The library provides both a high-level API for common use cases and granular core modules for advanced customization.
 
-- **Status**: Production-ready. Powers the CLI, GitHub Action, and [filecoin-pin-website](https://github.com/filecoin-project/filecoin-pin-website).
+- **Status**: Production-ready. Powers the CLI, GitHub Action, [filecoin-pin-website](https://github.com/filecoin-project/filecoin-pin-website), and [FOC dealbot](https://github.com/FilOzone/dealbot).
 - **Repository**: This repo ([filecoin-project/filecoin-pin](https://github.com/filecoin-project/filecoin-pin))
 - **Documentation**:
   - [API Reference](https://filecoin-project.github.io/filecoin-pin/) (TypeDoc-generated documentation)
@@ -86,7 +86,7 @@ See Filecoin Pin in action:
    - [Walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/dapp-demo)
    - [🎥 Recording 1](https://www.youtube.com/watch?v=UElx1_qF12o)
    - [🎥 Recording 2](https://www.youtube.com/watch?v=DXH84_gI-c0)
-- **[dealbot](https://github.com/FilOzone/dealbot)** - Internal tool used by the Filecoin Pin team for automated storage deal testing and monitoring, demonstrating production use of the filecoin-pin library
+- **[dealbot](https://github.com/FilOzone/dealbot)** - Tool used by the FOC development team and Storage Provider community for automated storage deal testing and monitoring, demonstrating production use of the filecoin-pin library.
 
 ## Architecture
 
