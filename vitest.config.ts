@@ -1,9 +1,6 @@
 import { playwright } from '@vitest/browser-playwright'
 import { defineConfig } from 'vitest/config'
 
-// Windows worker forks crash intermittently under parallel execution
-// (see https://github.com/vitest-dev/vitest/issues -- "Worker exited unexpectedly").
-// Force a single fork on Windows to avoid flaky CI runs.
 const isWindows = process.platform === 'win32'
 
 export default defineConfig({
