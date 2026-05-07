@@ -132,6 +132,7 @@ export async function runUpload(buildContext = {}) {
     paymentStatus = {
       filecoinPayBalance: '0',
       walletUsdfcBalance: '0',
+      storageCovered: 'Unknown',
       storageRunway: 'Unknown',
       depositedThisRun: '0',
       ...context.paymentStatus,

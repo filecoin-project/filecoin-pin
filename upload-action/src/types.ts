@@ -65,6 +65,7 @@ export interface PaymentStatus
   extends Omit<FilecoinPinPaymentStatus, 'walletUsdfcBalance' | 'filecoinPayBalance' | 'chainId'> {
   filecoinPayBalance: string
   walletUsdfcBalance: string
+  storageCovered: string
   storageRunway: string
   depositedThisRun: string
 }
@@ -72,6 +73,7 @@ export interface PaymentStatus
 export interface SimplifiedPaymentStatus {
   filecoinPayBalance: string
   walletUsdfcBalance: string
+  storageCovered: string
   storageRunway: string
   depositedThisRun: string
 }

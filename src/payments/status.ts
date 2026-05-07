@@ -13,12 +13,11 @@ import { parseUnits } from 'viem'
 import { type ActualStorageResult, calculateActualStorage, listDataSets } from '../core/data-set/index.js'
 import {
   calculateDepositCapacity,
-  calculateStorageRunway,
   checkFILBalance,
   checkUSDFCBalance,
+  deriveStorageRunway,
   FLOOR_PRICE_DAYS,
   FLOOR_PRICE_PER_30_DAYS,
-  getPaymentStatus,
   getUsdfcAcquisitionHelpMessage,
 } from '../core/payments/index.js'
 import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
@@ -128,10 +127,12 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       throw new Error('No USDFC tokens found')
     }
 
-    const status = await getPaymentStatus(synapse)
+    const [accountSummary, storageInfo] = await Promise.all([
+      synapse.payments.accountSummary({}),
+      synapse.storage.getStorageInfo(),
+    ])
+    const runway = deriveStorageRunway(accountSummary)
 
-    // Get storage pricing for capacity calculation and spend summaries
-    const storageInfo = await synapse.storage.getStorageInfo()
     const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
 
     let paymentRailsData: PaymentRailsData | null = null
@@ -152,17 +153,17 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     log.line('')
 
     // Show deposit and capacity
-    const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
-    const rateUsed = status.currentAllowances.rateUsed ?? 0n
-    const availableDeposit = status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n
-    const capacity = calculateDepositCapacity(status.filecoinPayBalance, pricePerTiBPerEpoch)
-    const runway = calculateStorageRunway(status)
+    const totalDeposited = accountSummary.funds
+    const lockupUsed = runway.lockupUsed
+    const rateUsed = runway.rateUsed
+    const availableDeposit = totalDeposited > lockupUsed ? totalDeposited - lockupUsed : 0n
+    const capacity = calculateDepositCapacity(totalDeposited, pricePerTiBPerEpoch)
     const runwayDisplay = formatRunwaySummary(runway)
     const dailyCost = runway.perDay
     const monthlyCost = dailyCost * TIME_CONSTANTS.DAYS_PER_MONTH
 
     log.line(pc.bold('Filecoin Pay'))
-    log.indent(`Balance: ${formatUSDFC(status.filecoinPayBalance)} USDFC`)
+    log.indent(`Balance: ${formatUSDFC(totalDeposited)} USDFC`)
     log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC (30-day reserve)`)
     log.indent(`Available: ${formatUSDFC(availableDeposit)} USDFC`)
     if (rateUsed > 0n) {
@@ -234,9 +235,11 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     }
 
     if (runway.state === 'active') {
-      log.indent(`Runway: ~${runwayDisplay}`)
+      log.indent(`Storage covered: ~${runwayDisplay.coverage} total`)
+      log.indent(`Top-up needed in: ~${runwayDisplay.runway}`)
     } else {
-      log.indent(pc.gray(`Runway: ${runwayDisplay}`))
+      log.indent(pc.gray(`Storage covered: ${runwayDisplay.coverage}`))
+      log.indent(pc.gray(`Top-up needed in: ${runwayDisplay.runway}`))
     }
 
     const capacityTibPerMonth = parseUnits(capacity.tibPerMonth.toString(), 18)
@@ -271,7 +274,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     }
 
     // Show deposit warning if needed
-    displayDepositWarning(status.filecoinPayBalance, status.currentAllowances.lockupUsed)
+    displayDepositWarning(totalDeposited, lockupUsed)
     log.flush()
 
     // Show success outro

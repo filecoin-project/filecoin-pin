@@ -1,6 +1,7 @@
 import { SIZE_CONSTANTS, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { describe, expect, it } from 'vitest'
 import {
+  type AccountSummary,
   applyFloorPricing,
   BUFFER_DENOMINATOR,
   BUFFER_NUMERATOR,
@@ -30,6 +31,16 @@ function makeStatus(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; r
     walletUsdfcBalance: 0n,
     filecoinPayBalance: params.filecoinPayBalance,
     currentAllowances,
+  }
+}
+
+function makeSummary(params: { lockupUsed?: bigint; rateUsed?: bigint }): AccountSummary {
+  return {
+    funds: 0n,
+    totalLockup: params.lockupUsed ?? 0n,
+    lockupRatePerEpoch: params.rateUsed ?? 0n,
+    runwayInEpochs: 0n,
+    grossCoverageInEpochs: 0n,
   }
 }
 
@@ -129,18 +140,17 @@ describe('computeAdjustmentForExactDaysWithPiece - Floor Pricing Integration', (
   const mockPricing = 100_000_000_000_000n
 
   it('applies floor pricing for small file in auto-fund calculation', () => {
-    const status = makeStatus({ filecoinPayBalance: 0n, lockupUsed: 0n, rateUsed: 0n })
-    const adjustment = computeAdjustmentForExactDaysWithPiece(status, 30, 1024, mockPricing)
+    const summary = makeSummary({ lockupUsed: 0n, rateUsed: 0n })
+    const adjustment = computeAdjustmentForExactDaysWithPiece(summary, 0n, 30, 1024, mockPricing)
     const floor = getFloorAllowances()
 
-    // Should use floor-adjusted allowances
     expect(adjustment.newRateUsed).toBe(floor.rateAllowance)
     expect(adjustment.newLockupUsed).toBe(floor.lockupAllowance)
   })
 
   it('calculates correct deposit delta with floor pricing', () => {
-    const status = makeStatus({ filecoinPayBalance: 0n, lockupUsed: 0n, rateUsed: 0n })
-    const adjustment = computeAdjustmentForExactDaysWithPiece(status, 30, 0, mockPricing)
+    const summary = makeSummary({ lockupUsed: 0n, rateUsed: 0n })
+    const adjustment = computeAdjustmentForExactDaysWithPiece(summary, 0n, 30, 0, mockPricing)
     const floor = getFloorAllowances()
 
     // Target deposit should cover the requested runway, without double-counting lockup.

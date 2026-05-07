@@ -31,7 +31,7 @@ import {
   USDFC_DECIMALS,
 } from './constants.js'
 import { applyFloorPricing } from './floor-pricing.js'
-import type { PaymentStatus, ServiceApprovalStatus, StorageAllowances, StorageRunwaySummary } from './types.js'
+import type { AccountSummary, PaymentStatus, ServiceApprovalStatus, StorageAllowances } from './types.js'
 
 /**
  * Map SDK service approval fields to our internal ServiceApprovalStatus type.
@@ -62,6 +62,7 @@ export * from './constants.js'
 
 export * from './floor-pricing.js'
 export * from './funding.js'
+export * from './runway.js'
 export * from './top-up.js'
 export * from './types.js'
 
@@ -171,8 +172,8 @@ export async function checkUSDFCBalance(synapse: Synapse): Promise<bigint> {
  * @returns Deposited USDFC balance in its smallest unit
  */
 export async function getDepositedBalance(synapse: Synapse): Promise<bigint> {
-  const filecoinPayBalance = await synapse.payments.balance({ token: TOKENS.USDFC })
-  return filecoinPayBalance
+  const accountInfo = await synapse.payments.accountInfo({ token: TOKENS.USDFC })
+  return accountInfo.funds
 }
 
 /**
@@ -586,121 +587,87 @@ export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpo
 /**
  * Compute the additional deposit required to fund current usage for a duration.
  *
- * The WarmStorage service maintains ~30 days of lockup (lockupUsed), but those funds
- * remain part of the deposited balance and continue paying storage over time. To keep
- * the current rails alive for N days, ensure the total deposited balance covers N days
- * of spend at the current rateUsed.
+ * Targets gross coverage: ensures the deposited balance covers `days` of spend
+ * at the SDK-reported lockup rate. Source of truth for rate + lockup is the
+ * SDK account summary so display and funding math stay consistent.
  *
- * @param status - Current payment status (from getPaymentStatus)
- * @param days - Number of days to keep the current usage funded
- * @returns Breakdown of required top-up and related values
+ * @param accountSummary - SDK account summary (carries lockup rate)
+ * @param filecoinPayBalance - Current deposited balance
+ * @param days - Number of days the deposit should cover
  */
 export function computeTopUpForDuration(
-  status: PaymentStatus,
+  accountSummary: AccountSummary,
+  filecoinPayBalance: bigint,
   days: number
 ): {
   topUp: bigint
-  available: bigint
   rateUsed: bigint
   perDay: bigint
   lockupUsed: bigint
 } {
-  const rateUsed = status.currentAllowances.rateUsed ?? 0n
-  const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
+  const rateUsed = accountSummary.lockupRatePerEpoch
+  const lockupUsed = accountSummary.totalLockup
+  const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
 
-  if (days <= 0) {
-    return {
-      topUp: 0n,
-      available: status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n,
-      rateUsed,
-      perDay: rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY,
-      lockupUsed,
-    }
-  }
-
-  if (rateUsed === 0n) {
-    return {
-      topUp: 0n,
-      available: status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n,
-      rateUsed,
-      perDay: 0n,
-      lockupUsed,
-    }
+  if (days <= 0 || rateUsed === 0n) {
+    return { topUp: 0n, rateUsed, perDay, lockupUsed }
   }
 
   const epochsNeeded = BigInt(Math.ceil(days)) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const spendNeeded = rateUsed * epochsNeeded
-  const available = status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n
+  const topUp = spendNeeded > filecoinPayBalance ? spendNeeded - filecoinPayBalance : 0n
 
-  const topUp = spendNeeded > status.filecoinPayBalance ? spendNeeded - status.filecoinPayBalance : 0n
-
-  return {
-    topUp,
-    available,
-    rateUsed,
-    perDay: rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY,
-    lockupUsed,
-  }
+  return { topUp, rateUsed, perDay, lockupUsed }
 }
 
 /**
- * Compute the exact adjustment (deposit or withdraw) needed to set runway to `days`.
+ * Compute the exact deposit adjustment for a target gross coverage in days.
  *
- * Positive result indicates a deposit is needed; negative indicates a withdrawal is possible.
+ * Target semantics match the status display: `days` = total time the deposit
+ * covers including currently locked funds. Withdrawal is never allowed to
+ * dip below `lockupUsed`.
+ *
+ * @param accountSummary - SDK account summary (rate + lockup)
+ * @param filecoinPayBalance - Current deposited balance
+ * @param days - Desired gross coverage in days
  */
 export function computeAdjustmentForExactDays(
-  status: PaymentStatus,
+  accountSummary: AccountSummary,
+  filecoinPayBalance: bigint,
   days: number
 ): {
   delta: bigint // >0 deposit, <0 withdraw, 0 none
-  // Preserved for compatibility with existing callers; this is the runway-based
-  // available-balance target before applying the minimum deposit floor needed
-  // to avoid withdrawing below the current lockup.
-  targetAvailable: bigint
   targetDeposit: bigint
-  available: bigint
   rateUsed: bigint
   perDay: bigint
   lockupUsed: bigint
 } {
-  const rateUsed = status.currentAllowances.rateUsed ?? 0n
-  const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
-  const available = status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n
-  const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
-
   if (days < 0) {
     throw new Error('days must be non-negative')
   }
+
+  const rateUsed = accountSummary.lockupRatePerEpoch
+  const lockupUsed = accountSummary.totalLockup
+  const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+
   if (rateUsed === 0n) {
     return {
       delta: 0n,
-      targetAvailable: 0n,
-      targetDeposit: status.filecoinPayBalance,
-      available,
+      targetDeposit: filecoinPayBalance,
       rateUsed,
       perDay,
       lockupUsed,
     }
   }
 
-  // Safety buffer to ensure runway >= requested days even if rateUsed shifts slightly.
-  // Use a 1-hour buffer by default.
-  const perHour = perDay / 24n
-  const safety = perHour > 0n ? perHour : 1n
-  const targetAvailable = BigInt(Math.floor(days)) * perDay + safety
-  const minimumTargetDeposit = status.filecoinPayBalance > lockupUsed ? lockupUsed : status.filecoinPayBalance
-  const targetDeposit = targetAvailable > minimumTargetDeposit ? targetAvailable : minimumTargetDeposit
-  const delta = targetDeposit - status.filecoinPayBalance
+  // 1-hour safety buffer covers minor drift in lockup rate between calculation and execution.
+  const safety = perDay / 24n
+  const coverageTarget = BigInt(Math.floor(days)) * perDay + (safety > 0n ? safety : 1n)
+  const minimumTargetDeposit = filecoinPayBalance > lockupUsed ? lockupUsed : filecoinPayBalance
+  const targetDeposit = coverageTarget > minimumTargetDeposit ? coverageTarget : minimumTargetDeposit
+  const delta = targetDeposit - filecoinPayBalance
 
-  return {
-    delta,
-    targetAvailable,
-    targetDeposit,
-    available,
-    rateUsed,
-    perDay,
-    lockupUsed,
-  }
+  return { delta, targetDeposit, rateUsed, perDay, lockupUsed }
 }
 
 /**
@@ -709,7 +676,8 @@ export function computeAdjustmentForExactDays(
  * Clamps to not withdraw below the currently locked amount.
  */
 export function computeAdjustmentForExactDeposit(
-  status: PaymentStatus,
+  accountSummary: AccountSummary,
+  filecoinPayBalance: bigint,
   targetDeposit: bigint
 ): {
   delta: bigint // >0 deposit, <0 withdraw, 0 none
@@ -717,27 +685,27 @@ export function computeAdjustmentForExactDeposit(
   lockupUsed: bigint
 } {
   if (targetDeposit < 0n) throw new Error('target deposit cannot be negative')
-  const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
+  const lockupUsed = accountSummary.totalLockup
   const clampedTarget = targetDeposit < lockupUsed ? lockupUsed : targetDeposit
-  const delta = clampedTarget - status.filecoinPayBalance
+  const delta = clampedTarget - filecoinPayBalance
   return { delta, clampedTarget, lockupUsed }
 }
 
 /**
- * Compute adjustment needed to maintain target runway AFTER adding a new piece
+ * Compute adjustment to reach target gross coverage AFTER adding a new piece.
  *
- * This function accounts for both:
- * - The new piece's lockup requirement
- * - The new piece's ongoing per-epoch cost (rate)
+ * Adds the piece's rate + lockup to the SDK-reported current values, then
+ * targets gross coverage = `days` total at the new rate.
  *
- * @param status - Current payment status
- * @param days - Target runway in days
- * @param pieceSizeBytes - Size of the piece (CAR, File, etc.) file being uploaded in bytes
+ * @param accountSummary - SDK account summary (current rate + lockup)
+ * @param filecoinPayBalance - Current deposited balance
+ * @param days - Desired gross coverage in days after adding the piece
+ * @param pieceSizeBytes - Piece file size in bytes
  * @param pricePerTiBPerEpoch - Current pricing from storage service
- * @returns Adjustment details including total delta needed
  */
 export function computeAdjustmentForExactDaysWithPiece(
-  status: PaymentStatus,
+  accountSummary: AccountSummary,
+  filecoinPayBalance: bigint,
   days: number,
   pieceSizeBytes: number,
   pricePerTiBPerEpoch: bigint
@@ -748,53 +716,37 @@ export function computeAdjustmentForExactDaysWithPiece(
   newLockupUsed: bigint
   newRateUsed: bigint
 } {
-  const currentRateUsed = status.currentAllowances.rateUsed ?? 0n
-  const currentLockupUsed = status.currentAllowances.lockupUsed ?? 0n
-
-  // Calculate required allowances for the new file with floor pricing applied
-  const baseAllowances = calculateRequiredAllowances(pieceSizeBytes, pricePerTiBPerEpoch)
-  const newPieceAllowances = applyFloorPricing(baseAllowances)
-
-  // Calculate new totals after adding the piece
-  const newRateUsed = currentRateUsed + newPieceAllowances.rateAllowance
-  const newLockupUsed = currentLockupUsed + newPieceAllowances.lockupAllowance
-
-  // Calculate deposit needed for target runway with new rate
-  const perDay = newRateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
-
   if (days < 0) {
     throw new Error('days must be non-negative')
   }
 
-  // If no ongoing spend (both current and new), just need the lockup
+  const baseAllowances = calculateRequiredAllowances(pieceSizeBytes, pricePerTiBPerEpoch)
+  const newPieceAllowances = applyFloorPricing(baseAllowances)
+
+  const newRateUsed = accountSummary.lockupRatePerEpoch + newPieceAllowances.rateAllowance
+  const newLockupUsed = accountSummary.totalLockup + newPieceAllowances.lockupAllowance
+
   if (newRateUsed === 0n) {
     const targetDeposit = newLockupUsed
-    const delta = targetDeposit - status.filecoinPayBalance
     return {
-      delta,
+      delta: targetDeposit - filecoinPayBalance,
       targetDeposit,
-      currentDeposit: status.filecoinPayBalance,
+      currentDeposit: filecoinPayBalance,
       newLockupUsed,
       newRateUsed,
     }
   }
 
-  // Safety buffer to ensure runway >= requested days even if rateUsed shifts slightly
-  const perHour = perDay / 24n
-  const safety = perHour > 0n ? perHour : 1n
-
-  // Keep enough deposited balance for the requested spend horizon, but never below
-  // the buffered lockup required to keep the new piece funded.
-  const targetAvailable = BigInt(Math.floor(days)) * perDay + safety
+  const perDay = newRateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+  const safety = perDay / 24n
+  const coverageTarget = BigInt(Math.floor(days)) * perDay + (safety > 0n ? safety : 1n)
   const minimumDeposit = withBuffer(newLockupUsed)
-  const targetDeposit = targetAvailable > minimumDeposit ? targetAvailable : minimumDeposit
-
-  const delta = targetDeposit - status.filecoinPayBalance
+  const targetDeposit = coverageTarget > minimumDeposit ? coverageTarget : minimumDeposit
 
   return {
-    delta,
+    delta: targetDeposit - filecoinPayBalance,
     targetDeposit,
-    currentDeposit: status.filecoinPayBalance,
+    currentDeposit: filecoinPayBalance,
     newLockupUsed,
     newRateUsed,
   }
@@ -877,68 +829,6 @@ export function calculateRequiredAllowances(pieceSizeBytes: number, pricePerTiBP
   const paddedSizeBytes = padSizeToPDPLeaves(pieceSizeBytes)
   const storageTiB = paddedSizeBytes / Number(SIZE_CONSTANTS.TiB)
   return calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
-}
-
-export function calculateStorageRunway(
-  status?: Pick<PaymentStatus, 'filecoinPayBalance' | 'currentAllowances'> | null
-): StorageRunwaySummary {
-  if (!status || !status.currentAllowances) {
-    return {
-      state: 'unknown',
-      available: 0n,
-      rateUsed: 0n,
-      perDay: 0n,
-      lockupUsed: 0n,
-      days: 0,
-      hours: 0,
-    }
-  }
-
-  const rateUsed = status.currentAllowances.rateUsed ?? 0n
-  const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
-  const filecoinPayBalance = status.filecoinPayBalance ?? 0n
-  const available = filecoinPayBalance > lockupUsed ? filecoinPayBalance - lockupUsed : 0n
-
-  if (rateUsed === 0n) {
-    return {
-      state: 'no-spend',
-      available,
-      rateUsed,
-      perDay: 0n,
-      lockupUsed,
-      days: 0,
-      hours: 0,
-    }
-  }
-
-  const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
-  if (perDay === 0n) {
-    return {
-      state: 'no-spend',
-      available,
-      rateUsed,
-      perDay,
-      lockupUsed,
-      days: 0,
-      hours: 0,
-    }
-  }
-
-  // Runway is based on the total deposited balance, not available-after-lockup.
-  // The lockup represents funds already committed to covering ongoing storage costs,
-  // so they count toward the runway (they ARE being spent on storage over time).
-  const runwayDays = Number(filecoinPayBalance / perDay)
-  const runwayHoursRemainder = Number(((filecoinPayBalance % perDay) * 24n) / perDay)
-
-  return {
-    state: 'active',
-    available,
-    rateUsed,
-    perDay,
-    lockupUsed,
-    days: runwayDays,
-    hours: runwayHoursRemainder,
-  }
 }
 
 /**
