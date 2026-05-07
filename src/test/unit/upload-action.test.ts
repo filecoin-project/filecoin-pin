@@ -215,9 +215,9 @@ describe('upload action PR comments', () => {
 
   it('does not fail the upload when GitHub rejects the PR comment', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((_code?: number | string | null): never => {
       throw new Error('process.exit called')
-    }) as never)
+    }) as typeof process.exit)
 
     try {
       vi.doMock('../../../upload-action/src/github.js', () => ({
