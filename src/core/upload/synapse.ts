@@ -15,14 +15,14 @@ import { APPLICATION_SOURCE } from '../synapse/constants.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 
 export type UploadProgressEvents =
-  | ProgressEvent<'onStored', { providerId: bigint; pieceCid: PieceCID }>
-  | ProgressEvent<'onPiecesAdded', { txHash: Hash; providerId: bigint }>
-  | ProgressEvent<'onPiecesConfirmed', { dataSetId: bigint; providerId: bigint; pieceIds: bigint[] }>
-  | ProgressEvent<'onCopyComplete', { providerId: bigint; pieceCid: PieceCID }>
-  | ProgressEvent<'onCopyFailed', { providerId: bigint; pieceCid: PieceCID; error: Error }>
-  | ProgressEvent<'onPullProgress', { providerId: bigint; pieceCid: PieceCID; status: PullStatus }>
-  | ProgressEvent<'onProviderSelected', { provider: PDPProvider }>
-  | ProgressEvent<'onDataSetResolved', { dataSetId: bigint; provider: PDPProvider }>
+  | ProgressEvent<'stored', { providerId: bigint; pieceCid: PieceCID }>
+  | ProgressEvent<'piecesAdded', { txHash: Hash; providerId: bigint }>
+  | ProgressEvent<'piecesConfirmed', { dataSetId: bigint; providerId: bigint; pieceIds: bigint[] }>
+  | ProgressEvent<'copyComplete', { providerId: bigint; pieceCid: PieceCID }>
+  | ProgressEvent<'copyFailed', { providerId: bigint; pieceCid: PieceCID; error: Error }>
+  | ProgressEvent<'pullProgress', { providerId: bigint; pieceCid: PieceCID; status: PullStatus }>
+  | ProgressEvent<'providerSelected', { provider: PDPProvider }>
+  | ProgressEvent<'dataSetResolved', { dataSetId: bigint; provider: PDPProvider }>
 
 export type SynapseUploadData = Uint8Array | ReadableStream<Uint8Array>
 
@@ -189,7 +189,7 @@ export async function uploadToSynapse(
           },
           'Provider selected'
         )
-        onProgress?.({ type: 'onProviderSelected', data: { provider } })
+        onProgress?.({ type: 'providerSelected', data: { provider } })
       },
 
       onDataSetResolved: (info) => {
@@ -202,7 +202,7 @@ export async function uploadToSynapse(
           },
           'Data set resolved'
         )
-        onProgress?.({ type: 'onDataSetResolved', data: { dataSetId: info.dataSetId, provider: info.provider } })
+        onProgress?.({ type: 'dataSetResolved', data: { dataSetId: info.dataSetId, provider: info.provider } })
       },
 
       onStored: (providerId, pieceCid) => {
@@ -215,7 +215,7 @@ export async function uploadToSynapse(
           },
           'Piece stored on provider'
         )
-        onProgress?.({ type: 'onStored', data: { providerId, pieceCid } })
+        onProgress?.({ type: 'stored', data: { providerId, pieceCid } })
       },
 
       onPiecesAdded: (txHash, providerId, pieces) => {
@@ -229,7 +229,7 @@ export async function uploadToSynapse(
           },
           'Piece addition transaction submitted'
         )
-        onProgress?.({ type: 'onPiecesAdded', data: { txHash, providerId } })
+        onProgress?.({ type: 'piecesAdded', data: { txHash, providerId } })
       },
 
       onPiecesConfirmed: (dataSetId, providerId, pieces) => {
@@ -244,7 +244,7 @@ export async function uploadToSynapse(
           },
           'Piece addition confirmed on-chain'
         )
-        onProgress?.({ type: 'onPiecesConfirmed', data: { dataSetId, providerId, pieceIds } })
+        onProgress?.({ type: 'piecesConfirmed', data: { dataSetId, providerId, pieceIds } })
       },
 
       onCopyComplete: (providerId, pieceCid) => {
@@ -257,7 +257,7 @@ export async function uploadToSynapse(
           },
           'Secondary copy complete'
         )
-        onProgress?.({ type: 'onCopyComplete', data: { providerId, pieceCid } })
+        onProgress?.({ type: 'copyComplete', data: { providerId, pieceCid } })
       },
 
       onCopyFailed: (providerId, pieceCid, error) => {
@@ -271,7 +271,7 @@ export async function uploadToSynapse(
           },
           'Secondary copy failed'
         )
-        onProgress?.({ type: 'onCopyFailed', data: { providerId, pieceCid, error } })
+        onProgress?.({ type: 'copyFailed', data: { providerId, pieceCid, error } })
       },
 
       onPullProgress: (providerId, pieceCid, status) => {
@@ -285,7 +285,7 @@ export async function uploadToSynapse(
           },
           'Pull progress update'
         )
-        onProgress?.({ type: 'onPullProgress', data: { providerId, pieceCid, status } })
+        onProgress?.({ type: 'pullProgress', data: { providerId, pieceCid, status } })
       },
     },
   }

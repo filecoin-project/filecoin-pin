@@ -222,11 +222,11 @@ describe('synapse-service', () => {
         contextId: 'pin-789',
         onProgress(event) {
           switch (event.type) {
-            case 'onStored': {
+            case 'stored': {
               storedCallbackCalled = true
               break
             }
-            case 'onPiecesAdded': {
+            case 'piecesAdded': {
               piecesAddedCallbackCalled = true
               break
             }

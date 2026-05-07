@@ -190,23 +190,23 @@ export async function validatePaymentSetup(
       if (!spinner) return
 
       switch (event.type) {
-        case 'checking-balances': {
+        case 'checkingBalances': {
           spinner.message('Checking payment setup requirements...')
           return
         }
-        case 'checking-allowances': {
+        case 'checkingAllowances': {
           spinner.message('Checking WarmStorage permissions...')
           return
         }
-        case 'configuring-allowances': {
+        case 'configuringAllowances': {
           spinner.message('Configuring WarmStorage permissions (one-time setup)...')
           return
         }
-        case 'validating-capacity': {
+        case 'validatingCapacity': {
           spinner.message('Validating payment capacity...')
           return
         }
-        case 'allowances-configured': {
+        case 'allowancesConfigured': {
           // No spinner change; we log once readiness completes.
           return
         }
@@ -336,7 +336,7 @@ export async function performUpload(
   // Start with upload operation
   flow.addOperation('upload', 'Uploading to Filecoin...')
 
-  // Track primary provider ID from onStored to label subsequent events
+  // Track primary provider ID from `stored` to label subsequent events
   let primaryProviderId: bigint | undefined
 
   function getRole(providerId: bigint): CopyRole {
@@ -374,22 +374,22 @@ export async function performUpload(
     ...(options.skipIpniVerification && { ipniValidation: { enabled: false } }),
     onProgress(event) {
       switch (event.type) {
-        case 'onStored': {
+        case 'stored': {
           primaryProviderId = event.data.providerId
           flow.completeOperation('upload', `${roleLabel('primary')} Stored on provider ${event.data.providerId}`, {
             type: 'success',
           })
-          // Commit happens later (onPiecesAdded), not here.
+          // Commit happens later (`piecesAdded`), not here.
           break
         }
-        case 'onPullProgress': {
+        case 'pullProgress': {
           flow.addOperation(
             `secondary-pull-${event.data.providerId}`,
             `${roleLabel('secondary')} Pulling to provider ${event.data.providerId}...`
           )
           break
         }
-        case 'onCopyComplete': {
+        case 'copyComplete': {
           flow.completeOperation(
             `secondary-pull-${event.data.providerId}`,
             `${roleLabel('secondary')} Stored on provider ${event.data.providerId}`,
@@ -397,7 +397,7 @@ export async function performUpload(
           )
           break
         }
-        case 'onCopyFailed': {
+        case 'copyFailed': {
           flow.completeOperation(
             `secondary-pull-${event.data.providerId}`,
             `${roleLabel('secondary')} Failed: provider ${event.data.providerId} - ${event.data.error.message}`,
@@ -405,7 +405,7 @@ export async function performUpload(
           )
           break
         }
-        case 'onPiecesAdded': {
+        case 'piecesAdded': {
           const role = getRole(event.data.providerId)
 
           const commitId = `commit-${event.data.providerId}`
@@ -431,7 +431,7 @@ export async function performUpload(
           )
           break
         }
-        case 'onPiecesConfirmed': {
+        case 'piecesConfirmed': {
           const role = getRole(event.data.providerId)
           flow.completeOperation(
             `chain-${event.data.providerId}`,
@@ -441,7 +441,7 @@ export async function performUpload(
           break
         }
 
-        case 'ipniProviderResults.retryUpdate': {
+        case 'ipniProviderResults:retryUpdate': {
           const attempt = event.data.attempt ?? (event.data.retryCount === 0 ? 1 : event.data.retryCount + 1)
           flow.addOperation(
             'ipni',
@@ -456,7 +456,7 @@ export async function performUpload(
           )
           break
         }
-        case 'ipniProviderResults.complete': {
+        case 'ipniProviderResults:complete': {
           flow.completeOperation('ipni', 'IPNI provider records found. IPFS retrieval possible.', {
             type: 'success',
             details: {
@@ -470,7 +470,7 @@ export async function performUpload(
           })
           break
         }
-        case 'ipniProviderResults.failed': {
+        case 'ipniProviderResults:failed': {
           flow.completeOperation('ipni', 'IPNI provider records not found.', {
             type: 'warning',
             details: {

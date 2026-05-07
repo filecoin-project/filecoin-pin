@@ -1,12 +1,14 @@
 import type { Command } from 'commander'
 import { describe, expect, it } from 'vitest'
-import { addCommand } from '../../commands/add.js'
-import { dataSetCommand } from '../../commands/data-set.js'
-import { importCommand } from '../../commands/import.js'
-import { paymentsCommand } from '../../commands/payments.js'
-import { providerCommand } from '../../commands/provider.js'
-import { rmCommand } from '../../commands/rm.js'
-import { serverCommand } from '../../commands/server.js'
+import {
+  addCommand,
+  dataSetCommand,
+  importCommand,
+  paymentsCommand,
+  providerCommand,
+  rmCommand,
+  serverCommand,
+} from '../../commands/index.js'
 
 function leafCommands(cmd: Command): Command[] {
   return cmd.commands.length === 0 ? [cmd] : cmd.commands.flatMap(leafCommands)

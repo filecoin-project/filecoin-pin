@@ -40,7 +40,7 @@ interface ProviderResult {
 
 export type ValidateIPNIProgressEvents =
   | ProgressEvent<
-      'ipniProviderResults.retryUpdate',
+      'ipniProviderResults:retryUpdate',
       {
         retryCount: number
         attempt: number
@@ -52,8 +52,8 @@ export type ValidateIPNIProgressEvents =
         cidMaxAttempts: number
       }
     >
-  | ProgressEvent<'ipniProviderResults.complete', { result: true; retryCount: number }>
-  | ProgressEvent<'ipniProviderResults.failed', { error: Error }>
+  | ProgressEvent<'ipniProviderResults:complete', { result: true; retryCount: number }>
+  | ProgressEvent<'ipniProviderResults:failed', { error: Error }>
 
 export interface WaitForIpniProviderResultsOptions {
   /**
@@ -189,7 +189,7 @@ export async function waitForIpniProviderResults(
     try {
       // totalChecks is incremented before each emitted retryUpdate, so last retryCount is totalChecks - 1
       const retryCount = totalChecks > 0 ? totalChecks - 1 : 0
-      options?.onProgress?.({ type: 'ipniProviderResults.complete', data: { result: true, retryCount } })
+      options?.onProgress?.({ type: 'ipniProviderResults:complete', data: { result: true, retryCount } })
     } catch (error) {
       options?.logger?.warn({ error }, 'Error in consumer onProgress callback for complete event')
     }
@@ -197,7 +197,7 @@ export async function waitForIpniProviderResults(
     return true
   } catch (error) {
     try {
-      options?.onProgress?.({ type: 'ipniProviderResults.failed', data: { error: error as Error } })
+      options?.onProgress?.({ type: 'ipniProviderResults:failed', data: { error: error as Error } })
     } catch (callbackError) {
       options?.logger?.warn({ error: callbackError }, 'Error in consumer onProgress callback for failed event')
     }
@@ -261,7 +261,7 @@ async function waitForIpniProviderResultsForCid(
       const emittedRetryMetadata = onRetryUpdate?.()
       try {
         options?.onProgress?.({
-          type: 'ipniProviderResults.retryUpdate',
+          type: 'ipniProviderResults:retryUpdate',
           data: {
             retryCount: emittedRetryMetadata?.retryCount ?? retryCount,
             attempt: emittedRetryMetadata?.attempt ?? retryCount + 1,
