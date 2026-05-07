@@ -1,68 +1,47 @@
 # Progress Events
 
-filecoin-pin exposes progress through a single `onProgress` handler per public function rather than a bag of granular `onX` callbacks. This document describes the convention, the rationale, and the rules for naming new event types.
-
-## Why one `onProgress` instead of many callbacks
-
-The synapse-sdk uses an object-of-callbacks shape (`{ callbacks: { onProviderSelected, onDataSetResolved, ... } }`). filecoin-pin wraps that into a single typed-event-union handler.
-
-Reasons:
-- One subscription point per call. Callers do not have to remember to wire a new callback every time we add an event.
-- Discriminated unions force exhaustive handling at the type level. New events show up as compile errors in `switch` statements without a `default`.
-- Stable surface area as the SDK evolves. We can map new SDK callbacks into existing event types or add new ones without changing the public function signature.
-- Easy fan-out and logging. Consumers can log every event with one line: `onProgress: (e) => log.info(e)`.
+Public functions in filecoin-pin report progress through a single `onProgress` handler that receives a discriminated union of typed events. This document describes the event shape, the naming convention, and the rules for adding new events.
 
 ## Shape
 
-Defined in `src/core/utils/types.ts`:
+Event and handler types are defined in [`src/core/utils/types.ts`](../src/core/utils/types.ts):
 
-```ts
-export type ProgressEvent<T extends string = string, D = undefined> = D extends undefined
-  ? { type: T }
-  : { type: T; data: D }
+- `ProgressEvent<Type, Data>` — discriminated event with a `type` string and optional `data` payload.
+- `ProgressEventHandler<Events>` — handler that receives a union of events.
+- `AnyProgressEvent` — base type used as the default constraint, shaped `{ type: string; data?: unknown }`.
 
-export type ProgressEventHandler<E extends AnyProgressEvent = AnyProgressEvent> = (event: E) => void
-```
-
-Each function exports a discriminated union of its events and accepts `onProgress?: ProgressEventHandler<MyEvents>`.
+Each public function exports a union of its events and accepts `onProgress?: ProgressEventHandler<MyEvents>`.
 
 ## Naming convention
 
 The `type` discriminator string follows these rules:
 
-1. **camelCase** for words. No kebab-case, no PascalCase, no `snake_case`.
-2. **No `on` prefix** on the type string. The handler is already called `onProgress`; the prefix is redundant. Use `stored`, not `onStored`.
-3. **Colon (`:`) namespace separator** when an event belongs to a logical sub-flow whose events would otherwise collide with other unions or be ambiguous in logs. Use `removePiece:submitting`, not `removePieceSubmitting`.
-4. **No dot (`.`) separator.** Dots imply a property path; we use them only inside `data`, never in `type`.
-5. **Both sides of the colon are camelCase.** `removePiece:confirmationFailed`, not `removePiece:confirmation-failed`.
+1. **camelCase** for words. No kebab-case, PascalCase, or `snake_case`.
+2. **No `on` prefix.** The handler is already named `onProgress`. Event types name the event, e.g. `stored`, `piecesAdded`.
+3. **Colon (`:`) for namespaces** when an event belongs to a multi-step sub-flow, e.g. `removePiece:submitting`, `removePiece:confirmationFailed`.
 
 ### When to use a colon namespace
 
-Use a namespace when:
-- The event union covers a multi-step operation that maps to a user-visible flow (`removePiece:`, `removeAll:`, `ipniProviderResults:`).
-- Multiple unions might be merged in a single log stream and you want to grep by subsystem.
+Use a namespace when the event union covers a multi-step operation that maps to a user-visible flow (`removePiece:`, `removeAll:`, `ipniProviderResults:`).
 
-Skip the namespace when:
-- The events already make the subsystem obvious from a single-word name (`stored`, `piecesAdded`, `copyComplete` from `UploadProgressEvents`).
-- The function is a single concept and the union has few entries (`checkingBalances`, `validatingCapacity` from `UploadReadinessProgressEvents`).
+Skip the namespace when a single-word name already identifies the subsystem (`stored`, `piecesAdded`, `copyComplete` in `UploadProgressEvents`).
 
-If in doubt, prefer no namespace. Add one later when collision or ambiguity shows up.
+When in doubt, omit the namespace.
 
 ## Examples
 
+The snippets below illustrate naming and namespace patterns. Canonical unions live with their feature module; see [`src/core/upload/synapse.ts`](../src/core/upload/synapse.ts) for `UploadProgressEvents` in context.
+
 ```ts
-// No namespace, drop `on` prefix
 export type UploadProgressEvents =
   | ProgressEvent<'stored', { providerId: bigint; pieceCid: PieceCID }>
   | ProgressEvent<'piecesAdded', { txHash: Hash; providerId: bigint }>
   | ProgressEvent<'providerSelected', { provider: PDPProvider }>
 
-// No namespace, multi-word camelCase
 export type UploadReadinessProgressEvents =
   | ProgressEvent<'checkingBalances'>
   | ProgressEvent<'validatingCapacity'>
 
-// Colon namespace for multi-step flow
 export type RemovePieceProgressEvents =
   | ProgressEvent<'removePiece:submitting', { pieceCid: string; dataSetId: bigint }>
   | ProgressEvent<'removePiece:confirmationFailed', { pieceCid: string; dataSetId: bigint; txHash: Hash; message: string }>
@@ -80,27 +59,25 @@ onProgress: (event) => {
     case 'providerSelected':
       log.info({ provider: event.data.provider.name }, 'provider selected')
       break
-    // exhaustive: no default needed if the union is closed
+    default: {
+      const _exhaustive: never = event
+      throw new Error(`unhandled event: ${(_exhaustive as AnyProgressEvent).type}`)
+    }
   }
 }
 ```
 
-Omit `default` to get a compile-time error when the union grows. If you need a default, do an exhaustiveness check:
-
-```ts
-default: {
-  const _exhaustive: never = event
-  throw new Error(`unhandled event: ${(_exhaustive as AnyProgressEvent).type}`)
-}
-```
+The `never` default is the way to get a compile-time error when a new event is added to the union but the consumer has not handled it. Without that pattern, TypeScript will not flag a non-exhaustive `switch`.
 
 ## Adding a new event
 
-1. Add a new `ProgressEvent<'eventName', { ...data }>` member to the relevant union.
-2. Emit it from the implementation.
-3. Update consumer `switch` statements that need to react to it. The compiler points out any missing cases when there is no `default`.
+Event unions are co-located with the function that emits them (e.g. `UploadProgressEvents` lives in [`src/core/upload/synapse.ts`](../src/core/upload/synapse.ts)).
+
+1. Add a new `ProgressEvent<'eventName', { ...data }>` member to the relevant union (omit the data type for events that carry no payload).
+2. Emit it from the implementation: `onProgress?.({ type: 'eventName', data: { ... } })`, or `onProgress?.({ type: 'eventName' })` for events with no payload.
+3. Update consumer `switch` statements that need to react to it.
 4. If the event represents a sub-flow, decide whether to introduce or reuse a colon namespace.
 
 ## Backwards compatibility
 
-Event `type` strings are part of the public API. Renaming or removing a type is a breaking change and requires a major version bump and CHANGELOG entry. Adding a new event type is non-breaking.
+Event `type` strings are part of the public API. Renaming or removing a type is a breaking change and requires a major version bump and CHANGELOG entry. Adding a new event type is runtime-compatible but can break consumers that use the `never` exhaustiveness pattern; this project treats it as a minor bump.
