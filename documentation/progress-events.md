@@ -1,6 +1,6 @@
 # Progress Events
 
-Public functions in filecoin-pin report progress through a single `onProgress` handler that receives a discriminated union of typed events. This document describes the event shape, the naming convention, and the rules for adding new events.
+Public functions in the **filecoin-pin JavaScript library** report progress through a single `onProgress` handler that receives a discriminated union of typed events. This document describes the event shape, the naming convention, and the rules for adding new events.
 
 ## Shape
 

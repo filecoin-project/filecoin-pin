@@ -55,7 +55,7 @@ This is often abbreviated as “FOC”, which yes, does phonetically resonate wi
 
 ## Filecoin Pin
 
-https://github.com/FilOzone/filecoin-pin
+https://github.com/filecoin-project/filecoin-pin
 
 Serves as an IPFS-oriented set of tools for interfacing with [Filecoin Onchain Cloud](#filecoin-onchain-cloud) built on top of [Synapse](#synapse).
 

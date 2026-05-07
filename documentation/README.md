@@ -1,5 +1,5 @@
+* [Builder Cookbook](https://docs.filecoin.io/builder-cookbook/filecoin-pin) - Step-by-step guides and examples for using the CLI, GitHub Action, JavaScript library, and dApp demo. **Start here** if you're looking for practical how-to content.
 * [Filecoin Pin glossary](glossary.md) - A unified place for the defining the plethora of terms for the various technologies coming together under Filecoin Pin (e.g., existing Filecoin blockchain and storage providers, new Filecoin initiatives including Filecoin Onchain Cloud, IPFS).
 * [Explainer: behind the scenes of adding a file](behind-the-scenes-of-adding-a-file.md) - Provides more technical info about what happens for a Filecoin Pin `add` as it uses the underlying [Synapse library](glossary.md#synapse) and [Filecoin Onchain Cloud](glossary.md#filecoin-onchain-cloud) offering.
 * [Content Routing FAQ](content-routing-faq.md) - Frequently asked questions about content routing with IPNI, which Filecoin Pin relies upon, including caching behavior, provider management, and indexer operations.
-* [Progress Events](progress-events.md) - Conventions for the typed `onProgress` event unions exposed by filecoin-pin's public APIs (naming, namespacing, consumer pattern).
-* [Builder Cookbook](https://docs.filecoin.io/builder-cookbook/filecoin-pin)
+* [Progress Events](progress-events.md) - Conventions for the typed `onProgress` event unions exposed by the **filecoin-pin JavaScript library's** public APIs (naming, namespacing, consumer pattern). Relevant if you're building with the library programmatically.
