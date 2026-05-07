@@ -31,7 +31,7 @@ importers:
         version: 7.1.0
       '@ipld/car':
         specifier: ^5.4.2
-        version: 5.4.2
+        version: 5.4.3
       '@libp2p/identify':
         specifier: ^4.1.2
         version: 4.1.2
@@ -652,8 +652,8 @@ packages:
   '@helia/utils@2.4.2':
     resolution: {integrity: sha512-a+5uTq5+O3aRmbdYW4a2Tm+eRqS6XMy26N+D2i++efubxt2loB195hAIb6Gue9BbzRt/IRKfndfSLVrcav2hZw==}
 
-  '@ipld/car@5.4.2':
-    resolution: {integrity: sha512-gfyrJvePyXnh2Fbj8mPg4JYvEZ3izhk8C9WgAle7xIYbrJNSXmNQ6BxAls8Gof97vvGbCROdxbTWRmHJtTCbcg==}
+  '@ipld/car@5.4.3':
+    resolution: {integrity: sha512-+6QHy+9sLov1K28PmazHyqEmD5oDeMWa3mwxst8rt5OsP7CmEexwYDOflGSjPDOUWgHQ4WabQnBSZfXKvZ0DUw==}
     engines: {node: '>=16.0.0', npm: '>=7.0.0'}
 
   '@ipld/dag-cbor@9.2.5':
@@ -1712,8 +1712,8 @@ packages:
   base64-js@1.5.1:
     resolution: {integrity: sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==}
 
-  baseline-browser-mapping@2.10.23:
-    resolution: {integrity: sha512-xwVXGqevyKPsiuQdLj+dZMVjidjJV508TBqexND5HrF89cGdCYCJFB3qhcxRHSeMctdCfbR1jrxBajhDy7o29g==}
+  baseline-browser-mapping@2.10.24:
+    resolution: {integrity: sha512-I2NkZOOrj2XuguvWCK6OVh9GavsNjZjK908Rq3mIBK25+GD8vPX5w2WdxVqnQ7xx3SrZJiCiZFu+/Oz50oSYSA==}
     engines: {node: '>=6.0.0'}
     hasBin: true
 
@@ -1779,8 +1779,8 @@ packages:
     resolution: {integrity: sha512-6/viltD51JklRhq4L7jC3zgy6gryuG5xfZ3kzpE+PravtyeQLeQmCYLREhQH7pWENg5pY4Yu/XCd6a7dKScVlw==}
     hasBin: true
 
-  cborg@5.1.0:
-    resolution: {integrity: sha512-OwailRORD5pIyxaLKKVdGHQ2OXWmYW7YsjDXnl64cIwWdQiyXRffVFsL34JR5c+BEeeSOHADM3cy/QNERH1SUw==}
+  cborg@5.1.1:
+    resolution: {integrity: sha512-BDbSRIp6XrQXkTc7g+DN0RB9RrDPTUfals2ecWUlt3juPLjbAvy/V72mJcXY0Ehu0Dq/3WpNCOCT68HUTbW+lw==}
     hasBin: true
 
   chai@6.2.2:
@@ -4486,10 +4486,10 @@ snapshots:
       race-signal: 2.0.0
       uint8arrays: 5.1.0
 
-  '@ipld/car@5.4.2':
+  '@ipld/car@5.4.3':
     dependencies:
       '@ipld/dag-cbor': 9.2.5
-      cborg: 4.5.8
+      cborg: 5.1.1
       multiformats: 13.4.2
       varint: 6.0.0
 
@@ -4973,7 +4973,7 @@ snapshots:
       '@multiformats/multiaddr': 13.0.1
       '@sindresorhus/fnv1a': 3.1.0
       any-signal: 4.2.0
-      cborg: 5.1.0
+      cborg: 5.1.1
       delay: 7.0.0
       is-loopback-addr: 2.0.2
       it-length-prefixed: 10.0.1
@@ -6142,7 +6142,7 @@ snapshots:
 
   base64-js@1.5.1: {}
 
-  baseline-browser-mapping@2.10.23: {}
+  baseline-browser-mapping@2.10.24: {}
 
   before-after-hook@4.0.0: {}
 
@@ -6185,7 +6185,7 @@ snapshots:
 
   browserslist@4.28.2:
     dependencies:
-      baseline-browser-mapping: 2.10.23
+      baseline-browser-mapping: 2.10.24
       caniuse-lite: 1.0.30001791
       electron-to-chromium: 1.5.344
       node-releases: 2.0.38
@@ -6220,7 +6220,7 @@ snapshots:
 
   cborg@4.5.8: {}
 
-  cborg@5.1.0: {}
+  cborg@5.1.1: {}
 
   chai@6.2.2: {}
 
