@@ -5,12 +5,14 @@
  * It encodes content as UnixFS, creates CAR files, and uploads to Filecoin.
  */
 
+import { createReadStream } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import pc from 'picocolors'
 import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
+import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
@@ -113,6 +115,18 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     const pathType = isDirectory ? 'Directory' : 'File'
     const sizeDisplay = isDirectory ? '' : ` (${formatFileSize(pathStat.size)})`
     spinner.stop(`${pc.green('✓')} ${pathType} validated${sizeDisplay}`)
+
+    // Fail fast on CAR-of-CAR before auth/payment checks run.
+    if (!isDirectory) {
+      const sniff = createReadStream(options.filePath)
+      try {
+        if (await isCar(sniff)) {
+          throw carInputError(options.filePath)
+        }
+      } finally {
+        sniff.destroy()
+      }
+    }
 
     // Validate context selection options early (before expensive operations)
     const contextSelection = parseContextSelectionOptions(options)
@@ -284,7 +298,14 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     return result
   } catch (error) {
-    spinner.stop(`${pc.red('✗')} Add failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    const carInput = error instanceof Error && (error as { code?: string }).code === INPUT_IS_CAR
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    spinner.stop(`${pc.red('✗')} ${carInput ? message : `Add failed: ${message}`}`)
+    if (carInput) {
+      log.line('')
+      log.line(pc.cyan(`  filecoin-pin import ${options.filePath}`))
+      log.flush()
+    }
     logger.error({ event: 'add.failed', error }, 'Add failed')
 
     // Always cleanup temp CAR even on error
@@ -292,7 +313,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       await cleanupTempCar(tempCarPath, logger)
     }
 
-    cancel('Add failed')
+    cancel(carInput ? 'Add cancelled' : 'Add failed')
     throw error
   }
 }
