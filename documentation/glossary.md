@@ -76,7 +76,7 @@ filecoin-pin-website is also hosted at [pin.filecoin.cloud](http://pin.filecoin.
 
 ## Filecoin Pin GitHub Action
 
-See [GitHub Action affordance in the README](../README.md#️⃣-github-action).
+See [GitHub Action affordance in the README](../README.md#-github-action).
 
 ## Filecoin Pin JavaScript Library
 
