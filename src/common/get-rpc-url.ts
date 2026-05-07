@@ -78,7 +78,7 @@ export function resolveDevnetConfig(): DevnetConfig {
  * 1. Explicit --rpc-url (highest priority)
  * 2. RPC_URL environment variable
  * 3. --network flag or NETWORK environment variable (converted to RPC URL)
- * 4. Default to calibration
+ * 4. Default to mainnet
  */
 export function getRpcUrl(options: CLIAuthOptions): string {
   if (options.rpcUrl) {
@@ -107,9 +107,9 @@ export function getRpcUrl(options: CLIAuthOptions): string {
     return wsUrl
   }
 
-  const defaultUrl = calibration.rpcUrls.default.webSocket?.[0] ?? calibration.rpcUrls.default.http[0]
+  const defaultUrl = mainnet.rpcUrls.default.webSocket?.[0] ?? mainnet.rpcUrls.default.http[0]
   if (!defaultUrl) {
-    throw new Error('No RPC URL available for calibration network')
+    throw new Error('No RPC URL available for mainnet network')
   }
   return defaultUrl
 }

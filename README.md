@@ -2,13 +2,7 @@
 
 [![NPM](https://nodei.co/npm/filecoin-pin.svg?style=flat&data=n,v)](https://nodei.co/npm/filecoin-pin/)
 
-**Store IPFS content on Filecoin's decentralized storage network with verifiable persistence.**
-
-## Status
-
-**⚠️ Not ready yet for production** - Filecoin Pin supports both Filecoin Mainnet and Calibration testnet. The CLI defaults to Calibration testnet for safety, but you can use `--network mainnet` to connect to Mainnet, but filecoin-pin is not ready for production use yet.
-
-Register for updates and a later 2025 Q4 GA announcement at [filecoin.cloud](https://filecoin.cloud/).
+**Store your files on IPFS with Filecoin Pin, backed by [Filecoin’s decentralized storage network](https://filecoin.cloud/), with storage managed by your wallet through onchain payments.**
 
 ## What is Filecoin Pin?
 
@@ -111,7 +105,7 @@ Filecoin Pin's CLI collects telemetry.  A few things:
 * Telemetry always [has a way to be disabled](#how-to-disable-telemetry).
 * We don't collect Personal identifiable information (PII).
 * With our [end user affordance](#affordances) we expect to make telemetry on by default, requiring a consumer/user to opt out.  We are defaulting as "enabled" to help make sure we have a good pulse on the user experience and can address issues correctly.
-* In this [pre-v1 season](https://github.com/filecoin-project/filecoin-pin/issues/187), we are particularly focused on helping maintainers validate functionality and iron out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on. 
+* In this [pre-v1 season](https://github.com/filecoin-project/filecoin-pin/issues/187), we are particularly focused on helping maintainers validate functionality and iron out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on.
 
 ### How to disable CLI telemetry
 
@@ -148,14 +142,14 @@ npm install -g filecoin-pin
 # 1. Configure payment permissions (one-time setup)
 filecoin-pin payments setup --auto
 
-# 2. Upload a file to Filecoin (defaults to Calibration testnet)
+# 2. Upload a file to Filecoin (defaults to Mainnet)
 filecoin-pin add myfile.txt
 
 # 3. Verify storage with cryptographic proofs
 filecoin-pin data-set <dataset-id>
 
-# To use Mainnet instead:
-filecoin-pin add myfile.txt --network mainnet
+# To use Calibration testnet (not persistent) instead:
+filecoin-pin add myfile.txt --network calibration
 ```
 
 For detailed guides, see:
@@ -169,17 +163,17 @@ The Pinning Server requires the use of environment variables, as detailed below.
 
 ### Network Selection
 
-Filecoin Pin supports **Mainnet**, **Calibration testnet**, and local **devnet** networks. By default, the CLI uses Calibration testnet.
+Filecoin Pin supports **Mainnet**, **Calibration testnet**, and local **devnet** networks. By default, the CLI uses Mainnet.
 
 **Using the CLI:**
 ```bash
-# Use Calibration testnet (default)
+# Use Mainnet (default)
 filecoin-pin add myfile.txt
 
-# Use Mainnet
+# Explicitly specify Mainnet
 filecoin-pin add myfile.txt --network mainnet
 
-# Explicitly specify Calibration
+# Use Calibration testnet
 filecoin-pin add myfile.txt --network calibration
 
 # Use a local foc-devnet (reads config from devnet-info.json, details below)
@@ -201,7 +195,7 @@ filecoin-pin add myfile.txt
 1. `--rpc-url` flag (highest priority)
 2. `RPC_URL` environment variable
 3. `--network` flag or `NETWORK` environment variable
-4. Default to Calibration testnet
+4. Default to Mainnet
 
 ### Local Development with foc-devnet
 
@@ -228,7 +222,7 @@ When using `--network devnet`, Filecoin Pin reads connection details from a runn
 * `--private-key`: Ethereum-style (`0x`) private key (wallet and signer), funded with USDFC
 * `--wallet-address`: Session key mode: owner wallet address
 * `--session-key`: Session key mode: scoped signing key registered to the wallet
-* `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `calibration`)
+* `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `mainnet`)
 * `--rpc-url`: Filecoin RPC endpoint (overrides `--network` if specified)
 
 Other arguments are possible for individual commands, use `--help` to find out more.
@@ -240,7 +234,7 @@ Other arguments are possible for individual commands, use `--help` to find out m
 PRIVATE_KEY=0x...              # Ethereum private key with USDFC tokens
 
 # Optional - Network Configuration
-NETWORK=mainnet                # Network to use: mainnet, calibration, or devnet (default: calibration)
+NETWORK=mainnet                # Network to use: mainnet, calibration, or devnet (default: mainnet)
 RPC_URL=wss://...              # Filecoin RPC endpoint (overrides NETWORK if specified)
                                # Mainnet: wss://wss.node.glif.io/apigw/lotus/rpc/v1
                                # Calibration: wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1

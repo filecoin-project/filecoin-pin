@@ -3,13 +3,7 @@ import './instrument.js'
 import { Command } from 'commander'
 import pc from 'picocolors'
 
-import { addCommand } from './commands/add.js'
-import { dataSetCommand } from './commands/data-set.js'
-import { importCommand } from './commands/import.js'
-import { paymentsCommand } from './commands/payments.js'
-import { providerCommand } from './commands/provider.js'
-import { rmCommand } from './commands/rm.js'
-import { serverCommand } from './commands/server.js'
+import { ALL_CLI_COMMANDS } from './commands/index.js'
 import { checkForUpdate, type UpdateCheckStatus } from './common/version-check.js'
 import { version as packageVersion } from './core/utils/version.js'
 
@@ -22,13 +16,9 @@ const program = new Command()
   .option('--no-update-check', 'skip check for updates')
 
 // Add subcommands
-program.addCommand(serverCommand)
-program.addCommand(paymentsCommand)
-program.addCommand(dataSetCommand)
-program.addCommand(importCommand)
-program.addCommand(addCommand)
-program.addCommand(rmCommand)
-program.addCommand(providerCommand)
+for (const command of ALL_CLI_COMMANDS) {
+  program.addCommand(command)
+}
 
 // Default action - show help if no command specified
 program.action(() => {

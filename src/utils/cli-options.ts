@@ -83,19 +83,17 @@ export function addContextSelectionOptions(command: Command): Command {
 }
 
 export function addNetworkOptions(command: Command): Command {
-  command
-    .addOption(
-      new Option(
-        '--network <network>',
-        'Filecoin network to use. "devnet" reads config from foc-devnet ' +
-          '(https://github.com/filecoin-project/foc-devnet, ' +
-          'env: FOC_DEVNET_BASEDIR or DEVNET_INFO_PATH, DEVNET_USER_INDEX)'
-      )
-        .choices(['mainnet', 'calibration', 'devnet'])
-        .env('NETWORK')
-        .default('calibration')
+  command.addOption(
+    new Option(
+      '--network <network>',
+      'Filecoin network to use. "devnet" reads config from foc-devnet ' +
+        '(https://github.com/filecoin-project/foc-devnet, ' +
+        'env: FOC_DEVNET_BASEDIR or DEVNET_INFO_PATH, DEVNET_USER_INDEX)'
     )
-    .addOption(new Option('--mainnet', 'Use mainnet (shorthand for --network mainnet)').implies({ network: 'mainnet' }))
+      .choices(['mainnet', 'calibration', 'devnet'])
+      .env('NETWORK')
+      .default('mainnet')
+  )
   return command
 }
 

@@ -56,7 +56,7 @@ describe('Config', () => {
       expectedDataDir = join(home, '.filecoin-pin')
     }
 
-    const expectedRpcUrl = calibration.rpcUrls.default.webSocket?.[0] ?? calibration.rpcUrls.default.http[0]
+    const expectedRpcUrl = mainnet.rpcUrls.default.webSocket?.[0] ?? mainnet.rpcUrls.default.http[0]
 
     expect(config.port).toBe(3456)
     expect(config.host).toBe('localhost')
@@ -86,8 +86,13 @@ describe('Config', () => {
     expect(createConfig().chain).toBe(calibration)
   })
 
-  it('skips chain resolution when NETWORK is not set', () => {
-    expect(createConfig().chain).toBeUndefined()
+  it('defaults chain to mainnet when NETWORK is not set', () => {
+    expect(createConfig().chain).toBe(mainnet)
+  })
+
+  it('defaults chain to mainnet when only RPC_URL is set', () => {
+    process.env.RPC_URL = 'wss://custom.example/rpc'
+    expect(createConfig().chain).toBe(mainnet)
   })
 
   it('does not load devnet-info.json when NETWORK=devnet but RPC_URL is set', () => {
