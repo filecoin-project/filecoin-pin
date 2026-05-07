@@ -45,12 +45,12 @@ jobs:
         run: |
           pnpm run typecheck
           pnpm --dir upload-action run typecheck
+      - name: Build
+        run: pnpm run build
       - name: Run Unit Tests
         run: pnpm run test:unit
       - name: Run Integration Tests
         run: pnpm run test:integration
-      - name: Build
-        run: pnpm run build
 
   browser-test:
     runs-on: ubuntu-latest
@@ -73,6 +73,8 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm run build
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
