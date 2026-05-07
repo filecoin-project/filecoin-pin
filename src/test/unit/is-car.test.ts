@@ -60,16 +60,17 @@ describe('isCar', () => {
   })
 
   it('does not consume the entire source', async () => {
-    let yielded = 0
+    // Increment BEFORE each yield so `pulls` counts iterator advances, not
+    // post-yield resumes.
+    let pulls = 0
     async function* trickle() {
+      pulls++
       yield validSingleRoot
-      yielded++
+      pulls++
       yield new Uint8Array([0xde, 0xad, 0xbe, 0xef])
-      yielded++
     }
     expect(await isCar(trickle())).toBe(true)
-    // Header fits in the first chunk; the trailing chunk should never be requested.
-    expect(yielded).toBe(0)
+    expect(pulls).toBe(1)
   })
 })
 

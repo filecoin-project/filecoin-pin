@@ -40,6 +40,13 @@ async function* fromReadableStream(stream: ReadableStream<Uint8Array>): AsyncIte
       if (value) yield value
     }
   } finally {
+    // Detection bails before the source is drained; cancel() tells the
+    // producer to stop, releaseLock() alone leaves it running until GC.
+    try {
+      await reader.cancel()
+    } catch {
+      // Stream may already be errored; releaseLock() still needs to run.
+    }
     reader.releaseLock()
   }
 }
