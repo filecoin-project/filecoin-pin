@@ -9,11 +9,16 @@
  * Throws when the chainId does not match any known chain.
  */
 import { type Chain, calibration, mainnet } from '@filoz/synapse-sdk'
+import type { Logger } from 'pino'
 import { createPublicClient, type Transport } from 'viem'
 
-export async function resolveChainFromRpc(transport: Transport): Promise<Chain> {
+export async function resolveChainFromRpc(transport: Transport, logger?: Logger): Promise<Chain> {
   const client = createPublicClient({ transport })
+  logger?.debug('probing RPC chainId')
+  const start = Date.now()
   const id = await client.getChainId()
+  const durationMs = Date.now() - start
+  logger?.debug({ chainId: id, durationMs }, 'resolved RPC chainId')
 
   if (id === mainnet.id) return mainnet
   if (id === calibration.id) return calibration
@@ -24,8 +29,8 @@ export async function resolveChainFromRpc(transport: Transport): Promise<Chain> 
     const { resolveDevnetConfig } = await import('../../common/get-rpc-url.js')
     const devnet = resolveDevnetConfig().chain
     if (id === devnet.id) return devnet
-  } catch {
-    // devnet-info.json not available (or running in a browser bundle); fall through.
+  } catch (err) {
+    logger?.debug({ err }, 'devnet config unavailable, skipping')
   }
 
   throw new Error(

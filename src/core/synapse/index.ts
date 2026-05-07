@@ -187,7 +187,7 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
     // here is from a programmatic caller and is treated as advisory.
     rpcUrl = config.rpcUrl
     transport = createTransport(rpcUrl)
-    chain = await resolveChainFromRpc(transport)
+    chain = await resolveChainFromRpc(transport, logger)
   } else {
     chain = config.chain ?? mainnet
     rpcUrl = chain.rpcUrls.default.webSocket?.[0] ?? chain.rpcUrls.default.http[0]
