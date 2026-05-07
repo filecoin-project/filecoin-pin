@@ -216,6 +216,22 @@ describe('synapse-service', () => {
         })
       )
     })
+
+    it('should pass ReadableStream data directly to storage.upload', async () => {
+      const data = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array([1, 2, 3]))
+          controller.close()
+        },
+      })
+      const uploadSpy = vi.spyOn(mockSynapse.storage, 'upload')
+
+      await uploadToSynapse(mockSynapse as any, data, TEST_CID, logger, {
+        contextId: 'pin-stream',
+      })
+
+      expect(uploadSpy).toHaveBeenCalledWith(data, expect.anything())
+    })
   })
 
   describe('Multi-copy Results', () => {

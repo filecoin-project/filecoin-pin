@@ -25,6 +25,8 @@ export interface UploadResult {
   previewUrl: string
   network: string
   ipniValidated: boolean
+  requestedCopies: number
+  complete: boolean
   copies: CopyResult[]
   failedAttempts: FailedAttempt[]
 }
@@ -86,6 +88,11 @@ export interface PaymentConfig {
   minStorageDays: number
   filecoinPayBalanceLimit?: bigint | undefined
   pieceSizeBytes?: number | undefined
+}
+
+export interface PaymentFundingConfig extends PaymentConfig {
+  withCDN: boolean
+  providerIds?: bigint[] | undefined
 }
 
 export interface UploadConfig {

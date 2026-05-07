@@ -10,7 +10,13 @@ import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
 import { DEFAULT_LOCKUP_DAYS, type PaymentCapacityCheck } from '../core/payments/index.js'
-import { checkUploadReadiness, executeUpload, getNetworkSlug, type SynapseUploadResult } from '../core/upload/index.js'
+import {
+  checkUploadReadiness,
+  executeUpload,
+  getNetworkSlug,
+  type SynapseUploadData,
+  type SynapseUploadResult,
+} from '../core/upload/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { autoFund } from '../payments/fund.js'
 import type { AutoFundOptions } from '../payments/types.js'
@@ -83,28 +89,63 @@ export interface UploadFlowResult extends SynapseUploadResult {
 
 /**
  * Perform auto-funding if requested
- * Automatically ensures a minimum of 30 days of runway based on current usage + new file requirements
+ * Automatically ensures the configured minimum runway (default MIN_RUNWAY_DAYS) based on current
+ * usage + new file requirements. Optional `maxBalance` caps the resulting Filecoin Pay balance.
  *
  * @param synapse - Initialized Synapse instance
  * @param fileSize - Size of file being uploaded (in bytes)
  * @param spinner - Optional spinner for progress
+ * @param options - Optional auto-funding modifiers and upload targeting inputs
+ * @param options.minRunwayDays - Minimum runway to maintain, in days (defaults to MIN_RUNWAY_DAYS)
+ * @param options.maxBalance - Maximum Filecoin Pay balance after deposit (USDFC base units)
+ * @param options.copies - Number of storage copies used to estimate new data set fees
+ * @param options.providerIds - Provider IDs used to estimate new data set fees
+ * @param options.dataSetIds - Data set IDs used to estimate new data set fees
+ * @param options.metadata - Data set metadata used to estimate new data set fees
  */
-export async function performAutoFunding(synapse: Synapse, fileSize: number, spinner?: Spinner): Promise<void> {
+export async function performAutoFunding(
+  synapse: Synapse,
+  fileSize: number,
+  spinner?: Spinner,
+  options: Pick<
+    AutoFundOptions,
+    'minRunwayDays' | 'maxBalance' | 'copies' | 'providerIds' | 'dataSetIds' | 'metadata'
+  > = {}
+): Promise<void> {
   spinner?.start('Checking funding requirements for upload...')
 
   try {
     const fundOptions: AutoFundOptions = {
       synapse,
       fileSize,
+      ...(options?.copies != null ? { copies: options.copies } : {}),
+      ...(options?.providerIds != null ? { providerIds: options.providerIds } : {}),
+      ...(options?.dataSetIds != null ? { dataSetIds: options.dataSetIds } : {}),
+      ...(options?.metadata != null ? { metadata: options.metadata } : {}),
     }
     if (spinner !== undefined) {
       fundOptions.spinner = spinner
     }
+    if (options.minRunwayDays !== undefined) {
+      fundOptions.minRunwayDays = options.minRunwayDays
+    }
+    if (options.maxBalance !== undefined) {
+      fundOptions.maxBalance = options.maxBalance
+    }
     const result = await autoFund(fundOptions)
-    spinner?.stop(`${pc.green('✓')} Funding requirements met`)
+    const hasWarnings = result.warnings != null && result.warnings.length > 0
+    spinner?.stop(
+      hasWarnings ? `${pc.yellow('⚠')} Funding completed with warnings` : `${pc.green('✓')} Funding requirements met`
+    )
+
+    if (hasWarnings && result.warnings != null) {
+      for (const warning of result.warnings) {
+        log.line(pc.yellow(`⚠ ${warning}`))
+      }
+      log.flush()
+    }
 
     if (result.adjusted) {
-      log.line('')
       log.line(pc.bold('Auto-funding completed:'))
       log.indent(`Deposited ${formatUSDFC(result.delta)} USDFC`)
       log.indent(`Total deposited: ${formatUSDFC(result.newDepositedAmount)} USDFC`)
@@ -114,7 +155,6 @@ export async function performAutoFunding(synapse: Synapse, fileSize: number, spi
       if (result.transactionHash) {
         log.indent(pc.gray(`Transaction: ${result.transactionHash}`))
       }
-      log.line('')
       log.flush()
     }
   } catch (error) {
@@ -278,14 +318,14 @@ function roleLabel(role: CopyRole): string {
  * Upload CAR data to Synapse with multi-copy progress tracking
  *
  * @param synapse - Initialized Synapse instance
- * @param carData - CAR file data as Uint8Array
+ * @param carData - CAR file data as bytes or a readable stream
  * @param rootCid - Root CID of the content
  * @param options - Upload flow options
  * @returns Upload result with copies and network information
  */
 export async function performUpload(
   synapse: Synapse,
-  carData: Uint8Array,
+  carData: SynapseUploadData,
   rootCid: CID,
   options: UploadFlowOptions
 ): Promise<UploadFlowResult> {

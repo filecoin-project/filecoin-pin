@@ -1,0 +1,68 @@
+name: Test upload action
+on:
+  pull_request:
+
+concurrency:
+  group: upload-action-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Intentionally not using a `matrix` for the `dry-run` and `upload` jobs.
+# They are nearly identical — the only meaningful difference is `dryRun` —
+# but inlining keeps the workflow easier to read at a glance.
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    # TODO: drop this gate once the action no longer exits early with
+    # `fork-pr-blocked` when `dryRun: true`. Until then, running on forks
+    # produces a misleading "skipped" check rather than real coverage.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Create upload fixture
+        run: |
+          mkdir -p .filecoin-pin-upload-fixture
+          printf 'filecoin-pin upload action smoke test\n' > .filecoin-pin-upload-fixture/content.txt
+
+      - name: Upload to Filecoin
+        uses: ./upload-action
+        env:
+          LOG_LEVEL: warn
+        with:
+          path: ./.filecoin-pin-upload-fixture
+          network: calibration
+          dryRun: true
+
+  upload:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Create upload fixture
+        run: |
+          mkdir -p .filecoin-pin-upload-fixture
+          printf 'filecoin-pin upload action smoke test\n' > .filecoin-pin-upload-fixture/content.txt
+
+      - name: Upload to Filecoin
+        uses: ./upload-action
+        env:
+          LOG_LEVEL: warn
+          PROVIDER_IDS: "2"
+        with:
+          path: ./.filecoin-pin-upload-fixture
+          # WALLET_PRIVATE_KEY backs the Calibration upload-action wallet.
+          # Public address: 0x44f08D1beFe61255b3C3A349C392C560FA333759
+          # 1Password: "filecoin-pin / filecoin-pin-website /upload-action Wallet"
+          walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
+          network: calibration
+          filecoinPayBalanceLimit: "5"
+          dryRun: false

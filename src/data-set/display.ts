@@ -183,9 +183,14 @@ function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
 /**
  * Print the lightweight dataset list used for the default command output.
  */
-export function displayDataSets(dataSets: DataSetSummary[], network: string, address: string): void {
+export function displayDataSets(
+  dataSets: DataSetSummary[],
+  network: string,
+  address: string,
+  emptyMessage?: string
+): void {
   if (dataSets.length === 0) {
-    log.line(pc.yellow('No data sets managed by filecoin-pin were found for this account.'))
+    log.line(pc.yellow(emptyMessage ?? 'No data sets managed by filecoin-pin were found for this account.'))
     log.flush()
     return
   }

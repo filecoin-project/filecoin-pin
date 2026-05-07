@@ -23,8 +23,20 @@ export interface AutoFundOptions {
   synapse: Synapse
   /** Size of file being uploaded (in bytes) - used to calculate additional funding needed */
   fileSize: number
+  /** Number of storage copies to create */
+  copies?: number
+  /** Specific provider IDs to upload to */
+  providerIds?: bigint[]
+  /** Specific existing data set IDs to target */
+  dataSetIds?: bigint[]
+  /** Data set metadata applied when creating or matching contexts */
+  metadata?: Record<string, string>
   /** Optional spinner for progress updates */
   spinner?: Spinner
+  /** Minimum runway to maintain, in days. Defaults to MIN_RUNWAY_DAYS. */
+  minRunwayDays?: number
+  /** Maximum Filecoin Pay balance after deposit (USDFC base units). Skips or clamps over-projected deposits. */
+  maxBalance?: bigint
 }
 
 export interface FundingAdjustmentResult {
@@ -40,6 +52,8 @@ export interface FundingAdjustmentResult {
   newRunwayDays: number
   /** New runway hours (fractional part) */
   newRunwayHours: number
+  /** Notices about deviations from the requested plan (e.g. clamped or skipped due to maxBalance) */
+  warnings?: string[]
 }
 
 export interface FundOptions extends CLIAuthOptions {

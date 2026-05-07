@@ -15,7 +15,7 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
         with:
           # PAT so release PRs trigger other workflows (auto-label, add-issues-and-prs-to-fs-project-board).
@@ -31,7 +31,7 @@ jobs:
 
       - name: Set up pnpm
         if: ${{ steps.release.outputs.release_created }}
-        uses: pnpm/action-setup@v5
+        uses: pnpm/action-setup@903f9c1a6ebcba6cf41d87230be49611ac97822e # v6.0.3
         with:
           run_install: false
 

@@ -62,14 +62,20 @@ async function main() {
   })
 }
 
-main().catch(async (err) => {
-  // Complete check with failure
-  await completeCheck({
-    conclusion: 'failure',
-    title: '✗ Upload Failed',
-    summary: `Error: ${getErrorMessage(err)}`,
+main()
+  .then(() => {
+    // Real uploads can leave SDK/network handles open after all action work is done.
+    // Exit explicitly so GitHub Actions can run post-action cleanup steps.
+    process.exit(0)
   })
+  .catch(async (err) => {
+    // Complete check with failure
+    await completeCheck({
+      conclusion: 'failure',
+      title: '✗ Upload Failed',
+      summary: `Error: ${getErrorMessage(err)}`,
+    })
 
-  handleError(err)
-  process.exit(1)
-})
+    handleError(err)
+    process.exit(1)
+  })

@@ -1,3 +1,4 @@
+import { USDFC_SYBIL_FEE } from '@filoz/synapse-core/utils'
 import { calibration, type Synapse } from '@filoz/synapse-sdk'
 import { MIN_FIL_FOR_GAS } from './constants.js'
 import {
@@ -139,6 +140,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     targetDeposit,
     pieceSizeBytes,
     pricePerTiBPerEpoch,
+    newDataSetCount = 0,
     mode = 'exact',
     allowWithdraw = true,
   } = options
@@ -153,6 +155,10 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
 
   if (pieceSizeBytes != null && pricePerTiBPerEpoch == null) {
     throw new Error('pricePerTiBPerEpoch is required when pieceSizeBytes is provided')
+  }
+
+  if (!Number.isInteger(newDataSetCount) || newDataSetCount < 0) {
+    throw new Error('newDataSetCount must be a non-negative integer')
   }
 
   let delta: bigint
@@ -175,8 +181,9 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
         pieceSizeBytes,
         pricePerTiBPerEpoch
       )
-      delta = adjustment.delta
-      resolvedTargetDeposit = adjustment.targetDeposit
+      const dataSetCreationFees = BigInt(newDataSetCount) * USDFC_SYBIL_FEE
+      delta = adjustment.delta + dataSetCreationFees
+      resolvedTargetDeposit = adjustment.targetDeposit + dataSetCreationFees
       projectedRateUsed = adjustment.newRateUsed
       projectedLockupUsed = adjustment.newLockupUsed
 
@@ -260,6 +267,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     ...(resolvedTargetDeposit != null ? { targetDeposit: resolvedTargetDeposit } : {}),
     ...(pieceSizeBytes != null ? { pieceSizeBytes } : {}),
     ...(pricePerTiBPerEpoch != null ? { pricePerTiBPerEpoch } : {}),
+    ...(newDataSetCount > 0 ? { newDataSetCount } : {}),
     ...(walletShortfall != null ? { walletShortfall } : {}),
   }
 
@@ -280,6 +288,7 @@ export interface PlanFilecoinPayFundingOptions {
   targetDeposit?: bigint | undefined
   pieceSizeBytes?: number | undefined
   pricePerTiBPerEpoch?: bigint | undefined
+  newDataSetCount?: number | undefined
   mode?: FundingMode | undefined
   allowWithdraw?: boolean | undefined
   ensureAllowances?: boolean | undefined
@@ -313,6 +322,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     targetDeposit,
     pieceSizeBytes,
     pricePerTiBPerEpoch,
+    newDataSetCount = 0,
     mode = 'exact',
     allowWithdraw = true,
     ensureAllowances = false,
@@ -364,6 +374,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     targetDeposit,
     pieceSizeBytes,
     pricePerTiBPerEpoch: pricing,
+    newDataSetCount,
     mode,
     allowWithdraw,
   })
