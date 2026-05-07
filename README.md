@@ -1,7 +1,6 @@
 # Filecoin Pin
 
 [![NPM](https://nodei.co/npm/filecoin-pin.svg?style=flat&data=n,v)](https://nodei.co/npm/filecoin-pin/)
-[![Node.js](https://img.shields.io/badge/node-24%2B-brightgreen)](https://nodejs.org/)
 
 **Store IPFS content on Filecoin's decentralized storage network with verifiable persistence.**
 
@@ -30,8 +29,6 @@ Filecoin Pin is designed for **developers building on IPFS** who need trustless,
 ## Affordances
 
 Filecoin Pin offers multiple affordances to integrate Filecoin storage into your workflow:
-
-<a id="cli"></a>
 
 ### 💻 CLI
 Upload IPFS files directly to Filecoin via the command line. Perfect for developers who want to integrate Filecoin storage into scripts, workflows, or local development environments.
@@ -72,7 +69,7 @@ Run a localhost IPFS Pinning Service API server that implements the [IPFS Pinnin
 - **Usage**: `PRIVATE_KEY=0x... npx filecoin-pin server` (or use session key auth — see [Configuration](#configuration))
 
 ### 📊 Management Console GUI
-Web-based management console for monitoring and managing your Filecoin Pin deployments. This is effectively a Web UI equivalent to the [CLI](#cli) affordance.
+Web-based management console for monitoring and managing your Filecoin Pin deployments. This is effectively a Web UI equivalent to the [CLI](#-cli) affordance.
 
 - **Status**: Planned
 - **Tracking**: See [issue #74](https://github.com/filecoin-project/filecoin-pin/issues/74) for updates. Please leave a comment about your use case if this would be particularly beneficial.
