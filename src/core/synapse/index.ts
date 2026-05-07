@@ -35,6 +35,7 @@ import {
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { APPLICATION_SOURCE } from './constants.js'
+import { resolveChainFromRpc } from './resolve-chain-from-rpc.js'
 
 export * from './constants.js'
 
@@ -176,9 +177,22 @@ function checkSessionKeyPermissions(key: SessionKey<'Secp256k1'>, ownerAddress: 
  * @returns Initialized Synapse instance
  */
 export async function initializeSynapse(config: SynapseSetupConfig, logger?: Logger): Promise<Synapse> {
-  const chain = config.chain ?? mainnet
-  const rpcUrl = config.rpcUrl ?? chain.rpcUrls.default.webSocket?.[0] ?? chain.rpcUrls.default.http[0]
-  const transport = rpcUrl ? createTransport(rpcUrl) : undefined
+  let chain: Chain
+  let rpcUrl: string | undefined
+  let transport: HttpTransport | WebSocketTransport | undefined
+
+  if (config.rpcUrl) {
+    // Probe the RPC endpoint's chainId so the chain object reflects what the endpoint actually serves.
+    // CLI/server callers enforce that --rpc-url is mutually exclusive with --network, so any chain hint
+    // here is from a programmatic caller and is treated as advisory.
+    rpcUrl = config.rpcUrl
+    transport = createTransport(rpcUrl)
+    chain = await resolveChainFromRpc(transport, logger)
+  } else {
+    chain = config.chain ?? mainnet
+    rpcUrl = chain.rpcUrls.default.webSocket?.[0] ?? chain.rpcUrls.default.http[0]
+    transport = rpcUrl ? createTransport(rpcUrl) : undefined
+  }
 
   let account: Account | Address
   let sessionKey: SessionKey<'Secp256k1'> | undefined

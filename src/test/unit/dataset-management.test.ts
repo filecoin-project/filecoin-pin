@@ -12,6 +12,12 @@ import { createLogger } from '../../logger.js'
 // Mock the Synapse SDK
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
 
+// Mock the chainId probe so tests never hit a real RPC endpoint
+vi.mock('../../core/synapse/resolve-chain-from-rpc.js', async () => {
+  const { calibration } = await import('../mocks/synapse-sdk.js')
+  return { resolveChainFromRpc: vi.fn(async () => calibration) }
+})
+
 describe('Dataset Management', () => {
   let config: SynapseSetupConfig
   let logger: ReturnType<typeof createLogger>

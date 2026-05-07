@@ -12,6 +12,12 @@ vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'
 // Mock the session key module so tests never hit the real network
 vi.mock('@filoz/synapse-core/session-key', async () => await import('../mocks/synapse-core-session-key.js'))
 
+// Mock the chainId probe so tests never hit a real RPC endpoint
+vi.mock('../../core/synapse/resolve-chain-from-rpc.js', async () => {
+  const { calibration } = await import('../mocks/synapse-sdk.js')
+  return { resolveChainFromRpc: vi.fn(async () => calibration) }
+})
+
 // Test CID for upload tests
 const TEST_CID = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
 
@@ -111,6 +117,52 @@ describe('synapse-service', () => {
       } as any
 
       await expect(initializeSynapse(config, logger)).rejects.toThrow('Missing: --wallet-address / WALLET_ADDRESS')
+    })
+  })
+
+  describe('initializeSynapse chain resolution', () => {
+    it('uses the chain probed from the RPC URL when no chain hint is provided', async () => {
+      const { resolveChainFromRpc } = await import('../../core/synapse/resolve-chain-from-rpc.js')
+      const { Synapse, calibration } = await import('../mocks/synapse-sdk.js')
+      vi.mocked(resolveChainFromRpc).mockResolvedValueOnce(calibration as never)
+
+      await initializeSynapse({
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://example.test/rpc',
+      })
+
+      expect(resolveChainFromRpc).toHaveBeenCalledTimes(1)
+      const lastCall = vi.mocked(Synapse.create).mock.calls.at(-1) as unknown as [{ chain: unknown }]
+      expect(lastCall[0]).toMatchObject({ chain: calibration })
+    })
+
+    it('lets the RPC probe override a chain hint passed by a programmatic caller', async () => {
+      const { resolveChainFromRpc } = await import('../../core/synapse/resolve-chain-from-rpc.js')
+      const { Synapse, mainnet, calibration } = await import('../mocks/synapse-sdk.js')
+      vi.mocked(resolveChainFromRpc).mockResolvedValueOnce(calibration as never)
+
+      await initializeSynapse({
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://example.test/rpc',
+        chain: mainnet as never,
+      })
+
+      const lastCall = vi.mocked(Synapse.create).mock.calls.at(-1) as unknown as [{ chain: unknown }]
+      expect(lastCall[0]).toMatchObject({ chain: calibration })
+    })
+
+    it('skips probing when no RPC URL is provided and falls back to mainnet', async () => {
+      const { resolveChainFromRpc } = await import('../../core/synapse/resolve-chain-from-rpc.js')
+      const { Synapse, mainnet } = await import('../mocks/synapse-sdk.js')
+      vi.mocked(resolveChainFromRpc).mockClear()
+
+      await initializeSynapse({
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+      })
+
+      expect(resolveChainFromRpc).not.toHaveBeenCalled()
+      const lastCall = vi.mocked(Synapse.create).mock.calls.at(-1) as unknown as [{ chain: unknown }]
+      expect(lastCall[0]).toMatchObject({ chain: mainnet })
     })
   })
 

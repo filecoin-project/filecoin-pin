@@ -86,13 +86,13 @@ export function addNetworkOptions(command: Command): Command {
   command.addOption(
     new Option(
       '--network <network>',
-      'Filecoin network to use. "devnet" reads config from foc-devnet ' +
-        '(https://github.com/filecoin-project/foc-devnet, ' +
-        'env: FOC_DEVNET_BASEDIR or DEVNET_INFO_PATH, DEVNET_USER_INDEX)'
+      'Filecoin network to use (default: mainnet). Mutually exclusive with --rpc-url. "devnet" reads ' +
+        'config from foc-devnet (https://github.com/filecoin-project/foc-devnet, ' +
+        'env: FOC_DEVNET_BASEDIR or DEVNET_INFO_PATH, DEVNET_USER_INDEX).'
     )
       .choices(['mainnet', 'calibration', 'devnet'])
       .env('NETWORK')
-      .default('mainnet')
+      .conflicts('rpcUrl')
   )
   return command
 }

@@ -2,7 +2,13 @@
 
 [![NPM](https://nodei.co/npm/filecoin-pin.svg?style=flat&data=n,v)](https://nodei.co/npm/filecoin-pin/)
 
-**Store your files on IPFS with Filecoin Pin, backed by [Filecoin’s decentralized storage network](https://filecoin.cloud/), with storage managed by your wallet through onchain payments.**
+**Store IPFS content on Filecoin's decentralized storage network with verifiable persistence.**
+
+## Status
+
+**Ready for persistent, verifiable data on Filecoin Mainnet.**
+
+Register for updates and a later 2025 Q4 GA announcement at [filecoin.cloud](https://filecoin.cloud/).
 
 ## What is Filecoin Pin?
 
@@ -191,11 +197,11 @@ export RPC_URL=wss://wss.node.glif.io/apigw/lotus/rpc/v1
 filecoin-pin add myfile.txt
 ```
 
-**Priority order:**
-1. `--rpc-url` flag (highest priority)
-2. `RPC_URL` environment variable
-3. `--network` flag or `NETWORK` environment variable
-4. Default to Mainnet
+**Selection rules:**
+
+* `--network` and `--rpc-url` (and their `NETWORK` / `RPC_URL` env equivalents) are mutually exclusive. Passing both is an error.
+* When `--rpc-url` (or `RPC_URL`) is set, Filecoin Pin probes the endpoint's `eth_chainId` at startup and uses the matching chain (mainnet, calibration, or a configured devnet).
+* When neither is set, Filecoin Pin defaults to Mainnet.
 
 ### Local Development with foc-devnet
 
@@ -222,8 +228,8 @@ When using `--network devnet`, Filecoin Pin reads connection details from a runn
 * `--private-key`: Ethereum-style (`0x`) private key (wallet and signer), funded with USDFC
 * `--wallet-address`: Session key mode: owner wallet address
 * `--session-key`: Session key mode: scoped signing key registered to the wallet
-* `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `mainnet`)
-* `--rpc-url`: Filecoin RPC endpoint (overrides `--network` if specified)
+* `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `mainnet`). Mutually exclusive with `--rpc-url`.
+* `--rpc-url`: Filecoin RPC endpoint. Filecoin Pin probes its `eth_chainId` to derive the chain. Mutually exclusive with `--network`.
 
 Other arguments are possible for individual commands, use `--help` to find out more.
 

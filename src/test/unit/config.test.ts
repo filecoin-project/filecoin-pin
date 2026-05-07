@@ -90,16 +90,14 @@ describe('Config', () => {
     expect(createConfig().chain).toBe(mainnet)
   })
 
-  it('defaults chain to mainnet when only RPC_URL is set', () => {
+  it('leaves chain undefined when only RPC_URL is set so initializeSynapse can probe it', () => {
     process.env.RPC_URL = 'wss://custom.example/rpc'
-    expect(createConfig().chain).toBe(mainnet)
+    expect(createConfig().chain).toBeUndefined()
   })
 
-  it('does not load devnet-info.json when NETWORK=devnet but RPC_URL is set', () => {
-    process.env.NETWORK = 'devnet'
+  it('throws when both NETWORK and RPC_URL are set', () => {
+    process.env.NETWORK = 'mainnet'
     process.env.RPC_URL = 'wss://custom.example/rpc'
-    // Would throw "Failed to read devnet info" if we attempted the file load.
-    expect(() => createConfig()).not.toThrow()
-    expect(createConfig().chain).toBeUndefined()
+    expect(() => createConfig()).toThrow(/'NETWORK' and 'RPC_URL' are mutually exclusive/)
   })
 })

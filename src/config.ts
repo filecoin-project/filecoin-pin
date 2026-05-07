@@ -51,18 +51,22 @@ function getDataDirectory(): string {
 export function createConfig(): Config {
   const dataDir = getDataDirectory()
 
-  // Determine RPC URL: RPC_URL env var takes precedence, then NETWORK, then default to mainnet
+  // NETWORK and RPC_URL are mutually exclusive. The CLI enforces this via Commander, but library
+  // consumers calling createConfig() bypass that check, so guard explicitly here as well.
+  const hasNetwork = process.env.NETWORK != null && process.env.NETWORK !== ''
+  const hasRpcUrl = process.env.RPC_URL != null && process.env.RPC_URL !== ''
+  if (hasNetwork && hasRpcUrl) {
+    throw new Error("Configuration error: 'NETWORK' and 'RPC_URL' are mutually exclusive. Set only one.")
+  }
+
+  // Determine RPC URL: RPC_URL takes precedence, then NETWORK, then default to mainnet.
   const rpcUrl = getRpcUrl({
     network: process.env.NETWORK,
     rpcUrl: process.env.RPC_URL,
   })
-  // Default chain to mainnet when NETWORK is unset, mirroring the CLI's Commander default
-  // and getRpcUrl's mainnet fallback. RPC_URL alone (without NETWORK) still resolves chain
-  // to mainnet; if the RPC points to a different chain, contract calls will fail loudly.
-  const chain = resolveChain(
-    process.env.NETWORK ?? 'mainnet',
-    process.env.RPC_URL != null && process.env.RPC_URL !== ''
-  )
+  // Set the chain hint only when NETWORK was chosen; with RPC_URL set, initializeSynapse probes
+  // the endpoint to derive the chain. Default to mainnet when neither is supplied.
+  const chain = hasRpcUrl ? resolveChain(undefined, true) : resolveChain(process.env.NETWORK ?? 'mainnet', false)
 
   const config: Config = {
     // Application-specific configuration

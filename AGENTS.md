@@ -90,7 +90,7 @@ src/
 
 **Commands**: `payments setup --auto`, `add <path>`, `import <car-file>`, `payments status`, `data-set <id>`, `server`
 
-**Network**: `--network mainnet|calibration|devnet` (default: `mainnet`). Devnet reads config from foc-devnet's `devnet-info.json` and auto-resolves private key and RPC URL.
+**Network**: `--network mainnet|calibration|devnet` (default: `mainnet`). Devnet reads config from foc-devnet's `devnet-info.json` and auto-resolves private key and RPC URL. `--network` and `--rpc-url` are mutually exclusive. When `--rpc-url`/`RPC_URL` is set, the chain is derived by probing the endpoint's `eth_chainId`.
 
 **Required env**: `PRIVATE_KEY=0x...` (with USDFC tokens; not needed for devnet)
 
