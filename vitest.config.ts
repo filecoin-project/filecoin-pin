@@ -1,18 +1,10 @@
 import { playwright } from '@vitest/browser-playwright'
 import { defineConfig } from 'vitest/config'
 
-const isWindows = process.platform === 'win32'
-
 export default defineConfig({
   test: {
     globals: true,
     root: '.',
-    ...(isWindows
-      ? {
-          pool: 'forks' as const,
-          poolOptions: { forks: { singleFork: true } },
-        }
-      : {}),
     projects: [
       {
         // unit tests for node.js (also isomorphic tests)
