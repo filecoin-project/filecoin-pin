@@ -2,13 +2,7 @@
 
 [![NPM](https://nodei.co/npm/filecoin-pin.svg?style=flat&data=n,v)](https://nodei.co/npm/filecoin-pin/)
 
-**Store IPFS content on Filecoin's decentralized storage network with verifiable persistence.**
-
-## Status
-
-**Ready for persistent, verifiable data on Filecoin Mainnet.**
-
-Register for updates and a later 2025 Q4 GA announcement at [filecoin.cloud](https://filecoin.cloud/).
+**Store your files on IPFS with Filecoin Pin, backed by [Filecoin’s decentralized storage network](https://filecoin.cloud/), with storage managed by your wallet through onchain payments.**
 
 ## What is Filecoin Pin?
 
@@ -111,7 +105,7 @@ Filecoin Pin's CLI collects telemetry.  A few things:
 * Telemetry always [has a way to be disabled](#how-to-disable-telemetry).
 * We don't collect Personal identifiable information (PII).
 * With our [end user affordance](#affordances) we expect to make telemetry on by default, requiring a consumer/user to opt out.  We are defaulting as "enabled" to help make sure we have a good pulse on the user experience and can address issues correctly.
-* In this [pre-v1 season](https://github.com/filecoin-project/filecoin-pin/issues/187), we are particularly focused on helping maintainers validate functionality and iron out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on. 
+* In this [pre-v1 season](https://github.com/filecoin-project/filecoin-pin/issues/187), we are particularly focused on helping maintainers validate functionality and iron out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on.
 
 ### How to disable CLI telemetry
 
