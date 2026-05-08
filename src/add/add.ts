@@ -10,6 +10,7 @@ import { readFile, stat } from 'node:fs/promises'
 import pc from 'picocolors'
 import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
@@ -340,6 +341,15 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     return result
   } catch (error) {
+    if (isCliFatal(error)) {
+      spinner.stop()
+      logger.error({ event: 'add.failed', error }, 'Add failed')
+      if (tempCarPath) {
+        await cleanupTempCar(tempCarPath, logger)
+      }
+      throw error
+    }
+
     const carInput = error instanceof Error && (error as { code?: string }).code === INPUT_IS_CAR
     const message = error instanceof Error ? error.message : 'Unknown error'
     spinner.stop(`${pc.red('✗')} ${carInput ? message : `Add failed: ${message}`}`)
@@ -356,6 +366,6 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     }
 
     cancel(carInput ? 'Add cancelled' : 'Add failed')
-    throw error
+    throw new CliFatal(message, { cause: error instanceof Error ? error : undefined })
   }
 }

@@ -24,6 +24,7 @@ import type { Spinner } from '../utils/cli-helpers.js'
 import { cancel, formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { createSpinnerFlow } from '../utils/multi-operation-spinner.js'
+import { CliFatal } from './cli-errors.js'
 
 export interface UploadFlowOptions {
   /**
@@ -158,12 +159,13 @@ export async function performAutoFunding(
       log.flush()
     }
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
     spinner?.stop(`${pc.red('✗')} Auto-funding failed`)
     log.line('')
-    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.line(`${pc.red('Error:')} ${msg}`)
     log.flush()
     cancel('Operation cancelled - auto-funding failed')
-    throw error
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }
 
@@ -216,10 +218,11 @@ export async function validatePaymentSetup(
   const { validation, allowances, capacity, suggestions } = readiness
 
   if (!validation.isValid) {
+    const errorMsg = validation.errorMessage ?? 'Payment setup required'
     spinner?.stop(`${pc.red('✗')} Payment setup incomplete`)
 
     log.line('')
-    log.line(`${pc.red('✗')} ${validation.errorMessage}`)
+    log.line(`${pc.red('✗')} ${errorMsg}`)
 
     if (validation.helpMessage) {
       log.line('')
@@ -235,7 +238,7 @@ export async function validatePaymentSetup(
     log.flush()
 
     cancel('Operation cancelled - payment setup required')
-    throw new Error(validation.errorMessage)
+    throw new CliFatal(errorMsg)
   }
 
   if (allowances.updated) {
@@ -254,7 +257,7 @@ export async function validatePaymentSetup(
       displayPaymentIssues(capacity, fileSize, spinner)
     }
     cancel('Operation cancelled - insufficient payment capacity')
-    throw new Error('Insufficient payment capacity')
+    throw new CliFatal('Insufficient payment capacity')
   }
 
   // Show warning if suggestions exist (even if upload is possible)

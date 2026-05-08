@@ -13,6 +13,7 @@ import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
@@ -370,10 +371,16 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     return result
   } catch (error) {
-    spinner.stop(`${pc.red('✗')} Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    if (isCliFatal(error)) {
+      spinner.stop()
+      logger.error({ event: 'import.failed', error }, 'Import failed')
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : 'Unknown error'
+    spinner.stop(`${pc.red('✗')} Import failed: ${msg}`)
     logger.error({ event: 'import.failed', error }, 'Import failed')
 
     cancel('Import failed')
-    throw error
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

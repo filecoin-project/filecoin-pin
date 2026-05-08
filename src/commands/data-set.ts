@@ -1,8 +1,16 @@
 import { Command } from 'commander'
 import { runDataSetDetailsCommand, runDataSetListCommand, runTerminateDataSetCommand } from '../data-set/run.js'
-import type { DataSetCommandOptions, DataSetListCommandOptions } from '../data-set/types.js'
+import type { DataSetListCommandOptions } from '../data-set/types.js'
 import { addAuthOptions } from '../utils/cli-options.js'
 import { addMetadataOptions, resolveMetadataOptions } from '../utils/cli-options-metadata.js'
+
+// Strict integer parse: rejects partial matches like "12abc" that
+// `Number.parseInt` would accept. Returns NaN for any invalid input so
+// runner-side validation reports it via clack.
+function parseStrictId(value: string): number {
+  const n = Number(value)
+  return Number.isInteger(n) ? n : NaN
+}
 
 export const dataSetCommand = new Command('data-set')
   .alias('dataset')
@@ -13,15 +21,7 @@ export const dataSetShowCommand = new Command('show')
   .argument('<dataSetId>', 'Display detailed information about a data set')
   .action(async (dataSetId: string, options) => {
     try {
-      const commandOptions: DataSetCommandOptions = {
-        ...options,
-      }
-      const dataSetIdNumber = Number.parseInt(dataSetId, 10)
-      if (Number.isNaN(dataSetIdNumber)) {
-        throw new Error('Invalid data set ID')
-      }
-
-      await runDataSetDetailsCommand(dataSetIdNumber, commandOptions)
+      await runDataSetDetailsCommand(parseStrictId(dataSetId), { ...options })
     } catch {
       process.exit(1)
     }
@@ -59,15 +59,7 @@ export const dataSetTerminateCommand = new Command('terminate')
   .option('--wait', 'Wait for the termination transaction to be confirmed')
   .action(async (dataSetId: string, options) => {
     try {
-      const commandOptions: DataSetCommandOptions = {
-        ...options,
-      }
-      const dataSetIdNumber = Number.parseInt(dataSetId, 10)
-      if (Number.isNaN(dataSetIdNumber)) {
-        throw new Error('Invalid data set ID')
-      }
-
-      await runTerminateDataSetCommand(dataSetIdNumber, commandOptions)
+      await runTerminateDataSetCommand(parseStrictId(dataSetId), { ...options })
     } catch {
       process.exit(1)
     }

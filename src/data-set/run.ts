@@ -1,6 +1,7 @@
 import { confirm, isCancel } from '@clack/prompts'
 import type { EnhancedDataSetInfo, Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { type DataSetSummary, getDetailedDataSet, listDataSets } from '../core/data-set/index.js'
 import { getClientAddress } from '../core/synapse/index.js'
 import { getCliSynapse } from '../utils/cli-auth.js'
@@ -21,6 +22,15 @@ export async function runDataSetDetailsCommand(dataSetId: number, options: DataS
   spinner.start('Connecting to Synapse...')
 
   try {
+    if (Number.isNaN(dataSetId) || dataSetId <= 0) {
+      spinner.stop(`${pc.red('✗')} Invalid data set ID`)
+      log.line('')
+      log.line(`${pc.red('Error:')} Provided data set ID is invalid or not a positive integer`)
+      log.flush()
+      cancel('Inspection failed')
+      throw new CliFatal('Invalid data set ID')
+    }
+
     const synapse = await getCliSynapse(options)
     const network = synapse.chain.name
     const address = getClientAddress(synapse)
@@ -34,14 +44,17 @@ export async function runDataSetDetailsCommand(dataSetId: number, options: DataS
 
     outro('Data set inspection complete')
   } catch (error) {
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
     spinner.stop(`${pc.red('✗')} Failed to inspect data set`)
-
     log.line('')
-    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.line(`${pc.red('Error:')} ${msg}`)
     log.flush()
-
     cancel('Inspection failed')
-    throw error
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }
 
@@ -53,10 +66,11 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
   let synapse: Synapse | null = null
 
   try {
-    // Parse and validate provider ID
+    // Parse and validate provider ID. Reject non-integers so BigInt() does
+    // not throw a low-level RangeError downstream.
     const providerIdRaw = options.providerId != null ? Number(options.providerId) : undefined
-    if (providerIdRaw != null && Number.isNaN(providerIdRaw)) {
-      throw new Error('Invalid provider ID')
+    if (providerIdRaw != null && (!Number.isInteger(providerIdRaw) || providerIdRaw <= 0)) {
+      throw new Error(`Invalid provider ID: '${options.providerId}' (must be a positive integer)`)
     }
     const providerId = providerIdRaw != null ? BigInt(providerIdRaw) : undefined
     const metadataEntries = options.dataSetMetadata ? Object.entries(options.dataSetMetadata) : []
@@ -111,12 +125,17 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
 
     outro('Data set list complete')
   } catch (error) {
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
     spinner.stop(`${pc.red('✗')} Failed to list data sets`)
     log.line('')
-    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.line(`${pc.red('Error:')} ${msg}`)
     log.flush()
     cancel('Listing failed')
-    throw error
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }
 
@@ -129,10 +148,10 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     if (Number.isNaN(dataSetId) || dataSetId <= 0) {
       spinner.stop(`${pc.red('✗')} Invalid data set ID`)
       log.line('')
-      log.line(`${pc.red('Error:')} Provided data set ID is invalid or not a number`)
+      log.line(`${pc.red('Error:')} Provided data set ID is invalid or not a positive integer`)
       log.flush()
       cancel('Termination failed')
-      throw new Error('Invalid data set ID')
+      throw new CliFatal('Invalid data set ID')
     }
 
     const synapse = await getCliSynapse(options)
@@ -149,7 +168,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       )
       log.flush()
       cancel('Termination failed')
-      throw new Error('Signing required for termination')
+      throw new CliFatal('Signing required for termination')
     }
 
     spinner.message('Fetching data set details...')
@@ -163,7 +182,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       log.line(`${pc.red('Error:')} Could not find data set with ID ${dataSetId}`)
       log.flush()
       cancel('Termination failed')
-      throw error
+      throw new CliFatal(`Data set ${dataSetId} not found`, { cause: error instanceof Error ? error : undefined })
     }
 
     if (dataSet.payer?.toLowerCase() !== address?.toLowerCase()) {
@@ -174,7 +193,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       log.line(`  Owner: ${dataSet.payer}`)
       log.flush()
       cancel('Termination failed')
-      throw new Error(errorMsg)
+      throw new CliFatal(errorMsg)
     }
 
     if (dataSet.pdpEndEpoch > 0) {
@@ -280,13 +299,16 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
 
     outro(shouldWait ? 'Data set termination complete' : 'Termination transaction submitted')
   } catch (error) {
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
     spinner.stop(`${pc.red('✗')} Failed to terminate data set`)
-
     log.line('')
-    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.line(`${pc.red('Error:')} ${msg}`)
     log.flush()
-
     cancel('Termination failed')
-    throw error
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }
