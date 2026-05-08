@@ -145,7 +145,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
   })
 
   // Check CDN status and warn if enabled
-  const withCDN = process.env.WITH_CDN === 'true' || options.cdn === true
+  const withCDN = options.cdn === true
   if (withCDN) {
     const proceed = await warnAboutCDNPricingLimitations()
     if (!proceed) {
