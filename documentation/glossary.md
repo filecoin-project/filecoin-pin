@@ -55,13 +55,13 @@ This is often abbreviated as “FOC”, which yes, does phonetically resonate wi
 
 ## Filecoin Pin
 
-https://github.com/FilOzone/filecoin-pin
+https://github.com/filecoin-project/filecoin-pin
 
 Serves as an IPFS-oriented set of tools for interfacing with [Filecoin Onchain Cloud](#filecoin-onchain-cloud) built on top of [Synapse](#synapse).
 
-## `filecoin-pin`
+## `filecoin-pin` CLI
 
-`filecoin-pin` is a CLI tool affordance for [Filecoin Pin](#filecoin-pin).
+The npm package name and CLI tool for [Filecoin Pin](#filecoin-pin). The package includes both the CLI and the [JavaScript library](#filecoin-pin-javascript-library). See [CLI affordance in the README](../README.md#-cli).
 
 ## filecoin-pin-website
 
@@ -74,11 +74,21 @@ Example of [Filecoin Pin](#filecoin-pin) in action within a web-browser.  Its pu
 
 filecoin-pin-website is also hosted at [pin.filecoin.cloud](http://pin.filecoin.cloud), with hardcoded wallet and [session key](#session-key) on the [Calibration](#calibration-network) network.  In future, [integration with tools like Metamask will be supported](https://github.com/filecoin-project/filecoin-pin-website/issues/77).  
 
-## Filecoin Pin example GitHub Action
+## Filecoin Pin GitHub Action
 
-https://github.com/filecoin-project/filecoin-pin/tree/master/upload-action
+See [GitHub Action affordance in the README](../README.md#-github-action).
 
-Example of [Filecoin Pin](#filecoin-pin) in action within a reusable GitHub Action.
+## Filecoin Pin JavaScript Library
+
+See [JavaScript Library affordance in the README](../README.md#-javascript-library).
+
+## Filecoin Pin IPFS Pinning Server
+
+See [IPFS Pinning Server affordance in the README](../README.md#-ipfs-pinning-server-daemon-mode).
+
+## Filecoin Pin Management Console
+
+See [Management Console affordance in the README](../README.md#-management-console-gui).
 
 ## Filecoin Warm Storage Service
 
