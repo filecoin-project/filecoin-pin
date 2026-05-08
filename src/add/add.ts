@@ -87,7 +87,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
   })
 
   // Check CDN status and warn if enabled
-  const withCDN = process.env.WITH_CDN === 'true'
+  const withCDN = process.env.WITH_CDN === 'true' || options.cdn === true
   if (withCDN) {
     const proceed = await warnAboutCDNPricingLimitations()
     if (!proceed) {

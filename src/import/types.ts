@@ -12,6 +12,8 @@ export interface ImportOptions extends CLIAuthOptions, CLIAutoFundOptions {
   dataSetMetadata?: Record<string, string>
   /** Skip IPNI advertisement verification after upload */
   skipIpniVerification?: boolean
+  /** Enable Filecoin Beam (CDN) for faster IPFS retrievals */
+  cdn?: boolean
 }
 
 export interface ImportResult {

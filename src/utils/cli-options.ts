@@ -102,12 +102,17 @@ export function addNetworkOptions(command: Command): Command {
  * Used by `add` and `import` commands.
  */
 export function addUploadOptions(command: Command): Command {
-  return command.addOption(
-    new Option(
-      '--skip-ipni-verification',
-      'Skip IPNI advertisement verification after upload (automatic for devnet)'
-    ).env('SKIP_IPNI_VERIFICATION')
-  )
+  return command
+    .addOption(
+      new Option(
+        '--skip-ipni-verification',
+        'Skip IPNI advertisement verification after upload (automatic for devnet)'
+      ).env('SKIP_IPNI_VERIFICATION')
+    )
+    .option(
+      '--cdn',
+      'Enable Filecoin Beam (CDN) for faster IPFS retrievals (alias for --data-set-metadata withCDN=true)'
+    )
 }
 
 /**
