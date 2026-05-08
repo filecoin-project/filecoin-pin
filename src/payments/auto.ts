@@ -40,7 +40,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     targetFilecoinPayBalance = parseUnits(options.deposit, 18)
   } catch {
     console.error(pc.red(`Error: Invalid deposit amount '${options.deposit}'`))
-    process.exit(1)
+    throw new Error(`Invalid deposit amount '${options.deposit}'`)
   }
 
   const spinner = createSpinner()
@@ -75,7 +75,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       }
       log.flush()
       cancel('Please fund your wallet and try again')
-      process.exit(1)
+      throw new Error(validation.errorMessage)
     }
 
     // Now safe to get payment status since we know account exists
@@ -110,7 +110,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
             `✗ Insufficient USDFC for deposit (need ${formatUSDFC(neededFilecoinPayTopUp)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
           )
         )
-        process.exit(1)
+        throw new Error('Insufficient USDFC for deposit')
       }
 
       spinner.start(`Depositing ${formatUSDFC(neededFilecoinPayTopUp)} USDFC...`)
@@ -167,9 +167,6 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     spinner.stop() // Stop spinner without message
     console.error(pc.red('✗ Setup failed'))
     console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
-
-    process.exitCode = 1
-  } finally {
-    process.exit()
+    throw error
   }
 }

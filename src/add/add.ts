@@ -22,6 +22,8 @@ import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
+import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
+import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 import type { AddOptions, AddResult } from './types.js'
 
 /**
@@ -64,6 +66,46 @@ async function validatePath(
       error: `Cannot access path: ${path} (${error?.message || 'unknown error'})`,
     }
   }
+}
+
+/**
+ * Normalize Commander options and run the add flow.
+ *
+ * Commander wiring calls this so option validation errors are displayed by the
+ * command UI layer and command files only own exit-code handling.
+ */
+export async function runAddFromCli(path: string, options: Record<string, any>): Promise<AddResult> {
+  let addOptions: AddOptions
+  try {
+    const autoFundOptions = validateAndNormalizeAutoFundOptions(options)
+    const {
+      metadata: _metadata,
+      dataSetMetadata: _dataSetMetadata,
+      datasetMetadata: _datasetMetadata,
+      '8004Type': _erc8004Type,
+      '8004Agent': _erc8004Agent,
+      autoFund: _autoFund,
+      minRunwayDays: _minRunwayDays,
+      maxBalance: _maxBalance,
+      ...addOptionsFromCli
+    } = options
+    const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
+
+    addOptions = {
+      ...addOptionsFromCli,
+      ...autoFundOptions,
+      filePath: path,
+      ...(pieceMetadata && { pieceMetadata }),
+      ...(dataSetMetadata && { dataSetMetadata }),
+    }
+  } catch (error) {
+    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.flush()
+    cancel('Add cancelled')
+    throw error
+  }
+
+  return await runAdd(addOptions)
 }
 
 /**
@@ -270,6 +312,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       rootCid: rootCid.toString(),
       pieceCid: uploadResult.pieceCid,
       size: uploadResult.size,
+      requestedCopies,
       copies: uploadResult.copies,
       failedAttempts: uploadResult.failedAttempts,
     }
@@ -286,7 +329,6 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       )
       log.flush()
       outro('Add completed with errors')
-      process.exitCode = 1
     } else if (uploadResult.failedAttempts.length > 0) {
       log.line('')
       log.line(pc.gray(`${uploadResult.failedAttempts.length} non-critical copy failure(s) during upload.`))

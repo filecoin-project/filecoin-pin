@@ -163,7 +163,7 @@ export async function performAutoFunding(
     log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
     log.flush()
     cancel('Operation cancelled - auto-funding failed')
-    process.exit(1)
+    throw error
   }
 }
 
@@ -175,7 +175,7 @@ export async function performAutoFunding(
  * @param spinner - Optional spinner for progress
  * @param options - Optional configuration
  * @param options.suppressSuggestions - If true, don't display suggestion warnings
- * @returns true if validation passes, exits process if not
+ * @returns Resolves if validation passes, throws if not
  */
 export async function validatePaymentSetup(
   synapse: Synapse,
@@ -235,7 +235,7 @@ export async function validatePaymentSetup(
     log.flush()
 
     cancel('Operation cancelled - payment setup required')
-    process.exit(1)
+    throw new Error(validation.errorMessage)
   }
 
   if (allowances.updated) {
@@ -254,7 +254,7 @@ export async function validatePaymentSetup(
       displayPaymentIssues(capacity, fileSize, spinner)
     }
     cancel('Operation cancelled - insufficient payment capacity')
-    process.exit(1)
+    throw new Error('Insufficient payment capacity')
   }
 
   // Show warning if suggestions exist (even if upload is possible)

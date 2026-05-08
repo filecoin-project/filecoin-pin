@@ -37,7 +37,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
   if (!isTTY()) {
     console.error(pc.red('Error: Interactive mode requires a TTY terminal.'))
     console.error('Use --auto flag for non-interactive setup.')
-    process.exit(1)
+    throw new Error('Interactive mode requires a TTY terminal')
   }
 
   intro(pc.bold('Filecoin Onchain Cloud Payment Setup'))
@@ -66,7 +66,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       if (isCancel(input)) {
         cancel('Setup cancelled')
-        process.exit(1)
+        throw new Error('Setup cancelled')
       }
 
       // Add 0x prefix if it was missing
@@ -102,7 +102,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       }
       log.flush()
       cancel('Please fund your wallet and try again')
-      process.exit(1)
+      throw new Error(validation.errorMessage)
     }
 
     // Now safe to get payment status since we know account exists
@@ -161,7 +161,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
     if (isCancel(shouldDeposit)) {
       cancel('Setup cancelled')
-      process.exit(1)
+      throw new Error('Setup cancelled')
     }
 
     if (shouldDeposit) {
@@ -193,7 +193,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       if (isCancel(amountStr)) {
         cancel('Setup cancelled')
-        process.exit(1)
+        throw new Error('Setup cancelled')
       }
 
       depositAmount = parseUnits(amountStr, 18)
@@ -262,8 +262,6 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     }
   } catch (error) {
     console.error(`\n${pc.red('Error:')}`, error instanceof Error ? error.message : error)
-    process.exitCode = 1
-  } finally {
-    process.exit()
+    throw error
   }
 }
