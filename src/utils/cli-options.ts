@@ -109,10 +109,7 @@ export function addUploadOptions(command: Command): Command {
         'Skip IPNI advertisement verification after upload (automatic for devnet)'
       ).env('SKIP_IPNI_VERIFICATION')
     )
-    .option(
-      '--cdn',
-      'Enable Filecoin Beam (CDN) for faster IPFS retrievals (alias for --data-set-metadata withCDN=true)'
-    )
+    .option('--cdn', 'Enable Filecoin Beam CDN service for this upload')
 }
 
 /**
