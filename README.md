@@ -8,7 +8,7 @@
 
 **Ready for persistent, verifiable data on Filecoin Mainnet.**
 
-Register for updates and a later 2025 Q4 GA announcement at [filecoin.cloud](https://filecoin.cloud/).
+Register for updates and a later 2026 Q4 GA announcement at [filecoin.cloud](https://filecoin.cloud/).
 
 ## What is Filecoin Pin?
 
