@@ -18,8 +18,8 @@ importers:
         specifier: ^1.0.1
         version: 1.2.0
       '@filoz/synapse-core':
-        specifier: ^0.5.1
-        version: 0.5.1(typescript@5.9.3)(viem@2.48.4(typescript@5.9.3)(zod@4.3.6))
+        specifier: ^0.5.2
+        version: 0.5.2(typescript@5.9.3)(viem@2.48.4(typescript@5.9.3)(zod@4.3.6))
       '@filoz/synapse-sdk':
         specifier: ^0.41.0
         version: 0.41.0(typescript@5.9.3)(viem@2.48.4(typescript@5.9.3)(zod@4.3.6))
@@ -618,8 +618,8 @@ packages:
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==}
 
-  '@filoz/synapse-core@0.5.1':
-    resolution: {integrity: sha512-FRd842l/Q4DN2xbV0MoONYjzSIMJd+puK8USqkIEOJ/idGNR4HraHRZiTosnC66kmxA8M708+V6wB0rc3ZdnNw==}
+  '@filoz/synapse-core@0.5.2':
+    resolution: {integrity: sha512-euxg/UhABStkXYJBft259V9KKNdzV/08NwfwIJnlhQnTJDu5suNXqZlP5QEDTdpMVtaCCfqEXJuPGqGZy6Nz6w==}
     peerDependencies:
       viem: 2.x
 
@@ -4394,7 +4394,7 @@ snapshots:
       '@fastify/forwarded': 3.0.1
       ipaddr.js: 2.3.0
 
-  '@filoz/synapse-core@0.5.1(typescript@5.9.3)(viem@2.48.4(typescript@5.9.3)(zod@4.3.6))':
+  '@filoz/synapse-core@0.5.2(typescript@5.9.3)(viem@2.48.4(typescript@5.9.3)(zod@4.3.6))':
     dependencies:
       '@web3-storage/data-segment': 5.3.0
       dnum: 2.17.0
@@ -4411,7 +4411,7 @@ snapshots:
 
   '@filoz/synapse-sdk@0.41.0(typescript@5.9.3)(viem@2.48.4(typescript@5.9.3)(zod@4.3.6))':
     dependencies:
-      '@filoz/synapse-core': 0.5.1(typescript@5.9.3)(viem@2.48.4(typescript@5.9.3)(zod@4.3.6))
+      '@filoz/synapse-core': 0.5.2(typescript@5.9.3)(viem@2.48.4(typescript@5.9.3)(zod@4.3.6))
       multiformats: 13.4.2
       viem: 2.48.4(typescript@5.9.3)(zod@4.3.6)
     transitivePeerDependencies:
