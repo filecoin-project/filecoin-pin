@@ -17,20 +17,20 @@ import type { DataSetCommandOptions, DataSetListCommandOptions } from './types.j
  * @param options - Normalised CLI options
  */
 export async function runDataSetDetailsCommand(dataSetId: number, options: DataSetCommandOptions): Promise<void> {
+  if (Number.isNaN(dataSetId) || dataSetId <= 0) {
+    intro(pc.bold('Filecoin Onchain Cloud Data Set Details'))
+    log.line('')
+    log.line(`${pc.red('Error:')} Provided data set ID is invalid or not a positive integer`)
+    log.flush()
+    cancel('Inspection failed')
+    throw new CliFatal('Invalid data set ID')
+  }
+
   intro(pc.bold(`Filecoin Onchain Cloud Data Set Details for #${dataSetId}`))
   const spinner = createSpinner()
   spinner.start('Connecting to Synapse...')
 
   try {
-    if (Number.isNaN(dataSetId) || dataSetId <= 0) {
-      spinner.stop(`${pc.red('✗')} Invalid data set ID`)
-      log.line('')
-      log.line(`${pc.red('Error:')} Provided data set ID is invalid or not a positive integer`)
-      log.flush()
-      cancel('Inspection failed')
-      throw new CliFatal('Invalid data set ID')
-    }
-
     const synapse = await getCliSynapse(options)
     const network = synapse.chain.name
     const address = getClientAddress(synapse)
@@ -140,20 +140,20 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
 }
 
 export async function runTerminateDataSetCommand(dataSetId: number, options: DataSetCommandOptions): Promise<void> {
+  if (Number.isNaN(dataSetId) || dataSetId <= 0) {
+    intro(pc.bold('Terminate Filecoin Onchain Cloud Data Set'))
+    log.line('')
+    log.line(`${pc.red('Error:')} Provided data set ID is invalid or not a positive integer`)
+    log.flush()
+    cancel('Termination failed')
+    throw new CliFatal('Invalid data set ID')
+  }
+
   intro(pc.bold(`Terminate Filecoin Onchain Cloud Data Set #${dataSetId}`))
   const spinner = createSpinner()
   spinner.start('Connecting to Synapse...')
 
   try {
-    if (Number.isNaN(dataSetId) || dataSetId <= 0) {
-      spinner.stop(`${pc.red('✗')} Invalid data set ID`)
-      log.line('')
-      log.line(`${pc.red('Error:')} Provided data set ID is invalid or not a positive integer`)
-      log.flush()
-      cancel('Termination failed')
-      throw new CliFatal('Invalid data set ID')
-    }
-
     const synapse = await getCliSynapse(options)
     const network = synapse.chain.name
     const address = getClientAddress(synapse)
