@@ -7,9 +7,9 @@ import { describe, expect, it } from 'vitest'
  * Validates error handling across all CLI commands without requiring live RPC.
  * Tests capture stdout, stderr, and exit codes to ensure consistent error behavior.
  *
- * Run all smoke tests: pnpm run smoke
- * Run with network tests: SMOKE_NETWORK=1 pnpm run smoke
- * Update snapshots: pnpm run smoke -- -u
+ * Build the CLI first, then run all smoke tests: pnpm run build && pnpm run smoke
+ * Build the CLI first, then run with network tests: pnpm run build && SMOKE_NETWORK=1 pnpm run smoke
+ * Build the CLI first, then update snapshots: pnpm run build && pnpm run smoke -- -u
  */
 
 interface CliResult {
