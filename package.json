@@ -89,6 +89,8 @@
     "test:integration": "vitest run --project integration",
     "test:browser": "vitest run --project browser",
     "test:watch": "vitest",
+    "smoke": "vitest run --project smoke",
+    "smoke:network": "SMOKE_NETWORK=1 vitest run --project smoke",
     "lint": "tsc && biome check --no-errors-on-unmatched --files-ignore-unknown=true .",
     "lint:fix": "biome check --no-errors-on-unmatched --files-ignore-unknown=true --fix .",
     "typecheck": "tsc --noEmit",

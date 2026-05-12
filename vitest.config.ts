@@ -27,6 +27,15 @@ export default defineConfig({
         },
       },
       {
+        // smoke tests - CLI error scenarios
+        test: {
+          name: 'smoke',
+          environment: 'node',
+          include: ['src/test/smoke/**/*.test.ts'],
+          setupFiles: ['src/test/setup.ts'],
+        },
+      },
+      {
         // browser tests (also isomorphic tests)
         test: {
           name: 'browser',
