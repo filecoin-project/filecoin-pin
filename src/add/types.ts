@@ -22,6 +22,7 @@ export interface AddResult {
   rootCid: string
   pieceCid: string
   size: number
+  requestedCopies: number
   copies: CopyResult[]
   failedAttempts: FailedAttempt[]
 }
