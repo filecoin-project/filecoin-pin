@@ -7,6 +7,7 @@
 import { type Command, InvalidArgumentError, Option } from 'commander'
 import { parseUnits } from 'viem'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
+import { normalizeNetworkName } from '../common/get-rpc-url.js'
 import { USDFC_DECIMALS } from '../core/payments/constants.js'
 
 /**
@@ -90,6 +91,9 @@ export function addNetworkOptions(command: Command): Command {
         'config from foc-devnet (https://github.com/filecoin-project/foc-devnet, ' +
         'env: FOC_DEVNET_BASEDIR or DEVNET_INFO_PATH, DEVNET_USER_INDEX).'
     )
+      // Normalize before .choices() validates, so aliases are accepted without
+      // appearing in --help.
+      .argParser((value) => normalizeNetworkName(value) ?? value)
       .choices(['mainnet', 'calibration', 'devnet'])
       .env('NETWORK')
       .conflicts('rpcUrl')
