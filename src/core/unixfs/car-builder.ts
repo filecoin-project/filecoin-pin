@@ -29,7 +29,7 @@ export type Spinner = {
 const PLACEHOLDER_CID = CID.parse('bafyaaiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
 
 // Whether to include hidden files (starting with .) when adding directories.
-// Default false to match Kubo's `ipfs add` default; callers can opt in via `includeHidden`.
+// Default false according to the unixfs-v1-2025 CID profile.
 const INCLUDE_HIDDEN_FILES = false
 
 export type CarEntryKind = 'file' | 'directory'
