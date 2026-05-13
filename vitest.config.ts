@@ -12,7 +12,7 @@ export default defineConfig({
           name: 'unit',
           environment: 'node',
           include: ['src/test/unit/**/*.test.ts', 'src/test/**/*.iso.test.ts'],
-          exclude: ['src/test/**/*.browser.test.ts'],
+          exclude: ['src/test/**/*.browser.test.ts', 'src/test/smoke/**/*.test.ts'],
           setupFiles: ['src/test/setup.ts'],
         },
       },
@@ -22,7 +22,16 @@ export default defineConfig({
           name: 'integration',
           environment: 'node',
           include: ['src/test/integration/**/*.test.ts'],
-          exclude: ['src/test/**/*.browser.test.ts'],
+          exclude: ['src/test/**/*.browser.test.ts', 'src/test/smoke/**/*.test.ts'],
+          setupFiles: ['src/test/setup.ts'],
+        },
+      },
+      {
+        // smoke tests - CLI error scenarios (opt-in via --project smoke)
+        test: {
+          name: 'smoke',
+          environment: 'node',
+          include: ['src/test/smoke/**/*.test.ts'],
           setupFiles: ['src/test/setup.ts'],
         },
       },
@@ -31,6 +40,7 @@ export default defineConfig({
         test: {
           name: 'browser',
           include: ['src/test/**/*.browser.test.ts', 'src/test/**/*.iso.test.ts'],
+          exclude: ['src/test/smoke/**/*.test.ts'],
           browser: {
             enabled: true,
             provider: playwright(),
