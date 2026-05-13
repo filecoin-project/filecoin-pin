@@ -482,7 +482,6 @@ describe('UnixFS CAR Creation', () => {
       await writeFile(join(hiddenRoot, 'another.json'), '{"k":"v"}')
 
       const result = await createCarFromPath(hiddenRoot)
-      expect(result.kind).toBe('directory')
       expect(result.name).toBe('.well-known')
 
       const blockCount = await countBlocks(result.carPath)

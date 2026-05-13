@@ -28,11 +28,8 @@ export type Spinner = {
 // Placeholder CID used during CAR creation (will be replaced with actual root)
 const PLACEHOLDER_CID = CID.parse('bafyaaiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
 
-// Whether to include hidden files (starting with .) when adding directories.
 // Default false according to the unixfs-v1-2025 CID profile.
 const INCLUDE_HIDDEN_FILES = false
-
-export type CarEntryKind = 'file' | 'directory'
 
 export interface CreateCarOptions {
   logger?: Logger
@@ -47,17 +44,8 @@ export interface CreateCarResult {
   rootCid: CID
   /** Basename of the source path, useful for piece metadata. */
   name: string
-  /** Whether the encoded entry is a file or a directory. */
-  kind: CarEntryKind
 }
 
-/**
- * Create a CAR file from a file or directory using UnixFS encoding
- *
- * @param path - Path to the file or directory to encode
- * @param options - Optional logger, directory flag, and hidden-file toggle
- * @returns Path to temporary CAR file, root CID, source name, and kind
- */
 export async function createCarFromPath(path: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {
   const { isDirectory = false } = options
 
@@ -77,25 +65,16 @@ export async function createCarFromPath(path: string, options: CreateCarOptions 
   return createCarFromSingleFile(path, options)
 }
 
-/**
- * Common CAR creation logic
- *
- * @param contentPath - Path to the content to encode
- * @param options - Options including logger and type
- * @param addContent - Function that adds content to UnixFS and returns the root CID
- * @returns CAR file path and root CID
- */
 async function createCar(
   contentPath: string,
-  options: CreateCarOptions & { kind: CarEntryKind; name: string },
+  options: CreateCarOptions & { name: string },
   addContent: (fs: any) => Promise<CID>
 ): Promise<CreateCarResult> {
-  const { logger, kind: type, name } = options
+  const { logger, name } = options
 
-  // Generate temp file path
   const tempCarPath = join(tmpdir(), `filecoin-pin-add-${Date.now()}-${randomBytes(8).toString('hex')}.car`)
 
-  logger?.info({ path: contentPath, tempCarPath, type }, `Creating CAR from ${type}`)
+  logger?.info({ path: contentPath, tempCarPath }, 'Creating CAR')
   logger?.debug({ placeholderCID: PLACEHOLDER_CID.toString() }, 'Using placeholder CID')
 
   // Create blockstore with placeholder CID
@@ -140,19 +119,13 @@ async function createCar(
     `CAR file created successfully`
   )
 
-  return { carPath: tempCarPath, rootCid, name, kind: type }
+  return { carPath: tempCarPath, rootCid, name }
 }
 
 /**
- * Create a CAR file from a single file
- *
- * Single files are encoded without a parent-directory wrapper (IPIP-499
- * conformance). The basename is returned so callers can route it into
- * piece metadata.
- *
- * @param filePath - Path to the file to encode
- * @param options - Options including logger
- * @returns CAR file path, root CID, and source name
+ * Single files are encoded without a parent-directory wrapper under the
+ * IPIP-499 unixfs-v1-2025 profile; the basename is surfaced on the result
+ * so callers can route it into piece metadata.
  */
 async function createCarFromSingleFile(filePath: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {
   const { logger } = options
@@ -169,7 +142,7 @@ async function createCarFromSingleFile(filePath: string, options: CreateCarOptio
     sniff.destroy()
   }
 
-  return createCar(filePath, { ...options, kind: 'file', name }, async (fs) => {
+  return createCar(filePath, { ...options, name }, async (fs) => {
     const fileStream = createReadStream(filePath)
     const webStream = Readable.toWeb(fileStream) as ReadableStream<Uint8Array>
 
@@ -178,13 +151,6 @@ async function createCarFromSingleFile(filePath: string, options: CreateCarOptio
   })
 }
 
-/**
- * Create a CAR file from a directory
- *
- * @param dirPath - Path to the directory to encode
- * @param options - Options including logger and spinner
- * @returns CAR file path and root CID
- */
 async function createCarFromDirectory(dirPath: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {
   const { logger, spinner, includeHidden = INCLUDE_HIDDEN_FILES } = options
 
@@ -193,7 +159,7 @@ async function createCarFromDirectory(dirPath: string, options: CreateCarOptions
   const parentDir = dirname(absolutePath)
   const dirName = basename(absolutePath)
 
-  return createCar(dirPath, { ...options, kind: 'directory', name: dirName }, async (fs) => {
+  return createCar(dirPath, { ...options, name: dirName }, async (fs) => {
     logger?.info({ dirPath }, 'Streaming directory contents to UnixFS')
 
     // Use globSource with the parent directory as base and include the directory name in the pattern
@@ -203,15 +169,11 @@ async function createCarFromDirectory(dirPath: string, options: CreateCarOptions
     const pattern = `${dirName}/**/*`
     // If the user explicitly targets a hidden root (e.g. `add .well-known`),
     // glob's hidden filter would discard every match because the root path
-    // segment starts with `.`. Force hidden traversal in that case; the user
+    // segment starts with `.`. Force hidden traversal in that case — the user
     // selected this directory, so its contents go in regardless of the
     // dotfile-exclusion default.
-    const rootIsHidden = dirName.startsWith('.')
-    const hidden = includeHidden || rootIsHidden
-    logger?.info(
-      { absolutePath, parentDir, dirName, pattern, includeHidden, rootIsHidden, hidden },
-      'Directory structure for UnixFS'
-    )
+    const hidden = includeHidden || dirName.startsWith('.')
+    logger?.info({ absolutePath, parentDir, dirName, pattern, hidden }, 'Directory structure for UnixFS')
 
     const candidates = globSource(parentDir, pattern, {
       hidden,
@@ -249,12 +211,6 @@ async function createCarFromDirectory(dirPath: string, options: CreateCarOptions
   })
 }
 
-/**
- * Clean up temporary CAR file
- *
- * @param carPath - Path to the temporary CAR file to delete
- * @param logger - Optional logger
- */
 export async function cleanupTempCar(carPath: string, logger?: Logger): Promise<void> {
   try {
     await unlink(carPath)

@@ -77,7 +77,6 @@ vi.mock('../../core/unixfs/index.js', () => ({
         toString: () => cid,
       },
       name,
-      kind: isDirectory ? 'directory' : 'file',
     })
   }),
   cleanupTempCar: vi.fn(),
@@ -164,7 +163,7 @@ describe('Add Command', () => {
       )
     })
 
-    it('routes the source filename into piece metadata', async () => {
+    it('routes the source basename into piece metadata under "name"', async () => {
       await runAdd({
         filePath: testFile,
         privateKey: 'test-private-key',
@@ -177,17 +176,17 @@ describe('Add Command', () => {
         expect.anything(),
         expect.anything(),
         expect.objectContaining({
-          pieceMetadata: expect.objectContaining({ filename: 'test.bin' }),
+          pieceMetadata: expect.objectContaining({ name: 'test.bin' }),
         })
       )
     })
 
-    it('preserves user-supplied filename over the derived basename', async () => {
+    it('preserves user-supplied name over the derived basename', async () => {
       await runAdd({
         filePath: testFile,
         privateKey: 'test-private-key',
         rpcUrl: 'wss://test.rpc.url',
-        pieceMetadata: { filename: 'custom-name.bin' },
+        pieceMetadata: { name: 'custom-name.bin' },
       })
 
       const { performUpload } = await import('../../common/upload-flow.js')
@@ -196,7 +195,7 @@ describe('Add Command', () => {
         expect.anything(),
         expect.anything(),
         expect.objectContaining({
-          pieceMetadata: expect.objectContaining({ filename: 'custom-name.bin' }),
+          pieceMetadata: expect.objectContaining({ name: 'custom-name.bin' }),
         })
       )
     })
@@ -225,7 +224,7 @@ describe('Add Command', () => {
         expect.anything(),
         expect.anything(),
         expect.objectContaining({
-          pieceMetadata: { region: 'us-west', note: '', filename: 'test.bin' },
+          pieceMetadata: { region: 'us-west', note: '', name: 'test.bin' },
           metadata: { purpose: 'erc8004' },
         })
       )

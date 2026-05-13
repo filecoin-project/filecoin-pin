@@ -16,8 +16,6 @@ import { importerOptions } from './importer-options.js'
 // Placeholder CID used during CAR creation (will be replaced with actual root)
 const PLACEHOLDER_CID = CID.parse('bafyaaiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
 
-export type CarEntryKind = 'file' | 'directory'
-
 export interface CreateCarOptions {
   onProgress?: (bytesProcessed: number, totalBytes: number) => void
 }
@@ -27,8 +25,6 @@ export interface CreateCarResult {
   rootCid: CID
   /** Basename of the source, useful for piece metadata. */
   name: string
-  /** Whether the encoded entry is a file or a directory. */
-  kind: CarEntryKind
 }
 
 /**
@@ -54,7 +50,7 @@ export async function createCarFromFile(file: File, options: CreateCarOptions = 
   let bytesProcessed = 0
   const totalBytes = file.size
 
-  return createCar({ name: file.name, kind: 'file' }, async (fs) => {
+  return createCar({ name: file.name }, async (fs) => {
     // Create async iterable from file stream
     async function* fileContent() {
       const reader = file.stream().getReader()
@@ -78,23 +74,20 @@ export async function createCarFromFile(file: File, options: CreateCarOptions = 
 }
 
 /**
- * Create a CAR file from multiple Files using UnixFS encoding
- *
- * @param files - Array of browser File objects to encode
- * @param options - Optional progress callback
- * @returns CAR bytes and root CID
+ * Multi-file uploads without a `webkitRelativePath` have no meaningful
+ * basename, so `name` is returned as an empty string and no `name` piece
+ * metadata is attached (see `withDerivedNameMetadata`).
  */
 export async function createCarFromFiles(files: File[], options: CreateCarOptions = {}): Promise<CreateCarResult> {
   if (files.length === 0) {
     throw new Error('At least one file is required')
   }
 
-  // Single-file fast path: same shape as createCarFromFile (no wrapper).
   if (files.length === 1 && files[0] != null) {
     return createCarFromFile(files[0], options)
   }
 
-  return createCar({ name: '', kind: 'directory' }, async (fs) => {
+  return createCar({ name: '' }, async (fs) => {
     // Convert files to addAll format
     async function* fileGenerator() {
       for (const file of files) {
@@ -163,7 +156,7 @@ export async function createCarFromFileList(files: File[], options: CreateCarOpt
   const dirName = sample?.split('/')[0] ?? ''
 
   // Has directory structure - preserve it
-  return createCar({ name: dirName, kind: 'directory' }, async (fs) => {
+  return createCar({ name: dirName }, async (fs) => {
     // Convert files to addAll format with paths
     async function* fileGenerator() {
       for (const file of files) {
@@ -211,14 +204,11 @@ export async function createCarFromFileList(files: File[], options: CreateCarOpt
 /**
  * Common CAR creation logic
  *
- * @param meta - Source name and entry kind, surfaced on CreateCarResult
+ * @param meta - Source name surfaced on CreateCarResult
  * @param addContent - Function that adds content to UnixFS and returns the root CID
- * @returns CAR bytes, root CID, source name, and kind
+ * @returns CAR bytes, root CID, and source name
  */
-async function createCar(
-  meta: { name: string; kind: CarEntryKind },
-  addContent: (fs: any) => Promise<CID>
-): Promise<CreateCarResult> {
+async function createCar(meta: { name: string }, addContent: (fs: any) => Promise<CID>): Promise<CreateCarResult> {
   // Create blockstore with placeholder CID
   const blockstore = new CARWritingBlockstore({
     rootCID: PLACEHOLDER_CID,
@@ -242,7 +232,7 @@ async function createCar(
   // Update the root CID in the CAR bytes
   carBytes = await updateRootCidInCar(carBytes, rootCid)
 
-  return { carBytes, rootCid, name: meta.name, kind: meta.kind }
+  return { carBytes, rootCid, name: meta.name }
 }
 
 /**

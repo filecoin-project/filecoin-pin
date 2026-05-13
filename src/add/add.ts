@@ -222,7 +222,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     const packingMsg = isDirectory ? 'Packing directory for IPFS...' : 'Packing file for IPFS...'
     spinner.start(packingMsg)
 
-    const { carPath, rootCid, name, kind } = await createCarFromPath(options.filePath, {
+    const { carPath, rootCid, name } = await createCarFromPath(options.filePath, {
       logger,
       spinner,
       isDirectory,
@@ -230,10 +230,9 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     })
     tempCarPath = carPath
 
-    // Route the source name into piece metadata so consumers can recover
-    // the original file/directory label after retrieval. User-supplied
-    // entries take precedence; this only fills gaps.
-    const pieceMetadata = withDerivedNameMetadata(userPieceMetadata, { kind, name })
+    // File-vs-directory is recovered by inspecting the root CID
+    // (codec + UnixFS Data.Type), not from a key-name distinction.
+    const pieceMetadata = withDerivedNameMetadata(userPieceMetadata, name)
 
     spinner.stop(`${pc.green('✓')} ${isDirectory ? 'Directory' : 'File'} packed with root CID: ${rootCid.toString()}`)
 
