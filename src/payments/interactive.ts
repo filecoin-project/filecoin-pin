@@ -7,9 +7,9 @@
  */
 
 import { cancel, confirm, isCancel, password, text } from '@clack/prompts'
-import { calibration, mainnet } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import { type Hex, parseUnits } from 'viem'
+import { parseUnits } from 'viem'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import {
   calculateDepositCapacity,
   checkAndSetAllowances,
@@ -20,8 +20,9 @@ import {
   getPaymentStatus,
   validatePaymentRequirements,
 } from '../core/payments/index.js'
-import { getClientAddress, initializeSynapse, type PrivateKeyConfig } from '../core/synapse/index.js'
+import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
+import { parseCLIAuth } from '../utils/cli-auth.js'
 import { createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
 import { displayAccountInfo, displayDepositWarning, displayPricing } from './setup.js'
@@ -35,12 +36,14 @@ import type { PaymentSetupOptions } from './types.js'
 export async function runInteractiveSetup(options: PaymentSetupOptions): Promise<void> {
   // Check for TTY support
   if (!isTTY()) {
-    console.error(pc.red('Error: Interactive mode requires a TTY terminal.'))
-    console.error('Use --auto flag for non-interactive setup.')
-    process.exit(1)
+    log.line(pc.red('Error: Interactive mode requires a TTY terminal.'))
+    log.line('Use --auto flag for non-interactive setup.')
+    log.flush()
+    throw new CliFatal('Interactive mode requires a TTY terminal')
   }
 
   intro(pc.bold('Filecoin Onchain Cloud Payment Setup'))
+  const s = createSpinner()
 
   try {
     // Get private key
@@ -66,7 +69,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       if (isCancel(input)) {
         cancel('Setup cancelled')
-        process.exit(1)
+        throw new CliFatal('Setup cancelled')
       }
 
       // Add 0x prefix if it was missing
@@ -74,21 +77,9 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     }
 
     // Initialize Synapse
-    const s = createSpinner()
     s.start('Initializing connection...')
 
-    const defaultRpcUrl =
-      options.network === 'mainnet'
-        ? (mainnet.rpcUrls.default.webSocket?.[0] ?? mainnet.rpcUrls.default.http[0])
-        : (calibration.rpcUrls.default.webSocket?.[0] ?? calibration.rpcUrls.default.http[0])
-    const rpcUrl = options.rpcUrl || defaultRpcUrl
-
-    const config: PrivateKeyConfig = {
-      privateKey: privateKey as Hex,
-    }
-    if (rpcUrl) {
-      config.rpcUrl = rpcUrl
-    }
+    const config = parseCLIAuth({ ...options, privateKey })
     const synapse = await initializeSynapse(config)
     const network = synapse.chain.name
     const address = getClientAddress(synapse)
@@ -106,14 +97,15 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     // Validate payment requirements
     const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
     if (!validation.isValid) {
-      log.line(`${pc.red('✗')} ${validation.errorMessage}`)
+      const errorMsg = validation.errorMessage ?? 'Payment validation failed'
+      log.line(`${pc.red('✗')} ${errorMsg}`)
       if (validation.helpMessage) {
         log.line('')
         log.line(`  ${pc.cyan(validation.helpMessage)}`)
       }
       log.flush()
       cancel('Please fund your wallet and try again')
-      process.exit(1)
+      throw new CliFatal(errorMsg)
     }
 
     // Now safe to get payment status since we know account exists
@@ -172,7 +164,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
     if (isCancel(shouldDeposit)) {
       cancel('Setup cancelled')
-      process.exit(1)
+      throw new CliFatal('Setup cancelled')
     }
 
     if (shouldDeposit) {
@@ -204,7 +196,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       if (isCancel(amountStr)) {
         cancel('Setup cancelled')
-        process.exit(1)
+        throw new CliFatal('Setup cancelled')
       }
 
       depositAmount = parseUnits(amountStr, 18)
@@ -272,9 +264,13 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       outro('No changes made to payment setup')
     }
   } catch (error) {
-    console.error(`\n${pc.red('Error:')}`, error instanceof Error ? error.message : error)
-    process.exitCode = 1
-  } finally {
-    process.exit()
+    if (isCliFatal(error)) {
+      s.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
+    s.stop(`${pc.red('✗')} Setup failed: ${msg}`)
+    cancel('Setup failed')
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

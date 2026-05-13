@@ -1,6 +1,6 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
-import { calibration } from '@filoz/synapse-sdk'
+import { calibration, mainnet } from '@filoz/synapse-sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createConfig } from '../../config.js'
 
@@ -56,7 +56,7 @@ describe('Config', () => {
       expectedDataDir = join(home, '.filecoin-pin')
     }
 
-    const expectedRpcUrl = calibration.rpcUrls.default.webSocket?.[0] ?? calibration.rpcUrls.default.http[0]
+    const expectedRpcUrl = mainnet.rpcUrls.default.webSocket?.[0] ?? mainnet.rpcUrls.default.http[0]
 
     expect(config.port).toBe(3456)
     expect(config.host).toBe('localhost')
@@ -76,5 +76,28 @@ describe('Config', () => {
     expect(config.port).toBe(8080)
     expect(config.host).toBe('0.0.0.0')
     expect(config.logLevel).toBe('debug')
+  })
+
+  it('resolves chain from NETWORK so Synapse uses matching contracts', () => {
+    process.env.NETWORK = 'mainnet'
+    expect(createConfig().chain).toBe(mainnet)
+
+    process.env.NETWORK = 'calibration'
+    expect(createConfig().chain).toBe(calibration)
+  })
+
+  it('defaults chain to mainnet when NETWORK is not set', () => {
+    expect(createConfig().chain).toBe(mainnet)
+  })
+
+  it('leaves chain undefined when only RPC_URL is set so initializeSynapse can probe it', () => {
+    process.env.RPC_URL = 'wss://custom.example/rpc'
+    expect(createConfig().chain).toBeUndefined()
+  })
+
+  it('throws when both NETWORK and RPC_URL are set', () => {
+    process.env.NETWORK = 'mainnet'
+    process.env.RPC_URL = 'wss://custom.example/rpc'
+    expect(() => createConfig()).toThrow(/'NETWORK' and 'RPC_URL' are mutually exclusive/)
   })
 })

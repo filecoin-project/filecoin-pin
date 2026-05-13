@@ -13,6 +13,7 @@ import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
@@ -23,6 +24,8 @@ import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
+import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
+import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 import type { ImportOptions, ImportResult } from './types.js'
 
 /**
@@ -122,6 +125,46 @@ async function validateFilePath(filePath: string): Promise<{ exists: boolean; st
       error: `Cannot access file: ${filePath} (${error?.message || 'unknown error'})`,
     }
   }
+}
+
+/**
+ * Normalize Commander options and run the CAR import flow.
+ *
+ * Commander wiring calls this so option validation errors are displayed by the
+ * command UI layer and command files only own exit-code handling.
+ */
+export async function runCarImportFromCli(file: string, options: Record<string, any>): Promise<ImportResult> {
+  let importOptions: ImportOptions
+  try {
+    const autoFundOptions = validateAndNormalizeAutoFundOptions(options)
+    const {
+      metadata: _metadata,
+      dataSetMetadata: _dataSetMetadata,
+      datasetMetadata: _datasetMetadata,
+      '8004Type': _erc8004Type,
+      '8004Agent': _erc8004Agent,
+      autoFund: _autoFund,
+      minRunwayDays: _minRunwayDays,
+      maxBalance: _maxBalance,
+      ...importOptionsFromCli
+    } = options
+
+    const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
+    importOptions = {
+      ...importOptionsFromCli,
+      ...autoFundOptions,
+      filePath: file,
+      ...(pieceMetadata && { pieceMetadata }),
+      ...(dataSetMetadata && { dataSetMetadata }),
+    }
+  } catch (error) {
+    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.flush()
+    cancel('Import cancelled')
+    throw error
+  }
+
+  return await runCarImport(importOptions)
 }
 
 /**
@@ -300,6 +343,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       rootCid: rootCidString,
       pieceCid: uploadResult.pieceCid,
       size: uploadResult.size,
+      requestedCopies,
       copies: uploadResult.copies,
       failedAttempts: uploadResult.failedAttempts,
     }
@@ -316,7 +360,6 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       )
       log.flush()
       outro('Import completed with errors')
-      process.exitCode = 1
     } else if (uploadResult.failedAttempts.length > 0) {
       log.line('')
       log.line(pc.gray(`${uploadResult.failedAttempts.length} non-critical copy failure(s) during upload.`))
@@ -328,10 +371,16 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     return result
   } catch (error) {
-    spinner.stop(`${pc.red('✗')} Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    if (isCliFatal(error)) {
+      spinner.stop()
+      logger.error({ event: 'import.failed', error }, 'Import failed')
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : 'Unknown error'
+    spinner.stop(`${pc.red('✗')} Import failed: ${msg}`)
     logger.error({ event: 'import.failed', error }, 'Import failed')
 
     cancel('Import failed')
-    throw error
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

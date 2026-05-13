@@ -10,7 +10,7 @@ Bridges IPFS content to Filecoin storage providers with cryptographic guarantees
 
 **Stack**: filecoin-pin → synapse-sdk → FOC contracts (FWSS, FilecoinPay, PDPVerifier, SPRegistry) + Curio.
 
-**Status**: Supports Mainnet, Calibration testnet, and local devnet (foc-devnet). CLI defaults to Calibration.
+**Status**: Supports Mainnet, Calibration testnet, and local devnet (foc-devnet). CLI defaults to Mainnet.
 
 ## Design Philosophy
 
@@ -54,7 +54,7 @@ src/
 
 ## Key Patterns
 
-**Synapse SDK**: Initialize via `initializeSynapse()` in `src/core/synapse/index.ts`. Upload via `executeUpload()` in `src/core/upload/index.ts` with progress events (`onStored`, `onPullProgress`, `onCopyComplete`, `onPiecesAdded`, `onPiecesConfirmed`). Returns `{pieceCid, size, copies, failures}`.
+**Synapse SDK**: Initialize via `initializeSynapse()` in `src/core/synapse/index.ts`. Upload via `executeUpload()` in `src/core/upload/index.ts` with progress events (`stored`, `pullProgress`, `copyComplete`, `piecesAdded`, `piecesConfirmed`). Returns `{pieceCid, size, copies, failures}`.
 
 **CAR files**: CARv1 streaming, handle 3 root cases (single/multiple/none), use zero CID for no roots. See `src/core/car/car-blockstore.ts`.
 
@@ -90,7 +90,7 @@ src/
 
 **Commands**: `payments setup --auto`, `add <path>`, `import <car-file>`, `payments status`, `data-set <id>`, `server`
 
-**Network**: `--network mainnet|calibration|devnet` (default: `calibration`). Devnet reads config from foc-devnet's `devnet-info.json` and auto-resolves private key and RPC URL.
+**Network**: `--network mainnet|calibration|devnet` (default: `mainnet`). Devnet reads config from foc-devnet's `devnet-info.json` and auto-resolves private key and RPC URL. `--network` and `--rpc-url` are mutually exclusive. When `--rpc-url`/`RPC_URL` is set, the chain is derived by probing the endpoint's `eth_chainId`.
 
 **Required env**: `PRIVATE_KEY=0x...` (with USDFC tokens; not needed for devnet)
 

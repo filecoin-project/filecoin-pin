@@ -215,43 +215,47 @@ describe('upload action PR comments', () => {
 
   it('does not fail the upload when GitHub rejects the PR comment', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((_code?: number | string | null): never => {
       throw new Error('process.exit called')
-    })
+    }) as typeof process.exit)
 
-    vi.doMock('../../../upload-action/src/github.js', () => ({
-      createOctokit: () => ({
-        rest: {
-          issues: {
-            listComments: vi.fn().mockResolvedValue({ data: [] }),
-            createComment: vi.fn().mockRejectedValue(new Error('Resource not accessible by integration')),
-            updateComment: vi.fn(),
+    try {
+      vi.doMock('../../../upload-action/src/github.js', () => ({
+        createOctokit: () => ({
+          rest: {
+            issues: {
+              listComments: vi.fn().mockResolvedValue({ data: [] }),
+              createComment: vi.fn().mockRejectedValue(new Error('Resource not accessible by integration')),
+              updateComment: vi.fn(),
+            },
           },
-        },
-      }),
-      getGitHubEnv: () => ({
-        owner: 'filecoin-project',
-        repo: 'filecoin-pin',
-        repository: 'filecoin-project/filecoin-pin',
-        token: 'test-token',
-        sha: 'abc123',
-      }),
-    }))
+        }),
+        getGitHubEnv: () => ({
+          owner: 'filecoin-project',
+          repo: 'filecoin-pin',
+          repository: 'filecoin-project/filecoin-pin',
+          token: 'test-token',
+          sha: 'abc123',
+        }),
+      }))
 
-    const { commentOnPR } = (await import(commentsModulePath)) as CommentsModule
+      const { commentOnPR } = (await import(commentsModulePath)) as CommentsModule
 
-    await expect(
-      commentOnPR({
-        ipfsRootCid: TEST_CID,
-        dataSetId: '13018',
-        pieceCid: 'bafkzcibe2hzbcd4t6clvsb3mfrezyxl75gl3gzcsqi42dd27gktq4nk75rr62ciuaq',
-        pr: { number: 399 },
-      })
-    ).resolves.toBeUndefined()
+      await expect(
+        commentOnPR({
+          ipfsRootCid: TEST_CID,
+          dataSetId: '13018',
+          pieceCid: 'bafkzcibe2hzbcd4t6clvsb3mfrezyxl75gl3gzcsqi42dd27gktq4nk75rr62ciuaq',
+          pr: { number: 399 },
+        })
+      ).resolves.toBeUndefined()
 
-    expect(exitSpy).not.toHaveBeenCalled()
-
-    exitSpy.mockRestore()
-    warnSpy.mockRestore()
+      expect(exitSpy).not.toHaveBeenCalled()
+    } finally {
+      exitSpy.mockRestore()
+      warnSpy.mockRestore()
+      vi.doUnmock('../../../upload-action/src/github.js')
+      vi.resetModules()
+    }
   })
 })

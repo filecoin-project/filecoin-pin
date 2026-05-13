@@ -10,6 +10,7 @@ import { CarReader, CarWriter } from '@ipld/car'
 import toBuffer from 'it-to-buffer'
 import { CID } from 'multiformats/cid'
 import { CARWritingBlockstore } from '../car/browser-car-blockstore.js'
+import { carInputError, isCar } from '../car/is-car.js'
 import { importerOptions } from './importer-options.js'
 
 // Placeholder CID used during CAR creation (will be replaced with actual root)
@@ -42,6 +43,13 @@ export interface CreateCarResult {
  * @returns CAR bytes, root CID, and source name
  */
 export async function createCarFromFile(file: File, options: CreateCarOptions = {}): Promise<CreateCarResult> {
+  // Refuse to wrap an existing CAR in a new UnixFS DAG. `Blob.stream()`
+  // returns a fresh stream on each call, so the upload path below is
+  // unaffected by the sniff.
+  if (await isCar(file.stream())) {
+    throw carInputError(file.name)
+  }
+
   const onProgress = options.onProgress
   let bytesProcessed = 0
   const totalBytes = file.size

@@ -15,7 +15,7 @@ import { globSource, unixfs } from '@helia/unixfs'
 import { CarWriter } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import { CARWritingBlockstore } from '../car/index.js'
+import { CARWritingBlockstore, carInputError, isCar } from '../car/index.js'
 import { importerOptions } from './importer-options.js'
 
 // Spinner type for progress reporting
@@ -157,6 +157,17 @@ async function createCar(
 async function createCarFromSingleFile(filePath: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {
   const { logger } = options
   const name = basename(filePath)
+
+  // Refuse to wrap an existing CAR in a new UnixFS DAG. Sniff a fresh stream
+  // and discard it; the upload pipeline below opens its own.
+  const sniff = createReadStream(filePath)
+  try {
+    if (await isCar(sniff)) {
+      throw carInputError(filePath)
+    }
+  } finally {
+    sniff.destroy()
+  }
 
   return createCar(filePath, { ...options, kind: 'file', name }, async (fs) => {
     const fileStream = createReadStream(filePath)

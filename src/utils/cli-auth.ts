@@ -48,6 +48,7 @@ export interface CLIAuthOptions {
 export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   const network = options.network?.toLowerCase().trim()
   const isDevnet = network === 'devnet'
+  const hasRpcUrl = options.rpcUrl != null && options.rpcUrl !== ''
 
   // For devnet, fall back to the devnet user's private key if none provided
   const privateKey =
@@ -57,11 +58,16 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   const viewAddress = options.viewAddress || process.env.VIEW_ADDRESS
   const rpcUrl = getRpcUrl(options)
 
+  // --network and --rpc-url are mutually exclusive at the Commander level. Set the chain hint
+  // only when --network was chosen; otherwise leave it undefined and let initializeSynapse probe
+  // the RPC endpoint. When neither is supplied, default to mainnet.
   let chain: Chain | undefined
   if (isDevnet) {
     chain = resolveDevnetConfig().chain
   } else if (network) {
     chain = NETWORK_CHAINS[network as keyof typeof NETWORK_CHAINS]
+  } else if (!hasRpcUrl) {
+    chain = NETWORK_CHAINS.mainnet
   }
 
   // Build config incrementally; initializeSynapse() validates the final shape

@@ -6,9 +6,9 @@
 
 ## Status
 
-**⚠️ Not ready yet for production** - Filecoin Pin supports both Filecoin Mainnet and Calibration testnet. The CLI defaults to Calibration testnet for safety, but you can use `--network mainnet` to connect to Mainnet, but filecoin-pin is not ready for production use yet.
+**Ready for persistent, verifiable data on Filecoin Mainnet.**
 
-Register for updates and a later 2025 Q4 GA announcement at [filecoin.cloud](https://filecoin.cloud/).
+Register for updates and a later 2026 Q2 GA announcement at [filecoin.cloud](https://filecoin.cloud/).
 
 ## What is Filecoin Pin?
 
@@ -30,9 +30,10 @@ Filecoin Pin is designed for **developers building on IPFS** who need trustless,
 
 Filecoin Pin offers multiple affordances to integrate Filecoin storage into your workflow:
 
-### CLI
+### 💻 CLI
 Upload IPFS files directly to Filecoin via the command line. Perfect for developers who want to integrate Filecoin storage into scripts, workflows, or local development environments.
 
+- **Status**: Production-ready. It has been recommended to users for months, and is used extensively by the development team.
 - **Repository**: This repo ([filecoin-project/filecoin-pin](https://github.com/filecoin-project/filecoin-pin))
 - **Documentation**:
   - Run `filecoin-pin --help` to see all available commands and options.
@@ -40,17 +41,19 @@ Upload IPFS files directly to Filecoin via the command line. Perfect for develop
 - **Installation**: `npm install -g filecoin-pin`
 - **Update notice**: Every command quickly checks npm for a newer version and prints a reminder when one is available. Disable with `--no-update-check`.
 
-### GitHub Action
+### ⚙️ GitHub Action
 Automatically publish websites or build artifacts to IPFS and Filecoin as part of your CI/CD pipeline. Ideal for static websites, documentation sites, and automated deployment workflows.
 
+- **Status**: Production-ready. Used in the [filecoin-pin-website CI pipeline](https://github.com/filecoin-project/filecoin-pin-website/tree/main/.github/workflows).
 - **Repository**: This repo ([see upload-action/](./upload-action/README.md))
 - **Documentation**:
    - [GitHub Action Walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/github-action)
 - **Example in Production**: [filecoin-pin-website CI pipeline](https://github.com/filecoin-project/filecoin-pin-website/tree/main/.github/workflows)
 
-### JavaScript Library
+### 📚 JavaScript Library
 Use Filecoin Pin programmatically in your Node.js or browser applications. The library provides both a high-level API for common use cases and granular core modules for advanced customization.
 
+- **Status**: Production-ready. Powers the CLI, GitHub Action, [filecoin-pin-website](https://github.com/filecoin-project/filecoin-pin-website), and [FOC dealbot](https://github.com/FilOzone/dealbot).
 - **Repository**: This repo ([filecoin-project/filecoin-pin](https://github.com/filecoin-project/filecoin-pin))
 - **Documentation**:
   - [API Reference](https://filecoin-project.github.io/filecoin-pin/) (TypeDoc-generated documentation)
@@ -58,18 +61,18 @@ Use Filecoin Pin programmatically in your Node.js or browser applications. The l
   - Core modules: `import { … } from 'filecoin-pin/core/*'` (CAR files, payments, Synapse SDK, uploads, UnixFS)
 - **Installation**: `npm install --save filecoin-pin`
 
-### IPFS Pinning Server (Daemon Mode)
+### 📡 IPFS Pinning Server (Daemon Mode)
 Run a localhost IPFS Pinning Service API server that implements the [IPFS Pinning Service API specification](https://ipfs.github.io/pinning-services-api-spec/). This allows you to use standard IPFS tooling (like `ipfs pin remote`) while storing data on Filecoin.
 
+- **Status**: Works and is tested, but hasn't received as many features as the CLI. If it would benefit your use case, please comment on the [tracking issue](https://github.com/filecoin-project/filecoin-pin/issues/46) so we can be better informed when it comes to prioritizing.
 - **Repository**: This repo (`filecoin-pin server` command in CLI)
 - **Usage**: `PRIVATE_KEY=0x... npx filecoin-pin server` (or use session key auth — see [Configuration](#configuration))
-- **Status**: Works and is tested, but hasn't received as many features as the CLI.  If it would benefit your usecase, please comment on [tracking issue](https://github.com/filecoin-project/filecoin-pin/issues/46) so we can be better informed when it comes to prioritizing.
 
-### Management Console GUI
-Web-based management console for monitoring and managing your Filecoin Pin deployments.  This is effectively a Web UI equivalent to the [CLI](#cli).
+### 📊 Management Console GUI
+Web-based management console for monitoring and managing your Filecoin Pin deployments. This is effectively a Web UI equivalent to the [CLI](#-cli) affordance.
 
 - **Status**: Planned
-- **Tracking**: See [issue #74](https://github.com/filecoin-project/filecoin-pin/issues/74) for updates.  Please leave a comment about your usecase if this would be particularly beneficial.
+- **Tracking**: See [issue #74](https://github.com/filecoin-project/filecoin-pin/issues/74) for updates. Please leave a comment about your use case if this would be particularly beneficial.
 
 ## Documentation
 See [/documentation](/documentation/README.md).
@@ -83,6 +86,7 @@ See Filecoin Pin in action:
    - [Walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/dapp-demo)
    - [🎥 Recording 1](https://www.youtube.com/watch?v=UElx1_qF12o)
    - [🎥 Recording 2](https://www.youtube.com/watch?v=DXH84_gI-c0)
+- **[dealbot](https://github.com/FilOzone/dealbot)** - Tool used by the FOC development team and Storage Provider community for automated storage deal testing and monitoring, demonstrating production use of the filecoin-pin library.
 
 ## Architecture
 
@@ -111,7 +115,7 @@ Filecoin Pin's CLI collects telemetry.  A few things:
 * Telemetry always [has a way to be disabled](#how-to-disable-telemetry).
 * We don't collect Personal identifiable information (PII).
 * With our [end user affordance](#affordances) we expect to make telemetry on by default, requiring a consumer/user to opt out.  We are defaulting as "enabled" to help make sure we have a good pulse on the user experience and can address issues correctly.
-* In this [pre-v1 season](https://github.com/filecoin-project/filecoin-pin/issues/187), we are particularly focused on helping maintainers validate functionality and iron out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on. 
+* In this [pre-v1 season](https://github.com/filecoin-project/filecoin-pin/issues/187), we are particularly focused on helping maintainers validate functionality and iron out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on.
 
 ### How to disable CLI telemetry
 
@@ -148,14 +152,14 @@ npm install -g filecoin-pin
 # 1. Configure payment permissions (one-time setup)
 filecoin-pin payments setup --auto
 
-# 2. Upload a file to Filecoin (defaults to Calibration testnet)
+# 2. Upload a file to Filecoin (defaults to Mainnet)
 filecoin-pin add myfile.txt
 
 # 3. Verify storage with cryptographic proofs
 filecoin-pin data-set <dataset-id>
 
-# To use Mainnet instead:
-filecoin-pin add myfile.txt --network mainnet
+# To use Calibration testnet (not persistent) instead:
+filecoin-pin add myfile.txt --network calibration
 ```
 
 For detailed guides, see:
@@ -169,17 +173,17 @@ The Pinning Server requires the use of environment variables, as detailed below.
 
 ### Network Selection
 
-Filecoin Pin supports **Mainnet**, **Calibration testnet**, and local **devnet** networks. By default, the CLI uses Calibration testnet.
+Filecoin Pin supports **Mainnet**, **Calibration testnet**, and local **devnet** networks. By default, the CLI uses Mainnet.
 
 **Using the CLI:**
 ```bash
-# Use Calibration testnet (default)
+# Use Mainnet (default)
 filecoin-pin add myfile.txt
 
-# Use Mainnet
+# Explicitly specify Mainnet
 filecoin-pin add myfile.txt --network mainnet
 
-# Explicitly specify Calibration
+# Use Calibration testnet
 filecoin-pin add myfile.txt --network calibration
 
 # Use a local foc-devnet (reads config from devnet-info.json, details below)
@@ -197,28 +201,11 @@ export RPC_URL=wss://wss.node.glif.io/apigw/lotus/rpc/v1
 filecoin-pin add myfile.txt
 ```
 
-**Priority order:**
-1. `--rpc-url` flag (highest priority)
-2. `RPC_URL` environment variable
-3. `--network` flag or `NETWORK` environment variable
-4. Default to Calibration testnet
+**Selection rules:**
 
-### Local Development with foc-devnet
-
-When using `--network devnet`, Filecoin Pin reads connection details from a running [foc-devnet](https://github.com/filecoin-project/foc-devnet) instance:
-
-- **Private key**: Automatically resolved from `devnet-info.json` (no `PRIVATE_KEY` needed)
-- **RPC URL**: Read from the devnet chain configuration
-- **Contract addresses**: Resolved from the devnet chain definition
-- **IPNI verification**: Automatically skipped (no IPNI infrastructure on devnet)
-
-**Environment variables for devnet:**
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `FOC_DEVNET_BASEDIR` | Override the foc-devnet base directory | `~/.foc-devnet` |
-| `DEVNET_INFO_PATH` | Explicit path to `devnet-info.json` (overrides basedir) | `<basedir>/state/latest/devnet-info.json` |
-| `DEVNET_USER_INDEX` | Which user from `devnet-info.json` to use | `0` |
+* `--network` and `--rpc-url` (and their `NETWORK` / `RPC_URL` env equivalents) are mutually exclusive. Passing both is an error.
+* When `--rpc-url` (or `RPC_URL`) is set, Filecoin Pin probes the endpoint's `eth_chainId` at startup and uses the matching chain (mainnet, calibration, or a configured devnet).
+* When neither is set, Filecoin Pin defaults to Mainnet.
 
 ### Common CLI Arguments
 
@@ -228,8 +215,8 @@ When using `--network devnet`, Filecoin Pin reads connection details from a runn
 * `--private-key`: Ethereum-style (`0x`) private key (wallet and signer), funded with USDFC
 * `--wallet-address`: Session key mode: owner wallet address
 * `--session-key`: Session key mode: scoped signing key registered to the wallet
-* `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `calibration`)
-* `--rpc-url`: Filecoin RPC endpoint (overrides `--network` if specified)
+* `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `mainnet`). Mutually exclusive with `--rpc-url`.
+* `--rpc-url`: Filecoin RPC endpoint. Filecoin Pin probes its `eth_chainId` to derive the chain. Mutually exclusive with `--network`.
 
 Other arguments are possible for individual commands, use `--help` to find out more.
 
@@ -240,7 +227,7 @@ Other arguments are possible for individual commands, use `--help` to find out m
 PRIVATE_KEY=0x...              # Ethereum private key with USDFC tokens
 
 # Optional - Network Configuration
-NETWORK=mainnet                # Network to use: mainnet, calibration, or devnet (default: calibration)
+NETWORK=mainnet                # Network to use: mainnet, calibration, or devnet (default: mainnet)
 RPC_URL=wss://...              # Filecoin RPC endpoint (overrides NETWORK if specified)
                                # Mainnet: wss://wss.node.glif.io/apigw/lotus/rpc/v1
                                # Calibration: wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1
@@ -259,6 +246,23 @@ When `DATABASE_PATH` and `CAR_STORAGE_PATH` are not specified, data is stored in
 - **Linux**: `~/.local/share/filecoin-pin/`
 - **macOS**: `~/Library/Application Support/filecoin-pin/`
 - **Windows**: `%APPDATA%/filecoin-pin/`
+
+### Local Development with foc-devnet
+
+When using `--network devnet`, Filecoin Pin reads connection details from a running [foc-devnet](https://github.com/filecoin-project/foc-devnet) instance:
+
+- **Private key**: Automatically resolved from `devnet-info.json` (no `PRIVATE_KEY` needed)
+- **RPC URL**: Read from the devnet chain configuration
+- **Contract addresses**: Resolved from the devnet chain definition
+- **IPNI verification**: Automatically skipped (no IPNI infrastructure on devnet)
+
+**Environment variables for devnet:**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `FOC_DEVNET_BASEDIR` | Override the foc-devnet base directory | `~/.foc-devnet` |
+| `DEVNET_INFO_PATH` | Explicit path to `devnet-info.json` (overrides basedir) | `<basedir>/state/latest/devnet-info.json` |
+| `DEVNET_USER_INDEX` | Which user from `devnet-info.json` to use | `0` |
 
 ## Development
 
@@ -283,8 +287,7 @@ Interested in contributing? Please read our [Contributing Guidelines](CONTRIBUTI
 
 ### Documentation
 
-- **[documentation/](documentation/README.md)** - Additional documentation about how filecoin-pin works, design decisions, etc.
-- **[docs.filecoin.io](https://docs.filecoin.io/builder-cookbook/filecoin-pin)** - Filecoin Pin guides and tutorials
+See [Documentation](#documentation) above for all guides and references.
 
 
 ## License
