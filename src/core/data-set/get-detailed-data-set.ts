@@ -21,9 +21,10 @@ export async function getDetailedDataSet(
   const withProviderDetails = options?.withProviderDetails ?? true
 
   try {
-    const storageContext = await synapse.storage.createContext({ dataSetId })
-
-    const pdpDataSet = await getPdpDataSet(synapse.client, { dataSetId })
+    const [storageContext, pdpDataSet] = await Promise.all([
+      synapse.storage.createContext({ dataSetId }),
+      getPdpDataSet(synapse.client, { dataSetId }),
+    ])
 
     if (pdpDataSet == null) {
       throw new Error(`Data set ${dataSetId} not found`)
