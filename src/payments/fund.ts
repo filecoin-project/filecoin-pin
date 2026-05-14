@@ -11,13 +11,12 @@ import { parseUnits } from 'viem'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import {
-  calculateStorageRunway,
   checkUSDFCBalance,
   clampDepositToLimit,
   DEFAULT_LOCKUP_DAYS,
   depositUSDFC,
+  deriveStorageRunway,
   executeFilecoinPayFunding,
-  getPaymentStatus,
   planFilecoinPayFunding,
   withdrawUSDFC,
 } from '../core/payments/index.js'
@@ -116,13 +115,17 @@ async function performAdjustment(params: {
 
 // Helper: summary after adjustment
 async function printSummary(synapse: Synapse, title = 'Updated'): Promise<void> {
-  const updated = await getPaymentStatus(synapse)
-  const runway = calculateStorageRunway(updated)
+  const summary = await synapse.payments.accountSummary({})
+  const runway = deriveStorageRunway(summary)
   const runwayDisplay = formatRunwaySummary(runway)
-  log.section(title, [
-    `Deposited: ${formatUSDFC(updated.filecoinPayBalance)} USDFC`,
-    runway.state === 'active' ? `Runway: ~${runwayDisplay}` : `Runway: ${runwayDisplay}`,
-  ])
+  const lines = [`Deposited: ${formatUSDFC(summary.funds)} USDFC`]
+  if (runway.state === 'active') {
+    lines.push(`Storage covered: ~${runwayDisplay.coverage} total`)
+    lines.push(`Top-up needed in: ~${runwayDisplay.runway}`)
+  } else {
+    lines.push(`Storage covered: ${runwayDisplay.coverage}`)
+  }
+  log.section(title, lines)
 }
 
 /**
@@ -169,8 +172,8 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
       adjusted: false,
       delta: 0n,
       newDepositedAmount: plan.projected.depositedBalance,
-      newRunwayDays: plan.projected.runway.days,
-      newRunwayHours: plan.projected.runway.hours,
+      newRunwayDays: plan.projected.runway.runwayDays,
+      newRunwayHours: plan.projected.runway.runwayHours,
     }
   }
 
@@ -183,8 +186,8 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
       adjusted: false,
       delta: 0n,
       newDepositedAmount: status.filecoinPayBalance,
-      newRunwayDays: plan.current.runway.days,
-      newRunwayHours: plan.current.runway.hours,
+      newRunwayDays: plan.current.runway.runwayDays,
+      newRunwayHours: plan.current.runway.runwayHours,
       warnings,
     }
   }
@@ -280,7 +283,7 @@ export async function runFund(options: FundOptions): Promise<void> {
     let projectedRunwayTarget: number | null = null
     if (plan.projected.runway.state === 'active') {
       projectedRunwayTarget =
-        plan.targetType === 'runway-days' ? (plan.targetRunwayDays ?? 0) : plan.projected.runway.days
+        plan.targetType === 'runway-days' ? (plan.targetRunwayDays ?? 0) : plan.projected.runway.coverageDays
     }
 
     if (plan.mode !== 'minimum' && projectedRunwayTarget != null && projectedRunwayTarget < DEFAULT_LOCKUP_DAYS) {

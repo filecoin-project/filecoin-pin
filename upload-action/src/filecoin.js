@@ -2,10 +2,10 @@ import { createReadStream, promises as fs } from 'node:fs'
 import { CarReader } from '@ipld/car'
 import {
   calculateFilecoinPayFundingPlan,
-  calculateStorageRunway,
   executeTopUp,
   formatFundingReason,
   getPaymentStatus,
+  getStorageRunway,
 } from 'filecoin-pin/core/payments'
 import { createUnixfsCarBuilder } from 'filecoin-pin/core/unixfs'
 import { executeUpload } from 'filecoin-pin/core/upload'
@@ -106,8 +106,9 @@ export async function handlePayments(synapse, options, logger) {
   const { minStorageDays, filecoinPayBalanceLimit, pieceSizeBytes, withCDN, providerIds } = options
 
   console.log('Checking current Filecoin Pay account balance...')
-  const [rawStatus, storageInfo, contexts] = await Promise.all([
+  const [rawStatus, accountSummary, storageInfo, contexts] = await Promise.all([
     getPaymentStatus(synapse),
+    synapse.payments.accountSummary({}),
     synapse.storage.getStorageInfo(),
     synapse.storage.createContexts({
       ...(providerIds != null && providerIds.length > 0 ? { providerIds } : {}),
@@ -126,8 +127,9 @@ export async function handlePayments(synapse, options, logger) {
   // Calculate required funding using the comprehensive funding planner
   const fundingPlan = calculateFilecoinPayFundingPlan({
     status: rawStatus,
-    mode: 'minimum', // Only deposit if below minimum
-    allowWithdraw: false, // Never withdraw in upload-action
+    accountSummary,
+    mode: 'minimum',
+    allowWithdraw: false,
     targetRunwayDays: minStorageDays,
     pieceSizeBytes,
     pricePerTiBPerEpoch: storageInfo.pricing.noCDN.perTiBPerEpoch,
@@ -169,12 +171,14 @@ export async function handlePayments(synapse, options, logger) {
 
   const filecoinPayBalance = formatUSDFC(finalStatus.filecoinPayBalance)
   const walletUsdfcBalance = formatUSDFC(finalStatus.walletUsdfcBalance)
+  const finalRunway = await getStorageRunway(synapse)
+  const runwayDisplay = formatRunwaySummary(finalRunway)
 
-  // Return formatted status for action consumption
   return {
     filecoinPayBalance,
     walletUsdfcBalance,
-    storageRunway: formatRunwaySummary(calculateStorageRunway(finalStatus)),
+    storageCovered: runwayDisplay.coverage,
+    storageRunway: runwayDisplay.runway,
     depositedThisRun: topUpResult.deposited.toString(),
   }
 }

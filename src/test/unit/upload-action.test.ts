@@ -10,10 +10,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('filecoin-pin/core/payments', () => ({
   calculateFilecoinPayFundingPlan: vi.fn(),
-  calculateStorageRunway: vi.fn(),
   executeTopUp: vi.fn(),
   formatFundingReason: vi.fn(),
   getPaymentStatus: vi.fn(),
+  getStorageRunway: vi.fn(),
 }))
 
 vi.mock('filecoin-pin/core/unixfs', () => ({

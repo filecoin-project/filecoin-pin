@@ -10,11 +10,11 @@ import pc from 'picocolors'
 import { parseUnits } from 'viem'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import {
-  calculateStorageRunway,
   checkFILBalance,
   checkUSDFCBalance,
   computeTopUpForDuration,
   depositUSDFC,
+  deriveStorageRunway,
   getPaymentStatus,
 } from '../core/payments/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
@@ -56,10 +56,11 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)
 
-    const [filStatus, walletUsdfcBalance, status] = await Promise.all([
+    const [filStatus, walletUsdfcBalance, status, accountSummary] = await Promise.all([
       checkFILBalance(synapse),
       checkUSDFCBalance(synapse),
       getPaymentStatus(synapse),
+      synapse.payments.accountSummary({}),
     ])
 
     spinner.stop(`${pc.green('✓')} Connected`)
@@ -94,7 +95,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
         throw new Error('--days must be a positive number')
       }
 
-      const { topUp, rateUsed, perDay } = computeTopUpForDuration(status, days)
+      const { topUp, rateUsed, perDay } = computeTopUpForDuration(accountSummary, status.filecoinPayBalance, days)
 
       if (rateUsed === 0n) {
         spinner.stop()
@@ -132,20 +133,19 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     log.indent(pc.gray(`Deposit: ${depositTx}`))
     log.flush()
 
-    // Brief post-deposit summary
-    const updated = await getPaymentStatus(synapse)
-    const runway = calculateStorageRunway(updated)
+    const updatedSummary = await synapse.payments.accountSummary({})
+    const runway = deriveStorageRunway(updatedSummary)
     const runwayDisplay = formatRunwaySummary(runway)
 
     log.line('')
     log.line(pc.bold('Deposit Summary'))
-    log.indent(`Total deposit: ${formatUSDFC(updated.filecoinPayBalance)} USDFC`)
+    log.indent(`Total deposit: ${formatUSDFC(updatedSummary.funds)} USDFC`)
     if (runway.state === 'active') {
-      const dailySpend = runway.perDay
-      log.indent(`Current spend: ${formatUSDFC(dailySpend)} USDFC/day`)
-      log.indent(`Runway: ~${runwayDisplay} at current spend`)
+      log.indent(`Current spend: ${formatUSDFC(runway.perDay)} USDFC/day`)
+      log.indent(`Storage covered: ~${runwayDisplay.coverage} total`)
+      log.indent(`Top-up needed in: ~${runwayDisplay.runway}`)
     } else {
-      log.indent(pc.gray(runwayDisplay))
+      log.indent(pc.gray(runwayDisplay.coverage))
     }
     log.flush()
 
