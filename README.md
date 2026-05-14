@@ -37,7 +37,7 @@ Upload IPFS files directly to Filecoin via the command line. Perfect for develop
 - **Repository**: This repo ([filecoin-project/filecoin-pin](https://github.com/filecoin-project/filecoin-pin))
 - **Documentation**:
   - Run `filecoin-pin --help` to see all available commands and options.
-  - [CLI Walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/filecoin-pin-cli)
+  - [CLI Walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/getting-started)
 - **Installation**: `npm install -g filecoin-pin`
 - **Update notice**: Every command quickly checks npm for a newer version and prints a reminder when one is available. Disable with `--no-update-check`.
 
