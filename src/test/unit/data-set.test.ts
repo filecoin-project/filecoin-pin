@@ -10,6 +10,7 @@ const {
   mockFindDataSets,
   mockGetProvider,
   mockGetAllPieceMetadata,
+  mockGetPdpDataSet,
   mockTerminateDataSet,
   mockWaitForTransactionReceipt,
   mockSynapseCreate,
@@ -26,6 +27,7 @@ const {
   const mockFindDataSets = vi.fn()
   const mockGetProvider = vi.fn()
   const mockGetAllPieceMetadata = vi.fn(async () => ({ ...state.pieceMetadata }))
+  const mockGetPdpDataSet = vi.fn()
   const mockTerminateDataSet = vi.fn()
   const mockWaitForTransactionReceipt = vi.fn()
   const state = {
@@ -97,6 +99,7 @@ const {
     mockFindDataSets,
     mockGetProvider,
     mockGetAllPieceMetadata,
+    mockGetPdpDataSet,
     mockTerminateDataSet,
     mockWaitForTransactionReceipt,
     mockSynapseCreate,
@@ -146,6 +149,7 @@ vi.mock('@filoz/synapse-sdk', async () => {
 
 vi.mock('@filoz/synapse-core/warm-storage', () => ({
   getAllPieceMetadata: mockGetAllPieceMetadata,
+  getPdpDataSet: mockGetPdpDataSet,
 }))
 
 vi.mock('@filoz/synapse-core/sp', () => ({
@@ -169,6 +173,37 @@ vi.mock('@filoz/synapse-core/piece', () => ({
     return 1048576
   }),
 }))
+
+type EnhancedDataSetFixture = Record<string, unknown> & {
+  pdpVerifierDataSetId: bigint
+  isLive?: boolean
+  isManaged?: boolean
+  withCDN?: boolean
+  metadata: Record<string, string>
+  payer: string
+}
+
+function toPdpDataSet(summary: EnhancedDataSetFixture, providerFixture: Record<string, unknown>) {
+  return {
+    pdpRailId: summary.pdpRailId,
+    cacheMissRailId: summary.cacheMissRailId,
+    cdnRailId: summary.cdnRailId,
+    payer: summary.payer,
+    payee: summary.payee,
+    serviceProvider: summary.serviceProvider,
+    commissionBps: summary.commissionBps,
+    clientDataSetId: summary.clientDataSetId,
+    pdpEndEpoch: summary.pdpEndEpoch,
+    providerId: summary.providerId,
+    dataSetId: summary.pdpVerifierDataSetId,
+    live: summary.isLive ?? true,
+    managed: summary.isManaged ?? true,
+    cdn: summary.withCDN ?? false,
+    metadata: summary.metadata,
+    provider: providerFixture,
+    activePieceCount: 0n,
+  }
+}
 
 describe('runDataSetCommand', () => {
   const summaryDataSet = {
@@ -214,6 +249,7 @@ describe('runDataSetCommand', () => {
     mockFindDataSets.mockResolvedValue([summaryDataSet])
     mockGetProvider.mockResolvedValue(provider)
     mockGetAllPieceMetadata.mockResolvedValue({})
+    mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(summaryDataSet, provider))
   })
 
   afterEach(() => {
@@ -363,6 +399,18 @@ describe('runDataSetCommand', () => {
     })
   })
 
+  it('does not enumerate the whole account when loading a single dataset', async () => {
+    state.pieceList = [{ pieceId: 0n, pieceCid: 'bafkpiece0' }]
+
+    await runDataSetDetailsCommand(158, {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    expect(mockGetPdpDataSet).toHaveBeenCalledWith(expect.anything(), { dataSetId: 158n })
+    expect(mockFindDataSets).not.toHaveBeenCalled()
+  })
+
   it('exits when no private key is provided', async () => {
     await expect(runDataSetListCommand({ rpcUrl: 'wss://sample' })).rejects.toThrow('Authentication required')
 
@@ -422,6 +470,7 @@ describe('runTerminateDataSetCommand', () => {
     mockFindDataSets.mockResolvedValue([terminatableDataSet])
     mockGetProvider.mockResolvedValue(provider)
     mockGetAllPieceMetadata.mockResolvedValue({})
+    mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(terminatableDataSet, provider))
     mockTerminateDataSet.mockResolvedValue('0xtxhash123')
     mockWaitForTransactionReceipt.mockResolvedValue({ status: 'success' })
   })
@@ -443,9 +492,10 @@ describe('runTerminateDataSetCommand', () => {
   })
 
   it('terminates a dataset and waits for confirmation', async () => {
-    // First call returns live dataset, second call (after tx) returns terminated
     const updatedDataSet = { ...terminatableDataSet, isLive: false, pdpEndEpoch: 5000 }
-    mockFindDataSets.mockResolvedValueOnce([terminatableDataSet]).mockResolvedValueOnce([updatedDataSet])
+    mockGetPdpDataSet
+      .mockResolvedValueOnce(toPdpDataSet(terminatableDataSet, provider))
+      .mockResolvedValueOnce(toPdpDataSet(updatedDataSet, provider))
 
     await runTerminateDataSetCommand(158, {
       privateKey: 'test-key',
@@ -472,7 +522,7 @@ describe('runTerminateDataSetCommand', () => {
 
   it('rejects when dataset is not owned by the caller', async () => {
     const otherOwnerDataSet = { ...terminatableDataSet, payer: '0xother' }
-    mockFindDataSets.mockResolvedValue([otherOwnerDataSet])
+    mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(otherOwnerDataSet, provider))
 
     await expect(
       runTerminateDataSetCommand(158, {
@@ -487,7 +537,7 @@ describe('runTerminateDataSetCommand', () => {
 
   it('reports already-terminated datasets without error', async () => {
     const terminatedDataSet = { ...terminatableDataSet, pdpEndEpoch: 5000 }
-    mockFindDataSets.mockResolvedValue([terminatedDataSet])
+    mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(terminatedDataSet, provider))
 
     await runTerminateDataSetCommand(158, {
       privateKey: 'test-key',
