@@ -23,7 +23,7 @@ import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
-import { normalizeEgressProvider, printEgressNotice, resolveEgressProviderSource } from '../utils/cli-options-egress.js'
+import { normalizeEgressProvider, printEgressNotice } from '../utils/cli-options-egress.js'
 import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 import type { AddOptions, AddResult } from './types.js'
 
@@ -89,21 +89,18 @@ export async function runAddFromCli(path: string, options: Record<string, any>):
       minRunwayDays: _minRunwayDays,
       maxBalance: _maxBalance,
       egressProvider: rawEgressProvider,
-      __egressProviderSource: cmdEgressSource,
       ...addOptionsFromCli
     } = options
     const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
 
-    const egressProvider = normalizeEgressProvider(rawEgressProvider, cmdEgressSource, process.env)
+    const egressProvider = normalizeEgressProvider(rawEgressProvider, process.env)
     const withCDN = egressProvider === 'beam'
-    const withCDNSource = resolveEgressProviderSource(cmdEgressSource, process.env)
 
     addOptions = {
       ...addOptionsFromCli,
       ...autoFundOptions,
       filePath: path,
       withCDN,
-      withCDNSource,
       ...(pieceMetadata && { pieceMetadata }),
       ...(dataSetMetadata && { dataSetMetadata }),
     }
@@ -139,7 +136,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
   const withCDN = options.withCDN === true
   if (withCDN) {
-    printEgressNotice('beam', { source: options.withCDNSource ?? 'default' })
+    printEgressNotice('beam')
   }
 
   let tempCarPath: string | undefined

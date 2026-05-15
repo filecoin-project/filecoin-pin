@@ -17,23 +17,18 @@ export type EgressProvider = (typeof EGRESS_PROVIDERS)[number]
  * Resolve the effective egress provider.
  *
  * Precedence:
- *   1. Explicit CLI value (--egress-provider flag, EGRESS_PROVIDER env, or other non-default Commander source)
+ *   1. Explicit CLI value (--egress-provider flag or EGRESS_PROVIDER env, both
+ *      surface here as a non-undefined `cliValue` because we do NOT set a
+ *      Commander `.default()` — the default is applied here instead)
  *   2. WITH_CDN env var (backwards compat: 'true' → beam, 'false' → none)
  *   3. Default: 'beam'
- *
- * `cliSource` is Commander's `getOptionValueSource('egressProvider')` result —
- * one of `'cli' | 'env' | 'default' | 'config' | 'implied' | undefined`. When
- * the source is `'default'` or `'implied'`, `cliValue` is treated as absent so
- * the WITH_CDN fallback can apply.
  */
 export function normalizeEgressProvider(
   cliValue: EgressProvider | undefined,
-  cliSource: string | undefined,
   env: { WITH_CDN?: string }
 ): EgressProvider {
-  const userProvidedCli = cliValue != null && cliSource !== 'default' && cliSource !== 'implied'
-  if (userProvidedCli) {
-    return cliValue as EgressProvider
+  if (cliValue != null) {
+    return cliValue
   }
   if (env.WITH_CDN === 'false') {
     return 'none'
@@ -47,9 +42,9 @@ export function normalizeEgressProvider(
 /**
  * Attach the `--egress-provider` option to a Commander command.
  *
- * Defaults to `beam` (FilBeam CDN active). `none` opts out completely.
- * Reads `EGRESS_PROVIDER` env var. `WITH_CDN` is honored as a fallback
- * via {@link normalizeEgressProvider} after Commander parsing.
+ * No Commander `.default()` is set so a missing value surfaces as `undefined`,
+ * letting {@link normalizeEgressProvider} apply the WITH_CDN fallback before
+ * defaulting to `beam`. The "default: beam" wording lives in the description.
  */
 export function addEgressOptions(command: Command): Command {
   command.addOption(
@@ -59,19 +54,10 @@ export function addEgressOptions(command: Command): Command {
         'See "FilBeam egress" in documentation/glossary.md for cost and scope.'
     )
       .choices(EGRESS_PROVIDERS as readonly string[])
-      .default('beam')
       .env('EGRESS_PROVIDER')
   )
   return command
 }
-
-/**
- * Source of the resolved egress provider.
- *
- * - 'cli'     — explicit --egress-provider, EGRESS_PROVIDER, or WITH_CDN env
- * - 'default' — no explicit input, falling back to the Commander default
- */
-export type EgressProviderSource = 'cli' | 'default'
 
 /**
  * Print a non-interactive informational block describing the active egress
@@ -79,35 +65,13 @@ export type EgressProviderSource = 'cli' | 'default'
  *
  * Silent when provider is 'none'.
  */
-export function printEgressNotice(provider: EgressProvider, resolution: { source: EgressProviderSource }): void {
+export function printEgressNotice(provider: EgressProvider): void {
   if (provider === 'none') {
     return
   }
-  const suffix = resolution.source === 'default' ? ' (default)' : ''
-  log.info(`Egress: FilBeam${suffix}`)
+  log.info('Egress: FilBeam')
   log.indent("• Egress billed to dataset owner's wallet.")
   log.indent('• FilBeam routes piece/CAR retrieval only, not IPFS blocks.')
   log.indent('• Disable: --egress-provider none')
   log.flush()
-}
-
-/**
- * Map Commander's option-value source to our two-way notice classifier.
- *
- * Commander returns: 'cli' | 'env' | 'default' | 'config' | 'implied' | undefined.
- * We collapse to:
- *   'cli'     — user-initiated (cli, env, config, or WITH_CDN fallback)
- *   'default' — Commander's `.default('beam')` won
- */
-export function resolveEgressProviderSource(
-  commanderSource: string | undefined,
-  env: { WITH_CDN?: string }
-): EgressProviderSource {
-  if (commanderSource != null && commanderSource !== 'default' && commanderSource !== 'implied') {
-    return 'cli'
-  }
-  if (env.WITH_CDN === 'true' || env.WITH_CDN === 'false') {
-    return 'cli'
-  }
-  return 'default'
 }

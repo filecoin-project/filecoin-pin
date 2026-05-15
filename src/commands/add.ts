@@ -15,8 +15,7 @@ export const addCommand = new Command('add')
   .option('--bare', 'Add file without directory wrapper (files only, not supported for directories)')
   .option('--copies <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
 
-addCommand.action(async (path: string, options: any, command: Command) => {
-  options.__egressProviderSource = command.getOptionValueSource('egressProvider')
+addCommand.action(async (path: string, options: any) => {
   try {
     const result = await runAddFromCli(path, options)
     if (result.copies.length < result.requestedCopies) {

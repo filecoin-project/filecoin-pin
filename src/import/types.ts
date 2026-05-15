@@ -14,8 +14,6 @@ export interface ImportOptions extends CLIAuthOptions, CLIAutoFundOptions {
   skipIpniVerification?: boolean
   /** Enable FilBeam (CDN) routing — true when --egress-provider beam is active */
   withCDN?: boolean
-  /** Where withCDN was resolved from; controls the notice "(default)" suffix */
-  withCDNSource?: 'cli' | 'default'
 }
 
 export interface ImportResult {

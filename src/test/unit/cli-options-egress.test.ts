@@ -1,6 +1,11 @@
 import { Command } from 'commander'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { EGRESS_PROVIDERS, normalizeEgressProvider } from '../../utils/cli-options-egress.js'
+import {
+  addEgressOptions,
+  EGRESS_PROVIDERS,
+  normalizeEgressProvider,
+  printEgressNotice,
+} from '../../utils/cli-options-egress.js'
 
 vi.mock('../../utils/cli-logger.js', () => ({
   log: {
@@ -19,44 +24,36 @@ vi.mock('../../utils/cli-logger.js', () => ({
 
 describe('normalizeEgressProvider', () => {
   it('returns "beam" by default when neither CLI nor env is set', () => {
-    expect(normalizeEgressProvider(undefined, undefined, {})).toBe('beam')
+    expect(normalizeEgressProvider(undefined, {})).toBe('beam')
   })
 
-  it('returns the CLI value when source indicates user-provided', () => {
-    expect(normalizeEgressProvider('none', 'cli', {})).toBe('none')
-    expect(normalizeEgressProvider('beam', 'cli', {})).toBe('beam')
-    expect(normalizeEgressProvider('none', 'env', {})).toBe('none')
-  })
-
-  it('treats Commander default value as absent (so WITH_CDN can apply)', () => {
-    expect(normalizeEgressProvider('beam', 'default', { WITH_CDN: 'false' })).toBe('none')
-    expect(normalizeEgressProvider('beam', 'implied', { WITH_CDN: 'false' })).toBe('none')
+  it('returns the CLI value when provided', () => {
+    expect(normalizeEgressProvider('none', {})).toBe('none')
+    expect(normalizeEgressProvider('beam', {})).toBe('beam')
   })
 
   it('falls back to WITH_CDN=false → none when CLI value is absent', () => {
-    expect(normalizeEgressProvider(undefined, undefined, { WITH_CDN: 'false' })).toBe('none')
+    expect(normalizeEgressProvider(undefined, { WITH_CDN: 'false' })).toBe('none')
   })
 
   it('falls back to WITH_CDN=true → beam when CLI value is absent', () => {
-    expect(normalizeEgressProvider(undefined, undefined, { WITH_CDN: 'true' })).toBe('beam')
+    expect(normalizeEgressProvider(undefined, { WITH_CDN: 'true' })).toBe('beam')
   })
 
-  it('CLI flag wins over WITH_CDN env when source is user-provided', () => {
-    expect(normalizeEgressProvider('none', 'cli', { WITH_CDN: 'true' })).toBe('none')
-    expect(normalizeEgressProvider('beam', 'cli', { WITH_CDN: 'false' })).toBe('beam')
+  it('CLI flag wins over WITH_CDN env', () => {
+    expect(normalizeEgressProvider('none', { WITH_CDN: 'true' })).toBe('none')
+    expect(normalizeEgressProvider('beam', { WITH_CDN: 'false' })).toBe('beam')
   })
 
   it('ignores WITH_CDN values other than "true"/"false"', () => {
-    expect(normalizeEgressProvider(undefined, undefined, { WITH_CDN: 'yes' })).toBe('beam')
-    expect(normalizeEgressProvider(undefined, undefined, { WITH_CDN: '' })).toBe('beam')
+    expect(normalizeEgressProvider(undefined, { WITH_CDN: 'yes' })).toBe('beam')
+    expect(normalizeEgressProvider(undefined, { WITH_CDN: '' })).toBe('beam')
   })
 
   it('exposes the closed list of providers', () => {
     expect(EGRESS_PROVIDERS).toEqual(['beam', 'none'])
   })
 })
-
-import { addEgressOptions } from '../../utils/cli-options-egress.js'
 
 describe('addEgressOptions', () => {
   const originalEgress = process.env.EGRESS_PROVIDER
@@ -70,10 +67,10 @@ describe('addEgressOptions', () => {
     else process.env.EGRESS_PROVIDER = originalEgress
   })
 
-  it('defaults --egress-provider to "beam"', () => {
+  it('leaves --egress-provider undefined when neither flag nor env is set (default applied later)', () => {
     const command = addEgressOptions(new Command()).exitOverride()
     command.parse([], { from: 'user' })
-    expect(command.opts().egressProvider).toBe('beam')
+    expect(command.opts().egressProvider).toBeUndefined()
   })
 
   it('reads explicit --egress-provider value', () => {
@@ -95,8 +92,6 @@ describe('addEgressOptions', () => {
   })
 })
 
-import { printEgressNotice, resolveEgressProviderSource } from '../../utils/cli-options-egress.js'
-
 describe('printEgressNotice', () => {
   beforeEach(async () => {
     const { log } = await import('../../utils/cli-logger.js')
@@ -107,26 +102,20 @@ describe('printEgressNotice', () => {
   })
 
   it('prints nothing when provider is "none"', async () => {
-    printEgressNotice('none', { source: 'default' })
+    printEgressNotice('none')
     const { log } = await import('../../utils/cli-logger.js')
     expect(vi.mocked(log.info)).not.toHaveBeenCalled()
     expect(vi.mocked(log.line)).not.toHaveBeenCalled()
   })
 
-  it('prints "FilBeam (default)" header when source is "default"', async () => {
-    printEgressNotice('beam', { source: 'default' })
+  it('prints "Egress: FilBeam" header when provider is "beam"', async () => {
+    printEgressNotice('beam')
     const { log } = await import('../../utils/cli-logger.js')
-    expect(vi.mocked(log.info)).toHaveBeenCalledWith(expect.stringContaining('Egress: FilBeam (default)'))
-  })
-
-  it('prints "FilBeam" header (no "(default)" suffix) when source is "cli"', async () => {
-    printEgressNotice('beam', { source: 'cli' })
-    const { log } = await import('../../utils/cli-logger.js')
-    expect(vi.mocked(log.info)).toHaveBeenCalledWith(expect.stringMatching(/Egress: FilBeam(?! \(default\))/))
+    expect(vi.mocked(log.info)).toHaveBeenCalledWith('Egress: FilBeam')
   })
 
   it('prints the cost, scope, and disable bullets', async () => {
-    printEgressNotice('beam', { source: 'default' })
+    printEgressNotice('beam')
     const { log } = await import('../../utils/cli-logger.js')
     const indentCalls = vi.mocked(log.indent).mock.calls.map(([msg]) => msg as string)
     expect(indentCalls).toEqual(
@@ -137,33 +126,5 @@ describe('printEgressNotice', () => {
       ])
     )
     expect(vi.mocked(log.flush)).toHaveBeenCalled()
-  })
-})
-
-describe('resolveEgressProviderSource', () => {
-  it('returns "default" when Commander used its default and no WITH_CDN', () => {
-    expect(resolveEgressProviderSource('default', {})).toBe('default')
-    expect(resolveEgressProviderSource(undefined, {})).toBe('default')
-  })
-
-  it('returns "cli" when Commander reported "cli"', () => {
-    expect(resolveEgressProviderSource('cli', {})).toBe('cli')
-  })
-
-  it('returns "cli" when Commander reported "env" (EGRESS_PROVIDER)', () => {
-    expect(resolveEgressProviderSource('env', {})).toBe('cli')
-  })
-
-  it('returns "cli" when WITH_CDN is set explicitly even with Commander default', () => {
-    expect(resolveEgressProviderSource('default', { WITH_CDN: 'true' })).toBe('cli')
-    expect(resolveEgressProviderSource('default', { WITH_CDN: 'false' })).toBe('cli')
-  })
-
-  it('ignores WITH_CDN with non-boolean values', () => {
-    expect(resolveEgressProviderSource('default', { WITH_CDN: 'yes' })).toBe('default')
-  })
-
-  it('treats Commander source "implied" as default', () => {
-    expect(resolveEgressProviderSource('implied', {})).toBe('default')
   })
 })

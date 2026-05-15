@@ -24,7 +24,7 @@ import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
-import { normalizeEgressProvider, printEgressNotice, resolveEgressProviderSource } from '../utils/cli-options-egress.js'
+import { normalizeEgressProvider, printEgressNotice } from '../utils/cli-options-egress.js'
 import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 import type { ImportOptions, ImportResult } from './types.js'
 
@@ -147,13 +147,11 @@ export async function runCarImportFromCli(file: string, options: Record<string, 
       minRunwayDays: _minRunwayDays,
       maxBalance: _maxBalance,
       egressProvider: rawEgressProvider,
-      __egressProviderSource: cmdEgressSource,
       ...importOptionsFromCli
     } = options
 
-    const egressProvider = normalizeEgressProvider(rawEgressProvider, cmdEgressSource, process.env)
+    const egressProvider = normalizeEgressProvider(rawEgressProvider, process.env)
     const withCDN = egressProvider === 'beam'
-    const withCDNSource = resolveEgressProviderSource(cmdEgressSource, process.env)
 
     const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
     importOptions = {
@@ -161,7 +159,6 @@ export async function runCarImportFromCli(file: string, options: Record<string, 
       ...autoFundOptions,
       filePath: file,
       withCDN,
-      withCDNSource,
       ...(pieceMetadata && { pieceMetadata }),
       ...(dataSetMetadata && { dataSetMetadata }),
     }
@@ -197,7 +194,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
   const withCDN = options.withCDN === true
   if (withCDN) {
-    printEgressNotice('beam', { source: options.withCDNSource ?? 'default' })
+    printEgressNotice('beam')
   }
 
   try {
