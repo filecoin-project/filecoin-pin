@@ -152,6 +152,14 @@ vi.mock('@filoz/synapse-core/warm-storage', () => ({
   getPdpDataSet: mockGetPdpDataSet,
 }))
 
+vi.mock('@filoz/synapse-core/pdp-verifier', () => ({
+  getActivePieces: vi.fn(async () => ({
+    pieces: state.pieceList.map((p) => ({ id: p.pieceId, cid: { toString: () => p.pieceCid } })),
+    hasMore: false,
+  })),
+  getScheduledRemovals: vi.fn(async () => [] as readonly bigint[]),
+}))
+
 vi.mock('@filoz/synapse-core/sp', () => ({
   getDataSet: vi.fn(async () => ({
     id: 158n,
