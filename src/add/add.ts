@@ -6,7 +6,8 @@
  */
 
 import { createReadStream } from 'node:fs'
-import { readFile, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
+import { Readable } from 'node:stream'
 import pc from 'picocolors'
 import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
@@ -244,11 +245,12 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     spinner.stop(`${pc.green('✓')} ${isDirectory ? 'Directory' : 'File'} packed with root CID: ${rootCid.toString()}`)
 
-    // Read CAR data
-    spinner.start('Loading packed IPFS content ...')
-    const carData = await readFile(tempCarPath)
-    const carSize = carData.length
-    spinner.stop(`${pc.green('✓')} IPFS content loaded (${formatFileSize(carSize)})`)
+    // The CLI still materializes a full CAR on disk first. This only avoids
+    // buffering that CAR again in memory during upload.
+    spinner.start('Inspecting packed IPFS content...')
+    const { size: carSize } = await stat(tempCarPath)
+    const carData = Readable.toWeb(createReadStream(tempCarPath)) as ReadableStream<Uint8Array>
+    spinner.stop(`${pc.green('✓')} Packed IPFS content ready (${formatFileSize(carSize)})`)
 
     const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {
       ...(dataSetMetadata && { metadata: dataSetMetadata }),
