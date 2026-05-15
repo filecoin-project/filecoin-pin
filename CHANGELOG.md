@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.21.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.21.0...v0.21.1) (2026-05-15)
+
+
+### Bug Fixes
+
+* get detailed data set avoid full scan ([#483](https://github.com/filecoin-project/filecoin-pin/issues/483)) ([1e86afc](https://github.com/filecoin-project/filecoin-pin/commit/1e86afcf5c630bf47387835c5146cca6ba320920))
+* stream remaining upload paths and expose upload progress ([#441](https://github.com/filecoin-project/filecoin-pin/issues/441)) ([9437cce](https://github.com/filecoin-project/filecoin-pin/commit/9437cce75b46ba148ef3e309864abc5c33c8ee0e))
+
+
+### Chores
+
+* **deps-dev:** bump @ipld/dag-cbor from 9.2.5 to 9.2.6 ([#479](https://github.com/filecoin-project/filecoin-pin/issues/479)) ([ef4c972](https://github.com/filecoin-project/filecoin-pin/commit/ef4c972c987d9b113c5c2e3abe237ca0d82cb177))
+* **deps:** bump @actions/core from 3.0.0 to 3.0.1 ([#475](https://github.com/filecoin-project/filecoin-pin/issues/475)) ([a81c3a6](https://github.com/filecoin-project/filecoin-pin/commit/a81c3a6a4dfdd7ba3732e7a5112a4717ed355714))
+* **deps:** bump interface-store from 7.0.1 to 7.0.2 ([#476](https://github.com/filecoin-project/filecoin-pin/issues/476)) ([dad5c4d](https://github.com/filecoin-project/filecoin-pin/commit/dad5c4d4ef4581ef542b0e311568e1deca124299))
+* **deps:** update helia & reconcile conflicting deps ([71d5530](https://github.com/filecoin-project/filecoin-pin/commit/71d5530b876353530a6f0a611366fdad2dcb96e1))
+
+
+### Documentation
+
+* fix cli link in README ([#484](https://github.com/filecoin-project/filecoin-pin/issues/484)) ([00c9a29](https://github.com/filecoin-project/filecoin-pin/commit/00c9a29b70b5d3f886ef67f588d705a16895f1db))
+* holistic documentation improvements for mainnet GA ([#466](https://github.com/filecoin-project/filecoin-pin/issues/466)) ([a15839c](https://github.com/filecoin-project/filecoin-pin/commit/a15839cce9f23632e0ae52edefc0fecc5a51981e))
+
 ## [0.21.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.20.1...v0.21.0) (2026-05-07)
 
 
