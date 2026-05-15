@@ -321,7 +321,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     const filbeam = (synapse.chain as { filbeam?: { retrievalDomain: string } | null }).filbeam
     const filbeamUrl =
       withCDN && filbeam != null && uploadResult.pieceCid
-        ? `https://${getClientAddress(synapse)}.${filbeam.retrievalDomain}/${uploadResult.pieceCid}`
+        ? new URL(uploadResult.pieceCid, `https://${getClientAddress(synapse)}.${filbeam.retrievalDomain}`).toString()
         : undefined
     const egress = filbeamUrl != null ? { filbeamUrl } : undefined
 
