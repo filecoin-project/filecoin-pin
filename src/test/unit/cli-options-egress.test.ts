@@ -125,16 +125,15 @@ describe('printEgressNotice', () => {
     expect(vi.mocked(log.info)).toHaveBeenCalledWith(expect.stringMatching(/Egress: FilBeam(?! \(default\))/))
   })
 
-  it('prints the four notice bullets and the disable hint', async () => {
+  it('prints the cost, scope, and disable bullets', async () => {
     printEgressNotice('beam', { source: 'default' })
     const { log } = await import('../../utils/cli-logger.js')
     const indentCalls = vi.mocked(log.indent).mock.calls.map(([msg]) => msg as string)
     expect(indentCalls).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('Pieces retrievable via the FilBeam CDN endpoint'),
-        expect.stringContaining('Egress costs are charged'),
-        expect.stringContaining('IPFS-block retrieval is not yet routed'),
-        expect.stringContaining('Disable with: --egress-provider none'),
+        expect.stringContaining('Egress billed'),
+        expect.stringContaining('piece/CAR retrieval only, not IPFS blocks'),
+        expect.stringContaining('Disable: --egress-provider none'),
       ])
     )
     expect(vi.mocked(log.flush)).toHaveBeenCalled()

@@ -55,11 +55,8 @@ export function addEgressOptions(command: Command): Command {
   command.addOption(
     new Option(
       '--egress-provider <provider>',
-      'Egress provider for piece retrieval (default: beam). ' +
-        'beam = pieces retrievable via FilBeam CDN; egress costs charged to the dataset owner. ' +
-        'none = no CDN routing; pieces retrievable only via direct SP PDP endpoints. ' +
-        'Today FilBeam serves piece/CAR retrieval only, not IPFS-block retrieval ' +
-        '(see https://github.com/filbeam/roadmap/issues/85).'
+      'Egress provider for piece retrieval: beam (default) or none. ' +
+        'See "FilBeam egress" in documentation/glossary.md for cost and scope.'
     )
       .choices(EGRESS_PROVIDERS as readonly string[])
       .default('beam')
@@ -88,12 +85,9 @@ export function printEgressNotice(provider: EgressProvider, resolution: { source
   }
   const suffix = resolution.source === 'default' ? ' (default)' : ''
   log.info(`Egress: FilBeam${suffix}`)
-  log.indent('• Pieces retrievable via the FilBeam CDN endpoint.')
-  log.indent("• Egress costs are charged to the dataset owner's wallet.")
-  log.indent(
-    '• Today FilBeam serves piece/CAR retrieval only — IPFS-block retrieval is not yet routed through FilBeam\n  (https://github.com/filbeam/roadmap/issues/85).'
-  )
-  log.indent('• Disable with: --egress-provider none')
+  log.indent("• Egress billed to dataset owner's wallet.")
+  log.indent('• FilBeam routes piece/CAR retrieval only, not IPFS blocks.')
+  log.indent('• Disable: --egress-provider none')
   log.flush()
 }
 
