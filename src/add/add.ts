@@ -16,7 +16,7 @@ import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
-import { initializeSynapse } from '../core/synapse/index.js'
+import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
@@ -321,7 +321,14 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       failedAttempts: uploadResult.failedAttempts,
     }
 
-    displayUploadResults(result, 'Add', network, networkSlug)
+    const filbeam = (synapse.chain as { filbeam?: { retrievalDomain: string } | null }).filbeam
+    const filbeamUrl =
+      withCDN && filbeam != null && uploadResult.pieceCid
+        ? `https://${getClientAddress(synapse)}.${filbeam.retrievalDomain}/${uploadResult.pieceCid}`
+        : undefined
+    const egress = filbeamUrl != null ? { filbeamUrl } : undefined
+
+    displayUploadResults(result, 'Add', network, networkSlug, egress)
 
     if (uploadResult.copies.length < requestedCopies) {
       log.line('')

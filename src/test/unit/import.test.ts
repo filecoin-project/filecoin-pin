@@ -591,4 +591,64 @@ describe('runCarImport withCDN propagation', () => {
     const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
     expect(lastConfig.withCDN).toBeUndefined()
   })
+
+  it('passes filbeamUrl to displayUploadResults when withCDN is true and chain.filbeam is set', async () => {
+    const carPath = join(testDir, 'filbeam-url.car')
+    await createTestCarFile(carPath, [], [{ content: 'filbeam url content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      withCDN: true,
+    })
+    const { displayUploadResults } = await import('../../common/upload-flow.js')
+    expect(vi.mocked(displayUploadResults)).toHaveBeenCalledWith(
+      expect.anything(),
+      'Import',
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        filbeamUrl: expect.stringMatching(/^https:\/\/0x[0-9a-fA-F]+\.calibration\.filbeam\.io\/.+$/),
+      })
+    )
+  })
+
+  it('omits egress arg to displayUploadResults when withCDN is false', async () => {
+    const carPath = join(testDir, 'no-egress.car')
+    await createTestCarFile(carPath, [], [{ content: 'no egress content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      withCDN: false,
+    })
+    const { displayUploadResults } = await import('../../common/upload-flow.js')
+    const calls = vi.mocked(displayUploadResults).mock.calls
+    const last = calls[calls.length - 1]
+    expect(last?.[4]).toBeUndefined()
+  })
+
+  it('omits egress arg when chain.filbeam is null (devnet)', async () => {
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    vi.mocked(initializeSynapse).mockImplementationOnce(async (config: any) => {
+      if (config.privateKey == null) throw new Error('auth required')
+      return {
+        chain: { name: 'devnet', id: 31337, filbeam: null },
+        client: { account: { address: '0x1234567890123456789012345678901234567890' } },
+        storage: { upload: vi.fn(), findDataSets: mockFindDataSets },
+      } as any
+    })
+    const carPath = join(testDir, 'devnet-egress.car')
+    await createTestCarFile(carPath, [], [{ content: 'devnet egress content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      withCDN: true,
+    })
+    const { displayUploadResults } = await import('../../common/upload-flow.js')
+    const calls = vi.mocked(displayUploadResults).mock.calls
+    const last = calls[calls.length - 1]
+    expect(last?.[4]).toBeUndefined()
+  })
 })
