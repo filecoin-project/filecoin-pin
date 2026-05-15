@@ -92,9 +92,11 @@ src/
 
 **Network**: `--network mainnet|calibration|devnet` (default: `mainnet`). Devnet reads config from foc-devnet's `devnet-info.json` and auto-resolves private key and RPC URL. `--network` and `--rpc-url` are mutually exclusive. When `--rpc-url`/`RPC_URL` is set, the chain is derived by probing the endpoint's `eth_chainId`.
 
+**Egress**: `--egress-provider beam|none` (default: `beam`). Controls whether uploaded pieces are routed via the [FilBeam egress CDN](documentation/glossary.md#filbeam-egress). Today FilBeam serves piece/CAR retrieval only, not IPFS-block retrieval. Pass `--egress-provider none` to opt out; the dataset owner is on the hook for piece-retrieval egress.
+
 **Required env**: `PRIVATE_KEY=0x...` (with USDFC tokens; not needed for devnet)
 
-**Optional**: `NETWORK`, `RPC_URL`, `FOC_DEVNET_BASEDIR`, `DEVNET_INFO_PATH`, `DEVNET_USER_INDEX`, `PORT`, `HOST`, `DATABASE_PATH`, `CAR_STORAGE_PATH`, `LOG_LEVEL`
+**Optional**: `NETWORK`, `RPC_URL`, `EGRESS_PROVIDER`, `WITH_CDN` (legacy fallback for `--egress-provider`), `FOC_DEVNET_BASEDIR`, `DEVNET_INFO_PATH`, `DEVNET_USER_INDEX`, `PORT`, `HOST`, `DATABASE_PATH`, `CAR_STORAGE_PATH`, `LOG_LEVEL`
 
 **Default data dirs for pinning server**: Linux `~/.local/share/filecoin-pin/`, macOS `~/Library/Application Support/filecoin-pin/`, Windows `%APPDATA%/filecoin-pin/`
 
