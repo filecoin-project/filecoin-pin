@@ -19,4 +19,24 @@ describe('CLI entrypoint', () => {
       })
     }).not.toThrow()
   })
+
+  it('add command exposes --egress-provider in --help', { timeout: 15000 }, () => {
+    const out = execSync('node dist/cli.js add --help', {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    })
+    expect(out).toContain('--egress-provider')
+    expect(out).toContain('beam')
+    expect(out).toContain('none')
+  })
+
+  it('import command exposes --egress-provider in --help', { timeout: 15000 }, () => {
+    const out = execSync('node dist/cli.js import --help', {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    })
+    expect(out).toContain('--egress-provider')
+  })
 })

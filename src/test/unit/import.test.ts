@@ -124,7 +124,7 @@ vi.mock('../../core/synapse/index.js', () => ({
     }
 
     return {
-      chain: { name: 'calibration', id: 314159 },
+      chain: { name: 'calibration', id: 314159, filbeam: { retrievalDomain: 'calibration.filbeam.io' } },
       client: { account: { address: '0x1234567890123456789012345678901234567890' } },
       storage: {
         upload: vi.fn(),
@@ -540,5 +540,55 @@ describe('CAR Import', () => {
       expect(result.copies[0]?.providerId).toBe(1n)
       expect(result.failedAttempts).toHaveLength(0)
     })
+  })
+})
+
+describe('runCarImport withCDN propagation', () => {
+  const testDir = './test-import-cdn-cars'
+  const testPrivateKey = '0x0000000000000000000000000000000000000000000000000000000000000001'
+
+  beforeEach(async () => {
+    await mkdir(testDir, { recursive: true })
+    vi.clearAllMocks()
+  })
+
+  afterEach(async () => {
+    try {
+      await stat(testDir)
+      await rm(testDir, { recursive: true, force: true })
+    } catch {
+      // Directory doesn't exist, nothing to clean up
+    }
+  })
+
+  it('passes withCDN: true to initializeSynapse when options.withCDN is true', async () => {
+    const carPath = join(testDir, 'with-cdn.car')
+    await createTestCarFile(carPath, [], [{ content: 'with-cdn content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      withCDN: true,
+    })
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+      expect.objectContaining({ withCDN: true }),
+      expect.anything()
+    )
+  })
+
+  it('does not set withCDN on the SDK config when options.withCDN is false', async () => {
+    const carPath = join(testDir, 'without-cdn.car')
+    await createTestCarFile(carPath, [], [{ content: 'without-cdn content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      withCDN: false,
+    })
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    const calls = vi.mocked(initializeSynapse).mock.calls
+    const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+    expect(lastConfig.withCDN).toBeUndefined()
   })
 })

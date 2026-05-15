@@ -54,7 +54,7 @@ vi.mock('../../core/synapse/index.js', () => ({
     }
 
     return {
-      chain: { name: 'calibration', id: 314159 },
+      chain: { name: 'calibration', id: 314159, filbeam: { retrievalDomain: 'calibration.filbeam.io' } },
       client: { account: { address: '0x1234567890123456789012345678901234567890' } },
       storage: {
         upload: vi.fn(),
@@ -381,6 +381,33 @@ describe('Add Command', () => {
 
       expect(mockExit).not.toHaveBeenCalled()
       mockExit.mockRestore()
+    })
+
+    it('passes withCDN: true to initializeSynapse when options.withCDN is true', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        withCDN: true,
+      })
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+        expect.objectContaining({ withCDN: true }),
+        expect.anything()
+      )
+    })
+
+    it('does not set withCDN on the SDK config when options.withCDN is false', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        withCDN: false,
+      })
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      const calls = vi.mocked(initializeSynapse).mock.calls
+      const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+      expect(lastConfig.withCDN).toBeUndefined()
     })
   })
 })

@@ -13,6 +13,10 @@ export interface AddOptions extends CLIAuthOptions, CLIAutoFundOptions {
   dataSetMetadata?: Record<string, string>
   /** Skip IPNI advertisement verification after upload */
   skipIpniVerification?: boolean
+  /** Enable FilBeam (CDN) routing — true when --egress-provider beam is active */
+  withCDN?: boolean
+  /** Where withCDN was resolved from; controls the notice "(default)" suffix */
+  withCDNSource?: 'cli' | 'default'
 }
 
 export interface AddResult {
