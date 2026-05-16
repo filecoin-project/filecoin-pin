@@ -45,6 +45,8 @@ The piece-retrieval CDN provided by [FilBeam](https://github.com/filbeam). When 
 
 **What it does today:** Serves [`/piece` Retrieval](#piece-retrieval) only — whole-CAR fetches keyed by [Piece CID](#piece-cid). It does **not** route [`/ipfs` Retrieval](#ipfs-retrieval); for those, use the IPFS retrieval URLs printed alongside the upload result.
 
+**Network support:** FilBeam URLs are only printed on networks with a FilBeam endpoint (mainnet and [Calibration](#calibration-network)). On networks without one (e.g. devnet), `--egress-provider beam` stays the default but no FilBeam URL is shown.
+
 **Cost:** Each FilBeam piece retrieval is charged as egress against the dataset owner's wallet. Anyone who knows the piece CID and wallet address can trigger a retrieval, which means the dataset owner is on the hook for that egress.
 
 **Future state:** FilBeam is working on routing IPFS-block retrievals through the same CDN ([filbeam/roadmap#85](https://github.com/filbeam/roadmap/issues/85)). [Data Sets](#data-set) uploaded with FilBeam enabled today will benefit automatically when that ships.
