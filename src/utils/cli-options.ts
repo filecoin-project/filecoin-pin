@@ -83,6 +83,8 @@ export function addContextSelectionOptions(command: Command): Command {
     )
 }
 
+const ALLOWED_NETWORKS = ['mainnet', 'calibration', 'devnet']
+
 export function addNetworkOptions(command: Command): Command {
   command.addOption(
     new Option(
@@ -91,10 +93,17 @@ export function addNetworkOptions(command: Command): Command {
         'config from foc-devnet (https://github.com/filecoin-project/foc-devnet, ' +
         'env: FOC_DEVNET_BASEDIR or DEVNET_INFO_PATH, DEVNET_USER_INDEX).'
     )
-      // Normalize before .choices() validates, so aliases are accepted without
-      // appearing in --help.
-      .argParser((value) => normalizeNetworkName(value) ?? value)
-      .choices(['mainnet', 'calibration', 'devnet'])
+      // .choices() keeps --help limited to the canonical names AND installs its
+      // own arg parser. A later .argParser() replaces that parser, so it must
+      // both normalize aliases (e.g. calibnet) and re-validate the result.
+      .choices(ALLOWED_NETWORKS)
+      .argParser((value) => {
+        const normalized = normalizeNetworkName(value) ?? value
+        if (!ALLOWED_NETWORKS.includes(normalized)) {
+          throw new InvalidArgumentError(`Allowed choices are ${ALLOWED_NETWORKS.join(', ')}.`)
+        }
+        return normalized
+      })
       .env('NETWORK')
       .conflicts('rpcUrl')
   )
