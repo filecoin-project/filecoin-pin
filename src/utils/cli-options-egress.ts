@@ -7,7 +7,9 @@
  *   The non-interactive notice printed when beam is active
  */
 
+import type { Synapse } from '@filoz/synapse-sdk'
 import { type Command, Option } from 'commander'
+import { getClientAddress } from '../core/synapse/index.js'
 import { log } from './cli-logger.js'
 
 export const EGRESS_PROVIDERS = ['beam', 'none'] as const
@@ -50,13 +52,29 @@ export function addEgressOptions(command: Command): Command {
   command.addOption(
     new Option(
       '--egress-provider <provider>',
-      'Egress provider for piece retrieval: beam (default) or none. ' +
-        'See "FilBeam egress" in documentation/glossary.md for cost and scope.'
+      'Egress provider for piece retrieval: beam (default, FilBeam CDN billed to wallet) or none.'
     )
       .choices(EGRESS_PROVIDERS as readonly string[])
       .env('EGRESS_PROVIDER')
   )
   return command
+}
+
+/**
+ * Build the FilBeam retrieval URL for an uploaded piece.
+ *
+ * Returns `undefined` when egress is disabled, the piece CID is missing, or the
+ * selected chain has no FilBeam endpoint (e.g. devnet).
+ */
+export function buildFilbeamUrl(synapse: Synapse, pieceCid: string | undefined, withCDN: boolean): string | undefined {
+  if (!withCDN || !pieceCid) {
+    return undefined
+  }
+  const filbeam = (synapse.chain as { filbeam?: { retrievalDomain: string } | null }).filbeam
+  if (filbeam == null) {
+    return undefined
+  }
+  return new URL(pieceCid, `https://${getClientAddress(synapse)}.${filbeam.retrievalDomain}`).toString()
 }
 
 /**

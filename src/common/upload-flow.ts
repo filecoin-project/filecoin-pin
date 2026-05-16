@@ -517,7 +517,9 @@ export async function performUpload(
  *
  * @param result - Result data to display
  * @param operation - Operation name ('Import' or 'Add')
- * @param network - Network name
+ * @param networkDisplay - Human-readable network name
+ * @param networkSlug - Network slug used to build explorer URLs
+ * @param egress - Optional egress info; when `filbeamUrl` is set, a FilBeam block is rendered
  */
 export function displayUploadResults(
   result: {

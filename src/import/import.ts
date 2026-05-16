@@ -18,13 +18,13 @@ import { displayUploadResults, performAutoFunding, performUpload, validatePaymen
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
-import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
+import { initializeSynapse } from '../core/synapse/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
-import { normalizeEgressProvider, printEgressNotice } from '../utils/cli-options-egress.js'
+import { buildFilbeamUrl, normalizeEgressProvider, printEgressNotice } from '../utils/cli-options-egress.js'
 import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 import type { ImportOptions, ImportResult } from './types.js'
 
@@ -348,11 +348,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       failedAttempts: uploadResult.failedAttempts,
     }
 
-    const filbeam = (synapse.chain as { filbeam?: { retrievalDomain: string } | null }).filbeam
-    const filbeamUrl =
-      withCDN && filbeam != null && uploadResult.pieceCid
-        ? new URL(uploadResult.pieceCid, `https://${getClientAddress(synapse)}.${filbeam.retrievalDomain}`).toString()
-        : undefined
+    const filbeamUrl = buildFilbeamUrl(synapse, uploadResult.pieceCid, withCDN)
     const egress = filbeamUrl != null ? { filbeamUrl } : undefined
 
     displayUploadResults(result, 'Import', network, networkSlug, egress)
