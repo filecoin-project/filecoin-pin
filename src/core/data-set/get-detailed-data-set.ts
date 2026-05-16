@@ -6,9 +6,9 @@
  * @module core/data-set/get-detailed-data-set
  */
 
+import { getPdpDataSet } from '@filoz/synapse-core/warm-storage'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { DEFAULT_DATA_SET_METADATA } from '../synapse/constants.js'
-import { getClientAddress } from '../synapse/index.js'
 import { getDataSetPieces } from './get-data-set-pieces.js'
 import type { DataSetSummary, ListDataSetsOptions } from './types.js'
 
@@ -21,38 +21,32 @@ export async function getDetailedDataSet(
   const withProviderDetails = options?.withProviderDetails ?? true
 
   try {
-    // Create a storage context for this specific dataset
-    const storageContext = await synapse.storage.createContext({ dataSetId })
+    const [storageContext, pdpDataSet] = await Promise.all([
+      synapse.storage.createContext({ dataSetId }),
+      getPdpDataSet(synapse.client, { dataSetId }),
+    ])
 
-    // Get provider info if requested
-    const provider = withProviderDetails
-      ? await synapse.providers.getProvider({ providerId: storageContext.provider.id })
-      : undefined
-
-    const metadata = storageContext.dataSetMetadata
-
-    const createdWithFilecoinPin = Object.entries(DEFAULT_DATA_SET_METADATA).every(
-      ([key, value]) => metadata[key] === value
-    )
+    if (pdpDataSet == null) {
+      throw new Error(`Data set ${dataSetId} not found`)
+    }
 
     const piecesResult = await getDataSetPieces(synapse, storageContext, {
       includeMetadata: true,
       logger,
     })
 
-    // Find matching dataset info from findDataSets to get full EnhancedDataSetInfo fields
-    const address = getClientAddress(synapse)
-    const allDataSets = await synapse.storage.findDataSets({ address })
-    const dataSetInfo = allDataSets.find((ds) => ds.pdpVerifierDataSetId === dataSetId)
-
-    if (dataSetInfo == null) {
-      throw new Error(`Data set ${dataSetId} not found for address ${address}`)
-    }
+    const createdWithFilecoinPin = Object.entries(DEFAULT_DATA_SET_METADATA).every(
+      ([key, value]) => pdpDataSet.metadata[key] === value
+    )
 
     const result: DataSetSummary = {
-      ...dataSetInfo,
+      ...pdpDataSet,
+      pdpVerifierDataSetId: dataSetId,
       dataSetId,
-      provider: provider ?? undefined,
+      isLive: pdpDataSet.live,
+      isManaged: pdpDataSet.managed,
+      withCDN: pdpDataSet.cdn,
+      provider: withProviderDetails ? pdpDataSet.provider : undefined,
       pieces: piecesResult.pieces,
       createdWithFilecoinPin,
     }

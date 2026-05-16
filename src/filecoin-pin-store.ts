@@ -1,6 +1,8 @@
 import { EventEmitter } from 'node:events'
-import { readFile, unlink } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import type { Synapse } from '@filoz/synapse-sdk'
 import type { Helia } from 'helia'
 import type { CID } from 'multiformats/cid'
@@ -305,9 +307,9 @@ export class FilecoinPinStore extends EventEmitter {
       // 3. Track the returned piece information in application state
       // 4. Handle errors gracefully with proper cleanup
       try {
-        // Read the CAR file (streaming not yet supported in Synapse)
-        // TODO: When Synapse supports streaming, this could be optimized
-        const carData = await readFile(pinStatus.filecoin.carFilePath)
+        // The pinning server still writes a full CAR to disk first, but the
+        // upload body no longer buffers that CAR in memory.
+        const carData = Readable.toWeb(createReadStream(pinStatus.filecoin.carFilePath)) as ReadableStream<Uint8Array>
 
         const uploadResult = await uploadToSynapse(this.synapse, carData, cid, this.logger, {
           contextId: pinId,

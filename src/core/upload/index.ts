@@ -328,7 +328,7 @@ export async function executeUpload(
   const selectedProviders: PDPProvider[] = []
   let ipniValidationPromise: Promise<boolean> | undefined
 
-  const onProgress: ProgressEventHandler<UploadProgressEvents | ValidateIPNIProgressEvents> = (event) => {
+  const emitProgress: ProgressEventHandler<UploadProgressEvents | ValidateIPNIProgressEvents> = (event) => {
     switch (event.type) {
       case 'providerSelected': {
         selectedProviders.push(event.data.provider)
@@ -377,7 +377,7 @@ export async function executeUpload(
   }
 
   const uploadOptions: Parameters<typeof uploadToSynapse>[4] = {
-    onProgress,
+    onProgress: emitProgress,
   }
   if (contextId) {
     uploadOptions.contextId = contextId
