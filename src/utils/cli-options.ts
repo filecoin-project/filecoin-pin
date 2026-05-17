@@ -43,6 +43,18 @@ import { USDFC_DECIMALS } from '../core/payments/constants.js'
 export function addAuthOptions(command: Command): Command {
   command
     .option('--private-key <key>', 'Private key for standard auth (can also use PRIVATE_KEY env)')
+    .addOption(
+      new Option(
+        '--wallet <id>',
+        'OpenWallet Standard wallet name or ID (signs via OWS, key never leaves vault). Can also use OWS_WALLET_ID env.'
+      ).env('OWS_WALLET_ID')
+    )
+    .addOption(
+      new Option(
+        '--wallet-passphrase <passphrase>',
+        'Passphrase for the OWS wallet (also OWS_WALLET_PASSPHRASE env)'
+      ).env('OWS_WALLET_PASSPHRASE')
+    )
     .option('--wallet-address <address>', 'Wallet address for session key auth (can also use WALLET_ADDRESS env)')
     .option('--session-key <key>', 'Session key for session key auth (can also use SESSION_KEY env)')
     .addOption(

@@ -51,7 +51,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
   spinner.start('Connecting...')
   try {
     // Parse and validate authentication
-    const authConfig = parseCLIAuth(options)
+    const authConfig = await parseCLIAuth(options)
 
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)

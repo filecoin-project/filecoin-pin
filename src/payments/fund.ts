@@ -239,7 +239,7 @@ export async function runFund(options: FundOptions): Promise<void> {
   spinner.start('Connecting...')
   try {
     // Parse and validate authentication
-    const authConfig = parseCLIAuth(options)
+    const authConfig = await parseCLIAuth(options)
 
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)
