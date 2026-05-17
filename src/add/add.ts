@@ -16,7 +16,7 @@ import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
-import { normalizeMetadataConfig } from '../core/metadata/index.js'
+import { normalizeMetadataConfig, withDerivedNameMetadata } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
@@ -31,10 +31,7 @@ import type { AddOptions, AddResult } from './types.js'
 /**
  * Validate that a path exists and is a regular file or directory
  */
-async function validatePath(
-  path: string,
-  options: AddOptions
-): Promise<{
+async function validatePath(path: string): Promise<{
   exists: boolean
   stats?: any
   isDirectory?: boolean
@@ -46,13 +43,6 @@ async function validatePath(
       return { exists: true, stats, isDirectory: false }
     }
     if (stats.isDirectory()) {
-      // Check if bare flag is used with directory
-      if (options.bare) {
-        return {
-          exists: false,
-          error: `--bare flag is not supported for directories`,
-        }
-      }
       return { exists: true, stats, isDirectory: true }
     }
     // Not a file or directory (could be symlink, socket, etc.)
@@ -120,7 +110,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
   const spinner = createSpinner()
 
-  const { pieceMetadata, dataSetMetadata } = normalizeMetadataConfig({
+  const { pieceMetadata: userPieceMetadata, dataSetMetadata } = normalizeMetadataConfig({
     pieceMetadata: options.pieceMetadata,
     dataSetMetadata: options.dataSetMetadata,
   })
@@ -146,7 +136,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     // Validate path exists and is readable
     spinner.start('Validating path...')
 
-    const pathValidation = await validatePath(options.filePath, options)
+    const pathValidation = await validatePath(options.filePath)
     if (!pathValidation.exists || !pathValidation.stats) {
       spinner.stop(`${pc.red('✗')} ${pathValidation.error}`)
       cancel('Add cancelled')
@@ -230,18 +220,20 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     }
 
     // Create CAR from file or directory
-    const packingMsg = isDirectory
-      ? 'Packing directory for IPFS...'
-      : `Packing file for IPFS${options.bare ? ' (bare mode)' : ''}...`
+    const packingMsg = isDirectory ? 'Packing directory for IPFS...' : 'Packing file for IPFS...'
     spinner.start(packingMsg)
 
-    const { carPath, rootCid } = await createCarFromPath(options.filePath, {
+    const { carPath, rootCid, name } = await createCarFromPath(options.filePath, {
       logger,
       spinner,
       isDirectory,
-      ...(options.bare !== undefined && { bare: options.bare }),
+      ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }),
     })
     tempCarPath = carPath
+
+    // File-vs-directory is recovered by inspecting the root CID
+    // (codec + UnixFS Data.Type), not from a key-name distinction.
+    const pieceMetadata = withDerivedNameMetadata(userPieceMetadata, name)
 
     spinner.stop(`${pc.green('✓')} ${isDirectory ? 'Directory' : 'File'} packed with root CID: ${rootCid.toString()}`)
 

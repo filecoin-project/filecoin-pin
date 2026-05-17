@@ -2,6 +2,7 @@
  * Test to verify browser CAR builder generates same CID and CAR bytes as Node.js implementation
  */
 
+import { randomBytes } from 'node:crypto'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -59,24 +60,26 @@ describe('Browser CAR Builder', () => {
       await cleanupTempCar(nodeResult.carPath)
     })
 
-    it('should generate same root CID with bare mode as Node.js', async () => {
-      const testContent = 'Bare mode test content'
-      const testData = new TextEncoder().encode(testContent)
-      const fileName = 'bare-test.txt' // Use consistent filename
+    it('should generate same root CID and CAR bytes for chunked files', async () => {
+      // Profile-conformance regression guard: same input must yield the
+      // same root CID and byte-identical CAR in both runtimes. Use a
+      // multi-block file (>1 MiB) to exercise the chunker + dag-pb root
+      // path, not just the raw-leaf fast path.
+      const testData = new Uint8Array(randomBytes(1024 * 1024 * 1.5))
+      const fileName = 'chunked.bin'
 
-      // Write to temp file for Node.js version
-      const tempPath = join(tmpdir(), fileName)
+      const tempPath = join(tmpdir(), `cross-runtime-${Date.now()}-${fileName}`)
       await writeFile(tempPath, testData)
       testFiles.push(tempPath)
 
-      // Node.js version with bare mode
-      const nodeResult = await createCarFromPath(tempPath, { bare: true })
+      // Node.js implementation
+      const nodeResult = await createCarFromPath(tempPath)
       testFiles.push(nodeResult.carPath)
       const nodeCarBytes = await readFile(nodeResult.carPath)
 
-      // Browser version with bare mode and same filename
-      const file = new File([testData], fileName, { type: 'text/plain' })
-      const browserResult = await createCarFromFile(file, { bare: true })
+      // Browser implementation
+      const file = new File([testData], fileName)
+      const browserResult = await createCarFromFile(file)
 
       // Compare CIDs - they should be identical!
       expect(browserResult.rootCid.toString()).toBe(nodeResult.rootCid.toString())
@@ -229,15 +232,6 @@ describe('Browser CAR Builder', () => {
 
     it('should reject when no files provided to createCarFromFiles', async () => {
       await expect(createCarFromFiles([])).rejects.toThrow('At least one file is required')
-    })
-
-    it('should reject bare mode with multiple files', async () => {
-      const file1 = new File([new TextEncoder().encode('A')], 'a.txt')
-      const file2 = new File([new TextEncoder().encode('B')], 'b.txt')
-
-      await expect(createCarFromFiles([file1, file2], { bare: true })).rejects.toThrow(
-        '--bare flag is not supported for multiple files'
-      )
     })
   })
 })

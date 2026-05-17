@@ -46,10 +46,10 @@ describe('UnixFS CAR Creation', () => {
     await rm(testDir, { recursive: true, force: true })
   })
 
-  describe('Bare mode (no directory wrapper)', () => {
+  describe('Single file (no directory wrapper)', () => {
     it('should create a valid CAR that can be imported', async () => {
       // Step 1: Create CAR from file using add logic
-      const { carPath, rootCid } = await createCarFromPath(testFile, { bare: true })
+      const { carPath, rootCid } = await createCarFromPath(testFile)
 
       // Step 2: Read and validate the CAR file
       const carData = await readFile(carPath)
@@ -80,12 +80,12 @@ describe('UnixFS CAR Creation', () => {
       await rm(carPath, { force: true })
     })
 
-    it('should produce consistent root CIDs for same content in bare mode', async () => {
-      // Create multiple CARs from same content in bare mode
+    it('should produce consistent root CIDs for the same content', async () => {
+      // Create multiple CARs from the same content
       const results = await Promise.all([
-        createCarFromPath(testFile, { bare: true }),
-        createCarFromPath(testFile, { bare: true }),
-        createCarFromPath(testFile, { bare: true }),
+        createCarFromPath(testFile),
+        createCarFromPath(testFile),
+        createCarFromPath(testFile),
       ])
 
       // All should have the same root CID
@@ -96,11 +96,11 @@ describe('UnixFS CAR Creation', () => {
       await Promise.all(results.map((r) => rm(r.carPath, { force: true })))
     })
 
-    it('should handle small single-block files correctly in bare mode', async () => {
+    it('should handle small single-block files correctly', async () => {
       const smallFile = join(testDir, 'small.txt')
       await writeFile(smallFile, 'tiny')
 
-      const { carPath, rootCid } = await createCarFromPath(smallFile, { bare: true })
+      const { carPath, rootCid } = await createCarFromPath(smallFile)
 
       // Should still produce valid CAR
       const carData = await readFile(carPath)
@@ -126,7 +126,7 @@ describe('UnixFS CAR Creation', () => {
       await rm(carPath, { force: true })
     })
 
-    it('should handle larger files with multiple blocks in bare mode', async () => {
+    it('should handle larger files with multiple blocks', async () => {
       // Create a file large enough to require multiple UnixFS blocks
       // UnixFS chunks at 1MiB (1048576 bytes) by default in Helia
       const largeFile = join(testDir, 'large.bin')
@@ -134,7 +134,7 @@ describe('UnixFS CAR Creation', () => {
       const largeContent = randomBytes(1024 * 1024 * 2) // 2MB of random data
       await writeFile(largeFile, largeContent)
 
-      const { carPath, rootCid } = await createCarFromPath(largeFile, { bare: true })
+      const { carPath, rootCid } = await createCarFromPath(largeFile)
 
       // Read the CAR and count blocks
       const carData = await readFile(carPath)
@@ -158,8 +158,8 @@ describe('UnixFS CAR Creation', () => {
       await rm(carPath, { force: true })
     })
 
-    it('should validate placeholder CID is replaced in bare mode', async () => {
-      const { carPath, rootCid } = await createCarFromPath(testFile, { bare: true })
+    it('should validate the placeholder CID is replaced', async () => {
+      const { carPath, rootCid } = await createCarFromPath(testFile)
 
       // The placeholder CID should never appear in final output
       expect(rootCid.toString()).not.toBe(PLACEHOLDER_CID)
@@ -174,94 +174,6 @@ describe('UnixFS CAR Creation', () => {
 
       // Clean up
       await rm(carPath, { force: true })
-    })
-  })
-
-  describe('Directory wrapper mode (default)', () => {
-    it('should create a valid CAR with directory wrapper', async () => {
-      const { carPath, rootCid } = await createCarFromPath(testFile, { bare: false })
-
-      // Read and validate the CAR file
-      const carData = await readFile(carPath)
-      const reader = await CarReader.fromBytes(carData)
-
-      // Verify roots
-      const roots = await reader.getRoots()
-      expect(roots.length).toBe(1)
-      expect(roots[0]?.toString()).toBe(rootCid.toString())
-
-      // Should have blocks for file data plus directory
-      let blockCount = 0
-      for await (const _block of reader.blocks()) {
-        blockCount++
-      }
-
-      // Expect: 2 data blocks (1.5MB chunked at 1MiB) + 1 file metadata + 1 wrapping directory = 4
-      expect(blockCount).toBe(4)
-
-      // Clean up
-      await rm(carPath, { force: true })
-    })
-
-    it('should have one extra block compared to bare mode', async () => {
-      const { carPath: bareCar } = await createCarFromPath(testFile, { bare: true })
-      const { carPath: dirCar } = await createCarFromPath(testFile, { bare: false })
-
-      const bareBlocks = await countBlocks(bareCar)
-      const dirBlocks = await countBlocks(dirCar)
-
-      // Directory mode should have exactly one extra block (the directory)
-      expect(dirBlocks).toBe(bareBlocks + 1)
-
-      // Clean up
-      await rm(bareCar, { force: true })
-      await rm(dirCar, { force: true })
-    })
-
-    it('should produce different root CIDs between bare and directory modes', async () => {
-      const { carPath: bareCar, rootCid: bareCid } = await createCarFromPath(testFile, { bare: true })
-      const { carPath: dirCar, rootCid: dirCid } = await createCarFromPath(testFile, { bare: false })
-
-      // Root CIDs should be different
-      expect(bareCid.toString()).not.toBe(dirCid.toString())
-
-      // Clean up
-      await rm(bareCar, { force: true })
-      await rm(dirCar, { force: true })
-    })
-
-    it('should produce consistent root CIDs for same content in directory mode', async () => {
-      const results = await Promise.all([
-        createCarFromPath(testFile, { bare: false }),
-        createCarFromPath(testFile, { bare: false }),
-        createCarFromPath(testFile, { bare: false }),
-      ])
-
-      // All should have the same root CID
-      const rootCids = results.map((r) => r.rootCid.toString())
-      expect(new Set(rootCids).size).toBe(1)
-
-      // Clean up all temp CARs
-      await Promise.all(results.map((r) => rm(r.carPath, { force: true })))
-    })
-
-    it('should handle small files with directory wrapper', async () => {
-      const smallFile = join(testDir, 'small.txt')
-      await writeFile(smallFile, 'tiny')
-
-      const { carPath: bareCar } = await createCarFromPath(smallFile, { bare: true })
-      const { carPath: dirCar } = await createCarFromPath(smallFile, { bare: false })
-
-      const bareBlocks = await countBlocks(bareCar)
-      const dirBlocks = await countBlocks(dirCar)
-
-      // Small file: 1 data block + 1 directory block
-      expect(bareBlocks).toBe(1)
-      expect(dirBlocks).toBe(2)
-
-      // Clean up
-      await rm(bareCar, { force: true })
-      await rm(dirCar, { force: true })
     })
   })
 
@@ -533,6 +445,51 @@ describe('UnixFS CAR Creation', () => {
       // Clean up
       await rm(carPath, { force: true })
       await rm(dedupDir, { recursive: true, force: true })
+    })
+  })
+
+  describe('Hidden files', () => {
+    it('excludes dotfiles from a directory by default', async () => {
+      const hiddenDir = join(testDir, 'hidden-test')
+      await mkdir(hiddenDir, { recursive: true })
+
+      await writeFile(join(hiddenDir, 'visible.txt'), 'visible')
+      await writeFile(join(hiddenDir, '.hidden'), 'hidden')
+
+      const defaultResult = await createCarFromPath(hiddenDir)
+      const includeResult = await createCarFromPath(hiddenDir, { includeHidden: true })
+
+      // Different DAGs because the dotfile is omitted by default
+      expect(defaultResult.rootCid.toString()).not.toBe(includeResult.rootCid.toString())
+
+      const defaultBlocks = await countBlocks(defaultResult.carPath)
+      const includeBlocks = await countBlocks(includeResult.carPath)
+      expect(includeBlocks).toBeGreaterThan(defaultBlocks)
+
+      await rm(defaultResult.carPath, { force: true })
+      await rm(includeResult.carPath, { force: true })
+      await rm(hiddenDir, { recursive: true, force: true })
+    })
+
+    it('packs an explicitly-targeted hidden root directory and its contents', async () => {
+      // Regression: globSource's hidden filter would exclude every match if
+      // the root basename starts with `.`. The user selected this dir
+      // explicitly, so contents must come along regardless of the dotfile
+      // exclusion default.
+      const hiddenRoot = join(testDir, '.well-known')
+      await mkdir(hiddenRoot, { recursive: true })
+      await writeFile(join(hiddenRoot, 'visible.txt'), 'visible content')
+      await writeFile(join(hiddenRoot, 'another.json'), '{"k":"v"}')
+
+      const result = await createCarFromPath(hiddenRoot)
+      expect(result.name).toBe('.well-known')
+
+      const blockCount = await countBlocks(result.carPath)
+      // 2 raw leaf blocks + 1 dag-pb root linking them.
+      expect(blockCount).toBe(3)
+
+      await rm(result.carPath, { force: true })
+      await rm(hiddenRoot, { recursive: true, force: true })
     })
   })
 })
