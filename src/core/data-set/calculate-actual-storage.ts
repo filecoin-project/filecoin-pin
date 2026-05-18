@@ -1,9 +1,9 @@
+import { getSizeFromPieceCID } from '@filoz/synapse-core/piece'
 import type { Synapse } from '@filoz/synapse-sdk'
 import PQueue from 'p-queue'
 import type { Logger } from 'pino'
 import { getClientAddress } from '../synapse/index.js'
 import type { ProgressEvent, ProgressEventHandler, Warning } from '../utils/types.js'
-import { getDataSetPieces } from './get-data-set-pieces.js'
 import type { DataSetSummary } from './types.js'
 
 export interface ActualStorageResult {
@@ -44,16 +44,16 @@ const getProviderKey = ({ providerId, serviceProvider, dataSetId }: DataSetSumma
 /**
  * Calculate actual storage from all active data sets for an address
  *
- * This function queries all active/live data sets and sums up the actual piece sizes.
- * It's more accurate than deriving storage from billing rates, but can be slow for
- * users with many pieces.
+ * This function queries all active/live data sets and sums up the actual piece sizes
+ * decoded from active PieceCIDs. It avoids provider-side metadata and reconciliation
+ * calls, while still measuring raw storage bytes instead of FR32-expanded leaf bytes.
  *
  * The calculation respects abort signals - if aborted, it will return partial results
  * with a timedOut flag set to true.
  *
  * Example usage:
  * ```typescript
- * const result = await calculateActualStorage(synapse, {
+ * const result = await calculateActualStorage(synapse, dataSets, {
  *   address: '0x1234...',
  *   signal: AbortSignal.timeout(30000), // 30 second timeout
  *   logger: myLogger
@@ -138,34 +138,69 @@ export async function calculateActualStorage(
     }
 
     logger?.info({ dataSetCount: dataSets.length, address }, 'Calculating actual storage across data sets')
+    signal?.throwIfAborted()
 
     const processDataSet = async (dataSet: (typeof dataSets)[number]): Promise<void> => {
       signal?.throwIfAborted()
 
       try {
         const storageContext = await synapse.storage.createContext({ dataSetId: dataSet.dataSetId })
+        let dataSetBytes = 0n
+        let dataSetPieces = 0
 
         signal?.throwIfAborted()
 
-        const getPiecesOptions: { logger?: Logger; signal?: AbortSignal } = {}
-        if (logger) {
-          getPiecesOptions.logger = logger
+        let scheduledRemovals = new Set<bigint>()
+        try {
+          scheduledRemovals = new Set(await storageContext.getScheduledRemovals())
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          logger?.warn({ dataSetId: dataSet.dataSetId, error: errorMessage }, 'Failed to get scheduled removals')
+          warnings.push({
+            code: 'SCHEDULED_REMOVALS_UNAVAILABLE',
+            message: `Failed to get scheduled removals for data set ${dataSet.dataSetId}`,
+            context: {
+              dataSetId: dataSet.dataSetId,
+              error: errorMessage,
+            },
+          })
         }
-        if (signal) {
-          getPiecesOptions.signal = signal
-        }
-        const result = await getDataSetPieces(synapse, storageContext, getPiecesOptions)
 
-        if (result.totalSizeBytes) {
-          totalBytes += result.totalSizeBytes
+        signal?.throwIfAborted()
+
+        for await (const piece of storageContext.getPieces()) {
+          signal?.throwIfAborted()
+
+          if (scheduledRemovals.has(piece.pieceId)) {
+            continue
+          }
+
+          try {
+            dataSetBytes += BigInt(getSizeFromPieceCID(piece.pieceCid))
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error)
+            logger?.warn(
+              { dataSetId: dataSet.dataSetId, pieceId: piece.pieceId, pieceCid: piece.pieceCid.toString(), error },
+              'Failed to calculate piece size from PieceCID'
+            )
+            warnings.push({
+              code: 'PIECE_SIZE_DECODE_FAILED',
+              message: `Failed to calculate piece size for piece ${piece.pieceId} in data set ${dataSet.dataSetId}`,
+              context: {
+                dataSetId: dataSet.dataSetId,
+                pieceId: piece.pieceId,
+                pieceCid: piece.pieceCid.toString(),
+                error: errorMessage,
+              },
+            })
+          }
+
+          dataSetPieces++
         }
 
-        pieceCount += result.pieces.length
+        totalBytes += dataSetBytes
+        pieceCount += dataSetPieces
         dataSetsProcessed++
-
-        if (result.warnings && result.warnings.length > 0) {
-          warnings.push(...result.warnings)
-        }
 
         onProgress?.({
           type: 'actual-storage:progress',
