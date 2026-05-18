@@ -8,82 +8,106 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { calculateActualStorage } from '../../core/data-set/calculate-actual-storage.js'
 import type { DataSetSummary } from '../../core/data-set/types.js'
 
-vi.mock('../../core/payments/constants.js', () => ({
-  PDP_LEAF_SIZE: 32,
-}))
-
 vi.mock('../../core/synapse/index.js', () => ({
   getClientAddress: (synapse: { client: { account: string | { address: string } } }) =>
     typeof synapse.client.account === 'string' ? synapse.client.account : synapse.client.account.address,
 }))
 
 // Mock the dependencies
-const { mockSynapse, mockWarmStorageInstance, mockWarmStorageCreate, mockGetDataSetLeafCount, state } = vi.hoisted(
-  () => {
-    const state = {
-      leafCount: 0,
+const {
+  mockSynapse,
+  mockCreateStorageContext,
+  mockGetSizeFromPieceCID,
+  defaultCreateStorageContext,
+  defaultGetSizeFromPieceCID,
+  state,
+} = vi.hoisted(() => {
+  const state = {
+    piecesByDataSet: new Map<bigint, Array<{ pieceId: bigint; pieceCid: string }>>(),
+    sizesByPieceCid: new Map<string, number>(),
+  }
+
+  const defaultGetSizeFromPieceCID = (pieceCid: { toString: () => string } | string) => {
+    const cid = pieceCid.toString()
+    const size = state.sizesByPieceCid.get(cid)
+    if (size == null) {
+      throw new Error(`Unknown PieceCID: ${cid}`)
     }
+    return size
+  }
 
-    const mockGetDataSetLeafCount = vi.fn(async (_dataSetId: number) => state.leafCount)
+  const mockGetSizeFromPieceCID = vi.fn(defaultGetSizeFromPieceCID)
 
-    const mockWarmStorageInstance = {
-      getPDPVerifierAddress: vi.fn(() => '0xpdp-verifier'),
-    }
-
-    const mockWarmStorageCreate = vi.fn(async () => mockWarmStorageInstance)
-
-    const mockSynapse = {
-      client: {
-        account: {
-          address: '0xtest-address' as const,
-        },
-      },
-      getProvider: () => '0xprovider',
-      getWarmStorageAddress: () => '0xwarm-storage',
-    }
-
+  const defaultCreateStorageContext = async ({ dataSetId }: { dataSetId: bigint }) => {
+    const pieces = state.piecesByDataSet.get(dataSetId) ?? []
     return {
-      mockSynapse,
-      mockWarmStorageInstance,
-      mockWarmStorageCreate,
-      mockGetDataSetLeafCount,
-      state,
+      dataSetId,
+      async *getPieces() {
+        for (const piece of pieces) {
+          yield {
+            pieceId: piece.pieceId,
+            pieceCid: {
+              toString: () => piece.pieceCid,
+            },
+          }
+        }
+      },
     }
   }
-)
+
+  const mockCreateStorageContext = vi.fn(defaultCreateStorageContext)
+
+  const mockSynapse = {
+    client: {
+      account: {
+        address: '0xtest-address' as const,
+      },
+    },
+    storage: {
+      createContext: mockCreateStorageContext,
+    },
+  }
+
+  return {
+    mockSynapse,
+    mockCreateStorageContext,
+    mockGetSizeFromPieceCID,
+    defaultCreateStorageContext,
+    defaultGetSizeFromPieceCID,
+    state,
+  }
+})
+
+vi.mock('@filoz/synapse-core/piece', () => ({
+  getSizeFromPieceCID: mockGetSizeFromPieceCID,
+}))
 
 vi.mock('@filoz/synapse-sdk', async () => {
   const sharedMock = await import('../mocks/synapse-sdk.js')
-  return {
-    ...sharedMock,
-    WarmStorageService: { create: mockWarmStorageCreate },
-    PDPVerifier: class MockPDPVerifier {
-      getDataSetLeafCount = mockGetDataSetLeafCount
-    },
-  }
+  return sharedMock
 })
 
 describe('calculateActualStorage', () => {
   beforeEach(() => {
     vi.resetAllMocks()
-    state.leafCount = 0
-
-    mockWarmStorageCreate.mockImplementation(async () => mockWarmStorageInstance)
-    mockGetDataSetLeafCount.mockImplementation(async (_dataSetId: number) => state.leafCount)
+    state.piecesByDataSet = new Map()
+    state.sizesByPieceCid = new Map()
+    mockCreateStorageContext.mockImplementation(defaultCreateStorageContext)
+    mockGetSizeFromPieceCID.mockImplementation(defaultGetSizeFromPieceCID)
   })
 
   describe('basic calculation', () => {
     it('should calculate total storage from multiple data sets', async () => {
       const dataSets: DataSetSummary[] = [
         {
-          dataSetId: 1,
+          dataSetId: 1n,
           providerId: 1,
           serviceProvider: '0xprovider1',
           isLive: true,
           currentPieceCount: 2,
         } as unknown as DataSetSummary,
         {
-          dataSetId: 2,
+          dataSetId: 2n,
           providerId: 1,
           serviceProvider: '0xprovider1',
           isLive: true,
@@ -91,14 +115,29 @@ describe('calculateActualStorage', () => {
         } as unknown as DataSetSummary,
       ]
 
-      const leavesPerGiB = (1024 * 1024 * 1024) / 32
-      state.leafCount = leavesPerGiB * 2
+      const oneGiB = 1024 * 1024 * 1024
+      state.piecesByDataSet.set(1n, [
+        { pieceId: 1n, pieceCid: 'piece-1a' },
+        { pieceId: 2n, pieceCid: 'piece-1b' },
+      ])
+      state.piecesByDataSet.set(2n, [
+        { pieceId: 3n, pieceCid: 'piece-2a' },
+        { pieceId: 4n, pieceCid: 'piece-2b' },
+        { pieceId: 5n, pieceCid: 'piece-2c' },
+      ])
+      state.sizesByPieceCid = new Map([
+        ['piece-1a', oneGiB],
+        ['piece-1b', oneGiB],
+        ['piece-2a', oneGiB],
+        ['piece-2b', oneGiB],
+        ['piece-2c', oneGiB],
+      ])
 
       const result = await calculateActualStorage(mockSynapse as any, dataSets)
 
       expect(result.dataSetCount).toBe(2)
       expect(result.dataSetsProcessed).toBe(2)
-      expect(result.totalBytes).toBe(BigInt(leavesPerGiB) * 2n * 32n * 2n)
+      expect(result.totalBytes).toBe(BigInt(oneGiB) * 5n)
       expect(result.pieceCount).toBe(5)
       expect(result.timedOut).toBeFalsy()
       expect(result.warnings).toHaveLength(0)
@@ -117,7 +156,7 @@ describe('calculateActualStorage', () => {
     it('should handle data sets with no pieces', async () => {
       const dataSets: DataSetSummary[] = [
         {
-          dataSetId: 1,
+          dataSetId: 1n,
           providerId: 1,
           serviceProvider: '0xprovider1',
           isLive: true,
@@ -132,13 +171,38 @@ describe('calculateActualStorage', () => {
       expect(result.totalBytes).toBe(0n)
       expect(result.pieceCount).toBe(0)
     })
+
+    it('should warn and continue when a piece size cannot be decoded', async () => {
+      const dataSets: DataSetSummary[] = [
+        {
+          dataSetId: 1n,
+          providerId: 1,
+          serviceProvider: '0xprovider1',
+          isLive: true,
+          currentPieceCount: 2,
+        } as unknown as DataSetSummary,
+      ]
+
+      state.piecesByDataSet.set(1n, [
+        { pieceId: 1n, pieceCid: 'known-piece' },
+        { pieceId: 2n, pieceCid: 'bad-piece' },
+      ])
+      state.sizesByPieceCid.set('known-piece', 1024)
+
+      const result = await calculateActualStorage(mockSynapse as any, dataSets)
+
+      expect(result.dataSetsProcessed).toBe(1)
+      expect(result.totalBytes).toBe(1024n)
+      expect(result.pieceCount).toBe(2)
+      expect(result.warnings.some((w) => w.code === 'PIECE_SIZE_DECODE_FAILED')).toBe(true)
+    })
   })
 
   describe('abort handling', () => {
     it('should handle immediate abort', async () => {
       const dataSets: DataSetSummary[] = [
         {
-          dataSetId: 1,
+          dataSetId: 1n,
           providerId: 1,
           serviceProvider: '0xprovider1',
           isLive: true,
@@ -162,14 +226,14 @@ describe('calculateActualStorage', () => {
     it('should return partial results on abort', async () => {
       const dataSets: DataSetSummary[] = [
         {
-          dataSetId: 1,
+          dataSetId: 1n,
           providerId: 1,
           serviceProvider: '0xprovider1',
           isLive: true,
           currentPieceCount: 1,
         } as unknown as DataSetSummary,
         {
-          dataSetId: 2,
+          dataSetId: 2n,
           providerId: 2,
           serviceProvider: '0xprovider2',
           isLive: true,
@@ -180,10 +244,15 @@ describe('calculateActualStorage', () => {
       const controller = new AbortController()
 
       let callCount = 0
-      mockGetDataSetLeafCount.mockImplementation(async () => {
+      mockCreateStorageContext.mockImplementation(async ({ dataSetId }: { dataSetId: bigint }) => {
         callCount++
         if (callCount === 1) {
-          return 32
+          return {
+            dataSetId,
+            async *getPieces() {
+              yield { pieceId: 1n, pieceCid: { toString: () => 'piece-1' } }
+            },
+          }
         }
 
         controller.abort()
@@ -191,9 +260,11 @@ describe('calculateActualStorage', () => {
         error.name = 'AbortError'
         throw error
       })
+      state.sizesByPieceCid.set('piece-1', 1024)
 
       const result = await calculateActualStorage(mockSynapse as any, dataSets, {
         signal: controller.signal,
+        maxParallelProviders: 1,
       })
 
       expect(result.timedOut).toBe(true)
@@ -208,14 +279,14 @@ describe('calculateActualStorage', () => {
     it('should continue processing other datasets when one fails', async () => {
       const dataSets: DataSetSummary[] = [
         {
-          dataSetId: 1,
+          dataSetId: 1n,
           providerId: 1,
           serviceProvider: '0xprovider1',
           isLive: true,
           currentPieceCount: 1,
         } as unknown as DataSetSummary,
         {
-          dataSetId: 2,
+          dataSetId: 2n,
           providerId: 2,
           serviceProvider: '0xprovider2',
           isLive: true,
@@ -224,14 +295,20 @@ describe('calculateActualStorage', () => {
       ]
 
       let callCount = 0
-      mockGetDataSetLeafCount.mockImplementation(async () => {
+      mockCreateStorageContext.mockImplementation(async ({ dataSetId }: { dataSetId: bigint }) => {
         callCount++
         if (callCount === 1) {
           throw new Error('Dataset query failed')
         }
 
-        return 32
+        return {
+          dataSetId,
+          async *getPieces() {
+            yield { pieceId: 1n, pieceCid: { toString: () => 'piece-2' } }
+          },
+        }
       })
+      state.sizesByPieceCid.set('piece-2', 1024)
 
       const result = await calculateActualStorage(mockSynapse as any, dataSets)
 

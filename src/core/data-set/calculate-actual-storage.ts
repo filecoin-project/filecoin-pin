@@ -1,7 +1,7 @@
-import { PDPVerifier, type Synapse, WarmStorageService } from '@filoz/synapse-sdk'
+import { getSizeFromPieceCID } from '@filoz/synapse-core/piece'
+import type { Synapse } from '@filoz/synapse-sdk'
 import PQueue from 'p-queue'
 import type { Logger } from 'pino'
-import { PDP_LEAF_SIZE } from '../payments/constants.js'
 import { getClientAddress } from '../synapse/index.js'
 import type { ProgressEvent, ProgressEventHandler, Warning } from '../utils/types.js'
 import type { DataSetSummary } from './types.js'
@@ -44,9 +44,9 @@ const getProviderKey = ({ providerId, serviceProvider, dataSetId }: DataSetSumma
 /**
  * Calculate actual storage from all active data sets for an address
  *
- * This function queries all active/live data sets and sums up their PDP leaf counts.
- * It avoids fetching per-piece details, which makes it much faster than walking every
- * piece in every data set.
+ * This function queries all active/live data sets and sums up the actual piece sizes
+ * decoded from active PieceCIDs. It avoids provider-side metadata and reconciliation
+ * calls, while still measuring raw storage bytes instead of FR32-expanded leaf bytes.
  *
  * The calculation respects abort signals - if aborted, it will return partial results
  * with a timedOut flag set to true.
@@ -140,18 +140,44 @@ export async function calculateActualStorage(
     logger?.info({ dataSetCount: dataSets.length, address }, 'Calculating actual storage across data sets')
     signal?.throwIfAborted()
 
-    const warmStorage = await WarmStorageService.create(synapse.getProvider(), synapse.getWarmStorageAddress())
-    const pdpVerifier = new PDPVerifier(synapse.getProvider(), warmStorage.getPDPVerifierAddress())
-
     const processDataSet = async (dataSet: (typeof dataSets)[number]): Promise<void> => {
       signal?.throwIfAborted()
 
       try {
-        const dataSetId = Number(dataSet.dataSetId)
-        const leafCount = await pdpVerifier.getDataSetLeafCount(dataSetId)
-        const dataSetBytes = BigInt(leafCount) * BigInt(PDP_LEAF_SIZE)
+        const storageContext = await synapse.storage.createContext({ dataSetId: dataSet.dataSetId })
+        let dataSetBytes = 0n
+        let dataSetPieces = 0
+
+        signal?.throwIfAborted()
+
+        for await (const piece of storageContext.getPieces()) {
+          signal?.throwIfAborted()
+
+          try {
+            dataSetBytes += BigInt(getSizeFromPieceCID(piece.pieceCid))
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error)
+            logger?.warn(
+              { dataSetId: dataSet.dataSetId, pieceId: piece.pieceId, pieceCid: piece.pieceCid.toString(), error },
+              'Failed to calculate piece size from PieceCID'
+            )
+            warnings.push({
+              code: 'PIECE_SIZE_DECODE_FAILED',
+              message: `Failed to calculate piece size for piece ${piece.pieceId} in data set ${dataSet.dataSetId}`,
+              context: {
+                dataSetId: dataSet.dataSetId,
+                pieceId: piece.pieceId,
+                pieceCid: piece.pieceCid.toString(),
+                error: errorMessage,
+              },
+            })
+          }
+
+          dataSetPieces++
+        }
+
         totalBytes += dataSetBytes
-        pieceCount += dataSet.currentPieceCount ?? 0
+        pieceCount += dataSetPieces
         dataSetsProcessed++
 
         onProgress?.({
@@ -165,16 +191,16 @@ export async function calculateActualStorage(
         })
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {
-          logger?.warn('Leaf count retrieval aborted')
+          logger?.warn('Piece retrieval aborted')
           throw error // Re-throw AbortError to propagate cancellation
         }
 
         const errorMessage = error instanceof Error ? error.message : String(error)
-        logger?.warn({ dataSetId: dataSet.dataSetId, error: errorMessage }, 'Failed to get leaf count for data set')
+        logger?.warn({ dataSetId: dataSet.dataSetId, error: errorMessage }, 'Failed to get pieces for data set')
 
         warnings.push({
           code: 'DATA_SET_QUERY_FAILED',
-          message: `Failed to query leaf count for data set ${dataSet.dataSetId}`,
+          message: `Failed to query pieces for data set ${dataSet.dataSetId}`,
           context: {
             dataSetId: dataSet.dataSetId,
             error: errorMessage,
