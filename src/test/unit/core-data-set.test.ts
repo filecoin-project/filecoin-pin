@@ -570,4 +570,23 @@ describe('getDataSetPieces', () => {
     expect(result.pieces[0]?.status).toBe('ACTIVE')
     expect(result.warnings).toContainEqual(expect.objectContaining({ code: 'PROVIDER_PIECES_UNAVAILABLE' }))
   })
+
+  it('paginates getActivePieces across multiple pages', async () => {
+    const pages: Record<string, Array<{ id: bigint; cid: { toString: () => string } }>> = {
+      '0': [{ id: 0n, cid: { toString: () => 'bafkpiece0' } }],
+      '100': [{ id: 1n, cid: { toString: () => 'bafkpiece1' } }],
+      '200': [{ id: 2n, cid: { toString: () => 'bafkpiece2' } }],
+    }
+    mockGetActivePieces.mockImplementation((async (_client: any, { offset }: any) => ({
+      pieces: pages[String(offset)] ?? [],
+      hasMore: offset < 200n,
+    })) as any)
+
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)
+
+    expect(mockGetActivePieces).toHaveBeenCalledTimes(3)
+    expect(mockGetActivePieces.mock.calls.map((c: any) => c[1].offset)).toEqual([0n, 100n, 200n])
+    expect((mockGetActivePieces.mock.calls[0] as any)?.[1].limit).toBe(100n)
+    expect(result.pieces.map((p) => p.pieceId)).toEqual([0n, 1n, 2n])
+  })
 })

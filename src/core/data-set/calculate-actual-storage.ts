@@ -146,7 +146,7 @@ export async function calculateActualStorage(
         providerMap.set(ds.providerId, ds.provider)
       }
     }
-    const missingProviderIds = [...new Set(dataSets.filter((ds) => ds.provider == null).map((ds) => ds.providerId))]
+    const missingProviderIds = [...new Set(dataSets.map((ds) => ds.providerId))].filter((id) => !providerMap.has(id))
     if (missingProviderIds.length > 0) {
       try {
         const fetched = await synapse.providers.getProviders({ providerIds: missingProviderIds })
