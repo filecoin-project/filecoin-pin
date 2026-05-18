@@ -18,7 +18,6 @@ export async function getDetailedDataSet(
   options?: ListDataSetsOptions
 ): Promise<DataSetSummary> {
   const logger = options?.logger
-  const withProviderDetails = options?.withProviderDetails ?? true
 
   try {
     const pdpDataSet = await getPdpDataSet(synapse.client, { dataSetId })
@@ -43,7 +42,7 @@ export async function getDetailedDataSet(
       isLive: pdpDataSet.live,
       isManaged: pdpDataSet.managed,
       withCDN: pdpDataSet.cdn,
-      provider: withProviderDetails ? pdpDataSet.provider : undefined,
+      provider: pdpDataSet.provider,
       pieces: piecesResult.pieces,
       createdWithFilecoinPin,
     }

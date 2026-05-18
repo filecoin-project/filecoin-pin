@@ -34,7 +34,6 @@ import type { DataSetSummary, ListDataSetsOptions } from './types.js'
 export async function listDataSets(synapse: Synapse, options?: ListDataSetsOptions): Promise<DataSetSummary[]> {
   const logger = options?.logger
   const address = options?.address ?? getClientAddress(synapse)
-  const withProviderDetails = options?.withProviderDetails ?? false
   const filter = options?.filter
 
   const dataSets = await synapse.storage.findDataSets({ address })
@@ -43,15 +42,13 @@ export async function listDataSets(synapse: Synapse, options?: ListDataSetsOptio
 
   // Fetch provider info for unique provider IDs
   let providerMap: Map<bigint, PDPProvider> = new Map()
-  if (withProviderDetails) {
-    const uniqueProviderIds = new Set(filteredDataSets.map((ds) => ds.providerId))
-    if (uniqueProviderIds.size > 0) {
-      try {
-        const providers = await synapse.providers.getProviders({ providerIds: Array.from(uniqueProviderIds) })
-        providerMap = new Map(providers.map((provider) => [provider.id, provider]))
-      } catch (error) {
-        logger?.warn({ error }, 'Failed to fetch provider info for provider enrichment')
-      }
+  const uniqueProviderIds = new Set(filteredDataSets.map((ds) => ds.providerId))
+  if (uniqueProviderIds.size > 0) {
+    try {
+      const providers = await synapse.providers.getProviders({ providerIds: Array.from(uniqueProviderIds) })
+      providerMap = new Map(providers.map((provider) => [provider.id, provider]))
+    } catch (error) {
+      logger?.warn({ error }, 'Failed to fetch provider info for provider enrichment')
     }
   }
 

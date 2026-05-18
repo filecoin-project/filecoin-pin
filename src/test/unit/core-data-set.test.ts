@@ -144,7 +144,7 @@ describe('listDataSets', () => {
     state.datasets = [expectedDataSet]
     mockGetProviders.mockRejectedValueOnce(new Error('Network error'))
 
-    const result = await listDataSets(mockSynapse as any, { withProviderDetails: true })
+    const result = await listDataSets(mockSynapse as any)
 
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({
@@ -183,7 +183,7 @@ describe('listDataSets', () => {
     ]
     state.providers = [provider]
 
-    const result = await listDataSets(mockSynapse as any, { withProviderDetails: true })
+    const result = await listDataSets(mockSynapse as any)
 
     expect(result).toHaveLength(1)
     expect(result[0]?.provider).toEqual(provider)
@@ -239,7 +239,7 @@ describe('listDataSets', () => {
     ]
     state.providers = [provider1]
 
-    const result = await listDataSets(mockSynapse as any, { withProviderDetails: true })
+    const result = await listDataSets(mockSynapse as any)
 
     expect(result).toHaveLength(2)
     expect(result[0]?.provider).toEqual(provider1)
