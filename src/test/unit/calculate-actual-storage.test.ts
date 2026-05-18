@@ -13,6 +13,7 @@ const {
   mockSynapse,
   mockCreateStorageContext,
   mockGetDataSetPieces,
+  mockGetProviders,
   defaultCreateStorageContext,
   defaultGetDataSetPieces,
   state,
@@ -21,7 +22,7 @@ const {
     pieces: [] as Array<{ pieceId: number; pieceCid: string; size?: number }>,
   }
 
-  const defaultGetDataSetPieces = async (_synapse: any, _context: any, _options?: any) => {
+  const defaultGetDataSetPieces = async (_synapse: any, dataSetId: bigint, _serviceURL: string, _options?: any) => {
     if (_options?.signal?.aborted) {
       const error = new Error('This operation was aborted')
       error.name = 'AbortError'
@@ -38,7 +39,7 @@ const {
 
     return {
       pieces,
-      dataSetId: _context?.dataSetId ?? 1,
+      dataSetId,
       totalSizeBytes,
       warnings: [],
     }
@@ -53,6 +54,14 @@ const {
 
   const mockCreateStorageContext = vi.fn(defaultCreateStorageContext)
 
+  const mockGetProviders = vi.fn(async ({ providerIds }: { providerIds: bigint[] }) =>
+    providerIds.map((id) => ({
+      id,
+      name: `Provider ${id}`,
+      pdp: { serviceURL: `https://provider-${id}.example.com` },
+    }))
+  )
+
   const mockSynapse = {
     client: {
       account: {
@@ -62,12 +71,16 @@ const {
     storage: {
       createContext: mockCreateStorageContext,
     },
+    providers: {
+      getProviders: mockGetProviders,
+    },
   }
 
   return {
     mockSynapse,
     mockCreateStorageContext,
     mockGetDataSetPieces,
+    mockGetProviders,
     defaultCreateStorageContext,
     defaultGetDataSetPieces,
     state,
@@ -85,6 +98,13 @@ describe('calculateActualStorage', () => {
 
     mockCreateStorageContext.mockImplementation(defaultCreateStorageContext)
     mockGetDataSetPieces.mockImplementation(defaultGetDataSetPieces)
+    mockGetProviders.mockImplementation(async ({ providerIds }) =>
+      providerIds.map((id) => ({
+        id,
+        name: `Provider ${id}`,
+        pdp: { serviceURL: `https://provider-${id}.example.com` },
+      }))
+    )
   })
 
   describe('basic calculation', () => {
@@ -197,12 +217,12 @@ describe('calculateActualStorage', () => {
 
       // Allow first dataset to complete
       let callCount = 0
-      mockGetDataSetPieces.mockImplementation(async (_synapse: any, _context: any, _options?: any) => {
+      mockGetDataSetPieces.mockImplementation(async (_synapse: any, dataSetId: bigint) => {
         callCount++
         if (callCount === 1) {
           return {
             pieces: [{ pieceId: 1, pieceCid: 'bafy1', size: 1024 }],
-            dataSetId: 1,
+            dataSetId,
             totalSizeBytes: 1024n,
             warnings: [],
           }
@@ -226,6 +246,51 @@ describe('calculateActualStorage', () => {
     })
   })
 
+  describe('provider enrichment', () => {
+    it('fetches missing providers in a single multicall', async () => {
+      const dataSets: DataSetSummary[] = [
+        { dataSetId: 1n, providerId: 1n, isLive: true } as unknown as DataSetSummary,
+        { dataSetId: 2n, providerId: 1n, isLive: true } as unknown as DataSetSummary,
+        { dataSetId: 3n, providerId: 2n, isLive: true } as unknown as DataSetSummary,
+      ]
+
+      await calculateActualStorage(mockSynapse as any, dataSets)
+
+      expect(mockGetProviders).toHaveBeenCalledTimes(1)
+      expect(mockGetProviders).toHaveBeenCalledWith({ providerIds: [1n, 2n] })
+      // Each dataset should have received the matching serviceURL
+      const serviceURLs = mockGetDataSetPieces.mock.calls.map((call) => call[2])
+      expect(serviceURLs).toContain('https://provider-1.example.com')
+      expect(serviceURLs).toContain('https://provider-2.example.com')
+    })
+
+    it('skips fetching when every dataset already carries provider info', async () => {
+      const dataSets: DataSetSummary[] = [
+        {
+          dataSetId: 1n,
+          providerId: 1n,
+          isLive: true,
+          provider: { id: 1n, name: 'Pre-filled', pdp: { serviceURL: 'https://pre-filled.example.com' } },
+        } as unknown as DataSetSummary,
+      ]
+
+      await calculateActualStorage(mockSynapse as any, dataSets)
+
+      expect(mockGetProviders).not.toHaveBeenCalled()
+      expect(mockGetDataSetPieces.mock.calls[0]?.[2]).toBe('https://pre-filled.example.com')
+    })
+
+    it('continues with empty serviceURL when provider enrichment fails', async () => {
+      mockGetProviders.mockRejectedValueOnce(new Error('Network error'))
+      const dataSets: DataSetSummary[] = [{ dataSetId: 1n, providerId: 1n, isLive: true } as unknown as DataSetSummary]
+
+      const result = await calculateActualStorage(mockSynapse as any, dataSets)
+
+      expect(result.dataSetsProcessed).toBe(1)
+      expect(mockGetDataSetPieces.mock.calls[0]?.[2]).toBe('')
+    })
+  })
+
   describe('error handling', () => {
     it('should continue processing other datasets when one fails', async () => {
       const dataSets: DataSetSummary[] = [
@@ -244,7 +309,7 @@ describe('calculateActualStorage', () => {
       ]
 
       let callCount = 0
-      mockGetDataSetPieces.mockImplementation(async (_synapse: any, _context: any, _options?: any) => {
+      mockGetDataSetPieces.mockImplementation(async (_synapse: any, dataSetId: bigint) => {
         callCount++
         if (callCount === 1) {
           throw new Error('Dataset query failed')
@@ -252,7 +317,7 @@ describe('calculateActualStorage', () => {
 
         return {
           pieces: [{ pieceId: 1, pieceCid: 'bafy1', size: 1024 }],
-          dataSetId: 2,
+          dataSetId,
           totalSizeBytes: 1024n,
           warnings: [],
         }

@@ -6,38 +6,37 @@
  * @module core/data-set/get-data-set-pieces
  */
 
+import { getActivePieces, getScheduledRemovals } from '@filoz/synapse-core/pdp-verifier'
 import { getSizeFromPieceCID } from '@filoz/synapse-core/piece'
 import { getDataSet as getProviderDataSet } from '@filoz/synapse-core/sp'
 import { getAllPieceMetadata } from '@filoz/synapse-core/warm-storage'
 import { type DataSetPieceData, METADATA_KEYS, type Synapse } from '@filoz/synapse-sdk'
-import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import { reconcilePieceStatus } from '../piece/piece-status.js'
 import type { Warning } from '../utils/types.js'
 import { type DataSetPiecesResult, type GetDataSetPiecesOptions, type PieceInfo, PieceStatus } from './types.js'
 
+const ACTIVE_PIECES_BATCH_SIZE = 100n
+
 /**
- * Get all pieces for a dataset from a StorageContext
+ * Get all pieces for a dataset.
  *
- * Uses StorageContext.getPieces() async generator to retrieve all pieces.
- * Optionally fetches metadata for each piece from WarmStorage.
+ * Fetches on-chain pieces via PDPVerifier and provider-side pieces from the
+ * service URL, reconciles statuses, and optionally enriches with metadata.
  *
  * @param synapse - Initialized Synapse instance
- * @param storageContext - Storage context bound to a dataset
+ * @param dataSetId - Dataset ID to fetch pieces for
+ * @param serviceURL - Provider PDP service URL for orphan detection
  * @param options - Optional configuration
  * @returns Pieces and warnings
  */
 export async function getDataSetPieces(
   synapse: Synapse,
-  storageContext: StorageContext,
+  dataSetId: bigint,
+  serviceURL: string,
   options?: GetDataSetPiecesOptions
 ): Promise<DataSetPiecesResult> {
   const logger = options?.logger
   const includeMetadata = options?.includeMetadata ?? false
-
-  if (storageContext.dataSetId == null) {
-    throw new Error('Storage context does not have a dataset ID')
-  }
-  const dataSetId = storageContext.dataSetId
 
   const pieces: PieceInfo[] = []
   const warnings: Warning[] = []
@@ -47,11 +46,8 @@ export async function getDataSetPieces(
   let providerPiecesById: Map<bigint, DataSetPieceData> | null = null
 
   const [scheduledRemovalsResult, providerPiecesResult] = await Promise.allSettled([
-    storageContext.getScheduledRemovals(),
-    getProviderDataSet({
-      serviceURL: storageContext.provider.pdp?.serviceURL ?? '',
-      dataSetId,
-    }),
+    getScheduledRemovals(synapse.client, { dataSetId }),
+    getProviderDataSet({ serviceURL, dataSetId }),
   ])
 
   if (scheduledRemovalsResult.status === 'fulfilled') {
@@ -76,37 +72,46 @@ export async function getDataSetPieces(
     })
   }
 
-  // Fetch on-chain pieces and reconcile with provider data
+  // Fetch on-chain pieces (paginated) and reconcile with provider data
   try {
-    for await (const piece of storageContext.getPieces()) {
-      const pieceId = piece.pieceId
-      const pieceCid = piece.pieceCid
-      const { status, warning } = reconcilePieceStatus({
-        pieceId,
-        pieceCid,
-        scheduledRemovals,
-        providerPiecesById,
+    let offset = 0n
+    let hasMore = true
+    while (hasMore) {
+      options?.signal?.throwIfAborted()
+      const result = await getActivePieces(synapse.client, {
+        dataSetId,
+        offset,
+        limit: ACTIVE_PIECES_BATCH_SIZE,
       })
-      const pieceInfo: PieceInfo = {
-        pieceId,
-        pieceCid: pieceCid.toString(),
-        status,
-      }
-      if (warning) {
-        warnings.push(warning)
-      }
+      for (const piece of result.pieces) {
+        const { status, warning } = reconcilePieceStatus({
+          pieceId: piece.id,
+          pieceCid: piece.cid,
+          scheduledRemovals,
+          providerPiecesById,
+        })
+        const pieceInfo: PieceInfo = {
+          pieceId: piece.id,
+          pieceCid: piece.cid.toString(),
+          status,
+        }
+        if (warning) {
+          warnings.push(warning)
+        }
 
-      // Calculate piece size from CID
-      try {
-        pieceInfo.size = getSizeFromPieceCID(pieceCid)
-      } catch (error) {
-        logger?.warn(
-          { pieceId: piece.pieceId.toString(), pieceCid: piece.pieceCid.toString(), error },
-          'Failed to calculate piece size from CID'
-        )
-      }
+        try {
+          pieceInfo.size = getSizeFromPieceCID(piece.cid)
+        } catch (error) {
+          logger?.warn(
+            { pieceId: piece.id.toString(), pieceCid: piece.cid.toString(), error },
+            'Failed to calculate piece size from CID'
+          )
+        }
 
-      pieces.push(pieceInfo)
+        pieces.push(pieceInfo)
+      }
+      hasMore = result.hasMore
+      offset += ACTIVE_PIECES_BATCH_SIZE
     }
 
     // Leftover entries in providerPiecesById are pieces the provider reports

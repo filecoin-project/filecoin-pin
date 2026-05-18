@@ -15,6 +15,7 @@ const { mockGetDataSetPieces, mockRemovePiece, mockStorageContext, state } = vi.
 
   const mockStorageContext = {
     dataSetId: state.dataSetId,
+    provider: { pdp: { serviceURL: 'https://provider.example.com' } },
   }
 
   const mockGetDataSetPieces = vi.fn(async () => ({

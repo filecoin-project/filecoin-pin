@@ -72,7 +72,7 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
 
     // Get piece count for confirmation
     const { pieces: allPieces } = await import('../core/data-set/get-data-set-pieces.js').then((m) =>
-      m.getDataSetPieces(synapse, storage, { logger })
+      m.getDataSetPieces(synapse, BigInt(dataSetId), storage.provider.pdp?.serviceURL ?? '', { logger })
     )
     const { PieceStatus } = await import('../core/data-set/types.js')
     const activePieces = allPieces.filter((p) => p.status === PieceStatus.ACTIVE)
