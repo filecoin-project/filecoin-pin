@@ -77,6 +77,7 @@ export async function getDataSetPieces(
     let offset = 0n
     let hasMore = true
     while (hasMore) {
+      options?.signal?.throwIfAborted()
       const result = await getActivePieces(synapse.client, {
         dataSetId,
         offset,

@@ -589,4 +589,20 @@ describe('getDataSetPieces', () => {
     expect((mockGetActivePieces.mock.calls[0] as any)?.[1].limit).toBe(100n)
     expect(result.pieces.map((p) => p.pieceId)).toEqual([0n, 1n, 2n])
   })
+
+  it('stops paginating when the abort signal fires', async () => {
+    const controller = new AbortController()
+    let calls = 0
+    mockGetActivePieces.mockImplementation((async () => {
+      calls++
+      if (calls === 2) controller.abort()
+      return { pieces: [], hasMore: true }
+    }) as any)
+
+    await expect(
+      getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL, { signal: controller.signal })
+    ).rejects.toThrow()
+    // The loop checks the signal before each page, so it stops after the aborting call
+    expect(calls).toBe(2)
+  })
 })
