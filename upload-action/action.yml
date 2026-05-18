@@ -18,8 +18,9 @@ inputs:
     description: Wallet private key used to fund uploads (USDFC on Calibration/Mainnet). Required unless dryRun is true.
     required: false
   network:
-    description: What Filecoin network to use. Should either be "mainnet" or "calibration".
-    required: true
+    description: What Filecoin network to use. Should either be "mainnet" or "calibration". Defaults to "mainnet".
+    required: false
+    default: mainnet
 
   # Financial controls
   minStorageDays:
