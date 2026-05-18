@@ -150,8 +150,30 @@ export async function calculateActualStorage(
 
         signal?.throwIfAborted()
 
+        let scheduledRemovals = new Set<bigint>()
+        try {
+          scheduledRemovals = new Set(await storageContext.getScheduledRemovals())
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          logger?.warn({ dataSetId: dataSet.dataSetId, error: errorMessage }, 'Failed to get scheduled removals')
+          warnings.push({
+            code: 'SCHEDULED_REMOVALS_UNAVAILABLE',
+            message: `Failed to get scheduled removals for data set ${dataSet.dataSetId}`,
+            context: {
+              dataSetId: dataSet.dataSetId,
+              error: errorMessage,
+            },
+          })
+        }
+
+        signal?.throwIfAborted()
+
         for await (const piece of storageContext.getPieces()) {
           signal?.throwIfAborted()
+
+          if (scheduledRemovals.has(piece.pieceId)) {
+            continue
+          }
 
           try {
             dataSetBytes += BigInt(getSizeFromPieceCID(piece.pieceCid))

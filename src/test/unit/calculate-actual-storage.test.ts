@@ -24,6 +24,7 @@ const {
 } = vi.hoisted(() => {
   const state = {
     piecesByDataSet: new Map<bigint, Array<{ pieceId: bigint; pieceCid: string }>>(),
+    scheduledRemovalsByDataSet: new Map<bigint, bigint[]>(),
     sizesByPieceCid: new Map<string, number>(),
   }
 
@@ -42,6 +43,9 @@ const {
     const pieces = state.piecesByDataSet.get(dataSetId) ?? []
     return {
       dataSetId,
+      async getScheduledRemovals() {
+        return state.scheduledRemovalsByDataSet.get(dataSetId) ?? []
+      },
       async *getPieces() {
         for (const piece of pieces) {
           yield {
@@ -91,6 +95,7 @@ describe('calculateActualStorage', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     state.piecesByDataSet = new Map()
+    state.scheduledRemovalsByDataSet = new Map()
     state.sizesByPieceCid = new Map()
     mockCreateStorageContext.mockImplementation(defaultCreateStorageContext)
     mockGetSizeFromPieceCID.mockImplementation(defaultGetSizeFromPieceCID)
@@ -196,6 +201,38 @@ describe('calculateActualStorage', () => {
       expect(result.pieceCount).toBe(2)
       expect(result.warnings.some((w) => w.code === 'PIECE_SIZE_DECODE_FAILED')).toBe(true)
     })
+
+    it('should exclude pieces scheduled for removal from actual storage', async () => {
+      const dataSets: DataSetSummary[] = [
+        {
+          dataSetId: 1n,
+          providerId: 1,
+          serviceProvider: '0xprovider1',
+          isLive: true,
+          currentPieceCount: 3,
+        } as unknown as DataSetSummary,
+      ]
+
+      state.piecesByDataSet.set(1n, [
+        { pieceId: 1n, pieceCid: 'active-piece-a' },
+        { pieceId: 2n, pieceCid: 'pending-removal-piece' },
+        { pieceId: 3n, pieceCid: 'active-piece-b' },
+      ])
+      state.scheduledRemovalsByDataSet.set(1n, [2n])
+      state.sizesByPieceCid = new Map([
+        ['active-piece-a', 512],
+        ['pending-removal-piece', 2048],
+        ['active-piece-b', 1024],
+      ])
+
+      const result = await calculateActualStorage(mockSynapse as any, dataSets)
+      const decodedPieceCids = mockGetSizeFromPieceCID.mock.calls.map(([pieceCid]) => pieceCid.toString())
+
+      expect(result.totalBytes).toBe(1536n)
+      expect(result.pieceCount).toBe(2)
+      expect(decodedPieceCids).toEqual(['active-piece-a', 'active-piece-b'])
+      expect(result.warnings).toHaveLength(0)
+    })
   })
 
   describe('abort handling', () => {
@@ -249,6 +286,9 @@ describe('calculateActualStorage', () => {
         if (callCount === 1) {
           return {
             dataSetId,
+            async getScheduledRemovals() {
+              return []
+            },
             async *getPieces() {
               yield { pieceId: 1n, pieceCid: { toString: () => 'piece-1' } }
             },
@@ -303,6 +343,9 @@ describe('calculateActualStorage', () => {
 
         return {
           dataSetId,
+          async getScheduledRemovals() {
+            return []
+          },
           async *getPieces() {
             yield { pieceId: 1n, pieceCid: { toString: () => 'piece-2' } }
           },
