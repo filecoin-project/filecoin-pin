@@ -12,6 +12,8 @@ export interface ImportOptions extends CLIAuthOptions, CLIAutoFundOptions {
   dataSetMetadata?: Record<string, string>
   /** Skip IPNI advertisement verification after upload */
   skipIpniVerification?: boolean
+  /** Enable FilBeam (CDN) routing — true when --egress-provider beam is active */
+  withCDN?: boolean
 }
 
 export interface ImportResult {

@@ -39,6 +39,20 @@ Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metad
 
 FIL is Filecoin's native token.  While [Filecoin Onchain Cloud](#filecoin-onchain-cloud) storage is currently denominated in [USDFC](#usdfc), gas for transactions on the Filecoin blockchain (e.g., adding a [Piece](#piece)) need to be paid for using FIL. Most transactions in the data onboarding flow for Filecoin Onchain Cloud are submitted by storage providers so client typically have minimal need to interact directly with FIL.
 
+## FilBeam egress
+
+The piece-retrieval CDN provided by [FilBeam](https://github.com/filbeam). When `filecoin-pin add` or `filecoin-pin import` is run with `--egress-provider beam` (the default), uploaded pieces are retrievable via FilBeam at `https://{wallet-address}.{filbeam-domain}/{pieceCid}` — for example `https://0xabc....calibration.filbeam.io/bafk...` on the [Calibration Network](#calibration-network).
+
+**What it does today:** Serves [`/piece` Retrieval](#piece-retrieval) only — whole-CAR fetches keyed by [Piece CID](#piece-cid). It does **not** route [`/ipfs` Retrieval](#ipfs-retrieval); for those, use the IPFS retrieval URLs printed alongside the upload result.
+
+**Network support:** FilBeam URLs are only printed on networks with a FilBeam endpoint (mainnet and [Calibration](#calibration-network)). On networks without one (e.g. devnet), `--egress-provider beam` stays the default but no FilBeam URL is shown.
+
+**Cost:** Each FilBeam piece retrieval is charged as egress against the dataset owner's wallet. Anyone who knows the piece CID and wallet address can trigger a retrieval, which means the dataset owner is on the hook for that egress.
+
+**Future state:** FilBeam is working on routing IPFS-block retrievals through the same CDN ([filbeam/roadmap#85](https://github.com/filbeam/roadmap/issues/85)). [Data Sets](#data-set) uploaded with FilBeam enabled today will benefit automatically when that ships.
+
+**Opting out:** Pass `--egress-provider none` (or `EGRESS_PROVIDER=none`, or the legacy `WITH_CDN=false`) to skip FilBeam routing entirely.
+
 ## Filecoin Pay
 
 Filecoin Pay is a generic payment solution between users and various [Filecoin Onchain Cloud](#filecoin-onchain-cloud) services.

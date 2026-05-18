@@ -19,7 +19,7 @@ import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runCarImport } from '../../import/import.js'
+import { runCarImport, runCarImportFromCli } from '../../import/import.js'
 import type { ImportOptions } from '../../import/types.js'
 
 // Test constants
@@ -124,7 +124,7 @@ vi.mock('../../core/synapse/index.js', () => ({
     }
 
     return {
-      chain: { name: 'calibration', id: 314159 },
+      chain: { name: 'calibration', id: 314159, filbeam: { retrievalDomain: 'calibration.filbeam.io' } },
       client: { account: { address: '0x1234567890123456789012345678901234567890' } },
       storage: {
         upload: vi.fn(),
@@ -540,5 +540,172 @@ describe('CAR Import', () => {
       expect(result.copies[0]?.providerId).toBe(1n)
       expect(result.failedAttempts).toHaveLength(0)
     })
+  })
+})
+
+describe('runCarImport withCDN propagation', () => {
+  const testDir = './test-import-cdn-cars'
+  const testPrivateKey = '0x0000000000000000000000000000000000000000000000000000000000000001'
+
+  beforeEach(async () => {
+    await mkdir(testDir, { recursive: true })
+    vi.clearAllMocks()
+  })
+
+  afterEach(async () => {
+    try {
+      await stat(testDir)
+      await rm(testDir, { recursive: true, force: true })
+    } catch {
+      // Directory doesn't exist, nothing to clean up
+    }
+  })
+
+  it('passes withCDN: true to initializeSynapse when options.withCDN is true', async () => {
+    const carPath = join(testDir, 'with-cdn.car')
+    await createTestCarFile(carPath, [], [{ content: 'with-cdn content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      withCDN: true,
+    })
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+      expect.objectContaining({ withCDN: true }),
+      expect.anything()
+    )
+  })
+
+  it('does not set withCDN on the SDK config when options.withCDN is false', async () => {
+    const carPath = join(testDir, 'without-cdn.car')
+    await createTestCarFile(carPath, [], [{ content: 'without-cdn content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      withCDN: false,
+    })
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    const calls = vi.mocked(initializeSynapse).mock.calls
+    const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+    expect(lastConfig.withCDN).toBeUndefined()
+  })
+
+  it('passes filbeamUrl to displayUploadResults when withCDN is true and chain.filbeam is set', async () => {
+    const carPath = join(testDir, 'filbeam-url.car')
+    await createTestCarFile(carPath, [], [{ content: 'filbeam url content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      withCDN: true,
+    })
+    const { displayUploadResults } = await import('../../common/upload-flow.js')
+    expect(vi.mocked(displayUploadResults)).toHaveBeenCalledWith(
+      expect.anything(),
+      'Import',
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        filbeamUrl: expect.stringMatching(/^https:\/\/0x[0-9a-fA-F]+\.calibration\.filbeam\.io\/.+$/),
+      })
+    )
+  })
+
+  it('omits egress arg to displayUploadResults when withCDN is false', async () => {
+    const carPath = join(testDir, 'no-egress.car')
+    await createTestCarFile(carPath, [], [{ content: 'no egress content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      withCDN: false,
+    })
+    const { displayUploadResults } = await import('../../common/upload-flow.js')
+    const calls = vi.mocked(displayUploadResults).mock.calls
+    const last = calls[calls.length - 1]
+    expect(last?.[4]).toBeUndefined()
+  })
+
+  it('omits egress arg when chain.filbeam is null (devnet)', async () => {
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    vi.mocked(initializeSynapse).mockImplementationOnce(async (config: any) => {
+      if (config.privateKey == null) throw new Error('auth required')
+      return {
+        chain: { name: 'devnet', id: 31337, filbeam: null },
+        client: { account: { address: '0x1234567890123456789012345678901234567890' } },
+        storage: { upload: vi.fn(), findDataSets: mockFindDataSets },
+      } as any
+    })
+    const carPath = join(testDir, 'devnet-egress.car')
+    await createTestCarFile(carPath, [], [{ content: 'devnet egress content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      withCDN: true,
+    })
+    const { displayUploadResults } = await import('../../common/upload-flow.js')
+    const calls = vi.mocked(displayUploadResults).mock.calls
+    const last = calls[calls.length - 1]
+    expect(last?.[4]).toBeUndefined()
+  })
+})
+
+describe('runCarImportFromCli egress glue', () => {
+  const testDir = './test-import-cli-egress-cars'
+  const testPrivateKey = '0x0000000000000000000000000000000000000000000000000000000000000001'
+
+  beforeEach(async () => {
+    await mkdir(testDir, { recursive: true })
+    vi.clearAllMocks()
+  })
+
+  afterEach(async () => {
+    vi.unstubAllEnvs()
+    try {
+      await stat(testDir)
+      await rm(testDir, { recursive: true, force: true })
+    } catch {
+      // Directory doesn't exist, nothing to clean up
+    }
+  })
+
+  it('defaults to beam egress (withCDN: true) when --egress-provider is omitted', async () => {
+    vi.stubEnv('WITH_CDN', '')
+    const carPath = join(testDir, 'default-beam.car')
+    await createTestCarFile(carPath, [], [{ content: 'default beam content' }])
+    await runCarImportFromCli(carPath, { privateKey: testPrivateKey, rpcUrl: 'wss://test.rpc.url' })
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+      expect.objectContaining({ withCDN: true }),
+      expect.anything()
+    )
+  })
+
+  it('opts out (withCDN unset) when --egress-provider none is passed', async () => {
+    const carPath = join(testDir, 'opt-out.car')
+    await createTestCarFile(carPath, [], [{ content: 'opt out content' }])
+    await runCarImportFromCli(carPath, {
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      egressProvider: 'none',
+    })
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    const calls = vi.mocked(initializeSynapse).mock.calls
+    const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+    expect(lastConfig.withCDN).toBeUndefined()
+  })
+
+  it('honors WITH_CDN=false as a backwards-compatible opt-out', async () => {
+    vi.stubEnv('WITH_CDN', 'false')
+    const carPath = join(testDir, 'with-cdn-false.car')
+    await createTestCarFile(carPath, [], [{ content: 'with cdn false content' }])
+    await runCarImportFromCli(carPath, { privateKey: testPrivateKey, rpcUrl: 'wss://test.rpc.url' })
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    const calls = vi.mocked(initializeSynapse).mock.calls
+    const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+    expect(lastConfig.withCDN).toBeUndefined()
   })
 })

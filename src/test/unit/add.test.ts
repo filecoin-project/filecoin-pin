@@ -12,7 +12,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runAdd } from '../../add/add.js'
+import { runAdd, runAddFromCli } from '../../add/add.js'
 
 const { mockCarPath, mockFindDataSets } = vi.hoisted(() => ({
   mockCarPath: 'test-add-files/mock.car',
@@ -57,7 +57,7 @@ vi.mock('../../core/synapse/index.js', () => ({
     }
 
     return {
-      chain: { name: 'calibration', id: 314159 },
+      chain: { name: 'calibration', id: 314159, filbeam: { retrievalDomain: 'calibration.filbeam.io' } },
       client: { account: { address: '0x1234567890123456789012345678901234567890' } },
       storage: {
         upload: vi.fn(),
@@ -375,6 +375,126 @@ describe('Add Command', () => {
 
       expect(mockExit).not.toHaveBeenCalled()
       mockExit.mockRestore()
+    })
+
+    it('passes withCDN: true to initializeSynapse when options.withCDN is true', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        withCDN: true,
+      })
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+        expect.objectContaining({ withCDN: true }),
+        expect.anything()
+      )
+    })
+
+    it('does not set withCDN on the SDK config when options.withCDN is false', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        withCDN: false,
+      })
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      const calls = vi.mocked(initializeSynapse).mock.calls
+      const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+      expect(lastConfig.withCDN).toBeUndefined()
+    })
+
+    it('passes filbeamUrl to displayUploadResults when withCDN is true and chain.filbeam is set', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        withCDN: true,
+      })
+      const { displayUploadResults } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(displayUploadResults)).toHaveBeenCalledWith(
+        expect.anything(),
+        'Add',
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          filbeamUrl: expect.stringMatching(
+            /^https:\/\/0x[0-9a-fA-F]+\.calibration\.filbeam\.io\/bafkzcibtest1234567890$/
+          ),
+        })
+      )
+    })
+
+    it('omits egress arg to displayUploadResults when withCDN is false', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        withCDN: false,
+      })
+      const { displayUploadResults } = await import('../../common/upload-flow.js')
+      const calls = vi.mocked(displayUploadResults).mock.calls
+      const last = calls[calls.length - 1]
+      expect(last?.[4]).toBeUndefined()
+    })
+
+    it('omits egress arg when chain.filbeam is null (devnet)', async () => {
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      vi.mocked(initializeSynapse).mockImplementationOnce(async (config: any) => {
+        if (config.privateKey == null) throw new Error('auth required')
+        return {
+          chain: { name: 'devnet', id: 31337, filbeam: null },
+          client: { account: { address: '0x1234567890123456789012345678901234567890' } },
+          storage: { upload: vi.fn(), findDataSets: mockFindDataSets },
+        } as any
+      })
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        withCDN: true,
+      })
+      const { displayUploadResults } = await import('../../common/upload-flow.js')
+      const calls = vi.mocked(displayUploadResults).mock.calls
+      const last = calls[calls.length - 1]
+      expect(last?.[4]).toBeUndefined()
+    })
+  })
+
+  describe('runAddFromCli egress glue', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
+    it('defaults to beam egress (withCDN: true) when --egress-provider is omitted', async () => {
+      vi.stubEnv('WITH_CDN', '')
+      await runAddFromCli(testFile, { privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url' })
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+        expect.objectContaining({ withCDN: true }),
+        expect.anything()
+      )
+    })
+
+    it('opts out (withCDN unset) when --egress-provider none is passed', async () => {
+      await runAddFromCli(testFile, {
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        egressProvider: 'none',
+      })
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      const calls = vi.mocked(initializeSynapse).mock.calls
+      const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+      expect(lastConfig.withCDN).toBeUndefined()
+    })
+
+    it('honors WITH_CDN=false as a backwards-compatible opt-out', async () => {
+      vi.stubEnv('WITH_CDN', 'false')
+      await runAddFromCli(testFile, { privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url' })
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      const calls = vi.mocked(initializeSynapse).mock.calls
+      const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+      expect(lastConfig.withCDN).toBeUndefined()
     })
   })
 })
