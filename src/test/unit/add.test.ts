@@ -12,7 +12,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runAdd } from '../../add/add.js'
+import { runAdd, runAddFromCli } from '../../add/add.js'
 
 const { mockCarPath, mockFindDataSets } = vi.hoisted(() => ({
   mockCarPath: 'test-add-files/mock.car',
@@ -458,6 +458,43 @@ describe('Add Command', () => {
       const calls = vi.mocked(displayUploadResults).mock.calls
       const last = calls[calls.length - 1]
       expect(last?.[4]).toBeUndefined()
+    })
+  })
+
+  describe('runAddFromCli egress glue', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
+    it('defaults to beam egress (withCDN: true) when --egress-provider is omitted', async () => {
+      vi.stubEnv('WITH_CDN', '')
+      await runAddFromCli(testFile, { privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url' })
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+        expect.objectContaining({ withCDN: true }),
+        expect.anything()
+      )
+    })
+
+    it('opts out (withCDN unset) when --egress-provider none is passed', async () => {
+      await runAddFromCli(testFile, {
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        egressProvider: 'none',
+      })
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      const calls = vi.mocked(initializeSynapse).mock.calls
+      const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+      expect(lastConfig.withCDN).toBeUndefined()
+    })
+
+    it('honors WITH_CDN=false as a backwards-compatible opt-out', async () => {
+      vi.stubEnv('WITH_CDN', 'false')
+      await runAddFromCli(testFile, { privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url' })
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      const calls = vi.mocked(initializeSynapse).mock.calls
+      const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+      expect(lastConfig.withCDN).toBeUndefined()
     })
   })
 })

@@ -61,6 +61,21 @@ export function addEgressOptions(command: Command): Command {
 }
 
 /**
+ * Read the connected chain's FilBeam config, or `null` when the chain exposes
+ * no FilBeam endpoint (e.g. devnet).
+ */
+function getFilbeamConfig(synapse: Synapse): { retrievalDomain: string } | null {
+  return (synapse.chain as { filbeam?: { retrievalDomain: string } | null }).filbeam ?? null
+}
+
+/**
+ * Whether the connected chain exposes a FilBeam retrieval endpoint.
+ */
+export function chainSupportsFilbeam(synapse: Synapse): boolean {
+  return getFilbeamConfig(synapse) != null
+}
+
+/**
  * Build the FilBeam retrieval URL for an uploaded piece.
  *
  * Returns `undefined` when egress is disabled, the piece CID is missing, or the
@@ -70,7 +85,7 @@ export function buildFilbeamUrl(synapse: Synapse, pieceCid: string | undefined, 
   if (!withCDN || !pieceCid) {
     return undefined
   }
-  const filbeam = (synapse.chain as { filbeam?: { retrievalDomain: string } | null }).filbeam
+  const filbeam = getFilbeamConfig(synapse)
   if (filbeam == null) {
     return undefined
   }

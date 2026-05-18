@@ -24,7 +24,12 @@ import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
-import { buildFilbeamUrl, normalizeEgressProvider, printEgressNotice } from '../utils/cli-options-egress.js'
+import {
+  buildFilbeamUrl,
+  chainSupportsFilbeam,
+  normalizeEgressProvider,
+  printEgressNotice,
+} from '../utils/cli-options-egress.js'
 import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 import type { ImportOptions, ImportResult } from './types.js'
 
@@ -193,9 +198,6 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
   })
 
   const withCDN = options.withCDN === true
-  if (withCDN) {
-    printEgressNotice('beam')
-  }
 
   try {
     // Validate file exists and is readable
@@ -246,6 +248,11 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     const network = synapse.chain.name
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
+
+    // Deferred until the chain is known so the notice only shows on FilBeam-capable networks.
+    if (withCDN && chainSupportsFilbeam(synapse)) {
+      printEgressNotice('beam')
+    }
 
     // Resolve partial --data-set-metadata locally; SDK metadata matching requires exact equality.
     let effectiveDataSetMetadata = dataSetMetadata
