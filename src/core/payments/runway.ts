@@ -14,17 +14,7 @@
 import { resolveAccountState } from '@filoz/synapse-core/pay'
 import { type Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { maxUint256 } from 'viem'
-import type { StorageRunwaySummary } from './types.js'
-
-/** Subset of `synapse.payments.accountSummary` output we consume. */
-export interface AccountRunwayInput {
-  funds: bigint
-  availableFunds: bigint
-  totalLockup: bigint
-  lockupRatePerEpoch: bigint
-  runwayInEpochs: bigint
-  grossCoverageInEpochs: bigint
-}
+import type { AccountSummary, StorageRunwaySummary } from './types.js'
 
 /**
  * Synthetic account state for hypothetical projections.
@@ -39,7 +29,7 @@ export interface ProjectionRunwayInput {
   lockupRate: bigint
 }
 
-function isAccountRunway(input: AccountRunwayInput | ProjectionRunwayInput): input is AccountRunwayInput {
+function isAccountRunway(input: AccountSummary | ProjectionRunwayInput): input is AccountSummary {
   return 'runwayInEpochs' in input
 }
 
@@ -62,7 +52,7 @@ function epochsToDaysHours(epochs: bigint): { days: number; hours: number } {
  * `resolveAccountState` so filecoin-pin and the SDK never disagree on the
  * meaning of "runway".
  */
-export function deriveStorageRunway(input: AccountRunwayInput | ProjectionRunwayInput): StorageRunwaySummary {
+export function deriveStorageRunway(input: AccountSummary | ProjectionRunwayInput): StorageRunwaySummary {
   let runwayInEpochs: bigint
   let coverageInEpochs: bigint
   let ratePerEpoch: bigint
