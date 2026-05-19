@@ -52,6 +52,8 @@ export interface StorageRunwaySummary {
   perDay: bigint
   /** Total funds currently locked into rails for this account. */
   lockupUsed: bigint
+  /** Funds remaining above (simulated) lockup; matches SDK `availableFunds`. */
+  availableFunds: bigint
   /** Whole-day component of time until top-up needed. */
   runwayDays: number
   /** Hour remainder of time until top-up needed. */
@@ -121,6 +123,7 @@ export interface FilecoinPayFundingInsights {
  */
 export interface AccountSummary {
   funds: bigint
+  availableFunds: bigint
   totalLockup: bigint
   lockupRatePerEpoch: bigint
   runwayInEpochs: bigint

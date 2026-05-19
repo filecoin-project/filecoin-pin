@@ -37,6 +37,7 @@ function makeStatus(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; r
 function makeSummary(params: { lockupUsed?: bigint; rateUsed?: bigint }): AccountSummary {
   return {
     funds: 0n,
+    availableFunds: 0n,
     totalLockup: params.lockupUsed ?? 0n,
     lockupRatePerEpoch: params.rateUsed ?? 0n,
     runwayInEpochs: 0n,

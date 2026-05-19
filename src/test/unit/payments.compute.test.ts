@@ -16,8 +16,10 @@ function makeSummary(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; 
   // We don't validate exact epoch values here, just that helpers consume the summary correctly.
   const runwayInEpochs = lockupRatePerEpoch === 0n ? 0n : (params.filecoinPayBalance - totalLockup) / lockupRatePerEpoch
   const grossCoverageInEpochs = lockupRatePerEpoch === 0n ? 0n : params.filecoinPayBalance / lockupRatePerEpoch
+  const availableFunds = params.filecoinPayBalance > totalLockup ? params.filecoinPayBalance - totalLockup : 0n
   return {
     funds: params.filecoinPayBalance,
+    availableFunds,
     totalLockup,
     lockupRatePerEpoch,
     runwayInEpochs: runwayInEpochs > 0n ? runwayInEpochs : 0n,
@@ -224,6 +226,7 @@ describe('deriveStorageRunway', () => {
   it('returns no-spend when rate is 0', () => {
     const result = deriveStorageRunway({
       funds: 1_000_000n,
+      availableFunds: 1_000_000n,
       totalLockup: 0n,
       lockupRatePerEpoch: 0n,
       runwayInEpochs: 0n,
@@ -238,6 +241,7 @@ describe('deriveStorageRunway', () => {
     const rate = 1_000_000_000_000_000_000n
     const result = deriveStorageRunway({
       funds: 0n,
+      availableFunds: 0n,
       totalLockup: 0n,
       lockupRatePerEpoch: rate,
       runwayInEpochs: TIME_CONSTANTS.EPOCHS_PER_DAY * 5n,
@@ -253,6 +257,7 @@ describe('deriveStorageRunway', () => {
     const rate = 1_000_000_000_000_000_000n
     const result = deriveStorageRunway({
       funds: rate * TIME_CONSTANTS.EPOCHS_PER_DAY * 20n,
+      availableFunds: 0n,
       totalLockup: rate * TIME_CONSTANTS.EPOCHS_PER_DAY * 30n,
       lockupRatePerEpoch: rate,
       runwayInEpochs: 0n,
@@ -279,6 +284,7 @@ describe('deriveStorageRunway', () => {
     const rate = 1_000_000_000_000_000_000n
     const result = deriveStorageRunway({
       funds: 0n,
+      availableFunds: 0n,
       totalLockup: 0n,
       lockupRatePerEpoch: rate,
       runwayInEpochs: TIME_CONSTANTS.EPOCHS_PER_DAY * 20n + TIME_CONSTANTS.EPOCHS_PER_HOUR * 12n,

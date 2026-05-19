@@ -50,8 +50,10 @@ function makeSummary(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; 
         ? (params.filecoinPayBalance - totalLockup) / lockupRatePerEpoch
         : 0n
   const grossCoverageInEpochs = lockupRatePerEpoch === 0n ? 0n : params.filecoinPayBalance / lockupRatePerEpoch
+  const availableFunds = params.filecoinPayBalance > totalLockup ? params.filecoinPayBalance - totalLockup : 0n
   return {
     funds: params.filecoinPayBalance,
+    availableFunds,
     totalLockup,
     lockupRatePerEpoch,
     runwayInEpochs,
@@ -62,6 +64,7 @@ function makeSummary(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; 
 function makeSynapseStub(summary?: AccountSummary) {
   const accountSummary = summary ?? {
     funds: 0n,
+    availableFunds: 0n,
     totalLockup: 0n,
     lockupRatePerEpoch: 0n,
     runwayInEpochs: 0n,

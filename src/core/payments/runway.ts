@@ -19,6 +19,7 @@ import type { StorageRunwaySummary } from './types.js'
 /** Subset of `synapse.payments.accountSummary` output we consume. */
 export interface AccountRunwayInput {
   funds: bigint
+  availableFunds: bigint
   totalLockup: bigint
   lockupRatePerEpoch: bigint
   runwayInEpochs: bigint
@@ -66,12 +67,14 @@ export function deriveStorageRunway(input: AccountRunwayInput | ProjectionRunway
   let coverageInEpochs: bigint
   let ratePerEpoch: bigint
   let lockupUsed: bigint
+  let availableFunds: bigint
 
   if (isAccountRunway(input)) {
     runwayInEpochs = input.runwayInEpochs
     coverageInEpochs = input.grossCoverageInEpochs
     ratePerEpoch = input.lockupRatePerEpoch
     lockupUsed = input.totalLockup
+    availableFunds = input.availableFunds
   } else {
     const resolved = resolveAccountState({
       funds: input.funds,
@@ -84,6 +87,7 @@ export function deriveStorageRunway(input: AccountRunwayInput | ProjectionRunway
     coverageInEpochs = resolved.grossCoverageInEpochs
     ratePerEpoch = input.lockupRate
     lockupUsed = input.lockupCurrent
+    availableFunds = resolved.availableFunds
   }
 
   const perDay = ratePerEpoch * TIME_CONSTANTS.EPOCHS_PER_DAY
@@ -94,6 +98,7 @@ export function deriveStorageRunway(input: AccountRunwayInput | ProjectionRunway
       rateUsed: 0n,
       perDay: 0n,
       lockupUsed,
+      availableFunds,
       runwayDays: 0,
       runwayHours: 0,
       coverageDays: 0,
@@ -109,6 +114,7 @@ export function deriveStorageRunway(input: AccountRunwayInput | ProjectionRunway
     rateUsed: ratePerEpoch,
     perDay,
     lockupUsed,
+    availableFunds,
     runwayDays: runway.days,
     runwayHours: runway.hours,
     coverageDays: coverage.days,

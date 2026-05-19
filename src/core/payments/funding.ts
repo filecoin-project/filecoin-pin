@@ -73,7 +73,7 @@ export function getFilecoinPayFundingInsights(
           lockupRate: rateUsed,
         })
 
-  const availableDeposited = depositedBalance > lockupUsed ? depositedBalance - lockupUsed : 0n
+  const availableDeposited = runway.availableFunds
   const filecoinPayDepletion = calculateDepletionTiming(depositedBalance, runway.perDay)
   const ownerDepletion = calculateDepletionTiming(depositedBalance + walletUsdfcBalance, runway.perDay)
 
@@ -187,10 +187,13 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
       projectedRateUsed = adjustment.newRateUsed
       projectedLockupUsed = adjustment.newLockupUsed
 
+      // Determine reason: piece upload with or without runway
       if (targetRunwayDays === 0) {
-        // Special case: targetRunwayDays === 0 means "fund this upload only" (no runway target).
-        // Even with 0 days, onboarding a new piece can still require additional deposit to satisfy
-        // the piece's lockup requirement (and the small safety buffer).
+        /**
+         * Special case: targetRunwayDays === 0 means "fund this upload only" (no runway target).
+         * Even with 0 days, onboarding a new piece can still require additional deposit to satisfy
+         * the piece's lockup requirement (and the small safety buffer). If delta <= 0, no adjustment needed.
+         */
         reasonCode = delta > 0n ? 'piece-upload' : 'none'
       } else if (delta > 0n) {
         reasonCode = 'runway-with-piece'
@@ -204,6 +207,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
       projectedLockupUsed = adjustment.lockupUsed
       resolvedTargetDeposit = status.filecoinPayBalance + delta
 
+      // Runway adjustment without piece
       if (delta > 0n) {
         reasonCode = 'runway-insufficient'
       } else if (delta < 0n) {
@@ -217,6 +221,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     resolvedTargetDeposit = adjustment.clampedTarget
     projectedLockupUsed = adjustment.lockupUsed
 
+    // Target deposit adjustment
     if (delta > 0n) {
       reasonCode = 'target-deposit'
     } else if (delta < 0n) {
@@ -226,12 +231,12 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
 
   if (mode === 'minimum' && delta < 0n) {
     delta = 0n
-    reasonCode = 'none'
+    reasonCode = 'none' // Reset reason if we're not actually adjusting
   }
 
   if (!allowWithdraw && delta < 0n) {
     delta = 0n
-    reasonCode = 'none'
+    reasonCode = 'none' // Reset reason if we're not actually adjusting
   }
 
   const projectedDepositUnsafe = status.filecoinPayBalance + delta
