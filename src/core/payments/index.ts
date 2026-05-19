@@ -163,13 +163,14 @@ export async function checkUSDFCBalance(synapse: Synapse): Promise<bigint> {
 }
 
 /**
- * Get deposited USDFC balance in Payments contract
+ * Get gross deposited USDFC balance in the Payments contract.
  *
- * This is different from wallet balance - it's the amount
- * already deposited and available for payment rails.
+ * Returns `accountInfo.funds`: the total amount deposited, including funds
+ * currently reserved by rails as lockup. This is NOT the net available balance
+ * (use `accountSummary.availableFunds` for funds free above lockup).
  *
  * @param synapse - Initialized Synapse instance
- * @returns Deposited USDFC balance in its smallest unit
+ * @returns Gross deposited USDFC balance in its smallest unit
  */
 export async function getDepositedBalance(synapse: Synapse): Promise<bigint> {
   const accountInfo = await synapse.payments.accountInfo({ token: TOKENS.USDFC })
