@@ -720,12 +720,15 @@ export function computeAdjustmentForExactDaysWithPiece(
     throw new Error('days must be non-negative')
   }
 
+  // Calculate required allowances for the new file with floor pricing applied
   const baseAllowances = calculateRequiredAllowances(pieceSizeBytes, pricePerTiBPerEpoch)
   const newPieceAllowances = applyFloorPricing(baseAllowances)
 
+  // Calculate new totals after adding the piece
   const newRateUsed = accountSummary.lockupRatePerEpoch + newPieceAllowances.rateAllowance
   const newLockupUsed = accountSummary.totalLockup + newPieceAllowances.lockupAllowance
 
+  // If no ongoing spend, just need the lockup
   if (newRateUsed === 0n) {
     const targetDeposit = newLockupUsed
     return {
@@ -737,8 +740,11 @@ export function computeAdjustmentForExactDaysWithPiece(
     }
   }
 
+  // Calculate deposit needed for target gross coverage with new rate
   const perDay = newRateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+  // 1-hour safety buffer covers minor drift in lockup rate between calculation and execution
   const safety = perDay / 24n
+  // Target: days worth of gross coverage at the new rate (clamped to lockup minimum below)
   const coverageTarget = BigInt(Math.floor(days)) * perDay + (safety > 0n ? safety : 1n)
   const minimumDeposit = withBuffer(newLockupUsed)
   const targetDeposit = coverageTarget > minimumDeposit ? coverageTarget : minimumDeposit

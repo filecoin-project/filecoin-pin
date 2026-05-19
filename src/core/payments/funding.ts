@@ -53,6 +53,11 @@ function calculateDepletionTiming(
  * (when `overrides` is provided) builds a synthetic SDK account state and
  * runs it through `resolveAccountState`, so projected runway/coverage match
  * SDK semantics rather than a parallel local interpretation.
+ *
+ * @param status - Current payment status
+ * @param accountSummary - SDK account summary (rate + lockup + runway)
+ * @param overrides - Optional overrides for projected scenarios
+ * @returns Funding insights including runway and depletion predictions
  */
 export function getFilecoinPayFundingInsights(
   status: PaymentStatus,
@@ -311,10 +316,14 @@ export interface PlanFilecoinPayFundingOptions {
 }
 
 /**
- * Plan Filecoin Pay funding adjustments with network calls
+ * Plan Filecoin Pay funding adjustments with network calls.
  *
- * Fetches `PaymentStatus` and `accountSummary` in parallel, then delegates
- * to `calculateFilecoinPayFundingPlan` for pure calculation.
+ * This async function handles the full workflow:
+ * - Fetches current payment status and SDK account summary in parallel
+ * - Optionally ensures allowances are configured
+ * - Validates payment requirements (FIL for gas, USDFC availability)
+ * - Fetches pricing if needed
+ * - Calculates funding plan via `calculateFilecoinPayFundingPlan`
  *
  * @param options - Planning options including synapse instance
  * @returns Plan with status and allowance information
@@ -380,6 +389,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     pricing = storageInfo.pricing.noCDN.perTiBPerEpoch
   }
 
+  // Delegate to pure calculation function
   const plan = calculateFilecoinPayFundingPlan({
     status,
     accountSummary,

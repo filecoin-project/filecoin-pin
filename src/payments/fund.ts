@@ -281,21 +281,15 @@ export async function runFund(options: FundOptions): Promise<void> {
       throw new Error('No active spend')
     }
 
-    let projectedRunwayTarget: number | null = null
-    if (plan.projected.runway.state === 'active') {
-      projectedRunwayTarget =
-        plan.targetType === 'runway-days' ? (plan.targetRunwayDays ?? 0) : plan.projected.runway.runwayDays
-    }
+    // Projected top-up window (= net runway after deposit) is the metric that matters
+    // for the safety baseline; --days targets gross coverage, so deriving from
+    // plan.targetRunwayDays would let `--days 30` (deposit ~= lockup, runway ~= 0) skip
+    // the warning. Use the SDK-derived projected runway for both branches instead.
+    const projectedRunwayDays = plan.projected.runway.state === 'active' ? plan.projected.runway.runwayDays : null
 
-    if (plan.mode !== 'minimum' && projectedRunwayTarget != null && projectedRunwayTarget < DEFAULT_LOCKUP_DAYS) {
-      const line1 =
-        plan.targetType === 'runway-days'
-          ? 'Requested runway below 30-day safety baseline.'
-          : 'Target deposit implies less than 30 days of runway at current spend.'
-      const line2 =
-        plan.targetType === 'runway-days'
-          ? 'WarmStorage reserves 30 days of costs; a shorter runway risks termination.'
-          : 'Increase target or accept risk: shorter runway may cause termination.'
+    if (plan.mode !== 'minimum' && projectedRunwayDays != null && projectedRunwayDays < DEFAULT_LOCKUP_DAYS) {
+      const line1 = `Projected top-up window after this adjustment is less than ${DEFAULT_LOCKUP_DAYS} days.`
+      const line2 = `WarmStorage reserves ${DEFAULT_LOCKUP_DAYS} days of costs; a shorter top-up window risks termination.`
       await ensureBelowThirtyDaysAllowed({
         spinner,
         warningLine1: line1,
