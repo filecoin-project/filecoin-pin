@@ -53,7 +53,9 @@ describe('computeTopUpForDuration', () => {
     expect(res.topUp).toBe(0n)
   })
 
-  it('issue #385: balance covers days even when lockup exceeds balance', () => {
+  it('underwater account: topUp restores lockup plus requested runway', () => {
+    // Net-runway semantics: when lockup > balance, "give me N days" means fund
+    // both the lockup deficit and N days of spend above it.
     const rateUsed = 1_000_000_000_000_000_000n
     const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
     const days = 10
@@ -61,7 +63,7 @@ describe('computeTopUpForDuration', () => {
     const filecoinPayBalance = perDay * BigInt(days)
     const summary = makeSummary({ filecoinPayBalance, lockupUsed, rateUsed })
     const res = computeTopUpForDuration(summary, filecoinPayBalance, days)
-    expect(res.topUp).toBe(0n)
+    expect(res.topUp).toBe(lockupUsed + perDay * BigInt(days) - filecoinPayBalance)
     expect(res.lockupUsed).toBe(lockupUsed)
   })
 
@@ -113,7 +115,10 @@ describe('computeAdjustmentForExactDays', () => {
     expect(res.delta).toBe(-1_000n)
   })
 
-  it('targets gross coverage when lockupUsed exceeds balance', () => {
+  it('targets net runway above lockup when lockupUsed exceeds balance', () => {
+    // Regression for issue #385: when lockup > funds, runway math must still
+    // request a deposit large enough to restore N days of net runway above
+    // the locked amount (not silently report 0-runway).
     const rateUsed = 1_000_000_000_000_000_000n
     const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
     const balance = perDay * 20n
@@ -123,21 +128,24 @@ describe('computeAdjustmentForExactDays', () => {
     const res = computeAdjustmentForExactDays(summary, balance, 20)
 
     const safety = perDay / 24n
-    expect(res.delta).toBe(safety)
-    expect(res.targetDeposit).toBe(balance + safety)
+    expect(res.targetDeposit).toBe(lockupUsed + perDay * 20n + safety)
+    expect(res.delta).toBe(lockupUsed + perDay * 20n + safety - balance)
   })
 
-  it('does not plan withdrawals below the current lockup', () => {
+  it('withdraws excess down to lockup + runway target', () => {
     const rateUsed = 1_000_000_000_000_000_000n
     const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
     const lockupUsed = perDay * 30n
-    const balance = lockupUsed + perDay * 5n
+    const balance = lockupUsed + perDay * 50n
     const summary = makeSummary({ filecoinPayBalance: balance, lockupUsed, rateUsed })
 
     const res = computeAdjustmentForExactDays(summary, balance, 5)
 
-    expect(res.targetDeposit).toBe(lockupUsed)
-    expect(res.delta).toBe(lockupUsed - balance)
+    const safety = perDay / 24n
+    expect(res.targetDeposit).toBe(lockupUsed + perDay * 5n + safety)
+    expect(res.delta).toBeLessThan(0n)
+    // Final deposit always lands at or above lockup.
+    expect(res.targetDeposit).toBeGreaterThanOrEqual(lockupUsed)
   })
 })
 

@@ -615,21 +615,24 @@ export function computeTopUpForDuration(
 
   const epochsNeeded = BigInt(Math.ceil(days)) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const spendNeeded = rateUsed * epochsNeeded
-  const topUp = spendNeeded > filecoinPayBalance ? spendNeeded - filecoinPayBalance : 0n
+  // Target deposit = lockup + N days of net runway. Deposit-only, never withdraws.
+  const target = lockupUsed + spendNeeded
+  const topUp = target > filecoinPayBalance ? target - filecoinPayBalance : 0n
 
   return { topUp, rateUsed, perDay, lockupUsed }
 }
 
 /**
- * Compute the exact deposit adjustment for a target gross coverage in days.
+ * Compute the exact deposit adjustment for a target net runway in days.
  *
- * Target semantics match the status display: `days` = total time the deposit
- * covers including currently locked funds. Withdrawal is never allowed to
- * dip below `lockupUsed`.
+ * Target semantics: `days` = time until the next top-up is required at the
+ * current spend rate (matches the "Top-up needed in" display metric).
+ * Final deposit ≈ `lockupUsed + days * perDay + safety`. Withdrawal is never
+ * allowed to dip below `lockupUsed`.
  *
  * @param accountSummary - SDK account summary (rate + lockup)
  * @param filecoinPayBalance - Current deposited balance
- * @param days - Desired gross coverage in days
+ * @param days - Desired net runway in days
  */
 export function computeAdjustmentForExactDays(
   accountSummary: AccountSummary,
@@ -662,9 +665,9 @@ export function computeAdjustmentForExactDays(
 
   // 1-hour safety buffer covers minor drift in lockup rate between calculation and execution.
   const safety = perDay / 24n
-  const coverageTarget = BigInt(Math.floor(days)) * perDay + (safety > 0n ? safety : 1n)
-  const minimumTargetDeposit = filecoinPayBalance > lockupUsed ? lockupUsed : filecoinPayBalance
-  const targetDeposit = coverageTarget > minimumTargetDeposit ? coverageTarget : minimumTargetDeposit
+  // Target deposit = lockup + N days of net runway + safety.
+  const runwayCost = BigInt(Math.floor(days)) * perDay + (safety > 0n ? safety : 1n)
+  const targetDeposit = lockupUsed + runwayCost
   const delta = targetDeposit - filecoinPayBalance
 
   return { delta, targetDeposit, rateUsed, perDay, lockupUsed }
@@ -692,14 +695,14 @@ export function computeAdjustmentForExactDeposit(
 }
 
 /**
- * Compute adjustment to reach target gross coverage AFTER adding a new piece.
+ * Compute adjustment to reach target net runway AFTER adding a new piece.
  *
  * Adds the piece's rate + lockup to the SDK-reported current values, then
- * targets gross coverage = `days` total at the new rate.
+ * targets `days` of net runway above the new lockup at the new rate.
  *
  * @param accountSummary - SDK account summary (current rate + lockup)
  * @param filecoinPayBalance - Current deposited balance
- * @param days - Desired gross coverage in days after adding the piece
+ * @param days - Desired net runway in days after adding the piece
  * @param pieceSizeBytes - Piece file size in bytes
  * @param pricePerTiBPerEpoch - Current pricing from storage service
  */
@@ -740,14 +743,15 @@ export function computeAdjustmentForExactDaysWithPiece(
     }
   }
 
-  // Calculate deposit needed for target gross coverage with new rate
+  // Calculate deposit needed for target net runway with new rate
   const perDay = newRateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
   // 1-hour safety buffer covers minor drift in lockup rate between calculation and execution
   const safety = perDay / 24n
-  // Target: days worth of gross coverage at the new rate (clamped to lockup minimum below)
-  const coverageTarget = BigInt(Math.floor(days)) * perDay + (safety > 0n ? safety : 1n)
+  // Target: new lockup + days of net runway at the new rate (clamped to lockup minimum below)
+  const runwayCost = BigInt(Math.floor(days)) * perDay + (safety > 0n ? safety : 1n)
+  const runwayTarget = newLockupUsed + runwayCost
   const minimumDeposit = withBuffer(newLockupUsed)
-  const targetDeposit = coverageTarget > minimumDeposit ? coverageTarget : minimumDeposit
+  const targetDeposit = runwayTarget > minimumDeposit ? runwayTarget : minimumDeposit
 
   return {
     delta: targetDeposit - filecoinPayBalance,

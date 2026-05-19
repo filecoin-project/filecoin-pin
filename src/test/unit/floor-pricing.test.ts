@@ -159,8 +159,9 @@ describe('computeAdjustmentForExactDaysWithPiece - Floor Pricing Integration', (
     const perDay = floor.rateAllowance * TIME_CONSTANTS.EPOCHS_PER_DAY
     const safety = perDay > 0n ? perDay / 24n : 1n
     const runwayCost = 30n * perDay + safety
+    const runwayTarget = floor.lockupAllowance + runwayCost
 
     expect(adjustment.delta).toBeGreaterThan(0n)
-    expect(adjustment.targetDeposit).toBe(runwayCost > bufferedLockup ? runwayCost : bufferedLockup)
+    expect(adjustment.targetDeposit).toBe(runwayTarget > bufferedLockup ? runwayTarget : bufferedLockup)
   })
 })

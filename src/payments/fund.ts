@@ -281,10 +281,8 @@ export async function runFund(options: FundOptions): Promise<void> {
       throw new Error('No active spend')
     }
 
-    // Projected top-up window (= net runway after deposit) is the metric that matters
-    // for the safety baseline; --days targets gross coverage, so deriving from
-    // plan.targetRunwayDays would let `--days 30` (deposit ~= lockup, runway ~= 0) skip
-    // the warning. Use the SDK-derived projected runway for both branches instead.
+    // Safety baseline measures projected top-up window (net runway after deposit),
+    // sourced from the SDK so --days and --amount paths share one metric.
     const projectedRunwayDays = plan.projected.runway.state === 'active' ? plan.projected.runway.runwayDays : null
 
     if (plan.mode !== 'minimum' && projectedRunwayDays != null && projectedRunwayDays < DEFAULT_LOCKUP_DAYS) {
