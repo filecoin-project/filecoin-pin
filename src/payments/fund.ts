@@ -124,7 +124,7 @@ async function printSummary(synapse: Synapse, title = 'Updated'): Promise<void> 
     lines.push(`Storage covered: ~${runwayDisplay.coverage} total`)
     lines.push(`Top-up needed in: ~${runwayDisplay.runway}`)
   } else {
-    lines.push(`Storage covered: ${runwayDisplay.coverage}`)
+    lines.push(runwayDisplay.coverage)
   }
   log.section(title, lines)
 }
@@ -284,7 +284,7 @@ export async function runFund(options: FundOptions): Promise<void> {
     let projectedRunwayTarget: number | null = null
     if (plan.projected.runway.state === 'active') {
       projectedRunwayTarget =
-        plan.targetType === 'runway-days' ? (plan.targetRunwayDays ?? 0) : plan.projected.runway.coverageDays
+        plan.targetType === 'runway-days' ? (plan.targetRunwayDays ?? 0) : plan.projected.runway.runwayDays
     }
 
     if (plan.mode !== 'minimum' && projectedRunwayTarget != null && projectedRunwayTarget < DEFAULT_LOCKUP_DAYS) {

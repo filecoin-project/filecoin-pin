@@ -55,8 +55,11 @@ function epochsToDaysHours(epochs: bigint): { days: number; hours: number } {
 /**
  * Convert SDK account summary or projection input into a display-ready runway summary.
  *
- * Always delegates the runway/coverage math to `resolveAccountState` so
- * filecoin-pin and the SDK never disagree on the meaning of "runway".
+ * SDK `AccountSummary` inputs are trusted as-is (their `runwayInEpochs` /
+ * `grossCoverageInEpochs` already come from `resolveAccountState` inside the
+ * SDK). Projection inputs build a synthetic state and run it through
+ * `resolveAccountState` so filecoin-pin and the SDK never disagree on the
+ * meaning of "runway".
  */
 export function deriveStorageRunway(input: AccountRunwayInput | ProjectionRunwayInput): StorageRunwaySummary {
   let runwayInEpochs: bigint

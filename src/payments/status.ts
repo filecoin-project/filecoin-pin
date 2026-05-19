@@ -238,8 +238,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       log.indent(`Storage covered: ~${runwayDisplay.coverage} total`)
       log.indent(`Top-up needed in: ~${runwayDisplay.runway}`)
     } else {
-      log.indent(pc.gray(`Storage covered: ${runwayDisplay.coverage}`))
-      log.indent(pc.gray(`Top-up needed in: ${runwayDisplay.runway}`))
+      log.indent(pc.gray(runwayDisplay.coverage))
     }
 
     const capacityTibPerMonth = parseUnits(capacity.tibPerMonth.toString(), 18)
