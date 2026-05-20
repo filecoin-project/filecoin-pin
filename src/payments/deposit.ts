@@ -6,9 +6,9 @@
  * - By duration: --days <N> (fund enough to keep current usage alive for N days)
  */
 
-import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
+import { parseUnits } from 'viem'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import {
   calculateStorageRunway,
   checkFILBalance,
@@ -17,7 +17,7 @@ import {
   depositUSDFC,
   getPaymentStatus,
 } from '../core/payments/index.js'
-import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
@@ -42,26 +42,19 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
   const hasDays = options.days != null
 
   if ((hasAmount && hasDays) || (!hasAmount && !hasDays)) {
-    console.error(pc.red('Error: Specify exactly one of --amount <USDFC> or --days <N>'))
-    process.exit(1)
+    log.line(pc.red('Error: Specify exactly one of --amount <USDFC> or --days <N>'))
+    log.flush()
+    throw new CliFatal('Specify exactly one of --amount <USDFC> or --days <N>')
   }
 
   // Connect
   spinner.start('Connecting...')
   try {
     // Parse and validate authentication
-    const authConfig = parseCLIAuth({
-      privateKey: options.privateKey,
-      walletAddress: options.walletAddress,
-      sessionKey: options.sessionKey,
-      rpcUrl: options.rpcUrl,
-    })
+    const authConfig = parseCLIAuth(options)
 
     const logger = getCLILogger()
-    const synapse = await initializeSynapse(
-      { ...authConfig, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
-      logger
-    )
+    const synapse = await initializeSynapse(authConfig, logger)
 
     const [filStatus, walletUsdfcBalance, status] = await Promise.all([
       checkFILBalance(synapse),
@@ -80,14 +73,14 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
       log.line(`  ${pc.cyan(help)}`)
       log.flush()
       cancel('Deposit aborted')
-      throw new Error('Insufficient FIL for gas fees')
+      throw new CliFatal('Insufficient FIL for gas fees')
     }
 
     let depositAmount: bigint = 0n
 
     if (hasAmount) {
       try {
-        depositAmount = ethers.parseUnits(String(options.amount), 18)
+        depositAmount = parseUnits(String(options.amount), 18)
       } catch {
         throw new Error(`Invalid amount '${options.amount}'`)
       }
@@ -109,7 +102,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
         log.line('Use --amount to deposit a specific USDFC value instead.')
         log.flush()
         cancel('Nothing to fund by duration')
-        throw new Error('No active spend detected')
+        throw new CliFatal('No active spend detected')
       }
 
       depositAmount = topUp
@@ -126,12 +119,9 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
 
     // Ensure wallet has enough USDFC
     if (depositAmount > walletUsdfcBalance) {
-      console.error(
-        pc.red(
-          `✗ Insufficient USDFC (need ${formatUSDFC(depositAmount)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
-        )
+      throw new Error(
+        `Insufficient USDFC (need ${formatUSDFC(depositAmount)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
       )
-      throw new Error('Insufficient USDFC')
     }
 
     spinner.start(`Depositing ${formatUSDFC(depositAmount)} USDFC...`)
@@ -161,11 +151,13 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
 
     outro('Deposit completed')
   } catch (error) {
-    spinner.stop()
-    console.error(pc.red('✗ Deposit failed'))
-    console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
-    process.exitCode = 1
-  } finally {
-    await cleanupSynapseService()
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
+    spinner.stop(`${pc.red('✗')} Deposit failed: ${msg}`)
+    cancel('Deposit failed')
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

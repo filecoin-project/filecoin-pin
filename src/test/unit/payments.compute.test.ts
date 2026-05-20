@@ -21,6 +21,7 @@ function makeStatus(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; r
 
   return {
     network: 'calibration',
+    chainId: 314159,
     address: '0x0000000000000000000000000000000000000000',
     filBalance: 0n,
     walletUsdfcBalance: 0n,

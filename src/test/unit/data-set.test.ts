@@ -1,69 +1,55 @@
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DataSetSummary } from '../../core/data-set/types.js'
-import { runDataSetDetailsCommand, runDataSetListCommand } from '../../data-set/run.js'
+import { runDataSetDetailsCommand, runDataSetListCommand, runTerminateDataSetCommand } from '../../data-set/run.js'
 
 const {
   displayDataSetListMock,
-  cleanupSynapseServiceMock,
   spinnerMock,
   cancelMock,
   mockFindDataSets,
-  mockGetStorageInfo,
-  mockGetAddress,
-  mockWarmStorageCreate,
-  mockWarmStorageInstance,
+  mockGetProvider,
+  mockGetAllPieceMetadata,
+  mockGetPdpDataSet,
+  mockTerminateDataSet,
+  mockWaitForTransactionReceipt,
   mockSynapseCreate,
-  MockPDPServer,
-  MockPDPVerifier,
   state,
 } = vi.hoisted(() => {
   const displayDataSetListMock = vi.fn()
-  const cleanupSynapseServiceMock = vi.fn()
   const cancelMock = vi.fn()
   const spinnerMock = {
     start: vi.fn(),
     stop: vi.fn(),
     message: vi.fn(),
+    clear: vi.fn(),
   }
   const mockFindDataSets = vi.fn()
-  const mockGetStorageInfo = vi.fn()
-  const mockGetAddress = vi.fn()
+  const mockGetProvider = vi.fn()
+  const mockGetAllPieceMetadata = vi.fn(async () => ({ ...state.pieceMetadata }))
+  const mockGetPdpDataSet = vi.fn()
+  const mockTerminateDataSet = vi.fn()
+  const mockWaitForTransactionReceipt = vi.fn()
   const state = {
-    leafCount: 0,
     pieceMetadata: {} as Record<string, string>,
-    pieceList: [] as Array<{ pieceId: number; pieceCid: string }>,
+    pieceList: [] as Array<{ pieceId: bigint; pieceCid: string }>,
   }
 
-  const mockWarmStorageInstance = {
-    getPDPVerifierAddress: () => '0xverifier',
-    getPieceMetadata: vi.fn(async () => ({ ...state.pieceMetadata })),
-  }
-
-  const mockWarmStorageCreate = vi.fn(async () => mockWarmStorageInstance)
-
-  class MockPDPVerifier {
-    async getDataSetLeafCount(): Promise<number> {
-      return state.leafCount
-    }
-  }
-
-  class MockPDPServer {
-    async getDataSet() {
-      return {
-        pieces: state.pieceList.map((piece) => ({
-          pieceId: piece.pieceId,
-          pieceCid: {
-            toString: () => piece.pieceCid,
-          },
-        })),
-      }
-    }
-  }
-
-  const mockStorageContext = {
-    dataSetId: 158,
-    getPieces: async function* () {
+  const mockCreateContext = vi.fn(async () => ({
+    dataSetId: 158n,
+    serviceProvider: '0xservice',
+    provider: {
+      id: 2n,
+      name: 'Test Provider',
+      serviceProvider: '0xservice',
+      pdp: { serviceURL: 'https://provider.example.com' },
+    },
+    dataSetMetadata: {
+      [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+      source: 'filecoin-pin',
+      note: 'demo',
+    },
+    async *getPieces() {
       for (const piece of state.pieceList) {
         yield {
           pieceId: piece.pieceId,
@@ -73,53 +59,51 @@ const {
         }
       }
     },
-  }
+    getScheduledRemovals: vi.fn(async () => []),
+  }))
 
-  const mockCreateContext = vi.fn(async () => mockStorageContext)
-
-  // TODO: we should not need to mock synapseCreate, and should use mocks/synapse-sdk.ts instead
-  const mockSynapseCreate = vi.fn(async (config: any) => {
+  const mockSynapseCreate = vi.fn((config: any) => {
     // Validate auth like the real initializeSynapse does
     const hasStandardAuth = config.privateKey != null
     const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
+    const hasViewOnlyAuth = config.readOnly === true && config.walletAddress != null
 
-    if (!hasStandardAuth && !hasSessionKeyAuth) {
-      throw new Error('Authentication required: provide either a privateKey or walletAddress + sessionKey')
+    if (!hasStandardAuth && !hasSessionKeyAuth && !hasViewOnlyAuth) {
+      throw new Error(
+        'Authentication required: provide either privateKey, walletAddress + sessionKey, view-address, or signer'
+      )
     }
 
     return {
-      getNetwork: () => 'calibration',
-      getSigner: () => ({
-        getAddress: mockGetAddress,
-      }),
-      getClient: () => ({
-        getAddress: mockGetAddress,
-      }),
+      chain: { id: 314159, name: 'calibration' },
+      client: {
+        account: hasViewOnlyAuth ? config.walletAddress : { address: '0xtest-address' },
+        waitForTransactionReceipt: mockWaitForTransactionReceipt,
+      },
+      sessionClient: hasSessionKeyAuth ? {} : undefined,
       storage: {
         findDataSets: mockFindDataSets,
-        getStorageInfo: mockGetStorageInfo,
         createContext: mockCreateContext,
+        terminateDataSet: mockTerminateDataSet,
       },
-      getProvider: () => ({}),
-      getWarmStorageAddress: () => '0xwarm',
+      providers: {
+        getProvider: mockGetProvider,
+      },
     }
   })
 
   return {
     displayDataSetListMock,
-    cleanupSynapseServiceMock,
     cancelMock,
     spinnerMock,
     mockFindDataSets,
-    mockGetStorageInfo,
-    mockGetAddress,
-    mockWarmStorageCreate,
-    mockWarmStorageInstance,
+    mockGetProvider,
+    mockGetAllPieceMetadata,
+    mockGetPdpDataSet,
+    mockTerminateDataSet,
+    mockWaitForTransactionReceipt,
     mockSynapseCreate,
     mockCreateContext,
-    mockStorageContext,
-    MockPDPServer,
-    MockPDPVerifier,
     state,
   }
 })
@@ -130,7 +114,7 @@ vi.mock('../../data-set/display.js', () => ({
 
 vi.mock('../../core/synapse/index.js', () => ({
   initializeSynapse: mockSynapseCreate,
-  cleanupSynapseService: cleanupSynapseServiceMock,
+  getClientAddress: () => '0xtest',
 }))
 
 vi.mock('../../utils/cli-helpers.js', () => ({
@@ -138,6 +122,7 @@ vi.mock('../../utils/cli-helpers.js', () => ({
   outro: vi.fn(),
   cancel: cancelMock,
   createSpinner: () => spinnerMock,
+  isInteractive: () => false,
 }))
 
 vi.mock('../../utils/cli-logger.js', () => ({
@@ -145,7 +130,13 @@ vi.mock('../../utils/cli-logger.js', () => ({
     line: vi.fn(),
     indent: vi.fn(),
     flush: vi.fn(),
+    spinnerSection: vi.fn(),
   },
+}))
+
+vi.mock('@clack/prompts', () => ({
+  confirm: vi.fn(async () => true),
+  isCancel: vi.fn(() => false),
 }))
 
 // Use shared SDK mock with custom extensions for dataset command testing
@@ -153,32 +144,79 @@ vi.mock('@filoz/synapse-sdk', async () => {
   const sharedMock = await import('../mocks/synapse-sdk.js')
   return {
     ...sharedMock,
-    WarmStorageService: { create: mockWarmStorageCreate },
-    PDPVerifier: MockPDPVerifier,
-    PDPServer: MockPDPServer,
   }
 })
 
+vi.mock('@filoz/synapse-core/warm-storage', () => ({
+  getAllPieceMetadata: mockGetAllPieceMetadata,
+  getPdpDataSet: mockGetPdpDataSet,
+}))
+
+vi.mock('@filoz/synapse-core/sp', () => ({
+  getDataSet: vi.fn(async () => ({
+    id: 158n,
+    nextChallengeEpoch: 100,
+    pieces: state.pieceList.map((p: any) => ({
+      pieceId: p.pieceId,
+      pieceCid: { toString: () => p.pieceCid },
+      subPieceCid: { toString: () => p.pieceCid },
+      subPieceOffset: 0,
+    })),
+  })),
+}))
+
 // Mock piece size calculation
-vi.mock('@filoz/synapse-sdk/piece', () => ({
+vi.mock('@filoz/synapse-core/piece', () => ({
+  MAX_UPLOAD_SIZE: 1048576,
   getSizeFromPieceCID: vi.fn(() => {
     // Return a realistic piece size (1 MiB = 1048576 bytes)
     return 1048576
   }),
 }))
 
+type EnhancedDataSetFixture = Record<string, unknown> & {
+  pdpVerifierDataSetId: bigint
+  isLive?: boolean
+  isManaged?: boolean
+  withCDN?: boolean
+  metadata: Record<string, string>
+  payer: string
+}
+
+function toPdpDataSet(summary: EnhancedDataSetFixture, providerFixture: Record<string, unknown>) {
+  return {
+    pdpRailId: summary.pdpRailId,
+    cacheMissRailId: summary.cacheMissRailId,
+    cdnRailId: summary.cdnRailId,
+    payer: summary.payer,
+    payee: summary.payee,
+    serviceProvider: summary.serviceProvider,
+    commissionBps: summary.commissionBps,
+    clientDataSetId: summary.clientDataSetId,
+    pdpEndEpoch: summary.pdpEndEpoch,
+    providerId: summary.providerId,
+    dataSetId: summary.pdpVerifierDataSetId,
+    live: summary.isLive ?? true,
+    managed: summary.isManaged ?? true,
+    cdn: summary.withCDN ?? false,
+    metadata: summary.metadata,
+    provider: providerFixture,
+    activePieceCount: 0n,
+  }
+}
+
 describe('runDataSetCommand', () => {
   const summaryDataSet = {
-    pdpVerifierDataSetId: 158,
-    providerId: 2,
+    pdpVerifierDataSetId: 158n,
+    providerId: 2n,
     isManaged: true,
     withCDN: false,
     currentPieceCount: 3,
-    nextPieceId: 3,
-    clientDataSetId: 1,
-    pdpRailId: 327,
-    cdnRailId: 0,
-    cacheMissRailId: 0,
+    nextPieceId: 3n,
+    clientDataSetId: 1n,
+    pdpRailId: 327n,
+    cdnRailId: 0n,
+    cacheMissRailId: 0n,
     payer: '0x123',
     payee: '0x456',
     serviceProvider: '0xservice',
@@ -193,31 +231,25 @@ describe('runDataSetCommand', () => {
   }
 
   const provider = {
-    id: 2,
+    id: 2n,
     name: 'Test Provider',
     serviceProvider: '0xservice',
     description: 'demo provider',
     payee: '0x456',
     active: true,
-    products: {
-      PDP: {
-        type: 'PDP',
-        isActive: true,
-        capabilities: {},
-        data: { serviceURL: 'https://pdp.local' },
-      },
+    pdp: {
+      serviceURL: 'https://pdp.local',
     },
   }
 
   beforeEach(() => {
     vi.clearAllMocks()
-    state.leafCount = 0
     state.pieceMetadata = {}
     state.pieceList = []
     mockFindDataSets.mockResolvedValue([summaryDataSet])
-    mockGetStorageInfo.mockResolvedValue({ providers: [provider] })
-    mockGetAddress.mockResolvedValue('0xabc')
-    mockWarmStorageInstance.getPieceMetadata.mockResolvedValue({})
+    mockGetProvider.mockResolvedValue(provider)
+    mockGetAllPieceMetadata.mockResolvedValue({})
+    mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(summaryDataSet, provider))
   })
 
   afterEach(() => {
@@ -238,18 +270,112 @@ describe('runDataSetCommand', () => {
     expect(context).toHaveLength(1)
     const summary = context[0]
     expect(summary).toBeDefined()
-    expect(summary?.dataSetId).toBe(158)
+    expect(summary?.dataSetId).toBe(158n)
     expect(summary?.createdWithFilecoinPin).toBe(true)
   })
 
+  it('filters datasets by metadata entries', async () => {
+    await runDataSetListCommand({
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+      dataSetMetadata: { note: 'demo' },
+    })
+
+    const [dataSets] = displayDataSetListMock.mock.calls[0] as [DataSetSummary[]]
+    expect(dataSets).toHaveLength(1)
+    expect(dataSets[0]?.dataSetId).toBe(158n)
+  })
+
+  it('excludes datasets that do not match metadata filters', async () => {
+    await runDataSetListCommand({
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+      dataSetMetadata: { note: 'unknown' },
+    })
+
+    const [dataSets] = displayDataSetListMock.mock.calls[0] as [DataSetSummary[]]
+    expect(dataSets).toHaveLength(0)
+  })
+
+  it('includes non-filecoin-pin datasets when explicit metadata filter is passed', async () => {
+    const migrationDataSet = {
+      ...summaryDataSet,
+      pdpVerifierDataSetId: 13260n,
+      metadata: {
+        [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+        source: 'storacha-migration',
+        'space-did': 'did:key:z6Mk',
+      },
+    }
+    mockFindDataSets.mockResolvedValueOnce([migrationDataSet])
+
+    await runDataSetListCommand({
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+      dataSetMetadata: { source: 'storacha-migration' },
+    })
+
+    const [dataSets] = displayDataSetListMock.mock.calls[0] as [DataSetSummary[]]
+    expect(dataSets).toHaveLength(1)
+    expect(dataSets[0]?.dataSetId).toBe(13260n)
+    expect(dataSets[0]?.createdWithFilecoinPin).toBe(false)
+  })
+
+  it('passes a filter-aware empty message when explicit filter matches nothing', async () => {
+    await runDataSetListCommand({
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+      dataSetMetadata: { source: 'nonexistent' },
+    })
+
+    const call = displayDataSetListMock.mock.calls[0] as [DataSetSummary[], string, string, string | undefined]
+    expect(call[0]).toHaveLength(0)
+    expect(call[3]).toMatch(/matched the requested filter/i)
+  })
+
+  it('uses neutral empty message when --all is set and no datasets exist', async () => {
+    mockFindDataSets.mockResolvedValueOnce([])
+
+    await runDataSetListCommand({
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+      all: true,
+    })
+
+    const call = displayDataSetListMock.mock.calls[0] as [DataSetSummary[], string, string, string | undefined]
+    expect(call[0]).toHaveLength(0)
+    expect(call[3]).toBe('No data sets were found for this account.')
+  })
+
+  it('hints at --all when default filter hides existing non-filecoin-pin datasets', async () => {
+    const migrationDataSet = {
+      ...summaryDataSet,
+      pdpVerifierDataSetId: 13260n,
+      metadata: {
+        [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+        source: 'storacha-migration',
+      },
+    }
+    mockFindDataSets.mockResolvedValueOnce([migrationDataSet])
+
+    await runDataSetListCommand({
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    const call = displayDataSetListMock.mock.calls[0] as [DataSetSummary[], string, string, string | undefined]
+    expect(call[0]).toHaveLength(0)
+    expect(call[3]).toMatch(/--all/)
+  })
+
   it('loads detailed information when a dataset id is provided', async () => {
-    state.pieceList = [{ pieceId: 0, pieceCid: 'bafkpiece0' }]
+    state.pieceList = [{ pieceId: 0n, pieceCid: 'bafkpiece0' }]
     const pieceMetadata = {
       [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot0',
       custom: 'value',
     }
     state.pieceMetadata = pieceMetadata
-    mockWarmStorageInstance.getPieceMetadata.mockResolvedValue(pieceMetadata)
+    mockGetAllPieceMetadata.mockResolvedValue(pieceMetadata)
 
     await runDataSetDetailsCommand(158, {
       privateKey: 'test-key',
@@ -273,10 +399,20 @@ describe('runDataSetCommand', () => {
     })
   })
 
-  it('exits when no private key is provided', async () => {
-    await runDataSetListCommand({
+  it('does not enumerate the whole account when loading a single dataset', async () => {
+    state.pieceList = [{ pieceId: 0n, pieceCid: 'bafkpiece0' }]
+
+    await runDataSetDetailsCommand(158, {
+      privateKey: 'test-key',
       rpcUrl: 'wss://sample',
     })
+
+    expect(mockGetPdpDataSet).toHaveBeenCalledWith(expect.anything(), { dataSetId: 158n })
+    expect(mockFindDataSets).not.toHaveBeenCalled()
+  })
+
+  it('exits when no private key is provided', async () => {
+    await expect(runDataSetListCommand({ rpcUrl: 'wss://sample' })).rejects.toThrow('Authentication required')
 
     // Should call cancel with failure message
     expect(cancelMock).toHaveBeenCalledWith('Listing failed')
@@ -284,10 +420,142 @@ describe('runDataSetCommand', () => {
     // Should stop spinner with error message
     expect(spinnerMock.stop).toHaveBeenCalledWith(expect.stringContaining('Failed to list data sets'))
 
-    // Should set exitCode to 1 due to authentication error
-    expect(process.exitCode).toBe(1)
-
     // Should not call display function since it failed early
     expect(displayDataSetListMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('runTerminateDataSetCommand', () => {
+  const terminatableDataSet = {
+    pdpVerifierDataSetId: 158n,
+    providerId: 2n,
+    isManaged: true,
+    withCDN: false,
+    isLive: true,
+    currentPieceCount: 3,
+    nextPieceId: 3n,
+    clientDataSetId: 1n,
+    pdpRailId: 327n,
+    cdnRailId: 0n,
+    cacheMissRailId: 0n,
+    payer: '0xtest',
+    payee: '0x456',
+    serviceProvider: '0xservice',
+    commissionBps: 100,
+    pdpEndEpoch: 0,
+    cdnEndEpoch: 0,
+    metadata: {
+      [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+      source: 'filecoin-pin',
+      note: 'demo',
+    },
+  }
+
+  const provider = {
+    id: 2n,
+    name: 'Test Provider',
+    serviceProvider: '0xservice',
+    description: 'demo provider',
+    payee: '0x456',
+    active: true,
+    pdp: {
+      serviceURL: 'https://pdp.local',
+    },
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    state.pieceMetadata = {}
+    state.pieceList = []
+    mockFindDataSets.mockResolvedValue([terminatableDataSet])
+    mockGetProvider.mockResolvedValue(provider)
+    mockGetAllPieceMetadata.mockResolvedValue({})
+    mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(terminatableDataSet, provider))
+    mockTerminateDataSet.mockResolvedValue('0xtxhash123')
+    mockWaitForTransactionReceipt.mockResolvedValue({ status: 'success' })
+  })
+
+  afterEach(() => {
+    delete process.env.PRIVATE_KEY
+    process.exitCode = 0
+  })
+
+  it('terminates a dataset without waiting', async () => {
+    await runTerminateDataSetCommand(158, {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    expect(mockTerminateDataSet).toHaveBeenCalledWith({ dataSetId: 158n })
+    expect(mockWaitForTransactionReceipt).not.toHaveBeenCalled()
+    expect(displayDataSetListMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('terminates a dataset and waits for confirmation', async () => {
+    const updatedDataSet = { ...terminatableDataSet, isLive: false, pdpEndEpoch: 5000 }
+    mockGetPdpDataSet
+      .mockResolvedValueOnce(toPdpDataSet(terminatableDataSet, provider))
+      .mockResolvedValueOnce(toPdpDataSet(updatedDataSet, provider))
+
+    await runTerminateDataSetCommand(158, {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+      wait: true,
+    })
+
+    expect(mockTerminateDataSet).toHaveBeenCalledWith({ dataSetId: 158n })
+    expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith({ hash: '0xtxhash123' })
+    expect(displayDataSetListMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects termination for read-only accounts', async () => {
+    await expect(
+      runTerminateDataSetCommand(158, {
+        viewAddress: '0xtest',
+        rpcUrl: 'wss://sample',
+      })
+    ).rejects.toThrow('Signing required for termination')
+
+    expect(cancelMock).toHaveBeenCalledWith('Termination failed')
+    expect(mockTerminateDataSet).not.toHaveBeenCalled()
+  })
+
+  it('rejects when dataset is not owned by the caller', async () => {
+    const otherOwnerDataSet = { ...terminatableDataSet, payer: '0xother' }
+    mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(otherOwnerDataSet, provider))
+
+    await expect(
+      runTerminateDataSetCommand(158, {
+        privateKey: 'test-key',
+        rpcUrl: 'wss://sample',
+      })
+    ).rejects.toThrow('not owned by address')
+
+    expect(cancelMock).toHaveBeenCalledWith('Termination failed')
+    expect(mockTerminateDataSet).not.toHaveBeenCalled()
+  })
+
+  it('reports already-terminated datasets without error', async () => {
+    const terminatedDataSet = { ...terminatableDataSet, pdpEndEpoch: 5000 }
+    mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(terminatedDataSet, provider))
+
+    await runTerminateDataSetCommand(158, {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    expect(mockTerminateDataSet).not.toHaveBeenCalled()
+    expect(cancelMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid dataset IDs', async () => {
+    await expect(
+      runTerminateDataSetCommand(0, {
+        privateKey: 'test-key',
+        rpcUrl: 'wss://sample',
+      })
+    ).rejects.toThrow('Invalid data set ID')
+
+    expect(cancelMock).toHaveBeenCalledWith('Termination failed')
   })
 })

@@ -8,17 +8,37 @@
  * @module core/data-set/types
  */
 
-import type { EnhancedDataSetInfo, ProviderInfo, StorageContext } from '@filoz/synapse-sdk'
+import type { EnhancedDataSetInfo, PDPProvider } from '@filoz/synapse-sdk'
 import type { Logger } from 'pino'
+import type { Hex } from 'viem'
+import type { Warning } from '../utils/types.js'
+
+/**
+ * Status of the piece, e.g. "pending removal", "active", "orphaned"
+ *
+ * - PENDING_REMOVAL: the piece is scheduled for deletion, but still showing on chain
+ * - ACTIVE: the piece is active, onchain and known by the provider
+ * - ONCHAIN_ORPHANED: the piece is not known by the provider, but still on chain
+ * - OFFCHAIN_ORPHANED: the piece is known by the provider, but not on chain
+ *
+ * The orphaned states should not happen, but have been observed and should be logged and displayed to the user.
+ */
+export enum PieceStatus {
+  ACTIVE = 'ACTIVE',
+  PENDING_REMOVAL = 'PENDING_REMOVAL',
+  ONCHAIN_ORPHANED = 'ONCHAIN_ORPHANED',
+  OFFCHAIN_ORPHANED = 'OFFCHAIN_ORPHANED',
+}
 
 /**
  * Information about a single piece in a dataset
  */
 export interface PieceInfo {
   /** Unique piece identifier (within dataset) */
-  pieceId: number
+  pieceId: bigint
   /** Piece Commitment (CommP) as string */
   pieceCid: string
+  status: PieceStatus
   /** Root IPFS CID (from metadata, if available) */
   rootIpfsCid?: string
   /** Piece size in bytes (if available) */
@@ -34,23 +54,11 @@ export interface DataSetPiecesResult {
   /** List of pieces in the dataset */
   pieces: PieceInfo[]
   /** Dataset ID these pieces belong to */
-  dataSetId: number
+  dataSetId: bigint
   /** Total size of all pieces in bytes (sum of individual piece sizes) */
   totalSizeBytes?: bigint
   /** Non-fatal warnings encountered during retrieval */
   warnings?: Warning[]
-}
-
-/**
- * Structured warning for non-fatal issues
- */
-export interface Warning {
-  /** Machine-readable warning code (e.g., 'METADATA_FETCH_FAILED') */
-  code: string
-  /** Human-readable warning message */
-  message: string
-  /** Additional context data (e.g., { pieceId: 123, dataSetId: 456 }) */
-  context?: Record<string, unknown>
 }
 
 /**
@@ -70,9 +78,9 @@ export interface Warning {
  */
 export interface DataSetSummary extends EnhancedDataSetInfo {
   /** PDP Verifier dataset ID (alias for pdpVerifierDataSetId) */
-  dataSetId: number
+  dataSetId: bigint
   /** Provider information (enriched from getStorageInfo if available) */
-  provider: ProviderInfo | undefined
+  provider: PDPProvider | undefined
   /** Total size in bytes (optional, calculated from piece sizes) */
   totalSizeBytes?: bigint
   /** Pieces in the dataset (optional, populated when fetching detailed info) */
@@ -86,7 +94,7 @@ export interface DataSetSummary extends EnhancedDataSetInfo {
  */
 export interface ListDataSetsOptions {
   /** Address to list datasets for (defaults to synapse client address) */
-  address?: string
+  address?: Hex
   /** Logger instance for debugging (optional) */
   logger?: Logger | undefined
   /**
@@ -119,5 +127,3 @@ export interface GetDataSetPiecesOptions {
   /** Logger instance for debugging (optional) */
   logger?: Logger | undefined
 }
-
-export type StorageContextWithDataSetId = StorageContext & { dataSetId: number }

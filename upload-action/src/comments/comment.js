@@ -134,7 +134,7 @@ export async function commentOnPR(ctx) {
 
     console.log('PR comment posted successfully')
   } catch (error) {
-    console.error('Failed to comment on PR:', getErrorMessage(error))
-    process.exit(1)
+    console.warn('Failed to comment on PR:', getErrorMessage(error))
+    console.warn('Continuing because the Filecoin upload already completed successfully.')
   }
 }

@@ -63,7 +63,7 @@ export function handleError(error, context = {}) {
         '💡 Tip: Current balance already meets your filecoinPayBalanceLimit. Upload will proceed without additional deposits.'
       )
     } else if (error.code === ERROR_CODES.PROVIDER_UNAVAILABLE) {
-      console.error('💡 Tip: Try again later or specify a different provider address.')
+      console.error('💡 Tip: Try again later or specify different provider IDs via PROVIDER_IDS.')
     } else if (error.code === ERROR_CODES.INVALID_PRIVATE_KEY) {
       console.error('💡 Tip: Ensure your private key is valid.')
     }

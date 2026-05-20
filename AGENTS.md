@@ -10,7 +10,7 @@ Bridges IPFS content to Filecoin storage providers with cryptographic guarantees
 
 **Stack**: filecoin-pin → synapse-sdk → FOC contracts (FWSS, FilecoinPay, PDPVerifier, SPRegistry) + Curio.
 
-**Status**: Calibration testnet only. Not production-ready.
+**Status**: Supports Mainnet, Calibration testnet, and local devnet (foc-devnet). CLI defaults to Mainnet.
 
 ## Design Philosophy
 
@@ -25,10 +25,12 @@ Bridges IPFS content to Filecoin storage providers with cryptographic guarantees
 ```
 src/
 ├── cli.ts, server.ts              # Commander.js CLI + Fastify server
-├── add/, data-set/                # Command implementations
+├── add/, import/, data-set/       # Command implementations
 ├── core/                          # Published library (see package.json exports)
 │   ├── car/                       # CAR file handling (CARv1 streaming)
 │   ├── payments/                  # Payment setup/status
+│   ├── metadata/                  # Metadata normalization
+│   ├── piece/                     # Piece status queries
 │   ├── synapse/                   # SDK initialization patterns
 │   ├── upload/                    # Upload workflows
 │   ├── unixfs/                    # Helia integration, browser/node variants
@@ -40,9 +42,11 @@ src/
 
 ## Development
 
-**Setup**: `npm install && npm run build && npm test`
+**Prerequisite**: `pnpm` available locally (`corepack enable` once if needed)
 
-**Scripts**: `npm run build` (tsc), `npm run dev` (tsx watch), `npm test` (lint + typecheck + unit + integration), `npm run lint:fix`
+**Setup**: `pnpm install && pnpm run build && pnpm test`
+
+**Scripts**: `pnpm run build` (tsc), `pnpm run dev` (tsx watch), `pnpm test` (lint + typecheck + unit + integration), `pnpm run lint:fix`
 
 **Requirements**: Node.js 24+, TypeScript ES modules, Biome linting
 
@@ -50,13 +54,13 @@ src/
 
 ## Key Patterns
 
-**Synapse SDK**: Initialize with callbacks (onProviderSelected, onDataSetResolved, onPieceAdded), upload returns {pieceCid, pieceId, provider}. See `src/core/synapse/index.ts`, `src/core/upload/synapse.ts`.
+**Synapse SDK**: Initialize via `initializeSynapse()` in `src/core/synapse/index.ts`. Upload via `executeUpload()` in `src/core/upload/index.ts` with progress events (`stored`, `pullProgress`, `copyComplete`, `piecesAdded`, `piecesConfirmed`). Returns `{pieceCid, size, copies, failures}`.
 
 **CAR files**: CARv1 streaming, handle 3 root cases (single/multiple/none), use zero CID for no roots. See `src/core/car/car-blockstore.ts`.
 
 **UnixFS**: Helia for directory imports, chunking, CID calculation. See `src/core/unixfs/`.
 
-**Payments**: `checkPaymentStatus()`, `setupPayments()` in `src/core/payments/index.ts`.
+**Payments**: `getPaymentStatus()`, `setMaxAllowances()`, `validatePaymentCapacity()` in `src/core/payments/index.ts`.
 
 ## Biome Linting (Critical)
 
@@ -73,13 +77,24 @@ src/
 4. Clean up CAR files and Helia instances on failure
 5. Browser vs Node variants (check package.json exports)
 
+## Documentation
+
+**Glossary**: `documentation/glossary.md` is the authoritative terminology reference.
+
+- Documentation files in `documentation/` should reference and link to glossary entries for key terms (e.g., `[Storage Provider](glossary.md#storage-provider)`)
+- Glossary entries should cross-link to related terms using anchor links (e.g., `[Data Set](#data-set)`)
+- Avoid overlinking: link first mention of a term in each section, not every occurrence
+- Update glossary when introducing new concepts or terminology
+
 ## CLI & Environment
 
-**Commands**: `payments setup --auto`, `add <file>`, `payments status`, `data-set <id>`, `server`
+**Commands**: `payments setup --auto`, `add <path>`, `import <car-file>`, `payments status`, `data-set <id>`, `server`
 
-**Required env**: `PRIVATE_KEY=0x...` (with USDFC tokens)
+**Network**: `--network mainnet|calibration|devnet` (default: `mainnet`). Devnet reads config from foc-devnet's `devnet-info.json` and auto-resolves private key and RPC URL. `--network` and `--rpc-url` are mutually exclusive. When `--rpc-url`/`RPC_URL` is set, the chain is derived by probing the endpoint's `eth_chainId`.
 
-**Optional**: `RPC_URL` (default: Calibration), `PORT`, `HOST`, `DATABASE_PATH`, `CAR_STORAGE_PATH`, `LOG_LEVEL`
+**Required env**: `PRIVATE_KEY=0x...` (with USDFC tokens; not needed for devnet)
+
+**Optional**: `NETWORK`, `RPC_URL`, `FOC_DEVNET_BASEDIR`, `DEVNET_INFO_PATH`, `DEVNET_USER_INDEX`, `PORT`, `HOST`, `DATABASE_PATH`, `CAR_STORAGE_PATH`, `LOG_LEVEL`
 
 **Default data dirs for pinning server**: Linux `~/.local/share/filecoin-pin/`, macOS `~/Library/Application Support/filecoin-pin/`, Windows `%APPDATA%/filecoin-pin/`
 

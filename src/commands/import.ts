@@ -1,27 +1,30 @@
 import { Command } from 'commander'
-import { MIN_RUNWAY_DAYS } from '../common/constants.js'
-import { runCarImport } from '../import/import.js'
-import type { ImportOptions } from '../import/types.js'
-import { addAuthOptions, addProviderOptions } from '../utils/cli-options.js'
+import { runCarImportFromCli } from '../import/import.js'
+import {
+  addAuthOptions,
+  addAutoFundOptions,
+  addContextSelectionOptions,
+  addUploadOptions,
+} from '../utils/cli-options.js'
+import { addMetadataOptions } from '../utils/cli-options-metadata.js'
 
 export const importCommand = new Command('import')
   .description('Import an existing CAR file to Filecoin via Synapse')
   .argument('<file>', 'Path to the CAR file to import')
-  .option('--auto-fund', `Automatically ensure minimum ${MIN_RUNWAY_DAYS} days of runway before upload`)
+  .option('--copies <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
   .action(async (file: string, options) => {
     try {
-      const importOptions: ImportOptions = {
-        ...options,
-        filePath: file,
-        autoFund: options.autoFund,
+      const result = await runCarImportFromCli(file, options)
+      if (result.copies.length < result.requestedCopies) {
+        process.exitCode = 1
       }
-
-      await runCarImport(importOptions)
-    } catch (error) {
-      console.error('Import failed:', error instanceof Error ? error.message : error)
+    } catch {
       process.exit(1)
     }
   })
 
 addAuthOptions(importCommand)
-addProviderOptions(importCommand)
+addContextSelectionOptions(importCommand)
+addUploadOptions(importCommand)
+addAutoFundOptions(importCommand)
+addMetadataOptions(importCommand, { includePieceMetadata: true, includeDataSetMetadata: true, includeErc8004: true })

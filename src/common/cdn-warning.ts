@@ -21,7 +21,6 @@ export async function warnAboutCDNPricingLimitations(): Promise<boolean> {
 
   if (shouldProceed === null) {
     cancel('Operation cancelled')
-    process.exitCode = 1
   }
 
   return Boolean(shouldProceed)

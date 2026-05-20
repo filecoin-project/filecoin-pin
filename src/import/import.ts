@@ -6,23 +6,26 @@
  */
 
 import { createReadStream } from 'node:fs'
-import { readFile, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
+import { Readable } from 'node:stream'
 import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
 import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
-import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
+import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
-import {
-  cleanupSynapseService,
-  createStorageContext,
-  initializeSynapse,
-  type SynapseService,
-} from '../core/synapse/index.js'
-import { parseCLIAuth, parseProviderOptions } from '../utils/cli-auth.js'
+import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
+import { normalizeMetadataConfig } from '../core/metadata/index.js'
+import { DEFAULT_COPIES } from '../core/synapse/constants.js'
+import { initializeSynapse } from '../core/synapse/index.js'
+import { getNetworkSlug } from '../core/upload/index.js'
+import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
+import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
+import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 import type { ImportOptions, ImportResult } from './types.js'
 
 /**
@@ -55,7 +58,11 @@ async function validateCarFile(filePath: string): Promise<CID[]> {
  * Resolve the root CID from CAR file roots
  * Handles multiple cases: no roots, single root, multiple roots
  */
-function resolveRootCID(roots: CID[]): { cid: CID; cidString: string; message?: string } {
+function resolveRootCID(roots: CID[]): {
+  cid: CID
+  cidString: string
+  message?: string
+} {
   if (roots.length === 0) {
     // No roots - use zero CID
     return {
@@ -113,8 +120,51 @@ async function validateFilePath(filePath: string): Promise<{ exists: boolean; st
       return { exists: false, error: `File not found: ${filePath}` }
     }
     // Other errors like permission denied, etc.
-    return { exists: false, error: `Cannot access file: ${filePath} (${error?.message || 'unknown error'})` }
+    return {
+      exists: false,
+      error: `Cannot access file: ${filePath} (${error?.message || 'unknown error'})`,
+    }
   }
+}
+
+/**
+ * Normalize Commander options and run the CAR import flow.
+ *
+ * Commander wiring calls this so option validation errors are displayed by the
+ * command UI layer and command files only own exit-code handling.
+ */
+export async function runCarImportFromCli(file: string, options: Record<string, any>): Promise<ImportResult> {
+  let importOptions: ImportOptions
+  try {
+    const autoFundOptions = validateAndNormalizeAutoFundOptions(options)
+    const {
+      metadata: _metadata,
+      dataSetMetadata: _dataSetMetadata,
+      datasetMetadata: _datasetMetadata,
+      '8004Type': _erc8004Type,
+      '8004Agent': _erc8004Agent,
+      autoFund: _autoFund,
+      minRunwayDays: _minRunwayDays,
+      maxBalance: _maxBalance,
+      ...importOptionsFromCli
+    } = options
+
+    const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
+    importOptions = {
+      ...importOptionsFromCli,
+      ...autoFundOptions,
+      filePath: file,
+      ...(pieceMetadata && { pieceMetadata }),
+      ...(dataSetMetadata && { dataSetMetadata }),
+    }
+  } catch (error) {
+    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.flush()
+    cancel('Import cancelled')
+    throw error
+  }
+
+  return await runCarImport(importOptions)
 }
 
 /**
@@ -127,6 +177,11 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
   const spinner = createSpinner()
 
+  const { pieceMetadata, dataSetMetadata } = normalizeMetadataConfig({
+    pieceMetadata: options.pieceMetadata,
+    dataSetMetadata: options.dataSetMetadata,
+  })
+
   // Initialize logger (silent for CLI output)
   const logger = pino({
     level: process.env.LOG_LEVEL || 'silent',
@@ -138,34 +193,33 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     const proceed = await warnAboutCDNPricingLimitations()
     if (!proceed) {
       cancel('Import cancelled')
-      process.exitCode = 1
       throw new Error('CDN pricing limitations warning cancelled')
     }
   }
 
   try {
-    // Step 1: Validate file exists and is readable
+    // Validate file exists and is readable
     spinner.start('Validating CAR file...')
 
     const fileValidation = await validateFilePath(options.filePath)
     if (!fileValidation.exists || !fileValidation.stats) {
       spinner.stop(`${pc.red('✗')} ${fileValidation.error}`)
       cancel('Import cancelled')
-      process.exit(1)
+      throw new Error(fileValidation.error)
     }
     const fileStat = fileValidation.stats
 
-    // Step 2: Validate CAR format and extract roots
+    // Validate CAR format and extract roots
     let roots: CID[]
     try {
       roots = await validateCarFile(options.filePath)
     } catch (error) {
       spinner.stop(`${pc.red('✗')} Invalid CAR file: ${error instanceof Error ? error.message : 'Unknown error'}`)
       cancel('Import cancelled')
-      process.exit(1)
+      throw new Error('Invalid CAR file')
     }
 
-    // Step 3: Handle root CID cases
+    // Handle root CID cases
     const rootCidInfo = resolveRootCID(roots)
     const { cid: rootCid, cidString: rootCidString, message } = rootCidInfo
 
@@ -175,73 +229,112 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       log.flush()
     }
 
-    // Step 4: Initialize Synapse SDK (without storage context)
+    // Validate context selection options early (before expensive operations)
+    const contextSelection = parseContextSelectionOptions(options)
+
+    // Initialize Synapse SDK
     spinner.start('Initializing Synapse SDK...')
 
-    // Parse authentication options from CLI and environment
     const config = parseCLIAuth(options)
+    if (dataSetMetadata) {
+      config.dataSetMetadata = dataSetMetadata
+    }
     if (withCDN) config.withCDN = true
 
-    // Initialize just the Synapse SDK
-    const synapse = await initializeSynapse(
-      { ...config, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
-      logger
-    )
-    const network = synapse.getNetwork()
+    const synapse = await initializeSynapse(config, logger)
+    const networkSlug = getNetworkSlug(synapse.chain)
+    const network = synapse.chain.name
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
+    // Resolve partial --data-set-metadata locally; SDK metadata matching requires exact equality.
+    let effectiveDataSetMetadata = dataSetMetadata
+    if (dataSetMetadata != null && contextSelection.dataSetIds == null && contextSelection.providerIds == null) {
+      const expectedCopies = options.copies ?? DEFAULT_COPIES
+      spinner.start('Resolving data sets from --data-set-metadata...')
+      const resolution = await resolveDataSetIdsByMetadata(synapse, dataSetMetadata, { expectedCopies, logger })
+      if (resolution.kind === 'matched') {
+        contextSelection.dataSetIds = resolution.dataSetIds
+        effectiveDataSetMetadata = undefined
+        spinner.stop(
+          `${pc.green('✓')} Matched existing data sets ${resolution.dataSetIds.join(', ')} via metadata filter`
+        )
+      } else if (resolution.kind === 'too-many-matches') {
+        spinner.stop(`${pc.red('✗')} --data-set-metadata matched too many data sets`)
+        throw new Error(
+          `--data-set-metadata matched ${resolution.matchedIds.length} data sets (${resolution.matchedIds.join(', ')}) ` +
+            `but expected ${resolution.expected} (narrow the filter or pass --data-set-ids to pin the target).`
+        )
+      } else if (resolution.kind === 'too-few-matches') {
+        spinner.stop(`${pc.red('✗')} --data-set-metadata matched too few data sets`)
+        throw new Error(
+          `--data-set-metadata matched only ${resolution.matchedIds.length} data set(s) (${resolution.matchedIds.join(', ')}) ` +
+            `but expected ${resolution.expected} (lower --copies, widen the filter, or pass --data-set-ids).`
+        )
+      } else {
+        spinner.stop(
+          `${pc.gray('•')} No existing data sets matched --data-set-metadata; SDK will create a new data set with the requested metadata`
+        )
+      }
+    }
+
     if (options.autoFund) {
-      // Step 5: Perform auto-funding if requested (now that we know the file size)
-      await performAutoFunding(synapse, fileStat.size, spinner)
+      const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {
+        ...(dataSetMetadata && { metadata: dataSetMetadata }),
+        ...(options.copies != null && { copies: options.copies }),
+      }
+      if (contextSelection.providerIds) {
+        autoFundOptions.providerIds = contextSelection.providerIds
+        autoFundOptions.copies = contextSelection.providerIds.length
+      }
+      if (contextSelection.dataSetIds) {
+        autoFundOptions.dataSetIds = contextSelection.dataSetIds
+        autoFundOptions.copies = contextSelection.dataSetIds.length
+      }
+      if (options.minRunwayDays !== undefined) {
+        autoFundOptions.minRunwayDays = options.minRunwayDays
+      }
+      if (options.maxBalance !== undefined) {
+        autoFundOptions.maxBalance = options.maxBalance
+      }
+
+      await performAutoFunding(synapse, fileStat.size, spinner, autoFundOptions)
     } else {
-      // Step 5: Validate payment setup (may configure permissions if needed)
       spinner.start('Checking payment capacity...')
       await validatePaymentSetup(synapse, fileStat.size, spinner)
     }
 
-    // Step 6: Create storage context now that payments are validated
-    spinner.start('Creating storage context...')
-
-    // Parse provider selection from CLI options and environment variables
-    const providerOptions = parseProviderOptions(options)
-
-    const { storage, providerInfo } = await createStorageContext(synapse, logger, {
-      ...providerOptions,
-      callbacks: {
-        onProviderSelected: (provider) => {
-          spinner.message(`Connecting to storage provider: ${provider.name || provider.serviceProvider}...`)
-        },
-        onDataSetResolved: (info) => {
-          if (info.isExisting) {
-            spinner.message(`Using existing data set #${info.dataSetId}`)
-          } else {
-            spinner.message(`Created new data set #${info.dataSetId}`)
-          }
-        },
-      },
-    })
-
-    spinner.stop(`${pc.green('✓')} Storage context ready`)
-
-    // Create service object for upload function
-    const synapseService: SynapseService = { synapse, storage, providerInfo }
-
-    // Step 7: Read CAR file and upload to Synapse
+    // Stream CAR file to Synapse
     spinner.start('Uploading to Filecoin...')
 
-    // Read the entire CAR file (streaming not yet supported in Synapse)
-    const carData = await readFile(options.filePath)
+    const carData = Readable.toWeb(createReadStream(options.filePath)) as ReadableStream<Uint8Array>
 
-    // Upload using common upload flow
-    const uploadResult = await performUpload(synapseService, carData, rootCid, {
+    // Auto-skip IPNI on devnet (no IPNI infrastructure available)
+    const skipIpniVerification = options.skipIpniVerification || synapse.chain.id === DEVNET_CHAIN_ID
+
+    const uploadOptions: Parameters<typeof performUpload>[3] = {
       contextType: 'import',
       fileSize: fileStat.size,
       logger,
       spinner,
-    })
+      skipIpniVerification,
+      ...(pieceMetadata && { pieceMetadata }),
+      ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
+      ...(options.copies != null && { copies: options.copies }),
+    }
+    if (contextSelection.providerIds) {
+      uploadOptions.providerIds = contextSelection.providerIds
+      uploadOptions.copies = contextSelection.providerIds.length
+    }
+    if (contextSelection.dataSetIds) {
+      uploadOptions.dataSetIds = contextSelection.dataSetIds
+      uploadOptions.copies = contextSelection.dataSetIds.length
+    }
 
-    // Step 6: Display results
+    const requestedCopies = uploadOptions.copies ?? DEFAULT_COPIES
+    const uploadResult = await performUpload(synapse, carData, rootCid, uploadOptions)
+
+    // Display results
     spinner.stop('━━━ Import Complete ━━━')
 
     const result: ImportResult = {
@@ -249,30 +342,45 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       fileSize: fileStat.size,
       rootCid: rootCidString,
       pieceCid: uploadResult.pieceCid,
-      pieceId: uploadResult.pieceId !== undefined ? uploadResult.pieceId : undefined,
-      dataSetId: uploadResult.dataSetId,
-      transactionHash: uploadResult.transactionHash !== undefined ? uploadResult.transactionHash : undefined,
-      providerInfo,
+      size: uploadResult.size,
+      requestedCopies,
+      copies: uploadResult.copies,
+      failedAttempts: uploadResult.failedAttempts,
     }
 
-    // Display the results
-    displayUploadResults(result, 'Import', network)
+    displayUploadResults(result, 'Import', network, networkSlug)
 
-    // Clean up WebSocket providers to allow process termination
-    await cleanupSynapseService()
-
-    // Show success outro
-    outro('Import completed successfully')
+    if (uploadResult.copies.length < requestedCopies) {
+      log.line('')
+      log.line(
+        pc.yellow(
+          `${uploadResult.failedAttempts.length} copy failure(s). ` +
+            `Got ${uploadResult.copies.length}/${requestedCopies} copies. Data is stored but with reduced redundancy.`
+        )
+      )
+      log.flush()
+      outro('Import completed with errors')
+    } else if (uploadResult.failedAttempts.length > 0) {
+      log.line('')
+      log.line(pc.gray(`${uploadResult.failedAttempts.length} non-critical copy failure(s) during upload.`))
+      log.flush()
+      outro('Import completed successfully')
+    } else {
+      outro('Import completed successfully')
+    }
 
     return result
   } catch (error) {
-    spinner.stop(`${pc.red('✗')} Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    if (isCliFatal(error)) {
+      spinner.stop()
+      logger.error({ event: 'import.failed', error }, 'Import failed')
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : 'Unknown error'
+    spinner.stop(`${pc.red('✗')} Import failed: ${msg}`)
     logger.error({ event: 'import.failed', error }, 'Import failed')
 
-    // Clean up even on error
-    await cleanupSynapseService()
-
     cancel('Import failed')
-    process.exit(1)
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

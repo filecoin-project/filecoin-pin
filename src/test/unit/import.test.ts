@@ -13,6 +13,7 @@ import { createWriteStream } from 'node:fs'
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
+import { ReadableStream } from 'node:stream/web'
 import { CarWriter } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
@@ -26,6 +27,27 @@ const ZERO_CID = 'bafkqaaa' // Zero CID used when CAR has no roots
 
 // Mock modules
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
+vi.mock('../../common/upload-flow.js', () => ({
+  validatePaymentSetup: vi.fn(),
+  performUpload: vi.fn().mockResolvedValue({
+    pieceCid: 'bafkzcibtest1234567890',
+    size: 1024,
+    copies: [
+      {
+        providerId: 1n,
+        dataSetId: 123n,
+        pieceId: 789n,
+        role: 'primary',
+        retrievalUrl: 'http://test.provider/pdp/piece/bafkzcibtest1234567890',
+        isNewDataSet: false,
+      },
+    ],
+    failedAttempts: [],
+    network: 'calibration',
+  }),
+  displayUploadResults: vi.fn(),
+  performAutoFunding: vi.fn(),
+}))
 vi.mock('../../core/payments/index.js', async () => {
   const actual = await vi.importActual<typeof import('../../core/payments/index.js')>('../../core/payments/index.js')
   return {
@@ -77,76 +99,40 @@ vi.mock('../../core/payments/index.js', async () => {
   }
 })
 vi.mock('../../core/utils/validate-ipni-advertisement.js', () => ({
-  validateIPNIAdvertisement: vi.fn().mockResolvedValue(true),
+  waitForIpniProviderResults: vi.fn().mockResolvedValue(true),
 }))
 
 vi.mock('../../payments/setup.js', () => ({
   formatUSDFC: vi.fn((amount) => `${amount} USDFC`),
   validatePaymentRequirements: vi.fn().mockReturnValue({ isValid: true }),
 }))
-vi.mock('../../core/synapse/index.js', async () => {
-  const { MockSynapse } = await import('../mocks/synapse-mocks.js')
+const { mockFindDataSets } = vi.hoisted(() => ({ mockFindDataSets: vi.fn().mockResolvedValue([]) }))
 
-  return {
-    isSessionKeyMode: vi.fn(() => false),
-    initializeSynapse: vi.fn(async (config: any, _logger: any) => {
-      // Validate auth config (mirrors validateAuthConfig in actual code)
-      const hasStandardAuth = config.privateKey != null
-      const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
+vi.mock('../../core/synapse/index.js', () => ({
+  isSessionKeyMode: vi.fn(() => false),
+  getClientAddress: vi.fn(() => '0x1234567890123456789012345678901234567890'),
+  initializeSynapse: vi.fn((config: any, _logger: any) => {
+    // Validate auth config (mirrors validateAuthConfig in actual code)
+    const hasStandardAuth = config.privateKey != null
+    const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
+    const hasViewOnlyAuth = config.readOnly === true && config.walletAddress != null
 
-      if (!hasStandardAuth && !hasSessionKeyAuth) {
-        throw new Error('Authentication required: provide either a privateKey or walletAddress + sessionKey')
-      }
+    if (!hasStandardAuth && !hasSessionKeyAuth && !hasViewOnlyAuth) {
+      throw new Error(
+        'Authentication required: provide either privateKey, walletAddress + sessionKey, view-address, or signer'
+      )
+    }
 
-      const mockSynapse = new MockSynapse()
-      return mockSynapse
-    }),
-    createStorageContext: vi.fn(async (_synapse: any, _logger: any, options?: any) => {
-      const mockSynapse = new MockSynapse()
-
-      // Simulate progress callbacks
-      if (options?.callbacks) {
-        // Simulate provider selection
-        setTimeout(() => {
-          options.callbacks.onProviderSelected?.({
-            id: 1,
-            name: 'Mock Provider',
-            serviceProvider: '0x1234567890123456789012345678901234567890',
-          })
-        }, 10)
-
-        // Simulate dataset resolution
-        setTimeout(() => {
-          options.callbacks.onDataSetResolved?.({
-            dataSetId: 123,
-            isExisting: false,
-          })
-        }, 20)
-      }
-
-      const mockStorage = await mockSynapse.storage.createContext()
-      return {
-        synapse: mockSynapse as any,
-        storage: mockStorage,
-        providerInfo: {
-          id: 1,
-          name: 'Mock Provider',
-          serviceProvider: '0x1234567890123456789012345678901234567890',
-          products: {
-            PDP: {
-              data: {
-                serviceURL: 'http://localhost:8888/pdp',
-              },
-            },
-          },
-        },
-      }
-    }),
-    cleanupSynapseService: vi.fn(async () => {
-      // Mock cleanup
-    }),
-  }
-})
+    return {
+      chain: { name: 'calibration', id: 314159 },
+      client: { account: { address: '0x1234567890123456789012345678901234567890' } },
+      storage: {
+        upload: vi.fn(),
+        findDataSets: mockFindDataSets,
+      },
+    }
+  }),
+}))
 
 // Mock console methods to capture output
 const consoleMocks = {
@@ -253,7 +239,7 @@ describe('CAR Import', () => {
       expect(result.rootCid).toBe(cid.toString())
       expect(result.filePath).toBe(carPath)
       expect(result.pieceCid).toBeDefined()
-      expect(result.dataSetId).toBeDefined()
+      expect(result.copies).toHaveLength(1)
     })
 
     it('should handle CAR file with no roots (use zero CID)', async () => {
@@ -318,8 +304,7 @@ describe('CAR Import', () => {
         privateKey: testPrivateKey,
       }
 
-      await expect(runCarImport(options)).rejects.toThrow('process.exit called')
-      expect(consoleMocks.error).toHaveBeenCalledWith('Import cancelled')
+      await expect(runCarImport(options)).rejects.toThrow()
     })
 
     it('should reject non-existent file', async () => {
@@ -328,22 +313,18 @@ describe('CAR Import', () => {
         privateKey: testPrivateKey,
       }
 
-      await expect(runCarImport(options)).rejects.toThrow('process.exit called')
-      expect(consoleMocks.error).toHaveBeenCalledWith('Import cancelled')
+      await expect(runCarImport(options)).rejects.toThrow()
     })
   })
 
   describe('Synapse Integration', () => {
-    it('should show progress during initialization', async () => {
+    it('should call performUpload during import', async () => {
       const carPath = join(testDir, 'progress.car')
       await createTestCarFile(
         carPath,
         [], // Will use first block's CID
         [{ content: 'test content' }]
       )
-
-      const { createStorageContext } = await import('../../core/synapse/index.js')
-      const createContextSpy = vi.mocked(createStorageContext)
 
       const options: ImportOptions = {
         filePath: carPath,
@@ -352,17 +333,9 @@ describe('CAR Import', () => {
 
       await runCarImport(options)
 
-      // Verify progress callbacks were provided to createStorageContext
-      expect(createContextSpy).toHaveBeenCalledWith(
-        expect.any(Object), // synapse
-        expect.any(Object), // logger
-        expect.objectContaining({
-          callbacks: expect.objectContaining({
-            onProviderSelected: expect.any(Function),
-            onDataSetResolved: expect.any(Function),
-          }),
-        })
-      )
+      // Verify performUpload was called (replaces old createContext check)
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performUpload)).toHaveBeenCalled()
     })
 
     it('should require private key', async () => {
@@ -374,7 +347,7 @@ describe('CAR Import', () => {
         // No private key provided
       }
 
-      await expect(runCarImport(options)).rejects.toThrow('process.exit called')
+      await expect(runCarImport(options)).rejects.toThrow()
       // The error is caught and logged generically as "Import failed"
       expect(consoleMocks.error).toHaveBeenCalled()
     })
@@ -402,42 +375,142 @@ describe('CAR Import', () => {
         expect.any(Object)
       )
     })
-  })
 
-  describe('Cleanup', () => {
-    it('should call cleanup on success', async () => {
-      const carPath = join(testDir, 'cleanup.car')
+    it('passes metadata options through to upload', async () => {
+      const carPath = join(testDir, 'metadata.car')
       await createTestCarFile(carPath, [], [{ content: 'test content' }])
-
-      const { cleanupSynapseService } = await import('../../core/synapse/index.js')
-      const cleanupSpy = vi.mocked(cleanupSynapseService)
 
       const options: ImportOptions = {
         filePath: carPath,
         privateKey: testPrivateKey,
+        pieceMetadata: { ics: '8004' },
+        dataSetMetadata: { erc8004Files: '' },
+      }
+
+      await runCarImport(options)
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+
+      expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dataSetMetadata: { erc8004Files: '' },
+        }),
+        expect.any(Object)
+      )
+
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.any(ReadableStream),
+        expect.any(Object),
+        expect.objectContaining({
+          pieceMetadata: { ics: '8004' },
+        })
+      )
+    })
+
+    it('resolves --data-set-metadata to dataSetIds and drops metadata when subset matches', async () => {
+      const carPath = join(testDir, 'resolve-match.car')
+      await createTestCarFile(carPath, [], [{ content: 'resolve match' }])
+
+      mockFindDataSets.mockResolvedValueOnce([
+        {
+          pdpVerifierDataSetId: 13260n,
+          providerId: 2n,
+          isLive: true,
+          metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' },
+        },
+        {
+          pdpVerifierDataSetId: 13261n,
+          providerId: 4n,
+          isLive: true,
+          metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' },
+        },
+      ])
+
+      await runCarImport({
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        dataSetMetadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
+      })
+
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.any(ReadableStream),
+        expect.any(Object),
+        expect.objectContaining({ dataSetIds: [13260n, 13261n] })
+      )
+      const lastCall = vi.mocked(performUpload).mock.calls.at(-1)
+      expect(lastCall?.[3]).not.toHaveProperty('metadata')
+    })
+
+    it('throws when --data-set-metadata matches too many data sets', async () => {
+      const carPath = join(testDir, 'resolve-too-many.car')
+      await createTestCarFile(carPath, [], [{ content: 'too-many' }])
+
+      mockFindDataSets.mockResolvedValueOnce([
+        { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
+        { pdpVerifierDataSetId: 2n, providerId: 2n, isLive: true, metadata: { source: 'storacha-migration' } },
+        { pdpVerifierDataSetId: 3n, providerId: 3n, isLive: true, metadata: { source: 'storacha-migration' } },
+        { pdpVerifierDataSetId: 4n, providerId: 4n, isLive: true, metadata: { source: 'storacha-migration' } },
+      ])
+
+      await expect(
+        runCarImport({
+          filePath: carPath,
+          privateKey: testPrivateKey,
+          dataSetMetadata: { source: 'storacha-migration' },
+        })
+      ).rejects.toThrow(/matched 4 data sets.*expected 2/)
+    })
+
+    it('throws when --data-set-metadata matches too few data sets', async () => {
+      const carPath = join(testDir, 'resolve-too-few.car')
+      await createTestCarFile(carPath, [], [{ content: 'too-few' }])
+
+      mockFindDataSets.mockResolvedValueOnce([
+        { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
+      ])
+
+      await expect(
+        runCarImport({
+          filePath: carPath,
+          privateKey: testPrivateKey,
+          dataSetMetadata: { source: 'storacha-migration' },
+        })
+      ).rejects.toThrow(/matched only 1 data set.*expected 2/)
+    })
+
+    it('passes upload targeting options through to auto-funding', async () => {
+      const carPath = join(testDir, 'auto-fund.car')
+      await createTestCarFile(carPath, [], [{ content: 'test content' }])
+
+      const options: ImportOptions = {
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        autoFund: true,
+        dataSetIds: '123',
+        dataSetMetadata: { erc8004Files: '' },
       }
 
       await runCarImport(options)
 
-      expect(cleanupSpy).toHaveBeenCalled()
-    })
-
-    it('should call cleanup on error', async () => {
-      const { cleanupSynapseService } = await import('../../core/synapse/index.js')
-      const cleanupSpy = vi.mocked(cleanupSynapseService)
-
-      const options: ImportOptions = {
-        filePath: 'nonexistent.car',
-        privateKey: testPrivateKey,
-      }
-
-      await expect(runCarImport(options)).rejects.toThrow('process.exit called')
-      expect(cleanupSpy).toHaveBeenCalled()
+      const { performAutoFunding } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performAutoFunding)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        expect.anything(),
+        expect.objectContaining({
+          dataSetIds: [123n],
+          copies: 1,
+          metadata: { erc8004Files: '' },
+        })
+      )
     })
   })
 
   describe('Upload Result', () => {
-    it('should return complete import result', async () => {
+    it('should return complete import result with copies', async () => {
       const carPath = join(testDir, 'result.car')
       const { cids } = await createTestCarFile(carPath, [], [{ content: 'test content' }])
 
@@ -458,15 +531,14 @@ describe('CAR Import', () => {
         filePath: carPath,
         fileSize: expect.any(Number),
         rootCid: cid.toString(),
-        pieceCid: expect.stringMatching(/^bafkzcib/), // CommP prefix
-        pieceId: expect.any(Number),
-        dataSetId: '123', // Mock returns string
+        pieceCid: expect.stringMatching(/^bafkzcib/),
+        size: 1024,
       })
 
-      // Provider info is always present
-      expect(result.providerInfo).toBeDefined()
-      expect(result.providerInfo.id).toBe(1)
-      expect(result.providerInfo.name).toBe('Mock Provider')
+      expect(result.copies).toHaveLength(1)
+      expect(result.copies[0]?.role).toBe('primary')
+      expect(result.copies[0]?.providerId).toBe(1n)
+      expect(result.failedAttempts).toHaveLength(0)
     })
   })
 })

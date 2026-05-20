@@ -6,8 +6,8 @@
  */
 
 import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
-import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { parseUnits } from 'viem'
 import {
   calculateActualCapacity,
   DEFAULT_LOCKUP_DAYS,
@@ -56,7 +56,7 @@ export function parseStorageAllowance(input: string): number | null {
 
   // Validate that it's a valid number for USDFC per epoch
   try {
-    ethers.parseUnits(input, USDFC_DECIMALS)
+    parseUnits(input, USDFC_DECIMALS)
     return null // Valid USDFC amount, but need pricing to convert to TiB
   } catch {
     throw new Error(

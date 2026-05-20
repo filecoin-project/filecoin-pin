@@ -1,27 +1,34 @@
 /**
  * TypeScript type definitions for the Filecoin Upload Action
  */
+
+import type { CopyResult, FailedAttempt } from '@filoz/synapse-sdk'
 import type { PaymentStatus as FilecoinPinPaymentStatus } from 'filecoin-pin/core/payments'
-import type { CreateStorageContextOptions, SynapseService } from 'filecoin-pin/core/synapse'
+import type { initializeSynapse } from 'filecoin-pin/core/synapse'
 import type { Logger as PinoLogger } from 'pino'
-export type { FilecoinPinPaymentStatus, CreateStorageContextOptions }
-export type Synapse = SynapseService['synapse']
+export type { FilecoinPinPaymentStatus }
+export type Synapse = Awaited<ReturnType<typeof initializeSynapse>>
 
 export type Logger = PinoLogger
 
 // Base result types
 export interface UploadResult {
   pieceCid: string
+  /** Primary copy piece ID (for backwards compatibility) */
   pieceId: string
+  /** Primary copy data set ID (for backwards compatibility) */
   dataSetId: string
   provider: {
     id?: string
     name?: string
-    address?: string
   }
   previewUrl: string
   network: string
   ipniValidated: boolean
+  requestedCopies: number
+  complete: boolean
+  copies: CopyResult[]
+  failedAttempts: FailedAttempt[]
 }
 
 export interface BuildResult {
@@ -49,13 +56,13 @@ export interface CombinedContext extends Partial<UploadResult>, Partial<BuildRes
   minStorageDays?: number
   filecoinPayBalanceLimit?: bigint
   withCDN?: boolean
-  providerAddress?: string
-  providerId?: number
+  providerIds?: bigint[]
   paymentStatus?: PaymentStatus
   dryRun?: boolean
 }
 
-export interface PaymentStatus extends Omit<FilecoinPinPaymentStatus, 'walletUsdfcBalance' | 'filecoinPayBalance'> {
+export interface PaymentStatus
+  extends Omit<FilecoinPinPaymentStatus, 'walletUsdfcBalance' | 'filecoinPayBalance' | 'chainId'> {
   filecoinPayBalance: string
   walletUsdfcBalance: string
   storageRunway: string
@@ -83,10 +90,14 @@ export interface PaymentConfig {
   pieceSizeBytes?: number | undefined
 }
 
+export interface PaymentFundingConfig extends PaymentConfig {
+  withCDN: boolean
+  providerIds?: bigint[] | undefined
+}
+
 export interface UploadConfig {
   withCDN: boolean
-  providerAddress?: string | undefined
-  providerId?: number | undefined
+  providerIds?: bigint[] | undefined
 }
 
 export interface ParsedInputs extends PaymentConfig, UploadConfig {

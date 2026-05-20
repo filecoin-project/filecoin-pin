@@ -1,6 +1,9 @@
-import type { Synapse } from '@filoz/synapse-sdk'
+import type { Chain, PDPProvider, Synapse } from '@filoz/synapse-sdk'
+import { calibration, mainnet } from '@filoz/synapse-sdk'
+import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
+import { DEVNET_CHAIN_ID } from '../../common/constants.js'
 import {
   checkAllowances,
   checkFILBalance,
@@ -10,27 +13,49 @@ import {
   validatePaymentCapacity,
   validatePaymentRequirements,
 } from '../payments/index.js'
-import { isSessionKeyMode, type SynapseService } from '../synapse/index.js'
+import { isSessionKeyMode } from '../synapse/index.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 import {
-  type ValidateIPNIAdvertisementOptions,
   type ValidateIPNIProgressEvents,
-  validateIPNIAdvertisement,
+  type WaitForIpniProviderResultsOptions,
+  waitForIpniProviderResults,
 } from '../utils/validate-ipni-advertisement.js'
-import { type SynapseUploadResult, type UploadProgressEvents, uploadToSynapse } from './synapse.js'
+import {
+  type SynapseUploadData,
+  type SynapseUploadResult,
+  type UploadProgressEvents,
+  uploadToSynapse,
+} from './synapse.js'
 
-export type { SynapseUploadOptions, SynapseUploadResult, UploadProgressEvents } from './synapse.js'
+export type { SynapseUploadData, SynapseUploadOptions, SynapseUploadResult, UploadProgressEvents } from './synapse.js'
 export { getDownloadURL, getServiceURL, uploadToSynapse } from './synapse.js'
+
+/**
+ * Derive a URL-safe network slug from the chain definition.
+ * Falls back to the chain name for unknown chains.
+ */
+export function getNetworkSlug(chain: Chain): string {
+  switch (chain.id) {
+    case mainnet.id:
+      return 'mainnet'
+    case calibration.id:
+      return 'calibration'
+    case DEVNET_CHAIN_ID:
+      return 'devnet'
+    default:
+      return chain.name
+  }
+}
 
 /**
  * Options for evaluating whether an upload can proceed.
  */
 export type UploadReadinessProgressEvents =
-  | ProgressEvent<'checking-balances'>
-  | ProgressEvent<'checking-allowances'>
-  | ProgressEvent<'configuring-allowances'>
-  | ProgressEvent<'allowances-configured', { transactionHash?: string }>
-  | ProgressEvent<'validating-capacity'>
+  | ProgressEvent<'checkingBalances'>
+  | ProgressEvent<'checkingAllowances'>
+  | ProgressEvent<'configuringAllowances'>
+  | ProgressEvent<'allowancesConfigured', { transactionHash?: string }>
+  | ProgressEvent<'validatingCapacity'>
 
 export interface UploadReadinessOptions {
   /** Initialized Synapse instance. */
@@ -99,7 +124,7 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
   const sessionKeyMode = isSessionKeyMode(synapse)
   const canConfigureAllowances = autoConfigureAllowances && !sessionKeyMode
 
-  onProgress?.({ type: 'checking-balances' })
+  onProgress?.({ type: 'checkingBalances' })
 
   const filStatus = await checkFILBalance(synapse)
   const walletUsdfcBalance = await checkUSDFCBalance(synapse)
@@ -119,7 +144,7 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
     }
   }
 
-  onProgress?.({ type: 'checking-allowances' })
+  onProgress?.({ type: 'checkingAllowances' })
 
   const allowanceStatus = await checkAllowances(synapse)
   let allowancesUpdated = false
@@ -127,14 +152,14 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
 
   // Only try to configure allowances if not in session key mode
   if (allowanceStatus.needsUpdate && canConfigureAllowances) {
-    onProgress?.({ type: 'configuring-allowances' })
+    onProgress?.({ type: 'configuringAllowances' })
     const setResult = await setMaxAllowances(synapse)
     allowancesUpdated = true
     allowanceTxHash = setResult.transactionHash
-    onProgress?.({ type: 'allowances-configured', data: { transactionHash: allowanceTxHash } })
+    onProgress?.({ type: 'allowancesConfigured', data: { transactionHash: allowanceTxHash } })
   }
 
-  onProgress?.({ type: 'validating-capacity' })
+  onProgress?.({ type: 'validatingCapacity' })
 
   const capacityCheck = await validatePaymentCapacity(synapse, fileSize)
   const capacityStatus = determineCapacityStatus(capacityCheck)
@@ -183,10 +208,15 @@ export interface UploadExecutionOptions {
   contextId?: string
   /** Optional umbrella onProgress receiving child progress events. */
   onProgress?: ProgressEventHandler<(UploadProgressEvents | ValidateIPNIProgressEvents) & {}>
-  /** Optional metadata to associate with the upload. */
-  metadata?: Record<string, string>
+  /** Optional metadata to associate with the upload (per-piece). */
+  pieceMetadata?: Record<string, string>
   /**
-   * Optional IPNI validation behaviour. When enabled (default), the upload flow will wait for the IPFS Root CID to be announced to IPNI.
+   * Optional AbortSignal to cancel the upload operation.
+   */
+  signal?: AbortSignal
+  /**
+   * Optional IPNI validation behaviour. When enabled (default), the upload
+   * flow will wait for the IPFS Root CID to be announced to IPNI.
    */
   ipniValidation?: {
     /**
@@ -195,53 +225,147 @@ export interface UploadExecutionOptions {
      * @default: true
      */
     enabled?: boolean
-  } & Omit<ValidateIPNIAdvertisementOptions, 'onProgress'>
+  } & Omit<WaitForIpniProviderResultsOptions, 'onProgress'>
+
+  /** Number of storage copies to create (default determined by SDK). */
+  copies?: number
+
+  /**
+   * Pre-created storage contexts to use directly. When provided, the SDK
+   * skips provider selection and uses these contexts as-is. Each context
+   * carries its provider binding and (optional) data set ID.
+   *
+   * Mutually exclusive with `providerIds`, `dataSetIds`, and `copies`.
+   *
+   * @example Upload using a pre-resolved context
+   * ```ts
+   * const [ctx] = await synapse.storage.createContexts({ providerIds: [9n] })
+   * executeUpload(synapse, carData, rootCid, { contexts: [ctx], logger, ... })
+   * ```
+   */
+  contexts?: StorageContext[]
+
+  /**
+   * Specific provider IDs to upload to. The SDK resolves or creates data sets
+   * on each provider automatically. Mutually exclusive with `dataSetIds` and
+   * `contexts`.
+   *
+   * This is the recommended way to target specific providers. Do not call
+   * `createContext()` to resolve data sets first. Pass provider IDs here
+   * and the SDK handles the rest.
+   *
+   * @example Upload to two specific providers
+   * ```ts
+   * executeUpload(synapse, carData, rootCid, { providerIds: [4n, 9n], ... })
+   * ```
+   */
+  providerIds?: bigint[]
+
+  /**
+   * Specific existing data set IDs to target. Mutually exclusive with
+   * `providerIds` and `contexts`.
+   *
+   * Use only when resuming into a known data set from a prior operation.
+   * For first-time uploads to specific providers, use `providerIds` instead.
+   */
+  dataSetIds?: bigint[]
+
+  /** Provider IDs to exclude from selection. */
+  excludeProviderIds?: bigint[]
+
+  /** Data set metadata applied when creating or matching contexts. */
+  metadata?: Record<string, string>
 }
 
 export interface UploadExecutionResult extends SynapseUploadResult {
   /** Active network derived from the Synapse instance. */
   network: string
-  /** Transaction hash from the piece-addition step (if available). */
-  transactionHash?: string | undefined
   /**
    * True if the IPFS Root CID was observed on filecoinpin.contact (IPNI).
    *
-   * You should block any displaying, or attempting to access, of IPFS download URLs unless the IPNI validation is successful.
+   * You should block any displaying, or attempting to access, of IPFS
+   * download URLs unless the IPNI validation is successful.
    */
   ipniValidated: boolean
 }
 
 /**
  * Execute the upload to Synapse, returning the same structured data used by the
- * CLI and GitHub Action.
+ * CLI and GitHub Action. Supports multi-copy uploads via the StorageManager.
  */
 export async function executeUpload(
-  synapseService: SynapseService,
-  carData: Uint8Array,
+  synapse: Synapse,
+  carData: SynapseUploadData,
   rootCid: CID,
   options: UploadExecutionOptions
 ): Promise<UploadExecutionResult> {
+  options.signal?.throwIfAborted()
+
   const { logger, contextId } = options
-  let transactionHash: string | undefined
+
+  if (options.contexts != null) {
+    const conflicting = [
+      options.providerIds != null && 'providerIds',
+      options.dataSetIds != null && 'dataSetIds',
+      options.copies != null && 'copies',
+      options.excludeProviderIds != null && 'excludeProviderIds',
+    ].filter(Boolean)
+    if (conflicting.length > 0) {
+      throw new Error(
+        `Cannot combine 'contexts' with ${conflicting.join(', ')}. ` +
+          'Pre-created contexts fully determine provider targeting and copy count.'
+      )
+    }
+  } else if (options.providerIds != null && options.dataSetIds != null) {
+    throw new Error(
+      "Cannot specify both 'providerIds' and 'dataSetIds'. " +
+        'To target specific providers, use providerIds (recommended). ' +
+        'Use dataSetIds only when resuming into a known dataset from a prior operation.'
+    )
+  }
+
+  // Collect providers from `providerSelected` events for IPNI validation
+  const selectedProviders: PDPProvider[] = []
   let ipniValidationPromise: Promise<boolean> | undefined
 
-  const onProgress: ProgressEventHandler<UploadProgressEvents | ValidateIPNIProgressEvents> = (event) => {
+  const emitProgress: ProgressEventHandler<UploadProgressEvents | ValidateIPNIProgressEvents> = (event) => {
     switch (event.type) {
-      case 'onPieceAdded': {
-        // Begin IPNI validation as soon as the piece is added and parked in the data set
+      case 'providerSelected': {
+        selectedProviders.push(event.data.provider)
+        break
+      }
+      case 'piecesAdded': {
+        // Begin IPNI validation on the first piecesAdded event
         if (options.ipniValidation?.enabled !== false && ipniValidationPromise == null) {
-          const { enabled: _enabled, ...rest } = options.ipniValidation ?? {}
-          ipniValidationPromise = validateIPNIAdvertisement(rootCid, {
-            ...rest,
+          const {
+            enabled: _enabled,
+            expectedProviders,
+            signal: ipniSignal,
+            ...restOptions
+          } = options.ipniValidation ?? {}
+
+          const validationOptions: WaitForIpniProviderResultsOptions = {
+            ...restOptions,
             logger,
-            ...(options?.onProgress != null ? { onProgress: options.onProgress } : {}),
-          }).catch((error) => {
-            logger.warn({ error }, 'IPNI advertisement validation promise rejected')
+            signal: ipniSignal ?? options.signal,
+          }
+
+          if (options.onProgress != null) {
+            validationOptions.onProgress = options.onProgress
+          }
+
+          // Use providers collected from selection events for IPNI validation
+          if (expectedProviders != null) {
+            validationOptions.expectedProviders = expectedProviders
+          } else if (selectedProviders.length > 0) {
+            validationOptions.expectedProviders = selectedProviders
+          }
+
+          ipniValidationPromise = waitForIpniProviderResults(rootCid, validationOptions).catch((error) => {
+            validationOptions.signal?.throwIfAborted()
+            logger.warn({ error }, 'IPNI provider results check was rejected')
             return false
           })
-        }
-        if (event.data.txHash != null) {
-          transactionHash = event.data.txHash
         }
         break
       }
@@ -253,34 +377,56 @@ export async function executeUpload(
   }
 
   const uploadOptions: Parameters<typeof uploadToSynapse>[4] = {
-    onProgress,
+    onProgress: emitProgress,
   }
   if (contextId) {
     uploadOptions.contextId = contextId
   }
-  if (options.metadata) {
+  if (options.pieceMetadata) {
+    uploadOptions.pieceMetadata = options.pieceMetadata
+  }
+  if (options.signal != null) {
+    uploadOptions.signal = options.signal
+  }
+  if (options.contexts != null) {
+    // Contexts carry their own provider/dataset bindings; no other targeting needed
+    uploadOptions.contexts = options.contexts
+  } else {
+    if (options.copies != null) {
+      uploadOptions.copies = options.copies
+    }
+    if (options.providerIds != null) {
+      uploadOptions.providerIds = options.providerIds
+    }
+    if (options.dataSetIds != null) {
+      uploadOptions.dataSetIds = options.dataSetIds
+    }
+    if (options.excludeProviderIds != null) {
+      uploadOptions.excludeProviderIds = options.excludeProviderIds
+    }
+  }
+  if (options.metadata != null) {
     uploadOptions.metadata = options.metadata
   }
 
-  const uploadResult = await uploadToSynapse(synapseService, carData, rootCid, logger, uploadOptions)
+  const uploadResult = await uploadToSynapse(synapse, carData, rootCid, logger, uploadOptions)
 
-  // Optionally validate IPNI advertisement of the root CID before returning
+  options.signal?.throwIfAborted()
+
   let ipniValidated = false
   if (ipniValidationPromise != null) {
     try {
       ipniValidated = await ipniValidationPromise
     } catch (error) {
-      logger.error({ error }, 'Could not validate IPNI advertisement')
+      options.signal?.throwIfAborted()
+      logger.error({ error }, 'Could not validate IPNI provider records')
       ipniValidated = false
     }
   }
 
-  const result: UploadExecutionResult = {
+  return {
     ...uploadResult,
-    network: synapseService.synapse.getNetwork(),
-    transactionHash,
+    network: getNetworkSlug(synapse.chain),
     ipniValidated,
   }
-
-  return result
 }

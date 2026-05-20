@@ -1,35 +1,77 @@
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createConfig } from '../../config.js'
 import { FilecoinPinStore } from '../../filecoin-pin-store.js'
 import { createLogger } from '../../logger.js'
 
-// Mock Synapse service - minimal mock since unit tests don't test background processing
-const mockSynapseService = {
-  synapse: {} as any,
-  storage: {} as any,
-  providerInfo: {
-    id: 1,
-    name: 'Mock Provider',
-    serviceProvider: '0x1234567890123456789012345678901234567890',
-  } as any,
-}
+const mocks = vi.hoisted(() => ({
+  createPinningHeliaNode: vi.fn(),
+  uploadToSynapse: vi.fn(),
+  unlink: vi.fn().mockResolvedValue(undefined),
+}))
+
+// Minimal mock since unit tests don't test background processing
+const mockSynapse = {} as any
 
 // Mock the heavy dependencies
 vi.mock('../../create-pinning-helia.js', () => ({
-  createPinningHeliaNode: vi.fn().mockResolvedValue({
-    helia: {
+  createPinningHeliaNode: mocks.createPinningHeliaNode,
+}))
+
+vi.mock('../../core/upload/index.js', () => ({
+  uploadToSynapse: mocks.uploadToSynapse,
+}))
+
+vi.mock('node:fs/promises', async () => {
+  const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+  return {
+    ...actual,
+    unlink: mocks.unlink,
+  }
+})
+
+describe('FilecoinPinStore (Unit)', () => {
+  let pinStore: FilecoinPinStore
+  let testCID: CID
+  let testUser: any
+  let mockHelia: {
+    pins: { add: ReturnType<typeof vi.fn> }
+    stop: ReturnType<typeof vi.fn>
+    blockstore: { get: ReturnType<typeof vi.fn> }
+  }
+  let mockBlockstore: {
+    on: ReturnType<typeof vi.fn>
+    getStats: ReturnType<typeof vi.fn>
+    finalize: ReturnType<typeof vi.fn>
+    cleanup: ReturnType<typeof vi.fn>
+  }
+
+  beforeEach(async () => {
+    vi.useFakeTimers()
+    vi.clearAllMocks()
+
+    // Create test data
+    const testBlock = new TextEncoder().encode('Test block')
+    const hash = await sha256.digest(testBlock)
+    testCID = CID.create(1, raw.code, hash)
+    testUser = { id: 'test-user', name: 'Test User' }
+
+    mockHelia = {
       blockstore: {
         get: vi.fn(),
       },
       pins: {
-        add: vi.fn(),
+        add: vi.fn(async function* () {
+          // No pinned blocks are yielded in this unit-test mock.
+        }),
       },
-      stop: vi.fn(),
-    },
-    blockstore: {
+      stop: vi.fn().mockResolvedValue(undefined),
+    }
+
+    mockBlockstore = {
       on: vi.fn(),
       getStats: vi.fn().mockReturnValue({
         blocksWritten: 1,
@@ -45,22 +87,36 @@ vi.mock('../../create-pinning-helia.js', () => ({
         startTime: Date.now(),
         finalized: true,
       }),
-      cleanup: vi.fn(),
-    },
-  }),
-}))
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    }
 
-describe('FilecoinPinStore (Unit)', () => {
-  let pinStore: FilecoinPinStore
-  let testCID: CID
-  let testUser: any
+    await mkdir('./test-output', { recursive: true })
 
-  beforeEach(async () => {
-    // Create test data
-    const testBlock = new TextEncoder().encode('Test block')
-    const hash = await sha256.digest(testBlock)
-    testCID = CID.create(1, raw.code, hash)
-    testUser = { id: 'test-user', name: 'Test User' }
+    mocks.createPinningHeliaNode.mockImplementation(async ({ outputPath }: { outputPath: string }) => {
+      await writeFile(outputPath, new Uint8Array([1, 2, 3]))
+      return {
+        helia: mockHelia,
+        blockstore: mockBlockstore,
+      }
+    })
+
+    mocks.uploadToSynapse.mockResolvedValue({
+      pieceCid: 'bafkzcibtest1234567890',
+      size: 3,
+      requestedCopies: 1,
+      complete: true,
+      copies: [
+        {
+          providerId: 1n,
+          dataSetId: 123n,
+          pieceId: 789n,
+          role: 'primary',
+          retrievalUrl: 'https://provider.example/piece/test',
+          isNewDataSet: false,
+        },
+      ],
+      failedAttempts: [],
+    })
 
     // Create test config
     const config = {
@@ -74,10 +130,17 @@ describe('FilecoinPinStore (Unit)', () => {
     pinStore = new FilecoinPinStore({
       config,
       logger,
-      synapseService: mockSynapseService,
+      synapse: mockSynapse,
     })
 
     await pinStore.start()
+  })
+
+  afterEach(async () => {
+    vi.clearAllTimers()
+    await pinStore.stop()
+    await rm('./test-output', { recursive: true, force: true })
+    vi.useRealTimers()
   })
 
   describe('Pin Operations', () => {
@@ -161,6 +224,54 @@ describe('FilecoinPinStore (Unit)', () => {
       const stats = pinStore.getActivePinStats()
       expect(stats).toHaveLength(0)
     })
+
+    it('streams the finalized CAR file into Synapse upload', async () => {
+      vi.useFakeTimers()
+
+      const pinResult = await pinStore.pin(testUser, testCID, { name: 'Streaming Test' })
+
+      await vi.advanceTimersByTimeAsync(100)
+      await vi.waitFor(async () => {
+        expect((await pinStore.get(testUser, pinResult.id))?.status).toBe('pinned')
+      })
+
+      const uploadCall = mocks.uploadToSynapse.mock.calls.find((call) => call[4]?.contextId === pinResult.id)
+      const uploadData = uploadCall?.[1]
+      const finalPin = await pinStore.get(testUser, pinResult.id)
+
+      expect(uploadData).toBeInstanceOf(ReadableStream)
+      expect(uploadCall).toEqual([
+        mockSynapse,
+        expect.any(ReadableStream),
+        testCID,
+        expect.anything(),
+        expect.objectContaining({
+          contextId: pinResult.id,
+        }),
+      ])
+      expect(finalPin?.status).toBe('pinned')
+    })
+
+    it('preserves rollback cleanup when Synapse upload fails', async () => {
+      vi.useFakeTimers()
+      mocks.uploadToSynapse.mockRejectedValueOnce(new Error('upload failed'))
+
+      const pinResult = await pinStore.pin(testUser, testCID, { name: 'Failure Test' })
+
+      await vi.advanceTimersByTimeAsync(100)
+      await vi.waitFor(async () => {
+        expect((await pinStore.get(testUser, pinResult.id))?.status).toBe('failed')
+      })
+
+      const finalPin = await pinStore.get(testUser, pinResult.id)
+      const uploadCall = mocks.uploadToSynapse.mock.calls.find((call) => call[4]?.contextId === pinResult.id)
+
+      expect(finalPin?.status).toBe('failed')
+      expect(uploadCall?.[1]).toBeInstanceOf(ReadableStream)
+      expect(mockBlockstore.cleanup).toHaveBeenCalledTimes(1)
+      expect(mocks.unlink).toHaveBeenCalledWith(expect.stringContaining(`${testCID.toString()}-`))
+      expect(mockHelia.stop).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('Lifecycle', () => {
@@ -173,7 +284,7 @@ describe('FilecoinPinStore (Unit)', () => {
       const newPinStore = new FilecoinPinStore({
         config,
         logger: createLogger(config),
-        synapseService: mockSynapseService,
+        synapse: mockSynapse,
       })
 
       await expect(newPinStore.start()).resolves.not.toThrow()

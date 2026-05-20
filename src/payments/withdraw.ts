@@ -2,11 +2,11 @@
  * Withdraw command for Filecoin Pay
  */
 
-import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
+import { parseUnits } from 'viem'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { checkFILBalance, getPaymentStatus, withdrawUSDFC } from '../core/payments/index.js'
-import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
@@ -22,31 +22,25 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
 
   let amount: bigint
   try {
-    amount = ethers.parseUnits(String(options.amount), 18)
+    amount = parseUnits(String(options.amount), 18)
   } catch {
-    console.error(pc.red(`Error: Invalid amount '${options.amount}'`))
-    process.exit(1)
+    log.line(pc.red(`Error: Invalid amount '${options.amount}'`))
+    log.flush()
+    throw new CliFatal(`Invalid amount '${options.amount}'`)
   }
   if (amount <= 0n) {
-    console.error(pc.red('Error: Amount must be greater than 0'))
-    process.exit(1)
+    log.line(pc.red('Error: Amount must be greater than 0'))
+    log.flush()
+    throw new CliFatal('Amount must be greater than 0')
   }
 
   spinner.start('Connecting...')
   try {
     // Parse and validate authentication
-    const authConfig = parseCLIAuth({
-      privateKey: options.privateKey,
-      walletAddress: options.walletAddress,
-      sessionKey: options.sessionKey,
-      rpcUrl: options.rpcUrl,
-    })
+    const authConfig = parseCLIAuth(options)
 
     const logger = getCLILogger()
-    const synapse = await initializeSynapse(
-      { ...authConfig, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
-      logger
-    )
+    const synapse = await initializeSynapse(authConfig, logger)
     const filStatus = await checkFILBalance(synapse)
     if (!filStatus.hasSufficientGas) {
       spinner.stop()
@@ -57,7 +51,7 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
       log.line(`  ${pc.cyan(help)}`)
       log.flush()
       cancel('Withdraw aborted')
-      throw new Error('Insufficient FIL for gas fees')
+      throw new CliFatal('Insufficient FIL for gas fees')
     }
 
     spinner.stop(`${pc.green('✓')} Connected`)
@@ -79,11 +73,13 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
 
     outro('Withdraw completed')
   } catch (error) {
-    spinner.stop()
-    console.error(pc.red('✗ Withdraw failed'))
-    console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
-    process.exitCode = 1
-  } finally {
-    await cleanupSynapseService()
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
+    spinner.stop(`${pc.red('✗')} Withdraw failed: ${msg}`)
+    cancel('Withdraw failed')
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

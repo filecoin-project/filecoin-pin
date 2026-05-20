@@ -12,12 +12,29 @@ See the two-workflow approach in the [examples directory](./examples/) for compl
 
 ## Inputs & Outputs
 
+> **Using the CLI directly?** `filecoin-pin add` and `filecoin-pin import` accept `--auto-fund`, `--min-runway-days`, and `--max-balance` flags that mirror `minStorageDays` and `filecoinPayBalanceLimit` here. See `filecoin-pin add --help`.
+
 See [action.yml](./action.yml) for complete input documentation including:
 - **Core**: `path`, `walletPrivateKey`, `network`
 - **Financial**: `minStorageDays`, `filecoinPayBalanceLimit`
 - **Advanced**: `withCDN`, `dryRun`
 
 **Outputs**: `ipfsRootCid`, `dataSetId`, `pieceCid`, `providerId`, `providerName`, `carPath`, `uploadStatus`
+
+### Uploading a pre-built CAR
+
+If `path` points to a regular file whose name ends in `.car`, the action skips its own UnixFS packing and uploads the file as-is, extracting the IPFS root CID from the CAR header. Useful for composing with upstream steps that already produce a CAR (e.g. [`ipfs-deploy-action`](https://github.com/ipfs/ipfs-deploy-action), [`ipfs dag export`](https://docs.ipfs.tech/reference/kubo/cli/#ipfs-dag-export)).
+
+```yaml
+- name: Upload pre-built CAR to Filecoin
+  uses: filecoin-project/filecoin-pin/upload-action@v0
+  with:
+    path: build.car
+    walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
+    network: calibration
+```
+
+The CAR must declare exactly one root; multi-root and rootless CARs are rejected so the upload always has an unambiguous IPFS root CID. Directories (even named `foo.car/`) fall through to the UnixFS packer.
 
 ### Advanced: Provider Overrides
 

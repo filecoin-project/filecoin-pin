@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createConfig } from '../../config.js'
 import { FilecoinPinStore } from '../../filecoin-pin-store.js'
 import { createLogger } from '../../logger.js'
-import { MockSynapse, mockProviderInfo } from '../mocks/synapse-mocks.js'
+import { MockSynapse } from '../mocks/synapse-mocks.js'
 import { createTestHelia } from '../mocks/test-helia.js'
 
 // Mock the Synapse SDK - vi.mock requires async import for ES modules
@@ -39,16 +39,12 @@ describe('FilecoinPinStore', () => {
     // Create a Helia node to serve content
     contentOriginHelia = await createTestHelia()
 
-    // Create mock Synapse service
     const mockSynapse = new MockSynapse()
-    const mockStorage = await mockSynapse.storage.createContext()
-    const synapseService = { synapse: mockSynapse as any, storage: mockStorage, providerInfo: mockProviderInfo }
 
-    // Create Filecoin pin store with mock Synapse
     pinStore = new FilecoinPinStore({
       config,
       logger,
-      synapseService,
+      synapse: mockSynapse as any,
     })
 
     await pinStore.start()
@@ -287,10 +283,7 @@ describe('FilecoinPinStore', () => {
 
   describe('Pin Store Lifecycle', () => {
     it('should start and stop cleanly', async () => {
-      // Create mock Synapse service
       const mockSynapse = new MockSynapse()
-      const mockStorage = await mockSynapse.storage.createContext()
-      const synapseService = { synapse: mockSynapse as any, storage: mockStorage, providerInfo: mockProviderInfo }
 
       const config = {
         ...createConfig(),
@@ -300,7 +293,7 @@ describe('FilecoinPinStore', () => {
       const newPinStore = new FilecoinPinStore({
         config,
         logger: createLogger(config),
-        synapseService,
+        synapse: mockSynapse as any,
       })
 
       await expect(newPinStore.start()).resolves.not.toThrow()
@@ -308,10 +301,7 @@ describe('FilecoinPinStore', () => {
     })
 
     it('should handle multiple start/stop cycles', async () => {
-      // Create mock Synapse service
       const mockSynapse = new MockSynapse()
-      const mockStorage = await mockSynapse.storage.createContext()
-      const synapseService = { synapse: mockSynapse as any, storage: mockStorage, providerInfo: mockProviderInfo }
 
       const config = {
         ...createConfig(),
@@ -321,7 +311,7 @@ describe('FilecoinPinStore', () => {
       const newPinStore = new FilecoinPinStore({
         config,
         logger: createLogger(config),
-        synapseService,
+        synapse: mockSynapse as any,
       })
 
       await newPinStore.start()

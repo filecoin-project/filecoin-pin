@@ -7,11 +7,16 @@ branding:
 inputs:
   # Core configuration
   path:
-    description: Path to content to upload (file or directory). Typically your build output directory.
+    description: >-
+      Path to content to upload. Typically your build output directory.
+      If `path` points to a file with the `.car` extension, the action skips its own CAR
+      creation and uploads the file as-is, extracting the IPFS root CID from the CAR header.
+      Otherwise (directory or non-`.car` file) the action packs the content into a CAR first.
+      Pre-built CARs must declare exactly one root; rootless and multi-root CARs are not supported.
     required: true
   walletPrivateKey:
-    description: Wallet private key used to fund uploads (USDFC on Calibration/Mainnet).
-    required: true
+    description: Wallet private key used to fund uploads (USDFC on Calibration/Mainnet). Required unless dryRun is true.
+    required: false
   network:
     description: What Filecoin network to use. Should either be "mainnet" or "calibration".
     required: true
@@ -78,7 +83,7 @@ runs:
     # Create check immediately - no dependencies needed
     - name: Create check run
       id: create-check
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       with:
         script: |
           const fs = require('fs');
@@ -113,24 +118,6 @@ runs:
             console.warn('Failed to create check:', error.message);
           }
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '24.x'
-
-    - name: Get package-lock.json hash
-      id: lockfile-hash
-      shell: bash
-      working-directory: ${{ github.action_path }}
-      run: |
-        if [ ! -f package-lock.json ]; then
-          echo "ERROR: package-lock.json not found in action directory"
-          echo "This file is required for npm ci to work properly"
-          exit 1
-        fi
-        HASH=$(sha256sum package-lock.json | cut -d' ' -f1 | cut -c1-8)
-        echo "hash=$HASH" >> $GITHUB_OUTPUT
-
     - name: Get action path
       id: action-path
       shell: bash
@@ -139,40 +126,85 @@ runs:
         ACTION_PATH=$(cd "$ACTION_PATH" && pwd)
         echo "path=$ACTION_PATH" >> $GITHUB_OUTPUT
 
-    - name: Restore action dependencies cache
-      uses: actions/cache/restore@v4
-      id: npm-cache
+    - name: Get repo root
+      id: repo-root
+      shell: bash
+      run: |
+        REPO_ROOT="${{ steps.action-path.outputs.path }}/.."
+        REPO_ROOT=$(cd "$REPO_ROOT" && pwd)
+        echo "path=$REPO_ROOT" >> $GITHUB_OUTPUT
+
+    - name: Set up Node.js
+      id: setup-node
+      uses: actions/setup-node@v6
       with:
-        path: ${{ steps.action-path.outputs.path }}/node_modules
-        key: ${{ runner.os }}-filecoin-action-deps-${{ steps.lockfile-hash.outputs.hash }}
+        node-version: '24.x'
+        # Disable implicit npm cache: setup-node@v6 auto-caches against
+        # the consumer's package.json/package-lock when their packageManager
+        # field is "npm". We manage our own pnpm cache below.
+        package-manager-cache: false
+
+    - name: Get pnpm version
+      id: pnpm-version
+      shell: bash
+      working-directory: ${{ steps.repo-root.outputs.path }}
+      run: |
+        VERSION=$(node -e "
+          const pm = require('./package.json').packageManager;
+          if (typeof pm !== 'string') { console.error('package.json: packageManager field missing or not a string'); process.exit(1); }
+          const match = pm.match(/^pnpm@(.+)$/);
+          if (!match) { console.error('package.json: packageManager must be pnpm@<version>, got: ' + pm); process.exit(1); }
+          process.stdout.write(match[1]);
+        ")
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Set up pnpm
+      uses: pnpm/action-setup@903f9c1a6ebcba6cf41d87230be49611ac97822e # v6.0.3
+      with:
+        run_install: false
+        version: ${{ steps.pnpm-version.outputs.version }}
+
+    - name: Get pnpm store path
+      id: pnpm-store
+      shell: bash
+      working-directory: ${{ steps.repo-root.outputs.path }}
+      run: |
+        STORE_PATH=$(pnpm store path --silent)
+        printf 'path=%s\n' "$STORE_PATH" >> "$GITHUB_OUTPUT"
+
+    - name: Compute pnpm-lock.yaml hash
+      id: lockfile
+      shell: bash
+      working-directory: ${{ steps.repo-root.outputs.path }}
+      run: |
+        SHA=$(node -e "
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const buf = fs.readFileSync('pnpm-lock.yaml');
+          process.stdout.write(crypto.createHash('sha256').update(buf).digest('hex'));
+        ")
+        echo "sha256=$SHA" >> $GITHUB_OUTPUT
+
+    - name: Cache pnpm store
+      uses: actions/cache@v5
+      with:
+        path: ${{ steps.pnpm-store.outputs.path }}
+        key: filecoin-pin-upload-action-pnpm-store-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.setup-node.outputs.node-version }}-pnpm-${{ steps.pnpm-version.outputs.version }}-${{ steps.lockfile.outputs.sha256 }}
         restore-keys: |
-          ${{ runner.os }}-filecoin-action-deps-
+          filecoin-pin-upload-action-pnpm-store-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.setup-node.outputs.node-version }}-pnpm-${{ steps.pnpm-version.outputs.version }}-
 
-    - name: Install action deps
-      if: ${{ steps.npm-cache.outputs.cache-hit != 'true' }}
+    - name: Install workspace dependencies
       shell: bash
-      working-directory: ${{ github.action_path }}
-      run: npm ci --omit=dev --no-audit --no-fund
-
-    - name: Save action dependencies cache
-      if: ${{ always() && steps.npm-cache.outputs.cache-hit != 'true' }}
-      uses: actions/cache/save@v4
-      with:
-        path: ${{ steps.action-path.outputs.path }}/node_modules
-        key: ${{ runner.os }}-filecoin-action-deps-${{ steps.lockfile-hash.outputs.hash }}
-
-    - name: Install filecoin-pin dependencies
-      shell: bash
-      working-directory: ${{ github.action_path }}
-      run: npm install --prefix ../
+      working-directory: ${{ steps.repo-root.outputs.path }}
+      run: pnpm install --frozen-lockfile
 
     - name: Build filecoin-pin package
       shell: bash
-      working-directory: ${{ github.action_path }}
-      run: npm run build --prefix ../
+      working-directory: ${{ steps.repo-root.outputs.path }}
+      run: pnpm run build
 
     - name: Propagate Actions runtime token
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       with:
         script: |
           const token = process.env.ACTIONS_RUNTIME_TOKEN

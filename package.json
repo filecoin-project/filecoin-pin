@@ -1,12 +1,17 @@
 {
   "name": "filecoin-pin",
-  "version": "0.11.1",
+  "version": "0.21.0",
   "description": "Bridge IPFS content to Filecoin Onchain Cloud using familiar tools",
   "type": "module",
+  "packageManager": "pnpm@10.32.1",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "browser": {
+        "types": "./dist/index.browser.d.ts",
+        "default": "./dist/index.browser.js"
+      },
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
@@ -33,6 +38,10 @@
     "./core/payments": {
       "types": "./dist/core/payments/index.d.ts",
       "default": "./dist/core/payments/index.js"
+    },
+    "./core/piece": {
+      "types": "./dist/core/piece/index.d.ts",
+      "default": "./dist/core/piece/index.js"
     },
     "./core/synapse": {
       "types": "./dist/core/synapse/index.d.ts",
@@ -75,14 +84,16 @@
     "build": "tsc && node scripts/write-version.mjs",
     "dev": "tsx watch src/cli.ts server",
     "start": "node dist/cli.js server",
-    "test": "npm run lint && npm run typecheck && npm run test:unit && npm run test:integration",
-    "test:unit": "vitest run src/test/unit",
-    "test:integration": "vitest run src/test/integration",
+    "test": "pnpm run lint && pnpm run typecheck && vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:browser": "vitest run --project browser",
     "test:watch": "vitest",
     "lint": "tsc && biome check --no-errors-on-unmatched --files-ignore-unknown=true .",
     "lint:fix": "biome check --no-errors-on-unmatched --files-ignore-unknown=true --fix .",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "docs": "typedoc",
+    "prepublishOnly": "pnpm run build"
   },
   "repository": {
     "type": "git",
@@ -102,29 +113,48 @@
   },
   "homepage": "https://github.com/filecoin-project/filecoin-pin#readme",
   "dependencies": {
-    "@clack/prompts": "^0.11.0",
-    "@filoz/synapse-sdk": "^0.35.3",
-    "@helia/unixfs": "^6.0.1",
+    "@chainsafe/libp2p-noise": "^17.0.0",
+    "@chainsafe/libp2p-yamux": "^8.0.1",
+    "@clack/prompts": "^1.0.1",
+    "@filoz/synapse-core": "^0.5.2",
+    "@filoz/synapse-sdk": "^0.41.0",
+    "@helia/block-brokers": "^5.1.3",
+    "@helia/unixfs": "^7.0.4",
     "@ipld/car": "^5.4.2",
-    "commander": "^14.0.1",
-    "ethers": "^6.15.0",
-    "fastify": "^5.6.0",
-    "helia": "^6.0.1",
+    "@libp2p/identify": "^4.1.2",
+    "@libp2p/tcp": "^11.0.17",
+    "@multiformats/multiaddr": "^13.0.1",
+    "@multiformats/multiaddr-to-uri": "^12.0.0",
+    "@sentry/node": "^10.49.0",
+    "commander": "^14.0.3",
+    "datastore-core": "^11.0.4",
+    "fastify": "^5.8.5",
+    "helia": "^6.1.4",
+    "interface-blockstore": "^6.0.1",
+    "interface-store": "^7.0.1",
     "it-to-buffer": "^4.0.10",
-    "multiformats": "^13.4.1",
+    "libp2p": "^3.2.2",
+    "multiformats": "^13.4.2",
+    "p-queue": "^9.1.0",
     "picocolors": "^1.1.1",
-    "pino": "^10.0.0",
-    "semver": "^7.6.3"
+    "pino": "^10.3.1",
+    "semver": "^7.7.4",
+    "varint": "^6.0.0",
+    "viem": "^2.48.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.3.4",
+    "@biomejs/biome": "2.4.5",
     "@ipld/dag-cbor": "^9.2.5",
-    "@types/node": "^24.5.1",
-    "@types/semver": "^7.5.8",
-    "@vitest/coverage-v8": "^3.2.4",
-    "tsx": "^4.20.5",
-    "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "@types/node": "^25.3.2",
+    "@types/semver": "^7.7.1",
+    "@vitest/browser-playwright": "^4.0.18",
+    "@vitest/coverage-v8": "^4.0.18",
+    "blockstore-core": "^6.1.2",
+    "playwright-chromium": "^1.58.2",
+    "tsx": "~4.21.0",
+    "typedoc": "^0.28.17",
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.18"
   },
   "publishConfig": {
     "access": "public"

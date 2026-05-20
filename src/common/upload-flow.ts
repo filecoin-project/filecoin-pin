@@ -5,17 +5,16 @@
  * including payment validation, storage context creation, and result display.
  */
 
-import type { PieceCID, Synapse } from '@filoz/synapse-sdk'
+import type { CopyResult, FailedAttempt, Synapse } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
 import { DEFAULT_LOCKUP_DAYS, type PaymentCapacityCheck } from '../core/payments/index.js'
-import { cleanupSynapseService, type SynapseService } from '../core/synapse/index.js'
 import {
   checkUploadReadiness,
   executeUpload,
-  getDownloadURL,
-  getServiceURL,
+  getNetworkSlug,
+  type SynapseUploadData,
   type SynapseUploadResult,
 } from '../core/upload/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
@@ -25,6 +24,7 @@ import type { Spinner } from '../utils/cli-helpers.js'
 import { cancel, formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { createSpinnerFlow } from '../utils/multi-operation-spinner.js'
+import { CliFatal } from './cli-errors.js'
 
 export interface UploadFlowOptions {
   /**
@@ -46,37 +46,107 @@ export interface UploadFlowOptions {
    * Optional spinner for progress updates
    */
   spinner?: Spinner
+
+  /**
+   * Optional metadata attached to the upload request (per-piece)
+   */
+  pieceMetadata?: Record<string, string>
+
+  /** Number of storage copies to create. */
+  copies?: number
+
+  /**
+   * Specific provider IDs to upload to. The SDK resolves or creates data sets
+   * on each provider automatically. Mutually exclusive with `dataSetIds`.
+   *
+   * This is the recommended way to target specific providers. Do not call
+   * `createContext()` to resolve data sets first. Pass provider IDs here
+   * and the SDK handles the rest.
+   */
+  providerIds?: bigint[]
+
+  /**
+   * Specific existing data set IDs to target. Mutually exclusive with
+   * `providerIds`.
+   *
+   * Use only when resuming into a known data set from a prior operation.
+   * For first-time uploads to specific providers, use `providerIds` instead.
+   */
+  dataSetIds?: bigint[]
+
+  /** Provider IDs to exclude from selection. */
+  excludeProviderIds?: bigint[]
+
+  /** Data set metadata applied when creating or matching contexts. */
+  metadata?: Record<string, string>
+
+  /** Skip IPNI advertisement verification after upload */
+  skipIpniVerification?: boolean
 }
 
 export interface UploadFlowResult extends SynapseUploadResult {
   network: string
-  transactionHash?: string | undefined
 }
 
 /**
  * Perform auto-funding if requested
- * Automatically ensures a minimum of 30 days of runway based on current usage + new file requirements
+ * Automatically ensures the configured minimum runway (default MIN_RUNWAY_DAYS) based on current
+ * usage + new file requirements. Optional `maxBalance` caps the resulting Filecoin Pay balance.
  *
  * @param synapse - Initialized Synapse instance
  * @param fileSize - Size of file being uploaded (in bytes)
  * @param spinner - Optional spinner for progress
+ * @param options - Optional auto-funding modifiers and upload targeting inputs
+ * @param options.minRunwayDays - Minimum runway to maintain, in days (defaults to MIN_RUNWAY_DAYS)
+ * @param options.maxBalance - Maximum Filecoin Pay balance after deposit (USDFC base units)
+ * @param options.copies - Number of storage copies used to estimate new data set fees
+ * @param options.providerIds - Provider IDs used to estimate new data set fees
+ * @param options.dataSetIds - Data set IDs used to estimate new data set fees
+ * @param options.metadata - Data set metadata used to estimate new data set fees
  */
-export async function performAutoFunding(synapse: Synapse, fileSize: number, spinner?: Spinner): Promise<void> {
+export async function performAutoFunding(
+  synapse: Synapse,
+  fileSize: number,
+  spinner?: Spinner,
+  options: Pick<
+    AutoFundOptions,
+    'minRunwayDays' | 'maxBalance' | 'copies' | 'providerIds' | 'dataSetIds' | 'metadata'
+  > = {}
+): Promise<void> {
   spinner?.start('Checking funding requirements for upload...')
 
   try {
     const fundOptions: AutoFundOptions = {
       synapse,
       fileSize,
+      ...(options?.copies != null ? { copies: options.copies } : {}),
+      ...(options?.providerIds != null ? { providerIds: options.providerIds } : {}),
+      ...(options?.dataSetIds != null ? { dataSetIds: options.dataSetIds } : {}),
+      ...(options?.metadata != null ? { metadata: options.metadata } : {}),
     }
     if (spinner !== undefined) {
       fundOptions.spinner = spinner
     }
+    if (options.minRunwayDays !== undefined) {
+      fundOptions.minRunwayDays = options.minRunwayDays
+    }
+    if (options.maxBalance !== undefined) {
+      fundOptions.maxBalance = options.maxBalance
+    }
     const result = await autoFund(fundOptions)
-    spinner?.stop(`${pc.green('✓')} Funding requirements met`)
+    const hasWarnings = result.warnings != null && result.warnings.length > 0
+    spinner?.stop(
+      hasWarnings ? `${pc.yellow('⚠')} Funding completed with warnings` : `${pc.green('✓')} Funding requirements met`
+    )
+
+    if (hasWarnings && result.warnings != null) {
+      for (const warning of result.warnings) {
+        log.line(pc.yellow(`⚠ ${warning}`))
+      }
+      log.flush()
+    }
 
     if (result.adjusted) {
-      log.line('')
       log.line(pc.bold('Auto-funding completed:'))
       log.indent(`Deposited ${formatUSDFC(result.delta)} USDFC`)
       log.indent(`Total deposited: ${formatUSDFC(result.newDepositedAmount)} USDFC`)
@@ -86,17 +156,16 @@ export async function performAutoFunding(synapse: Synapse, fileSize: number, spi
       if (result.transactionHash) {
         log.indent(pc.gray(`Transaction: ${result.transactionHash}`))
       }
-      log.line('')
       log.flush()
     }
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
     spinner?.stop(`${pc.red('✗')} Auto-funding failed`)
     log.line('')
-    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.line(`${pc.red('Error:')} ${msg}`)
     log.flush()
-    await cleanupSynapseService()
     cancel('Operation cancelled - auto-funding failed')
-    process.exit(1)
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }
 
@@ -108,7 +177,7 @@ export async function performAutoFunding(synapse: Synapse, fileSize: number, spi
  * @param spinner - Optional spinner for progress
  * @param options - Optional configuration
  * @param options.suppressSuggestions - If true, don't display suggestion warnings
- * @returns true if validation passes, exits process if not
+ * @returns Resolves if validation passes, throws if not
  */
 export async function validatePaymentSetup(
   synapse: Synapse,
@@ -123,23 +192,23 @@ export async function validatePaymentSetup(
       if (!spinner) return
 
       switch (event.type) {
-        case 'checking-balances': {
+        case 'checkingBalances': {
           spinner.message('Checking payment setup requirements...')
           return
         }
-        case 'checking-allowances': {
+        case 'checkingAllowances': {
           spinner.message('Checking WarmStorage permissions...')
           return
         }
-        case 'configuring-allowances': {
+        case 'configuringAllowances': {
           spinner.message('Configuring WarmStorage permissions (one-time setup)...')
           return
         }
-        case 'validating-capacity': {
+        case 'validatingCapacity': {
           spinner.message('Validating payment capacity...')
           return
         }
-        case 'allowances-configured': {
+        case 'allowancesConfigured': {
           // No spinner change; we log once readiness completes.
           return
         }
@@ -149,10 +218,11 @@ export async function validatePaymentSetup(
   const { validation, allowances, capacity, suggestions } = readiness
 
   if (!validation.isValid) {
+    const errorMsg = validation.errorMessage ?? 'Payment setup required'
     spinner?.stop(`${pc.red('✗')} Payment setup incomplete`)
 
     log.line('')
-    log.line(`${pc.red('✗')} ${validation.errorMessage}`)
+    log.line(`${pc.red('✗')} ${errorMsg}`)
 
     if (validation.helpMessage) {
       log.line('')
@@ -167,9 +237,8 @@ export async function validatePaymentSetup(
     log.indent(pc.cyan('filecoin-pin payments status'))
     log.flush()
 
-    await cleanupSynapseService()
     cancel('Operation cancelled - payment setup required')
-    process.exit(1)
+    throw new CliFatal(errorMsg)
   }
 
   if (allowances.updated) {
@@ -187,9 +256,8 @@ export async function validatePaymentSetup(
     if (capacity) {
       displayPaymentIssues(capacity, fileSize, spinner)
     }
-    await cleanupSynapseService()
     cancel('Operation cancelled - insufficient payment capacity')
-    process.exit(1)
+    throw new CliFatal('Insufficient payment capacity')
   }
 
   // Show warning if suggestions exist (even if upload is possible)
@@ -241,94 +309,177 @@ function displayPaymentIssues(capacityCheck: PaymentCapacityCheck, fileSize: num
 }
 
 /**
- * Upload CAR data to Synapse with progress tracking
+ * Format a role label for spinner output (e.g., "[Primary]" or "[Secondary]")
+ */
+type CopyRole = 'primary' | 'secondary'
+
+function roleLabel(role: CopyRole): string {
+  return role === 'primary' ? pc.cyan('[Primary]') : pc.magenta('[Secondary]')
+}
+
+/**
+ * Upload CAR data to Synapse with multi-copy progress tracking
  *
- * @param synapseService - Initialized Synapse service with storage context
- * @param carData - CAR file data as Uint8Array
+ * @param synapse - Initialized Synapse instance
+ * @param carData - CAR file data as bytes or a readable stream
  * @param rootCid - Root CID of the content
  * @param options - Upload flow options
- * @returns Upload result with transaction hash
+ * @returns Upload result with copies and network information
  */
 export async function performUpload(
-  synapseService: SynapseService,
-  carData: Uint8Array,
+  synapse: Synapse,
+  carData: SynapseUploadData,
   rootCid: CID,
   options: UploadFlowOptions
 ): Promise<UploadFlowResult> {
-  const { contextType, logger, spinner } = options
+  const { contextType, fileSize, logger, spinner, pieceMetadata } = options
 
-  // Create spinner flow manager for tracking all operations
   const flow = createSpinnerFlow(spinner)
 
   // Start with upload operation
   flow.addOperation('upload', 'Uploading to Filecoin...')
 
-  let transactionHash: string | undefined
+  // Track primary provider ID from `stored` to label subsequent events
+  let primaryProviderId: bigint | undefined
+  let lastUploadPercent = -1
 
-  let pieceCid: PieceCID | undefined
-  function getIpniAdvertisementMsg(attemptCount: number): string {
-    return `Checking for IPNI advertisement (check #${attemptCount})`
+  function getRole(providerId: bigint): CopyRole {
+    if (primaryProviderId == null || providerId === primaryProviderId) {
+      return 'primary'
+    }
+    return 'secondary'
   }
 
-  const uploadResult = await executeUpload(synapseService, carData, rootCid, {
+  function getUploadProgressMessage(bytesUploaded: number): { percent: number; message: string } {
+    const totalBytes = Math.max(fileSize, 1)
+    const uploadedBytes = Math.min(bytesUploaded, totalBytes)
+    const percent = Math.min(100, Math.floor((uploadedBytes / totalBytes) * 100))
+    return {
+      percent,
+      message: `Uploading to Filecoin... ${formatFileSize(uploadedBytes)}/${formatFileSize(fileSize)} (${percent}%)`,
+    }
+  }
+
+  function getIpniAdvertisementMsg(details: {
+    attempt: number
+    totalAttempts: number
+    cidAttempt: number
+    cidMaxAttempts: number
+    cidIndex: number
+    cidCount: number
+  }): string {
+    const { attempt, totalAttempts, cidAttempt, cidMaxAttempts, cidIndex, cidCount } = details
+    const overallPart = totalAttempts > 0 ? `${attempt}/${totalAttempts}` : `${attempt}`
+    const cidPart = cidCount > 1 ? `, CID ${cidIndex}/${cidCount} attempt ${cidAttempt}/${cidMaxAttempts}` : ''
+    return `Checking for IPNI provider records (${overallPart}${cidPart})`
+  }
+
+  const network = getNetworkSlug(synapse.chain)
+
+  const uploadResult = await executeUpload(synapse, carData, rootCid, {
     logger,
     contextId: `${contextType}-${Date.now()}`,
+    ...(pieceMetadata && { pieceMetadata }),
+    ...(options.copies != null && { copies: options.copies }),
+    ...(options.providerIds != null && { providerIds: options.providerIds }),
+    ...(options.dataSetIds != null && { dataSetIds: options.dataSetIds }),
+    ...(options.excludeProviderIds != null && { excludeProviderIds: options.excludeProviderIds }),
+    ...(options.metadata != null && { metadata: options.metadata }),
+    ...(options.skipIpniVerification && { ipniValidation: { enabled: false } }),
     onProgress(event) {
       switch (event.type) {
-        case 'onUploadComplete': {
-          pieceCid = event.data.pieceCid
-          flow.completeOperation('upload', 'Upload complete', {
-            type: 'success',
-            details: (() => {
-              const serviceURL = getServiceURL(synapseService.providerInfo)
-              if (serviceURL != null && serviceURL !== '') {
-                return {
-                  title: 'Download IPFS CAR from SP',
-                  content: [pc.gray(`${serviceURL.replace(/\/$/, '')}/ipfs/${rootCid}`)],
-                }
-              }
-              return
-            })(),
-          })
-          // Start adding piece to dataset operation
-          flow.addOperation('add-to-dataset', 'Adding piece to DataSet...')
-          break
-        }
-        case 'onPieceAdded': {
-          if (event.data.txHash) {
-            transactionHash = event.data.txHash
+        case 'uploadProgress': {
+          const { percent, message } = getUploadProgressMessage(event.data.bytesUploaded)
+          if (percent > lastUploadPercent) {
+            lastUploadPercent = percent
+            flow.updateOperation('upload', message)
           }
-          flow.completeOperation('add-to-dataset', 'Piece added to DataSet (unconfirmed on-chain)', {
-            type: 'success',
-            details: {
-              title: 'Explorer URLs',
-              content: [
-                pc.gray(`Piece: https://pdp.vxb.ai/calibration/piece/${pieceCid}`),
-                pc.gray(
-                  `Transaction: https://${synapseService.synapse.getNetwork()}.filfox.info/en/message/${transactionHash}`
-                ),
-              ],
-            },
-          })
-          // Start chain confirmation operation
-          flow.addOperation('chain', 'Confirming piece added to DataSet on-chain')
           break
         }
-        case 'onPieceConfirmed': {
-          flow.completeOperation('chain', 'Piece added to DataSet (confirmed on-chain)', {
+        case 'stored': {
+          primaryProviderId = event.data.providerId
+          flow.completeOperation('upload', `${roleLabel('primary')} Stored on provider ${event.data.providerId}`, {
             type: 'success',
           })
+          // Commit happens later (`piecesAdded`), not here.
+          break
+        }
+        case 'pullProgress': {
+          flow.addOperation(
+            `secondary-pull-${event.data.providerId}`,
+            `${roleLabel('secondary')} Pulling to provider ${event.data.providerId}...`
+          )
+          break
+        }
+        case 'copyComplete': {
+          flow.completeOperation(
+            `secondary-pull-${event.data.providerId}`,
+            `${roleLabel('secondary')} Stored on provider ${event.data.providerId}`,
+            { type: 'success' }
+          )
+          break
+        }
+        case 'copyFailed': {
+          flow.completeOperation(
+            `secondary-pull-${event.data.providerId}`,
+            `${roleLabel('secondary')} Failed: provider ${event.data.providerId} - ${event.data.error.message}`,
+            { type: 'warning' }
+          )
+          break
+        }
+        case 'piecesAdded': {
+          const role = getRole(event.data.providerId)
+
+          const commitId = `commit-${event.data.providerId}`
+          flow.addOperation(commitId, `${roleLabel(role)} Adding piece to Data Set...`)
+
+          // Show per-SP transaction URL as indented line under the "added" message
+          const afterLines: string[] = []
+          if (event.data.txHash) {
+            if (network === 'devnet') {
+              afterLines.push(pc.gray(`Tx: ${event.data.txHash}`))
+            } else {
+              const filfoxBase = network === 'mainnet' ? 'https://filfox.info' : `https://${network}.filfox.info`
+              afterLines.push(pc.gray(`Tx: ${filfoxBase}/en/message/${event.data.txHash}`))
+            }
+          }
+          flow.completeOperation(commitId, `${roleLabel(role)} Piece added to Data Set (unconfirmed on-chain)`, {
+            type: 'success',
+            ...(afterLines.length > 0 && { afterLines }),
+          })
+          flow.addOperation(
+            `chain-${event.data.providerId}`,
+            `${roleLabel(role)} Confirming piece added to Data Set on-chain`
+          )
+          break
+        }
+        case 'piecesConfirmed': {
+          const role = getRole(event.data.providerId)
+          flow.completeOperation(
+            `chain-${event.data.providerId}`,
+            `${roleLabel(role)} Piece added to Data Set (confirmed on-chain)`,
+            { type: 'success' }
+          )
           break
         }
 
-        case 'ipniAdvertisement.retryUpdate': {
-          const attemptCount = event.data.retryCount === 0 ? 1 : event.data.retryCount + 1
-          flow.addOperation('ipni', getIpniAdvertisementMsg(attemptCount))
+        case 'ipniProviderResults:retryUpdate': {
+          const attempt = event.data.attempt ?? (event.data.retryCount === 0 ? 1 : event.data.retryCount + 1)
+          flow.addOperation(
+            'ipni',
+            getIpniAdvertisementMsg({
+              attempt,
+              totalAttempts: event.data.totalAttempts ?? attempt,
+              cidAttempt: event.data.cidAttempt ?? attempt,
+              cidMaxAttempts: event.data.cidMaxAttempts ?? event.data.totalAttempts ?? attempt,
+              cidIndex: event.data.cidIndex ?? 1,
+              cidCount: event.data.cidCount ?? 1,
+            })
+          )
           break
         }
-        case 'ipniAdvertisement.complete': {
-          // complete event is only emitted when result === true (success)
-          flow.completeOperation('ipni', 'IPNI advertisement successful. IPFS retrieval possible.', {
+        case 'ipniProviderResults:complete': {
+          flow.completeOperation('ipni', 'IPNI provider records found. IPFS retrieval possible.', {
             type: 'success',
             details: {
               title: 'IPFS Retrieval URLs',
@@ -341,12 +492,12 @@ export async function performUpload(
           })
           break
         }
-        case 'ipniAdvertisement.failed': {
-          flow.completeOperation('ipni', 'IPNI advertisement failed.', {
+        case 'ipniProviderResults:failed': {
+          flow.completeOperation('ipni', 'IPNI provider records not found.', {
             type: 'warning',
             details: {
               title: 'IPFS retrieval is not possible yet.',
-              content: [pc.gray(`IPNI advertisement does not exist at http://filecoinpin.contact/cid/${rootCid}`)],
+              content: [pc.gray(`IPNI provider records for this SP does not exist for the provided root CID`)],
             },
           })
           break
@@ -358,11 +509,7 @@ export async function performUpload(
     },
   })
 
-  return {
-    ...uploadResult,
-    network: synapseService.synapse.getNetwork(),
-    transactionHash: uploadResult.transactionHash,
-  }
+  return uploadResult
 }
 
 /**
@@ -370,6 +517,7 @@ export async function performUpload(
  *
  * @param result - Result data to display
  * @param operation - Operation name ('Import' or 'Add')
+ * @param network - Network name
  */
 export function displayUploadResults(
   result: {
@@ -377,15 +525,15 @@ export function displayUploadResults(
     fileSize: number
     rootCid: string
     pieceCid: string
-    pieceId?: number | undefined
-    dataSetId: string
-    providerInfo: any
-    transactionHash?: string | undefined
+    size?: number
+    copies: CopyResult[]
+    failedAttempts: FailedAttempt[]
   },
   operation: string,
-  network: string
+  networkDisplay: string,
+  networkSlug: string
 ): void {
-  log.line(`Network: ${pc.bold(network)}`)
+  log.line(`Network: ${pc.bold(networkDisplay)}`)
   log.line('')
 
   log.line(pc.bold(`${operation} Details`))
@@ -396,22 +544,37 @@ export function displayUploadResults(
 
   log.line(pc.bold('Filecoin Storage'))
   log.indent(`Piece CID: ${result.pieceCid}`)
-  log.indent(`Piece ID: ${result.pieceId?.toString() || 'N/A'}`)
-  log.indent(`Data Set ID: ${result.dataSetId}`)
-
+  if (result.size != null) {
+    log.indent(`Piece Size: ${formatFileSize(result.size)}`)
+  }
+  if (networkSlug !== 'devnet') {
+    log.indent(`Explorer: ${pc.gray(`https://pdp.vxb.ai/${encodeURIComponent(networkSlug)}/piece/${result.pieceCid}`)}`)
+  }
   log.line('')
-  log.line(pc.bold('Storage Provider'))
-  log.indent(`Provider ID: ${result.providerInfo.id}`)
-  log.indent(`Name: ${result.providerInfo.name}`)
-  const downloadURL = getDownloadURL(result.providerInfo, result.pieceCid)
-  if (downloadURL) {
-    log.indent(`Direct Download URL: ${downloadURL}`)
+
+  if (result.copies.length > 0) {
+    log.line(pc.bold('Copies'))
+    for (const copy of result.copies) {
+      const label = copy.role === 'primary' ? pc.cyan('[Primary]') : pc.magenta('[Secondary]')
+      log.indent(`${label} Provider ${copy.providerId}`)
+      log.indent(`  Data Set ID: ${copy.dataSetId}`)
+      log.indent(`  Piece ID: ${copy.pieceId}`)
+      if (copy.retrievalUrl) {
+        log.indent(`  Retrieval URL: ${copy.retrievalUrl}`)
+      }
+      if (copy.isNewDataSet) {
+        log.indent(`  ${pc.gray('(new data set created)')}`)
+      }
+    }
   }
 
-  if (result.transactionHash) {
+  if (result.failedAttempts.length > 0) {
     log.line('')
-    log.line(pc.bold('Transaction'))
-    log.indent(`Hash: ${result.transactionHash}`)
+    log.line(pc.bold(pc.yellow('Warnings')))
+    for (const attempt of result.failedAttempts) {
+      const label = attempt.role === 'primary' ? pc.cyan('[Primary]') : pc.magenta('[Secondary]')
+      log.indent(`${pc.yellow('⚠')} ${label} Provider ${attempt.providerId} failed: ${attempt.error}`)
+    }
   }
 
   log.flush()

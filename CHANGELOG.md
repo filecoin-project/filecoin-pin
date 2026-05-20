@@ -1,5 +1,325 @@
 # Changelog
 
+## [0.21.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.20.1...v0.21.0) (2026-05-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* **synapse:** CLI commands now use Filecoin Mainnet when --network/NETWORK is omitted. Use --network calibration or NETWORK=calibration for Calibration testnet.
+* rename onProgress event types ([#456](https://github.com/filecoin-project/filecoin-pin/issues/456))
+* **cli:** CLI commands now use Filecoin Mainnet when --network/NETWORK is omitted. Use --network calibration or NETWORK=calibration for Calibration testnet.
+
+### refactor
+
+* rename onProgress event types ([#456](https://github.com/filecoin-project/filecoin-pin/issues/456)) ([4f6e59b](https://github.com/filecoin-project/filecoin-pin/commit/4f6e59bdaccfb84487bafca1d2a276bf753a54fd))
+
+
+### Features
+
+* **cli:** default network to mainnet ([#445](https://github.com/filecoin-project/filecoin-pin/issues/445)) ([2b07899](https://github.com/filecoin-project/filecoin-pin/commit/2b07899866a57feb2459b21516abdcd0de934e12))
+* detect CAR input in add and refuse to wrap ([#459](https://github.com/filecoin-project/filecoin-pin/issues/459)) ([dac8326](https://github.com/filecoin-project/filecoin-pin/commit/dac83262ee4ff9fdc88652388e613567abab9013))
+* **synapse:** derive chain from RPC probe ([#455](https://github.com/filecoin-project/filecoin-pin/issues/455)) ([8e20261](https://github.com/filecoin-project/filecoin-pin/commit/8e202612a5d9e90d7fd338419888e43de7075357))
+
+
+### Bug Fixes
+
+* **ci:** stabilize Windows test runner ([#462](https://github.com/filecoin-project/filecoin-pin/issues/462)) ([5b10174](https://github.com/filecoin-project/filecoin-pin/commit/5b101749bea53614199cdffadf923b75b0ed0d8b))
+* **server:** pass resolved chain to Synapse ([#446](https://github.com/filecoin-project/filecoin-pin/issues/446)) ([1823eab](https://github.com/filecoin-project/filecoin-pin/commit/1823eabaa321941f48e96d8f83b66b29015aa975))
+
+
+### Chores
+
+* **deps-dev:** bump blockstore-core from 6.1.2 to 6.1.3 ([#452](https://github.com/filecoin-project/filecoin-pin/issues/452)) ([eb00247](https://github.com/filecoin-project/filecoin-pin/commit/eb00247444cb11c580929febea49604bcf9031ab))
+* **deps:** bump @helia/block-brokers from 5.1.4 to 5.2.4 ([#450](https://github.com/filecoin-project/filecoin-pin/issues/450)) ([77e5ba3](https://github.com/filecoin-project/filecoin-pin/commit/77e5ba3b3525a6fb5d0ebca84b555d2402738889))
+* **deps:** bump @ipld/car from 5.4.2 to 5.4.3 ([#453](https://github.com/filecoin-project/filecoin-pin/issues/453)) ([38c6cfd](https://github.com/filecoin-project/filecoin-pin/commit/38c6cfdf04790cb8c2cb8de16f7d388223669cf5))
+* **deps:** bump viem from 2.48.3 to 2.48.4 ([#449](https://github.com/filecoin-project/filecoin-pin/issues/449)) ([6f93058](https://github.com/filecoin-project/filecoin-pin/commit/6f93058a32ed96f91d154cd2880112ad03077c40))
+
+## [0.20.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.20.0...v0.20.1) (2026-05-04)
+
+
+### Features
+
+* **add,import:** resolve --data-set-metadata to existing dataset IDs ([#438](https://github.com/filecoin-project/filecoin-pin/issues/438)) ([495a734](https://github.com/filecoin-project/filecoin-pin/commit/495a7342a1b9e1a1846f5715418a0d25fd78de2e))
+* **cli:** add --min-runway-days and --max-balance to --auto-fund ([#433](https://github.com/filecoin-project/filecoin-pin/issues/433)) ([2cd9026](https://github.com/filecoin-project/filecoin-pin/commit/2cd9026902f0372aecf647a8d38f6ad9a845c5df))
+* **server:** check optional bearer access token ([#382](https://github.com/filecoin-project/filecoin-pin/issues/382)) ([67ee879](https://github.com/filecoin-project/filecoin-pin/commit/67ee87940386c34a124e7b00a12f08cf0a54fcc7))
+* **server:** Session Key support in server mode ([#376](https://github.com/filecoin-project/filecoin-pin/issues/376)) ([0d104c8](https://github.com/filecoin-project/filecoin-pin/commit/0d104c83fd17a648256e7ded441e8d40f8102d72))
+* support stream uploads to Synapse ([#428](https://github.com/filecoin-project/filecoin-pin/issues/428)) ([63ab93c](https://github.com/filecoin-project/filecoin-pin/commit/63ab93cfb6eea6ee8278f1fd5604ca6d785e235b))
+* test upload-action in ci. closes [#395](https://github.com/filecoin-project/filecoin-pin/issues/395) ([#399](https://github.com/filecoin-project/filecoin-pin/issues/399)) ([9850814](https://github.com/filecoin-project/filecoin-pin/commit/9850814945387f5dcbabecafeef121bcf1ef76d9))
+* **upload-action:** accept pre-built .car path ([#410](https://github.com/filecoin-project/filecoin-pin/issues/410)) ([65b9f2c](https://github.com/filecoin-project/filecoin-pin/commit/65b9f2c65ad1228358215cbd0a6e1ac4fc68b0bf))
+
+
+### Bug Fixes
+
+* **dataset-list:** honor explicit metadata/provider filter ([#434](https://github.com/filecoin-project/filecoin-pin/issues/434)) ([eaf22e4](https://github.com/filecoin-project/filecoin-pin/commit/eaf22e49748768d971594d23a6c4aeb37cf02d9b))
+* exit after successful run ([9850814](https://github.com/filecoin-project/filecoin-pin/commit/9850814945387f5dcbabecafeef121bcf1ef76d9))
+* **identify:** handle many origins ([#386](https://github.com/filecoin-project/filecoin-pin/issues/386)) ([1a80f7d](https://github.com/filecoin-project/filecoin-pin/commit/1a80f7d2cca64bf9ef7378472a6d61e6fbbfffa2))
+* reset pnpm-lock.yaml after dependabot rebase mess-up ([#416](https://github.com/filecoin-project/filecoin-pin/issues/416)) ([355e0ef](https://github.com/filecoin-project/filecoin-pin/commit/355e0ef88c823ec37ed2e58f5e99d9d3b504e4c5)), closes [#405](https://github.com/filecoin-project/filecoin-pin/issues/405)
+* sync libp2p deps ([#406](https://github.com/filecoin-project/filecoin-pin/issues/406)) ([3ba56f0](https://github.com/filecoin-project/filecoin-pin/commit/3ba56f09a8ea3bceb7aed5ea0ed291ee5d81cdb7))
+* tolerate PR comment failures ([9850814](https://github.com/filecoin-project/filecoin-pin/commit/9850814945387f5dcbabecafeef121bcf1ef76d9))
+* **upload-action:** repair pnpm caching broken by step ordering ([#418](https://github.com/filecoin-project/filecoin-pin/issues/418)) ([9acd55a](https://github.com/filecoin-project/filecoin-pin/commit/9acd55a665560f3d04c8d54044a6458435ea2915))
+* use synapse-core sybil fee constants ([9850814](https://github.com/filecoin-project/filecoin-pin/commit/9850814945387f5dcbabecafeef121bcf1ef76d9))
+
+
+### Chores
+
+* **ci:** pin third-party actions to SHA, bump release-please-action v4 → v5.0.0 ([#413](https://github.com/filecoin-project/filecoin-pin/issues/413)) ([725a486](https://github.com/filecoin-project/filecoin-pin/commit/725a4863ab7be39321184c4eb2f741e9ff12e99a))
+* **dependabot:** check and update /upload-action deps too ([#420](https://github.com/filecoin-project/filecoin-pin/issues/420)) ([3ffa9bf](https://github.com/filecoin-project/filecoin-pin/commit/3ffa9bf9d80671dfd5d0a94d8f5eb5c79967a2c2))
+* **deps-dev:** bump typedoc from 0.28.17 to 0.28.18 ([#407](https://github.com/filecoin-project/filecoin-pin/issues/407)) ([af3aa2c](https://github.com/filecoin-project/filecoin-pin/commit/af3aa2ce2525119eedcdcde7077891d8f1121add))
+* **deps:** bump @clack/prompts from 1.1.0 to 1.2.0 ([#405](https://github.com/filecoin-project/filecoin-pin/issues/405)) ([b9cf6bb](https://github.com/filecoin-project/filecoin-pin/commit/b9cf6bb681804ddc962e2f11e0d88b2b50d0aa85))
+* **deps:** bump @helia/block-brokers from 5.1.3 to 5.1.4 ([#387](https://github.com/filecoin-project/filecoin-pin/issues/387)) ([b4964dc](https://github.com/filecoin-project/filecoin-pin/commit/b4964dc6b737a2bd9c2eb003a9cba2bf9082db1e))
+* **deps:** bump @helia/unixfs from 7.0.4 to 7.1.0 ([#391](https://github.com/filecoin-project/filecoin-pin/issues/391)) ([27941cd](https://github.com/filecoin-project/filecoin-pin/commit/27941cde7618037397516df0c11c9e461358f212))
+* **deps:** bump @sentry/node from 10.43.0 to 10.45.0 ([#390](https://github.com/filecoin-project/filecoin-pin/issues/390)) ([abcbf19](https://github.com/filecoin-project/filecoin-pin/commit/abcbf196461d7b808a5a5b8866ba7504f4e0083b))
+* **deps:** bump @sentry/node from 10.46.0 to 10.49.0 ([6c405c9](https://github.com/filecoin-project/filecoin-pin/commit/6c405c92564fb6823e123eb23e3d70c17377f6e6))
+* **deps:** bump actions/cache from 4 to 5 in /upload-action ([#440](https://github.com/filecoin-project/filecoin-pin/issues/440)) ([c81f46d](https://github.com/filecoin-project/filecoin-pin/commit/c81f46dd9a6498f31b606e84538fbf04ed90532e))
+* **deps:** bump actions/configure-pages from 5 to 6 ([#397](https://github.com/filecoin-project/filecoin-pin/issues/397)) ([c70fde4](https://github.com/filecoin-project/filecoin-pin/commit/c70fde4e131d294c9e30fe6ac4df9a52319fa392))
+* **deps:** bump actions/deploy-pages from 4 to 5 ([#396](https://github.com/filecoin-project/filecoin-pin/issues/396)) ([b757b1b](https://github.com/filecoin-project/filecoin-pin/commit/b757b1b77f7942e5a423014c346b48225ada84b0))
+* **deps:** bump actions/github-script from 7 to 9 in /upload-action ([#422](https://github.com/filecoin-project/filecoin-pin/issues/422)) ([5066b60](https://github.com/filecoin-project/filecoin-pin/commit/5066b600179ea8fdb776fe8e8d89c60235ccae1a))
+* **deps:** bump actions/github-script from 8 to 9 ([#423](https://github.com/filecoin-project/filecoin-pin/issues/423)) ([3454dbf](https://github.com/filecoin-project/filecoin-pin/commit/3454dbfc143b0fab130d9095fe8fe6fce0d27280))
+* **deps:** bump actions/upload-pages-artifact from 4 to 5 ([#424](https://github.com/filecoin-project/filecoin-pin/issues/424)) ([01c0b99](https://github.com/filecoin-project/filecoin-pin/commit/01c0b9956f4eacfa634ebba8a92d66b8a85d0049))
+* **deps:** bump fastify from 5.8.2 to 5.8.4 ([#389](https://github.com/filecoin-project/filecoin-pin/issues/389)) ([efb5889](https://github.com/filecoin-project/filecoin-pin/commit/efb5889676a2fdda22a65e180643811fb82929be))
+* **deps:** bump fastify from 5.8.4 to 5.8.5 ([930f3a3](https://github.com/filecoin-project/filecoin-pin/commit/930f3a3cff67b8dcb803eb87f93b713920cd1da4))
+* **deps:** bump googleapis/release-please-action from 4 to 5 ([#426](https://github.com/filecoin-project/filecoin-pin/issues/426)) ([01ca938](https://github.com/filecoin-project/filecoin-pin/commit/01ca9383bd5875be01c6c0e649887796c892d7d7))
+* **deps:** bump helia from 6.0.21 to 6.0.22 ([#388](https://github.com/filecoin-project/filecoin-pin/issues/388)) ([2f40e9b](https://github.com/filecoin-project/filecoin-pin/commit/2f40e9bb93ae6471e5352bb2470884ca9697bfef))
+* **deps:** bump pnpm/action-setup from 4 to 5 ([#398](https://github.com/filecoin-project/filecoin-pin/issues/398)) ([51c3e9a](https://github.com/filecoin-project/filecoin-pin/commit/51c3e9a96dda449fbf9531514f38ea34b4b8cb9e))
+* **deps:** bump pnpm/action-setup from 5.0.0 to 6.0.3 ([#425](https://github.com/filecoin-project/filecoin-pin/issues/425)) ([81a526f](https://github.com/filecoin-project/filecoin-pin/commit/81a526fcddd891fcf05a2143ed9961dcda165bee))
+* **deps:** bump synapse-sdk to 0.40.4 + synapse-core to 0.4.1 ([#419](https://github.com/filecoin-project/filecoin-pin/issues/419)) ([0e3aa6f](https://github.com/filecoin-project/filecoin-pin/commit/0e3aa6fb65c68f8102d0966cc2eccefd97168358))
+* **deps:** bump viem from 2.47.2 to 2.48.2 ([ba18f62](https://github.com/filecoin-project/filecoin-pin/commit/ba18f62a6b409c1c93f7f633687ff781b2dab236))
+* **docs:** add development docs ([#408](https://github.com/filecoin-project/filecoin-pin/issues/408)) ([d6df4cb](https://github.com/filecoin-project/filecoin-pin/commit/d6df4cbe1b5cb34ca56b8250f13d3420872dd93b))
+* tighten dry-run workflow permissions ([9850814](https://github.com/filecoin-project/filecoin-pin/commit/9850814945387f5dcbabecafeef121bcf1ef76d9))
+
+## [0.20.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.19.0...v0.20.0) (2026-03-31)
+
+
+### Bug Fixes
+
+* **core,dx:** contexts in executeUpload, provider targeting docs, pass 'source' option through ([#373](https://github.com/filecoin-project/filecoin-pin/issues/373)) ([b307beb](https://github.com/filecoin-project/filecoin-pin/commit/b307beb7cb08e03533567f7dabccfdea795ccedb))
+
+
+### Chores
+
+* **deps:** bump @libp2p/identify from 4.0.12 to 4.0.13 ([#381](https://github.com/filecoin-project/filecoin-pin/issues/381)) ([b4cb693](https://github.com/filecoin-project/filecoin-pin/commit/b4cb6933a7b78f10dd97252ce05331dd1e26f72e))
+* **deps:** bump @libp2p/tcp from 11.0.12 to 11.0.13 ([#378](https://github.com/filecoin-project/filecoin-pin/issues/378)) ([2e386d2](https://github.com/filecoin-project/filecoin-pin/commit/2e386d2c1e6b2814633bf7c610aaf0482e7b3196))
+* **deps:** bump @sentry/node from 10.43.0 to 10.44.0 ([#377](https://github.com/filecoin-project/filecoin-pin/issues/377)) ([95d4386](https://github.com/filecoin-project/filecoin-pin/commit/95d43866625325273b10c66b44c5e525187b73a4))
+* **deps:** bump libp2p from 3.1.5 to 3.1.6 ([#379](https://github.com/filecoin-project/filecoin-pin/issues/379)) ([f594bfe](https://github.com/filecoin-project/filecoin-pin/commit/f594bfeafb2ff76286dda334211d0b5aeb93abb5))
+* **deps:** bump viem from 2.47.2 to 2.47.4 ([#380](https://github.com/filecoin-project/filecoin-pin/issues/380)) ([1d4e59b](https://github.com/filecoin-project/filecoin-pin/commit/1d4e59bee06e3c0710fd20a2e836716c7f3d923e))
+* release 0.20.0 ([baef391](https://github.com/filecoin-project/filecoin-pin/commit/baef3914fb3b99115fdf9cdb7118e206210c37bc))
+
+## [1.0.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.18.0...v1.0.0) (2026-03-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* compare IPNI providers as normalized URIs ([#368](https://github.com/filecoin-project/filecoin-pin/issues/368))
+* update to synapse-sdk@0.40.0 ([#369](https://github.com/filecoin-project/filecoin-pin/issues/369))
+
+### Features
+
+* update to synapse-sdk@0.40.0 ([#369](https://github.com/filecoin-project/filecoin-pin/issues/369)) ([83da89d](https://github.com/filecoin-project/filecoin-pin/commit/83da89de16c8a6dd48ec77a293b3d9d686a4d08c))
+
+
+### Bug Fixes
+
+* compare IPNI providers as normalized URIs ([#368](https://github.com/filecoin-project/filecoin-pin/issues/368)) ([7994400](https://github.com/filecoin-project/filecoin-pin/commit/7994400213c96fea0c4faede729c74b9865251c2))
+* use pnpm ([#370](https://github.com/filecoin-project/filecoin-pin/issues/370)) ([6563a33](https://github.com/filecoin-project/filecoin-pin/commit/6563a33654ad1b571be4e48b78a53e30601d6922))
+
+
+### Chores
+
+* 7day dep update cooldown, use `npm ci` for stable install in action ([#359](https://github.com/filecoin-project/filecoin-pin/issues/359)) ([56d5f69](https://github.com/filecoin-project/filecoin-pin/commit/56d5f69bc27f3a26caea57f3251972f5cb4de40b))
+* **deps:** bump undici from 6.23.0 to 6.24.1 in /upload-action ([#361](https://github.com/filecoin-project/filecoin-pin/issues/361)) ([ef7062f](https://github.com/filecoin-project/filecoin-pin/commit/ef7062fdcf539b4b533f82b7d128e1c1a148f5c7))
+* **docs:** changelog tweak ([#355](https://github.com/filecoin-project/filecoin-pin/issues/355)) ([751032f](https://github.com/filecoin-project/filecoin-pin/commit/751032f2e4939039d00e13f971297358827903e6))
+
+
+### Documentation
+
+* add a security policy ([#358](https://github.com/filecoin-project/filecoin-pin/issues/358)) ([79a8a9a](https://github.com/filecoin-project/filecoin-pin/commit/79a8a9a180c615aa245cb265037d63310bd87321))
+
+## [0.18.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.17.0...v0.18.0) (2026-03-10)
+
+This release introduces **multi-copy storage** for data durability. Uploads now automatically store 2 copies of your data across independent Filecoin storage providers. Each copy is independently proven on-chain, so a single provider failure doesn't result in data loss. The number of copies can be controlled with `--count`, and you only upload your data once regardless of copy count.
+
+Also fixes `--mainnet` support across the CLI, a `terminate` command for dataset lifecycle management, and local devnet support for development.
+
+
+### Features
+
+* **multi-copy storage:** uploads now create 2 independently-proven copies across different storage providers by default for data durability (synapse-sdk 0.38, synapse-core 0.2) ([#343](https://github.com/filecoin-project/filecoin-pin/issues/343)) ([9a87038](https://github.com/filecoin-project/filecoin-pin/commit/9a870383119bc6902ff66501cca31e21afc129b3))
+* **provider selection:** target specific providers with `--provider-ids` or specific data sets with `--data-set-ids`, and control copy count with `--count` ([#343](https://github.com/filecoin-project/filecoin-pin/issues/343))
+* add `terminate` command to terminate a dataset ([#307](https://github.com/filecoin-project/filecoin-pin/issues/307)) ([50179c2](https://github.com/filecoin-project/filecoin-pin/commit/50179c2d4cb598a700ca21985033087b9c30b8fd))
+* add devnet network support and `--skip-ipni-verification` flag ([#354](https://github.com/filecoin-project/filecoin-pin/issues/354)) ([f4eb4fc](https://github.com/filecoin-project/filecoin-pin/commit/f4eb4fca0b303b290bcb776de50b4cb10a94e1de))
+
+
+### Bug Fixes
+
+* support mainnet CLI network and payment guidance ([#353](https://github.com/filecoin-project/filecoin-pin/issues/353)) ([3e4e330](https://github.com/filecoin-project/filecoin-pin/commit/3e4e330064e2383ac5b8415656bb4ce5e8ab6b8b))
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.4.4 to 2.4.5 ([#346](https://github.com/filecoin-project/filecoin-pin/issues/346)) ([43fd0ce](https://github.com/filecoin-project/filecoin-pin/commit/43fd0ce79877ad0ae0bcaca7e0b5e073fdbeb3a8))
+
+## [0.17.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.16.0...v0.17.0) (2026-02-23)
+
+
+### Features
+
+* **rm:** add --all option to remove all pieces from DataSet ([#320](https://github.com/filecoin-project/filecoin-pin/issues/320)) ([b27050c](https://github.com/filecoin-project/filecoin-pin/commit/b27050cde026826043c0fd38c6635732aafa7293))
+
+
+### Bug Fixes
+
+* executeUpload and uploadToSynapse to use abortSignals ([#332](https://github.com/filecoin-project/filecoin-pin/issues/332)) ([060257e](https://github.com/filecoin-project/filecoin-pin/commit/060257e0331a416c0e2a1402973c61f16dba03b2))
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.3.14 to 2.3.15 ([#331](https://github.com/filecoin-project/filecoin-pin/issues/331)) ([6cb403e](https://github.com/filecoin-project/filecoin-pin/commit/6cb403e5d02045e7fa196cee4f9e2c70d71b3409))
+* **deps-dev:** bump @biomejs/biome from 2.3.15 to 2.4.2 ([#336](https://github.com/filecoin-project/filecoin-pin/issues/336)) ([2119892](https://github.com/filecoin-project/filecoin-pin/commit/21198920721fd016b25e2bd93542234458f98869))
+* **deps-dev:** bump @biomejs/biome from 2.4.2 to 2.4.3 ([#337](https://github.com/filecoin-project/filecoin-pin/issues/337)) ([a4b3730](https://github.com/filecoin-project/filecoin-pin/commit/a4b3730fd7faf9a29dcc81021ba7a4dace4052c2))
+* **deps-dev:** bump @biomejs/biome from 2.4.3 to 2.4.4 ([#338](https://github.com/filecoin-project/filecoin-pin/issues/338)) ([5926600](https://github.com/filecoin-project/filecoin-pin/commit/59266007cf2b79914eea81e7897b6108ef30f646))
+
+## [0.16.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.15.1...v0.16.0) (2026-02-07)
+
+
+### Features
+
+* add --data-set and --new-data-set flags to add command ([#296](https://github.com/filecoin-project/filecoin-pin/issues/296)) ([e03719b](https://github.com/filecoin-project/filecoin-pin/commit/e03719b32f74456cf2f71f30d7c5c8e32dfc2ed7))
+* add provider command with info and ping subcommands ([#295](https://github.com/filecoin-project/filecoin-pin/issues/295)) ([c52ebbf](https://github.com/filecoin-project/filecoin-pin/commit/c52ebbff83612c16c4d637e768ccc62ae01bd6b9))
+
+
+### Bug Fixes
+
+* use namespace import for Sentry SDK v8+ ESM compatibility ([#319](https://github.com/filecoin-project/filecoin-pin/issues/319)) ([320a461](https://github.com/filecoin-project/filecoin-pin/commit/320a461f1328d254160af11bae2ef783cc326e2a))
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.3.13 to 2.3.14 ([#318](https://github.com/filecoin-project/filecoin-pin/issues/318)) ([97f6f1b](https://github.com/filecoin-project/filecoin-pin/commit/97f6f1b3384bbfb616dc053d8683327f910dddc3))
+* **deps:** bump @clack/prompts from 0.11.0 to 1.0.0 ([#315](https://github.com/filecoin-project/filecoin-pin/issues/315)) ([63b34e0](https://github.com/filecoin-project/filecoin-pin/commit/63b34e0030527d6c8534804e895fe79cc729cc1e))
+
+## [0.15.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.15.0...v0.15.1) (2026-01-29)
+
+
+### Bug Fixes
+
+* mainnet flag consideration in payments setup ([#311](https://github.com/filecoin-project/filecoin-pin/issues/311)) ([e74f504](https://github.com/filecoin-project/filecoin-pin/commit/e74f504e1a9520aec1ccb9691caefbc706dada57))
+* pass callbacks to synapse-sdk properly ([#316](https://github.com/filecoin-project/filecoin-pin/issues/316)) ([be6f3e8](https://github.com/filecoin-project/filecoin-pin/commit/be6f3e8a151b6395e3f4412a648960f1071b9b9a))
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.3.11 to 2.3.13 ([#312](https://github.com/filecoin-project/filecoin-pin/issues/312)) ([8c1db16](https://github.com/filecoin-project/filecoin-pin/commit/8c1db166e9227ea6dc010940f6a97f4d1cf76537))
+
+## [0.15.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.14.0...v0.15.0) (2026-01-16)
+
+
+### Features
+
+* add filecoin pay funding planner ([#286](https://github.com/filecoin-project/filecoin-pin/issues/286)) ([f22a6c6](https://github.com/filecoin-project/filecoin-pin/commit/f22a6c64f1737d3e95feff2332f00a95364d02b1))
+* allow read-only operations with wallet addr ([#284](https://github.com/filecoin-project/filecoin-pin/issues/284)) ([167c148](https://github.com/filecoin-project/filecoin-pin/commit/167c1488a84289bcfd673ebbd60cc04f6ed56f82))
+
+
+### Bug Fixes
+
+* allow validation of descendent CIDs ([#304](https://github.com/filecoin-project/filecoin-pin/issues/304)) ([57ada31](https://github.com/filecoin-project/filecoin-pin/commit/57ada3126b3a58a4f7ed7afaa275590f75b585aa))
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.3.10 to 2.3.11 ([#297](https://github.com/filecoin-project/filecoin-pin/issues/297)) ([049d750](https://github.com/filecoin-project/filecoin-pin/commit/049d750cdc0c4d28f3280c94a22005b3200c274c))
+* **deps-dev:** bump @biomejs/biome from 2.3.8 to 2.3.10 ([#294](https://github.com/filecoin-project/filecoin-pin/issues/294)) ([61eda02](https://github.com/filecoin-project/filecoin-pin/commit/61eda02045333a830046c0d9c3d6e016a21203c1))
+* **deps-dev:** bump @types/node from 24.10.3 to 25.0.0 ([#289](https://github.com/filecoin-project/filecoin-pin/issues/289)) ([a320f51](https://github.com/filecoin-project/filecoin-pin/commit/a320f51b6b450de7ac849ca4520b3dd4c152c592))
+* **deps:** bump @helia/unixfs from 6.0.4 to 7.0.0 ([#301](https://github.com/filecoin-project/filecoin-pin/issues/301)) ([d74b6b5](https://github.com/filecoin-project/filecoin-pin/commit/d74b6b5eacc63b3abfbdb04370e2e7cac268ae4b))
+
+
+### Documentation
+
+* fix missing `upload-action` npm install step ([#302](https://github.com/filecoin-project/filecoin-pin/issues/302)) ([81e5884](https://github.com/filecoin-project/filecoin-pin/commit/81e5884f174c5eedfc9ab493816468d00555286b))
+
+## [0.14.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.13.0...v0.14.0) (2025-12-08)
+
+
+### Features
+
+* align main exports across node and browser ([#259](https://github.com/filecoin-project/filecoin-pin/issues/259)) ([70dd804](https://github.com/filecoin-project/filecoin-pin/commit/70dd804500829dbceb7a4fb0ae150d872c7930b6))
+
+
+### Bug Fixes
+
+* add shared guard to prevent zero pricing ([#237](https://github.com/filecoin-project/filecoin-pin/issues/237)) ([7e87f4c](https://github.com/filecoin-project/filecoin-pin/commit/7e87f4c89617690558be8b3ab903755bdbc73a5a))
+* createStorageContext does not require logger ([#267](https://github.com/filecoin-project/filecoin-pin/issues/267)) ([8b88561](https://github.com/filecoin-project/filecoin-pin/commit/8b885618764026be7d1b2358d31cb496fd7a1c24))
+* intializeSynapse extends synapse.create options ([#242](https://github.com/filecoin-project/filecoin-pin/issues/242)) ([5d1ca39](https://github.com/filecoin-project/filecoin-pin/commit/5d1ca3956b63edaa1c2a393824236d8906cab6e1))
+* pad rawSize for payment calculations ([#251](https://github.com/filecoin-project/filecoin-pin/issues/251)) ([4b2b28f](https://github.com/filecoin-project/filecoin-pin/commit/4b2b28f3b9ce4ba3c76e6b545d0b680f55c87b78))
+* payment status storage is accurate ([#276](https://github.com/filecoin-project/filecoin-pin/issues/276)) ([d1ac3d3](https://github.com/filecoin-project/filecoin-pin/commit/d1ac3d38b05461e39614c1f89079ef11e11089d8))
+* pieces can be removed from a data-set ([#253](https://github.com/filecoin-project/filecoin-pin/issues/253)) ([c557d95](https://github.com/filecoin-project/filecoin-pin/commit/c557d9537efcd1148d62262fde52cab180de2c00))
+* remove npm cache from docs workflow (no lockfile) ([#266](https://github.com/filecoin-project/filecoin-pin/issues/266)) ([5c1b0cb](https://github.com/filecoin-project/filecoin-pin/commit/5c1b0cb12179cd506d89ada857ee30d8d25f022c))
+* update upload-action deps ([#265](https://github.com/filecoin-project/filecoin-pin/issues/265)) ([5dd4954](https://github.com/filecoin-project/filecoin-pin/commit/5dd495456723814fd2a2b5396a6cdbb2216a16dd))
+* use StorageManager for upload ([#262](https://github.com/filecoin-project/filecoin-pin/issues/262)) ([1ed5283](https://github.com/filecoin-project/filecoin-pin/commit/1ed5283976d73c205e20bf88d96452e9b58e3784))
+
+
+### Chores
+
+* **deps-dev:** bump @biomejs/biome from 2.3.4 to 2.3.7 ([#261](https://github.com/filecoin-project/filecoin-pin/issues/261)) ([565e126](https://github.com/filecoin-project/filecoin-pin/commit/565e126c6a68b36457587737693263e9ab8ae7f9))
+* **deps-dev:** bump @biomejs/biome from 2.3.7 to 2.3.8 ([#274](https://github.com/filecoin-project/filecoin-pin/issues/274)) ([981a7ab](https://github.com/filecoin-project/filecoin-pin/commit/981a7abf5d3689629393c080d95b181e38c6f56a))
+* **deps:** bump @octokit/request-error and @actions/artifact ([#225](https://github.com/filecoin-project/filecoin-pin/issues/225)) ([beec41b](https://github.com/filecoin-project/filecoin-pin/commit/beec41bb99ce7bddce9a10b2bb45d1c9bb7b40cb))
+* **deps:** bump actions/checkout from 5 to 6 ([#255](https://github.com/filecoin-project/filecoin-pin/issues/255)) ([bc15ef8](https://github.com/filecoin-project/filecoin-pin/commit/bc15ef8f1be2a0a768559e870737136da42746e9))
+* **deps:** bump actions/checkout from 5 to 6 ([#272](https://github.com/filecoin-project/filecoin-pin/issues/272)) ([0e1ce5b](https://github.com/filecoin-project/filecoin-pin/commit/0e1ce5bf2ca3d0be273178000c6306b82ef5c56d))
+* **deps:** bump actions/github-script from 7 to 8 ([#177](https://github.com/filecoin-project/filecoin-pin/issues/177)) ([d724718](https://github.com/filecoin-project/filecoin-pin/commit/d72471870ce8234760e4368758b124b7f77c6946))
+* **deps:** bump actions/upload-pages-artifact from 3 to 4 ([#271](https://github.com/filecoin-project/filecoin-pin/issues/271)) ([b8e98dc](https://github.com/filecoin-project/filecoin-pin/commit/b8e98dcb7ac568597738c4c93891ab6beea3a1ba))
+
+
+### Documentation
+
+* fix wrong service providers URL ([#270](https://github.com/filecoin-project/filecoin-pin/issues/270)) ([2a16a47](https://github.com/filecoin-project/filecoin-pin/commit/2a16a47ab3fbea72cc9a49f06dcda956ad3daef6))
+* generate api docs and publish to gh pages ([#260](https://github.com/filecoin-project/filecoin-pin/issues/260)) ([46d0cf7](https://github.com/filecoin-project/filecoin-pin/commit/46d0cf777e42d8f3cfd47b4d69db0a26c376ab7a))
+
+## [0.13.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.12.0...v0.13.0) (2025-11-14)
+
+
+### Features
+
+* add --network flag for mainnet and calibration network selection ([#240](https://github.com/filecoin-project/filecoin-pin/issues/240)) ([ced63da](https://github.com/filecoin-project/filecoin-pin/commit/ced63da1cb4d0b9b3f9cd777a1e11d7acae4ee4c))
+* allow passing metadata via cli commands ([#226](https://github.com/filecoin-project/filecoin-pin/issues/226)) ([f5a1e6e](https://github.com/filecoin-project/filecoin-pin/commit/f5a1e6e2c086b7891f646cc83f0528fc3324fa85))
+
+
+### Bug Fixes
+
+* correct Filfox explorer URL format for mainnet and use dynamic network in PDP URLs ([#239](https://github.com/filecoin-project/filecoin-pin/issues/239)) ([ff610e6](https://github.com/filecoin-project/filecoin-pin/commit/ff610e6fb6a9057fe1839ff8dc47bdb65861e17a))
+* ipni indexer fetch errors are caught ([#241](https://github.com/filecoin-project/filecoin-pin/issues/241)) ([996af92](https://github.com/filecoin-project/filecoin-pin/commit/996af929f9697b967644997f21a59dcd97733d6d))
+* network option works ([#243](https://github.com/filecoin-project/filecoin-pin/issues/243)) ([40c400b](https://github.com/filecoin-project/filecoin-pin/commit/40c400b2dbd0e946f363fc15e3ca51433a387992))
+
+
+### Documentation
+
+* add glossary, `add` explainer, and content routing FAQ ([#233](https://github.com/filecoin-project/filecoin-pin/issues/233)) ([65f13b0](https://github.com/filecoin-project/filecoin-pin/commit/65f13b0db6c3b683e7842a4508ac0d0eada2702b))
+
+## [0.12.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.11.1...v0.12.0) (2025-11-13)
+
+
+### Features
+
+* add core/data-set methods ([#210](https://github.com/filecoin-project/filecoin-pin/issues/210)) ([6d81508](https://github.com/filecoin-project/filecoin-pin/commit/6d815080a985e8e6e6134430b4ded4ac803b6997))
+* data-set CLI uses filecoin-pin/core/data-set ([#211](https://github.com/filecoin-project/filecoin-pin/issues/211)) ([443e285](https://github.com/filecoin-project/filecoin-pin/commit/443e285534c3312282d6184a0e3c223a288e736b))
+* deposit with permit integration ([#202](https://github.com/filecoin-project/filecoin-pin/issues/202)) ([121e342](https://github.com/filecoin-project/filecoin-pin/commit/121e3426fcc097cc971cdc5b1b6980641132366f))
+* perform update checks ([#219](https://github.com/filecoin-project/filecoin-pin/issues/219)) ([d27e6e6](https://github.com/filecoin-project/filecoin-pin/commit/d27e6e62736366640db84d6fc79af1189b7f1555))
+
+
+### Bug Fixes
+
+* add/import validate capacity with floor pricing ([#218](https://github.com/filecoin-project/filecoin-pin/issues/218)) ([70e780f](https://github.com/filecoin-project/filecoin-pin/commit/70e780f131ed7724460fcddfcc72a3546c045c84))
+* filecoin-pin/upload-action always builds filecoin-pin ([#204](https://github.com/filecoin-project/filecoin-pin/issues/204)) ([ecfb9e0](https://github.com/filecoin-project/filecoin-pin/commit/ecfb9e08508ce768961040f634b05afd4f72e15a))
+* IPNI validation confirms provider in indexer response ([#231](https://github.com/filecoin-project/filecoin-pin/issues/231)) ([71f157d](https://github.com/filecoin-project/filecoin-pin/commit/71f157d90ebbfd778e315bae5cd2c58a0abe363f))
+* piece metadata is displayed as is ([#222](https://github.com/filecoin-project/filecoin-pin/issues/222)) ([00e7ff9](https://github.com/filecoin-project/filecoin-pin/commit/00e7ff9352382c73334e02de90c431ac095b63d5))
+* refresh payments status CLI output ([#223](https://github.com/filecoin-project/filecoin-pin/issues/223)) ([13f557e](https://github.com/filecoin-project/filecoin-pin/commit/13f557e498951e6d96cf1f0df8a80d7832637ad6))
+* remove known-good-providers recommendation in examples ([#214](https://github.com/filecoin-project/filecoin-pin/issues/214)) ([f46eab4](https://github.com/filecoin-project/filecoin-pin/commit/f46eab4e07cfa4c67d9c424587bdb00277daee47))
+* upload-action pr comment uses consistent spacing ([#206](https://github.com/filecoin-project/filecoin-pin/issues/206)) ([39a03c0](https://github.com/filecoin-project/filecoin-pin/commit/39a03c0b868b6f29e924ca809deec66928093bbd))
+
+
+### Chores
+
+* add dataset alias for 'data-set' subcommand ([#224](https://github.com/filecoin-project/filecoin-pin/issues/224)) ([391cd79](https://github.com/filecoin-project/filecoin-pin/commit/391cd79c3abd2059fbd5ce08f6b4c48e08529309))
+* **deps-dev:** bump @biomejs/biome from 2.3.3 to 2.3.4 ([#212](https://github.com/filecoin-project/filecoin-pin/issues/212)) ([4edab90](https://github.com/filecoin-project/filecoin-pin/commit/4edab901d2d31edfd86ffa4589479d93094ca3a2))
+
 ## [0.11.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.11.0...v0.11.1) (2025-11-04)
 
 

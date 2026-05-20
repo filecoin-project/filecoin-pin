@@ -32,7 +32,8 @@
       "!**/__snapshots__",
       "!**/components.d.ts",
       "!**/mockServiceWorker.js",
-      "!**/cars"
+      "!**/cars",
+      "!docs"
     ]
   },
   "vcs": {

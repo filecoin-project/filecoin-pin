@@ -7,9 +7,9 @@
  */
 
 import { cancel, confirm, isCancel, password, text } from '@clack/prompts'
-import { RPC_URLS, Synapse } from '@filoz/synapse-sdk'
-import { ethers } from 'ethers'
 import pc from 'picocolors'
+import { parseUnits } from 'viem'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import {
   calculateDepositCapacity,
   checkAndSetAllowances,
@@ -20,9 +20,9 @@ import {
   getPaymentStatus,
   validatePaymentRequirements,
 } from '../core/payments/index.js'
-import { cleanupProvider, cleanupSynapseService } from '../core/synapse/index.js'
-import { getTelemetryConfig } from '../core/synapse/telemetry-config.js'
+import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
+import { parseCLIAuth } from '../utils/cli-auth.js'
 import { createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
 import { displayAccountInfo, displayDepositWarning, displayPricing } from './setup.js'
@@ -36,17 +36,14 @@ import type { PaymentSetupOptions } from './types.js'
 export async function runInteractiveSetup(options: PaymentSetupOptions): Promise<void> {
   // Check for TTY support
   if (!isTTY()) {
-    console.error(pc.red('Error: Interactive mode requires a TTY terminal.'))
-    console.error('Use --auto flag for non-interactive setup.')
-    // Even though we're exiting early, ensure any background connections are cleaned up
-    await cleanupSynapseService()
-    process.exit(1)
+    log.line(pc.red('Error: Interactive mode requires a TTY terminal.'))
+    log.line('Use --auto flag for non-interactive setup.')
+    log.flush()
+    throw new CliFatal('Interactive mode requires a TTY terminal')
   }
 
   intro(pc.bold('Filecoin Onchain Cloud Payment Setup'))
-
-  // Store provider reference for cleanup if it's a WebSocket provider
-  let provider: any = null
+  const s = createSpinner()
 
   try {
     // Get private key
@@ -55,7 +52,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     if (!privateKey) {
       const input = await password({
         message: 'Enter your private key',
-        validate: (value: string) => {
+        validate: (value) => {
           if (!value) return 'Private key is required'
 
           // Add 0x prefix if missing
@@ -66,18 +63,13 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
             return 'Private key must be 64 hex characters (with or without 0x prefix)'
           }
 
-          try {
-            new ethers.Wallet(key)
-            return undefined
-          } catch {
-            return 'Invalid private key format'
-          }
+          return undefined
         },
       })
 
       if (isCancel(input)) {
         cancel('Setup cancelled')
-        process.exit(1)
+        throw new CliFatal('Setup cancelled')
       }
 
       // Add 0x prefix if it was missing
@@ -85,26 +77,12 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     }
 
     // Initialize Synapse
-    const s = createSpinner()
     s.start('Initializing connection...')
 
-    const rpcUrl = options.rpcUrl || RPC_URLS.calibration.websocket
-
-    const synapse = await Synapse.create({
-      telemetry: getTelemetryConfig(),
-      privateKey,
-      rpcURL: rpcUrl,
-      withIpni: true, // Always filter for IPNI-enabled providers
-      ...(options.warmStorageAddress && { warmStorageAddress: options.warmStorageAddress }),
-    })
-    const network = synapse.getNetwork()
-    const client = synapse.getClient()
-    const address = await client.getAddress()
-
-    // Store provider reference for cleanup if it's a WebSocket provider
-    if (rpcUrl.match(/^wss?:\/\//)) {
-      provider = synapse.getProvider()
-    }
+    const config = parseCLIAuth({ ...options, privateKey })
+    const synapse = await initializeSynapse(config)
+    const network = synapse.chain.name
+    const address = getClientAddress(synapse)
 
     s.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
@@ -119,14 +97,15 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     // Validate payment requirements
     const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
     if (!validation.isValid) {
-      log.line(`${pc.red('✗')} ${validation.errorMessage}`)
+      const errorMsg = validation.errorMessage ?? 'Payment validation failed'
+      log.line(`${pc.red('✗')} ${errorMsg}`)
       if (validation.helpMessage) {
         log.line('')
         log.line(`  ${pc.cyan(validation.helpMessage)}`)
       }
       log.flush()
       cancel('Please fund your wallet and try again')
-      process.exit(1)
+      throw new CliFatal(errorMsg)
     }
 
     // Now safe to get payment status since we know account exists
@@ -185,7 +164,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
     if (isCancel(shouldDeposit)) {
       cancel('Setup cancelled')
-      process.exit(1)
+      throw new CliFatal('Setup cancelled')
     }
 
     if (shouldDeposit) {
@@ -201,9 +180,10 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
         message: 'How much USDFC would you like to deposit?',
         placeholder: '10.0',
         initialValue: status.filecoinPayBalance === 0n ? '10.0' : '5.0',
-        validate: (value: string) => {
+        validate: (value) => {
+          if (!value) return 'Amount is required'
           try {
-            const amount = ethers.parseUnits(value, 18)
+            const amount = parseUnits(value, 18)
             if (amount <= 0n) return 'Amount must be greater than 0'
             if (amount > walletUsdfcBalance)
               return `Insufficient balance (have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
@@ -216,10 +196,10 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       if (isCancel(amountStr)) {
         cancel('Setup cancelled')
-        process.exit(1)
+        throw new CliFatal('Setup cancelled')
       }
 
-      depositAmount = ethers.parseUnits(amountStr, 18)
+      depositAmount = parseUnits(amountStr, 18)
 
       s.start('Depositing USDFC...')
       const { depositTx } = await depositUSDFC(synapse, depositAmount)
@@ -284,10 +264,13 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       outro('No changes made to payment setup')
     }
   } catch (error) {
-    console.error(`\n${pc.red('Error:')}`, error instanceof Error ? error.message : error)
-    process.exitCode = 1
-  } finally {
-    await cleanupProvider(provider)
-    process.exit()
+    if (isCliFatal(error)) {
+      s.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
+    s.stop(`${pc.red('✗')} Setup failed: ${msg}`)
+    cancel('Setup failed')
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

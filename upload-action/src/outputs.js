@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
-import { ethers } from 'ethers'
 import { formatUSDFC } from 'filecoin-pin/core/utils'
+import { parseUnits } from 'viem'
 import { getErrorMessage } from './errors.js'
 
 /**
@@ -73,7 +73,6 @@ export function getOutputSummary(context, status) {
   const dataSetId = context?.dataSetId || ''
   const pieceCid = context?.pieceCid || ''
   const provider = context?.provider || {}
-  const providerAddress = context?.providerAddress || provider?.address || ''
   const previewUrl = context?.previewUrl || ''
   const carPath = context?.carPath || ''
   const carSize = context?.carSize
@@ -132,13 +131,13 @@ export function getOutputSummary(context, status) {
     `* Network: ${network}`,
     `* Data Set ID: [${dataSetId}](https://pdp.vxb.ai/${network || 'mainnet'}/dataset/${dataSetId})`,
     `* Piece CID: [${pieceCid}](https://pdp.vxb.ai/${network || 'mainnet'}/piece/${pieceCid})`,
-    `* Provider: [${provider?.name || 'Unknown'} (ID ${provider?.id || 'Unknown'})](https://pdp.vxb.ai/${network || 'mainnet'}/providers/${providerAddress})`,
+    `* Provider: [${provider?.name || 'Unknown'} (ID ${provider?.id || 'Unknown'})](https://pdp.vxb.ai/${network || 'mainnet'}/providers/${provider?.id || ''})`,
     `* Piece download direct from provider: ${previewUrl}`,
     '',
     '**Payment:**',
     '',
-    `* Current Filecoin Pay balance: ${formatUSDFC(ethers.parseUnits(paymentStatus.filecoinPayBalance, 18))} USDFC`,
-    `* Amount deposited to Filecoin Pay by this workflow: ${formatUSDFC(ethers.parseUnits(paymentStatus.depositedThisRun, 18))} USDFC`,
+    `* Current Filecoin Pay balance: ${formatUSDFC(parseUnits(paymentStatus.filecoinPayBalance, 18))} USDFC`,
+    `* Amount deposited to Filecoin Pay by this workflow: ${formatUSDFC(parseUnits(paymentStatus.depositedThisRun, 18))} USDFC`,
     `* Data Set Storage runway: ${paymentStatus.storageRunway}`,
     '',
   ].join('\n')

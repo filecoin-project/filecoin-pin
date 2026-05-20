@@ -1,115 +1,49 @@
 import type { Synapse } from '@filoz/synapse-sdk'
 import type { Logger } from 'pino'
 import { formatUSDFC } from '../utils/index.js'
-import {
-  calculatePieceUploadRequirements,
-  computeAdjustmentForExactDaysWithPiece,
-  computeTopUpForDuration,
-  depositUSDFC,
-  getPaymentStatus,
-} from './index.js'
-import type { PaymentStatus, TopUpCalculation, TopUpReasonCode, TopUpResult } from './types.js'
+import { depositUSDFC, getPaymentStatus } from './index.js'
+import type { TopUpResult } from './types.js'
 
 /**
- * Format a human-readable message for a top-up calculation
+ * Result of clamping a requested deposit against a balance limit.
  *
- * @param calc - Top-up calculation result
- * @returns Human-readable message explaining the top-up requirement
+ * - `passthrough`: limit is undefined or unreached; deposit equals requested
+ * - `already-at-limit`: current balance already meets/exceeds limit; deposit is 0n
+ * - `clamped`: deposit was reduced to the largest amount that doesn't exceed limit
  */
-export function formatTopUpReason(calc: TopUpCalculation): string {
-  if (calc.requiredTopUp === 0n) {
-    return 'No top-up required'
-  }
-
-  switch (calc.reasonCode) {
-    case 'piece-upload':
-      return 'Required top-up for file upload (lockup requirement)'
-    case 'required-runway':
-      return `Required top-up for ${calc.calculation.minStorageDays} days of storage`
-    case 'required-runway-plus-upload':
-      return `Required top-up for ${calc.calculation.minStorageDays} days of storage (including upcoming upload)`
-    default:
-      return 'Required top-up'
-  }
+export interface ClampDepositResult {
+  deposit: bigint
+  reason: 'passthrough' | 'already-at-limit' | 'clamped'
+  message?: string
 }
 
 /**
- * Calculate required top-up for a specific storage scenario
+ * Pure helper: clamp a requested deposit so the resulting balance does not exceed `limit`.
  *
- * This function determines how much USDFC needs to be deposited to meet
- * the specified storage requirements, taking into account current usage
- * and the size of any upcoming upload.
- *
- * @param status - Current payment status
- * @param options - Storage requirements
- * @returns Top-up calculation with reasoning
+ * @param currentBalance - Current Filecoin Pay balance
+ * @param requested - Requested deposit amount (must be > 0n for clamping to apply)
+ * @param limit - Maximum allowed post-deposit balance; undefined means no limit
  */
-export function calculateRequiredTopUp(
-  status: PaymentStatus,
-  options: {
-    minStorageDays?: number | undefined
-    pieceSizeBytes?: number | undefined
-    pricePerTiBPerEpoch?: bigint | undefined
+export function clampDepositToLimit(currentBalance: bigint, requested: bigint, limit?: bigint): ClampDepositResult {
+  if (limit == null || limit < 0n || requested <= 0n) {
+    return { deposit: requested, reason: 'passthrough' }
   }
-): TopUpCalculation {
-  const { minStorageDays = 0, pieceSizeBytes, pricePerTiBPerEpoch } = options
-  const rateUsed = status.currentAllowances.rateUsed ?? 0n
-  const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
-
-  let requiredTopUp = 0n
-  let reasonCode: TopUpReasonCode = 'none'
-
-  // Calculate piece upload requirements if we have piece info
-  let pieceUploadTopUp = 0n
-  if (pieceSizeBytes != null && pieceSizeBytes > 0 && pricePerTiBPerEpoch != null) {
-    const uploadRequirements = calculatePieceUploadRequirements(status, pieceSizeBytes, pricePerTiBPerEpoch)
-    if (uploadRequirements.insufficientDeposit > 0n) {
-      pieceUploadTopUp = uploadRequirements.insufficientDeposit
+  if (currentBalance >= limit) {
+    return {
+      deposit: 0n,
+      reason: 'already-at-limit',
+      message: `Current balance (${formatUSDFC(currentBalance)}) already equals or exceeds the configured balance limit (${formatUSDFC(limit)}). No additional deposits will be made.`,
     }
   }
-
-  // Calculate runway requirements if specified
-  let runwayTopUp = 0n
-  let isRunwayWithUpload = false
-  if (minStorageDays > 0) {
-    if (rateUsed === 0n && pieceSizeBytes != null && pieceSizeBytes > 0 && pricePerTiBPerEpoch != null) {
-      // New piece upload with runway requirement
-      const { delta } = computeAdjustmentForExactDaysWithPiece(
-        status,
-        minStorageDays,
-        pieceSizeBytes,
-        pricePerTiBPerEpoch
-      )
-      runwayTopUp = delta
-      isRunwayWithUpload = true
-    } else {
-      // Existing usage with runway requirement
-      const { topUp } = computeTopUpForDuration(status, minStorageDays)
-      runwayTopUp = topUp
+  if (currentBalance + requested > limit) {
+    const maxAllowed = limit - currentBalance
+    return {
+      deposit: maxAllowed,
+      reason: 'clamped',
+      message: `Required top-up (${formatUSDFC(requested)}) would exceed the configured balance limit (${formatUSDFC(limit)}). Reducing to ${formatUSDFC(maxAllowed)}.`,
     }
   }
-
-  // Determine the final top-up requirement (take the maximum of file upload and runway needs)
-  if (runwayTopUp > pieceUploadTopUp) {
-    requiredTopUp = runwayTopUp
-    reasonCode = isRunwayWithUpload ? 'required-runway-plus-upload' : 'required-runway'
-  } else if (pieceUploadTopUp > 0n) {
-    requiredTopUp = pieceUploadTopUp
-    reasonCode = 'piece-upload'
-  }
-
-  return {
-    requiredTopUp,
-    reasonCode,
-    calculation: {
-      minStorageDays,
-      pieceSizeBytes,
-      pricePerTiBPerEpoch,
-      currentRateUsed: rateUsed,
-      currentLockupUsed: lockupUsed,
-      currentDeposited: status.filecoinPayBalance,
-    },
-  }
+  return { deposit: requested, reason: 'passthrough' }
 }
 
 /**
@@ -149,40 +83,16 @@ export async function executeTopUp(
   // Get current status for limit checking
   const currentStatus = await getPaymentStatus(synapse)
 
-  // Check if deposit would exceed maximum balance if specified
-  if (balanceLimit != null && balanceLimit >= 0n) {
-    // Check if current balance already equals or exceeds limit
-    if (currentStatus.filecoinPayBalance >= balanceLimit) {
-      const message = `Current balance (${formatUSDFC(currentStatus.filecoinPayBalance)}) already equals or exceeds the configured balance limit (${formatUSDFC(balanceLimit)}). No additional deposits will be made.`
-      logger?.warn(`${message}`)
-      return {
-        success: true,
-        deposited: 0n,
-        message,
-        warnings,
-      }
-    } else {
-      // Check if required top-up would exceed the limit
-      const projectedBalance = currentStatus.filecoinPayBalance + topUpAmount
-      if (projectedBalance > balanceLimit) {
-        // Calculate the maximum allowed top-up that won't exceed the limit
-        const maxAllowedTopUp = balanceLimit - currentStatus.filecoinPayBalance
-        if (maxAllowedTopUp > 0n) {
-          const warning = `Required top-up (${formatUSDFC(topUpAmount)}) would exceed the configured balance limit (${formatUSDFC(balanceLimit)}). Reducing to ${formatUSDFC(maxAllowedTopUp)}.`
-          logger?.warn(`${warning}`)
-          warnings.push(warning)
-          topUpAmount = maxAllowedTopUp
-        } else {
-          return {
-            success: true,
-            deposited: 0n,
-            message: 'Cannot deposit - would exceed balance limit',
-            warnings,
-          }
-        }
-      }
-    }
+  const clamp = clampDepositToLimit(currentStatus.filecoinPayBalance, topUpAmount, balanceLimit)
+  if (clamp.reason === 'already-at-limit') {
+    logger?.warn(clamp.message)
+    return { success: true, deposited: 0n, message: clamp.message ?? '', warnings }
   }
+  if (clamp.reason === 'clamped' && clamp.message != null) {
+    logger?.warn(clamp.message)
+    warnings.push(clamp.message)
+  }
+  topUpAmount = clamp.deposit
 
   // Ensure wallet has sufficient USDFC for the deposit
   if (currentStatus.walletUsdfcBalance < topUpAmount) {

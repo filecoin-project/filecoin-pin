@@ -1,11 +1,11 @@
 import fastify, { type FastifyInstance, type FastifyRequest } from 'fastify'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import type { Config } from './core/synapse/index.js'
-import { setupSynapse } from './core/synapse/index.js'
+import { isAddress, isHex } from 'viem'
+import type { Chain, Config } from './core/synapse/index.js'
+import { initializeSynapse, type SynapseSetupConfig } from './core/synapse/index.js'
 import { FilecoinPinStore, type PinOptions } from './filecoin-pin-store.js'
 import type { ServiceInfo } from './server.js'
-import { parseProviderOptions } from './utils/cli-auth.js'
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -21,38 +21,58 @@ const DEFAULT_USER_INFO = {
   name: 'Default User',
 }
 
+function buildSynapseConfig(config: Config): SynapseSetupConfig {
+  const base: { rpcUrl: string; chain?: Chain } = { rpcUrl: config.rpcUrl }
+  if (config.chain) {
+    base.chain = config.chain
+  }
+
+  if (config.walletAddress && config.sessionKey) {
+    if (!isAddress(config.walletAddress)) {
+      throw new Error('Wallet address must be an ethereum address')
+    }
+    if (!isHex(config.sessionKey)) {
+      throw new Error('Session key must be 0x-prefixed hexadecimal')
+    }
+    if (config.sessionKey.length !== 66) {
+      throw new Error('Session key must be 32 bytes')
+    }
+    return {
+      ...base,
+      walletAddress: config.walletAddress,
+      sessionKey: config.sessionKey,
+    }
+  }
+
+  if (config.privateKey) {
+    if (!isHex(config.privateKey)) {
+      throw new Error('Private key must be 0x-prefixed hexadecimal')
+    }
+    if (config.privateKey.length !== 66) {
+      throw new Error('Private key must be 32 bytes')
+    }
+    return { ...base, privateKey: config.privateKey }
+  }
+
+  throw new Error(
+    'No authentication configured. Provide a private key (--private-key / PRIVATE_KEY) ' +
+      'or session key (--wallet-address + --session-key / WALLET_ADDRESS + SESSION_KEY).'
+  )
+}
+
 export async function createFilecoinPinningServer(
   config: Config,
   logger: Logger,
   serviceInfo: ServiceInfo
 ): Promise<{ server: FastifyInstance; pinStore: FilecoinPinStore }> {
   // Set up Synapse service
-  if (!config.privateKey) {
-    throw new Error('PRIVATE_KEY environment variable is required to start the pinning server')
-  }
+  const synapseConfig = buildSynapseConfig(config)
+  const synapse = await initializeSynapse(synapseConfig, logger)
 
-  // Parse provider selection from environment variables
-  const providerOptions = parseProviderOptions()
-
-  const synapseService = await setupSynapse(
-    {
-      ...config,
-      privateKey: config.privateKey,
-      telemetry: {
-        sentrySetTags: {
-          appName: 'filecoinPinIPFSPinningServer',
-        },
-      },
-    },
-    logger,
-    providerOptions
-  )
-
-  // Create our custom Filecoin pin store with Synapse service
   const filecoinPinStore = new FilecoinPinStore({
     config,
     logger,
-    synapseService,
+    synapse,
   })
 
   // Set up event handlers for monitoring
@@ -127,15 +147,26 @@ export async function createFilecoinPinningServer(
       return
     }
 
+    // If no access token is configured, allow all requests
+    if (!config.accessToken) {
+      request.user = DEFAULT_USER_INFO
+      return
+    }
+
     const authHeader = request.headers.authorization
     if (authHeader?.startsWith('Bearer ') !== true) {
       await reply.code(401).send({ error: 'Missing or invalid authorization header' })
       return
     }
 
-    const token = authHeader.slice(7) // Remove 'Bearer ' prefix
-    if (token.trim().length === 0) {
+    const token = authHeader.slice(7).trim() // Remove 'Bearer ' prefix
+    if (token.length === 0) {
       await reply.code(401).send({ error: 'Invalid access token' })
+      return
+    }
+
+    if (token !== config.accessToken) {
+      await reply.code(403).send({ error: 'Invalid access token' })
       return
     }
 

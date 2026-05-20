@@ -6,9 +6,9 @@
  * options to complete the setup without user interaction.
  */
 
-import { ethers } from 'ethers'
 import pc from 'picocolors'
-import { TELEMETRY_CLI_APP_NAME } from '../common/constants.js'
+import { parseUnits } from 'viem'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import {
   calculateDepositCapacity,
   checkAndSetAllowances,
@@ -18,7 +18,7 @@ import {
   getPaymentStatus,
   validatePaymentRequirements,
 } from '../core/payments/index.js'
-import { cleanupSynapseService, initializeSynapse } from '../core/synapse/index.js'
+import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
@@ -35,13 +35,16 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
   intro(pc.bold('Filecoin Onchain Cloud Payment Setup'))
   log.message(pc.gray('Running in auto mode...'))
 
-  // Parse and validate deposit amount
+  // Parse and validate deposit amount. Display happens here (before the
+  // outer try below), so throw CliFatal so the CLI wrapper exits without
+  // re-printing.
   let targetFilecoinPayBalance: bigint
   try {
-    targetFilecoinPayBalance = ethers.parseUnits(options.deposit, 18)
+    targetFilecoinPayBalance = parseUnits(options.deposit, 18)
   } catch {
-    console.error(pc.red(`Error: Invalid deposit amount '${options.deposit}'`))
-    process.exit(1)
+    log.line(pc.red(`Error: Invalid deposit amount '${options.deposit}'`))
+    log.flush()
+    throw new CliFatal(`Invalid deposit amount '${options.deposit}'`)
   }
 
   const spinner = createSpinner()
@@ -49,21 +52,12 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
 
   try {
     // Parse and validate authentication
-    const authConfig = parseCLIAuth({
-      privateKey: options.privateKey,
-      walletAddress: options.walletAddress,
-      sessionKey: options.sessionKey,
-      rpcUrl: options.rpcUrl,
-    })
+    const authConfig = parseCLIAuth(options)
 
     const logger = getCLILogger()
-    const synapse = await initializeSynapse(
-      { ...authConfig, telemetry: { sentrySetTags: { appName: TELEMETRY_CLI_APP_NAME } } },
-      logger
-    )
-    const network = synapse.getNetwork()
-    const client = synapse.getClient()
-    const address = await client.getAddress()
+    const synapse = await initializeSynapse(authConfig, logger)
+    const network = synapse.chain.name
+    const address = getClientAddress(synapse)
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
@@ -78,14 +72,15 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     // Validate payment requirements
     const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
     if (!validation.isValid) {
-      log.line(`${pc.red('✗')} ${validation.errorMessage}`)
+      const errorMsg = validation.errorMessage ?? 'Payment validation failed'
+      log.line(`${pc.red('✗')} ${errorMsg}`)
       if (validation.helpMessage) {
         log.line('')
         log.line(`  ${pc.cyan(validation.helpMessage)}`)
       }
       log.flush()
       cancel('Please fund your wallet and try again')
-      process.exit(1)
+      throw new CliFatal(errorMsg)
     }
 
     // Now safe to get payment status since we know account exists
@@ -115,12 +110,9 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       actualFilecoinPayTopUp = neededFilecoinPayTopUp
 
       if (neededFilecoinPayTopUp > walletUsdfcBalance) {
-        console.error(
-          pc.red(
-            `✗ Insufficient USDFC for deposit (need ${formatUSDFC(neededFilecoinPayTopUp)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
-          )
+        throw new Error(
+          `Insufficient USDFC for deposit (need ${formatUSDFC(neededFilecoinPayTopUp)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
         )
-        process.exit(1)
       }
 
       spinner.start(`Depositing ${formatUSDFC(neededFilecoinPayTopUp)} USDFC...`)
@@ -174,13 +166,13 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       outro('Payment setup already configured - ready to use')
     }
   } catch (error) {
-    spinner.stop() // Stop spinner without message
-    console.error(pc.red('✗ Setup failed'))
-    console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
-
-    process.exitCode = 1
-  } finally {
-    await cleanupSynapseService()
-    process.exit()
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
+    spinner.stop(`${pc.red('✗')} Setup failed: ${msg}`)
+    cancel('Setup failed')
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

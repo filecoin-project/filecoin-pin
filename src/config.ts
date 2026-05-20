@@ -1,7 +1,18 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
-import { RPC_URLS } from '@filoz/synapse-sdk'
+import type { Chain } from '@filoz/synapse-sdk'
+import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from './common/get-rpc-url.js'
 import type { Config } from './core/synapse/index.js'
+
+function resolveChain(network: string | undefined, hasExplicitRpcUrl: boolean): Chain | undefined {
+  const normalized = network?.toLowerCase().trim()
+  if (!normalized) return undefined
+  if (normalized === 'mainnet' || normalized === 'calibration') return NETWORK_CHAINS[normalized]
+  // Devnet's chain comes from devnet-info.json. Skip the file load when the operator
+  // overrode RPC_URL — they may just have a stale NETWORK=devnet and the file may not exist.
+  if (normalized === 'devnet' && !hasExplicitRpcUrl) return resolveDevnetConfig().chain
+  return undefined
+}
 
 function getDataDirectory(): string {
   const home = homedir()
@@ -29,24 +40,45 @@ function getDataDirectory(): string {
 /**
  * Create configuration from environment variables
  *
- * This demonstrates configuration best practices for Synapse SDK:
- * - PRIVATE_KEY: Required for transaction signing (keep secure!)
- * - RPC_URL: Filecoin network endpoint (mainnet or calibration)
- * - WARM_STORAGE_ADDRESS: Optional override for testing custom contracts
+ * Authentication (choose one):
+ * - PRIVATE_KEY: Standard private key auth
+ * - WALLET_ADDRESS + SESSION_KEY: Session key auth
+ *
+ * Network:
+ * - RPC_URL: Filecoin RPC endpoint — takes precedence over NETWORK
+ * - NETWORK: Filecoin network name (mainnet, calibration, devnet) — used if RPC_URL not set
  */
 export function createConfig(): Config {
   const dataDir = getDataDirectory()
 
-  return {
+  // NETWORK and RPC_URL are mutually exclusive. The CLI enforces this via Commander, but library
+  // consumers calling createConfig() bypass that check, so guard explicitly here as well.
+  const hasNetwork = process.env.NETWORK != null && process.env.NETWORK !== ''
+  const hasRpcUrl = process.env.RPC_URL != null && process.env.RPC_URL !== ''
+  if (hasNetwork && hasRpcUrl) {
+    throw new Error("Configuration error: 'NETWORK' and 'RPC_URL' are mutually exclusive. Set only one.")
+  }
+
+  // Determine RPC URL: RPC_URL takes precedence, then NETWORK, then default to mainnet.
+  const rpcUrl = getRpcUrl({
+    network: process.env.NETWORK,
+    rpcUrl: process.env.RPC_URL,
+  })
+  // Set the chain hint only when NETWORK was chosen; with RPC_URL set, initializeSynapse probes
+  // the endpoint to derive the chain. Default to mainnet when neither is supplied.
+  const chain = hasRpcUrl ? resolveChain(undefined, true) : resolveChain(process.env.NETWORK ?? 'mainnet', false)
+
+  const config: Config = {
     // Application-specific configuration
     port: parseInt(process.env.PORT ?? '3456', 10),
     host: process.env.HOST ?? 'localhost',
+    accessToken: process.env.ACCESS_TOKEN,
 
     // Synapse SDK configuration
-    privateKey: process.env.PRIVATE_KEY, // Required: Ethereum-compatible private key
-    rpcUrl: process.env.RPC_URL ?? RPC_URLS.calibration.websocket, // Default: calibration testnet websocket
-    warmStorageAddress: process.env.WARM_STORAGE_ADDRESS, // Optional: custom contract address
-
+    privateKey: process.env.PRIVATE_KEY,
+    walletAddress: process.env.WALLET_ADDRESS,
+    sessionKey: process.env.SESSION_KEY,
+    rpcUrl, // Determined from RPC_URL, NETWORK, or default to mainnet
     // Storage paths
     databasePath: process.env.DATABASE_PATH ?? join(dataDir, 'pins.db'),
     carStoragePath: process.env.CAR_STORAGE_PATH ?? join(dataDir, 'cars'),
@@ -54,4 +86,8 @@ export function createConfig(): Config {
     // Logging
     logLevel: process.env.LOG_LEVEL ?? 'info',
   }
+  if (chain) {
+    config.chain = chain
+  }
+  return config
 }

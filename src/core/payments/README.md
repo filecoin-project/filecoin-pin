@@ -39,6 +39,7 @@ Comprehensive payment rail management for Filecoin Pay:
 - **Token Operations**: ERC20 approve/deposit patterns
 - **Service Approvals**: Storage operator authorization
 - **Capacity Calculations**: Human-friendly storage unit conversions
+- **Funding Planner**: Build and execute Filecoin Pay funding plans for runway or fixed deposits
 
 ## Filecoin Pin Use Examples
 
@@ -48,30 +49,25 @@ Below are examples of how we use our custom Synapse SDK abstractions from within
 
 ```typescript
 import { RPC_URLS } from '@filoz/synapse-sdk'
-import { setupSynapse } from 'filecoin-pin/core/synapse'
+import { initializeSynapse } from 'filecoin-pin/core/synapse'
 
 const config = {
   privateKey: process.env.PRIVATE_KEY,
   rpcUrl: RPC_URLS.calibration.websocket
 }
 
-const synapseService = await setupSynapse(config, logger, {
-  onProviderSelected: (provider) => {
-    console.log(`Selected provider: ${provider.name}`)
-  },
-  onDataSetResolved: (info) => {
-    console.log(`Dataset ID: ${info.dataSetId}`)
-  }
-})
+const synapse = await initializeSynapse(config, logger)
 ```
 
 ### Upload CAR File
 
 ```typescript
+import { createReadStream } from 'node:fs'
+import { Readable } from 'node:stream'
 import { uploadToSynapse } from 'filecoin-pin/core/upload'
 import { CID } from 'multiformats/cid'
 
-const carData = await fs.readFile('path/to/file.car')
+const carData = Readable.toWeb(createReadStream('path/to/file.car'))
 const rootCid = CID.parse('bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi')
 
 const result = await uploadToSynapse(
@@ -80,16 +76,16 @@ const result = await uploadToSynapse(
   rootCid,
   logger,
   {
-    callbacks: {
-      onUploadComplete: (pieceCid) => {
-        console.log(`Upload complete: ${pieceCid}`)
+    onProgress: (event) => {
+      if (event.type === 'stored') {
+        console.log(`Stored on provider ${event.data.providerId}: ${event.data.pieceCid}`)
       }
     }
   }
 )
 
 console.log(`Piece CID: ${result.pieceCid}`)
-console.log(`Download URL: ${result.providerInfo?.downloadURL}`)
+console.log(`Retrieval URL: ${result.copies[0]?.retrievalUrl}`)
 ```
 
 ### Setup Payments
@@ -97,7 +93,9 @@ console.log(`Download URL: ${result.providerInfo?.downloadURL}`)
 ```typescript
 import {
   calculateStorageAllowances,
+  executeFilecoinPayFunding,
   depositUSDFC,
+  planFilecoinPayFunding,
   setServiceApprovals,
 } from 'filecoin-pin/core/payments'
 import { ethers } from 'ethers'
@@ -117,4 +115,18 @@ const txHash = await setServiceApprovals(
   allowances.rateAllowance,
   allowances.lockupAllowance
 )
+
+// Plan and execute a Filecoin Pay top-up for 30 days of runway
+const { plan } = await planFilecoinPayFunding({
+  synapse,
+  targetRunwayDays: 30,
+  ensureAllowances: true, // also checks and sets WarmStorage allowances
+})
+
+if (plan.delta > 0n) {
+  const execution = await executeFilecoinPayFunding(synapse, plan)
+  console.log(`Deposited ${execution.delta} wei USDFC for ~${execution.newRunwayDays} day(s) runway`)
+} else {
+  console.log('No additional funding required')
+}
 ```

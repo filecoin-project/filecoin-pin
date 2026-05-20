@@ -1,13 +1,9 @@
 #!/usr/bin/env node
+import './instrument.js'
 import { Command } from 'commander'
 import pc from 'picocolors'
 
-import { addCommand } from './commands/add.js'
-import { dataSetCommand } from './commands/data-set.js'
-import { importCommand } from './commands/import.js'
-import { paymentsCommand } from './commands/payments.js'
-import { serverCommand } from './commands/server.js'
-import { sessionCommand } from './commands/session.js'
+import { ALL_CLI_COMMANDS } from './commands/index.js'
 import { checkForUpdate, type UpdateCheckStatus } from './common/version-check.js'
 import { version as packageVersion } from './core/utils/version.js'
 
@@ -20,12 +16,9 @@ const program = new Command()
   .option('--no-update-check', 'skip check for updates')
 
 // Add subcommands
-program.addCommand(serverCommand)
-program.addCommand(paymentsCommand)
-program.addCommand(dataSetCommand)
-program.addCommand(importCommand)
-program.addCommand(addCommand)
-program.addCommand(sessionCommand)
+for (const command of ALL_CLI_COMMANDS) {
+  program.addCommand(command)
+}
 
 // Default action - show help if no command specified
 program.action(() => {
@@ -57,7 +50,7 @@ program.hook('preAction', () => {
   }).unref()
 })
 
-program.hook('postAction', async () => {
+program.hook('postAction', async (_thisCommand, actionCommand) => {
   if (updateCheckResult?.status === 'update-available') {
     const result = updateCheckResult
     updateCheckResult = null
@@ -67,6 +60,16 @@ program.hook('postAction', async () => {
     const instruction = `Visit ${releasesLink} to view release notes or download the latest version.`
     console.log(header)
     console.log(instruction)
+  }
+
+  // Viem's WebSocket transport holds persistent connections (with keepAlive
+  // and auto-reconnect) that prevent the Node.js event loop from draining.
+  // There is no clean way to close these from the outside -- viem's close()
+  // triggers reconnect, and the Synapse SDK wraps transports in custom()
+  // which hides the underlying socket. The server command manages its own
+  // lifecycle via SIGINT/SIGTERM, so only force-exit for CLI commands.
+  if (actionCommand.name() !== 'server') {
+    process.exit(process.exitCode ?? 0)
   }
 })
 

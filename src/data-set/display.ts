@@ -1,6 +1,7 @@
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import type { DataSetSummary, PieceInfo } from '../core/data-set/types.js'
+import { PieceStatus } from '../core/data-set/types.js'
 import { formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 
@@ -19,8 +20,8 @@ function statusLabel(dataSet: DataSetSummary): string {
   return pc.yellow('inactive')
 }
 
-function formatCommission(commissionBps: number): string {
-  const percent = commissionBps / 100
+function formatCommission(commissionBps: bigint): string {
+  const percent = Number(commissionBps) / 100
   return `${percent.toFixed(2)}%`
 }
 
@@ -35,46 +36,6 @@ function formatBytes(value?: bigint): string {
 
   return `${value.toString()} B`
 }
-
-// /**
-//  * Format payment token address for display
-//  */
-// function formatPaymentToken(tokenAddress: string): string {
-//   // import { CONTRACT_ADDRESSES } from '@filoz/synapse-sdk'
-//   if (tokenAddress === '0x0000000000000000000000000000000000000000' || tokenAddress === CONTRACT_ADDRESSES.USDFC['calibration']) {
-//     return `USDFC ${pc.gray('(native)')}`
-//   }
-
-//   // For other addresses, show a truncated version
-//   return `${tokenAddress.slice(0, 6)}...${tokenAddress.slice(-4)}`
-// }
-
-// /**
-//  * Format storage price in USDFC per TiB per month
-//  * Always shows TiB/month for consistency, with appropriate precision
-//  */
-// function formatStoragePrice(pricePerTiBPerDay: bigint): string {
-//   // import { ethers } from 'ethers'
-//   try {
-//     const priceInUSDFC = parseFloat(ethers.formatUnits(pricePerTiBPerDay, 18))
-
-//     // Handle very small prices that would show as 0.0000
-//     if (priceInUSDFC < 0.0001) {
-//       return '< 0.0001 USDFC/TiB/day'
-//     }
-
-//     // For prices >= 0.0001, show with appropriate precision
-//     if (priceInUSDFC >= 1) {
-//       return `${priceInUSDFC.toFixed(2)} USDFC/TiB/day`
-//     } else if (priceInUSDFC >= 0.01) {
-//       return `${priceInUSDFC.toFixed(4)} USDFC/TiB/day`
-//     } else {
-//       return `${priceInUSDFC.toFixed(6)} USDFC/TiB/day`
-//     }
-//   } catch {
-//     return pc.red('invalid price')
-//   }
-// }
 
 function renderNetworkDetails(network: string, address: string): void {
   log.line(`Network: ${pc.bold(network)}`)
@@ -99,8 +60,8 @@ function renderProviderDetails(dataSet: DataSetSummary, indentLevel: number = 0)
   }
   log.indent(`Name: ${dataSet.provider.name}`, indentLevel + 1)
   log.indent(`Description: ${dataSet.provider.description}`, indentLevel + 1)
-  log.indent(`Service URL: ${dataSet.provider.products.PDP?.data?.serviceURL ?? 'unknown'}`, indentLevel + 1)
-  log.indent(`Active: ${dataSet.provider.active ? 'yes' : 'no'}`, indentLevel + 1)
+  log.indent(`Service URL: ${dataSet.provider.pdp?.serviceURL ?? 'unknown'}`, indentLevel + 1)
+  log.indent(`Active: ${dataSet.provider.isActive ? 'yes' : 'no'}`, indentLevel + 1)
   /**
    * We purposefully do not show these fields because they are either not currently relevant to the user, or not fully/accurately representative of FOC and FWSS details.
    */
@@ -120,7 +81,7 @@ function renderProviderDetails(dataSet: DataSetSummary, indentLevel: number = 0)
   //   `Min proving period: ${dataSet.provider.products.PDP?.data?.minProvingPeriodInEpochs ?? 0} epochs`,
   //   indentLevel + 1
   // )
-  log.indent(`Location: ${dataSet.provider.products.PDP?.data?.location ?? 'unknown'}`, indentLevel + 1)
+  log.indent(`Location: ${dataSet.provider.pdp?.location ?? 'unknown'}`, indentLevel + 1)
   // log.indent(
   //   `Payment token: ${formatPaymentToken(dataSet.provider.products.PDP?.data?.paymentTokenAddress ?? 'unknown')}`,
   //   indentLevel + 1
@@ -173,18 +134,34 @@ function renderMetadata(metadata: Record<string, string>, indentLevel: number = 
 function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
   const sizeDisplay = piece.size != null ? formatFileSize(piece.size) : pc.gray('unknown')
 
-  log.indent(pc.bold(`#${piece.pieceId}`), baseIndentLevel)
+  let pieceStatusDisplay: string
+  switch (piece.status) {
+    case PieceStatus.ACTIVE:
+      pieceStatusDisplay = pc.green('active')
+      break
+    case PieceStatus.PENDING_REMOVAL:
+      pieceStatusDisplay = pc.yellow('pending removal')
+      break
+    case PieceStatus.ONCHAIN_ORPHANED:
+      pieceStatusDisplay = pc.red('onchain orphaned')
+      break
+    case PieceStatus.OFFCHAIN_ORPHANED:
+      pieceStatusDisplay = pc.red('offchain orphaned')
+      break
+    default:
+      pieceStatusDisplay = pc.gray('unknown')
+      break
+  }
+  log.indent(pc.bold(`#${piece.pieceId} (${pieceStatusDisplay})`), baseIndentLevel)
   log.indent(`PieceCID: ${piece.pieceCid}`, baseIndentLevel + 1)
   log.indent(`Size: ${sizeDisplay}`, baseIndentLevel + 1)
-
   const extraMetadataEntries = Object.entries(piece.metadata ?? {})
-
   renderMetadata(Object.fromEntries(extraMetadataEntries), baseIndentLevel + 1)
 }
 
 function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
   log.indent(pc.bold('Pieces'), indentLevel)
-  log.indent(`Total pieces: ${dataSet.currentPieceCount}`, indentLevel + 1)
+  log.indent(`Total pieces: ${dataSet.activePieceCount}`, indentLevel + 1)
   if (dataSet.pieces == null || dataSet.pieces.length === 0) {
     log.line('')
     return
@@ -206,15 +183,20 @@ function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
 /**
  * Print the lightweight dataset list used for the default command output.
  */
-export function displayDataSets(dataSets: DataSetSummary[], network: string, address: string): void {
+export function displayDataSets(
+  dataSets: DataSetSummary[],
+  network: string,
+  address: string,
+  emptyMessage?: string
+): void {
   if (dataSets.length === 0) {
-    log.line(pc.yellow('No data sets managed by filecoin-pin were found for this account.'))
+    log.line(pc.yellow(emptyMessage ?? 'No data sets managed by filecoin-pin were found for this account.'))
     log.flush()
     return
   }
   renderNetworkDetails(network, address)
 
-  const ordered = [...dataSets].sort((a, b) => a.dataSetId - b.dataSetId)
+  const ordered = [...dataSets].sort((a, b) => (a.dataSetId < b.dataSetId ? -1 : a.dataSetId > b.dataSetId ? 1 : 0))
 
   for (const dataSet of ordered) {
     renderDataSetHeader(dataSet)

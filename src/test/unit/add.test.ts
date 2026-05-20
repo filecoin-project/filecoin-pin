@@ -14,47 +14,57 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runAdd } from '../../add/add.js'
 
+const { mockCarPath, mockFindDataSets } = vi.hoisted(() => ({
+  mockCarPath: 'test-add-files/mock.car',
+  mockFindDataSets: vi.fn().mockResolvedValue([]),
+}))
+
 // Mock the external dependencies at module level
 vi.mock('../../common/upload-flow.js', () => ({
   validatePaymentSetup: vi.fn(),
+  performAutoFunding: vi.fn(),
   performUpload: vi.fn().mockResolvedValue({
     pieceCid: 'bafkzcibtest1234567890',
-    pieceId: 789,
-    dataSetId: '456',
+    size: 1024,
+    copies: [
+      {
+        providerId: 1n,
+        dataSetId: 123n,
+        pieceId: 789n,
+        role: 'primary',
+        retrievalUrl: 'http://test.provider/pdp/piece/bafkzcibtest1234567890',
+        isNewDataSet: false,
+      },
+    ],
+    failedAttempts: [],
     network: 'calibration',
-    transactionHash: '0xabc123',
-    providerInfo: {
-      id: 1,
-      name: 'Test Provider',
-      serviceURL: 'http://test.provider',
-    },
   }),
   displayUploadResults: vi.fn(),
 }))
 
 vi.mock('../../core/synapse/index.js', () => ({
-  initializeSynapse: vi.fn().mockImplementation(async (config: any) => {
+  getClientAddress: vi.fn(() => '0x1234567890123456789012345678901234567890'),
+  initializeSynapse: vi.fn().mockImplementation((config: any) => {
     // Validate auth config (mirrors validateAuthConfig in actual code)
     const hasStandardAuth = config.privateKey != null
     const hasSessionKeyAuth = config.walletAddress != null && config.sessionKey != null
+    const hasViewOnlyAuth = config.readOnly === true && config.walletAddress != null
 
-    if (!hasStandardAuth && !hasSessionKeyAuth) {
-      throw new Error('Authentication required: provide either a privateKey or walletAddress + sessionKey')
+    if (!hasStandardAuth && !hasSessionKeyAuth && !hasViewOnlyAuth) {
+      throw new Error(
+        'Authentication required: provide either privateKey, walletAddress + sessionKey, view-address, or signer'
+      )
     }
 
     return {
-      getNetwork: () => 'calibration',
+      chain: { name: 'calibration', id: 314159 },
+      client: { account: { address: '0x1234567890123456789012345678901234567890' } },
+      storage: {
+        upload: vi.fn(),
+        findDataSets: mockFindDataSets,
+      },
     }
   }),
-  createStorageContext: vi.fn().mockResolvedValue({
-    storage: {},
-    providerInfo: {
-      id: 1,
-      name: 'Test Provider',
-      serviceURL: 'http://test.provider',
-    },
-  }),
-  cleanupSynapseService: vi.fn(),
 }))
 
 vi.mock('../../core/unixfs/index.js', () => ({
@@ -65,7 +75,7 @@ vi.mock('../../core/unixfs/index.js', () => ({
       ? 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi'
       : 'bafybeihw4ytkqxrq7q7e3p2l5s5di7zjzkhxdmfwvqfylkdamdg3xybpbq'
     return Promise.resolve({
-      carPath: '/tmp/test.car',
+      carPath: mockCarPath,
       rootCid: {
         toString: () => cid,
       },
@@ -82,31 +92,16 @@ vi.mock('../../utils/cli-helpers.js', () => ({
     start: vi.fn(),
     stop: vi.fn(),
     message: vi.fn(),
+    clear: vi.fn(),
   })),
   formatFileSize: vi.fn((size: number) => `${size} bytes`),
 }))
-
-// We need to partially mock fs/promises to keep real file operations for test setup
-// but mock readFile for the CAR reading part
-vi.mock('node:fs/promises', async () => {
-  const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
-  return {
-    ...actual,
-    readFile: vi.fn((path: string) => {
-      // If it's reading the temp CAR, return mock data
-      if (path === '/tmp/test.car') {
-        return Promise.resolve(Buffer.from('mock-car-data'))
-      }
-      // Otherwise use real readFile
-      return actual.readFile(path)
-    }),
-  }
-})
 
 // Test CID constants (defined after vi.mock calls due to hoisting)
 const TEST_BARE_CID = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi'
 const TEST_DIR_WRAPPED_CID = 'bafybeihw4ytkqxrq7q7e3p2l5s5di7zjzkhxdmfwvqfylkdamdg3xybpbq'
 const TEST_PIECE_CID = 'bafkzcibtest1234567890'
+const TEST_CAR_CONTENT = Buffer.from('mock-car-data')
 
 describe('Add Command', () => {
   const testDir = join(process.cwd(), 'test-add-files')
@@ -118,6 +113,7 @@ describe('Add Command', () => {
     // Create test directory and file
     await mkdir(testDir, { recursive: true })
     await writeFile(testFile, testContent)
+    await writeFile(join(process.cwd(), mockCarPath), TEST_CAR_CONTENT)
   })
 
   afterEach(async () => {
@@ -134,20 +130,17 @@ describe('Add Command', () => {
         rpcUrl: 'wss://test.rpc.url',
       })
 
-      // Verify the result structure (should use directory wrapper CID by default)
+      // Verify the result structure (multi-copy format)
       expect(result).toMatchObject({
         filePath: testFile,
         fileSize: expect.any(Number),
-        rootCid: TEST_DIR_WRAPPED_CID, // Directory wrapper CID
+        rootCid: TEST_DIR_WRAPPED_CID,
         pieceCid: TEST_PIECE_CID,
-        pieceId: 789,
-        dataSetId: '456',
-        transactionHash: '0xabc123',
-        providerInfo: {
-          id: 1,
-          name: 'Test Provider',
-        },
+        size: 1024,
       })
+      expect(result.copies).toHaveLength(1)
+      expect(result.copies[0]?.role).toBe('primary')
+      expect(result.failedAttempts).toHaveLength(0)
 
       // Verify createCarFromPath was called without bare flag
       const { createCarFromPath } = await import('../../core/unixfs/index.js')
@@ -158,6 +151,12 @@ describe('Add Command', () => {
           // bare is not passed when undefined, due to spread operator
         })
       )
+
+      const { performUpload } = await import('../../common/upload-flow.js')
+      const uploadData = vi.mocked(performUpload).mock.calls[0]?.[1]
+      const uploadOptions = vi.mocked(performUpload).mock.calls[0]?.[3]
+      expect(uploadData).toBeInstanceOf(ReadableStream)
+      expect(uploadOptions?.fileSize).toBe(TEST_CAR_CONTENT.length)
     })
 
     it('should successfully add a file in bare mode when specified', async () => {
@@ -168,20 +167,16 @@ describe('Add Command', () => {
         bare: true,
       })
 
-      // Verify the result structure (should use bare mode CID)
+      // Verify the result structure (multi-copy format)
       expect(result).toMatchObject({
         filePath: testFile,
         fileSize: expect.any(Number),
-        rootCid: TEST_BARE_CID, // Bare mode CID
+        rootCid: TEST_BARE_CID,
         pieceCid: TEST_PIECE_CID,
-        pieceId: 789,
-        dataSetId: '456',
-        transactionHash: '0xabc123',
-        providerInfo: {
-          id: 1,
-          name: 'Test Provider',
-        },
+        size: 1024,
       })
+      expect(result.copies).toHaveLength(1)
+      expect(result.failedAttempts).toHaveLength(0)
 
       // Verify createCarFromPath was called with bare flag
       const { createCarFromPath } = await import('../../core/unixfs/index.js')
@@ -194,42 +189,181 @@ describe('Add Command', () => {
       )
     })
 
-    it('should reject when file does not exist', async () => {
-      const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => {
-        throw new Error('process.exit called')
+    it('passes metadata options through to upload', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        pieceMetadata: { region: 'us-west', note: '' },
+        dataSetMetadata: { purpose: 'erc8004' },
       })
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      const { performUpload } = await import('../../common/upload-flow.js')
+
+      expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dataSetMetadata: { purpose: 'erc8004' },
+        }),
+        expect.anything()
+      )
+
+      // pieceMetadata goes through to performUpload
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          pieceMetadata: { region: 'us-west', note: '' },
+          metadata: { purpose: 'erc8004' },
+        })
+      )
+    })
+
+    it('passes data set selection options to performUpload', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        dataSetIds: '123',
+      })
+
+      const { performUpload } = await import('../../common/upload-flow.js')
+
+      // dataSetIds is parsed and passed through to performUpload
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          dataSetIds: [123n],
+          copies: 1,
+        })
+      )
+    })
+
+    it('resolves --data-set-metadata to dataSetIds and drops metadata when subset matches', async () => {
+      mockFindDataSets.mockResolvedValueOnce([
+        {
+          pdpVerifierDataSetId: 13260n,
+          providerId: 2n,
+          isLive: true,
+          metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' },
+        },
+        {
+          pdpVerifierDataSetId: 13261n,
+          providerId: 4n,
+          isLive: true,
+          metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' },
+        },
+      ])
+
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        dataSetMetadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
+      })
+
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          dataSetIds: [13260n, 13261n],
+        })
+      )
+      const lastCall = vi.mocked(performUpload).mock.calls.at(-1)
+      expect(lastCall?.[3]).not.toHaveProperty('metadata')
+    })
+
+    it('throws when --data-set-metadata matches too many data sets', async () => {
+      mockFindDataSets.mockResolvedValueOnce([
+        { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
+        { pdpVerifierDataSetId: 2n, providerId: 2n, isLive: true, metadata: { source: 'storacha-migration' } },
+        { pdpVerifierDataSetId: 3n, providerId: 3n, isLive: true, metadata: { source: 'storacha-migration' } },
+        { pdpVerifierDataSetId: 4n, providerId: 4n, isLive: true, metadata: { source: 'storacha-migration' } },
+      ])
+
+      await expect(
+        runAdd({
+          filePath: testFile,
+          privateKey: 'test-private-key',
+          rpcUrl: 'wss://test.rpc.url',
+          dataSetMetadata: { source: 'storacha-migration' },
+        })
+      ).rejects.toThrow(/matched 4 data sets.*expected 2/)
+    })
+
+    it('throws when --data-set-metadata matches too few data sets', async () => {
+      mockFindDataSets.mockResolvedValueOnce([
+        { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
+      ])
+
+      await expect(
+        runAdd({
+          filePath: testFile,
+          privateKey: 'test-private-key',
+          rpcUrl: 'wss://test.rpc.url',
+          dataSetMetadata: { source: 'storacha-migration' },
+        })
+      ).rejects.toThrow(/matched only 1 data set.*expected 2/)
+    })
+
+    it('passes upload targeting options through to auto-funding', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        autoFund: true,
+        providerIds: '7,8',
+        dataSetMetadata: { purpose: 'erc8004' },
+      })
+
+      const { performAutoFunding } = await import('../../common/upload-flow.js')
+
+      expect(vi.mocked(performAutoFunding)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        expect.anything(),
+        expect.objectContaining({
+          providerIds: [7n, 8n],
+          copies: 2,
+          metadata: { purpose: 'erc8004' },
+        })
+      )
+    })
+
+    it('should reject when file does not exist', async () => {
+      const mockExit = vi.spyOn(process, 'exit')
 
       await expect(
         runAdd({
           filePath: '/non/existent/file.txt',
           privateKey: 'test-key',
         })
-      ).rejects.toThrow('process.exit called')
+      ).rejects.toThrow('Path not found')
 
-      expect(mockExit).toHaveBeenCalledWith(1)
+      expect(mockExit).not.toHaveBeenCalled()
       mockExit.mockRestore()
     })
 
     it('should reject when private key is missing', async () => {
-      const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => {
-        throw new Error('process.exit called')
-      })
+      const mockExit = vi.spyOn(process, 'exit')
 
       await expect(
         runAdd({
           filePath: testFile,
           // No private key
         })
-      ).rejects.toThrow('process.exit called')
+      ).rejects.toThrow()
 
-      expect(mockExit).toHaveBeenCalledWith(1)
+      expect(mockExit).not.toHaveBeenCalled()
       mockExit.mockRestore()
     })
 
     it('should reject --bare flag with directories', async () => {
-      const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => {
-        throw new Error('process.exit called')
-      })
+      const mockExit = vi.spyOn(process, 'exit')
 
       await expect(
         runAdd({
@@ -237,9 +371,9 @@ describe('Add Command', () => {
           privateKey: 'test-key',
           bare: true, // --bare flag should not work with directories
         })
-      ).rejects.toThrow('process.exit called')
+      ).rejects.toThrow('--bare flag is not supported for directories')
 
-      expect(mockExit).toHaveBeenCalledWith(1)
+      expect(mockExit).not.toHaveBeenCalled()
       mockExit.mockRestore()
     })
   })
