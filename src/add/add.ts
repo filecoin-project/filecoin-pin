@@ -12,6 +12,7 @@ import pc from 'picocolors'
 import pino from 'pino'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
+import { describeLockupShortfall } from '../common/lockup-error.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
@@ -365,11 +366,21 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     const carInput = error instanceof Error && (error as { code?: string }).code === INPUT_IS_CAR
     const message = error instanceof Error ? error.message : 'Unknown error'
-    spinner.stop(`${pc.red('✗')} ${carInput ? message : `Add failed: ${message}`}`)
-    if (carInput) {
+    const lockup = describeLockupShortfall(error)
+    if (lockup != null) {
+      spinner.stop(`${pc.red('✗')} Add failed: ${lockup.headline}`)
       log.line('')
-      log.line(pc.cyan(`  filecoin-pin import ${options.filePath}`))
+      for (const hint of lockup.hints) {
+        log.line(`  ${pc.cyan(hint)}`)
+      }
       log.flush()
+    } else {
+      spinner.stop(`${pc.red('✗')} ${carInput ? message : `Add failed: ${message}`}`)
+      if (carInput) {
+        log.line('')
+        log.line(pc.cyan(`  filecoin-pin import ${options.filePath}`))
+        log.flush()
+      }
     }
     logger.error({ event: 'add.failed', error }, 'Add failed')
 

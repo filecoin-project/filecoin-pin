@@ -14,6 +14,7 @@ import pc from 'picocolors'
 import pino from 'pino'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
+import { describeLockupShortfall } from '../common/lockup-error.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
@@ -388,7 +389,17 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       throw error
     }
     const msg = error instanceof Error ? error.message : 'Unknown error'
-    spinner.stop(`${pc.red('✗')} Import failed: ${msg}`)
+    const lockup = describeLockupShortfall(error)
+    if (lockup != null) {
+      spinner.stop(`${pc.red('✗')} Import failed: ${lockup.headline}`)
+      log.line('')
+      for (const hint of lockup.hints) {
+        log.line(`  ${pc.cyan(hint)}`)
+      }
+      log.flush()
+    } else {
+      spinner.stop(`${pc.red('✗')} Import failed: ${msg}`)
+    }
     logger.error({ event: 'import.failed', error }, 'Import failed')
 
     cancel('Import failed')
