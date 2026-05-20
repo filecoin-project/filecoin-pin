@@ -12,6 +12,42 @@ import { type Address, createWalletClient, type Hex, http, type LocalAccount, we
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { APPLICATION_SOURCE } from '../synapse/constants.js'
 
+export interface SessionKeypair {
+  privateKey: Hex
+  address: Address
+}
+
+/**
+ * Generates a fresh session keypair locally. No chain interaction.
+ *
+ * Intended for the two-party flow: the consumer runs this on their own machine,
+ * shares only the returned `address` with the owner, and keeps `privateKey`
+ * secret.
+ */
+export function generateSessionKeypair(): SessionKeypair {
+  const privateKey = generatePrivateKey()
+  const { address } = privateKeyToAccount(privateKey)
+  return { privateKey, address }
+}
+
+/**
+ * Formats a freshly generated session keypair for display to the user.
+ */
+export function formatSessionKeypairOutput(keypair: SessionKeypair): string {
+  return `
+==========================================
+Session keypair generated locally
+==========================================
+Keep SESSION_KEY secret. Share ONLY SESSION_ADDRESS with the wallet owner so they
+can authorize it via: filecoin-pin session create --session-address <addr>
+
+Save these to your .env file:
+------------------------------------------
+SESSION_KEY=${keypair.privateKey}
+SESSION_ADDRESS=${keypair.address}
+`.trim()
+}
+
 export interface SessionKeyResult {
   /** The session key account (newly generated or derived from sessionPrivateKey) */
   sessionAccount: LocalAccount

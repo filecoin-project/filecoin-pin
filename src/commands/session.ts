@@ -9,7 +9,12 @@ import { Command } from 'commander'
 import picocolors from 'picocolors'
 import type { Hex } from 'viem'
 import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rpc-url.js'
-import { createSessionKey, formatSessionKeyOutput } from '../core/session/create-session-key.js'
+import {
+  createSessionKey,
+  formatSessionKeyOutput,
+  formatSessionKeypairOutput,
+  generateSessionKeypair,
+} from '../core/session/create-session-key.js'
 import type { Chain } from '../core/synapse/index.js'
 import { addAuthOptions } from '../utils/cli-options.js'
 
@@ -76,3 +81,14 @@ const createCommand = new Command('create')
 
 addAuthOptions(createCommand)
 sessionCommand.addCommand(createCommand)
+
+const generateCommand = new Command('generate')
+  .description(
+    'Generate a session keypair locally with no chain interaction. Share only SESSION_ADDRESS with the wallet owner so they can authorize it.'
+  )
+  .action(() => {
+    const keypair = generateSessionKeypair()
+    console.log(formatSessionKeypairOutput(keypair))
+  })
+
+sessionCommand.addCommand(generateCommand)

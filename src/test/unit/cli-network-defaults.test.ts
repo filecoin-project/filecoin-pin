@@ -26,9 +26,12 @@ const roots: Array<[string, Command]> = [
   ['session', sessionCommand],
 ]
 
-const leaves = roots.flatMap(([root, cmd]) =>
-  leafCommands(cmd).map((leaf) => [`${root} ${leaf.name()}`.trim(), leaf] as const)
-)
+// Local-only leaves that intentionally skip --network (no chain interaction).
+const LOCAL_ONLY_LEAVES = new Set(['session generate'])
+
+const leaves = roots
+  .flatMap(([root, cmd]) => leafCommands(cmd).map((leaf) => [`${root} ${leaf.name()}`.trim(), leaf] as const))
+  .filter(([label]) => !LOCAL_ONLY_LEAVES.has(label))
 
 describe('CLI --network option', () => {
   it.each(leaves)('%s exposes --network with the supported choices', (label, leaf) => {
