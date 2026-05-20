@@ -8,7 +8,7 @@
 
 import { DefaultFwssPermissions, loginSync } from '@filoz/synapse-core/session-key'
 import type { Chain } from '@filoz/synapse-sdk'
-import { type Address, createWalletClient, type Hex, http, type LocalAccount } from 'viem'
+import { type Address, createWalletClient, type Hex, http, type LocalAccount, webSocket } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { APPLICATION_SOURCE } from '../synapse/constants.js'
 
@@ -94,10 +94,11 @@ export async function createSessionKey(options: CreateSessionKeyOptions): Promis
     registry: registryAddress,
   })
 
+  const transport = /^ws(s)?:\/\//i.test(rpcUrl) ? webSocket(rpcUrl) : http(rpcUrl)
   const client = createWalletClient({
     account: ownerAccount,
     chain,
-    transport: http(rpcUrl),
+    transport,
   })
 
   onProgress?.('Authorizing session key on-chain (this may take a minute)...', {
