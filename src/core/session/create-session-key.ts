@@ -6,25 +6,11 @@
  * the main private key.
  */
 
-import {
-  AddPiecesPermission,
-  CreateDataSetPermission,
-  loginSync,
-  type Permission,
-} from '@filoz/synapse-core/session-key'
+import { DefaultFwssPermissions, loginSync } from '@filoz/synapse-core/session-key'
 import type { Chain } from '@filoz/synapse-sdk'
 import { type Address, createWalletClient, type Hex, http, type LocalAccount } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { APPLICATION_SOURCE } from '../synapse/constants.js'
-
-/**
- * Permission type hashes for the session key registry
- * Re-exported from synapse-core for convenience
- */
-export const PERMISSION_TYPE_HASHES = {
-  CREATE_DATA_SET: CreateDataSetPermission,
-  ADD_PIECES: AddPiecesPermission,
-} as const
 
 export interface SessionKeyResult {
   /** The session key account (newly generated or derived from sessionPrivateKey) */
@@ -119,10 +105,9 @@ export async function createSessionKey(options: CreateSessionKeyOptions): Promis
     rpcUrl,
   })
 
-  const permissions: Permission[] = [PERMISSION_TYPE_HASHES.CREATE_DATA_SET, PERMISSION_TYPE_HASHES.ADD_PIECES]
   const { receipt } = await loginSync(client, {
     address: sessionAccount.address,
-    permissions,
+    permissions: DefaultFwssPermissions,
     expiresAt: BigInt(expiry),
     origin: APPLICATION_SOURCE,
     contractAddress: registryAddress,
