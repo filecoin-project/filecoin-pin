@@ -5,9 +5,9 @@
  * that allow delegated access to Synapse SDK without exposing the main private key.
  */
 
-import { Command } from 'commander'
+import { Command, Option } from 'commander'
 import picocolors from 'picocolors'
-import type { Hex } from 'viem'
+import { type Address, getAddress, type Hex } from 'viem'
 import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rpc-url.js'
 import {
   createSessionKey,
@@ -23,9 +23,20 @@ export const sessionCommand = new Command('session').description(
 )
 
 const createCommand = new Command('create')
-  .description('Create and authorize a new session key')
+  .description('Authorize a session key on-chain for delegated access')
   .option('--validity-days <days>', 'Number of days the session key should be valid', '10')
-  .option('--session-private-key <key>', 'Private key for the session wallet (can also use SESSION_PRIVATE_KEY env)')
+  .addOption(
+    new Option(
+      '--session-private-key <key>',
+      'Private key for the session wallet (can also use SESSION_PRIVATE_KEY env). Generates a fresh key if omitted.'
+    ).conflicts('sessionAddress')
+  )
+  .addOption(
+    new Option(
+      '--session-address <addr>',
+      'Authorize an externally generated session address (two-party flow). Mutually exclusive with --session-private-key.'
+    ).conflicts('sessionPrivateKey')
+  )
   .action(async (options) => {
     try {
       const privateKey = options.privateKey || process.env.PRIVATE_KEY
@@ -35,6 +46,20 @@ const createCommand = new Command('create')
       }
 
       const sessionPrivateKey = options.sessionPrivateKey || process.env.SESSION_PRIVATE_KEY
+      const sessionAddressRaw = options.sessionAddress || process.env.SESSION_ADDRESS
+      if (sessionPrivateKey && sessionAddressRaw) {
+        console.error(picocolors.red('Error: --session-private-key and --session-address are mutually exclusive'))
+        process.exit(1)
+      }
+      let sessionAddress: Address | undefined
+      if (sessionAddressRaw) {
+        try {
+          sessionAddress = getAddress(sessionAddressRaw)
+        } catch {
+          console.error(picocolors.red(`Error: invalid --session-address: ${sessionAddressRaw}`))
+          process.exit(1)
+        }
+      }
 
       const validityDays = Number.parseInt(options.validityDays, 10)
       if (Number.isNaN(validityDays) || validityDays <= 0) {
@@ -58,6 +83,7 @@ const createCommand = new Command('create')
       const result = await createSessionKey({
         privateKey: privateKey as Hex,
         ...(sessionPrivateKey ? { sessionPrivateKey: sessionPrivateKey as Hex } : {}),
+        ...(sessionAddress ? { sessionAddress } : {}),
         validityDays,
         chain,
         rpcUrl,
