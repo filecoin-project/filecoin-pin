@@ -260,6 +260,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     spinner.stop(`${pc.green('✓')} Packed IPFS content ready (${formatFileSize(carSize)})`)
 
     const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {
+      withCDN,
       ...(dataSetMetadata && { metadata: dataSetMetadata }),
       ...(options.copies != null && { copies: options.copies }),
     }

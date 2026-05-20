@@ -287,6 +287,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     if (options.autoFund) {
       const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {
+        withCDN,
         ...(dataSetMetadata && { metadata: dataSetMetadata }),
         ...(options.copies != null && { copies: options.copies }),
       }

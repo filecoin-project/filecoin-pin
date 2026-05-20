@@ -110,7 +110,7 @@ export async function performAutoFunding(
   spinner?: Spinner,
   options: Pick<
     AutoFundOptions,
-    'minRunwayDays' | 'maxBalance' | 'copies' | 'providerIds' | 'dataSetIds' | 'metadata'
+    'minRunwayDays' | 'maxBalance' | 'copies' | 'providerIds' | 'dataSetIds' | 'metadata' | 'withCDN'
   > = {}
 ): Promise<void> {
   spinner?.start('Checking funding requirements for upload...')
@@ -123,6 +123,7 @@ export async function performAutoFunding(
       ...(options?.providerIds != null ? { providerIds: options.providerIds } : {}),
       ...(options?.dataSetIds != null ? { dataSetIds: options.dataSetIds } : {}),
       ...(options?.metadata != null ? { metadata: options.metadata } : {}),
+      ...(options?.withCDN != null ? { withCDN: options.withCDN } : {}),
     }
     if (spinner !== undefined) {
       fundOptions.spinner = spinner
