@@ -1,38 +1,21 @@
 /**
- * Session key creation for delegated access to Synapse SDK
- *
- * This module provides functionality to create and authorize session keys
- * for use with the Synapse SDK, allowing delegated access without exposing
- * the main private key.
- *
- * Two flows are supported:
- *   1. Single-party: owner generates session key locally (or supplies one) and
- *      authorizes it on-chain. Owner ends up with both keys.
- *   2. Two-party: consumer generates session keypair locally and shares only the
- *      public session address. Owner authorizes that address on-chain without
- *      ever seeing the session private key. Consumer never sees the owner
- *      private key. See {@link generateSessionKeypair} and the `sessionAddress`
- *      option on {@link createSessionKey}.
+ * High-level wrappers around {@link authorizeSessionAddress} for use cases where
+ * the caller provides a raw private key (typical CLI flow).
  */
 
-import { DefaultFwssPermissions, loginSync } from '@filoz/synapse-core/session-key'
+import type { Permission } from '@filoz/synapse-core/session-key'
 import type { Chain } from '@filoz/synapse-sdk'
-import { type Address, createWalletClient, getAddress, type Hex, http, type LocalAccount, webSocket } from 'viem'
+import { type Address, createWalletClient, type Hex, http, type Transport, webSocket } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
-import { APPLICATION_SOURCE } from '../synapse/constants.js'
-
-export interface SessionKeypair {
-  privateKey: Hex
-  address: Address
-}
+import type { ProgressEventHandler } from '../utils/types.js'
+import { authorizeSessionAddress } from './authorize-session.js'
+import type { CreateSessionKeyProgressEvents, CreateSessionKeyResult, SessionKeypair } from './types.js'
 
 /**
- * Generates a fresh session keypair locally. No chain interaction.
+ * Generate a fresh secp256k1 keypair. No chain interaction.
  *
- * Intended for the two-party flow: the consumer runs this on their own machine,
- * shares only the returned `address` with the owner, and keeps `privateKey`
- * secret. The owner then authorizes that address via {@link createSessionKey}
- * with `sessionAddress`.
+ * Any valid EVM address — from this helper, MetaMask, a hardware wallet,
+ * `cast wallet new`, etc. — is accepted by {@link authorizeSessionAddress}.
  */
 export function generateSessionKeypair(): SessionKeypair {
   const privateKey = generatePrivateKey()
@@ -40,201 +23,65 @@ export function generateSessionKeypair(): SessionKeypair {
   return { privateKey, address }
 }
 
-/**
- * Formats a freshly generated session keypair (two-party flow, consumer side).
- */
-export function formatSessionKeypairOutput(keypair: SessionKeypair): string {
-  return `
-==========================================
-Session keypair generated locally
-==========================================
-Keep SESSION_KEY secret. Share ONLY SESSION_ADDRESS with the wallet owner so they
-can authorize it via: filecoin-pin session create --session-address <addr>
-
-Save these to your .env file:
-------------------------------------------
-SESSION_KEY=${keypair.privateKey}
-SESSION_ADDRESS=${keypair.address}
-`.trim()
-}
-
-export interface SessionKeyResult {
-  /** Session key account. Undefined when authorizing a remote address whose private key isn't local. */
-  sessionAccount?: LocalAccount
-  /** Session wallet private key. Undefined when authorizing a remote address. */
-  sessionPrivateKey?: Hex
-  /** Authorized session key address (always present). */
-  sessionAddress: Address
-  /** The owner account that authorized the session key */
-  ownerAccount: LocalAccount
-  /** Unix timestamp when the session key expires */
-  expiry: number
-  /** Number of days the session key is valid */
-  validityDays: number
-  /** The session key registry contract address used */
-  registryAddress: Address
-  /** The RPC URL used */
-  rpcUrl: string
-}
-
-interface CreateSessionKeyCommonOptions {
-  /** Private key of the wallet that will authorize the session key */
+export interface CreateSessionKeyOptions {
+  /** Owner private key used to sign the on-chain `login()` */
   privateKey: Hex
-  /** Number of days the session key should be valid (default: 10) */
+  /** Optional pre-existing session key. If omitted, a fresh key is generated. */
+  sessionPrivateKey?: Hex
+  /** Number of days the authorization is valid (default: 10). Capped at 365 days. */
   validityDays?: number
+  /** Permissions to grant. */
+  permissions?: readonly Permission[]
   /** Target Filecoin chain */
   chain: Chain
-  /** RPC URL to use */
+  /** RPC URL to use. WebSocket URLs (ws/wss) use a websocket transport, everything else http. */
   rpcUrl: string
-  /** Optional override for the session key registry contract address */
+  /** Override for the session key registry contract address */
   registryAddress?: Address
-  /** Progress callback for logging/UI updates */
-  onProgress?: (step: string, details?: Record<string, string>) => void
-}
-
-export type CreateSessionKeyOptions = CreateSessionKeyCommonOptions & {
-  /** Session wallet private key. If omitted (and no `sessionAddress`), a random key is generated. */
-  sessionPrivateKey?: Hex
-  /**
-   * Public address to authorize. Use when the session private key was generated by another
-   * party and only the address was shared. Mutually exclusive with `sessionPrivateKey`.
-   */
-  sessionAddress?: Address
+  /** Optional progress event handler */
+  onProgress?: ProgressEventHandler<CreateSessionKeyProgressEvents>
 }
 
 /**
- * Creates and authorizes a session key for use with Synapse SDK.
+ * Single-party flow: derive an owner client from a raw private key, generate
+ * (or reuse) a session key locally, and authorize it on-chain.
  *
- * 1. Resolves the session key target — provided private key, provided address, or fresh keypair
- * 2. Calculates the expiry timestamp from validity days
- * 3. Calls the session-key registry's `login()` to authorize the session key with the full
- *    `DefaultFwssPermissions` set
+ * For the two-party / external-wallet flow, build a viem client and call
+ * {@link authorizeSessionAddress} directly.
  */
-export async function createSessionKey(options: CreateSessionKeyOptions): Promise<SessionKeyResult> {
+export async function createSessionKey(options: CreateSessionKeyOptions): Promise<CreateSessionKeyResult> {
   const {
     privateKey,
     sessionPrivateKey: providedSessionKey,
-    sessionAddress: providedSessionAddress,
-    validityDays = 10,
+    validityDays,
+    permissions,
     chain,
     rpcUrl,
+    registryAddress,
     onProgress,
   } = options
 
-  if (providedSessionKey && providedSessionAddress) {
-    throw new Error('Provide either sessionPrivateKey or sessionAddress, not both')
-  }
+  const sessionPrivateKey = providedSessionKey ?? generatePrivateKey()
+  const sessionAccount = privateKeyToAccount(sessionPrivateKey)
 
-  let sessionPrivateKey: Hex | undefined
-  let sessionAccount: LocalAccount | undefined
-  let sessionAddress: Address
-
-  if (providedSessionAddress) {
-    onProgress?.('Authorizing externally generated session address...', {})
-    sessionAddress = getAddress(providedSessionAddress)
-    onProgress?.('Session address to authorize', { address: sessionAddress })
-  } else {
-    if (providedSessionKey) {
-      onProgress?.('Using provided session private key...', {})
-      sessionPrivateKey = providedSessionKey
-    } else {
-      onProgress?.('Generating new session key...', {})
-      sessionPrivateKey = generatePrivateKey()
-    }
-    sessionAccount = privateKeyToAccount(sessionPrivateKey)
-    sessionAddress = sessionAccount.address
-    onProgress?.(providedSessionKey ? 'Using provided session key' : 'Generated session key', {
-      address: sessionAddress,
-      privateKey: `${sessionPrivateKey.slice(0, 20)}...`,
-    })
-  }
-
-  onProgress?.('Calculating expiry timestamp...', {})
-  const currentTime = Math.floor(Date.now() / 1000)
-  const expiry = currentTime + validityDays * 24 * 60 * 60
-  const expiryDate = new Date(expiry * 1000).toISOString()
-  onProgress?.('Calculated expiry', {
-    expiry: expiryDate,
-    validityDays: String(validityDays),
+  onProgress?.({
+    type: providedSessionKey ? 'createSessionKey:reusedSessionKey' : 'createSessionKey:generated',
+    data: { sessionAddress: sessionAccount.address },
   })
 
-  onProgress?.('Initializing wallet and resolving registry address...', {})
   const ownerAccount = privateKeyToAccount(privateKey)
-  const registryAddress = options.registryAddress ?? chain.contracts.sessionKeyRegistry.address
-  if (!registryAddress) {
-    throw new Error(`No session key registry address configured for chain id ${chain.id}`)
+  const transport: Transport = /^ws(s)?:\/\//i.test(rpcUrl) ? webSocket(rpcUrl) : http(rpcUrl)
+  const client = createWalletClient({ account: ownerAccount, chain, transport })
+
+  const authorizeOptions: Parameters<typeof authorizeSessionAddress>[1] = {
+    sessionAddress: sessionAccount.address,
   }
-  onProgress?.('Owner wallet initialized', {
-    address: ownerAccount.address,
-    registry: registryAddress,
-  })
+  if (validityDays !== undefined) authorizeOptions.validityDays = validityDays
+  if (permissions !== undefined) authorizeOptions.permissions = permissions
+  if (registryAddress !== undefined) authorizeOptions.registryAddress = registryAddress
+  if (onProgress !== undefined) authorizeOptions.onProgress = onProgress
 
-  const transport = /^ws(s)?:\/\//i.test(rpcUrl) ? webSocket(rpcUrl) : http(rpcUrl)
-  const client = createWalletClient({
-    account: ownerAccount,
-    chain,
-    transport,
-  })
+  const result = await authorizeSessionAddress(client, authorizeOptions)
 
-  onProgress?.('Authorizing session key on-chain (this may take a minute)...', {
-    registry: registryAddress,
-    rpcUrl,
-  })
-
-  const { receipt } = await loginSync(client, {
-    address: sessionAddress,
-    permissions: DefaultFwssPermissions,
-    expiresAt: BigInt(expiry),
-    origin: APPLICATION_SOURCE,
-    contractAddress: registryAddress,
-    onHash: (hash) => onProgress?.('Transaction submitted', { txHash: hash }),
-  })
-  onProgress?.('Transaction confirmed', {
-    txHash: receipt.transactionHash,
-    blockNumber: String(receipt.blockNumber),
-  })
-
-  const result: SessionKeyResult = {
-    sessionAddress,
-    ownerAccount,
-    expiry,
-    validityDays,
-    registryAddress,
-    rpcUrl,
-  }
-  if (sessionAccount) result.sessionAccount = sessionAccount
-  if (sessionPrivateKey) result.sessionPrivateKey = sessionPrivateKey
-  return result
-}
-
-/**
- * Formats session key result for display to the user.
- *
- * When the session private key isn't held locally (two-party flow), the SESSION_KEY
- * line is omitted and a note is shown instead.
- */
-export function formatSessionKeyOutput(result: SessionKeyResult): string {
-  const expiryDate = new Date(result.expiry * 1000).toISOString().replace('T', ' ').split('.')[0]
-  const sessionKeyBlock = result.sessionPrivateKey
-    ? `SESSION_KEY=${result.sessionPrivateKey}`
-    : 'SESSION_KEY=<held by the session-key holder; not on this machine>'
-
-  return `
-==========================================
-Session key authorized successfully!
-==========================================
-Validity: ${result.validityDays} days (expires: ${expiryDate})
-
-Share these with the session-key holder:
-------------------------------------------
-WALLET_ADDRESS=${result.ownerAccount.address}
-${sessionKeyBlock}
-
-Session key info (for debugging):
-------------------------------------------
-SESSION_KEY_ADDRESS=${result.sessionAddress}
-OWNER_ADDRESS=${result.ownerAccount.address}
-REGISTRY=${result.registryAddress}
-EXPIRY=${result.expiry}
-`.trim()
+  return { ...result, sessionPrivateKey }
 }

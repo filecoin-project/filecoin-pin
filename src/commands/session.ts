@@ -1,120 +1,55 @@
 /**
- * Session key management commands
+ * Commander wiring for the `session` command tree.
  *
- * This module provides CLI commands for creating and managing session keys
- * that allow delegated access to Synapse SDK without exposing the main private key.
+ * Parses arguments, dispatches to runners in `src/session/`, and maps thrown
+ * errors to exit codes. All user-facing output lives in the runners.
  */
 
-import { Command, Option } from 'commander'
-import picocolors from 'picocolors'
-import { type Address, getAddress, type Hex } from 'viem'
-import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rpc-url.js'
-import {
-  createSessionKey,
-  formatSessionKeyOutput,
-  formatSessionKeypairOutput,
-  generateSessionKeypair,
-} from '../core/session/create-session-key.js'
-import type { Chain } from '../core/synapse/index.js'
-import { addAuthOptions } from '../utils/cli-options.js'
+import { Command } from 'commander'
+import { runSessionAuthorize, runSessionCreate, runSessionGenerate } from '../session/index.js'
+import { addOwnerAuthOptions } from '../utils/cli-options.js'
 
 export const sessionCommand = new Command('session').description(
-  'Manage session keys for delegated access to Synapse SDK'
+  'Authorize and manage session keys for delegated FWSS access'
 )
 
+// session create — single-party: owner generates (or reuses) a session key and
+// authorizes it on-chain.
 const createCommand = new Command('create')
-  .description('Authorize a session key on-chain for delegated access')
-  .option('--validity-days <days>', 'Number of days the session key should be valid', '10')
-  .addOption(
-    new Option(
-      '--session-private-key <key>',
-      'Private key for the session wallet (can also use SESSION_PRIVATE_KEY env). Generates a fresh key if omitted.'
-    ).conflicts('sessionAddress')
-  )
-  .addOption(
-    new Option(
-      '--session-address <addr>',
-      'Authorize an externally generated session address (two-party flow). Mutually exclusive with --session-private-key.'
-    ).conflicts('sessionPrivateKey')
-  )
+  .description('Generate (or reuse) a session key and authorize it on-chain')
+  .option('--validity-days <days>', 'Number of days the session key should be valid (max 365)', '10')
+  .option('--session-key <key>', 'Reuse an existing session private key (can also use SESSION_KEY env)')
   .action(async (options) => {
     try {
-      const privateKey = options.privateKey || process.env.PRIVATE_KEY
-      if (!privateKey) {
-        console.error(picocolors.red('Error: PRIVATE_KEY environment variable or --private-key option is required'))
-        process.exit(1)
-      }
-
-      const sessionPrivateKey = options.sessionPrivateKey || process.env.SESSION_PRIVATE_KEY
-      const sessionAddressRaw = options.sessionAddress || process.env.SESSION_ADDRESS
-      if (sessionPrivateKey && sessionAddressRaw) {
-        console.error(picocolors.red('Error: --session-private-key and --session-address are mutually exclusive'))
-        process.exit(1)
-      }
-      let sessionAddress: Address | undefined
-      if (sessionAddressRaw) {
-        try {
-          sessionAddress = getAddress(sessionAddressRaw)
-        } catch {
-          console.error(picocolors.red(`Error: invalid --session-address: ${sessionAddressRaw}`))
-          process.exit(1)
-        }
-      }
-
-      const validityDays = Number.parseInt(options.validityDays, 10)
-      if (Number.isNaN(validityDays) || validityDays <= 0) {
-        console.error(picocolors.red(`Error: Invalid validity days: ${options.validityDays}`))
-        process.exit(1)
-      }
-
-      const network = options.network?.toLowerCase().trim()
-      let chain: Chain
-      if (network === 'devnet') {
-        chain = resolveDevnetConfig().chain
-      } else if (network === 'calibration') {
-        chain = NETWORK_CHAINS.calibration
-      } else if (network === 'mainnet') {
-        chain = NETWORK_CHAINS.mainnet
-      } else {
-        chain = NETWORK_CHAINS.mainnet
-      }
-      const rpcUrl = getRpcUrl(options)
-
-      const result = await createSessionKey({
-        privateKey: privateKey as Hex,
-        ...(sessionPrivateKey ? { sessionPrivateKey: sessionPrivateKey as Hex } : {}),
-        ...(sessionAddress ? { sessionAddress } : {}),
-        validityDays,
-        chain,
-        rpcUrl,
-        onProgress: (step, details) => {
-          console.log(picocolors.cyan(`${step}`))
-          if (details && Object.keys(details).length > 0) {
-            for (const [key, value] of Object.entries(details)) {
-              console.log(picocolors.dim(`  ${key}: ${value}`))
-            }
-          }
-        },
-      })
-
-      console.log('')
-      console.log(formatSessionKeyOutput(result))
-    } catch (error) {
-      console.error(picocolors.red('Session key creation failed:'), error instanceof Error ? error.message : error)
+      await runSessionCreate(options)
+    } catch {
       process.exit(1)
     }
   })
-
-addAuthOptions(createCommand)
+addOwnerAuthOptions(createCommand)
 sessionCommand.addCommand(createCommand)
 
-const generateCommand = new Command('generate')
-  .description(
-    'Generate a session keypair locally with no chain interaction. Share only SESSION_ADDRESS with the wallet owner so they can authorize it.'
-  )
-  .action(() => {
-    const keypair = generateSessionKeypair()
-    console.log(formatSessionKeypairOutput(keypair))
+// session authorize <session-address> — two-party owner side: sign login() for
+// an externally generated session address.
+const authorizeCommand = new Command('authorize')
+  .description('Authorize an externally generated session address on-chain (two-party flow)')
+  .argument('<session-address>', 'Session address to authorize')
+  .option('--validity-days <days>', 'Number of days the authorization is valid (max 365)', '10')
+  .action(async (sessionAddress, options) => {
+    try {
+      await runSessionAuthorize({ ...options, sessionAddress })
+    } catch {
+      process.exit(1)
+    }
   })
+addOwnerAuthOptions(authorizeCommand)
+sessionCommand.addCommand(authorizeCommand)
 
+// session generate — local-only keypair generation (consumer side of the
+// two-party flow). No chain interaction.
+const generateCommand = new Command('generate')
+  .description('Generate a session keypair locally (no chain interaction; consumer side of the two-party flow)')
+  .action(() => {
+    runSessionGenerate()
+  })
 sessionCommand.addCommand(generateCommand)
