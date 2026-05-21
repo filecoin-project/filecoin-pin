@@ -74,8 +74,14 @@ program.hook('postAction', async (_thisCommand, actionCommand) => {
   // which hides the underlying socket. The server command manages its own
   // lifecycle via SIGINT/SIGTERM, so only force-exit for CLI commands.
   if (actionCommand.name() !== 'server') {
-    await shutdownTelemetry()
-    process.exit(process.exitCode ?? 0)
+    try {
+      await shutdownTelemetry()
+    } catch (err) {
+      // Never let a telemetry flush failure block the forced exit below.
+      console.error('Telemetry shutdown failed:', err)
+    } finally {
+      process.exit(process.exitCode ?? 0)
+    }
   }
 })
 

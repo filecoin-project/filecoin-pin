@@ -67,8 +67,13 @@ main()
   .then(async () => {
     // Real uploads can leave SDK/network handles open after all action work is done.
     // Exit explicitly so GitHub Actions can run post-action cleanup steps.
-    await shutdownTelemetry()
-    process.exit(0)
+    try {
+      await shutdownTelemetry()
+    } catch (err) {
+      core.warning(`Telemetry shutdown failed: ${getErrorMessage(err)}`)
+    } finally {
+      process.exit(0)
+    }
   })
   .catch(async (err) => {
     // Complete check with failure
@@ -79,6 +84,11 @@ main()
     })
 
     handleError(err)
-    await shutdownTelemetry()
-    process.exit(1)
+    try {
+      await shutdownTelemetry()
+    } catch (telemetryErr) {
+      core.warning(`Telemetry shutdown failed: ${getErrorMessage(telemetryErr)}`)
+    } finally {
+      process.exit(1)
+    }
   })

@@ -31,8 +31,13 @@ export async function startServer(): Promise<void> {
         logger.info('Received SIGINT, shutting down gracefully...')
         await server.close()
         await pinStore.stop()
-        await shutdownTelemetry()
-        process.exit(0)
+        try {
+          await shutdownTelemetry()
+        } catch (err) {
+          logger.error({ err }, 'Telemetry shutdown failed')
+        } finally {
+          process.exit(0)
+        }
       })()
     })
 
@@ -41,8 +46,13 @@ export async function startServer(): Promise<void> {
         logger.info('Received SIGTERM, shutting down gracefully...')
         await server.close()
         await pinStore.stop()
-        await shutdownTelemetry()
-        process.exit(0)
+        try {
+          await shutdownTelemetry()
+        } catch (err) {
+          logger.error({ err }, 'Telemetry shutdown failed')
+        } finally {
+          process.exit(0)
+        }
       })()
     })
 
