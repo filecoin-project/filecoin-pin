@@ -112,14 +112,24 @@ The affordances were [discussed more above](#affordances).  All affordances use 
 ## CLI Telemetry
 
 Filecoin Pin's CLI collects telemetry.  A few things:
-* Telemetry always [has a way to be disabled](#how-to-disable-telemetry).
+* Telemetry always [has a way to be disabled](#how-to-disable-cli-telemetry).
 * We don't collect Personal identifiable information (PII).
 * With our [end user affordance](#affordances) we expect to make telemetry on by default, requiring a consumer/user to opt out.  We are defaulting as "enabled" to help make sure we have a good pulse on the user experience and can address issues correctly.
 * In this [pre-v1 season](https://github.com/filecoin-project/filecoin-pin/issues/187), we are particularly focused on helping maintainers validate functionality and iron out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on.
 
+What we collect:
+* **Error reports** via Sentry (no PII).
+* **Per-upload copy outcomes** via OpenTelemetry, so we can measure the success rate of multi-copy uploads and identify which storage providers (or pipeline steps) are failing. Two counters are emitted:
+  * `upload.copies.success` — incremented per successful copy. Attributes: `upload.spId` (storage provider ID), `upload.role` (`primary`/`secondary`), `network`.
+  * `upload.copies.failure` — incremented per failed copy attempt. Attributes: `upload.spId`, `upload.role`, `upload.step` (`pull`/`commit`/`unknown`), `network`.
+
+  The BetterStack source token is shipped in source, so the data source is treated as public and untrusted. Send your own copy with `FILECOIN_PIN_OTLP_METRICS_ENDPOINT` and `FILECOIN_PIN_OTLP_METRICS_TOKEN`.
+
+  **Delivery model.** Metrics are batched in memory and exported every 60 seconds by the OpenTelemetry SDK. The CLI, pinning server, and GitHub Action all flush explicitly on shutdown. When `filecoin-pin` is used as a library, the telemetry module registers a one-shot `process.once('beforeExit', …)` handler that flushes when the host's event loop drains naturally — so short-lived scripts deliver their metrics without any extra wiring. **Long-running library consumers that terminate via `process.exit()`, `SIGINT`, or `SIGTERM` should call `shutdownTelemetry()` (exported from `filecoin-pin/core/telemetry`) on graceful shutdown to flush before exit.**
+
 ### How to disable CLI telemetry
 
-Set the environment variable `FILECOIN_PIN_TELEMETRY_DISABLED=true`.
+Set the environment variable `FILECOIN_PIN_TELEMETRY_DISABLED=true` (or the cross-tool standard `DO_NOT_TRACK=1`).
 
 ## Quick Start
 
@@ -238,6 +248,12 @@ HOST=localhost                 # Daemon server host
 DATABASE_PATH=./pins.db        # SQLite database location
 CAR_STORAGE_PATH=./cars        # CAR file storage directory
 LOG_LEVEL=info                 # Logging verbosity (info, debug, error)
+
+# Optional - Telemetry (see "CLI Telemetry" above)
+FILECOIN_PIN_TELEMETRY_DISABLED=true        # Disable all telemetry
+DO_NOT_TRACK=1                              # Standard cross-tool opt-out
+FILECOIN_PIN_OTLP_METRICS_ENDPOINT=https://… # Override OTLP metrics endpoint
+FILECOIN_PIN_OTLP_METRICS_TOKEN=…           # Override OTLP metrics token
 ```
 
 ### Default Data Directories

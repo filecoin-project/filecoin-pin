@@ -5,6 +5,7 @@ import pc from 'picocolors'
 
 import { ALL_CLI_COMMANDS } from './commands/index.js'
 import { checkForUpdate, type UpdateCheckStatus } from './common/version-check.js'
+import { shutdownTelemetry } from './core/telemetry/index.js'
 import { version as packageVersion } from './core/utils/version.js'
 
 // Create the main program
@@ -69,6 +70,7 @@ program.hook('postAction', async (_thisCommand, actionCommand) => {
   // which hides the underlying socket. The server command manages its own
   // lifecycle via SIGINT/SIGTERM, so only force-exit for CLI commands.
   if (actionCommand.name() !== 'server') {
+    await shutdownTelemetry()
     process.exit(process.exitCode ?? 0)
   }
 })

@@ -1,4 +1,5 @@
 import * as core from '@actions/core'
+import { shutdownTelemetry } from 'filecoin-pin/core/telemetry'
 import { checkForUpdate } from 'filecoin-pin/version-check'
 
 import { runBuild } from './build.js'
@@ -63,9 +64,10 @@ async function main() {
 }
 
 main()
-  .then(() => {
+  .then(async () => {
     // Real uploads can leave SDK/network handles open after all action work is done.
     // Exit explicitly so GitHub Actions can run post-action cleanup steps.
+    await shutdownTelemetry()
     process.exit(0)
   })
   .catch(async (err) => {
@@ -77,5 +79,6 @@ main()
     })
 
     handleError(err)
+    await shutdownTelemetry()
     process.exit(1)
   })

@@ -47,6 +47,10 @@
       "types": "./dist/core/synapse/index.d.ts",
       "default": "./dist/core/synapse/index.js"
     },
+    "./core/telemetry": {
+      "types": "./dist/core/telemetry/index.d.ts",
+      "default": "./dist/core/telemetry/index.js"
+    },
     "./core/upload": {
       "types": "./dist/core/upload/index.d.ts",
       "default": "./dist/core/upload/index.js"
@@ -125,6 +129,10 @@
     "@libp2p/tcp": "^11.0.17",
     "@multiformats/multiaddr": "^13.0.1",
     "@multiformats/multiaddr-to-uri": "^12.0.0",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.218.0",
+    "@opentelemetry/resources": "^2.7.1",
+    "@opentelemetry/sdk-metrics": "^2.7.1",
     "@sentry/node": "^10.49.0",
     "commander": "^14.0.3",
     "datastore-core": "^11.0.4",
