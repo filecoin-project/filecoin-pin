@@ -10,11 +10,9 @@
  * Operators can override both values with environment variables (see README).
  */
 
-// TODO(#363): Replace with the real BetterStack OTLP ingest URL before release.
-export const DEFAULT_OTLP_METRICS_ENDPOINT = 'https://__BETTERSTACK_HOST__/v1/metrics'
+export const DEFAULT_OTLP_METRICS_ENDPOINT = 'https://s2455837.us-east-9.betterstackdata.com/v1/metrics'
 
-// TODO(#363): Replace with the real BetterStack source token before release.
-export const DEFAULT_OTLP_METRICS_TOKEN = '__BETTERSTACK_SOURCE_TOKEN__'
+export const DEFAULT_OTLP_METRICS_TOKEN = 'fs1TY3tELKDzThkm1SeWq18P'
 
 /** OTel service name attached to every metric. */
 export const TELEMETRY_SERVICE_NAME = 'filecoin-pin'
