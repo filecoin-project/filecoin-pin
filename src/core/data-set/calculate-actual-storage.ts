@@ -1,4 +1,4 @@
-import type { Synapse } from '@filoz/synapse-sdk'
+import type { PDPProvider, Synapse } from '@filoz/synapse-sdk'
 import PQueue from 'p-queue'
 import type { Logger } from 'pino'
 import { getClientAddress } from '../synapse/index.js'
@@ -139,14 +139,29 @@ export async function calculateActualStorage(
 
     logger?.info({ dataSetCount: dataSets.length, address }, 'Calculating actual storage across data sets')
 
+    // Build provider map; trust pre-filled entries and only fetch the missing ones
+    const providerMap = new Map<bigint, PDPProvider>()
+    for (const ds of dataSets) {
+      if (ds.provider != null) {
+        providerMap.set(ds.providerId, ds.provider)
+      }
+    }
+    const missingProviderIds = [...new Set(dataSets.map((ds) => ds.providerId))].filter((id) => !providerMap.has(id))
+    if (missingProviderIds.length > 0) {
+      try {
+        const fetched = await synapse.providers.getProviders({ providerIds: missingProviderIds })
+        for (const provider of fetched) {
+          providerMap.set(provider.id, provider)
+        }
+      } catch (error) {
+        logger?.warn({ error, missingProviderIds }, 'Failed to enrich provider info for actual storage calculation')
+      }
+    }
+
     const processDataSet = async (dataSet: (typeof dataSets)[number]): Promise<void> => {
       signal?.throwIfAborted()
 
       try {
-        const storageContext = await synapse.storage.createContext({ dataSetId: dataSet.dataSetId })
-
-        signal?.throwIfAborted()
-
         const getPiecesOptions: { logger?: Logger; signal?: AbortSignal } = {}
         if (logger) {
           getPiecesOptions.logger = logger
@@ -154,7 +169,8 @@ export async function calculateActualStorage(
         if (signal) {
           getPiecesOptions.signal = signal
         }
-        const result = await getDataSetPieces(synapse, storageContext, getPiecesOptions)
+        const serviceURL = providerMap.get(dataSet.providerId)?.pdp?.serviceURL ?? ''
+        const result = await getDataSetPieces(synapse, dataSet.dataSetId, serviceURL, getPiecesOptions)
 
         if (result.totalSizeBytes) {
           totalBytes += result.totalSizeBytes

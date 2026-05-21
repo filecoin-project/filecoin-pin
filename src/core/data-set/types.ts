@@ -97,12 +97,6 @@ export interface ListDataSetsOptions {
   address?: Hex
   /** Logger instance for debugging (optional) */
   logger?: Logger | undefined
-  /**
-   * Whether to get the provider details from the SP registry
-   *
-   * @default false
-   */
-  withProviderDetails?: boolean
 
   /**
    * Filter function to apply to the data sets before additional processing

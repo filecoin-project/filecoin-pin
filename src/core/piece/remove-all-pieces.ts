@@ -111,7 +111,12 @@ export async function removeAllPieces(
     // Fetch all pieces from the dataset
     onProgress?.({ type: 'removeAll:fetching', data: { dataSetId } })
 
-    const { pieces: allPieces } = await getDataSetPieces(synapse, storageContext, { logger })
+    const { pieces: allPieces } = await getDataSetPieces(
+      synapse,
+      dataSetId,
+      storageContext.provider.pdp?.serviceURL ?? '',
+      { logger }
+    )
 
     // Filter out pieces that are already pending removal - no need to delete them again
     pieces = allPieces.filter((p) => p.status === PieceStatus.ACTIVE)
