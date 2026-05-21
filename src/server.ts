@@ -1,4 +1,5 @@
 import { createConfig } from './config.js'
+import { configureTelemetryFromEnv } from './configure-telemetry-from-env.js'
 import { shutdownTelemetry } from './core/telemetry/index.js'
 import { name as packageName, version as packageVersion } from './core/utils/version.js'
 import { createFilecoinPinningServer } from './filecoin-pinning-server.js'
@@ -17,6 +18,8 @@ function getServiceInfo(): ServiceInfo {
 }
 
 export async function startServer(): Promise<void> {
+  configureTelemetryFromEnv()
+
   const serviceInfo = getServiceInfo()
   const config = createConfig()
   const logger = createLogger(config)

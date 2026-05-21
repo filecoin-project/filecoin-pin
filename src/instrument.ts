@@ -1,5 +1,4 @@
 import * as Sentry from '@sentry/node'
-import { configureTelemetryFromEnv } from './configure-telemetry-from-env.js'
 import { name as packageName, version as packageVersion } from './core/utils/version.js'
 
 // Ensure to call this before requiring any other modules!
@@ -16,7 +15,3 @@ Sentry.init({
 Sentry.setTags({
   filecoinPinVersion: `${packageName}@v${packageVersion}`,
 })
-
-// Forward env-var configuration to the upload-metrics telemetry library
-// before any CLI command can trigger executeUpload.
-configureTelemetryFromEnv()
