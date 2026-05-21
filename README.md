@@ -125,7 +125,18 @@ What we collect:
 
   The BetterStack source token is shipped in source, so the data source is treated as public and untrusted. Send your own copy with `FILECOIN_PIN_OTLP_METRICS_ENDPOINT` and `FILECOIN_PIN_OTLP_METRICS_TOKEN`.
 
-  **Delivery model.** Metrics are batched in memory and exported every 60 seconds by the OpenTelemetry SDK. The CLI, pinning server, and GitHub Action all flush explicitly on shutdown. When `filecoin-pin` is used as a library, the telemetry module registers a one-shot `process.once('beforeExit', …)` handler that flushes when the host's event loop drains naturally — so short-lived scripts deliver their metrics without any extra wiring. **Long-running library consumers that terminate via `process.exit()`, `SIGINT`, or `SIGTERM` should call `shutdownTelemetry()` (exported from `filecoin-pin/core/telemetry`) on graceful shutdown to flush before exit.**
+  **Delivery model.** Metrics are batched in memory and exported every 60 seconds by the OpenTelemetry SDK. The CLI, pinning server, and GitHub Action all flush explicitly on shutdown. When `filecoin-pin` is used as a library, the telemetry module also flushes automatically when the host's lifecycle is ending: `process.once('beforeExit', …)` in Node, `addEventListener('pagehide', …)` in the browser. **Long-running consumers that terminate via `process.exit()`, `SIGINT`, or `SIGTERM` should call `shutdownTelemetry()` (exported from `filecoin-pin/core/telemetry`) on graceful shutdown to flush before exit.**
+
+  **Browser usage.** `executeUpload` works in browsers, and telemetry runs there too. Because browsers don't expose environment variables, the telemetry module accepts a runtime override:
+
+  ```ts
+  import { configureTelemetry } from 'filecoin-pin/core/telemetry'
+
+  configureTelemetry({ disabled: true })                      // opt out
+  configureTelemetry({ endpoint: '…', token: '…' })           // send elsewhere
+  ```
+
+  Call `configureTelemetry()` once at startup, before the first `executeUpload`. `configureTelemetry()` works in Node too — overrides take precedence over env vars.
 
 ### How to disable CLI telemetry
 

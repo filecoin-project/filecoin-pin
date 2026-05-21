@@ -1,19 +1,24 @@
 import type { CopyResult, FailedAttempt } from '@filoz/synapse-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const exporterInstances: Array<{
+interface MockExporter {
   export: ReturnType<typeof vi.fn>
   forceFlush: ReturnType<typeof vi.fn>
   shutdown: ReturnType<typeof vi.fn>
-}> = []
+  options: { url?: string; headers?: Record<string, string> } | undefined
+}
+
+const exporterInstances: MockExporter[] = []
 
 vi.mock('@opentelemetry/exporter-metrics-otlp-http', () => {
   class OTLPMetricExporter {
     export = vi.fn((_metrics: unknown, cb: (result: { code: number }) => void) => cb({ code: 0 }))
     forceFlush = vi.fn().mockResolvedValue(undefined)
     shutdown = vi.fn().mockResolvedValue(undefined)
-    constructor() {
-      exporterInstances.push(this as unknown as (typeof exporterInstances)[number])
+    options: MockExporter['options']
+    constructor(opts: MockExporter['options']) {
+      this.options = opts
+      exporterInstances.push(this as unknown as MockExporter)
     }
   }
   return { OTLPMetricExporter }
@@ -213,5 +218,96 @@ describe('telemetry', () => {
 
     await shutdownTelemetry()
     expect(process.listenerCount('beforeExit')).toBe(before)
+  })
+
+  it('honours configureTelemetry({ disabled: true }) without env vars', async () => {
+    const { configureTelemetry, recordUploadResult, flushTelemetry } = await freshTelemetry()
+    configureTelemetry({ disabled: true })
+
+    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
+    await flushTelemetry()
+
+    expect(exporterInstances).toHaveLength(0)
+  })
+
+  it('honours configureTelemetry endpoint/token overrides', async () => {
+    const { configureTelemetry, recordUploadResult, flushTelemetry } = await freshTelemetry()
+
+    configureTelemetry({ endpoint: 'https://example.test/v1/metrics', token: 'override-token' })
+    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
+    await flushTelemetry()
+
+    const exporter = exporterInstances[0]
+    if (exporter == null) throw new Error('expected exporter instance')
+    expect(exporter.options?.url).toBe('https://example.test/v1/metrics')
+    expect(exporter.options?.headers?.Authorization).toBe('Bearer override-token')
+  })
+})
+
+describe('telemetry (browser runtime)', () => {
+  const realProcess = globalThis.process
+  const addedListeners: Array<{ type: string; listener: EventListenerOrEventListenerObject; opts?: any }> = []
+  const removedListeners: Array<{ type: string; listener: EventListenerOrEventListenerObject }> = []
+  const realAddEventListener = (globalThis as { addEventListener?: typeof addEventListener }).addEventListener
+  const realRemoveEventListener = (globalThis as { removeEventListener?: typeof removeEventListener })
+    .removeEventListener
+
+  beforeEach(() => {
+    // Simulate a browser: no `process`, but DOM-style event listeners available.
+    ;(globalThis as { process?: unknown }).process = undefined
+    addedListeners.length = 0
+    removedListeners.length = 0
+    ;(globalThis as { addEventListener?: typeof addEventListener }).addEventListener = ((
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+      opts?: any
+    ) => {
+      addedListeners.push({ type, listener, opts })
+    }) as typeof addEventListener
+    ;(globalThis as { removeEventListener?: typeof removeEventListener }).removeEventListener = ((
+      type: string,
+      listener: EventListenerOrEventListenerObject
+    ) => {
+      removedListeners.push({ type, listener })
+    }) as typeof removeEventListener
+  })
+
+  afterEach(async () => {
+    // Restore Node globals so other tests run normally.
+    ;(globalThis as { process?: unknown }).process = realProcess
+    if (realAddEventListener) {
+      ;(globalThis as { addEventListener?: typeof addEventListener }).addEventListener = realAddEventListener
+    } else {
+      delete (globalThis as { addEventListener?: unknown }).addEventListener
+    }
+    if (realRemoveEventListener) {
+      ;(globalThis as { removeEventListener?: typeof removeEventListener }).removeEventListener =
+        realRemoveEventListener
+    } else {
+      delete (globalThis as { removeEventListener?: unknown }).removeEventListener
+    }
+  })
+
+  it('initializes without a Node process and registers a pagehide handler', async () => {
+    const { recordUploadResult } = await freshTelemetry()
+
+    recordUploadResult({ copies: [makeCopy({ providerId: 5n })], failedAttempts: [] }, 'mainnet')
+
+    expect(exporterInstances).toHaveLength(1)
+    const pagehide = addedListeners.find((l) => l.type === 'pagehide')
+    expect(pagehide).toBeDefined()
+    expect(pagehide?.opts?.once).toBe(true)
+  })
+
+  it('flushes via the pagehide listener and unregisters on explicit shutdown', async () => {
+    const { recordUploadResult, shutdownTelemetry } = await freshTelemetry()
+
+    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'mainnet')
+    await shutdownTelemetry()
+
+    const exporter = exporterInstances[0]
+    if (exporter == null) throw new Error('expected exporter instance')
+    expect(exporter.shutdown).toHaveBeenCalled()
+    expect(removedListeners.some((l) => l.type === 'pagehide')).toBe(true)
   })
 })
