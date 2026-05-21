@@ -47,7 +47,7 @@ The piece-retrieval CDN provided by [FilBeam](https://github.com/filbeam). When 
 
 **Network support:** FilBeam URLs are only printed on networks with a FilBeam endpoint (mainnet and [Calibration](#calibration-network)). On networks without one (e.g. devnet), `--egress-provider beam` stays the default but no FilBeam URL is shown.
 
-**Cost:** Each FilBeam piece retrieval is charged as egress against the dataset owner's wallet. Anyone who knows the piece CID and wallet address can trigger a retrieval, which means the dataset owner is on the hook for that egress.
+**Cost:** CDN egress is paid from funds the data set owner locks up for it — it is not billed to their wallet per request; that lockup is consumed as retrievals happen. Anyone who knows the piece CID and wallet address can trigger a retrieval, which draws down that egress lockup.
 
 **Lockup:** Creating a new FilBeam-enabled [Data Set](#data-set) requires an extra fixed lockup of 1 USDFC (on top of the data-set creation fee and ongoing storage cost). This is why a CDN upload that creates a new data set needs more deposited funds than a non-CDN one. `--auto-fund` accounts for it automatically; without it, deposit enough to cover the lockup or the upload fails with an insufficient-funds error.
 

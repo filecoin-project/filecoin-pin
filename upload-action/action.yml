@@ -45,7 +45,7 @@ inputs:
 
   # Optional/Advanced configuration
   withCDN:
-    description: "If true, request CDN (FilBeam) in the storage context (depends on provider capabilities). A new CDN data set requires an extra 1 USDFC lockup, which is included in the deposit estimate. CDN egress is billed per retrieval to the dataset owner's wallet and cannot be estimated upfront."
+    description: "If true, request CDN (FilBeam) in the storage context (depends on provider capabilities). A new CDN data set requires an extra 1 USDFC lockup, which is included in the deposit estimate. CDN egress is paid from funds the data set owner locks up, consumed as retrievals happen, and cannot be estimated upfront."
     required: false
     default: "false"
   dryRun:

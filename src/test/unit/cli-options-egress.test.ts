@@ -120,7 +120,7 @@ describe('printEgressNotice', () => {
     const indentCalls = vi.mocked(log.indent).mock.calls.map(([msg]) => msg as string)
     expect(indentCalls).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('Egress billed'),
+        expect.stringContaining("Egress consumes the data set owner's locked-up funds"),
         expect.stringContaining('piece/CAR retrieval only, not IPFS blocks'),
         expect.stringContaining('Disable: --egress-provider none'),
       ])

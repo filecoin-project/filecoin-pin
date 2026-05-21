@@ -103,7 +103,7 @@ export function printEgressNotice(provider: EgressProvider): void {
     return
   }
   log.info('Egress: FilBeam')
-  log.indent("• Egress billed to dataset owner's wallet.")
+  log.indent("• Egress consumes the data set owner's locked-up funds.")
   log.indent('• FilBeam routes piece/CAR retrieval only, not IPFS blocks.')
   log.indent('• Each new data set locks an extra 1 USDFC.')
   log.indent('• Disable: --egress-provider none')

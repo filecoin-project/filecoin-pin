@@ -92,7 +92,7 @@ src/
 
 **Network**: `--network mainnet|calibration|devnet` (default: `mainnet`). Devnet reads config from foc-devnet's `devnet-info.json` and auto-resolves private key and RPC URL. `--network` and `--rpc-url` are mutually exclusive. When `--rpc-url`/`RPC_URL` is set, the chain is derived by probing the endpoint's `eth_chainId`.
 
-**Egress**: `--egress-provider beam|none` (default: `beam`). Controls whether uploaded pieces are routed via the [FilBeam egress CDN](documentation/glossary.md#filbeam-egress). Today FilBeam serves piece/CAR retrieval only, not IPFS-block retrieval. Pass `--egress-provider none` to opt out; the dataset owner is on the hook for piece-retrieval egress.
+**Egress**: `--egress-provider beam|none` (default: `beam`). Controls whether uploaded pieces are routed via the [FilBeam egress CDN](documentation/glossary.md#filbeam-egress). Today FilBeam serves piece/CAR retrieval only, not IPFS-block retrieval. Pass `--egress-provider none` to opt out; the data set owner is on the hook for piece-retrieval egress.
 
 **Required env**: `PRIVATE_KEY=0x...` (with USDFC tokens; not needed for devnet)
 
