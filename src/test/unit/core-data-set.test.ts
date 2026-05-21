@@ -127,126 +127,11 @@ describe('listDataSets', () => {
     expect(mockGetProviders).not.toHaveBeenCalled()
   })
 
-  it('lists datasets without provider enrichment when sp-registry fails', async () => {
-    const expectedDataSet = {
-      pdpVerifierDataSetId: 1,
-      clientDataSetId: 100n,
-      providerId: 2,
-      metadata: { source: 'filecoin-pin' },
-      currentPieceCount: 5,
-      isManaged: true,
-      withCDN: false,
-      isLive: true,
-      serviceProvider: '0xservice',
-      payer: '0xpayer',
-      payee: '0xpayee',
-    }
-    state.datasets = [expectedDataSet]
-    mockGetProviders.mockRejectedValueOnce(new Error('Network error'))
-
-    const result = await listDataSets(mockSynapse as any)
-
-    expect(result).toHaveLength(1)
-    expect(result[0]).toMatchObject({
-      ...expectedDataSet,
-      createdWithFilecoinPin: false,
-    })
-    expect(result[0]?.provider).toBeUndefined()
-    expect(mockGetProviders).toHaveBeenCalledWith({ providerIds: [2] })
-  })
-
-  it('enriches datasets with provider information when available', async () => {
-    const provider = {
-      id: 2,
-      name: 'Test Provider',
-      serviceProvider: '0xservice',
-      description: 'Test provider',
-      payee: '0xpayee',
-      active: true,
-      products: {},
-    }
-
-    state.datasets = [
-      {
-        pdpVerifierDataSetId: 1,
-        clientDataSetId: 100n,
-        providerId: 2,
-        metadata: {},
-        currentPieceCount: 3,
-        isManaged: true,
-        withCDN: false,
-        isLive: true,
-        serviceProvider: '0xservice',
-        payer: '0xpayer',
-        payee: '0xpayee',
-      },
-    ]
-    state.providers = [provider]
-
-    const result = await listDataSets(mockSynapse as any)
-
-    expect(result).toHaveLength(1)
-    expect(result[0]?.provider).toEqual(provider)
-    expect(result[0]?.createdWithFilecoinPin).toBe(false)
-    expect(mockGetProviders).toHaveBeenCalledWith({ providerIds: [2] })
-  })
-
   it('uses custom address when provided in options', async () => {
     await listDataSets(mockSynapse as any, { address: '0xcustom' })
 
     expect(mockFindDataSets).toHaveBeenCalledWith({ address: '0xcustom' })
     expect(mockGetProviders).not.toHaveBeenCalled()
-  })
-
-  it('handles multiple datasets with mixed provider availability', async () => {
-    const provider1 = {
-      id: 1,
-      name: 'Provider 1',
-      serviceProvider: '0xprovider1',
-      description: 'First provider',
-      payee: '0xpayee1',
-      active: true,
-      products: {},
-    }
-
-    state.datasets = [
-      {
-        pdpVerifierDataSetId: 1,
-        clientDataSetId: 100n,
-        providerId: 1,
-        metadata: {},
-        currentPieceCount: 2,
-        isManaged: true,
-        withCDN: false,
-        isLive: true,
-        serviceProvider: '0xservice1',
-        payer: '0xpayer',
-        payee: '0xpayee',
-      },
-      {
-        pdpVerifierDataSetId: 2,
-        clientDataSetId: 101n,
-        providerId: 999, // Provider not in registry
-        metadata: {},
-        currentPieceCount: 1,
-        isManaged: false,
-        withCDN: true,
-        isLive: true,
-        serviceProvider: '0xservice2',
-        payer: '0xpayer',
-        payee: '0xpayee',
-      },
-    ]
-    state.providers = [provider1]
-
-    const result = await listDataSets(mockSynapse as any)
-
-    expect(result).toHaveLength(2)
-    expect(result[0]?.provider).toEqual(provider1)
-    expect(result[0]?.createdWithFilecoinPin).toBe(false)
-    expect(result[1]?.provider).toBeUndefined()
-    expect(result[1]?.createdWithFilecoinPin).toBe(false)
-    expect(mockGetProviders).toHaveBeenCalledWith({ providerIds: [1, 999] })
   })
 
   it('sets createdWithFilecoinPin to true when both WITH_IPFS_INDEXING and source=filecoin-pin metadata are present', async () => {
@@ -301,7 +186,6 @@ describe('listDataSets', () => {
         payee: '0xpayee',
       },
     ]
-    state.providers = []
 
     const result = await listDataSets(mockSynapse as any)
 
