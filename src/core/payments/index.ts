@@ -15,14 +15,19 @@
  * @module synapse/payments
  */
 
+import { DEFAULT_BUFFER_EPOCHS } from '@filoz/synapse-core/utils'
+import {
+  calculateAdditionalLockupRequired,
+  calculateBufferAmount,
+  calculateRunwayAmount,
+} from '@filoz/synapse-core/warm-storage'
 import { calibration, SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { formatUnits, type Hash } from 'viem'
 import { getClientAddress, isSessionKeyMode } from '../synapse/index.js'
 import { assertPriceNonZero } from '../utils/validate-pricing.js'
 import {
-  BUFFER_DENOMINATOR,
-  BUFFER_NUMERATOR,
   DEFAULT_LOCKUP_DAYS,
+  FLOOR_PRICE_PER_30_DAYS,
   MAX_LOCKUP_ALLOWANCE,
   MAX_RATE_ALLOWANCE,
   MIN_FIL_FOR_GAS,
@@ -30,7 +35,6 @@ import {
   STORAGE_SCALE_MAX_BI,
   USDFC_DECIMALS,
 } from './constants.js'
-import { applyFloorPricing } from './floor-pricing.js'
 import type { AccountSummary, PaymentStatus, ServiceApprovalStatus, StorageAllowances } from './types.js'
 
 /**
@@ -60,21 +64,10 @@ import { padSizeToPDPLeaves } from './utils.js'
 // Re-export all constants
 export * from './constants.js'
 
-export * from './floor-pricing.js'
 export * from './funding.js'
 export * from './runway.js'
 export * from './top-up.js'
 export * from './types.js'
-
-// Helper to apply a buffer on top of a base amount
-function withBuffer(amount: bigint): bigint {
-  return (amount * BUFFER_NUMERATOR) / BUFFER_DENOMINATOR
-}
-
-// Helper to remove the buffer (inverse of withBuffer)
-function withoutBuffer(amount: bigint): bigint {
-  return (amount * BUFFER_DENOMINATOR) / BUFFER_NUMERATOR
-}
 
 /**
  * Compute adaptive integer scaling for a TiB value so that
@@ -628,10 +621,14 @@ export function computeTopUpForDuration(
  *
  * Target semantics: `days` = time until the next top-up is required at the
  * current spend rate (matches the "Top-up needed in" display metric).
- * Final deposit ≈ `lockupUsed + days * perDay + safety`. Withdrawal is never
- * allowed to dip below `lockupUsed`.
  *
- * @param accountSummary - SDK account summary (rate + lockup)
+ * Returns a signed delta so callers can withdraw excess. Synapse SDK's
+ * `calculateBufferAmount` would return 0n in the no-deposit branch, which
+ * collapses the withdraw target onto bare lockup+runway. Forcing
+ * `rawDepositNeeded > 0n` for the buffer call keeps the safety margin
+ * symmetric across deposit and withdraw.
+ *
+ * @param accountSummary - SDK account summary (rate + lockup + debt)
  * @param filecoinPayBalance - Current deposited balance
  * @param days - Desired net runway in days
  */
@@ -664,11 +661,18 @@ export function computeAdjustmentForExactDays(
     }
   }
 
-  // 1-hour safety buffer covers minor drift in lockup rate between calculation and execution.
-  const safety = perDay / 24n
-  // Target deposit = lockup + N days of net runway + safety.
-  const runwayCost = BigInt(Math.floor(days)) * perDay + (safety > 0n ? safety : 1n)
-  const targetDeposit = lockupUsed + runwayCost
+  const extraRunwayEpochs = BigInt(Math.floor(days)) * TIME_CONSTANTS.EPOCHS_PER_DAY
+  const runway = calculateRunwayAmount({ netRateAfterUpload: rateUsed, extraRunwayEpochs })
+  const rawDepositNeeded = runway + accountSummary.debt - accountSummary.availableFunds
+  const buffer = calculateBufferAmount({
+    rawDepositNeeded: rawDepositNeeded > 0n ? rawDepositNeeded : 1n,
+    netRateAfterUpload: rateUsed,
+    runwayInEpochs: accountSummary.runwayInEpochs,
+    availableFunds: accountSummary.availableFunds,
+    bufferEpochs: DEFAULT_BUFFER_EPOCHS,
+  })
+
+  const targetDeposit = lockupUsed + runway + buffer + accountSummary.debt
   const delta = targetDeposit - filecoinPayBalance
 
   return { delta, targetDeposit, rateUsed, perDay, lockupUsed }
@@ -698,10 +702,12 @@ export function computeAdjustmentForExactDeposit(
 /**
  * Compute adjustment to reach target net runway AFTER adding a new piece.
  *
- * Adds the piece's rate + lockup to the SDK-reported current values, then
- * targets `days` of net runway above the new lockup at the new rate.
+ * Sybil fees are excluded here (`isNewDataSet: false`) because
+ * `calculateFilecoinPayFundingPlan` adds `newDataSetCount * USDFC_SYBIL_FEE`
+ * separately to cover multi-context uploads. CDN lockup is skipped because
+ * filecoin-pin uploads use `noCDN` pricing.
  *
- * @param accountSummary - SDK account summary (current rate + lockup)
+ * @param accountSummary - SDK account summary (current rate + lockup + debt)
  * @param filecoinPayBalance - Current deposited balance
  * @param days - Desired net runway in days after adding the piece
  * @param pieceSizeBytes - Piece file size in bytes
@@ -724,15 +730,20 @@ export function computeAdjustmentForExactDaysWithPiece(
     throw new Error('days must be non-negative')
   }
 
-  // Calculate required allowances for the new file with floor pricing applied
-  const baseAllowances = calculateRequiredAllowances(pieceSizeBytes, pricePerTiBPerEpoch)
-  const newPieceAllowances = applyFloorPricing(baseAllowances)
+  const paddedSizeBytes = padSizeToPDPLeaves(pieceSizeBytes)
+  const pricePerTiBPerMonth = pricePerTiBPerEpoch * TIME_CONSTANTS.EPOCHS_PER_MONTH
+  const lockup = calculateAdditionalLockupRequired({
+    dataSize: BigInt(paddedSizeBytes),
+    currentDataSetSize: 0n,
+    pricePerTiBPerMonth,
+    minimumPricePerMonth: FLOOR_PRICE_PER_30_DAYS,
+    isNewDataSet: false,
+    withCDN: false,
+  })
 
-  // Calculate new totals after adding the piece
-  const newRateUsed = accountSummary.lockupRatePerEpoch + newPieceAllowances.rateAllowance
-  const newLockupUsed = accountSummary.totalLockup + newPieceAllowances.lockupAllowance
+  const newRateUsed = accountSummary.lockupRatePerEpoch + lockup.rateDeltaPerEpoch
+  const newLockupUsed = accountSummary.totalLockup + lockup.total
 
-  // If no ongoing spend, just need the lockup
   if (newRateUsed === 0n) {
     const targetDeposit = newLockupUsed
     return {
@@ -744,15 +755,18 @@ export function computeAdjustmentForExactDaysWithPiece(
     }
   }
 
-  // Calculate deposit needed for target net runway with new rate
-  const perDay = newRateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
-  // 1-hour safety buffer covers minor drift in lockup rate between calculation and execution
-  const safety = perDay / 24n
-  // Target: new lockup + days of net runway at the new rate (clamped to lockup minimum below)
-  const runwayCost = BigInt(Math.floor(days)) * perDay + (safety > 0n ? safety : 1n)
-  const runwayTarget = newLockupUsed + runwayCost
-  const minimumDeposit = withBuffer(newLockupUsed)
-  const targetDeposit = runwayTarget > minimumDeposit ? runwayTarget : minimumDeposit
+  const extraRunwayEpochs = BigInt(Math.floor(days)) * TIME_CONSTANTS.EPOCHS_PER_DAY
+  const runway = calculateRunwayAmount({ netRateAfterUpload: newRateUsed, extraRunwayEpochs })
+  const rawDepositNeeded = lockup.total + runway + accountSummary.debt - accountSummary.availableFunds
+  const buffer = calculateBufferAmount({
+    rawDepositNeeded: rawDepositNeeded > 0n ? rawDepositNeeded : 1n,
+    netRateAfterUpload: newRateUsed,
+    runwayInEpochs: accountSummary.runwayInEpochs,
+    availableFunds: accountSummary.availableFunds,
+    bufferEpochs: DEFAULT_BUFFER_EPOCHS,
+  })
+
+  const targetDeposit = newLockupUsed + runway + buffer + accountSummary.debt
 
   return {
     delta: targetDeposit - filecoinPayBalance,
@@ -798,32 +812,23 @@ export function calculateDepositCapacity(
     }
   }
 
-  // With infinite allowances, deposit is the only limiting factor
-  // Deposit needs to cover: lockup (30 days) + at least some buffer
   const epochsInLockupDays = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
   const epochsPerMonth = TIME_CONSTANTS.EPOCHS_PER_MONTH
 
-  // Maximum storage we can support with this deposit
-  // Reserve 10% for buffer beyond the lockup
-  // Calculate max rate per epoch we can afford with deposit
-  const maxRatePerEpoch = (depositAmount * BUFFER_DENOMINATOR) / (epochsInLockupDays * BUFFER_NUMERATOR)
-
-  // Convert to storage capacity
+  const maxRatePerEpoch = depositAmount / epochsInLockupDays
   const tibPerMonth = calculateActualCapacity(maxRatePerEpoch, pricePerTiBPerEpoch)
   const gibPerMonth = tibPerMonth * 1024
 
-  // Calculate the actual costs for this capacity
   const monthlyPayment = maxRatePerEpoch * epochsPerMonth
   const requiredLockup = maxRatePerEpoch * epochsInLockupDays
-  const totalRequired = withBuffer(requiredLockup)
 
   return {
     tibPerMonth,
     gibPerMonth,
     monthlyPayment,
     requiredLockup,
-    totalRequired,
-    isDepositSufficient: depositAmount >= totalRequired,
+    totalRequired: requiredLockup,
+    isDepositSufficient: depositAmount >= requiredLockup,
   }
 }
 
@@ -875,10 +880,22 @@ export function calculatePieceUploadRequirements(
   insufficientDeposit: bigint
   canUpload: boolean
 } {
-  // Calculate base requirements and apply floor pricing
-  const baseRequired = calculateRequiredAllowances(pieceSizeBytes, pricePerTiBPerEpoch)
-  const required = applyFloorPricing(baseRequired)
-  const totalDepositNeeded = withBuffer(required.lockupAllowance)
+  const paddedSizeBytes = padSizeToPDPLeaves(pieceSizeBytes)
+  const pricePerTiBPerMonth = pricePerTiBPerEpoch * TIME_CONSTANTS.EPOCHS_PER_MONTH
+  const lockup = calculateAdditionalLockupRequired({
+    dataSize: BigInt(paddedSizeBytes),
+    currentDataSetSize: 0n,
+    pricePerTiBPerMonth,
+    minimumPricePerMonth: FLOOR_PRICE_PER_30_DAYS,
+    isNewDataSet: false,
+    withCDN: false,
+  })
+  const required: StorageAllowances = {
+    rateAllowance: lockup.rateDeltaPerEpoch,
+    lockupAllowance: lockup.rateLockupDelta,
+    storageCapacityTiB: paddedSizeBytes / Number(SIZE_CONSTANTS.TiB),
+  }
+  const totalDepositNeeded = required.lockupAllowance
 
   // Check if current deposit can cover the new file's lockup requirement
   const insufficientDeposit =
@@ -947,10 +964,9 @@ export async function validatePaymentCapacity(synapse: Synapse, pieceSizeBytes: 
     result.suggestions.push(`Deposit at least ${depositNeeded} USDFC`)
   }
 
-  // Add warning if approaching deposit limit
   const totalLockupAfter = status.currentAllowances.lockupUsed + uploadRequirements.required.lockupAllowance
-  if (totalLockupAfter > withoutBuffer(status.filecoinPayBalance) && result.canUpload) {
-    const additionalDeposit = formatUnits(withBuffer(totalLockupAfter) - status.filecoinPayBalance, 18)
+  if (totalLockupAfter > status.filecoinPayBalance && result.canUpload) {
+    const additionalDeposit = formatUnits(totalLockupAfter - status.filecoinPayBalance, 18)
     result.suggestions.push(`Consider depositing ${additionalDeposit} more USDFC for safety margin`)
   }
 

@@ -13,8 +13,8 @@ import {
   checkUSDFCBalance,
   computeTopUpForDuration,
   depositUSDFC,
-  deriveStorageRunway,
   getPaymentStatus,
+  toStorageRunwaySummary,
 } from '../core/payments/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
@@ -135,7 +135,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     log.flush()
 
     const updatedSummary = await synapse.payments.accountSummary({})
-    const runway = deriveStorageRunway(updatedSummary)
+    const runway = toStorageRunwaySummary(updatedSummary)
     const runwayDisplay = formatRunwaySummary(runway)
 
     log.line('')

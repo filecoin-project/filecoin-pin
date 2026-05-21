@@ -14,9 +14,9 @@ import {
   clampDepositToLimit,
   DEFAULT_LOCKUP_DAYS,
   depositUSDFC,
-  deriveStorageRunway,
   executeFilecoinPayFunding,
   planFilecoinPayFunding,
+  toStorageRunwaySummary,
   withdrawUSDFC,
 } from '../core/payments/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
@@ -117,7 +117,7 @@ async function performAdjustment(params: {
 // Helper: summary after adjustment
 async function printSummary(synapse: Synapse, title = 'Updated'): Promise<void> {
   const summary = await synapse.payments.accountSummary({})
-  const runway = deriveStorageRunway(summary)
+  const runway = toStorageRunwaySummary(summary)
   const runwayDisplay = formatRunwaySummary(runway)
   const lines = [`Deposited: ${formatUSDFC(summary.funds)} USDFC`]
   if (runway.state === 'active') {

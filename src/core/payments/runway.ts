@@ -52,7 +52,7 @@ function epochsToDaysHours(epochs: bigint): { days: number; hours: number } {
  * `resolveAccountState` so filecoin-pin and the SDK never disagree on the
  * meaning of "runway".
  */
-export function deriveStorageRunway(input: AccountSummary | ProjectionRunwayInput): StorageRunwaySummary {
+export function toStorageRunwaySummary(input: AccountSummary | ProjectionRunwayInput): StorageRunwaySummary {
   let runwayInEpochs: bigint
   let coverageInEpochs: bigint
   let ratePerEpoch: bigint
@@ -121,5 +121,5 @@ export function deriveStorageRunway(input: AccountSummary | ProjectionRunwayInpu
  */
 export async function getStorageRunway(synapse: Synapse): Promise<StorageRunwaySummary> {
   const summary = await synapse.payments.accountSummary({})
-  return deriveStorageRunway(summary)
+  return toStorageRunwaySummary(summary)
 }

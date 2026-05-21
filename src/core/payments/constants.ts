@@ -42,12 +42,6 @@ export const MAX_RATE_ALLOWANCE = maxUint256
 export const MAX_LOCKUP_ALLOWANCE = maxUint256
 
 /**
- * Standard buffer configuration (10%) used across deposit/lockup calculations
- */
-export const BUFFER_NUMERATOR = 11n
-export const BUFFER_DENOMINATOR = 10n
-
-/**
  * Maximum precision scale used when converting small TiB (as a float) to integer(BigInt) math
  */
 export const STORAGE_SCALE_MAX = 10_000_000

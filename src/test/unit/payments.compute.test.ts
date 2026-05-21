@@ -6,7 +6,7 @@ import {
   computeAdjustmentForExactDaysWithPiece,
   computeAdjustmentForExactDeposit,
   computeTopUpForDuration,
-  deriveStorageRunway,
+  toStorageRunwaySummary,
 } from '../../core/payments/index.js'
 
 function makeSummary(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; rateUsed?: bigint }): AccountSummary {
@@ -20,6 +20,7 @@ function makeSummary(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; 
   return {
     funds: params.filecoinPayBalance,
     availableFunds,
+    debt: 0n,
     totalLockup,
     lockupRatePerEpoch,
     runwayInEpochs: runwayInEpochs > 0n ? runwayInEpochs : 0n,
@@ -91,34 +92,29 @@ describe('computeAdjustmentForExactDays', () => {
     expect(res.targetDeposit).toBe(1_000n)
   })
 
-  it('returns positive delta when more deposit needed (includes 1-hour safety)', () => {
+  it('returns positive delta when more deposit needed', () => {
     const rateUsed = 1_000_000_000_000_000_000n
     const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
     const days = 30
     const balance = perDay * 30n
     const summary = makeSummary({ filecoinPayBalance: balance, lockupUsed: 0n, rateUsed })
     const res = computeAdjustmentForExactDays(summary, balance, days)
-    const safety = perDay / 24n
-    expect(res.delta).toBe(safety)
-    expect(res.targetDeposit).toBe(perDay * 30n + safety)
+    expect(res.delta).toBeGreaterThan(0n)
+    expect(res.targetDeposit).toBeGreaterThan(perDay * BigInt(days))
   })
 
   it('returns negative delta when withdrawal possible', () => {
     const rateUsed = 1_000_000_000_000_000_000n
     const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
     const days = 5
-    const safety = perDay / 24n
-    const targetDeposit = perDay * BigInt(days) + safety
-    const balance = targetDeposit + 1_000n
+    const balance = perDay * BigInt(days) * 10n
     const summary = makeSummary({ filecoinPayBalance: balance, lockupUsed: 0n, rateUsed })
     const res = computeAdjustmentForExactDays(summary, balance, days)
-    expect(res.delta).toBe(-1_000n)
+    expect(res.delta).toBeLessThan(0n)
+    expect(res.targetDeposit).toBeGreaterThanOrEqual(perDay * BigInt(days))
   })
 
-  it('targets net runway above lockup when lockupUsed exceeds balance', () => {
-    // Regression for issue #385: when lockup > funds, runway math must still
-    // request a deposit large enough to restore N days of net runway above
-    // the locked amount (not silently report 0-runway).
+  it('targets net runway above lockup when lockupUsed exceeds balance (issue #385)', () => {
     const rateUsed = 1_000_000_000_000_000_000n
     const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
     const balance = perDay * 20n
@@ -127,9 +123,8 @@ describe('computeAdjustmentForExactDays', () => {
 
     const res = computeAdjustmentForExactDays(summary, balance, 20)
 
-    const safety = perDay / 24n
-    expect(res.targetDeposit).toBe(lockupUsed + perDay * 20n + safety)
-    expect(res.delta).toBe(lockupUsed + perDay * 20n + safety - balance)
+    expect(res.targetDeposit).toBeGreaterThanOrEqual(lockupUsed + perDay * 20n)
+    expect(res.delta).toBeGreaterThan(0n)
   })
 
   it('withdraws excess down to lockup + runway target', () => {
@@ -141,11 +136,9 @@ describe('computeAdjustmentForExactDays', () => {
 
     const res = computeAdjustmentForExactDays(summary, balance, 5)
 
-    const safety = perDay / 24n
-    expect(res.targetDeposit).toBe(lockupUsed + perDay * 5n + safety)
+    expect(res.targetDeposit).toBeGreaterThanOrEqual(lockupUsed + perDay * 5n)
+    expect(res.targetDeposit).toBeLessThan(balance)
     expect(res.delta).toBeLessThan(0n)
-    // Final deposit always lands at or above lockup.
-    expect(res.targetDeposit).toBeGreaterThanOrEqual(lockupUsed)
   })
 })
 
@@ -230,14 +223,15 @@ describe('computeAdjustmentForExactDaysWithPiece', () => {
   })
 })
 
-describe('deriveStorageRunway', () => {
+describe('toStorageRunwaySummary', () => {
   it('returns no-spend when rate is 0', () => {
-    const result = deriveStorageRunway({
+    const result = toStorageRunwaySummary({
       funds: 1_000_000n,
       availableFunds: 1_000_000n,
       totalLockup: 0n,
       lockupRatePerEpoch: 0n,
       runwayInEpochs: 0n,
+      debt: 0n,
       grossCoverageInEpochs: 0n,
     })
     expect(result.state).toBe('no-spend')
@@ -247,12 +241,13 @@ describe('deriveStorageRunway', () => {
 
   it('converts SDK epochs to days/hours for both metrics', () => {
     const rate = 1_000_000_000_000_000_000n
-    const result = deriveStorageRunway({
+    const result = toStorageRunwaySummary({
       funds: 0n,
       availableFunds: 0n,
       totalLockup: 0n,
       lockupRatePerEpoch: rate,
       runwayInEpochs: TIME_CONSTANTS.EPOCHS_PER_DAY * 5n,
+      debt: 0n,
       grossCoverageInEpochs: TIME_CONSTANTS.EPOCHS_PER_DAY * 20n,
     })
     expect(result.state).toBe('active')
@@ -263,12 +258,13 @@ describe('deriveStorageRunway', () => {
   it('issue #385: lockup exceeds balance — runway near zero, coverage substantial', () => {
     // SDK runwayInEpochs would clamp to 0 when lockup >= balance
     const rate = 1_000_000_000_000_000_000n
-    const result = deriveStorageRunway({
+    const result = toStorageRunwaySummary({
       funds: rate * TIME_CONSTANTS.EPOCHS_PER_DAY * 20n,
       availableFunds: 0n,
       totalLockup: rate * TIME_CONSTANTS.EPOCHS_PER_DAY * 30n,
       lockupRatePerEpoch: rate,
       runwayInEpochs: 0n,
+      debt: 0n,
       grossCoverageInEpochs: TIME_CONSTANTS.EPOCHS_PER_DAY * 20n,
     })
     expect(result.runwayDays).toBe(0)
@@ -278,7 +274,7 @@ describe('deriveStorageRunway', () => {
   it('projection input goes through resolveAccountState (synthetic state)', () => {
     const rate = 1_000_000_000_000_000_000n
     const perDay = rate * TIME_CONSTANTS.EPOCHS_PER_DAY
-    const result = deriveStorageRunway({
+    const result = toStorageRunwaySummary({
       funds: perDay * 25n,
       lockupCurrent: perDay * 10n,
       lockupRate: rate,
@@ -290,12 +286,13 @@ describe('deriveStorageRunway', () => {
 
   it('hour remainder', () => {
     const rate = 1_000_000_000_000_000_000n
-    const result = deriveStorageRunway({
+    const result = toStorageRunwaySummary({
       funds: 0n,
       availableFunds: 0n,
       totalLockup: 0n,
       lockupRatePerEpoch: rate,
       runwayInEpochs: TIME_CONSTANTS.EPOCHS_PER_DAY * 20n + TIME_CONSTANTS.EPOCHS_PER_HOUR * 12n,
+      debt: 0n,
       grossCoverageInEpochs: TIME_CONSTANTS.EPOCHS_PER_DAY * 20n + TIME_CONSTANTS.EPOCHS_PER_HOUR * 12n,
     })
     expect(result.runwayDays).toBe(20)

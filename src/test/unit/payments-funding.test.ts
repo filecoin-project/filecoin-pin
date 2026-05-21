@@ -54,6 +54,7 @@ function makeSummary(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; 
   return {
     funds: params.filecoinPayBalance,
     availableFunds,
+    debt: 0n,
     totalLockup,
     lockupRatePerEpoch,
     runwayInEpochs,
@@ -65,6 +66,7 @@ function makeSynapseStub(summary?: AccountSummary) {
   const accountSummary = summary ?? {
     funds: 0n,
     availableFunds: 0n,
+    debt: 0n,
     totalLockup: 0n,
     lockupRatePerEpoch: 0n,
     runwayInEpochs: 0n,

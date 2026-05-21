@@ -11,7 +11,7 @@ import {
   validatePaymentRequirements,
   withdrawUSDFC,
 } from './index.js'
-import { deriveStorageRunway } from './runway.js'
+import { toStorageRunwaySummary } from './runway.js'
 import type {
   AccountSummary,
   FilecoinPayFundingExecution,
@@ -71,8 +71,8 @@ export function getFilecoinPayFundingInsights(
 
   const runway =
     overrides == null
-      ? deriveStorageRunway(accountSummary)
-      : deriveStorageRunway({
+      ? toStorageRunwaySummary(accountSummary)
+      : toStorageRunwaySummary({
           funds: depositedBalance,
           lockupCurrent: lockupUsed,
           lockupRate: rateUsed,

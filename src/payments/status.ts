@@ -15,10 +15,10 @@ import {
   calculateDepositCapacity,
   checkFILBalance,
   checkUSDFCBalance,
-  deriveStorageRunway,
   FLOOR_PRICE_DAYS,
   FLOOR_PRICE_PER_30_DAYS,
   getUsdfcAcquisitionHelpMessage,
+  toStorageRunwaySummary,
 } from '../core/payments/index.js'
 import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatFIL, formatUSDFC } from '../core/utils/format.js'
@@ -131,7 +131,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       synapse.payments.accountSummary({}),
       synapse.storage.getStorageInfo(),
     ])
-    const runway = deriveStorageRunway(accountSummary)
+    const runway = toStorageRunwaySummary(accountSummary)
 
     const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
 

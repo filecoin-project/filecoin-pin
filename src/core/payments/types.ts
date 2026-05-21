@@ -124,6 +124,7 @@ export interface FilecoinPayFundingInsights {
 export interface AccountSummary {
   funds: bigint
   availableFunds: bigint
+  debt: bigint
   totalLockup: bigint
   lockupRatePerEpoch: bigint
   runwayInEpochs: bigint
