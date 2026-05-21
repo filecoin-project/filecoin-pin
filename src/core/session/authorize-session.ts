@@ -8,17 +8,27 @@
 
 import { DefaultFwssPermissions, loginSync, type Permission } from '@filoz/synapse-core/session-key'
 import type { Chain } from '@filoz/synapse-sdk'
-import { type Account, type Address, type Client, getAddress, type Transport } from 'viem'
+import { type Account, type Address, type Client, getAddress, keccak256, stringToHex, type Transport } from 'viem'
 import { APPLICATION_SOURCE } from '../synapse/constants.js'
 import type { ProgressEventHandler } from '../utils/types.js'
 import type { AuthorizeSessionProgressEvents, AuthorizeSessionResult } from './types.js'
+
+// TODO: import from `@filoz/synapse-core/session-key` once exported (post 0.42).
+// See https://github.com/FilOzone/synapse-sdk/pull/796 — DefaultFwssPermissions
+// will drop DeleteDataSet in favor of TerminateService. Registering the union
+// now means session keys minted today keep working after the upgrade.
+export const TerminateServicePermission = keccak256(stringToHex('TerminateService(uint256 dataSetId)')) as Permission
+
+export const FilecoinPinFwssPermissions: readonly Permission[] = Array.from(
+  new Set<Permission>([...DefaultFwssPermissions, TerminateServicePermission])
+)
 
 export interface AuthorizeSessionOptions {
   /** Address to authorize. Will be checksummed. */
   sessionAddress: Address
   /** Number of days the authorization is valid (default: 10). Capped at 365 days. */
   validityDays?: number
-  /** Permissions to grant. Defaults to {@link DefaultFwssPermissions}. */
+  /** Permissions to grant. Defaults to {@link FilecoinPinFwssPermissions}. */
   permissions?: readonly Permission[]
   /** Override for the session key registry contract address. */
   registryAddress?: Address
@@ -49,7 +59,7 @@ export async function authorizeSessionAddress(
 
   const sessionAddress = getAddress(options.sessionAddress)
   const ownerAddress = getAddress(client.account.address)
-  const permissions = options.permissions ?? DefaultFwssPermissions
+  const permissions = options.permissions ?? FilecoinPinFwssPermissions
   const registryAddress = options.registryAddress ?? client.chain.contracts.sessionKeyRegistry?.address
   if (!registryAddress) {
     throw new Error(`No session key registry address configured for chain id ${client.chain.id}`)
