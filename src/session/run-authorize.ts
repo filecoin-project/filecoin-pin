@@ -9,7 +9,7 @@
 
 import { confirm, isCancel } from '@clack/prompts'
 import pc from 'picocolors'
-import { type Account, createWalletClient, getAddress, type Hex, http, type Transport, webSocket } from 'viem'
+import { type Account, createWalletClient, getAddress, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import {
   type AuthorizeSessionProgressEvents,
@@ -19,6 +19,7 @@ import {
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { formatAuthorizeSessionOutput } from './format.js'
+import { parseValidityDays } from './parse-validity-days.js'
 import { resolveNetwork } from './resolve-network.js'
 import type { SessionAuthorizeOptions } from './types.js'
 
@@ -39,13 +40,16 @@ export async function runSessionAuthorize(options: SessionAuthorizeOptions): Pro
     throw new Error(`Invalid session address: ${options.sessionAddress}`)
   }
 
-  const validityDays = Number.parseInt(options.validityDays ?? '10', 10)
-  if (!Number.isInteger(validityDays) || validityDays <= 0) {
-    cancel(`Invalid --validity-days: ${options.validityDays}`)
-    throw new Error(`Invalid --validity-days: ${options.validityDays}`)
+  let validityDays: number
+  try {
+    validityDays = parseValidityDays(options.validityDays)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    cancel(message)
+    throw error
   }
 
-  const { chain, rpcUrl } = resolveNetwork(options)
+  const { chain, transport } = await resolveNetwork(options)
 
   const ownerAccount: Account = privateKeyToAccount(privateKey as Hex)
 
@@ -73,7 +77,6 @@ export async function runSessionAuthorize(options: SessionAuthorizeOptions): Pro
   try {
     spinner.start('Authorizing session address on-chain...')
 
-    const transport: Transport = /^ws(s)?:\/\//i.test(rpcUrl) ? webSocket(rpcUrl) : http(rpcUrl)
     const client = createWalletClient({ account: ownerAccount, chain, transport })
 
     const onProgress = (event: AuthorizeSessionProgressEvents): void => {

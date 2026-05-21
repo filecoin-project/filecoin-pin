@@ -16,6 +16,7 @@ import {
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { formatCreateSessionKeyOutput } from './format.js'
+import { parseValidityDays } from './parse-validity-days.js'
 import { resolveNetwork } from './resolve-network.js'
 import type { SessionCreateOptions } from './types.js'
 
@@ -32,13 +33,16 @@ export async function runSessionCreate(options: SessionCreateOptions): Promise<C
 
   const sessionPrivateKey = options.sessionKey || process.env.SESSION_KEY
 
-  const validityDays = Number.parseInt(options.validityDays ?? '10', 10)
-  if (!Number.isInteger(validityDays) || validityDays <= 0) {
-    cancel(`Invalid --validity-days: ${options.validityDays}`)
-    throw new Error(`Invalid --validity-days: ${options.validityDays}`)
+  let validityDays: number
+  try {
+    validityDays = parseValidityDays(options.validityDays)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    cancel(message)
+    throw error
   }
 
-  const { chain, rpcUrl } = resolveNetwork(options)
+  const { chain, transport } = await resolveNetwork(options)
 
   try {
     spinner.start('Authorizing session key on-chain...')
@@ -68,7 +72,7 @@ export async function runSessionCreate(options: SessionCreateOptions): Promise<C
       ...(sessionPrivateKey ? { sessionPrivateKey: sessionPrivateKey as Hex } : {}),
       validityDays,
       chain,
-      rpcUrl,
+      transport,
       onProgress,
     })
 

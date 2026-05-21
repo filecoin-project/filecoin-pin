@@ -5,7 +5,7 @@
 
 import type { Permission } from '@filoz/synapse-core/session-key'
 import type { Chain } from '@filoz/synapse-sdk'
-import { type Address, createWalletClient, type Hex, http, type Transport, webSocket } from 'viem'
+import { type Address, createWalletClient, type Hex, type Transport } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import type { ProgressEventHandler } from '../utils/types.js'
 import { authorizeSessionAddress } from './authorize-session.js'
@@ -34,8 +34,8 @@ export interface CreateSessionKeyOptions {
   permissions?: readonly Permission[]
   /** Target Filecoin chain */
   chain: Chain
-  /** RPC URL to use. WebSocket URLs (ws/wss) use a websocket transport, everything else http. */
-  rpcUrl: string
+  /** viem transport to use for owner-side signing. */
+  transport: Transport
   /** Override for the session key registry contract address */
   registryAddress?: Address
   /** Optional progress event handler */
@@ -56,7 +56,7 @@ export async function createSessionKey(options: CreateSessionKeyOptions): Promis
     validityDays,
     permissions,
     chain,
-    rpcUrl,
+    transport,
     registryAddress,
     onProgress,
   } = options
@@ -70,7 +70,6 @@ export async function createSessionKey(options: CreateSessionKeyOptions): Promis
   })
 
   const ownerAccount = privateKeyToAccount(privateKey)
-  const transport: Transport = /^ws(s)?:\/\//i.test(rpcUrl) ? webSocket(rpcUrl) : http(rpcUrl)
   const client = createWalletClient({ account: ownerAccount, chain, transport })
 
   const authorizeOptions: Parameters<typeof authorizeSessionAddress>[1] = {
