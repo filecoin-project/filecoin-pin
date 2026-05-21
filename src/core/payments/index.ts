@@ -20,6 +20,7 @@ import {
   calculateAdditionalLockupRequired,
   calculateBufferAmount,
   calculateRunwayAmount,
+  getServicePrice,
 } from '@filoz/synapse-core/warm-storage'
 import { calibration, SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { formatUnits, type Hash } from 'viem'
@@ -27,7 +28,6 @@ import { getClientAddress, isSessionKeyMode } from '../synapse/index.js'
 import { assertPriceNonZero } from '../utils/validate-pricing.js'
 import {
   DEFAULT_LOCKUP_DAYS,
-  FLOOR_PRICE_PER_30_DAYS,
   MAX_LOCKUP_ALLOWANCE,
   MAX_RATE_ALLOWANCE,
   MIN_FIL_FOR_GAS,
@@ -36,29 +36,6 @@ import {
   USDFC_DECIMALS,
 } from './constants.js'
 import type { AccountSummary, PaymentStatus, ServiceApprovalStatus, StorageAllowances } from './types.js'
-
-/**
- * Map SDK service approval fields to our internal ServiceApprovalStatus type.
- *
- * The SDK returns `lockupUsage`/`rateUsage` while our internal type uses
- * `lockupUsed`/`rateUsed`.
- */
-function mapServiceApproval(sdkApprovals: {
-  rateAllowance: bigint
-  lockupAllowance: bigint
-  lockupUsage: bigint
-  maxLockupPeriod: bigint
-  rateUsage: bigint
-}): ServiceApprovalStatus {
-  return {
-    rateAllowance: sdkApprovals.rateAllowance,
-    lockupAllowance: sdkApprovals.lockupAllowance,
-    lockupUsed: sdkApprovals.lockupUsage,
-    maxLockupPeriod: sdkApprovals.maxLockupPeriod,
-    rateUsed: sdkApprovals.rateUsage,
-  }
-}
-
 import { padSizeToPDPLeaves } from './utils.js'
 
 // Re-export all constants
@@ -191,14 +168,12 @@ export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus>
   const address = getClientAddress(synapse)
 
   // Run all async operations in parallel for efficiency
-  const [filStatus, walletUsdfcBalance, filecoinPayBalance, sdkApprovals] = await Promise.all([
+  const [filStatus, walletUsdfcBalance, filecoinPayBalance, currentAllowances] = await Promise.all([
     checkFILBalance(synapse),
     checkUSDFCBalance(synapse),
     getDepositedBalance(synapse),
     synapse.payments.serviceApproval({ service: fwssAddress }),
   ])
-
-  const currentAllowances = mapServiceApproval(sdkApprovals)
 
   return {
     network,
@@ -382,19 +357,18 @@ export async function checkAllowances(synapse: Synapse): Promise<{
   currentAllowances: ServiceApprovalStatus
 }> {
   const fwssAddress = synapse.chain.contracts.fwss.address
+  const currentAllowances = await synapse.payments.serviceApproval({ service: fwssAddress })
 
-  // Get current allowances from SDK and map to our internal type
-  const sdkApprovals = await synapse.payments.serviceApproval({ service: fwssAddress })
-  const currentAllowances = mapServiceApproval(sdkApprovals)
-
-  // Check if we need to update (not at max or max lockup period is not enough)
-  const needsUpdate =
-    currentAllowances.rateAllowance < MAX_RATE_ALLOWANCE ||
-    currentAllowances.lockupAllowance < MAX_LOCKUP_ALLOWANCE ||
-    currentAllowances.maxLockupPeriod < BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
+  // Mirror sdk's `isFwssMaxApproved` (lockupAllowance can decrement from CDN
+  // one-time deductions, so compare against maxUint256/2n rather than equality).
+  const isMaxApproved =
+    currentAllowances.isApproved &&
+    currentAllowances.rateAllowance === MAX_RATE_ALLOWANCE &&
+    currentAllowances.lockupAllowance >= MAX_LOCKUP_ALLOWANCE / 2n &&
+    currentAllowances.maxLockupPeriod >= BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
 
   return {
-    needsUpdate,
+    needsUpdate: !isMaxApproved,
     currentAllowances,
   }
 }
@@ -423,10 +397,7 @@ export async function setMaxAllowances(synapse: Synapse): Promise<SetMaxAllowanc
 
   // Set to maximum allowances
   const txHash = await setServiceApprovals(synapse, MAX_RATE_ALLOWANCE, MAX_LOCKUP_ALLOWANCE)
-
-  // Return updated allowances
-  const sdkApprovals = await synapse.payments.serviceApproval({ service: fwssAddress })
-  const currentAllowances = mapServiceApproval(sdkApprovals)
+  const currentAllowances = await synapse.payments.serviceApproval({ service: fwssAddress })
 
   return {
     transactionHash: txHash,
@@ -579,15 +550,12 @@ export function calculateStorageFromUSDFC(usdfcAmount: bigint, pricePerTiBPerEpo
 }
 
 /**
- * Compute the additional deposit required to fund current usage for a duration.
+ * Compute the deposit-only top-up needed to reach `days` of net runway above the
+ * current lockup. Never withdraws; thin clamp over `computeAdjustmentForExactDays`.
  *
- * Targets gross coverage: ensures the deposited balance covers `days` of spend
- * at the SDK-reported lockup rate. Source of truth for rate + lockup is the
- * SDK account summary so display and funding math stay consistent.
- *
- * @param accountSummary - SDK account summary (carries lockup rate)
+ * @param accountSummary - SDK account summary (rate + lockup + debt)
  * @param filecoinPayBalance - Current deposited balance
- * @param days - Number of days the deposit should cover
+ * @param days - Net runway days the deposit should cover
  */
 export function computeTopUpForDuration(
   accountSummary: AccountSummary,
@@ -600,20 +568,15 @@ export function computeTopUpForDuration(
   lockupUsed: bigint
 } {
   const rateUsed = accountSummary.lockupRatePerEpoch
-  const lockupUsed = accountSummary.totalLockup
   const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+  const lockupUsed = accountSummary.totalLockup
 
   if (days <= 0 || rateUsed === 0n) {
     return { topUp: 0n, rateUsed, perDay, lockupUsed }
   }
 
-  const epochsNeeded = BigInt(Math.ceil(days)) * TIME_CONSTANTS.EPOCHS_PER_DAY
-  const spendNeeded = rateUsed * epochsNeeded
-  // Target deposit = lockup + N days of net runway. Deposit-only, never withdraws.
-  const target = lockupUsed + spendNeeded
-  const topUp = target > filecoinPayBalance ? target - filecoinPayBalance : 0n
-
-  return { topUp, rateUsed, perDay, lockupUsed }
+  const { delta } = computeAdjustmentForExactDays(accountSummary, filecoinPayBalance, days)
+  return { topUp: delta > 0n ? delta : 0n, rateUsed, perDay, lockupUsed }
 }
 
 /**
@@ -718,7 +681,8 @@ export function computeAdjustmentForExactDaysWithPiece(
   filecoinPayBalance: bigint,
   days: number,
   pieceSizeBytes: number,
-  pricePerTiBPerEpoch: bigint
+  pricePerTiBPerEpoch: bigint,
+  minimumPricePerMonth: bigint
 ): {
   delta: bigint // >0 deposit, <0 withdraw, 0 none
   targetDeposit: bigint
@@ -736,7 +700,7 @@ export function computeAdjustmentForExactDaysWithPiece(
     dataSize: BigInt(paddedSizeBytes),
     currentDataSetSize: 0n,
     pricePerTiBPerMonth,
-    minimumPricePerMonth: FLOOR_PRICE_PER_30_DAYS,
+    minimumPricePerMonth,
     isNewDataSet: false,
     withCDN: false,
   })
@@ -873,7 +837,8 @@ export interface PaymentCapacityCheck {
 export function calculatePieceUploadRequirements(
   status: PaymentStatus,
   pieceSizeBytes: number,
-  pricePerTiBPerEpoch: bigint
+  pricePerTiBPerEpoch: bigint,
+  minimumPricePerMonth: bigint
 ): {
   required: StorageAllowances
   totalDepositNeeded: bigint
@@ -886,7 +851,7 @@ export function calculatePieceUploadRequirements(
     dataSize: BigInt(paddedSizeBytes),
     currentDataSetSize: 0n,
     pricePerTiBPerMonth,
-    minimumPricePerMonth: FLOOR_PRICE_PER_30_DAYS,
+    minimumPricePerMonth,
     isNewDataSet: false,
     withCDN: false,
   })
@@ -939,14 +904,21 @@ export async function validatePaymentCapacity(synapse: Synapse, pieceSizeBytes: 
   // Ensure allowances are at max (automatically skips if in session key mode)
   await checkAndSetAllowances(synapse)
 
-  // Get current status and pricing
-  const [status, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
+  const [status, storageInfo, servicePrice] = await Promise.all([
+    getPaymentStatus(synapse),
+    synapse.storage.getStorageInfo(),
+    getServicePrice(synapse.client),
+  ])
 
   const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
   const storageTiB = pieceSizeBytes / Number(SIZE_CONSTANTS.TiB)
 
-  // Calculate requirements
-  const uploadRequirements = calculatePieceUploadRequirements(status, pieceSizeBytes, pricePerTiBPerEpoch)
+  const uploadRequirements = calculatePieceUploadRequirements(
+    status,
+    pieceSizeBytes,
+    pricePerTiBPerEpoch,
+    servicePrice.minimumPricePerMonth
+  )
 
   const result: PaymentCapacityCheck = {
     canUpload: uploadRequirements.canUpload,
@@ -964,7 +936,7 @@ export async function validatePaymentCapacity(synapse: Synapse, pieceSizeBytes: 
     result.suggestions.push(`Deposit at least ${depositNeeded} USDFC`)
   }
 
-  const totalLockupAfter = status.currentAllowances.lockupUsed + uploadRequirements.required.lockupAllowance
+  const totalLockupAfter = status.currentAllowances.lockupUsage + uploadRequirements.required.lockupAllowance
   if (totalLockupAfter > status.filecoinPayBalance && result.canUpload) {
     const additionalDeposit = formatUnits(totalLockupAfter - status.filecoinPayBalance, 18)
     result.suggestions.push(`Consider depositing ${additionalDeposit} more USDFC for safety margin`)

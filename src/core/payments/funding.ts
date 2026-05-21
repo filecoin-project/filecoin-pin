@@ -1,4 +1,5 @@
 import { USDFC_SYBIL_FEE } from '@filoz/synapse-core/utils'
+import { getServicePrice } from '@filoz/synapse-core/warm-storage'
 import { calibration, type Synapse } from '@filoz/synapse-sdk'
 import { MIN_FIL_FOR_GAS } from './constants.js'
 import {
@@ -144,6 +145,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     targetDeposit,
     pieceSizeBytes,
     pricePerTiBPerEpoch,
+    minimumPricePerMonth,
     newDataSetCount = 0,
     mode = 'exact',
     allowWithdraw = true,
@@ -179,12 +181,16 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
       if (pricePerTiBPerEpoch == null) {
         throw new Error('pricePerTiBPerEpoch is required when planning with pieceSizeBytes')
       }
+      if (minimumPricePerMonth == null) {
+        throw new Error('minimumPricePerMonth is required when planning with pieceSizeBytes')
+      }
       const adjustment = computeAdjustmentForExactDaysWithPiece(
         accountSummary,
         status.filecoinPayBalance,
         targetRunwayDays,
         pieceSizeBytes,
-        pricePerTiBPerEpoch
+        pricePerTiBPerEpoch,
+        minimumPricePerMonth
       )
       const dataSetCreationFees = BigInt(newDataSetCount) * USDFC_SYBIL_FEE
       delta = adjustment.delta + dataSetCreationFees
@@ -309,6 +315,7 @@ export interface PlanFilecoinPayFundingOptions {
   targetDeposit?: bigint | undefined
   pieceSizeBytes?: number | undefined
   pricePerTiBPerEpoch?: bigint | undefined
+  minimumPricePerMonth?: bigint | undefined
   newDataSetCount?: number | undefined
   mode?: FundingMode | undefined
   allowWithdraw?: boolean | undefined
@@ -344,6 +351,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     targetDeposit,
     pieceSizeBytes,
     pricePerTiBPerEpoch,
+    minimumPricePerMonth: minimumPriceOpt,
     newDataSetCount = 0,
     mode = 'exact',
     allowWithdraw = true,
@@ -384,12 +392,16 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
   }
 
   let pricing = pricePerTiBPerEpoch
-  if (pieceSizeBytes != null && pricing == null) {
-    const storageInfo = await synapse.storage.getStorageInfo()
-    pricing = storageInfo.pricing.noCDN.perTiBPerEpoch
+  let minimumPricePerMonth = minimumPriceOpt
+  if (pieceSizeBytes != null && (pricing == null || minimumPricePerMonth == null)) {
+    const [storageInfo, servicePrice] = await Promise.all([
+      synapse.storage.getStorageInfo(),
+      getServicePrice(synapse.client),
+    ])
+    pricing = pricing ?? storageInfo.pricing.noCDN.perTiBPerEpoch
+    minimumPricePerMonth = minimumPricePerMonth ?? servicePrice.minimumPricePerMonth
   }
 
-  // Delegate to pure calculation function
   const plan = calculateFilecoinPayFundingPlan({
     status,
     accountSummary,
@@ -397,6 +409,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     targetDeposit,
     pieceSizeBytes,
     pricePerTiBPerEpoch: pricing,
+    minimumPricePerMonth,
     newDataSetCount,
     mode,
     allowWithdraw,

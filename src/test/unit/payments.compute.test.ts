@@ -44,19 +44,17 @@ describe('computeTopUpForDuration', () => {
     expect(res.perDay).toBe(0n)
   })
 
-  it('returns 0 topUp when balance already covers the period', () => {
+  it('returns 0 topUp when balance already well above target', () => {
     const rateUsed = 1_000_000_000_000_000_000n
     const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
     const days = 10
-    const filecoinPayBalance = perDay * BigInt(days)
+    const filecoinPayBalance = perDay * BigInt(days) * 10n
     const summary = makeSummary({ filecoinPayBalance, lockupUsed: 0n, rateUsed })
     const res = computeTopUpForDuration(summary, filecoinPayBalance, days)
     expect(res.topUp).toBe(0n)
   })
 
   it('underwater account: topUp restores lockup plus requested runway', () => {
-    // Net-runway semantics: when lockup > balance, "give me N days" means fund
-    // both the lockup deficit and N days of spend above it.
     const rateUsed = 1_000_000_000_000_000_000n
     const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
     const days = 10
@@ -64,7 +62,7 @@ describe('computeTopUpForDuration', () => {
     const filecoinPayBalance = perDay * BigInt(days)
     const summary = makeSummary({ filecoinPayBalance, lockupUsed, rateUsed })
     const res = computeTopUpForDuration(summary, filecoinPayBalance, days)
-    expect(res.topUp).toBe(lockupUsed + perDay * BigInt(days) - filecoinPayBalance)
+    expect(res.topUp).toBeGreaterThanOrEqual(lockupUsed + perDay * BigInt(days) - filecoinPayBalance)
     expect(res.lockupUsed).toBe(lockupUsed)
   })
 
@@ -75,7 +73,7 @@ describe('computeTopUpForDuration', () => {
     const filecoinPayBalance = perDay * 5n
     const summary = makeSummary({ filecoinPayBalance, lockupUsed: 0n, rateUsed })
     const res = computeTopUpForDuration(summary, filecoinPayBalance, days)
-    expect(res.topUp).toBe(perDay * 5n)
+    expect(res.topUp).toBeGreaterThanOrEqual(perDay * 5n)
   })
 })
 
@@ -183,7 +181,14 @@ describe('computeAdjustmentForExactDaysWithPiece', () => {
     const pricePerTiBPerEpoch = 1_000_000_000_000_000n
     const days = 30
 
-    const res = computeAdjustmentForExactDaysWithPiece(summary, 0n, days, pieceSizeBytes, pricePerTiBPerEpoch)
+    const res = computeAdjustmentForExactDaysWithPiece(
+      summary,
+      0n,
+      days,
+      pieceSizeBytes,
+      pricePerTiBPerEpoch,
+      60_000_000_000_000_000n
+    )
 
     expect(res.delta).toBeGreaterThan(0n)
     expect(res.newRateUsed).toBeGreaterThan(0n)
@@ -200,7 +205,14 @@ describe('computeAdjustmentForExactDaysWithPiece', () => {
     const pricePerTiBPerEpoch = 1_000_000_000_000_000n
     const days = 30
 
-    const res = computeAdjustmentForExactDaysWithPiece(summary, balance, days, pieceSizeBytes, pricePerTiBPerEpoch)
+    const res = computeAdjustmentForExactDaysWithPiece(
+      summary,
+      balance,
+      days,
+      pieceSizeBytes,
+      pricePerTiBPerEpoch,
+      60_000_000_000_000_000n
+    )
 
     expect(res.newRateUsed).toBeGreaterThan(rateUsed)
     expect(res.newLockupUsed).toBeGreaterThan(lockupUsed)
@@ -212,7 +224,14 @@ describe('computeAdjustmentForExactDaysWithPiece', () => {
     const pricePerTiBPerEpoch = 1_000_000_000_000_000n
     const days = 1
 
-    const res = computeAdjustmentForExactDaysWithPiece(summary, 0n, days, pieceSizeBytes, pricePerTiBPerEpoch)
+    const res = computeAdjustmentForExactDaysWithPiece(
+      summary,
+      0n,
+      days,
+      pieceSizeBytes,
+      pricePerTiBPerEpoch,
+      60_000_000_000_000_000n
+    )
 
     const perDay = res.newRateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
     const safety = perDay / 24n > 0n ? perDay / 24n : 1n

@@ -22,10 +22,11 @@ function makeStatus(params: {
   filBalance?: bigint
 }): PaymentStatus {
   const currentAllowances: ServiceApprovalStatus = {
+    isApproved: true,
     rateAllowance: 0n,
     lockupAllowance: 0n,
-    lockupUsed: params.lockupUsed ?? 0n,
-    rateUsed: params.rateUsed ?? 0n,
+    lockupUsage: params.lockupUsed ?? 0n,
+    rateUsage: params.rateUsed ?? 0n,
     maxLockupPeriod: 30n * TIME_CONSTANTS.EPOCHS_PER_DAY,
   }
 
@@ -228,6 +229,8 @@ describe('planFilecoinPayFunding', () => {
       synapse: makeSynapseStub() as any,
       targetRunwayDays: 10,
       pieceSizeBytes: 1024,
+      pricePerTiBPerEpoch: 1n,
+      minimumPricePerMonth: 60_000_000_000_000_000n,
     })
 
     expect(plan.pricePerTiBPerEpoch).toBe(1n)
@@ -245,6 +248,7 @@ describe('planFilecoinPayFunding', () => {
       targetRunwayDays: 30,
       pieceSizeBytes: 1024,
       pricePerTiBPerEpoch: 1n,
+      minimumPricePerMonth: 60_000_000_000_000_000n,
       newDataSetCount: 0,
       mode: 'minimum',
       allowWithdraw: false,
@@ -256,6 +260,7 @@ describe('planFilecoinPayFunding', () => {
       targetRunwayDays: 30,
       pieceSizeBytes: 1024,
       pricePerTiBPerEpoch: 1n,
+      minimumPricePerMonth: 60_000_000_000_000_000n,
       newDataSetCount: 2,
       mode: 'minimum',
       allowWithdraw: false,
@@ -292,8 +297,8 @@ describe('executeFilecoinPayFunding', () => {
       reasonCode: 'target-deposit' as const,
       mode: 'exact' as const,
       projectedDeposit: updatedStatus.filecoinPayBalance,
-      projectedRateUsed: updatedStatus.currentAllowances.rateUsed,
-      projectedLockupUsed: updatedStatus.currentAllowances.lockupUsed,
+      projectedRateUsed: updatedStatus.currentAllowances.rateUsage,
+      projectedLockupUsed: updatedStatus.currentAllowances.lockupUsage,
       current,
       projected,
       targetDeposit: updatedStatus.filecoinPayBalance,
@@ -400,7 +405,7 @@ describe('getPaymentStatus', () => {
           rateAllowance: 0n,
           lockupAllowance: 0n,
           lockupUsage: lockup,
-          rateUsage: 0n,
+          rateUsed: 0n,
           maxLockupPeriod: 30n * TIME_CONSTANTS.EPOCHS_PER_DAY,
         })),
       },

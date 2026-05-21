@@ -1,13 +1,9 @@
+import type { operatorApprovals } from '@filoz/synapse-core/pay'
+
 /**
- * Service approval status from the Payments contract
+ * Service approval status from the Payments contract.
  */
-export interface ServiceApprovalStatus {
-  rateAllowance: bigint
-  lockupAllowance: bigint
-  lockupUsed: bigint
-  maxLockupPeriod: bigint
-  rateUsed: bigint
-}
+export type ServiceApprovalStatus = operatorApprovals.OutputType
 
 /**
  * Complete payment status including balances and approvals
@@ -121,15 +117,18 @@ export interface FilecoinPayFundingInsights {
  * issues two extra RPC reads and most payment commands do not display
  * runway. Display paths fetch this lazily.
  */
-export interface AccountSummary {
-  funds: bigint
-  availableFunds: bigint
-  debt: bigint
-  totalLockup: bigint
-  lockupRatePerEpoch: bigint
-  runwayInEpochs: bigint
-  grossCoverageInEpochs: bigint
-}
+import type { getAccountSummary } from '@filoz/synapse-core/pay'
+
+export type AccountSummary = Pick<
+  getAccountSummary.OutputType,
+  | 'funds'
+  | 'availableFunds'
+  | 'debt'
+  | 'totalLockup'
+  | 'lockupRatePerEpoch'
+  | 'runwayInEpochs'
+  | 'grossCoverageInEpochs'
+>
 
 /**
  * Options for calculating a Filecoin Pay funding plan
@@ -146,6 +145,7 @@ export interface FilecoinPayFundingPlanOptions {
   targetDeposit?: bigint | undefined
   pieceSizeBytes?: number | undefined
   pricePerTiBPerEpoch?: bigint | undefined
+  minimumPricePerMonth?: bigint | undefined
   newDataSetCount?: number | undefined
   mode?: FundingMode | undefined
   allowWithdraw?: boolean | undefined

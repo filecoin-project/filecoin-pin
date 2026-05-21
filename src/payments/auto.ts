@@ -155,7 +155,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     log.flush()
 
     // Show deposit warning if needed
-    displayDepositWarning(totalDeposit, status.currentAllowances.lockupUsed)
+    displayDepositWarning(totalDeposit, status.currentAllowances.lockupUsage)
 
     // Show appropriate outro message based on whether actions were taken
     if (actionsTaken) {
