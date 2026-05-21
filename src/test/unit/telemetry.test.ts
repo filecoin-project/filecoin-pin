@@ -51,20 +51,9 @@ async function freshTelemetry() {
 }
 
 describe('telemetry', () => {
-  const originalEnv = { ...process.env }
-
-  beforeEach(() => {
-    process.env = { ...originalEnv }
-    delete process.env.FILECOIN_PIN_TELEMETRY_DISABLED
-    delete process.env.DO_NOT_TRACK
-    delete process.env.FILECOIN_PIN_OTLP_METRICS_ENDPOINT
-    delete process.env.FILECOIN_PIN_OTLP_METRICS_TOKEN
-  })
-
   afterEach(async () => {
     const { shutdownTelemetry } = await import('../../core/telemetry/index.js')
     await shutdownTelemetry()
-    process.env = originalEnv
   })
 
   it('records one success per copy and one failure per failed attempt', async () => {
@@ -169,26 +158,6 @@ describe('telemetry', () => {
     expect(attrs).toContainEqual(
       expect.objectContaining({ 'upload.spId': '9', 'upload.role': 'primary', 'upload.step': 'unknown' })
     )
-  })
-
-  it('FILECOIN_PIN_TELEMETRY_DISABLED=true short-circuits initialization', async () => {
-    process.env.FILECOIN_PIN_TELEMETRY_DISABLED = 'true'
-    const { recordUploadResult, flushTelemetry } = await freshTelemetry()
-
-    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
-    await flushTelemetry()
-
-    expect(exporterInstances).toHaveLength(0)
-  })
-
-  it('DO_NOT_TRACK=1 short-circuits initialization', async () => {
-    process.env.DO_NOT_TRACK = '1'
-    const { recordUploadResult, flushTelemetry } = await freshTelemetry()
-
-    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
-    await flushTelemetry()
-
-    expect(exporterInstances).toHaveLength(0)
   })
 
   it("flushes on the host process's beforeExit", async () => {

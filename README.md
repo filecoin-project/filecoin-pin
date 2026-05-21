@@ -123,11 +123,11 @@ What we collect:
   * `upload.copies.success` — incremented per successful copy. Attributes: `upload.spId` (storage provider ID), `upload.role` (`primary`/`secondary`), `network`.
   * `upload.copies.failure` — incremented per failed copy attempt. Attributes: `upload.spId`, `upload.role`, `upload.step` (`pull`/`commit`/`unknown`), `network`.
 
-  The BetterStack source token is shipped in source, so the data source is treated as public and untrusted. Send your own copy with `FILECOIN_PIN_OTLP_METRICS_ENDPOINT` and `FILECOIN_PIN_OTLP_METRICS_TOKEN`.
+  The BetterStack source token is shipped in source, so the data source is treated as public and untrusted. The CLI lets you send your own copy with `FILECOIN_PIN_OTLP_METRICS_ENDPOINT` and `FILECOIN_PIN_OTLP_METRICS_TOKEN`.
 
   **Delivery model.** Metrics are batched in memory and exported every 60 seconds by the OpenTelemetry SDK. The CLI, pinning server, and GitHub Action all flush explicitly on shutdown. When `filecoin-pin` is used as a library, the telemetry module also flushes automatically when the host's lifecycle is ending: `process.once('beforeExit', …)` in Node, `addEventListener('pagehide', …)` in the browser. **Long-running consumers that terminate via `process.exit()`, `SIGINT`, or `SIGTERM` should call `shutdownTelemetry()` (exported from `filecoin-pin/core/telemetry`) on graceful shutdown to flush before exit.**
 
-  **Browser usage.** `executeUpload` works in browsers, and telemetry runs there too. Because browsers don't expose environment variables, the telemetry module accepts a runtime override:
+  **Library usage (Node and browser).** The telemetry library never reads `process.env`. Configure it programmatically before the first `executeUpload` — the same API works in both runtimes:
 
   ```ts
   import { configureTelemetry } from 'filecoin-pin/core/telemetry'
@@ -136,11 +136,11 @@ What we collect:
   configureTelemetry({ endpoint: '…', token: '…' })           // send elsewhere
   ```
 
-  Call `configureTelemetry()` once at startup, before the first `executeUpload`. `configureTelemetry()` works in Node too — overrides take precedence over env vars.
+  The CLI's env-var support is built on top of this API (see `src/configure-telemetry-from-env.ts`); other Node hosts can follow the same pattern.
 
 ### How to disable CLI telemetry
 
-Set the environment variable `FILECOIN_PIN_TELEMETRY_DISABLED=true` (or the cross-tool standard `DO_NOT_TRACK=1`).
+Set the environment variable `FILECOIN_PIN_TELEMETRY_DISABLED=true` (or the cross-tool standard `DO_NOT_TRACK=1`). These env vars are CLI-only — library consumers should pass `{ disabled: true }` to `configureTelemetry()` instead.
 
 ## Quick Start
 

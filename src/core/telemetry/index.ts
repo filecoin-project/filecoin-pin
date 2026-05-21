@@ -10,11 +10,10 @@
  *   `upload.spId`, `upload.role`, and `upload.step` (which sub-step of the
  *   upload pipeline tripped the failure).
  *
- * Works in both Node and the browser. In Node, configuration is read from
- * environment variables (`FILECOIN_PIN_TELEMETRY_DISABLED`, `DO_NOT_TRACK`,
- * `FILECOIN_PIN_OTLP_METRICS_ENDPOINT`, `FILECOIN_PIN_OTLP_METRICS_TOKEN`).
- * In the browser, callers may use {@link configureTelemetry} to override the
- * defaults or disable telemetry entirely before invoking `executeUpload`.
+ * Works in both Node and the browser. The library never reads its own
+ * environment — callers are expected to apply any host-specific configuration
+ * (env vars, CLI flags, browser globals) by invoking {@link configureTelemetry}
+ * before the first `executeUpload`.
  *
  * Metrics are batched in memory and exported every 60 seconds. A final flush
  * happens automatically when the host's lifecycle is ending: `beforeExit` in
@@ -49,7 +48,7 @@ interface TelemetryState {
   failureCounter: Counter
 }
 
-/** Runtime-level overrides applied on top of env-var defaults. */
+/** Runtime configuration overrides applied on top of the embedded defaults. */
 interface RuntimeOverrides {
   disabled?: boolean
   endpoint?: string
@@ -68,28 +67,21 @@ function isNodeRuntime(): boolean {
 }
 
 /**
- * Configure telemetry at runtime. Intended for browser consumers, where env
- * vars aren't available — but works in Node too (overrides take precedence
- * over env vars). Must be called before the first `executeUpload`; calling
- * it after telemetry has initialized has no effect on the active session.
+ * Configure telemetry at runtime. Must be called before the first
+ * `executeUpload`; calling it after telemetry has initialized has no effect
+ * on the active session. CLI hosts that want env-var support should read
+ * their environment themselves and forward the values here.
  */
 export function configureTelemetry(overrides: RuntimeOverrides): void {
   runtimeOverrides = { ...runtimeOverrides, ...overrides }
 }
 
 function readConfig(): TelemetryConfig {
-  const env = isNodeRuntime() ? process.env : ({} as NodeJS.ProcessEnv)
-
-  // Match the existing Sentry instrumentation in src/instrument.ts so that
-  // a single env var disables all telemetry. DO_NOT_TRACK is honoured as
-  // the standard cross-tool opt-out. Runtime override beats both.
-  const envDisabled = env.FILECOIN_PIN_TELEMETRY_DISABLED === 'true'
-  const doNotTrack = env.DO_NOT_TRACK === '1' || env.DO_NOT_TRACK?.toLowerCase() === 'true'
-  const enabled = runtimeOverrides.disabled !== true && !envDisabled && !doNotTrack
-
-  const endpoint = runtimeOverrides.endpoint ?? env.FILECOIN_PIN_OTLP_METRICS_ENDPOINT ?? DEFAULT_OTLP_METRICS_ENDPOINT
-  const token = runtimeOverrides.token ?? env.FILECOIN_PIN_OTLP_METRICS_TOKEN ?? DEFAULT_OTLP_METRICS_TOKEN
-  return { enabled, endpoint, token }
+  return {
+    enabled: runtimeOverrides.disabled !== true,
+    endpoint: runtimeOverrides.endpoint ?? DEFAULT_OTLP_METRICS_ENDPOINT,
+    token: runtimeOverrides.token ?? DEFAULT_OTLP_METRICS_TOKEN,
+  }
 }
 
 function registerExitHandler(): void {
