@@ -1,9 +1,8 @@
 /**
- * Egress-provider CLI option, env normalization, and notice renderer.
+ * Egress-provider CLI option, FilBeam URL builder, and notice renderer.
  *
  * Owns:
  *   --egress-provider <beam|none>  (default: beam, env: EGRESS_PROVIDER)
- *   WITH_CDN env var fallback for backwards compatibility
  *   The non-interactive notice printed when beam is active
  */
 
@@ -16,43 +15,14 @@ export const EGRESS_PROVIDERS = ['beam', 'none'] as const
 export type EgressProvider = (typeof EGRESS_PROVIDERS)[number]
 
 /**
- * Resolve the effective egress provider.
- *
- * Precedence:
- *   1. Explicit CLI value (--egress-provider flag or EGRESS_PROVIDER env, both
- *      surface here as a non-undefined `cliValue` because we do NOT set a
- *      Commander `.default()` — the default is applied here instead)
- *   2. WITH_CDN env var (backwards compat: 'true' → beam, 'false' → none)
- *   3. Default: 'beam'
- */
-export function normalizeEgressProvider(
-  cliValue: EgressProvider | undefined,
-  env: { WITH_CDN?: string }
-): EgressProvider {
-  if (cliValue != null) {
-    return cliValue
-  }
-  if (env.WITH_CDN === 'false') {
-    return 'none'
-  }
-  if (env.WITH_CDN === 'true') {
-    return 'beam'
-  }
-  return 'beam'
-}
-
-/**
- * Attach the `--egress-provider` option to a Commander command.
- *
- * No Commander `.default()` is set so a missing value surfaces as `undefined`,
- * letting {@link normalizeEgressProvider} apply the WITH_CDN fallback before
- * defaulting to `beam`. The "default: beam" wording lives in the description.
+ * Attach the `--egress-provider` option to a Commander command. The `beam`
+ * default is applied by the add/import CLI normalization, not via Commander.
  */
 export function addEgressOptions(command: Command): Command {
   command.addOption(
     new Option(
       '--egress-provider <provider>',
-      'Egress provider for piece retrieval: beam (default, FilBeam CDN billed to wallet) or none.'
+      'Egress provider for piece retrieval: beam (default, FilBeam CDN; egress drawn from the owner lockup) or none.'
     )
       .choices(EGRESS_PROVIDERS as readonly string[])
       .env('EGRESS_PROVIDER')

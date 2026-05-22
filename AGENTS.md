@@ -96,7 +96,7 @@ src/
 
 **Required env**: `PRIVATE_KEY=0x...` (with USDFC tokens; not needed for devnet)
 
-**Optional**: `NETWORK`, `RPC_URL`, `EGRESS_PROVIDER`, `WITH_CDN` (legacy fallback for `--egress-provider`), `FOC_DEVNET_BASEDIR`, `DEVNET_INFO_PATH`, `DEVNET_USER_INDEX`, `PORT`, `HOST`, `DATABASE_PATH`, `CAR_STORAGE_PATH`, `LOG_LEVEL`
+**Optional**: `NETWORK`, `RPC_URL`, `EGRESS_PROVIDER`, `FOC_DEVNET_BASEDIR`, `DEVNET_INFO_PATH`, `DEVNET_USER_INDEX`, `PORT`, `HOST`, `DATABASE_PATH`, `CAR_STORAGE_PATH`, `LOG_LEVEL`
 
 **Default data dirs for pinning server**: Linux `~/.local/share/filecoin-pin/`, macOS `~/Library/Application Support/filecoin-pin/`, Windows `%APPDATA%/filecoin-pin/`
 

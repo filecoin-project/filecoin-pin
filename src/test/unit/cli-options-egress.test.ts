@@ -1,11 +1,6 @@
 import { Command } from 'commander'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  addEgressOptions,
-  EGRESS_PROVIDERS,
-  normalizeEgressProvider,
-  printEgressNotice,
-} from '../../utils/cli-options-egress.js'
+import { addEgressOptions, EGRESS_PROVIDERS, printEgressNotice } from '../../utils/cli-options-egress.js'
 
 vi.mock('../../utils/cli-logger.js', () => ({
   log: {
@@ -22,34 +17,7 @@ vi.mock('../../utils/cli-logger.js', () => ({
   },
 }))
 
-describe('normalizeEgressProvider', () => {
-  it('returns "beam" by default when neither CLI nor env is set', () => {
-    expect(normalizeEgressProvider(undefined, {})).toBe('beam')
-  })
-
-  it('returns the CLI value when provided', () => {
-    expect(normalizeEgressProvider('none', {})).toBe('none')
-    expect(normalizeEgressProvider('beam', {})).toBe('beam')
-  })
-
-  it('falls back to WITH_CDN=false → none when CLI value is absent', () => {
-    expect(normalizeEgressProvider(undefined, { WITH_CDN: 'false' })).toBe('none')
-  })
-
-  it('falls back to WITH_CDN=true → beam when CLI value is absent', () => {
-    expect(normalizeEgressProvider(undefined, { WITH_CDN: 'true' })).toBe('beam')
-  })
-
-  it('CLI flag wins over WITH_CDN env', () => {
-    expect(normalizeEgressProvider('none', { WITH_CDN: 'true' })).toBe('none')
-    expect(normalizeEgressProvider('beam', { WITH_CDN: 'false' })).toBe('beam')
-  })
-
-  it('ignores WITH_CDN values other than "true"/"false"', () => {
-    expect(normalizeEgressProvider(undefined, { WITH_CDN: 'yes' })).toBe('beam')
-    expect(normalizeEgressProvider(undefined, { WITH_CDN: '' })).toBe('beam')
-  })
-
+describe('EGRESS_PROVIDERS', () => {
   it('exposes the closed list of providers', () => {
     expect(EGRESS_PROVIDERS).toEqual(['beam', 'none'])
   })

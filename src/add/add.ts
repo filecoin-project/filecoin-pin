@@ -25,12 +25,7 @@ import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
-import {
-  buildFilbeamUrl,
-  chainSupportsFilbeam,
-  normalizeEgressProvider,
-  printEgressNotice,
-} from '../utils/cli-options-egress.js'
+import { buildFilbeamUrl, chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
 import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 import type { AddOptions, AddResult } from './types.js'
 
@@ -100,14 +95,13 @@ export async function runAddFromCli(path: string, options: Record<string, any>):
     } = options
     const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
 
-    const egressProvider = normalizeEgressProvider(rawEgressProvider, process.env)
-    const withCDN = egressProvider === 'beam'
+    const egressProvider = rawEgressProvider ?? 'beam'
 
     addOptions = {
       ...addOptionsFromCli,
       ...autoFundOptions,
       filePath: path,
-      withCDN,
+      egressProvider,
       ...(pieceMetadata && { pieceMetadata }),
       ...(dataSetMetadata && { dataSetMetadata }),
     }
@@ -141,7 +135,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     level: process.env.LOG_LEVEL || 'silent',
   })
 
-  const withCDN = options.withCDN === true
+  // Map the public egress provider to the SDK's withCDN boolean (internal only).
+  const withCDN = options.egressProvider === 'beam'
 
   let tempCarPath: string | undefined
 
@@ -193,7 +188,6 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
-    // Deferred until the chain is known so the notice only shows on FilBeam-capable networks.
     if (withCDN && chainSupportsFilbeam(synapse)) {
       printEgressNotice('beam')
     }

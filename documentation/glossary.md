@@ -41,19 +41,19 @@ FIL is Filecoin's native token.  While [Filecoin Onchain Cloud](#filecoin-onchai
 
 ## FilBeam egress
 
-The piece-retrieval CDN provided by [FilBeam](https://github.com/filbeam). When `filecoin-pin add` or `filecoin-pin import` is run with `--egress-provider beam` (the default), uploaded pieces are retrievable via FilBeam at `https://{wallet-address}.{filbeam-domain}/{pieceCid}` — for example `https://0xabc....calibration.filbeam.io/bafk...` on the [Calibration Network](#calibration-network).
+This concerns the [/piece retrieval](#piece-retrieval) CDN provided by [FilBeam](https://github.com/filbeam). When `filecoin-pin add` or `filecoin-pin import` is run with `--egress-provider beam` (the default), uploaded pieces are retrievable via FilBeam at `https://{wallet-address}.{filbeam-domain}/{pieceCid}` (e.g., `https://0xabc....calibration.filbeam.io/bafk...` on the [Calibration Network](#calibration-network)).
 
 **What it does today:** Serves [`/piece` Retrieval](#piece-retrieval) only — whole-CAR fetches keyed by [Piece CID](#piece-cid). It does **not** route [`/ipfs` Retrieval](#ipfs-retrieval); for those, use the IPFS retrieval URLs printed alongside the upload result.
 
 **Network support:** FilBeam URLs are only printed on networks with a FilBeam endpoint (mainnet and [Calibration](#calibration-network)). On networks without one (e.g. devnet), `--egress-provider beam` stays the default but no FilBeam URL is shown.
 
-**Cost:** CDN egress is paid from funds the data set owner locks up for it — it is not billed to their wallet per request; that lockup is consumed as retrievals happen. Anyone who knows the piece CID and wallet address can trigger a retrieval, which draws down that egress lockup.
+**Cost:** CDN egress is paid from funds the data set owner locks up for it — it is not billed to their wallet at data-set creation. Instead, lockup is consumed as retrievals happen. Anyone who knows the piece CID and wallet address can trigger a retrieval, which draws down that egress lockup.
 
 **Lockup:** Creating a new FilBeam-enabled [Data Set](#data-set) requires an extra fixed lockup of 1 USDFC (on top of the data-set creation fee and ongoing storage cost). This is why a CDN upload that creates a new data set needs more deposited funds than a non-CDN one. `--auto-fund` accounts for it automatically; without it, deposit enough to cover the lockup or the upload fails with an insufficient-funds error.
 
 **Future state:** FilBeam is working on routing IPFS-block retrievals through the same CDN ([filbeam/roadmap#85](https://github.com/filbeam/roadmap/issues/85)). [Data Sets](#data-set) uploaded with FilBeam enabled today will benefit automatically when that ships.
 
-**Opting out:** Pass `--egress-provider none` (or `EGRESS_PROVIDER=none`, or the legacy `WITH_CDN=false`) to skip FilBeam routing entirely.
+**Opting out:** Pass `--egress-provider none` (or `EGRESS_PROVIDER=none`) to skip FilBeam routing entirely.
 
 ## Filecoin Pay
 

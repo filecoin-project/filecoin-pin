@@ -25,12 +25,7 @@ import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
-import {
-  buildFilbeamUrl,
-  chainSupportsFilbeam,
-  normalizeEgressProvider,
-  printEgressNotice,
-} from '../utils/cli-options-egress.js'
+import { buildFilbeamUrl, chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
 import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 import type { ImportOptions, ImportResult } from './types.js'
 
@@ -156,15 +151,14 @@ export async function runCarImportFromCli(file: string, options: Record<string, 
       ...importOptionsFromCli
     } = options
 
-    const egressProvider = normalizeEgressProvider(rawEgressProvider, process.env)
-    const withCDN = egressProvider === 'beam'
+    const egressProvider = rawEgressProvider ?? 'beam'
 
     const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
     importOptions = {
       ...importOptionsFromCli,
       ...autoFundOptions,
       filePath: file,
-      withCDN,
+      egressProvider,
       ...(pieceMetadata && { pieceMetadata }),
       ...(dataSetMetadata && { dataSetMetadata }),
     }
@@ -198,7 +192,8 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     level: process.env.LOG_LEVEL || 'silent',
   })
 
-  const withCDN = options.withCDN === true
+  // Map the public egress provider to the SDK's withCDN boolean (internal only).
+  const withCDN = options.egressProvider === 'beam'
 
   try {
     // Validate file exists and is readable
@@ -250,7 +245,6 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
-    // Deferred until the chain is known so the notice only shows on FilBeam-capable networks.
     if (withCDN && chainSupportsFilbeam(synapse)) {
       printEgressNotice('beam')
     }
