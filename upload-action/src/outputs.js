@@ -88,11 +88,12 @@ export function getOutputSummary(context, status) {
     filBalance: 0n,
     walletUsdfcBalance: '0',
     currentAllowances: {
+      isApproved: false,
       rateAllowance: 0n,
       lockupAllowance: 0n,
-      lockupUsed: 0n,
+      lockupUsage: 0n,
       maxLockupPeriod: 0n,
-      rateUsed: 0n,
+      rateUsage: 0n,
     },
     ...context?.paymentStatus,
   }
