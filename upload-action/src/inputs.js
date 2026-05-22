@@ -89,7 +89,14 @@ export function parseInputs(phase = 'single') {
   const networkRaw = getInput('network')
   const minStorageDaysRaw = getInput('minStorageDays', '')
   const filecoinPayBalanceLimitRaw = getInput('filecoinPayBalanceLimit', '')
-  const withCDN = parseBoolean(getInput('withCDN', 'false'))
+  const egressProvider = getInput('egressProvider', 'none')
+  if (egressProvider !== 'beam' && egressProvider !== 'none') {
+    throw new FilecoinPinError(
+      `Invalid egressProvider: "${egressProvider}". Use "beam" or "none".`,
+      ERROR_CODES.INVALID_INPUT
+    )
+  }
+  const withCDN = egressProvider === 'beam'
   const dryRun = parseBoolean(getInput('dryRun', 'false'))
 
   if (!contentPath) {

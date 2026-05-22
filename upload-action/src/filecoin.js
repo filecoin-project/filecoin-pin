@@ -133,6 +133,7 @@ export async function handlePayments(synapse, options, logger) {
     pieceSizeBytes,
     pricePerTiBPerEpoch: storageInfo.pricing.noCDN.perTiBPerEpoch,
     newDataSetCount,
+    withCDN,
   })
 
   if (fundingPlan.delta > 0n) {

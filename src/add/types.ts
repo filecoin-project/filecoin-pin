@@ -1,6 +1,7 @@
 import type { CopyResult, FailedAttempt } from '@filoz/synapse-sdk'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 import type { CLIAutoFundOptions } from '../utils/cli-options.js'
+import type { EgressProvider } from '../utils/cli-options-egress.js'
 
 export interface AddOptions extends CLIAuthOptions, CLIAutoFundOptions {
   filePath: string
@@ -13,6 +14,8 @@ export interface AddOptions extends CLIAuthOptions, CLIAutoFundOptions {
   dataSetMetadata?: Record<string, string>
   /** Skip IPNI advertisement verification after upload */
   skipIpniVerification?: boolean
+  /** Egress provider for piece retrieval ('beam' enables FilBeam CDN). Defaults to off when unset. */
+  egressProvider?: EgressProvider
 }
 
 export interface AddResult {
