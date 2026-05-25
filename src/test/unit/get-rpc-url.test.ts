@@ -59,4 +59,9 @@ describe('getRpcUrl', () => {
       'Invalid network: "invalid". Must be "mainnet", "calibration", or "devnet"'
     )
   })
+
+  it('accepts "calibnet" as an alias for calibration', () => {
+    expect(getRpcUrl({ network: 'calibnet' })).toBe(calibrationWsUrl)
+    expect(getRpcUrl({ network: '  CALIBNET  ' })).toBe(calibrationWsUrl)
+  })
 })
