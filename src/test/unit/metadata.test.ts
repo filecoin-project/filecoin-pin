@@ -87,4 +87,9 @@ describe('withDerivedNameMetadata', () => {
     expect(withDerivedNameMetadata(undefined, '')).toBeUndefined()
     expect(withDerivedNameMetadata({ region: 'us-west' }, '')).toEqual({ region: 'us-west' })
   })
+
+  it('returns the input unchanged when the derived name is null', () => {
+    expect(withDerivedNameMetadata(undefined, null)).toBeUndefined()
+    expect(withDerivedNameMetadata({ region: 'us-west' }, null)).toEqual({ region: 'us-west' })
+  })
 })

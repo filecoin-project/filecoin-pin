@@ -52,10 +52,10 @@ export function normalizeMetadataConfig(input: MetadataConfigInput): MetadataCon
  * `PIECE_METADATA_NAME_KEY`.
  *
  * Precedence rules:
- * - If `derivedName` is an empty string, returns the input unchanged. There
- *   is no name to attach, so nothing is written.
+ * - If `derivedName` is `null` (or an empty string), returns the input
+ *   unchanged. There is no name to attach, so nothing is written.
  * - If the user already set `PIECE_METADATA_NAME_KEY` in `pieceMetadata`,
- *   that value is preserved — including an explicit empty string, which is
+ *   that value is preserved, including an explicit empty string, which is
  *   treated as a user opt-out from the auto-derived name. The derived value
  *   is dropped silently because this is auto-derived metadata, not a hard
  *   requirement.
@@ -63,9 +63,9 @@ export function normalizeMetadataConfig(input: MetadataConfigInput): MetadataCon
  */
 export function withDerivedNameMetadata(
   pieceMetadata: Record<string, string> | undefined,
-  derivedName: string
+  derivedName: string | null
 ): Record<string, string> | undefined {
-  if (derivedName === '') {
+  if (derivedName == null || derivedName === '') {
     return pieceMetadata
   }
 

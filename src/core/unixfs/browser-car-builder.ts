@@ -23,8 +23,8 @@ export interface CreateCarOptions {
 export interface CreateCarResult {
   carBytes: Uint8Array
   rootCid: CID
-  /** Basename of the source, useful for piece metadata. */
-  name: string
+  /** Basename of the source, or `null` when none is available. Useful for piece metadata. */
+  name: string | null
 }
 
 /**
@@ -75,8 +75,8 @@ export async function createCarFromFile(file: File, options: CreateCarOptions = 
 
 /**
  * Multi-file uploads without a `webkitRelativePath` have no meaningful
- * basename, so `name` is returned as an empty string and no `name` piece
- * metadata is attached (see `withDerivedNameMetadata`).
+ * basename, so `name` is returned as `null` and no `name` piece metadata is
+ * attached (see `withDerivedNameMetadata`).
  */
 export async function createCarFromFiles(files: File[], options: CreateCarOptions = {}): Promise<CreateCarResult> {
   if (files.length === 0) {
@@ -87,7 +87,7 @@ export async function createCarFromFiles(files: File[], options: CreateCarOption
     return createCarFromFile(files[0], options)
   }
 
-  return createCar({ name: '' }, async (fs) => {
+  return createCar({ name: null }, async (fs) => {
     // Convert files to addAll format
     async function* fileGenerator() {
       for (const file of files) {
@@ -153,7 +153,7 @@ export async function createCarFromFileList(files: File[], options: CreateCarOpt
 
   // Top-level directory name is the first segment of any webkitRelativePath.
   const sample = (files.find((f) => (f as any).webkitRelativePath) as any)?.webkitRelativePath as string | undefined
-  const dirName = sample?.split('/')[0] ?? ''
+  const dirName = sample?.split('/')[0] ?? null
 
   // Has directory structure - preserve it
   return createCar({ name: dirName }, async (fs) => {
@@ -208,7 +208,10 @@ export async function createCarFromFileList(files: File[], options: CreateCarOpt
  * @param addContent - Function that adds content to UnixFS and returns the root CID
  * @returns CAR bytes, root CID, and source name
  */
-async function createCar(meta: { name: string }, addContent: (fs: any) => Promise<CID>): Promise<CreateCarResult> {
+async function createCar(
+  meta: { name: string | null },
+  addContent: (fs: any) => Promise<CID>
+): Promise<CreateCarResult> {
   // Create blockstore with placeholder CID
   const blockstore = new CARWritingBlockstore({
     rootCID: PLACEHOLDER_CID,
