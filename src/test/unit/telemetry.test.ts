@@ -1,28 +1,46 @@
 import type { CopyResult, FailedAttempt } from '@filoz/synapse-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-interface MockExporter {
-  export: ReturnType<typeof vi.fn>
-  forceFlush: ReturnType<typeof vi.fn>
-  shutdown: ReturnType<typeof vi.fn>
-  options: { url?: string; headers?: Record<string, string> } | undefined
+interface FetchCall {
+  url: string
+  init: RequestInit
 }
 
-const exporterInstances: MockExporter[] = []
+const fetchCalls: FetchCall[] = []
+let fetchMock: ReturnType<typeof vi.fn>
 
-vi.mock('@opentelemetry/exporter-metrics-otlp-http', () => {
-  class OTLPMetricExporter {
-    export = vi.fn((_metrics: unknown, cb: (result: { code: number }) => void) => cb({ code: 0 }))
-    forceFlush = vi.fn().mockResolvedValue(undefined)
-    shutdown = vi.fn().mockResolvedValue(undefined)
-    options: MockExporter['options']
-    constructor(opts: MockExporter['options']) {
-      this.options = opts
-      exporterInstances.push(this as unknown as MockExporter)
-    }
-  }
-  return { OTLPMetricExporter }
-})
+function installFetch(): void {
+  fetchCalls.length = 0
+  fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+    fetchCalls.push({ url, init })
+    return new Response(null, { status: 202 })
+  })
+  ;(globalThis as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch
+}
+
+interface MetricPayload {
+  name: string
+  counter: { value: number }
+  dt: string
+  tags: Record<string, string>
+}
+
+function parseBody(call: FetchCall): MetricPayload[] {
+  if (typeof call.init.body !== 'string') throw new Error('expected JSON string body')
+  return JSON.parse(call.init.body)
+}
+
+function firstCall(): FetchCall {
+  const call = fetchCalls[0]
+  if (call == null) throw new Error('expected at least one fetch call')
+  return call
+}
+
+function firstPoint(points: MetricPayload[]): MetricPayload {
+  const point = points[0]
+  if (point == null) throw new Error('expected at least one metric point')
+  return point
+}
 
 const makeCopy = (overrides: Partial<CopyResult>): CopyResult => ({
   providerId: 1n,
@@ -43,11 +61,9 @@ const makeAttempt = (overrides: Partial<FailedAttempt>): FailedAttempt => ({
 })
 
 async function freshTelemetry() {
-  // Reset module state so each test gets a clean singleton
   vi.resetModules()
-  exporterInstances.length = 0
-  const mod = await import('../../core/telemetry/index.js')
-  return mod
+  installFetch()
+  return import('../../core/telemetry/index.js')
 }
 
 describe('telemetry', () => {
@@ -72,50 +88,31 @@ describe('telemetry', () => {
 
     await flushTelemetry()
 
-    expect(exporterInstances).toHaveLength(1)
-    const exporter = exporterInstances[0]
-    if (exporter == null) throw new Error('expected exporter instance')
-    expect(exporter.export).toHaveBeenCalled()
+    expect(fetchCalls).toHaveLength(1)
+    const points = parseBody(firstCall())
 
-    // Aggregate all data points across all export() invocations.
-    const dataPoints: Array<{ name: string; attrs: Record<string, unknown>; value: number }> = []
-    for (const call of exporter.export.mock.calls) {
-      const batch = call[0]
-      for (const scope of batch.scopeMetrics) {
-        for (const metric of scope.metrics) {
-          for (const dp of metric.dataPoints) {
-            dataPoints.push({
-              name: metric.descriptor.name,
-              attrs: dp.attributes ?? {},
-              value: dp.value,
-            })
-          }
-        }
-      }
-    }
-
-    const successPoints = dataPoints.filter((p) => p.name === 'upload.copies.success')
-    const failurePoints = dataPoints.filter((p) => p.name === 'upload.copies.failure')
+    const successPoints = points.filter((p) => p.name === 'upload.copies.success')
+    const failurePoints = points.filter((p) => p.name === 'upload.copies.failure')
 
     expect(successPoints).toHaveLength(2)
     expect(successPoints).toContainEqual(
       expect.objectContaining({
-        value: 1,
-        attrs: expect.objectContaining({ 'upload.spId': '1', 'upload.role': 'primary', network: 'calibration' }),
+        counter: { value: 1 },
+        tags: expect.objectContaining({ 'upload.spId': '1', 'upload.role': 'primary', network: 'calibration' }),
       })
     )
     expect(successPoints).toContainEqual(
       expect.objectContaining({
-        value: 1,
-        attrs: expect.objectContaining({ 'upload.spId': '2', 'upload.role': 'secondary', network: 'calibration' }),
+        counter: { value: 1 },
+        tags: expect.objectContaining({ 'upload.spId': '2', 'upload.role': 'secondary', network: 'calibration' }),
       })
     )
 
     expect(failurePoints).toHaveLength(2)
     expect(failurePoints).toContainEqual(
       expect.objectContaining({
-        value: 1,
-        attrs: expect.objectContaining({
+        counter: { value: 1 },
+        tags: expect.objectContaining({
           'upload.spId': '3',
           'upload.role': 'secondary',
           'upload.step': 'pull',
@@ -125,8 +122,8 @@ describe('telemetry', () => {
     )
     expect(failurePoints).toContainEqual(
       expect.objectContaining({
-        value: 1,
-        attrs: expect.objectContaining({
+        counter: { value: 1 },
+        tags: expect.objectContaining({
           'upload.spId': '4',
           'upload.role': 'secondary',
           'upload.step': 'commit',
@@ -134,6 +131,32 @@ describe('telemetry', () => {
         }),
       })
     )
+    for (const point of points) {
+      expect(point.tags['service.name']).toBe('filecoin-pin')
+      expect(typeof point.dt).toBe('string')
+    }
+  })
+
+  it('aggregates repeated events for the same metric+tag set', async () => {
+    const { recordUploadResult, flushTelemetry } = await freshTelemetry()
+
+    recordUploadResult(
+      {
+        copies: [
+          makeCopy({ providerId: 1n, role: 'primary' }),
+          makeCopy({ providerId: 1n, role: 'primary' }),
+          makeCopy({ providerId: 1n, role: 'primary' }),
+        ],
+        failedAttempts: [],
+      },
+      'mainnet'
+    )
+    await flushTelemetry()
+
+    expect(fetchCalls).toHaveLength(1)
+    const points = parseBody(firstCall())
+    expect(points).toHaveLength(1)
+    expect(firstPoint(points).counter.value).toBe(3)
   })
 
   it('classifies unknown error strings as step=unknown', async () => {
@@ -148,16 +171,27 @@ describe('telemetry', () => {
     )
     await flushTelemetry()
 
-    const exporter = exporterInstances[0]
-    if (exporter == null) throw new Error('expected exporter instance')
-    const attrs = exporter.export.mock.calls
-      .flatMap((c) => c[0].scopeMetrics)
-      .flatMap((s: any) => s.metrics)
-      .flatMap((m: any) => m.dataPoints)
-      .map((dp: any) => dp.attributes)
-    expect(attrs).toContainEqual(
-      expect.objectContaining({ 'upload.spId': '9', 'upload.role': 'primary', 'upload.step': 'unknown' })
-    )
+    const points = parseBody(firstCall())
+    expect(firstPoint(points).tags).toMatchObject({
+      'upload.spId': '9',
+      'upload.role': 'primary',
+      'upload.step': 'unknown',
+    })
+  })
+
+  it('posts to the default BetterStack endpoint with a bearer token', async () => {
+    const { recordUploadResult, flushTelemetry } = await freshTelemetry()
+
+    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
+    await flushTelemetry()
+
+    expect(fetchCalls).toHaveLength(1)
+    const call = firstCall()
+    expect(call.url).toMatch(/^https:\/\/.*betterstackdata\.com\/metrics$/)
+    expect(call.init.method).toBe('POST')
+    const headers = call.init.headers as Record<string, string>
+    expect(headers.Authorization).toMatch(/^Bearer .+/)
+    expect(headers['Content-Type']).toBe('application/json')
   })
 
   it("flushes on the host process's beforeExit", async () => {
@@ -172,9 +206,7 @@ describe('telemetry', () => {
     await new Promise((r) => setImmediate(r))
     await new Promise((r) => setImmediate(r))
 
-    const exporter = exporterInstances[0]
-    if (exporter == null) throw new Error('expected exporter instance')
-    expect(exporter.shutdown).toHaveBeenCalled()
+    expect(fetchCalls).toHaveLength(1)
     expect(process.listenerCount('beforeExit')).toBe(before)
   })
 
@@ -196,20 +228,30 @@ describe('telemetry', () => {
     recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
     await flushTelemetry()
 
-    expect(exporterInstances).toHaveLength(0)
+    expect(fetchCalls).toHaveLength(0)
   })
 
   it('honours configureTelemetry endpoint/token overrides', async () => {
     const { configureTelemetry, recordUploadResult, flushTelemetry } = await freshTelemetry()
 
-    configureTelemetry({ endpoint: 'https://example.test/v1/metrics', token: 'override-token' })
+    configureTelemetry({ endpoint: 'https://example.test/metrics', token: 'override-token' })
     recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
     await flushTelemetry()
 
-    const exporter = exporterInstances[0]
-    if (exporter == null) throw new Error('expected exporter instance')
-    expect(exporter.options?.url).toBe('https://example.test/v1/metrics')
-    expect(exporter.options?.headers?.Authorization).toBe('Bearer override-token')
+    expect(fetchCalls).toHaveLength(1)
+    const call = firstCall()
+    expect(call.url).toBe('https://example.test/metrics')
+    expect((call.init.headers as Record<string, string>).Authorization).toBe('Bearer override-token')
+  })
+
+  it('swallows fetch errors so telemetry never breaks the host', async () => {
+    const { recordUploadResult, flushTelemetry } = await freshTelemetry()
+    fetchMock.mockImplementation(async () => {
+      throw new Error('network down')
+    })
+
+    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
+    await expect(flushTelemetry()).resolves.toBeUndefined()
   })
 })
 
@@ -262,21 +304,18 @@ describe('telemetry (browser runtime)', () => {
 
     recordUploadResult({ copies: [makeCopy({ providerId: 5n })], failedAttempts: [] }, 'mainnet')
 
-    expect(exporterInstances).toHaveLength(1)
     const pagehide = addedListeners.find((l) => l.type === 'pagehide')
     expect(pagehide).toBeDefined()
     expect(pagehide?.opts?.once).toBe(true)
   })
 
-  it('flushes via the pagehide listener and unregisters on explicit shutdown', async () => {
+  it('flushes via shutdown and unregisters the pagehide listener', async () => {
     const { recordUploadResult, shutdownTelemetry } = await freshTelemetry()
 
     recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'mainnet')
     await shutdownTelemetry()
 
-    const exporter = exporterInstances[0]
-    if (exporter == null) throw new Error('expected exporter instance')
-    expect(exporter.shutdown).toHaveBeenCalled()
+    expect(fetchCalls).toHaveLength(1)
     expect(removedListeners.some((l) => l.type === 'pagehide')).toBe(true)
   })
 })

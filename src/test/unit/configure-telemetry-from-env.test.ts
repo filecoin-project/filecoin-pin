@@ -39,18 +39,18 @@ describe('configureTelemetryFromEnv', () => {
 
   it('forwards endpoint and token overrides when present', () => {
     configureTelemetryFromEnv({
-      FILECOIN_PIN_OTLP_METRICS_ENDPOINT: 'https://example.test/v1/metrics',
-      FILECOIN_PIN_OTLP_METRICS_TOKEN: 'override-token',
+      FILECOIN_PIN_METRICS_ENDPOINT: 'https://example.test/metrics',
+      FILECOIN_PIN_METRICS_TOKEN: 'override-token',
     })
     expect(configureTelemetry).toHaveBeenCalledWith({
       disabled: false,
-      endpoint: 'https://example.test/v1/metrics',
+      endpoint: 'https://example.test/metrics',
       token: 'override-token',
     })
   })
 
   it('omits endpoint/token keys entirely when the env var is unset', () => {
-    configureTelemetryFromEnv({ FILECOIN_PIN_OTLP_METRICS_ENDPOINT: 'https://only-endpoint.test' })
+    configureTelemetryFromEnv({ FILECOIN_PIN_METRICS_ENDPOINT: 'https://only-endpoint.test' })
     expect(configureTelemetry).toHaveBeenCalledWith({
       disabled: false,
       endpoint: 'https://only-endpoint.test',

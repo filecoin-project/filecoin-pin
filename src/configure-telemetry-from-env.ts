@@ -17,11 +17,11 @@ export function configureTelemetryFromEnv(env: NodeJS.ProcessEnv = process.env):
     env.DO_NOT_TRACK?.toLowerCase() === 'true'
 
   const overrides: Parameters<typeof configureTelemetry>[0] = { disabled }
-  if (env.FILECOIN_PIN_OTLP_METRICS_ENDPOINT != null) {
-    overrides.endpoint = env.FILECOIN_PIN_OTLP_METRICS_ENDPOINT
+  if (env.FILECOIN_PIN_METRICS_ENDPOINT != null) {
+    overrides.endpoint = env.FILECOIN_PIN_METRICS_ENDPOINT
   }
-  if (env.FILECOIN_PIN_OTLP_METRICS_TOKEN != null) {
-    overrides.token = env.FILECOIN_PIN_OTLP_METRICS_TOKEN
+  if (env.FILECOIN_PIN_METRICS_TOKEN != null) {
+    overrides.token = env.FILECOIN_PIN_METRICS_TOKEN
   }
   configureTelemetry(overrides)
 }

@@ -119,13 +119,13 @@ Filecoin Pin's CLI collects telemetry.  A few things:
 
 What we collect:
 * **Error reports** via Sentry (no PII).
-* **Per-upload copy outcomes** via OpenTelemetry, so we can measure the success rate of multi-copy uploads and identify which storage providers (or pipeline steps) are failing. Two counters are emitted:
-  * `upload.copies.success` — incremented per successful copy. Attributes: `upload.spId` (storage provider ID), `upload.role` (`primary`/`secondary`), `network`.
-  * `upload.copies.failure` — incremented per failed copy attempt. Attributes: `upload.spId`, `upload.role`, `upload.step` (`pull`/`commit`/`unknown`), `network`.
+* **Per-upload copy outcomes** posted directly to [BetterStack's HTTP metrics ingestion endpoint](https://betterstack.com/docs/logs/ingesting-data/http/metrics/), so we can measure the success rate of multi-copy uploads and identify which storage providers (or pipeline steps) are failing. Two counters are emitted:
+  * `upload.copies.success` — incremented per successful copy. Tags: `upload.spId` (storage provider ID), `upload.role` (`primary`/`secondary`), `network`.
+  * `upload.copies.failure` — incremented per failed copy attempt. Tags: `upload.spId`, `upload.role`, `upload.step` (`pull`/`commit`/`unknown`), `network`.
 
-  The BetterStack source token is shipped in source, so the data source is treated as public and untrusted. The CLI lets you send your own copy with `FILECOIN_PIN_OTLP_METRICS_ENDPOINT` and `FILECOIN_PIN_OTLP_METRICS_TOKEN`.
+  The BetterStack source token is shipped in source, so the data source is treated as public and untrusted. The CLI lets you send your own copy with `FILECOIN_PIN_METRICS_ENDPOINT` and `FILECOIN_PIN_METRICS_TOKEN`.
 
-  **Delivery model.** Metrics are batched in memory and exported every 60 seconds by the OpenTelemetry SDK. The CLI, pinning server, and GitHub Action all flush explicitly on shutdown. When `filecoin-pin` is used as a library, the telemetry module also flushes automatically when the host's lifecycle is ending: `process.once('beforeExit', …)` in Node, `addEventListener('pagehide', …)` in the browser. **Long-running consumers that terminate via `process.exit()`, `SIGINT`, or `SIGTERM` should call `shutdownTelemetry()` (exported from `filecoin-pin/core/telemetry`) on graceful shutdown to flush before exit.**
+  **Delivery model.** Events are aggregated in memory by (metric name, tag set) and flushed via HTTP POST every 60 seconds. The CLI, pinning server, and GitHub Action all flush explicitly on shutdown. When `filecoin-pin` is used as a library, the telemetry module also flushes automatically when the host's lifecycle is ending: `process.once('beforeExit', …)` in Node, `addEventListener('pagehide', …)` in the browser. **Long-running consumers that terminate via `process.exit()`, `SIGINT`, or `SIGTERM` should call `shutdownTelemetry()` (exported from `filecoin-pin/core/telemetry`) on graceful shutdown to flush before exit.**
 
   **Library usage (Node and browser).** The telemetry library never reads `process.env`. Configure it programmatically before the first `executeUpload` — the same API works in both runtimes:
 
@@ -263,8 +263,8 @@ LOG_LEVEL=info                 # Logging verbosity (info, debug, error)
 # Optional - Telemetry (see "CLI Telemetry" above)
 FILECOIN_PIN_TELEMETRY_DISABLED=true        # Disable all telemetry
 DO_NOT_TRACK=1                              # Standard cross-tool opt-out
-FILECOIN_PIN_OTLP_METRICS_ENDPOINT=https://… # Override OTLP metrics endpoint
-FILECOIN_PIN_OTLP_METRICS_TOKEN=…           # Override OTLP metrics token
+FILECOIN_PIN_METRICS_ENDPOINT=https://…     # Override BetterStack metrics endpoint
+FILECOIN_PIN_METRICS_TOKEN=…                # Override BetterStack source token
 ```
 
 ### Default Data Directories

@@ -1,8 +1,9 @@
 /**
  * Anonymous upload telemetry.
  *
- * Emits two counters via OpenTelemetry/OTLP-HTTP so we can gauge the
- * multi-copy success rate of `executeUpload`:
+ * Emits two counters via direct HTTP POST to BetterStack
+ * (https://betterstack.com/docs/logs/ingesting-data/http/metrics/) so we can
+ * gauge the multi-copy success rate of `executeUpload`:
  *
  * - `upload.copies.success` — per successful copy, attributed by `upload.spId`
  *   and `upload.role` (primary/secondary).
@@ -15,53 +16,47 @@
  * (env vars, CLI flags, browser globals) by invoking {@link configureTelemetry}
  * before the first `executeUpload`.
  *
- * Metrics are batched in memory and exported every 60 seconds. A final flush
- * happens automatically when the host's lifecycle is ending: `beforeExit` in
- * Node and `pagehide` in the browser. Long-running consumers that terminate
- * via `process.exit()` or signals should call {@link shutdownTelemetry}
- * explicitly.
+ * Events are aggregated in memory by (metric name, tag set) and flushed to the
+ * endpoint every 60 seconds, plus a final flush when the host's lifecycle is
+ * ending: `beforeExit` in Node and `pagehide` in the browser. Long-running
+ * consumers that terminate via `process.exit()` or signals should call
+ * {@link shutdownTelemetry} explicitly.
  */
 
 import type { UploadResult } from '@filoz/synapse-sdk'
-import type { Counter } from '@opentelemetry/api'
-import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
-import { resourceFromAttributes } from '@opentelemetry/resources'
-import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics'
 import {
-  DEFAULT_OTLP_METRICS_ENDPOINT,
-  DEFAULT_OTLP_METRICS_TOKEN,
+  DEFAULT_METRICS_ENDPOINT,
+  DEFAULT_METRICS_TOKEN,
   METRIC_UPLOAD_COPIES_FAILURE,
   METRIC_UPLOAD_COPIES_SUCCESS,
   TELEMETRY_SERVICE_NAME,
 } from './constants.js'
 
-interface TelemetryConfig {
-  enabled: boolean
-  endpoint: string
-  token: string
-}
-
-interface TelemetryState {
-  provider: MeterProvider
-  reader: PeriodicExportingMetricReader
-  successCounter: Counter
-  failureCounter: Counter
-}
-
-/** Runtime configuration overrides applied on top of the embedded defaults. */
 interface RuntimeOverrides {
   disabled?: boolean
   endpoint?: string
   token?: string
 }
 
-let state: TelemetryState | null = null
+interface BufferedPoint {
+  name: string
+  tags: Record<string, string>
+  value: number
+}
+
+const FLUSH_INTERVAL_MS = 60_000
+
+let started = false
 let disabled = false
+let endpoint = DEFAULT_METRICS_ENDPOINT
+let token = DEFAULT_METRICS_TOKEN
 let runtimeOverrides: RuntimeOverrides = {}
+
+const buffer = new Map<string, BufferedPoint>()
+let flushTimer: ReturnType<typeof setInterval> | null = null
 let beforeExitListener: (() => void) | null = null
 let pageHideListener: (() => void) | null = null
 
-/** True when running under Node (or another runtime with a compatible process). */
 function isNodeRuntime(): boolean {
   return typeof process !== 'undefined' && typeof process.once === 'function'
 }
@@ -76,14 +71,6 @@ export function configureTelemetry(overrides: RuntimeOverrides): void {
   runtimeOverrides = { ...runtimeOverrides, ...overrides }
 }
 
-function readConfig(): TelemetryConfig {
-  return {
-    enabled: runtimeOverrides.disabled !== true,
-    endpoint: runtimeOverrides.endpoint ?? DEFAULT_OTLP_METRICS_ENDPOINT,
-    token: runtimeOverrides.token ?? DEFAULT_OTLP_METRICS_TOKEN,
-  }
-}
-
 function registerExitHandler(): void {
   const flush = () => {
     void shutdownTelemetry()
@@ -95,8 +82,7 @@ function registerExitHandler(): void {
   }
   if (typeof addEventListener === 'function') {
     // `pagehide` is the closest browser equivalent to Node's `beforeExit` —
-    // it fires for tab close, navigation, and bfcache eviction. We register
-    // with `once` so the listener cleans itself up after firing.
+    // it fires for tab close, navigation, and bfcache eviction.
     pageHideListener = flush
     addEventListener('pagehide', pageHideListener, { once: true })
   }
@@ -113,53 +99,43 @@ function unregisterExitHandler(): void {
   }
 }
 
-function initialize(): TelemetryState | null {
-  if (state != null) return state
-  if (disabled) return null
-
-  const config = readConfig()
-  if (!config.enabled) {
+function start(): boolean {
+  if (started) return !disabled
+  if (runtimeOverrides.disabled === true) {
+    started = true
     disabled = true
-    return null
+    return false
   }
+  endpoint = runtimeOverrides.endpoint ?? DEFAULT_METRICS_ENDPOINT
+  token = runtimeOverrides.token ?? DEFAULT_METRICS_TOKEN
+  started = true
 
-  const exporter = new OTLPMetricExporter({
-    url: config.endpoint,
-    headers: {
-      Authorization: `Bearer ${config.token}`,
-    },
-  })
-
-  const reader = new PeriodicExportingMetricReader({
-    exporter,
-    exportIntervalMillis: 60_000,
-  })
-
-  const provider = new MeterProvider({
-    resource: resourceFromAttributes({
-      'service.name': TELEMETRY_SERVICE_NAME,
-    }),
-    readers: [reader],
-  })
-
-  const meter = provider.getMeter(TELEMETRY_SERVICE_NAME)
-  const successCounter = meter.createCounter(METRIC_UPLOAD_COPIES_SUCCESS, {
-    description: 'Number of copies successfully uploaded',
-  })
-  const failureCounter = meter.createCounter(METRIC_UPLOAD_COPIES_FAILURE, {
-    description: 'Number of copy upload errors',
-  })
-
-  state = { provider, reader, successCounter, failureCounter }
-
-  // Library consumers may not know to call shutdownTelemetry(). When the
-  // host's lifecycle is ending naturally, flush before exit so the periodic
-  // batch isn't lost. Long-running consumers that terminate via
-  // `process.exit()` or signals should still call shutdownTelemetry()
-  // explicitly on graceful shutdown.
+  flushTimer = setInterval(() => {
+    void flushTelemetry()
+  }, FLUSH_INTERVAL_MS)
+  // Don't keep the Node event loop alive solely on the flush timer.
+  if (isNodeRuntime() && typeof flushTimer.unref === 'function') {
+    flushTimer.unref()
+  }
   registerExitHandler()
+  return true
+}
 
-  return state
+function bufferKey(name: string, tags: Record<string, string>): string {
+  const entries = Object.keys(tags)
+    .sort()
+    .map((k) => [k, tags[k]])
+  return JSON.stringify([name, entries])
+}
+
+function increment(name: string, tags: Record<string, string>): void {
+  const key = bufferKey(name, tags)
+  const existing = buffer.get(key)
+  if (existing != null) {
+    existing.value += 1
+    return
+  }
+  buffer.set(key, { name, tags, value: 1 })
 }
 
 /**
@@ -182,18 +158,17 @@ function classifyStep(error: string): string {
  * @param network - URL-safe network slug (e.g. `mainnet`, `calibration`).
  */
 export function recordUploadResult(result: Pick<UploadResult, 'copies' | 'failedAttempts'>, network: string): void {
-  const initialized = initialize()
-  if (initialized == null) return
+  if (!start()) return
 
   for (const copy of result.copies) {
-    initialized.successCounter.add(1, {
+    increment(METRIC_UPLOAD_COPIES_SUCCESS, {
       'upload.spId': String(copy.providerId),
       'upload.role': copy.role,
       network,
     })
   }
   for (const attempt of result.failedAttempts) {
-    initialized.failureCounter.add(1, {
+    increment(METRIC_UPLOAD_COPIES_FAILURE, {
       'upload.spId': String(attempt.providerId),
       'upload.role': attempt.role,
       'upload.step': classifyStep(attempt.error),
@@ -203,23 +178,50 @@ export function recordUploadResult(result: Pick<UploadResult, 'copies' | 'failed
 }
 
 /**
- * Flush pending metrics to the exporter. Call at process exit or when the
+ * Flush pending metrics to the endpoint. Call at process exit or when the
  * caller wants to guarantee delivery before continuing. Safe when disabled.
  */
 export async function flushTelemetry(): Promise<void> {
-  if (state == null) return
-  await state.provider.forceFlush()
+  if (!started || disabled || buffer.size === 0) return
+
+  const points = Array.from(buffer.values())
+  buffer.clear()
+
+  const dt = new Date().toISOString()
+  const body = points.map((p) => ({
+    name: p.name,
+    counter: { value: p.value },
+    dt,
+    tags: { 'service.name': TELEMETRY_SERVICE_NAME, ...p.tags },
+  }))
+
+  try {
+    await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+  } catch {
+    // Best-effort: telemetry must never break the host.
+  }
 }
 
 /**
- * Shut down the meter provider. Subsequent record calls become no-ops.
- * Intended for tests and long-lived hosts that need clean teardown.
+ * Shut down telemetry. Cancels the periodic flush, flushes any buffered
+ * points, and turns subsequent record calls into no-ops. Intended for tests
+ * and long-lived hosts that need clean teardown.
  */
 export async function shutdownTelemetry(): Promise<void> {
-  if (state == null) return
+  if (!started || disabled) return
   unregisterExitHandler()
-  await state.provider.shutdown()
-  state = null
+  if (flushTimer != null) {
+    clearInterval(flushTimer)
+    flushTimer = null
+  }
+  await flushTelemetry()
   disabled = true
 }
 
@@ -231,7 +233,12 @@ export async function shutdownTelemetry(): Promise<void> {
  */
 export function _resetTelemetryForTests(): void {
   unregisterExitHandler()
-  state = null
+  if (flushTimer != null) {
+    clearInterval(flushTimer)
+    flushTimer = null
+  }
+  started = false
   disabled = false
   runtimeOverrides = {}
+  buffer.clear()
 }
