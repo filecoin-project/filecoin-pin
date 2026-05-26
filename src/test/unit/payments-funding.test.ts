@@ -622,6 +622,15 @@ describe('computeAutoSetupTargetBalance', () => {
     expect(result.requiredAvailableFunds).toBe(3_320_000_000_000_000_000n)
   })
 
+  it('rejects non-integer and negative copies', () => {
+    expect(() =>
+      computeAutoSetupTargetBalance({ filecoinPayBalance: 0n, availableFunds: 0n, copies: 1.5, minimumPricePerMonth })
+    ).toThrow('copies must be a non-negative integer')
+    expect(() =>
+      computeAutoSetupTargetBalance({ filecoinPayBalance: 0n, availableFunds: 0n, copies: -1, minimumPricePerMonth })
+    ).toThrow('copies must be a non-negative integer')
+  })
+
   it('converges: a second run after depositing requires no further top-up', () => {
     // Run 1: account holds 4 USDFC, all locked by active rails, so 0 available.
     const run1Balance = 4n * ONE_USDFC

@@ -318,6 +318,9 @@ export function computeAutoSetupTargetBalance(params: {
   copies: number
   minimumPricePerMonth: bigint
 }): { requiredAvailableFunds: bigint; targetBalance: bigint } {
+  if (!Number.isInteger(params.copies) || params.copies < 0) {
+    throw new Error('copies must be a non-negative integer')
+  }
   const requiredAvailableFunds =
     BigInt(params.copies) * (CDN_FIXED_LOCKUP.total + USDFC_SYBIL_FEE + params.minimumPricePerMonth) + ONE_USDFC
   const shortfall = requiredAvailableFunds > params.availableFunds ? requiredAvailableFunds - params.availableFunds : 0n
