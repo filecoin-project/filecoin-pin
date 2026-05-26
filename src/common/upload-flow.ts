@@ -485,9 +485,8 @@ export async function performUpload(
             details: {
               title: 'IPFS Retrieval URLs',
               content: [
-                pc.gray(`ipfs://${rootCid}`),
-                pc.gray(`https://inbrowser.link/ipfs/${rootCid}`),
-                pc.gray(`https://dweb.link/ipfs/${rootCid}`),
+                pc.gray(`Browser URL: https://inbrowser.link/ipfs/${rootCid}`),
+                pc.gray(`Raw asset URL: https://dweb.link/ipfs/${rootCid}`),
               ],
             },
           })

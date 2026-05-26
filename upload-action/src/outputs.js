@@ -96,22 +96,22 @@ export function getOutputSummary(context, status) {
     ...context?.paymentStatus,
   }
   const ipniValidated = context?.ipniValidated === true
-  let centralizedIpfsGatewayPreview
+  let browserGatewayUrl
   if (!ipfsRootCid) {
-    centralizedIpfsGatewayPreview = 'IPFS Root CID unavailable'
+    browserGatewayUrl = 'IPFS Root CID unavailable'
   } else if (ipniValidated) {
-    centralizedIpfsGatewayPreview = `https://dweb.link/ipfs/${ipfsRootCid}`
+    browserGatewayUrl = `https://inbrowser.link/ipfs/${ipfsRootCid}`
   } else {
-    centralizedIpfsGatewayPreview = 'Waiting for IPNI announcement'
+    browserGatewayUrl = 'Waiting for IPNI announcement'
   }
 
-  let inBrowserIpfsGatewayPreview
+  let rawAssetGatewayUrl
   if (!ipfsRootCid) {
-    inBrowserIpfsGatewayPreview = 'IPFS Root CID unavailable'
+    rawAssetGatewayUrl = 'IPFS Root CID unavailable'
   } else if (ipniValidated) {
-    inBrowserIpfsGatewayPreview = `https://inbrowser.link/ipfs/${ipfsRootCid}`
+    rawAssetGatewayUrl = `https://dweb.link/ipfs/${ipfsRootCid}`
   } else {
-    inBrowserIpfsGatewayPreview = 'Waiting for IPNI announcement'
+    rawAssetGatewayUrl = 'Waiting for IPNI announcement'
   }
 
   return [
@@ -120,8 +120,8 @@ export function getOutputSummary(context, status) {
     '**IPFS Artifacts:**',
     '',
     `* IPFS Root CID: ${ipfsRootCid}`,
-    `* Centralized IPFS HTTP Gateway Preview: ${centralizedIpfsGatewayPreview}`,
-    `* In-Browser IPFS HTTP Gateway Preview: ${inBrowserIpfsGatewayPreview}`,
+    `* Browser URL: ${browserGatewayUrl}`,
+    `* Raw asset URL: ${rawAssetGatewayUrl}`,
     `* Status: ${status}`,
     `* Generated CAR on GitHub: ${carDownloadUrl}`,
     `* CAR file size: ${formatSize(carSize)}`,
