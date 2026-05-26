@@ -11,6 +11,19 @@ const NETWORK_CHAINS = {
   mainnet,
   calibration,
 } as const
+
+// Aliases accepted on input and rewritten to a canonical network name.
+// Not surfaced in --help; the canonical names remain the documented choices.
+const NETWORK_ALIASES: Record<string, string> = {
+  calibnet: 'calibration',
+}
+
+/** Lowercase, trim, and apply NETWORK_ALIASES. Undefined for empty input. */
+export function normalizeNetworkName(input: string | undefined): string | undefined {
+  const trimmed = input?.toLowerCase().trim()
+  if (!trimmed) return undefined
+  return NETWORK_ALIASES[trimmed] ?? trimmed
+}
 function getDefaultDevnetInfoPath(): string {
   const baseDir = process.env.FOC_DEVNET_BASEDIR?.trim() || join(homedir(), '.foc-devnet')
   return join(baseDir, 'state', 'latest', 'devnet-info.json')
@@ -78,14 +91,14 @@ export function resolveDevnetConfig(): DevnetConfig {
  * 1. Explicit --rpc-url (highest priority)
  * 2. RPC_URL environment variable
  * 3. --network flag or NETWORK environment variable (converted to RPC URL)
- * 4. Default to calibration
+ * 4. Default to mainnet
  */
 export function getRpcUrl(options: CLIAuthOptions): string {
   if (options.rpcUrl) {
     return options.rpcUrl
   }
 
-  const network = options.network?.toLowerCase().trim()
+  const network = normalizeNetworkName(options.network)
   if (network) {
     if (network === 'devnet') {
       const devnet = resolveDevnetConfig()
@@ -107,9 +120,9 @@ export function getRpcUrl(options: CLIAuthOptions): string {
     return wsUrl
   }
 
-  const defaultUrl = calibration.rpcUrls.default.webSocket?.[0] ?? calibration.rpcUrls.default.http[0]
+  const defaultUrl = mainnet.rpcUrls.default.webSocket?.[0] ?? mainnet.rpcUrls.default.http[0]
   if (!defaultUrl) {
-    throw new Error('No RPC URL available for calibration network')
+    throw new Error('No RPC URL available for mainnet network')
   }
   return defaultUrl
 }

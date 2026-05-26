@@ -72,7 +72,7 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
 
     // Get piece count for confirmation
     const { pieces: allPieces } = await import('../core/data-set/get-data-set-pieces.js').then((m) =>
-      m.getDataSetPieces(synapse, storage, { logger })
+      m.getDataSetPieces(synapse, BigInt(dataSetId), storage.provider.pdp?.serviceURL ?? '', { logger })
     )
     const { PieceStatus } = await import('../core/data-set/types.js')
     const activePieces = allPieces.filter((p) => p.status === PieceStatus.ACTIVE)
@@ -133,29 +133,29 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
 
     const onProgress = (event: RemoveAllPiecesProgressEvents): void => {
       switch (event.type) {
-        case 'remove-all:fetching':
+        case 'removeAll:fetching':
           spinner.message('Fetching pieces...')
           break
 
-        case 'remove-all:fetched':
+        case 'removeAll:fetched':
           totalPieces = event.data.totalPieces
           spinner.message(`Found ${totalPieces} pieces`)
           break
 
-        case 'remove-all:removing':
+        case 'removeAll:removing':
           currentPiece = event.data.current
           spinner.message(`Removing piece ${currentPiece}/${totalPieces}...`)
           break
 
-        case 'remove-all:removed':
+        case 'removeAll:removed':
           spinner.message(`${pc.green('✓')} Removed ${event.data.current}/${totalPieces}`)
           break
 
-        case 'remove-all:failed':
+        case 'removeAll:failed':
           spinner.message(`${pc.red('✗')} Failed ${event.data.current}/${totalPieces}: ${event.data.error}`)
           break
 
-        case 'remove-all:complete':
+        case 'removeAll:complete':
           // Main flow will handle stopping the spinner
           break
       }

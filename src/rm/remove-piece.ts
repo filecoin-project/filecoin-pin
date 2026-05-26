@@ -75,24 +75,24 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
     // Remove piece with progress tracking
     const onProgress = (event: RemovePieceProgressEvents): void => {
       switch (event.type) {
-        case 'remove-piece:submitting':
+        case 'removePiece:submitting':
           spinner.message('Submitting remove transaction...')
           break
 
-        case 'remove-piece:submitted':
+        case 'removePiece:submitted':
           spinner.message(`Transaction submitted: ${event.data.txHash}`)
           txHash = event.data.txHash
           break
 
-        case 'remove-piece:confirming':
+        case 'removePiece:confirming':
           spinner.message('Waiting for transaction confirmation...')
           break
 
-        case 'remove-piece:confirmation-failed':
+        case 'removePiece:confirmationFailed':
           spinner.message(`${pc.yellow('⚠')} Confirmation wait timed out: ${event.data.message}`)
           break
 
-        case 'remove-piece:complete':
+        case 'removePiece:complete':
           isConfirmed = event.data.confirmed
           txHash = event.data.txHash
           // Main flow will handle stopping the spinner

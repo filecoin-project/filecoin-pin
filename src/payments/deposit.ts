@@ -8,6 +8,7 @@
 
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import {
   checkFILBalance,
   checkUSDFCBalance,
@@ -41,8 +42,9 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
   const hasDays = options.days != null
 
   if ((hasAmount && hasDays) || (!hasAmount && !hasDays)) {
-    console.error(pc.red('Error: Specify exactly one of --amount <USDFC> or --days <N>'))
-    throw new Error('Error: Specify exactly one of --amount <USDFC> or --days <N>')
+    log.line(pc.red('Error: Specify exactly one of --amount <USDFC> or --days <N>'))
+    log.flush()
+    throw new CliFatal('Specify exactly one of --amount <USDFC> or --days <N>')
   }
 
   // Connect
@@ -72,7 +74,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
       log.line(`  ${pc.cyan(help)}`)
       log.flush()
       cancel('Deposit aborted')
-      throw new Error('Insufficient FIL for gas fees')
+      throw new CliFatal('Insufficient FIL for gas fees')
     }
 
     let depositAmount: bigint = 0n
@@ -101,7 +103,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
         log.line('Use --amount to deposit a specific USDFC value instead.')
         log.flush()
         cancel('Nothing to fund by duration')
-        throw new Error('No active spend detected')
+        throw new CliFatal('No active spend detected')
       }
 
       depositAmount = topUp
@@ -118,12 +120,9 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
 
     // Ensure wallet has enough USDFC
     if (depositAmount > walletUsdfcBalance) {
-      console.error(
-        pc.red(
-          `✗ Insufficient USDFC (need ${formatUSDFC(depositAmount)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
-        )
+      throw new Error(
+        `Insufficient USDFC (need ${formatUSDFC(depositAmount)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
       )
-      throw new Error('Insufficient USDFC')
     }
 
     spinner.start(`Depositing ${formatUSDFC(depositAmount)} USDFC...`)
@@ -152,9 +151,13 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
 
     outro('Deposit completed')
   } catch (error) {
-    spinner.stop()
-    console.error(pc.red('✗ Deposit failed'))
-    console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
-    throw error
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
+    spinner.stop(`${pc.red('✗')} Deposit failed: ${msg}`)
+    cancel('Deposit failed')
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

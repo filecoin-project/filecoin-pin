@@ -39,6 +39,9 @@ vi.mock('@filoz/synapse-sdk', () => {
     calibration: {
       id: 314159,
     },
+    mainnet: {
+      id: 314,
+    },
   }
 })
 

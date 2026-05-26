@@ -1,5 +1,75 @@
-import { describe, expect, it } from 'vitest'
-import { validateAndNormalizeAutoFundOptions } from '../../utils/cli-options.js'
+import { Command, Option } from 'commander'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { addNetworkOptions, validateAndNormalizeAutoFundOptions } from '../../utils/cli-options.js'
+
+describe('addNetworkOptions', () => {
+  const originalNetwork = process.env.NETWORK
+
+  beforeEach(() => {
+    delete process.env.NETWORK
+  })
+
+  afterEach(() => {
+    if (originalNetwork === undefined) delete process.env.NETWORK
+    else process.env.NETWORK = originalNetwork
+  })
+
+  it('leaves --network unset when neither flag nor env is provided', () => {
+    const command = addNetworkOptions(new Command()).exitOverride()
+    command.parse([], { from: 'user' })
+    expect(command.opts().network).toBeUndefined()
+  })
+
+  it('reads --network from the NETWORK env var', () => {
+    process.env.NETWORK = 'calibration'
+    const command = addNetworkOptions(new Command()).exitOverride()
+    command.parse([], { from: 'user' })
+    expect(command.opts().network).toBe('calibration')
+  })
+
+  it('errors when --network and --rpc-url are both provided', () => {
+    const command = addNetworkOptions(new Command()).exitOverride()
+    command.addOption(new Option('--rpc-url <url>').env('RPC_URL'))
+    expect(() =>
+      command.parse(['--network', 'mainnet', '--rpc-url', 'wss://example.test/rpc'], { from: 'user' })
+    ).toThrow(/cannot be used with option/)
+  })
+
+  it('errors when NETWORK and RPC_URL env vars are both set', () => {
+    process.env.NETWORK = 'mainnet'
+    process.env.RPC_URL = 'wss://example.test/rpc'
+    const command = addNetworkOptions(new Command()).exitOverride()
+    command.addOption(new Option('--rpc-url <url>').env('RPC_URL'))
+    expect(() => command.parse([], { from: 'user' })).toThrow(/cannot be used with/)
+    delete process.env.RPC_URL
+  })
+
+  it('accepts --network calibnet and normalizes to calibration', () => {
+    const command = addNetworkOptions(new Command()).exitOverride()
+    command.parse(['--network', 'calibnet'], { from: 'user' })
+    expect(command.opts().network).toBe('calibration')
+  })
+
+  it('accepts NETWORK=calibnet env var and normalizes to calibration', () => {
+    process.env.NETWORK = 'calibnet'
+    try {
+      const command = addNetworkOptions(new Command()).exitOverride()
+      command.parse([], { from: 'user' })
+      expect(command.opts().network).toBe('calibration')
+    } finally {
+      delete process.env.NETWORK
+    }
+  })
+
+  it('does not advertise the calibnet alias in --help output', () => {
+    const command = addNetworkOptions(new Command()).exitOverride()
+    const help = command.helpInformation()
+    expect(help).toContain('mainnet')
+    expect(help).toContain('calibration')
+    expect(help).toContain('devnet')
+    expect(help).not.toContain('calibnet')
+  })
+})
 
 describe('validateAndNormalizeAutoFundOptions', () => {
   it('throws when --min-runway-days is set without --auto-fund', () => {

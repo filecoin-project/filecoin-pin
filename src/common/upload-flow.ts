@@ -24,6 +24,7 @@ import type { Spinner } from '../utils/cli-helpers.js'
 import { cancel, formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { createSpinnerFlow } from '../utils/multi-operation-spinner.js'
+import { CliFatal } from './cli-errors.js'
 
 export interface UploadFlowOptions {
   /**
@@ -109,7 +110,7 @@ export async function performAutoFunding(
   spinner?: Spinner,
   options: Pick<
     AutoFundOptions,
-    'minRunwayDays' | 'maxBalance' | 'copies' | 'providerIds' | 'dataSetIds' | 'metadata'
+    'minRunwayDays' | 'maxBalance' | 'copies' | 'providerIds' | 'dataSetIds' | 'metadata' | 'withCDN'
   > = {}
 ): Promise<void> {
   spinner?.start('Checking funding requirements for upload...')
@@ -122,6 +123,7 @@ export async function performAutoFunding(
       ...(options?.providerIds != null ? { providerIds: options.providerIds } : {}),
       ...(options?.dataSetIds != null ? { dataSetIds: options.dataSetIds } : {}),
       ...(options?.metadata != null ? { metadata: options.metadata } : {}),
+      ...(options?.withCDN != null ? { withCDN: options.withCDN } : {}),
     }
     if (spinner !== undefined) {
       fundOptions.spinner = spinner
@@ -158,12 +160,13 @@ export async function performAutoFunding(
       log.flush()
     }
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
     spinner?.stop(`${pc.red('✗')} Auto-funding failed`)
     log.line('')
-    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.line(`${pc.red('Error:')} ${msg}`)
     log.flush()
     cancel('Operation cancelled - auto-funding failed')
-    process.exit(1)
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }
 
@@ -175,7 +178,7 @@ export async function performAutoFunding(
  * @param spinner - Optional spinner for progress
  * @param options - Optional configuration
  * @param options.suppressSuggestions - If true, don't display suggestion warnings
- * @returns true if validation passes, exits process if not
+ * @returns Resolves if validation passes, throws if not
  */
 export async function validatePaymentSetup(
   synapse: Synapse,
@@ -190,23 +193,23 @@ export async function validatePaymentSetup(
       if (!spinner) return
 
       switch (event.type) {
-        case 'checking-balances': {
+        case 'checkingBalances': {
           spinner.message('Checking payment setup requirements...')
           return
         }
-        case 'checking-allowances': {
+        case 'checkingAllowances': {
           spinner.message('Checking WarmStorage permissions...')
           return
         }
-        case 'configuring-allowances': {
+        case 'configuringAllowances': {
           spinner.message('Configuring WarmStorage permissions (one-time setup)...')
           return
         }
-        case 'validating-capacity': {
+        case 'validatingCapacity': {
           spinner.message('Validating payment capacity...')
           return
         }
-        case 'allowances-configured': {
+        case 'allowancesConfigured': {
           // No spinner change; we log once readiness completes.
           return
         }
@@ -216,10 +219,11 @@ export async function validatePaymentSetup(
   const { validation, allowances, capacity, suggestions } = readiness
 
   if (!validation.isValid) {
+    const errorMsg = validation.errorMessage ?? 'Payment setup required'
     spinner?.stop(`${pc.red('✗')} Payment setup incomplete`)
 
     log.line('')
-    log.line(`${pc.red('✗')} ${validation.errorMessage}`)
+    log.line(`${pc.red('✗')} ${errorMsg}`)
 
     if (validation.helpMessage) {
       log.line('')
@@ -235,7 +239,7 @@ export async function validatePaymentSetup(
     log.flush()
 
     cancel('Operation cancelled - payment setup required')
-    process.exit(1)
+    throw new CliFatal(errorMsg)
   }
 
   if (allowances.updated) {
@@ -254,7 +258,7 @@ export async function validatePaymentSetup(
       displayPaymentIssues(capacity, fileSize, spinner)
     }
     cancel('Operation cancelled - insufficient payment capacity')
-    process.exit(1)
+    throw new CliFatal('Insufficient payment capacity')
   }
 
   // Show warning if suggestions exist (even if upload is possible)
@@ -329,21 +333,32 @@ export async function performUpload(
   rootCid: CID,
   options: UploadFlowOptions
 ): Promise<UploadFlowResult> {
-  const { contextType, logger, spinner, pieceMetadata } = options
+  const { contextType, fileSize, logger, spinner, pieceMetadata } = options
 
   const flow = createSpinnerFlow(spinner)
 
   // Start with upload operation
   flow.addOperation('upload', 'Uploading to Filecoin...')
 
-  // Track primary provider ID from onStored to label subsequent events
+  // Track primary provider ID from `stored` to label subsequent events
   let primaryProviderId: bigint | undefined
+  let lastUploadPercent = -1
 
   function getRole(providerId: bigint): CopyRole {
     if (primaryProviderId == null || providerId === primaryProviderId) {
       return 'primary'
     }
     return 'secondary'
+  }
+
+  function getUploadProgressMessage(bytesUploaded: number): { percent: number; message: string } {
+    const totalBytes = Math.max(fileSize, 1)
+    const uploadedBytes = Math.min(bytesUploaded, totalBytes)
+    const percent = Math.min(100, Math.floor((uploadedBytes / totalBytes) * 100))
+    return {
+      percent,
+      message: `Uploading to Filecoin... ${formatFileSize(uploadedBytes)}/${formatFileSize(fileSize)} (${percent}%)`,
+    }
   }
 
   function getIpniAdvertisementMsg(details: {
@@ -374,22 +389,30 @@ export async function performUpload(
     ...(options.skipIpniVerification && { ipniValidation: { enabled: false } }),
     onProgress(event) {
       switch (event.type) {
-        case 'onStored': {
+        case 'uploadProgress': {
+          const { percent, message } = getUploadProgressMessage(event.data.bytesUploaded)
+          if (percent > lastUploadPercent) {
+            lastUploadPercent = percent
+            flow.updateOperation('upload', message)
+          }
+          break
+        }
+        case 'stored': {
           primaryProviderId = event.data.providerId
           flow.completeOperation('upload', `${roleLabel('primary')} Stored on provider ${event.data.providerId}`, {
             type: 'success',
           })
-          // Commit happens later (onPiecesAdded), not here.
+          // Commit happens later (`piecesAdded`), not here.
           break
         }
-        case 'onPullProgress': {
+        case 'pullProgress': {
           flow.addOperation(
             `secondary-pull-${event.data.providerId}`,
             `${roleLabel('secondary')} Pulling to provider ${event.data.providerId}...`
           )
           break
         }
-        case 'onCopyComplete': {
+        case 'copyComplete': {
           flow.completeOperation(
             `secondary-pull-${event.data.providerId}`,
             `${roleLabel('secondary')} Stored on provider ${event.data.providerId}`,
@@ -397,7 +420,7 @@ export async function performUpload(
           )
           break
         }
-        case 'onCopyFailed': {
+        case 'copyFailed': {
           flow.completeOperation(
             `secondary-pull-${event.data.providerId}`,
             `${roleLabel('secondary')} Failed: provider ${event.data.providerId} - ${event.data.error.message}`,
@@ -405,7 +428,7 @@ export async function performUpload(
           )
           break
         }
-        case 'onPiecesAdded': {
+        case 'piecesAdded': {
           const role = getRole(event.data.providerId)
 
           const commitId = `commit-${event.data.providerId}`
@@ -431,7 +454,7 @@ export async function performUpload(
           )
           break
         }
-        case 'onPiecesConfirmed': {
+        case 'piecesConfirmed': {
           const role = getRole(event.data.providerId)
           flow.completeOperation(
             `chain-${event.data.providerId}`,
@@ -441,7 +464,7 @@ export async function performUpload(
           break
         }
 
-        case 'ipniProviderResults.retryUpdate': {
+        case 'ipniProviderResults:retryUpdate': {
           const attempt = event.data.attempt ?? (event.data.retryCount === 0 ? 1 : event.data.retryCount + 1)
           flow.addOperation(
             'ipni',
@@ -456,21 +479,20 @@ export async function performUpload(
           )
           break
         }
-        case 'ipniProviderResults.complete': {
+        case 'ipniProviderResults:complete': {
           flow.completeOperation('ipni', 'IPNI provider records found. IPFS retrieval possible.', {
             type: 'success',
             details: {
               title: 'IPFS Retrieval URLs',
               content: [
-                pc.gray(`ipfs://${rootCid}`),
-                pc.gray(`https://inbrowser.link/ipfs/${rootCid}`),
-                pc.gray(`https://dweb.link/ipfs/${rootCid}`),
+                pc.gray(`Browser URL: https://inbrowser.link/ipfs/${rootCid}`),
+                pc.gray(`Raw asset URL: https://dweb.link/ipfs/${rootCid}`),
               ],
             },
           })
           break
         }
-        case 'ipniProviderResults.failed': {
+        case 'ipniProviderResults:failed': {
           flow.completeOperation('ipni', 'IPNI provider records not found.', {
             type: 'warning',
             details: {
@@ -495,7 +517,9 @@ export async function performUpload(
  *
  * @param result - Result data to display
  * @param operation - Operation name ('Import' or 'Add')
- * @param network - Network name
+ * @param networkDisplay - Human-readable network name
+ * @param networkSlug - Network slug used to build explorer URLs
+ * @param egress - Optional egress info; when `filbeamUrl` is set, a FilBeam block is rendered
  */
 export function displayUploadResults(
   result: {
@@ -509,7 +533,8 @@ export function displayUploadResults(
   },
   operation: string,
   networkDisplay: string,
-  networkSlug: string
+  networkSlug: string,
+  egress?: { filbeamUrl?: string }
 ): void {
   log.line(`Network: ${pc.bold(networkDisplay)}`)
   log.line('')
@@ -553,6 +578,14 @@ export function displayUploadResults(
       const label = attempt.role === 'primary' ? pc.cyan('[Primary]') : pc.magenta('[Secondary]')
       log.indent(`${pc.yellow('⚠')} ${label} Provider ${attempt.providerId} failed: ${attempt.error}`)
     }
+  }
+
+  if (egress?.filbeamUrl != null) {
+    log.line('')
+    log.line(pc.bold('FilBeam Egress (CDN)'))
+    log.indent(`URL: ${pc.gray(egress.filbeamUrl)}`)
+    log.indent('Note: serves CAR/piece data, not the original file.')
+    log.indent('Disable on next upload: --egress-provider none')
   }
 
   log.flush()

@@ -18,14 +18,14 @@ import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
  * Note: Errors are propagated via thrown exceptions, not events (similar to upload pattern)
  */
 export type RemovePieceProgressEvents =
-  | ProgressEvent<'remove-piece:submitting', { pieceCid: string; dataSetId: bigint }>
-  | ProgressEvent<'remove-piece:submitted', { pieceCid: string; dataSetId: bigint; txHash: Hash }>
-  | ProgressEvent<'remove-piece:confirming', { pieceCid: string; dataSetId: bigint; txHash: Hash }>
+  | ProgressEvent<'removePiece:submitting', { pieceCid: string; dataSetId: bigint }>
+  | ProgressEvent<'removePiece:submitted', { pieceCid: string; dataSetId: bigint; txHash: Hash }>
+  | ProgressEvent<'removePiece:confirming', { pieceCid: string; dataSetId: bigint; txHash: Hash }>
   | ProgressEvent<
-      'remove-piece:confirmation-failed',
+      'removePiece:confirmationFailed',
       { pieceCid: string; dataSetId: bigint; txHash: Hash; message: string }
     >
-  | ProgressEvent<'remove-piece:complete', { txHash: Hash; confirmed: boolean }>
+  | ProgressEvent<'removePiece:complete', { txHash: Hash; confirmed: boolean }>
 
 /**
  * Number of block confirmations to wait for when waitForConfirmation=true
@@ -93,14 +93,14 @@ export async function removePiece(
     throw new Error('A Synapse instance is required when waitForConfirmation is true')
   }
 
-  onProgress?.({ type: 'remove-piece:submitting', data: { pieceCid, dataSetId } })
+  onProgress?.({ type: 'removePiece:submitting', data: { pieceCid, dataSetId } })
   const txHash = await storageContext.deletePiece({ piece: pieceCid })
-  onProgress?.({ type: 'remove-piece:submitted', data: { pieceCid, dataSetId, txHash } })
+  onProgress?.({ type: 'removePiece:submitted', data: { pieceCid, dataSetId, txHash } })
 
   let isConfirmed = false
   if (isWaitForConfirmationOptions(options)) {
     const { synapse } = options
-    onProgress?.({ type: 'remove-piece:confirming', data: { pieceCid, dataSetId, txHash } })
+    onProgress?.({ type: 'removePiece:confirming', data: { pieceCid, dataSetId, txHash } })
     try {
       await synapse.client.waitForTransactionReceipt({
         hash: txHash,
@@ -111,13 +111,13 @@ export async function removePiece(
     } catch (error: unknown) {
       // Confirmation timeout is non-fatal - transaction may still succeed
       onProgress?.({
-        type: 'remove-piece:confirmation-failed',
+        type: 'removePiece:confirmationFailed',
         data: { pieceCid, dataSetId, txHash, message: getErrorMessage(error) },
       })
     }
   }
 
-  onProgress?.({ type: 'remove-piece:complete', data: { txHash, confirmed: isConfirmed } })
+  onProgress?.({ type: 'removePiece:complete', data: { txHash, confirmed: isConfirmed } })
   return txHash
 }
 

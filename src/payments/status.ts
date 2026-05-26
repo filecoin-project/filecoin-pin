@@ -189,7 +189,6 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       spinner.start('Fetching data sets...')
       // Get all active data sets for this address
       const dataSets = await listDataSets(synapse, {
-        withProviderDetails: false,
         address,
         filter: (ds) => ds.isLive, // Only count active/live data sets
         logger,

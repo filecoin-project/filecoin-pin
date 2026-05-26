@@ -1,4 +1,4 @@
-import { USDFC_SYBIL_FEE } from '@filoz/synapse-core/utils'
+import { CDN_FIXED_LOCKUP, USDFC_SYBIL_FEE } from '@filoz/synapse-core/utils'
 import { getServicePrice } from '@filoz/synapse-core/warm-storage'
 import { calibration, type Synapse } from '@filoz/synapse-sdk'
 import { MIN_FIL_FOR_GAS } from './constants.js'
@@ -147,6 +147,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     pricePerTiBPerEpoch,
     minimumPricePerMonth,
     newDataSetCount = 0,
+    withCDN = false,
     mode = 'exact',
     allowWithdraw = true,
   } = options
@@ -193,8 +194,11 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
         minimumPricePerMonth
       )
       const dataSetCreationFees = BigInt(newDataSetCount) * USDFC_SYBIL_FEE
-      delta = adjustment.delta + dataSetCreationFees
-      resolvedTargetDeposit = adjustment.targetDeposit + dataSetCreationFees
+      // New CDN-enabled data sets require a fixed lockup on top of the sybil fee.
+      const cdnFixedLockup = withCDN ? BigInt(newDataSetCount) * CDN_FIXED_LOCKUP.total : 0n
+      const newDataSetCosts = dataSetCreationFees + cdnFixedLockup
+      delta = adjustment.delta + newDataSetCosts
+      resolvedTargetDeposit = adjustment.targetDeposit + newDataSetCosts
       projectedRateUsed = adjustment.newRateUsed
       projectedLockupUsed = adjustment.newLockupUsed
 
@@ -317,6 +321,7 @@ export interface PlanFilecoinPayFundingOptions {
   pricePerTiBPerEpoch?: bigint | undefined
   minimumPricePerMonth?: bigint | undefined
   newDataSetCount?: number | undefined
+  withCDN?: boolean | undefined
   mode?: FundingMode | undefined
   allowWithdraw?: boolean | undefined
   ensureAllowances?: boolean | undefined
@@ -353,6 +358,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     pricePerTiBPerEpoch,
     minimumPricePerMonth: minimumPriceOpt,
     newDataSetCount = 0,
+    withCDN = false,
     mode = 'exact',
     allowWithdraw = true,
     ensureAllowances = false,
@@ -411,6 +417,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     pricePerTiBPerEpoch: pricing,
     minimumPricePerMonth,
     newDataSetCount,
+    withCDN,
     mode,
     allowWithdraw,
   })

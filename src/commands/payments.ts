@@ -14,7 +14,10 @@ export const paymentsCommand = new Command('payments').description('Manage payme
 const setupCommand = new Command('setup')
   .description('Setup payment approvals for Filecoin Onchain Cloud storage')
   .option('--auto', 'Run in automatic mode with defaults')
-  .option('--deposit <amount>', 'USDFC amount to deposit in Filecoin Pay (default: 1)')
+  .option(
+    '--deposit <amount>',
+    'Target Filecoin Pay balance in USDFC (default with --auto: sized from current on-chain pricing to seed initial CDN storage)'
+  )
   .option(
     '--rate-allowance <amount>',
     'Storage allowance for WarmStorage service (e.g., "1TiB/month", "500GiB/month", or "0.0000565" USDFC/epoch, default: 1TiB/month)'
@@ -24,7 +27,7 @@ const setupCommand = new Command('setup')
       const setupOptions: PaymentSetupOptions = {
         ...options,
         auto: options.auto || false,
-        deposit: options.deposit || '1',
+        deposit: options.deposit,
         rateAllowance: options.rateAllowance || '1TiB/month',
         network: options.network,
       }

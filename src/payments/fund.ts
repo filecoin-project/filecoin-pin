@@ -8,6 +8,7 @@ import { confirm } from '@clack/prompts'
 import type { Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import {
   checkUSDFCBalance,
@@ -37,10 +38,11 @@ async function ensureBelowThirtyDaysAllowed(opts: {
   const { spinner, warningLine1, warningLine2 } = opts
   if (!isInteractive()) {
     spinner.stop()
-    console.error(pc.red(warningLine1))
-    console.error(pc.red(warningLine2))
+    log.line(pc.red(warningLine1))
+    log.line(pc.red(warningLine2))
+    log.flush()
     cancel('Fund adjustment aborted')
-    throw new Error(`Unsafe target below ${DEFAULT_LOCKUP_DAYS}-day baseline`)
+    throw new CliFatal(`Unsafe target below ${DEFAULT_LOCKUP_DAYS}-day baseline`)
   }
 
   log.line(pc.yellow('⚠ Warning'))
@@ -70,12 +72,9 @@ async function performAdjustment(params: {
     const needed = delta
     const usdfcWallet = await checkUSDFCBalance(synapse)
     if (needed > usdfcWallet) {
-      console.error(
-        pc.red(
-          `✗ Insufficient USDFC in wallet (need ${formatUSDFC(needed)} USDFC, have ${formatUSDFC(usdfcWallet)} USDFC)`
-        )
+      throw new Error(
+        `Insufficient USDFC in wallet (need ${formatUSDFC(needed)} USDFC, have ${formatUSDFC(usdfcWallet)} USDFC)`
       )
-      throw new Error('Insufficient USDFC in wallet')
     }
     if (isTTY()) {
       // we will deposit `needed` USDFC, display confirmation to user unless not TTY or --auto flag was passed
@@ -138,7 +137,7 @@ async function printSummary(synapse: Synapse, title = 'Updated'): Promise<void> 
  * @throws Error if adjustment fails or target is unsafe
  */
 export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustmentResult> {
-  const { synapse, fileSize, copies, providerIds, dataSetIds, metadata, spinner, maxBalance } = options
+  const { synapse, fileSize, copies, providerIds, dataSetIds, metadata, spinner, maxBalance, withCDN } = options
   const targetRunwayDays = options.minRunwayDays ?? MIN_RUNWAY_DAYS
 
   spinner?.message('Checking wallet readiness...')
@@ -156,6 +155,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     targetRunwayDays,
     pieceSizeBytes: fileSize,
     newDataSetCount,
+    withCDN: withCDN === true,
     ensureAllowances: true,
     allowWithdraw: false,
   })
@@ -230,12 +230,14 @@ export async function runFund(options: FundOptions): Promise<void> {
   const hasDays = options.days != null
   const hasAmount = options.amount != null
   if ((hasDays && hasAmount) || (!hasDays && !hasAmount)) {
-    console.error(pc.red('Error: Specify exactly one of --days <N> or --amount <USDFC>'))
-    throw new Error('Invalid fund options')
+    log.line(pc.red('Error: Specify exactly one of --days <N> or --amount <USDFC>'))
+    log.flush()
+    throw new CliFatal('Specify exactly one of --days <N> or --amount <USDFC>')
   }
   if (options.mode != null && !['exact', 'minimum'].includes(options.mode)) {
-    console.error(pc.red('Error: Invalid mode'))
-    throw new Error(`Invalid mode (must be "exact" or "minimum"), received: '${options.mode}'`)
+    log.line(pc.red(`Error: Invalid mode (must be "exact" or "minimum"), received: '${options.mode}'`))
+    log.flush()
+    throw new CliFatal(`Invalid mode (must be "exact" or "minimum"), received: '${options.mode}'`)
   }
 
   spinner.start('Connecting...')
@@ -250,16 +252,14 @@ export async function runFund(options: FundOptions): Promise<void> {
 
     const targetDays: number = hasDays ? Number(options.days) : 0
     if (hasDays && (!Number.isFinite(targetDays) || targetDays < 0)) {
-      console.error(pc.red('Error: --days must be a non-negative number'))
-      throw new Error('Invalid --days')
+      throw new Error('--days must be a non-negative number')
     }
 
     let targetDeposit: bigint = 0n
     try {
       targetDeposit = options.amount != null ? parseUnits(String(options.amount), 18) : 0n
     } catch {
-      console.error(pc.red(`Error: Invalid --amount '${options.amount}'`))
-      throw new Error('Invalid --amount')
+      throw new Error(`Invalid --amount '${options.amount}'`)
     }
 
     spinner.start('Calculating funding plan...')
@@ -278,7 +278,7 @@ export async function runFund(options: FundOptions): Promise<void> {
       log.line('Use --amount to set a target deposit instead.')
       log.flush()
       cancel('Fund adjustment aborted')
-      throw new Error('No active spend')
+      throw new CliFatal('No active spend')
     }
 
     // Safety baseline measures projected top-up window (net runway after deposit),
@@ -337,14 +337,9 @@ export async function runFund(options: FundOptions): Promise<void> {
     }
 
     if (plan.walletShortfall != null && plan.walletShortfall > 0n) {
-      spinner.stop()
-      console.error(
-        pc.red(
-          `✗ Insufficient USDFC in wallet (need ${formatUSDFC(plan.delta)} USDFC, have ${formatUSDFC(planResult.status.walletUsdfcBalance)} USDFC)`
-        )
+      throw new Error(
+        `Insufficient USDFC in wallet (need ${formatUSDFC(plan.delta)} USDFC, have ${formatUSDFC(planResult.status.walletUsdfcBalance)} USDFC)`
       )
-      cancel('Fund adjustment aborted')
-      throw new Error('Insufficient USDFC in wallet')
     }
 
     await performAdjustment({
@@ -358,9 +353,13 @@ export async function runFund(options: FundOptions): Promise<void> {
     await printSummary(synapse)
     outro('Fund adjustment completed')
   } catch (error) {
-    spinner.stop()
-    console.error(pc.red('✗ Fund adjustment failed'))
-    console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
-    throw error
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
+    spinner.stop(`${pc.red('✗')} Fund adjustment failed: ${msg}`)
+    cancel('Fund adjustment failed')
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

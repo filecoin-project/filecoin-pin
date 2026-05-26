@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.21.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.20.1...v0.21.0) (2026-05-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* **synapse:** CLI commands now use Filecoin Mainnet when --network/NETWORK is omitted. Use --network calibration or NETWORK=calibration for Calibration testnet.
+* rename onProgress event types ([#456](https://github.com/filecoin-project/filecoin-pin/issues/456))
+* **cli:** CLI commands now use Filecoin Mainnet when --network/NETWORK is omitted. Use --network calibration or NETWORK=calibration for Calibration testnet.
+
+### refactor
+
+* rename onProgress event types ([#456](https://github.com/filecoin-project/filecoin-pin/issues/456)) ([4f6e59b](https://github.com/filecoin-project/filecoin-pin/commit/4f6e59bdaccfb84487bafca1d2a276bf753a54fd))
+
+
+### Features
+
+* **cli:** default network to mainnet ([#445](https://github.com/filecoin-project/filecoin-pin/issues/445)) ([2b07899](https://github.com/filecoin-project/filecoin-pin/commit/2b07899866a57feb2459b21516abdcd0de934e12))
+* detect CAR input in add and refuse to wrap ([#459](https://github.com/filecoin-project/filecoin-pin/issues/459)) ([dac8326](https://github.com/filecoin-project/filecoin-pin/commit/dac83262ee4ff9fdc88652388e613567abab9013))
+* **synapse:** derive chain from RPC probe ([#455](https://github.com/filecoin-project/filecoin-pin/issues/455)) ([8e20261](https://github.com/filecoin-project/filecoin-pin/commit/8e202612a5d9e90d7fd338419888e43de7075357))
+
+
+### Bug Fixes
+
+* **ci:** stabilize Windows test runner ([#462](https://github.com/filecoin-project/filecoin-pin/issues/462)) ([5b10174](https://github.com/filecoin-project/filecoin-pin/commit/5b101749bea53614199cdffadf923b75b0ed0d8b))
+* **server:** pass resolved chain to Synapse ([#446](https://github.com/filecoin-project/filecoin-pin/issues/446)) ([1823eab](https://github.com/filecoin-project/filecoin-pin/commit/1823eabaa321941f48e96d8f83b66b29015aa975))
+
+
+### Chores
+
+* **deps-dev:** bump blockstore-core from 6.1.2 to 6.1.3 ([#452](https://github.com/filecoin-project/filecoin-pin/issues/452)) ([eb00247](https://github.com/filecoin-project/filecoin-pin/commit/eb00247444cb11c580929febea49604bcf9031ab))
+* **deps:** bump @helia/block-brokers from 5.1.4 to 5.2.4 ([#450](https://github.com/filecoin-project/filecoin-pin/issues/450)) ([77e5ba3](https://github.com/filecoin-project/filecoin-pin/commit/77e5ba3b3525a6fb5d0ebca84b555d2402738889))
+* **deps:** bump @ipld/car from 5.4.2 to 5.4.3 ([#453](https://github.com/filecoin-project/filecoin-pin/issues/453)) ([38c6cfd](https://github.com/filecoin-project/filecoin-pin/commit/38c6cfdf04790cb8c2cb8de16f7d388223669cf5))
+* **deps:** bump viem from 2.48.3 to 2.48.4 ([#449](https://github.com/filecoin-project/filecoin-pin/issues/449)) ([6f93058](https://github.com/filecoin-project/filecoin-pin/commit/6f93058a32ed96f91d154cd2880112ad03077c40))
+
 ## [0.20.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.20.0...v0.20.1) (2026-05-04)
 
 

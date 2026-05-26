@@ -1,11 +1,11 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import type { Chain } from '@filoz/synapse-sdk'
-import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from './common/get-rpc-url.js'
+import { getRpcUrl, NETWORK_CHAINS, normalizeNetworkName, resolveDevnetConfig } from './common/get-rpc-url.js'
 import type { Config } from './core/synapse/index.js'
 
 function resolveChain(network: string | undefined, hasExplicitRpcUrl: boolean): Chain | undefined {
-  const normalized = network?.toLowerCase().trim()
+  const normalized = normalizeNetworkName(network)
   if (!normalized) return undefined
   if (normalized === 'mainnet' || normalized === 'calibration') return NETWORK_CHAINS[normalized]
   // Devnet's chain comes from devnet-info.json. Skip the file load when the operator
@@ -51,12 +51,22 @@ function getDataDirectory(): string {
 export function createConfig(): Config {
   const dataDir = getDataDirectory()
 
-  // Determine RPC URL: RPC_URL env var takes precedence, then NETWORK, then default to calibration
+  // NETWORK and RPC_URL are mutually exclusive. The CLI enforces this via Commander, but library
+  // consumers calling createConfig() bypass that check, so guard explicitly here as well.
+  const hasNetwork = process.env.NETWORK != null && process.env.NETWORK !== ''
+  const hasRpcUrl = process.env.RPC_URL != null && process.env.RPC_URL !== ''
+  if (hasNetwork && hasRpcUrl) {
+    throw new Error("Configuration error: 'NETWORK' and 'RPC_URL' are mutually exclusive. Set only one.")
+  }
+
+  // Determine RPC URL: RPC_URL takes precedence, then NETWORK, then default to mainnet.
   const rpcUrl = getRpcUrl({
     network: process.env.NETWORK,
     rpcUrl: process.env.RPC_URL,
   })
-  const chain = resolveChain(process.env.NETWORK, process.env.RPC_URL != null && process.env.RPC_URL !== '')
+  // Set the chain hint only when NETWORK was chosen; with RPC_URL set, initializeSynapse probes
+  // the endpoint to derive the chain. Default to mainnet when neither is supplied.
+  const chain = hasRpcUrl ? resolveChain(undefined, true) : resolveChain(process.env.NETWORK ?? 'mainnet', false)
 
   const config: Config = {
     // Application-specific configuration
@@ -68,7 +78,7 @@ export function createConfig(): Config {
     privateKey: process.env.PRIVATE_KEY,
     walletAddress: process.env.WALLET_ADDRESS,
     sessionKey: process.env.SESSION_KEY,
-    rpcUrl, // Determined from RPC_URL, NETWORK, or default to calibration
+    rpcUrl, // Determined from RPC_URL, NETWORK, or default to mainnet
     // Storage paths
     databasePath: process.env.DATABASE_PATH ?? join(dataDir, 'pins.db'),
     carStoragePath: process.env.CAR_STORAGE_PATH ?? join(dataDir, 'cars'),

@@ -32,7 +32,6 @@ export async function resolveDataSetIdsByMetadata(
   }
 
   const matched = await listDataSets(synapse, {
-    withProviderDetails: false,
     filter: (dataSet) => {
       if (!dataSet.isLive) {
         return false

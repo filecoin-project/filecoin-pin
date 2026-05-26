@@ -15,6 +15,7 @@ const { mockGetDataSetPieces, mockRemovePiece, mockStorageContext, state } = vi.
 
   const mockStorageContext = {
     dataSetId: state.dataSetId,
+    provider: { pdp: { serviceURL: 'https://provider.example.com' } },
   }
 
   const mockGetDataSetPieces = vi.fn(async () => ({
@@ -86,13 +87,13 @@ describe('removeAllPieces', () => {
     const eventTypes = onProgress.mock.calls.map((call) => call[0].type)
 
     expect(eventTypes).toEqual([
-      'remove-all:fetching',
-      'remove-all:fetched',
-      'remove-all:removing',
-      'remove-all:removed',
-      'remove-all:removing',
-      'remove-all:removed',
-      'remove-all:complete',
+      'removeAll:fetching',
+      'removeAll:fetched',
+      'removeAll:removing',
+      'removeAll:removed',
+      'removeAll:removing',
+      'removeAll:removed',
+      'removeAll:complete',
     ])
   })
 
@@ -114,7 +115,7 @@ describe('removeAllPieces', () => {
     ])
 
     // Check failed event was emitted
-    const failedEvent = onProgress.mock.calls.find((call) => call[0].type === 'remove-all:failed')
+    const failedEvent = onProgress.mock.calls.find((call) => call[0].type === 'removeAll:failed')
     expect(failedEvent).toBeDefined()
     expect(failedEvent?.[0].data.error).toBe('Transaction failed')
   })

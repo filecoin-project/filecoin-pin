@@ -1,6 +1,6 @@
 # Content Routing FAQ
 
-[Content Routing](glossary.md#content-routing) is essential for making the data stored with Filecoin Pin actually retrieval by [standard IPFS tooling](glossary.md#standard-ipfs-tooling).  This document answers questions about the content routing systems Filecoin Pin relies on.
+[Content Routing](glossary.md#content-routing) is essential for making the data stored with Filecoin Pin actually retrievable by [standard IPFS tooling](glossary.md#standard-ipfs-tooling).  This document answers questions about the content routing systems Filecoin Pin relies on.
 
 ## Will indexed CIDs from Calibration be mixed with CIDs from Mainnet?
 

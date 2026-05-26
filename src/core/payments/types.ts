@@ -147,6 +147,7 @@ export interface FilecoinPayFundingPlanOptions {
   pricePerTiBPerEpoch?: bigint | undefined
   minimumPricePerMonth?: bigint | undefined
   newDataSetCount?: number | undefined
+  withCDN?: boolean | undefined
   mode?: FundingMode | undefined
   allowWithdraw?: boolean | undefined
 }
