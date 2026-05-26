@@ -5,7 +5,6 @@ import type { EgressProvider } from '../utils/cli-options-egress.js'
 
 export interface AddOptions extends CLIAuthOptions, CLIAutoFundOptions {
   filePath: string
-  bare?: boolean
   /** Number of storage copies to create */
   copies?: number
   /** Piece metadata attached to each upload */
@@ -14,6 +13,8 @@ export interface AddOptions extends CLIAuthOptions, CLIAutoFundOptions {
   dataSetMetadata?: Record<string, string>
   /** Skip IPNI advertisement verification after upload */
   skipIpniVerification?: boolean
+  /** Include hidden entries (dotfiles) when packing a directory */
+  includeHidden?: boolean
   /** Egress provider for piece retrieval ('beam' enables FilBeam CDN). Defaults to off when unset. */
   egressProvider?: EgressProvider
 }

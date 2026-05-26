@@ -10,7 +10,7 @@
 
 import { randomBytes } from 'node:crypto'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runAdd, runAddFromCli } from '../../add/add.js'
 
@@ -68,17 +68,18 @@ vi.mock('../../core/synapse/index.js', () => ({
 }))
 
 vi.mock('../../core/unixfs/index.js', () => ({
-  createCarFromPath: vi.fn((_filePath: string, options: any) => {
-    const bare = options?.bare || false
-    // Different CIDs for bare vs directory mode
-    const cid = bare
-      ? 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi'
-      : 'bafybeihw4ytkqxrq7q7e3p2l5s5di7zjzkhxdmfwvqfylkdamdg3xybpbq'
+  createCarFromPath: vi.fn((filePath: string, options: any) => {
+    const isDirectory = options?.isDirectory === true
+    const cid = isDirectory
+      ? 'bafybeihw4ytkqxrq7q7e3p2l5s5di7zjzkhxdmfwvqfylkdamdg3xybpbq'
+      : 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi'
+    const name = basename(filePath)
     return Promise.resolve({
       carPath: mockCarPath,
       rootCid: {
         toString: () => cid,
       },
+      name,
     })
   }),
   cleanupTempCar: vi.fn(),
@@ -98,8 +99,7 @@ vi.mock('../../utils/cli-helpers.js', () => ({
 }))
 
 // Test CID constants (defined after vi.mock calls due to hoisting)
-const TEST_BARE_CID = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi'
-const TEST_DIR_WRAPPED_CID = 'bafybeihw4ytkqxrq7q7e3p2l5s5di7zjzkhxdmfwvqfylkdamdg3xybpbq'
+const TEST_FILE_CID = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi'
 const TEST_PIECE_CID = 'bafkzcibtest1234567890'
 const TEST_CAR_CONTENT = Buffer.from('mock-car-data')
 
@@ -123,7 +123,7 @@ describe('Add Command', () => {
   })
 
   describe('runAdd command', () => {
-    it('should successfully add a file with directory wrapper by default', async () => {
+    it('should successfully add a file (no directory wrapper)', async () => {
       const result = await runAdd({
         filePath: testFile,
         privateKey: 'test-private-key',
@@ -134,7 +134,7 @@ describe('Add Command', () => {
       expect(result).toMatchObject({
         filePath: testFile,
         fileSize: expect.any(Number),
-        rootCid: TEST_DIR_WRAPPED_CID,
+        rootCid: TEST_FILE_CID,
         pieceCid: TEST_PIECE_CID,
         size: 1024,
       })
@@ -142,13 +142,11 @@ describe('Add Command', () => {
       expect(result.copies[0]?.role).toBe('primary')
       expect(result.failedAttempts).toHaveLength(0)
 
-      // Verify createCarFromPath was called without bare flag
       const { createCarFromPath } = await import('../../core/unixfs/index.js')
       expect(vi.mocked(createCarFromPath)).toHaveBeenCalledWith(
         testFile,
         expect.objectContaining({
           logger: expect.any(Object),
-          // bare is not passed when undefined, due to spread operator
         })
       )
 
@@ -159,32 +157,39 @@ describe('Add Command', () => {
       expect(uploadOptions?.fileSize).toBe(TEST_CAR_CONTENT.length)
     })
 
-    it('should successfully add a file in bare mode when specified', async () => {
-      const result = await runAdd({
+    it('routes the source basename into piece metadata under "name"', async () => {
+      await runAdd({
         filePath: testFile,
         privateKey: 'test-private-key',
         rpcUrl: 'wss://test.rpc.url',
-        bare: true,
       })
 
-      // Verify the result structure (multi-copy format)
-      expect(result).toMatchObject({
-        filePath: testFile,
-        fileSize: expect.any(Number),
-        rootCid: TEST_BARE_CID,
-        pieceCid: TEST_PIECE_CID,
-        size: 1024,
-      })
-      expect(result.copies).toHaveLength(1)
-      expect(result.failedAttempts).toHaveLength(0)
-
-      // Verify createCarFromPath was called with bare flag
-      const { createCarFromPath } = await import('../../core/unixfs/index.js')
-      expect(vi.mocked(createCarFromPath)).toHaveBeenCalledWith(
-        testFile,
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
         expect.objectContaining({
-          logger: expect.any(Object),
-          bare: true,
+          pieceMetadata: expect.objectContaining({ name: 'test.bin' }),
+        })
+      )
+    })
+
+    it('preserves user-supplied name over the derived basename', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        pieceMetadata: { name: 'custom-name.bin' },
+      })
+
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          pieceMetadata: expect.objectContaining({ name: 'custom-name.bin' }),
         })
       )
     })
@@ -213,7 +218,7 @@ describe('Add Command', () => {
         expect.anything(),
         expect.anything(),
         expect.objectContaining({
-          pieceMetadata: { region: 'us-west', note: '' },
+          pieceMetadata: { region: 'us-west', note: '', name: 'test.bin' },
           metadata: { purpose: 'erc8004' },
         })
       )
@@ -357,21 +362,6 @@ describe('Add Command', () => {
           // No private key
         })
       ).rejects.toThrow()
-
-      expect(mockExit).not.toHaveBeenCalled()
-      mockExit.mockRestore()
-    })
-
-    it('should reject --bare flag with directories', async () => {
-      const mockExit = vi.spyOn(process, 'exit')
-
-      await expect(
-        runAdd({
-          filePath: testDir, // Directory
-          privateKey: 'test-key',
-          bare: true, // --bare flag should not work with directories
-        })
-      ).rejects.toThrow('--bare flag is not supported for directories')
 
       expect(mockExit).not.toHaveBeenCalled()
       mockExit.mockRestore()

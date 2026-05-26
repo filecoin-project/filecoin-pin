@@ -134,6 +134,11 @@ Key | Purpose | Scope
 `source` | Set to 'filecoin-pin' to identify data created by this tool | Data Set
 `withIPFSIndexing` | Set to empty string to signal the [SP](#service-provider) to index and advertise the data to [IPNI](#ipni) | Data Set
 `ipfsRootCid` | Stored on each Piece to link the [Piece CID](#piece-cid) back to the [IPFS Root CID](#ipfs-root-cid).  While this is a convention that Filecoin Pin follows, there is nothing onchain enforcing a correct link between `ipfsRootCid` and `pieceCid`. | Piece
+`name` | Original basename of the source path (file or directory). Auto-derived during `add` so the human-readable label survives even though the [UnixFS profile](#unixfs-v1-2025-profile) does not wrap single files in a parent directory. User-supplied piece metadata wins over the auto-derived value; an explicit empty string is treated as an opt-out. Consumers that need to know whether the source was a file or a directory inspect the [IPFS Root CID](#ipfs-root-cid) (codec + UnixFS `Data.Type`), matching the IPFS Pinning Service `name` convention. | Piece
+
+## unixfs-v1-2025 profile
+
+The [IPIP-499](https://github.com/ipfs/specs/pull/499) UnixFS CID profile that Filecoin Pin uses when packing files and directories. Selecting this profile pins importer settings (CIDv1, raw leaves, 1 MiB chunks, 1024-link DAG width, block-bytes HAMT shard estimation) so that the [IPFS Root CID](#ipfs-root-cid) for a given input matches the CID produced by any other conforming implementation. Filecoin Pin does not wrap single files in a parent directory under this profile; the source basename is preserved via the `name` [Metadata](#metadata) entry instead.
 
 ## Piece
 

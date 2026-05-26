@@ -74,8 +74,8 @@ These are the set of steps that are done client side (i.e., where the Filecoin P
 The provided file needs to be turned into a Merkle DAG and have the DAG's blocks transported to an SP.  [CAR](glossary.md#car) is a common container format for transporting blocks in the IPFS ecosystem and is used with Filecoin Pin.  [Service Providers](glossary.md#service-provider) (SPs) store and prove contiguous sequence of bytes, but generating IPFS compatible data from files and directories creates potentially very many small "blocks" of data, which we pack into a single CAR container for SPs to store and prove. The process of packing in IPFS form, or "DAGifying" the file data, allows us to reference and verify smaller units of our content, and gives us the ability to interact _trustlessly_ with SPs to serve and retrieve our file data.
 
 Implementation notes:
-- The CAR file is created using Helia for UnixFS DAG creation.
-- Individual files are wrapped in a directory so that the filename is preserved via UnixFS metadata.
+- The CAR file is created using Helia for UnixFS DAG creation, configured with the [IPIP-499 `unixfs-v1-2025` profile](https://github.com/ipfs/specs/pull/499) so root CIDs match other conforming implementations (Kubo, Boxo, Helia) for the same input.
+- Individual files are not wrapped in a parent directory. The original file or directory basename is preserved separately as `name` piece metadata; consumers that need to know whether the source was a file or directory inspect the root CID rather than rely on a key-name distinction.
 
 *Outputs:*
 
@@ -94,6 +94,7 @@ The [Service Provider](glossary.md#service-provider) needs to be given the bytes
 The upload includes [metadata](glossary.md#metadata) that will be stored on-chain:
 - `ipfsRootCid`: The IPFS Root CID, linking the [Piece](glossary.md#piece) back to IPFS
 - `withIPFSIndexing`: Signals the SP to index and advertise to [IPNI](glossary.md#ipni)
+- `name`: Original basename of the source file or directory (auto-derived from the input path; user-supplied piece metadata wins)
 
 *Outputs:*
 

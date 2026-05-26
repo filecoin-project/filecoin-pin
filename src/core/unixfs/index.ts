@@ -3,10 +3,12 @@ import type { Logger } from 'pino'
 import { type CreateCarOptions, type CreateCarResult, cleanupTempCar, createCarFromPath } from './car-builder.js'
 
 export * from './car-builder.js'
+export { importerOptions, UNIXFS_PROFILE } from './importer-options.js'
 
 export interface CarBuildResult {
   carPath: string
   rootCid: string
+  name: string
   size?: number
 }
 
@@ -18,7 +20,7 @@ export interface FileBuilder {
 export function createUnixfsCarBuilder(): FileBuilder {
   return {
     async buildCar(sourcePath: string, options: CreateCarOptions = {}): Promise<CarBuildResult> {
-      const { carPath, rootCid }: CreateCarResult = await createCarFromPath(sourcePath, options)
+      const { carPath, rootCid, name }: CreateCarResult = await createCarFromPath(sourcePath, options)
 
       let size: number | undefined
       try {
@@ -31,6 +33,7 @@ export function createUnixfsCarBuilder(): FileBuilder {
       const baseResult: CarBuildResult = {
         carPath,
         rootCid: rootCid.toString(),
+        name,
       }
 
       return size !== undefined ? { ...baseResult, size } : baseResult
