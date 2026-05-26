@@ -83,8 +83,8 @@ function makeSynapseStub(summary?: AccountSummary) {
       serviceApproval: async () => ({
         rateAllowance: 0n,
         lockupAllowance: 0n,
-        lockupUsed: 0n,
-        rateUsed: 0n,
+        lockupUsage: 0n,
+        rateUsage: 0n,
         maxLockupPeriod: 30n * TIME_CONSTANTS.EPOCHS_PER_DAY,
       }),
       allowance: async () => 0n,

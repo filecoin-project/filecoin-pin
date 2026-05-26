@@ -38,9 +38,10 @@ import {
 import type { AccountSummary, PaymentStatus, ServiceApprovalStatus, StorageAllowances } from './types.js'
 import { padSizeToPDPLeaves } from './utils.js'
 
+// Re-export SDK helpers used by downstream consumers (e.g. upload-action)
+export { getServicePrice } from '@filoz/synapse-core/warm-storage'
 // Re-export all constants
 export * from './constants.js'
-
 export * from './funding.js'
 export * from './runway.js'
 export * from './top-up.js'

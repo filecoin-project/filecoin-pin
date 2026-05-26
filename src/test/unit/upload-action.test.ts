@@ -8,13 +8,20 @@ const mocks = vi.hoisted(() => ({
   executeUpload: vi.fn(),
 }))
 
-vi.mock('filecoin-pin/core/payments', () => ({
-  calculateFilecoinPayFundingPlan: vi.fn(),
-  executeTopUp: vi.fn(),
-  formatFundingReason: vi.fn(),
-  getPaymentStatus: vi.fn(),
-  getStorageRunway: vi.fn(),
-}))
+// Keep the real `calculateFilecoinPayFundingPlan`/`formatFundingReason` so a
+// `handlePayments` test actually exercises the funding planner (and would catch
+// missing required args like `minimumPricePerMonth`). Only the IO-bound helpers
+// are mocked.
+vi.mock('filecoin-pin/core/payments', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('filecoin-pin/core/payments')>()
+  return {
+    ...actual,
+    executeTopUp: vi.fn(),
+    getPaymentStatus: vi.fn(),
+    getServicePrice: vi.fn(),
+    getStorageRunway: vi.fn(),
+  }
+})
 
 vi.mock('filecoin-pin/core/unixfs', () => ({
   createUnixfsCarBuilder: vi.fn(),
@@ -178,6 +185,85 @@ describe('upload action Filecoin upload', () => {
       requestedCopies: 2,
       complete: false,
     })
+  })
+})
+
+describe('upload action payments', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  it('plans funding for a piece without throwing (passes minimumPricePerMonth)', async () => {
+    const payments = (await import('filecoin-pin/core/payments')) as typeof import('filecoin-pin/core/payments')
+    const utils = (await import('filecoin-pin/core/utils')) as typeof import('filecoin-pin/core/utils')
+
+    const status = {
+      network: 'calibration',
+      chainId: 314159,
+      address: '0x0000000000000000000000000000000000000000',
+      filBalance: 1_000_000_000_000_000_000n,
+      walletUsdfcBalance: 1_000_000_000_000_000_000n,
+      filecoinPayBalance: 1_000_000_000_000_000_000n,
+      currentAllowances: {
+        isApproved: true,
+        rateAllowance: 0n,
+        lockupAllowance: 0n,
+        lockupUsage: 0n,
+        rateUsage: 0n,
+        maxLockupPeriod: 30n * 2880n,
+      },
+    }
+
+    vi.mocked(payments.getPaymentStatus).mockResolvedValue(status as never)
+    vi.mocked(payments.getServicePrice).mockResolvedValue({ minimumPricePerMonth: 1_000_000n } as never)
+    vi.mocked(payments.executeTopUp).mockResolvedValue({ success: true, deposited: 0n, message: '' } as never)
+    vi.mocked(payments.getStorageRunway).mockResolvedValue({} as never)
+    vi.mocked(utils.formatRunwaySummary).mockReturnValue({
+      coverage: 'covered',
+      runway: 'plenty',
+    } as never)
+
+    const synapse = {
+      client: {},
+      payments: {
+        accountSummary: async () => ({
+          funds: 1_000_000_000_000_000_000n,
+          availableFunds: 1_000_000_000_000_000_000n,
+          debt: 0n,
+          totalLockup: 0n,
+          lockupRatePerEpoch: 0n,
+          runwayInEpochs: 0n,
+          grossCoverageInEpochs: 0n,
+        }),
+      },
+      storage: {
+        getStorageInfo: async () => ({ pricing: { noCDN: { perTiBPerEpoch: 1_000_000n } } }),
+        createContexts: async () => [],
+      },
+    }
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const { handlePayments } = (await import(filecoinModulePath)) as {
+      handlePayments: (synapse: unknown, options: unknown, logger: unknown) => Promise<unknown>
+    }
+
+    await expect(
+      handlePayments(
+        synapse,
+        {
+          minStorageDays: 30,
+          filecoinPayBalanceLimit: 10_000_000_000_000_000_000n,
+          pieceSizeBytes: 1_048_576,
+          withCDN: false,
+        },
+        { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }
+      )
+    ).resolves.toBeDefined()
+
+    logSpy.mockRestore()
+
+    // The funding planner (real, not mocked) ran and required the service price.
+    expect(payments.getServicePrice).toHaveBeenCalledWith(synapse.client)
   })
 })
 
