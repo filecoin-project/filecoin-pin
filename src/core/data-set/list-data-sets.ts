@@ -1,18 +1,18 @@
 /**
  * List Data Sets
  *
- * Functions for listing and summarizing datasets with optional provider enrichment.
+ * Functions for listing and summarizing datasets.
  *
  * @module core/data-set/list-data-sets
  */
 
-import type { PDPProvider, Synapse } from '@filoz/synapse-sdk'
+import type { Synapse } from '@filoz/synapse-sdk'
 import { DEFAULT_DATA_SET_METADATA } from '../synapse/constants.js'
 import { getClientAddress } from '../synapse/index.js'
 import type { DataSetSummary, ListDataSetsOptions } from './types.js'
 
 /**
- * List all datasets for an address with optional provider enrichment
+ * List all datasets for an address
  *
  * Example usage:
  * ```typescript
@@ -21,9 +21,6 @@ import type { DataSetSummary, ListDataSetsOptions } from './types.js'
  *
  * for (const ds of datasets) {
  *   console.log(`Dataset ${ds.dataSetId}: ${ds.currentPieceCount} pieces`)
- *   if (ds.provider) {
- *     console.log(`  Provider: ${ds.provider.name}`)
- *   }
  * }
  * ```
  *
@@ -32,28 +29,12 @@ import type { DataSetSummary, ListDataSetsOptions } from './types.js'
  * @returns Array of dataset summaries
  */
 export async function listDataSets(synapse: Synapse, options?: ListDataSetsOptions): Promise<DataSetSummary[]> {
-  const logger = options?.logger
   const address = options?.address ?? getClientAddress(synapse)
-  const withProviderDetails = options?.withProviderDetails ?? false
   const filter = options?.filter
 
   const dataSets = await synapse.storage.findDataSets({ address })
 
   const filteredDataSets = filter ? dataSets.filter(filter) : dataSets
-
-  // Fetch provider info for unique provider IDs
-  let providerMap: Map<bigint, PDPProvider> = new Map()
-  if (withProviderDetails) {
-    const uniqueProviderIds = new Set(filteredDataSets.map((ds) => ds.providerId))
-    if (uniqueProviderIds.size > 0) {
-      try {
-        const providers = await synapse.providers.getProviders({ providerIds: Array.from(uniqueProviderIds) })
-        providerMap = new Map(providers.map((provider) => [provider.id, provider]))
-      } catch (error) {
-        logger?.warn({ error }, 'Failed to fetch provider info for provider enrichment')
-      }
-    }
-  }
 
   return filteredDataSets.map((ds) => {
     const createdWithFilecoinPin = Object.entries(DEFAULT_DATA_SET_METADATA).every(
@@ -63,7 +44,7 @@ export async function listDataSets(synapse: Synapse, options?: ListDataSetsOptio
     const summary: DataSetSummary = {
       ...ds,
       dataSetId: ds.pdpVerifierDataSetId,
-      provider: providerMap.get(ds.providerId),
+      provider: undefined,
       createdWithFilecoinPin,
     }
     return summary

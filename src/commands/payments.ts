@@ -1,4 +1,8 @@
+import { CDN_FIXED_LOCKUP, USDFC_SYBIL_FEE } from '@filoz/synapse-core/utils'
 import { Command } from 'commander'
+import { formatUnits, parseUnits } from 'viem'
+import { FLOOR_PRICE_PER_30_DAYS, USDFC_DECIMALS } from '../core/payments/index.js'
+import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { runAutoSetup } from '../payments/auto.js'
 import { runDeposit } from '../payments/deposit.js'
 import { runFund } from '../payments/fund.js'
@@ -10,11 +14,20 @@ import { addAuthOptions } from '../utils/cli-options.js'
 
 export const paymentsCommand = new Command('payments').description('Manage payment setup for Filecoin Onchain Cloud')
 
+// Default deposit for `payments setup --auto`, derived from SDK constants: the
+// fixed lockup for DEFAULT_COPIES new CDN data sets (~1.16 USDFC each) + 1 USDFC
+// runway headroom. Interactive setup prompts separately.
+const DEFAULT_SETUP_DEPOSIT = formatUnits(
+  BigInt(DEFAULT_COPIES) * (CDN_FIXED_LOCKUP.total + USDFC_SYBIL_FEE + FLOOR_PRICE_PER_30_DAYS) +
+    parseUnits('1', USDFC_DECIMALS),
+  USDFC_DECIMALS
+)
+
 // Setup command
 const setupCommand = new Command('setup')
   .description('Setup payment approvals for Filecoin Onchain Cloud storage')
   .option('--auto', 'Run in automatic mode with defaults')
-  .option('--deposit <amount>', 'USDFC amount to deposit in Filecoin Pay (default: 1)')
+  .option('--deposit <amount>', `USDFC amount to deposit in Filecoin Pay (default: ${DEFAULT_SETUP_DEPOSIT})`)
   .option(
     '--rate-allowance <amount>',
     'Storage allowance for WarmStorage service (e.g., "1TiB/month", "500GiB/month", or "0.0000565" USDFC/epoch, default: 1TiB/month)'
@@ -24,7 +37,7 @@ const setupCommand = new Command('setup')
       const setupOptions: PaymentSetupOptions = {
         ...options,
         auto: options.auto || false,
-        deposit: options.deposit || '1',
+        deposit: options.deposit || DEFAULT_SETUP_DEPOSIT,
         rateAllowance: options.rateAllowance || '1TiB/month',
         network: options.network,
       }

@@ -17,7 +17,7 @@ See the two-workflow approach in the [examples directory](./examples/) for compl
 See [action.yml](./action.yml) for complete input documentation including:
 - **Core**: `path`, `walletPrivateKey`, `network`
 - **Financial**: `minStorageDays`, `filecoinPayBalanceLimit`
-- **Advanced**: `withCDN`, `dryRun`
+- **Advanced**: `egressProvider`, `dryRun`
 
 **Outputs**: `ipfsRootCid`, `dataSetId`, `pieceCid`, `providerId`, `providerName`, `carPath`, `uploadStatus`
 

@@ -1,11 +1,11 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import type { Chain } from '@filoz/synapse-sdk'
-import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from './common/get-rpc-url.js'
+import { getRpcUrl, NETWORK_CHAINS, normalizeNetworkName, resolveDevnetConfig } from './common/get-rpc-url.js'
 import type { Config } from './core/synapse/index.js'
 
 function resolveChain(network: string | undefined, hasExplicitRpcUrl: boolean): Chain | undefined {
-  const normalized = network?.toLowerCase().trim()
+  const normalized = normalizeNetworkName(network)
   if (!normalized) return undefined
   if (normalized === 'mainnet' || normalized === 'calibration') return NETWORK_CHAINS[normalized]
   // Devnet's chain comes from devnet-info.json. Skip the file load when the operator
