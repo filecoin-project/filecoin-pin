@@ -32,7 +32,7 @@ This document explains how the action works internally and why each step exists.
 `parseInputs()` uses a single schema for both phases:
 - `path`: required for both phases.
 - `walletPrivateKey`: required when `phase !== 'compute'`.
-- `network`: required; must be `mainnet` or `calibration`.
+- `network`: optional; must be `mainnet` or `calibration`. Defaults to `mainnet`.
 - `minStorageDays`: optional number (defaults to `0` when unset).
 - `filecoinPayBalanceLimit`: bigint parsed from USDFC string; required when `minStorageDays > 0`.
 - `egressProvider`, `dryRun`: optional advanced settings with defaults (providerAddress should rarely be used).

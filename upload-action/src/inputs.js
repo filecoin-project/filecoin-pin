@@ -86,7 +86,7 @@ export function parseBoolean(v) {
 export function parseInputs(phase = 'single') {
   const walletPrivateKey = getInput('walletPrivateKey')
   const contentPath = getInput('path')
-  const networkRaw = getInput('network')
+  const networkRaw = getInput('network', 'mainnet')
   const minStorageDaysRaw = getInput('minStorageDays', '')
   const filecoinPayBalanceLimitRaw = getInput('filecoinPayBalanceLimit', '')
   const egressProvider = getInput('egressProvider', 'none')

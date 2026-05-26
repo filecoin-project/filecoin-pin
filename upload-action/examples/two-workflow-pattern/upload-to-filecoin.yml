@@ -41,6 +41,6 @@ jobs:
         with:
           path: dist  # Path to the downloaded build artifacts
           walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
-          network: calibration
+          network: mainnet
           minStorageDays: "30"  # Hardcoded - The value committed in the main branch will be used, not the value in a modifying PR
           filecoinPayBalanceLimit: "0.25" # Hardcoded - The value committed in the main branch will be used, not the value in a modifying PR
