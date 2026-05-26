@@ -16,11 +16,10 @@
  * (env vars, CLI flags, browser globals) by invoking {@link configureTelemetry}
  * before the first `executeUpload`.
  *
- * Events are aggregated in memory by (metric name, tag set) and flushed to the
- * endpoint every 60 seconds, plus a final flush when the host's lifecycle is
- * ending: `beforeExit` in Node and `pagehide` in the browser. Long-running
- * consumers that terminate via `process.exit()` or signals should call
- * {@link shutdownTelemetry} explicitly.
+ * Each call to {@link recordUploadResult} fires its own HTTP POST — there is
+ * no in-memory buffer or periodic flush. Use {@link flushTelemetry} to await
+ * pending requests, or {@link shutdownTelemetry} to do that and turn
+ * subsequent record calls into no-ops.
  */
 
 import type { UploadResult } from '@filoz/synapse-sdk'
@@ -38,28 +37,17 @@ interface RuntimeOverrides {
   token?: string
 }
 
-interface BufferedPoint {
+interface MetricPoint {
   name: string
   tags: Record<string, string>
-  value: number
 }
-
-const FLUSH_INTERVAL_MS = 60_000
 
 let started = false
 let disabled = false
 let endpoint = DEFAULT_METRICS_ENDPOINT
 let token = DEFAULT_METRICS_TOKEN
 let runtimeOverrides: RuntimeOverrides = {}
-
-const buffer = new Map<string, BufferedPoint>()
-let flushTimer: ReturnType<typeof setInterval> | null = null
-let beforeExitListener: (() => void) | null = null
-let pageHideListener: (() => void) | null = null
-
-function isNodeRuntime(): boolean {
-  return typeof process !== 'undefined' && typeof process.once === 'function'
-}
+const inFlight = new Set<Promise<void>>()
 
 /**
  * Configure telemetry at runtime. Must be called before the first
@@ -69,34 +57,6 @@ function isNodeRuntime(): boolean {
  */
 export function configureTelemetry(overrides: RuntimeOverrides): void {
   runtimeOverrides = { ...runtimeOverrides, ...overrides }
-}
-
-function registerExitHandler(): void {
-  const flush = () => {
-    void shutdownTelemetry()
-  }
-  if (isNodeRuntime()) {
-    beforeExitListener = flush
-    process.once('beforeExit', beforeExitListener)
-    return
-  }
-  if (typeof addEventListener === 'function') {
-    // `pagehide` is the closest browser equivalent to Node's `beforeExit` —
-    // it fires for tab close, navigation, and bfcache eviction.
-    pageHideListener = flush
-    addEventListener('pagehide', pageHideListener, { once: true })
-  }
-}
-
-function unregisterExitHandler(): void {
-  if (beforeExitListener != null && isNodeRuntime()) {
-    process.removeListener('beforeExit', beforeExitListener)
-    beforeExitListener = null
-  }
-  if (pageHideListener != null && typeof removeEventListener === 'function') {
-    removeEventListener('pagehide', pageHideListener)
-    pageHideListener = null
-  }
 }
 
 function start(): boolean {
@@ -109,33 +69,7 @@ function start(): boolean {
   endpoint = runtimeOverrides.endpoint ?? DEFAULT_METRICS_ENDPOINT
   token = runtimeOverrides.token ?? DEFAULT_METRICS_TOKEN
   started = true
-
-  flushTimer = setInterval(() => {
-    void flushTelemetry()
-  }, FLUSH_INTERVAL_MS)
-  // Don't keep the Node event loop alive solely on the flush timer.
-  if (isNodeRuntime() && typeof flushTimer.unref === 'function') {
-    flushTimer.unref()
-  }
-  registerExitHandler()
   return true
-}
-
-function bufferKey(name: string, tags: Record<string, string>): string {
-  const entries = Object.keys(tags)
-    .sort()
-    .map((k) => [k, tags[k]])
-  return JSON.stringify([name, entries])
-}
-
-function increment(name: string, tags: Record<string, string>): void {
-  const key = bufferKey(name, tags)
-  const existing = buffer.get(key)
-  if (existing != null) {
-    existing.value += 1
-    return
-  }
-  buffer.set(key, { name, tags, value: 1 })
 }
 
 /**
@@ -150,51 +84,14 @@ function classifyStep(error: string): string {
   return 'unknown'
 }
 
-/**
- * Record one upload's per-copy outcomes. Safe to call when telemetry is
- * disabled (no-op).
- *
- * @param result - The structured upload result returned by Synapse.
- * @param network - URL-safe network slug (e.g. `mainnet`, `calibration`).
- */
-export function recordUploadResult(result: Pick<UploadResult, 'copies' | 'failedAttempts'>, network: string): void {
-  if (!start()) return
-
-  for (const copy of result.copies) {
-    increment(METRIC_UPLOAD_COPIES_SUCCESS, {
-      'upload.spId': String(copy.providerId),
-      'upload.role': copy.role,
-      network,
-    })
-  }
-  for (const attempt of result.failedAttempts) {
-    increment(METRIC_UPLOAD_COPIES_FAILURE, {
-      'upload.spId': String(attempt.providerId),
-      'upload.role': attempt.role,
-      'upload.step': classifyStep(attempt.error),
-      network,
-    })
-  }
-}
-
-/**
- * Flush pending metrics to the endpoint. Call at process exit or when the
- * caller wants to guarantee delivery before continuing. Safe when disabled.
- */
-export async function flushTelemetry(): Promise<void> {
-  if (!started || disabled || buffer.size === 0) return
-
-  const points = Array.from(buffer.values())
-  buffer.clear()
-
+async function post(points: MetricPoint[]): Promise<void> {
   const dt = new Date().toISOString()
   const body = points.map((p) => ({
     name: p.name,
-    counter: { value: p.value },
+    counter: { value: 1 },
     dt,
     tags: { 'service.name': TELEMETRY_SERVICE_NAME, ...p.tags },
   }))
-
   try {
     await fetch(endpoint, {
       method: 'POST',
@@ -210,35 +107,61 @@ export async function flushTelemetry(): Promise<void> {
 }
 
 /**
- * Shut down telemetry. Cancels the periodic flush, flushes any buffered
- * points, and turns subsequent record calls into no-ops. Intended for tests
- * and long-lived hosts that need clean teardown.
+ * Record one upload's per-copy outcomes. Fires a single HTTP POST containing
+ * one counter point per copy and per failed attempt. Safe to call when
+ * telemetry is disabled (no-op).
+ *
+ * @param result - The structured upload result returned by Synapse.
+ * @param network - URL-safe network slug (e.g. `mainnet`, `calibration`).
  */
-export async function shutdownTelemetry(): Promise<void> {
-  if (!started || disabled) return
-  unregisterExitHandler()
-  if (flushTimer != null) {
-    clearInterval(flushTimer)
-    flushTimer = null
+export function recordUploadResult(result: Pick<UploadResult, 'copies' | 'failedAttempts'>, network: string): void {
+  if (!start()) return
+
+  const points: MetricPoint[] = []
+  for (const copy of result.copies) {
+    points.push({
+      name: METRIC_UPLOAD_COPIES_SUCCESS,
+      tags: {
+        'upload.spId': String(copy.providerId),
+        'upload.role': copy.role,
+        network,
+      },
+    })
   }
-  await flushTelemetry()
-  disabled = true
+  for (const attempt of result.failedAttempts) {
+    points.push({
+      name: METRIC_UPLOAD_COPIES_FAILURE,
+      tags: {
+        'upload.spId': String(attempt.providerId),
+        'upload.role': attempt.role,
+        'upload.step': classifyStep(attempt.error),
+        network,
+      },
+    })
+  }
+  if (points.length === 0) return
+
+  const promise = post(points).finally(() => {
+    inFlight.delete(promise)
+  })
+  inFlight.add(promise)
 }
 
 /**
- * Test hook: reset the singleton so a subsequent call re-reads configuration.
- * Not part of the public API.
- *
- * @internal
+ * Await any in-flight HTTP submissions. Call before exit (or in tests) to
+ * guarantee delivery. Safe when nothing is pending.
  */
-export function _resetTelemetryForTests(): void {
-  unregisterExitHandler()
-  if (flushTimer != null) {
-    clearInterval(flushTimer)
-    flushTimer = null
-  }
-  started = false
-  disabled = false
-  runtimeOverrides = {}
-  buffer.clear()
+export async function flushTelemetry(): Promise<void> {
+  if (inFlight.size === 0) return
+  await Promise.all(inFlight)
+}
+
+/**
+ * Await pending submissions and turn subsequent record calls into no-ops.
+ * Intended for tests and long-lived hosts that need clean teardown.
+ */
+export async function shutdownTelemetry(): Promise<void> {
+  await flushTelemetry()
+  disabled = true
+  started = true
 }

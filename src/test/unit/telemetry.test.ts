@@ -1,9 +1,16 @@
 import type { CopyResult, FailedAttempt } from '@filoz/synapse-sdk'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 interface FetchCall {
   url: string
   init: RequestInit
+}
+
+interface MetricPayload {
+  name: string
+  counter: { value: number }
+  dt: string
+  tags: Record<string, string>
 }
 
 const fetchCalls: FetchCall[] = []
@@ -18,13 +25,6 @@ function installFetch(): void {
   ;(globalThis as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch
 }
 
-interface MetricPayload {
-  name: string
-  counter: { value: number }
-  dt: string
-  tags: Record<string, string>
-}
-
 function parseBody(call: FetchCall): MetricPayload[] {
   if (typeof call.init.body !== 'string') throw new Error('expected JSON string body')
   return JSON.parse(call.init.body)
@@ -34,12 +34,6 @@ function firstCall(): FetchCall {
   const call = fetchCalls[0]
   if (call == null) throw new Error('expected at least one fetch call')
   return call
-}
-
-function firstPoint(points: MetricPayload[]): MetricPayload {
-  const point = points[0]
-  if (point == null) throw new Error('expected at least one metric point')
-  return point
 }
 
 const makeCopy = (overrides: Partial<CopyResult>): CopyResult => ({
@@ -72,7 +66,7 @@ describe('telemetry', () => {
     await shutdownTelemetry()
   })
 
-  it('records one success per copy and one failure per failed attempt', async () => {
+  it('posts one point per copy and per failed attempt in a single request', async () => {
     const { recordUploadResult, flushTelemetry } = await freshTelemetry()
 
     recordUploadResult(
@@ -90,11 +84,11 @@ describe('telemetry', () => {
 
     expect(fetchCalls).toHaveLength(1)
     const points = parseBody(firstCall())
+    expect(points).toHaveLength(4)
 
     const successPoints = points.filter((p) => p.name === 'upload.copies.success')
     const failurePoints = points.filter((p) => p.name === 'upload.copies.failure')
 
-    expect(successPoints).toHaveLength(2)
     expect(successPoints).toContainEqual(
       expect.objectContaining({
         counter: { value: 1 },
@@ -107,8 +101,6 @@ describe('telemetry', () => {
         tags: expect.objectContaining({ 'upload.spId': '2', 'upload.role': 'secondary', network: 'calibration' }),
       })
     )
-
-    expect(failurePoints).toHaveLength(2)
     expect(failurePoints).toContainEqual(
       expect.objectContaining({
         counter: { value: 1 },
@@ -137,42 +129,36 @@ describe('telemetry', () => {
     }
   })
 
-  it('aggregates repeated events for the same metric+tag set', async () => {
+  it('fires one request per recordUploadResult call', async () => {
     const { recordUploadResult, flushTelemetry } = await freshTelemetry()
 
-    recordUploadResult(
-      {
-        copies: [
-          makeCopy({ providerId: 1n, role: 'primary' }),
-          makeCopy({ providerId: 1n, role: 'primary' }),
-          makeCopy({ providerId: 1n, role: 'primary' }),
-        ],
-        failedAttempts: [],
-      },
-      'mainnet'
-    )
+    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'mainnet')
+    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'mainnet')
     await flushTelemetry()
 
-    expect(fetchCalls).toHaveLength(1)
-    const points = parseBody(firstCall())
-    expect(points).toHaveLength(1)
-    expect(firstPoint(points).counter.value).toBe(3)
+    expect(fetchCalls).toHaveLength(2)
+  })
+
+  it('skips the request entirely when there is nothing to record', async () => {
+    const { recordUploadResult, flushTelemetry } = await freshTelemetry()
+
+    recordUploadResult({ copies: [], failedAttempts: [] }, 'mainnet')
+    await flushTelemetry()
+
+    expect(fetchCalls).toHaveLength(0)
   })
 
   it('classifies unknown error strings as step=unknown', async () => {
     const { recordUploadResult, flushTelemetry } = await freshTelemetry()
 
     recordUploadResult(
-      {
-        copies: [],
-        failedAttempts: [makeAttempt({ providerId: 9n, role: 'primary', error: 'Some other error' })],
-      },
+      { copies: [], failedAttempts: [makeAttempt({ providerId: 9n, role: 'primary', error: 'Some other error' })] },
       'mainnet'
     )
     await flushTelemetry()
 
     const points = parseBody(firstCall())
-    expect(firstPoint(points).tags).toMatchObject({
+    expect(points[0]?.tags).toMatchObject({
       'upload.spId': '9',
       'upload.role': 'primary',
       'upload.step': 'unknown',
@@ -185,7 +171,6 @@ describe('telemetry', () => {
     recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
     await flushTelemetry()
 
-    expect(fetchCalls).toHaveLength(1)
     const call = firstCall()
     expect(call.url).toMatch(/^https:\/\/.*betterstackdata\.com\/metrics$/)
     expect(call.init.method).toBe('POST')
@@ -194,34 +179,7 @@ describe('telemetry', () => {
     expect(headers['Content-Type']).toBe('application/json')
   })
 
-  it("flushes on the host process's beforeExit", async () => {
-    const before = process.listenerCount('beforeExit')
-    const { recordUploadResult } = await freshTelemetry()
-
-    recordUploadResult({ copies: [makeCopy({ providerId: 7n })], failedAttempts: [] }, 'calibration')
-    expect(process.listenerCount('beforeExit')).toBe(before + 1)
-
-    process.emit('beforeExit', 0)
-    // shutdownTelemetry is scheduled via `void`; let microtasks settle.
-    await new Promise((r) => setImmediate(r))
-    await new Promise((r) => setImmediate(r))
-
-    expect(fetchCalls).toHaveLength(1)
-    expect(process.listenerCount('beforeExit')).toBe(before)
-  })
-
-  it('removes the beforeExit listener when shutdownTelemetry is called explicitly', async () => {
-    const before = process.listenerCount('beforeExit')
-    const { recordUploadResult, shutdownTelemetry } = await freshTelemetry()
-
-    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
-    expect(process.listenerCount('beforeExit')).toBe(before + 1)
-
-    await shutdownTelemetry()
-    expect(process.listenerCount('beforeExit')).toBe(before)
-  })
-
-  it('honours configureTelemetry({ disabled: true }) without env vars', async () => {
+  it('honours configureTelemetry({ disabled: true })', async () => {
     const { configureTelemetry, recordUploadResult, flushTelemetry } = await freshTelemetry()
     configureTelemetry({ disabled: true })
 
@@ -238,10 +196,41 @@ describe('telemetry', () => {
     recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
     await flushTelemetry()
 
-    expect(fetchCalls).toHaveLength(1)
     const call = firstCall()
     expect(call.url).toBe('https://example.test/metrics')
     expect((call.init.headers as Record<string, string>).Authorization).toBe('Bearer override-token')
+  })
+
+  it('shutdownTelemetry awaits in-flight requests and disables subsequent calls', async () => {
+    const { recordUploadResult, shutdownTelemetry } = await freshTelemetry()
+
+    let resolveFetch: (() => void) | undefined
+    fetchMock.mockImplementationOnce(async (url: string, init: RequestInit) => {
+      fetchCalls.push({ url, init })
+      await new Promise<void>((r) => {
+        resolveFetch = r
+      })
+      return new Response(null, { status: 202 })
+    })
+
+    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'mainnet')
+
+    const shutdown = shutdownTelemetry()
+    // Shutdown should not resolve until the in-flight fetch completes.
+    let settled = false
+    void shutdown.then(() => {
+      settled = true
+    })
+    await new Promise((r) => setImmediate(r))
+    expect(settled).toBe(false)
+
+    resolveFetch?.()
+    await shutdown
+    expect(settled).toBe(true)
+
+    // Subsequent calls are no-ops.
+    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'mainnet')
+    expect(fetchCalls).toHaveLength(1)
   })
 
   it('swallows fetch errors so telemetry never breaks the host', async () => {
@@ -252,70 +241,5 @@ describe('telemetry', () => {
 
     recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
     await expect(flushTelemetry()).resolves.toBeUndefined()
-  })
-})
-
-describe('telemetry (browser runtime)', () => {
-  const realProcess = globalThis.process
-  const addedListeners: Array<{ type: string; listener: EventListenerOrEventListenerObject; opts?: any }> = []
-  const removedListeners: Array<{ type: string; listener: EventListenerOrEventListenerObject }> = []
-  const realAddEventListener = (globalThis as { addEventListener?: typeof addEventListener }).addEventListener
-  const realRemoveEventListener = (globalThis as { removeEventListener?: typeof removeEventListener })
-    .removeEventListener
-
-  beforeEach(() => {
-    // Simulate a browser: no `process`, but DOM-style event listeners available.
-    ;(globalThis as { process?: unknown }).process = undefined
-    addedListeners.length = 0
-    removedListeners.length = 0
-    ;(globalThis as { addEventListener?: typeof addEventListener }).addEventListener = ((
-      type: string,
-      listener: EventListenerOrEventListenerObject,
-      opts?: any
-    ) => {
-      addedListeners.push({ type, listener, opts })
-    }) as typeof addEventListener
-    ;(globalThis as { removeEventListener?: typeof removeEventListener }).removeEventListener = ((
-      type: string,
-      listener: EventListenerOrEventListenerObject
-    ) => {
-      removedListeners.push({ type, listener })
-    }) as typeof removeEventListener
-  })
-
-  afterEach(async () => {
-    // Restore Node globals so other tests run normally.
-    ;(globalThis as { process?: unknown }).process = realProcess
-    if (realAddEventListener) {
-      ;(globalThis as { addEventListener?: typeof addEventListener }).addEventListener = realAddEventListener
-    } else {
-      delete (globalThis as { addEventListener?: unknown }).addEventListener
-    }
-    if (realRemoveEventListener) {
-      ;(globalThis as { removeEventListener?: typeof removeEventListener }).removeEventListener =
-        realRemoveEventListener
-    } else {
-      delete (globalThis as { removeEventListener?: unknown }).removeEventListener
-    }
-  })
-
-  it('initializes without a Node process and registers a pagehide handler', async () => {
-    const { recordUploadResult } = await freshTelemetry()
-
-    recordUploadResult({ copies: [makeCopy({ providerId: 5n })], failedAttempts: [] }, 'mainnet')
-
-    const pagehide = addedListeners.find((l) => l.type === 'pagehide')
-    expect(pagehide).toBeDefined()
-    expect(pagehide?.opts?.once).toBe(true)
-  })
-
-  it('flushes via shutdown and unregisters the pagehide listener', async () => {
-    const { recordUploadResult, shutdownTelemetry } = await freshTelemetry()
-
-    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'mainnet')
-    await shutdownTelemetry()
-
-    expect(fetchCalls).toHaveLength(1)
-    expect(removedListeners.some((l) => l.type === 'pagehide')).toBe(true)
   })
 })
