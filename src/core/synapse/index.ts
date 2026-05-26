@@ -29,17 +29,15 @@ import {
   getAddress,
   type Hex,
   type HttpTransport,
-  http,
   type WebSocketTransport,
-  webSocket,
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { APPLICATION_SOURCE } from './constants.js'
+import { createTransport } from './create-transport.js'
 import { resolveChainFromRpc } from './resolve-chain-from-rpc.js'
 
 export * from './constants.js'
-
-const WEBSOCKET_REGEX = /^ws(s)?:\/\//i
+export { createTransport } from './create-transport.js'
 
 /**
  * Application configuration for CLI and pinning server
@@ -129,13 +127,6 @@ function isSessionKeyConfig(config: SynapseSetupConfig): config is SessionKeyCon
 
 function isReadOnlyConfig(config: SynapseSetupConfig): config is ReadOnlyConfig {
   return 'readOnly' in config && (config as ReadOnlyConfig).readOnly === true && 'walletAddress' in config
-}
-
-function createTransport(rpcUrl: string): HttpTransport | WebSocketTransport {
-  if (WEBSOCKET_REGEX.test(rpcUrl)) {
-    return webSocket(rpcUrl)
-  }
-  return http(rpcUrl)
 }
 
 const PERMISSION_NAMES: Record<string, string> = {

@@ -6,8 +6,18 @@ import { paymentsCommand } from './payments.js'
 import { providerCommand } from './provider.js'
 import { rmCommand } from './rm.js'
 import { serverCommand } from './server.js'
+import { sessionCommand } from './session.js'
 
-export { addCommand, dataSetCommand, importCommand, paymentsCommand, providerCommand, rmCommand, serverCommand }
+export {
+  addCommand,
+  dataSetCommand,
+  importCommand,
+  paymentsCommand,
+  providerCommand,
+  rmCommand,
+  serverCommand,
+  sessionCommand,
+}
 
 /**
  * Every top-level CLI command in the order they're registered on the program.
@@ -23,4 +33,5 @@ export const ALL_CLI_COMMANDS: readonly Command[] = [
   addCommand,
   rmCommand,
   providerCommand,
+  sessionCommand,
 ]
