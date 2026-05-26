@@ -8,13 +8,16 @@ import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDataSetPieces, listDataSets } from '../../core/data-set/index.js'
 
+const TEST_DATA_SET_ID = 123n
+const TEST_SERVICE_URL = 'https://provider.example.com'
+
 const {
   mockSynapse,
-  mockStorageContext,
   mockGetAllPieceMetadata,
   mockFindDataSets,
   mockGetProviders,
-  mockGetPieces,
+  mockGetActivePieces,
+  mockGetScheduledRemovals,
   mockGetProviderDataSet,
   state,
 } = vi.hoisted(() => {
@@ -38,11 +41,10 @@ const {
   const mockGetProviders = vi.fn(async ({ providerIds }: { providerIds: any[] }) => {
     return state.providers.filter((p) => providerIds.includes(p.id))
   })
-  const mockGetPieces = vi.fn(async function* () {
-    for (const piece of state.pieces) {
-      yield piece
-    }
-  })
+  const mockGetActivePieces = vi.fn(async () => ({
+    pieces: state.pieces.map((p) => ({ id: p.pieceId, cid: p.pieceCid })),
+    hasMore: false,
+  }))
   const mockGetScheduledRemovals = vi.fn(async () => [] as readonly bigint[])
   const mockGetProviderDataSet = vi.fn(async () => {
     if (state.providerPieces === null) throw new Error('Provider unavailable')
@@ -58,16 +60,6 @@ const {
     return state.pieceMetadata[Number(pieceId)] ?? {}
   })
 
-  const mockStorageContext = {
-    dataSetId: 123n,
-    getPieces: mockGetPieces,
-    getScheduledRemovals: mockGetScheduledRemovals,
-    provider: {
-      serviceProvider: '0xservice-provider',
-      pdp: { serviceURL: 'https://provider.example.com' },
-    },
-  }
-
   const mockSynapse = {
     client: { account: { address: '0xtest-address' as const } },
     chain: { id: 314159, name: 'calibration' },
@@ -77,11 +69,10 @@ const {
 
   return {
     mockSynapse,
-    mockStorageContext,
     mockGetAllPieceMetadata,
     mockFindDataSets,
     mockGetProviders,
-    mockGetPieces,
+    mockGetActivePieces,
     mockGetScheduledRemovals,
     mockGetProviderDataSet,
     state,
@@ -97,6 +88,11 @@ vi.mock('@filoz/synapse-sdk', async () => {
 
 vi.mock('@filoz/synapse-core/warm-storage', () => ({
   getAllPieceMetadata: mockGetAllPieceMetadata,
+}))
+
+vi.mock('@filoz/synapse-core/pdp-verifier', () => ({
+  getActivePieces: mockGetActivePieces,
+  getScheduledRemovals: mockGetScheduledRemovals,
 }))
 
 vi.mock('@filoz/synapse-core/sp', () => ({
@@ -131,126 +127,11 @@ describe('listDataSets', () => {
     expect(mockGetProviders).not.toHaveBeenCalled()
   })
 
-  it('lists datasets without provider enrichment when sp-registry fails', async () => {
-    const expectedDataSet = {
-      pdpVerifierDataSetId: 1,
-      clientDataSetId: 100n,
-      providerId: 2,
-      metadata: { source: 'filecoin-pin' },
-      currentPieceCount: 5,
-      isManaged: true,
-      withCDN: false,
-      isLive: true,
-      serviceProvider: '0xservice',
-      payer: '0xpayer',
-      payee: '0xpayee',
-    }
-    state.datasets = [expectedDataSet]
-    mockGetProviders.mockRejectedValueOnce(new Error('Network error'))
-
-    const result = await listDataSets(mockSynapse as any, { withProviderDetails: true })
-
-    expect(result).toHaveLength(1)
-    expect(result[0]).toMatchObject({
-      ...expectedDataSet,
-      createdWithFilecoinPin: false,
-    })
-    expect(result[0]?.provider).toBeUndefined()
-    expect(mockGetProviders).toHaveBeenCalledWith({ providerIds: [2] })
-  })
-
-  it('enriches datasets with provider information when available', async () => {
-    const provider = {
-      id: 2,
-      name: 'Test Provider',
-      serviceProvider: '0xservice',
-      description: 'Test provider',
-      payee: '0xpayee',
-      active: true,
-      products: {},
-    }
-
-    state.datasets = [
-      {
-        pdpVerifierDataSetId: 1,
-        clientDataSetId: 100n,
-        providerId: 2,
-        metadata: {},
-        currentPieceCount: 3,
-        isManaged: true,
-        withCDN: false,
-        isLive: true,
-        serviceProvider: '0xservice',
-        payer: '0xpayer',
-        payee: '0xpayee',
-      },
-    ]
-    state.providers = [provider]
-
-    const result = await listDataSets(mockSynapse as any, { withProviderDetails: true })
-
-    expect(result).toHaveLength(1)
-    expect(result[0]?.provider).toEqual(provider)
-    expect(result[0]?.createdWithFilecoinPin).toBe(false)
-    expect(mockGetProviders).toHaveBeenCalledWith({ providerIds: [2] })
-  })
-
   it('uses custom address when provided in options', async () => {
     await listDataSets(mockSynapse as any, { address: '0xcustom' })
 
     expect(mockFindDataSets).toHaveBeenCalledWith({ address: '0xcustom' })
     expect(mockGetProviders).not.toHaveBeenCalled()
-  })
-
-  it('handles multiple datasets with mixed provider availability', async () => {
-    const provider1 = {
-      id: 1,
-      name: 'Provider 1',
-      serviceProvider: '0xprovider1',
-      description: 'First provider',
-      payee: '0xpayee1',
-      active: true,
-      products: {},
-    }
-
-    state.datasets = [
-      {
-        pdpVerifierDataSetId: 1,
-        clientDataSetId: 100n,
-        providerId: 1,
-        metadata: {},
-        currentPieceCount: 2,
-        isManaged: true,
-        withCDN: false,
-        isLive: true,
-        serviceProvider: '0xservice1',
-        payer: '0xpayer',
-        payee: '0xpayee',
-      },
-      {
-        pdpVerifierDataSetId: 2,
-        clientDataSetId: 101n,
-        providerId: 999, // Provider not in registry
-        metadata: {},
-        currentPieceCount: 1,
-        isManaged: false,
-        withCDN: true,
-        isLive: true,
-        serviceProvider: '0xservice2',
-        payer: '0xpayer',
-        payee: '0xpayee',
-      },
-    ]
-    state.providers = [provider1]
-
-    const result = await listDataSets(mockSynapse as any, { withProviderDetails: true })
-
-    expect(result).toHaveLength(2)
-    expect(result[0]?.provider).toEqual(provider1)
-    expect(result[0]?.createdWithFilecoinPin).toBe(false)
-    expect(result[1]?.provider).toBeUndefined()
-    expect(result[1]?.createdWithFilecoinPin).toBe(false)
-    expect(mockGetProviders).toHaveBeenCalledWith({ providerIds: [1, 999] })
   })
 
   it('sets createdWithFilecoinPin to true when both WITH_IPFS_INDEXING and source=filecoin-pin metadata are present', async () => {
@@ -305,7 +186,6 @@ describe('listDataSets', () => {
         payee: '0xpayee',
       },
     ]
-    state.providers = []
 
     const result = await listDataSets(mockSynapse as any)
 
@@ -325,7 +205,7 @@ describe('getDataSetPieces', () => {
   })
 
   it('returns empty array when dataset has no pieces', async () => {
-    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)
 
     expect(result.pieces).toEqual([])
     expect(result.dataSetId).toBe(123n)
@@ -338,7 +218,7 @@ describe('getDataSetPieces', () => {
       { pieceId: 1n, pieceCid: { toString: () => 'bafkpiece1' } },
     ]
 
-    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any, {
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL, {
       includeMetadata: false,
     })
 
@@ -370,7 +250,7 @@ describe('getDataSetPieces', () => {
       },
     }
 
-    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any, {
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL, {
       includeMetadata: true,
     })
 
@@ -406,7 +286,7 @@ describe('getDataSetPieces', () => {
       return metadata
     })
 
-    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any, {
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL, {
       includeMetadata: true,
     })
 
@@ -426,12 +306,9 @@ describe('getDataSetPieces', () => {
   })
 
   it('throws error when getPieces fails completely', async () => {
-    // biome-ignore lint/correctness/useYield: Generator intentionally throws before yielding to test error handling
-    mockGetPieces.mockImplementationOnce(async function* () {
-      throw new Error('Network error')
-    })
+    mockGetActivePieces.mockRejectedValueOnce(new Error('Network error'))
 
-    await expect(getDataSetPieces(mockSynapse as any, mockStorageContext as any)).rejects.toThrow(
+    await expect(getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)).rejects.toThrow(
       'Failed to retrieve pieces for dataset 123'
     )
   })
@@ -445,7 +322,7 @@ describe('getDataSetPieces', () => {
       },
     }
 
-    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any, {
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL, {
       includeMetadata: true,
     })
 
@@ -462,7 +339,7 @@ describe('getDataSetPieces', () => {
       { pieceId: 1n, pieceCid: { toString: () => 'bafkpiece1' } },
     ]
 
-    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)
 
     expect(result.pieces).toHaveLength(2)
     expect(result.pieces[0]?.size).toBe(1048576) // 1 MiB
@@ -476,7 +353,7 @@ describe('getDataSetPieces', () => {
       { pieceId: 2n, pieceCid: { toString: () => 'bafkpiece2' } }, // 4 MiB
     ]
 
-    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)
 
     expect(result.pieces).toHaveLength(3)
     expect(result.totalSizeBytes).toBe(BigInt(1048576 + 2097152 + 4194304)) // 7 MiB total
@@ -485,7 +362,7 @@ describe('getDataSetPieces', () => {
   it('returns undefined totalSizeBytes when no pieces have sizes', async () => {
     state.pieces = []
 
-    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)
 
     expect(result.pieces).toHaveLength(0)
     expect(result.totalSizeBytes).toBeUndefined()
@@ -498,7 +375,7 @@ describe('getDataSetPieces', () => {
       { pieceId: 2n, pieceCid: { toString: () => 'bafkpiece2' } }, // Valid
     ]
 
-    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)
 
     expect(result.pieces).toHaveLength(3)
     expect(result.pieces[0]?.size).toBe(1048576)
@@ -520,7 +397,7 @@ describe('getDataSetPieces', () => {
       { pieceId: 1n, pieceCid: cid1, subPieceCid: cid1, subPieceOffset: 0 },
     ]
 
-    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)
 
     expect(result.pieces).toHaveLength(2)
     expect(result.pieces[0]?.status).toBe('ACTIVE')
@@ -538,7 +415,7 @@ describe('getDataSetPieces', () => {
     // Provider only knows about piece 0
     state.providerPieces = [{ pieceId: 0n, pieceCid: cid0, subPieceCid: cid0, subPieceOffset: 0 }]
 
-    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)
 
     expect(result.pieces).toHaveLength(2)
     expect(result.pieces[0]?.status).toBe('ACTIVE')
@@ -557,7 +434,7 @@ describe('getDataSetPieces', () => {
       { pieceId: 1n, pieceCid: cid1, subPieceCid: cid1, subPieceOffset: 0 },
     ]
 
-    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)
 
     expect(result.pieces).toHaveLength(2)
     expect(result.pieces[0]?.status).toBe('ACTIVE')
@@ -571,10 +448,45 @@ describe('getDataSetPieces', () => {
     state.pieces = [{ pieceId: 0n, pieceCid: { toString: () => 'bafkpiece0' } }]
     state.providerPieces = null // triggers the mock to throw
 
-    const result = await getDataSetPieces(mockSynapse as any, mockStorageContext as any)
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)
 
     expect(result.pieces).toHaveLength(1)
     expect(result.pieces[0]?.status).toBe('ACTIVE')
     expect(result.warnings).toContainEqual(expect.objectContaining({ code: 'PROVIDER_PIECES_UNAVAILABLE' }))
+  })
+
+  it('paginates getActivePieces across multiple pages', async () => {
+    const pages: Record<string, Array<{ id: bigint; cid: { toString: () => string } }>> = {
+      '0': [{ id: 0n, cid: { toString: () => 'bafkpiece0' } }],
+      '100': [{ id: 1n, cid: { toString: () => 'bafkpiece1' } }],
+      '200': [{ id: 2n, cid: { toString: () => 'bafkpiece2' } }],
+    }
+    mockGetActivePieces.mockImplementation((async (_client: any, { offset }: any) => ({
+      pieces: pages[String(offset)] ?? [],
+      hasMore: offset < 200n,
+    })) as any)
+
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)
+
+    expect(mockGetActivePieces).toHaveBeenCalledTimes(3)
+    expect(mockGetActivePieces.mock.calls.map((c: any) => c[1].offset)).toEqual([0n, 100n, 200n])
+    expect((mockGetActivePieces.mock.calls[0] as any)?.[1].limit).toBe(100n)
+    expect(result.pieces.map((p) => p.pieceId)).toEqual([0n, 1n, 2n])
+  })
+
+  it('stops paginating when the abort signal fires', async () => {
+    const controller = new AbortController()
+    let calls = 0
+    mockGetActivePieces.mockImplementation((async () => {
+      calls++
+      if (calls === 2) controller.abort()
+      return { pieces: [], hasMore: true }
+    }) as any)
+
+    await expect(
+      getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL, { signal: controller.signal })
+    ).rejects.toThrow()
+    // The loop checks the signal before each page, so it stops after the aborting call
+    expect(calls).toBe(2)
   })
 })

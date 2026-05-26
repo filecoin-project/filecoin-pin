@@ -134,7 +134,7 @@ async function printSummary(synapse: Synapse, title = 'Updated'): Promise<void> 
  * @throws Error if adjustment fails or target is unsafe
  */
 export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustmentResult> {
-  const { synapse, fileSize, copies, providerIds, dataSetIds, metadata, spinner, maxBalance } = options
+  const { synapse, fileSize, copies, providerIds, dataSetIds, metadata, spinner, maxBalance, withCDN } = options
   const targetRunwayDays = options.minRunwayDays ?? MIN_RUNWAY_DAYS
 
   spinner?.message('Checking wallet readiness...')
@@ -152,6 +152,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     targetRunwayDays,
     pieceSizeBytes: fileSize,
     newDataSetCount,
+    withCDN: withCDN === true,
     ensureAllowances: true,
     allowWithdraw: false,
   })

@@ -214,6 +214,7 @@ describe('synapse-service', () => {
     })
 
     it('should call upload callbacks', async () => {
+      const progressEvents: number[] = []
       let storedCallbackCalled = false
       let piecesAddedCallbackCalled = false
 
@@ -222,6 +223,10 @@ describe('synapse-service', () => {
         contextId: 'pin-789',
         onProgress(event) {
           switch (event.type) {
+            case 'uploadProgress': {
+              progressEvents.push(event.data.bytesUploaded)
+              break
+            }
             case 'stored': {
               storedCallbackCalled = true
               break
@@ -234,8 +239,26 @@ describe('synapse-service', () => {
         },
       })
 
+      expect(progressEvents).toEqual([3])
       expect(storedCallbackCalled).toBe(true)
       expect(piecesAddedCallbackCalled).toBe(true)
+    })
+
+    it('should log byte-level upload progress events', async () => {
+      const debugSpy = vi.spyOn(logger, 'debug')
+      const data = new Uint8Array([1, 2, 3, 4])
+      const contextId = 'pin-progress'
+
+      await uploadToSynapse(mockSynapse as any, data, TEST_CID, logger, { contextId })
+
+      expect(debugSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'synapse.upload.progress',
+          contextId,
+          bytesUploaded: 4,
+        }),
+        'Upload progress update'
+      )
     })
 
     it('should throw immediately when signal is already aborted', async () => {

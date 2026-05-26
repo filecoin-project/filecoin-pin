@@ -1,6 +1,7 @@
 import type { CopyResult, FailedAttempt } from '@filoz/synapse-sdk'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 import type { CLIAutoFundOptions } from '../utils/cli-options.js'
+import type { EgressProvider } from '../utils/cli-options-egress.js'
 
 export interface AddOptions extends CLIAuthOptions, CLIAutoFundOptions {
   filePath: string
@@ -14,6 +15,8 @@ export interface AddOptions extends CLIAuthOptions, CLIAutoFundOptions {
   skipIpniVerification?: boolean
   /** Include hidden entries (dotfiles) when packing a directory */
   includeHidden?: boolean
+  /** Egress provider for piece retrieval ('beam' enables FilBeam CDN). Defaults to off when unset. */
+  egressProvider?: EgressProvider
 }
 
 export interface AddResult {

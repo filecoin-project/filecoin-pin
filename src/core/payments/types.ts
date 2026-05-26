@@ -107,6 +107,7 @@ export interface FilecoinPayFundingPlanOptions {
   pieceSizeBytes?: number | undefined
   pricePerTiBPerEpoch?: bigint | undefined
   newDataSetCount?: number | undefined
+  withCDN?: boolean | undefined
   mode?: FundingMode | undefined
   allowWithdraw?: boolean | undefined
 }

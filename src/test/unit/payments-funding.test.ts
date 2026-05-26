@@ -226,6 +226,65 @@ describe('planFilecoinPayFunding', () => {
     expect(withFeesPlan.delta - basePlan.delta).toBe(200_000_000_000_000_000n)
     expect(withFeesPlan.targetDeposit).toBe((basePlan.targetDeposit ?? 0n) + 200_000_000_000_000_000n)
   })
+
+  it('adds the fixed CDN lockup for new data sets when withCDN is set', () => {
+    const status = makeStatus({ filecoinPayBalance: 0n, wallet: 10_000_000_000_000_000_000n })
+
+    const noCdnPlan = calculateFilecoinPayFundingPlan({
+      status,
+      targetRunwayDays: 30,
+      pieceSizeBytes: 1024,
+      pricePerTiBPerEpoch: 1n,
+      newDataSetCount: 2,
+      withCDN: false,
+      mode: 'minimum',
+      allowWithdraw: false,
+    })
+
+    const cdnPlan = calculateFilecoinPayFundingPlan({
+      status,
+      targetRunwayDays: 30,
+      pieceSizeBytes: 1024,
+      pricePerTiBPerEpoch: 1n,
+      newDataSetCount: 2,
+      withCDN: true,
+      mode: 'minimum',
+      allowWithdraw: false,
+    })
+
+    // CDN_FIXED_LOCKUP.total (1 USDFC) per new data set, on top of the sybil fees.
+    const expectedCdnLockup = 2n * 1_000_000_000_000_000_000n
+    expect(cdnPlan.delta - noCdnPlan.delta).toBe(expectedCdnLockup)
+    expect(cdnPlan.targetDeposit).toBe((noCdnPlan.targetDeposit ?? 0n) + expectedCdnLockup)
+  })
+
+  it('does not add the CDN lockup when no new data sets are created', () => {
+    const status = makeStatus({ filecoinPayBalance: 0n, wallet: 10_000_000_000_000_000_000n })
+
+    const cdnPlan = calculateFilecoinPayFundingPlan({
+      status,
+      targetRunwayDays: 30,
+      pieceSizeBytes: 1024,
+      pricePerTiBPerEpoch: 1n,
+      newDataSetCount: 0,
+      withCDN: true,
+      mode: 'minimum',
+      allowWithdraw: false,
+    })
+
+    const noCdnPlan = calculateFilecoinPayFundingPlan({
+      status,
+      targetRunwayDays: 30,
+      pieceSizeBytes: 1024,
+      pricePerTiBPerEpoch: 1n,
+      newDataSetCount: 0,
+      withCDN: false,
+      mode: 'minimum',
+      allowWithdraw: false,
+    })
+
+    expect(cdnPlan.delta).toBe(noCdnPlan.delta)
+  })
 })
 
 describe('executeFilecoinPayFunding', () => {

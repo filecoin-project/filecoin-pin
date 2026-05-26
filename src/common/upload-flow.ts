@@ -110,7 +110,7 @@ export async function performAutoFunding(
   spinner?: Spinner,
   options: Pick<
     AutoFundOptions,
-    'minRunwayDays' | 'maxBalance' | 'copies' | 'providerIds' | 'dataSetIds' | 'metadata'
+    'minRunwayDays' | 'maxBalance' | 'copies' | 'providerIds' | 'dataSetIds' | 'metadata' | 'withCDN'
   > = {}
 ): Promise<void> {
   spinner?.start('Checking funding requirements for upload...')
@@ -123,6 +123,7 @@ export async function performAutoFunding(
       ...(options?.providerIds != null ? { providerIds: options.providerIds } : {}),
       ...(options?.dataSetIds != null ? { dataSetIds: options.dataSetIds } : {}),
       ...(options?.metadata != null ? { metadata: options.metadata } : {}),
+      ...(options?.withCDN != null ? { withCDN: options.withCDN } : {}),
     }
     if (spinner !== undefined) {
       fundOptions.spinner = spinner
@@ -332,7 +333,7 @@ export async function performUpload(
   rootCid: CID,
   options: UploadFlowOptions
 ): Promise<UploadFlowResult> {
-  const { contextType, logger, spinner, pieceMetadata } = options
+  const { contextType, fileSize, logger, spinner, pieceMetadata } = options
 
   const flow = createSpinnerFlow(spinner)
 
@@ -341,12 +342,23 @@ export async function performUpload(
 
   // Track primary provider ID from `stored` to label subsequent events
   let primaryProviderId: bigint | undefined
+  let lastUploadPercent = -1
 
   function getRole(providerId: bigint): CopyRole {
     if (primaryProviderId == null || providerId === primaryProviderId) {
       return 'primary'
     }
     return 'secondary'
+  }
+
+  function getUploadProgressMessage(bytesUploaded: number): { percent: number; message: string } {
+    const totalBytes = Math.max(fileSize, 1)
+    const uploadedBytes = Math.min(bytesUploaded, totalBytes)
+    const percent = Math.min(100, Math.floor((uploadedBytes / totalBytes) * 100))
+    return {
+      percent,
+      message: `Uploading to Filecoin... ${formatFileSize(uploadedBytes)}/${formatFileSize(fileSize)} (${percent}%)`,
+    }
   }
 
   function getIpniAdvertisementMsg(details: {
@@ -377,6 +389,14 @@ export async function performUpload(
     ...(options.skipIpniVerification && { ipniValidation: { enabled: false } }),
     onProgress(event) {
       switch (event.type) {
+        case 'uploadProgress': {
+          const { percent, message } = getUploadProgressMessage(event.data.bytesUploaded)
+          if (percent > lastUploadPercent) {
+            lastUploadPercent = percent
+            flow.updateOperation('upload', message)
+          }
+          break
+        }
         case 'stored': {
           primaryProviderId = event.data.providerId
           flow.completeOperation('upload', `${roleLabel('primary')} Stored on provider ${event.data.providerId}`, {
@@ -465,9 +485,8 @@ export async function performUpload(
             details: {
               title: 'IPFS Retrieval URLs',
               content: [
-                pc.gray(`ipfs://${rootCid}`),
-                pc.gray(`https://inbrowser.link/ipfs/${rootCid}`),
-                pc.gray(`https://dweb.link/ipfs/${rootCid}`),
+                pc.gray(`Browser URL: https://inbrowser.link/ipfs/${rootCid}`),
+                pc.gray(`Raw asset URL: https://dweb.link/ipfs/${rootCid}`),
               ],
             },
           })
@@ -498,7 +517,9 @@ export async function performUpload(
  *
  * @param result - Result data to display
  * @param operation - Operation name ('Import' or 'Add')
- * @param network - Network name
+ * @param networkDisplay - Human-readable network name
+ * @param networkSlug - Network slug used to build explorer URLs
+ * @param egress - Optional egress info; when `filbeamUrl` is set, a FilBeam block is rendered
  */
 export function displayUploadResults(
   result: {
@@ -512,7 +533,8 @@ export function displayUploadResults(
   },
   operation: string,
   networkDisplay: string,
-  networkSlug: string
+  networkSlug: string,
+  egress?: { filbeamUrl?: string }
 ): void {
   log.line(`Network: ${pc.bold(networkDisplay)}`)
   log.line('')
@@ -556,6 +578,14 @@ export function displayUploadResults(
       const label = attempt.role === 'primary' ? pc.cyan('[Primary]') : pc.magenta('[Secondary]')
       log.indent(`${pc.yellow('⚠')} ${label} Provider ${attempt.providerId} failed: ${attempt.error}`)
     }
+  }
+
+  if (egress?.filbeamUrl != null) {
+    log.line('')
+    log.line(pc.bold('FilBeam Egress (CDN)'))
+    log.indent(`URL: ${pc.gray(egress.filbeamUrl)}`)
+    log.indent('Note: serves CAR/piece data, not the original file.')
+    log.indent('Disable on next upload: --egress-provider none')
   }
 
   log.flush()

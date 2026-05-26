@@ -43,6 +43,32 @@ describe('addNetworkOptions', () => {
     expect(() => command.parse([], { from: 'user' })).toThrow(/cannot be used with/)
     delete process.env.RPC_URL
   })
+
+  it('accepts --network calibnet and normalizes to calibration', () => {
+    const command = addNetworkOptions(new Command()).exitOverride()
+    command.parse(['--network', 'calibnet'], { from: 'user' })
+    expect(command.opts().network).toBe('calibration')
+  })
+
+  it('accepts NETWORK=calibnet env var and normalizes to calibration', () => {
+    process.env.NETWORK = 'calibnet'
+    try {
+      const command = addNetworkOptions(new Command()).exitOverride()
+      command.parse([], { from: 'user' })
+      expect(command.opts().network).toBe('calibration')
+    } finally {
+      delete process.env.NETWORK
+    }
+  })
+
+  it('does not advertise the calibnet alias in --help output', () => {
+    const command = addNetworkOptions(new Command()).exitOverride()
+    const help = command.helpInformation()
+    expect(help).toContain('mainnet')
+    expect(help).toContain('calibration')
+    expect(help).toContain('devnet')
+    expect(help).not.toContain('calibnet')
+  })
 })
 
 describe('validateAndNormalizeAutoFundOptions', () => {

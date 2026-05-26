@@ -6,6 +6,7 @@ import {
   addContextSelectionOptions,
   addUploadOptions,
 } from '../utils/cli-options.js'
+import { addEgressOptions } from '../utils/cli-options-egress.js'
 import { addMetadataOptions } from '../utils/cli-options-metadata.js'
 
 export const addCommand = new Command('add')
@@ -32,4 +33,5 @@ addAuthOptions(addCommand)
 addContextSelectionOptions(addCommand)
 addUploadOptions(addCommand)
 addAutoFundOptions(addCommand)
+addEgressOptions(addCommand)
 addMetadataOptions(addCommand, { includePieceMetadata: true, includeDataSetMetadata: true, includeErc8004: true })

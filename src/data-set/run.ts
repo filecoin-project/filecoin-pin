@@ -100,7 +100,6 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
     spinner.message('Fetching data sets...')
 
     const allDataSets = await listDataSets(synapse, {
-      withProviderDetails: false,
       filter,
     })
     const explicitFilter = filter != null

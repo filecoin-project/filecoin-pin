@@ -12,9 +12,9 @@ import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
-import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
+import { describeLockupShortfall } from '../common/lockup-error.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
@@ -25,6 +25,7 @@ import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
+import { buildFilbeamUrl, chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
 import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 import type { ImportOptions, ImportResult } from './types.js'
 
@@ -146,14 +147,18 @@ export async function runCarImportFromCli(file: string, options: Record<string, 
       autoFund: _autoFund,
       minRunwayDays: _minRunwayDays,
       maxBalance: _maxBalance,
+      egressProvider: rawEgressProvider,
       ...importOptionsFromCli
     } = options
+
+    const egressProvider = rawEgressProvider ?? 'beam'
 
     const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
     importOptions = {
       ...importOptionsFromCli,
       ...autoFundOptions,
       filePath: file,
+      egressProvider,
       ...(pieceMetadata && { pieceMetadata }),
       ...(dataSetMetadata && { dataSetMetadata }),
     }
@@ -187,15 +192,8 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     level: process.env.LOG_LEVEL || 'silent',
   })
 
-  // Check CDN status and warn if enabled
-  const withCDN = process.env.WITH_CDN === 'true'
-  if (withCDN) {
-    const proceed = await warnAboutCDNPricingLimitations()
-    if (!proceed) {
-      cancel('Import cancelled')
-      throw new Error('CDN pricing limitations warning cancelled')
-    }
-  }
+  // Map the public egress provider to the SDK's withCDN boolean (internal only).
+  const withCDN = options.egressProvider === 'beam'
 
   try {
     // Validate file exists and is readable
@@ -247,6 +245,10 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
+    if (withCDN && chainSupportsFilbeam(synapse)) {
+      printEgressNotice('beam')
+    }
+
     // Resolve partial --data-set-metadata locally; SDK metadata matching requires exact equality.
     let effectiveDataSetMetadata = dataSetMetadata
     if (dataSetMetadata != null && contextSelection.dataSetIds == null && contextSelection.providerIds == null) {
@@ -280,6 +282,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     if (options.autoFund) {
       const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {
+        withCDN,
         ...(dataSetMetadata && { metadata: dataSetMetadata }),
         ...(options.copies != null && { copies: options.copies }),
       }
@@ -348,7 +351,10 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       failedAttempts: uploadResult.failedAttempts,
     }
 
-    displayUploadResults(result, 'Import', network, networkSlug)
+    const filbeamUrl = buildFilbeamUrl(synapse, uploadResult.pieceCid, withCDN)
+    const egress = filbeamUrl != null ? { filbeamUrl } : undefined
+
+    displayUploadResults(result, 'Import', network, networkSlug, egress)
 
     if (uploadResult.copies.length < requestedCopies) {
       log.line('')
@@ -377,7 +383,17 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       throw error
     }
     const msg = error instanceof Error ? error.message : 'Unknown error'
-    spinner.stop(`${pc.red('✗')} Import failed: ${msg}`)
+    const lockup = describeLockupShortfall(error)
+    if (lockup != null) {
+      spinner.stop(`${pc.red('✗')} Import failed: ${lockup.headline}`)
+      log.line('')
+      for (const hint of lockup.hints) {
+        log.line(`  ${pc.cyan(hint)}`)
+      }
+      log.flush()
+    } else {
+      spinner.stop(`${pc.red('✗')} Import failed: ${msg}`)
+    }
     logger.error({ event: 'import.failed', error }, 'Import failed')
 
     cancel('Import failed')

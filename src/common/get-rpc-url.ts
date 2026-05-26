@@ -11,6 +11,19 @@ const NETWORK_CHAINS = {
   mainnet,
   calibration,
 } as const
+
+// Aliases accepted on input and rewritten to a canonical network name.
+// Not surfaced in --help; the canonical names remain the documented choices.
+const NETWORK_ALIASES: Record<string, string> = {
+  calibnet: 'calibration',
+}
+
+/** Lowercase, trim, and apply NETWORK_ALIASES. Undefined for empty input. */
+export function normalizeNetworkName(input: string | undefined): string | undefined {
+  const trimmed = input?.toLowerCase().trim()
+  if (!trimmed) return undefined
+  return NETWORK_ALIASES[trimmed] ?? trimmed
+}
 function getDefaultDevnetInfoPath(): string {
   const baseDir = process.env.FOC_DEVNET_BASEDIR?.trim() || join(homedir(), '.foc-devnet')
   return join(baseDir, 'state', 'latest', 'devnet-info.json')
@@ -85,7 +98,7 @@ export function getRpcUrl(options: CLIAuthOptions): string {
     return options.rpcUrl
   }
 
-  const network = options.network?.toLowerCase().trim()
+  const network = normalizeNetworkName(options.network)
   if (network) {
     if (network === 'devnet') {
       const devnet = resolveDevnetConfig()
