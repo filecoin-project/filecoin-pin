@@ -44,19 +44,17 @@ interface MetricPoint {
   tags: Record<string, string>
 }
 
-let started = false
 let disabled = false
 let endpoint = DEFAULT_METRICS_ENDPOINT
 let token = DEFAULT_METRICS_TOKEN
 let affordance: Affordance = DEFAULT_AFFORDANCE
-let runtimeOverrides: RuntimeOverrides = {}
 const inFlight = new Set<Promise<void>>()
 
 /**
- * Configure telemetry at runtime. Must be called before the first
- * `executeUpload`; calling it after telemetry has initialized has no effect
- * on the active session. CLI hosts that want env-var support should read
- * their environment themselves and forward the values here.
+ * Configure telemetry at runtime. CLI hosts that want env-var support should
+ * read their environment themselves and forward the values here. Only the
+ * fields present in `overrides` are updated; the rest retain their current
+ * value.
  *
  * Throws if `overrides.affordance` is set to a value outside {@link AFFORDANCES}
  * (callers may not be in TypeScript, so we validate at runtime too).
@@ -67,21 +65,10 @@ export function configureTelemetry(overrides: RuntimeOverrides): void {
       `Invalid telemetry affordance ${JSON.stringify(overrides.affordance)}; expected one of ${AFFORDANCES.join(', ')}`
     )
   }
-  runtimeOverrides = { ...runtimeOverrides, ...overrides }
-}
-
-function start(): boolean {
-  if (started) return !disabled
-  if (runtimeOverrides.disabled === true) {
-    started = true
-    disabled = true
-    return false
-  }
-  endpoint = runtimeOverrides.endpoint ?? DEFAULT_METRICS_ENDPOINT
-  token = runtimeOverrides.token ?? DEFAULT_METRICS_TOKEN
-  affordance = runtimeOverrides.affordance ?? DEFAULT_AFFORDANCE
-  started = true
-  return true
+  if (overrides.disabled != null) disabled = overrides.disabled
+  if (overrides.endpoint != null) endpoint = overrides.endpoint
+  if (overrides.token != null) token = overrides.token
+  if (overrides.affordance != null) affordance = overrides.affordance
 }
 
 /**
@@ -127,7 +114,7 @@ async function post(points: MetricPoint[]): Promise<void> {
  * @param network - URL-safe network slug (e.g. `mainnet`, `calibration`).
  */
 export function recordUploadResult(result: Pick<UploadResult, 'copies' | 'failedAttempts'>, network: string): void {
-  if (!start()) return
+  if (disabled) return
 
   const points: MetricPoint[] = []
   for (const copy of result.copies) {
@@ -176,5 +163,4 @@ export async function flushTelemetry(): Promise<void> {
 export async function shutdownTelemetry(): Promise<void> {
   await flushTelemetry()
   disabled = true
-  started = true
 }
