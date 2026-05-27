@@ -5,10 +5,14 @@ import { checkForUpdate } from 'filecoin-pin/version-check'
 import { runBuild } from './build.js'
 import { getErrorMessage, handleError } from './errors.js'
 import { completeCheck, createCheck } from './github.js'
+import { getInput, parseBoolean } from './inputs.js'
 import { getOutputSummary } from './outputs.js'
 import { runUpload } from './upload.js'
 
-configureTelemetry({ affordance: 'GitHub Action' })
+configureTelemetry({
+  affordance: 'GitHub Action',
+  disabled: parseBoolean(getInput('disableTelemetry', 'false')),
+})
 
 async function maybeNotifyAboutUpdates() {
   try {

@@ -52,6 +52,12 @@ inputs:
     description: "If true, run in dry-run mode - build CAR file and validate inputs but skip actual upload to Filecoin. Useful for testing and validation."
     required: false
     default: "false"
+  disableTelemetry:
+    description: >-
+      If true, suppress the anonymous upload-outcome telemetry filecoin-pin would otherwise send to BetterStack.
+      See the CLI Telemetry section of the filecoin-pin README for what is collected.
+    required: false
+    default: "false"
 
 
 outputs:

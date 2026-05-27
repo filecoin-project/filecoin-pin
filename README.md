@@ -112,7 +112,7 @@ The affordances were [discussed more above](#affordances).  All affordances use 
 ## CLI Telemetry
 
 Filecoin Pin's CLI collects telemetry.  A few things:
-* Telemetry always [has a way to be disabled](#how-to-disable-cli-telemetry).
+* Telemetry always [has a way to be disabled](#how-to-disable-telemetry).
 * We don't collect Personal identifiable information (PII).
 * With our [end user affordance](#affordances) we expect to make telemetry on by default, requiring a consumer/user to opt out.  We are defaulting as "enabled" to help make sure we have a good pulse on the user experience and can address issues correctly.
 * In this [pre-v1 season](https://github.com/filecoin-project/filecoin-pin/issues/187), we are particularly focused on helping maintainers validate functionality and iron out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on.
@@ -140,9 +140,11 @@ What we collect:
 
   The CLI's env-var support is built on top of this API (see `src/read-telemetry-config-from-env.ts`); other Node hosts can follow the same pattern.
 
-### How to disable CLI telemetry
+### How to disable telemetry
 
-Set the environment variable `FILECOIN_PIN_TELEMETRY_DISABLED=true` (or the cross-tool standard `DO_NOT_TRACK=1`). These env vars are CLI-only — library consumers should pass `{ disabled: true }` to `configureTelemetry()` instead.
+- **CLI / pinning server:** set `FILECOIN_PIN_TELEMETRY_DISABLED=true` (or the cross-tool standard `DO_NOT_TRACK=1`).
+- **GitHub Action:** pass `disableTelemetry: true` to the action (see [`upload-action/action.yml`](upload-action/action.yml)).
+- **Library consumers:** pass `{ disabled: true }` to `configureTelemetry()`.
 
 ## Quick Start
 
