@@ -62,8 +62,9 @@ async function freshTelemetry() {
 
 describe('telemetry', () => {
   afterEach(async () => {
-    const { shutdownTelemetry } = await import('../../core/telemetry/index.js')
-    await shutdownTelemetry()
+    const { flushTelemetry, configureTelemetry } = await import('../../core/telemetry/index.js')
+    await flushTelemetry()
+    configureTelemetry({ disabled: true })
   })
 
   it('posts one uploadCopyStatus point per copy and per failed attempt in a single request', async () => {
@@ -244,8 +245,8 @@ describe('telemetry', () => {
     expect((call.init.headers as Record<string, string>).Authorization).toBe('Bearer override-token')
   })
 
-  it('shutdownTelemetry awaits in-flight requests and disables subsequent calls', async () => {
-    const { recordUploadResult, shutdownTelemetry } = await freshTelemetry()
+  it('flushTelemetry awaits in-flight requests; configureTelemetry({disabled:true}) silences subsequent calls', async () => {
+    const { recordUploadResult, flushTelemetry, configureTelemetry } = await freshTelemetry()
 
     let resolveFetch: (() => void) | undefined
     fetchMock.mockImplementationOnce(async (url: string, init: RequestInit) => {
@@ -258,20 +259,21 @@ describe('telemetry', () => {
 
     recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'mainnet')
 
-    const shutdown = shutdownTelemetry()
-    // Shutdown should not resolve until the in-flight fetch completes.
+    const flush = flushTelemetry()
+    // Flush should not resolve until the in-flight fetch completes.
     let settled = false
-    void shutdown.then(() => {
+    void flush.then(() => {
       settled = true
     })
     await new Promise((r) => setImmediate(r))
     expect(settled).toBe(false)
 
     resolveFetch?.()
-    await shutdown
+    await flush
     expect(settled).toBe(true)
 
-    // Subsequent calls are no-ops.
+    // Subsequent calls become no-ops once telemetry is disabled.
+    configureTelemetry({ disabled: true })
     recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'mainnet')
     expect(fetchCalls).toHaveLength(1)
   })

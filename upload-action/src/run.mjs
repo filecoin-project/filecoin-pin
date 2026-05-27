@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import { configureTelemetry, shutdownTelemetry } from 'filecoin-pin/core/telemetry'
+import { configureTelemetry, flushTelemetry } from 'filecoin-pin/core/telemetry'
 import { checkForUpdate } from 'filecoin-pin/version-check'
 
 import { runBuild } from './build.js'
@@ -70,9 +70,10 @@ main()
     // Real uploads can leave SDK/network handles open after all action work is done.
     // Exit explicitly so GitHub Actions can run post-action cleanup steps.
     try {
-      await shutdownTelemetry()
+      await flushTelemetry()
+      configureTelemetry({ disabled: true })
     } catch (err) {
-      core.warning(`Telemetry shutdown failed: ${getErrorMessage(err)}`)
+      core.warning(`Telemetry flush failed: ${getErrorMessage(err)}`)
     } finally {
       process.exit(0)
     }
@@ -87,9 +88,10 @@ main()
 
     handleError(err)
     try {
-      await shutdownTelemetry()
+      await flushTelemetry()
+      configureTelemetry({ disabled: true })
     } catch (telemetryErr) {
-      core.warning(`Telemetry shutdown failed: ${getErrorMessage(telemetryErr)}`)
+      core.warning(`Telemetry flush failed: ${getErrorMessage(telemetryErr)}`)
     } finally {
       process.exit(1)
     }

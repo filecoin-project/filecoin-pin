@@ -10,8 +10,8 @@
  * (https://betterstack.com/docs/logs/ingesting-data/http/metrics/). Each call
  * to {@link recordUploadResult} fires its own HTTP POST — there is no
  * in-memory buffer or periodic flush. Use {@link flushTelemetry} to await
- * pending requests, or {@link shutdownTelemetry} to do that and turn
- * subsequent record calls into no-ops.
+ * pending requests before exit. To turn subsequent record calls into no-ops,
+ * call `configureTelemetry({ disabled: true })`.
  *
  * Works in both Node and the browser. The library never reads its own
  * environment — callers are expected to apply any host-specific configuration
@@ -158,13 +158,4 @@ export function recordUploadResult(result: Pick<UploadResult, 'copies' | 'failed
 export async function flushTelemetry(): Promise<void> {
   if (inFlight.size === 0) return
   await Promise.all(inFlight)
-}
-
-/**
- * Await pending submissions and turn subsequent record calls into no-ops.
- * Intended for tests and long-lived hosts that need clean teardown.
- */
-export async function shutdownTelemetry(): Promise<void> {
-  await flushTelemetry()
-  config.disabled = true
 }

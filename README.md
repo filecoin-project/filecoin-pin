@@ -126,7 +126,7 @@ What we collect:
 
   The BetterStack source token is shipped in source, so the data source is treated as public and untrusted. The CLI lets you send your own copy with `FILECOIN_PIN_METRICS_ENDPOINT` and `FILECOIN_PIN_METRICS_TOKEN`.
 
-  **Delivery model.** Each `executeUpload` fires its own HTTP POST containing one counter point per copy and per failed attempt — there is no in-memory buffer or periodic flush. The CLI, pinning server, and GitHub Action `await shutdownTelemetry()` before exit so any in-flight request finishes. **Long-running consumers that terminate via `process.exit()`, `SIGINT`, or `SIGTERM` should do the same** (`shutdownTelemetry` is exported from `filecoin-pin/core/telemetry`).
+  **Delivery model.** Each `executeUpload` fires its own HTTP POST containing one counter point per copy and per failed attempt — there is no in-memory buffer or periodic flush. The CLI, pinning server, and GitHub Action `await flushTelemetry()` before exit so any in-flight request finishes. **Long-running consumers that terminate via `process.exit()`, `SIGINT`, or `SIGTERM` should do the same** (`flushTelemetry` is exported from `filecoin-pin/core/telemetry`); pair it with `configureTelemetry({ disabled: true })` if you also want subsequent `recordUploadResult` calls to be no-ops.
 
   **Library usage (Node and browser).** The telemetry library never reads `process.env`. Configure it programmatically before the first `executeUpload` — the same API works in both runtimes:
 

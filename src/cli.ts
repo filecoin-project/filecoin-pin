@@ -6,7 +6,7 @@ import pc from 'picocolors'
 import { ALL_CLI_COMMANDS } from './commands/index.js'
 import { checkForUpdate, type UpdateCheckStatus } from './common/version-check.js'
 import { configureTelemetryFromEnv } from './configure-telemetry-from-env.js'
-import { configureTelemetry, shutdownTelemetry } from './core/telemetry/index.js'
+import { configureTelemetry, flushTelemetry } from './core/telemetry/index.js'
 import { version as packageVersion } from './core/utils/version.js'
 
 // Map CLI env vars onto the telemetry library before any subcommand runs.
@@ -76,10 +76,11 @@ program.hook('postAction', async (_thisCommand, actionCommand) => {
   // lifecycle via SIGINT/SIGTERM, so only force-exit for CLI commands.
   if (actionCommand.name() !== 'server') {
     try {
-      await shutdownTelemetry()
+      await flushTelemetry()
+      configureTelemetry({ disabled: true })
     } catch (err) {
       // Never let a telemetry flush failure block the forced exit below.
-      console.error('Telemetry shutdown failed:', err)
+      console.error('Telemetry flush failed:', err)
     } finally {
       process.exit(process.exitCode ?? 0)
     }
