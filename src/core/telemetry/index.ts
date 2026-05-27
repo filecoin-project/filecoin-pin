@@ -31,10 +31,21 @@ import {
   TELEMETRY_SERVICE_NAME,
 } from './constants.js'
 
+/**
+ * Which surface the metric was emitted from. Every metric carries this as a
+ * tag so we can slice success/failure rates per UI. Defaults to `'Library'`
+ * when {@link configureTelemetry} is not called with an explicit value.
+ */
+export const AFFORDANCES = ['CLI', 'GitHub Action', 'Library', 'Filecoin Pin Website'] as const
+export type Affordance = (typeof AFFORDANCES)[number]
+
+const DEFAULT_AFFORDANCE: Affordance = 'Library'
+
 interface RuntimeOverrides {
   disabled?: boolean
   endpoint?: string
   token?: string
+  affordance?: Affordance
 }
 
 interface MetricPoint {
@@ -46,6 +57,7 @@ let started = false
 let disabled = false
 let endpoint = DEFAULT_METRICS_ENDPOINT
 let token = DEFAULT_METRICS_TOKEN
+let affordance: Affordance = DEFAULT_AFFORDANCE
 let runtimeOverrides: RuntimeOverrides = {}
 const inFlight = new Set<Promise<void>>()
 
@@ -54,8 +66,16 @@ const inFlight = new Set<Promise<void>>()
  * `executeUpload`; calling it after telemetry has initialized has no effect
  * on the active session. CLI hosts that want env-var support should read
  * their environment themselves and forward the values here.
+ *
+ * Throws if `overrides.affordance` is set to a value outside {@link AFFORDANCES}
+ * (callers may not be in TypeScript, so we validate at runtime too).
  */
 export function configureTelemetry(overrides: RuntimeOverrides): void {
+  if (overrides.affordance != null && !(AFFORDANCES as readonly string[]).includes(overrides.affordance)) {
+    throw new TypeError(
+      `Invalid telemetry affordance ${JSON.stringify(overrides.affordance)}; expected one of ${AFFORDANCES.join(', ')}`
+    )
+  }
   runtimeOverrides = { ...runtimeOverrides, ...overrides }
 }
 
@@ -68,6 +88,7 @@ function start(): boolean {
   }
   endpoint = runtimeOverrides.endpoint ?? DEFAULT_METRICS_ENDPOINT
   token = runtimeOverrides.token ?? DEFAULT_METRICS_TOKEN
+  affordance = runtimeOverrides.affordance ?? DEFAULT_AFFORDANCE
   started = true
   return true
 }
@@ -90,7 +111,7 @@ async function post(points: MetricPoint[]): Promise<void> {
     name: p.name,
     counter: { value: 1 },
     dt,
-    tags: { 'service.name': TELEMETRY_SERVICE_NAME, ...p.tags },
+    tags: { 'service.name': TELEMETRY_SERVICE_NAME, affordance, ...p.tags },
   }))
   try {
     await fetch(endpoint, {

@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import { shutdownTelemetry } from 'filecoin-pin/core/telemetry'
+import { configureTelemetry, shutdownTelemetry } from 'filecoin-pin/core/telemetry'
 import { checkForUpdate } from 'filecoin-pin/version-check'
 
 import { runBuild } from './build.js'
@@ -7,6 +7,8 @@ import { getErrorMessage, handleError } from './errors.js'
 import { completeCheck, createCheck } from './github.js'
 import { getOutputSummary } from './outputs.js'
 import { runUpload } from './upload.js'
+
+configureTelemetry({ affordance: 'GitHub Action' })
 
 async function maybeNotifyAboutUpdates() {
   try {

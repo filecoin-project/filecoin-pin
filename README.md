@@ -119,9 +119,9 @@ Filecoin Pin's CLI collects telemetry.  A few things:
 
 What we collect:
 * **Error reports** via Sentry (no PII).
-* **Per-upload copy outcomes** posted directly to [BetterStack's HTTP metrics ingestion endpoint](https://betterstack.com/docs/logs/ingesting-data/http/metrics/), so we can measure the success rate of multi-copy uploads and identify which storage providers (or pipeline steps) are failing. Two counters are emitted:
-  * `upload.copies.success` — incremented per successful copy. Tags: `upload.spId` (storage provider ID), `upload.role` (`primary`/`secondary`), `network`.
-  * `upload.copies.failure` — incremented per failed copy attempt. Tags: `upload.spId`, `upload.role`, `upload.step` (`pull`/`commit`/`unknown`), `network`.
+* **Per-upload copy outcomes** posted directly to [BetterStack's HTTP metrics ingestion endpoint](https://betterstack.com/docs/logs/ingesting-data/http/metrics/), so we can measure the success rate of multi-copy uploads and identify which storage providers (or pipeline steps) are failing. Every metric also carries an `affordance` tag identifying the surface it was emitted from (`CLI`, `GitHub Action`, `Library`, `Filecoin Pin Website`). Two counters are emitted:
+  * `upload.copies.success` — incremented per successful copy. Tags: `upload.spId` (storage provider ID), `upload.role` (`primary`/`secondary`), `network`, `affordance`.
+  * `upload.copies.failure` — incremented per failed copy attempt. Tags: `upload.spId`, `upload.role`, `upload.step` (`pull`/`commit`/`unknown`), `network`, `affordance`.
 
   The BetterStack source token is shipped in source, so the data source is treated as public and untrusted. The CLI lets you send your own copy with `FILECOIN_PIN_METRICS_ENDPOINT` and `FILECOIN_PIN_METRICS_TOKEN`.
 
@@ -132,8 +132,9 @@ What we collect:
   ```ts
   import { configureTelemetry } from 'filecoin-pin/core/telemetry'
 
-  configureTelemetry({ disabled: true })                      // opt out
-  configureTelemetry({ endpoint: '…', token: '…' })           // send elsewhere
+  configureTelemetry({ disabled: true })                       // opt out
+  configureTelemetry({ endpoint: '…', token: '…' })            // send elsewhere
+  configureTelemetry({ affordance: 'Filecoin Pin Website' })   // tag the surface (default 'Library')
   ```
 
   The CLI's env-var support is built on top of this API (see `src/configure-telemetry-from-env.ts`); other Node hosts can follow the same pattern.

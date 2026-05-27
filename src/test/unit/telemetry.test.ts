@@ -125,8 +125,43 @@ describe('telemetry', () => {
     )
     for (const point of points) {
       expect(point.tags['service.name']).toBe('filecoin-pin')
+      expect(point.tags.affordance).toBe('Library')
       expect(typeof point.dt).toBe('string')
     }
+  })
+
+  it('stamps the configured affordance on every point', async () => {
+    const { configureTelemetry, recordUploadResult, flushTelemetry } = await freshTelemetry()
+    configureTelemetry({ affordance: 'CLI' })
+
+    recordUploadResult(
+      {
+        copies: [makeCopy({})],
+        failedAttempts: [makeAttempt({})],
+      },
+      'mainnet'
+    )
+    await flushTelemetry()
+
+    const points = parseBody(firstCall())
+    for (const point of points) {
+      expect(point.tags.affordance).toBe('CLI')
+    }
+  })
+
+  it.each([
+    'CLI',
+    'GitHub Action',
+    'Library',
+    'Filecoin Pin Website',
+  ] as const)('accepts %s as a valid affordance', async (affordance) => {
+    const { configureTelemetry } = await freshTelemetry()
+    expect(() => configureTelemetry({ affordance })).not.toThrow()
+  })
+
+  it('throws when configureTelemetry is given an invalid affordance', async () => {
+    const { configureTelemetry } = await freshTelemetry()
+    expect(() => configureTelemetry({ affordance: 'webapp' as never })).toThrow(/Invalid telemetry affordance/)
   })
 
   it('fires one request per recordUploadResult call', async () => {
