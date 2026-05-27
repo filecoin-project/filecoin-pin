@@ -1,9 +1,11 @@
+import { CDN_FIXED_LOCKUP, USDFC_SYBIL_FEE } from '@filoz/synapse-core/utils'
 import { calibration, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as paymentsIndex from '../../core/payments/index.js'
 import {
   type AccountSummary,
   calculateFilecoinPayFundingPlan,
+  computeAutoSetupTargetBalance,
   executeFilecoinPayFunding,
   type FilecoinPayFundingPlan,
   getFilecoinPayFundingInsights,
@@ -560,5 +562,101 @@ describe('autoFund (modifiers)', () => {
     expect(result.adjusted).toBe(false)
     expect(result.delta).toBe(0n)
     expect(result.warnings?.[0]).toContain('already equals or exceeds')
+  })
+})
+
+describe('computeAutoSetupTargetBalance', () => {
+  const ONE_USDFC = 10n ** 18n
+  const minimumPricePerMonth = 60_000_000_000_000_000n // 0.06 USDFC
+  const copies = 2
+  const requiredAvailableFunds =
+    BigInt(copies) * (CDN_FIXED_LOCKUP.total + USDFC_SYBIL_FEE + minimumPricePerMonth) + ONE_USDFC
+
+  it('targets the full requirement on a fresh account', () => {
+    const result = computeAutoSetupTargetBalance({
+      filecoinPayBalance: 0n,
+      availableFunds: 0n,
+      copies,
+      minimumPricePerMonth,
+    })
+    expect(result.requiredAvailableFunds).toBe(requiredAvailableFunds)
+    expect(result.targetBalance).toBe(requiredAvailableFunds)
+  })
+
+  it('tops up above existing lockup so the requirement lands as available funds', () => {
+    // 5 USDFC deposited, 4.5 locked by active rails, so only 0.5 is available.
+    const filecoinPayBalance = 5n * ONE_USDFC
+    const availableFunds = ONE_USDFC / 2n
+    const result = computeAutoSetupTargetBalance({
+      filecoinPayBalance,
+      availableFunds,
+      copies,
+      minimumPricePerMonth,
+    })
+    // Deposit only the shortfall between the requirement and current available funds.
+    expect(result.targetBalance).toBe(filecoinPayBalance + (requiredAvailableFunds - availableFunds))
+    // After topping up to the target, available funds equal the requirement.
+    expect(result.targetBalance - (filecoinPayBalance - availableFunds)).toBe(requiredAvailableFunds)
+  })
+
+  it('requires no top-up when available funds already cover the requirement', () => {
+    const filecoinPayBalance = 10n * ONE_USDFC
+    const result = computeAutoSetupTargetBalance({
+      filecoinPayBalance,
+      availableFunds: requiredAvailableFunds + ONE_USDFC,
+      copies,
+      minimumPricePerMonth,
+    })
+    expect(result.targetBalance).toBe(filecoinPayBalance)
+  })
+
+  it('matches the expected concrete amount for 2 copies at 0.06 USDFC/month', () => {
+    // Per data set: 1 USDFC CDN lockup + 0.1 USDFC sybil fee + 0.06 USDFC monthly = 1.16 USDFC.
+    // Two copies (2.32 USDFC) plus 1 USDFC runway = 3.32 USDFC.
+    const result = computeAutoSetupTargetBalance({
+      filecoinPayBalance: 0n,
+      availableFunds: 0n,
+      copies,
+      minimumPricePerMonth,
+    })
+    expect(result.requiredAvailableFunds).toBe(3_320_000_000_000_000_000n)
+  })
+
+  it('rejects non-integer and negative copies', () => {
+    expect(() =>
+      computeAutoSetupTargetBalance({ filecoinPayBalance: 0n, availableFunds: 0n, copies: 1.5, minimumPricePerMonth })
+    ).toThrow('copies must be a non-negative integer')
+    expect(() =>
+      computeAutoSetupTargetBalance({ filecoinPayBalance: 0n, availableFunds: 0n, copies: -1, minimumPricePerMonth })
+    ).toThrow('copies must be a non-negative integer')
+  })
+
+  it('converges: a second run after depositing requires no further top-up', () => {
+    // Run 1: account holds 4 USDFC, all locked by active rails, so 0 available.
+    const run1Balance = 4n * ONE_USDFC
+    const run1Available = 0n
+    const run1 = computeAutoSetupTargetBalance({
+      filecoinPayBalance: run1Balance,
+      availableFunds: run1Available,
+      copies,
+      minimumPricePerMonth,
+    })
+    const deposited = run1.targetBalance - run1Balance
+    expect(deposited).toBeGreaterThan(0n)
+
+    // Depositing raises both the gross balance and available funds by the
+    // deposit, since newly deposited funds are not locked.
+    const run2Balance = run1Balance + deposited
+    const run2Available = run1Available + deposited
+    const run2 = computeAutoSetupTargetBalance({
+      filecoinPayBalance: run2Balance,
+      availableFunds: run2Available,
+      copies,
+      minimumPricePerMonth,
+    })
+
+    // The second run is a fixed point: target equals the current balance, so
+    // re-running auto setup does not deposit again.
+    expect(run2.targetBalance).toBe(run2Balance)
   })
 })

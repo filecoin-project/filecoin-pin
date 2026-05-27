@@ -6,7 +6,6 @@
  * options to complete the setup without user interaction.
  */
 
-import { CDN_FIXED_LOCKUP, USDFC_SYBIL_FEE } from '@filoz/synapse-core/utils'
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
@@ -15,6 +14,7 @@ import {
   checkAndSetAllowances,
   checkFILBalance,
   checkUSDFCBalance,
+  computeAutoSetupTargetBalance,
   depositUSDFC,
   getPaymentStatus,
   getServicePrice,
@@ -90,7 +90,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     }
 
     // Now safe to get payment status since we know account exists
-    const status = await getPaymentStatus(synapse)
+    const [status, accountSummary] = await Promise.all([getPaymentStatus(synapse), synapse.payments.accountSummary()])
 
     // Display account and balance info using shared function
     displayAccountInfo(
@@ -107,15 +107,18 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     const storageInfo = await synapse.storage.getStorageInfo()
     const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
 
-    // Without an explicit --deposit, derive the target balance from live
-    // on-chain pricing: the fixed CDN lockup, sybil fee, and minimum monthly
-    // price for DEFAULT_COPIES new data sets, plus 1 USDFC of runway headroom.
-    // This seeds the first FilBeam (CDN) upload.
+    // With no --deposit given, ask current on-chain pricing how much must be
+    // available to set up DEFAULT_COPIES data sets (including the CDN lockup the
+    // default FilCDN upload path needs), then deposit enough to cover it.
     if (targetFilecoinPayBalance == null) {
       const servicePrice = await getServicePrice(synapse.client)
-      targetFilecoinPayBalance =
-        BigInt(DEFAULT_COPIES) * (CDN_FIXED_LOCKUP.total + USDFC_SYBIL_FEE + servicePrice.minimumPricePerMonth) +
-        parseUnits('1', 18)
+      const { targetBalance } = computeAutoSetupTargetBalance({
+        filecoinPayBalance: status.filecoinPayBalance,
+        availableFunds: accountSummary.availableFunds,
+        copies: DEFAULT_COPIES,
+        minimumPricePerMonth: servicePrice.minimumPricePerMonth,
+      })
+      targetFilecoinPayBalance = targetBalance
       log.line(
         pc.gray(
           `Using default deposit target ${formatUSDFC(targetFilecoinPayBalance)} USDFC ` +

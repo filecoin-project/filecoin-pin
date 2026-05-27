@@ -1,7 +1,7 @@
 import { CDN_FIXED_LOCKUP, USDFC_SYBIL_FEE } from '@filoz/synapse-core/utils'
 import { getServicePrice } from '@filoz/synapse-core/warm-storage'
 import { calibration, type Synapse } from '@filoz/synapse-sdk'
-import { MIN_FIL_FOR_GAS } from './constants.js'
+import { MIN_FIL_FOR_GAS, USDFC_DECIMALS } from './constants.js'
 import {
   checkAndSetAllowances,
   computeAdjustmentForExactDays,
@@ -292,6 +292,39 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
   }
 
   return plan
+}
+
+/** One USDFC in base units, kept as runway after the initial data sets are created. */
+const ONE_USDFC = 10n ** BigInt(USDFC_DECIMALS)
+
+/**
+ * Work out how much `payments setup --auto` should deposit.
+ *
+ * Setting up the first data sets needs some funds to be available, meaning free
+ * rather than already locked by active rails. Per data set, that requirement is
+ * the sybil fee, the minimum monthly price, and the CDN lockup the default
+ * (FilCDN) upload path needs, plus one USDFC of runway.
+ *
+ * `availableFunds` is what the account already has free (the SDK reports it net
+ * of lockup and debt). The deposit only needs to make up the difference, so the
+ * target balance is the current balance plus that shortfall.
+ *
+ * @returns `requiredAvailableFunds` (how much must be free) and `targetBalance`
+ *   (the Filecoin Pay balance to deposit up to).
+ */
+export function computeAutoSetupTargetBalance(params: {
+  filecoinPayBalance: bigint
+  availableFunds: bigint
+  copies: number
+  minimumPricePerMonth: bigint
+}): { requiredAvailableFunds: bigint; targetBalance: bigint } {
+  if (!Number.isInteger(params.copies) || params.copies < 0) {
+    throw new Error('copies must be a non-negative integer')
+  }
+  const requiredAvailableFunds =
+    BigInt(params.copies) * (CDN_FIXED_LOCKUP.total + USDFC_SYBIL_FEE + params.minimumPricePerMonth) + ONE_USDFC
+  const shortfall = requiredAvailableFunds > params.availableFunds ? requiredAvailableFunds - params.availableFunds : 0n
+  return { requiredAvailableFunds, targetBalance: params.filecoinPayBalance + shortfall }
 }
 
 function projectWalletAfterDelta(walletUsdfcBalance: bigint, delta: bigint): bigint {
