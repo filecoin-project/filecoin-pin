@@ -6,6 +6,7 @@
  * options to complete the setup without user interaction.
  */
 
+import { CDN_FIXED_LOCKUP, USDFC_SYBIL_FEE } from '@filoz/synapse-core/utils'
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
@@ -16,8 +17,10 @@ import {
   checkUSDFCBalance,
   depositUSDFC,
   getPaymentStatus,
+  getServicePrice,
   validatePaymentRequirements,
 } from '../core/payments/index.js'
+import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
@@ -35,16 +38,19 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
   intro(pc.bold('Filecoin Onchain Cloud Payment Setup'))
   log.message(pc.gray('Running in auto mode...'))
 
-  // Parse and validate deposit amount. Display happens here (before the
-  // outer try below), so throw CliFatal so the CLI wrapper exits without
-  // re-printing.
-  let targetFilecoinPayBalance: bigint
-  try {
-    targetFilecoinPayBalance = parseUnits(options.deposit, 18)
-  } catch {
-    log.line(pc.red(`Error: Invalid deposit amount '${options.deposit}'`))
-    log.flush()
-    throw new CliFatal(`Invalid deposit amount '${options.deposit}'`)
+  // Parse an explicit --deposit override before the outer try below, throwing
+  // CliFatal so the CLI wrapper exits without re-printing. When omitted, the
+  // target balance is derived from live on-chain pricing after connecting (see
+  // below).
+  let targetFilecoinPayBalance: bigint | undefined
+  if (options.deposit != null) {
+    try {
+      targetFilecoinPayBalance = parseUnits(options.deposit, 18)
+    } catch {
+      log.line(pc.red(`Error: Invalid deposit amount '${options.deposit}'`))
+      log.flush()
+      throw new CliFatal(`Invalid deposit amount '${options.deposit}'`)
+    }
   }
 
   const spinner = createSpinner()
@@ -100,6 +106,24 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     // Get storage pricing for capacity calculation
     const storageInfo = await synapse.storage.getStorageInfo()
     const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
+
+    // Without an explicit --deposit, derive the target balance from live
+    // on-chain pricing: the fixed CDN lockup, sybil fee, and minimum monthly
+    // price for DEFAULT_COPIES new data sets, plus 1 USDFC of runway headroom.
+    // This seeds the first FilBeam (CDN) upload.
+    if (targetFilecoinPayBalance == null) {
+      const servicePrice = await getServicePrice(synapse.client)
+      targetFilecoinPayBalance =
+        BigInt(DEFAULT_COPIES) * (CDN_FIXED_LOCKUP.total + USDFC_SYBIL_FEE + servicePrice.minimumPricePerMonth) +
+        parseUnits('1', 18)
+      log.line(
+        pc.gray(
+          `Using default deposit target ${formatUSDFC(targetFilecoinPayBalance)} USDFC ` +
+            `(covers ${DEFAULT_COPIES} CDN data sets + 1 USDFC runway)`
+        )
+      )
+      log.flush()
+    }
 
     // Track if any changes were made
     let actionsTaken = false
@@ -157,7 +181,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     log.flush()
 
     // Show deposit warning if needed
-    displayDepositWarning(totalDeposit, status.currentAllowances.lockupUsed)
+    displayDepositWarning(totalDeposit, status.currentAllowances.lockupUsage)
 
     // Show appropriate outro message based on whether actions were taken
     if (actionsTaken) {

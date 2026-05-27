@@ -1,11 +1,13 @@
-import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
+import { calibration, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as paymentsIndex from '../../core/payments/index.js'
 import {
+  type AccountSummary,
   calculateFilecoinPayFundingPlan,
   executeFilecoinPayFunding,
   type FilecoinPayFundingPlan,
   getFilecoinPayFundingInsights,
+  getPaymentStatus,
   type PaymentStatus,
   planFilecoinPayFunding,
   type ServiceApprovalStatus,
@@ -20,10 +22,11 @@ function makeStatus(params: {
   filBalance?: bigint
 }): PaymentStatus {
   const currentAllowances: ServiceApprovalStatus = {
+    isApproved: true,
     rateAllowance: 0n,
     lockupAllowance: 0n,
-    lockupUsed: params.lockupUsed ?? 0n,
-    rateUsed: params.rateUsed ?? 0n,
+    lockupUsage: params.lockupUsed ?? 0n,
+    rateUsage: params.rateUsed ?? 0n,
     maxLockupPeriod: 30n * TIME_CONSTANTS.EPOCHS_PER_DAY,
   }
 
@@ -38,7 +41,38 @@ function makeStatus(params: {
   }
 }
 
-function makeSynapseStub() {
+function makeSummary(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; rateUsed?: bigint }): AccountSummary {
+  const totalLockup = params.lockupUsed ?? 0n
+  const lockupRatePerEpoch = params.rateUsed ?? 0n
+  const runwayInEpochs =
+    lockupRatePerEpoch === 0n
+      ? 0n
+      : params.filecoinPayBalance > totalLockup
+        ? (params.filecoinPayBalance - totalLockup) / lockupRatePerEpoch
+        : 0n
+  const grossCoverageInEpochs = lockupRatePerEpoch === 0n ? 0n : params.filecoinPayBalance / lockupRatePerEpoch
+  const availableFunds = params.filecoinPayBalance > totalLockup ? params.filecoinPayBalance - totalLockup : 0n
+  return {
+    funds: params.filecoinPayBalance,
+    availableFunds,
+    debt: 0n,
+    totalLockup,
+    lockupRatePerEpoch,
+    runwayInEpochs,
+    grossCoverageInEpochs,
+  }
+}
+
+function makeSynapseStub(summary?: AccountSummary) {
+  const accountSummary = summary ?? {
+    funds: 0n,
+    availableFunds: 0n,
+    debt: 0n,
+    totalLockup: 0n,
+    lockupRatePerEpoch: 0n,
+    runwayInEpochs: 0n,
+    grossCoverageInEpochs: 0n,
+  }
   return {
     getClient: () => ({ getAddress: async () => '0xowner' }),
     getNetwork: () => 'calibration',
@@ -49,12 +83,13 @@ function makeSynapseStub() {
       serviceApproval: async () => ({
         rateAllowance: 0n,
         lockupAllowance: 0n,
-        lockupUsed: 0n,
-        rateUsed: 0n,
+        lockupUsage: 0n,
+        rateUsage: 0n,
         maxLockupPeriod: 30n * TIME_CONSTANTS.EPOCHS_PER_DAY,
       }),
       allowance: async () => 0n,
       deposit: vi.fn(),
+      accountSummary: async () => accountSummary,
     },
     storage: {
       createContexts: async () => [],
@@ -66,15 +101,14 @@ function makeSynapseStub() {
 }
 
 describe('planFilecoinPayFunding', () => {
-  const synapseStub = makeSynapseStub()
-
   beforeEach(() => {
     vi.restoreAllMocks()
   })
 
   it('plans a positive delta and detects wallet shortfall', async () => {
-    const rateUsed = 1_000_000_000_000_000_000n // 1 USDFC/epoch
+    const rateUsed = 1_000_000_000_000_000_000n
     const status = makeStatus({ filecoinPayBalance: 0n, lockupUsed: 0n, rateUsed, wallet: 1n })
+    const summary = makeSummary({ filecoinPayBalance: 0n, rateUsed })
     vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(status)
     vi.spyOn(paymentsIndex, 'checkAndSetAllowances').mockResolvedValue({
       updated: false,
@@ -83,9 +117,9 @@ describe('planFilecoinPayFunding', () => {
     vi.spyOn(paymentsIndex, 'validatePaymentRequirements').mockReturnValue({ isValid: true })
 
     const { plan } = await planFilecoinPayFunding({
-      synapse: synapseStub as any,
+      synapse: makeSynapseStub(summary) as any,
       targetRunwayDays: 1,
-      pricePerTiBPerEpoch: 1n, // avoid storage fetch
+      pricePerTiBPerEpoch: 1n,
     })
 
     expect(plan.delta).toBeGreaterThan(0n)
@@ -102,6 +136,7 @@ describe('planFilecoinPayFunding', () => {
       rateUsed,
       wallet: perDay * 10n,
     })
+    const summary = makeSummary({ filecoinPayBalance: perDay * 10n, rateUsed })
     vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(status)
     vi.spyOn(paymentsIndex, 'checkAndSetAllowances').mockResolvedValue({
       updated: false,
@@ -110,7 +145,7 @@ describe('planFilecoinPayFunding', () => {
     vi.spyOn(paymentsIndex, 'validatePaymentRequirements').mockReturnValue({ isValid: true })
 
     const { plan } = await planFilecoinPayFunding({
-      synapse: synapseStub as any,
+      synapse: makeSynapseStub(summary) as any,
       targetRunwayDays: 1,
       mode: 'minimum',
       pricePerTiBPerEpoch: 1n,
@@ -128,6 +163,7 @@ describe('planFilecoinPayFunding', () => {
       rateUsed: 0n,
       wallet: 1_000n,
     })
+    const summary = makeSummary({ filecoinPayBalance: 0n, rateUsed: 0n })
     vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(status)
     vi.spyOn(paymentsIndex, 'checkAndSetAllowances').mockResolvedValue({
       updated: false,
@@ -136,7 +172,7 @@ describe('planFilecoinPayFunding', () => {
     vi.spyOn(paymentsIndex, 'validatePaymentRequirements').mockReturnValue({ isValid: true })
 
     const { plan } = await planFilecoinPayFunding({
-      synapse: synapseStub as any,
+      synapse: makeSynapseStub(summary) as any,
       targetRunwayDays: 30,
     })
 
@@ -157,7 +193,7 @@ describe('planFilecoinPayFunding', () => {
 
     await expect(
       planFilecoinPayFunding({
-        synapse: synapseStub as any,
+        synapse: makeSynapseStub() as any,
         targetRunwayDays: 10,
         targetDeposit: 1_000n,
       })
@@ -175,7 +211,7 @@ describe('planFilecoinPayFunding', () => {
 
     await expect(
       planFilecoinPayFunding({
-        synapse: synapseStub as any,
+        synapse: makeSynapseStub() as any,
       })
     ).rejects.toThrow('A funding target is required')
   })
@@ -190,9 +226,11 @@ describe('planFilecoinPayFunding', () => {
     vi.spyOn(paymentsIndex, 'validatePaymentRequirements').mockReturnValue({ isValid: true })
 
     const { plan } = await planFilecoinPayFunding({
-      synapse: synapseStub as any,
+      synapse: makeSynapseStub() as any,
       targetRunwayDays: 10,
       pieceSizeBytes: 1024,
+      pricePerTiBPerEpoch: 1n,
+      minimumPricePerMonth: 60_000_000_000_000_000n,
     })
 
     expect(plan.pricePerTiBPerEpoch).toBe(1n)
@@ -202,12 +240,15 @@ describe('planFilecoinPayFunding', () => {
 
   it('adds sybil fees for new data sets in the shared funding plan', () => {
     const status = makeStatus({ filecoinPayBalance: 0n, wallet: 1_000_000_000_000_000_000n })
+    const accountSummary = makeSummary({ filecoinPayBalance: 0n })
 
     const basePlan = calculateFilecoinPayFundingPlan({
       status,
+      accountSummary,
       targetRunwayDays: 30,
       pieceSizeBytes: 1024,
       pricePerTiBPerEpoch: 1n,
+      minimumPricePerMonth: 60_000_000_000_000_000n,
       newDataSetCount: 0,
       mode: 'minimum',
       allowWithdraw: false,
@@ -215,9 +256,11 @@ describe('planFilecoinPayFunding', () => {
 
     const withFeesPlan = calculateFilecoinPayFundingPlan({
       status,
+      accountSummary,
       targetRunwayDays: 30,
       pieceSizeBytes: 1024,
       pricePerTiBPerEpoch: 1n,
+      minimumPricePerMonth: 60_000_000_000_000_000n,
       newDataSetCount: 2,
       mode: 'minimum',
       allowWithdraw: false,
@@ -229,12 +272,15 @@ describe('planFilecoinPayFunding', () => {
 
   it('adds the fixed CDN lockup for new data sets when withCDN is set', () => {
     const status = makeStatus({ filecoinPayBalance: 0n, wallet: 10_000_000_000_000_000_000n })
+    const accountSummary = makeSummary({ filecoinPayBalance: 0n })
 
     const noCdnPlan = calculateFilecoinPayFundingPlan({
       status,
+      accountSummary,
       targetRunwayDays: 30,
       pieceSizeBytes: 1024,
       pricePerTiBPerEpoch: 1n,
+      minimumPricePerMonth: 60_000_000_000_000_000n,
       newDataSetCount: 2,
       withCDN: false,
       mode: 'minimum',
@@ -243,9 +289,11 @@ describe('planFilecoinPayFunding', () => {
 
     const cdnPlan = calculateFilecoinPayFundingPlan({
       status,
+      accountSummary,
       targetRunwayDays: 30,
       pieceSizeBytes: 1024,
       pricePerTiBPerEpoch: 1n,
+      minimumPricePerMonth: 60_000_000_000_000_000n,
       newDataSetCount: 2,
       withCDN: true,
       mode: 'minimum',
@@ -260,12 +308,15 @@ describe('planFilecoinPayFunding', () => {
 
   it('does not add the CDN lockup when no new data sets are created', () => {
     const status = makeStatus({ filecoinPayBalance: 0n, wallet: 10_000_000_000_000_000_000n })
+    const accountSummary = makeSummary({ filecoinPayBalance: 0n })
 
     const cdnPlan = calculateFilecoinPayFundingPlan({
       status,
+      accountSummary,
       targetRunwayDays: 30,
       pieceSizeBytes: 1024,
       pricePerTiBPerEpoch: 1n,
+      minimumPricePerMonth: 60_000_000_000_000_000n,
       newDataSetCount: 0,
       withCDN: true,
       mode: 'minimum',
@@ -274,9 +325,11 @@ describe('planFilecoinPayFunding', () => {
 
     const noCdnPlan = calculateFilecoinPayFundingPlan({
       status,
+      accountSummary,
       targetRunwayDays: 30,
       pieceSizeBytes: 1024,
       pricePerTiBPerEpoch: 1n,
+      minimumPricePerMonth: 60_000_000_000_000_000n,
       newDataSetCount: 0,
       withCDN: false,
       mode: 'minimum',
@@ -288,8 +341,6 @@ describe('planFilecoinPayFunding', () => {
 })
 
 describe('executeFilecoinPayFunding', () => {
-  const synapseStub = makeSynapseStub()
-
   beforeEach(() => {
     vi.restoreAllMocks()
   })
@@ -297,12 +348,16 @@ describe('executeFilecoinPayFunding', () => {
   it('executes a deposit and returns updated insights', async () => {
     const initialStatus = makeStatus({ filecoinPayBalance: 0n, rateUsed: 1n, lockupUsed: 0n, wallet: 1_000n })
     const updatedStatus = makeStatus({ filecoinPayBalance: 1_000n, rateUsed: 1n, lockupUsed: 0n, wallet: 0n })
+    const initialSummary = makeSummary({ filecoinPayBalance: 0n, rateUsed: 1n })
+    const updatedSummary = makeSummary({ filecoinPayBalance: 1_000n, rateUsed: 1n })
 
     vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(updatedStatus)
     vi.spyOn(paymentsIndex, 'depositUSDFC').mockResolvedValue({ depositTx: '0xmock-deposit' })
 
-    const current = getFilecoinPayFundingInsights(initialStatus)
-    const projected = getFilecoinPayFundingInsights(updatedStatus)
+    const synapseStub = makeSynapseStub(updatedSummary)
+
+    const current = getFilecoinPayFundingInsights(initialStatus, initialSummary)
+    const projected = getFilecoinPayFundingInsights(updatedStatus, updatedSummary)
 
     const plan = {
       targetType: 'deposit' as const,
@@ -311,8 +366,8 @@ describe('executeFilecoinPayFunding', () => {
       reasonCode: 'target-deposit' as const,
       mode: 'exact' as const,
       projectedDeposit: updatedStatus.filecoinPayBalance,
-      projectedRateUsed: updatedStatus.currentAllowances.rateUsed,
-      projectedLockupUsed: updatedStatus.currentAllowances.lockupUsed,
+      projectedRateUsed: updatedStatus.currentAllowances.rateUsage,
+      projectedLockupUsed: updatedStatus.currentAllowances.lockupUsage,
       current,
       projected,
       targetDeposit: updatedStatus.filecoinPayBalance,
@@ -323,32 +378,115 @@ describe('executeFilecoinPayFunding', () => {
     expect(result.adjusted).toBe(true)
     expect(result.newDepositedAmount).toBe(updatedStatus.filecoinPayBalance)
     expect(result.transactionHash).toBe('0xmock-deposit')
+    expect(typeof result.newCoverageDays).toBe('number')
   })
 })
 
 describe('getFilecoinPayFundingInsights', () => {
-  it('calculates per-day spend and runway', () => {
+  it('calculates per-day spend and runway from SDK summary', () => {
     const rateUsed = 2n
     const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
     const lockupUsed = 0n
-    const available = perDay * 3n
+    const filecoinPayBalance = perDay * 3n
     const status = makeStatus({
-      filecoinPayBalance: available + lockupUsed,
+      filecoinPayBalance,
       rateUsed,
       lockupUsed,
       wallet: 0n,
     })
+    const summary = makeSummary({ filecoinPayBalance, rateUsed, lockupUsed })
 
-    const insights = getFilecoinPayFundingInsights(status)
+    const insights = getFilecoinPayFundingInsights(status, summary)
     expect(insights.spendRatePerDay).toBe(perDay)
-    expect(insights.runway.days).toBe(3)
-    expect(insights.availableDeposited).toBe(available)
+    expect(insights.runway.runwayDays).toBe(3)
+    expect(insights.runway.coverageDays).toBe(3)
+    expect(insights.availableDeposited).toBe(filecoinPayBalance)
+  })
+
+  it('issue #385: lockup exceeds balance — coverage substantial, runway 0', () => {
+    const rateUsed = 2n
+    const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+    const lockupUsed = perDay * 30n
+    const filecoinPayBalance = perDay * 20n
+    const status = makeStatus({ filecoinPayBalance, rateUsed, lockupUsed, wallet: perDay * 2n })
+    const summary = makeSummary({ filecoinPayBalance, rateUsed, lockupUsed })
+
+    const insights = getFilecoinPayFundingInsights(status, summary)
+
+    expect(insights.runway.runwayDays).toBe(0)
+    expect(insights.runway.coverageDays).toBe(20)
+    expect(insights.availableDeposited).toBe(0n)
+    expect(insights.filecoinPayDepletionSeconds).toBe(20n * 86_400n)
+    expect(insights.ownerDepletionSeconds).toBe(22n * 86_400n)
+  })
+
+  it('rjan90: projected ownerDepletion uses projected wallet balance after deposit', () => {
+    const rateUsed = 2n
+    const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+    const status = makeStatus({
+      filecoinPayBalance: 0n,
+      rateUsed,
+      wallet: perDay * 5n,
+    })
+    const summary = makeSummary({ filecoinPayBalance: 0n, rateUsed })
+
+    // Project: deposit 5 days worth — wallet should drop to 0
+    const projected = getFilecoinPayFundingInsights(status, summary, {
+      depositedBalance: perDay * 5n,
+      rateUsed,
+      lockupUsed: 0n,
+      walletUsdfcBalance: 0n,
+    })
+
+    expect(projected.depositedBalance).toBe(perDay * 5n)
+    expect(projected.walletUsdfcBalance).toBe(0n)
+    // Owner depletion = depositedBalance + projectedWallet (0) over perDay = 5 days
+    expect(projected.ownerDepletionSeconds).toBe(5n * 86_400n)
+  })
+})
+
+describe('getPaymentStatus', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('returns gross deposited funds, not availableFunds', async () => {
+    // Regression guard for issue #385: synapse.payments.balance() returns availableFunds
+    // (= funds - lockup), which previously caused double-subtraction of lockup throughout
+    // funding math and display. PaymentStatus.filecoinPayBalance must be gross funds.
+    const grossFunds = 1_000_000_000_000_000_000n
+    const lockup = 600_000_000_000_000_000n
+    const availableFunds = grossFunds - lockup
+    const synapseStub = {
+      chain: { id: calibration.id, name: 'calibration', contracts: { fwss: { address: '0xfwss' } } },
+      client: { account: '0xowner' },
+      payments: {
+        walletBalance: vi.fn(async ({ token }: { token: string }) => (token === 'FIL' ? 10n : 5n)),
+        balance: vi.fn(async () => availableFunds),
+        accountInfo: vi.fn(async () => ({
+          funds: grossFunds,
+          lockupCurrent: lockup,
+          lockupRate: 0n,
+          lockupLastSettledAt: 0n,
+          availableFunds,
+        })),
+        serviceApproval: vi.fn(async () => ({
+          rateAllowance: 0n,
+          lockupAllowance: 0n,
+          lockupUsage: lockup,
+          rateUsed: 0n,
+          maxLockupPeriod: 30n * TIME_CONSTANTS.EPOCHS_PER_DAY,
+        })),
+      },
+    }
+
+    const status = await getPaymentStatus(synapseStub as never)
+    expect(status.filecoinPayBalance).toBe(grossFunds)
+    expect(synapseStub.payments.accountInfo).toHaveBeenCalled()
   })
 })
 
 describe('autoFund (modifiers)', () => {
-  const synapseStub = makeSynapseStub()
-
   beforeEach(() => {
     vi.restoreAllMocks()
   })
@@ -359,7 +497,8 @@ describe('autoFund (modifiers)', () => {
       rateUsed: 1n,
       wallet: 1_000_000_000_000_000_000_000n,
     })
-    const insights = getFilecoinPayFundingInsights(status)
+    const summary = makeSummary({ filecoinPayBalance: opts.filecoinPayBalance, rateUsed: 1n })
+    const insights = getFilecoinPayFundingInsights(status, summary)
     const plan: FilecoinPayFundingPlan = {
       targetType: 'runway-days',
       delta: opts.delta,
@@ -375,14 +514,15 @@ describe('autoFund (modifiers)', () => {
     vi.spyOn(paymentsIndex, 'planFilecoinPayFunding').mockResolvedValue({
       plan,
       status,
+      accountSummary: summary,
       allowances: { updated: false, currentAllowances: status.currentAllowances },
     })
     return { status }
   }
 
   it('forwards minRunwayDays as targetRunwayDays to planFilecoinPayFunding', async () => {
-    mockPlan({ filecoinPayBalance: 0n, delta: 0n }) // delta 0n -> no-op return
-    await autoFund({ synapse: synapseStub as any, fileSize: 0, minRunwayDays: 60 })
+    mockPlan({ filecoinPayBalance: 0n, delta: 0n })
+    await autoFund({ synapse: makeSynapseStub() as any, fileSize: 0, minRunwayDays: 60 })
     expect(paymentsIndex.planFilecoinPayFunding).toHaveBeenCalledWith(expect.objectContaining({ targetRunwayDays: 60 }))
   })
 
@@ -394,16 +534,18 @@ describe('autoFund (modifiers)', () => {
       newDepositedAmount: 100n,
       newRunwayDays: 30,
       newRunwayHours: 0,
+      newCoverageDays: 30,
+      newCoverageHours: 0,
       plan: {} as any,
       updatedInsights: {} as any,
     })
 
-    const result = await autoFund({ synapse: synapseStub as any, fileSize: 0, maxBalance: 100n })
+    const result = await autoFund({ synapse: makeSynapseStub() as any, fileSize: 0, maxBalance: 100n })
 
     const execCalls = vi.mocked(paymentsIndex.executeFilecoinPayFunding).mock.calls
     expect(execCalls).toHaveLength(1)
     const [, executedPlan] = execCalls[0] ?? []
-    expect(executedPlan?.delta).toBe(20n) // 100 (limit) - 80 (current) = 20
+    expect(executedPlan?.delta).toBe(20n)
     expect(result.delta).toBe(20n)
     expect(result.warnings?.[0]).toContain('Reducing')
   })
@@ -412,7 +554,7 @@ describe('autoFund (modifiers)', () => {
     mockPlan({ filecoinPayBalance: 100n, delta: 50n })
     vi.spyOn(paymentsIndex, 'executeFilecoinPayFunding')
 
-    const result = await autoFund({ synapse: synapseStub as any, fileSize: 0, maxBalance: 100n })
+    const result = await autoFund({ synapse: makeSynapseStub() as any, fileSize: 0, maxBalance: 100n })
 
     expect(paymentsIndex.executeFilecoinPayFunding).not.toHaveBeenCalled()
     expect(result.adjusted).toBe(false)

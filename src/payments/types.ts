@@ -14,7 +14,8 @@ export type {
 
 export interface PaymentSetupOptions extends CLIAuthOptions {
   auto: boolean
-  deposit: string
+  /** Explicit target Filecoin Pay balance (USDFC). When omitted, `--auto` derives it from live on-chain pricing. */
+  deposit?: string
   rateAllowance: string
 }
 

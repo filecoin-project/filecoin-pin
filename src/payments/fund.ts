@@ -11,14 +11,13 @@ import { parseUnits } from 'viem'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import {
-  calculateStorageRunway,
   checkUSDFCBalance,
   clampDepositToLimit,
   DEFAULT_LOCKUP_DAYS,
   depositUSDFC,
   executeFilecoinPayFunding,
-  getPaymentStatus,
   planFilecoinPayFunding,
+  toStorageRunwaySummary,
   withdrawUSDFC,
 } from '../core/payments/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
@@ -116,13 +115,17 @@ async function performAdjustment(params: {
 
 // Helper: summary after adjustment
 async function printSummary(synapse: Synapse, title = 'Updated'): Promise<void> {
-  const updated = await getPaymentStatus(synapse)
-  const runway = calculateStorageRunway(updated)
+  const summary = await synapse.payments.accountSummary({})
+  const runway = toStorageRunwaySummary(summary)
   const runwayDisplay = formatRunwaySummary(runway)
-  log.section(title, [
-    `Deposited: ${formatUSDFC(updated.filecoinPayBalance)} USDFC`,
-    runway.state === 'active' ? `Runway: ~${runwayDisplay}` : `Runway: ${runwayDisplay}`,
-  ])
+  const lines = [`Deposited: ${formatUSDFC(summary.funds)} USDFC`]
+  if (runway.state === 'active') {
+    lines.push(`Storage covered: ~${runwayDisplay.coverage} total`)
+    lines.push(`Top-up needed in: ~${runwayDisplay.runway}`)
+  } else {
+    lines.push(runwayDisplay.coverage)
+  }
+  log.section(title, lines)
 }
 
 /**
@@ -170,8 +173,8 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
       adjusted: false,
       delta: 0n,
       newDepositedAmount: plan.projected.depositedBalance,
-      newRunwayDays: plan.projected.runway.days,
-      newRunwayHours: plan.projected.runway.hours,
+      newRunwayDays: plan.projected.runway.runwayDays,
+      newRunwayHours: plan.projected.runway.runwayHours,
     }
   }
 
@@ -184,8 +187,8 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
       adjusted: false,
       delta: 0n,
       newDepositedAmount: status.filecoinPayBalance,
-      newRunwayDays: plan.current.runway.days,
-      newRunwayHours: plan.current.runway.hours,
+      newRunwayDays: plan.current.runway.runwayDays,
+      newRunwayHours: plan.current.runway.runwayHours,
       warnings,
     }
   }
@@ -278,21 +281,13 @@ export async function runFund(options: FundOptions): Promise<void> {
       throw new CliFatal('No active spend')
     }
 
-    let projectedRunwayTarget: number | null = null
-    if (plan.projected.runway.state === 'active') {
-      projectedRunwayTarget =
-        plan.targetType === 'runway-days' ? (plan.targetRunwayDays ?? 0) : plan.projected.runway.days
-    }
+    // Safety baseline measures projected top-up window (net runway after deposit),
+    // sourced from the SDK so --days and --amount paths share one metric.
+    const projectedRunwayDays = plan.projected.runway.state === 'active' ? plan.projected.runway.runwayDays : null
 
-    if (plan.mode !== 'minimum' && projectedRunwayTarget != null && projectedRunwayTarget < DEFAULT_LOCKUP_DAYS) {
-      const line1 =
-        plan.targetType === 'runway-days'
-          ? 'Requested runway below 30-day safety baseline.'
-          : 'Target deposit implies less than 30 days of runway at current spend.'
-      const line2 =
-        plan.targetType === 'runway-days'
-          ? 'WarmStorage reserves 30 days of costs; a shorter runway risks termination.'
-          : 'Increase target or accept risk: shorter runway may cause termination.'
+    if (plan.mode !== 'minimum' && projectedRunwayDays != null && projectedRunwayDays < DEFAULT_LOCKUP_DAYS) {
+      const line1 = `Projected top-up window after this adjustment is less than ${DEFAULT_LOCKUP_DAYS} days.`
+      const line2 = `WarmStorage reserves ${DEFAULT_LOCKUP_DAYS} days of costs; a shorter top-up window risks termination.`
       await ensureBelowThirtyDaysAllowed({
         spinner,
         warningLine1: line1,

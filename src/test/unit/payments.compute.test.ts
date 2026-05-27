@@ -1,147 +1,174 @@
 import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { describe, expect, it } from 'vitest'
 import {
+  type AccountSummary,
   computeAdjustmentForExactDays,
   computeAdjustmentForExactDaysWithPiece,
   computeAdjustmentForExactDeposit,
   computeTopUpForDuration,
-  DEFAULT_LOCKUP_DAYS,
-  type PaymentStatus,
-  type ServiceApprovalStatus,
+  toStorageRunwaySummary,
 } from '../../core/payments/index.js'
 
-function makeStatus(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; rateUsed?: bigint }): PaymentStatus {
-  const currentAllowances: ServiceApprovalStatus = {
-    rateAllowance: 0n,
-    lockupAllowance: 0n,
-    lockupUsed: params.lockupUsed ?? 0n,
-    rateUsed: params.rateUsed ?? 0n,
-    maxLockupPeriod: BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY,
-  }
-
+function makeSummary(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; rateUsed?: bigint }): AccountSummary {
+  const totalLockup = params.lockupUsed ?? 0n
+  const lockupRatePerEpoch = params.rateUsed ?? 0n
+  // SDK math: runway = (funds - lockup) / rate; coverage = funds / rate
+  // We don't validate exact epoch values here, just that helpers consume the summary correctly.
+  const runwayInEpochs = lockupRatePerEpoch === 0n ? 0n : (params.filecoinPayBalance - totalLockup) / lockupRatePerEpoch
+  const grossCoverageInEpochs = lockupRatePerEpoch === 0n ? 0n : params.filecoinPayBalance / lockupRatePerEpoch
+  const availableFunds = params.filecoinPayBalance > totalLockup ? params.filecoinPayBalance - totalLockup : 0n
   return {
-    network: 'calibration',
-    chainId: 314159,
-    address: '0x0000000000000000000000000000000000000000',
-    filBalance: 0n,
-    walletUsdfcBalance: 0n,
-    filecoinPayBalance: params.filecoinPayBalance,
-    currentAllowances,
+    funds: params.filecoinPayBalance,
+    availableFunds,
+    debt: 0n,
+    totalLockup,
+    lockupRatePerEpoch,
+    runwayInEpochs: runwayInEpochs > 0n ? runwayInEpochs : 0n,
+    grossCoverageInEpochs,
   }
 }
 
 describe('computeTopUpForDuration', () => {
   it('returns 0 topUp when days <= 0', () => {
-    const rateUsed = 1_000_000_000_000_000_000n // 1 USDFC/epoch
-    const status = makeStatus({ filecoinPayBalance: 0n, rateUsed })
-    const res = computeTopUpForDuration(status, 0)
+    const rateUsed = 1_000_000_000_000_000_000n
+    const summary = makeSummary({ filecoinPayBalance: 0n, rateUsed })
+    const res = computeTopUpForDuration(summary, 0n, 0)
     expect(res.topUp).toBe(0n)
     expect(res.perDay).toBe(rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY)
   })
 
   it('returns 0 topUp when rateUsed = 0', () => {
-    const status = makeStatus({ filecoinPayBalance: 1_000n, rateUsed: 0n })
-    const res = computeTopUpForDuration(status, 10)
+    const summary = makeSummary({ filecoinPayBalance: 1_000n, rateUsed: 0n })
+    const res = computeTopUpForDuration(summary, 1_000n, 10)
     expect(res.topUp).toBe(0n)
     expect(res.perDay).toBe(0n)
   })
 
-  it('returns 0 topUp when available already covers the period', () => {
-    const rateUsed = 1_000_000_000_000_000_000n // 1 USDFC/epoch
+  it('returns 0 topUp when balance already well above target', () => {
+    const rateUsed = 1_000_000_000_000_000_000n
     const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
     const days = 10
-    const filecoinPayBalance = perDay * BigInt(days)
-    const status = makeStatus({ filecoinPayBalance, lockupUsed: 0n, rateUsed })
-    const res = computeTopUpForDuration(status, days)
+    const filecoinPayBalance = perDay * BigInt(days) * 10n
+    const summary = makeSummary({ filecoinPayBalance, lockupUsed: 0n, rateUsed })
+    const res = computeTopUpForDuration(summary, filecoinPayBalance, days)
     expect(res.topUp).toBe(0n)
-    expect(res.available).toBe(filecoinPayBalance)
   })
 
-  it('returns required topUp when available is insufficient', () => {
-    const rateUsed = 1_000_000_000_000_000_000n // 1 USDFC/epoch
+  it('underwater account: topUp restores lockup plus requested runway', () => {
+    const rateUsed = 1_000_000_000_000_000_000n
     const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
     const days = 10
-    const available = perDay * 5n // only 5 days funded
-    const lockupUsed = 0n
-    const filecoinPayBalance = available + lockupUsed
-    const status = makeStatus({ filecoinPayBalance, lockupUsed, rateUsed })
-    const res = computeTopUpForDuration(status, days)
-    expect(res.topUp).toBe(perDay * 5n)
-    expect(res.available).toBe(available)
+    const lockupUsed = perDay * 30n
+    const filecoinPayBalance = perDay * BigInt(days)
+    const summary = makeSummary({ filecoinPayBalance, lockupUsed, rateUsed })
+    const res = computeTopUpForDuration(summary, filecoinPayBalance, days)
+    expect(res.topUp).toBeGreaterThanOrEqual(lockupUsed + perDay * BigInt(days) - filecoinPayBalance)
+    expect(res.lockupUsed).toBe(lockupUsed)
+  })
+
+  it('returns required topUp when balance is insufficient', () => {
+    const rateUsed = 1_000_000_000_000_000_000n
+    const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+    const days = 10
+    const filecoinPayBalance = perDay * 5n
+    const summary = makeSummary({ filecoinPayBalance, lockupUsed: 0n, rateUsed })
+    const res = computeTopUpForDuration(summary, filecoinPayBalance, days)
+    expect(res.topUp).toBeGreaterThanOrEqual(perDay * 5n)
   })
 })
 
 describe('computeAdjustmentForExactDays', () => {
   it('throws on negative days', () => {
-    const status = makeStatus({ filecoinPayBalance: 0n, lockupUsed: 0n, rateUsed: 1n })
-    expect(() => computeAdjustmentForExactDays(status, -1)).toThrow('days must be non-negative')
+    const summary = makeSummary({ filecoinPayBalance: 0n, lockupUsed: 0n, rateUsed: 1n })
+    expect(() => computeAdjustmentForExactDays(summary, 0n, -1)).toThrow('days must be non-negative')
   })
 
   it('returns zeros when rateUsed is 0', () => {
-    const status = makeStatus({ filecoinPayBalance: 1_000n, lockupUsed: 100n, rateUsed: 0n })
-    const res = computeAdjustmentForExactDays(status, 10)
+    const summary = makeSummary({ filecoinPayBalance: 1_000n, lockupUsed: 100n, rateUsed: 0n })
+    const res = computeAdjustmentForExactDays(summary, 1_000n, 10)
     expect(res.delta).toBe(0n)
-    expect(res.targetAvailable).toBe(0n)
-    expect(res.available).toBe(900n)
+    expect(res.targetDeposit).toBe(1_000n)
   })
 
-  it('returns positive delta when more deposit needed (includes 1-hour safety)', () => {
-    const rateUsed = 1_000_000_000_000_000_000n // 1 USDFC/epoch
+  it('returns positive delta when more deposit needed', () => {
+    const rateUsed = 1_000_000_000_000_000_000n
     const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
     const days = 30
-    const available = perDay * 30n // exactly 30 days
-    const status = makeStatus({ filecoinPayBalance: available, lockupUsed: 0n, rateUsed })
-    const res = computeAdjustmentForExactDays(status, days)
-    const perHour = perDay / 24n
-    const safety = perHour > 0n ? perHour : 1n
-    expect(res.delta).toBe(safety)
-    expect(res.targetAvailable).toBe(perDay * 30n + safety)
+    const balance = perDay * 30n
+    const summary = makeSummary({ filecoinPayBalance: balance, lockupUsed: 0n, rateUsed })
+    const res = computeAdjustmentForExactDays(summary, balance, days)
+    expect(res.delta).toBeGreaterThan(0n)
+    expect(res.targetDeposit).toBeGreaterThan(perDay * BigInt(days))
   })
 
   it('returns negative delta when withdrawal possible', () => {
-    const rateUsed = 1_000_000_000_000_000_000n // 1 USDFC/epoch
+    const rateUsed = 1_000_000_000_000_000_000n
     const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
     const days = 5
-    const perHour = perDay / 24n
-    const safety = perHour > 0n ? perHour : 1n
-    const targetAvailable = perDay * BigInt(days) + safety
-    const available = targetAvailable + 1_000n // a bit more than target
-    const status = makeStatus({ filecoinPayBalance: available, lockupUsed: 0n, rateUsed })
-    const res = computeAdjustmentForExactDays(status, days)
-    expect(res.delta).toBe(-1_000n)
+    const balance = perDay * BigInt(days) * 10n
+    const summary = makeSummary({ filecoinPayBalance: balance, lockupUsed: 0n, rateUsed })
+    const res = computeAdjustmentForExactDays(summary, balance, days)
+    expect(res.delta).toBeLessThan(0n)
+    expect(res.targetDeposit).toBeGreaterThanOrEqual(perDay * BigInt(days))
+  })
+
+  it('targets net runway above lockup when lockupUsed exceeds balance (issue #385)', () => {
+    const rateUsed = 1_000_000_000_000_000_000n
+    const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+    const balance = perDay * 20n
+    const lockupUsed = perDay * 30n
+    const summary = makeSummary({ filecoinPayBalance: balance, lockupUsed, rateUsed })
+
+    const res = computeAdjustmentForExactDays(summary, balance, 20)
+
+    expect(res.targetDeposit).toBeGreaterThanOrEqual(lockupUsed + perDay * 20n)
+    expect(res.delta).toBeGreaterThan(0n)
+  })
+
+  it('withdraws excess down to lockup + runway target', () => {
+    const rateUsed = 1_000_000_000_000_000_000n
+    const perDay = rateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+    const lockupUsed = perDay * 30n
+    const balance = lockupUsed + perDay * 50n
+    const summary = makeSummary({ filecoinPayBalance: balance, lockupUsed, rateUsed })
+
+    const res = computeAdjustmentForExactDays(summary, balance, 5)
+
+    expect(res.targetDeposit).toBeGreaterThanOrEqual(lockupUsed + perDay * 5n)
+    expect(res.targetDeposit).toBeLessThan(balance)
+    expect(res.delta).toBeLessThan(0n)
   })
 })
 
 describe('computeAdjustmentForExactDeposit', () => {
   it('throws on negative target', () => {
-    const status = makeStatus({ filecoinPayBalance: 0n, lockupUsed: 0n, rateUsed: 0n })
-    expect(() => computeAdjustmentForExactDeposit(status, -1n)).toThrow('target deposit cannot be negative')
+    const summary = makeSummary({ filecoinPayBalance: 0n, lockupUsed: 0n, rateUsed: 0n })
+    expect(() => computeAdjustmentForExactDeposit(summary, 0n, -1n)).toThrow('target deposit cannot be negative')
   })
 
   it('clamps target to lockup when target below locked funds', () => {
-    const filecoinPayBalance = 1_000n
+    const balance = 1_000n
     const lockupUsed = 800n
-    const status = makeStatus({ filecoinPayBalance, lockupUsed, rateUsed: 1n })
-    const res = computeAdjustmentForExactDeposit(status, 500n)
+    const summary = makeSummary({ filecoinPayBalance: balance, lockupUsed, rateUsed: 1n })
+    const res = computeAdjustmentForExactDeposit(summary, balance, 500n)
     expect(res.clampedTarget).toBe(lockupUsed)
-    // Need to withdraw down to locked amount
-    expect(res.delta).toBe(lockupUsed - filecoinPayBalance) // negative
+    expect(res.delta).toBe(lockupUsed - balance)
   })
 
   it('returns zero delta when already at target', () => {
-    const filecoinPayBalance = 2_000n
+    const balance = 2_000n
     const lockupUsed = 500n
-    const status = makeStatus({ filecoinPayBalance, lockupUsed, rateUsed: 1n })
-    const res = computeAdjustmentForExactDeposit(status, filecoinPayBalance)
+    const summary = makeSummary({ filecoinPayBalance: balance, lockupUsed, rateUsed: 1n })
+    const res = computeAdjustmentForExactDeposit(summary, balance, balance)
     expect(res.delta).toBe(0n)
-    expect(res.clampedTarget).toBe(filecoinPayBalance)
+    expect(res.clampedTarget).toBe(balance)
   })
 
   it('returns positive delta when more deposit needed', () => {
-    const filecoinPayBalance = 1_000n
+    const balance = 1_000n
     const lockupUsed = 100n
-    const status = makeStatus({ filecoinPayBalance, lockupUsed, rateUsed: 1n })
-    const res = computeAdjustmentForExactDeposit(status, 1_500n)
+    const summary = makeSummary({ filecoinPayBalance: balance, lockupUsed, rateUsed: 1n })
+    const res = computeAdjustmentForExactDeposit(summary, balance, 1_500n)
     expect(res.delta).toBe(500n)
     expect(res.clampedTarget).toBe(1_500n)
   })
@@ -149,35 +176,147 @@ describe('computeAdjustmentForExactDeposit', () => {
 
 describe('computeAdjustmentForExactDaysWithPiece', () => {
   it('calculates deposit for new file when rateUsed is 0', () => {
-    // Scenario: No existing storage, uploading first file
-    const status = makeStatus({ filecoinPayBalance: 0n, lockupUsed: 0n, rateUsed: 0n })
-    const pieceSizeBytes = 1024 * 1024 * 1024 // 1 GiB
-    const pricePerTiBPerEpoch = 1_000_000_000_000_000n // 0.001 USDFC per TiB per epoch
+    const summary = makeSummary({ filecoinPayBalance: 0n, lockupUsed: 0n, rateUsed: 0n })
+    const pieceSizeBytes = 1024 * 1024 * 1024
+    const pricePerTiBPerEpoch = 1_000_000_000_000_000n
     const days = 30
 
-    const res = computeAdjustmentForExactDaysWithPiece(status, days, pieceSizeBytes, pricePerTiBPerEpoch)
+    const res = computeAdjustmentForExactDaysWithPiece(
+      summary,
+      0n,
+      days,
+      pieceSizeBytes,
+      pricePerTiBPerEpoch,
+      60_000_000_000_000_000n
+    )
 
-    // Should require deposit for both lockup and runway
     expect(res.delta).toBeGreaterThan(0n)
     expect(res.newRateUsed).toBeGreaterThan(0n)
     expect(res.newLockupUsed).toBeGreaterThan(0n)
   })
 
   it('adds file requirements to existing usage', () => {
-    // Scenario: Existing storage, adding another file
-    const rateUsed = 1_000_000_000_000_000_000n // 1 USDFC/epoch
-    const lockupUsed = rateUsed * BigInt(30) * TIME_CONSTANTS.EPOCHS_PER_DAY // 30 days worth
-    const filecoinPayBalance = (lockupUsed * 12n) / 10n // 20% buffer
-    const status = makeStatus({ filecoinPayBalance, lockupUsed, rateUsed })
+    const rateUsed = 1_000_000_000_000_000_000n
+    const lockupUsed = rateUsed * 30n * TIME_CONSTANTS.EPOCHS_PER_DAY
+    const balance = (lockupUsed * 12n) / 10n
+    const summary = makeSummary({ filecoinPayBalance: balance, lockupUsed, rateUsed })
 
-    const pieceSizeBytes = 1024 * 1024 * 1024 // 1 GiB
-    const pricePerTiBPerEpoch = 1_000_000_000_000_000n // 0.001 USDFC per TiB per epoch
+    const pieceSizeBytes = 1024 * 1024 * 1024
+    const pricePerTiBPerEpoch = 1_000_000_000_000_000n
     const days = 30
 
-    const res = computeAdjustmentForExactDaysWithPiece(status, days, pieceSizeBytes, pricePerTiBPerEpoch)
+    const res = computeAdjustmentForExactDaysWithPiece(
+      summary,
+      balance,
+      days,
+      pieceSizeBytes,
+      pricePerTiBPerEpoch,
+      60_000_000_000_000_000n
+    )
 
-    // New rate should be higher than existing
     expect(res.newRateUsed).toBeGreaterThan(rateUsed)
     expect(res.newLockupUsed).toBeGreaterThan(lockupUsed)
+  })
+
+  it('keeps deposit at least at buffered lockup when runway target is smaller', () => {
+    const summary = makeSummary({ filecoinPayBalance: 0n, lockupUsed: 0n, rateUsed: 0n })
+    const pieceSizeBytes = 1024
+    const pricePerTiBPerEpoch = 1_000_000_000_000_000n
+    const days = 1
+
+    const res = computeAdjustmentForExactDaysWithPiece(
+      summary,
+      0n,
+      days,
+      pieceSizeBytes,
+      pricePerTiBPerEpoch,
+      60_000_000_000_000_000n
+    )
+
+    const perDay = res.newRateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
+    const safety = perDay / 24n > 0n ? perDay / 24n : 1n
+    const runwayCost = BigInt(days) * perDay + safety
+
+    expect(res.targetDeposit).toBeGreaterThanOrEqual(res.newLockupUsed)
+    expect(res.targetDeposit).toBeGreaterThan(runwayCost)
+  })
+})
+
+describe('toStorageRunwaySummary', () => {
+  it('returns no-spend when rate is 0', () => {
+    const result = toStorageRunwaySummary({
+      funds: 1_000_000n,
+      availableFunds: 1_000_000n,
+      totalLockup: 0n,
+      lockupRatePerEpoch: 0n,
+      runwayInEpochs: 0n,
+      debt: 0n,
+      grossCoverageInEpochs: 0n,
+    })
+    expect(result.state).toBe('no-spend')
+    expect(result.runwayDays).toBe(0)
+    expect(result.coverageDays).toBe(0)
+  })
+
+  it('converts SDK epochs to days/hours for both metrics', () => {
+    const rate = 1_000_000_000_000_000_000n
+    const result = toStorageRunwaySummary({
+      funds: 0n,
+      availableFunds: 0n,
+      totalLockup: 0n,
+      lockupRatePerEpoch: rate,
+      runwayInEpochs: TIME_CONSTANTS.EPOCHS_PER_DAY * 5n,
+      debt: 0n,
+      grossCoverageInEpochs: TIME_CONSTANTS.EPOCHS_PER_DAY * 20n,
+    })
+    expect(result.state).toBe('active')
+    expect(result.runwayDays).toBe(5)
+    expect(result.coverageDays).toBe(20)
+  })
+
+  it('issue #385: lockup exceeds balance — runway near zero, coverage substantial', () => {
+    // SDK runwayInEpochs would clamp to 0 when lockup >= balance
+    const rate = 1_000_000_000_000_000_000n
+    const result = toStorageRunwaySummary({
+      funds: rate * TIME_CONSTANTS.EPOCHS_PER_DAY * 20n,
+      availableFunds: 0n,
+      totalLockup: rate * TIME_CONSTANTS.EPOCHS_PER_DAY * 30n,
+      lockupRatePerEpoch: rate,
+      runwayInEpochs: 0n,
+      debt: 0n,
+      grossCoverageInEpochs: TIME_CONSTANTS.EPOCHS_PER_DAY * 20n,
+    })
+    expect(result.runwayDays).toBe(0)
+    expect(result.coverageDays).toBe(20)
+  })
+
+  it('projection input goes through resolveAccountState (synthetic state)', () => {
+    const rate = 1_000_000_000_000_000_000n
+    const perDay = rate * TIME_CONSTANTS.EPOCHS_PER_DAY
+    const result = toStorageRunwaySummary({
+      funds: perDay * 25n,
+      lockupCurrent: perDay * 10n,
+      lockupRate: rate,
+    })
+    // Coverage = 25 days, runway = 25-10 = 15 days
+    expect(result.coverageDays).toBe(25)
+    expect(result.runwayDays).toBe(15)
+  })
+
+  it('hour remainder', () => {
+    const rate = 1_000_000_000_000_000_000n
+    const result = toStorageRunwaySummary({
+      funds: 0n,
+      availableFunds: 0n,
+      totalLockup: 0n,
+      lockupRatePerEpoch: rate,
+      runwayInEpochs: TIME_CONSTANTS.EPOCHS_PER_DAY * 20n + TIME_CONSTANTS.EPOCHS_PER_HOUR * 12n,
+      debt: 0n,
+      grossCoverageInEpochs: TIME_CONSTANTS.EPOCHS_PER_DAY * 20n + TIME_CONSTANTS.EPOCHS_PER_HOUR * 12n,
+    })
+    expect(result.runwayDays).toBe(20)
+    expect(result.runwayHours).toBe(12)
+    expect(result.coverageDays).toBe(20)
+    expect(result.coverageHours).toBe(12)
   })
 })

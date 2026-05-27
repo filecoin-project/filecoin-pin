@@ -80,6 +80,7 @@ export function getOutputSummary(context, status) {
   /** @type {PaymentStatus} */
   const paymentStatus = {
     filecoinPayBalance: '0',
+    storageCovered: 'Unknown',
     storageRunway: 'Unknown',
     depositedThisRun: '0',
     network,
@@ -87,11 +88,12 @@ export function getOutputSummary(context, status) {
     filBalance: 0n,
     walletUsdfcBalance: '0',
     currentAllowances: {
+      isApproved: false,
       rateAllowance: 0n,
       lockupAllowance: 0n,
-      lockupUsed: 0n,
+      lockupUsage: 0n,
       maxLockupPeriod: 0n,
-      rateUsed: 0n,
+      rateUsage: 0n,
     },
     ...context?.paymentStatus,
   }
@@ -138,7 +140,8 @@ export function getOutputSummary(context, status) {
     '',
     `* Current Filecoin Pay balance: ${formatUSDFC(parseUnits(paymentStatus.filecoinPayBalance, 18))} USDFC`,
     `* Amount deposited to Filecoin Pay by this workflow: ${formatUSDFC(parseUnits(paymentStatus.depositedThisRun, 18))} USDFC`,
-    `* Data Set Storage runway: ${paymentStatus.storageRunway}`,
+    `* Storage covered by deposit: ${paymentStatus.storageCovered}`,
+    `* Top-up needed in: ${paymentStatus.storageRunway}`,
     '',
   ].join('\n')
 }

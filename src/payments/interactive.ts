@@ -255,7 +255,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     log.flush()
 
     // Show deposit warning if needed
-    displayDepositWarning(finalStatus.filecoinPayBalance, finalStatus.currentAllowances.lockupUsed)
+    displayDepositWarning(finalStatus.filecoinPayBalance, finalStatus.currentAllowances.lockupUsage)
 
     // Show appropriate outro message based on whether actions were taken
     if (actionsTaken) {
