@@ -90,7 +90,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     }
 
     // Now safe to get payment status since we know account exists
-    const [status, accountSummary] = await Promise.all([getPaymentStatus(synapse), synapse.payments.accountSummary({})])
+    const [status, accountSummary] = await Promise.all([getPaymentStatus(synapse), synapse.payments.accountSummary()])
 
     // Display account and balance info using shared function
     displayAccountInfo(
