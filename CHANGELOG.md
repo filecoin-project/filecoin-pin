@@ -17,18 +17,6 @@
     - PaymentStatus.filecoinPayBalance is now gross deposit (was availableFunds).
     - formatRunwaySummary returns {coverage, runway} strings instead of one string.
     - upload-action SimplifiedPaymentStatus adds required storageCovered.
-* **payments:** Multiple public API changes in @filoz/filecoin-pin/core/payments:
-    - calculateStorageRunway removed; use deriveStorageRunway / getStorageRunway.
-    - StorageRunwaySummary fields renamed: {days, hours, available} ->
-      {runwayDays, runwayHours, coverageDays, coverageHours}.
-    - computeAdjustmentForExactDays{,WithPiece}, computeTopUpForDuration,
-      computeAdjustmentForExactDeposit signatures changed from (status, ...)
-      to (accountSummary, balance, ...).
-    - getFilecoinPayFundingInsights now requires an accountSummary argument.
-    - calculateFilecoinPayFundingPlan options now require accountSummary.
-    - PaymentStatus.filecoinPayBalance is now gross deposit (was availableFunds).
-    - formatRunwaySummary returns {coverage, runway} strings instead of one string.
-    - upload-action SimplifiedPaymentStatus adds required storageCovered.
 * **unixfs:** `add` now produces different root CIDs than prior versions for single-file inputs (no directory wrapper) and may produce different CIDs for directories crossing the 256 KiB HAMT threshold (now estimated by serialized block size per the spec). The `--bare` flag is removed; the new profile makes it the only behavior.
 
 ### refactor
