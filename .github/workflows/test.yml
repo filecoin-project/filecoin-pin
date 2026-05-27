@@ -22,6 +22,10 @@ jobs:
         node: [lts/*, current]
         os: [macos-latest, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    # Lint, typecheck, build, and unit/integration tests finish within a few
+    # minutes. Cap well above that so a stalled step fails fast instead of
+    # riding the default 6h limit.
+    timeout-minutes: 15
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
@@ -57,6 +61,10 @@ jobs:
 
   browser-test:
     runs-on: ubuntu-latest
+    # Browser tests finish in under a minute once the cached Chromium is in
+    # place. Cap with headroom for a cold browser download so a stalled step
+    # fails fast instead of riding the default 6h limit.
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
