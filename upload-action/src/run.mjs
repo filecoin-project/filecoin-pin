@@ -71,7 +71,6 @@ main()
     // Exit explicitly so GitHub Actions can run post-action cleanup steps.
     try {
       await flushTelemetry()
-      configureTelemetry({ disabled: true })
     } catch (err) {
       core.warning(`Telemetry flush failed: ${getErrorMessage(err)}`)
     } finally {
@@ -89,7 +88,6 @@ main()
     handleError(err)
     try {
       await flushTelemetry()
-      configureTelemetry({ disabled: true })
     } catch (telemetryErr) {
       core.warning(`Telemetry flush failed: ${getErrorMessage(telemetryErr)}`)
     } finally {

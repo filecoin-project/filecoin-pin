@@ -76,7 +76,6 @@ program.hook('postAction', async (_thisCommand, actionCommand) => {
   if (actionCommand.name() !== 'server') {
     try {
       await flushTelemetry()
-      configureTelemetry({ disabled: true })
     } catch (err) {
       // Never let a telemetry flush failure block the forced exit below.
       console.error('Telemetry flush failed:', err)

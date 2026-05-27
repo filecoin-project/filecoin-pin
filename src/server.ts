@@ -1,5 +1,5 @@
 import { createConfig } from './config.js'
-import { configureTelemetry, flushTelemetry } from './core/telemetry/index.js'
+import { flushTelemetry } from './core/telemetry/index.js'
 import { name as packageName, version as packageVersion } from './core/utils/version.js'
 import { createFilecoinPinningServer } from './filecoin-pinning-server.js'
 import { createLogger } from './logger.js'
@@ -33,7 +33,6 @@ export async function startServer(): Promise<void> {
         await pinStore.stop()
         try {
           await flushTelemetry()
-          configureTelemetry({ disabled: true })
         } catch (err) {
           logger.error({ err }, 'Telemetry flush failed')
         } finally {
@@ -49,7 +48,6 @@ export async function startServer(): Promise<void> {
         await pinStore.stop()
         try {
           await flushTelemetry()
-          configureTelemetry({ disabled: true })
         } catch (err) {
           logger.error({ err }, 'Telemetry flush failed')
         } finally {
