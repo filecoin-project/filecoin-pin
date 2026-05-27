@@ -66,7 +66,7 @@ describe('telemetry', () => {
     await shutdownTelemetry()
   })
 
-  it('posts one point per copy and per failed attempt in a single request', async () => {
+  it('posts one uploadCopyStatus point per copy and per failed attempt in a single request', async () => {
     const { recordUploadResult, flushTelemetry } = await freshTelemetry()
 
     recordUploadResult(
@@ -86,48 +86,56 @@ describe('telemetry', () => {
     const points = parseBody(firstCall())
     expect(points).toHaveLength(4)
 
-    const successPoints = points.filter((p) => p.name === 'upload.copies.success')
-    const failurePoints = points.filter((p) => p.name === 'upload.copies.failure')
-
-    expect(successPoints).toContainEqual(
-      expect.objectContaining({
-        counter: { value: 1 },
-        tags: expect.objectContaining({ 'upload.spId': '1', 'upload.role': 'primary', network: 'calibration' }),
-      })
-    )
-    expect(successPoints).toContainEqual(
-      expect.objectContaining({
-        counter: { value: 1 },
-        tags: expect.objectContaining({ 'upload.spId': '2', 'upload.role': 'secondary', network: 'calibration' }),
-      })
-    )
-    expect(failurePoints).toContainEqual(
-      expect.objectContaining({
-        counter: { value: 1 },
-        tags: expect.objectContaining({
-          'upload.spId': '3',
-          'upload.role': 'secondary',
-          'upload.step': 'pull',
-          network: 'calibration',
-        }),
-      })
-    )
-    expect(failurePoints).toContainEqual(
-      expect.objectContaining({
-        counter: { value: 1 },
-        tags: expect.objectContaining({
-          'upload.spId': '4',
-          'upload.role': 'secondary',
-          'upload.step': 'commit',
-          network: 'calibration',
-        }),
-      })
-    )
     for (const point of points) {
-      expect(point.tags['service.name']).toBe('filecoin-pin')
+      expect(point.name).toBe('uploadCopyStatus')
       expect(point.tags.affordance).toBe('Library')
       expect(typeof point.dt).toBe('string')
     }
+
+    expect(points).toContainEqual(
+      expect.objectContaining({
+        counter: { value: 1 },
+        tags: expect.objectContaining({
+          spId: '1',
+          role: 'primary',
+          value: 'success',
+          network: 'calibration',
+        }),
+      })
+    )
+    expect(points).toContainEqual(
+      expect.objectContaining({
+        counter: { value: 1 },
+        tags: expect.objectContaining({
+          spId: '2',
+          role: 'secondary',
+          value: 'success',
+          network: 'calibration',
+        }),
+      })
+    )
+    expect(points).toContainEqual(
+      expect.objectContaining({
+        counter: { value: 1 },
+        tags: expect.objectContaining({
+          spId: '3',
+          role: 'secondary',
+          value: 'failure.pull',
+          network: 'calibration',
+        }),
+      })
+    )
+    expect(points).toContainEqual(
+      expect.objectContaining({
+        counter: { value: 1 },
+        tags: expect.objectContaining({
+          spId: '4',
+          role: 'secondary',
+          value: 'failure.commit',
+          network: 'calibration',
+        }),
+      })
+    )
   })
 
   it('stamps the configured affordance on every point', async () => {
@@ -183,7 +191,7 @@ describe('telemetry', () => {
     expect(fetchCalls).toHaveLength(0)
   })
 
-  it('classifies unknown error strings as step=unknown', async () => {
+  it('classifies unrecognised failure strings as value=failure.other', async () => {
     const { recordUploadResult, flushTelemetry } = await freshTelemetry()
 
     recordUploadResult(
@@ -194,9 +202,9 @@ describe('telemetry', () => {
 
     const points = parseBody(firstCall())
     expect(points[0]?.tags).toMatchObject({
-      'upload.spId': '9',
-      'upload.role': 'primary',
-      'upload.step': 'unknown',
+      spId: '9',
+      role: 'primary',
+      value: 'failure.other',
     })
   })
 

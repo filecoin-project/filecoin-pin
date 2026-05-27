@@ -1,35 +1,26 @@
 /**
  * Anonymous upload telemetry.
  *
- * Emits two counters via direct HTTP POST to BetterStack
- * (https://betterstack.com/docs/logs/ingesting-data/http/metrics/) so we can
- * gauge the multi-copy success rate of `executeUpload`:
+ * Emits one counter — `uploadCopyStatus` — per resolved copy attempt, with a
+ * `value` tag of `success | failure.pull | failure.commit | failure.other`.
+ * See `documentation/events-and-metrics.md` for the full schema (events, tags,
+ * and how the metric relates to the SDK's per-upload result).
  *
- * - `upload.copies.success` — per successful copy, attributed by `upload.spId`
- *   and `upload.role` (primary/secondary).
- * - `upload.copies.failure` — per failed copy attempt, attributed by
- *   `upload.spId`, `upload.role`, and `upload.step` (which sub-step of the
- *   upload pipeline tripped the failure).
+ * Metrics ship via direct HTTP POST to BetterStack
+ * (https://betterstack.com/docs/logs/ingesting-data/http/metrics/). Each call
+ * to {@link recordUploadResult} fires its own HTTP POST — there is no
+ * in-memory buffer or periodic flush. Use {@link flushTelemetry} to await
+ * pending requests, or {@link shutdownTelemetry} to do that and turn
+ * subsequent record calls into no-ops.
  *
  * Works in both Node and the browser. The library never reads its own
  * environment — callers are expected to apply any host-specific configuration
  * (env vars, CLI flags, browser globals) by invoking {@link configureTelemetry}
  * before the first `executeUpload`.
- *
- * Each call to {@link recordUploadResult} fires its own HTTP POST — there is
- * no in-memory buffer or periodic flush. Use {@link flushTelemetry} to await
- * pending requests, or {@link shutdownTelemetry} to do that and turn
- * subsequent record calls into no-ops.
  */
 
 import type { UploadResult } from '@filoz/synapse-sdk'
-import {
-  DEFAULT_METRICS_ENDPOINT,
-  DEFAULT_METRICS_TOKEN,
-  METRIC_UPLOAD_COPIES_FAILURE,
-  METRIC_UPLOAD_COPIES_SUCCESS,
-  TELEMETRY_SERVICE_NAME,
-} from './constants.js'
+import { DEFAULT_METRICS_ENDPOINT, DEFAULT_METRICS_TOKEN, METRIC_UPLOAD_COPY_STATUS } from './constants.js'
 
 /**
  * Which surface the metric was emitted from. Every metric carries this as a
@@ -94,15 +85,15 @@ function start(): boolean {
 }
 
 /**
- * Map a SDK failure `error` string to a coarse step name.
- * Keep this short list of buckets — high-cardinality strings would defeat
- * the purpose of the counter.
+ * Map a SDK failure `error` string to a coarse outcome value. Keep this
+ * short list of buckets — high-cardinality strings would defeat the purpose
+ * of the counter.
  */
-function classifyStep(error: string): string {
+function classifyFailure(error: string): string {
   const lower = error.toLowerCase()
-  if (lower.startsWith('pull failed')) return 'pull'
-  if (lower.startsWith('commit failed')) return 'commit'
-  return 'unknown'
+  if (lower.startsWith('pull failed')) return 'failure.pull'
+  if (lower.startsWith('commit failed')) return 'failure.commit'
+  return 'failure.other'
 }
 
 async function post(points: MetricPoint[]): Promise<void> {
@@ -111,7 +102,7 @@ async function post(points: MetricPoint[]): Promise<void> {
     name: p.name,
     counter: { value: 1 },
     dt,
-    tags: { 'service.name': TELEMETRY_SERVICE_NAME, affordance, ...p.tags },
+    tags: { affordance, ...p.tags },
   }))
   try {
     await fetch(endpoint, {
@@ -141,21 +132,22 @@ export function recordUploadResult(result: Pick<UploadResult, 'copies' | 'failed
   const points: MetricPoint[] = []
   for (const copy of result.copies) {
     points.push({
-      name: METRIC_UPLOAD_COPIES_SUCCESS,
+      name: METRIC_UPLOAD_COPY_STATUS,
       tags: {
-        'upload.spId': String(copy.providerId),
-        'upload.role': copy.role,
+        spId: String(copy.providerId),
+        role: copy.role,
+        value: 'success',
         network,
       },
     })
   }
   for (const attempt of result.failedAttempts) {
     points.push({
-      name: METRIC_UPLOAD_COPIES_FAILURE,
+      name: METRIC_UPLOAD_COPY_STATUS,
       tags: {
-        'upload.spId': String(attempt.providerId),
-        'upload.role': attempt.role,
-        'upload.step': classifyStep(attempt.error),
+        spId: String(attempt.providerId),
+        role: attempt.role,
+        value: classifyFailure(attempt.error),
         network,
       },
     })

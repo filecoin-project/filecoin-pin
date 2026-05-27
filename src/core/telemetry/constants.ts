@@ -15,11 +15,9 @@ export const DEFAULT_METRICS_ENDPOINT = 'https://s2455837.us-east-9.betterstackd
 
 export const DEFAULT_METRICS_TOKEN = 'fs1TY3tELKDzThkm1SeWq18P'
 
-/** Service name attached to every metric as a tag. */
-export const TELEMETRY_SERVICE_NAME = 'filecoin-pin'
-
-/** Counter: number of copies successfully uploaded. */
-export const METRIC_UPLOAD_COPIES_SUCCESS = 'upload.copies.success'
-
-/** Counter: number of copy upload errors. */
-export const METRIC_UPLOAD_COPIES_FAILURE = 'upload.copies.failure'
+/**
+ * Counter: one increment per resolved upload copy attempt, carrying a
+ * `value` tag (`success`, `failure.pull`, `failure.commit`, `failure.other`).
+ * See `documentation/events-and-metrics.md` for the full schema.
+ */
+export const METRIC_UPLOAD_COPY_STATUS = 'uploadCopyStatus'

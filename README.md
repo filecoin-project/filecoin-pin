@@ -119,9 +119,10 @@ Filecoin Pin's CLI collects telemetry.  A few things:
 
 What we collect:
 * **Error reports** via Sentry (no PII).
-* **Per-upload copy outcomes** posted directly to [BetterStack's HTTP metrics ingestion endpoint](https://betterstack.com/docs/logs/ingesting-data/http/metrics/), so we can measure the success rate of multi-copy uploads and identify which storage providers (or pipeline steps) are failing. Every metric also carries an `affordance` tag identifying the surface it was emitted from (`CLI`, `GitHub Action`, `Library`, `Filecoin Pin Website`). Two counters are emitted:
-  * `upload.copies.success` — incremented per successful copy. Tags: `upload.spId` (storage provider ID), `upload.role` (`primary`/`secondary`), `network`, `affordance`.
-  * `upload.copies.failure` — incremented per failed copy attempt. Tags: `upload.spId`, `upload.role`, `upload.step` (`pull`/`commit`/`unknown`), `network`, `affordance`.
+* **Per-upload copy outcomes** posted directly to [BetterStack's HTTP metrics ingestion endpoint](https://betterstack.com/docs/logs/ingesting-data/http/metrics/), so we can measure the success rate of multi-copy uploads and identify which storage providers (or pipeline steps) are failing. One counter is emitted:
+  * `uploadCopyStatus` — incremented once per resolved copy attempt. Tags: `spId` (storage provider ID), `role` (`primary`/`secondary`), `value` (`success`, `failure.pull`, `failure.commit`, `failure.other`), `network`, `affordance` (which surface emitted the metric: `CLI`, `GitHub Action`, `Library`, `Filecoin Pin Website`).
+
+  See [`documentation/events-and-metrics.md`](documentation/events-and-metrics.md) for the full schema, including the underlying events and the relationship between this metric and the Synapse SDK's upload result.
 
   The BetterStack source token is shipped in source, so the data source is treated as public and untrusted. The CLI lets you send your own copy with `FILECOIN_PIN_METRICS_ENDPOINT` and `FILECOIN_PIN_METRICS_TOKEN`.
 
