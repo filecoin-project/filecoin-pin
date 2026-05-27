@@ -5,13 +5,12 @@ import pc from 'picocolors'
 
 import { ALL_CLI_COMMANDS } from './commands/index.js'
 import { checkForUpdate, type UpdateCheckStatus } from './common/version-check.js'
-import { configureTelemetryFromEnv } from './configure-telemetry-from-env.js'
 import { configureTelemetry, flushTelemetry } from './core/telemetry/index.js'
 import { version as packageVersion } from './core/utils/version.js'
+import { readTelemetryConfigFromEnv } from './read-telemetry-config-from-env.js'
 
-// Map CLI env vars onto the telemetry library before any subcommand runs.
-configureTelemetry({ affordance: 'CLI' })
-configureTelemetryFromEnv()
+// Apply CLI env vars to the telemetry library before any subcommand runs.
+configureTelemetry({ ...readTelemetryConfigFromEnv(), affordance: 'CLI' })
 
 // Create the main program
 const program = new Command()

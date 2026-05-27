@@ -138,7 +138,7 @@ What we collect:
   configureTelemetry({ affordance: 'Filecoin Pin Website' })   // tag the surface (default 'Library')
   ```
 
-  The CLI's env-var support is built on top of this API (see `src/configure-telemetry-from-env.ts`); other Node hosts can follow the same pattern.
+  The CLI's env-var support is built on top of this API (see `src/read-telemetry-config-from-env.ts`); other Node hosts can follow the same pattern.
 
 ### How to disable CLI telemetry
 
