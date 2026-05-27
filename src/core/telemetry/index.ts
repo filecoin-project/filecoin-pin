@@ -32,11 +32,16 @@ export type Affordance = (typeof AFFORDANCES)[number]
 
 const DEFAULT_AFFORDANCE: Affordance = 'Library'
 
-interface RuntimeOverrides {
-  disabled?: boolean
-  endpoint?: string
-  token?: string
-  affordance?: Affordance
+/**
+ * Full telemetry configuration. The module holds one of these as its current
+ * config; {@link configureTelemetry} accepts a `Partial<TelemetryConfiguration>`
+ * so callers can override just the fields they care about.
+ */
+export interface TelemetryConfiguration {
+  disabled: boolean
+  endpoint: string
+  token: string
+  affordance: Affordance
 }
 
 interface MetricPoint {
@@ -44,10 +49,12 @@ interface MetricPoint {
   tags: Record<string, string>
 }
 
-let disabled = false
-let endpoint = DEFAULT_METRICS_ENDPOINT
-let token = DEFAULT_METRICS_TOKEN
-let affordance: Affordance = DEFAULT_AFFORDANCE
+let config: TelemetryConfiguration = {
+  disabled: false,
+  endpoint: DEFAULT_METRICS_ENDPOINT,
+  token: DEFAULT_METRICS_TOKEN,
+  affordance: DEFAULT_AFFORDANCE,
+}
 const inFlight = new Set<Promise<void>>()
 
 /**
@@ -59,16 +66,13 @@ const inFlight = new Set<Promise<void>>()
  * Throws if `overrides.affordance` is set to a value outside {@link AFFORDANCES}
  * (callers may not be in TypeScript, so we validate at runtime too).
  */
-export function configureTelemetry(overrides: RuntimeOverrides): void {
+export function configureTelemetry(overrides: Partial<TelemetryConfiguration>): void {
   if (overrides.affordance != null && !(AFFORDANCES as readonly string[]).includes(overrides.affordance)) {
     throw new TypeError(
       `Invalid telemetry affordance ${JSON.stringify(overrides.affordance)}; expected one of ${AFFORDANCES.join(', ')}`
     )
   }
-  if (overrides.disabled != null) disabled = overrides.disabled
-  if (overrides.endpoint != null) endpoint = overrides.endpoint
-  if (overrides.token != null) token = overrides.token
-  if (overrides.affordance != null) affordance = overrides.affordance
+  config = { ...config, ...overrides }
 }
 
 /**
@@ -89,13 +93,13 @@ async function post(points: MetricPoint[]): Promise<void> {
     name: p.name,
     counter: { value: 1 },
     dt,
-    tags: { affordance, ...p.tags },
+    tags: { affordance: config.affordance, ...p.tags },
   }))
   try {
-    await fetch(endpoint, {
+    await fetch(config.endpoint, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${config.token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
@@ -114,7 +118,7 @@ async function post(points: MetricPoint[]): Promise<void> {
  * @param network - URL-safe network slug (e.g. `mainnet`, `calibration`).
  */
 export function recordUploadResult(result: Pick<UploadResult, 'copies' | 'failedAttempts'>, network: string): void {
-  if (disabled) return
+  if (config.disabled) return
 
   const points: MetricPoint[] = []
   for (const copy of result.copies) {
@@ -162,5 +166,5 @@ export async function flushTelemetry(): Promise<void> {
  */
 export async function shutdownTelemetry(): Promise<void> {
   await flushTelemetry()
-  disabled = true
+  config.disabled = true
 }
