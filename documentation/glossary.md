@@ -39,6 +39,22 @@ Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metad
 
 FIL is Filecoin's native token.  While [Filecoin Onchain Cloud](#filecoin-onchain-cloud) storage is currently denominated in [USDFC](#usdfc), gas for transactions on the Filecoin blockchain (e.g., adding a [Piece](#piece)) need to be paid for using FIL. Most transactions in the data onboarding flow for Filecoin Onchain Cloud are submitted by storage providers so client typically have minimal need to interact directly with FIL.
 
+## FilBeam egress
+
+This concerns the [/piece retrieval](#piece-retrieval) CDN provided by [FilBeam](https://github.com/filbeam). When `filecoin-pin add` or `filecoin-pin import` is run with `--egress-provider beam` (the default), uploaded pieces are retrievable via FilBeam at `https://{wallet-address}.{filbeam-domain}/{pieceCid}` (e.g., `https://0xabc....calibration.filbeam.io/bafk...` on the [Calibration Network](#calibration-network)).
+
+**What it does today:** Serves [`/piece` Retrieval](#piece-retrieval) only — whole-CAR fetches keyed by [Piece CID](#piece-cid). It does **not** route [`/ipfs` Retrieval](#ipfs-retrieval); for those, use the IPFS retrieval URLs printed alongside the upload result.
+
+**Network support:** FilBeam URLs are only printed on networks with a FilBeam endpoint (mainnet and [Calibration](#calibration-network)). On networks without one (e.g. devnet), `--egress-provider beam` stays the default but no FilBeam URL is shown.
+
+**Cost:** CDN egress is paid from funds the data set owner locks up for it — it is not billed to their wallet at data-set creation. Instead, lockup is consumed as retrievals happen. Anyone who knows the piece CID and wallet address can trigger a retrieval, which draws down that egress lockup.
+
+**Lockup:** Creating a new FilBeam-enabled [Data Set](#data-set) requires an extra fixed lockup of 1 USDFC (on top of the data-set creation fee and ongoing storage cost). This is why a CDN upload that creates a new data set needs more deposited funds than a non-CDN one. `--auto-fund` accounts for it automatically; without it, deposit enough to cover the lockup or the upload fails with an insufficient-funds error.
+
+**Future state:** FilBeam is working on routing IPFS-block retrievals through the same CDN ([filbeam/roadmap#85](https://github.com/filbeam/roadmap/issues/85)). [Data Sets](#data-set) uploaded with FilBeam enabled today will benefit automatically when that ships.
+
+**Opting out:** Pass `--egress-provider none` (or `EGRESS_PROVIDER=none`) to skip FilBeam routing entirely.
+
 ## Filecoin Pay
 
 Filecoin Pay is a generic payment solution between users and various [Filecoin Onchain Cloud](#filecoin-onchain-cloud) services.
@@ -118,6 +134,11 @@ Key | Purpose | Scope
 `source` | Set to 'filecoin-pin' to identify data created by this tool | Data Set
 `withIPFSIndexing` | Set to empty string to signal the [SP](#service-provider) to index and advertise the data to [IPNI](#ipni) | Data Set
 `ipfsRootCid` | Stored on each Piece to link the [Piece CID](#piece-cid) back to the [IPFS Root CID](#ipfs-root-cid).  While this is a convention that Filecoin Pin follows, there is nothing onchain enforcing a correct link between `ipfsRootCid` and `pieceCid`. | Piece
+`name` | Original basename of the source path (file or directory). Auto-derived during `add` so the human-readable label survives even though the [UnixFS profile](#unixfs-v1-2025-profile) does not wrap single files in a parent directory. User-supplied piece metadata wins over the auto-derived value; an explicit empty string is treated as an opt-out. Consumers that need to know whether the source was a file or a directory inspect the [IPFS Root CID](#ipfs-root-cid) (codec + UnixFS `Data.Type`), matching the IPFS Pinning Service `name` convention. | Piece
+
+## unixfs-v1-2025 profile
+
+The [IPIP-499](https://github.com/ipfs/specs/pull/499) UnixFS CID profile that Filecoin Pin uses when packing files and directories. Selecting this profile pins importer settings (CIDv1, raw leaves, 1 MiB chunks, 1024-link DAG width, block-bytes HAMT shard estimation) so that the [IPFS Root CID](#ipfs-root-cid) for a given input matches the CID produced by any other conforming implementation. Filecoin Pin does not wrap single files in a parent directory under this profile; the source basename is preserved via the `name` [Metadata](#metadata) entry instead.
 
 ## Piece
 

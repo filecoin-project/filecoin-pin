@@ -123,6 +123,7 @@ export class MockSynapse extends EventEmitter {
   public readonly chain = {
     id: 314159,
     name: 'calibration',
+    filbeam: { retrievalDomain: 'calibration.filbeam.io' },
   }
 
   // Client info

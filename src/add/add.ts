@@ -10,13 +10,13 @@ import { stat } from 'node:fs/promises'
 import { Readable } from 'node:stream'
 import pc from 'picocolors'
 import pino from 'pino'
-import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
+import { describeLockupShortfall } from '../common/lockup-error.js'
 import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
 import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
-import { normalizeMetadataConfig } from '../core/metadata/index.js'
+import { normalizeMetadataConfig, withDerivedNameMetadata } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
@@ -25,16 +25,14 @@ import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
+import { buildFilbeamUrl, chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
 import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 import type { AddOptions, AddResult } from './types.js'
 
 /**
  * Validate that a path exists and is a regular file or directory
  */
-async function validatePath(
-  path: string,
-  options: AddOptions
-): Promise<{
+async function validatePath(path: string): Promise<{
   exists: boolean
   stats?: any
   isDirectory?: boolean
@@ -46,13 +44,6 @@ async function validatePath(
       return { exists: true, stats, isDirectory: false }
     }
     if (stats.isDirectory()) {
-      // Check if bare flag is used with directory
-      if (options.bare) {
-        return {
-          exists: false,
-          error: `--bare flag is not supported for directories`,
-        }
-      }
       return { exists: true, stats, isDirectory: true }
     }
     // Not a file or directory (could be symlink, socket, etc.)
@@ -89,14 +80,18 @@ export async function runAddFromCli(path: string, options: Record<string, any>):
       autoFund: _autoFund,
       minRunwayDays: _minRunwayDays,
       maxBalance: _maxBalance,
+      egressProvider: rawEgressProvider,
       ...addOptionsFromCli
     } = options
     const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
+
+    const egressProvider = rawEgressProvider ?? 'beam'
 
     addOptions = {
       ...addOptionsFromCli,
       ...autoFundOptions,
       filePath: path,
+      egressProvider,
       ...(pieceMetadata && { pieceMetadata }),
       ...(dataSetMetadata && { dataSetMetadata }),
     }
@@ -120,7 +115,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
   const spinner = createSpinner()
 
-  const { pieceMetadata, dataSetMetadata } = normalizeMetadataConfig({
+  const { pieceMetadata: userPieceMetadata, dataSetMetadata } = normalizeMetadataConfig({
     pieceMetadata: options.pieceMetadata,
     dataSetMetadata: options.dataSetMetadata,
   })
@@ -130,15 +125,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     level: process.env.LOG_LEVEL || 'silent',
   })
 
-  // Check CDN status and warn if enabled
-  const withCDN = process.env.WITH_CDN === 'true'
-  if (withCDN) {
-    const proceed = await warnAboutCDNPricingLimitations()
-    if (!proceed) {
-      cancel('Add cancelled')
-      throw new Error('CDN pricing limitations warning cancelled')
-    }
-  }
+  // Map the public egress provider to the SDK's withCDN boolean (internal only).
+  const withCDN = options.egressProvider === 'beam'
 
   let tempCarPath: string | undefined
 
@@ -146,7 +134,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     // Validate path exists and is readable
     spinner.start('Validating path...')
 
-    const pathValidation = await validatePath(options.filePath, options)
+    const pathValidation = await validatePath(options.filePath)
     if (!pathValidation.exists || !pathValidation.stats) {
       spinner.stop(`${pc.red('✗')} ${pathValidation.error}`)
       cancel('Add cancelled')
@@ -190,6 +178,10 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
+    if (withCDN && chainSupportsFilbeam(synapse)) {
+      printEgressNotice('beam')
+    }
+
     // Resolve partial --data-set-metadata locally; SDK metadata matching requires exact equality.
     let effectiveDataSetMetadata = dataSetMetadata
     if (dataSetMetadata != null && contextSelection.dataSetIds == null && contextSelection.providerIds == null) {
@@ -230,18 +222,20 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     }
 
     // Create CAR from file or directory
-    const packingMsg = isDirectory
-      ? 'Packing directory for IPFS...'
-      : `Packing file for IPFS${options.bare ? ' (bare mode)' : ''}...`
+    const packingMsg = isDirectory ? 'Packing directory for IPFS...' : 'Packing file for IPFS...'
     spinner.start(packingMsg)
 
-    const { carPath, rootCid } = await createCarFromPath(options.filePath, {
+    const { carPath, rootCid, name } = await createCarFromPath(options.filePath, {
       logger,
       spinner,
       isDirectory,
-      ...(options.bare !== undefined && { bare: options.bare }),
+      ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }),
     })
     tempCarPath = carPath
+
+    // File-vs-directory is recovered by inspecting the root CID
+    // (codec + UnixFS Data.Type), not from a key-name distinction.
+    const pieceMetadata = withDerivedNameMetadata(userPieceMetadata, name)
 
     spinner.stop(`${pc.green('✓')} ${isDirectory ? 'Directory' : 'File'} packed with root CID: ${rootCid.toString()}`)
 
@@ -253,6 +247,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     spinner.stop(`${pc.green('✓')} Packed IPFS content ready (${formatFileSize(carSize)})`)
 
     const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {
+      withCDN,
       ...(dataSetMetadata && { metadata: dataSetMetadata }),
       ...(options.copies != null && { copies: options.copies }),
     }
@@ -320,7 +315,10 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       failedAttempts: uploadResult.failedAttempts,
     }
 
-    displayUploadResults(result, 'Add', network, networkSlug)
+    const filbeamUrl = buildFilbeamUrl(synapse, uploadResult.pieceCid, withCDN)
+    const egress = filbeamUrl != null ? { filbeamUrl } : undefined
+
+    displayUploadResults(result, 'Add', network, networkSlug, egress)
 
     if (uploadResult.copies.length < requestedCopies) {
       log.line('')
@@ -354,11 +352,21 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     const carInput = error instanceof Error && (error as { code?: string }).code === INPUT_IS_CAR
     const message = error instanceof Error ? error.message : 'Unknown error'
-    spinner.stop(`${pc.red('✗')} ${carInput ? message : `Add failed: ${message}`}`)
-    if (carInput) {
+    const lockup = describeLockupShortfall(error)
+    if (lockup != null) {
+      spinner.stop(`${pc.red('✗')} Add failed: ${lockup.headline}`)
       log.line('')
-      log.line(pc.cyan(`  filecoin-pin import ${options.filePath}`))
+      for (const hint of lockup.hints) {
+        log.line(`  ${pc.cyan(hint)}`)
+      }
       log.flush()
+    } else {
+      spinner.stop(`${pc.red('✗')} ${carInput ? message : `Add failed: ${message}`}`)
+      if (carInput) {
+        log.line('')
+        log.line(pc.cyan(`  filecoin-pin import ${options.filePath}`))
+        log.flush()
+      }
     }
     logger.error({ event: 'add.failed', error }, 'Add failed')
 

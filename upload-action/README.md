@@ -17,7 +17,7 @@ See the two-workflow approach in the [examples directory](./examples/) for compl
 See [action.yml](./action.yml) for complete input documentation including:
 - **Core**: `path`, `walletPrivateKey`, `network`
 - **Financial**: `minStorageDays`, `filecoinPayBalanceLimit`
-- **Advanced**: `withCDN`, `dryRun`, `disableTelemetry`
+- **Advanced**: `egressProvider`, `dryRun`, `disableTelemetry`
 
 **Outputs**: `ipfsRootCid`, `dataSetId`, `pieceCid`, `providerId`, `providerName`, `carPath`, `uploadStatus`
 
@@ -31,7 +31,6 @@ If `path` points to a regular file whose name ends in `.car`, the action skips i
   with:
     path: build.car
     walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
-    network: calibration
 ```
 
 The CAR must declare exactly one root; multi-root and rootless CARs are rejected so the upload always has an unambiguous IPFS root CID. Directories (even named `foo.car/`) fall through to the UnixFS packer.
@@ -50,7 +49,6 @@ For most users, automatic provider selection is recommended. However, for advanc
   with:
     path: dist
     walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
-    network: calibration
 ```
 
 **Priority order**:

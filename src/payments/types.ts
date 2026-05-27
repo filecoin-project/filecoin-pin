@@ -31,6 +31,8 @@ export interface AutoFundOptions {
   dataSetIds?: bigint[]
   /** Data set metadata applied when creating or matching contexts */
   metadata?: Record<string, string>
+  /** Whether CDN (FilBeam) is enabled — adds the per-new-data-set fixed lockup to funding estimates */
+  withCDN?: boolean
   /** Optional spinner for progress updates */
   spinner?: Spinner
   /** Minimum runway to maintain, in days. Defaults to MIN_RUNWAY_DAYS. */
