@@ -10,7 +10,12 @@
  */
 
 import type { UploadResult } from '@filoz/synapse-sdk'
-import { DEFAULT_METRICS_ENDPOINT, DEFAULT_METRICS_TOKEN, METRIC_UPLOAD_COPY_STATUS } from './constants.js'
+import {
+  DEFAULT_METRICS_ENDPOINT,
+  DEFAULT_METRICS_TOKEN,
+  METRIC_UPLOAD_COPY_SIZE,
+  METRIC_UPLOAD_COPY_STATUS,
+} from './constants.js'
 
 /**
  * Which surface the metric was emitted from. Every metric carries this as a
@@ -36,6 +41,10 @@ export interface TelemetryConfiguration {
 
 interface MetricPoint {
   name: string
+  /** Which BetterStack metric body shape to use for this point. */
+  type: 'counter' | 'gauge'
+  /** Counter increments are always 1; gauge values are the raw reading. */
+  value: number
   tags: Record<string, string>
 }
 
@@ -89,7 +98,7 @@ async function post(points: MetricPoint[]): Promise<void> {
   const dt = new Date().toISOString()
   const body = points.map((p) => ({
     name: p.name,
-    counter: { value: 1 },
+    [p.type]: { value: p.value },
     dt,
     tags: { affordance: config.affordance, ...p.tags },
   }))
@@ -109,36 +118,38 @@ async function post(points: MetricPoint[]): Promise<void> {
 }
 
 /**
- * Record one upload's per-copy outcomes — one counter point per entry in
- * `result.copies` and `result.failedAttempts`. No-op when disabled.
+ * Record one upload's per-copy outcomes — for each entry in `result.copies`
+ * and `result.failedAttempts` we emit a paired `uploadCopyStatus` counter and
+ * `uploadCopySize` gauge sharing the same tag set. No-op when disabled.
  *
  * @param result - The structured upload result returned by Synapse.
  * @param network - URL-safe network slug (e.g. `mainnet`, `calibration`).
  */
-export function recordUploadResult(result: Pick<UploadResult, 'copies' | 'failedAttempts'>, network: string): void {
+export function recordUploadResult(
+  result: Pick<UploadResult, 'copies' | 'failedAttempts' | 'size'>,
+  network: string
+): void {
   if (config.disabled) return
 
   const points: MetricPoint[] = []
+  const pushPair = (tags: Record<string, string>) => {
+    points.push({ name: METRIC_UPLOAD_COPY_STATUS, type: 'counter', value: 1, tags })
+    points.push({ name: METRIC_UPLOAD_COPY_SIZE, type: 'gauge', value: result.size, tags })
+  }
   for (const copy of result.copies) {
-    points.push({
-      name: METRIC_UPLOAD_COPY_STATUS,
-      tags: {
-        spId: String(copy.providerId),
-        role: copy.role,
-        value: 'success',
-        network,
-      },
+    pushPair({
+      spId: String(copy.providerId),
+      role: copy.role,
+      value: 'success',
+      network,
     })
   }
   for (const attempt of result.failedAttempts) {
-    points.push({
-      name: METRIC_UPLOAD_COPY_STATUS,
-      tags: {
-        spId: String(attempt.providerId),
-        role: attempt.role,
-        value: classifyFailure(attempt.error),
-        network,
-      },
+    pushPair({
+      spId: String(attempt.providerId),
+      role: attempt.role,
+      value: classifyFailure(attempt.error),
+      network,
     })
   }
   if (points.length === 0) return

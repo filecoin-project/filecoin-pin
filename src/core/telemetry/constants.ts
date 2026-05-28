@@ -21,3 +21,11 @@ export const DEFAULT_METRICS_TOKEN = 'fs1TY3tELKDzThkm1SeWq18P'
  * See `documentation/events-and-metrics.md` for the full schema.
  */
 export const METRIC_UPLOAD_COPY_STATUS = 'uploadCopyStatus'
+
+/**
+ * Gauge: piece size in bytes, emitted alongside every
+ * {@link METRIC_UPLOAD_COPY_STATUS} point with the same tag set. Lets dashboards
+ * slice success/failure rates by size (e.g. p99 size of commit-step failures)
+ * without inflating the counter's tag cardinality.
+ */
+export const METRIC_UPLOAD_COPY_SIZE = 'uploadCopySize'

@@ -119,8 +119,9 @@ Filecoin Pin's CLI collects telemetry.  A few things:
 
 What we collect:
 * **Error reports** via Sentry (no PII).
-* **Per-upload copy outcomes** posted directly to [BetterStack's HTTP metrics ingestion endpoint](https://betterstack.com/docs/logs/ingesting-data/http/metrics/), so we can measure the success rate of multi-copy uploads and identify which storage providers (or pipeline steps) are failing. One counter is emitted:
-  * `uploadCopyStatus` — incremented once per resolved copy attempt. Tags: `spId` (storage provider ID), `role` (`primary`/`secondary`), `value` (`success`, `failure.pull`, `failure.commit`, `failure.other`), `network`, `affordance` (which surface emitted the metric: `CLI`, `GitHub Action`, `Library`, `Filecoin Pin Website`).
+* **Per-upload copy outcomes** posted directly to [BetterStack's HTTP metrics ingestion endpoint](https://betterstack.com/docs/logs/ingesting-data/http/metrics/), so we can measure the success rate of multi-copy uploads and identify which storage providers (or pipeline steps) are failing. Two metrics are emitted per resolved copy:
+  * `uploadCopyStatus` counter — one increment per resolved copy attempt. Tags: `spId` (storage provider ID), `role` (`primary`/`secondary`), `value` (`success`, `failure.pull`, `failure.commit`, `failure.other`), `network`, `affordance` (which surface emitted the metric: `CLI`, `GitHub Action`, `Library`, `Filecoin Pin Website`).
+  * `uploadCopySize` gauge — the piece size in bytes for the same outcome, sharing the counter's tag set so dashboards can join the two (e.g. p99 size of commit-step failures).
 
   See [`documentation/events-and-metrics.md`](documentation/events-and-metrics.md) for the full schema, including the underlying events and the relationship between this metric and the Synapse SDK's upload result.
 

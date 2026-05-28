@@ -1,4 +1,4 @@
-import type { CopyResult, FailedAttempt } from '@filoz/synapse-sdk'
+import type { CopyResult, FailedAttempt, UploadResult } from '@filoz/synapse-sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 interface FetchCall {
@@ -8,7 +8,8 @@ interface FetchCall {
 
 interface MetricPayload {
   name: string
-  counter: { value: number }
+  counter?: { value: number }
+  gauge?: { value: number }
   dt: string
   tags: Record<string, string>
 }
@@ -54,6 +55,14 @@ const makeAttempt = (overrides: Partial<FailedAttempt>): FailedAttempt => ({
   ...overrides,
 })
 
+type RecordedResult = Pick<UploadResult, 'copies' | 'failedAttempts' | 'size'>
+const makeResult = (overrides: Partial<RecordedResult> = {}): RecordedResult => ({
+  copies: [],
+  failedAttempts: [],
+  size: 1024,
+  ...overrides,
+})
+
 async function freshTelemetry() {
   vi.resetModules()
   installFetch()
@@ -71,13 +80,13 @@ describe('telemetry', () => {
     const { recordUploadResult, flushTelemetry } = await freshTelemetry()
 
     recordUploadResult(
-      {
+      makeResult({
         copies: [makeCopy({ providerId: 1n, role: 'primary' }), makeCopy({ providerId: 2n, role: 'secondary' })],
         failedAttempts: [
           makeAttempt({ providerId: 3n, role: 'secondary', error: 'Pull failed for 1 piece(s)' }),
           makeAttempt({ providerId: 4n, role: 'secondary', error: 'Commit failed' }),
         ],
-      },
+      }),
       'calibration'
     )
 
@@ -85,15 +94,20 @@ describe('telemetry', () => {
 
     expect(fetchCalls).toHaveLength(1)
     const points = parseBody(firstCall())
-    expect(points).toHaveLength(4)
+    // 4 resolved copies × {counter, gauge} = 8 points.
+    expect(points).toHaveLength(8)
+
+    const statusPoints = points.filter((p) => p.name === 'uploadCopyStatus')
+    const sizePoints = points.filter((p) => p.name === 'uploadCopySize')
+    expect(statusPoints).toHaveLength(4)
+    expect(sizePoints).toHaveLength(4)
 
     for (const point of points) {
-      expect(point.name).toBe('uploadCopyStatus')
       expect(point.tags.affordance).toBe('Library')
       expect(typeof point.dt).toBe('string')
     }
 
-    expect(points).toContainEqual(
+    expect(statusPoints).toContainEqual(
       expect.objectContaining({
         counter: { value: 1 },
         tags: expect.objectContaining({
@@ -104,7 +118,7 @@ describe('telemetry', () => {
         }),
       })
     )
-    expect(points).toContainEqual(
+    expect(statusPoints).toContainEqual(
       expect.objectContaining({
         counter: { value: 1 },
         tags: expect.objectContaining({
@@ -115,7 +129,7 @@ describe('telemetry', () => {
         }),
       })
     )
-    expect(points).toContainEqual(
+    expect(statusPoints).toContainEqual(
       expect.objectContaining({
         counter: { value: 1 },
         tags: expect.objectContaining({
@@ -126,7 +140,7 @@ describe('telemetry', () => {
         }),
       })
     )
-    expect(points).toContainEqual(
+    expect(statusPoints).toContainEqual(
       expect.objectContaining({
         counter: { value: 1 },
         tags: expect.objectContaining({
@@ -144,10 +158,10 @@ describe('telemetry', () => {
     configureTelemetry({ affordance: 'CLI' })
 
     recordUploadResult(
-      {
+      makeResult({
         copies: [makeCopy({})],
         failedAttempts: [makeAttempt({})],
-      },
+      }),
       'mainnet'
     )
     await flushTelemetry()
@@ -176,8 +190,8 @@ describe('telemetry', () => {
   it('fires one request per recordUploadResult call', async () => {
     const { recordUploadResult, flushTelemetry } = await freshTelemetry()
 
-    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'mainnet')
-    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'mainnet')
+    recordUploadResult(makeResult({ copies: [makeCopy({})] }), 'mainnet')
+    recordUploadResult(makeResult({ copies: [makeCopy({})] }), 'mainnet')
     await flushTelemetry()
 
     expect(fetchCalls).toHaveLength(2)
@@ -186,17 +200,60 @@ describe('telemetry', () => {
   it('skips the request entirely when there is nothing to record', async () => {
     const { recordUploadResult, flushTelemetry } = await freshTelemetry()
 
-    recordUploadResult({ copies: [], failedAttempts: [] }, 'mainnet')
+    recordUploadResult(makeResult(), 'mainnet')
     await flushTelemetry()
 
     expect(fetchCalls).toHaveLength(0)
+  })
+
+  it('emits an uploadCopySize gauge sharing the status point tags', async () => {
+    const { recordUploadResult, flushTelemetry } = await freshTelemetry()
+
+    recordUploadResult(
+      makeResult({
+        copies: [makeCopy({ providerId: 7n, role: 'primary' })],
+        failedAttempts: [makeAttempt({ providerId: 8n, role: 'secondary', error: 'Commit failed' })],
+        size: 123_456,
+      }),
+      'calibration'
+    )
+    await flushTelemetry()
+
+    const points = parseBody(firstCall())
+    const sizePoints = points.filter((p) => p.name === 'uploadCopySize')
+    expect(sizePoints).toHaveLength(2)
+
+    expect(sizePoints).toContainEqual(
+      expect.objectContaining({
+        gauge: { value: 123_456 },
+        tags: expect.objectContaining({
+          spId: '7',
+          role: 'primary',
+          value: 'success',
+          network: 'calibration',
+        }),
+      })
+    )
+    expect(sizePoints).toContainEqual(
+      expect.objectContaining({
+        gauge: { value: 123_456 },
+        tags: expect.objectContaining({
+          spId: '8',
+          role: 'secondary',
+          value: 'failure.commit',
+          network: 'calibration',
+        }),
+      })
+    )
   })
 
   it('classifies unrecognised failure strings as value=failure.other', async () => {
     const { recordUploadResult, flushTelemetry } = await freshTelemetry()
 
     recordUploadResult(
-      { copies: [], failedAttempts: [makeAttempt({ providerId: 9n, role: 'primary', error: 'Some other error' })] },
+      makeResult({
+        failedAttempts: [makeAttempt({ providerId: 9n, role: 'primary', error: 'Some other error' })],
+      }),
       'mainnet'
     )
     await flushTelemetry()
@@ -212,7 +269,7 @@ describe('telemetry', () => {
   it('posts to the default BetterStack endpoint with a bearer token', async () => {
     const { recordUploadResult, flushTelemetry } = await freshTelemetry()
 
-    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
+    recordUploadResult(makeResult({ copies: [makeCopy({})] }), 'calibration')
     await flushTelemetry()
 
     const call = firstCall()
@@ -227,7 +284,7 @@ describe('telemetry', () => {
     const { configureTelemetry, recordUploadResult, flushTelemetry } = await freshTelemetry()
     configureTelemetry({ disabled: true })
 
-    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
+    recordUploadResult(makeResult({ copies: [makeCopy({})] }), 'calibration')
     await flushTelemetry()
 
     expect(fetchCalls).toHaveLength(0)
@@ -237,7 +294,7 @@ describe('telemetry', () => {
     const { configureTelemetry, recordUploadResult, flushTelemetry } = await freshTelemetry()
 
     configureTelemetry({ endpoint: 'https://example.test/metrics', token: 'override-token' })
-    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
+    recordUploadResult(makeResult({ copies: [makeCopy({})] }), 'calibration')
     await flushTelemetry()
 
     const call = firstCall()
@@ -257,7 +314,7 @@ describe('telemetry', () => {
       return new Response(null, { status: 202 })
     })
 
-    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'mainnet')
+    recordUploadResult(makeResult({ copies: [makeCopy({})] }), 'mainnet')
 
     const flush = flushTelemetry()
     // Flush should not resolve until the in-flight fetch completes.
@@ -274,7 +331,7 @@ describe('telemetry', () => {
 
     // Subsequent calls become no-ops once telemetry is disabled.
     configureTelemetry({ disabled: true })
-    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'mainnet')
+    recordUploadResult(makeResult({ copies: [makeCopy({})] }), 'mainnet')
     expect(fetchCalls).toHaveLength(1)
   })
 
@@ -284,14 +341,14 @@ describe('telemetry', () => {
       throw new Error('network down')
     })
 
-    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
+    recordUploadResult(makeResult({ copies: [makeCopy({})] }), 'calibration')
     await expect(flushTelemetry()).resolves.toBeUndefined()
   })
 
   it('attaches an AbortSignal so the fetch is bounded', async () => {
     const { recordUploadResult, flushTelemetry } = await freshTelemetry()
 
-    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
+    recordUploadResult(makeResult({ copies: [makeCopy({})] }), 'calibration')
     await flushTelemetry()
 
     // The signal proves we cap the request. The rejection path (which a

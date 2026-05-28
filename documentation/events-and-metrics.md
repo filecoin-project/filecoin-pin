@@ -64,3 +64,14 @@ In addition to the [common tags](#common-tags) and `value`, `uploadCopyStatus` c
 To compute the **multi-copy success rate** over a window, divide the number of points tagged `value=success` by the total number of `uploadCopyStatus` points. To isolate a failure mode (e.g. commit-step regressions across SPs), filter on `value=failure.commit` and group by the `spId` tag.
 
 > Querying in BetterStack: `uploadCopyStatus` is ingested as a counter, but each point is a flat `value:1`, so the default counter aggregation (`avgMerge(rate_avg)`) reads ~0. Count points with `sum(metrics_count)` and read tags via `label('value')` / `label('spId')` instead.
+
+### Gauge Metrics
+
+- These metrics carry a single numeric reading per point.
+- Each gauge point is emitted alongside the corresponding [`uploadCopyStatus`](#uploadCopyStatus) point, sharing its tag set so the two metrics can be joined at query time.
+
+| Metric | Relevant Events | When Emitted | Gauge Value | Source of truth |
+|---|---|---|---|---|
+| <a id="uploadCopySize"></a>`uploadCopySize` | [`uploadCopyResolved`](#uploadCopyResolved) | Once per copy in the upload result, paired with [`uploadCopyStatus`](#uploadCopyStatus). | Piece size in bytes (`UploadResult.size`). All copies of one upload share the same size — the value identifies the upload that produced the outcome. | [`src/core/telemetry/index.ts`](../src/core/telemetry/index.ts) |
+
+`uploadCopySize` carries the same per-metric tags as `uploadCopyStatus` (`spId`, `role`, `value`) plus the [common tags](#common-tags), so you can filter `value=failure.commit` and aggregate `uploadCopySize` to see the size distribution of commit-step failures (`avg`, `p99`, `sum` by `spId`, etc.).
