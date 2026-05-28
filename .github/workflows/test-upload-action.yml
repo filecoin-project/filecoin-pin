@@ -12,6 +12,9 @@ concurrency:
 jobs:
   dry-run:
     runs-on: ubuntu-latest
+    # Successful dry-run jobs finish in under a minute. Cap well above that so
+    # a stalled setup/install step fails fast instead of riding the default 6h limit.
+    timeout-minutes: 10
     # TODO: drop this gate once the action no longer exits early with
     # `fork-pr-blocked` when `dryRun: true`. Until then, running on forks
     # produces a misleading "skipped" check rather than real coverage.
@@ -39,6 +42,10 @@ jobs:
 
   upload:
     runs-on: ubuntu-latest
+    # Successful upload jobs finish in roughly 2-3 minutes, including the real
+    # Calibration on-chain work. Cap with headroom for a slow provider/chain so
+    # a stalled setup/install step fails fast instead of riding the default 6h limit.
+    timeout-minutes: 15
     if: github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read

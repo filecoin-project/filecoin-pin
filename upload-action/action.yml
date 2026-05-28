@@ -197,6 +197,12 @@ runs:
     - name: Install workspace dependencies
       shell: bash
       working-directory: ${{ steps.repo-root.outputs.path }}
+      # playwright-chromium is a root browser-test devDependency this action
+      # never uses. Its install script (listed in onlyBuiltDependencies in
+      # pnpm-workspace.yaml) downloads a ~167MB browser; skipping that keeps
+      # the install lean. The Test workflow sets the same flag.
+      env:
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
       run: pnpm install --frozen-lockfile
 
     - name: Build filecoin-pin package
