@@ -70,6 +70,10 @@
     "./version-check": {
       "types": "./dist/common/version-check.d.ts",
       "default": "./dist/common/version-check.js"
+    },
+    "./read-telemetry-config-from-env": {
+      "types": "./dist/read-telemetry-config-from-env.d.ts",
+      "default": "./dist/read-telemetry-config-from-env.js"
     }
   },
   "bin": {

@@ -1,5 +1,6 @@
 import * as core from '@actions/core'
 import { configureTelemetry, flushTelemetry } from 'filecoin-pin/core/telemetry'
+import { readTelemetryConfigFromEnv } from 'filecoin-pin/read-telemetry-config-from-env'
 import { checkForUpdate } from 'filecoin-pin/version-check'
 
 import { runBuild } from './build.js'
@@ -9,9 +10,13 @@ import { getInput, parseBoolean } from './inputs.js'
 import { getOutputSummary } from './outputs.js'
 import { runUpload } from './upload.js'
 
+const envConfig = readTelemetryConfigFromEnv()
 configureTelemetry({
+  ...envConfig,
   affordance: 'GitHub Action',
-  disabled: parseBoolean(getInput('disableTelemetry', 'false')),
+  // Either the env (FILECOIN_PIN_TELEMETRY_DISABLED / DO_NOT_TRACK) or the
+  // action input can disable; neither can re-enable the other.
+  disabled: envConfig.disabled || parseBoolean(getInput('disableTelemetry', 'false')),
 })
 
 async function maybeNotifyAboutUpdates() {

@@ -1,13 +1,12 @@
 /**
- * CLI-side helper that reads environment variables into a partial
+ * Host-side helper that reads environment variables into a partial
  * {@link TelemetryConfiguration}, so the caller can compose it with their own
  * fields (e.g. `configureTelemetry({ ...readTelemetryConfigFromEnv(), affordance: 'CLI' })`).
  *
  * The telemetry library never reads `process.env` itself; this file lives
- * outside `src/core/` because env-var handling is a CLI concern, not a
- * library responsibility. Other Node hosts (the GitHub Action, embedding
- * apps) can either reuse this helper or apply their own configuration
- * policy.
+ * outside `src/core/` because env-var handling is a host concern, not a
+ * library responsibility. Used by the CLI and the GitHub Action; embedding
+ * apps can either reuse this helper or apply their own configuration policy.
  */
 
 import type { TelemetryConfiguration } from './core/telemetry/index.js'

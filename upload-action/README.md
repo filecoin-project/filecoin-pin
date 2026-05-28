@@ -21,6 +21,8 @@ See [action.yml](./action.yml) for complete input documentation including:
 
 **Outputs**: `ipfsRootCid`, `dataSetId`, `pieceCid`, `providerId`, `providerName`, `carPath`, `uploadStatus`
 
+> **Disabling telemetry.** Either set the `disableTelemetry: true` input, or set `FILECOIN_PIN_TELEMETRY_DISABLED=true` / `DO_NOT_TRACK=1` in the job's `env:` block. Either signal opts out; see the [CLI Telemetry section of the root README](../README.md#cli-telemetry) for what is collected.
+
 ### Uploading a pre-built CAR
 
 If `path` points to a regular file whose name ends in `.car`, the action skips its own UnixFS packing and uploads the file as-is, extracting the IPFS root CID from the CAR header. Useful for composing with upstream steps that already produce a CAR (e.g. [`ipfs-deploy-action`](https://github.com/ipfs/ipfs-deploy-action), [`ipfs dag export`](https://docs.ipfs.tech/reference/kubo/cli/#ipfs-dag-export)).

@@ -141,8 +141,7 @@ What we collect:
 
 ### How to disable telemetry
 
-- **CLI / pinning server:** set `FILECOIN_PIN_TELEMETRY_DISABLED=true` (or the cross-tool standard `DO_NOT_TRACK=1`).
-- **GitHub Action:** pass `disableTelemetry: true` to the action (see [`upload-action/action.yml`](upload-action/action.yml)).
+- **CLI / pinning server / GitHub Action:** set `FILECOIN_PIN_TELEMETRY_DISABLED=true` (or the cross-tool standard `DO_NOT_TRACK=1`) in the host environment / workflow `env:` block. The Action also accepts `disableTelemetry: true` as an input; either signal silences telemetry.
 - **Library consumers:** pass `{ disabled: true }` to `configureTelemetry()`.
 
 ## Quick Start
