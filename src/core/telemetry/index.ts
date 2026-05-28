@@ -1,22 +1,12 @@
 /**
- * Anonymous upload telemetry.
+ * Anonymous upload telemetry — one `uploadCopyStatus` counter per resolved
+ * copy attempt. See
+ * [`documentation/events-and-metrics.md`](../../../documentation/events-and-metrics.md)
+ * for the schema, delivery model, and tag values.
  *
- * Emits one counter — `uploadCopyStatus` — per resolved copy attempt, with a
- * `value` tag of `success | failure.pull | failure.commit | failure.other`.
- * See `documentation/events-and-metrics.md` for the full schema (events, tags,
- * and how the metric relates to the SDK's per-upload result).
- *
- * Metrics ship via direct HTTP POST to BetterStack
- * (https://betterstack.com/docs/logs/ingesting-data/http/metrics/). Each call
- * to {@link recordUploadResult} fires its own HTTP POST — there is no
- * in-memory buffer or periodic flush. Use {@link flushTelemetry} to await
- * pending requests before exit. To turn subsequent record calls into no-ops,
- * call `configureTelemetry({ disabled: true })`.
- *
- * Works in both Node and the browser. The library never reads its own
- * environment — callers are expected to apply any host-specific configuration
- * (env vars, CLI flags, browser globals) by invoking {@link configureTelemetry}
- * before the first `executeUpload`.
+ * Library never reads its own environment; callers must apply host-specific
+ * configuration via {@link configureTelemetry} before the first
+ * {@link recordUploadResult}.
  */
 
 import type { UploadResult } from '@filoz/synapse-sdk'
@@ -119,9 +109,8 @@ async function post(points: MetricPoint[]): Promise<void> {
 }
 
 /**
- * Record one upload's per-copy outcomes. Fires a single HTTP POST containing
- * one counter point per copy and per failed attempt. Safe to call when
- * telemetry is disabled (no-op).
+ * Record one upload's per-copy outcomes — one counter point per entry in
+ * `result.copies` and `result.failedAttempts`. No-op when disabled.
  *
  * @param result - The structured upload result returned by Synapse.
  * @param network - URL-safe network slug (e.g. `mainnet`, `calibration`).
