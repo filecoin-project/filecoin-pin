@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.22.0...v0.22.1) (2026-05-28)
+
+
+### Bug Fixes
+
+* **ci:** add manual npm publish dispatch ([#512](https://github.com/filecoin-project/filecoin-pin/issues/512)) ([51f88ee](https://github.com/filecoin-project/filecoin-pin/commit/51f88eebe0ba6fcbfb5738a8b1a916ee1cdd5899))
+
 ## [0.22.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.21.0...v0.22.0) (2026-05-27)
 
 
