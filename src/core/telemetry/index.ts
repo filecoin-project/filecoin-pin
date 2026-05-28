@@ -49,6 +49,14 @@ interface MetricPoint {
   tags: Record<string, string>
 }
 
+/**
+ * Upper bound on any single submission. Without this, a stuck BetterStack
+ * endpoint would also stick every `await flushTelemetry()` we do before
+ * `process.exit()`, turning a telemetry hiccup into a hung CLI / Action /
+ * server shutdown.
+ */
+const POST_TIMEOUT_MS = 10_000
+
 let config: TelemetryConfiguration = {
   disabled: false,
   endpoint: DEFAULT_METRICS_ENDPOINT,
@@ -103,9 +111,10 @@ async function post(points: MetricPoint[]): Promise<void> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(POST_TIMEOUT_MS),
     })
   } catch {
-    // Best-effort: telemetry must never break the host.
+    // Best-effort: telemetry must never break the host (also catches timeout aborts).
   }
 }
 

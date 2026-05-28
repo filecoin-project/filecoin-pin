@@ -287,4 +287,16 @@ describe('telemetry', () => {
     recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
     await expect(flushTelemetry()).resolves.toBeUndefined()
   })
+
+  it('attaches an AbortSignal so the fetch is bounded', async () => {
+    const { recordUploadResult, flushTelemetry } = await freshTelemetry()
+
+    recordUploadResult({ copies: [makeCopy({})], failedAttempts: [] }, 'calibration')
+    await flushTelemetry()
+
+    // The signal proves we cap the request. The rejection path (which a
+    // timeout abort travels through) is covered by the "swallows fetch
+    // errors" test above.
+    expect(firstCall().init.signal).toBeInstanceOf(AbortSignal)
+  })
 })
