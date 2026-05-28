@@ -124,7 +124,6 @@ What we collect:
 
   See [`documentation/events-and-metrics.md`](documentation/events-and-metrics.md) for the full schema, including the underlying events and the relationship between this metric and the Synapse SDK's upload result.
 
-  The BetterStack source token is shipped in source, so the data source is treated as public and untrusted. The CLI lets you send your own copy with `FILECOIN_PIN_METRICS_ENDPOINT` and `FILECOIN_PIN_METRICS_TOKEN`.
 
   **Delivery model.** Each `executeUpload` fires its own HTTP POST containing one counter point per copy and per failed attempt — there is no in-memory buffer or periodic flush. The CLI, pinning server, and GitHub Action `await flushTelemetry()` before exit so any in-flight request finishes. **Long-running consumers that terminate via `process.exit()`, `SIGINT`, or `SIGTERM` should do the same** (`flushTelemetry` is exported from `filecoin-pin/core/telemetry`). To silence subsequent `recordUploadResult` calls without exiting the process, call `configureTelemetry({ disabled: true })`.
 
