@@ -61,4 +61,6 @@ In addition to the [common tags](#common-tags) and `value`, `uploadCopyStatus` c
 - `spId` — [Storage Provider](glossary.md#service-provider) ID, stringified from the SDK's `providerId`.
 - `role` — `primary` or `secondary`, per the Synapse SDK.
 
-To compute the **multi-copy success rate** over a window, divide `sum(uploadCopyStatus{value="success"})` by `sum(uploadCopyStatus)`. To isolate a particular failure mode (e.g. commit-step regressions across SPs), filter on `value="failure.commit"` and break down by `spId`.
+To compute the **multi-copy success rate** over a window, divide the number of points tagged `value=success` by the total number of `uploadCopyStatus` points. To isolate a failure mode (e.g. commit-step regressions across SPs), filter on `value=failure.commit` and group by the `spId` tag.
+
+> Querying in BetterStack: `uploadCopyStatus` is ingested as a counter, but each point is a flat `value:1`, so the default counter aggregation (`avgMerge(rate_avg)`) reads ~0. Count points with `sum(metrics_count)` and read tags via `label('value')` / `label('spId')` instead.
