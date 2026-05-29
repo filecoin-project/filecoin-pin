@@ -176,7 +176,7 @@ describe('telemetry', () => {
     'CLI',
     'GitHub Action',
     'Library',
-    'pin.filecoiin.cloud',
+    'pin.filecoin.cloud',
   ] as const)('accepts %s as a valid affordance', async (affordance) => {
     const { configureTelemetry } = await freshTelemetry()
     expect(() => configureTelemetry({ affordance })).not.toThrow()
