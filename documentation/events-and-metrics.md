@@ -18,7 +18,7 @@ sequenceDiagram
   participant SP as PDP Storage Provider
 
   Caller->>Synapse: uploadStarted
-  loop For each copy
+  loop For each copy (primary or secondary)
     Synapse->>SP: uploadCopyAttempted
     SP-->>Synapse: uploadCopyResolved (success or failure.*)
   end
