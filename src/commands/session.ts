@@ -6,7 +6,7 @@
  */
 
 import { Command } from 'commander'
-import { runSessionAuthorize, runSessionCreate, runSessionGenerate } from '../session/index.js'
+import { runSessionAuthorize, runSessionCreate, runSessionGenerate, runSessionRevoke } from '../session/index.js'
 import { addOwnerAuthOptions } from '../utils/cli-options.js'
 
 export const sessionCommand = new Command('session').description(
@@ -44,6 +44,21 @@ const authorizeCommand = new Command('authorize')
   })
 addOwnerAuthOptions(authorizeCommand)
 sessionCommand.addCommand(authorizeCommand)
+
+// session revoke <session-address> — owner side: revoke Filecoin Pin FWSS
+// permissions for a previously authorized session address.
+const revokeCommand = new Command('revoke')
+  .description('Revoke Filecoin Pin permissions for an authorized session address')
+  .argument('<session-address>', 'Session address to revoke')
+  .action(async (sessionAddress, options) => {
+    try {
+      await runSessionRevoke({ ...options, sessionAddress })
+    } catch {
+      process.exit(1)
+    }
+  })
+addOwnerAuthOptions(revokeCommand)
+sessionCommand.addCommand(revokeCommand)
 
 // session generate — local-only keypair generation (consumer side of the
 // two-party flow). No chain interaction.

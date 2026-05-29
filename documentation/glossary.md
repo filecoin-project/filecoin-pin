@@ -186,7 +186,7 @@ Session Keys are wallet addresses, registered in the **Session Key Registry** on
 
 A session key acts as a credential that permits a scoped-down set of tasks on behalf of a wallet within an expiration window.  For example, the [filecoin-pin-website](#filecoin-pin-website) uses a shared session key so that anonymous users can test out the tool without bringing their own wallet or funds, while the owner of those actions is original (private) wallet of the service.
 
-Session keys require specific permissions (such as CREATE_DATA_SET and ADD_PIECES) and have expiration timestamps.  The filecoin-pin-website session key is scoped to allowing the creation of [data sets](#data-set) and [pieces](#piece), but prevents transferring of funds for example.
+Session keys require specific permissions (such as CREATE_DATA_SET and ADD_PIECES) and have expiration timestamps.  The filecoin-pin-website session key is scoped to allowing the creation of [data sets](#data-set) and [pieces](#piece), but prevents transferring of funds for example. Wallet owners can also revoke session key permissions before expiration.
 
 
 

@@ -18,3 +18,11 @@ export interface SessionAuthorizeOptions {
   /** Positional argument: the session address to authorize. */
   sessionAddress: string
 }
+
+export interface SessionRevokeOptions {
+  privateKey?: string
+  network?: string
+  rpcUrl?: string
+  /** Positional argument: the session address to revoke. */
+  sessionAddress: string
+}
