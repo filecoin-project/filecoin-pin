@@ -36,7 +36,7 @@ sequenceDiagram
 
 ## Metrics
 
-Metrics ship as [direct HTTP POSTs](https://betterstack.com/docs/logs/ingesting-data/http/metrics/) to BetterStack from [`src/core/telemetry/index.ts`](../src/core/telemetry/index.ts).
+Metrics ship as [direct HTTP POSTs](https://betterstack.com/docs/logs/ingesting-data/http/metrics/) to BetterStack from [`src/core/telemetry/index.ts`](../src/core/telemetry/index.ts). One "upload" typically produces several metric data points (one per "copy" outcome).
 
 ### Common Tags
 
