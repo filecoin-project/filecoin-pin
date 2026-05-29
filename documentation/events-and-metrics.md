@@ -6,7 +6,7 @@ This document is the intended **source of truth** for the events emitted by File
 
 ## Upload Event Model
 
-An upload (`executeUpload` in the [JavaScript library](../README.md#-javascript-library)) asks the [Synapse SDK](glossary.md#synapse) to replicate the same [Piece](glossary.md#piece) across one primary and zero or more secondary copies. Each copy is an independent attempt against a single [Storage Provider](glossary.md#service-provider); the SDK reports one outcome per copy in a single result object. Filecoin Pin records one telemetry event per resolved copy outcome.
+An upload (`executeUpload` in the [JavaScript library](../README.md#-javascript-library)) asks the [Synapse SDK](glossary.md#synapse) to replicate the same [Piece](glossary.md#piece) from Synapse across one primary and zero or more secondary copies. A "copy" is an independent attempt against a single [Storage Provider](glossary.md#service-provider). Even the initial upload from the Synapse client to a Storage Provider is a "copy". The SDK reports one outcome per "copy" in a [single result object](https://docs.filecoin.cloud/reference/filoz/synapse-sdk/synapse/interfaces/uploadresult/#copies). Filecoin Pin records one telemetry event per resolved "copy" outcome. (Learn more about [copies in FOC](glossary.md#piece-copy).)
 
 ### Upload Event Timeline
 
