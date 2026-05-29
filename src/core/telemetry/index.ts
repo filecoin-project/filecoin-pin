@@ -162,7 +162,8 @@ export function recordUploadResult(
 
 /**
  * Await any in-flight HTTP submissions. Call before exit (or in tests) to
- * guarantee delivery. Safe when nothing is pending.
+ * guarantee delivery. Safe when nothing is pending, does not await any new
+ * requests started during its lifecycle.
  */
 export async function flushTelemetry(): Promise<void> {
   if (inFlight.size === 0) return
