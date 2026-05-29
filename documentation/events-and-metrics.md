@@ -61,7 +61,12 @@ In addition to the [common tags](#common-tags) and `value`, `uploadCopyStatus` c
 - `spId` — [Storage Provider](glossary.md#service-provider) ID, stringified from the SDK's `providerId`.
 - `role` — `primary` or `secondary`, per the Synapse SDK.
 
-To compute the **multi-copy success rate** over a window, divide the number of points tagged `value=success` by the total number of `uploadCopyStatus` points. To isolate a failure mode (e.g. commit-step regressions across SPs), filter on `value=failure.commit` and group by the `spId` tag.
+To compute the **upload success rate of all copies (independent of "primary" or "secondary")** over a window, divide the number of data points tagged `value=success` by the total number of `uploadCopyStatus` data points. To isolate a failure mode (e.g. commit-step regressions across SPs), filter on `value=failure.commit` and group by the `spId` tag.
+
+Note that this computation doesn't directly answer "what proportion of golden-path 'adds' succeed" since:
+1. "adds" that only want a single upload (no extra copies) will be included AND
+2. "adds" that specify more than a single extra copy will add more weight to the metric
+[#516](https://github.com/filecoin-project/filecoin-pin/issues/516) is tracking more accurately answer this question.
 
 > Querying in BetterStack: `uploadCopyStatus` is ingested as a counter, but each point is a flat `value:1`, so the default counter aggregation (`avgMerge(rate_avg)`) reads ~0. Count points with `sum(metrics_count)` and read tags via `label('value')` / `label('spId')` instead.
 
