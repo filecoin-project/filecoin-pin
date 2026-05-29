@@ -115,7 +115,12 @@ Filecoin Pin's CLI collects telemetry.  A few things:
 * Telemetry always [has a way to be disabled](#how-to-disable-telemetry).
 * We don't collect Personal identifiable information (PII).
 * With our [end user affordance](#affordances) we expect to make telemetry on by default, requiring a consumer/user to opt out.  We are defaulting as "enabled" to help make sure we have a good pulse on the user experience and can address issues correctly.
-* In this [pre-v1 season](https://github.com/filecoin-project/filecoin-pin/issues/187), we are particularly focused on helping maintainers validate functionality and iron out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on.
+## Telemetry
+
+Filecoin Pin collects telemetry.  A few things:
+* Telemetry always [has a way to be disabled](#how-to-disable-telemetry).
+* We don't collect Personal identifiable information (PII).
+* [Affordance](#affordances) make telemetry on by default, requiring a consumer/user to opt out.  We are defaulting as "enabled" to help make sure we have a good pulse on the user experience and can address issues correctly. Maintainers are particularly focused on validating functionality and ironing out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on.
 
 What we collect:
 * **Per-upload copy outcomes** posted directly to [BetterStack's HTTP metrics ingestion endpoint](https://betterstack.com/docs/logs/ingesting-data/http/metrics/), so we can measure the success rate of multi-copy uploads and identify which storage providers (or pipeline steps) are failing. See [`documentation/events-and-metrics.md`](documentation/events-and-metrics.md) for the full schema, including the underlying events and the relationship between this metric and the Synapse SDK's upload result.
