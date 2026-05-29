@@ -131,7 +131,7 @@ export function recordUploadResult(
     pushPair({
       spId: String(copy.providerId),
       role: copy.role,
-      value: 'success',
+      status: 'success',
       network,
     })
   }
@@ -139,7 +139,7 @@ export function recordUploadResult(
     pushPair({
       spId: String(attempt.providerId),
       role: attempt.role,
-      value: classifyFailure(attempt.error),
+      status: classifyFailure(attempt.error),
       network,
     })
   }

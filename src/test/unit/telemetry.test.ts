@@ -113,7 +113,7 @@ describe('telemetry', () => {
         tags: expect.objectContaining({
           spId: '1',
           role: 'primary',
-          value: 'success',
+          status: 'success',
           network: 'calibration',
         }),
       })
@@ -124,7 +124,7 @@ describe('telemetry', () => {
         tags: expect.objectContaining({
           spId: '2',
           role: 'secondary',
-          value: 'success',
+          status: 'success',
           network: 'calibration',
         }),
       })
@@ -135,7 +135,7 @@ describe('telemetry', () => {
         tags: expect.objectContaining({
           spId: '3',
           role: 'secondary',
-          value: 'failure.pull',
+          status: 'failure.pull',
           network: 'calibration',
         }),
       })
@@ -146,7 +146,7 @@ describe('telemetry', () => {
         tags: expect.objectContaining({
           spId: '4',
           role: 'secondary',
-          value: 'failure.commit',
+          status: 'failure.commit',
           network: 'calibration',
         }),
       })
@@ -229,7 +229,7 @@ describe('telemetry', () => {
         tags: expect.objectContaining({
           spId: '7',
           role: 'primary',
-          value: 'success',
+          status: 'success',
           network: 'calibration',
         }),
       })
@@ -240,14 +240,14 @@ describe('telemetry', () => {
         tags: expect.objectContaining({
           spId: '8',
           role: 'secondary',
-          value: 'failure.commit',
+          status: 'failure.commit',
           network: 'calibration',
         }),
       })
     )
   })
 
-  it('classifies unrecognised failure strings as value=failure.other', async () => {
+  it('classifies unrecognised failure strings as status=failure.other', async () => {
     const { recordUploadResult, flushTelemetry } = await freshTelemetry()
 
     recordUploadResult(
@@ -262,7 +262,7 @@ describe('telemetry', () => {
     expect(points[0]?.tags).toMatchObject({
       spId: '9',
       role: 'primary',
-      value: 'failure.other',
+      status: 'failure.other',
     })
   })
 

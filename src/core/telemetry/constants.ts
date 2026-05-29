@@ -17,7 +17,7 @@ export const METRICS_TOKEN = 'fs1TY3tELKDzThkm1SeWq18P'
 
 /**
  * Counter: one increment per resolved upload copy attempt, carrying a
- * `value` tag (`success`, `failure.pull`, `failure.commit`, `failure.other`).
+ * `status` tag (`success`, `failure.pull`, `failure.commit`, `failure.other`).
  * See `documentation/events-and-metrics.md` for the full schema.
  */
 export const METRIC_UPLOAD_COPY_STATUS = 'uploadCopyStatus'
