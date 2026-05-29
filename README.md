@@ -263,7 +263,7 @@ DATABASE_PATH=./pins.db        # SQLite database location
 CAR_STORAGE_PATH=./cars        # CAR file storage directory
 LOG_LEVEL=info                 # Logging verbosity (info, debug, error)
 
-# Optional - Telemetry (see "CLI Telemetry" above)
+# Optional - Telemetry (see "Telemetry" above)
 FILECOIN_PIN_TELEMETRY_DISABLED=true        # Disable all telemetry
 DO_NOT_TRACK=1                              # Standard cross-tool opt-out
 FILECOIN_PIN_METRICS_ENDPOINT=https://…     # Override BetterStack metrics endpoint
