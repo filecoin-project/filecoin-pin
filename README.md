@@ -118,12 +118,7 @@ Filecoin Pin's CLI collects telemetry.  A few things:
 * In this [pre-v1 season](https://github.com/filecoin-project/filecoin-pin/issues/187), we are particularly focused on helping maintainers validate functionality and iron out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on.
 
 What we collect:
-* **Error reports** via Sentry (no PII).
-* **Per-upload copy outcomes** posted directly to [BetterStack's HTTP metrics ingestion endpoint](https://betterstack.com/docs/logs/ingesting-data/http/metrics/), so we can measure the success rate of multi-copy uploads and identify which storage providers (or pipeline steps) are failing. Two metrics are emitted per resolved copy:
-  * `uploadCopyStatus` counter — one increment per resolved copy attempt. Tags: `spId` (storage provider ID), `role` (`primary`/`secondary`), `value` (`success`, `failure.pull`, `failure.commit`, `failure.other`), `network`, `affordance` (which surface emitted the metric: `CLI`, `GitHub Action`, `Library`, `pin.filecoin.cloud`).
-  * `uploadCopySize` gauge — the piece size in bytes for the same outcome, sharing the counter's tag set so dashboards can join the two (e.g. p99 size of commit-step failures).
-
-  See [`documentation/events-and-metrics.md`](documentation/events-and-metrics.md) for the full schema, including the underlying events and the relationship between this metric and the Synapse SDK's upload result.
+* **Per-upload copy outcomes** posted directly to [BetterStack's HTTP metrics ingestion endpoint](https://betterstack.com/docs/logs/ingesting-data/http/metrics/), so we can measure the success rate of multi-copy uploads and identify which storage providers (or pipeline steps) are failing. See [`documentation/events-and-metrics.md`](documentation/events-and-metrics.md) for the full schema, including the underlying events and the relationship between this metric and the Synapse SDK's upload result.
 
 
   **Delivery model.** Each `executeUpload` fires its own HTTP POST containing one counter point per copy and per failed attempt — there is no in-memory buffer or periodic flush. The CLI, pinning server, and GitHub Action `await flushTelemetry()` before exit so any in-flight request finishes. **Long-running consumers that terminate via `process.exit()`, `SIGINT`, or `SIGTERM` should do the same** (`flushTelemetry` is exported from `filecoin-pin/core/telemetry`). To silence subsequent `recordUploadResult` calls without exiting the process, call `configureTelemetry({ disabled: true })`.
