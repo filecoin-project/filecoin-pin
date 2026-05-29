@@ -44,7 +44,7 @@ Every metric emitted by Filecoin Pin carries the following tags:
 
 | Tag | Values | Definition |
 |---|---|---|
-| <a id="tag-affordance"></a>`affordance` | `CLI`, `GitHub Action`, `Library`, `Filecoin Pin Website` | Which [affordance](../README.md#affordances) emitted the metric. Set by the host via `configureTelemetry({ affordance })`; defaults to `Library` when not configured. `configureTelemetry` rejects any other value at runtime. |
+| <a id="tag-affordance"></a>`affordance` | `CLI`, `GitHub Action`, `Library`, `pin.filecoiin.cloud` | Which [affordance](../README.md#affordances) emitted the metric. Set by the host via `configureTelemetry({ affordance })`; defaults to `Library` when not configured. `configureTelemetry` rejects any other value at runtime. |
 | <a id="tag-network"></a>`network` | `mainnet`, `calibration`, `devnet` | The Filecoin network the upload targeted. |
 
 ### Status Count Related Metrics

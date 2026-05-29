@@ -22,7 +22,7 @@ import {
  * tag so we can slice success/failure rates per UI. Defaults to `'Library'`
  * when {@link configureTelemetry} is not called with an explicit value.
  */
-export const AFFORDANCES = ['CLI', 'GitHub Action', 'Library', 'Filecoin Pin Website'] as const
+export const AFFORDANCES = ['CLI', 'GitHub Action', 'Library', 'pin.filecoiin.cloud'] as const
 export type Affordance = (typeof AFFORDANCES)[number]
 
 const DEFAULT_AFFORDANCE: Affordance = 'Library'
