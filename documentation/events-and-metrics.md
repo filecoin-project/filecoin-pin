@@ -65,7 +65,7 @@ Note that this computation doesn't directly answer "what proportion of golden-pa
 2. "adds" that specify more than a single extra copy will add more weight to the metric
 [#516](https://github.com/filecoin-project/filecoin-pin/issues/516) is tracking more accurately answer this question.
 
-> Querying in BetterStack: each `uploadCopyStatus` submission uses `counter.value: 1` (the counter magnitude from the [HTTP metrics API](https://betterstack.com/docs/logs/ingesting-data/http/metrics/) — not the outcome `status` tag). The default counter aggregation (`avgMerge(rate_avg)`) reads ~0. Count with `sum(metrics_count)` and read outcome tags via `label('status')` / `label('spId')` instead.
+> Querying in BetterStack: each `uploadCopyStatus` submission uses `counter.value: 1` (the counter magnitude from the [HTTP metrics API](https://betterstack.com/docs/logs/ingesting-data/http/metrics/). The default counter aggregation (`avgMerge(rate_avg)`) reads ~0. Count with `sum(metrics_count)` and read outcome tags via `label('status')` / `label('spId')` instead.
 
 ### Gauge Metrics
 
