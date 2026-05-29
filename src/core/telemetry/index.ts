@@ -10,12 +10,7 @@
  */
 
 import type { UploadResult } from '@filoz/synapse-sdk'
-import {
-  DEFAULT_METRICS_ENDPOINT,
-  DEFAULT_METRICS_TOKEN,
-  METRIC_UPLOAD_COPY_SIZE,
-  METRIC_UPLOAD_COPY_STATUS,
-} from './constants.js'
+import { METRIC_UPLOAD_COPY_SIZE, METRIC_UPLOAD_COPY_STATUS, METRICS_ENDPOINT, METRICS_TOKEN } from './constants.js'
 
 /**
  * Which surface the metric was emitted from. Every metric carries this as a
@@ -34,8 +29,6 @@ const DEFAULT_AFFORDANCE: Affordance = 'Library'
  */
 export interface TelemetryConfiguration {
   disabled: boolean
-  endpoint: string
-  token: string
   affordance: Affordance
 }
 
@@ -58,8 +51,6 @@ const POST_TIMEOUT_MS = 10_000
 
 let config: TelemetryConfiguration = {
   disabled: false,
-  endpoint: DEFAULT_METRICS_ENDPOINT,
-  token: DEFAULT_METRICS_TOKEN,
   affordance: DEFAULT_AFFORDANCE,
 }
 const inFlight = new Set<Promise<void>>()
@@ -103,10 +94,10 @@ async function post(points: MetricPoint[]): Promise<void> {
     tags: { affordance: config.affordance, ...p.tags },
   }))
   try {
-    await fetch(config.endpoint, {
+    await fetch(METRICS_ENDPOINT, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${config.token}`,
+        Authorization: `Bearer ${METRICS_TOKEN}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),

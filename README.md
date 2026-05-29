@@ -134,7 +134,6 @@ What we collect:
   import { configureTelemetry } from 'filecoin-pin/core/telemetry'
 
   configureTelemetry({ disabled: true })                       // opt out
-  configureTelemetry({ endpoint: '…', token: '…' })            // send elsewhere
   configureTelemetry({ affordance: 'pin.filecoin.cloud' })   // tag the surface (default 'Library')
   ```
 
@@ -266,8 +265,6 @@ LOG_LEVEL=info                 # Logging verbosity (info, debug, error)
 # Optional - Telemetry (see "Telemetry" above)
 FILECOIN_PIN_TELEMETRY_DISABLED=true        # Disable all telemetry
 DO_NOT_TRACK=1                              # Standard cross-tool opt-out
-FILECOIN_PIN_METRICS_ENDPOINT=https://…     # Override BetterStack metrics endpoint
-FILECOIN_PIN_METRICS_TOKEN=…                # Override BetterStack source token
 ```
 
 ### Default Data Directories

@@ -290,18 +290,6 @@ describe('telemetry', () => {
     expect(fetchCalls).toHaveLength(0)
   })
 
-  it('honours configureTelemetry endpoint/token overrides', async () => {
-    const { configureTelemetry, recordUploadResult, flushTelemetry } = await freshTelemetry()
-
-    configureTelemetry({ endpoint: 'https://example.test/metrics', token: 'override-token' })
-    recordUploadResult(makeResult({ copies: [makeCopy({})] }), 'calibration')
-    await flushTelemetry()
-
-    const call = firstCall()
-    expect(call.url).toBe('https://example.test/metrics')
-    expect((call.init.headers as Record<string, string>).Authorization).toBe('Bearer override-token')
-  })
-
   it('flushTelemetry awaits in-flight requests; configureTelemetry({disabled:true}) silences subsequent calls', async () => {
     const { recordUploadResult, flushTelemetry, configureTelemetry } = await freshTelemetry()
 
