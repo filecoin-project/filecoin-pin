@@ -14,6 +14,7 @@ import {
   validatePaymentRequirements,
 } from '../payments/index.js'
 import { isSessionKeyMode } from '../synapse/index.js'
+import { recordUploadResult } from '../telemetry/index.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 import {
   type ValidateIPNIProgressEvents,
@@ -411,6 +412,9 @@ export async function executeUpload(
 
   const uploadResult = await uploadToSynapse(synapse, carData, rootCid, logger, uploadOptions)
 
+  const network = getNetworkSlug(synapse.chain)
+  recordUploadResult(uploadResult, network)
+
   options.signal?.throwIfAborted()
 
   let ipniValidated = false
@@ -426,7 +430,7 @@ export async function executeUpload(
 
   return {
     ...uploadResult,
-    network: getNetworkSlug(synapse.chain),
+    network,
     ipniValidated,
   }
 }

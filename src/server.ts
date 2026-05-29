@@ -1,4 +1,5 @@
 import { createConfig } from './config.js'
+import { flushTelemetry } from './core/telemetry/index.js'
 import { name as packageName, version as packageVersion } from './core/utils/version.js'
 import { createFilecoinPinningServer } from './filecoin-pinning-server.js'
 import { createLogger } from './logger.js'
@@ -30,7 +31,13 @@ export async function startServer(): Promise<void> {
         logger.info('Received SIGINT, shutting down gracefully...')
         await server.close()
         await pinStore.stop()
-        process.exit(0)
+        try {
+          await flushTelemetry()
+        } catch (err) {
+          logger.error({ err }, 'Telemetry flush failed')
+        } finally {
+          process.exit(0)
+        }
       })()
     })
 
@@ -39,7 +46,13 @@ export async function startServer(): Promise<void> {
         logger.info('Received SIGTERM, shutting down gracefully...')
         await server.close()
         await pinStore.stop()
-        process.exit(0)
+        try {
+          await flushTelemetry()
+        } catch (err) {
+          logger.error({ err }, 'Telemetry flush failed')
+        } finally {
+          process.exit(0)
+        }
       })()
     })
 
