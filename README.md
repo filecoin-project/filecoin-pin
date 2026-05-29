@@ -109,24 +109,18 @@ The [Synapse SDK](https://synapse.filecoin.services/) is the main library, as it
 
 The affordances were [discussed more above](#affordances).  All affordances use the same core library, ensuring consistent behavior and making it easy to add new interfaces in the future.
 
-## CLI Telemetry
-
-Filecoin Pin's CLI collects telemetry.  A few things:
-* Telemetry always [has a way to be disabled](#how-to-disable-telemetry).
-* We don't collect Personal identifiable information (PII).
-* With our [end user affordance](#affordances) we expect to make telemetry on by default, requiring a consumer/user to opt out.  We are defaulting as "enabled" to help make sure we have a good pulse on the user experience and can address issues correctly.
 ## Telemetry
 
 Filecoin Pin collects telemetry.  A few things:
 * Telemetry always [has a way to be disabled](#how-to-disable-telemetry).
 * We don't collect Personal identifiable information (PII).
-* [Affordance](#affordances) make telemetry on by default, requiring a consumer/user to opt out.  We are defaulting as "enabled" to help make sure we have a good pulse on the user experience and can address issues correctly. Maintainers are particularly focused on validating functionality and ironing out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on.
+* With our [affordances](#affordances), telemetry is on by default, requiring a consumer/user to opt out.  We are defaulting as "enabled" to help make sure we have a good pulse on the user experience and can address issues correctly. Maintainers are particularly focused on validating functionality and ironing out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on.
 
 What we collect:
 * **Per-upload copy outcomes** posted directly to [BetterStack's HTTP metrics ingestion endpoint](https://betterstack.com/docs/logs/ingesting-data/http/metrics/), so we can measure the success rate of multi-copy uploads and identify which storage providers (or pipeline steps) are failing. See [`documentation/events-and-metrics.md`](documentation/events-and-metrics.md) for the full schema, including the underlying events and the relationship between this metric and the Synapse SDK's upload result.
 
 
-  **Delivery model.** Each `executeUpload` fires its own HTTP POST containing one counter point per copy and per failed attempt — there is no in-memory buffer or periodic flush. The CLI, pinning server, and GitHub Action `await flushTelemetry()` before exit so any in-flight request finishes. **Long-running consumers that terminate via `process.exit()`, `SIGINT`, or `SIGTERM` should do the same** (`flushTelemetry` is exported from `filecoin-pin/core/telemetry`). To silence subsequent `recordUploadResult` calls without exiting the process, call `configureTelemetry({ disabled: true })`.
+  **Delivery model.** Each `executeUpload` fires its own HTTP POST containing one `uploadCopyStatus` counter and one paired `uploadCopyBytes` gauge per resolved copy outcome — there is no in-memory buffer or periodic flush. The CLI, pinning server, and GitHub Action `await flushTelemetry()` before exit so any in-flight request finishes. **Long-running consumers that terminate via `process.exit()`, `SIGINT`, or `SIGTERM` should do the same** (`flushTelemetry` is exported from `filecoin-pin/core/telemetry`). To silence subsequent `recordUploadResult` calls without exiting the process, call `configureTelemetry({ disabled: true })`.
 
   **Library usage (Node and browser).** The telemetry library never reads `process.env`. Configure it programmatically before the first `executeUpload` — the same API works in both runtimes:
 

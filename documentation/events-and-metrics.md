@@ -32,11 +32,11 @@ sequenceDiagram
 | <a id="uploadStarted"></a>`uploadStarted` | Filecoin Pin invokes `executeUpload` for one piece. | [`src/core/upload/index.ts`](../src/core/upload/index.ts) |
 | <a id="uploadCopyAttempted"></a>`uploadCopyAttempted` | The Synapse SDK begins one copy attempt against a specific SP. Implicit marker — emitted once per entry that later shows up in `result.copies` or `result.failedAttempts`. | [`@filoz/synapse-sdk`](https://github.com/FilOzone/synapse-sdk) |
 | <a id="uploadCopyResolved"></a>`uploadCopyResolved` | A copy attempt produces a terminal outcome (`success` or one of the `failure.*` values). Drives [`uploadCopyStatus`](#uploadCopyStatus). | [`src/core/telemetry/index.ts`](../src/core/telemetry/index.ts) |
-| <a id="uploadResultReceived"></a>`uploadResultReceived` | `executeUpload` returns with `{copies, failedAttempts}`. This is the point at which `recordUploadResult` is called and the [`uploadCopyStatus`](#uploadCopyStatus) data points are submitted. | [`src/core/upload/index.ts`](../src/core/upload/index.ts) |
+| <a id="uploadResultReceived"></a>`uploadResultReceived` | `executeUpload` returns with `{copies, failedAttempts}`. `recordUploadResult` then submits one [`uploadCopyStatus`](#uploadCopyStatus) metric (and paired [`uploadCopyBytes`](#uploadCopyBytes)) per resolved copy outcome. | [`src/core/upload/index.ts`](../src/core/upload/index.ts) |
 
 ## Metrics
 
-Metrics ship as [direct HTTP POSTs](https://betterstack.com/docs/logs/ingesting-data/http/metrics/) to BetterStack from [`src/core/telemetry/index.ts`](../src/core/telemetry/index.ts). One "upload" typically produces several metric data points (one per "copy" outcome).
+Metrics ship as [direct HTTP POSTs](https://betterstack.com/docs/logs/ingesting-data/http/metrics/) to BetterStack from [`src/core/telemetry/index.ts`](../src/core/telemetry/index.ts). One upload typically produces several ingested metrics in a single POST (one `uploadCopyStatus` + `uploadCopyBytes` pair per copy outcome).
 
 ### Common Tags
 
@@ -46,37 +46,31 @@ Every metric emitted by Filecoin Pin carries the following tags:
 |---|---|---|
 | <a id="tag-affordance"></a>`affordance` | `CLI`, `GitHub Action`, `Library`, `pin.filecoin.cloud` | Which [affordance](../README.md#affordances) emitted the metric. Set by the host via `configureTelemetry({ affordance })`; defaults to `Library` when not configured. `configureTelemetry` rejects any other value at runtime. |
 | <a id="tag-network"></a>`network` | `mainnet`, `calibration`, `devnet` | The Filecoin network the upload targeted. |
+| <a id="tag-spId"></a>`spId` | stringified provider ID | [Storage Provider](glossary.md#service-provider) for this copy attempt, from the Synapse SDK's `providerId`. |
+| <a id="tag-role"></a>`role` | `primary`, `secondary` | Copy role per the Synapse SDK (`primary` = client store target; `secondary` = SP-to-SP pull). |
 
 ### Status Count Related Metrics
 
 - These count metrics track the occurrence of a particular outcome for an event.
-- All status count metrics carry an additional `status` tag that attributes the count to a specific outcome.
+- All status count metrics carry the [common tags](#common-tags) above plus a `status` tag/label that attributes the count to a specific outcome.
 
 | Metric | Relevant Events | When Emitted | `status` Values | Source of truth |
 |---|---|---|---|---|
 | <a id="uploadCopyStatus"></a>`uploadCopyStatus` | [`uploadCopyResolved`](#uploadCopyResolved) | Once per copy in the upload result — one per entry in `result.copies` and one per entry in `result.failedAttempts`. | `success` (copy committed by the SP), `failure.pull` (Synapse pull step failed), `failure.commit` (Synapse commit step failed), `failure.other` (any other Synapse-reported failure). | [`src/core/telemetry/index.ts`](../src/core/telemetry/index.ts) |
 
-In addition to the [common tags](#common-tags) and `status`, `uploadCopyStatus` carries:
-
-- `spId` — [Storage Provider](glossary.md#service-provider) ID, stringified from the SDK's `providerId`.
-- `role` — `primary` or `secondary`, per the Synapse SDK.
-
-To compute the **upload success rate of all copies (independent of "primary" or "secondary")** over a window, divide the number of data points tagged `status=success` by the total number of `uploadCopyStatus` data points. To isolate a failure mode (e.g. commit-step regressions across SPs), filter on `status=failure.commit` and group by the `spId` tag.
+To compute the **upload success rate of all copies (independent of "primary" or "secondary")** over a window, divide the number of `uploadCopyStatus` metrics tagged `status=success` by the total number of `uploadCopyStatus` metrics. To isolate a failure mode (e.g. commit-step regressions across SPs), filter on `status=failure.commit` and group by the `spId` tag.
 
 Note that this computation doesn't directly answer "what proportion of golden-path 'adds' succeed" since:
 1. "adds" that only want a single upload (no extra copies) will be included AND
 2. "adds" that specify more than a single extra copy will add more weight to the metric
 [#516](https://github.com/filecoin-project/filecoin-pin/issues/516) is tracking more accurately answer this question.
 
-> Querying in BetterStack: `uploadCopyStatus` is ingested as a counter, but each point is a flat `value:1`, so the default counter aggregation (`avgMerge(rate_avg)`) reads ~0. Count points with `sum(metrics_count)` and read tags via `label('status')` / `label('spId')` instead.
+> Querying in BetterStack: each `uploadCopyStatus` submission uses `counter.value: 1` (the counter magnitude from the [HTTP metrics API](https://betterstack.com/docs/logs/ingesting-data/http/metrics/) — not the outcome `status` tag). The default counter aggregation (`avgMerge(rate_avg)`) reads ~0. Count with `sum(metrics_count)` and read outcome tags via `label('status')` / `label('spId')` instead.
 
 ### Gauge Metrics
 
-- These metrics carry a single numeric reading per point.
-- Each gauge point is emitted alongside the corresponding [`uploadCopyStatus`](#uploadCopyStatus) point, sharing its tag set so the two metrics can be joined at query time.
+- These metrics carry a single numeric reading per ingested metric.
 
-| Metric | Relevant Events | When Emitted | Gauge Value | Source of truth |
-|---|---|---|---|---|
-| <a id="uploadCopyBytes"></a>`uploadCopyBytes` | [`uploadCopyResolved`](#uploadCopyResolved) | Once per copy in the upload result, paired with [`uploadCopyStatus`](#uploadCopyStatus). | Piece size in bytes (`UploadResult.size`). All copies of one upload share the same size — the value identifies the upload that produced the outcome. | [`src/core/telemetry/index.ts`](../src/core/telemetry/index.ts) |
-
-`uploadCopyBytes` carries the same per-metric tags as `uploadCopyStatus` (`spId`, `role`, `status`) plus the [common tags](#common-tags), so you can filter `status=failure.commit` and aggregate `uploadCopyBytes` to see the size distribution of commit-step failures (`avg`, `p99`, `sum` by `spId`, etc.).
+| Metric | Relevant Events | When Emitted | Gauge Value | Additional Info | Source of truth |
+|---|---|---|---|---|---|
+| <a id="uploadCopyBytes"></a>`uploadCopyBytes` | [`uploadCopyResolved`](#uploadCopyResolved) | Once per copy in the upload result, paired with [`uploadCopyStatus`](#uploadCopyStatus). | Piece size in bytes (`UploadResult.size`). All copies of one upload share the same size — the value identifies the upload that produced the outcome. | Emitted alongside the corresponding [`uploadCopyStatus`](#uploadCopyStatus) counter in the same POST, sharing its tag set so the two metrics can be joined at query time. For example, you can filter `status=failure.commit` and aggregate `uploadCopyBytes` to see the size distribution of commit-step failures (`avg`, `p99`, `sum` by `spId`, etc.). | [`src/core/telemetry/index.ts`](../src/core/telemetry/index.ts) |
