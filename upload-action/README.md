@@ -21,7 +21,7 @@ See [action.yml](./action.yml) for complete input documentation including:
 
 **Outputs**: `ipfsRootCid`, `dataSetId`, `pieceCid`, `providerId`, `providerName`, `carPath`, `uploadStatus`
 
-> **Disabling telemetry.** Either set the `disableTelemetry: true` input, or set `FILECOIN_PIN_TELEMETRY_DISABLED=true` / `DO_NOT_TRACK=1` in the job's `env:` block. Either signal opts out; see the [CLI Telemetry section of the root README](../README.md#cli-telemetry) for what is collected.
+> **Disabling telemetry.** Either set the `disableTelemetry: true` input, or set `FILECOIN_PIN_TELEMETRY_DISABLED=true` / `DO_NOT_TRACK=1` in the job's `env:` block. See the [CLI Telemetry section of the root README](../README.md#telemetry) for more info.
 
 ### Uploading a pre-built CAR
 
