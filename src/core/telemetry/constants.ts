@@ -28,4 +28,4 @@ export const METRIC_UPLOAD_COPY_STATUS = 'uploadCopyStatus'
  * slice success/failure rates by size (e.g. p99 size of commit-step failures)
  * without inflating the counter's tag cardinality.
  */
-export const METRIC_UPLOAD_COPY_SIZE = 'uploadCopySize'
+export const METRIC_UPLOAD_COPY_BYTES = 'uploadCopyBytes'

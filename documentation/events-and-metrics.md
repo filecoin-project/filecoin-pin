@@ -77,6 +77,6 @@ Note that this computation doesn't directly answer "what proportion of golden-pa
 
 | Metric | Relevant Events | When Emitted | Gauge Value | Source of truth |
 |---|---|---|---|---|
-| <a id="uploadCopySize"></a>`uploadCopySize` | [`uploadCopyResolved`](#uploadCopyResolved) | Once per copy in the upload result, paired with [`uploadCopyStatus`](#uploadCopyStatus). | Piece size in bytes (`UploadResult.size`). All copies of one upload share the same size — the value identifies the upload that produced the outcome. | [`src/core/telemetry/index.ts`](../src/core/telemetry/index.ts) |
+| <a id="uploadCopyBytes"></a>`uploadCopyBytes` | [`uploadCopyResolved`](#uploadCopyResolved) | Once per copy in the upload result, paired with [`uploadCopyStatus`](#uploadCopyStatus). | Piece size in bytes (`UploadResult.size`). All copies of one upload share the same size — the value identifies the upload that produced the outcome. | [`src/core/telemetry/index.ts`](../src/core/telemetry/index.ts) |
 
-`uploadCopySize` carries the same per-metric tags as `uploadCopyStatus` (`spId`, `role`, `status`) plus the [common tags](#common-tags), so you can filter `status=failure.commit` and aggregate `uploadCopySize` to see the size distribution of commit-step failures (`avg`, `p99`, `sum` by `spId`, etc.).
+`uploadCopyBytes` carries the same per-metric tags as `uploadCopyStatus` (`spId`, `role`, `status`) plus the [common tags](#common-tags), so you can filter `status=failure.commit` and aggregate `uploadCopyBytes` to see the size distribution of commit-step failures (`avg`, `p99`, `sum` by `spId`, etc.).

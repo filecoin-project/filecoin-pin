@@ -10,7 +10,7 @@
  */
 
 import type { UploadResult } from '@filoz/synapse-sdk'
-import { METRIC_UPLOAD_COPY_SIZE, METRIC_UPLOAD_COPY_STATUS, METRICS_ENDPOINT, METRICS_TOKEN } from './constants.js'
+import { METRIC_UPLOAD_COPY_BYTES, METRIC_UPLOAD_COPY_STATUS, METRICS_ENDPOINT, METRICS_TOKEN } from './constants.js'
 
 /**
  * Which surface the metric was emitted from. Every metric carries this as a
@@ -111,7 +111,7 @@ async function post(points: MetricPoint[]): Promise<void> {
 /**
  * Record one upload's per-copy outcomes — for each entry in `result.copies`
  * and `result.failedAttempts` we emit a paired `uploadCopyStatus` counter and
- * `uploadCopySize` gauge sharing the same tag set. No-op when disabled.
+ * `uploadCopyBytes` gauge sharing the same tag set. No-op when disabled.
  *
  * @param result - The structured upload result returned by Synapse.
  * @param network - URL-safe network slug (e.g. `mainnet`, `calibration`).
@@ -125,7 +125,7 @@ export function recordUploadResult(
   const points: MetricPoint[] = []
   const pushPair = (tags: Record<string, string>) => {
     points.push({ name: METRIC_UPLOAD_COPY_STATUS, type: 'counter', value: 1, tags })
-    points.push({ name: METRIC_UPLOAD_COPY_SIZE, type: 'gauge', value: result.size, tags })
+    points.push({ name: METRIC_UPLOAD_COPY_BYTES, type: 'gauge', value: result.size, tags })
   }
   for (const copy of result.copies) {
     pushPair({

@@ -98,7 +98,7 @@ describe('telemetry', () => {
     expect(points).toHaveLength(8)
 
     const statusPoints = points.filter((p) => p.name === 'uploadCopyStatus')
-    const sizePoints = points.filter((p) => p.name === 'uploadCopySize')
+    const sizePoints = points.filter((p) => p.name === 'uploadCopyBytes')
     expect(statusPoints).toHaveLength(4)
     expect(sizePoints).toHaveLength(4)
 
@@ -206,7 +206,7 @@ describe('telemetry', () => {
     expect(fetchCalls).toHaveLength(0)
   })
 
-  it('emits an uploadCopySize gauge sharing the status point tags', async () => {
+  it('emits an uploadCopyBytes gauge sharing the status point tags', async () => {
     const { recordUploadResult, flushTelemetry } = await freshTelemetry()
 
     recordUploadResult(
@@ -220,7 +220,7 @@ describe('telemetry', () => {
     await flushTelemetry()
 
     const points = parseBody(firstCall())
-    const sizePoints = points.filter((p) => p.name === 'uploadCopySize')
+    const sizePoints = points.filter((p) => p.name === 'uploadCopyBytes')
     expect(sizePoints).toHaveLength(2)
 
     expect(sizePoints).toContainEqual(
