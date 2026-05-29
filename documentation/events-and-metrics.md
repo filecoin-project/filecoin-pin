@@ -32,7 +32,7 @@ sequenceDiagram
 | <a id="uploadStarted"></a>`uploadStarted` | Filecoin Pin invokes `executeUpload` for one piece. | [`src/core/upload/index.ts`](../src/core/upload/index.ts) |
 | <a id="uploadCopyAttempted"></a>`uploadCopyAttempted` | The Synapse SDK begins one copy attempt against a specific SP. Implicit marker — emitted once per entry that later shows up in `result.copies` or `result.failedAttempts`. | [`@filoz/synapse-sdk`](https://github.com/FilOzone/synapse-sdk) |
 | <a id="uploadCopyResolved"></a>`uploadCopyResolved` | A copy attempt produces a terminal outcome (`success` or one of the `failure.*` values). Drives [`uploadCopyStatus`](#uploadCopyStatus). | [`src/core/telemetry/index.ts`](../src/core/telemetry/index.ts) |
-| <a id="uploadResultReceived"></a>`uploadResultReceived` | `executeUpload` returns with `{copies, failedAttempts}`. This is the point at which `recordUploadResult` is called and the [`uploadCopyStatus`](#uploadCopyStatus) points are submitted. | [`src/core/upload/index.ts`](../src/core/upload/index.ts) |
+| <a id="uploadResultReceived"></a>`uploadResultReceived` | `executeUpload` returns with `{copies, failedAttempts}`. This is the point at which `recordUploadResult` is called and the [`uploadCopyStatus`](#uploadCopyStatus) data points are submitted. | [`src/core/upload/index.ts`](../src/core/upload/index.ts) |
 
 ## Metrics
 
