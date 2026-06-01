@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.22.2](https://github.com/filecoin-project/filecoin-pin/compare/v0.22.1...v0.22.2) (2026-06-01)
+
+
+### Features
+
+* instrument multi-copy upload outcomes ([#501](https://github.com/filecoin-project/filecoin-pin/issues/501)) ([b3ef48e](https://github.com/filecoin-project/filecoin-pin/commit/b3ef48e25873aa806cb8eb73bc69ef4e38bcd589))
+
+
+### Chores
+
+* **deps:** bump @libp2p/tcp from 11.0.17 to 11.0.20 ([#510](https://github.com/filecoin-project/filecoin-pin/issues/510)) ([0a50ad0](https://github.com/filecoin-project/filecoin-pin/commit/0a50ad053d3703c77e803e3b0f9c00412f514294))
+
 ## [0.22.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.22.0...v0.22.1) (2026-05-28)
 
 
