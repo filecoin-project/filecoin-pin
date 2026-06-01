@@ -6,6 +6,9 @@
   "packageManager": "pnpm@10.32.1",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "browser": {
+    "./dist/common/devnet-config.js": "./dist/common/devnet-config.browser.js"
+  },
   "exports": {
     ".": {
       "browser": {

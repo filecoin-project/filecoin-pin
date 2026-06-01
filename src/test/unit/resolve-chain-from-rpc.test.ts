@@ -11,7 +11,7 @@ vi.mock('viem', async (importOriginal) => {
   }
 })
 
-vi.mock('../../common/get-rpc-url.js', () => ({
+vi.mock('../../common/devnet-config.js', () => ({
   resolveDevnetConfig: vi.fn(() => {
     throw new Error('devnet-info.json not available')
   }),
@@ -54,7 +54,7 @@ describe('resolveChainFromRpc', () => {
 
   it('returns devnet chain when chainId matches devnet config', async () => {
     const devnetChain = { id: 31415926, name: 'devnet' } as const
-    const { resolveDevnetConfig } = await import('../../common/get-rpc-url.js')
+    const { resolveDevnetConfig } = await import('../../common/devnet-config.js')
     vi.mocked(resolveDevnetConfig).mockReturnValueOnce({ chain: devnetChain as never, privateKey: undefined })
 
     mockChainId(devnetChain.id)
