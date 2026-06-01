@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.3](https://github.com/filecoin-project/filecoin-pin/compare/v0.22.2...v0.22.3) (2026-06-01)
+
+
+### Bug Fixes
+
+* keep node-only devnet config out of browser bundles ([#520](https://github.com/filecoin-project/filecoin-pin/issues/520)) ([277e633](https://github.com/filecoin-project/filecoin-pin/commit/277e633049d847c8fca12bded5d80b437554afe8))
+
 ## [0.22.2](https://github.com/filecoin-project/filecoin-pin/compare/v0.22.1...v0.22.2) (2026-06-01)
 
 
