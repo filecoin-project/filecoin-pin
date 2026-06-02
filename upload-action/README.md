@@ -2,7 +2,7 @@
 
 The Filecoin Pin Upload Action is a composite GitHub Action that packs a file or directory into a UnixFS CAR, uploads it to Filecoin, and publishes artifacts and context for easy reuse.
 
-This GitHub Action is provided to illustrate how to use filecoin-pin, a new IPFS pinning workflow that stores to the Filecoin decentralized storage network.  It's not expected to be the action that other repos will depend on for their production use case of uploading to Filecoin.  Given the emphasis on this being an educational demo, breaking changes may be made at any time.  For robust use, the intent is to add filecoin-pin functionality to the ipshipyard/ipfs-deploy-action, which is being tracked in [issue #39](https://github.com/ipfs/ipfs-deploy-action/issues/39).
+This is the GitHub Action that Filecoin Pin supports for uploading content to the Filecoin decentralized storage network from CI. It packs a file or directory into a UnixFS CAR and uploads it via filecoin-pin, so you can publish to Filecoin on every push or pull request.
 
 *Note: The action defaults to Filecoin Mainnet (`network: mainnet`). Set `network: calibration` to target the Calibration testnet, where data isn't permanent and infrastructure resets regularly.*
 
