@@ -1,0 +1,74 @@
+name: Upload to Filecoin (CLI)
+
+# Drives the filecoin-pin CLI directly instead of the composite upload-action.
+# Use this when you want full control over your workflow steps.
+#
+# SECURITY: this workflow spends wallet funds, so it is gated to pushes on the
+# default branch only. Do not run it on untrusted (e.g. fork) pull requests.
+on:
+  push:
+    branches: [main]
+
+jobs:
+  # Case 1: pack a directory and upload it. `filecoin-pin add` builds the CAR
+  # from your build output and uploads it in one step.
+  pack-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          # npm install && npm run build
+          # or whatever produces your static output
+          mkdir -p dist
+          echo "Built content" > dist/index.html
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Upload directory to Filecoin
+        env:
+          # Reuse the same secret name the composite action and recipes use.
+          PRIVATE_KEY: ${{ secrets.FILECOIN_WALLET_KEY }}
+        run: |
+          # Pin the CLI version so a future release cannot change behavior
+          # under your CI without a code review.
+          npx -y filecoin-pin@0.22.3 add dist \
+            --network mainnet \
+            --auto-fund \
+            --min-runway-days 30 \
+            --max-balance 5.00
+
+  # Case 2: upload a pre-built CAR (for example one produced by an upstream
+  # step). `filecoin-pin import` uploads the CAR as-is and preserves its root CID.
+  upload-prebuilt-car:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Produce build.car however you like (e.g. `ipfs dag export`, or an
+      # upstream action that emits a CAR). This placeholder stands in for that.
+      - name: Build CAR
+        run: |
+          # your step that writes build.car
+          echo "replace with a step that produces build.car"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Import CAR to Filecoin
+        env:
+          PRIVATE_KEY: ${{ secrets.FILECOIN_WALLET_KEY }}
+        run: |
+          npx -y filecoin-pin@0.22.3 import build.car \
+            --network mainnet \
+            --auto-fund \
+            --min-runway-days 30 \
+            --max-balance 5.00

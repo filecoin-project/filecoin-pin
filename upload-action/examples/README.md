@@ -9,8 +9,10 @@ examples/
 ├── two-workflow-pattern/         # Recommended: Secure pattern
 │   ├── build.yml                 #   - Untrusted build (no secrets)
 │   └── upload-to-filecoin.yml    #   - Trusted upload (has secrets)
-└── single-workflow/              # Alternative: Trusted repos only
-    └── build-and-upload.yml      #   - All-in-one (simpler but less secure)
+├── single-workflow/              # Alternative: Trusted repos only
+│   └── build-and-upload.yml      #   - All-in-one (simpler but less secure)
+└── cli-recipe/                   # No composite action: run the filecoin-pin CLI directly
+    └── upload-with-cli.yml       #   - `filecoin-pin add` / `import` in your own steps
 ```
 
 ## 🚀 Quick Setup

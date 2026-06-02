@@ -95,6 +95,7 @@ The action checks npm for a newer `filecoin-pin` release at the start of each ru
 ## Examples & Documentation
 
 - **[examples/](./examples/)** - Ready-to-use workflow files and setup instructions
+- **[examples/cli-recipe/](./examples/cli-recipe/)** - Drive the `filecoin-pin` CLI directly from your own workflow steps, without this composite action
 - **[Actual usage in filecoin-pin-website repo](https://github.com/filecoin-project/filecoin-pin-website/blob/main/.github/workflows/filecoin-pin-upload.yml)** ([🎥 demo recording](https://www.youtube.com/watch?v=_2ZsMYXfgwI))
 - **[Filecoin Pin + ENS Demo](https://github.com/FIL-Builders/filecoin-pin-ens-demo)** ([🎥 demo recording](https://www.youtube.com/watch?v=tkDwXAVtnDA)) - A minimal demo showing a static website deployed with the Filecoin Pin Upload Action and an ENS update that points the ENS name to the latest IPFS CID after each push to main.
 - **[FLOW.md](./FLOW.md)** - Internal architecture for contributors and maintainers
