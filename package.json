@@ -161,7 +161,7 @@
     "@vitest/browser-playwright": "^4.0.18",
     "@vitest/coverage-v8": "^4.0.18",
     "blockstore-core": "^6.1.2",
-    "playwright-chromium": "^1.58.2",
+    "playwright-chromium": "^1.60.0",
     "tsx": "~4.21.0",
     "typedoc": "^0.28.17",
     "typescript": "~5.9.3",
