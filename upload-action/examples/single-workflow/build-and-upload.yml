@@ -36,5 +36,5 @@ jobs:
           walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
           path: dist
           network: mainnet
-          minStorageDays: "30"
-          filecoinPayBalanceLimit: "5.00"
+          minRunwayDays: "30"
+          maxBalance: "5.00"

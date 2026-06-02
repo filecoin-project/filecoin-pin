@@ -12,11 +12,11 @@ See the two-workflow approach in the [examples directory](./examples/) for compl
 
 ## Inputs & Outputs
 
-> **Using the CLI directly?** `filecoin-pin add` and `filecoin-pin import` accept `--auto-fund`, `--min-runway-days`, and `--max-balance` flags that mirror `minStorageDays` and `filecoinPayBalanceLimit` here. See `filecoin-pin add --help`.
+> **Using the CLI directly?** `filecoin-pin add` and `filecoin-pin import` accept `--auto-fund`, `--min-runway-days`, and `--max-balance` flags that mirror `minRunwayDays` and `maxBalance` here. See `filecoin-pin add --help`.
 
 See [action.yml](./action.yml) for complete input documentation including:
 - **Core**: `path`, `walletPrivateKey`, `network`
-- **Financial**: `minStorageDays`, `filecoinPayBalanceLimit`
+- **Financial**: `minRunwayDays`, `maxBalance` (the old names `minStorageDays` / `filecoinPayBalanceLimit` still work as deprecated aliases)
 - **Advanced**: `egressProvider`, `dryRun`, `disableTelemetry`
 
 **Outputs**: `ipfsRootCid`, `dataSetId`, `pieceCid`, `providerId`, `providerName`, `carPath`, `uploadStatus`
@@ -64,7 +64,7 @@ When omitted, the SDK selects providers automatically (recommended). With multi-
 - ✅ Grant `checks: write` for PR check status
 - ✅ Grant `pull-requests: write` for PR comments
 - ℹ️ GitHub token is automatically provided - no need to pass it
-- ✅ **Always** hardcode `minStorageDays` and `filecoinPayBalanceLimit` in trusted workflows
+- ✅ **Always** hardcode `minRunwayDays` and `maxBalance` in trusted workflows
 - ✅ **Never** use `pull_request_target` - use the two-workflow pattern instead
 - ✅ Enable **branch protection** on main to require reviews for workflow changes
 - ✅ Use **CODEOWNERS** to require security team approval for workflow modifications

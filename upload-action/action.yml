@@ -23,7 +23,7 @@ inputs:
     default: mainnet
 
   # Financial controls
-  minStorageDays:
+  minRunwayDays:
     description: >-
       Minimum runway in days of funding to keep the current data set persisted on Filecoin.
       This number is used to calculate the minimum Filecoin Pay balance to meet this runway.
@@ -31,17 +31,27 @@ inputs:
       which won't be true for wallets that have multiple data sets or are using Filecoin Pay with other Filecoin Onchain Cloud services.
       If this isn't specified, this action will not make any Filecoin Pay deposits.
       If the current Filecoin Pay balance is already above this target, then no token deposits are attempted from the wallet.
-      If the current Filecoin Pay balance is below this target, the necessary deposit will be attempted up through the `filecoinPayBalanceLimit` (see below).
+      If the current Filecoin Pay balance is below this target, the necessary deposit will be attempted up through the `maxBalance` (see below).
       If there are insufficient funds in the wallet, the action will fail.
+      Mirrors the CLI's `--min-runway-days`.
       SECURITY: Hardcode this in trusted workflows.
     required: false
-  filecoinPayBalanceLimit:
+  maxBalance:
     description: >-
-      Specifies a target Filecoin Pin balance in USDFC that this action will never exceed.
+      Specifies a target Filecoin Pay balance in USDFC that this action will never exceed.
       Actions (manual or other) outside of this action may cause the Filecoin Pay balance to exceed this limit,
       but this limit prevents the action from using the wallet to top up the Filecoin Pay balance beyond the limit.
-      As a protection, this must be set if `minStorageDays` is set.
+      As a protection, this must be set if `minRunwayDays` is set.
+      Mirrors the CLI's `--max-balance`.
       SECURITY: Hardcode this in trusted workflows.
+    required: false
+
+  # Deprecated aliases (kept for backwards compatibility; will be removed in a future release)
+  minStorageDays:
+    description: 'DEPRECATED: use `minRunwayDays` instead.'
+    required: false
+  filecoinPayBalanceLimit:
+    description: 'DEPRECATED: use `maxBalance` instead.'
     required: false
 
   # Optional/Advanced configuration

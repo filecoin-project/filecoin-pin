@@ -27,7 +27,7 @@ cp examples/two-workflow-pattern/*.yml .github/workflows/
 **Customize:**
 1. Add `FILECOIN_WALLET_KEY` secret in your repository settings
 2. Update build steps in `build.yml` for your project
-3. Adjust `minStorageDays` and `filecoinPayBalanceLimit` in `upload-to-filecoin.yml`
+3. Adjust `minRunwayDays` and `maxBalance` in `upload-to-filecoin.yml`
 
 **Done!** Open a PR to see it in action.
 

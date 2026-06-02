@@ -71,5 +71,5 @@ jobs:
           # 1Password: "filecoin-pin / filecoin-pin-website /upload-action Wallet"
           walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
           network: calibration
-          filecoinPayBalanceLimit: "5"
+          maxBalance: "5"
           dryRun: false
