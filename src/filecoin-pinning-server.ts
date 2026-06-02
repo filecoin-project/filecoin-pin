@@ -49,11 +49,7 @@ function reasonForStatus(statusCode: number): string {
   }
 }
 
-interface PinMutationBody {
-  name?: string
-  origins?: string[]
-  meta?: Record<string, string>
-}
+type PinMutationBody = import('./filecoin-pin-store.js').PinOptions
 
 /**
  * Validate the optional `name` / `origins` / `meta` fields shared by the create and update
