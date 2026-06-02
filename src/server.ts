@@ -81,7 +81,7 @@ export async function startServer(): Promise<void> {
     } else if (errorMessage.includes('No access token')) {
       console.error('\n❌ Error: An access token is required to start the pinning server')
       console.error('   Access token:  --access-token <token>  or  ACCESS_TOKEN=...')
-      console.error('   To run without authentication (not recommended), pass --allow-no-auth.\n')
+      console.error('   To run without authentication (not recommended), pass --allow-no-auth or set ALLOW_NO_AUTH=true.\n')
     }
 
     process.exit(1)
