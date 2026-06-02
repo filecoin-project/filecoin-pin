@@ -84,7 +84,7 @@ function getInputWithDeprecatedAlias(name, deprecatedName, fallback = '') {
       `::warning::Input "${deprecatedName}" is deprecated; use "${name}" instead. ` +
         `Support for "${deprecatedName}" will be removed in a future release.`
     )
-    return deprecated
+    return toStringValue(deprecated).trim()
   }
 
   return toStringValue(fallback).trim()
