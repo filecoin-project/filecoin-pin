@@ -12,6 +12,10 @@ export const serverCommand = new Command('server')
   .option('--wallet-address <address>', 'wallet address for session key auth (env: WALLET_ADDRESS)')
   .option('--session-key <key>', 'session key for session key auth (env: SESSION_KEY)')
   .option('--access-token <token>', 'bearer token required on all API requests except GET / (env: ACCESS_TOKEN)')
+  .option(
+    '--allow-no-auth',
+    'start the server without an access token, serving all requests unauthenticated (env: ALLOW_NO_AUTH)'
+  )
 
 addNetworkOptions(serverCommand)
   .addOption(
@@ -31,6 +35,9 @@ addNetworkOptions(serverCommand)
     }
     if (options.accessToken) {
       process.env.ACCESS_TOKEN = options.accessToken
+    }
+    if (options.allowNoAuth) {
+      process.env.ALLOW_NO_AUTH = 'true'
     }
     // RPC URL takes precedence over network flag
     if (options.rpcUrl) {

@@ -53,6 +53,7 @@ describe('End-to-End Pinning Service', () => {
       carStoragePath: testOutputDir,
       port: 0, // Use random port
       privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001', // Fake test key
+      accessToken: 'test-token', // Requests authenticate with `Bearer test-token`
     }
     const logger = createLogger(config)
 
@@ -615,6 +616,58 @@ describe('End-to-End Pinning Service', () => {
 
       expect(getResponse.status).toBe(404)
     }, 15000)
+  })
+
+  describe('Error response shape (IPFS Pinning Service API spec)', () => {
+    it('returns { error: { reason, details } } for 401 (missing auth)', async () => {
+      const res = await fetch(`${serverAddress}/pins`, { method: 'GET' })
+      expect(res.status).toBe(401)
+      const body = (await res.json()) as { error: { reason: string; details?: string } }
+      expect(typeof body.error.reason).toBe('string')
+      expect(typeof body.error.details).toBe('string')
+    })
+
+    it('returns spec error shape for 400 (malformed body, missing cid)', async () => {
+      const res = await fetch(`${serverAddress}/pins`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token' },
+        body: JSON.stringify({ name: 'no cid here' }),
+      })
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as { error: { reason: string; details?: string } }
+      expect(body.error.reason).toBe('BAD_REQUEST')
+      expect(typeof body.error.details).toBe('string')
+    })
+
+    it('returns spec error shape for 400 (malformed update body)', async () => {
+      const res = await fetch(`${serverAddress}/pins/anything`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token' },
+        body: JSON.stringify({ name: 123 }),
+      })
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as { error: { reason: string; details?: string } }
+      expect(body.error.reason).toBe('BAD_REQUEST')
+    })
+
+    it('returns spec error shape for 404 (unknown pin)', async () => {
+      const res = await fetch(`${serverAddress}/pins/does-not-exist`, {
+        headers: { Authorization: 'Bearer test-token' },
+      })
+      expect(res.status).toBe(404)
+      const body = (await res.json()) as { error: { reason: string; details?: string } }
+      expect(body.error.reason).toBe('NOT_FOUND')
+    })
+
+    it('returns spec error shape for 500 (internal error)', async () => {
+      vi.spyOn(pinStore, 'get').mockRejectedValueOnce(new Error('boom'))
+      const res = await fetch(`${serverAddress}/pins/anything`, {
+        headers: { Authorization: 'Bearer test-token' },
+      })
+      expect(res.status).toBe(500)
+      const body = (await res.json()) as { error: { reason: string; details?: string } }
+      expect(body.error.reason).toBe('INTERNAL_ERROR')
+    })
   })
 
   describe('Block Transfer Verification', () => {
