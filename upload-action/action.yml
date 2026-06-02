@@ -82,7 +82,7 @@ outputs:
     description: Path to the created CAR file
     value: ${{ steps.run.outputs.carPath }}
   uploadStatus:
-    description: Upload status (uploaded, reused-cache, reused-artifact)
+    description: Upload status (uploaded, dry-run, fork-pr-blocked, pending-upload)
     value: ${{ steps.run.outputs.uploadStatus }}
 
 runs:

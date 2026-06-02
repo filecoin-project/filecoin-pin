@@ -33,7 +33,7 @@ jobs:
       - name: Upload to Filecoin
         uses: filecoin-project/filecoin-pin/upload-action@v0
         with:
-          walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
+          walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
           path: dist
           network: mainnet
           minStorageDays: "30"
