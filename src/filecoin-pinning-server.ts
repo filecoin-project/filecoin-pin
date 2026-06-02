@@ -4,7 +4,7 @@ import type { Logger } from 'pino'
 import { isAddress, isHex } from 'viem'
 import type { Chain, Config } from './core/synapse/index.js'
 import { initializeSynapse, type SynapseSetupConfig } from './core/synapse/index.js'
-import { FilecoinPinStore } from './filecoin-pin-store.js'
+import { FilecoinPinStore, type PinOptions } from './filecoin-pin-store.js'
 import type { ServiceInfo } from './server.js'
 
 declare module 'fastify' {
@@ -49,7 +49,7 @@ function reasonForStatus(statusCode: number): string {
   }
 }
 
-type PinMutationBody = import('./filecoin-pin-store.js').PinOptions
+type PinMutationBody = PinOptions
 
 /**
  * Validate the optional `name` / `origins` / `meta` fields shared by the create and update
