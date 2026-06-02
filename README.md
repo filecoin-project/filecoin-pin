@@ -64,9 +64,11 @@ Use Filecoin Pin programmatically in your Node.js or browser applications. The l
 ### 📡 IPFS Pinning Server (Daemon Mode)
 Run a localhost IPFS Pinning Service API server that implements the [IPFS Pinning Service API specification](https://ipfs.github.io/pinning-services-api-spec/). This allows you to use standard IPFS tooling (like `ipfs pin remote`) while storing data on Filecoin.
 
-- **Status**: Works and is tested, but hasn't received as many features as the CLI. If it would benefit your use case, please comment on the [tracking issue](https://github.com/filecoin-project/filecoin-pin/issues/46) so we can be better informed when it comes to prioritizing.
+- **Status**: Beta. Works and is tested, but hasn't received as many features as the CLI. State is held in memory and is lost across restarts. If it would benefit your use case, please comment on the [tracking issue](https://github.com/filecoin-project/filecoin-pin/issues/46) so we can be better informed when it comes to prioritizing.
 - **Repository**: This repo (`filecoin-pin server` command in CLI)
-- **Usage**: `PRIVATE_KEY=0x... npx filecoin-pin server` (or use session key auth — see [Configuration](#configuration))
+- **Usage**: `PRIVATE_KEY=0x... ACCESS_TOKEN=... npx filecoin-pin server` (or use session key auth — see [Configuration](#configuration))
+- **Authentication**: The server refuses to start unless an access token is configured via `--access-token` / `ACCESS_TOKEN`. Clients then authenticate with `Authorization: Bearer <token>` on every request except `GET /`. To run the server open to all requests (not recommended), pass `--allow-no-auth` / `ALLOW_NO_AUTH=true`.
+- **`delegates` is always empty**: Each pin spins up its own short-lived Helia node that is stopped as soon as the pin operation finishes, so there is no long-lived node to advertise. The `delegates` array in pin responses is therefore always `[]`.
 
 ### 📊 Management Console GUI
 Web-based management console for monitoring and managing your Filecoin Pin deployments. This is effectively a Web UI equivalent to the [CLI](#-cli) affordance.
@@ -250,6 +252,8 @@ RPC_URL=wss://...              # Filecoin RPC endpoint (overrides NETWORK if spe
                                # Calibration: wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1
 
 # Optional for Pinning Server Daemon
+ACCESS_TOKEN=...               # Bearer token required on all API requests except GET /
+ALLOW_NO_AUTH=true             # Start without a token, serving all requests unauthenticated (not recommended)
 PORT=3456                      # Daemon server port
 HOST=localhost                 # Daemon server host
 DATABASE_PATH=./pins.db        # SQLite database location
