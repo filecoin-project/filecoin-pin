@@ -73,6 +73,7 @@ export function createConfig(): Config {
     port: parseInt(process.env.PORT ?? '3456', 10),
     host: process.env.HOST ?? 'localhost',
     accessToken: process.env.ACCESS_TOKEN,
+    allowNoAuth: process.env.ALLOW_NO_AUTH === 'true',
 
     // Synapse SDK configuration
     privateKey: process.env.PRIVATE_KEY,

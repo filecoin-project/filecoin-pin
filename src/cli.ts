@@ -5,7 +5,12 @@ import pc from 'picocolors'
 
 import { ALL_CLI_COMMANDS } from './commands/index.js'
 import { checkForUpdate, type UpdateCheckStatus } from './common/version-check.js'
+import { configureTelemetry, flushTelemetry } from './core/telemetry/index.js'
 import { version as packageVersion } from './core/utils/version.js'
+import { readTelemetryConfigFromEnv } from './read-telemetry-config-from-env.js'
+
+// Apply CLI env vars to the telemetry library before any subcommand runs.
+configureTelemetry({ ...readTelemetryConfigFromEnv(), affordance: 'CLI' })
 
 // Create the main program
 const program = new Command()
@@ -69,7 +74,14 @@ program.hook('postAction', async (_thisCommand, actionCommand) => {
   // which hides the underlying socket. The server command manages its own
   // lifecycle via SIGINT/SIGTERM, so only force-exit for CLI commands.
   if (actionCommand.name() !== 'server') {
-    process.exit(process.exitCode ?? 0)
+    try {
+      await flushTelemetry()
+    } catch (err) {
+      // Never let a telemetry flush failure block the forced exit below.
+      console.error('Telemetry flush failed:', err)
+    } finally {
+      process.exit(process.exitCode ?? 0)
+    }
   }
 })
 

@@ -35,7 +35,14 @@ import {
   STORAGE_SCALE_MAX_BI,
   USDFC_DECIMALS,
 } from './constants.js'
-import type { AccountSummary, PaymentStatus, ServiceApprovalStatus, StorageAllowances } from './types.js'
+import type {
+  AccountSummary,
+  PaymentCapacityCheck,
+  PaymentStatus,
+  PaymentValidationResult,
+  ServiceApprovalStatus,
+  StorageAllowances,
+} from './types.js'
 import { padSizeToPDPLeaves } from './utils.js'
 
 // Re-export SDK helpers used by downstream consumers (e.g. upload-action)
@@ -185,12 +192,6 @@ export async function getPaymentStatus(synapse: Synapse): Promise<PaymentStatus>
     filecoinPayBalance,
     currentAllowances,
   }
-}
-
-export interface PaymentValidationResult {
-  isValid: boolean
-  errorMessage?: string
-  helpMessage?: string
 }
 
 export function getUsdfcAcquisitionHelpMessage(isCalibnet: boolean): string {
@@ -810,21 +811,6 @@ export function calculateRequiredAllowances(pieceSizeBytes: number, pricePerTiBP
   const paddedSizeBytes = padSizeToPDPLeaves(pieceSizeBytes)
   const storageTiB = paddedSizeBytes / Number(SIZE_CONSTANTS.TiB)
   return calculateStorageAllowances(storageTiB, pricePerTiBPerEpoch)
-}
-
-/**
- * Payment capacity validation for a specific file
- */
-export interface PaymentCapacityCheck {
-  canUpload: boolean
-  storageTiB: number
-  required: StorageAllowances
-  issues: {
-    insufficientDeposit?: bigint
-    insufficientRateAllowance?: bigint
-    insufficientLockupAllowance?: bigint
-  }
-  suggestions: string[]
 }
 
 /**

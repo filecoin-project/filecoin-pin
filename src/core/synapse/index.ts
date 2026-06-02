@@ -49,6 +49,8 @@ export interface Config {
   walletAddress: string | undefined
   sessionKey: string | undefined
   accessToken: string | undefined
+  /** Allow the pinning server to start without an access token, serving all requests unauthenticated. */
+  allowNoAuth?: boolean
   rpcUrl: string
   chain?: Chain
   databasePath: string

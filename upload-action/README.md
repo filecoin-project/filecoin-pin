@@ -17,9 +17,11 @@ See the two-workflow approach in the [examples directory](./examples/) for compl
 See [action.yml](./action.yml) for complete input documentation including:
 - **Core**: `path`, `walletPrivateKey`, `network`
 - **Financial**: `minStorageDays`, `filecoinPayBalanceLimit`
-- **Advanced**: `egressProvider`, `dryRun`
+- **Advanced**: `egressProvider`, `dryRun`, `disableTelemetry`
 
 **Outputs**: `ipfsRootCid`, `dataSetId`, `pieceCid`, `providerId`, `providerName`, `carPath`, `uploadStatus`
+
+> **Disabling telemetry.** Either set the `disableTelemetry: true` input, or set `FILECOIN_PIN_TELEMETRY_DISABLED=true` / `DO_NOT_TRACK=1` in the job's `env:` block. See the [Telemetry section of the root README](../README.md#telemetry) for more info.
 
 ### Uploading a pre-built CAR
 
