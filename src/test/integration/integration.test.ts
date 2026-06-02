@@ -668,6 +668,34 @@ describe('End-to-End Pinning Service', () => {
       const body = (await res.json()) as { error: { reason: string; details?: string } }
       expect(body.error.reason).toBe('INTERNAL_ERROR')
     })
+
+    it('returns spec error shape for Fastify-generated 400 (malformed JSON body)', async () => {
+      const res = await fetch(`${serverAddress}/pins`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token' },
+        body: '{ not valid json',
+      })
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as { error: { reason: string; details?: string } }
+      expect(body.error.reason).toBe('BAD_REQUEST')
+      expect(typeof body.error.details).toBe('string')
+    })
+
+    it('returns spec error shape for unknown routes (404)', async () => {
+      const res = await fetch(`${serverAddress}/does-not-exist`, {
+        headers: { Authorization: 'Bearer test-token' },
+      })
+      expect(res.status).toBe(404)
+      const body = (await res.json()) as { error: { reason: string; details?: string } }
+      expect(body.error.reason).toBe('NOT_FOUND')
+    })
+
+    it('serves the health check without auth even with a query string', async () => {
+      const res = await fetch(`${serverAddress}/?check=1`)
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { status: string }
+      expect(body.status).toBe('ok')
+    })
   })
 
   describe('Block Transfer Verification', () => {

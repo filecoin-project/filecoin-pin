@@ -1,4 +1,4 @@
-import fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
+import fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { isAddress, isHex } from 'viem'
@@ -31,6 +31,22 @@ async function sendError(reply: FastifyReply, statusCode: number, reason: string
     error.details = details
   }
   await reply.code(statusCode).send({ error })
+}
+
+/** Map an HTTP status code to a machine-readable `reason` for the spec error envelope. */
+function reasonForStatus(statusCode: number): string {
+  switch (statusCode) {
+    case 400:
+      return 'BAD_REQUEST'
+    case 401:
+      return 'UNAUTHORIZED'
+    case 403:
+      return 'FORBIDDEN'
+    case 404:
+      return 'NOT_FOUND'
+    default:
+      return statusCode >= 500 ? 'INTERNAL_ERROR' : 'CLIENT_ERROR'
+  }
 }
 
 interface PinMutationBody {
@@ -198,6 +214,22 @@ export async function createFilecoinPinningServer(
     logger: false, // We'll use our own logger
   })
 
+  // Route Fastify-generated errors (malformed JSON bodies, schema validation, etc.) and unknown
+  // routes through the IPFS Pinning Service spec error envelope so every response is consistent.
+  server.setNotFoundHandler(async (_request, reply) => {
+    await sendError(reply, 404, 'NOT_FOUND', 'Route not found')
+  })
+
+  server.setErrorHandler(async (error: FastifyError, _request, reply) => {
+    const statusCode = error.statusCode ?? 500
+    if (statusCode >= 500) {
+      logger.error({ error }, 'Unhandled server error')
+      await sendError(reply, 500, 'INTERNAL_ERROR', 'Internal server error')
+      return
+    }
+    await sendError(reply, statusCode, reasonForStatus(statusCode), error.message)
+  })
+
   // Add root route for health check (no auth required)
   server.get('/', async (_request, reply) => {
     await reply.send({
@@ -209,8 +241,9 @@ export async function createFilecoinPinningServer(
 
   // Add authentication hook
   server.addHook('preHandler', async (request, reply) => {
-    // Skip auth for root health check
-    if (request.url === '/') {
+    // Skip auth for the root health check. The matched route URL is used rather than request.url
+    // so query strings (e.g. GET /?check=1) don't accidentally require auth.
+    if (request.routeOptions.url === '/') {
       return
     }
 
