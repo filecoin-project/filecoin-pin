@@ -20,6 +20,12 @@ describe('applyVerboseLogLevel', () => {
     expect(env.LOG_LEVEL).toBeUndefined()
   })
 
+  it('treats empty LOG_LEVEL as unset', () => {
+    const env: NodeJS.ProcessEnv = { LOG_LEVEL: '' }
+    applyVerboseLogLevel(true, env)
+    expect(env.LOG_LEVEL).toBe('debug')
+  })
+
   it('does not override an explicit LOG_LEVEL', () => {
     const env: NodeJS.ProcessEnv = { LOG_LEVEL: 'trace' }
     applyVerboseLogLevel(true, env)

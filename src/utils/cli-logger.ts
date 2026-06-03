@@ -26,9 +26,10 @@ function isTTY(): boolean {
  * a different level (e.g. `trace`) without `-v` clobbering it.
  */
 export function applyVerboseLogLevel(verbose: boolean | undefined, env: NodeJS.ProcessEnv = process.env): void {
-  if (verbose === true && env.LOG_LEVEL == null) {
+  if (verbose === true && (env.LOG_LEVEL == null || env.LOG_LEVEL === '')) {
     env.LOG_LEVEL = 'debug'
   }
+}
 }
 
 /**
