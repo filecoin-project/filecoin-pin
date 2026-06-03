@@ -1,6 +1,29 @@
 import { Command, Option } from 'commander'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { addNetworkOptions, validateAndNormalizeAutoFundOptions } from '../../utils/cli-options.js'
+import {
+  addDataSetIdOption,
+  addNetworkOptions,
+  addProviderIdOption,
+  validateAndNormalizeAutoFundOptions,
+} from '../../utils/cli-options.js'
+
+describe('ID flag attribute merging', () => {
+  it('merges --provider-id and the deprecated --provider-ids into providerIds', () => {
+    const command = addProviderIdOption(new Command()).exitOverride()
+    command.parse(['--provider-id', '7', '--provider-ids', '1,2', '--provider-id', '9'], { from: 'user' })
+    const opts = command.opts()
+    expect(opts.providerIds).toEqual(['7', '1,2', '9'])
+    expect(opts).not.toHaveProperty('providerIdsCsv')
+  })
+
+  it('merges --data-set-id and the deprecated --data-set-ids into dataSetIds', () => {
+    const command = addDataSetIdOption(new Command(), { includeSingleAlias: true }).exitOverride()
+    command.parse(['--data-set-id', '3', '--data-set-ids', '4,5'], { from: 'user' })
+    const opts = command.opts()
+    expect(opts.dataSetIds).toEqual(['3', '4,5'])
+    expect(opts).not.toHaveProperty('dataSetIdsCsv')
+  })
+})
 
 describe('addNetworkOptions', () => {
   const originalNetwork = process.env.NETWORK

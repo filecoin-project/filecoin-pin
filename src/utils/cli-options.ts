@@ -9,6 +9,7 @@ import { parseUnits } from 'viem'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import { normalizeNetworkName } from '../common/get-rpc-url.js'
 import { USDFC_DECIMALS } from '../core/payments/constants.js'
+import { log } from './cli-logger.js'
 
 /**
  * Decorator to add common authentication options to a Commander command
@@ -67,6 +68,20 @@ function collectId(value: string, previous: string[] = []): string[] {
 }
 
 /**
+ * Arg parser for the deprecated comma-separated alias. Warns on use and pushes
+ * the raw value onto the *canonical* array (the alias shares the canonical
+ * attribute). The value may be a comma-separated list; downstream `toIdList`
+ * splits it, so no splitting is needed here.
+ */
+function collectDeprecatedCsvId(canonicalFlag: string, deprecatedFlag: string) {
+  return (value: string, previous: string[] = []): string[] => {
+    log.warn(`${deprecatedFlag} is deprecated; use ${canonicalFlag} instead.`)
+    previous.push(value)
+    return previous
+  }
+}
+
+/**
  * Commander derives an option's stored attribute name from its long flag
  * (`--data-set-id` → `dataSetId`). That makes a repeatable *singular* flag
  * surface in code as a singular field holding an array (`dataSetId: ['1']`),
@@ -74,8 +89,9 @@ function collectId(value: string, previous: string[] = []): string[] {
  * override the (public) `attributeName()` method on the instance to store the
  * value under an explicit key. This lets the canonical flags stay singular
  * (`--provider-id`, `--data-set-id`) while their values live under the plural
- * `providerIds`/`dataSetIds` in code, and keeps the deprecated comma aliases on
- * distinct keys so they don't collide with the canonical plurals.
+ * `providerIds`/`dataSetIds` in code. The deprecated comma aliases share the
+ * same plural attribute so their values merge into the canonical array at parse
+ * time, keeping the in-code option shape to a single field per selection.
  */
 function withAttributeName(option: Option, attributeName: string): Option {
   option.attributeName = () => attributeName
@@ -102,8 +118,10 @@ export function addProviderIdOption(command: Command): Command {
     )
     .addOption(
       withAttributeName(
-        new Option('--provider-ids <ids>', 'Deprecated alias for --provider-id (comma-separated)').hideHelp(),
-        'providerIdsCsv'
+        new Option('--provider-ids <ids>', 'Deprecated alias for --provider-id (comma-separated)')
+          .hideHelp()
+          .argParser(collectDeprecatedCsvId('--provider-id', '--provider-ids')),
+        'providerIds'
       )
     )
 }
@@ -131,8 +149,10 @@ export function addDataSetIdOption(command: Command, config: DataSetIdOptionConf
     )
     .addOption(
       withAttributeName(
-        new Option('--data-set-ids <ids>', 'Deprecated alias for --data-set-id (comma-separated)').hideHelp(),
-        'dataSetIdsCsv'
+        new Option('--data-set-ids <ids>', 'Deprecated alias for --data-set-id (comma-separated)')
+          .hideHelp()
+          .argParser(collectDeprecatedCsvId('--data-set-id', '--data-set-ids')),
+        'dataSetIds'
       )
     )
   if (config.includeSingleAlias) {

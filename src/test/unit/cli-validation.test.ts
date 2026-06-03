@@ -16,11 +16,11 @@ describe('parseContextSelectionOptions empty-list regression', () => {
   // Without this guard, callers in src/add/add.ts and src/import/import.ts set
   // autoFundOptions.copies = providerIds.length, which would silently become 0.
   it('throws on a comma-only provider list rather than returning []', () => {
-    expect(() => parseContextSelectionOptions({ providerIdsCsv: ',' })).toThrow(/Invalid provider ID/)
+    expect(() => parseContextSelectionOptions({ providerIds: [','] })).toThrow(/Invalid provider ID/)
   })
 
   it('throws on a comma-only data set list rather than returning []', () => {
-    expect(() => parseContextSelectionOptions({ dataSetIdsCsv: ',,' })).toThrow(/Invalid data set ID/)
+    expect(() => parseContextSelectionOptions({ dataSetIds: [',,'] })).toThrow(/Invalid data set ID/)
   })
 })
 
@@ -44,8 +44,8 @@ describe('parseContextSelectionOptions unified ID flags', () => {
     expect(parseContextSelectionOptions({ dataSetIds: ['12', '34'] })).toEqual({ dataSetIds: [12n, 34n] })
   })
 
-  it('accepts the deprecated comma-separated --provider-ids alias', () => {
-    expect(parseContextSelectionOptions({ providerIdsCsv: '1,2,3' })).toEqual({ providerIds: [1n, 2n, 3n] })
+  it('accepts the deprecated comma-separated --provider-ids alias (merged into providerIds)', () => {
+    expect(parseContextSelectionOptions({ providerIds: ['1,2,3'] })).toEqual({ providerIds: [1n, 2n, 3n] })
   })
 
   it('accepts the deprecated single-value --data-set alias', () => {

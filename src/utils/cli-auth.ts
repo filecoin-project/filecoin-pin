@@ -29,14 +29,18 @@ export interface CLIAuthOptions {
   network?: string | undefined
   /** RPC endpoint URL (overrides network if specified) */
   rpcUrl?: string | undefined
-  /** Provider ID overrides from the canonical repeatable `--provider-id` flag */
+  /**
+   * Provider ID overrides. Holds values from the canonical repeatable
+   * `--provider-id` flag and the deprecated comma-separated `--provider-ids`
+   * alias, which the CLI layer merges into this array at parse time.
+   */
   providerIds?: string[] | undefined
-  /** Data set ID overrides from the canonical repeatable `--data-set-id` flag */
+  /**
+   * Data set ID overrides. Holds values from the canonical repeatable
+   * `--data-set-id` flag and the deprecated comma-separated `--data-set-ids`
+   * alias, which the CLI layer merges into this array at parse time.
+   */
   dataSetIds?: string[] | undefined
-  /** @deprecated comma-separated alias for {@link providerIds} (`--provider-ids`) */
-  providerIdsCsv?: string | undefined
-  /** @deprecated comma-separated alias for {@link dataSetIds} (`--data-set-ids`) */
-  dataSetIdsCsv?: string | undefined
   /** @deprecated single-value alias for {@link dataSetIds} (`--data-set`, used by `rm`) */
   dataSet?: string | undefined
 }
@@ -150,49 +154,40 @@ function toIdList(rawValues: string[], label: string): bigint[] {
 }
 
 interface IdSelectionSource {
-  /** Values from the canonical repeatable flag */
+  /**
+   * Values from the canonical flag. The CLI layer already merges the deprecated
+   * comma-separated alias into this array (see `collectDeprecatedCsvId` in
+   * cli-options.ts), so it covers both the canonical flag and that alias.
+   */
   canonical?: string[] | undefined
-  /** Value from the deprecated comma-separated alias */
-  commaAlias?: string | undefined
   /** Value from the deprecated single-value alias */
   singleAlias?: string | undefined
   /** Value from the environment variable */
   env?: string | undefined
   canonicalFlag: string
-  commaAliasFlag: string
   singleAliasFlag?: string | undefined
   label: string
 }
 
 /**
- * Gather IDs from the canonical flag, deprecated aliases, and env (in that
- * precedence). A higher-precedence source fully replaces lower ones rather than
- * merging, so passing the canonical flag ignores any deprecated alias/env value.
- * A deprecation warning is still emitted for any deprecated flag that was used,
- * even when its value is ignored. Returns `provided: false` when no source
- * supplied any value.
+ * Gather IDs from the canonical flag(s), the deprecated single-value alias, and
+ * env (in that precedence). A higher-precedence source fully replaces lower ones
+ * rather than merging. A deprecation warning is emitted when the single-value
+ * alias is used. Returns `provided: false` when no source supplied any value.
  */
 function gatherIdSelection(source: IdSelectionSource): { provided: boolean; ids: bigint[] } {
-  // Warn for every deprecated flag that was used, independent of precedence.
-  const commaAlias = source.commaAlias?.trim()
-  const hasCommaAlias = commaAlias != null && commaAlias !== ''
-  if (hasCommaAlias) {
-    log.warn(`${source.commaAliasFlag} is deprecated; use ${source.canonicalFlag} instead.`)
-  }
-
   const singleAlias = source.singleAlias?.trim()
   const hasSingleAlias = source.singleAliasFlag != null && singleAlias != null && singleAlias !== ''
   if (hasSingleAlias) {
     log.warn(`${source.singleAliasFlag} is deprecated; use ${source.canonicalFlag} instead.`)
   }
 
-  // Strict precedence: canonical flag → deprecated aliases → env var.
+  // Precedence: canonical flag(s) → deprecated single alias → env var.
   const raw: string[] = []
   if (source.canonical != null && source.canonical.length > 0) {
     raw.push(...source.canonical)
-  } else if (hasCommaAlias || hasSingleAlias) {
-    if (hasCommaAlias) raw.push(commaAlias)
-    if (hasSingleAlias) raw.push(singleAlias)
+  } else if (hasSingleAlias) {
+    raw.push(singleAlias)
   } else {
     const env = source.env?.trim()
     if (env != null && env !== '') {
@@ -214,10 +209,8 @@ function gatherIdSelection(source: IdSelectionSource): { provided: boolean; ids:
 export function parseProviderIdSelection(options?: CLIAuthOptions): bigint[] {
   return gatherIdSelection({
     canonical: options?.providerIds,
-    commaAlias: options?.providerIdsCsv,
     env: process.env.PROVIDER_IDS,
     canonicalFlag: '--provider-id',
-    commaAliasFlag: '--provider-ids',
     label: 'provider ID(s)',
   }).ids
 }
@@ -229,11 +222,9 @@ export function parseProviderIdSelection(options?: CLIAuthOptions): bigint[] {
 export function parseDataSetIdSelection(options?: CLIAuthOptions): bigint[] {
   return gatherIdSelection({
     canonical: options?.dataSetIds,
-    commaAlias: options?.dataSetIdsCsv,
     singleAlias: options?.dataSet,
     env: process.env.DATA_SET_IDS,
     canonicalFlag: '--data-set-id',
-    commaAliasFlag: '--data-set-ids',
     singleAliasFlag: '--data-set',
     label: 'data set ID(s)',
   }).ids
