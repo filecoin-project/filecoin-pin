@@ -66,9 +66,6 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
   let synapse: Synapse | null = null
 
   try {
-    // Provider IDs come from the repeatable --provider-id flag (plus the
-    // deprecated --provider-ids alias and PROVIDER_IDS env). Validation and
-    // numeric parsing happen in parseProviderIdSelection.
     const providerIds = parseProviderIdSelection(options)
     const metadataEntries = options.dataSetMetadata ? Object.entries(options.dataSetMetadata) : []
     let filter: ((dataSet: EnhancedDataSetInfo) => boolean) | undefined
