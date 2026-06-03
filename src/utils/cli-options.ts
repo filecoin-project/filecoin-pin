@@ -72,10 +72,19 @@ function collectId(value: string, previous: string[] = []): string[] {
  * use and pushes the raw value onto the *canonical* array (the alias shares the
  * canonical attribute). A comma-separated value is split downstream by
  * `toIdList`, so no splitting is needed here.
+ *
+ * Commander runs an option's arg parser once per occurrence of the flag, so the
+ * closure tracks whether it has already warned to emit at most one line per
+ * deprecated flag even when the flag is repeated. The flag is per-closure (one
+ * closure per option per command), so distinct flags each still warn once.
  */
 function collectDeprecatedAliasId(canonicalFlag: string, deprecatedFlag: string) {
+  let warned = false
   return (value: string, previous: string[] = []): string[] => {
-    log.warn(`${deprecatedFlag} is deprecated; use ${canonicalFlag} instead.`)
+    if (!warned) {
+      log.warn(`${deprecatedFlag} is deprecated; use ${canonicalFlag} instead.`)
+      warned = true
+    }
     previous.push(value)
     return previous
   }

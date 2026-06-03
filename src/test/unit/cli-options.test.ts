@@ -1,5 +1,6 @@
 import { Command, Option } from 'commander'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { log } from '../../utils/cli-logger.js'
 import {
   addDataSetIdOption,
   addNetworkOptions,
@@ -23,6 +24,21 @@ describe('ID flag attribute merging', () => {
     expect(opts.dataSetIds).toEqual(['3', '4,5', '6'])
     expect(opts).not.toHaveProperty('dataSetIdsCsv')
     expect(opts).not.toHaveProperty('dataSet')
+  })
+
+  it('warns at most once per deprecated flag even when repeated', () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined)
+    try {
+      const command = addDataSetIdOption(new Command(), { includeSingleAlias: true }).exitOverride()
+      command.parse(['--data-set-ids', '1,2', '--data-set-ids', '3,4', '--data-set', '5', '--data-set', '6'], {
+        from: 'user',
+      })
+      const warnings = warn.mock.calls.map((c) => c[0])
+      expect(warnings.filter((m) => m.includes('--data-set-ids'))).toHaveLength(1)
+      expect(warnings.filter((m) => m.startsWith('--data-set '))).toHaveLength(1)
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 
