@@ -114,7 +114,7 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
       waitForConfirmation: options.waitForConfirmation ?? false,
     })
 
-    // A requested confirmation wait that timed out leaves the removal
+    // Time-out waiting for requested confirmation, leaving the removal
     // unconfirmed. Signal that distinctly so scripts can tell it apart from
     // both success (0) and a caught error (1).
     if (options.waitForConfirmation === true && !isConfirmed) {
