@@ -181,7 +181,8 @@ function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
 }
 
 /**
- * Print the status of a data set's pieces (optionally filtered to a single piece).
+ * Print the status of the given pieces under a data set header.
+ * Callers may pass the full piece list or a pre-filtered subset.
  */
 export function displayPieceStatuses(
   pieces: PieceInfo[],
