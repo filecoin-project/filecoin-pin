@@ -8,6 +8,7 @@ import { checkForUpdate, type UpdateCheckStatus } from './common/version-check.j
 import { configureTelemetry, flushTelemetry } from './core/telemetry/index.js'
 import { version as packageVersion } from './core/utils/version.js'
 import { readTelemetryConfigFromEnv } from './read-telemetry-config-from-env.js'
+import { applyVerboseLogLevel } from './utils/cli-logger.js'
 
 // Apply CLI env vars to the telemetry library before any subcommand runs.
 configureTelemetry({ ...readTelemetryConfigFromEnv(), affordance: 'CLI' })
@@ -17,7 +18,7 @@ const program = new Command()
   .name('filecoin-pin')
   .description('IPFS Pinning Service with Filecoin storage via Synapse SDK')
   .version(packageVersion)
-  .option('-v, --verbose', 'verbose output')
+  .option('-v, --verbose', 'enable debug-level logging (sets LOG_LEVEL=debug)')
   .option('--no-update-check', 'skip check for updates')
 
 // Add subcommands
@@ -28,6 +29,11 @@ for (const command of ALL_CLI_COMMANDS) {
 // Default action - show help if no command specified
 program.action(() => {
   program.help()
+})
+
+// Wire the global `-v/--verbose` flag to the log level before each action runs.
+program.hook('preAction', () => {
+  applyVerboseLogLevel(program.optsWithGlobals<{ verbose?: boolean }>().verbose)
 })
 
 let updateCheckResult: UpdateCheckStatus | null = null
