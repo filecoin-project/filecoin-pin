@@ -1,7 +1,7 @@
 import { Command } from 'commander'
 import { runDataSetDetailsCommand, runDataSetListCommand, runTerminateDataSetCommand } from '../data-set/run.js'
 import type { DataSetListCommandOptions } from '../data-set/types.js'
-import { addAuthOptions } from '../utils/cli-options.js'
+import { addAuthOptions, addProviderIdOption } from '../utils/cli-options.js'
 import { addMetadataOptions, resolveMetadataOptions } from '../utils/cli-options-metadata.js'
 
 // Strict integer parse: rejects partial matches like "12abc" that
@@ -50,7 +50,7 @@ export const dataSetListCommand = new Command('list')
     }
   })
 addAuthOptions(dataSetListCommand)
-dataSetListCommand.option('--provider-id <id>', 'Filter data sets by provider ID')
+addProviderIdOption(dataSetListCommand)
 addMetadataOptions(dataSetListCommand, { includePieceMetadata: false, includeDataSetMetadata: true })
 
 export const dataSetTerminateCommand = new Command('terminate')

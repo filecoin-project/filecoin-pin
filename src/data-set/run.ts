@@ -4,7 +4,7 @@ import pc from 'picocolors'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { type DataSetSummary, getDetailedDataSet, listDataSets } from '../core/data-set/index.js'
 import { getClientAddress } from '../core/synapse/index.js'
-import { getCliSynapse } from '../utils/cli-auth.js'
+import { getCliSynapse, parseProviderIdSelection } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { displayDataSets } from './display.js'
@@ -66,20 +66,17 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
   let synapse: Synapse | null = null
 
   try {
-    // Parse and validate provider ID. Reject non-integers so BigInt() does
-    // not throw a low-level RangeError downstream.
-    const providerIdRaw = options.providerId != null ? Number(options.providerId) : undefined
-    if (providerIdRaw != null && (!Number.isInteger(providerIdRaw) || providerIdRaw <= 0)) {
-      throw new Error(`Invalid provider ID: '${options.providerId}' (must be a positive integer)`)
-    }
-    const providerId = providerIdRaw != null ? BigInt(providerIdRaw) : undefined
+    // Provider IDs come from the repeatable --provider-id flag (plus the
+    // deprecated --provider-ids alias and PROVIDER_IDS env). Validation and
+    // numeric parsing happen in parseProviderIdSelection.
+    const providerIds = parseProviderIdSelection(options)
     const metadataEntries = options.dataSetMetadata ? Object.entries(options.dataSetMetadata) : []
     let filter: ((dataSet: EnhancedDataSetInfo) => boolean) | undefined
 
-    if (providerId != null || metadataEntries.length > 0) {
+    if (providerIds.length > 0 || metadataEntries.length > 0) {
       // TODO: synapse is supposed to be able to filter on dataset metadata, but synapse.storage.findDataSets doesn't accept metadata? How do we filter..
       filter = (dataSet) => {
-        if (providerId != null && dataSet.providerId !== providerId) {
+        if (providerIds.length > 0 && !providerIds.includes(dataSet.providerId)) {
           return false
         }
         if (

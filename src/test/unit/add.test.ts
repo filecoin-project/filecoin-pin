@@ -229,12 +229,12 @@ describe('Add Command', () => {
         filePath: testFile,
         privateKey: 'test-private-key',
         rpcUrl: 'wss://test.rpc.url',
-        dataSetIds: '123',
+        dataSetId: ['123'],
       })
 
       const { performUpload } = await import('../../common/upload-flow.js')
 
-      // dataSetIds is parsed and passed through to performUpload
+      // --data-set-id is parsed and passed through to performUpload
       expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
@@ -321,7 +321,7 @@ describe('Add Command', () => {
         privateKey: 'test-private-key',
         rpcUrl: 'wss://test.rpc.url',
         autoFund: true,
-        providerIds: '7,8',
+        providerId: ['7', '8'],
         dataSetMetadata: { purpose: 'erc8004' },
       })
 

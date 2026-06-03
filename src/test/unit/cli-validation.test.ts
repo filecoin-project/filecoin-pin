@@ -23,3 +23,54 @@ describe('parseContextSelectionOptions empty-list regression', () => {
     expect(() => parseContextSelectionOptions({ dataSetIds: ',,' })).toThrow(/Invalid data set ID/)
   })
 })
+
+describe('parseContextSelectionOptions unified ID flags', () => {
+  const originalEnv = { ...process.env }
+
+  beforeEach(() => {
+    delete process.env.PROVIDER_IDS
+    delete process.env.DATA_SET_IDS
+  })
+
+  afterEach(() => {
+    process.env = { ...originalEnv }
+  })
+
+  it('parses the canonical repeatable --provider-id flag', () => {
+    expect(parseContextSelectionOptions({ providerId: ['7', '9'] })).toEqual({ providerIds: [7n, 9n] })
+  })
+
+  it('parses the canonical repeatable --data-set-id flag', () => {
+    expect(parseContextSelectionOptions({ dataSetId: ['12', '34'] })).toEqual({ dataSetIds: [12n, 34n] })
+  })
+
+  it('accepts the deprecated comma-separated --provider-ids alias', () => {
+    expect(parseContextSelectionOptions({ providerIds: '1,2,3' })).toEqual({ providerIds: [1n, 2n, 3n] })
+  })
+
+  it('accepts the deprecated single-value --data-set alias', () => {
+    expect(parseContextSelectionOptions({ dataSet: '42' })).toEqual({ dataSetIds: [42n] })
+  })
+
+  it('reads PROVIDER_IDS from the environment', () => {
+    process.env.PROVIDER_IDS = '5,6'
+    expect(parseContextSelectionOptions()).toEqual({ providerIds: [5n, 6n] })
+  })
+
+  it('reads DATA_SET_IDS from the environment', () => {
+    process.env.DATA_SET_IDS = '8'
+    expect(parseContextSelectionOptions()).toEqual({ dataSetIds: [8n] })
+  })
+
+  it('rejects providing both provider and data set selection', () => {
+    expect(() => parseContextSelectionOptions({ providerId: ['1'], dataSetId: ['2'] })).toThrow(/Cannot specify both/)
+  })
+
+  it('rejects duplicate IDs', () => {
+    expect(() => parseContextSelectionOptions({ providerId: ['1', '1'] })).toThrow(/Duplicate provider ID/)
+  })
+
+  it('returns an empty selection when nothing is provided', () => {
+    expect(parseContextSelectionOptions({})).toEqual({})
+  })
+})

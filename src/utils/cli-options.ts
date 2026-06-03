@@ -59,28 +59,67 @@ export function addAuthOptions(command: Command): Command {
 }
 
 /**
+ * Commander arg parser that accumulates repeated option values into an array.
+ */
+function collectId(value: string, previous: string[] = []): string[] {
+  previous.push(value)
+  return previous
+}
+
+/**
+ * Add the canonical repeatable `--provider-id` flag plus its deprecated
+ * `--provider-ids` (comma-separated) alias.
+ *
+ * Parsing/validation of the gathered values happens in
+ * {@link import('./cli-auth.js').parseProviderIdSelection}.
+ */
+export function addProviderIdOption(command: Command): Command {
+  return command
+    .option(
+      '--provider-id <id>',
+      'Target a specific provider by ID; repeatable (can also use PROVIDER_IDS env)',
+      collectId
+    )
+    .addOption(new Option('--provider-ids <ids>', 'Deprecated alias for --provider-id (comma-separated)').hideHelp())
+}
+
+export interface DataSetIdOptionConfig {
+  /** Also register the hidden, deprecated `--data-set <id>` single-value alias (used by `rm`). */
+  includeSingleAlias?: boolean
+}
+
+/**
+ * Add the canonical repeatable `--data-set-id` flag plus its deprecated
+ * `--data-set-ids` (comma-separated) alias, and optionally the deprecated
+ * single-value `--data-set` alias.
+ */
+export function addDataSetIdOption(command: Command, config: DataSetIdOptionConfig = {}): Command {
+  command
+    .option(
+      '--data-set-id <id>',
+      'Target a specific data set by ID; repeatable (can also use DATA_SET_IDS env)',
+      collectId
+    )
+    .addOption(new Option('--data-set-ids <ids>', 'Deprecated alias for --data-set-id (comma-separated)').hideHelp())
+  if (config.includeSingleAlias) {
+    command.addOption(new Option('--data-set <id>', 'Deprecated alias for --data-set-id').hideHelp())
+  }
+  return command
+}
+
+/**
  * Decorator to add context selection options to a Commander command
  *
- * Adds --provider-ids and --data-set-ids for overriding automatic selection.
- * These are mutually exclusive.
+ * Adds repeatable `--provider-id` and `--data-set-id` for overriding automatic
+ * selection. These are mutually exclusive (enforced in parseContextSelectionOptions).
  *
  * @param command - The Commander command to add options to
  * @returns The same command with options added (for chaining)
  */
 export function addContextSelectionOptions(command: Command): Command {
+  addProviderIdOption(command)
+  addDataSetIdOption(command)
   return command
-    .addOption(
-      new Option(
-        '--provider-ids <ids>',
-        'Target specific providers by ID, comma-separated (can also use PROVIDER_IDS env)'
-      ).conflicts('dataSetIds')
-    )
-    .addOption(
-      new Option(
-        '--data-set-ids <ids>',
-        'Target specific data sets by ID, comma-separated (can also use DATA_SET_IDS env)'
-      ).conflicts('providerIds')
-    )
 }
 
 /**

@@ -489,7 +489,7 @@ describe('CAR Import', () => {
         filePath: carPath,
         privateKey: testPrivateKey,
         autoFund: true,
-        dataSetIds: '123',
+        dataSetId: ['123'],
         dataSetMetadata: { erc8004Files: '' },
       }
 
