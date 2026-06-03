@@ -1,6 +1,16 @@
 import { Command, Option } from 'commander'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { addNetworkOptions, validateAndNormalizeAutoFundOptions } from '../../utils/cli-options.js'
+import {
+  addAuthOptions,
+  addContextSelectionOptions,
+  addNetworkOptions,
+  addSigningAuthOptions,
+  validateAndNormalizeAutoFundOptions,
+} from '../../utils/cli-options.js'
+
+function envVarFor(command: Command, long: string): string | undefined {
+  return command.options.find((o) => o.long === long)?.envVar
+}
 
 describe('addNetworkOptions', () => {
   const originalNetwork = process.env.NETWORK
@@ -68,6 +78,34 @@ describe('addNetworkOptions', () => {
     expect(help).toContain('calibration')
     expect(help).toContain('devnet')
     expect(help).not.toContain('calibnet')
+  })
+})
+
+describe('auth and context option env bindings', () => {
+  it('binds signing-auth flags to their env vars', () => {
+    const command = addSigningAuthOptions(new Command())
+    expect(envVarFor(command, '--private-key')).toBe('PRIVATE_KEY')
+    expect(envVarFor(command, '--wallet-address')).toBe('WALLET_ADDRESS')
+    expect(envVarFor(command, '--session-key')).toBe('SESSION_KEY')
+  })
+
+  it('shows the env var in --help for signing-auth flags', () => {
+    const help = addSigningAuthOptions(new Command()).helpInformation()
+    expect(help).toContain('PRIVATE_KEY')
+    expect(help).toContain('WALLET_ADDRESS')
+    expect(help).toContain('SESSION_KEY')
+  })
+
+  it('binds context-selection flags to their env vars', () => {
+    const command = addContextSelectionOptions(new Command())
+    expect(envVarFor(command, '--provider-ids')).toBe('PROVIDER_IDS')
+    expect(envVarFor(command, '--data-set-ids')).toBe('DATA_SET_IDS')
+  })
+
+  it('addAuthOptions includes the signing-auth env bindings', () => {
+    const command = addAuthOptions(new Command())
+    expect(envVarFor(command, '--private-key')).toBe('PRIVATE_KEY')
+    expect(envVarFor(command, '--view-address')).toBe('VIEW_ADDRESS')
   })
 })
 

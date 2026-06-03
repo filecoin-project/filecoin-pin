@@ -1,6 +1,6 @@
 import { Command, Option } from 'commander'
 import { startServer } from '../server.js'
-import { addNetworkOptions } from '../utils/cli-options.js'
+import { addNetworkOptions, addSigningAuthOptions } from '../utils/cli-options.js'
 
 export const serverCommand = new Command('server')
   .description('Start the IPFS Pinning Service API server')
@@ -8,15 +8,13 @@ export const serverCommand = new Command('server')
   .option('--host <string>', 'server host', '127.0.0.1')
   .option('--car-storage <path>', 'path for CAR file storage', './cars')
   .option('--database <path>', 'path to SQLite database', './pins.db')
-  .option('--private-key <key>', 'private key for Synapse (env: PRIVATE_KEY)')
-  .option('--wallet-address <address>', 'wallet address for session key auth (env: WALLET_ADDRESS)')
-  .option('--session-key <key>', 'session key for session key auth (env: SESSION_KEY)')
   .option('--access-token <token>', 'bearer token required on all API requests except GET / (env: ACCESS_TOKEN)')
   .option(
     '--allow-no-auth',
     'start the server without an access token, serving all requests unauthenticated (env: ALLOW_NO_AUTH)'
   )
 
+addSigningAuthOptions(serverCommand)
 addNetworkOptions(serverCommand)
   .addOption(
     new Option('--rpc-url <url>', 'RPC URL for Filecoin network (overrides --network)').env('RPC_URL')

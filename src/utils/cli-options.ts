@@ -41,16 +41,28 @@ import { USDFC_DECIMALS } from '../core/payments/constants.js'
  * addAuthOptions(myCommand)
  * ```
  */
+/**
+ * Add the signing-auth flags shared by every authenticated command:
+ * `--private-key`, `--wallet-address`, `--session-key`.
+ *
+ * Each is declared via `new Option().env(...)` so `--help` shows the backing
+ * env var (e.g. `[env: PRIVATE_KEY]`). The CLI flag still wins over the env var.
+ * Used by {@link addAuthOptions} and directly by the `server` command (which
+ * does not support view-only auth, so it omits `--view-address`).
+ */
+export function addSigningAuthOptions(command: Command): Command {
+  return command
+    .addOption(new Option('--private-key <key>', 'Private key for standard auth').env('PRIVATE_KEY'))
+    .addOption(new Option('--wallet-address <address>', 'Wallet address for session key auth').env('WALLET_ADDRESS'))
+    .addOption(new Option('--session-key <key>', 'Session key for session key auth').env('SESSION_KEY'))
+}
+
 export function addAuthOptions(command: Command): Command {
-  command
-    .option('--private-key <key>', 'Private key for standard auth (can also use PRIVATE_KEY env)')
-    .option('--wallet-address <address>', 'Wallet address for session key auth (can also use WALLET_ADDRESS env)')
-    .option('--session-key <key>', 'Session key for session key auth (can also use SESSION_KEY env)')
-    .addOption(
-      new Option('--view-address <address>', 'View-only mode (no signing) for the specified wallet address').env(
-        'VIEW_ADDRESS'
-      )
+  addSigningAuthOptions(command).addOption(
+    new Option('--view-address <address>', 'View-only mode (no signing) for the specified wallet address').env(
+      'VIEW_ADDRESS'
     )
+  )
 
   return addNetworkOptions(command).addOption(
     new Option('--rpc-url <url>', 'RPC endpoint').env('RPC_URL')
@@ -70,16 +82,14 @@ export function addAuthOptions(command: Command): Command {
 export function addContextSelectionOptions(command: Command): Command {
   return command
     .addOption(
-      new Option(
-        '--provider-ids <ids>',
-        'Target specific providers by ID, comma-separated (can also use PROVIDER_IDS env)'
-      ).conflicts('dataSetIds')
+      new Option('--provider-ids <ids>', 'Target specific providers by ID, comma-separated')
+        .conflicts('dataSetIds')
+        .env('PROVIDER_IDS')
     )
     .addOption(
-      new Option(
-        '--data-set-ids <ids>',
-        'Target specific data sets by ID, comma-separated (can also use DATA_SET_IDS env)'
-      ).conflicts('providerIds')
+      new Option('--data-set-ids <ids>', 'Target specific data sets by ID, comma-separated')
+        .conflicts('providerIds')
+        .env('DATA_SET_IDS')
     )
 }
 
