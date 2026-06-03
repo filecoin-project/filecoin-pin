@@ -131,9 +131,13 @@ function toIdList(rawValues: string[], label: string): bigint[] {
   const ids: bigint[] = []
   for (const part of parts) {
     if (!/^\d+$/.test(part)) {
-      throw new Error(`Invalid ${label}: "${part}". Provide numeric IDs.`)
+      throw new Error(`Invalid ${label}: "${part}". Provide positive numeric IDs.`)
     }
-    ids.push(BigInt(part))
+    const id = BigInt(part)
+    if (id <= 0n) {
+      throw new Error(`Invalid ${label}: "${part}". Provide positive numeric IDs.`)
+    }
+    ids.push(id)
   }
 
   const unique = [...new Set(ids)]
