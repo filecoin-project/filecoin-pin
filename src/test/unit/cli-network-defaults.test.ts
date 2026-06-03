@@ -6,7 +6,7 @@ import {
   importCommand,
   paymentsCommand,
   providerCommand,
-  rmCommand,
+  removeCommand,
   serverCommand,
   sessionCommand,
 } from '../../commands/index.js'
@@ -18,7 +18,7 @@ function leafCommands(cmd: Command): Command[] {
 const roots: Array<[string, Command]> = [
   ['add', addCommand],
   ['import', importCommand],
-  ['remove', rmCommand],
+  ['remove', removeCommand],
   ['server', serverCommand],
   ['payments', paymentsCommand],
   ['data-set', dataSetCommand],
@@ -43,7 +43,7 @@ describe('CLI --network option', () => {
 
 describe('remove command naming', () => {
   it('uses "remove" as the canonical name and keeps "rm" as an alias', () => {
-    expect(rmCommand.name()).toBe('remove')
-    expect(rmCommand.aliases()).toContain('rm')
+    expect(removeCommand.name()).toBe('remove')
+    expect(removeCommand.aliases()).toContain('rm')
   })
 })
