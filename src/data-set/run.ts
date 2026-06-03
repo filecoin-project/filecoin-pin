@@ -290,8 +290,9 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       })
       if (isCancel(proceed) || !proceed) {
         cancel('Termination cancelled')
-        process.exitCode = EXIT_CODE_INCOMPLETE
+        if ((process.exitCode ?? 0) === 0) process.exitCode = EXIT_CODE_INCOMPLETE
         return
+      }
       }
 
       if (shouldWait === undefined) {
