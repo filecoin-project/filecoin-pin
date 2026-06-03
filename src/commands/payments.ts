@@ -46,7 +46,7 @@ const setupCommand = new Command('setup')
 addAuthOptions(setupCommand)
 paymentsCommand.addCommand(setupCommand)
 
-// Fund command - reconciles the balance to an EXACT target; can deposit OR withdraw.
+// Fund command - reconciles the balance to an exact target; can deposit or withdraw.
 const fundCommand = new Command('fund')
   .description('Reconcile your balance to an exact target runway or deposit total (deposits OR withdraws as needed)')
   .option('--target-days <n>', 'Reconcile the balance so the final runway is exactly N days (deposits or withdraws)')
@@ -113,7 +113,7 @@ const statusCommand = new Command('status')
 addAuthOptions(statusCommand)
 paymentsCommand.addCommand(statusCommand)
 
-// Deposit command - additive top-up ONLY; never withdraws.
+// Deposit command - additive top-up only; never withdraws.
 const depositCommand = new Command('deposit')
   .description('Add funds to your balance (additive top-up only; never withdraws)')
   .option('--amount <usdfc>', 'USDFC amount to add to your balance (e.g., 10.5)')
