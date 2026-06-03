@@ -35,7 +35,7 @@ jobs:
       # or when a maintainer manually dispatched the workflow from a release tag.
       - name: Checkout
         if: ${{ steps.release.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch' }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
 
       - name: Validate dispatch ref and release state
         if: github.event_name == 'workflow_dispatch'
