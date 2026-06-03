@@ -16,12 +16,13 @@ describe('ID flag attribute merging', () => {
     expect(opts).not.toHaveProperty('providerIdsCsv')
   })
 
-  it('merges --data-set-id and the deprecated --data-set-ids into dataSetIds', () => {
+  it('merges --data-set-id and the deprecated --data-set-ids/--data-set into dataSetIds', () => {
     const command = addDataSetIdOption(new Command(), { includeSingleAlias: true }).exitOverride()
-    command.parse(['--data-set-id', '3', '--data-set-ids', '4,5'], { from: 'user' })
+    command.parse(['--data-set-id', '3', '--data-set-ids', '4,5', '--data-set', '6'], { from: 'user' })
     const opts = command.opts()
-    expect(opts.dataSetIds).toEqual(['3', '4,5'])
+    expect(opts.dataSetIds).toEqual(['3', '4,5', '6'])
     expect(opts).not.toHaveProperty('dataSetIdsCsv')
+    expect(opts).not.toHaveProperty('dataSet')
   })
 })
 

@@ -68,12 +68,12 @@ function collectId(value: string, previous: string[] = []): string[] {
 }
 
 /**
- * Arg parser for the deprecated comma-separated alias. Warns on use and pushes
- * the raw value onto the *canonical* array (the alias shares the canonical
- * attribute). The value may be a comma-separated list; downstream `toIdList`
- * splits it, so no splitting is needed here.
+ * Arg parser for a deprecated alias (comma-separated or single-value). Warns on
+ * use and pushes the raw value onto the *canonical* array (the alias shares the
+ * canonical attribute). A comma-separated value is split downstream by
+ * `toIdList`, so no splitting is needed here.
  */
-function collectDeprecatedCsvId(canonicalFlag: string, deprecatedFlag: string) {
+function collectDeprecatedAliasId(canonicalFlag: string, deprecatedFlag: string) {
   return (value: string, previous: string[] = []): string[] => {
     log.warn(`${deprecatedFlag} is deprecated; use ${canonicalFlag} instead.`)
     previous.push(value)
@@ -120,7 +120,7 @@ export function addProviderIdOption(command: Command): Command {
       withAttributeName(
         new Option('--provider-ids <ids>', 'Deprecated alias for --provider-id (comma-separated)')
           .hideHelp()
-          .argParser(collectDeprecatedCsvId('--provider-id', '--provider-ids')),
+          .argParser(collectDeprecatedAliasId('--provider-id', '--provider-ids')),
         'providerIds'
       )
     )
@@ -151,12 +151,19 @@ export function addDataSetIdOption(command: Command, config: DataSetIdOptionConf
       withAttributeName(
         new Option('--data-set-ids <ids>', 'Deprecated alias for --data-set-id (comma-separated)')
           .hideHelp()
-          .argParser(collectDeprecatedCsvId('--data-set-id', '--data-set-ids')),
+          .argParser(collectDeprecatedAliasId('--data-set-id', '--data-set-ids')),
         'dataSetIds'
       )
     )
   if (config.includeSingleAlias) {
-    command.addOption(new Option('--data-set <id>', 'Deprecated alias for --data-set-id').hideHelp())
+    command.addOption(
+      withAttributeName(
+        new Option('--data-set <id>', 'Deprecated alias for --data-set-id')
+          .hideHelp()
+          .argParser(collectDeprecatedAliasId('--data-set-id', '--data-set')),
+        'dataSetIds'
+      )
+    )
   }
   return command
 }

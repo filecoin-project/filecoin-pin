@@ -48,8 +48,8 @@ describe('parseContextSelectionOptions unified ID flags', () => {
     expect(parseContextSelectionOptions({ providerIds: ['1,2,3'] })).toEqual({ providerIds: [1n, 2n, 3n] })
   })
 
-  it('accepts the deprecated single-value --data-set alias', () => {
-    expect(parseContextSelectionOptions({ dataSet: '42' })).toEqual({ dataSetIds: [42n] })
+  it('accepts the deprecated single-value --data-set alias (merged into dataSetIds)', () => {
+    expect(parseContextSelectionOptions({ dataSetIds: ['42'] })).toEqual({ dataSetIds: [42n] })
   })
 
   it('reads PROVIDER_IDS from the environment', () => {

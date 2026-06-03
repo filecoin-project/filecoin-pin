@@ -10,7 +10,6 @@ import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rp
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { createLogger } from '../logger.js'
-import { log } from './cli-logger.js'
 
 /**
  * Common CLI authentication options interface
@@ -37,12 +36,11 @@ export interface CLIAuthOptions {
   providerIds?: string[] | undefined
   /**
    * Data set ID overrides. Holds values from the canonical repeatable
-   * `--data-set-id` flag and the deprecated comma-separated `--data-set-ids`
-   * alias, which the CLI layer merges into this array at parse time.
+   * `--data-set-id` flag and the deprecated `--data-set-ids` (comma-separated)
+   * and `--data-set` (single-value) aliases, which the CLI layer merges into
+   * this array at parse time.
    */
   dataSetIds?: string[] | undefined
-  /** @deprecated single-value alias for {@link dataSetIds} (`--data-set`, used by `rm`) */
-  dataSet?: string | undefined
 }
 
 /**
@@ -156,38 +154,24 @@ function toIdList(rawValues: string[], label: string): bigint[] {
 interface IdSelectionSource {
   /**
    * Values from the canonical flag. The CLI layer already merges the deprecated
-   * comma-separated alias into this array (see `collectDeprecatedCsvId` in
-   * cli-options.ts), so it covers both the canonical flag and that alias.
+   * aliases into this array (see `collectDeprecatedAliasId` in cli-options.ts),
+   * so it covers both the canonical flag and every deprecated alias.
    */
   canonical?: string[] | undefined
-  /** Value from the deprecated single-value alias */
-  singleAlias?: string | undefined
   /** Value from the environment variable */
   env?: string | undefined
-  canonicalFlag: string
-  singleAliasFlag?: string | undefined
   label: string
 }
 
 /**
- * Gather IDs from the canonical flag(s), the deprecated single-value alias, and
- * env (in that precedence). A higher-precedence source fully replaces lower ones
- * rather than merging. A deprecation warning is emitted when the single-value
- * alias is used. Returns `provided: false` when no source supplied any value.
+ * Gather IDs from the canonical flag (which already includes any deprecated
+ * alias values) and env, in that precedence: the flag fully replaces env rather
+ * than merging. Returns `provided: false` when no source supplied any value.
  */
 function gatherIdSelection(source: IdSelectionSource): { provided: boolean; ids: bigint[] } {
-  const singleAlias = source.singleAlias?.trim()
-  const hasSingleAlias = source.singleAliasFlag != null && singleAlias != null && singleAlias !== ''
-  if (hasSingleAlias) {
-    log.warn(`${source.singleAliasFlag} is deprecated; use ${source.canonicalFlag} instead.`)
-  }
-
-  // Precedence: canonical flag(s) → deprecated single alias → env var.
   const raw: string[] = []
   if (source.canonical != null && source.canonical.length > 0) {
     raw.push(...source.canonical)
-  } else if (hasSingleAlias) {
-    raw.push(singleAlias)
   } else {
     const env = source.env?.trim()
     if (env != null && env !== '') {
@@ -210,7 +194,6 @@ export function parseProviderIdSelection(options?: CLIAuthOptions): bigint[] {
   return gatherIdSelection({
     canonical: options?.providerIds,
     env: process.env.PROVIDER_IDS,
-    canonicalFlag: '--provider-id',
     label: 'provider ID(s)',
   }).ids
 }
@@ -222,10 +205,7 @@ export function parseProviderIdSelection(options?: CLIAuthOptions): bigint[] {
 export function parseDataSetIdSelection(options?: CLIAuthOptions): bigint[] {
   return gatherIdSelection({
     canonical: options?.dataSetIds,
-    singleAlias: options?.dataSet,
     env: process.env.DATA_SET_IDS,
-    canonicalFlag: '--data-set-id',
-    singleAliasFlag: '--data-set',
     label: 'data set ID(s)',
   }).ids
 }
