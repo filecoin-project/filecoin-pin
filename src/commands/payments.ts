@@ -56,7 +56,7 @@ const fundCommand = new Command('fund')
     'Mode to use for funding: "exact" (default) or "minimum". "exact" will withdraw/deposit to exactly match the target. "minimum" will only deposit if below the minimum target.'
   )
   // Deprecated: --days was ambiguous with `payments deposit --days`. Use --target-days.
-  .addOption(new Option('--days <n>', 'Deprecated alias for --target-days').hideHelp())
+  .addOption(new Option('--days <n>', 'Deprecated alias for --target-days').hideHelp().conflicts('targetDays'))
   .action(async (options) => {
     try {
       if (options.days != null) {
@@ -119,7 +119,7 @@ const depositCommand = new Command('deposit')
   .option('--amount <usdfc>', 'USDFC amount to add to your balance (e.g., 10.5)')
   .option('--cover-days <n>', 'Add enough to cover N days at the current spend rate (additive; never withdraws)')
   // Deprecated: --days was ambiguous with `payments fund --days`. Use --cover-days.
-  .addOption(new Option('--days <n>', 'Deprecated alias for --cover-days').hideHelp())
+  .addOption(new Option('--days <n>', 'Deprecated alias for --cover-days').hideHelp().conflicts('coverDays'))
   .action(async (options) => {
     try {
       if (options.days != null) {
