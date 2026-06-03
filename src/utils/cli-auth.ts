@@ -166,29 +166,34 @@ interface IdSelectionSource {
 
 /**
  * Gather IDs from the canonical flag, deprecated aliases, and env (in that
- * precedence). Emits a deprecation warning for each deprecated source used.
- * Returns `provided: false` when no source supplied any value.
+ * precedence). A higher-precedence source fully replaces lower ones rather than
+ * merging, so passing the canonical flag ignores any deprecated alias/env value.
+ * A deprecation warning is still emitted for any deprecated flag that was used,
+ * even when its value is ignored. Returns `provided: false` when no source
+ * supplied any value.
  */
 function gatherIdSelection(source: IdSelectionSource): { provided: boolean; ids: bigint[] } {
-  const raw: string[] = []
-
-  if (source.canonical != null) {
-    raw.push(...source.canonical)
-  }
-
+  // Warn for every deprecated flag that was used, independent of precedence.
   const commaAlias = source.commaAlias?.trim()
-  if (commaAlias != null && commaAlias !== '') {
+  const hasCommaAlias = commaAlias != null && commaAlias !== ''
+  if (hasCommaAlias) {
     log.warn(`${source.commaAliasFlag} is deprecated; use ${source.canonicalFlag} instead.`)
-    raw.push(commaAlias)
   }
 
   const singleAlias = source.singleAlias?.trim()
-  if (source.singleAliasFlag != null && singleAlias != null && singleAlias !== '') {
+  const hasSingleAlias = source.singleAliasFlag != null && singleAlias != null && singleAlias !== ''
+  if (hasSingleAlias) {
     log.warn(`${source.singleAliasFlag} is deprecated; use ${source.canonicalFlag} instead.`)
-    raw.push(singleAlias)
   }
 
-  if (raw.length === 0) {
+  // Strict precedence: canonical flag → deprecated aliases → env var.
+  const raw: string[] = []
+  if (source.canonical != null && source.canonical.length > 0) {
+    raw.push(...source.canonical)
+  } else if (hasCommaAlias || hasSingleAlias) {
+    if (hasCommaAlias) raw.push(commaAlias)
+    if (hasSingleAlias) raw.push(singleAlias)
+  } else {
     const env = source.env?.trim()
     if (env != null && env !== '') {
       raw.push(env)
@@ -250,7 +255,9 @@ export function parseContextSelectionOptions(options?: CLIAuthOptions): ContextS
   const dataSetIds = parseDataSetIdSelection(options)
 
   if (providerIds.length > 0 && dataSetIds.length > 0) {
-    throw new Error('Cannot specify both provider IDs and data set IDs. Use one or the other.')
+    throw new Error(
+      'Cannot specify both provider IDs (--provider-id/PROVIDER_IDS) and data set IDs (--data-set-id/DATA_SET_IDS). Use one or the other.'
+    )
   }
 
   if (providerIds.length > 0) {
