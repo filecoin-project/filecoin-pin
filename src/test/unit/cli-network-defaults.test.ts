@@ -18,7 +18,7 @@ function leafCommands(cmd: Command): Command[] {
 const roots: Array<[string, Command]> = [
   ['add', addCommand],
   ['import', importCommand],
-  ['rm', rmCommand],
+  ['remove', rmCommand],
   ['server', serverCommand],
   ['payments', paymentsCommand],
   ['data-set', dataSetCommand],

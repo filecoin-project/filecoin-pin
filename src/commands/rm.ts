@@ -4,7 +4,8 @@ import { runRmAllPieces, runRmPiece } from '../rm/index.js'
 import { log } from '../utils/cli-logger.js'
 import { addAuthOptions } from '../utils/cli-options.js'
 
-export const rmCommand = new Command('rm')
+export const rmCommand = new Command('remove')
+  .alias('rm')
   .description('Remove piece(s) from a DataSet')
   .requiredOption('--data-set <id>', 'DataSet ID to remove the piece from')
   .option('--wait', 'Wait for transaction confirmation before exiting')
