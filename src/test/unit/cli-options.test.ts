@@ -102,6 +102,12 @@ describe('auth and context option env bindings', () => {
     expect(envVarFor(command, '--data-set-ids')).toBe('DATA_SET_IDS')
   })
 
+  it('shows the env var in --help for context-selection flags', () => {
+    const help = addContextSelectionOptions(new Command()).helpInformation()
+    expect(help).toContain('PROVIDER_IDS')
+    expect(help).toContain('DATA_SET_IDS')
+  })
+
   it('addAuthOptions includes the signing-auth env bindings', () => {
     const command = addAuthOptions(new Command())
     expect(envVarFor(command, '--private-key')).toBe('PRIVATE_KEY')
