@@ -80,7 +80,7 @@ function getInputWithDeprecatedAlias(name, deprecatedName, fallback = '') {
 
   const deprecated = getInput(deprecatedName, '')
   if (deprecated !== '') {
-    console.warn(
+    console.log(
       `::warning::Input "${deprecatedName}" is deprecated; use "${name}" instead. ` +
         `Support for "${deprecatedName}" will be removed in a future release.`
     )

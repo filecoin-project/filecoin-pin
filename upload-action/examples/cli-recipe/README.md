@@ -2,7 +2,7 @@
 
 This recipe shows how to upload to Filecoin by running the [`filecoin-pin`](https://github.com/filecoin-project/filecoin-pin) CLI directly in a GitHub Actions workflow, **without** the composite [upload-action](../../). Use it when you want full control over your workflow steps — for example to compose filecoin-pin with your own build, packing, or pinning steps.
 
-The complete workflow is in [`upload-with-cli.yml`](./upload-with-cli.yml). It covers both cases below.
+A ready-to-run workflow is in [`upload-with-cli.yml`](./upload-with-cli.yml): it packs and uploads a directory (Case 1) and works out of the box once you set the `FILECOIN_WALLET_KEY` secret and drop in your real build step. Case 2 below is a variant you can swap in when you already have a CAR.
 
 ## Prerequisites
 
@@ -27,7 +27,7 @@ The complete workflow is in [`upload-with-cli.yml`](./upload-with-cli.yml). It c
 
 ## Case 2: upload a pre-built CAR
 
-`filecoin-pin import` uploads an existing single-root CAR as-is and preserves its root CID. Useful when an upstream step already produced a CAR.
+If a previous step already produced a CAR, swap the upload step in the workflow for the one below. `filecoin-pin import` uploads an existing single-root CAR as-is and preserves its root CID.
 
 ```yaml
 - name: Import CAR to Filecoin
