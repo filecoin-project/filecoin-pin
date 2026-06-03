@@ -9,6 +9,7 @@
  */
 import pc from 'picocolors'
 import pino from 'pino'
+import { EXIT_CODE_INCOMPLETE } from '../common/cli-errors.js'
 import { type RemovePieceProgressEvents, removePiece } from '../core/piece/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { parseCLIAuth } from '../utils/cli-auth.js'
@@ -112,6 +113,13 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
       onProgress,
       waitForConfirmation: options.waitForConfirmation ?? false,
     })
+
+    // A requested confirmation wait that timed out leaves the removal
+    // unconfirmed. Signal that distinctly so scripts can tell it apart from
+    // both success (0) and a caught error (1).
+    if (options.waitForConfirmation === true && !isConfirmed) {
+      process.exitCode = EXIT_CODE_INCOMPLETE
+    }
 
     // Ensure spinner is stopped before displaying results
     spinner.stop(`${pc.green('✓')} Piece removed${isConfirmed ? ' and confirmed' : ' (confirmation pending)'}`)

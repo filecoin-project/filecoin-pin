@@ -1,7 +1,7 @@
 import { confirm, isCancel } from '@clack/prompts'
 import type { EnhancedDataSetInfo, Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import { CliFatal, isCliFatal } from '../common/cli-errors.js'
+import { CliFatal, EXIT_CODE_INCOMPLETE, isCliFatal } from '../common/cli-errors.js'
 import { type DataSetSummary, getDetailedDataSet, listDataSets } from '../core/data-set/index.js'
 import type { PieceInfo } from '../core/data-set/types.js'
 import { getClientAddress } from '../core/synapse/index.js'
@@ -290,6 +290,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       })
       if (isCancel(proceed) || !proceed) {
         cancel('Termination cancelled')
+        process.exitCode = EXIT_CODE_INCOMPLETE
         return
       }
 

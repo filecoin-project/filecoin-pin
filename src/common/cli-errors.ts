@@ -1,4 +1,13 @@
 /**
+ * Exit code for operations that neither succeeded nor errored: the user
+ * cancelled (e.g. declining the `terminate` confirmation) or a requested
+ * confirmation wait timed out (`rm --wait`). Distinct from `1`, which the
+ * Commander wrappers use for caught errors, so scripts can tell "incomplete"
+ * apart from "failed".
+ */
+export const EXIT_CODE_INCOMPLETE = 2
+
+/**
  * Sentinel error type for CLI runners that have already displayed the
  * user-facing failure message via clack/log/console.
  *
