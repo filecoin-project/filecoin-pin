@@ -230,9 +230,9 @@ export async function runFund(options: FundOptions): Promise<void> {
   const hasDays = options.days != null
   const hasAmount = options.amount != null
   if ((hasDays && hasAmount) || (!hasDays && !hasAmount)) {
-    log.line(pc.red('Error: Specify exactly one of --days <N> or --amount <USDFC>'))
+    log.line(pc.red('Error: Specify exactly one of --target-days <N> or --amount <USDFC>'))
     log.flush()
-    throw new CliFatal('Specify exactly one of --days <N> or --amount <USDFC>')
+    throw new CliFatal('Specify exactly one of --target-days <N> or --amount <USDFC>')
   }
   if (options.mode != null && !['exact', 'minimum'].includes(options.mode)) {
     log.line(pc.red(`Error: Invalid mode (must be "exact" or "minimum"), received: '${options.mode}'`))
@@ -252,7 +252,7 @@ export async function runFund(options: FundOptions): Promise<void> {
 
     const targetDays: number = hasDays ? Number(options.days) : 0
     if (hasDays && (!Number.isFinite(targetDays) || targetDays < 0)) {
-      throw new Error('--days must be a non-negative number')
+      throw new Error('--target-days must be a non-negative number')
     }
 
     let targetDeposit: bigint = 0n

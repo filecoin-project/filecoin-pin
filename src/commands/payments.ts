@@ -1,4 +1,4 @@
-import { Command } from 'commander'
+import { Command, Option } from 'commander'
 import { runAutoSetup } from '../payments/auto.js'
 import { runDeposit } from '../payments/deposit.js'
 import { runFund } from '../payments/fund.js'
@@ -6,6 +6,7 @@ import { runInteractiveSetup } from '../payments/interactive.js'
 import { showPaymentStatus } from '../payments/status.js'
 import type { FundOptions, PaymentSetupOptions } from '../payments/types.js'
 import { runWithdraw } from '../payments/withdraw.js'
+import { log } from '../utils/cli-logger.js'
 import { addAuthOptions } from '../utils/cli-options.js'
 
 export const paymentsCommand = new Command('payments').description('Manage payment setup for Filecoin Onchain Cloud')
@@ -45,23 +46,29 @@ const setupCommand = new Command('setup')
 addAuthOptions(setupCommand)
 paymentsCommand.addCommand(setupCommand)
 
-// Fund command - adjust funds to an exact runway or deposited total
+// Fund command - reconciles the balance to an EXACT target; can deposit OR withdraw.
 const fundCommand = new Command('fund')
-  .description('Adjust funds to an exact runway (days) or total deposit')
-  .option('--days <n>', 'Set final runway to exactly N days (deposit or withdraw as needed)')
-  .option('--amount <usdfc>', 'Set final deposited total to exactly this USDFC amount (deposit or withdraw)')
+  .description('Reconcile your balance to an exact target runway or deposit total (deposits OR withdraws as needed)')
+  .option('--target-days <n>', 'Reconcile the balance so the final runway is exactly N days (deposits or withdraws)')
+  .option('--amount <usdfc>', 'Reconcile the balance to exactly this USDFC total (deposits or withdraws)')
   .option(
     '--mode <mode>',
     'Mode to use for funding: "exact" (default) or "minimum". "exact" will withdraw/deposit to exactly match the target. "minimum" will only deposit if below the minimum target.'
   )
+  // Deprecated: --days was ambiguous with `payments deposit --days`. Use --target-days.
+  .addOption(new Option('--days <n>', 'Deprecated alias for --target-days').hideHelp())
   .action(async (options) => {
     try {
+      if (options.days != null) {
+        log.warn('payments fund: --days is deprecated; use --target-days instead.')
+      }
+      const targetDays = options.targetDays ?? options.days
       const fundOptions: FundOptions = {
         ...options,
         amount: options.amount,
         mode: options.mode,
       }
-      if (options.days != null) fundOptions.days = Number(options.days)
+      if (targetDays != null) fundOptions.days = Number(targetDays)
       await runFund(fundOptions)
     } catch {
       process.exit(1)
@@ -106,17 +113,23 @@ const statusCommand = new Command('status')
 addAuthOptions(statusCommand)
 paymentsCommand.addCommand(statusCommand)
 
-// Deposit command
+// Deposit command - additive top-up ONLY; never withdraws.
 const depositCommand = new Command('deposit')
-  .description('Deposit or top-up funds in Filecoin Pay')
-  .option('--amount <usdfc>', 'USDFC amount to deposit (e.g., 10.5)')
-  .option('--days <n>', 'Fund enough to keep current spend alive for N days')
+  .description('Add funds to your balance (additive top-up only; never withdraws)')
+  .option('--amount <usdfc>', 'USDFC amount to add to your balance (e.g., 10.5)')
+  .option('--cover-days <n>', 'Add enough to cover N days at the current spend rate (additive; never withdraws)')
+  // Deprecated: --days was ambiguous with `payments fund --days`. Use --cover-days.
+  .addOption(new Option('--days <n>', 'Deprecated alias for --cover-days').hideHelp())
   .action(async (options) => {
     try {
+      if (options.days != null) {
+        log.warn('payments deposit: --days is deprecated; use --cover-days instead.')
+      }
+      const coverDays = options.coverDays ?? options.days
       await runDeposit({
         ...options,
         amount: options.amount,
-        days: options.days != null ? Number(options.days) : undefined, // Only pass days if explicitly provided
+        days: coverDays != null ? Number(coverDays) : undefined, // Only pass days if explicitly provided
       })
     } catch {
       process.exit(1)

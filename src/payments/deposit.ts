@@ -42,9 +42,9 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
   const hasDays = options.days != null
 
   if ((hasAmount && hasDays) || (!hasAmount && !hasDays)) {
-    log.line(pc.red('Error: Specify exactly one of --amount <USDFC> or --days <N>'))
+    log.line(pc.red('Error: Specify exactly one of --amount <USDFC> or --cover-days <N>'))
     log.flush()
-    throw new CliFatal('Specify exactly one of --amount <USDFC> or --days <N>')
+    throw new CliFatal('Specify exactly one of --amount <USDFC> or --cover-days <N>')
   }
 
   // Connect
@@ -92,7 +92,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     } else if (hasDays) {
       const days = Number(options.days)
       if (!Number.isFinite(days) || days <= 0) {
-        throw new Error('--days must be a positive number')
+        throw new Error('--cover-days must be a positive number')
       }
 
       const { topUp, rateUsed, perDay } = computeTopUpForDuration(accountSummary, status.filecoinPayBalance, days)
