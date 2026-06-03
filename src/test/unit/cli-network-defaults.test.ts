@@ -40,3 +40,10 @@ describe('CLI --network option', () => {
     expect(networkOpt?.argChoices).toEqual(['mainnet', 'calibration', 'devnet'])
   })
 })
+
+describe('remove command naming', () => {
+  it('uses "remove" as the canonical name and keeps "rm" as an alias', () => {
+    expect(rmCommand.name()).toBe('remove')
+    expect(rmCommand.aliases()).toContain('rm')
+  })
+})
