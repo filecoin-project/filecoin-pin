@@ -229,7 +229,7 @@ describe('Add Command', () => {
         filePath: testFile,
         privateKey: 'test-private-key',
         rpcUrl: 'wss://test.rpc.url',
-        dataSetId: ['123'],
+        dataSetIds: ['123'],
       })
 
       const { performUpload } = await import('../../common/upload-flow.js')
@@ -321,7 +321,7 @@ describe('Add Command', () => {
         privateKey: 'test-private-key',
         rpcUrl: 'wss://test.rpc.url',
         autoFund: true,
-        providerId: ['7', '8'],
+        providerIds: ['7', '8'],
         dataSetMetadata: { purpose: 'erc8004' },
       })
 

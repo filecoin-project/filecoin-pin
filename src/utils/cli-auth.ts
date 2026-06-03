@@ -30,14 +30,14 @@ export interface CLIAuthOptions {
   /** RPC endpoint URL (overrides network if specified) */
   rpcUrl?: string | undefined
   /** Provider ID overrides from the canonical repeatable `--provider-id` flag */
-  providerId?: string[] | undefined
+  providerIds?: string[] | undefined
   /** Data set ID overrides from the canonical repeatable `--data-set-id` flag */
-  dataSetId?: string[] | undefined
-  /** @deprecated comma-separated alias for {@link providerId} (`--provider-ids`) */
-  providerIds?: string | undefined
-  /** @deprecated comma-separated alias for {@link dataSetId} (`--data-set-ids`) */
-  dataSetIds?: string | undefined
-  /** @deprecated single-value alias for {@link dataSetId} (`--data-set`, used by `rm`) */
+  dataSetIds?: string[] | undefined
+  /** @deprecated comma-separated alias for {@link providerIds} (`--provider-ids`) */
+  providerIdsCsv?: string | undefined
+  /** @deprecated comma-separated alias for {@link dataSetIds} (`--data-set-ids`) */
+  dataSetIdsCsv?: string | undefined
+  /** @deprecated single-value alias for {@link dataSetIds} (`--data-set`, used by `rm`) */
   dataSet?: string | undefined
 }
 
@@ -208,8 +208,8 @@ function gatherIdSelection(source: IdSelectionSource): { provided: boolean; ids:
  */
 export function parseProviderIdSelection(options?: CLIAuthOptions): bigint[] {
   return gatherIdSelection({
-    canonical: options?.providerId,
-    commaAlias: options?.providerIds,
+    canonical: options?.providerIds,
+    commaAlias: options?.providerIdsCsv,
     env: process.env.PROVIDER_IDS,
     canonicalFlag: '--provider-id',
     commaAliasFlag: '--provider-ids',
@@ -223,8 +223,8 @@ export function parseProviderIdSelection(options?: CLIAuthOptions): bigint[] {
  */
 export function parseDataSetIdSelection(options?: CLIAuthOptions): bigint[] {
   return gatherIdSelection({
-    canonical: options?.dataSetId,
-    commaAlias: options?.dataSetIds,
+    canonical: options?.dataSetIds,
+    commaAlias: options?.dataSetIdsCsv,
     singleAlias: options?.dataSet,
     env: process.env.DATA_SET_IDS,
     canonicalFlag: '--data-set-id',

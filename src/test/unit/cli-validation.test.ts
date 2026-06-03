@@ -16,11 +16,11 @@ describe('parseContextSelectionOptions empty-list regression', () => {
   // Without this guard, callers in src/add/add.ts and src/import/import.ts set
   // autoFundOptions.copies = providerIds.length, which would silently become 0.
   it('throws on a comma-only provider list rather than returning []', () => {
-    expect(() => parseContextSelectionOptions({ providerIds: ',' })).toThrow(/Invalid provider ID/)
+    expect(() => parseContextSelectionOptions({ providerIdsCsv: ',' })).toThrow(/Invalid provider ID/)
   })
 
   it('throws on a comma-only data set list rather than returning []', () => {
-    expect(() => parseContextSelectionOptions({ dataSetIds: ',,' })).toThrow(/Invalid data set ID/)
+    expect(() => parseContextSelectionOptions({ dataSetIdsCsv: ',,' })).toThrow(/Invalid data set ID/)
   })
 })
 
@@ -37,15 +37,15 @@ describe('parseContextSelectionOptions unified ID flags', () => {
   })
 
   it('parses the canonical repeatable --provider-id flag', () => {
-    expect(parseContextSelectionOptions({ providerId: ['7', '9'] })).toEqual({ providerIds: [7n, 9n] })
+    expect(parseContextSelectionOptions({ providerIds: ['7', '9'] })).toEqual({ providerIds: [7n, 9n] })
   })
 
   it('parses the canonical repeatable --data-set-id flag', () => {
-    expect(parseContextSelectionOptions({ dataSetId: ['12', '34'] })).toEqual({ dataSetIds: [12n, 34n] })
+    expect(parseContextSelectionOptions({ dataSetIds: ['12', '34'] })).toEqual({ dataSetIds: [12n, 34n] })
   })
 
   it('accepts the deprecated comma-separated --provider-ids alias', () => {
-    expect(parseContextSelectionOptions({ providerIds: '1,2,3' })).toEqual({ providerIds: [1n, 2n, 3n] })
+    expect(parseContextSelectionOptions({ providerIdsCsv: '1,2,3' })).toEqual({ providerIds: [1n, 2n, 3n] })
   })
 
   it('accepts the deprecated single-value --data-set alias', () => {
@@ -63,11 +63,11 @@ describe('parseContextSelectionOptions unified ID flags', () => {
   })
 
   it('rejects providing both provider and data set selection', () => {
-    expect(() => parseContextSelectionOptions({ providerId: ['1'], dataSetId: ['2'] })).toThrow(/Cannot specify both/)
+    expect(() => parseContextSelectionOptions({ providerIds: ['1'], dataSetIds: ['2'] })).toThrow(/Cannot specify both/)
   })
 
   it('rejects duplicate IDs', () => {
-    expect(() => parseContextSelectionOptions({ providerId: ['1', '1'] })).toThrow(/Duplicate provider ID/)
+    expect(() => parseContextSelectionOptions({ providerIds: ['1', '1'] })).toThrow(/Duplicate provider ID/)
   })
 
   it('returns an empty selection when nothing is provided', () => {

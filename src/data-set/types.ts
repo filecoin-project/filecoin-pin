@@ -7,7 +7,7 @@ export interface DataSetCommandOptions extends CLIAuthOptions {
   wait?: boolean
 }
 
-// Provider filtering is driven by `providerId?: string[]` inherited from CLIAuthOptions
+// Provider filtering is driven by `providerIds?: string[]` inherited from CLIAuthOptions
 // (the repeatable `--provider-id` flag).
 export interface DataSetListCommandOptions extends CLIAuthOptions {
   /**

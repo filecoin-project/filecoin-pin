@@ -67,6 +67,22 @@ function collectId(value: string, previous: string[] = []): string[] {
 }
 
 /**
+ * Commander derives an option's stored attribute name from its long flag
+ * (`--data-set-id` → `dataSetId`). That makes a repeatable *singular* flag
+ * surface in code as a singular field holding an array (`dataSetId: ['1']`),
+ * which is confusing. There is no public setter for the attribute name, so we
+ * override the (public) `attributeName()` method on the instance to store the
+ * value under an explicit key. This lets the canonical flags stay singular
+ * (`--provider-id`, `--data-set-id`) while their values live under the plural
+ * `providerIds`/`dataSetIds` in code, and keeps the deprecated comma aliases on
+ * distinct keys so they don't collide with the canonical plurals.
+ */
+function withAttributeName(option: Option, attributeName: string): Option {
+  option.attributeName = () => attributeName
+  return option
+}
+
+/**
  * Add the canonical repeatable `--provider-id` flag plus its deprecated
  * `--provider-ids` (comma-separated) alias.
  *
@@ -75,12 +91,21 @@ function collectId(value: string, previous: string[] = []): string[] {
  */
 export function addProviderIdOption(command: Command): Command {
   return command
-    .option(
-      '--provider-id <id>',
-      'Target a specific provider by ID; repeatable (can also use PROVIDER_IDS env)',
-      collectId
+    .addOption(
+      withAttributeName(
+        new Option(
+          '--provider-id <id>',
+          'Target a specific provider by ID; repeatable (can also use PROVIDER_IDS env)'
+        ).argParser(collectId),
+        'providerIds'
+      )
     )
-    .addOption(new Option('--provider-ids <ids>', 'Deprecated alias for --provider-id (comma-separated)').hideHelp())
+    .addOption(
+      withAttributeName(
+        new Option('--provider-ids <ids>', 'Deprecated alias for --provider-id (comma-separated)').hideHelp(),
+        'providerIdsCsv'
+      )
+    )
 }
 
 export interface DataSetIdOptionConfig {
@@ -95,12 +120,21 @@ export interface DataSetIdOptionConfig {
  */
 export function addDataSetIdOption(command: Command, config: DataSetIdOptionConfig = {}): Command {
   command
-    .option(
-      '--data-set-id <id>',
-      'Target a specific data set by ID; repeatable (can also use DATA_SET_IDS env)',
-      collectId
+    .addOption(
+      withAttributeName(
+        new Option(
+          '--data-set-id <id>',
+          'Target a specific data set by ID; repeatable (can also use DATA_SET_IDS env)'
+        ).argParser(collectId),
+        'dataSetIds'
+      )
     )
-    .addOption(new Option('--data-set-ids <ids>', 'Deprecated alias for --data-set-id (comma-separated)').hideHelp())
+    .addOption(
+      withAttributeName(
+        new Option('--data-set-ids <ids>', 'Deprecated alias for --data-set-id (comma-separated)').hideHelp(),
+        'dataSetIdsCsv'
+      )
+    )
   if (config.includeSingleAlias) {
     command.addOption(new Option('--data-set <id>', 'Deprecated alias for --data-set-id').hideHelp())
   }
