@@ -30,7 +30,6 @@ export function applyVerboseLogLevel(verbose: boolean | undefined, env: NodeJS.P
     env.LOG_LEVEL = 'debug'
   }
 }
-}
 
 /**
  * Buffer for collecting log lines to output together
