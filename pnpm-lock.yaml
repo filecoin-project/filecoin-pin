@@ -112,8 +112,8 @@ importers:
         specifier: ^4.0.18
         version: 4.1.0(@vitest/browser@4.1.0(vite@8.0.0(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)(@types/node@25.7.0)(esbuild@0.27.4)(terser@5.48.0)(tsx@4.21.0)(yaml@2.9.0))(vitest@4.1.0))(vitest@4.1.0)
       blockstore-core:
-        specifier: ^6.1.2
-        version: 6.1.3
+        specifier: ^7.0.1
+        version: 7.0.1
       playwright:
         specifier: 1.60.0
         version: 1.60.0
@@ -1786,6 +1786,9 @@ packages:
   blockstore-core@6.1.3:
     resolution: {integrity: sha512-GLb6XpvbWOlrz1Liz8lTH8iZoXfJ7otY02i26Ok1q6lDkr9uN3jcZq8GzhNq76jJ7CkFG/EGP8J75F3MFo7v6A==}
 
+  blockstore-core@7.0.1:
+    resolution: {integrity: sha512-HgLzdH8oL6DrMC6J7snxmV0TXzJ/BMPSbskH4v7BBuUO9foDBOMEKUfoMX9yoBpxbH+r3Z9afXHDgXlTifMxHQ==}
+
   brace-expansion@1.1.15:
     resolution: {integrity: sha512-EwOCDEex4quD37XhqM3omwtMoJjr//isUZz1JopUNWms+4Z2ViyM/k1YIRePpoVNnQhENnxtFjLaxNHrT7xIUg==}
 
@@ -2387,11 +2390,17 @@ packages:
   interface-blockstore@6.0.2:
     resolution: {integrity: sha512-Z8LscLfuNWYatKVgaEXK8su+wY6iEEcCXYQiwXf20XVuMvR/zyFa6A0s36epfw8CvUrIv+bXT+FZ2hMEfUCmJw==}
 
+  interface-blockstore@7.0.1:
+    resolution: {integrity: sha512-a3NsgRXpRppVWtQnJjmZ9jxvjcttY1+WNWqHFWwgKhRcNMMGwWGtFNYpQmcZ+mEnIt5NTJVYzNwLCcALMWPNsA==}
+
   interface-datastore@9.0.3:
     resolution: {integrity: sha512-NLZa7Mp+0qn48nSwIY/C36da4uVIKzwG2tuEIpaSJArsuB2RrdyDWwkoDUyjsJ+VrMntXz38VSk9vXTx/ZUpAw==}
 
   interface-store@7.0.2:
     resolution: {integrity: sha512-KYOPcDH+1peaPhSeoZujR5nwkVeola1EdrnrlHTIM0HRNUs9B0aTsUQMH5kTmIjaQq1BOowoUyoCamgL8IMyww==}
+
+  interface-store@8.0.0:
+    resolution: {integrity: sha512-e2+s3EEROzM+Wlas4hU3zveTUscvVMf1BOvdsJfpzFm19SoEXLVadpACjWOnM491HqGpvtfFnevyiaN8W+I6Eg==}
 
   invariant@2.2.4:
     resolution: {integrity: sha512-phJfQVBuaJM5raOpJjSfkiD6BpbCE4Ns//LaXl6wGYtUBY83nWS6Rf9tXm2e8VaK60JEjYldbPif/A2B1C2gNA==}
@@ -2936,9 +2945,9 @@ packages:
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
 
-  ms@3.0.0-canary.202508261828:
-    resolution: {integrity: sha512-NotsCoUCIUkojWCzQff4ttdCfIPoA1UGZsyQbi7KmqkNRfKCrvga8JJi2PknHymHOuor0cJSn/ylj52Cbt2IrQ==}
-    engines: {node: '>=18'}
+  ms@4.0.0-nightly.202508271359:
+    resolution: {integrity: sha512-WC/Eo7NzFrOV/RRrTaI0fxKVbNCzEy76j2VqNV8SxDf9D69gSE2Lh0QwYvDlhiYmheBYExAvEAxVf5NoN0cj2A==}
+    engines: {node: '>=20'}
 
   multicast-dns@7.2.5:
     resolution: {integrity: sha512-2eznPJP8z2BFLX50tf0LuODrpINqP1RVIm/CObbTcBRITQgmC/TjcREF1NeTBzIcR5XO/ukWo+YHOjBbFwIupg==}
@@ -3820,8 +3829,8 @@ packages:
   walker@1.0.8:
     resolution: {integrity: sha512-ts/8E8l5b7kY0vlWLewOkDXMmPdLcVV4GmOQLyxuSswIJsweeFZtAsMF7k1Nszz+TYBQrlYRmzOnr398y1JemQ==}
 
-  weald@1.1.1:
-    resolution: {integrity: sha512-PaEQShzMCz8J/AD2N3dJMc1hTZWkJeLKS2NMeiVkV5KDHwgZe7qXLEzyodsT/SODxWDdXJJqocuwf3kHzcXhSQ==}
+  weald@1.1.3:
+    resolution: {integrity: sha512-vMWtNbYuPb58NeG2+0sKA0Een4VMDwzf+3oHqh68buWRSOMUBlUeRb11LhV28czV+DUpJHRykifijZDuS9bInA==}
 
   webcrypto-core@1.9.2:
     resolution: {integrity: sha512-gsXecm82UQNlTBURJGuqOWy1Ww08S3kZUcr3aOJS02Pk0xLtkfeUAVC0u0xhgdonFme80edSJUIJyuvL/7250Q==}
@@ -4918,7 +4927,7 @@ snapshots:
       '@multiformats/multiaddr': 13.0.1
       interface-datastore: 9.0.3
       multiformats: 13.4.2
-      weald: 1.1.1
+      weald: 1.1.3
 
   '@libp2p/logger@6.2.7':
     dependencies:
@@ -4926,7 +4935,7 @@ snapshots:
       '@multiformats/multiaddr': 13.0.1
       interface-datastore: 9.0.3
       multiformats: 13.4.2
-      weald: 1.1.1
+      weald: 1.1.3
 
   '@libp2p/mdns@12.0.20':
     dependencies:
@@ -6354,13 +6363,24 @@ snapshots:
 
   blockstore-core@6.1.3:
     dependencies:
-      '@libp2p/logger': 6.2.6
+      '@libp2p/logger': 6.2.7
       interface-blockstore: 6.0.2
       interface-store: 7.0.2
       it-all: 3.0.11
       it-filter: 3.1.6
       it-merge: 3.0.14
       multiformats: 13.4.2
+
+  blockstore-core@7.0.1:
+    dependencies:
+      '@libp2p/logger': 6.2.7
+      abort-error: 1.0.2
+      interface-blockstore: 7.0.1
+      interface-store: 8.0.0
+      it-all: 3.0.11
+      it-filter: 3.1.6
+      it-merge: 3.0.14
+      multiformats: 14.0.0
 
   brace-expansion@1.1.15:
     dependencies:
@@ -7002,12 +7022,21 @@ snapshots:
       interface-store: 7.0.2
       multiformats: 13.4.2
 
+  interface-blockstore@7.0.1:
+    dependencies:
+      interface-store: 8.0.0
+      multiformats: 14.0.0
+
   interface-datastore@9.0.3:
     dependencies:
       interface-store: 7.0.2
       uint8arrays: 5.1.1
 
   interface-store@7.0.2: {}
+
+  interface-store@8.0.0:
+    dependencies:
+      abort-error: 1.0.2
 
   invariant@2.2.4:
     dependencies:
@@ -7756,7 +7785,7 @@ snapshots:
 
   ms@2.1.3: {}
 
-  ms@3.0.0-canary.202508261828: {}
+  ms@4.0.0-nightly.202508271359: {}
 
   multicast-dns@7.2.5:
     dependencies:
@@ -8603,9 +8632,9 @@ snapshots:
     dependencies:
       makeerror: 1.0.12
 
-  weald@1.1.1:
+  weald@1.1.3:
     dependencies:
-      ms: 3.0.0-canary.202508261828
+      ms: 4.0.0-nightly.202508271359
       supports-color: 10.2.2
 
   webcrypto-core@1.9.2:
