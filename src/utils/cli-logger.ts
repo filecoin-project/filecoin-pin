@@ -18,6 +18,20 @@ function isTTY(): boolean {
 }
 
 /**
+ * Apply the global `-v/--verbose` flag to the log level.
+ *
+ * Runners read `LOG_LEVEL` when they construct their pino logger, so setting it
+ * before the action runs makes `-v` emit debug logs for any command. An
+ * explicit `LOG_LEVEL` already in the environment wins, so users can still pick
+ * a different level (e.g. `trace`) without `-v` clobbering it.
+ */
+export function applyVerboseLogLevel(verbose: boolean | undefined, env: NodeJS.ProcessEnv = process.env): void {
+  if (verbose === true && (env.LOG_LEVEL == null || env.LOG_LEVEL === '')) {
+    env.LOG_LEVEL = 'debug'
+  }
+}
+
+/**
  * Buffer for collecting log lines to output together
  */
 let lineBuffer: string[] = []
