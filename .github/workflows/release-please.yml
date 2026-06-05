@@ -53,6 +53,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
 
@@ -73,13 +74,13 @@ jobs:
             exit 1
           fi
 
-          # Confirm the tag commit is on master via GitHub's compare API
-          # (works regardless of local clone depth).
-          STATUS="$(gh api "repos/$GITHUB_REPOSITORY/compare/master...$SHA" --jq .status)"
+          # Confirm the tag commit is on the default branch via GitHub's
+          # compare API (works regardless of local clone depth).
+          STATUS="$(gh api "repos/$GITHUB_REPOSITORY/compare/$DEFAULT_BRANCH...$SHA" --jq .status)"
           case "$STATUS" in
             identical|behind) ;;
             *)
-              echo "::error::Tag commit $SHA is not an ancestor of master (compare status: $STATUS)"
+              echo "::error::Tag commit $SHA is not an ancestor of $DEFAULT_BRANCH (compare status: $STATUS)"
               exit 1
               ;;
           esac
