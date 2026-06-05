@@ -41,9 +41,9 @@ If a previous step already produced a CAR, swap the upload step in the workflow 
       --max-balance 5.00
 ```
 
-## Composing with a CAR-producing action
+### Composing with a CAR-producing action
 
-If you produce the CAR with [`ipfs-deploy-action`](https://github.com/ipshipyard/ipfs-deploy-action) (or any step that emits one), pass that CAR's path to `filecoin-pin import`. That project also maintains a [`filecoin-pin` recipe](https://github.com/ipshipyard/ipfs-deploy-action/tree/main/docs/recipes) for this exact pattern.
+If you produce the CAR with [`ipfs-deploy-action`](https://github.com/ipshipyard/ipfs-deploy-action) (or any step that emits one), pass that CAR's path to `filecoin-pin import`.
 
 ## Notes
 

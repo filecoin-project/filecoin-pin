@@ -33,8 +33,8 @@ This document explains how the action works internally and why each step exists.
 - `path`: required for both phases.
 - `walletPrivateKey`: required when `phase !== 'compute'`.
 - `network`: optional; must be `mainnet` or `calibration`. Defaults to `mainnet`.
-- `minRunwayDays`: optional number (defaults to `0` when unset). Accepts the deprecated alias `minStorageDays`.
-- `maxBalance`: bigint parsed from USDFC string; required when `minRunwayDays > 0`. Accepts the deprecated alias `filecoinPayBalanceLimit`.
+- `minRunwayDays`: optional number (defaults to `0` when unset).
+- `maxBalance`: bigint parsed from USDFC string; required when `minRunwayDays > 0`.
 - `egressProvider`, `dryRun`: optional advanced settings with defaults.
 
 Internally `minRunwayDays` / `maxBalance` are stored under the legacy field names `minStorageDays` / `filecoinPayBalanceLimit`, which the funding logic below still uses.

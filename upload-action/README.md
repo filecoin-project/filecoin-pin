@@ -16,7 +16,7 @@ See the two-workflow approach in the [examples directory](./examples/) for compl
 
 See [action.yml](./action.yml) for complete input documentation including:
 - **Core**: `path`, `walletPrivateKey`, `network`
-- **Financial**: `minRunwayDays`, `maxBalance` (the old names `minStorageDays` / `filecoinPayBalanceLimit` still work as deprecated aliases)
+- **Financial**: `minRunwayDays`, `maxBalance`
 - **Advanced**: `egressProvider`, `dryRun`, `disableTelemetry`
 
 **Outputs**: `ipfsRootCid`, `dataSetId`, `pieceCid`, `providerId`, `providerName`, `carPath`, `uploadStatus`

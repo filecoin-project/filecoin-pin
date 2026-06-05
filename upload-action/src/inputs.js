@@ -67,30 +67,6 @@ export function getInput(name, fallback = '') {
 }
 
 /**
- * Read an input by its current name, falling back to a deprecated alias.
- * Emits a deprecation warning when only the old name is set.
- * @param {string} name - Current input name
- * @param {string} deprecatedName - Deprecated alias still accepted for now
- * @param {string} fallback - Default value
- * @returns {string} Input value
- */
-function getInputWithDeprecatedAlias(name, deprecatedName, fallback = '') {
-  const current = getInput(name, '')
-  if (current !== '') return current
-
-  const deprecated = getInput(deprecatedName, '')
-  if (deprecated !== '') {
-    console.log(
-      `::warning::Input "${deprecatedName}" is deprecated; use "${name}" instead. ` +
-        `Support for "${deprecatedName}" will be removed in a future release.`
-    )
-    return toStringValue(deprecated).trim()
-  }
-
-  return toStringValue(fallback).trim()
-}
-
-/**
  * Parse boolean value from string
  * @param {any} v - Value to parse
  * @returns {boolean} Parsed boolean
@@ -111,8 +87,8 @@ export function parseInputs(phase = 'single') {
   const walletPrivateKey = getInput('walletPrivateKey')
   const contentPath = getInput('path')
   const networkRaw = getInput('network', 'mainnet')
-  const minStorageDaysRaw = getInputWithDeprecatedAlias('minRunwayDays', 'minStorageDays', '')
-  const filecoinPayBalanceLimitRaw = getInputWithDeprecatedAlias('maxBalance', 'filecoinPayBalanceLimit', '')
+  const minStorageDaysRaw = getInput('minRunwayDays', '')
+  const filecoinPayBalanceLimitRaw = getInput('maxBalance', '')
   const egressProvider = getInput('egressProvider', 'none')
   if (egressProvider !== 'beam' && egressProvider !== 'none') {
     throw new FilecoinPinError(

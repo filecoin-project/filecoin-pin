@@ -46,14 +46,6 @@ inputs:
       SECURITY: Hardcode this in trusted workflows.
     required: false
 
-  # Deprecated aliases (kept for backwards compatibility; will be removed in a future release)
-  minStorageDays:
-    description: 'DEPRECATED: use `minRunwayDays` instead.'
-    required: false
-  filecoinPayBalanceLimit:
-    description: 'DEPRECATED: use `maxBalance` instead.'
-    required: false
-
   # Optional/Advanced configuration
   egressProvider:
     description: "Egress provider for piece retrieval: \"beam\" (FilBeam CDN) or \"none\" (default). A new CDN data set requires an extra 1 USDFC lockup, which is included in the deposit estimate. CDN egress is paid from funds the data set owner locks up, consumed as retrievals happen, and cannot be estimated upfront."
