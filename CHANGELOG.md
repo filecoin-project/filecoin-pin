@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.22.3](https://github.com/filecoin-project/filecoin-pin/compare/v0.22.2...v0.22.3) (2026-06-01)
+
+
+### Bug Fixes
+
+* keep node-only devnet config out of browser bundles ([#520](https://github.com/filecoin-project/filecoin-pin/issues/520)) ([277e633](https://github.com/filecoin-project/filecoin-pin/commit/277e633049d847c8fca12bded5d80b437554afe8))
+
+## [0.22.2](https://github.com/filecoin-project/filecoin-pin/compare/v0.22.1...v0.22.2) (2026-06-01)
+
+
+### Features
+
+* instrument multi-copy upload outcomes ([#501](https://github.com/filecoin-project/filecoin-pin/issues/501)) ([b3ef48e](https://github.com/filecoin-project/filecoin-pin/commit/b3ef48e25873aa806cb8eb73bc69ef4e38bcd589))
+
+
+### Chores
+
+* **deps:** bump @libp2p/tcp from 11.0.17 to 11.0.20 ([#510](https://github.com/filecoin-project/filecoin-pin/issues/510)) ([0a50ad0](https://github.com/filecoin-project/filecoin-pin/commit/0a50ad053d3703c77e803e3b0f9c00412f514294))
+
+## [0.22.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.22.0...v0.22.1) (2026-05-28)
+
+
+### Bug Fixes
+
+* **ci:** add manual npm publish dispatch ([#512](https://github.com/filecoin-project/filecoin-pin/issues/512)) ([51f88ee](https://github.com/filecoin-project/filecoin-pin/commit/51f88eebe0ba6fcbfb5738a8b1a916ee1cdd5899))
+
 ## [0.22.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.21.0...v0.22.0) (2026-05-27)
 
 

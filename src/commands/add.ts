@@ -17,6 +17,14 @@ export const addCommand = new Command('add')
     'Include hidden entries (dotfiles) when packing a directory. Ignored when the target directory itself starts with `.` — its descendants are always traversed in that case.'
   )
   .option('--copies <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
+  .addHelpText(
+    'after',
+    `
+Retrieving your content after an add:
+  IPFS Root CID  view in a browser, or fetch from any IPFS gateway
+  Piece CID      download the stored CAR directly from the provider
+  Guide: https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/retrieval.md`
+  )
 
 addCommand.action(async (path: string, options: any) => {
   try {

@@ -64,9 +64,11 @@ Use Filecoin Pin programmatically in your Node.js or browser applications. The l
 ### 📡 IPFS Pinning Server (Daemon Mode)
 Run a localhost IPFS Pinning Service API server that implements the [IPFS Pinning Service API specification](https://ipfs.github.io/pinning-services-api-spec/). This allows you to use standard IPFS tooling (like `ipfs pin remote`) while storing data on Filecoin.
 
-- **Status**: Works and is tested, but hasn't received as many features as the CLI. If it would benefit your use case, please comment on the [tracking issue](https://github.com/filecoin-project/filecoin-pin/issues/46) so we can be better informed when it comes to prioritizing.
+- **Status**: Beta. Works and is tested, but hasn't received as many features as the CLI. State is held in memory and is lost across restarts. If it would benefit your use case, please comment on the [tracking issue](https://github.com/filecoin-project/filecoin-pin/issues/46) so we can be better informed when it comes to prioritizing.
 - **Repository**: This repo (`filecoin-pin server` command in CLI)
-- **Usage**: `PRIVATE_KEY=0x... npx filecoin-pin server` (or use session key auth — see [Configuration](#configuration))
+- **Usage**: `PRIVATE_KEY=0x... ACCESS_TOKEN=... npx filecoin-pin server` (or use session key auth — see [Configuration](#configuration))
+- **Authentication**: The server refuses to start unless an access token is configured via `--access-token` / `ACCESS_TOKEN`. Clients then authenticate with `Authorization: Bearer <token>` on every request except `GET /`. To run the server open to all requests (not recommended), pass `--allow-no-auth` / `ALLOW_NO_AUTH=true`.
+- **`delegates` is always empty**: Each pin spins up its own short-lived Helia node that is stopped as soon as the pin operation finishes, so there is no long-lived node to advertise. The `delegates` array in pin responses is therefore always `[]`.
 
 ### 📊 Management Console GUI
 Web-based management console for monitoring and managing your Filecoin Pin deployments. This is effectively a Web UI equivalent to the [CLI](#-cli) affordance.
@@ -81,7 +83,7 @@ See [/documentation](/documentation/README.md).
 
 See Filecoin Pin in action:
 
-- **[upload-action](https://github.com/filecoin-project/filecoin-pin/tree/master/upload-action)** - Example GitHub Action workflows demonstrating automated IPFS/Filecoin uploads
+- **[upload-action](https://github.com/filecoin-project/filecoin-pin/tree/master/upload-action)** - The supported GitHub Action for automated IPFS/Filecoin uploads in CI
 - **[filecoin-pin-website](https://github.com/filecoin-project/filecoin-pin-website)** - Demo dApp showing browser-based file uploads to Filecoin
    - [Walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/dapp-demo)
    - [🎥 Recording 1](https://www.youtube.com/watch?v=UElx1_qF12o)
@@ -109,17 +111,34 @@ The [Synapse SDK](https://synapse.filecoin.services/) is the main library, as it
 
 The affordances were [discussed more above](#affordances).  All affordances use the same core library, ensuring consistent behavior and making it easy to add new interfaces in the future.
 
-## CLI Telemetry
+## Telemetry
 
-Filecoin Pin's CLI collects telemetry.  A few things:
+Filecoin Pin collects telemetry.  A few things:
 * Telemetry always [has a way to be disabled](#how-to-disable-telemetry).
 * We don't collect Personal identifiable information (PII).
-* With our [end user affordance](#affordances) we expect to make telemetry on by default, requiring a consumer/user to opt out.  We are defaulting as "enabled" to help make sure we have a good pulse on the user experience and can address issues correctly.
-* In this [pre-v1 season](https://github.com/filecoin-project/filecoin-pin/issues/187), we are particularly focused on helping maintainers validate functionality and iron out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on.
+* Telemetry is enabled by default for the [affordances](#affordances), requiring a consumer/user to opt out.  We are defaulting as "enabled" to help make sure we have a good pulse on the user experience and can address issues correctly. Maintainers are particularly focused on validating functionality and ironing out problems throughout the whole Filecoin Onchain Cloud stack that `filecoin-pin` relies on.
 
-### How to disable CLI telemetry
+What we collect:
+* **Per-upload copy outcomes** posted directly to [BetterStack's HTTP metrics ingestion endpoint](https://betterstack.com/docs/logs/ingesting-data/http/metrics/), so we can measure the success rate of multi-copy uploads and identify which storage providers (or pipeline steps) are failing. See [`documentation/events-and-metrics.md`](documentation/events-and-metrics.md) for the full schema, including the underlying events and the relationship between this metric and the Synapse SDK's upload result.
 
-Set the environment variable `FILECOIN_PIN_TELEMETRY_DISABLED=true`.
+
+  **Delivery model.** Each `executeUpload` fires its own HTTP POST containing one [`uploadCopyStatus`](documentation/events-and-metrics.md#uploadcopystatus) counter and one paired [`uploadCopyBytes`](documentation/events-and-metrics.md#uploadcopybytes) gauge per resolved copy outcome — there is no in-memory buffer or periodic flush. The CLI, pinning server, and GitHub Action `await flushTelemetry()` before exit so any in-flight request finishes. **Long-running consumers that terminate via `process.exit()`, `SIGINT`, or `SIGTERM` should do the same** (`flushTelemetry` is exported from `filecoin-pin/core/telemetry`). To silence subsequent `recordUploadResult` calls without exiting the process, call `configureTelemetry({ disabled: true })`.
+
+  **Library usage (Node and browser).** The telemetry library never reads `process.env`. Configure it programmatically before the first `executeUpload` — the same API works in both runtimes:
+
+  ```ts
+  import { configureTelemetry } from 'filecoin-pin/core/telemetry'
+
+  configureTelemetry({ disabled: true })                       // opt out
+  configureTelemetry({ affordance: 'pin.filecoin.cloud' })   // tag the surface (default 'Library')
+  ```
+
+  The CLI's env-var support is built on top of this API (see `src/read-telemetry-config-from-env.ts`); other Node hosts can follow the same pattern.
+
+### How to disable telemetry
+
+- **CLI / pinning server / GitHub Action:** set `FILECOIN_PIN_TELEMETRY_DISABLED=true` (or the cross-tool standard `DO_NOT_TRACK=1`) in the host environment / workflow `env:` block. The Action also accepts `disableTelemetry: true` as an input; either signal silences telemetry.
+- **Library consumers:** pass `{ disabled: true }` to `configureTelemetry()`.
 
 ## Quick Start
 
@@ -233,11 +252,17 @@ RPC_URL=wss://...              # Filecoin RPC endpoint (overrides NETWORK if spe
                                # Calibration: wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1
 
 # Optional for Pinning Server Daemon
+ACCESS_TOKEN=...               # Bearer token required on all API requests except GET /
+ALLOW_NO_AUTH=true             # Start without a token, serving all requests unauthenticated (not recommended)
 PORT=3456                      # Daemon server port
 HOST=localhost                 # Daemon server host
 DATABASE_PATH=./pins.db        # SQLite database location
 CAR_STORAGE_PATH=./cars        # CAR file storage directory
 LOG_LEVEL=info                 # Logging verbosity (info, debug, error)
+
+# Optional - Telemetry (see "Telemetry" above)
+FILECOIN_PIN_TELEMETRY_DISABLED=true        # Disable all telemetry
+DO_NOT_TRACK=1                              # Standard cross-tool opt-out
 ```
 
 ### Default Data Directories

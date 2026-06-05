@@ -24,7 +24,7 @@ jobs:
       checks: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
 
       - name: Create upload fixture
         run: |
@@ -52,7 +52,7 @@ jobs:
       checks: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
 
       - name: Create upload fixture
         run: |
@@ -71,5 +71,5 @@ jobs:
           # 1Password: "filecoin-pin / filecoin-pin-website /upload-action Wallet"
           walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
           network: calibration
-          filecoinPayBalanceLimit: "5"
+          maxBalance: "5"
           dryRun: false

@@ -1,4 +1,5 @@
 import { createConfig } from './config.js'
+import { flushTelemetry } from './core/telemetry/index.js'
 import { name as packageName, version as packageVersion } from './core/utils/version.js'
 import { createFilecoinPinningServer } from './filecoin-pinning-server.js'
 import { createLogger } from './logger.js'
@@ -30,7 +31,13 @@ export async function startServer(): Promise<void> {
         logger.info('Received SIGINT, shutting down gracefully...')
         await server.close()
         await pinStore.stop()
-        process.exit(0)
+        try {
+          await flushTelemetry()
+        } catch (err) {
+          logger.error({ err }, 'Telemetry flush failed')
+        } finally {
+          process.exit(0)
+        }
       })()
     })
 
@@ -39,7 +46,13 @@ export async function startServer(): Promise<void> {
         logger.info('Received SIGTERM, shutting down gracefully...')
         await server.close()
         await pinStore.stop()
-        process.exit(0)
+        try {
+          await flushTelemetry()
+        } catch (err) {
+          logger.error({ err }, 'Telemetry flush failed')
+        } finally {
+          process.exit(0)
+        }
       })()
     })
 
@@ -65,6 +78,12 @@ export async function startServer(): Promise<void> {
       console.error('   Private key:   --private-key <key>  or  PRIVATE_KEY=0x...')
       console.error('   Session key:   --wallet-address <addr> --session-key <key>')
       console.error('                  or  WALLET_ADDRESS=0x... SESSION_KEY=0x...\n')
+    } else if (errorMessage.includes('No access token')) {
+      console.error('\n❌ Error: An access token is required to start the pinning server')
+      console.error('   Access token:  --access-token <token>  or  ACCESS_TOKEN=...')
+      console.error(
+        '   To run without authentication (not recommended), pass --allow-no-auth or set ALLOW_NO_AUTH=true.\n'
+      )
     }
 
     process.exit(1)

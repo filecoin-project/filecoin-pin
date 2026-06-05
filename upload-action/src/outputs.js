@@ -107,23 +107,14 @@ export function getOutputSummary(context, status) {
     browserGatewayUrl = 'Waiting for IPNI announcement'
   }
 
-  let rawAssetGatewayUrl
-  if (!ipfsRootCid) {
-    rawAssetGatewayUrl = 'IPFS Root CID unavailable'
-  } else if (ipniValidated) {
-    rawAssetGatewayUrl = `https://dweb.link/ipfs/${ipfsRootCid}`
-  } else {
-    rawAssetGatewayUrl = 'Waiting for IPNI announcement'
-  }
-
   return [
     '## Filecoin Pin Upload',
     '',
     '**IPFS Artifacts:**',
     '',
     `* IPFS Root CID: ${ipfsRootCid}`,
-    `* Browser URL: ${browserGatewayUrl}`,
-    `* Raw asset URL: ${rawAssetGatewayUrl}`,
+    `* View in browser: ${browserGatewayUrl}`,
+    `* [Retrieval methods](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/retrieval.md)`,
     `* Status: ${status}`,
     `* Generated CAR on GitHub: ${carDownloadUrl}`,
     `* CAR file size: ${formatSize(carSize)}`,

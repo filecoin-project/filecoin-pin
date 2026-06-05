@@ -181,6 +181,34 @@ function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
 }
 
 /**
+ * Print the status of the given pieces under a data set header.
+ * Callers may pass the full piece list or a pre-filtered subset.
+ */
+export function displayPieceStatuses(
+  pieces: PieceInfo[],
+  dataSetId: number,
+  network: string,
+  address: string,
+  emptyMessage?: string
+): void {
+  renderNetworkDetails(network, address)
+  log.line(`${pc.bold(`Data Set #${dataSetId}`)}`)
+
+  if (pieces.length === 0) {
+    log.line(pc.yellow(emptyMessage ?? 'No pieces found.'))
+    log.flush()
+    return
+  }
+
+  log.line('')
+  for (const piece of pieces) {
+    renderPiece(piece, 1)
+  }
+
+  log.flush()
+}
+
+/**
  * Print the lightweight dataset list used for the default command output.
  */
 export function displayDataSets(

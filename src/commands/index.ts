@@ -4,7 +4,7 @@ import { dataSetCommand } from './data-set.js'
 import { importCommand } from './import.js'
 import { paymentsCommand } from './payments.js'
 import { providerCommand } from './provider.js'
-import { rmCommand } from './rm.js'
+import { removeCommand } from './remove.js'
 import { serverCommand } from './server.js'
 import { sessionCommand } from './session.js'
 
@@ -14,7 +14,7 @@ export {
   importCommand,
   paymentsCommand,
   providerCommand,
-  rmCommand,
+  removeCommand,
   serverCommand,
   sessionCommand,
 }
@@ -31,7 +31,7 @@ export const ALL_CLI_COMMANDS: readonly Command[] = [
   dataSetCommand,
   importCommand,
   addCommand,
-  rmCommand,
+  removeCommand,
   providerCommand,
   sessionCommand,
 ]

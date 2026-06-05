@@ -87,8 +87,8 @@ export function parseInputs(phase = 'single') {
   const walletPrivateKey = getInput('walletPrivateKey')
   const contentPath = getInput('path')
   const networkRaw = getInput('network', 'mainnet')
-  const minStorageDaysRaw = getInput('minStorageDays', '')
-  const filecoinPayBalanceLimitRaw = getInput('filecoinPayBalanceLimit', '')
+  const minStorageDaysRaw = getInput('minRunwayDays', '')
+  const filecoinPayBalanceLimitRaw = getInput('maxBalance', '')
   const egressProvider = getInput('egressProvider', 'none')
   if (egressProvider !== 'beam' && egressProvider !== 'none') {
     throw new FilecoinPinError(
@@ -134,7 +134,7 @@ export function parseInputs(phase = 'single') {
   const filecoinPayBalanceLimit = filecoinPayBalanceLimitRaw ? parseUnits(filecoinPayBalanceLimitRaw, 18) : undefined
 
   if (minStorageDays > 0 && filecoinPayBalanceLimit == null) {
-    throw new Error('filecoinPayBalanceLimit must be set when minStorageDays is provided')
+    throw new Error('maxBalance must be set when minRunwayDays is provided')
   }
 
   // Parse provider override from environment variable.

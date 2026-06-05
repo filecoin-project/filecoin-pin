@@ -2,7 +2,7 @@ import type { DataSetPieceData } from '@filoz/synapse-sdk'
 import { PieceStatus } from '../data-set/types.js'
 import type { Warning } from '../utils/types.js'
 
-interface PieceStatusContext {
+export interface PieceStatusContext {
   pieceId: bigint
   pieceCid: unknown
   /**
@@ -18,7 +18,7 @@ interface PieceStatusContext {
   providerPiecesById: Map<DataSetPieceData['pieceId'], DataSetPieceData> | null
 }
 
-interface PieceStatusResult {
+export interface PieceStatusResult {
   status: PieceStatus
   warning?: Warning
 }
