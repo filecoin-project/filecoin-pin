@@ -62,12 +62,13 @@ export async function runDataSetDetailsCommand(dataSetId: number, options: DataS
 /**
  * Display the reconciled status of a data set's pieces.
  *
- * When `pieceCid` is provided, only the matching piece (by PieceCID or IPFS root
+ * When `cid` is provided, only the matching piece (by PieceCID or IPFS root
  * CID) is shown; otherwise every piece in the data set is listed.
  */
 export async function runDataSetPieceStatusCommand(
   dataSetId: number,
-  pieceCid: string | undefined,
+  // pieceCid or ipfsRootCid
+  cid: string | undefined,
   options: DataSetCommandOptions
 ): Promise<void> {
   if (Number.isNaN(dataSetId) || dataSetId <= 0) {
@@ -95,10 +96,10 @@ export async function runDataSetPieceStatusCommand(
 
     let pieces: PieceInfo[] = allPieces
     let emptyMessage: string | undefined
-    if (pieceCid != null) {
-      pieces = allPieces.filter((piece) => piece.pieceCid === pieceCid || piece.rootIpfsCid === pieceCid)
+    if (cid != null) {
+      pieces = allPieces.filter((piece) => piece.pieceCid === cid || piece.rootIpfsCid === cid)
       if (pieces.length === 0) {
-        emptyMessage = `No piece matching ${pieceCid} was found in data set ${dataSetId}.`
+        emptyMessage = `No piece matching ${cid} was found in data set ${dataSetId}.`
       }
     }
 
