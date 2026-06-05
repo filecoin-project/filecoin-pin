@@ -1,10 +1,16 @@
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DataSetSummary } from '../../core/data-set/types.js'
-import { runDataSetDetailsCommand, runDataSetListCommand, runTerminateDataSetCommand } from '../../data-set/run.js'
+import type { DataSetSummary, PieceInfo } from '../../core/data-set/types.js'
+import {
+  runDataSetDetailsCommand,
+  runDataSetListCommand,
+  runDataSetPieceStatusCommand,
+  runTerminateDataSetCommand,
+} from '../../data-set/run.js'
 
 const {
   displayDataSetListMock,
+  displayPieceStatusesMock,
   spinnerMock,
   cancelMock,
   mockFindDataSets,
@@ -17,6 +23,7 @@ const {
   state,
 } = vi.hoisted(() => {
   const displayDataSetListMock = vi.fn()
+  const displayPieceStatusesMock = vi.fn()
   const cancelMock = vi.fn()
   const spinnerMock = {
     start: vi.fn(),
@@ -94,6 +101,7 @@ const {
 
   return {
     displayDataSetListMock,
+    displayPieceStatusesMock,
     cancelMock,
     spinnerMock,
     mockFindDataSets,
@@ -110,6 +118,7 @@ const {
 
 vi.mock('../../data-set/display.js', () => ({
   displayDataSets: displayDataSetListMock,
+  displayPieceStatuses: displayPieceStatusesMock,
 }))
 
 vi.mock('../../core/synapse/index.js', () => ({
@@ -565,5 +574,102 @@ describe('runTerminateDataSetCommand', () => {
     ).rejects.toThrow('Invalid data set ID')
 
     expect(cancelMock).toHaveBeenCalledWith('Termination failed')
+  })
+})
+
+describe('runDataSetPieceStatusCommand', () => {
+  const summaryDataSet = {
+    pdpVerifierDataSetId: 158n,
+    providerId: 2n,
+    isManaged: true,
+    withCDN: false,
+    clientDataSetId: 1n,
+    pdpRailId: 327n,
+    cdnRailId: 0n,
+    cacheMissRailId: 0n,
+    payer: '0x123',
+    payee: '0x456',
+    serviceProvider: '0xservice',
+    commissionBps: 100,
+    pdpEndEpoch: 0,
+    cdnEndEpoch: 0,
+    metadata: {
+      [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+      source: 'filecoin-pin',
+    },
+  }
+
+  const provider = {
+    id: 2n,
+    name: 'Test Provider',
+    serviceProvider: '0xservice',
+    description: 'demo provider',
+    payee: '0x456',
+    active: true,
+    pdp: { serviceURL: 'https://pdp.local' },
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    state.pieceMetadata = {}
+    state.pieceList = [
+      { pieceId: 0n, pieceCid: 'bafkpiece0' },
+      { pieceId: 1n, pieceCid: 'bafkpiece1' },
+    ]
+    mockGetProvider.mockResolvedValue(provider)
+    mockGetAllPieceMetadata.mockResolvedValue({})
+    mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(summaryDataSet, provider))
+  })
+
+  afterEach(() => {
+    delete process.env.PRIVATE_KEY
+    process.exitCode = 0
+  })
+
+  it('displays all pieces when no pieceCid is provided', async () => {
+    await runDataSetPieceStatusCommand(158, undefined, {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    expect(displayPieceStatusesMock).toHaveBeenCalledTimes(1)
+    const [pieces, dataSetId] = displayPieceStatusesMock.mock.calls[0] as [PieceInfo[], number]
+    expect(dataSetId).toBe(158)
+    expect(pieces).toHaveLength(2)
+    expect(pieces.map((p) => p.pieceCid)).toEqual(['bafkpiece0', 'bafkpiece1'])
+  })
+
+  it('filters to a single piece when a pieceCid is provided', async () => {
+    await runDataSetPieceStatusCommand(158, 'bafkpiece1', {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    const [pieces] = displayPieceStatusesMock.mock.calls[0] as [PieceInfo[]]
+    expect(pieces).toHaveLength(1)
+    expect(pieces[0]?.pieceCid).toBe('bafkpiece1')
+  })
+
+  it('passes an empty list and message when the pieceCid is not found', async () => {
+    await runDataSetPieceStatusCommand(158, 'bafkmissing', {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    const call = displayPieceStatusesMock.mock.calls[0] as [PieceInfo[], number, string, string, string | undefined]
+    expect(call[0]).toHaveLength(0)
+    expect(call[4]).toMatch(/No piece matching bafkmissing/)
+  })
+
+  it('rejects invalid dataset IDs', async () => {
+    await expect(
+      runDataSetPieceStatusCommand(0, undefined, {
+        privateKey: 'test-key',
+        rpcUrl: 'wss://sample',
+      })
+    ).rejects.toThrow('Invalid data set ID')
+
+    expect(cancelMock).toHaveBeenCalledWith('Piece status lookup failed')
+    expect(displayPieceStatusesMock).not.toHaveBeenCalled()
   })
 })

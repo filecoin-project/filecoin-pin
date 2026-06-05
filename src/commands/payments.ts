@@ -47,7 +47,7 @@ paymentsCommand.addCommand(setupCommand)
 
 // Fund command - adjust funds to an exact runway or deposited total
 const fundCommand = new Command('fund')
-  .description('Adjust funds to an exact runway (days) or total deposit')
+  .description('Set deposited funds to an exact runway (days) or total amount; deposits or withdraws to match')
   .option('--days <n>', 'Set final runway to exactly N days (deposit or withdraw as needed)')
   .option('--amount <usdfc>', 'Set final deposited total to exactly this USDFC amount (deposit or withdraw)')
   .option(
@@ -108,15 +108,13 @@ paymentsCommand.addCommand(statusCommand)
 
 // Deposit command
 const depositCommand = new Command('deposit')
-  .description('Deposit or top-up funds in Filecoin Pay')
-  .option('--amount <usdfc>', 'USDFC amount to deposit (e.g., 10.5)')
-  .option('--days <n>', 'Fund enough to keep current spend alive for N days')
+  .description('Deposit a USDFC amount into Filecoin Pay (one-way; never withdraws)')
+  .requiredOption('--amount <usdfc>', 'USDFC amount to deposit (e.g., 10.5)')
   .action(async (options) => {
     try {
       await runDeposit({
         ...options,
         amount: options.amount,
-        days: options.days != null ? Number(options.days) : undefined, // Only pass days if explicitly provided
       })
     } catch {
       process.exit(1)

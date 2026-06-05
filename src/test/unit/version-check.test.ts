@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { checkForUpdate } from '../../common/version-check.js'
+import { checkForUpdate, printUpdateBanner, type UpdateCheckStatus } from '../../common/version-check.js'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -59,5 +59,32 @@ describe('version check', () => {
       status: 'disabled',
       reason: 'Update check disabled by configuration',
     })
+  })
+})
+
+describe('printUpdateBanner', () => {
+  const updateAvailable: UpdateCheckStatus = {
+    status: 'update-available',
+    currentVersion: '0.11.0',
+    latestVersion: '0.12.0',
+  }
+
+  it('prints the banner on a TTY', () => {
+    const print = vi.fn()
+    printUpdateBanner(updateAvailable, { tty: true, print })
+    expect(print).toHaveBeenCalledTimes(2)
+    expect(print.mock.calls[0]?.[0]).toContain('Update available')
+  })
+
+  it('suppresses the banner when stdout is not a TTY', () => {
+    const print = vi.fn()
+    printUpdateBanner(updateAvailable, { tty: false, print })
+    expect(print).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when no update is available', () => {
+    const print = vi.fn()
+    printUpdateBanner({ status: 'up-to-date', currentVersion: '0.12.0', latestVersion: '0.12.0' }, { tty: true, print })
+    expect(print).not.toHaveBeenCalled()
   })
 })

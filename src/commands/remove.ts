@@ -5,15 +5,17 @@ import { parseDataSetIdSelection } from '../utils/cli-auth.js'
 import { log } from '../utils/cli-logger.js'
 import { addAuthOptions, addDataSetIdOption } from '../utils/cli-options.js'
 
-export const rmCommand = new Command('rm')
+export const removeCommand = new Command('remove')
+  .alias('rm')
   .description('Remove piece(s) from one or more DataSets')
-  .option('--wait-for-confirmation', 'Wait for transaction confirmation before exiting')
+  .option('--wait', 'Wait for transaction confirmation before exiting')
   .option('--force', 'Skip confirmation prompt when using --all')
 
-rmCommand.addOption(new Option('--piece <cid>', 'Piece CID to remove').conflicts('all'))
-rmCommand.addOption(new Option('--all', 'Remove ALL pieces from the DataSet').conflicts('piece'))
+removeCommand.addOption(new Option('--piece <cid>', 'Piece CID to remove').conflicts('all'))
+removeCommand.addOption(new Option('--all', 'Remove ALL pieces from the DataSet').conflicts('piece'))
+removeCommand.addOption(new Option('--wait-for-confirmation', 'Deprecated alias for --wait').hideHelp())
 
-rmCommand.action(async (options) => {
+removeCommand.action(async (options) => {
   // Validate: at least one of --piece or --all is required.
   // This is a routing decision for the wrapper (which runner to dispatch to),
   // so it lives here rather than in either runner.
@@ -22,6 +24,12 @@ rmCommand.action(async (options) => {
     log.flush()
     process.exit(1)
   }
+
+  // --wait is canonical; --wait-for-confirmation is a deprecated alias.
+  if (options.waitForConfirmation) {
+    log.warn('--wait-for-confirmation is deprecated; use --wait instead.')
+  }
+  const waitForConfirmation = Boolean(options.wait || options.waitForConfirmation)
 
   let dataSetIds: bigint[]
   try {
@@ -44,9 +52,9 @@ rmCommand.action(async (options) => {
   for (const id of dataSetIds) {
     try {
       if (options.all) {
-        await runRmAllPieces({ ...options, dataSet: String(id) })
+        await runRmAllPieces({ ...options, dataSet: String(id), waitForConfirmation })
       } else {
-        await runRmPiece({ ...options, dataSet: String(id) })
+        await runRmPiece({ ...options, dataSet: String(id), waitForConfirmation })
       }
     } catch {
       // Error already displayed by clack UI
@@ -59,5 +67,5 @@ rmCommand.action(async (options) => {
   }
 })
 
-addAuthOptions(rmCommand)
-addDataSetIdOption(rmCommand, { includeSingleAlias: true })
+addAuthOptions(removeCommand)
+addDataSetIdOption(removeCommand, { includeSingleAlias: true })
