@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 import './instrument.js'
 import { Command } from 'commander'
-import pc from 'picocolors'
 
 import { ALL_CLI_COMMANDS } from './commands/index.js'
-import { checkForUpdate, type UpdateCheckStatus } from './common/version-check.js'
+import { checkForUpdate, printUpdateBanner, type UpdateCheckStatus } from './common/version-check.js'
 import { configureTelemetry, flushTelemetry } from './core/telemetry/index.js'
 import { version as packageVersion } from './core/utils/version.js'
 import { readTelemetryConfigFromEnv } from './read-telemetry-config-from-env.js'
@@ -62,15 +61,10 @@ program.hook('preAction', () => {
 })
 
 program.hook('postAction', async (_thisCommand, actionCommand) => {
-  if (updateCheckResult?.status === 'update-available') {
+  if (updateCheckResult != null) {
     const result = updateCheckResult
     updateCheckResult = null
-
-    const header = `${pc.yellow(`Update available: filecoin-pin ${result.currentVersion} → ${result.latestVersion}`)}. Upgrade with ${pc.cyan('npm i -g filecoin-pin@latest')}`
-    const releasesLink = 'https://github.com/filecoin-project/filecoin-pin/releases'
-    const instruction = `Visit ${releasesLink} to view release notes or download the latest version.`
-    console.log(header)
-    console.log(instruction)
+    printUpdateBanner(result)
   }
 
   // Viem's WebSocket transport holds persistent connections (with keepAlive
