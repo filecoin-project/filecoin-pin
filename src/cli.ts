@@ -19,6 +19,15 @@ const program = new Command()
   .version(packageVersion)
   .option('-v, --verbose', 'enable debug-level logging (sets LOG_LEVEL=debug)')
   .option('--no-update-check', 'skip check for updates')
+  .addHelpText(
+    'after',
+    `
+Exit codes:
+  0  success
+  1  error (the operation failed)
+  2  incomplete (the operation neither succeeded nor failed: a confirmation
+     was declined, or a --wait confirmation timed out after submission)`
+  )
 
 // Add subcommands
 for (const command of ALL_CLI_COMMANDS) {
