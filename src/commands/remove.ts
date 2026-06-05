@@ -1,13 +1,13 @@
 import { Command, Option } from 'commander'
 import pc from 'picocolors'
 import { runRmAllPieces, runRmPiece } from '../rm/index.js'
+import { parseDataSetIdSelection } from '../utils/cli-auth.js'
 import { log } from '../utils/cli-logger.js'
-import { addAuthOptions } from '../utils/cli-options.js'
+import { addAuthOptions, addDataSetIdOption } from '../utils/cli-options.js'
 
 export const removeCommand = new Command('remove')
   .alias('rm')
-  .description('Remove piece(s) from a DataSet')
-  .requiredOption('--data-set <id>', 'DataSet ID to remove the piece from')
+  .description('Remove piece(s) from one or more DataSets')
   .option('--wait', 'Wait for transaction confirmation before exiting')
   .option('--force', 'Skip confirmation prompt when using --all')
 
@@ -31,16 +31,41 @@ removeCommand.action(async (options) => {
   }
   const waitForConfirmation = Boolean(options.wait || options.waitForConfirmation)
 
+  let dataSetIds: bigint[]
   try {
-    if (options.all) {
-      await runRmAllPieces({ ...options, waitForConfirmation })
-    } else {
-      await runRmPiece({ ...options, waitForConfirmation })
+    dataSetIds = parseDataSetIdSelection(options)
+  } catch (error) {
+    log.line(pc.red(`Error: ${error instanceof Error ? error.message : String(error)}`))
+    log.flush()
+    process.exit(1)
+  }
+
+  if (dataSetIds.length === 0) {
+    log.line(pc.red('Error: At least one --data-set-id is required'))
+    log.flush()
+    process.exit(1)
+  }
+
+  // Each runner operates on a single dataset; loop so a failure on one dataset
+  // does not abort the others, then surface a non-zero exit if any failed.
+  let hadFailure = false
+  for (const id of dataSetIds) {
+    try {
+      if (options.all) {
+        await runRmAllPieces({ ...options, dataSet: String(id), waitForConfirmation })
+      } else {
+        await runRmPiece({ ...options, dataSet: String(id), waitForConfirmation })
+      }
+    } catch {
+      // Error already displayed by clack UI
+      hadFailure = true
     }
-  } catch {
-    // Error already displayed by clack UI
+  }
+
+  if (hadFailure) {
     process.exit(1)
   }
 })
 
 addAuthOptions(removeCommand)
+addDataSetIdOption(removeCommand, { includeSingleAlias: true })

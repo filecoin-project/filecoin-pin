@@ -200,13 +200,13 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
         spinner.stop(`${pc.red('✗')} --data-set-metadata matched too many data sets`)
         throw new Error(
           `--data-set-metadata matched ${resolution.matchedIds.length} data sets (${resolution.matchedIds.join(', ')}) ` +
-            `but expected ${resolution.expected} (narrow the filter or pass --data-set-ids to pin the target).`
+            `but expected ${resolution.expected} (narrow the filter or pass --data-set-id to pin the target).`
         )
       } else if (resolution.kind === 'too-few-matches') {
         spinner.stop(`${pc.red('✗')} --data-set-metadata matched too few data sets`)
         throw new Error(
           `--data-set-metadata matched only ${resolution.matchedIds.length} data set(s) (${resolution.matchedIds.join(', ')}) ` +
-            `but expected ${resolution.expected} (lower --copies, widen the filter, or pass --data-set-ids).`
+            `but expected ${resolution.expected} (lower --copies, widen the filter, or pass --data-set-id).`
         )
       } else {
         spinner.stop(
