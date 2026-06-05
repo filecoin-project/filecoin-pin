@@ -99,7 +99,7 @@ export function addContextSelectionOptions(command: Command): Command {
  */
 export function addOwnerAuthOptions(command: Command): Command {
   return addNetworkOptions(
-    command.option('--private-key <key>', 'Owner private key for signing (can also use PRIVATE_KEY env)')
+    command.addOption(new Option('--private-key <key>', 'Owner private key for signing').env('PRIVATE_KEY'))
   ).addOption(new Option('--rpc-url <url>', 'RPC endpoint').env('RPC_URL'))
 }
 
