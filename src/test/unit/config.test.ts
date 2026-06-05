@@ -78,6 +78,24 @@ describe('Config', () => {
     expect(config.logLevel).toBe('debug')
   })
 
+  it('treats empty PORT and HOST as unset', () => {
+    process.env.PORT = ''
+    process.env.HOST = ''
+
+    const config = createConfig()
+
+    expect(config.port).toBe(3000)
+    expect(config.host).toBe('127.0.0.1')
+  })
+
+  it('throws on a non-numeric or out-of-range PORT', () => {
+    process.env.PORT = 'abc'
+    expect(() => createConfig()).toThrow(/PORT must be a number/)
+
+    process.env.PORT = '70000'
+    expect(() => createConfig()).toThrow(/PORT must be a number/)
+  })
+
   it('resolves chain from NETWORK so Synapse uses matching contracts', () => {
     process.env.NETWORK = 'mainnet'
     expect(createConfig().chain).toBe(mainnet)
