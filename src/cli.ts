@@ -26,7 +26,7 @@ Exit codes:
   0  success
   1  error (the operation failed)
   2  incomplete (the operation neither succeeded nor failed: a confirmation
-     was declined, or a --wait confirmation timed out after submission)`
+     was declined, or a requested confirmation wait timed out after submission)`
   )
 
 // Add subcommands
