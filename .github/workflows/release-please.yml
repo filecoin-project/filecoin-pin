@@ -156,6 +156,7 @@ jobs:
     permissions:
       id-token: write  # OIDC for npm trusted publishing
       contents: read
+    timeout-minutes: 20
     steps:
       - uses: actions/setup-node@v6
         with:
