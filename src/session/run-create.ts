@@ -25,13 +25,13 @@ export async function runSessionCreate(options: SessionCreateOptions): Promise<C
 
   const spinner = createSpinner()
 
-  const privateKey = options.privateKey || process.env.PRIVATE_KEY
+  const privateKey = options.privateKey
   if (!privateKey) {
     cancel('PRIVATE_KEY environment variable or --private-key option is required')
     throw new Error('PRIVATE_KEY environment variable or --private-key option is required')
   }
 
-  const sessionPrivateKey = options.sessionKey || process.env.SESSION_KEY
+  const sessionPrivateKey = options.sessionKey
 
   let validityDays: number
   try {

@@ -60,11 +60,10 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   const hasRpcUrl = options.rpcUrl != null && options.rpcUrl !== ''
 
   // For devnet, fall back to the devnet user's private key if none provided
-  const privateKey =
-    options.privateKey || process.env.PRIVATE_KEY || (isDevnet ? resolveDevnetConfig().privateKey : undefined)
-  const walletAddress = options.walletAddress || process.env.WALLET_ADDRESS
-  const sessionKey = options.sessionKey || process.env.SESSION_KEY
-  const viewAddress = options.viewAddress || process.env.VIEW_ADDRESS
+  const privateKey = options.privateKey || (isDevnet ? resolveDevnetConfig().privateKey : undefined)
+  const walletAddress = options.walletAddress
+  const sessionKey = options.sessionKey
+  const viewAddress = options.viewAddress
   const rpcUrl = getRpcUrl(options)
 
   // --network and --rpc-url are mutually exclusive at the Commander level. Set the chain hint
