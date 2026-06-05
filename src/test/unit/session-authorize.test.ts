@@ -60,10 +60,6 @@ describe('authorizeSessionAddress', () => {
     expect(result.blockNumber).toBe(42n)
     expect(result.chainId).toBe(calibration.id)
     expect(result.validityDays).toBe(7)
-    expect(events).toEqual([
-      'authorizeSession:submitting',
-      'authorizeSession:submitted',
-      'authorizeSession:confirmed',
-    ])
+    expect(events).toEqual(['authorizeSession:submitting', 'authorizeSession:submitted', 'authorizeSession:confirmed'])
   })
 })
