@@ -21,7 +21,10 @@ addNetworkOptions(serverCommand)
     // default rpcUrl value is defined in ../common/get-rpc-url.ts
   )
   .action(async (options) => {
-    // Override environment variables with CLI options if provided
+    // Copy parsed option values into process.env for startServer's config
+    // loader. Options with .env() bindings may already hold the env value,
+    // so a truthy option does not imply the flag was passed on the command
+    // line (use command.getOptionValueSource() to distinguish).
     if (options.privateKey) {
       process.env.PRIVATE_KEY = options.privateKey
     }
