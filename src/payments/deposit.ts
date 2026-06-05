@@ -1,22 +1,15 @@
 /**
- * Deposit/top-up command for Filecoin Pay
+ * Deposit command for Filecoin Pay
  *
- * Provides two modes:
- * - Explicit amount: --amount <USDFC>
- * - By duration: --days <N> (fund enough to keep current usage alive for N days)
+ * Adds a specific USDFC amount to the Filecoin Pay balance. One-way: it never
+ * withdraws. To target an exact runway or total (which may deposit or withdraw),
+ * use `payments fund`.
  */
 
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
-import {
-  checkFILBalance,
-  checkUSDFCBalance,
-  computeTopUpForDuration,
-  depositUSDFC,
-  getPaymentStatus,
-  toStorageRunwaySummary,
-} from '../core/payments/index.js'
+import { checkFILBalance, checkUSDFCBalance, depositUSDFC, toStorageRunwaySummary } from '../core/payments/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
@@ -26,25 +19,20 @@ import { log } from '../utils/cli-logger.js'
 
 export interface DepositOptions extends CLIAuthOptions {
   amount?: string | undefined
-  days?: number | undefined
 }
 
 /**
- * Run the deposit/top-up flow
+ * Run the deposit flow
  */
 export async function runDeposit(options: DepositOptions): Promise<void> {
   intro(pc.bold('Filecoin Onchain Cloud Deposit'))
 
   const spinner = createSpinner()
 
-  // Validate inputs
-  const hasAmount = options.amount != null
-  const hasDays = options.days != null
-
-  if ((hasAmount && hasDays) || (!hasAmount && !hasDays)) {
-    log.line(pc.red('Error: Specify exactly one of --amount <USDFC> or --days <N>'))
+  if (options.amount == null) {
+    log.line(pc.red('Error: --amount <USDFC> is required'))
     log.flush()
-    throw new CliFatal('Specify exactly one of --amount <USDFC> or --days <N>')
+    throw new CliFatal('--amount <USDFC> is required')
   }
 
   // Connect
@@ -56,12 +44,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)
 
-    const [filStatus, walletUsdfcBalance, status, accountSummary] = await Promise.all([
-      checkFILBalance(synapse),
-      checkUSDFCBalance(synapse),
-      getPaymentStatus(synapse),
-      synapse.payments.accountSummary({}),
-    ])
+    const [filStatus, walletUsdfcBalance] = await Promise.all([checkFILBalance(synapse), checkUSDFCBalance(synapse)])
 
     spinner.stop(`${pc.green('✓')} Connected`)
 
@@ -77,45 +60,15 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
       throw new CliFatal('Insufficient FIL for gas fees')
     }
 
-    let depositAmount: bigint = 0n
+    let depositAmount: bigint
+    try {
+      depositAmount = parseUnits(String(options.amount), 18)
+    } catch {
+      throw new Error(`Invalid amount '${options.amount}'`)
+    }
 
-    if (hasAmount) {
-      try {
-        depositAmount = parseUnits(String(options.amount), 18)
-      } catch {
-        throw new Error(`Invalid amount '${options.amount}'`)
-      }
-
-      if (depositAmount <= 0n) {
-        throw new Error('Amount must be greater than 0')
-      }
-    } else if (hasDays) {
-      const days = Number(options.days)
-      if (!Number.isFinite(days) || days <= 0) {
-        throw new Error('--days must be a positive number')
-      }
-
-      const { topUp, rateUsed, perDay } = computeTopUpForDuration(accountSummary, status.filecoinPayBalance, days)
-
-      if (rateUsed === 0n) {
-        spinner.stop()
-        log.line(`${pc.yellow('⚠')} No active storage payments detected (rateUsed = 0)`)
-        log.line('Use --amount to deposit a specific USDFC value instead.')
-        log.flush()
-        cancel('Nothing to fund by duration')
-        throw new CliFatal('No active spend detected')
-      }
-
-      depositAmount = topUp
-
-      if (depositAmount === 0n) {
-        spinner.stop()
-        log.line(`${pc.green('✓')} Already funded for at least ${days} day(s) at current spend rate`)
-        log.indent(`Current daily spend: ${formatUSDFC(perDay)} USDFC/day`)
-        log.flush()
-        outro('No deposit needed')
-        return
-      }
+    if (depositAmount <= 0n) {
+      throw new Error('Amount must be greater than 0')
     }
 
     // Ensure wallet has enough USDFC

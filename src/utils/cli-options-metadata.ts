@@ -71,11 +71,14 @@ export function addMetadataOptions(command: Command, config: MetadataOptionConfi
   }
 
   if (includeErc8004) {
-    const typeOption = new Option('--8004-type <type>', 'ERC-8004 artifact type').choices(
-      ERC8004_TYPES as readonly string[]
-    )
+    const choices = ERC8004_TYPES as readonly string[]
+    const typeOption = new Option('--erc8004-type <type>', 'ERC-8004 artifact type').choices(choices)
     command.addOption(typeOption)
-    command.option('--8004-agent <id>', 'ERC-8004 agent identifier (DID, address, etc.)')
+    command.option('--erc8004-agent <id>', 'ERC-8004 agent identifier (DID, address, etc.)')
+
+    const typeAlias = new Option('--8004-type <type>').choices(choices).hideHelp()
+    command.addOption(typeAlias)
+    command.addOption(new Option('--8004-agent <id>').hideHelp())
   }
 
   return command
@@ -115,8 +118,8 @@ export function resolveMetadataOptions(
   const { pieceMetadata, dataSetMetadata } = normalizeMetadataConfig({
     pieceMetadata: Object.keys(parsedMetadata).length > 0 ? parsedMetadata : undefined,
     dataSetMetadata: Object.keys(parsedDataSetMetadata).length > 0 ? parsedDataSetMetadata : undefined,
-    erc8004Type: config.includeErc8004 ? options['8004Type'] : undefined,
-    erc8004Agent: config.includeErc8004 ? options['8004Agent'] : undefined,
+    erc8004Type: config.includeErc8004 ? (options.erc8004Type ?? options['8004Type']) : undefined,
+    erc8004Agent: config.includeErc8004 ? (options.erc8004Agent ?? options['8004Agent']) : undefined,
   })
 
   const resolved: ResolvedMetadataOptions = {}

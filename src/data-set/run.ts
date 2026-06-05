@@ -3,11 +3,12 @@ import type { EnhancedDataSetInfo, Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { type DataSetSummary, getDetailedDataSet, listDataSets } from '../core/data-set/index.js'
+import type { PieceInfo } from '../core/data-set/types.js'
 import { getClientAddress } from '../core/synapse/index.js'
-import { getCliSynapse } from '../utils/cli-auth.js'
+import { getCliSynapse, parseProviderIdSelection } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import { displayDataSets } from './display.js'
+import { displayDataSets, displayPieceStatuses } from './display.js'
 import type { DataSetCommandOptions, DataSetListCommandOptions } from './types.js'
 
 /**
@@ -58,6 +59,69 @@ export async function runDataSetDetailsCommand(dataSetId: number, options: DataS
   }
 }
 
+/**
+ * Display the reconciled status of a data set's pieces.
+ *
+ * When `cid` is provided, only the matching piece (by PieceCID or IPFS root
+ * CID) is shown; otherwise every piece in the data set is listed.
+ */
+export async function runDataSetPieceStatusCommand(
+  dataSetId: number,
+  // pieceCid or ipfsRootCid
+  cid: string | undefined,
+  options: DataSetCommandOptions
+): Promise<void> {
+  if (Number.isNaN(dataSetId) || dataSetId <= 0) {
+    intro(pc.bold('Filecoin Onchain Cloud Piece Status'))
+    log.line('')
+    log.line(`${pc.red('Error:')} Provided data set ID is invalid or not a positive integer`)
+    log.flush()
+    cancel('Piece status lookup failed')
+    throw new CliFatal('Invalid data set ID')
+  }
+
+  intro(pc.bold(`Filecoin Onchain Cloud Piece Status for Data Set #${dataSetId}`))
+  const spinner = createSpinner()
+  spinner.start('Connecting to Synapse...')
+
+  try {
+    const synapse = await getCliSynapse(options)
+    const network = synapse.chain.name
+    const address = getClientAddress(synapse)
+
+    spinner.message('Fetching piece status...')
+
+    const dataSet: DataSetSummary = await getDetailedDataSet(synapse, BigInt(dataSetId))
+    const allPieces = dataSet.pieces ?? []
+
+    let pieces: PieceInfo[] = allPieces
+    let emptyMessage: string | undefined
+    if (cid != null) {
+      pieces = allPieces.filter((piece) => piece.pieceCid === cid || piece.rootIpfsCid === cid)
+      if (pieces.length === 0) {
+        emptyMessage = `No piece matching ${cid} was found in data set ${dataSetId}.`
+      }
+    }
+
+    spinner.stop('━━━ Piece Status ━━━')
+    displayPieceStatuses(pieces, dataSetId, network, address, emptyMessage)
+
+    outro('Piece status lookup complete')
+  } catch (error) {
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
+    spinner.stop(`${pc.red('✗')} Failed to look up piece status`)
+    log.line('')
+    log.line(`${pc.red('Error:')} ${msg}`)
+    log.flush()
+    cancel('Piece status lookup failed')
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
+  }
+}
+
 export async function runDataSetListCommand(options: DataSetListCommandOptions): Promise<void> {
   intro(pc.bold('Filecoin Onchain Cloud Data Sets'))
   const spinner = createSpinner()
@@ -66,20 +130,14 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
   let synapse: Synapse | null = null
 
   try {
-    // Parse and validate provider ID. Reject non-integers so BigInt() does
-    // not throw a low-level RangeError downstream.
-    const providerIdRaw = options.providerId != null ? Number(options.providerId) : undefined
-    if (providerIdRaw != null && (!Number.isInteger(providerIdRaw) || providerIdRaw <= 0)) {
-      throw new Error(`Invalid provider ID: '${options.providerId}' (must be a positive integer)`)
-    }
-    const providerId = providerIdRaw != null ? BigInt(providerIdRaw) : undefined
+    const providerIds = parseProviderIdSelection(options)
     const metadataEntries = options.dataSetMetadata ? Object.entries(options.dataSetMetadata) : []
     let filter: ((dataSet: EnhancedDataSetInfo) => boolean) | undefined
 
-    if (providerId != null || metadataEntries.length > 0) {
+    if (providerIds.length > 0 || metadataEntries.length > 0) {
       // TODO: synapse is supposed to be able to filter on dataset metadata, but synapse.storage.findDataSets doesn't accept metadata? How do we filter..
       filter = (dataSet) => {
-        if (providerId != null && dataSet.providerId !== providerId) {
+        if (providerIds.length > 0 && !providerIds.includes(dataSet.providerId)) {
           return false
         }
         if (
