@@ -43,6 +43,13 @@ export interface RemoveAllPiecesResult {
   dataSetId: bigint
   totalPieces: number
   removedCount: number
+  /**
+   * Of the `removedCount` removals, how many were confirmed on-chain. Only
+   * meaningful when `waitForConfirmation` is true; otherwise stays 0 since no
+   * confirmation is awaited. `removedCount - confirmedCount` is the number of
+   * removals whose confirmation wait timed out (submitted but unconfirmed).
+   */
+  confirmedCount: number
   failedCount: number
   transactions: PieceRemovalResult[]
 }
@@ -137,6 +144,7 @@ export async function removeAllPieces(
       dataSetId,
       totalPieces: 0,
       removedCount: 0,
+      confirmedCount: 0,
       failedCount: 0,
       transactions: [],
     }
@@ -145,6 +153,7 @@ export async function removeAllPieces(
   // Remove each piece
   const transactions: PieceRemovalResult[] = []
   let removedCount = 0
+  let confirmedCount = 0
   let failedCount = 0
 
   for (let i = 0; i < pieces.length; i++) {
@@ -163,14 +172,21 @@ export async function removeAllPieces(
     onProgress?.({ type: 'removeAll:removing', data: { current, total: totalPieces, pieceCid } })
 
     try {
+      let pieceConfirmed = false
       const txHash = await removePiece(pieceCid, storageContext, {
         synapse,
         waitForConfirmation,
         logger,
+        onProgress: (event) => {
+          if (event.type === 'removePiece:complete') {
+            pieceConfirmed = event.data.confirmed
+          }
+        },
       })
 
       transactions.push({ pieceCid, txHash, success: true })
       removedCount++
+      if (pieceConfirmed) confirmedCount++
 
       onProgress?.({ type: 'removeAll:removed', data: { current, total: totalPieces, pieceCid, txHash } })
 
@@ -192,6 +208,7 @@ export async function removeAllPieces(
     dataSetId,
     totalPieces,
     removedCount,
+    confirmedCount,
     failedCount,
     transactions,
   }

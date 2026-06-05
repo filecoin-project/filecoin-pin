@@ -11,6 +11,7 @@
 import { confirm, isCancel } from '@clack/prompts'
 import pc from 'picocolors'
 import pino from 'pino'
+import { EXIT_CODE_INCOMPLETE } from '../common/cli-errors.js'
 import { type RemoveAllPiecesProgressEvents, removeAllPieces } from '../core/piece/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { parseCLIAuth } from '../utils/cli-auth.js'
@@ -123,7 +124,17 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
 
       if (isCancel(shouldProceed) || !shouldProceed) {
         cancel('Remove cancelled by user')
-        throw new Error('Remove cancelled by user')
+        // User declined the destructive confirmation: not a failure, but the
+        // removal did not happen. Signal "incomplete" (2) distinctly from both
+        // success (0) and a caught error (1), matching `data-set terminate`.
+        if ((process.exitCode ?? 0) === 0) process.exitCode = EXIT_CODE_INCOMPLETE
+        return {
+          dataSetId,
+          totalPieces: pieceCount,
+          removedCount: 0,
+          failedCount: 0,
+          transactions: [],
+        }
       }
     }
 
@@ -169,6 +180,13 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
       waitForConfirmation: options.waitForConfirmation ?? false,
       pieces: activePieces,
     })
+
+    // Time-out waiting for requested confirmation on one or more removals,
+    // leaving them unconfirmed. Signal that distinctly so scripts can tell it
+    // apart from both success (0) and a caught error (1).
+    if (options.waitForConfirmation === true && result.confirmedCount < result.removedCount) {
+      process.exitCode = EXIT_CODE_INCOMPLETE
+    }
 
     // Ensure spinner is stopped before displaying results
     spinner.stop(
