@@ -4,17 +4,18 @@ import { runRmAllPieces, runRmPiece } from '../rm/index.js'
 import { log } from '../utils/cli-logger.js'
 import { addAuthOptions } from '../utils/cli-options.js'
 
-export const rmCommand = new Command('rm')
+export const removeCommand = new Command('remove')
+  .alias('rm')
   .description('Remove piece(s) from a DataSet')
   .requiredOption('--data-set <id>', 'DataSet ID to remove the piece from')
   .option('--wait', 'Wait for transaction confirmation before exiting')
   .option('--force', 'Skip confirmation prompt when using --all')
 
-rmCommand.addOption(new Option('--piece <cid>', 'Piece CID to remove').conflicts('all'))
-rmCommand.addOption(new Option('--all', 'Remove ALL pieces from the DataSet').conflicts('piece'))
-rmCommand.addOption(new Option('--wait-for-confirmation', 'Deprecated alias for --wait').hideHelp())
+removeCommand.addOption(new Option('--piece <cid>', 'Piece CID to remove').conflicts('all'))
+removeCommand.addOption(new Option('--all', 'Remove ALL pieces from the DataSet').conflicts('piece'))
+removeCommand.addOption(new Option('--wait-for-confirmation', 'Deprecated alias for --wait').hideHelp())
 
-rmCommand.action(async (options) => {
+removeCommand.action(async (options) => {
   // Validate: at least one of --piece or --all is required.
   // This is a routing decision for the wrapper (which runner to dispatch to),
   // so it lives here rather than in either runner.
@@ -42,4 +43,4 @@ rmCommand.action(async (options) => {
   }
 })
 
-addAuthOptions(rmCommand)
+addAuthOptions(removeCommand)
