@@ -2,11 +2,17 @@ import { Command, Option } from 'commander'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { log } from '../../utils/cli-logger.js'
 import {
+  addAuthOptions,
   addDataSetIdOption,
   addNetworkOptions,
   addProviderIdOption,
+  addSigningAuthOptions,
   validateAndNormalizeAutoFundOptions,
 } from '../../utils/cli-options.js'
+
+function envVarFor(command: Command, long: string): string | undefined {
+  return command.options.find((o) => o.long === long)?.envVar
+}
 
 describe('ID flag attribute merging', () => {
   it('merges --provider-id and the deprecated --provider-ids into providerIds', () => {
@@ -108,6 +114,28 @@ describe('addNetworkOptions', () => {
     expect(help).toContain('calibration')
     expect(help).toContain('devnet')
     expect(help).not.toContain('calibnet')
+  })
+})
+
+describe('auth and context option env bindings', () => {
+  it('binds signing-auth flags to their env vars', () => {
+    const command = addSigningAuthOptions(new Command())
+    expect(envVarFor(command, '--private-key')).toBe('PRIVATE_KEY')
+    expect(envVarFor(command, '--wallet-address')).toBe('WALLET_ADDRESS')
+    expect(envVarFor(command, '--session-key')).toBe('SESSION_KEY')
+  })
+
+  it('shows the env var in --help for signing-auth flags', () => {
+    const help = addSigningAuthOptions(new Command()).helpInformation()
+    expect(help).toContain('PRIVATE_KEY')
+    expect(help).toContain('WALLET_ADDRESS')
+    expect(help).toContain('SESSION_KEY')
+  })
+
+  it('addAuthOptions includes the signing-auth env bindings', () => {
+    const command = addAuthOptions(new Command())
+    expect(envVarFor(command, '--private-key')).toBe('PRIVATE_KEY')
+    expect(envVarFor(command, '--view-address')).toBe('VIEW_ADDRESS')
   })
 })
 

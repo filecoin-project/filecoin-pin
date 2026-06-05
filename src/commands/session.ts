@@ -5,7 +5,7 @@
  * errors to exit codes. All user-facing output lives in the runners.
  */
 
-import { Command } from 'commander'
+import { Command, Option } from 'commander'
 import { runSessionAuthorize, runSessionCreate, runSessionGenerate } from '../session/index.js'
 import { addOwnerAuthOptions } from '../utils/cli-options.js'
 
@@ -18,7 +18,7 @@ export const sessionCommand = new Command('session').description(
 const createCommand = new Command('create')
   .description('Generate (or reuse) a session key and authorize it on-chain')
   .option('--validity-days <days>', 'Number of days the session key should be valid (max 365)', '10')
-  .option('--session-key <key>', 'Reuse an existing session private key (can also use SESSION_KEY env)')
+  .addOption(new Option('--session-key <key>', 'Reuse an existing session private key').env('SESSION_KEY'))
   .action(async (options) => {
     try {
       await runSessionCreate(options)
