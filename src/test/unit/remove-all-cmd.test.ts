@@ -123,4 +123,20 @@ describe('runRmAllPieces exit codes', () => {
 
     expect(process.exitCode).toBe(0)
   })
+
+  it('does not downgrade a prior non-zero exit code on wait timeout', async () => {
+    process.exitCode = 1
+    mockRemoveAllPieces.mockResolvedValueOnce({
+      dataSetId: 123,
+      totalPieces: 2,
+      removedCount: 2,
+      confirmedCount: 1,
+      failedCount: 0,
+      transactions: [],
+    })
+
+    await runRmAllPieces({ ...baseOptions, force: true, waitForConfirmation: true })
+
+    expect(process.exitCode).toBe(1)
+  })
 })

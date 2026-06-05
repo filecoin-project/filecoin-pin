@@ -116,8 +116,9 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
 
     // Time-out waiting for requested confirmation, leaving the removal
     // unconfirmed. Signal that distinctly so scripts can tell it apart from
-    // both success (0) and a caught error (1).
-    if (options.waitForConfirmation === true && !isConfirmed) {
+    // both success (0) and a caught error (1). Set it defensively so a prior
+    // non-zero exit code is never downgraded.
+    if (options.waitForConfirmation === true && !isConfirmed && (process.exitCode ?? 0) === 0) {
       process.exitCode = EXIT_CODE_INCOMPLETE
     }
 

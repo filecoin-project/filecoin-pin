@@ -183,8 +183,13 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
 
     // Time-out waiting for requested confirmation on one or more removals,
     // leaving them unconfirmed. Signal that distinctly so scripts can tell it
-    // apart from both success (0) and a caught error (1).
-    if (options.waitForConfirmation === true && result.confirmedCount < result.removedCount) {
+    // apart from both success (0) and a caught error (1). Set it defensively so
+    // a prior non-zero exit code is never downgraded.
+    if (
+      options.waitForConfirmation === true &&
+      result.confirmedCount < result.removedCount &&
+      (process.exitCode ?? 0) === 0
+    ) {
       process.exitCode = EXIT_CODE_INCOMPLETE
     }
 

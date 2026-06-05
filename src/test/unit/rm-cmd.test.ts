@@ -153,6 +153,18 @@ describe('runRmPiece', () => {
     expect(process.exitCode).toBe(2)
   })
 
+  it('does not downgrade a prior non-zero exit code on wait timeout', async () => {
+    process.exitCode = 1
+    mockRemovePiece.mockImplementationOnce(async (_pieceCid: string, _storage: any, opts: { onProgress?: any }) => {
+      opts.onProgress?.({ type: 'removePiece:complete', data: { txHash: '0xtx', confirmed: false } })
+      return '0xtx'
+    })
+
+    await runRmPiece({ ...baseOptions, waitForConfirmation: true })
+
+    expect(process.exitCode).toBe(1)
+  })
+
   it('does not set a failure exit code when confirmation was not requested', async () => {
     mockRemovePiece.mockImplementationOnce(async (_pieceCid: string, _storage: any, opts: { onProgress?: any }) => {
       opts.onProgress?.({
