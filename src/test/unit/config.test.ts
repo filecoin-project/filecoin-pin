@@ -58,8 +58,8 @@ describe('Config', () => {
 
     const expectedRpcUrl = mainnet.rpcUrls.default.webSocket?.[0] ?? mainnet.rpcUrls.default.http[0]
 
-    expect(config.port).toBe(3456)
-    expect(config.host).toBe('localhost')
+    expect(config.port).toBe(3000)
+    expect(config.host).toBe('127.0.0.1')
     expect(config.rpcUrl).toBe(expectedRpcUrl)
     expect(config.databasePath).toBe(join(expectedDataDir, 'pins.db'))
     expect(config.carStoragePath).toBe(join(expectedDataDir, 'cars'))

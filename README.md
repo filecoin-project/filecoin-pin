@@ -254,8 +254,8 @@ RPC_URL=wss://...              # Filecoin RPC endpoint (overrides NETWORK if spe
 # Optional for Pinning Server Daemon
 ACCESS_TOKEN=...               # Bearer token required on all API requests except GET /
 ALLOW_NO_AUTH=true             # Start without a token, serving all requests unauthenticated (not recommended)
-PORT=3456                      # Daemon server port
-HOST=localhost                 # Daemon server host
+PORT=3000                      # Daemon server port
+HOST=127.0.0.1                 # Daemon server host
 DATABASE_PATH=./pins.db        # SQLite database location
 CAR_STORAGE_PATH=./cars        # CAR file storage directory
 LOG_LEVEL=info                 # Logging verbosity (info, debug, error)

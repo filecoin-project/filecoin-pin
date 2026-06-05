@@ -4,8 +4,8 @@ import { addNetworkOptions } from '../utils/cli-options.js'
 
 export const serverCommand = new Command('server')
   .description('Start the IPFS Pinning Service API server')
-  .option('-p, --port <number>', 'server port', '3000')
-  .option('--host <string>', 'server host', '127.0.0.1')
+  .addOption(new Option('-p, --port <number>', 'server port').env('PORT').default('3000'))
+  .addOption(new Option('--host <string>', 'server host').env('HOST').default('127.0.0.1'))
   .option('--car-storage <path>', 'path for CAR file storage', './cars')
   .option('--database <path>', 'path to SQLite database', './pins.db')
   .option('--private-key <key>', 'private key for Synapse (env: PRIVATE_KEY)')

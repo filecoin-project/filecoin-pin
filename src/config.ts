@@ -70,8 +70,8 @@ export function createConfig(): Config {
 
   const config: Config = {
     // Application-specific configuration
-    port: parseInt(process.env.PORT ?? '3456', 10),
-    host: process.env.HOST ?? 'localhost',
+    port: parseInt(process.env.PORT ?? '3000', 10),
+    host: process.env.HOST ?? '127.0.0.1',
     accessToken: process.env.ACCESS_TOKEN,
     allowNoAuth: process.env.ALLOW_NO_AUTH === 'true',
 

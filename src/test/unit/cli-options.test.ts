@@ -1,5 +1,6 @@
 import { Command, Option } from 'commander'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { serverCommand } from '../../commands/server.js'
 import { log } from '../../utils/cli-logger.js'
 import {
   addDataSetIdOption,
@@ -139,5 +140,18 @@ describe('validateAndNormalizeAutoFundOptions', () => {
     expect(() => validateAndNormalizeAutoFundOptions({ autoFund: true, minRunwayDays: 0 })).toThrow(
       /--min-runway-days must be a positive integer/
     )
+  })
+})
+
+describe('server command PORT/HOST env bindings', () => {
+  function optionFor(long: string) {
+    return serverCommand.options.find((o) => o.long === long)
+  }
+
+  it('binds --port and --host to their env vars with the CLI defaults', () => {
+    expect(optionFor('--port')?.envVar).toBe('PORT')
+    expect(optionFor('--port')?.defaultValue).toBe('3000')
+    expect(optionFor('--host')?.envVar).toBe('HOST')
+    expect(optionFor('--host')?.defaultValue).toBe('127.0.0.1')
   })
 })
