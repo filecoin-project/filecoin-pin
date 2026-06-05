@@ -9,7 +9,7 @@
  */
 import pc from 'picocolors'
 import pino from 'pino'
-import { EXIT_CODE_INCOMPLETE } from '../common/cli-errors.js'
+import { setIncompleteExitCode } from '../common/cli-errors.js'
 import { type RemovePieceProgressEvents, removePiece } from '../core/piece/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { parseCLIAuth } from '../utils/cli-auth.js'
@@ -116,10 +116,10 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
 
     // Time-out waiting for requested confirmation, leaving the removal
     // unconfirmed. Signal that distinctly so scripts can tell it apart from
-    // both success (0) and a caught error (1). Set it defensively so a prior
-    // non-zero exit code is never downgraded.
-    if (options.waitForConfirmation === true && !isConfirmed && (process.exitCode ?? 0) === 0) {
-      process.exitCode = EXIT_CODE_INCOMPLETE
+    // both success (0) and a caught error (1).
+    const confirmationPending = options.waitForConfirmation === true && !isConfirmed
+    if (confirmationPending) {
+      setIncompleteExitCode()
     }
 
     // Ensure spinner is stopped before displaying results
@@ -142,7 +142,11 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
     // Clean up WebSocket providers to allow process termination
     // Synapse instances don't require explicit cleanup
 
-    outro('Remove completed successfully')
+    if (confirmationPending) {
+      outro('Remove submitted; confirmation still pending')
+    } else {
+      outro('Remove completed successfully')
+    }
 
     return result
   } catch (error) {

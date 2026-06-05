@@ -1,4 +1,5 @@
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
+import { WaitForTransactionReceiptTimeoutError } from 'viem'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DataSetSummary, PieceInfo } from '../../core/data-set/types.js'
 import {
@@ -518,7 +519,7 @@ describe('runTerminateDataSetCommand', () => {
   })
 
   it('exits with code 2 when the user cancels the confirmation prompt', async () => {
-    mockIsInteractive.mockReturnValue(true)
+    mockIsInteractive.mockReturnValueOnce(true)
     mockConfirm.mockResolvedValueOnce(false)
 
     await runTerminateDataSetCommand(158, {
@@ -546,6 +547,21 @@ describe('runTerminateDataSetCommand', () => {
     expect(mockTerminateDataSet).toHaveBeenCalledWith({ dataSetId: 158n })
     expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith({ hash: '0xtxhash123' })
     expect(displayDataSetListMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('exits with code 2 when the confirmation wait times out', async () => {
+    mockWaitForTransactionReceipt.mockRejectedValueOnce(
+      new WaitForTransactionReceiptTimeoutError({ hash: '0xtxhash123' })
+    )
+
+    await runTerminateDataSetCommand(158, {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+      wait: true,
+    })
+
+    expect(mockTerminateDataSet).toHaveBeenCalledWith({ dataSetId: 158n })
+    expect(process.exitCode).toBe(2)
   })
 
   it('rejects termination for read-only accounts', async () => {

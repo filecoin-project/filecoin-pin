@@ -124,6 +124,56 @@ describe('runRmAllPieces exit codes', () => {
     expect(process.exitCode).toBe(0)
   })
 
+  it('exits with code 1 when some pieces fail to remove', async () => {
+    mockRemoveAllPieces.mockResolvedValueOnce({
+      dataSetId: 123,
+      totalPieces: 2,
+      removedCount: 1,
+      confirmedCount: 0,
+      failedCount: 1,
+      transactions: [{ pieceCid: 'bafkpiece2', success: false, error: 'revert' }],
+    })
+
+    await runRmAllPieces({ ...baseOptions, force: true })
+
+    expect(process.exitCode).toBe(1)
+    expect(mockOutro).toHaveBeenCalledWith('Remove completed with 1 failure(s)')
+  })
+
+  it('exits with code 1 when every piece fails during a confirmation wait', async () => {
+    mockRemoveAllPieces.mockResolvedValueOnce({
+      dataSetId: 123,
+      totalPieces: 2,
+      removedCount: 0,
+      confirmedCount: 0,
+      failedCount: 2,
+      transactions: [
+        { pieceCid: 'bafkpiece1', success: false, error: 'revert' },
+        { pieceCid: 'bafkpiece2', success: false, error: 'revert' },
+      ],
+    })
+
+    await runRmAllPieces({ ...baseOptions, force: true, waitForConfirmation: true })
+
+    expect(process.exitCode).toBe(1)
+  })
+
+  it('reports a pending outro instead of success on wait timeout', async () => {
+    mockRemoveAllPieces.mockResolvedValueOnce({
+      dataSetId: 123,
+      totalPieces: 2,
+      removedCount: 2,
+      confirmedCount: 1,
+      failedCount: 0,
+      transactions: [],
+    })
+
+    await runRmAllPieces({ ...baseOptions, force: true, waitForConfirmation: true })
+
+    expect(mockOutro).toHaveBeenCalledWith('Remove submitted; confirmation still pending')
+    expect(mockOutro).not.toHaveBeenCalledWith('Remove completed successfully')
+  })
+
   it('does not downgrade a prior non-zero exit code on wait timeout', async () => {
     process.exitCode = 1
     mockRemoveAllPieces.mockResolvedValueOnce({

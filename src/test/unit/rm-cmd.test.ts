@@ -151,6 +151,8 @@ describe('runRmPiece', () => {
 
     expect(result.confirmed).toBe(false)
     expect(process.exitCode).toBe(2)
+    expect(mockOutro).toHaveBeenCalledWith('Remove submitted; confirmation still pending')
+    expect(mockOutro).not.toHaveBeenCalledWith('Remove completed successfully')
   })
 
   it('does not downgrade a prior non-zero exit code on wait timeout', async () => {

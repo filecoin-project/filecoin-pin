@@ -4,11 +4,11 @@
  * Adjusts funds to exactly match a target runway (days) or a target deposited amount.
  */
 
-import { confirm } from '@clack/prompts'
+import { confirm, isCancel } from '@clack/prompts'
 import type { Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
-import { CliFatal, isCliFatal } from '../common/cli-errors.js'
+import { CliFatal, CliIncomplete, isCliFatal, isCliIncomplete, setIncompleteExitCode } from '../common/cli-errors.js'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import {
   checkUSDFCBalance,
@@ -54,8 +54,8 @@ async function ensureBelowThirtyDaysAllowed(opts: {
     message: 'Proceed with reducing runway below 30 days?',
     initialValue: false,
   })
-  if (!proceed) {
-    throw new Error('Fund adjustment cancelled by user')
+  if (isCancel(proceed) || !proceed) {
+    throw new CliIncomplete('Fund adjustment cancelled by user')
   }
 }
 
@@ -82,8 +82,8 @@ async function performAdjustment(params: {
         message: `Deposit ${formatUSDFC(needed)} USDFC?`,
         initialValue: false,
       })
-      if (!proceed) {
-        throw new Error('Deposit cancelled by user')
+      if (isCancel(proceed) || !proceed) {
+        throw new CliIncomplete('Deposit cancelled by user')
       }
     }
     spinner.start(depositMsg)
@@ -100,8 +100,8 @@ async function performAdjustment(params: {
         message: `Withdraw ${formatUSDFC(withdrawAmount)} USDFC?`,
         initialValue: false,
       })
-      if (!proceed) {
-        throw new Error('Withdraw cancelled by user')
+      if (isCancel(proceed) || !proceed) {
+        throw new CliIncomplete('Withdraw cancelled by user')
       }
     }
     spinner.start(withdrawMsg)
@@ -353,6 +353,12 @@ export async function runFund(options: FundOptions): Promise<void> {
     await printSummary(synapse)
     outro('Fund adjustment completed')
   } catch (error) {
+    if (isCliIncomplete(error)) {
+      spinner.stop()
+      cancel(error.message)
+      setIncompleteExitCode()
+      return
+    }
     if (isCliFatal(error)) {
       spinner.stop()
       throw error

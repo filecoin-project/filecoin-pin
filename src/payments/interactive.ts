@@ -9,7 +9,7 @@
 import { cancel, confirm, isCancel, password, text } from '@clack/prompts'
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
-import { CliFatal, EXIT_CODE_INCOMPLETE, isCliFatal } from '../common/cli-errors.js'
+import { CliFatal, isCliFatal, setIncompleteExitCode } from '../common/cli-errors.js'
 import {
   calculateDepositCapacity,
   checkAndSetAllowances,
@@ -71,7 +71,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
         cancel('Setup cancelled')
         // User cancelled: not a failure. Signal "incomplete" (2) distinctly
         // from success (0) and a caught error (1).
-        if ((process.exitCode ?? 0) === 0) process.exitCode = EXIT_CODE_INCOMPLETE
+        setIncompleteExitCode()
         return
       }
 
@@ -167,7 +167,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
     if (isCancel(shouldDeposit)) {
       cancel('Setup cancelled')
-      if ((process.exitCode ?? 0) === 0) process.exitCode = EXIT_CODE_INCOMPLETE
+      setIncompleteExitCode()
       return
     }
 
@@ -200,7 +200,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       if (isCancel(amountStr)) {
         cancel('Setup cancelled')
-        if ((process.exitCode ?? 0) === 0) process.exitCode = EXIT_CODE_INCOMPLETE
+        setIncompleteExitCode()
         return
       }
 

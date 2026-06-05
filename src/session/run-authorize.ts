@@ -11,7 +11,7 @@ import { confirm, isCancel } from '@clack/prompts'
 import pc from 'picocolors'
 import { type Account, createWalletClient, getAddress, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { EXIT_CODE_INCOMPLETE } from '../common/cli-errors.js'
+import { setIncompleteExitCode } from '../common/cli-errors.js'
 import {
   type AuthorizeSessionProgressEvents,
   type AuthorizeSessionResult,
@@ -79,7 +79,7 @@ export async function runSessionAuthorize(
       cancel('Authorization cancelled')
       // User declined: not a failure, but nothing was authorized. Signal
       // "incomplete" (2) distinctly from success (0) and a caught error (1).
-      if ((process.exitCode ?? 0) === 0) process.exitCode = EXIT_CODE_INCOMPLETE
+      setIncompleteExitCode()
       return undefined
     }
   }

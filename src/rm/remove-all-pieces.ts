@@ -11,7 +11,7 @@
 import { confirm, isCancel } from '@clack/prompts'
 import pc from 'picocolors'
 import pino from 'pino'
-import { EXIT_CODE_INCOMPLETE } from '../common/cli-errors.js'
+import { setIncompleteExitCode } from '../common/cli-errors.js'
 import { type RemoveAllPiecesProgressEvents, removeAllPieces } from '../core/piece/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { parseCLIAuth } from '../utils/cli-auth.js'
@@ -127,7 +127,7 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
         // User declined the destructive confirmation: not a failure, but the
         // removal did not happen. Signal "incomplete" (2) distinctly from both
         // success (0) and a caught error (1), matching `data-set terminate`.
-        if ((process.exitCode ?? 0) === 0) process.exitCode = EXIT_CODE_INCOMPLETE
+        setIncompleteExitCode()
         return {
           dataSetId,
           totalPieces: pieceCount,
@@ -181,21 +181,25 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
       pieces: activePieces,
     })
 
+    // Per-piece failures are collected by the core function rather than
+    // thrown, so surface them through the exit code here: any failed piece
+    // means the command failed (1), which takes precedence over incomplete.
+    if (result.failedCount > 0) {
+      process.exitCode = 1
+    }
+
     // Time-out waiting for requested confirmation on one or more removals,
     // leaving them unconfirmed. Signal that distinctly so scripts can tell it
-    // apart from both success (0) and a caught error (1). Set it defensively so
-    // a prior non-zero exit code is never downgraded.
-    if (
-      options.waitForConfirmation === true &&
-      result.confirmedCount < result.removedCount &&
-      (process.exitCode ?? 0) === 0
-    ) {
-      process.exitCode = EXIT_CODE_INCOMPLETE
+    // apart from both success (0) and a caught error (1).
+    const confirmationPending = options.waitForConfirmation === true && result.confirmedCount < result.removedCount
+    if (confirmationPending) {
+      setIncompleteExitCode()
     }
 
     // Ensure spinner is stopped before displaying results
+    const spinnerIcon = result.failedCount > 0 ? pc.red('✗') : pc.green('✓')
     spinner.stop(
-      `${pc.green('✓')} Removal complete: ${result.removedCount}/${result.totalPieces} succeeded, ${result.failedCount} failed`
+      `${spinnerIcon} Removal complete: ${result.removedCount}/${result.totalPieces} succeeded, ${result.failedCount} failed`
     )
 
     // Display results
@@ -213,6 +217,8 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
 
     if (result.failedCount > 0) {
       outro(`Remove completed with ${result.failedCount} failure(s)`)
+    } else if (confirmationPending) {
+      outro('Remove submitted; confirmation still pending')
     } else {
       outro('Remove completed successfully')
     }
