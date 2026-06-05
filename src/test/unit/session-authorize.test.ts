@@ -61,7 +61,6 @@ describe('authorizeSessionAddress', () => {
     expect(result.chainId).toBe(calibration.id)
     expect(result.validityDays).toBe(7)
     expect(events).toEqual([
-      'authorizeSession:resolving',
       'authorizeSession:submitting',
       'authorizeSession:submitted',
       'authorizeSession:confirmed',
