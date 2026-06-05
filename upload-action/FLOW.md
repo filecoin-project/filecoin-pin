@@ -18,7 +18,7 @@ This document explains how the action works internally and why each step exists.
    - Returns a context object containing the CAR file path, size, IPFS root CID, and additional metadata (run id, PR details, upload status).
 
 3. **Upload phase (`src/upload.js`)**
-   - Parses inputs via `parseInputs('upload')`. This enforces presence of `walletPrivateKey` and confirms `network`, `minStorageDays`, and `filecoinPayBalanceLimit` rules.
+   - Parses inputs via `parseInputs('upload')`. This enforces presence of `walletPrivateKey` and confirms `network`, `minRunwayDays`, and `maxBalance` rules.
    - If the build context marked the run as `fork-pr-blocked`, the upload phase writes outputs, posts the explanatory PR comment, and exits without touching Filecoin.
    - If `dryRun` is enabled, validates the CAR file exists, writes outputs, posts a PR comment, and exits without uploading.
    - Validates that the CAR file still exists on disk.
@@ -33,9 +33,13 @@ This document explains how the action works internally and why each step exists.
 - `path`: required for both phases.
 - `walletPrivateKey`: required when `phase !== 'compute'`.
 - `network`: optional; must be `mainnet` or `calibration`. Defaults to `mainnet`.
-- `minStorageDays`: optional number (defaults to `0` when unset).
-- `filecoinPayBalanceLimit`: bigint parsed from USDFC string; required when `minStorageDays > 0`.
-- `egressProvider`, `dryRun`: optional advanced settings with defaults (providerAddress should rarely be used).
+- `minRunwayDays`: optional number (defaults to `0` when unset).
+- `maxBalance`: bigint parsed from USDFC string; required when `minRunwayDays > 0`.
+- `egressProvider`, `dryRun`: optional advanced settings with defaults.
+
+Internally `minRunwayDays` / `maxBalance` are stored under the legacy field names `minStorageDays` / `filecoinPayBalanceLimit`, which the funding logic below still uses.
+
+Provider selection can be overridden with the `PROVIDER_IDS` environment variable (comma-separated numeric provider IDs); it is not an `action.yml` input.
 
 The helper supports both environment-variable fallback (`INPUT_<NAME>`) and the `INPUTS_JSON` bundle populated by `action.yml`.
 
@@ -57,6 +61,6 @@ The helper supports both environment-variable fallback (`INPUT_<NAME>`) and the 
 ## Error Handling
 
 - Domain-specific failures throw `FilecoinPinError` with codes for insufficient funds, invalid private keys, and balance-limit violations.
-- `handleError()` surfaces guidance tailored to the inputs (e.g., advising updates to `filecoinPayBalanceLimit`).
+- `handleError()` surfaces guidance tailored to the inputs (e.g., advising updates to `maxBalance`).
 - `run.mjs` guarantees Synapse cleanup even when build or upload throws.
 

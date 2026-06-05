@@ -57,10 +57,10 @@ export function handleError(error, context = {}) {
     if (error.code === ERROR_CODES.INSUFFICIENT_FUNDS) {
       console.error('💡 Tip: Check your wallet balance and ensure you have enough USDFC tokens.')
     } else if (error.code === ERROR_CODES.MAX_BALANCE_EXCEEDED) {
-      console.error('💡 Tip: Review your filecoinPayBalanceLimit to allow larger deposits, or lower minStorageDays.')
+      console.error('💡 Tip: Review your maxBalance to allow larger deposits, or lower minRunwayDays.')
     } else if (error.code === ERROR_CODES.MAX_BALANCE_REACHED) {
       console.error(
-        '💡 Tip: Current balance already meets your filecoinPayBalanceLimit. Upload will proceed without additional deposits.'
+        '💡 Tip: Current balance already meets your maxBalance. Upload will proceed without additional deposits.'
       )
     } else if (error.code === ERROR_CODES.PROVIDER_UNAVAILABLE) {
       console.error('💡 Tip: Try again later or specify different provider IDs via PROVIDER_IDS.')

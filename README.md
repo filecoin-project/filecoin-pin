@@ -83,7 +83,7 @@ See [/documentation](/documentation/README.md).
 
 See Filecoin Pin in action:
 
-- **[upload-action](https://github.com/filecoin-project/filecoin-pin/tree/master/upload-action)** - Example GitHub Action workflows demonstrating automated IPFS/Filecoin uploads
+- **[upload-action](https://github.com/filecoin-project/filecoin-pin/tree/master/upload-action)** - The supported GitHub Action for automated IPFS/Filecoin uploads in CI
 - **[filecoin-pin-website](https://github.com/filecoin-project/filecoin-pin-website)** - Demo dApp showing browser-based file uploads to Filecoin
    - [Walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/dapp-demo)
    - [🎥 Recording 1](https://www.youtube.com/watch?v=UElx1_qF12o)
