@@ -32,7 +32,6 @@ export type CreateSessionKeyProgressEvents =
  * Progress events emitted while revoking a session key on-chain.
  */
 export type RevokeSessionProgressEvents =
-  | ProgressEvent<'revokeSession:resolving', { sessionAddress: Address; ownerAddress: Address }>
   | ProgressEvent<'revokeSession:submitting', { sessionAddress: Address; registryAddress: Address }>
   | ProgressEvent<'revokeSession:submitted', { txHash: Hash; sessionAddress: Address }>
   | ProgressEvent<'revokeSession:confirmed', { txHash: Hash; blockNumber: bigint; sessionAddress: Address }>

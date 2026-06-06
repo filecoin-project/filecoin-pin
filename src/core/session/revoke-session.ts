@@ -42,11 +42,6 @@ export async function revokeSessionAddress(
   }
 
   options.onProgress?.({
-    type: 'revokeSession:resolving',
-    data: { sessionAddress, ownerAddress },
-  })
-
-  options.onProgress?.({
     type: 'revokeSession:submitting',
     data: { sessionAddress, registryAddress },
   })

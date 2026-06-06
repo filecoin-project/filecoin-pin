@@ -48,12 +48,7 @@ describe('revokeSessionAddress', () => {
     expect(result.blockNumber).toBe(77n)
     expect(result.chainId).toBe(calibration.id)
     expect(result.permissions).toEqual(FilecoinPinFwssPermissions)
-    expect(events).toEqual([
-      'revokeSession:resolving',
-      'revokeSession:submitting',
-      'revokeSession:submitted',
-      'revokeSession:confirmed',
-    ])
+    expect(events).toEqual(['revokeSession:submitting', 'revokeSession:submitted', 'revokeSession:confirmed'])
     expect(revokeSync).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
