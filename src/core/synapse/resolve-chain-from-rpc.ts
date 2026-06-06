@@ -24,9 +24,10 @@ export async function resolveChainFromRpc(transport: Transport, logger?: Logger)
   if (id === calibration.id) return calibration
 
   // Devnet support pulls in node:fs via resolveDevnetConfig, so import it lazily to keep this
-  // module browser-safe. Mainnet/calibration probes never reach this branch.
+  // module browser-safe. Browser bundlers resolve devnet-config to a stub (see the "browser"
+  // field in package.json). Mainnet/calibration probes never reach this branch.
   try {
-    const { resolveDevnetConfig } = await import('../../common/get-rpc-url.js')
+    const { resolveDevnetConfig } = await import('../../common/devnet-config.js')
     const devnet = resolveDevnetConfig().chain
     if (id === devnet.id) return devnet
   } catch (err) {

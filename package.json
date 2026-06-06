@@ -1,11 +1,14 @@
 {
   "name": "filecoin-pin",
-  "version": "0.22.1",
+  "version": "0.22.3",
   "description": "Bridge IPFS content to Filecoin Onchain Cloud using familiar tools",
   "type": "module",
   "packageManager": "pnpm@10.32.1",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "browser": {
+    "./dist/common/devnet-config.js": "./dist/common/devnet-config.browser.js"
+  },
   "exports": {
     ".": {
       "browser": {
@@ -47,6 +50,10 @@
       "types": "./dist/core/synapse/index.d.ts",
       "default": "./dist/core/synapse/index.js"
     },
+    "./core/telemetry": {
+      "types": "./dist/core/telemetry/index.d.ts",
+      "default": "./dist/core/telemetry/index.js"
+    },
     "./core/upload": {
       "types": "./dist/core/upload/index.d.ts",
       "default": "./dist/core/upload/index.js"
@@ -66,6 +73,10 @@
     "./version-check": {
       "types": "./dist/common/version-check.d.ts",
       "default": "./dist/common/version-check.js"
+    },
+    "./read-telemetry-config-from-env": {
+      "types": "./dist/read-telemetry-config-from-env.d.ts",
+      "default": "./dist/read-telemetry-config-from-env.js"
     }
   },
   "bin": {
@@ -149,11 +160,11 @@
     "@types/semver": "^7.7.1",
     "@vitest/browser-playwright": "^4.0.18",
     "@vitest/coverage-v8": "^4.0.18",
-    "blockstore-core": "^6.1.2",
-    "playwright-chromium": "^1.58.2",
+    "blockstore-core": "^7.0.1",
+    "playwright": "1.60.0",
     "tsx": "~4.21.0",
     "typedoc": "^0.28.17",
-    "typescript": "~5.9.3",
+    "typescript": "~6.0.3",
     "vitest": "^4.0.18"
   },
   "publishConfig": {

@@ -6,7 +6,7 @@ import {
   importCommand,
   paymentsCommand,
   providerCommand,
-  rmCommand,
+  removeCommand,
   serverCommand,
   sessionCommand,
 } from '../../commands/index.js'
@@ -18,7 +18,7 @@ function leafCommands(cmd: Command): Command[] {
 const roots: Array<[string, Command]> = [
   ['add', addCommand],
   ['import', importCommand],
-  ['rm', rmCommand],
+  ['remove', removeCommand],
   ['server', serverCommand],
   ['payments', paymentsCommand],
   ['data-set', dataSetCommand],
@@ -51,5 +51,12 @@ describe('CLI --network option', () => {
     expect(revokeHelp).toContain('--private-key')
     expect(revokeHelp).toContain('--network')
     expect(revokeHelp).toContain('--rpc-url')
+  })
+})
+
+describe('remove command naming', () => {
+  it('uses "remove" as the canonical name and keeps "rm" as an alias', () => {
+    expect(removeCommand.name()).toBe('remove')
+    expect(removeCommand.aliases()).toContain('rm')
   })
 })

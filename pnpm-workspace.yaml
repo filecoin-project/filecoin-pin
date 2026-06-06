@@ -7,4 +7,4 @@ minimumReleaseAgeExclude:
 onlyBuiltDependencies:
   - esbuild
   - node-datachannel
-  - playwright-chromium
+  - playwright

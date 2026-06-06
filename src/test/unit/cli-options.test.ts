@@ -1,6 +1,52 @@
 import { Command, Option } from 'commander'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { addNetworkOptions, validateAndNormalizeAutoFundOptions } from '../../utils/cli-options.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { log } from '../../utils/cli-logger.js'
+import {
+  addAuthOptions,
+  addDataSetIdOption,
+  addNetworkOptions,
+  addProviderIdOption,
+  addSigningAuthOptions,
+  validateAndNormalizeAutoFundOptions,
+} from '../../utils/cli-options.js'
+
+function envVarFor(command: Command, long: string): string | undefined {
+  return command.options.find((o) => o.long === long)?.envVar
+}
+
+describe('ID flag attribute merging', () => {
+  it('merges --provider-id and the deprecated --provider-ids into providerIds', () => {
+    const command = addProviderIdOption(new Command()).exitOverride()
+    command.parse(['--provider-id', '7', '--provider-ids', '1,2', '--provider-id', '9'], { from: 'user' })
+    const opts = command.opts()
+    expect(opts.providerIds).toEqual(['7', '1,2', '9'])
+    expect(opts).not.toHaveProperty('providerIdsCsv')
+  })
+
+  it('merges --data-set-id and the deprecated --data-set-ids/--data-set into dataSetIds', () => {
+    const command = addDataSetIdOption(new Command(), { includeSingleAlias: true }).exitOverride()
+    command.parse(['--data-set-id', '3', '--data-set-ids', '4,5', '--data-set', '6'], { from: 'user' })
+    const opts = command.opts()
+    expect(opts.dataSetIds).toEqual(['3', '4,5', '6'])
+    expect(opts).not.toHaveProperty('dataSetIdsCsv')
+    expect(opts).not.toHaveProperty('dataSet')
+  })
+
+  it('warns at most once per deprecated flag even when repeated', () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined)
+    try {
+      const command = addDataSetIdOption(new Command(), { includeSingleAlias: true }).exitOverride()
+      command.parse(['--data-set-ids', '1,2', '--data-set-ids', '3,4', '--data-set', '5', '--data-set', '6'], {
+        from: 'user',
+      })
+      const warnings = warn.mock.calls.map((c) => c[0])
+      expect(warnings.filter((m) => m.includes('--data-set-ids'))).toHaveLength(1)
+      expect(warnings.filter((m) => m.startsWith('--data-set '))).toHaveLength(1)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+})
 
 describe('addNetworkOptions', () => {
   const originalNetwork = process.env.NETWORK
@@ -68,6 +114,28 @@ describe('addNetworkOptions', () => {
     expect(help).toContain('calibration')
     expect(help).toContain('devnet')
     expect(help).not.toContain('calibnet')
+  })
+})
+
+describe('auth and context option env bindings', () => {
+  it('binds signing-auth flags to their env vars', () => {
+    const command = addSigningAuthOptions(new Command())
+    expect(envVarFor(command, '--private-key')).toBe('PRIVATE_KEY')
+    expect(envVarFor(command, '--wallet-address')).toBe('WALLET_ADDRESS')
+    expect(envVarFor(command, '--session-key')).toBe('SESSION_KEY')
+  })
+
+  it('shows the env var in --help for signing-auth flags', () => {
+    const help = addSigningAuthOptions(new Command()).helpInformation()
+    expect(help).toContain('PRIVATE_KEY')
+    expect(help).toContain('WALLET_ADDRESS')
+    expect(help).toContain('SESSION_KEY')
+  })
+
+  it('addAuthOptions includes the signing-auth env bindings', () => {
+    const command = addAuthOptions(new Command())
+    expect(envVarFor(command, '--private-key')).toBe('PRIVATE_KEY')
+    expect(envVarFor(command, '--view-address')).toBe('VIEW_ADDRESS')
   })
 })
 

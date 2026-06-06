@@ -41,6 +41,7 @@ describe('createFilecoinPinningServer auth selection', () => {
       privateKey: undefined,
       walletAddress: '0x0000000000000000000000000000000000000002',
       sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+      accessToken: 'test-token',
     }
     const logger = createLogger(config)
 
@@ -178,5 +179,81 @@ describe('createFilecoinPinningServer auth selection', () => {
     await expect(createFilecoinPinningServer(config, logger, SERVICE_INFO)).rejects.toThrow(
       'Private key must be 32 bytes'
     )
+  })
+})
+
+describe('createFilecoinPinningServer access token guard', () => {
+  let server: any
+  let pinStore: any
+
+  const VALID_PRIVATE_KEY = '0x0000000000000000000000000000000000000000000000000000000000000001'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(async () => {
+    if (server != null) {
+      await server.close()
+      server = undefined
+    }
+    if (pinStore != null) {
+      await pinStore.stop()
+      pinStore = undefined
+    }
+  })
+
+  it('should refuse to start when no access token and no allowNoAuth', async () => {
+    const config = {
+      ...createConfig(),
+      carStoragePath: TEST_OUTPUT_DIR,
+      port: 0,
+      privateKey: VALID_PRIVATE_KEY,
+      accessToken: undefined,
+      allowNoAuth: false,
+    }
+    const logger = createLogger(config)
+
+    await expect(createFilecoinPinningServer(config, logger, SERVICE_INFO)).rejects.toThrow(
+      'No access token configured'
+    )
+  })
+
+  it('should start without an access token when allowNoAuth is set', async () => {
+    const config = {
+      ...createConfig(),
+      carStoragePath: TEST_OUTPUT_DIR,
+      port: 0,
+      privateKey: VALID_PRIVATE_KEY,
+      accessToken: undefined,
+      allowNoAuth: true,
+    }
+    const logger = createLogger(config)
+
+    const result = await createFilecoinPinningServer(config, logger, SERVICE_INFO)
+    server = result.server
+    pinStore = result.pinStore
+
+    expect(server).toBeDefined()
+    expect(pinStore).toBeDefined()
+  })
+
+  it('should start when an access token is configured', async () => {
+    const config = {
+      ...createConfig(),
+      carStoragePath: TEST_OUTPUT_DIR,
+      port: 0,
+      privateKey: VALID_PRIVATE_KEY,
+      accessToken: 'secret-token',
+      allowNoAuth: false,
+    }
+    const logger = createLogger(config)
+
+    const result = await createFilecoinPinningServer(config, logger, SERVICE_INFO)
+    server = result.server
+    pinStore = result.pinStore
+
+    expect(server).toBeDefined()
+    expect(pinStore).toBeDefined()
   })
 })

@@ -1,6 +1,6 @@
 import { Command, Option } from 'commander'
 import { startServer } from '../server.js'
-import { addNetworkOptions } from '../utils/cli-options.js'
+import { addNetworkOptions, addSigningAuthOptions } from '../utils/cli-options.js'
 
 export const serverCommand = new Command('server')
   .description('Start the IPFS Pinning Service API server')
@@ -8,18 +8,23 @@ export const serverCommand = new Command('server')
   .option('--host <string>', 'server host', '127.0.0.1')
   .option('--car-storage <path>', 'path for CAR file storage', './cars')
   .option('--database <path>', 'path to SQLite database', './pins.db')
-  .option('--private-key <key>', 'private key for Synapse (env: PRIVATE_KEY)')
-  .option('--wallet-address <address>', 'wallet address for session key auth (env: WALLET_ADDRESS)')
-  .option('--session-key <key>', 'session key for session key auth (env: SESSION_KEY)')
   .option('--access-token <token>', 'bearer token required on all API requests except GET / (env: ACCESS_TOKEN)')
+  .option(
+    '--allow-no-auth',
+    'start the server without an access token, serving all requests unauthenticated (env: ALLOW_NO_AUTH)'
+  )
 
+addSigningAuthOptions(serverCommand)
 addNetworkOptions(serverCommand)
   .addOption(
     new Option('--rpc-url <url>', 'RPC URL for Filecoin network (overrides --network)').env('RPC_URL')
     // default rpcUrl value is defined in ../common/get-rpc-url.ts
   )
   .action(async (options) => {
-    // Override environment variables with CLI options if provided
+    // Copy parsed option values into process.env for startServer's config
+    // loader. Options with .env() bindings may already hold the env value,
+    // so a truthy option does not imply the flag was passed on the command
+    // line (use command.getOptionValueSource() to distinguish).
     if (options.privateKey) {
       process.env.PRIVATE_KEY = options.privateKey
     }
@@ -31,6 +36,9 @@ addNetworkOptions(serverCommand)
     }
     if (options.accessToken) {
       process.env.ACCESS_TOKEN = options.accessToken
+    }
+    if (options.allowNoAuth) {
+      process.env.ALLOW_NO_AUTH = 'true'
     }
     // RPC URL takes precedence over network flag
     if (options.rpcUrl) {
