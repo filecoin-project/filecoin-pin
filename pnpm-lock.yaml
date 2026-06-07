@@ -40,7 +40,7 @@ importers:
         version: 2.5.2
       '@ipld/car':
         specifier: ^5.4.2
-        version: 5.4.3
+        version: 5.4.6
       '@libp2p/identify':
         specifier: ^4.1.2
         version: 4.1.6
@@ -514,9 +514,12 @@ packages:
   '@helia/utils@2.5.2':
     resolution: {integrity: sha512-6/+RInRpJsJoo13ECQsSkBtK2xUGl/KWaJpBuK9tqg+ng3s5cec2qO9RVhZt4bdkPPqJc/PX+G9zwVhKqp5UwQ==}
 
-  '@ipld/car@5.4.3':
-    resolution: {integrity: sha512-+6QHy+9sLov1K28PmazHyqEmD5oDeMWa3mwxst8rt5OsP7CmEexwYDOflGSjPDOUWgHQ4WabQnBSZfXKvZ0DUw==}
+  '@ipld/car@5.4.6':
+    resolution: {integrity: sha512-f1Iyb9ci8B/TGCyjAuSQ6BOLiy2u8en7rB+SumbyweqXDu3gxYJwYbGzoposKjOzc4CeGlkEbwEw8REoekYAKQ==}
     engines: {node: '>=16.0.0', npm: '>=7.0.0'}
+
+  '@ipld/dag-cbor@10.0.1':
+    resolution: {integrity: sha512-nF07iiZPqduSXyMxc0jGANArRHFa9hjMQpQlgLOV2O/3xI1CNb5sXhvbmigbMiz5owSGi0Oq10VtauupMojuiw==}
 
   '@ipld/dag-cbor@9.2.6':
     resolution: {integrity: sha512-vZGJ84Em2jCVAS7td5gc08YTVN8/s4bTQxg4pU77PAXDAR/yLYOthOvkCu01fdl1lrZwz47RdUterxdkrs3p5A==}
@@ -2189,6 +2192,10 @@ packages:
     resolution: {integrity: sha512-pn99VhoACYR8nFHhxqix+uvsbXineAasWm5ojXoN8xEwK5Kd3/TrhNn1wByuD52UxWRLy8pu+kRMniEi6Eq9Zg==}
     engines: {node: '>=12.0.0'}
 
+  tinyglobby@0.2.17:
+    resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
+    engines: {node: '>=12.0.0'}
+
   tinyrainbow@3.1.0:
     resolution: {integrity: sha512-Bf+ILmBgretUrdJxzXM0SgXLZ3XfiaUuOj/IKQHuTXip+05Xn+uyEYdVg0kYDipTBcLrCVyUzAPz7QmArb0mmw==}
     engines: {node: '>=14.0.0'}
@@ -2856,12 +2863,17 @@ snapshots:
       race-signal: 2.0.0
       uint8arrays: 5.1.1
 
-  '@ipld/car@5.4.3':
+  '@ipld/car@5.4.6':
     dependencies:
-      '@ipld/dag-cbor': 9.2.6
+      '@ipld/dag-cbor': 10.0.1
       cborg: 5.1.1
-      multiformats: 13.4.2
+      multiformats: 14.0.0
       varint: 6.0.0
+
+  '@ipld/dag-cbor@10.0.1':
+    dependencies:
+      cborg: 5.1.1
+      multiformats: 14.0.0
 
   '@ipld/dag-cbor@9.2.6':
     dependencies:
@@ -4904,6 +4916,11 @@ snapshots:
       fdir: 6.5.0(picomatch@4.0.4)
       picomatch: 4.0.4
 
+  tinyglobby@0.2.17:
+    dependencies:
+      fdir: 6.5.0(picomatch@4.0.4)
+      picomatch: 4.0.4
+
   tinyrainbow@3.1.0: {}
 
   to-regex-range@5.0.1:
@@ -5012,7 +5029,7 @@ snapshots:
       picomatch: 4.0.4
       postcss: 8.5.15
       rolldown: 1.0.0-rc.9(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)
-      tinyglobby: 0.2.16
+      tinyglobby: 0.2.17
     optionalDependencies:
       '@types/node': 25.7.0
       esbuild: 0.27.4
