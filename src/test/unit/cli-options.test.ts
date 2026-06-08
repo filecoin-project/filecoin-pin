@@ -192,3 +192,16 @@ describe('validateAndNormalizeAutoFundOptions', () => {
     )
   })
 })
+
+describe('server command PORT/HOST env bindings', () => {
+  function optionFor(long: string) {
+    return serverCommand.options.find((o) => o.long === long)
+  }
+
+  it('binds --port and --host to their env vars with the CLI defaults', () => {
+    expect(optionFor('--port')?.envVar).toBe('PORT')
+    expect(optionFor('--port')?.defaultValue).toBe('3000')
+    expect(optionFor('--host')?.envVar).toBe('HOST')
+    expect(optionFor('--host')?.defaultValue).toBe('127.0.0.1')
+  })
+})

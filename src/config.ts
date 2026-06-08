@@ -68,10 +68,18 @@ export function createConfig(): Config {
   // the endpoint to derive the chain. Default to mainnet when neither is supplied.
   const chain = hasRpcUrl ? resolveChain(undefined, true) : resolveChain(process.env.NETWORK ?? 'mainnet', false)
 
+  // Treat an empty PORT/HOST (e.g. docker-compose interpolation of an unset
+  // variable) the same as unset, and reject non-numeric or out-of-range ports
+  // with a clear error instead of letting NaN reach the listener.
+  const port = parseInt(process.env.PORT || '3000', 10)
+  if (Number.isNaN(port) || port < 0 || port > 65535) {
+    throw new Error(`Configuration error: PORT must be a number between 0 and 65535, got '${process.env.PORT}'`)
+  }
+
   const config: Config = {
     // Application-specific configuration
-    port: parseInt(process.env.PORT ?? '3456', 10),
-    host: process.env.HOST ?? 'localhost',
+    port,
+    host: process.env.HOST || '127.0.0.1',
     accessToken: process.env.ACCESS_TOKEN,
     allowNoAuth: process.env.ALLOW_NO_AUTH === 'true',
 
