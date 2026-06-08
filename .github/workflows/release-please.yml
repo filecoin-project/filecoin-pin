@@ -11,19 +11,26 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
 permissions:
-  id-token: write  # Required for OIDC
-  contents: write
-  issues: write
-  pull-requests: write
+  contents: read
 
 jobs:
   release-please:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
-        if: github.event_name == 'push'
         with:
           # PAT so release PRs trigger other workflows (auto-label, add-issues-and-prs-to-fs-project-board).
           # This PAT has the permissions outlined in https://github.com/googleapis/release-please-action?tab=readme-ov-file#workflow-permissions.
@@ -31,17 +38,22 @@ jobs:
           token: ${{ secrets.FILOZZY_RELEASE_PLEASE_PAT }}
           config-file: release-please-config.json
 
-      # Publish steps run when release-please created a release on push,
-      # or when a maintainer manually dispatched the workflow from a release tag.
-      - name: Checkout
-        if: ${{ steps.release.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch' }}
-        uses: actions/checkout@v6.0.2
+  validate-dispatch:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Validate dispatch ref and release state
-        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
 
@@ -62,6 +74,17 @@ jobs:
             exit 1
           fi
 
+          # Confirm the tag commit is on the default branch via GitHub's
+          # compare API (works regardless of local clone depth).
+          STATUS="$(gh api "repos/$GITHUB_REPOSITORY/compare/$DEFAULT_BRANCH...$SHA" --jq .status)"
+          case "$STATUS" in
+            identical|behind) ;;
+            *)
+              echo "::error::Tag commit $SHA is not an ancestor of $DEFAULT_BRANCH (compare status: $STATUS)"
+              exit 1
+              ;;
+          esac
+
           if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::GitHub release $TAG not found"
             exit 1
@@ -73,36 +96,104 @@ jobs:
             exit 1
           fi
 
-      - name: Set up pnpm
-        if: ${{ steps.release.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch' }}
-        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+  build:
+    needs: [release-please, validate-dispatch]
+    if: |
+      always() && (
+        needs.release-please.outputs.release_created == 'true' ||
+        needs.validate-dispatch.result == 'success'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    outputs:
+      tarball: ${{ steps.pack.outputs.tarball }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
         with:
           run_install: false
 
-      - name: Setup Node.js
-        if: ${{ steps.release.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch' }}
-        uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 'lts/*'
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
           registry-url: 'https://registry.npmjs.org'
 
-      # Ensure npm 11.5.1 or later is installed
-      - name: Update npm
-        if: ${{ steps.release.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch' }}
-        run: npm install -g npm@latest
+      # Pin npm to a known-good major to avoid @latest drift on a publish-path runner.
+      - name: Pin npm
+        run: npm install -g npm@11
 
       - name: Install dependencies
-        if: ${{ steps.release.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch' }}
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: pnpm install --frozen-lockfile
 
       - name: Build
-        if: ${{ steps.release.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch' }}
         run: pnpm run build
 
-      - name: Publish to npm
-        if: ${{ steps.release.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch' }}
-        run: npm publish --access public ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
+      - name: Pack tarball
+        id: pack
+        run: |
+          set -euo pipefail
+          TARBALL="$(npm pack --silent)"
+          test -n "$TARBALL"
+          test -f "$TARBALL"
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: ${{ steps.pack.outputs.tarball }}
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # OIDC for npm trusted publishing
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Pin npm
+        run: npm install -g npm@11
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-tarball
+          path: artifact
+
+      - name: Publish tarball to npm
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          TARBALL_NAME: ${{ needs.build.outputs.tarball }}
+        run: |
+          set -euo pipefail
+
+          # Assert exactly one tarball was delivered and it matches the
+          # filename emitted by the build job.
+          COUNT="$(find artifact -maxdepth 1 -name '*.tgz' | wc -l | tr -d ' ')"
+          if [ "$COUNT" != "1" ]; then
+            echo "::error::Expected exactly one tarball in artifact/, found $COUNT"
+            exit 1
+          fi
+          TARBALL="artifact/$TARBALL_NAME"
+          if [ ! -f "$TARBALL" ]; then
+            echo "::error::Tarball $TARBALL not found"
+            exit 1
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            npm publish --access public --dry-run "$TARBALL"
+          else
+            npm publish --access public "$TARBALL"
+          fi

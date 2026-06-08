@@ -12,6 +12,40 @@ import { USDFC_DECIMALS } from '../core/payments/constants.js'
 import { log } from './cli-logger.js'
 
 /**
+ * Option factories for flags declared on more than one command. Each pairs a
+ * flag with its backing env var exactly once; only the description varies per
+ * command. `--help` shows the env var (e.g. `[env: PRIVATE_KEY]`) and the CLI
+ * flag wins over the env var.
+ */
+export function privateKeyOption(description: string): Option {
+  return new Option('--private-key <key>', description).env('PRIVATE_KEY')
+}
+
+export function sessionKeyOption(description: string): Option {
+  return new Option('--session-key <key>', description).env('SESSION_KEY')
+}
+
+export function rpcUrlOption(description: string): Option {
+  return new Option('--rpc-url <url>', description).env('RPC_URL')
+}
+
+/**
+ * Add the signing-auth flags shared by every authenticated command:
+ * `--private-key`, `--wallet-address`, `--session-key`.
+ *
+ * Each is declared via `new Option().env(...)` so `--help` shows the backing
+ * env var (e.g. `[env: PRIVATE_KEY]`). The CLI flag still wins over the env var.
+ * Used by {@link addAuthOptions} and directly by the `server` command (which
+ * does not support view-only auth, so it omits `--view-address`).
+ */
+export function addSigningAuthOptions(command: Command): Command {
+  return command
+    .addOption(privateKeyOption('Private key for standard auth'))
+    .addOption(new Option('--wallet-address <address>', 'Wallet address for session key auth').env('WALLET_ADDRESS'))
+    .addOption(sessionKeyOption('Session key for session key auth'))
+}
+
+/**
  * Decorator to add common authentication options to a Commander command
  *
  * This adds the standard set of authentication options that all commands need:
@@ -43,18 +77,14 @@ import { log } from './cli-logger.js'
  * ```
  */
 export function addAuthOptions(command: Command): Command {
-  command
-    .option('--private-key <key>', 'Private key for standard auth (can also use PRIVATE_KEY env)')
-    .option('--wallet-address <address>', 'Wallet address for session key auth (can also use WALLET_ADDRESS env)')
-    .option('--session-key <key>', 'Session key for session key auth (can also use SESSION_KEY env)')
-    .addOption(
-      new Option('--view-address <address>', 'View-only mode (no signing) for the specified wallet address').env(
-        'VIEW_ADDRESS'
-      )
+  addSigningAuthOptions(command).addOption(
+    new Option('--view-address <address>', 'View-only mode (no signing) for the specified wallet address').env(
+      'VIEW_ADDRESS'
     )
+  )
 
   return addNetworkOptions(command).addOption(
-    new Option('--rpc-url <url>', 'RPC endpoint').env('RPC_URL')
+    rpcUrlOption('RPC endpoint')
     // default rpcUrl value is defined in ../common/get-rpc-url.ts
   )
 }
@@ -118,6 +148,11 @@ export function addProviderIdOption(command: Command): Command {
   return command
     .addOption(
       withAttributeName(
+        // PROVIDER_IDS is intentionally NOT bound via .env(): gatherIdSelection
+        // (cli-auth.ts) comma-splits the env value and lets a flag fully
+        // replace it. Binding .env() here would feed the raw env string
+        // through collectId and leave that read dead, so the env var is named
+        // in the description instead.
         new Option(
           '--provider-id <id>',
           'Target a specific provider by ID; repeatable (can also use PROVIDER_IDS env)'
@@ -149,6 +184,8 @@ export function addDataSetIdOption(command: Command, config: DataSetIdOptionConf
   command
     .addOption(
       withAttributeName(
+        // DATA_SET_IDS is intentionally NOT bound via .env(); see the
+        // PROVIDER_IDS note in addProviderIdOption.
         new Option(
           '--data-set-id <id>',
           'Target a specific data set by ID; repeatable (can also use DATA_SET_IDS env)'
@@ -197,9 +234,9 @@ export function addContextSelectionOptions(command: Command): Command {
  * command.
  */
 export function addOwnerAuthOptions(command: Command): Command {
-  return addNetworkOptions(
-    command.option('--private-key <key>', 'Owner private key for signing (can also use PRIVATE_KEY env)')
-  ).addOption(new Option('--rpc-url <url>', 'RPC endpoint').env('RPC_URL'))
+  return addNetworkOptions(command.addOption(privateKeyOption('Owner private key for signing'))).addOption(
+    rpcUrlOption('RPC endpoint')
+  )
 }
 
 const ALLOWED_NETWORKS = ['mainnet', 'calibration', 'devnet']

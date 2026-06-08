@@ -47,7 +47,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
   try {
     // Get private key
-    let privateKey = options.privateKey || process.env.PRIVATE_KEY
+    let privateKey = options.privateKey
 
     if (!privateKey) {
       const input = await password({
