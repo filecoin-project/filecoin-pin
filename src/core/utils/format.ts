@@ -1,6 +1,6 @@
 import { formatEther, formatUnits } from 'viem'
-import type { StorageRunwaySummary } from '../payments/index.js'
-import { USDFC_DECIMALS } from '../payments/index.js'
+import { USDFC_DECIMALS } from '../payments/constants.js'
+import type { StorageRunwaySummary } from '../payments/types.js'
 
 const DAYS_PER_MONTH = 30
 const DAYS_PER_YEAR = 365

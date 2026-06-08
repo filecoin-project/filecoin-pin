@@ -25,6 +25,7 @@ import {
 import { calibration, SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { formatUnits, type Hash } from 'viem'
 import { getClientAddress, isSessionKeyMode } from '../synapse/index.js'
+import { formatFIL } from '../utils/format.js'
 import { assertPriceNonZero } from '../utils/validate-pricing.js'
 import {
   DEFAULT_LOCKUP_DAYS,
@@ -206,20 +207,54 @@ export function getUsdfcAcquisitionHelpMessage(isCalibnet: boolean): string {
   ].join('\n  ')
 }
 
-export function validatePaymentRequirements(
-  hasSufficientGas: boolean,
-  walletUsdfcBalance: bigint,
-  isCalibnet: boolean
-): PaymentValidationResult {
-  if (!hasSufficientGas) {
+/**
+ * Validate that the wallet holds enough FIL to pay gas for transactions
+ *
+ * The failure message includes the current balance, the required minimum,
+ * and the shortfall so users know exactly how much FIL to add.
+ *
+ * @param filBalance - Wallet FIL balance in attoFIL
+ * @param isCalibnet - Whether the network is Calibration testnet
+ */
+export function validateGasRequirement(filBalance: bigint, isCalibnet: boolean): PaymentValidationResult {
+  if (filBalance < MIN_FIL_FOR_GAS) {
     const result: PaymentValidationResult = {
       isValid: false,
-      errorMessage: 'Insufficient FIL for gas fees',
+      errorMessage:
+        `Insufficient FIL for gas fees (balance: ${formatFIL(filBalance, isCalibnet)}, ` +
+        `minimum: ${formatFIL(MIN_FIL_FOR_GAS, isCalibnet)}, ` +
+        `add at least: ${formatFIL(MIN_FIL_FOR_GAS - filBalance, isCalibnet)})`,
     }
     if (isCalibnet) {
       result.helpMessage = 'Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'
     }
     return result
+  }
+
+  return { isValid: true }
+}
+
+/**
+ * Validate that the wallet can fund payment transactions: FIL for gas plus
+ * USDFC to deposit
+ *
+ * Only call this when the current operation will actually send transactions
+ * that spend wallet USDFC. For operations that spend gas alone (e.g. an
+ * allowance update), use {@link validateGasRequirement} so accounts that
+ * hold all their USDFC as deposits are not rejected.
+ *
+ * @param filBalance - Wallet FIL balance in attoFIL
+ * @param walletUsdfcBalance - Wallet USDFC balance (18 decimals)
+ * @param isCalibnet - Whether the network is Calibration testnet
+ */
+export function validatePaymentRequirements(
+  filBalance: bigint,
+  walletUsdfcBalance: bigint,
+  isCalibnet: boolean
+): PaymentValidationResult {
+  const gasCheck = validateGasRequirement(filBalance, isCalibnet)
+  if (!gasCheck.isValid) {
+    return gasCheck
   }
 
   if (walletUsdfcBalance === 0n) {
