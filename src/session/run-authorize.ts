@@ -26,7 +26,7 @@ import type { SessionAuthorizeOptions } from './types.js'
 export async function runSessionAuthorize(options: SessionAuthorizeOptions): Promise<AuthorizeSessionResult> {
   intro(pc.bold('Filecoin Pin Session Authorize'))
 
-  const privateKey = options.privateKey || process.env.PRIVATE_KEY
+  const privateKey = options.privateKey
   if (!privateKey) {
     cancel('PRIVATE_KEY environment variable or --private-key option is required')
     throw new Error('PRIVATE_KEY environment variable or --private-key option is required')

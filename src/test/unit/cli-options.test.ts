@@ -1,10 +1,13 @@
 import { Command, Option } from 'commander'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { serverCommand } from '../../commands/server.js'
+import { sessionCommand } from '../../commands/session.js'
 import { log } from '../../utils/cli-logger.js'
 import {
   addAuthOptions,
   addDataSetIdOption,
   addNetworkOptions,
+  addOwnerAuthOptions,
   addProviderIdOption,
   addSigningAuthOptions,
   validateAndNormalizeAutoFundOptions,
@@ -136,6 +139,26 @@ describe('auth and context option env bindings', () => {
     const command = addAuthOptions(new Command())
     expect(envVarFor(command, '--private-key')).toBe('PRIVATE_KEY')
     expect(envVarFor(command, '--view-address')).toBe('VIEW_ADDRESS')
+  })
+
+  it('addOwnerAuthOptions binds its flags to their env vars', () => {
+    const command = addOwnerAuthOptions(new Command())
+    expect(envVarFor(command, '--private-key')).toBe('PRIVATE_KEY')
+    expect(envVarFor(command, '--rpc-url')).toBe('RPC_URL')
+  })
+
+  it('binds the server auth and rpc flags to their env vars', () => {
+    expect(envVarFor(serverCommand, '--access-token')).toBe('ACCESS_TOKEN')
+    expect(envVarFor(serverCommand, '--rpc-url')).toBe('RPC_URL')
+    expect(envVarFor(serverCommand, '--allow-no-auth')).toBeUndefined()
+  })
+
+  it('binds session create --session-key to its env var', () => {
+    const createCommand = sessionCommand.commands.find((c) => c.name() === 'create')
+    expect(createCommand).toBeDefined()
+    if (createCommand) {
+      expect(envVarFor(createCommand, '--session-key')).toBe('SESSION_KEY')
+    }
   })
 })
 
