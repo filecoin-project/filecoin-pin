@@ -65,11 +65,6 @@ export async function authorizeSessionAddress(
     throw new Error(`No session key registry address configured for chain id ${client.chain.id}`)
   }
 
-  options.onProgress?.({
-    type: 'authorizeSession:resolving',
-    data: { sessionAddress, ownerAddress },
-  })
-
   const expiry = Math.floor(Date.now() / 1000) + validityDays * 24 * 60 * 60
 
   options.onProgress?.({
