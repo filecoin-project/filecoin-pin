@@ -11,6 +11,7 @@ import { parseUnits } from 'viem'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import {
   calculateDepositCapacity,
+  checkAllowances,
   checkAndSetAllowances,
   checkFILBalance,
   checkUSDFCBalance,
@@ -18,6 +19,7 @@ import {
   depositUSDFC,
   getPaymentStatus,
   getServicePrice,
+  validateGasRequirement,
   validatePaymentRequirements,
 } from '../core/payments/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
@@ -67,30 +69,21 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
-    // Check balances
+    // Check balances and on-chain payment state. Wallet funding is validated
+    // later, once the transactions this run needs are known: an
+    // already-configured account needs none, so it is never rejected for a
+    // low-gas wallet or for holding all of its USDFC as deposits.
     spinner.start('Checking balances...')
 
     const filStatus = await checkFILBalance(synapse)
     const walletUsdfcBalance = await checkUSDFCBalance(synapse)
+    const [status, accountSummary, allowanceCheck] = await Promise.all([
+      getPaymentStatus(synapse),
+      synapse.payments.accountSummary(),
+      checkAllowances(synapse),
+    ])
 
     spinner.stop(`${pc.green('✓')} Balance check complete`)
-
-    // Validate payment requirements
-    const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
-    if (!validation.isValid) {
-      const errorMsg = validation.errorMessage ?? 'Payment validation failed'
-      log.line(`${pc.red('✗')} ${errorMsg}`)
-      if (validation.helpMessage) {
-        log.line('')
-        log.line(`  ${pc.cyan(validation.helpMessage)}`)
-      }
-      log.flush()
-      cancel('Please fund your wallet and try again')
-      throw new CliFatal(errorMsg)
-    }
-
-    // Now safe to get payment status since we know account exists
-    const [status, accountSummary] = await Promise.all([getPaymentStatus(synapse), synapse.payments.accountSummary()])
 
     // Display account and balance info using shared function
     displayAccountInfo(
@@ -132,7 +125,30 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     let actionsTaken = false
     let actualFilecoinPayTopUp = 0n
 
-    if (status.filecoinPayBalance < targetFilecoinPayBalance) {
+    const needsDeposit = status.filecoinPayBalance < targetFilecoinPayBalance
+    const needsAllowanceUpdate = allowanceCheck.needsUpdate
+
+    // Gate on wallet funding only when this run will send transactions.
+    // A deposit spends wallet USDFC and gas; an allowance update spends gas
+    // alone, so wallet USDFC is not required for it.
+    if (needsDeposit || needsAllowanceUpdate) {
+      const validation = needsDeposit
+        ? validatePaymentRequirements(filStatus.balance, walletUsdfcBalance, filStatus.isCalibnet)
+        : validateGasRequirement(filStatus.balance, filStatus.isCalibnet)
+      if (!validation.isValid) {
+        const errorMsg = validation.errorMessage ?? 'Payment validation failed'
+        log.line(`${pc.red('✗')} ${errorMsg}`)
+        if (validation.helpMessage) {
+          log.line('')
+          log.line(`  ${pc.cyan(validation.helpMessage)}`)
+        }
+        log.flush()
+        cancel('Please fund your wallet and try again')
+        throw new CliFatal(errorMsg)
+      }
+    }
+
+    if (needsDeposit) {
       const neededFilecoinPayTopUp = targetFilecoinPayBalance - status.filecoinPayBalance
       actualFilecoinPayTopUp = neededFilecoinPayTopUp
 
