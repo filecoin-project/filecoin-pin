@@ -153,6 +153,11 @@ jobs:
 
   publish:
     needs: build
+    # build overrides its default condition with always(), and one of its needs
+    # (validate-dispatch) is skipped on the push path. The default success() check
+    # evaluates the whole transitive needs graph, so that skip would propagate here
+    # and skip publish even when build succeeded. Gate explicitly on build's result.
+    if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # OIDC for npm trusted publishing
