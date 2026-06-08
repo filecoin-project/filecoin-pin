@@ -9,7 +9,7 @@
 import { cancel, confirm, isCancel, password, text } from '@clack/prompts'
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
-import { CliFatal, isCliFatal } from '../common/cli-errors.js'
+import { CliFatal, isCliFatal, setIncompleteExitCode } from '../common/cli-errors.js'
 import {
   calculateDepositCapacity,
   checkAndSetAllowances,
@@ -69,7 +69,10 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       if (isCancel(input)) {
         cancel('Setup cancelled')
-        throw new CliFatal('Setup cancelled')
+        // User cancelled: not a failure. Signal "incomplete" (2) distinctly
+        // from success (0) and a caught error (1).
+        setIncompleteExitCode()
+        return
       }
 
       // Add 0x prefix if it was missing
@@ -164,7 +167,8 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
     if (isCancel(shouldDeposit)) {
       cancel('Setup cancelled')
-      throw new CliFatal('Setup cancelled')
+      setIncompleteExitCode()
+      return
     }
 
     if (shouldDeposit) {
@@ -196,7 +200,8 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       if (isCancel(amountStr)) {
         cancel('Setup cancelled')
-        throw new CliFatal('Setup cancelled')
+        setIncompleteExitCode()
+        return
       }
 
       depositAmount = parseUnits(amountStr, 18)

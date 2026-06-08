@@ -1,4 +1,5 @@
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
+import { WaitForTransactionReceiptTimeoutError } from 'viem'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DataSetSummary, PieceInfo } from '../../core/data-set/types.js'
 import {
@@ -20,6 +21,9 @@ const {
   mockTerminateDataSet,
   mockWaitForTransactionReceipt,
   mockSynapseCreate,
+  mockIsInteractive,
+  mockConfirm,
+  mockIsCancel,
   state,
 } = vi.hoisted(() => {
   const displayDataSetListMock = vi.fn()
@@ -37,6 +41,9 @@ const {
   const mockGetPdpDataSet = vi.fn()
   const mockTerminateDataSet = vi.fn()
   const mockWaitForTransactionReceipt = vi.fn()
+  const mockIsInteractive = vi.fn(() => false)
+  const mockConfirm = vi.fn(async () => true)
+  const mockIsCancel = vi.fn(() => false)
   const state = {
     pieceMetadata: {} as Record<string, string>,
     pieceList: [] as Array<{ pieceId: bigint; pieceCid: string }>,
@@ -112,6 +119,9 @@ const {
     mockWaitForTransactionReceipt,
     mockSynapseCreate,
     mockCreateContext,
+    mockIsInteractive,
+    mockConfirm,
+    mockIsCancel,
     state,
   }
 })
@@ -131,7 +141,7 @@ vi.mock('../../utils/cli-helpers.js', () => ({
   outro: vi.fn(),
   cancel: cancelMock,
   createSpinner: () => spinnerMock,
-  isInteractive: () => false,
+  isInteractive: mockIsInteractive,
 }))
 
 vi.mock('../../utils/cli-logger.js', () => ({
@@ -144,8 +154,8 @@ vi.mock('../../utils/cli-logger.js', () => ({
 }))
 
 vi.mock('@clack/prompts', () => ({
-  confirm: vi.fn(async () => true),
-  isCancel: vi.fn(() => false),
+  confirm: mockConfirm,
+  isCancel: mockIsCancel,
 }))
 
 // Use shared SDK mock with custom extensions for dataset command testing
@@ -508,6 +518,20 @@ describe('runTerminateDataSetCommand', () => {
     expect(displayDataSetListMock).toHaveBeenCalledTimes(2)
   })
 
+  it('exits with code 2 when the user cancels the confirmation prompt', async () => {
+    mockIsInteractive.mockReturnValueOnce(true)
+    mockConfirm.mockResolvedValueOnce(false)
+
+    await runTerminateDataSetCommand(158, {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    expect(mockTerminateDataSet).not.toHaveBeenCalled()
+    expect(cancelMock).toHaveBeenCalledWith('Termination cancelled')
+    expect(process.exitCode).toBe(2)
+  })
+
   it('terminates a dataset and waits for confirmation', async () => {
     const updatedDataSet = { ...terminatableDataSet, isLive: false, pdpEndEpoch: 5000 }
     mockGetPdpDataSet
@@ -523,6 +547,21 @@ describe('runTerminateDataSetCommand', () => {
     expect(mockTerminateDataSet).toHaveBeenCalledWith({ dataSetId: 158n })
     expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith({ hash: '0xtxhash123' })
     expect(displayDataSetListMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('exits with code 2 when the confirmation wait times out', async () => {
+    mockWaitForTransactionReceipt.mockRejectedValueOnce(
+      new WaitForTransactionReceiptTimeoutError({ hash: '0xtxhash123' })
+    )
+
+    await runTerminateDataSetCommand(158, {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+      wait: true,
+    })
+
+    expect(mockTerminateDataSet).toHaveBeenCalledWith({ dataSetId: 158n })
+    expect(process.exitCode).toBe(2)
   })
 
   it('rejects termination for read-only accounts', async () => {

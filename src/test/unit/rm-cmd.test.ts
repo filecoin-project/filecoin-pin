@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runRmPiece } from '../../rm/remove-piece.js'
 import type { RmPieceOptions } from '../../rm/types.js'
 
@@ -94,6 +94,11 @@ describe('runRmPiece', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    process.exitCode = 0
+  })
+
+  afterEach(() => {
+    process.exitCode = 0
   })
 
   it('removes a piece and returns result with confirmation status', async () => {
@@ -105,6 +110,7 @@ describe('runRmPiece', () => {
       transactionHash: '0xtx',
       confirmed: true,
     })
+    expect(process.exitCode).toBe(0)
 
     expect(mockInitializeSynapse).toHaveBeenCalledWith(
       expect.objectContaining({ privateKey: '0xabc', rpcUrl: 'wss://rpc' }),
@@ -122,6 +128,61 @@ describe('runRmPiece', () => {
     expect(spinner.stop).toHaveBeenCalledWith(expect.stringContaining('Piece removed'))
     expect(mockIntro).toHaveBeenCalled()
     expect(mockOutro).toHaveBeenCalledWith('Remove completed successfully')
+  })
+
+  it('exits with code 2 when a requested confirmation wait times out', async () => {
+    mockRemovePiece.mockImplementationOnce(async (_pieceCid: string, _storage: any, opts: { onProgress?: any }) => {
+      opts.onProgress?.({
+        type: 'removePiece:submitted',
+        data: { pieceCid: _pieceCid, dataSetId: Number(_storage.dataSetId), txHash: '0xtx' },
+      })
+      opts.onProgress?.({
+        type: 'removePiece:confirmationFailed',
+        data: { pieceCid: _pieceCid, dataSetId: Number(_storage.dataSetId), txHash: '0xtx', message: 'timed out' },
+      })
+      opts.onProgress?.({
+        type: 'removePiece:complete',
+        data: { txHash: '0xtx', confirmed: false },
+      })
+      return '0xtx'
+    })
+
+    const result = await runRmPiece({ ...baseOptions, waitForConfirmation: true })
+
+    expect(result.confirmed).toBe(false)
+    expect(process.exitCode).toBe(2)
+    expect(mockOutro).toHaveBeenCalledWith('Remove submitted; confirmation still pending')
+    expect(mockOutro).not.toHaveBeenCalledWith('Remove completed successfully')
+  })
+
+  it('does not downgrade a prior non-zero exit code on wait timeout', async () => {
+    process.exitCode = 1
+    mockRemovePiece.mockImplementationOnce(async (_pieceCid: string, _storage: any, opts: { onProgress?: any }) => {
+      opts.onProgress?.({ type: 'removePiece:complete', data: { txHash: '0xtx', confirmed: false } })
+      return '0xtx'
+    })
+
+    await runRmPiece({ ...baseOptions, waitForConfirmation: true })
+
+    expect(process.exitCode).toBe(1)
+  })
+
+  it('does not set a failure exit code when confirmation was not requested', async () => {
+    mockRemovePiece.mockImplementationOnce(async (_pieceCid: string, _storage: any, opts: { onProgress?: any }) => {
+      opts.onProgress?.({
+        type: 'removePiece:submitted',
+        data: { pieceCid: _pieceCid, dataSetId: Number(_storage.dataSetId), txHash: '0xtx' },
+      })
+      opts.onProgress?.({
+        type: 'removePiece:complete',
+        data: { txHash: '0xtx', confirmed: false },
+      })
+      return '0xtx'
+    })
+
+    await runRmPiece({ ...baseOptions, waitForConfirmation: false })
+
+    expect(process.exitCode).toBe(0)
   })
 
   it('throws when piece CID or data set is missing', async () => {
