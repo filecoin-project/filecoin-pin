@@ -218,17 +218,16 @@ export function getUsdfcAcquisitionHelpMessage(isCalibnet: boolean): string {
  */
 export function validateGasRequirement(filBalance: bigint, isCalibnet: boolean): PaymentValidationResult {
   if (filBalance < MIN_FIL_FOR_GAS) {
-    const result: PaymentValidationResult = {
+    return {
       isValid: false,
       errorMessage:
         `Insufficient FIL for gas fees (balance: ${formatFIL(filBalance, isCalibnet)}, ` +
         `minimum: ${formatFIL(MIN_FIL_FOR_GAS, isCalibnet)}, ` +
         `add at least: ${formatFIL(MIN_FIL_FOR_GAS - filBalance, isCalibnet)})`,
+      helpMessage: isCalibnet
+        ? 'Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'
+        : 'Acquire FIL for gas from an exchange',
     }
-    if (isCalibnet) {
-      result.helpMessage = 'Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'
-    }
-    return result
   }
 
   return { isValid: true }

@@ -35,6 +35,7 @@ describe('validateGasRequirement', () => {
     expect(result.errorMessage).toContain('balance: 0.0989 FIL')
     expect(result.errorMessage).toContain('minimum: 0.1000 FIL')
     expect(result.errorMessage).toContain('add at least: 0.0011 FIL')
+    expect(result.helpMessage).toContain('Acquire FIL for gas from an exchange')
   })
 
   it('points at the FIL faucet on calibration', () => {
