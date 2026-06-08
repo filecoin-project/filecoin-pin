@@ -2,6 +2,8 @@ name: Test upload action
 on:
   pull_request:
   push:
+    branches:
+      - master
 
 concurrency:
   group: upload-action-${{ github.event.pull_request.number }}
