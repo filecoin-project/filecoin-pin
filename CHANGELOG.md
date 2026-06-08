@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.23.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.22.3...v0.23.0) (2026-06-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* gate payments preflight on needed transactions ([#560](https://github.com/filecoin-project/filecoin-pin/issues/560))
+* **core:** AuthorizeSessionProgressEvents no longer includes authorizeSession:resolving. Progress handlers should key on authorizeSession:submitting as the first event.
+* the upload-action inputs minStorageDays and filecoinPayBalanceLimit are renamed to minRunwayDays and maxBalance. The old names remain as deprecated aliases for now and will be removed in a future release.
+* **cli:** `rm --data-set` and the comma-separated `--provider-ids` / `--data-set-ids` flags are deprecated in favor of the repeatable `--provider-id` / `--data-set-id` flags.
+* **payments:** `payments deposit --days` is removed. Use `payments fund --days N --mode minimum` to top up to a runway floor.
+* **cli:** `rm --wait-for-confirmation` is deprecated in favor of `rm --wait`.
+
+### Features
+
+* **cli:** add data-set piece-status command, export reconcilePieceStatus ([#539](https://github.com/filecoin-project/filecoin-pin/issues/539)) ([666f862](https://github.com/filecoin-project/filecoin-pin/commit/666f862639e479ae716bb2606d7f7b74fd631287))
+* **cli:** finish Option.env() rollout ([#554](https://github.com/filecoin-project/filecoin-pin/issues/554)) ([d6838c0](https://github.com/filecoin-project/filecoin-pin/commit/d6838c0b501a507d2601e9ee9c39b9c6e9ab5dab))
+* **cli:** standardize confirmation-wait flag on --wait ([#541](https://github.com/filecoin-project/filecoin-pin/issues/541)) ([41a0a18](https://github.com/filecoin-project/filecoin-pin/commit/41a0a184ffff66af108d7e7e6d19c11edc17da11))
+* **cli:** surface auth env var names in --help ([#536](https://github.com/filecoin-project/filecoin-pin/issues/536)) ([da6e33f](https://github.com/filecoin-project/filecoin-pin/commit/da6e33fdc96d4a2116e108e1b55be0bb86a0abd9))
+* **cli:** unify data-set and provider ID flags ([#540](https://github.com/filecoin-project/filecoin-pin/issues/540)) ([1ca2438](https://github.com/filecoin-project/filecoin-pin/commit/1ca24387d761e7b7640ff55e19a6c7158a19dbac))
+* **cli:** wire -v/--verbose to debug log level ([#534](https://github.com/filecoin-project/filecoin-pin/issues/534)) ([f14c22f](https://github.com/filecoin-project/filecoin-pin/commit/f14c22ff8e3a18933a6e57f9efc735ab8ee670eb))
+* **core:** remove authorizeSession:resolving event ([#552](https://github.com/filecoin-project/filecoin-pin/issues/552)) ([9e72dc6](https://github.com/filecoin-project/filecoin-pin/commit/9e72dc6c2af79299316a3dafcfc2bb9ce08e7e5b))
+* **payments:** make deposit one-way, fund sets targets ([#526](https://github.com/filecoin-project/filecoin-pin/issues/526)) ([0ede69e](https://github.com/filecoin-project/filecoin-pin/commit/0ede69e8fbc54d2fa35cf33f8cf7116ad122bfdc))
+* **server:** GA cleanup for pinning server (beta) ([#531](https://github.com/filecoin-project/filecoin-pin/issues/531)) ([74784f8](https://github.com/filecoin-project/filecoin-pin/commit/74784f811672c8b6293ed8fc3843ef6bbddcdad0))
+* upload-action docs, CLI recipe, and input rename ([#530](https://github.com/filecoin-project/filecoin-pin/issues/530)) ([f669b20](https://github.com/filecoin-project/filecoin-pin/commit/f669b20ba6d65c4049d70e08a4b4c8a1dfd28daa))
+
+
+### Bug Fixes
+
+* **cli:** distinct exit code 2 for cancelled or unconfirmed operations ([#533](https://github.com/filecoin-project/filecoin-pin/issues/533)) ([3074070](https://github.com/filecoin-project/filecoin-pin/commit/30740704ab0b2951c217960b0c0795e4c39f198f))
+* **cli:** suppress update banner when stdout is not a TTY ([#535](https://github.com/filecoin-project/filecoin-pin/issues/535)) ([fc32696](https://github.com/filecoin-project/filecoin-pin/commit/fc32696a0691da33bd59024ee02049ca7610f580))
+* **cli:** suppress update-available banner on non-TTY stdout ([fc32696](https://github.com/filecoin-project/filecoin-pin/commit/fc32696a0691da33bd59024ee02049ca7610f580))
+* gate payments preflight on needed transactions ([#560](https://github.com/filecoin-project/filecoin-pin/issues/560)) ([f0e1a1a](https://github.com/filecoin-project/filecoin-pin/commit/f0e1a1ad3f0425e08baa2e22c82927db5dec545f))
+* remove native node-datachannel dependency ([#556](https://github.com/filecoin-project/filecoin-pin/issues/556)) ([ac03180](https://github.com/filecoin-project/filecoin-pin/commit/ac03180dc98cf13ca8cccf49289d46a773384415))
+* **server:** bind PORT and HOST env vars ([#555](https://github.com/filecoin-project/filecoin-pin/issues/555)) ([ecf23bb](https://github.com/filecoin-project/filecoin-pin/commit/ecf23bb92005f267317780a76b037991c25847a1))
+
+
+### Chores
+
+* **ci:** split build and publish jobs ([#514](https://github.com/filecoin-project/filecoin-pin/issues/514)) ([07baf9c](https://github.com/filecoin-project/filecoin-pin/commit/07baf9c48ec03978890d831b5f43bb3d8bae0d94))
+* **deps-dev:** bump blockstore-core from 6.1.3 to 7.0.1 ([#551](https://github.com/filecoin-project/filecoin-pin/issues/551)) ([10a0a79](https://github.com/filecoin-project/filecoin-pin/commit/10a0a79d1415b31967171f986d26243048d839c6))
+* **deps-dev:** bump typedoc from 0.28.18 to 0.28.19 ([#550](https://github.com/filecoin-project/filecoin-pin/issues/550)) ([657a453](https://github.com/filecoin-project/filecoin-pin/commit/657a453e3f5ed10de89643576f7fe2eefbf67860))
+* **deps-dev:** bump typescript from 5.9.3 to 6.0.3 ([#549](https://github.com/filecoin-project/filecoin-pin/issues/549)) ([416f5c1](https://github.com/filecoin-project/filecoin-pin/commit/416f5c16f239c2e3c9e1c92c3b84606288e09641))
+* **deps:** bump @clack/prompts from 1.2.0 to 1.4.0 ([#506](https://github.com/filecoin-project/filecoin-pin/issues/506)) ([76e110e](https://github.com/filecoin-project/filecoin-pin/commit/76e110e28bbde0b71c499519654e10e17145ca02))
+* **deps:** bump @libp2p/identify from 4.1.2 to 4.1.6 ([#507](https://github.com/filecoin-project/filecoin-pin/issues/507)) ([a18cdf6](https://github.com/filecoin-project/filecoin-pin/commit/a18cdf653145b13e612d1d680695598359fcf5b2))
+* **deps:** bump actions/add-to-project from 1.0.2 to 2.0.0 ([#544](https://github.com/filecoin-project/filecoin-pin/issues/544)) ([8480feb](https://github.com/filecoin-project/filecoin-pin/commit/8480febd53df707cbaf205b405003012bc095c4d))
+* **deps:** bump actions/cache from 4 to 5 ([#546](https://github.com/filecoin-project/filecoin-pin/issues/546)) ([daf9acb](https://github.com/filecoin-project/filecoin-pin/commit/daf9acb9f1e32247fd395937be49bc7c2244d863))
+* **deps:** bump actions/checkout from 6 to 6.0.2 ([#545](https://github.com/filecoin-project/filecoin-pin/issues/545)) ([da89475](https://github.com/filecoin-project/filecoin-pin/commit/da894752af52e027ee27b7016633bf9ace6d8f7e))
+* **deps:** bump libp2p from 3.2.2 to 3.3.1 ([#508](https://github.com/filecoin-project/filecoin-pin/issues/508)) ([8fea640](https://github.com/filecoin-project/filecoin-pin/commit/8fea64089af4707b4b6cd462a58665e20b5e20f0))
+* **deps:** bump pnpm/action-setup from 6.0.3 to 6.0.8 ([#543](https://github.com/filecoin-project/filecoin-pin/issues/543)) ([3a1b098](https://github.com/filecoin-project/filecoin-pin/commit/3a1b098c868763bf8316888d883d3e464284d6f2))
+* **deps:** bump pnpm/action-setup from 6.0.3 to 6.0.8 in /upload-action ([#547](https://github.com/filecoin-project/filecoin-pin/issues/547)) ([88dae7c](https://github.com/filecoin-project/filecoin-pin/commit/88dae7c3a48c0f083f33b8d5408242c815f14889))
+* **deps:** bump pnpm/action-setup in /upload-action ([88dae7c](https://github.com/filecoin-project/filecoin-pin/commit/88dae7c3a48c0f083f33b8d5408242c815f14889))
+
+
+### Documentation
+
+* add data retrieval guide, simplify gateway URLs in upload output ([174157e](https://github.com/filecoin-project/filecoin-pin/commit/174157e80e030ac80b82de0d07149ecd7d91a8b0))
+* cross-link glossary and retrieval guide, add Piece CID / IPFS Root CID relationship section ([6cd8769](https://github.com/filecoin-project/filecoin-pin/commit/6cd87699a8055b8463df67c3025c308333729389))
+
 ## [0.22.3](https://github.com/filecoin-project/filecoin-pin/compare/v0.22.2...v0.22.3) (2026-06-01)
 
 
