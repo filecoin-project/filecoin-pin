@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.23.0...v0.23.1) (2026-06-09)
+
+
+### Bug Fixes
+
+* **ci:** override skip propagation on publish job ([#562](https://github.com/filecoin-project/filecoin-pin/issues/562)) ([a1b340b](https://github.com/filecoin-project/filecoin-pin/commit/a1b340bca5465f1dc3a4dfe8eba3ca8675c50a8d))
+
 ## [0.23.0](https://github.com/filecoin-project/filecoin-pin/compare/v0.22.3...v0.23.0) (2026-06-08)
 
 
