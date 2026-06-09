@@ -144,7 +144,7 @@
     "datastore-core": "^11.0.4",
     "fastify": "^5.8.5",
     "interface-blockstore": "^6.0.1",
-    "interface-store": "^7.0.1",
+    "interface-store": "^8.0.0",
     "it-to-buffer": "^4.0.10",
     "libp2p": "^3.2.2",
     "multiformats": "^13.4.2",
