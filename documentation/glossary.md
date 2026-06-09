@@ -131,6 +131,7 @@ IPNI is the content routing system that [Filecoin Pin](#filecoin-pin) relies upo
 Key-value pairs stored on-chain, either scoped to [Data Sets](#data-set) or [Pieces](#piece). [Filecoin Pin](#filecoin-pin) uses specific metadata keys:
 
 Key | Purpose | Scope
+--- | --- | ---
 `source` | Set to 'filecoin-pin' to identify data created by this tool | Data Set
 `withIPFSIndexing` | Set to empty string to signal the [SP](#service-provider) to index and advertise the data to [IPNI](#ipni) | Data Set
 `ipfsRootCid` | Stored on each Piece to link the [Piece CID](#piece-cid) back to the [IPFS Root CID](#ipfs-root-cid).  While this is a convention that Filecoin Pin follows, there is nothing onchain enforcing a correct link between `ipfsRootCid` and `pieceCid`. | Piece
