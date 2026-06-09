@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.2](https://github.com/filecoin-project/filecoin-pin/compare/v0.23.1...v0.23.2) (2026-06-09)
+
+
+### Bug Fixes
+
+* **ci:** pass absolute tarball path to npm publish ([#564](https://github.com/filecoin-project/filecoin-pin/issues/564)) ([b778404](https://github.com/filecoin-project/filecoin-pin/commit/b7784049a7e34676e5a35de7c88197f70694bcfb))
+
 ## [0.23.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.23.0...v0.23.1) (2026-06-09)
 
 
