@@ -153,6 +153,11 @@ jobs:
 
   publish:
     needs: build
+    # build needs both release-please and validate-dispatch, and exactly one of
+    # those is skipped on every trigger (release-please on dispatch, validate-dispatch
+    # on push). That skip propagates down the needs chain, so publish must override
+    # with always() the same way build does, then gate on build actually succeeding.
+    if: ${{ always() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # OIDC for npm trusted publishing
