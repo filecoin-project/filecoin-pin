@@ -39,6 +39,19 @@ describe('CLI --network option', () => {
     expect(networkOpt, `${label} missing --network option`).toBeDefined()
     expect(networkOpt?.argChoices).toEqual(['mainnet', 'calibration', 'devnet'])
   })
+
+  it('session revoke is visible and exposes owner auth options', () => {
+    const sessionHelp = sessionCommand.helpInformation()
+    expect(sessionHelp).toContain('revoke')
+
+    const revokeCommand = sessionCommand.commands.find((cmd) => cmd.name() === 'revoke')
+    expect(revokeCommand).toBeDefined()
+    const revokeHelp = revokeCommand?.helpInformation() ?? ''
+    expect(revokeHelp).toContain('<session-address>')
+    expect(revokeHelp).toContain('--private-key')
+    expect(revokeHelp).toContain('--network')
+    expect(revokeHelp).toContain('--rpc-url')
+  })
 })
 
 describe('remove command naming', () => {

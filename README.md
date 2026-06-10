@@ -167,6 +167,7 @@ npm install -g filecoin-pin
 #                   (or pass --private-key <key> to each command)
 #    Session key:   export WALLET_ADDRESS=0x... SESSION_KEY=0x...
 #                   (or pass --wallet-address <addr> --session-key <key> to each command)
+#    Revoke later:  filecoin-pin session revoke <session-address>
 
 # 1. Configure payment permissions (one-time setup)
 filecoin-pin payments setup --auto

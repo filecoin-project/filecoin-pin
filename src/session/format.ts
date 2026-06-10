@@ -2,7 +2,12 @@
  * Display helpers for session-key CLI output.
  */
 
-import type { AuthorizeSessionResult, CreateSessionKeyResult, SessionKeypair } from '../core/session/index.js'
+import type {
+  AuthorizeSessionResult,
+  CreateSessionKeyResult,
+  RevokeSessionResult,
+  SessionKeypair,
+} from '../core/session/index.js'
 
 function formatExpiry(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toISOString().replace('T', ' ').split('.')[0] ?? ''
@@ -57,6 +62,27 @@ REGISTRY=${result.registryAddress}
 TX_HASH=${result.txHash}
 BLOCK=${result.blockNumber}
 EXPIRY=${result.expiry}
+`.trim()
+}
+
+/**
+ * Output for `session revoke <addr>`.
+ */
+export function formatRevokeSessionOutput(result: RevokeSessionResult): string {
+  return `
+==========================================
+Session address revoked on-chain!
+==========================================
+Chain id: ${result.chainId}
+
+Revocation details:
+------------------------------------------
+OWNER_ADDRESS=${result.ownerAddress}
+SESSION_ADDRESS=${result.sessionAddress}
+REGISTRY=${result.registryAddress}
+TX_HASH=${result.txHash}
+BLOCK=${result.blockNumber}
+REVOKED_PERMISSIONS=${result.permissions.length}
 `.trim()
 }
 

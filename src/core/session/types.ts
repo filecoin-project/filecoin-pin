@@ -27,6 +27,14 @@ export type CreateSessionKeyProgressEvents =
   | ProgressEvent<'createSessionKey:generated', { sessionAddress: Address }>
   | ProgressEvent<'createSessionKey:reusedSessionKey', { sessionAddress: Address }>
 
+/**
+ * Progress events emitted while revoking a session key on-chain.
+ */
+export type RevokeSessionProgressEvents =
+  | ProgressEvent<'revokeSession:submitting', { sessionAddress: Address; registryAddress: Address }>
+  | ProgressEvent<'revokeSession:submitted', { txHash: Hash; sessionAddress: Address }>
+  | ProgressEvent<'revokeSession:confirmed', { txHash: Hash; blockNumber: bigint; sessionAddress: Address }>
+
 export interface SessionKeypair {
   privateKey: Hex
   address: Address
@@ -56,4 +64,21 @@ export interface AuthorizeSessionResult {
 export interface CreateSessionKeyResult extends AuthorizeSessionResult {
   /** Session wallet private key (single-party flow, also when caller supplied it). */
   sessionPrivateKey: Hex
+}
+
+export interface RevokeSessionResult {
+  /** Owner that signed the on-chain `revoke()` */
+  ownerAddress: Address
+  /** Session key address whose Filecoin Pin permissions were revoked */
+  sessionAddress: Address
+  /** Session key registry contract address */
+  registryAddress: Address
+  /** Permissions revoked */
+  permissions: readonly Permission[]
+  /** Hash of the `revoke()` transaction */
+  txHash: Hash
+  /** Block number the transaction was mined in */
+  blockNumber: bigint
+  /** Chain id the revocation was performed on */
+  chainId: number
 }
