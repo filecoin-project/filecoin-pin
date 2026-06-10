@@ -130,7 +130,7 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
   const filStatus = await checkFILBalance(synapse)
   const walletUsdfcBalance = await checkUSDFCBalance(synapse)
 
-  const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
+  const validation = validatePaymentRequirements(filStatus.balance, walletUsdfcBalance, filStatus.isCalibnet)
   if (!validation.isValid) {
     return {
       status: 'blocked',

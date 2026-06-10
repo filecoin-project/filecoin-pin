@@ -1,9 +1,12 @@
 name: Test upload action
 on:
   pull_request:
+  push:
+    branches:
+      - master
 
 concurrency:
-  group: upload-action-${{ github.event.pull_request.number }}
+  group: upload-action-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 # Intentionally not using a `matrix` for the `dry-run` and `upload` jobs.
@@ -15,10 +18,12 @@ jobs:
     # Successful dry-run jobs finish in under a minute. Cap well above that so
     # a stalled setup/install step fails fast instead of riding the default 6h limit.
     timeout-minutes: 10
-    # TODO: drop this gate once the action no longer exits early with
+    # Always run on `push` (i.e. master commits) to build default-branch
+    # history. For `pull_request` events keep the fork guard.
+    # TODO: drop the fork guard once the action no longer exits early with
     # `fork-pr-blocked` when `dryRun: true`. Until then, running on forks
     # produces a misleading "skipped" check rather than real coverage.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
       checks: write
@@ -46,7 +51,8 @@ jobs:
     # Calibration on-chain work. Cap with headroom for a slow provider/chain so
     # a stalled setup/install step fails fast instead of riding the default 6h limit.
     timeout-minutes: 15
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Always run on `push` (master commits); guard forks on `pull_request`.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
       checks: write

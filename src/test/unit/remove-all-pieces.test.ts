@@ -22,7 +22,7 @@ const { mockGetDataSetPieces, mockRemovePiece, mockStorageContext, state } = vi.
     pieces: state.pieces,
   }))
 
-  const mockRemovePiece = vi.fn(async (_pieceCid: string) => {
+  const mockRemovePiece = vi.fn(async (_pieceCid: string, _ctx?: any, _opts?: { onProgress?: any }) => {
     state.txCounter++
     return `0xhash${state.txCounter}`
   })
@@ -118,6 +118,43 @@ describe('removeAllPieces', () => {
     const failedEvent = onProgress.mock.calls.find((call) => call[0].type === 'removeAll:failed')
     expect(failedEvent).toBeDefined()
     expect(failedEvent?.[0].data.error).toBe('Transaction failed')
+  })
+
+  it('counts confirmations reported by removePiece when waiting', async () => {
+    mockRemovePiece.mockImplementation(async (_pieceCid: string, _ctx: any, opts?: { onProgress?: any }) => {
+      state.txCounter++
+      const txHash = `0xhash${state.txCounter}`
+      opts?.onProgress?.({ type: 'removePiece:complete', data: { txHash, confirmed: true } })
+      return txHash
+    })
+
+    const result = await removeAllPieces(mockStorageContext as any, {
+      synapse: mockSynapse as any,
+      waitForConfirmation: true,
+    })
+
+    expect(result.removedCount).toBe(2)
+    expect(result.confirmedCount).toBe(2)
+  })
+
+  it('leaves confirmedCount below removedCount when a confirmation times out', async () => {
+    let call = 0
+    mockRemovePiece.mockImplementation(async (_pieceCid: string, _ctx: any, opts?: { onProgress?: any }) => {
+      call++
+      state.txCounter++
+      const txHash = `0xhash${state.txCounter}`
+      // Only the first piece confirms; the second times out (confirmed: false).
+      opts?.onProgress?.({ type: 'removePiece:complete', data: { txHash, confirmed: call === 1 } })
+      return txHash
+    })
+
+    const result = await removeAllPieces(mockStorageContext as any, {
+      synapse: mockSynapse as any,
+      waitForConfirmation: true,
+    })
+
+    expect(result.removedCount).toBe(2)
+    expect(result.confirmedCount).toBe(1)
   })
 
   it('returns empty result when no pieces to remove', async () => {

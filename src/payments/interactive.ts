@@ -9,15 +9,17 @@
 import { cancel, confirm, isCancel, password, text } from '@clack/prompts'
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
-import { CliFatal, isCliFatal } from '../common/cli-errors.js'
+import { CliFatal, isCliFatal, setIncompleteExitCode } from '../common/cli-errors.js'
 import {
   calculateDepositCapacity,
+  checkAllowances,
   checkAndSetAllowances,
   checkFILBalance,
   checkUSDFCBalance,
   DEFAULT_LOCKUP_DAYS,
   depositUSDFC,
   getPaymentStatus,
+  validateGasRequirement,
   validatePaymentRequirements,
 } from '../core/payments/index.js'
 import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
@@ -47,7 +49,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
   try {
     // Get private key
-    let privateKey = options.privateKey || process.env.PRIVATE_KEY
+    let privateKey = options.privateKey
 
     if (!privateKey) {
       const input = await password({
@@ -69,7 +71,10 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       if (isCancel(input)) {
         cancel('Setup cancelled')
-        throw new CliFatal('Setup cancelled')
+        // User cancelled: not a failure. Signal "incomplete" (2) distinctly
+        // from success (0) and a caught error (1).
+        setIncompleteExitCode()
+        return
       }
 
       // Add 0x prefix if it was missing
@@ -91,25 +96,31 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
     const filStatus = await checkFILBalance(synapse)
     const walletUsdfcBalance = await checkUSDFCBalance(synapse)
+    const [status, allowanceCheck] = await Promise.all([getPaymentStatus(synapse), checkAllowances(synapse)])
 
     s.stop(`${pc.green('✓')} Balance check complete`)
 
-    // Validate payment requirements
-    const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
-    if (!validation.isValid) {
-      const errorMsg = validation.errorMessage ?? 'Payment validation failed'
-      log.line(`${pc.red('✗')} ${errorMsg}`)
-      if (validation.helpMessage) {
-        log.line('')
-        log.line(`  ${pc.cyan(validation.helpMessage)}`)
+    // Gate on wallet funding only when setup work remains. An account with a
+    // deposit and current allowances can complete this flow without sending a
+    // transaction. A first deposit spends wallet USDFC and gas; an allowance
+    // update spends gas alone, so wallet USDFC is not required for it.
+    const needsFirstDeposit = status.filecoinPayBalance === 0n
+    if (needsFirstDeposit || allowanceCheck.needsUpdate) {
+      const validation = needsFirstDeposit
+        ? validatePaymentRequirements(filStatus.balance, walletUsdfcBalance, filStatus.isCalibnet)
+        : validateGasRequirement(filStatus.balance, filStatus.isCalibnet)
+      if (!validation.isValid) {
+        const errorMsg = validation.errorMessage ?? 'Payment validation failed'
+        log.line(`${pc.red('✗')} ${errorMsg}`)
+        if (validation.helpMessage) {
+          log.line('')
+          log.line(`  ${pc.cyan(validation.helpMessage)}`)
+        }
+        log.flush()
+        cancel('Please fund your wallet and try again')
+        throw new CliFatal(errorMsg)
       }
-      log.flush()
-      cancel('Please fund your wallet and try again')
-      throw new CliFatal(errorMsg)
     }
-
-    // Now safe to get payment status since we know account exists
-    const status = await getPaymentStatus(synapse)
 
     displayAccountInfo(
       address,
@@ -164,7 +175,8 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
     if (isCancel(shouldDeposit)) {
       cancel('Setup cancelled')
-      throw new CliFatal('Setup cancelled')
+      setIncompleteExitCode()
+      return
     }
 
     if (shouldDeposit) {
@@ -196,7 +208,8 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       if (isCancel(amountStr)) {
         cancel('Setup cancelled')
-        throw new CliFatal('Setup cancelled')
+        setIncompleteExitCode()
+        return
       }
 
       depositAmount = parseUnits(amountStr, 18)

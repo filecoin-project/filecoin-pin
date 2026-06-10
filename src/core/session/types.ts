@@ -10,7 +10,6 @@ import type { ProgressEvent } from '../utils/types.js'
  * Progress events emitted while authorizing a session key on-chain.
  */
 export type AuthorizeSessionProgressEvents =
-  | ProgressEvent<'authorizeSession:resolving', { sessionAddress: Address; ownerAddress: Address }>
   | ProgressEvent<'authorizeSession:submitting', { sessionAddress: Address; registryAddress: Address }>
   | ProgressEvent<'authorizeSession:submitted', { txHash: Hash; sessionAddress: Address }>
   | ProgressEvent<

@@ -1,4 +1,46 @@
 /**
+ * Exit code for operations that neither succeeded nor errored: the user
+ * cancelled (e.g. declining the `terminate` confirmation) or a requested
+ * confirmation wait timed out. Distinct from `1`, which the
+ * Commander wrappers use for caught errors, so scripts can tell "incomplete"
+ * apart from "failed".
+ */
+export const EXIT_CODE_INCOMPLETE = 2
+
+/**
+ * Marks the process outcome as incomplete (exit code 2) unless a failure
+ * code is already set. All incomplete-outcome sites go through this helper
+ * so a real failure (exit 1) is never downgraded to incomplete.
+ */
+export function setIncompleteExitCode(): void {
+  if ((process.exitCode ?? 0) === 0) {
+    process.exitCode = EXIT_CODE_INCOMPLETE
+  }
+}
+
+/**
+ * Sentinel error for user-cancelled operations in code that aborts by
+ * throwing (deep helpers where setting the exit code and returning would
+ * let the caller continue). The runner's outer catch detects it via
+ * {@link isCliIncomplete}, reports the cancellation, and calls
+ * {@link setIncompleteExitCode} instead of failing with exit 1.
+ */
+export class CliIncomplete extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'CliIncomplete'
+  }
+}
+
+/**
+ * Type guard for `CliIncomplete`. Used by runner outer catches to map a
+ * user cancellation to the incomplete exit code rather than a failure.
+ */
+export function isCliIncomplete(error: unknown): error is CliIncomplete {
+  return error instanceof CliIncomplete
+}
+
+/**
  * Sentinel error type for CLI runners that have already displayed the
  * user-facing failure message via clack/log/console.
  *

@@ -1,7 +1,8 @@
 import { confirm, isCancel } from '@clack/prompts'
 import type { EnhancedDataSetInfo, Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import { CliFatal, isCliFatal } from '../common/cli-errors.js'
+import { WaitForTransactionReceiptTimeoutError } from 'viem'
+import { CliFatal, isCliFatal, setIncompleteExitCode } from '../common/cli-errors.js'
 import { type DataSetSummary, getDetailedDataSet, listDataSets } from '../core/data-set/index.js'
 import type { PieceInfo } from '../core/data-set/types.js'
 import { getClientAddress } from '../core/synapse/index.js'
@@ -290,6 +291,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       })
       if (isCancel(proceed) || !proceed) {
         cancel('Termination cancelled')
+        setIncompleteExitCode()
         return
       }
 
@@ -310,7 +312,19 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
 
     if (shouldWait) {
       spinner.message(`Waiting for confirmation: ${txHash}...`)
-      const receipt = await synapse.client.waitForTransactionReceipt({ hash: txHash })
+      let receipt: Awaited<ReturnType<typeof synapse.client.waitForTransactionReceipt>>
+      try {
+        receipt = await synapse.client.waitForTransactionReceipt({ hash: txHash })
+      } catch (error) {
+        // The transaction was submitted but the confirmation wait timed out,
+        // matching the incomplete outcome `remove --wait` reports.
+        if (error instanceof WaitForTransactionReceiptTimeoutError) {
+          spinner.stop(`Transaction submitted, confirmation still pending: ${txHash}`)
+          setIncompleteExitCode()
+          return
+        }
+        throw error
+      }
       if (receipt.status !== 'success') {
         throw new Error(`Termination transaction reverted: ${txHash}`)
       }

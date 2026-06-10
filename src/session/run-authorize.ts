@@ -11,6 +11,7 @@ import { confirm, isCancel } from '@clack/prompts'
 import pc from 'picocolors'
 import { type Account, createWalletClient, getAddress, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
+import { setIncompleteExitCode } from '../common/cli-errors.js'
 import {
   type AuthorizeSessionProgressEvents,
   type AuthorizeSessionResult,
@@ -23,10 +24,17 @@ import { parseValidityDays } from './parse-validity-days.js'
 import { resolveNetwork } from './resolve-network.js'
 import type { SessionAuthorizeOptions } from './types.js'
 
-export async function runSessionAuthorize(options: SessionAuthorizeOptions): Promise<AuthorizeSessionResult> {
+/**
+ * Authorize a session address on-chain. Returns the authorization result, or
+ * `undefined` when the user declines the interactive confirmation (in which
+ * case the process exit code is set to {@link EXIT_CODE_INCOMPLETE}).
+ */
+export async function runSessionAuthorize(
+  options: SessionAuthorizeOptions
+): Promise<AuthorizeSessionResult | undefined> {
   intro(pc.bold('Filecoin Pin Session Authorize'))
 
-  const privateKey = options.privateKey || process.env.PRIVATE_KEY
+  const privateKey = options.privateKey
   if (!privateKey) {
     cancel('PRIVATE_KEY environment variable or --private-key option is required')
     throw new Error('PRIVATE_KEY environment variable or --private-key option is required')
@@ -69,7 +77,10 @@ export async function runSessionAuthorize(options: SessionAuthorizeOptions): Pro
     })
     if (isCancel(proceed) || proceed !== true) {
       cancel('Authorization cancelled')
-      throw new Error('Authorization cancelled')
+      // User declined: not a failure, but nothing was authorized. Signal
+      // "incomplete" (2) distinctly from success (0) and a caught error (1).
+      setIncompleteExitCode()
+      return undefined
     }
   }
 

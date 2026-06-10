@@ -1,7 +1,7 @@
 import { CDN_FIXED_LOCKUP, USDFC_SYBIL_FEE } from '@filoz/synapse-core/utils'
 import { getServicePrice } from '@filoz/synapse-core/warm-storage'
 import { calibration, type Synapse } from '@filoz/synapse-sdk'
-import { MIN_FIL_FOR_GAS, USDFC_DECIMALS } from './constants.js'
+import { USDFC_DECIMALS } from './constants.js'
 import {
   checkAndSetAllowances,
   computeAdjustmentForExactDays,
@@ -423,8 +423,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
   }
 
   const isCalibnet = status.chainId === calibration.id
-  const hasSufficientGas = status.filBalance >= MIN_FIL_FOR_GAS
-  const validation = validatePaymentRequirements(hasSufficientGas, status.walletUsdfcBalance, isCalibnet)
+  const validation = validatePaymentRequirements(status.filBalance, status.walletUsdfcBalance, isCalibnet)
   if (!validation.isValid) {
     const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
     throw new Error(`${validation.errorMessage}${help}`)

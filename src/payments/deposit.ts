@@ -9,7 +9,13 @@
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
-import { checkFILBalance, checkUSDFCBalance, depositUSDFC, toStorageRunwaySummary } from '../core/payments/index.js'
+import {
+  checkFILBalance,
+  checkUSDFCBalance,
+  depositUSDFC,
+  toStorageRunwaySummary,
+  validateGasRequirement,
+} from '../core/payments/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
@@ -49,15 +55,14 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     spinner.stop(`${pc.green('✓')} Connected`)
 
     // Validate balances
-    if (!filStatus.hasSufficientGas) {
-      log.line(`${pc.red('✗')} Insufficient FIL for gas fees`)
-      const help = filStatus.isCalibnet
-        ? 'Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'
-        : 'Acquire FIL for gas from an exchange'
-      log.line(`  ${pc.cyan(help)}`)
+    const gasCheck = validateGasRequirement(filStatus.balance, filStatus.isCalibnet)
+    if (!gasCheck.isValid) {
+      const errorMsg = gasCheck.errorMessage ?? 'Insufficient FIL for gas fees'
+      log.line(`${pc.red('✗')} ${errorMsg}`)
+      log.line(`  ${pc.cyan(gasCheck.helpMessage ?? 'Acquire FIL for gas from an exchange')}`)
       log.flush()
       cancel('Deposit aborted')
-      throw new CliFatal('Insufficient FIL for gas fees')
+      throw new CliFatal(errorMsg)
     }
 
     let depositAmount: bigint

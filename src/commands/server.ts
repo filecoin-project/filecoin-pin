@@ -1,15 +1,21 @@
 import { Command, Option } from 'commander'
 import { startServer } from '../server.js'
-import { addNetworkOptions, addSigningAuthOptions } from '../utils/cli-options.js'
+import { addNetworkOptions, addSigningAuthOptions, rpcUrlOption } from '../utils/cli-options.js'
 
 export const serverCommand = new Command('server')
   .description('Start the IPFS Pinning Service API server')
-  .option('-p, --port <number>', 'server port', '3000')
-  .option('--host <string>', 'server host', '127.0.0.1')
+  .addOption(new Option('-p, --port <number>', 'server port').env('PORT').default('3000'))
+  .addOption(new Option('--host <string>', 'server host').env('HOST').default('127.0.0.1'))
   .option('--car-storage <path>', 'path for CAR file storage', './cars')
   .option('--database <path>', 'path to SQLite database', './pins.db')
-  .option('--access-token <token>', 'bearer token required on all API requests except GET / (env: ACCESS_TOKEN)')
+  .addOption(
+    new Option('--access-token <token>', 'bearer token required on all API requests except GET /').env('ACCESS_TOKEN')
+  )
   .option(
+    // ALLOW_NO_AUTH is intentionally NOT bound via .env(): Commander treats a
+    // defined env var as true for boolean options regardless of its value,
+    // while the config loader requires ALLOW_NO_AUTH === 'true'. Binding it
+    // would turn ALLOW_NO_AUTH=false into an enabled flag.
     '--allow-no-auth',
     'start the server without an access token, serving all requests unauthenticated (env: ALLOW_NO_AUTH)'
   )
@@ -17,7 +23,7 @@ export const serverCommand = new Command('server')
 addSigningAuthOptions(serverCommand)
 addNetworkOptions(serverCommand)
   .addOption(
-    new Option('--rpc-url <url>', 'RPC URL for Filecoin network (overrides --network)').env('RPC_URL')
+    rpcUrlOption('RPC URL for Filecoin network (overrides --network)')
     // default rpcUrl value is defined in ../common/get-rpc-url.ts
   )
   .action(async (options) => {

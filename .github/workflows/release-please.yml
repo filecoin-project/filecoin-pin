@@ -153,6 +153,11 @@ jobs:
 
   publish:
     needs: build
+    # build needs both release-please and validate-dispatch, and exactly one of
+    # those is skipped on every trigger (release-please on dispatch, validate-dispatch
+    # on push). That skip propagates down the needs chain, so publish must override
+    # with always() the same way build does, then gate on build actually succeeding.
+    if: ${{ always() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # OIDC for npm trusted publishing
@@ -186,7 +191,10 @@ jobs:
             echo "::error::Expected exactly one tarball in artifact/, found $COUNT"
             exit 1
           fi
-          TARBALL="artifact/$TARBALL_NAME"
+          # Absolute path: npm treats a bare "dir/file.tgz" arg as a GitHub
+          # owner/repo shorthand and tries to git-clone it. A leading "/" forces
+          # it to resolve as a local tarball file.
+          TARBALL="$PWD/artifact/$TARBALL_NAME"
           if [ ! -f "$TARBALL" ]; then
             echo "::error::Tarball $TARBALL not found"
             exit 1
