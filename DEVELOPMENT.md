@@ -164,8 +164,14 @@ exercise the full path:
 
 ```bash
 # Small, unique, and easy to eyeball on retrieval.
-TMPFILE=$(mktemp) && date > "$TMPFILE" && filecoin-pin add "$TMPFILE"
+# Pad past CAR overhead: a lone `date` line can pack to a CAR under the SP
+# minimum (e.g. 127 bytes on some calibration providers).
+TMPFILE=$(mktemp) && { date; echo "padding-for-min-size"; } > "$TMPFILE" && \
+  npx tsx src/cli.ts add "$TMPFILE"
 ```
+
+Without padding, the failure may surface as a generic `Network request failed`
+rather than an upload-size error until [FilOzone/synapse-sdk#841](https://github.com/FilOzone/synapse-sdk/issues/841) is fixed.
 
 For larger unique files use `head -c <bytes> /dev/urandom > "$TMPFILE"`.
 
