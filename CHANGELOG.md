@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.23.3](https://github.com/filecoin-project/filecoin-pin/compare/v0.23.2...v0.23.3) (2026-06-11)
+
+
+### Features
+
+* add session revoke command ([#518](https://github.com/filecoin-project/filecoin-pin/issues/518)) ([48b6f64](https://github.com/filecoin-project/filecoin-pin/commit/48b6f64d96cb63e97313c6912aaece6606352974))
+
+
+### Bug Fixes
+
+* run upload action test on push too ([#558](https://github.com/filecoin-project/filecoin-pin/issues/558)) ([7a996a5](https://github.com/filecoin-project/filecoin-pin/commit/7a996a58fdea57dbf17d7b56922ec6f5df02f78d))
+
+
+### Documentation
+
+* fix metadata table rendering in glossary ([#567](https://github.com/filecoin-project/filecoin-pin/issues/567)) ([aec3373](https://github.com/filecoin-project/filecoin-pin/commit/aec337383501fc05aea75f73487a679f80e7840f))
+* pad test uploads past SP minimum size in DEVELOPMENT.md ([#571](https://github.com/filecoin-project/filecoin-pin/issues/571)) ([10b5dbe](https://github.com/filecoin-project/filecoin-pin/commit/10b5dbedff708c391c57886aff49df5ea5f0cb99))
+
 ## [0.23.2](https://github.com/filecoin-project/filecoin-pin/compare/v0.23.1...v0.23.2) (2026-06-09)
 
 
