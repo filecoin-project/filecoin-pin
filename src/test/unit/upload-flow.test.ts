@@ -9,8 +9,24 @@ vi.mock('../../utils/cli-logger.js', () => ({
   },
 }))
 
+vi.mock('../../utils/cli-helpers.js', async () => {
+  const actual = await vi.importActual('../../utils/cli-helpers.js')
+  return {
+    ...actual,
+    isInteractive: vi.fn().mockReturnValue(false),
+    cancel: vi.fn(),
+  }
+})
+
 const mocks = vi.hoisted(() => ({
   executeUpload: vi.fn(),
+  multiselect: vi.fn(),
+  isCancel: vi.fn().mockReturnValue(false),
+}))
+
+vi.mock('@clack/prompts', () => ({
+  multiselect: mocks.multiselect,
+  isCancel: mocks.isCancel,
 }))
 
 vi.mock('../../core/upload/index.js', async () => {
@@ -21,7 +37,7 @@ vi.mock('../../core/upload/index.js', async () => {
   }
 })
 
-import { displayUploadResults, performUpload } from '../../common/upload-flow.js'
+import { displayUploadResults, performUpload, promptDataSetSelection } from '../../common/upload-flow.js'
 import { createLogger } from '../../logger.js'
 
 const TEST_CID = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
@@ -44,6 +60,62 @@ const sampleResult = {
   ],
   failedAttempts: [],
 }
+
+describe('promptDataSetSelection', () => {
+  const spinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn(), clear: vi.fn() }
+
+  beforeEach(() => {
+    mocks.multiselect.mockReset()
+    mocks.isCancel.mockReturnValue(false)
+  })
+
+  const dataSets = [
+    { dataSetId: 1n, activePieceCount: 2n, metadata: { source: 'a' } },
+    { dataSetId: 2n, activePieceCount: 3n, metadata: { source: 'b' } },
+    { dataSetId: 3n, activePieceCount: 1n, metadata: { source: 'c' } },
+  ] as any[]
+
+  it('throws with the hard error message when not in a TTY', async () => {
+    const { isInteractive } = await import('../../utils/cli-helpers.js')
+    vi.mocked(isInteractive).mockReturnValue(false)
+
+    await expect(promptDataSetSelection(dataSets, 1, spinner)).rejects.toThrow(/matched 3 data sets.*expected 1/)
+  })
+
+  it('returns the chosen data set ids when the user selects the correct count', async () => {
+    const { isInteractive } = await import('../../utils/cli-helpers.js')
+    vi.mocked(isInteractive).mockReturnValue(true)
+    mocks.multiselect.mockResolvedValueOnce([1n, 2n])
+
+    const result = await promptDataSetSelection(dataSets, 2, spinner)
+
+    expect(result).toEqual([1n, 2n])
+    expect(mocks.multiselect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('2'),
+        options: expect.arrayContaining([
+          expect.objectContaining({ value: 1n }),
+          expect.objectContaining({ value: 2n }),
+          expect.objectContaining({ value: 3n }),
+        ]),
+      })
+    )
+  })
+
+  it('re-prompts when the user selects the wrong count, then returns on correct selection', async () => {
+    const { isInteractive } = await import('../../utils/cli-helpers.js')
+    vi.mocked(isInteractive).mockReturnValue(true)
+    mocks.multiselect
+      .mockResolvedValueOnce([1n]) // wrong: only 1 selected
+      .mockResolvedValueOnce([1n, 2n]) // correct
+
+    const result = await promptDataSetSelection(dataSets, 2, spinner)
+
+    expect(result).toEqual([1n, 2n])
+    expect(mocks.multiselect).toHaveBeenCalledTimes(2)
+    expect(mocks.multiselect.mock.calls[1]?.[0].message).toMatch(/Please select exactly 2/)
+  })
+})
 
 describe('displayUploadResults egress block', () => {
   beforeEach(async () => {
