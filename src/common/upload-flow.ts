@@ -5,10 +5,12 @@
  * including payment validation, storage context creation, and result display.
  */
 
+import { isCancel, multiselect } from '@clack/prompts'
 import type { CopyResult, FailedAttempt, Synapse } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
+import type { DataSetSummary } from '../core/data-set/types.js'
 import { DEFAULT_LOCKUP_DAYS, type PaymentCapacityCheck } from '../core/payments/index.js'
 import {
   checkUploadReadiness,
@@ -21,10 +23,71 @@ import { formatUSDFC } from '../core/utils/format.js'
 import { autoFund } from '../payments/fund.js'
 import type { AutoFundOptions } from '../payments/types.js'
 import type { Spinner } from '../utils/cli-helpers.js'
-import { cancel, formatFileSize } from '../utils/cli-helpers.js'
+import { cancel, formatFileSize, isInteractive } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { createSpinnerFlow } from '../utils/multi-operation-spinner.js'
 import { CliFatal } from './cli-errors.js'
+
+/**
+ * Prompt the user to select exactly `expectedCopies` data sets from a list of candidates.
+ *
+ * Only called when `--data-set-metadata` matched more datasets than `--copies` requires and
+ * the process is running in an interactive TTY. In non-interactive contexts the caller must
+ * throw before reaching here.
+ *
+ * Stops the spinner before rendering the Clack prompt (they cannot coexist).
+ */
+export async function promptDataSetSelection(
+  matchedDataSets: DataSetSummary[],
+  expectedCopies: number,
+  spinner: Spinner
+): Promise<bigint[]> {
+  if (!isInteractive()) {
+    throw new Error(
+      `--data-set-metadata matched ${matchedDataSets.length} data sets (${matchedDataSets.map((d) => d.dataSetId).join(', ')}) ` +
+        `but expected ${expectedCopies}. Narrow the filter, pass --data-set-ids, or run in a TTY to pick interactively.`
+    )
+  }
+
+  spinner.stop(`${pc.yellow('?')} --data-set-metadata matched ${matchedDataSets.length} data sets — select ${expectedCopies} to upload to`)
+
+  const options = matchedDataSets.map((ds) => {
+    const spaceName = ds.metadata?.['space-name']
+    const spaceDid = ds.metadata?.['space-did']
+    const pieces = Number(ds.activePieceCount ?? 0n)
+    const didDisplay = spaceDid ? `${spaceDid.slice(0, 20)}…${spaceDid.slice(-6)}` : undefined
+
+    const label = [
+      `#${ds.dataSetId}`,
+      spaceName,
+      didDisplay,
+      `(${pieces} piece${pieces !== 1 ? 's' : ''})`,
+    ]
+      .filter(Boolean)
+      .join('  ')
+
+    return { value: ds.dataSetId, label }
+  })
+
+  const chosen = await multiselect<bigint>({
+    message: `Select exactly ${expectedCopies} data set${expectedCopies !== 1 ? 's' : ''}:`,
+    options,
+    required: true,
+  })
+
+  if (isCancel(chosen)) {
+    cancel('Cancelled')
+    throw new CliFatal('Dataset selection cancelled')
+  }
+
+  if (chosen.length !== expectedCopies) {
+    throw new CliFatal(
+      `Select exactly ${expectedCopies} data set${expectedCopies !== 1 ? 's' : ''} — got ${chosen.length}. Re-run and select the correct number.`
+    )
+  }
+
+  return chosen
+}
 
 export interface UploadFlowOptions {
   /**

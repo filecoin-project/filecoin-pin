@@ -15,7 +15,7 @@ import pino from 'pino'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
-import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
+import { displayUploadResults, performAutoFunding, performUpload, promptDataSetSelection, validatePaymentSetup } from '../common/upload-flow.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
@@ -264,11 +264,9 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
           `${pc.green('✓')} Matched existing data sets ${resolution.dataSetIds.join(', ')} via metadata filter`
         )
       } else if (resolution.kind === 'too-many-matches') {
-        spinner.stop(`${pc.red('✗')} --data-set-metadata matched too many data sets`)
-        throw new Error(
-          `--data-set-metadata matched ${resolution.matchedIds.length} data sets (${resolution.matchedIds.join(', ')}) ` +
-            `but expected ${resolution.expected} (narrow the filter or pass --data-set-id to pin the target).`
-        )
+        const chosenIds = await promptDataSetSelection(resolution.matchedDataSets, resolution.expected, spinner)
+        contextSelection.dataSetIds = chosenIds
+        effectiveDataSetMetadata = undefined
       } else if (resolution.kind === 'too-few-matches') {
         spinner.stop(`${pc.red('✗')} --data-set-metadata matched too few data sets`)
         throw new Error(

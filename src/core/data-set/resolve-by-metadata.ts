@@ -1,11 +1,12 @@
 import type { Synapse } from '@filoz/synapse-sdk'
 import type { Logger } from 'pino'
 import { listDataSets } from './list-data-sets.js'
+import type { DataSetSummary } from './types.js'
 
 export type MetadataResolution =
   | { kind: 'no-match' }
   | { kind: 'matched'; dataSetIds: bigint[] }
-  | { kind: 'too-many-matches'; matchedIds: bigint[]; expected: number }
+  | { kind: 'too-many-matches'; matchedIds: bigint[]; matchedDataSets: DataSetSummary[]; expected: number }
   | { kind: 'too-few-matches'; matchedIds: bigint[]; expected: number }
 
 export interface ResolveByMetadataOptions {
@@ -58,7 +59,7 @@ export async function resolveDataSetIdsByMetadata(
   const matchedIds = matched.map((d) => d.dataSetId)
 
   if (matched.length > options.expectedCopies) {
-    return { kind: 'too-many-matches', matchedIds, expected: options.expectedCopies }
+    return { kind: 'too-many-matches', matchedIds, matchedDataSets: matched, expected: options.expectedCopies }
   }
 
   if (matched.length < options.expectedCopies) {
