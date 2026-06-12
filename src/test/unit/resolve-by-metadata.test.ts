@@ -66,7 +66,8 @@ describe('resolveDataSetIdsByMetadata', () => {
       { expectedCopies: 2 }
     )
 
-    expect(result).toEqual({ kind: 'too-many-matches', matchedIds: [1n, 2n, 3n, 4n], expected: 2 })
+    expect(result).toMatchObject({ kind: 'too-many-matches', matchedIds: [1n, 2n, 3n, 4n], expected: 2 })
+    expect((result as any).matchedDataSets).toHaveLength(4)
   })
 
   it('returns too-few-matches when fewer datasets match than expected', async () => {

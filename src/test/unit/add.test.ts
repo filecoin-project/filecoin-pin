@@ -23,6 +23,7 @@ const { mockCarPath, mockFindDataSets } = vi.hoisted(() => ({
 vi.mock('../../common/upload-flow.js', () => ({
   validatePaymentSetup: vi.fn(),
   performAutoFunding: vi.fn(),
+  promptDataSetSelection: vi.fn().mockRejectedValue(new Error('not interactive')),
   performUpload: vi.fn().mockResolvedValue({
     pieceCid: 'bafkzcibtest1234567890',
     size: 1024,
@@ -282,7 +283,7 @@ describe('Add Command', () => {
       expect(lastCall?.[3]).not.toHaveProperty('metadata')
     })
 
-    it('throws when --data-set-metadata matches too many data sets', async () => {
+    it('calls promptDataSetSelection when --data-set-metadata matches too many data sets', async () => {
       mockFindDataSets.mockResolvedValueOnce([
         { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
         { pdpVerifierDataSetId: 2n, providerId: 2n, isLive: true, metadata: { source: 'storacha-migration' } },
@@ -297,7 +298,14 @@ describe('Add Command', () => {
           rpcUrl: 'wss://test.rpc.url',
           dataSetMetadata: { source: 'storacha-migration' },
         })
-      ).rejects.toThrow(/matched 4 data sets.*expected 2/)
+      ).rejects.toThrow()
+
+      const { promptDataSetSelection } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(promptDataSetSelection)).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ dataSetId: 1n })]),
+        2,
+        expect.any(Object)
+      )
     })
 
     it('throws when --data-set-metadata matches too few data sets', async () => {
