@@ -13,7 +13,13 @@ import pino from 'pino'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
-import { displayUploadResults, performAutoFunding, performUpload, promptDataSetSelection, validatePaymentSetup } from '../common/upload-flow.js'
+import {
+  displayUploadResults,
+  performAutoFunding,
+  performUpload,
+  promptDataSetSelection,
+  validatePaymentSetup,
+} from '../common/upload-flow.js'
 import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import { normalizeMetadataConfig, withDerivedNameMetadata } from '../core/metadata/index.js'

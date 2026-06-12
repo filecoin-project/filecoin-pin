@@ -49,7 +49,9 @@ export async function promptDataSetSelection(
     )
   }
 
-  spinner.stop(`${pc.yellow('?')} --data-set-metadata matched ${matchedDataSets.length} data sets — select ${expectedCopies} to upload to`)
+  spinner.stop(
+    `${pc.yellow('?')} --data-set-metadata matched ${matchedDataSets.length} data sets — select ${expectedCopies} to upload to`
+  )
 
   const options = matchedDataSets.map((ds) => {
     const spaceName = ds.metadata?.['space-name']
@@ -57,12 +59,7 @@ export async function promptDataSetSelection(
     const pieces = Number(ds.activePieceCount ?? 0n)
     const didDisplay = spaceDid ? `${spaceDid.slice(0, 20)}…${spaceDid.slice(-6)}` : undefined
 
-    const label = [
-      `#${ds.dataSetId}`,
-      spaceName,
-      didDisplay,
-      `(${pieces} piece${pieces !== 1 ? 's' : ''})`,
-    ]
+    const label = [`#${ds.dataSetId}`, spaceName, didDisplay, `(${pieces} piece${pieces !== 1 ? 's' : ''})`]
       .filter(Boolean)
       .join('  ')
 
