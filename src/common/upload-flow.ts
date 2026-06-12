@@ -28,6 +28,52 @@ import { log } from '../utils/cli-logger.js'
 import { createSpinnerFlow } from '../utils/multi-operation-spinner.js'
 import { CliFatal } from './cli-errors.js'
 
+function truncate(str: string, max: number): string {
+  if (str.length <= max) return str
+  return `${str.slice(0, max - 7)}…${str.slice(-6)}`
+}
+
+/**
+ * Find the metadata keys whose values differ across the candidate set.
+ * Keys with identical values on every dataset add no signal to the prompt.
+ * Falls back to all keys when everything is uniform.
+ */
+function differentiatingKeys(dataSets: DataSetSummary[]): string[] {
+  if (dataSets.length === 0) return []
+
+  const allKeys = [...new Set(dataSets.flatMap((ds) => Object.keys(ds.metadata ?? {})))]
+
+  const varying = allKeys.filter((key) => {
+    const values = dataSets.map((ds) => ds.metadata?.[key])
+    return values.some((v) => v !== values[0])
+  })
+
+  return varying.length > 0 ? varying : allKeys
+}
+
+function buildOptionLabel(ds: DataSetSummary, keys: string[]): { label: string } {
+  const MAX_LABEL_PAIRS = 3
+  const MAX_VALUE_LENGTH = 20
+
+  const pairs = keys
+    .filter((key) => ds.metadata != null && key in ds.metadata)
+    .map((key) => {
+      const raw = ds.metadata?.[key] ?? ''
+      return raw === '' ? key : `${key}=${truncate(raw, MAX_VALUE_LENGTH)}`
+    })
+
+  const visible = pairs.slice(0, MAX_LABEL_PAIRS)
+  const overflow = pairs.length - visible.length
+  const overflowSuffix = overflow > 0 ? `  (+${overflow} more)` : ''
+
+  const pieces = Number(ds.activePieceCount ?? 0n)
+  const piecesLabel = `(${pieces} piece${pieces !== 1 ? 's' : ''})`
+
+  const label = [`#${ds.dataSetId}`, ...visible, piecesLabel].join('  ') + overflowSuffix
+
+  return { label }
+}
+
 /**
  * Prompt the user to select exactly `expectedCopies` data sets from a list of candidates.
  *
@@ -53,37 +99,28 @@ export async function promptDataSetSelection(
     `${pc.yellow('?')} --data-set-metadata matched ${matchedDataSets.length} data sets — select ${expectedCopies} to upload to`
   )
 
+  const keys = differentiatingKeys(matchedDataSets)
+
   const options = matchedDataSets.map((ds) => {
-    const spaceName = ds.metadata?.['space-name']
-    const spaceDid = ds.metadata?.['space-did']
-    const pieces = Number(ds.activePieceCount ?? 0n)
-    const didDisplay = spaceDid ? `${spaceDid.slice(0, 20)}…${spaceDid.slice(-6)}` : undefined
-
-    const label = [`#${ds.dataSetId}`, spaceName, didDisplay, `(${pieces} piece${pieces !== 1 ? 's' : ''})`]
-      .filter(Boolean)
-      .join('  ')
-
+    const { label } = buildOptionLabel(ds, keys)
     return { value: ds.dataSetId, label }
   })
 
-  const chosen = await multiselect<bigint>({
-    message: `Select exactly ${expectedCopies} data set${expectedCopies !== 1 ? 's' : ''}:`,
-    options,
-    required: true,
-  })
+  const exact = `exactly ${expectedCopies} data set${expectedCopies !== 1 ? 's' : ''}`
+  let message = `Select ${exact}:`
 
-  if (isCancel(chosen)) {
-    cancel('Cancelled')
-    throw new CliFatal('Dataset selection cancelled')
+  while (true) {
+    const chosen = await multiselect<bigint>({ message, options, required: true })
+
+    if (isCancel(chosen)) {
+      cancel('Cancelled')
+      throw new CliFatal('Dataset selection cancelled')
+    }
+
+    if (chosen.length === expectedCopies) return chosen
+
+    message = `${pc.yellow(`Please select ${exact} — got ${chosen.length}. Try again:`)}`
   }
-
-  if (chosen.length !== expectedCopies) {
-    throw new CliFatal(
-      `Select exactly ${expectedCopies} data set${expectedCopies !== 1 ? 's' : ''} — got ${chosen.length}. Re-run and select the correct number.`
-    )
-  }
-
-  return chosen
 }
 
 export interface UploadFlowOptions {
