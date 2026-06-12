@@ -89,6 +89,7 @@ export function parseInputs(phase = 'single') {
   const networkRaw = getInput('network', 'mainnet')
   const minStorageDaysRaw = getInput('minRunwayDays', '')
   const filecoinPayBalanceLimitRaw = getInput('maxBalance', '')
+  const rawDataSetIds = getInput('dataSetIds').trim()
   const egressProvider = getInput('egressProvider', 'none')
   if (egressProvider !== 'beam' && egressProvider !== 'none') {
     throw new FilecoinPinError(
@@ -165,6 +166,42 @@ export function parseInputs(phase = 'single') {
     }
   }
 
+  // Parse data set ID override from the action input.
+  //
+  // dataSetIds (comma-separated) routes the upload into existing datasets,
+  // skipping new dataset creation. Example: dataSetIds: "13260,13261"
+  //
+  // Cannot be combined with PROVIDER_IDS — they are mutually exclusive.
+  /** @type {bigint[] | undefined} */
+  let dataSetIds
+  if (rawDataSetIds) {
+    const parts = rawDataSetIds
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s !== '')
+    if (parts.length === 0) {
+      throw new FilecoinPinError(
+        `Invalid dataSetIds: "${rawDataSetIds}". Provide one or more comma-separated numeric IDs.`,
+        ERROR_CODES.INVALID_INPUT
+      )
+    }
+    for (const part of parts) {
+      if (!/^\d+$/.test(part) || BigInt(part) <= 0n) {
+        throw new FilecoinPinError(
+          `Invalid dataSetIds: "${part}" is not a positive integer. Provide comma-separated numeric IDs (e.g. "13260,13261").`,
+          ERROR_CODES.INVALID_INPUT
+        )
+      }
+    }
+    if (providerIds != null) {
+      throw new FilecoinPinError(
+        'Cannot specify both dataSetIds and PROVIDER_IDS. Use dataSetIds to target existing datasets or PROVIDER_IDS to target specific providers — not both.',
+        ERROR_CODES.INVALID_INPUT
+      )
+    }
+    dataSetIds = parts.map((s) => BigInt(s))
+  }
+
   /** @type {ParsedInputs} */
   const parsedInputs = {
     walletPrivateKey,
@@ -174,6 +211,7 @@ export function parseInputs(phase = 'single') {
     filecoinPayBalanceLimit,
     withCDN,
     providerIds,
+    dataSetIds,
     dryRun,
   }
 

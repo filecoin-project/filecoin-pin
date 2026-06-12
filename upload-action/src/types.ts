@@ -57,6 +57,7 @@ export interface CombinedContext extends Partial<UploadResult>, Partial<BuildRes
   filecoinPayBalanceLimit?: bigint
   withCDN?: boolean
   providerIds?: bigint[]
+  dataSetIds?: bigint[]
   paymentStatus?: PaymentStatus
   dryRun?: boolean
 }
@@ -95,11 +96,13 @@ export interface PaymentConfig {
 export interface PaymentFundingConfig extends PaymentConfig {
   withCDN: boolean
   providerIds?: bigint[] | undefined
+  dataSetIds?: bigint[] | undefined
 }
 
 export interface UploadConfig {
   withCDN: boolean
   providerIds?: bigint[] | undefined
+  dataSetIds?: bigint[] | undefined
 }
 
 export interface ParsedInputs extends PaymentConfig, UploadConfig {

@@ -105,7 +105,7 @@ async function readCarRoots(filePath) {
  * @returns {Promise<SimplifiedPaymentStatus>} Updated payment status
  */
 export async function handlePayments(synapse, options, logger) {
-  const { minStorageDays, filecoinPayBalanceLimit, pieceSizeBytes, withCDN, providerIds } = options
+  const { minStorageDays, filecoinPayBalanceLimit, pieceSizeBytes, withCDN, providerIds, dataSetIds } = options
 
   console.log('Checking current Filecoin Pay account balance...')
   const [rawStatus, accountSummary, storageInfo, contexts, servicePrice] = await Promise.all([
@@ -114,6 +114,7 @@ export async function handlePayments(synapse, options, logger) {
     synapse.storage.getStorageInfo(),
     synapse.storage.createContexts({
       ...(providerIds != null && providerIds.length > 0 ? { providerIds } : {}),
+      ...(dataSetIds != null && dataSetIds.length > 0 ? { dataSetIds } : {}),
       ...(withCDN ? { withCDN } : {}),
     }),
     getServicePrice(synapse.client),
@@ -230,6 +231,12 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
     )
   }
 
+  /** @type {bigint[] | undefined} */
+  const dataSetIds = options.dataSetIds != null && options.dataSetIds.length > 0 ? options.dataSetIds : undefined
+  if (dataSetIds) {
+    logger.info({ event: 'upload.dataset_override', dataSetIds: dataSetIds.map(String) }, 'Using data set ID override')
+  }
+
   console.log('\nStarting upload to storage provider...')
   console.log('Uploading data to PDP server...')
   logger.info({ event: 'upload.stream_ready', carPath, size }, 'Streaming CAR upload from disk')
@@ -238,6 +245,7 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
     logger,
     contextId: `gha-upload-${Date.now()}`,
     ...(providerIds != null && { providerIds }),
+    ...(dataSetIds != null && { dataSetIds }),
     onProgress: (event) => {
       switch (event.type) {
         case 'uploadProgress': {
