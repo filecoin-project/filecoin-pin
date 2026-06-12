@@ -47,6 +47,7 @@ interface ParseInputsModule {
     contentPath: string
     network: 'mainnet' | 'calibration'
     dryRun: boolean
+    dataSetIds?: bigint[]
   }
 }
 
@@ -55,7 +56,7 @@ interface FilecoinModule {
     synapse: unknown,
     carPath: string,
     ipfsRootCid: string,
-    options: { withCDN: boolean; providerIds?: bigint[] },
+    options: { withCDN: boolean; providerIds?: bigint[]; dataSetIds?: bigint[] },
     logger: unknown
   ) => Promise<{
     dataSetId: string
@@ -119,6 +120,64 @@ describe('upload action inputs', () => {
     const { parseInputs } = (await import(inputsModulePath)) as ParseInputsModule
 
     expect(() => parseInputs('upload')).toThrow('walletPrivateKey is required')
+  })
+
+  it('parses a comma-separated dataSetIds input into bigints', async () => {
+    process.env.INPUTS_JSON = JSON.stringify({
+      path: './dist',
+      network: 'calibration',
+      dryRun: true,
+      dataSetIds: '13260,13261',
+    })
+
+    const { parseInputs } = (await import(inputsModulePath)) as ParseInputsModule
+
+    expect(parseInputs('upload')).toMatchObject({
+      dataSetIds: [13260n, 13261n],
+    })
+  })
+
+  it('leaves dataSetIds undefined when the input is omitted', async () => {
+    process.env.INPUTS_JSON = JSON.stringify({
+      path: './dist',
+      network: 'calibration',
+      dryRun: true,
+    })
+
+    const { parseInputs } = (await import(inputsModulePath)) as ParseInputsModule
+
+    const result = parseInputs('upload')
+    expect(result.dataSetIds).toBeUndefined()
+  })
+
+  it('rejects a non-numeric dataSetIds value with a clear error', async () => {
+    process.env.INPUTS_JSON = JSON.stringify({
+      path: './dist',
+      network: 'calibration',
+      dryRun: true,
+      dataSetIds: '13260,abc',
+    })
+
+    const { parseInputs } = (await import(inputsModulePath)) as ParseInputsModule
+
+    expect(() => parseInputs('upload')).toThrow(/Invalid dataSetIds.*abc.*positive integer/)
+  })
+
+  it('rejects dataSetIds when PROVIDER_IDS env is also set', async () => {
+    process.env.INPUTS_JSON = JSON.stringify({
+      path: './dist',
+      network: 'calibration',
+      dryRun: true,
+      dataSetIds: '13260',
+    })
+    process.env.PROVIDER_IDS = '1'
+
+    try {
+      const { parseInputs } = (await import(inputsModulePath)) as ParseInputsModule
+      expect(() => parseInputs('upload')).toThrow(/Cannot specify both dataSetIds and PROVIDER_IDS/)
+    } finally {
+      delete process.env.PROVIDER_IDS
+    }
   })
 })
 
@@ -229,6 +288,44 @@ describe('upload action Filecoin upload', () => {
 
     logSpy.mockRestore()
   })
+
+  it('forwards dataSetIds to executeUpload', async () => {
+    mocks.executeUpload.mockResolvedValue({
+      pieceCid: 'bafkzcibe2hzbcd4t6clvsb3mfrezyxl75gl3gzcsqi42dd27gktq4nk75rr62ciuaq',
+      size: 3,
+      requestedCopies: 1,
+      complete: true,
+      copies: [
+        {
+          providerId: 2n,
+          dataSetId: 13260n,
+          pieceId: 1n,
+          role: 'primary',
+          retrievalUrl: 'https://calib2.ezpdpz.net/piece/test',
+          isNewDataSet: false,
+        },
+      ],
+      failedAttempts: [],
+      network: 'calibration',
+      ipniValidated: true,
+    })
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const { uploadCarToFilecoin } = (await import(filecoinModulePath)) as FilecoinModule
+
+    await uploadCarToFilecoin(
+      {},
+      carPath,
+      TEST_CID,
+      { withCDN: false, dataSetIds: [13260n, 13261n] },
+      { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }
+    )
+
+    logSpy.mockRestore()
+
+    const executeUploadOptions = mocks.executeUpload.mock.calls[0]?.[3]
+    expect(executeUploadOptions).toMatchObject({ dataSetIds: [13260n, 13261n] })
+  })
 })
 
 describe('upload action payments', () => {
@@ -307,6 +404,67 @@ describe('upload action payments', () => {
 
     // The funding planner (real, not mocked) ran and required the service price.
     expect(payments.getServicePrice).toHaveBeenCalledWith(synapse.client)
+  })
+
+  it('forwards dataSetIds to createContexts', async () => {
+    const payments = (await import('filecoin-pin/core/payments')) as typeof import('filecoin-pin/core/payments')
+    const utils = (await import('filecoin-pin/core/utils')) as typeof import('filecoin-pin/core/utils')
+
+    vi.mocked(payments.getPaymentStatus).mockResolvedValue({
+      network: 'calibration',
+      chainId: 314159,
+      address: '0x0000000000000000000000000000000000000000',
+      filBalance: 1_000_000_000_000_000_000n,
+      walletUsdfcBalance: 1_000_000_000_000_000_000n,
+      filecoinPayBalance: 1_000_000_000_000_000_000n,
+      currentAllowances: {
+        isApproved: true,
+        rateAllowance: 0n,
+        lockupAllowance: 0n,
+        lockupUsage: 0n,
+        rateUsage: 0n,
+        maxLockupPeriod: 30n * 2880n,
+      },
+    } as never)
+    vi.mocked(payments.getServicePrice).mockResolvedValue({ minimumPricePerMonth: 1_000_000n } as never)
+    vi.mocked(payments.executeTopUp).mockResolvedValue({ success: true, deposited: 0n, message: '' } as never)
+    vi.mocked(payments.getStorageRunway).mockResolvedValue({} as never)
+    vi.mocked(utils.formatRunwaySummary).mockReturnValue({ coverage: 'covered', runway: 'plenty' } as never)
+
+    const createContexts = vi.fn().mockResolvedValue([])
+    const synapse = {
+      client: {},
+      payments: {
+        accountSummary: async () => ({
+          funds: 1_000_000_000_000_000_000n,
+          availableFunds: 1_000_000_000_000_000_000n,
+          debt: 0n,
+          totalLockup: 0n,
+          lockupRatePerEpoch: 0n,
+          runwayInEpochs: 0n,
+          grossCoverageInEpochs: 0n,
+        }),
+      },
+      storage: {
+        getStorageInfo: async () => ({ pricing: { noCDN: { perTiBPerEpoch: 1_000_000n } } }),
+        createContexts,
+      },
+    }
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const { handlePayments } = (await import(filecoinModulePath)) as {
+      handlePayments: (synapse: unknown, options: unknown, logger: unknown) => Promise<unknown>
+    }
+
+    await handlePayments(
+      synapse,
+      { minStorageDays: 0, withCDN: false, dataSetIds: [13260n, 13261n] },
+      { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }
+    )
+
+    logSpy.mockRestore()
+
+    expect(createContexts).toHaveBeenCalledWith(expect.objectContaining({ dataSetIds: [13260n, 13261n] }))
   })
 })
 
