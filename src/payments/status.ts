@@ -6,7 +6,6 @@
  */
 
 import { SIZE_CONSTANTS } from '@filoz/synapse-core/utils'
-import { getServicePrice } from '@filoz/synapse-core/warm-storage'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
@@ -126,15 +125,14 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       throw new Error('No USDFC tokens found')
     }
 
-    const [accountSummary, storageInfo, servicePrice] = await Promise.all([
+    const [accountSummary, storageInfo] = await Promise.all([
       synapse.payments.accountSummary({}),
       synapse.storage.getStorageInfo(),
-      getServicePrice(synapse.client),
     ])
     const runway = toStorageRunwaySummary(accountSummary)
 
     const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
-    const minimumPricePerMonth = servicePrice.minimumPricePerMonth
+    const minimumPricePerMonth = storageInfo.pricing.priceList.rates.datasetFeePerMonth
 
     let paymentRailsData: PaymentRailsData | null = null
     if (options.includeRails === true) {

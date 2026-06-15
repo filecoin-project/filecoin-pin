@@ -101,12 +101,12 @@ vi.mock('@filoz/synapse-core/sp', () => ({
 
 // Mock piece size calculation
 vi.mock('@filoz/synapse-core/piece', () => ({
-  getSizeFromPieceCID: vi.fn((cid: { toString: () => string } | string) => {
+  from: vi.fn((cid: { toString: () => string } | string) => {
     // Map specific CIDs to sizes for testing
     const cidString = typeof cid === 'string' ? cid : cid.toString()
-    if (cidString === 'bafkpiece0') return 1048576 // 1 MiB
-    if (cidString === 'bafkpiece1') return 2097152 // 2 MiB
-    if (cidString === 'bafkpiece2') return 4194304 // 4 MiB
+    if (cidString === 'bafkpiece0') return { size: 1048576 } // 1 MiB
+    if (cidString === 'bafkpiece1') return { size: 2097152 } // 2 MiB
+    if (cidString === 'bafkpiece2') return { size: 4194304 } // 4 MiB
     throw new Error(`Invalid piece CID: ${cidString}`)
   }),
   MAX_UPLOAD_SIZE: 32 * 1024 * 1024 * 1024, // 32 GiB

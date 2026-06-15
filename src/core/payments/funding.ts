@@ -1,5 +1,4 @@
-import { CDN_FIXED_LOCKUP, USDFC_SYBIL_FEE } from '@filoz/synapse-core/utils'
-import { getServicePrice } from '@filoz/synapse-core/warm-storage'
+import type { getPriceList } from '@filoz/synapse-core/warm-storage'
 import { calibration, type Synapse } from '@filoz/synapse-sdk'
 import { USDFC_DECIMALS } from './constants.js'
 import {
@@ -144,8 +143,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     targetRunwayDays,
     targetDeposit,
     pieceSizeBytes,
-    pricePerTiBPerEpoch,
-    minimumPricePerMonth,
+    priceList,
     newDataSetCount = 0,
     withCDN = false,
     mode = 'exact',
@@ -160,8 +158,8 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     throw new Error('A funding target is required')
   }
 
-  if (pieceSizeBytes != null && pricePerTiBPerEpoch == null) {
-    throw new Error('pricePerTiBPerEpoch is required when pieceSizeBytes is provided')
+  if (pieceSizeBytes != null && priceList == null) {
+    throw new Error('priceList is required when pieceSizeBytes is provided')
   }
 
   if (!Number.isInteger(newDataSetCount) || newDataSetCount < 0) {
@@ -179,23 +177,22 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
   if (targetRunwayDays != null) {
     targetType = 'runway-days'
     if (pieceSizeBytes != null) {
-      if (pricePerTiBPerEpoch == null) {
-        throw new Error('pricePerTiBPerEpoch is required when planning with pieceSizeBytes')
-      }
-      if (minimumPricePerMonth == null) {
-        throw new Error('minimumPricePerMonth is required when planning with pieceSizeBytes')
+      if (priceList == null) {
+        throw new Error('priceList is required when planning with pieceSizeBytes')
       }
       const adjustment = computeAdjustmentForExactDaysWithPiece(
         accountSummary,
         status.filecoinPayBalance,
         targetRunwayDays,
         pieceSizeBytes,
-        pricePerTiBPerEpoch,
-        minimumPricePerMonth
+        priceList
       )
-      const dataSetCreationFees = BigInt(newDataSetCount) * USDFC_SYBIL_FEE
-      // New CDN-enabled data sets require a fixed lockup on top of the sybil fee.
-      const cdnFixedLockup = withCDN ? BigInt(newDataSetCount) * CDN_FIXED_LOCKUP.total : 0n
+      const dataSetCreationFees = BigInt(newDataSetCount) * priceList.fees.createDataSetFee
+      // New CDN-enabled data sets require a fixed lockup (CDN + cache-miss) on
+      // top of the create-data-set fee.
+      const cdnFixedLockup = withCDN
+        ? BigInt(newDataSetCount) * (priceList.lockups.cdnLockupAmount + priceList.lockups.cacheMissLockupAmount)
+        : 0n
       const newDataSetCosts = dataSetCreationFees + cdnFixedLockup
       delta = adjustment.delta + newDataSetCosts
       resolvedTargetDeposit = adjustment.targetDeposit + newDataSetCosts
@@ -286,7 +283,6 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     ...(targetRunwayDays != null ? { targetRunwayDays } : {}),
     ...(resolvedTargetDeposit != null ? { targetDeposit: resolvedTargetDeposit } : {}),
     ...(pieceSizeBytes != null ? { pieceSizeBytes } : {}),
-    ...(pricePerTiBPerEpoch != null ? { pricePerTiBPerEpoch } : {}),
     ...(newDataSetCount > 0 ? { newDataSetCount } : {}),
     ...(walletShortfall != null ? { walletShortfall } : {}),
   }
@@ -302,8 +298,9 @@ const ONE_USDFC = 10n ** BigInt(USDFC_DECIMALS)
  *
  * Setting up the first data sets needs some funds to be available, meaning free
  * rather than already locked by active rails. Per data set, that requirement is
- * the sybil fee, the minimum monthly price, and the CDN lockup the default
- * (FilCDN) upload path needs, plus one USDFC of runway.
+ * the create-data-set fee, the minimum monthly (per-data-set) price, and the
+ * fixed CDN + cache-miss lockups the default (FilCDN) upload path needs, plus
+ * one USDFC of runway. All of these are sourced from the on-chain price list.
  *
  * `availableFunds` is what the account already has free (the SDK reports it net
  * of lockup and debt). The deposit only needs to make up the difference, so the
@@ -316,13 +313,15 @@ export function computeAutoSetupTargetBalance(params: {
   filecoinPayBalance: bigint
   availableFunds: bigint
   copies: number
-  minimumPricePerMonth: bigint
+  priceList: getPriceList.OutputType
 }): { requiredAvailableFunds: bigint; targetBalance: bigint } {
   if (!Number.isInteger(params.copies) || params.copies < 0) {
     throw new Error('copies must be a non-negative integer')
   }
-  const requiredAvailableFunds =
-    BigInt(params.copies) * (CDN_FIXED_LOCKUP.total + USDFC_SYBIL_FEE + params.minimumPricePerMonth) + ONE_USDFC
+  const { fees, rates, lockups } = params.priceList
+  const perDataSet =
+    fees.createDataSetFee + rates.datasetFeePerMonth + lockups.cdnLockupAmount + lockups.cacheMissLockupAmount
+  const requiredAvailableFunds = BigInt(params.copies) * perDataSet + ONE_USDFC
   const shortfall = requiredAvailableFunds > params.availableFunds ? requiredAvailableFunds - params.availableFunds : 0n
   return { requiredAvailableFunds, targetBalance: params.filecoinPayBalance + shortfall }
 }
@@ -351,8 +350,7 @@ export interface PlanFilecoinPayFundingOptions {
   targetRunwayDays?: number | undefined
   targetDeposit?: bigint | undefined
   pieceSizeBytes?: number | undefined
-  pricePerTiBPerEpoch?: bigint | undefined
-  minimumPricePerMonth?: bigint | undefined
+  priceList?: getPriceList.OutputType | undefined
   newDataSetCount?: number | undefined
   withCDN?: boolean | undefined
   mode?: FundingMode | undefined
@@ -388,8 +386,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     targetRunwayDays,
     targetDeposit,
     pieceSizeBytes,
-    pricePerTiBPerEpoch,
-    minimumPricePerMonth: minimumPriceOpt,
+    priceList: priceListOpt,
     newDataSetCount = 0,
     withCDN = false,
     mode = 'exact',
@@ -429,15 +426,10 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     throw new Error(`${validation.errorMessage}${help}`)
   }
 
-  let pricing = pricePerTiBPerEpoch
-  let minimumPricePerMonth = minimumPriceOpt
-  if (pieceSizeBytes != null && (pricing == null || minimumPricePerMonth == null)) {
-    const [storageInfo, servicePrice] = await Promise.all([
-      synapse.storage.getStorageInfo(),
-      getServicePrice(synapse.client),
-    ])
-    pricing = pricing ?? storageInfo.pricing.noCDN.perTiBPerEpoch
-    minimumPricePerMonth = minimumPricePerMonth ?? servicePrice.minimumPricePerMonth
+  let priceList = priceListOpt
+  if (pieceSizeBytes != null && priceList == null) {
+    const storageInfo = await synapse.storage.getStorageInfo()
+    priceList = storageInfo.pricing.priceList
   }
 
   const plan = calculateFilecoinPayFundingPlan({
@@ -446,8 +438,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     targetRunwayDays,
     targetDeposit,
     pieceSizeBytes,
-    pricePerTiBPerEpoch: pricing,
-    minimumPricePerMonth,
+    priceList,
     newDataSetCount,
     withCDN,
     mode,

@@ -1,3 +1,4 @@
+import type { getPriceList } from '@filoz/synapse-core/warm-storage'
 import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { describe, expect, it } from 'vitest'
 import {
@@ -8,6 +9,35 @@ import {
   computeTopUpForDuration,
   toStorageRunwaySummary,
 } from '../../core/payments/index.js'
+
+/** Price list fixture mirroring the on-chain `getPriceList` shape. */
+function makePriceList(): getPriceList.OutputType {
+  const pricePerTiBPerEpoch = 1_000_000_000_000_000n
+  return {
+    token: '0x0000000000000000000000000000000000000000',
+    rates: {
+      storagePerTibPerMonth: pricePerTiBPerEpoch * TIME_CONSTANTS.EPOCHS_PER_MONTH,
+      datasetFeePerMonth: 60_000_000_000_000_000n,
+      cdnEgressPerTib: 0n,
+      cacheMissEgressPerTib: 0n,
+    },
+    fees: {
+      createDataSetFee: 100_000_000_000_000_000n,
+      addPiecesBaseFee: 0n,
+      addPiecesPerPieceFee: 0n,
+      schedulePieceRemovalsFee: 0n,
+      terminateFee: 0n,
+    },
+    lockups: {
+      lifecycleReserveTarget: 0n,
+      replenishThreshold: 0n,
+      defaultLockupPeriod: 30n * TIME_CONSTANTS.EPOCHS_PER_DAY,
+      cdnLockupAmount: 10n ** 18n,
+      cacheMissLockupAmount: 0n,
+      cdnLockupPeriod: 0n,
+    },
+  }
+}
 
 function makeSummary(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; rateUsed?: bigint }): AccountSummary {
   const totalLockup = params.lockupUsed ?? 0n
@@ -178,17 +208,9 @@ describe('computeAdjustmentForExactDaysWithPiece', () => {
   it('calculates deposit for new file when rateUsed is 0', () => {
     const summary = makeSummary({ filecoinPayBalance: 0n, lockupUsed: 0n, rateUsed: 0n })
     const pieceSizeBytes = 1024 * 1024 * 1024
-    const pricePerTiBPerEpoch = 1_000_000_000_000_000n
     const days = 30
 
-    const res = computeAdjustmentForExactDaysWithPiece(
-      summary,
-      0n,
-      days,
-      pieceSizeBytes,
-      pricePerTiBPerEpoch,
-      60_000_000_000_000_000n
-    )
+    const res = computeAdjustmentForExactDaysWithPiece(summary, 0n, days, pieceSizeBytes, makePriceList())
 
     expect(res.delta).toBeGreaterThan(0n)
     expect(res.newRateUsed).toBeGreaterThan(0n)
@@ -202,17 +224,9 @@ describe('computeAdjustmentForExactDaysWithPiece', () => {
     const summary = makeSummary({ filecoinPayBalance: balance, lockupUsed, rateUsed })
 
     const pieceSizeBytes = 1024 * 1024 * 1024
-    const pricePerTiBPerEpoch = 1_000_000_000_000_000n
     const days = 30
 
-    const res = computeAdjustmentForExactDaysWithPiece(
-      summary,
-      balance,
-      days,
-      pieceSizeBytes,
-      pricePerTiBPerEpoch,
-      60_000_000_000_000_000n
-    )
+    const res = computeAdjustmentForExactDaysWithPiece(summary, balance, days, pieceSizeBytes, makePriceList())
 
     expect(res.newRateUsed).toBeGreaterThan(rateUsed)
     expect(res.newLockupUsed).toBeGreaterThan(lockupUsed)
@@ -221,17 +235,9 @@ describe('computeAdjustmentForExactDaysWithPiece', () => {
   it('keeps deposit at least at buffered lockup when runway target is smaller', () => {
     const summary = makeSummary({ filecoinPayBalance: 0n, lockupUsed: 0n, rateUsed: 0n })
     const pieceSizeBytes = 1024
-    const pricePerTiBPerEpoch = 1_000_000_000_000_000n
     const days = 1
 
-    const res = computeAdjustmentForExactDaysWithPiece(
-      summary,
-      0n,
-      days,
-      pieceSizeBytes,
-      pricePerTiBPerEpoch,
-      60_000_000_000_000_000n
-    )
+    const res = computeAdjustmentForExactDaysWithPiece(summary, 0n, days, pieceSizeBytes, makePriceList())
 
     const perDay = res.newRateUsed * TIME_CONSTANTS.EPOCHS_PER_DAY
     const safety = perDay / 24n > 0n ? perDay / 24n : 1n

@@ -1,4 +1,4 @@
-import { CDN_FIXED_LOCKUP, USDFC_SYBIL_FEE } from '@filoz/synapse-core/utils'
+import type { getPriceList } from '@filoz/synapse-core/warm-storage'
 import { calibration, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as paymentsIndex from '../../core/payments/index.js'
@@ -15,6 +15,46 @@ import {
   type ServiceApprovalStatus,
 } from '../../core/payments/index.js'
 import { autoFund } from '../../payments/fund.js'
+
+const ONE_USDFC = 10n ** 18n
+/** Create-data-set fee (formerly the sybil fee). */
+const CREATE_DATA_SET_FEE = 100_000_000_000_000_000n // 0.1 USDFC
+/** Fixed CDN lockup for a new CDN-enabled data set (CDN + cache-miss). */
+const CDN_FIXED_LOCKUP_TOTAL = ONE_USDFC // 1 USDFC
+/** Minimum (per-data-set) monthly price. */
+const DATASET_FEE_PER_MONTH = 60_000_000_000_000_000n // 0.06 USDFC
+
+/**
+ * Price list fixture mirroring the on-chain `getPriceList` shape. Values are
+ * chosen so the relative funding assertions (create-data-set fee, CDN lockup,
+ * monthly minimum) line up with the GA cost model.
+ */
+function makePriceList(): getPriceList.OutputType {
+  return {
+    token: '0x0000000000000000000000000000000000000000',
+    rates: {
+      storagePerTibPerMonth: TIME_CONSTANTS.EPOCHS_PER_MONTH,
+      datasetFeePerMonth: DATASET_FEE_PER_MONTH,
+      cdnEgressPerTib: 0n,
+      cacheMissEgressPerTib: 0n,
+    },
+    fees: {
+      createDataSetFee: CREATE_DATA_SET_FEE,
+      addPiecesBaseFee: 0n,
+      addPiecesPerPieceFee: 0n,
+      schedulePieceRemovalsFee: 0n,
+      terminateFee: 0n,
+    },
+    lockups: {
+      lifecycleReserveTarget: 0n,
+      replenishThreshold: 0n,
+      defaultLockupPeriod: 30n * TIME_CONSTANTS.EPOCHS_PER_DAY,
+      cdnLockupAmount: CDN_FIXED_LOCKUP_TOTAL,
+      cacheMissLockupAmount: 0n,
+      cdnLockupPeriod: 0n,
+    },
+  }
+}
 
 function makeStatus(params: {
   filecoinPayBalance: bigint
@@ -96,7 +136,7 @@ function makeSynapseStub(summary?: AccountSummary) {
     storage: {
       createContexts: async () => [],
       getStorageInfo: async () => ({
-        pricing: { noCDN: { perTiBPerEpoch: 1n } },
+        pricing: { noCDN: { perTiBPerEpoch: 1n }, priceList: makePriceList() },
       }),
     },
   }
@@ -121,7 +161,6 @@ describe('planFilecoinPayFunding', () => {
     const { plan } = await planFilecoinPayFunding({
       synapse: makeSynapseStub(summary) as any,
       targetRunwayDays: 1,
-      pricePerTiBPerEpoch: 1n,
     })
 
     expect(plan.delta).toBeGreaterThan(0n)
@@ -150,7 +189,6 @@ describe('planFilecoinPayFunding', () => {
       synapse: makeSynapseStub(summary) as any,
       targetRunwayDays: 1,
       mode: 'minimum',
-      pricePerTiBPerEpoch: 1n,
       allowWithdraw: false,
     })
 
@@ -218,7 +256,7 @@ describe('planFilecoinPayFunding', () => {
     ).rejects.toThrow('A funding target is required')
   })
 
-  it('fetches pricing when pieceSizeBytes is provided without pricePerTiBPerEpoch', async () => {
+  it('fetches the price list when pieceSizeBytes is provided without priceList', async () => {
     const status = makeStatus({ filecoinPayBalance: 0n, wallet: 1_000n })
     vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(status)
     vi.spyOn(paymentsIndex, 'checkAndSetAllowances').mockResolvedValue({
@@ -231,11 +269,8 @@ describe('planFilecoinPayFunding', () => {
       synapse: makeSynapseStub() as any,
       targetRunwayDays: 10,
       pieceSizeBytes: 1024,
-      pricePerTiBPerEpoch: 1n,
-      minimumPricePerMonth: 60_000_000_000_000_000n,
     })
 
-    expect(plan.pricePerTiBPerEpoch).toBe(1n)
     expect(plan.delta).toBeGreaterThan(0n)
     expect(plan.reasonCode).toBe('runway-with-piece')
   })
@@ -249,8 +284,7 @@ describe('planFilecoinPayFunding', () => {
       accountSummary,
       targetRunwayDays: 30,
       pieceSizeBytes: 1024,
-      pricePerTiBPerEpoch: 1n,
-      minimumPricePerMonth: 60_000_000_000_000_000n,
+      priceList: makePriceList(),
       newDataSetCount: 0,
       mode: 'minimum',
       allowWithdraw: false,
@@ -261,8 +295,7 @@ describe('planFilecoinPayFunding', () => {
       accountSummary,
       targetRunwayDays: 30,
       pieceSizeBytes: 1024,
-      pricePerTiBPerEpoch: 1n,
-      minimumPricePerMonth: 60_000_000_000_000_000n,
+      priceList: makePriceList(),
       newDataSetCount: 2,
       mode: 'minimum',
       allowWithdraw: false,
@@ -281,8 +314,7 @@ describe('planFilecoinPayFunding', () => {
       accountSummary,
       targetRunwayDays: 30,
       pieceSizeBytes: 1024,
-      pricePerTiBPerEpoch: 1n,
-      minimumPricePerMonth: 60_000_000_000_000_000n,
+      priceList: makePriceList(),
       newDataSetCount: 2,
       withCDN: false,
       mode: 'minimum',
@@ -294,15 +326,14 @@ describe('planFilecoinPayFunding', () => {
       accountSummary,
       targetRunwayDays: 30,
       pieceSizeBytes: 1024,
-      pricePerTiBPerEpoch: 1n,
-      minimumPricePerMonth: 60_000_000_000_000_000n,
+      priceList: makePriceList(),
       newDataSetCount: 2,
       withCDN: true,
       mode: 'minimum',
       allowWithdraw: false,
     })
 
-    // CDN_FIXED_LOCKUP.total (1 USDFC) per new data set, on top of the sybil fees.
+    // Fixed CDN lockup (1 USDFC) per new data set, on top of the create-data-set fees.
     const expectedCdnLockup = 2n * 1_000_000_000_000_000_000n
     expect(cdnPlan.delta - noCdnPlan.delta).toBe(expectedCdnLockup)
     expect(cdnPlan.targetDeposit).toBe((noCdnPlan.targetDeposit ?? 0n) + expectedCdnLockup)
@@ -317,8 +348,7 @@ describe('planFilecoinPayFunding', () => {
       accountSummary,
       targetRunwayDays: 30,
       pieceSizeBytes: 1024,
-      pricePerTiBPerEpoch: 1n,
-      minimumPricePerMonth: 60_000_000_000_000_000n,
+      priceList: makePriceList(),
       newDataSetCount: 0,
       withCDN: true,
       mode: 'minimum',
@@ -330,8 +360,7 @@ describe('planFilecoinPayFunding', () => {
       accountSummary,
       targetRunwayDays: 30,
       pieceSizeBytes: 1024,
-      pricePerTiBPerEpoch: 1n,
-      minimumPricePerMonth: 60_000_000_000_000_000n,
+      priceList: makePriceList(),
       newDataSetCount: 0,
       withCDN: false,
       mode: 'minimum',
@@ -566,18 +595,22 @@ describe('autoFund (modifiers)', () => {
 })
 
 describe('computeAutoSetupTargetBalance', () => {
-  const ONE_USDFC = 10n ** 18n
-  const minimumPricePerMonth = 60_000_000_000_000_000n // 0.06 USDFC
+  const priceList = makePriceList()
   const copies = 2
   const requiredAvailableFunds =
-    BigInt(copies) * (CDN_FIXED_LOCKUP.total + USDFC_SYBIL_FEE + minimumPricePerMonth) + ONE_USDFC
+    BigInt(copies) *
+      (priceList.lockups.cdnLockupAmount +
+        priceList.lockups.cacheMissLockupAmount +
+        priceList.fees.createDataSetFee +
+        priceList.rates.datasetFeePerMonth) +
+    ONE_USDFC
 
   it('targets the full requirement on a fresh account', () => {
     const result = computeAutoSetupTargetBalance({
       filecoinPayBalance: 0n,
       availableFunds: 0n,
       copies,
-      minimumPricePerMonth,
+      priceList,
     })
     expect(result.requiredAvailableFunds).toBe(requiredAvailableFunds)
     expect(result.targetBalance).toBe(requiredAvailableFunds)
@@ -591,7 +624,7 @@ describe('computeAutoSetupTargetBalance', () => {
       filecoinPayBalance,
       availableFunds,
       copies,
-      minimumPricePerMonth,
+      priceList,
     })
     // Deposit only the shortfall between the requirement and current available funds.
     expect(result.targetBalance).toBe(filecoinPayBalance + (requiredAvailableFunds - availableFunds))
@@ -605,7 +638,7 @@ describe('computeAutoSetupTargetBalance', () => {
       filecoinPayBalance,
       availableFunds: requiredAvailableFunds + ONE_USDFC,
       copies,
-      minimumPricePerMonth,
+      priceList,
     })
     expect(result.targetBalance).toBe(filecoinPayBalance)
   })
@@ -617,17 +650,17 @@ describe('computeAutoSetupTargetBalance', () => {
       filecoinPayBalance: 0n,
       availableFunds: 0n,
       copies,
-      minimumPricePerMonth,
+      priceList,
     })
     expect(result.requiredAvailableFunds).toBe(3_320_000_000_000_000_000n)
   })
 
   it('rejects non-integer and negative copies', () => {
     expect(() =>
-      computeAutoSetupTargetBalance({ filecoinPayBalance: 0n, availableFunds: 0n, copies: 1.5, minimumPricePerMonth })
+      computeAutoSetupTargetBalance({ filecoinPayBalance: 0n, availableFunds: 0n, copies: 1.5, priceList })
     ).toThrow('copies must be a non-negative integer')
     expect(() =>
-      computeAutoSetupTargetBalance({ filecoinPayBalance: 0n, availableFunds: 0n, copies: -1, minimumPricePerMonth })
+      computeAutoSetupTargetBalance({ filecoinPayBalance: 0n, availableFunds: 0n, copies: -1, priceList })
     ).toThrow('copies must be a non-negative integer')
   })
 
@@ -639,7 +672,7 @@ describe('computeAutoSetupTargetBalance', () => {
       filecoinPayBalance: run1Balance,
       availableFunds: run1Available,
       copies,
-      minimumPricePerMonth,
+      priceList,
     })
     const deposited = run1.targetBalance - run1Balance
     expect(deposited).toBeGreaterThan(0n)
@@ -652,7 +685,7 @@ describe('computeAutoSetupTargetBalance', () => {
       filecoinPayBalance: run2Balance,
       availableFunds: run2Available,
       copies,
-      minimumPricePerMonth,
+      priceList,
     })
 
     // The second run is a fixed point: target equals the current balance, so

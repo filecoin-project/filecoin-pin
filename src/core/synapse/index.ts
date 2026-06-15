@@ -17,9 +17,9 @@ import {
   AddPiecesPermission,
   CreateDataSetPermission,
   DefaultFwssPermissions,
-  DeleteDataSetPermission,
   fromSecp256k1,
   SchedulePieceRemovalsPermission,
+  TerminateServicePermission,
 } from '@filoz/synapse-core/session-key'
 import type { Logger } from 'pino'
 import {
@@ -133,7 +133,7 @@ function isReadOnlyConfig(config: SynapseSetupConfig): config is ReadOnlyConfig 
 
 const PERMISSION_NAMES: Record<string, string> = {
   [CreateDataSetPermission]: 'CreateDataSet',
-  [DeleteDataSetPermission]: 'DeleteDataSet',
+  [TerminateServicePermission]: 'TerminateService',
   [AddPiecesPermission]: 'AddPieces',
   [SchedulePieceRemovalsPermission]: 'SchedulePieceRemovals',
 }

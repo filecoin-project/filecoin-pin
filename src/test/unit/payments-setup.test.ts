@@ -45,6 +45,13 @@ vi.mock('@filoz/synapse-sdk', () => {
   }
 })
 
+// `checkAllowances` defers the "is this at max?" decision to the SDK helper.
+// Report "not max approved" so deposits take the approve-and-deposit path.
+vi.mock('@filoz/synapse-core/pay', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@filoz/synapse-core/pay')>()),
+  isFwssMaxApproved: vi.fn().mockResolvedValue(false),
+}))
+
 describe('assertPriceNonZero', () => {
   it('throws when pricePerTiBPerEpoch is zero', () => {
     expect(() => assertPriceNonZero(0n)).toThrow('Invalid pricePerTiBPerEpoch: must be positive non-zero value')
@@ -194,7 +201,6 @@ describe('Payment Setup Tests', () => {
         service: '0xwarmstorage',
         rateAllowance,
         lockupAllowance,
-        maxLockupPeriod: 86400n,
       })
     })
   })

@@ -7,7 +7,7 @@
  */
 
 import { getActivePieces, getScheduledRemovals } from '@filoz/synapse-core/pdp-verifier'
-import { getSizeFromPieceCID } from '@filoz/synapse-core/piece'
+import { from as pieceCIDFrom } from '@filoz/synapse-core/piece'
 import { getDataSet as getProviderDataSet } from '@filoz/synapse-core/sp'
 import { getAllPieceMetadata } from '@filoz/synapse-core/warm-storage'
 import { type DataSetPieceData, METADATA_KEYS, type Synapse } from '@filoz/synapse-sdk'
@@ -100,7 +100,7 @@ export async function getDataSetPieces(
         }
 
         try {
-          pieceInfo.size = getSizeFromPieceCID(piece.cid)
+          pieceInfo.size = pieceCIDFrom(piece.cid).size
         } catch (error) {
           logger?.warn(
             { pieceId: piece.id.toString(), pieceCid: piece.cid.toString(), error },
@@ -124,7 +124,7 @@ export async function getDataSetPieces(
           status: PieceStatus.OFFCHAIN_ORPHANED,
         }
         try {
-          pieceInfo.size = getSizeFromPieceCID(providerPiece.pieceCid)
+          pieceInfo.size = pieceCIDFrom(providerPiece.pieceCid).size
         } catch {
           // size calculation is best-effort
         }
