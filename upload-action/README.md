@@ -17,6 +17,7 @@ See the two-workflow approach in the [examples directory](./examples/) for compl
 See [action.yml](./action.yml) for complete input documentation including:
 - **Core**: `path`, `walletPrivateKey`, `network`
 - **Financial**: `minRunwayDays`, `maxBalance`
+- **Dataset targeting**: `dataSetIds`
 - **Advanced**: `egressProvider`, `dryRun`, `disableTelemetry`
 
 **Outputs**: `ipfsRootCid`, `dataSetId`, `pieceCid`, `providerId`, `providerName`, `carPath`, `uploadStatus`
@@ -56,6 +57,21 @@ For most users, automatic provider selection is recommended. However, for advanc
 When omitted, the SDK selects providers automatically (recommended). With multi-copy uploads it picks an endorsed primary and approved secondaries; setting `PROVIDER_IDS` overrides that selection.
 
 ⚠️ **Warning**: Overriding providers may cause uploads to fail if a specified provider is unavailable or doesn't support IPFS indexing.
+
+### Advanced: Targeting Existing Datasets
+
+To append an upload to one or more existing Synapse datasets instead of creating a new one, set the `dataSetIds` input to a comma-separated list of numeric dataset IDs:
+
+```yaml
+- name: Upload to Filecoin
+  uses: filecoin-project/filecoin-pin/upload-action@v0
+  with:
+    path: dist
+    walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
+    dataSetIds: "13260,13261"
+```
+
+When omitted, the SDK selects or creates a dataset automatically (recommended). `dataSetIds` and `PROVIDER_IDS` are mutually exclusive, setting both will fail with a clear error.
 
 ## Security Checklist
 
