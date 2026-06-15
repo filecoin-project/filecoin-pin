@@ -45,8 +45,8 @@ vi.mock('@filoz/synapse-sdk', () => {
   }
 })
 
-// `checkAllowances` defers the "is this at max?" decision to the SDK helper.
-// Report "not max approved" so deposits take the approve-and-deposit path.
+// `checkAllowances` defers the maximum approved decision to the SDK helper.
+// Report it's not, so deposits take the approve-and-deposit path.
 vi.mock('@filoz/synapse-core/pay', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@filoz/synapse-core/pay')>()),
   isFwssMaxApproved: vi.fn().mockResolvedValue(false),
