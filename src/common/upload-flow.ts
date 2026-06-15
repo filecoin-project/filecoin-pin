@@ -5,10 +5,12 @@
  * including payment validation, storage context creation, and result display.
  */
 
+import { isCancel, multiselect } from '@clack/prompts'
 import type { CopyResult, FailedAttempt, Synapse } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
+import type { DataSetSummary } from '../core/data-set/types.js'
 import { DEFAULT_LOCKUP_DAYS, type PaymentCapacityCheck } from '../core/payments/index.js'
 import {
   checkUploadReadiness,
@@ -21,10 +23,121 @@ import { formatUSDFC } from '../core/utils/format.js'
 import { autoFund } from '../payments/fund.js'
 import type { AutoFundOptions } from '../payments/types.js'
 import type { Spinner } from '../utils/cli-helpers.js'
-import { cancel, formatFileSize } from '../utils/cli-helpers.js'
+import { cancel, formatFileSize, isInteractive } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { createSpinnerFlow } from '../utils/multi-operation-spinner.js'
 import { CliFatal } from './cli-errors.js'
+
+/**
+ * Truncates a string to a maximum length while preserving its suffix when
+ * possible.
+ *
+ * For lengths greater than 7, the string is truncated in the middle,
+ * preserving the last 6 characters and inserting an ellipsis (`…`).
+ * For shorter limits, the string is truncated at the end and suffixed with
+ * an ellipsis.
+ *
+ * The returned string will never exceed `max` characters.
+ */
+export function truncate(str: string, max: number): string {
+  if (str.length <= max) return str
+  if (max <= 0) return ''
+
+  if (max <= 7) {
+    return `${str.slice(0, max - 1)}…`
+  }
+
+  return `${str.slice(0, max - 7)}…${str.slice(-6)}`
+}
+
+/**
+ * Find the metadata keys whose values differ across the candidate set.
+ * Keys with identical values on every dataset add no signal to the prompt.
+ * Falls back to all keys when everything is uniform.
+ */
+export function differentiatingKeys(dataSets: DataSetSummary[]): string[] {
+  if (dataSets.length === 0) return []
+
+  const allKeys = [...new Set(dataSets.flatMap((ds) => Object.keys(ds.metadata ?? {})))]
+
+  const varying = allKeys.filter((key) => {
+    const values = dataSets.map((ds) => ds.metadata?.[key])
+    return values.some((v) => v !== values[0])
+  })
+
+  return varying.length > 0 ? varying : allKeys
+}
+
+export function buildOptionLabel(ds: DataSetSummary, keys: string[]): string {
+  const MAX_LABEL_PAIRS = 3
+  const MAX_VALUE_LENGTH = 20
+
+  const pairs = keys
+    .filter((key) => ds.metadata != null && key in ds.metadata)
+    .map((key) => {
+      const raw = ds.metadata?.[key] ?? ''
+      return raw === '' ? key : `${key}=${truncate(raw, MAX_VALUE_LENGTH)}`
+    })
+
+  const visible = pairs.slice(0, MAX_LABEL_PAIRS)
+  const overflow = pairs.length - visible.length
+  const overflowSuffix = overflow > 0 ? `  (+${overflow} more)` : ''
+
+  const pieces = Number(ds.activePieceCount ?? 0n)
+  const piecesLabel = `(${pieces} piece${pieces !== 1 ? 's' : ''})`
+
+  const label = [`#${ds.dataSetId}`, ...visible, piecesLabel].join('  ') + overflowSuffix
+
+  return label
+}
+
+/**
+ * Prompt the user to select exactly `expectedCopies` data sets from a list of candidates.
+ *
+ * Only called when `--data-set-metadata` matched more datasets than `--copies` requires and
+ * the process is running in an interactive TTY. Throws in non-interactive contexts.
+ *
+ * Stops the spinner before rendering the Clack prompt (they cannot coexist).
+ */
+export async function promptDataSetSelection(
+  matchedDataSets: DataSetSummary[],
+  expectedCopies: number,
+  spinner: Spinner
+): Promise<bigint[]> {
+  if (!isInteractive()) {
+    throw new Error(
+      `--data-set-metadata matched ${matchedDataSets.length} data sets (${matchedDataSets.map((d) => d.dataSetId).join(', ')}) ` +
+        `but expected ${expectedCopies}. Narrow the filter, pass --data-set-id, or run in a TTY to pick interactively.`
+    )
+  }
+
+  spinner.stop(
+    `${pc.yellow('?')} --data-set-metadata matched ${matchedDataSets.length} data sets — select ${expectedCopies} to upload to`
+  )
+
+  const keys = differentiatingKeys(matchedDataSets)
+
+  const options = matchedDataSets.map((ds) => {
+    const label = buildOptionLabel(ds, keys)
+    return { value: ds.dataSetId, label }
+  })
+
+  const exact = `exactly ${expectedCopies} data set${expectedCopies !== 1 ? 's' : ''}`
+  let message = `Select ${exact}:`
+
+  while (true) {
+    const chosen = await multiselect<bigint>({ message, options, required: true })
+
+    if (isCancel(chosen)) {
+      cancel('Cancelled')
+      throw new CliFatal('Dataset selection cancelled')
+    }
+
+    if (chosen.length === expectedCopies) return chosen
+
+    message = `${pc.yellow(`Please select ${exact} — got ${chosen.length}. Try again:`)}`
+  }
+}
 
 export interface UploadFlowOptions {
   /**

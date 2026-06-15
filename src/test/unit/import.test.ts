@@ -29,6 +29,7 @@ const ZERO_CID = 'bafkqaaa' // Zero CID used when CAR has no roots
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
 vi.mock('../../common/upload-flow.js', () => ({
   validatePaymentSetup: vi.fn(),
+  promptDataSetSelection: vi.fn().mockRejectedValue(new Error('not interactive')),
   performUpload: vi.fn().mockResolvedValue({
     pieceCid: 'bafkzcibtest1234567890',
     size: 1024,
@@ -444,7 +445,7 @@ describe('CAR Import', () => {
       expect(lastCall?.[3]).not.toHaveProperty('metadata')
     })
 
-    it('throws when --data-set-metadata matches too many data sets', async () => {
+    it('calls promptDataSetSelection when --data-set-metadata matches too many data sets', async () => {
       const carPath = join(testDir, 'resolve-too-many.car')
       await createTestCarFile(carPath, [], [{ content: 'too-many' }])
 
@@ -461,7 +462,14 @@ describe('CAR Import', () => {
           privateKey: testPrivateKey,
           dataSetMetadata: { source: 'storacha-migration' },
         })
-      ).rejects.toThrow(/matched 4 data sets.*expected 2/)
+      ).rejects.toThrow()
+
+      const { promptDataSetSelection } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(promptDataSetSelection)).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ dataSetId: 1n })]),
+        2,
+        expect.any(Object)
+      )
     })
 
     it('throws when --data-set-metadata matches too few data sets', async () => {
