@@ -91,7 +91,7 @@ export async function promptDataSetSelection(
   if (!isInteractive()) {
     throw new Error(
       `--data-set-metadata matched ${matchedDataSets.length} data sets (${matchedDataSets.map((d) => d.dataSetId).join(', ')}) ` +
-        `but expected ${expectedCopies}. Narrow the filter, pass --data-set-ids, or run in a TTY to pick interactively.`
+        `but expected ${expectedCopies}. Narrow the filter, pass --data-set-id, or run in a TTY to pick interactively.`
     )
   }
 
