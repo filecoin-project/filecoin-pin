@@ -395,7 +395,7 @@ export async function checkAllowances(synapse: Synapse): Promise<{
 }> {
   const fwssAddress = synapse.chain.contracts.fwss.address
 
-  // Defer the "is this at max?" decision to the SDK's `isFwssMaxApproved`, which
+  // Defer the max approved check to the SDK's `isFwssMaxApproved`, which
   // checks rate/lockup allowances and the max lockup period against the chain
   // default for us (no `requiredMaxLockupPeriod` override needed).
   const [currentAllowances, isMaxApproved] = await Promise.all([
