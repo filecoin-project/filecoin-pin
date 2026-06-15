@@ -275,7 +275,7 @@ describe('planFilecoinPayFunding', () => {
     expect(plan.reasonCode).toBe('runway-with-piece')
   })
 
-  it('adds sybil fees for new data sets in the shared funding plan', () => {
+  it('adds create-data-set fees for new data sets in the shared funding plan', () => {
     const status = makeStatus({ filecoinPayBalance: 0n, wallet: 1_000_000_000_000_000_000n })
     const accountSummary = makeSummary({ filecoinPayBalance: 0n })
 
@@ -644,7 +644,7 @@ describe('computeAutoSetupTargetBalance', () => {
   })
 
   it('matches the expected concrete amount for 2 copies at 0.06 USDFC/month', () => {
-    // Per data set: 1 USDFC CDN lockup + 0.1 USDFC sybil fee + 0.06 USDFC monthly = 1.16 USDFC.
+    // Per data set: 1 USDFC CDN lockup + 0.1 USDFC create-data-set fee + 0.06 USDFC monthly = 1.16 USDFC.
     // Two copies (2.32 USDFC) plus 1 USDFC runway = 3.32 USDFC.
     const result = computeAutoSetupTargetBalance({
       filecoinPayBalance: 0n,
