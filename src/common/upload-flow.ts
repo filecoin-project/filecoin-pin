@@ -28,8 +28,25 @@ import { log } from '../utils/cli-logger.js'
 import { createSpinnerFlow } from '../utils/multi-operation-spinner.js'
 import { CliFatal } from './cli-errors.js'
 
-function truncate(str: string, max: number): string {
+/**
+ * Truncates a string to a maximum length while preserving its suffix when
+ * possible.
+ *
+ * For lengths greater than 7, the string is truncated in the middle,
+ * preserving the last 6 characters and inserting an ellipsis (`…`).
+ * For shorter limits, the string is truncated at the end and suffixed with
+ * an ellipsis.
+ *
+ * The returned string will never exceed `max` characters.
+ */
+export function truncate(str: string, max: number): string {
   if (str.length <= max) return str
+  if (max <= 0) return ''
+
+  if (max <= 7) {
+    return `${str.slice(0, max - 1)}…`
+  }
+
   return `${str.slice(0, max - 7)}…${str.slice(-6)}`
 }
 
@@ -38,7 +55,7 @@ function truncate(str: string, max: number): string {
  * Keys with identical values on every dataset add no signal to the prompt.
  * Falls back to all keys when everything is uniform.
  */
-function differentiatingKeys(dataSets: DataSetSummary[]): string[] {
+export function differentiatingKeys(dataSets: DataSetSummary[]): string[] {
   if (dataSets.length === 0) return []
 
   const allKeys = [...new Set(dataSets.flatMap((ds) => Object.keys(ds.metadata ?? {})))]
@@ -51,7 +68,7 @@ function differentiatingKeys(dataSets: DataSetSummary[]): string[] {
   return varying.length > 0 ? varying : allKeys
 }
 
-function buildOptionLabel(ds: DataSetSummary, keys: string[]): { label: string } {
+export function buildOptionLabel(ds: DataSetSummary, keys: string[]): string {
   const MAX_LABEL_PAIRS = 3
   const MAX_VALUE_LENGTH = 20
 
@@ -71,15 +88,14 @@ function buildOptionLabel(ds: DataSetSummary, keys: string[]): { label: string }
 
   const label = [`#${ds.dataSetId}`, ...visible, piecesLabel].join('  ') + overflowSuffix
 
-  return { label }
+  return label
 }
 
 /**
  * Prompt the user to select exactly `expectedCopies` data sets from a list of candidates.
  *
  * Only called when `--data-set-metadata` matched more datasets than `--copies` requires and
- * the process is running in an interactive TTY. In non-interactive contexts the caller must
- * throw before reaching here.
+ * the process is running in an interactive TTY. Throws in non-interactive contexts.
  *
  * Stops the spinner before rendering the Clack prompt (they cannot coexist).
  */
@@ -102,7 +118,7 @@ export async function promptDataSetSelection(
   const keys = differentiatingKeys(matchedDataSets)
 
   const options = matchedDataSets.map((ds) => {
-    const { label } = buildOptionLabel(ds, keys)
+    const label = buildOptionLabel(ds, keys)
     return { value: ds.dataSetId, label }
   })
 
