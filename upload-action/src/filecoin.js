@@ -144,9 +144,10 @@ export async function handlePayments(synapse, options, logger) {
   }
 
   if (newDataSetCount > 0) {
+    const feeDescription = withCDN ? 'create-data-set fee and CDN lockup' : 'create-data-set fee'
     console.log(
       `Additional funding for ${newDataSetCount} new data set${newDataSetCount === 1 ? '' : 's'} ` +
-        '(sybil fee) is included in the planned top-up'
+        `(${feeDescription}) is included in the planned top-up`
     )
   }
 
