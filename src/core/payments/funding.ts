@@ -1,4 +1,4 @@
-import type { getPriceList } from '@filoz/synapse-core/warm-storage'
+import { calculateUploadFees, type getPriceList } from '@filoz/synapse-core/warm-storage'
 import { calibration, type Synapse } from '@filoz/synapse-sdk'
 import { USDFC_DECIMALS } from './constants.js'
 import {
@@ -187,13 +187,12 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
         pieceSizeBytes,
         priceList
       )
-      const dataSetCreationFees = BigInt(newDataSetCount) * priceList.fees.createDataSetFee
-      // New CDN-enabled data sets require a fixed lockup (CDN + cache-miss) on
-      // top of the create-data-set fee.
-      const cdnFixedLockup = withCDN
-        ? BigInt(newDataSetCount) * (priceList.lockups.cdnLockupAmount + priceList.lockups.cacheMissLockupAmount)
-        : 0n
-      const newDataSetCosts = dataSetCreationFees + cdnFixedLockup
+      const uploadFees = calculateUploadFees({ priceList, isNewDataSet: true })
+      const perNewDataSetCosts =
+        uploadFees.total +
+        priceList.lockups.lifecycleReserveTarget +
+        (withCDN ? priceList.lockups.cdnLockupAmount + priceList.lockups.cacheMissLockupAmount : 0n)
+      const newDataSetCosts = BigInt(newDataSetCount) * perNewDataSetCosts
       delta = adjustment.delta + newDataSetCosts
       resolvedTargetDeposit = adjustment.targetDeposit + newDataSetCosts
       projectedRateUsed = adjustment.newRateUsed
@@ -318,9 +317,14 @@ export function computeAutoSetupTargetBalance(params: {
   if (!Number.isInteger(params.copies) || params.copies < 0) {
     throw new Error('copies must be a non-negative integer')
   }
-  const { fees, rates, lockups } = params.priceList
+  const { rates, lockups } = params.priceList
+  const uploadFees = calculateUploadFees({ priceList: params.priceList, isNewDataSet: true })
   const perDataSet =
-    fees.createDataSetFee + rates.datasetFeePerMonth + lockups.cdnLockupAmount + lockups.cacheMissLockupAmount
+    uploadFees.total +
+    rates.datasetFeePerMonth +
+    lockups.lifecycleReserveTarget +
+    lockups.cdnLockupAmount +
+    lockups.cacheMissLockupAmount
   const requiredAvailableFunds = BigInt(params.copies) * perDataSet + ONE_USDFC
   const shortfall = requiredAvailableFunds > params.availableFunds ? requiredAvailableFunds - params.availableFunds : 0n
   return { requiredAvailableFunds, targetBalance: params.filecoinPayBalance + shortfall }

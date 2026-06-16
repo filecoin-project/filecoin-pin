@@ -1,4 +1,4 @@
-import type { getPriceList } from '@filoz/synapse-core/warm-storage'
+import { calculateDepositNeeded, type getPriceList } from '@filoz/synapse-core/warm-storage'
 import { calibration, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as paymentsIndex from '../../core/payments/index.js'
@@ -23,6 +23,9 @@ const CREATE_DATA_SET_FEE = 100_000_000_000_000_000n // 0.1 USDFC
 const CDN_FIXED_LOCKUP_TOTAL = ONE_USDFC // 1 USDFC
 /** Minimum (per-data-set) monthly price. */
 const DATASET_FEE_PER_MONTH = 60_000_000_000_000_000n // 0.06 USDFC
+const ADD_PIECES_BASE_FEE = 20_000_000_000_000_000n // 0.02 USDFC
+const ADD_PIECES_PER_PIECE_FEE = 30_000_000_000_000_000n // 0.03 USDFC
+const LIFECYCLE_RESERVE_TARGET = 40_000_000_000_000_000n // 0.04 USDFC
 
 /**
  * Price list fixture mirroring the on-chain `getPriceList` shape. Values are
@@ -52,6 +55,27 @@ function makePriceList(): getPriceList.OutputType {
       cdnLockupAmount: CDN_FIXED_LOCKUP_TOTAL,
       cacheMissLockupAmount: 0n,
       cdnLockupPeriod: 0n,
+    },
+  }
+}
+
+function makePriceListWithNewDataSetCosts(): getPriceList.OutputType {
+  const priceList = makePriceList()
+  return {
+    ...priceList,
+    rates: {
+      ...priceList.rates,
+      storagePerTibPerMonth: 0n,
+      datasetFeePerMonth: 0n,
+    },
+    fees: {
+      ...priceList.fees,
+      addPiecesBaseFee: ADD_PIECES_BASE_FEE,
+      addPiecesPerPieceFee: ADD_PIECES_PER_PIECE_FEE,
+    },
+    lockups: {
+      ...priceList.lockups,
+      lifecycleReserveTarget: LIFECYCLE_RESERVE_TARGET,
     },
   }
 }
@@ -337,6 +361,40 @@ describe('planFilecoinPayFunding', () => {
     const expectedCdnLockup = 2n * 1_000_000_000_000_000_000n
     expect(cdnPlan.delta - noCdnPlan.delta).toBe(expectedCdnLockup)
     expect(cdnPlan.targetDeposit).toBe((noCdnPlan.targetDeposit ?? 0n) + expectedCdnLockup)
+  })
+
+  it('matches synapse-core upload costs for a new CDN data set', () => {
+    const priceList = makePriceListWithNewDataSetCosts()
+    const status = makeStatus({ filecoinPayBalance: 0n, wallet: 10n * ONE_USDFC })
+    const accountSummary = makeSummary({ filecoinPayBalance: 0n })
+    const pieceSizeBytes = 1024
+
+    const plan = calculateFilecoinPayFundingPlan({
+      status,
+      accountSummary,
+      targetRunwayDays: 0,
+      pieceSizeBytes,
+      priceList,
+      newDataSetCount: 1,
+      withCDN: true,
+      mode: 'minimum',
+      allowWithdraw: false,
+    })
+
+    const expected = calculateDepositNeeded({
+      dataSize: BigInt(pieceSizeBytes),
+      currentDataSetSize: 0n,
+      priceList,
+      isNewDataSet: true,
+      withCDN: true,
+      currentLockupRate: 0n,
+      extraRunwayEpochs: 0n,
+      debt: 0n,
+      availableFunds: accountSummary.availableFunds,
+      runwayInEpochs: accountSummary.runwayInEpochs,
+    })
+
+    expect(plan.delta).toBe(expected.depositNeeded)
   })
 
   it('does not add the CDN lockup when no new data sets are created', () => {
