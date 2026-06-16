@@ -46,6 +46,16 @@ inputs:
       SECURITY: Hardcode this in trusted workflows.
     required: false
 
+  # Dataset targeting
+  dataSetIds:
+    description: >-
+      Comma-separated list of existing Synapse data set IDs to append this upload to
+      (e.g. "13260,13261"). When supplied, the action routes the upload into those
+      datasets and skips creating a new one. Must be positive integers; non-numeric
+      values are rejected. Cannot be combined with the PROVIDER_IDS environment
+      variable. Omit to preserve current behavior (SDK smart-select or new dataset).
+    required: false
+
   # Optional/Advanced configuration
   egressProvider:
     description: "Egress provider for piece retrieval: \"beam\" (FilBeam CDN) or \"none\" (default). A new CDN data set requires an extra 1 USDFC lockup, which is included in the deposit estimate. CDN egress is paid from funds the data set owner locks up, consumed as retrievals happen, and cannot be estimated upfront."

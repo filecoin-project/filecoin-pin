@@ -42,6 +42,7 @@ export async function runUpload(buildContext = {}) {
     filecoinPayBalanceLimit,
     withCDN,
     providerIds,
+    dataSetIds,
     dryRun,
   } = inputs
 
@@ -167,6 +168,7 @@ export async function runUpload(buildContext = {}) {
         pieceSizeBytes: context.carSize,
         withCDN,
         providerIds,
+        dataSetIds,
       },
       logger
     )
@@ -181,7 +183,7 @@ export async function runUpload(buildContext = {}) {
     })
 
     /** @type {UploadConfig} */
-    const uploadOptions = { withCDN, providerIds }
+    const uploadOptions = { withCDN, providerIds, dataSetIds }
 
     const uploadResult = await uploadCarToFilecoin(synapse, carPath, rootCid, uploadOptions, logger)
     pieceCid = uploadResult.pieceCid
