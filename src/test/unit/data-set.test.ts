@@ -395,14 +395,8 @@ describe('runDataSetCommand', () => {
     expect(call[3]).toMatch(/--all/)
   })
 
-  it('loads detailed information when a dataset id is provided', async () => {
+  it('loads detailed information without fetching pieces when a dataset id is provided', async () => {
     state.pieceList = [{ pieceId: 0n, pieceCid: 'bafkpiece0' }]
-    const pieceMetadata = {
-      [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot0',
-      custom: 'value',
-    }
-    state.pieceMetadata = pieceMetadata
-    mockGetAllPieceMetadata.mockResolvedValue(pieceMetadata)
 
     await runDataSetDetailsCommand(158, {
       privateKey: 'test-key',
@@ -416,14 +410,10 @@ describe('runDataSetCommand', () => {
     expect(dataSets).toHaveLength(1)
     const dataSet = dataSets[0]
     expect(dataSet).toBeDefined()
-    expect(dataSet?.totalSizeBytes).toBe(BigInt(1048576))
-    expect(dataSet?.pieces).toBeDefined()
-    expect(dataSet?.pieces).toHaveLength(1)
-    expect(dataSet?.pieces?.[0]?.size).toBe(1048576)
-    expect(dataSet?.pieces?.[0]?.metadata).toMatchObject({
-      [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot0',
-      custom: 'value',
-    })
+    expect(dataSet?.dataSetId).toBe(158n)
+    expect(dataSet?.pieces).toBeUndefined()
+    expect(dataSet?.totalSizeBytes).toBeUndefined()
+    expect(mockGetAllPieceMetadata).not.toHaveBeenCalled()
   })
 
   it('does not enumerate the whole account when loading a single dataset', async () => {

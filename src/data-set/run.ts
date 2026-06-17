@@ -39,7 +39,7 @@ export async function runDataSetDetailsCommand(dataSetId: number, options: DataS
 
     spinner.message('Fetching data set details...')
 
-    const dataSet: DataSetSummary = await getDetailedDataSet(synapse, BigInt(dataSetId))
+    const dataSet: DataSetSummary = await getDetailedDataSet(synapse, BigInt(dataSetId), { includePieces: false })
 
     spinner.stop('━━━ Data Set ━━━')
     displayDataSets([dataSet], network, address)
