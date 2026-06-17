@@ -3,13 +3,14 @@ import type { EnhancedDataSetInfo, Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { WaitForTransactionReceiptTimeoutError } from 'viem'
 import { CliFatal, isCliFatal, setIncompleteExitCode } from '../common/cli-errors.js'
+import { enrichDataSetListSizes } from '../core/data-set/enrich-list-sizes.js'
 import { type DataSetSummary, getDetailedDataSet, listDataSets } from '../core/data-set/index.js'
 import type { PieceInfo } from '../core/data-set/types.js'
 import { getClientAddress } from '../core/synapse/index.js'
 import { getCliSynapse, parseProviderIdSelection } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import { displayDataSets, displayPieceStatuses } from './display.js'
+import { displayDataSetList, displayDataSets, displayPieceStatuses } from './display.js'
 import type { DataSetCommandOptions, DataSetListCommandOptions } from './types.js'
 
 /**
@@ -165,8 +166,6 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
     const dataSets: DataSetSummary[] =
       options.all || explicitFilter ? allDataSets : allDataSets.filter((dataSet) => dataSet.createdWithFilecoinPin)
 
-    spinner.stop('━━━ Data Sets ━━━')
-
     let emptyMessage: string | undefined
     if (dataSets.length === 0) {
       if (explicitFilter) {
@@ -179,7 +178,13 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
       }
     }
 
-    displayDataSets(dataSets, network, address, emptyMessage)
+    if (dataSets.length > 0) {
+      spinner.message('Calculating data set sizes...')
+    }
+    const listRows = await enrichDataSetListSizes(synapse, dataSets)
+
+    spinner.stop('━━━ Data Sets ━━━')
+    displayDataSetList(listRows, network, address, emptyMessage)
 
     outro('Data set list complete')
   } catch (error) {

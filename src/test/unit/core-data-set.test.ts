@@ -6,7 +6,9 @@
 
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { enrichDataSetListSizes } from '../../core/data-set/enrich-list-sizes.js'
 import { getDataSetPieces, listDataSets } from '../../core/data-set/index.js'
+import type { DataSetSummary } from '../../core/data-set/types.js'
 
 const TEST_DATA_SET_ID = 123n
 const TEST_SERVICE_URL = 'https://provider.example.com'
@@ -19,6 +21,7 @@ const {
   mockGetActivePieces,
   mockGetScheduledRemovals,
   mockGetProviderDataSet,
+  mockGetSizeFromPieceCID,
   state,
 } = vi.hoisted(() => {
   const state = {
@@ -41,7 +44,7 @@ const {
   const mockGetProviders = vi.fn(async ({ providerIds }: { providerIds: any[] }) => {
     return state.providers.filter((p) => providerIds.includes(p.id))
   })
-  const mockGetActivePieces = vi.fn(async () => ({
+  const mockGetActivePieces = vi.fn(async (_client: any, _args: any) => ({
     pieces: state.pieces.map((p) => ({ id: p.pieceId, cid: p.pieceCid })),
     hasMore: false,
   }))
@@ -59,6 +62,13 @@ const {
   const mockGetAllPieceMetadata = vi.fn(async (_client: any, { pieceId }: any) => {
     return state.pieceMetadata[Number(pieceId)] ?? {}
   })
+  const mockGetSizeFromPieceCID = vi.fn((cid: { toString: () => string } | string) => {
+    const cidString = typeof cid === 'string' ? cid : cid.toString()
+    if (cidString === 'bafkpiece0') return 1048576
+    if (cidString === 'bafkpiece1') return 2097152
+    if (cidString === 'bafkpiece2') return 4194304
+    throw new Error(`Invalid piece CID: ${cidString}`)
+  })
 
   const mockSynapse = {
     client: { account: { address: '0xtest-address' as const } },
@@ -75,6 +85,7 @@ const {
     mockGetActivePieces,
     mockGetScheduledRemovals,
     mockGetProviderDataSet,
+    mockGetSizeFromPieceCID,
     state,
   }
 })
@@ -101,14 +112,7 @@ vi.mock('@filoz/synapse-core/sp', () => ({
 
 // Mock piece size calculation
 vi.mock('@filoz/synapse-core/piece', () => ({
-  getSizeFromPieceCID: vi.fn((cid: { toString: () => string } | string) => {
-    // Map specific CIDs to sizes for testing
-    const cidString = typeof cid === 'string' ? cid : cid.toString()
-    if (cidString === 'bafkpiece0') return 1048576 // 1 MiB
-    if (cidString === 'bafkpiece1') return 2097152 // 2 MiB
-    if (cidString === 'bafkpiece2') return 4194304 // 4 MiB
-    throw new Error(`Invalid piece CID: ${cidString}`)
-  }),
+  getSizeFromPieceCID: mockGetSizeFromPieceCID,
   MAX_UPLOAD_SIZE: 32 * 1024 * 1024 * 1024, // 32 GiB
 }))
 
@@ -196,12 +200,120 @@ describe('listDataSets', () => {
   })
 })
 
+describe('enrichDataSetListSizes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    state.pieces = []
+    mockGetActivePieces.mockImplementation(async () => ({
+      pieces: state.pieces.map((p) => ({ id: p.pieceId, cid: p.pieceCid })),
+      hasMore: false,
+    }))
+    mockGetSizeFromPieceCID.mockImplementation((cid: { toString: () => string } | string) => {
+      const cidString = typeof cid === 'string' ? cid : cid.toString()
+      if (cidString === 'bafkpiece0') return 1048576
+      if (cidString === 'bafkpiece1') return 2097152
+      if (cidString === 'bafkpiece2') return 4194304
+      throw new Error(`Invalid piece CID: ${cidString}`)
+    })
+  })
+
+  function dataSet(fields: Partial<DataSetSummary> = {}): DataSetSummary {
+    return {
+      dataSetId: 123n,
+      pdpVerifierDataSetId: 123n,
+      providerId: 2n,
+      activePieceCount: 2n,
+      isLive: true,
+      isManaged: true,
+      withCDN: false,
+      metadata: {},
+      provider: undefined,
+      createdWithFilecoinPin: true,
+      ...fields,
+    } as unknown as DataSetSummary
+  }
+
+  it('calculates exact size totals from active on-chain pieces', async () => {
+    state.pieces = [
+      { pieceId: 0n, pieceCid: { toString: () => 'bafkpiece0' } },
+      { pieceId: 1n, pieceCid: { toString: () => 'bafkpiece1' } },
+    ]
+
+    const result = await enrichDataSetListSizes(mockSynapse as any, [dataSet()])
+
+    expect(result[0]?.totalSizeBytes).toBe(3145728n)
+    expect(result[0]?.sizeKnown).toBe(true)
+    expect(mockGetActivePieces).toHaveBeenCalledWith(mockSynapse.client, {
+      dataSetId: 123n,
+      offset: 0n,
+      limit: 100n,
+    })
+  })
+
+  it('skips active piece fetching for zero-piece data sets', async () => {
+    const result = await enrichDataSetListSizes(mockSynapse as any, [dataSet({ activePieceCount: 0n })])
+
+    expect(result[0]?.totalSizeBytes).toBe(0n)
+    expect(result[0]?.sizeKnown).toBe(true)
+    expect(mockGetActivePieces).not.toHaveBeenCalled()
+  })
+
+  it('skips active piece fetching for non-live data sets', async () => {
+    const result = await enrichDataSetListSizes(mockSynapse as any, [dataSet({ isLive: false, activePieceCount: 2n })])
+
+    expect(result[0]?.totalSizeBytes).toBe(0n)
+    expect(result[0]?.sizeKnown).toBe(true)
+    expect(mockGetActivePieces).not.toHaveBeenCalled()
+  })
+
+  it('paginates active piece reads across all pages', async () => {
+    const pages: Record<string, Array<{ id: bigint; cid: { toString: () => string } }>> = {
+      '0': [{ id: 0n, cid: { toString: () => 'bafkpiece0' } }],
+      '100': [{ id: 1n, cid: { toString: () => 'bafkpiece1' } }],
+      '200': [{ id: 2n, cid: { toString: () => 'bafkpiece2' } }],
+    }
+    mockGetActivePieces.mockImplementation(async (_client: any, { offset }: any) => ({
+      pieces: pages[String(offset)] ?? [],
+      hasMore: offset < 200n,
+    }))
+
+    const result = await enrichDataSetListSizes(mockSynapse as any, [dataSet({ activePieceCount: 3n })])
+
+    expect(mockGetActivePieces.mock.calls.map((call: any) => call[1].offset)).toEqual([0n, 100n, 200n])
+    expect(result[0]?.totalSizeBytes).toBe(7340032n)
+    expect(result[0]?.sizeKnown).toBe(true)
+  })
+
+  it('marks a row unknown when a piece size lookup fails', async () => {
+    state.pieces = [
+      { pieceId: 0n, pieceCid: { toString: () => 'bafkpiece0' } },
+      { pieceId: 1n, pieceCid: { toString: () => 'invalid-cid' } },
+    ]
+
+    const result = await enrichDataSetListSizes(mockSynapse as any, [dataSet()])
+
+    expect(result[0]?.totalSizeBytes).toBeUndefined()
+    expect(result[0]?.sizeKnown).toBe(false)
+  })
+})
+
 describe('getDataSetPieces', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     state.pieces = []
     state.pieceMetadata = {}
     state.providerPieces = undefined
+    mockGetActivePieces.mockImplementation(async () => ({
+      pieces: state.pieces.map((p) => ({ id: p.pieceId, cid: p.pieceCid })),
+      hasMore: false,
+    }))
+    mockGetSizeFromPieceCID.mockImplementation((cid: { toString: () => string } | string) => {
+      const cidString = typeof cid === 'string' ? cid : cid.toString()
+      if (cidString === 'bafkpiece0') return 1048576
+      if (cidString === 'bafkpiece1') return 2097152
+      if (cidString === 'bafkpiece2') return 4194304
+      throw new Error(`Invalid piece CID: ${cidString}`)
+    })
   })
 
   it('returns empty array when dataset has no pieces', async () => {

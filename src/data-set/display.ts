@@ -1,5 +1,6 @@
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
+import type { DataSetListRow } from '../core/data-set/enrich-list-sizes.js'
 import type { DataSetSummary, PieceInfo } from '../core/data-set/types.js'
 import { PieceStatus } from '../core/data-set/types.js'
 import { formatFileSize } from '../utils/cli-helpers.js'
@@ -18,6 +19,18 @@ function statusLabel(dataSet: DataSetSummary): string {
   }
 
   return pc.yellow('inactive')
+}
+
+function plainStatusLabel(dataSet: Pick<DataSetSummary, 'isLive' | 'pdpEndEpoch'>): string {
+  if (dataSet.isLive) {
+    return 'live'
+  }
+
+  if (dataSet.pdpEndEpoch > 0) {
+    return `terminated @ epoch ${dataSet.pdpEndEpoch}`
+  }
+
+  return 'inactive'
 }
 
 function formatCommission(commissionBps: bigint): string {
@@ -41,6 +54,34 @@ function renderNetworkDetails(network: string, address: string): void {
   log.line(`Network: ${pc.bold(network)}`)
   log.line(`Client address: ${address}`)
   log.line('')
+}
+
+function activePieceCount(dataSet: Pick<DataSetSummary, 'activePieceCount'>): bigint {
+  return dataSet.activePieceCount ?? 0n
+}
+
+function formatListSize(row: DataSetListRow): string {
+  if (!row.sizeKnown) {
+    return pc.gray('unknown')
+  }
+
+  return formatBytes(row.totalSizeBytes ?? 0n)
+}
+
+function buildTable(rows: string[][]): string[] {
+  const widths = rows[0]?.map((_, columnIndex) => Math.max(...rows.map((row) => row[columnIndex]?.length ?? 0)))
+  if (widths == null) {
+    return []
+  }
+
+  return rows.map((row) =>
+    row
+      .map((cell, columnIndex) => {
+        const width = widths[columnIndex] ?? cell.length
+        return columnIndex === row.length - 1 ? cell : cell.padEnd(width)
+      })
+      .join('  ')
+  )
 }
 
 function renderDataSetHeader(dataSet: DataSetSummary): void {
@@ -209,7 +250,55 @@ export function displayPieceStatuses(
 }
 
 /**
- * Print the lightweight dataset list used for the default command output.
+ * Print a compact one-row-per-data-set table for the list command.
+ */
+export function displayDataSetList(
+  dataSets: DataSetListRow[],
+  network: string,
+  address: string,
+  emptyMessage?: string
+): void {
+  if (dataSets.length === 0) {
+    log.line(pc.yellow(emptyMessage ?? 'No data sets managed by filecoin-pin were found for this account.'))
+    log.flush()
+    return
+  }
+
+  renderNetworkDetails(network, address)
+
+  const ordered = [...dataSets].sort((a, b) => (a.dataSetId < b.dataSetId ? -1 : a.dataSetId > b.dataSetId ? 1 : 0))
+  const tableRows = [
+    ['ID', 'Status', 'Provider ID', 'Pieces', 'Size', 'CDN'],
+    ...ordered.map((dataSet) => [
+      dataSet.dataSetId.toString(),
+      plainStatusLabel(dataSet),
+      dataSet.providerId.toString(),
+      activePieceCount(dataSet).toString(),
+      formatListSize(dataSet),
+      dataSet.withCDN ? 'enabled' : 'disabled',
+    ]),
+  ]
+
+  for (const line of buildTable(tableRows)) {
+    log.line(line)
+  }
+
+  const knownSize = ordered.reduce((sum, dataSet) => {
+    if (!dataSet.sizeKnown) {
+      return sum
+    }
+    return sum + (dataSet.totalSizeBytes ?? 0n)
+  }, 0n)
+  const totalPieces = ordered.reduce((sum, dataSet) => sum + activePieceCount(dataSet), 0n)
+
+  log.line('')
+  log.line(`${ordered.length} data sets, ${totalPieces} active pieces, ${formatBytes(knownSize)} total known size`)
+  log.line('Run `filecoin-pin data-set show <id>` for full details.')
+  log.flush()
+}
+
+/**
+ * Print detailed data-set information.
  */
 export function displayDataSets(
   dataSets: DataSetSummary[],
