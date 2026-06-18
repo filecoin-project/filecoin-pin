@@ -1,6 +1,5 @@
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import type { DataSetListRow } from '../core/data-set/enrich-list-sizes.js'
 import type { DataSetSummary, PieceInfo } from '../core/data-set/types.js'
 import { PieceStatus } from '../core/data-set/types.js'
 import { formatFileSize } from '../utils/cli-helpers.js'
@@ -58,14 +57,6 @@ function renderNetworkDetails(network: string, address: string): void {
 
 function activePieceCount(dataSet: Pick<DataSetSummary, 'activePieceCount'>): bigint {
   return dataSet.activePieceCount ?? 0n
-}
-
-function formatListSize(row: DataSetListRow): string {
-  if (!row.sizeKnown) {
-    return pc.gray('unknown')
-  }
-
-  return formatBytes(row.totalSizeBytes ?? 0n)
 }
 
 function buildTable(rows: string[][]): string[] {
@@ -253,7 +244,7 @@ export function displayPieceStatuses(
  * Print a compact one-row-per-data-set table for the list command.
  */
 export function displayDataSetList(
-  dataSets: DataSetListRow[],
+  dataSets: DataSetSummary[],
   network: string,
   address: string,
   emptyMessage?: string
@@ -268,13 +259,12 @@ export function displayDataSetList(
 
   const ordered = [...dataSets].sort((a, b) => (a.dataSetId < b.dataSetId ? -1 : a.dataSetId > b.dataSetId ? 1 : 0))
   const tableRows = [
-    ['ID', 'Status', 'Provider ID', 'Pieces', 'Size', 'CDN'],
+    ['ID', 'Status', 'Provider ID', 'Pieces', 'CDN'],
     ...ordered.map((dataSet) => [
       dataSet.dataSetId.toString(),
       plainStatusLabel(dataSet),
       dataSet.providerId.toString(),
       activePieceCount(dataSet).toString(),
-      formatListSize(dataSet),
       dataSet.withCDN ? 'enabled' : 'disabled',
     ]),
   ]
@@ -283,16 +273,10 @@ export function displayDataSetList(
     log.line(line)
   }
 
-  const knownSize = ordered.reduce((sum, dataSet) => {
-    if (!dataSet.sizeKnown) {
-      return sum
-    }
-    return sum + (dataSet.totalSizeBytes ?? 0n)
-  }, 0n)
   const totalPieces = ordered.reduce((sum, dataSet) => sum + activePieceCount(dataSet), 0n)
 
   log.line('')
-  log.line(`${ordered.length} data sets, ${totalPieces} active pieces, ${formatBytes(knownSize)} total known size`)
+  log.line(`${ordered.length} data sets, ${totalPieces} active pieces`)
   log.line('Run `filecoin-pin data-set show <id>` for full details.')
   log.flush()
 }
