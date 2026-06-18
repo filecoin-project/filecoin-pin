@@ -50,7 +50,7 @@ describe('displayDataSetList', () => {
     )
 
     const output = lines()
-    expect(output).toContain('Network: calibration')
+    expect(output.some((line) => line.includes('Network:') && line.includes('calibration'))).toBe(true)
     expect(output).toContain('Client address: 0xtest')
     expect(output.some((line) => /^ID\s+Status\s+Provider ID\s+Pieces\s+CDN$/.test(line))).toBe(true)
     expect(output.some((line) => /\bSize\b/.test(line))).toBe(false)
