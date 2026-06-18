@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.0.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.23.2...v1.0.1) (2026-06-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* upgrade to synapse-sdk v1.0.1 and synapse-core v0.7.0 ([#574](https://github.com/filecoin-project/filecoin-pin/issues/574))
+
+### Features
+
+* add dataSetIds input parsing to upload action ([#573](https://github.com/filecoin-project/filecoin-pin/issues/573)) ([79b5d1e](https://github.com/filecoin-project/filecoin-pin/commit/79b5d1e9e37e3872ba06d130ce03c9587918bc38))
+* add session revoke command ([#518](https://github.com/filecoin-project/filecoin-pin/issues/518)) ([48b6f64](https://github.com/filecoin-project/filecoin-pin/commit/48b6f64d96cb63e97313c6912aaece6606352974))
+* prompt dataset selection on ambiguous --data-set-metadata match ([#572](https://github.com/filecoin-project/filecoin-pin/issues/572)) ([6778145](https://github.com/filecoin-project/filecoin-pin/commit/67781455ccf8d2b19a026531987b351ad069c5f4))
+* upgrade to synapse-sdk v1.0.1 and synapse-core v0.7.0 ([#574](https://github.com/filecoin-project/filecoin-pin/issues/574)) ([d005cec](https://github.com/filecoin-project/filecoin-pin/commit/d005cec97805ed0db84ff301773ef4463b9e76a5))
+
+
+### Bug Fixes
+
+* run upload action test on push too ([#558](https://github.com/filecoin-project/filecoin-pin/issues/558)) ([7a996a5](https://github.com/filecoin-project/filecoin-pin/commit/7a996a58fdea57dbf17d7b56922ec6f5df02f78d))
+
+
+### Chores
+
+* configure release-please for proper semver ([#582](https://github.com/filecoin-project/filecoin-pin/issues/582)) ([bad16db](https://github.com/filecoin-project/filecoin-pin/commit/bad16dbd1969dd7761f452ab126bc3bbaa6b1c3d))
+* release as 1.0.1 ([#586](https://github.com/filecoin-project/filecoin-pin/issues/586)) ([4f6ba80](https://github.com/filecoin-project/filecoin-pin/commit/4f6ba809f1743674313df17d7804395ef381b6dc))
+
+
+### Documentation
+
+* fix metadata table rendering in glossary ([#567](https://github.com/filecoin-project/filecoin-pin/issues/567)) ([aec3373](https://github.com/filecoin-project/filecoin-pin/commit/aec337383501fc05aea75f73487a679f80e7840f))
+* pad test uploads past SP minimum size in DEVELOPMENT.md ([#571](https://github.com/filecoin-project/filecoin-pin/issues/571)) ([10b5dbe](https://github.com/filecoin-project/filecoin-pin/commit/10b5dbedff708c391c57886aff49df5ea5f0cb99))
+
 ## [0.23.2](https://github.com/filecoin-project/filecoin-pin/compare/v0.23.1...v0.23.2) (2026-06-09)
 
 
