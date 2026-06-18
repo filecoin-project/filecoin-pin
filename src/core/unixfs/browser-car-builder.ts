@@ -10,35 +10,47 @@ import { CarReader, CarWriter } from '@ipld/car'
 import toBuffer from 'it-to-buffer'
 import { CID } from 'multiformats/cid'
 import { CARWritingBlockstore } from '../car/browser-car-blockstore.js'
+import { carInputError, isCar } from '../car/is-car.js'
+import { importerOptions } from './importer-options.js'
 
 // Placeholder CID used during CAR creation (will be replaced with actual root)
 const PLACEHOLDER_CID = CID.parse('bafyaaiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
 
 export interface CreateCarOptions {
-  bare?: boolean
   onProgress?: (bytesProcessed: number, totalBytes: number) => void
 }
 
 export interface CreateCarResult {
   carBytes: Uint8Array
   rootCid: CID
+  /** Basename of the source, or `null` when none is available. Useful for piece metadata. */
+  name: string | null
 }
 
 /**
  * Create a CAR file from a File using UnixFS encoding
  *
+ * Files are encoded without a parent-directory wrapper (IPIP-499
+ * conformance). The basename is exposed via CreateCarResult so callers
+ * can route it into piece metadata.
+ *
  * @param file - Browser File object to encode
- * @param options - Optional bare flag and progress callback
- * @returns CAR bytes and root CID
+ * @param options - Optional progress callback
+ * @returns CAR bytes, root CID, and source name
  */
 export async function createCarFromFile(file: File, options: CreateCarOptions = {}): Promise<CreateCarResult> {
-  const { bare = false } = options
+  // Refuse to wrap an existing CAR in a new UnixFS DAG. `Blob.stream()`
+  // returns a fresh stream on each call, so the upload path below is
+  // unaffected by the sniff.
+  if (await isCar(file.stream())) {
+    throw carInputError(file.name)
+  }
 
   const onProgress = options.onProgress
   let bytesProcessed = 0
   const totalBytes = file.size
 
-  return createCar(async (fs) => {
+  return createCar({ name: file.name }, async (fs) => {
     // Create async iterable from file stream
     async function* fileContent() {
       const reader = file.stream().getReader()
@@ -57,45 +69,25 @@ export async function createCarFromFile(file: File, options: CreateCarOptions = 
       }
     }
 
-    let rootCid: CID
-    if (bare) {
-      // Bare mode: add file directly as byte stream without any wrapper
-      rootCid = await fs.addByteStream(fileContent())
-    } else {
-      // Directory wrapper mode: use addFile which automatically creates a directory wrapper
-      rootCid = await fs.addFile({
-        path: file.name,
-        content: fileContent(),
-      })
-    }
-
-    return rootCid
+    return fs.addByteStream(fileContent(), importerOptions)
   })
 }
 
 /**
- * Create a CAR file from multiple Files using UnixFS encoding
- *
- * @param files - Array of browser File objects to encode
- * @param options - Optional progress callback
- * @returns CAR bytes and root CID
+ * Multi-file uploads without a `webkitRelativePath` have no meaningful
+ * basename, so `name` is returned as `null` and no `name` piece metadata is
+ * attached (see `withDerivedNameMetadata`).
  */
 export async function createCarFromFiles(files: File[], options: CreateCarOptions = {}): Promise<CreateCarResult> {
   if (files.length === 0) {
     throw new Error('At least one file is required')
   }
 
-  // If bare mode is requested with multiple files, throw error
-  if (options.bare && files.length > 1) {
-    throw new Error('--bare flag is not supported for multiple files')
-  }
-
-  // Single file with bare mode
-  if (options.bare && files.length === 1 && files[0] != null) {
+  if (files.length === 1 && files[0] != null) {
     return createCarFromFile(files[0], options)
   }
 
-  return createCar(async (fs) => {
+  return createCar({ name: null }, async (fs) => {
     // Convert files to addAll format
     async function* fileGenerator() {
       for (const file of files) {
@@ -122,7 +114,7 @@ export async function createCarFromFiles(files: File[], options: CreateCarOption
 
     // Add all entries using addAll
     const entries = []
-    for await (const entry of fs.addAll(fileGenerator())) {
+    for await (const entry of fs.addAll(fileGenerator(), importerOptions)) {
       entries.push(entry)
     }
 
@@ -130,7 +122,7 @@ export async function createCarFromFiles(files: File[], options: CreateCarOption
     const rootCid = entries[entries.length - 1]?.cid
     if (!rootCid) {
       // Empty - create a single empty directory block
-      const emptyDirCid = await fs.addDirectory()
+      const emptyDirCid = await fs.addDirectory(undefined, importerOptions)
       return emptyDirCid
     }
 
@@ -159,8 +151,12 @@ export async function createCarFromFileList(files: File[], options: CreateCarOpt
     return createCarFromFiles(files, options)
   }
 
+  // Top-level directory name is the first segment of any webkitRelativePath.
+  const sample = (files.find((f) => (f as any).webkitRelativePath) as any)?.webkitRelativePath as string | undefined
+  const dirName = sample?.split('/')[0] ?? null
+
   // Has directory structure - preserve it
-  return createCar(async (fs) => {
+  return createCar({ name: dirName }, async (fs) => {
     // Convert files to addAll format with paths
     async function* fileGenerator() {
       for (const file of files) {
@@ -189,7 +185,7 @@ export async function createCarFromFileList(files: File[], options: CreateCarOpt
 
     // Add all entries using addAll
     const entries = []
-    for await (const entry of fs.addAll(fileGenerator())) {
+    for await (const entry of fs.addAll(fileGenerator(), importerOptions)) {
       entries.push(entry)
     }
 
@@ -197,7 +193,7 @@ export async function createCarFromFileList(files: File[], options: CreateCarOpt
     const rootCid = entries[entries.length - 1]?.cid
     if (!rootCid) {
       // Empty - create a single empty directory block
-      const emptyDirCid = await fs.addDirectory()
+      const emptyDirCid = await fs.addDirectory(undefined, importerOptions)
       return emptyDirCid
     }
 
@@ -208,14 +204,12 @@ export async function createCarFromFileList(files: File[], options: CreateCarOpt
 /**
  * Common CAR creation logic
  *
- * @param content - File or Files to encode
- * @param options - Options including type
+ * @param meta - Source name surfaced on CreateCarResult
  * @param addContent - Function that adds content to UnixFS and returns the root CID
- * @returns CAR bytes and root CID
+ * @returns CAR bytes, root CID, and source name
  */
 async function createCar(
-  // content: File | File[],
-  // options: CreateCarOptions & { type: 'file' | 'directory' },
+  meta: { name: string | null },
   addContent: (fs: any) => Promise<CID>
 ): Promise<CreateCarResult> {
   // Create blockstore with placeholder CID
@@ -241,7 +235,7 @@ async function createCar(
   // Update the root CID in the CAR bytes
   carBytes = await updateRootCidInCar(carBytes, rootCid)
 
-  return { carBytes, rootCid }
+  return { carBytes, rootCid, name: meta.name }
 }
 
 /**

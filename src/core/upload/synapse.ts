@@ -7,21 +7,25 @@
  */
 import type { CopyResult, FailedAttempt, PieceCID, PullStatus, Synapse, UploadResult } from '@filoz/synapse-sdk'
 import { METADATA_KEYS, type PDPProvider } from '@filoz/synapse-sdk'
-import type { StorageManagerUploadOptions } from '@filoz/synapse-sdk/storage'
+import type { StorageContext, StorageManagerUploadOptions } from '@filoz/synapse-sdk/storage'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
-import { DEFAULT_DATA_SET_METADATA } from '../synapse/constants.js'
+import type { Hash } from 'viem'
+import { APPLICATION_SOURCE } from '../synapse/constants.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 
 export type UploadProgressEvents =
-  | ProgressEvent<'onStored', { providerId: bigint; pieceCid: PieceCID }>
-  | ProgressEvent<'onPiecesAdded', { txHash: `0x${string}`; providerId: bigint }>
-  | ProgressEvent<'onPiecesConfirmed', { dataSetId: bigint; providerId: bigint; pieceIds: bigint[] }>
-  | ProgressEvent<'onCopyComplete', { providerId: bigint; pieceCid: PieceCID }>
-  | ProgressEvent<'onCopyFailed', { providerId: bigint; pieceCid: PieceCID; error: Error }>
-  | ProgressEvent<'onPullProgress', { providerId: bigint; pieceCid: PieceCID; status: PullStatus }>
-  | ProgressEvent<'onProviderSelected', { provider: PDPProvider }>
-  | ProgressEvent<'onDataSetResolved', { dataSetId: bigint; provider: PDPProvider }>
+  | ProgressEvent<'uploadProgress', { bytesUploaded: number }>
+  | ProgressEvent<'stored', { providerId: bigint; pieceCid: PieceCID }>
+  | ProgressEvent<'piecesAdded', { txHash: Hash; providerId: bigint }>
+  | ProgressEvent<'piecesConfirmed', { dataSetId: bigint; providerId: bigint; pieceIds: bigint[] }>
+  | ProgressEvent<'copyComplete', { providerId: bigint; pieceCid: PieceCID }>
+  | ProgressEvent<'copyFailed', { providerId: bigint; pieceCid: PieceCID; error: Error }>
+  | ProgressEvent<'pullProgress', { providerId: bigint; pieceCid: PieceCID; status: PullStatus }>
+  | ProgressEvent<'providerSelected', { provider: PDPProvider }>
+  | ProgressEvent<'dataSetResolved', { dataSetId: bigint; provider: PDPProvider }>
+
+export type SynapseUploadData = Uint8Array | ReadableStream<Uint8Array>
 
 export interface SynapseUploadOptions {
   /**
@@ -50,12 +54,41 @@ export interface SynapseUploadOptions {
   copies?: number
 
   /**
-   * Specific provider IDs to use (mutually exclusive with dataSetIds).
+   * Pre-created storage contexts to use directly. When provided, the SDK
+   * skips provider selection and uses these contexts as-is.
+   *
+   * Mutually exclusive with `providerIds`, `dataSetIds`, and `copies`.
+   *
+   * @example Upload using a pre-resolved context
+   * ```ts
+   * const [ctx] = await synapse.storage.createContexts({ providerIds: [9n] })
+   * uploadToSynapse(synapse, carData, rootCid, logger, { contexts: [ctx] })
+   * ```
+   */
+  contexts?: StorageContext[]
+
+  /**
+   * Specific provider IDs to upload to. The SDK resolves or creates data sets
+   * on each provider automatically. Mutually exclusive with `dataSetIds` and
+   * `contexts`.
+   *
+   * This is the recommended way to target specific providers. Do not call
+   * `createContext()` to resolve data sets first. Pass provider IDs here
+   * and the SDK handles the rest.
+   *
+   * @example Upload to two specific providers
+   * ```ts
+   * uploadToSynapse(synapse, carData, rootCid, logger, { providerIds: [4n, 9n] })
+   * ```
    */
   providerIds?: bigint[]
 
   /**
-   * Specific data set IDs to use (mutually exclusive with providerIds).
+   * Specific existing data set IDs to target. Mutually exclusive with
+   * `providerIds` and `contexts`.
+   *
+   * Use only when resuming into a known data set from a prior operation.
+   * For first-time uploads to specific providers, use `providerIds` instead.
    */
   dataSetIds?: bigint[]
 
@@ -73,6 +106,8 @@ export interface SynapseUploadOptions {
 export interface SynapseUploadResult {
   pieceCid: string
   size: number
+  requestedCopies: number
+  complete: boolean
   copies: CopyResult[]
   failedAttempts: FailedAttempt[]
 }
@@ -100,7 +135,7 @@ export function getServiceURL(providerInfo: PDPProvider): string {
  * copies.
  *
  * @param synapse - Initialized Synapse instance
- * @param carData - CAR data as Uint8Array
+ * @param carData - CAR data as bytes or a readable stream
  * @param rootCid - The IPFS root CID to associate with this piece
  * @param logger - Logger instance for tracking
  * @param options - Upload options including context selection and callbacks
@@ -108,7 +143,7 @@ export function getServiceURL(providerInfo: PDPProvider): string {
  */
 export async function uploadToSynapse(
   synapse: Synapse,
-  carData: Uint8Array,
+  carData: SynapseUploadData,
   rootCid: CID,
   logger: Logger,
   options: SynapseUploadOptions = {}
@@ -117,6 +152,27 @@ export async function uploadToSynapse(
 
   const { onProgress, contextId = 'upload' } = options
 
+  if (options.contexts != null) {
+    const conflicting = [
+      options.providerIds != null && 'providerIds',
+      options.dataSetIds != null && 'dataSetIds',
+      options.copies != null && 'copies',
+      options.excludeProviderIds != null && 'excludeProviderIds',
+    ].filter(Boolean)
+    if (conflicting.length > 0) {
+      throw new Error(
+        `Cannot combine 'contexts' with ${conflicting.join(', ')}. ` +
+          'Pre-created contexts fully determine provider targeting and copy count.'
+      )
+    }
+  } else if (options.providerIds != null && options.dataSetIds != null) {
+    throw new Error(
+      "Cannot specify both 'providerIds' and 'dataSetIds'. " +
+        'To target specific providers, use providerIds (recommended). ' +
+        'Use dataSetIds only when resuming into a known dataset from a prior operation.'
+    )
+  }
+
   const uploadOptions: StorageManagerUploadOptions = {
     pieceMetadata: {
       ...(options.pieceMetadata ?? {}),
@@ -124,6 +180,18 @@ export async function uploadToSynapse(
     },
 
     callbacks: {
+      onProgress: (bytesUploaded) => {
+        logger.debug(
+          {
+            event: 'synapse.upload.progress',
+            contextId,
+            bytesUploaded,
+          },
+          'Upload progress update'
+        )
+        onProgress?.({ type: 'uploadProgress', data: { bytesUploaded } })
+      },
+
       onProviderSelected: (provider) => {
         logger.info(
           {
@@ -134,7 +202,7 @@ export async function uploadToSynapse(
           },
           'Provider selected'
         )
-        onProgress?.({ type: 'onProviderSelected', data: { provider } })
+        onProgress?.({ type: 'providerSelected', data: { provider } })
       },
 
       onDataSetResolved: (info) => {
@@ -147,7 +215,7 @@ export async function uploadToSynapse(
           },
           'Data set resolved'
         )
-        onProgress?.({ type: 'onDataSetResolved', data: { dataSetId: info.dataSetId, provider: info.provider } })
+        onProgress?.({ type: 'dataSetResolved', data: { dataSetId: info.dataSetId, provider: info.provider } })
       },
 
       onStored: (providerId, pieceCid) => {
@@ -160,7 +228,7 @@ export async function uploadToSynapse(
           },
           'Piece stored on provider'
         )
-        onProgress?.({ type: 'onStored', data: { providerId, pieceCid } })
+        onProgress?.({ type: 'stored', data: { providerId, pieceCid } })
       },
 
       onPiecesAdded: (txHash, providerId, pieces) => {
@@ -174,7 +242,7 @@ export async function uploadToSynapse(
           },
           'Piece addition transaction submitted'
         )
-        onProgress?.({ type: 'onPiecesAdded', data: { txHash, providerId } })
+        onProgress?.({ type: 'piecesAdded', data: { txHash, providerId } })
       },
 
       onPiecesConfirmed: (dataSetId, providerId, pieces) => {
@@ -189,7 +257,7 @@ export async function uploadToSynapse(
           },
           'Piece addition confirmed on-chain'
         )
-        onProgress?.({ type: 'onPiecesConfirmed', data: { dataSetId, providerId, pieceIds } })
+        onProgress?.({ type: 'piecesConfirmed', data: { dataSetId, providerId, pieceIds } })
       },
 
       onCopyComplete: (providerId, pieceCid) => {
@@ -202,7 +270,7 @@ export async function uploadToSynapse(
           },
           'Secondary copy complete'
         )
-        onProgress?.({ type: 'onCopyComplete', data: { providerId, pieceCid } })
+        onProgress?.({ type: 'copyComplete', data: { providerId, pieceCid } })
       },
 
       onCopyFailed: (providerId, pieceCid, error) => {
@@ -216,7 +284,7 @@ export async function uploadToSynapse(
           },
           'Secondary copy failed'
         )
-        onProgress?.({ type: 'onCopyFailed', data: { providerId, pieceCid, error } })
+        onProgress?.({ type: 'copyFailed', data: { providerId, pieceCid, error } })
       },
 
       onPullProgress: (providerId, pieceCid, status) => {
@@ -230,30 +298,57 @@ export async function uploadToSynapse(
           },
           'Pull progress update'
         )
-        onProgress?.({ type: 'onPullProgress', data: { providerId, pieceCid, status } })
+        onProgress?.({ type: 'pullProgress', data: { providerId, pieceCid, status } })
       },
     },
   }
 
-  // Always include default data set metadata (withIPFSIndexing, source).
-  // User-supplied metadata can extend but not remove these defaults.
-  uploadOptions.metadata = {
-    ...DEFAULT_DATA_SET_METADATA,
-    ...(options.metadata ?? {}),
+  /**
+   * Skip injecting default metadata when the caller pinned a target by `dataSetIds`
+   * or pre-resolved `contexts`. SDK metadata is used for smart-select matching and
+   * for initializing newly-created datasets. Neither applies once the dataset is
+   * chosen by ID, and injecting defaults would risk silent mismatches if the SDK
+   * ever consults metadata on the resolve-by-id path.
+   */
+  const hasResolvedTarget = options.dataSetIds != null || options.contexts != null
+
+  if (hasResolvedTarget) {
+    if (options.metadata != null) {
+      uploadOptions.metadata = options.metadata
+    }
+  } else {
+    const hasCallerSource = options.metadata?.[METADATA_KEYS.SOURCE] != null || synapse.storage.source != null
+
+    const baseMetadata: Record<string, string> = {
+      [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+    }
+    if (!hasCallerSource) {
+      baseMetadata[METADATA_KEYS.SOURCE] = APPLICATION_SOURCE
+    }
+
+    uploadOptions.metadata = {
+      ...baseMetadata,
+      ...(options.metadata ?? {}),
+    }
   }
 
   // Pass through context selection options
-  if (options.copies != null) {
-    uploadOptions.copies = options.copies
-  }
-  if (options.providerIds != null) {
-    uploadOptions.providerIds = options.providerIds
-  }
-  if (options.dataSetIds != null) {
-    uploadOptions.dataSetIds = options.dataSetIds
-  }
-  if (options.excludeProviderIds != null) {
-    uploadOptions.excludeProviderIds = options.excludeProviderIds
+  if (options.contexts != null) {
+    // Contexts carry their own provider/dataset bindings; no other targeting needed
+    uploadOptions.contexts = options.contexts
+  } else {
+    if (options.copies != null) {
+      uploadOptions.copies = options.copies
+    }
+    if (options.providerIds != null) {
+      uploadOptions.providerIds = options.providerIds
+    }
+    if (options.dataSetIds != null) {
+      uploadOptions.dataSetIds = options.dataSetIds
+    }
+    if (options.excludeProviderIds != null) {
+      uploadOptions.excludeProviderIds = options.excludeProviderIds
+    }
   }
   if (options.signal != null) {
     uploadOptions.signal = options.signal
@@ -276,6 +371,8 @@ export async function uploadToSynapse(
   return {
     pieceCid: synapseResult.pieceCid.toString(),
     size: synapseResult.size,
+    requestedCopies: synapseResult.requestedCopies,
+    complete: synapseResult.complete,
     copies: synapseResult.copies,
     failedAttempts: synapseResult.failedAttempts,
   }

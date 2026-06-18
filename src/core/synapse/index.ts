@@ -13,15 +13,31 @@ import { type Chain, calibration, mainnet, Synapse, type SynapseOptions } from '
 export { calibration, mainnet, type Chain }
 
 import type { SessionKey } from '@filoz/synapse-core/session-key'
-import { fromSecp256k1 } from '@filoz/synapse-core/session-key'
+import {
+  AddPiecesPermission,
+  CreateDataSetPermission,
+  DefaultFwssPermissions,
+  DeleteDataSetPermission,
+  fromSecp256k1,
+  SchedulePieceRemovalsPermission,
+} from '@filoz/synapse-core/session-key'
 import type { Logger } from 'pino'
-import { type Account, custom, getAddress, type HttpTransport, http, type WebSocketTransport, webSocket } from 'viem'
+import {
+  type Account,
+  type Address,
+  custom,
+  getAddress,
+  type Hex,
+  type HttpTransport,
+  type WebSocketTransport,
+} from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { APPLICATION_SOURCE } from './constants.js'
+import { createTransport } from './create-transport.js'
+import { resolveChainFromRpc } from './resolve-chain-from-rpc.js'
 
 export * from './constants.js'
-
-const WEBSOCKET_REGEX = /^ws(s)?:\/\//i
+export { createTransport } from './create-transport.js'
 
 /**
  * Application configuration for CLI and pinning server
@@ -30,7 +46,13 @@ export interface Config {
   port: number
   host: string
   privateKey: string | undefined
+  walletAddress: string | undefined
+  sessionKey: string | undefined
+  accessToken: string | undefined
+  /** Allow the pinning server to start without an access token, serving all requests unauthenticated. */
+  allowNoAuth?: boolean
   rpcUrl: string
+  chain?: Chain
   databasePath: string
   carStoragePath: string
   logLevel: string
@@ -40,9 +62,9 @@ export interface Config {
  * Common options for all Synapse configurations
  */
 interface BaseSynapseConfig {
-  /** RPC endpoint for the target Filecoin network. Defaults to calibration chain transport. */
+  /** RPC endpoint for the target Filecoin network. Defaults to mainnet chain transport. */
   rpcUrl?: string
-  /** Target chain. Defaults to calibration. */
+  /** Target chain. Defaults to mainnet. */
   chain?: Chain
   /** Enable CDN service for datasets */
   withCDN?: boolean
@@ -54,22 +76,22 @@ interface BaseSynapseConfig {
  * Standard authentication with private key
  */
 export interface PrivateKeyConfig extends BaseSynapseConfig {
-  privateKey: `0x${string}`
+  privateKey: Hex
 }
 
 /**
  * Session key authentication with owner address and session key private key
  */
 export interface SessionKeyConfig extends BaseSynapseConfig {
-  walletAddress: `0x${string}`
-  sessionKey: `0x${string}`
+  walletAddress: Address
+  sessionKey: Hex
 }
 
 /**
  * Read-only mode using an address (cannot sign transactions)
  */
 export interface ReadOnlyConfig extends BaseSynapseConfig {
-  walletAddress: `0x${string}`
+  walletAddress: Address
   readOnly: true
 }
 
@@ -109,11 +131,35 @@ function isReadOnlyConfig(config: SynapseSetupConfig): config is ReadOnlyConfig 
   return 'readOnly' in config && (config as ReadOnlyConfig).readOnly === true && 'walletAddress' in config
 }
 
-function createTransport(rpcUrl: string): HttpTransport | WebSocketTransport {
-  if (WEBSOCKET_REGEX.test(rpcUrl)) {
-    return webSocket(rpcUrl)
-  }
-  return http(rpcUrl)
+const PERMISSION_NAMES: Record<string, string> = {
+  [CreateDataSetPermission]: 'CreateDataSet',
+  [DeleteDataSetPermission]: 'DeleteDataSet',
+  [AddPiecesPermission]: 'AddPieces',
+  [SchedulePieceRemovalsPermission]: 'SchedulePieceRemovals',
+}
+
+function checkSessionKeyPermissions(key: SessionKey<'Secp256k1'>, ownerAddress: string): void {
+  const missing = DefaultFwssPermissions.filter((p) => !key.hasPermission(p))
+  if (missing.length === 0) return
+
+  const now = BigInt(Math.floor(Date.now() / 1000))
+  const lines = missing.map((p) => {
+    const name = PERMISSION_NAMES[p] ?? p
+    const expiry = key.expirations[p] ?? 0n
+    if (expiry > 0n && expiry < now) {
+      return `  • ${name}: expired at ${new Date(Number(expiry) * 1000).toISOString()}`
+    }
+    return `  • ${name}: never authorized`
+  })
+
+  const footnotes = missing.map((p) => `  ${PERMISSION_NAMES[p] ?? p}: ${p}`)
+
+  throw new Error(
+    `Session key ${key.address} is missing ${missing.length} required permission(s):\n` +
+      lines.join('\n') +
+      `\nAuthorize this session key from owner wallet ${ownerAddress}.\nPermission hashes:\n` +
+      footnotes.join('\n')
+  )
 }
 
 /**
@@ -124,11 +170,24 @@ function createTransport(rpcUrl: string): HttpTransport | WebSocketTransport {
  * @returns Initialized Synapse instance
  */
 export async function initializeSynapse(config: SynapseSetupConfig, logger?: Logger): Promise<Synapse> {
-  const chain = config.chain ?? calibration
-  const rpcUrl = config.rpcUrl ?? chain.rpcUrls.default.webSocket?.[0] ?? chain.rpcUrls.default.http[0]
-  const transport = rpcUrl ? createTransport(rpcUrl) : undefined
+  let chain: Chain
+  let rpcUrl: string | undefined
+  let transport: HttpTransport | WebSocketTransport | undefined
 
-  let account: Account | `0x${string}`
+  if (config.rpcUrl) {
+    // Probe the RPC endpoint's chainId so the chain object reflects what the endpoint actually serves.
+    // CLI/server callers enforce that --rpc-url is mutually exclusive with --network, so any chain hint
+    // here is from a programmatic caller and is treated as advisory.
+    rpcUrl = config.rpcUrl
+    transport = createTransport(rpcUrl)
+    chain = await resolveChainFromRpc(transport, logger)
+  } else {
+    chain = config.chain ?? mainnet
+    rpcUrl = chain.rpcUrls.default.webSocket?.[0] ?? chain.rpcUrls.default.http[0]
+    transport = rpcUrl ? createTransport(rpcUrl) : undefined
+  }
+
+  let account: Account | Address
   let sessionKey: SessionKey<'Secp256k1'> | undefined
 
   if (isReadOnlyConfig(config)) {
@@ -144,6 +203,7 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
       ...(transport ? { transport } : {}),
     })
     await sessionKey.syncExpirations()
+    checkSessionKeyPermissions(sessionKey, walletAddress)
     logger?.info({ event: 'synapse.init', mode: 'session-key' }, 'Initializing Synapse (session key)')
   } else if (isPrivateKeyConfig(config)) {
     account = privateKeyToAccount(config.privateKey)
@@ -152,6 +212,20 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
     account = config.account
     logger?.info({ event: 'synapse.init', mode: 'account' }, 'Initializing Synapse (pre-created account)')
   } else {
+    const hasWallet = 'walletAddress' in config && config.walletAddress != null
+    const hasSessionKey = 'sessionKey' in config && config.sessionKey != null
+    if (hasWallet && !hasSessionKey) {
+      throw new Error(
+        'Session key authentication requires both --wallet-address and --session-key. ' +
+          'Missing: --session-key / SESSION_KEY.'
+      )
+    }
+    if (hasSessionKey && !hasWallet) {
+      throw new Error(
+        'Session key authentication requires both --wallet-address and --session-key. ' +
+          'Missing: --wallet-address / WALLET_ADDRESS.'
+      )
+    }
     throw new Error(
       'No authentication provided. Supply a private key (--private-key / PRIVATE_KEY), ' +
         'wallet address (--wallet-address / WALLET_ADDRESS), or session key (--session-key / SESSION_KEY).'
@@ -195,9 +269,9 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
  * Handles both string addresses (read-only / session key mode) and
  * full Account objects (private key mode).
  */
-export function getClientAddress(synapse: Synapse): `0x${string}` {
+export function getClientAddress(synapse: Synapse): Address {
   const account = synapse.client.account
-  return (typeof account === 'string' ? account : account.address) as `0x${string}`
+  return (typeof account === 'string' ? account : account.address) as Address
 }
 
 /**

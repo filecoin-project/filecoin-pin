@@ -42,6 +42,7 @@ export async function runUpload(buildContext = {}) {
     filecoinPayBalanceLimit,
     withCDN,
     providerIds,
+    dataSetIds,
     dryRun,
   } = inputs
 
@@ -110,11 +111,6 @@ export async function runUpload(buildContext = {}) {
     throw new Error(`CAR file not found at ${carPath}`)
   }
 
-  // Initialize Synapse and upload
-  if (!walletPrivateKey) {
-    throw new Error('walletPrivateKey is required for upload phase')
-  }
-
   /**
    * @type {Partial<UploadResult>}
    * This is a simple trick to get each of these variables defined easily without using a separate let statement and jsdoc for each one.
@@ -137,11 +133,16 @@ export async function runUpload(buildContext = {}) {
     paymentStatus = {
       filecoinPayBalance: '0',
       walletUsdfcBalance: '0',
+      storageCovered: 'Unknown',
       storageRunway: 'Unknown',
       depositedThisRun: '0',
       ...context.paymentStatus,
     }
   } else {
+    if (!walletPrivateKey) {
+      throw new Error('walletPrivateKey is required for upload phase')
+    }
+
     const chain = inputNetwork === 'mainnet' ? mainnet : calibration
     const synapse = await initializeSynapse(
       {
@@ -165,6 +166,9 @@ export async function runUpload(buildContext = {}) {
         minStorageDays,
         filecoinPayBalanceLimit,
         pieceSizeBytes: context.carSize,
+        withCDN,
+        providerIds,
+        dataSetIds,
       },
       logger
     )
@@ -179,7 +183,7 @@ export async function runUpload(buildContext = {}) {
     })
 
     /** @type {UploadConfig} */
-    const uploadOptions = { withCDN, providerIds }
+    const uploadOptions = { withCDN, providerIds, dataSetIds }
 
     const uploadResult = await uploadCarToFilecoin(synapse, carPath, rootCid, uploadOptions, logger)
     pieceCid = uploadResult.pieceCid

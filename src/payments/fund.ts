@@ -4,19 +4,20 @@
  * Adjusts funds to exactly match a target runway (days) or a target deposited amount.
  */
 
-import { confirm } from '@clack/prompts'
+import { confirm, isCancel } from '@clack/prompts'
 import type { Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
+import { CliFatal, CliIncomplete, isCliFatal, isCliIncomplete, setIncompleteExitCode } from '../common/cli-errors.js'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import {
-  calculateStorageRunway,
   checkUSDFCBalance,
+  clampDepositToLimit,
   DEFAULT_LOCKUP_DAYS,
   depositUSDFC,
   executeFilecoinPayFunding,
-  getPaymentStatus,
   planFilecoinPayFunding,
+  toStorageRunwaySummary,
   withdrawUSDFC,
 } from '../core/payments/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
@@ -37,10 +38,11 @@ async function ensureBelowThirtyDaysAllowed(opts: {
   const { spinner, warningLine1, warningLine2 } = opts
   if (!isInteractive()) {
     spinner.stop()
-    console.error(pc.red(warningLine1))
-    console.error(pc.red(warningLine2))
+    log.line(pc.red(warningLine1))
+    log.line(pc.red(warningLine2))
+    log.flush()
     cancel('Fund adjustment aborted')
-    throw new Error(`Unsafe target below ${DEFAULT_LOCKUP_DAYS}-day baseline`)
+    throw new CliFatal(`Unsafe target below ${DEFAULT_LOCKUP_DAYS}-day baseline`)
   }
 
   log.line(pc.yellow('⚠ Warning'))
@@ -52,8 +54,8 @@ async function ensureBelowThirtyDaysAllowed(opts: {
     message: 'Proceed with reducing runway below 30 days?',
     initialValue: false,
   })
-  if (!proceed) {
-    throw new Error('Fund adjustment cancelled by user')
+  if (isCancel(proceed) || !proceed) {
+    throw new CliIncomplete('Fund adjustment cancelled by user')
   }
 }
 
@@ -70,12 +72,9 @@ async function performAdjustment(params: {
     const needed = delta
     const usdfcWallet = await checkUSDFCBalance(synapse)
     if (needed > usdfcWallet) {
-      console.error(
-        pc.red(
-          `✗ Insufficient USDFC in wallet (need ${formatUSDFC(needed)} USDFC, have ${formatUSDFC(usdfcWallet)} USDFC)`
-        )
+      throw new Error(
+        `Insufficient USDFC in wallet (need ${formatUSDFC(needed)} USDFC, have ${formatUSDFC(usdfcWallet)} USDFC)`
       )
-      throw new Error('Insufficient USDFC in wallet')
     }
     if (isTTY()) {
       // we will deposit `needed` USDFC, display confirmation to user unless not TTY or --auto flag was passed
@@ -83,8 +82,8 @@ async function performAdjustment(params: {
         message: `Deposit ${formatUSDFC(needed)} USDFC?`,
         initialValue: false,
       })
-      if (!proceed) {
-        throw new Error('Deposit cancelled by user')
+      if (isCancel(proceed) || !proceed) {
+        throw new CliIncomplete('Deposit cancelled by user')
       }
     }
     spinner.start(depositMsg)
@@ -101,8 +100,8 @@ async function performAdjustment(params: {
         message: `Withdraw ${formatUSDFC(withdrawAmount)} USDFC?`,
         initialValue: false,
       })
-      if (!proceed) {
-        throw new Error('Withdraw cancelled by user')
+      if (isCancel(proceed) || !proceed) {
+        throw new CliIncomplete('Withdraw cancelled by user')
       }
     }
     spinner.start(withdrawMsg)
@@ -116,13 +115,17 @@ async function performAdjustment(params: {
 
 // Helper: summary after adjustment
 async function printSummary(synapse: Synapse, title = 'Updated'): Promise<void> {
-  const updated = await getPaymentStatus(synapse)
-  const runway = calculateStorageRunway(updated)
+  const summary = await synapse.payments.accountSummary({})
+  const runway = toStorageRunwaySummary(summary)
   const runwayDisplay = formatRunwaySummary(runway)
-  log.section(title, [
-    `Deposited: ${formatUSDFC(updated.filecoinPayBalance)} USDFC`,
-    runway.state === 'active' ? `Runway: ~${runwayDisplay}` : `Runway: ${runwayDisplay}`,
-  ])
+  const lines = [`Deposited: ${formatUSDFC(summary.funds)} USDFC`]
+  if (runway.state === 'active') {
+    lines.push(`Storage covered: ~${runwayDisplay.coverage} total`)
+    lines.push(`Top-up needed in: ~${runwayDisplay.runway}`)
+  } else {
+    lines.push(runwayDisplay.coverage)
+  }
+  log.section(title, lines)
 }
 
 /**
@@ -134,14 +137,25 @@ async function printSummary(synapse: Synapse, title = 'Updated'): Promise<void> 
  * @throws Error if adjustment fails or target is unsafe
  */
 export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustmentResult> {
-  const { synapse, fileSize, spinner } = options
+  const { synapse, fileSize, copies, providerIds, dataSetIds, metadata, spinner, maxBalance, withCDN } = options
+  const targetRunwayDays = options.minRunwayDays ?? MIN_RUNWAY_DAYS
 
   spinner?.message('Checking wallet readiness...')
 
+  const contexts = await synapse.storage.createContexts({
+    ...(copies != null ? { copies } : {}),
+    ...(providerIds != null ? { providerIds } : {}),
+    ...(dataSetIds != null ? { dataSetIds } : {}),
+    ...(metadata != null ? { metadata } : {}),
+  })
+  const newDataSetCount = contexts.filter((context) => context.dataSetId == null).length
+
   const planResult = await planFilecoinPayFunding({
     synapse,
-    targetRunwayDays: MIN_RUNWAY_DAYS,
+    targetRunwayDays,
     pieceSizeBytes: fileSize,
+    newDataSetCount,
+    withCDN: withCDN === true,
     ensureAllowances: true,
     allowWithdraw: false,
   })
@@ -159,29 +173,52 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
       adjusted: false,
       delta: 0n,
       newDepositedAmount: plan.projected.depositedBalance,
-      newRunwayDays: plan.projected.runway.days,
-      newRunwayHours: plan.projected.runway.hours,
+      newRunwayDays: plan.projected.runway.runwayDays,
+      newRunwayHours: plan.projected.runway.runwayHours,
     }
   }
 
-  if (plan.walletShortfall != null && plan.walletShortfall > 0n) {
+  // Apply --max-balance ceiling (skip or clamp the planned deposit)
+  const warnings: string[] = []
+  const clamp = clampDepositToLimit(status.filecoinPayBalance, plan.delta, maxBalance)
+  if (clamp.reason === 'already-at-limit') {
+    if (clamp.message) warnings.push(clamp.message)
+    return {
+      adjusted: false,
+      delta: 0n,
+      newDepositedAmount: status.filecoinPayBalance,
+      newRunwayDays: plan.current.runway.runwayDays,
+      newRunwayHours: plan.current.runway.runwayHours,
+      warnings,
+    }
+  }
+  if (clamp.reason === 'clamped' && clamp.message != null) {
+    warnings.push(clamp.message)
+  }
+  const adjustedPlan = clamp.deposit !== plan.delta ? { ...plan, delta: clamp.deposit } : plan
+
+  if (status.walletUsdfcBalance < adjustedPlan.delta) {
     throw new Error(
-      `Insufficient USDFC in wallet (need ${formatUSDFC(plan.delta)} USDFC, have ${formatUSDFC(status.walletUsdfcBalance)} USDFC)`
+      `Insufficient USDFC in wallet (need ${formatUSDFC(adjustedPlan.delta)} USDFC, have ${formatUSDFC(status.walletUsdfcBalance)} USDFC)`
     )
   }
 
-  const depositMsg = `Depositing ${formatUSDFC(plan.delta)} USDFC to ensure ${MIN_RUNWAY_DAYS} day(s) runway...`
+  const depositMsg =
+    clamp.reason === 'clamped'
+      ? `Depositing ${formatUSDFC(adjustedPlan.delta)} USDFC toward ${targetRunwayDays} day(s) runway (limited by --max-balance)...`
+      : `Depositing ${formatUSDFC(adjustedPlan.delta)} USDFC to ensure at least ${targetRunwayDays} day(s) runway...`
   spinner?.message(depositMsg)
-  const execution = await executeFilecoinPayFunding(synapse, plan)
+  const execution = await executeFilecoinPayFunding(synapse, adjustedPlan)
   spinner?.message(`${pc.green('✓')} Deposit complete`)
 
   return {
     adjusted: execution.adjusted,
-    delta: plan.delta,
+    delta: adjustedPlan.delta,
     transactionHash: execution.transactionHash,
     newDepositedAmount: execution.newDepositedAmount,
     newRunwayDays: execution.newRunwayDays,
     newRunwayHours: execution.newRunwayHours,
+    warnings,
   }
 }
 
@@ -193,12 +230,14 @@ export async function runFund(options: FundOptions): Promise<void> {
   const hasDays = options.days != null
   const hasAmount = options.amount != null
   if ((hasDays && hasAmount) || (!hasDays && !hasAmount)) {
-    console.error(pc.red('Error: Specify exactly one of --days <N> or --amount <USDFC>'))
-    throw new Error('Invalid fund options')
+    log.line(pc.red('Error: Specify exactly one of --days <N> or --amount <USDFC>'))
+    log.flush()
+    throw new CliFatal('Specify exactly one of --days <N> or --amount <USDFC>')
   }
   if (options.mode != null && !['exact', 'minimum'].includes(options.mode)) {
-    console.error(pc.red('Error: Invalid mode'))
-    throw new Error(`Invalid mode (must be "exact" or "minimum"), received: '${options.mode}'`)
+    log.line(pc.red(`Error: Invalid mode (must be "exact" or "minimum"), received: '${options.mode}'`))
+    log.flush()
+    throw new CliFatal(`Invalid mode (must be "exact" or "minimum"), received: '${options.mode}'`)
   }
 
   spinner.start('Connecting...')
@@ -213,16 +252,14 @@ export async function runFund(options: FundOptions): Promise<void> {
 
     const targetDays: number = hasDays ? Number(options.days) : 0
     if (hasDays && (!Number.isFinite(targetDays) || targetDays < 0)) {
-      console.error(pc.red('Error: --days must be a non-negative number'))
-      throw new Error('Invalid --days')
+      throw new Error('--days must be a non-negative number')
     }
 
     let targetDeposit: bigint = 0n
     try {
       targetDeposit = options.amount != null ? parseUnits(String(options.amount), 18) : 0n
     } catch {
-      console.error(pc.red(`Error: Invalid --amount '${options.amount}'`))
-      throw new Error('Invalid --amount')
+      throw new Error(`Invalid --amount '${options.amount}'`)
     }
 
     spinner.start('Calculating funding plan...')
@@ -241,24 +278,16 @@ export async function runFund(options: FundOptions): Promise<void> {
       log.line('Use --amount to set a target deposit instead.')
       log.flush()
       cancel('Fund adjustment aborted')
-      throw new Error('No active spend')
+      throw new CliFatal('No active spend')
     }
 
-    let projectedRunwayTarget: number | null = null
-    if (plan.projected.runway.state === 'active') {
-      projectedRunwayTarget =
-        plan.targetType === 'runway-days' ? (plan.targetRunwayDays ?? 0) : plan.projected.runway.days
-    }
+    // Safety baseline measures projected top-up window (net runway after deposit),
+    // sourced from the SDK so --days and --amount paths share one metric.
+    const projectedRunwayDays = plan.projected.runway.state === 'active' ? plan.projected.runway.runwayDays : null
 
-    if (plan.mode !== 'minimum' && projectedRunwayTarget != null && projectedRunwayTarget < DEFAULT_LOCKUP_DAYS) {
-      const line1 =
-        plan.targetType === 'runway-days'
-          ? 'Requested runway below 30-day safety baseline.'
-          : 'Target deposit implies less than 30 days of runway at current spend.'
-      const line2 =
-        plan.targetType === 'runway-days'
-          ? 'WarmStorage reserves 30 days of costs; a shorter runway risks termination.'
-          : 'Increase target or accept risk: shorter runway may cause termination.'
+    if (plan.mode !== 'minimum' && projectedRunwayDays != null && projectedRunwayDays < DEFAULT_LOCKUP_DAYS) {
+      const line1 = `Projected top-up window after this adjustment is less than ${DEFAULT_LOCKUP_DAYS} days.`
+      const line2 = `WarmStorage reserves ${DEFAULT_LOCKUP_DAYS} days of costs; a shorter top-up window risks termination.`
       await ensureBelowThirtyDaysAllowed({
         spinner,
         warningLine1: line1,
@@ -308,14 +337,9 @@ export async function runFund(options: FundOptions): Promise<void> {
     }
 
     if (plan.walletShortfall != null && plan.walletShortfall > 0n) {
-      spinner.stop()
-      console.error(
-        pc.red(
-          `✗ Insufficient USDFC in wallet (need ${formatUSDFC(plan.delta)} USDFC, have ${formatUSDFC(planResult.status.walletUsdfcBalance)} USDFC)`
-        )
+      throw new Error(
+        `Insufficient USDFC in wallet (need ${formatUSDFC(plan.delta)} USDFC, have ${formatUSDFC(planResult.status.walletUsdfcBalance)} USDFC)`
       )
-      cancel('Fund adjustment aborted')
-      throw new Error('Insufficient USDFC in wallet')
     }
 
     await performAdjustment({
@@ -329,9 +353,19 @@ export async function runFund(options: FundOptions): Promise<void> {
     await printSummary(synapse)
     outro('Fund adjustment completed')
   } catch (error) {
-    spinner.stop()
-    console.error(pc.red('✗ Fund adjustment failed'))
-    console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
-    throw error
+    if (isCliIncomplete(error)) {
+      spinner.stop()
+      cancel(error.message)
+      setIncompleteExitCode()
+      return
+    }
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
+    spinner.stop(`${pc.red('✗')} Fund adjustment failed: ${msg}`)
+    cancel('Fund adjustment failed')
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

@@ -58,11 +58,11 @@ vi.mock('../../utils/cli-logger.js', () => ({
 }))
 
 vi.mock('@filoz/synapse-core/warm-storage', () => ({
-  getApprovedProviders: mockGetApprovedProviders,
+  getApprovedProviderIds: mockGetApprovedProviders,
 }))
 
 vi.mock('@filoz/synapse-core/endorsements', () => ({
-  getProviderIds: mockGetEndorsedProviderIds,
+  getEndorsedProviderIds: mockGetEndorsedProviderIds,
 }))
 
 describe('provider command', () => {
@@ -71,7 +71,7 @@ describe('provider command', () => {
 
     // Configure default mock behaviors
     mockGetApprovedProviders.mockResolvedValue([1n, 2n])
-    mockGetEndorsedProviderIds.mockResolvedValue(new Set([1n]))
+    mockGetEndorsedProviderIds.mockResolvedValue([1n])
 
     mockGetProvider.mockImplementation(async ({ providerId }: any) => {
       if (providerId === 1n)

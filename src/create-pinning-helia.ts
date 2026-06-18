@@ -1,16 +1,20 @@
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { bitswap } from '@helia/block-brokers'
+import type { Helia } from '@helia/interface'
+import { httpGatewayRouting, libp2pRouting } from '@helia/routers'
+import { Helia as HeliaClass } from '@helia/utils'
 import { identify } from '@libp2p/identify'
 import { tcp } from '@libp2p/tcp'
 import { multiaddr } from '@multiformats/multiaddr'
 import { MemoryDatastore } from 'datastore-core'
-import { createHelia, type Helia } from 'helia'
 import { createLibp2p } from 'libp2p'
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { CARWritingBlockstore } from './core/car/index.js'
 import type { Config } from './core/synapse/index.js'
+
+const IDENTIFY_MAX_MESSAGE_SIZE = 1024 * 64
 
 export interface PinningHeliaOptions {
   config: Config
@@ -50,7 +54,7 @@ export async function createPinningHeliaNode(options: PinningHeliaOptions): Prom
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     services: {
-      identify: identify(),
+      identify: identify({ maxMessageSize: IDENTIFY_MAX_MESSAGE_SIZE }),
     },
     // No bootstrap or mdns - we'll connect directly to origins
   })
@@ -71,29 +75,31 @@ export async function createPinningHeliaNode(options: PinningHeliaOptions): Prom
     logger.warn({ cid: data.cid.toString() }, 'Block not found during fetch')
   })
 
-  const helia = await createHelia({
+  // The `helia` meta-package's createHelia statically imports its default
+  // libp2p config, including @libp2p/webrtc and its node-datachannel native
+  // module. This node supplies its own TCP-only libp2p, so Helia is
+  // constructed directly from @helia/utils. libp2pRouting and
+  // httpGatewayRouting are the same routers createHelia configures.
+  const helia = new HeliaClass({
     libp2p,
     blockstore: carBlockstore,
     datastore: new MemoryDatastore(),
     blockBrokers: [bitswap()],
+    routers: [libp2pRouting(libp2p), httpGatewayRouting()],
   })
+  await helia.start()
 
   logger.info(`Pinning Helia node started with peer ID: ${helia.libp2p.peerId.toString()}`)
   logger.info(`Writing blocks to CAR file: ${outputPath}`)
 
-  // Connect to origin nodes if provided
+  // Connect to origin node if provided
   if (dialTargets.length > 0) {
-    logger.info({ origins: dialTargets.length }, 'Connecting to origin nodes')
-
-    for (const addr of dialTargets) {
-      try {
-        if (addr != null) {
-          await helia.libp2p.dial(addr)
-          logger.info({ addr: addr.toString() }, 'Connected to origin node')
-        }
-      } catch (error) {
-        logger.warn({ addr: addr?.toString(), error }, 'Failed to connect to origin node')
-      }
+    logger.info({ origins: dialTargets.length }, 'Connecting to origin node')
+    try {
+      await helia.libp2p.dial(dialTargets)
+      logger.info('Connected to origin node')
+    } catch (error) {
+      logger.warn({ error }, 'Failed to connect to origin node')
     }
   }
 

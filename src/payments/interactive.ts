@@ -7,21 +7,24 @@
  */
 
 import { cancel, confirm, isCancel, password, text } from '@clack/prompts'
-import { calibration, mainnet } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
+import { CliFatal, isCliFatal, setIncompleteExitCode } from '../common/cli-errors.js'
 import {
   calculateDepositCapacity,
+  checkAllowances,
   checkAndSetAllowances,
   checkFILBalance,
   checkUSDFCBalance,
   DEFAULT_LOCKUP_DAYS,
   depositUSDFC,
   getPaymentStatus,
+  validateGasRequirement,
   validatePaymentRequirements,
 } from '../core/payments/index.js'
-import { getClientAddress, initializeSynapse, type PrivateKeyConfig } from '../core/synapse/index.js'
+import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
+import { parseCLIAuth } from '../utils/cli-auth.js'
 import { createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
 import { displayAccountInfo, displayDepositWarning, displayPricing } from './setup.js'
@@ -35,16 +38,18 @@ import type { PaymentSetupOptions } from './types.js'
 export async function runInteractiveSetup(options: PaymentSetupOptions): Promise<void> {
   // Check for TTY support
   if (!isTTY()) {
-    console.error(pc.red('Error: Interactive mode requires a TTY terminal.'))
-    console.error('Use --auto flag for non-interactive setup.')
-    process.exit(1)
+    log.line(pc.red('Error: Interactive mode requires a TTY terminal.'))
+    log.line('Use --auto flag for non-interactive setup.')
+    log.flush()
+    throw new CliFatal('Interactive mode requires a TTY terminal')
   }
 
   intro(pc.bold('Filecoin Onchain Cloud Payment Setup'))
+  const s = createSpinner()
 
   try {
     // Get private key
-    let privateKey = options.privateKey || process.env.PRIVATE_KEY
+    let privateKey = options.privateKey
 
     if (!privateKey) {
       const input = await password({
@@ -66,7 +71,10 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       if (isCancel(input)) {
         cancel('Setup cancelled')
-        process.exit(1)
+        // User cancelled: not a failure. Signal "incomplete" (2) distinctly
+        // from success (0) and a caught error (1).
+        setIncompleteExitCode()
+        return
       }
 
       // Add 0x prefix if it was missing
@@ -74,21 +82,9 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     }
 
     // Initialize Synapse
-    const s = createSpinner()
     s.start('Initializing connection...')
 
-    const defaultRpcUrl =
-      options.network === 'mainnet'
-        ? (mainnet.rpcUrls.default.webSocket?.[0] ?? mainnet.rpcUrls.default.http[0])
-        : (calibration.rpcUrls.default.webSocket?.[0] ?? calibration.rpcUrls.default.http[0])
-    const rpcUrl = options.rpcUrl || defaultRpcUrl
-
-    const config: PrivateKeyConfig = {
-      privateKey: privateKey as `0x${string}`,
-    }
-    if (rpcUrl) {
-      config.rpcUrl = rpcUrl
-    }
+    const config = parseCLIAuth({ ...options, privateKey })
     const synapse = await initializeSynapse(config)
     const network = synapse.chain.name
     const address = getClientAddress(synapse)
@@ -100,24 +96,31 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
     const filStatus = await checkFILBalance(synapse)
     const walletUsdfcBalance = await checkUSDFCBalance(synapse)
+    const [status, allowanceCheck] = await Promise.all([getPaymentStatus(synapse), checkAllowances(synapse)])
 
     s.stop(`${pc.green('✓')} Balance check complete`)
 
-    // Validate payment requirements
-    const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
-    if (!validation.isValid) {
-      log.line(`${pc.red('✗')} ${validation.errorMessage}`)
-      if (validation.helpMessage) {
-        log.line('')
-        log.line(`  ${pc.cyan(validation.helpMessage)}`)
+    // Gate on wallet funding only when setup work remains. An account with a
+    // deposit and current allowances can complete this flow without sending a
+    // transaction. A first deposit spends wallet USDFC and gas; an allowance
+    // update spends gas alone, so wallet USDFC is not required for it.
+    const needsFirstDeposit = status.filecoinPayBalance === 0n
+    if (needsFirstDeposit || allowanceCheck.needsUpdate) {
+      const validation = needsFirstDeposit
+        ? validatePaymentRequirements(filStatus.balance, walletUsdfcBalance, filStatus.isCalibnet)
+        : validateGasRequirement(filStatus.balance, filStatus.isCalibnet)
+      if (!validation.isValid) {
+        const errorMsg = validation.errorMessage ?? 'Payment validation failed'
+        log.line(`${pc.red('✗')} ${errorMsg}`)
+        if (validation.helpMessage) {
+          log.line('')
+          log.line(`  ${pc.cyan(validation.helpMessage)}`)
+        }
+        log.flush()
+        cancel('Please fund your wallet and try again')
+        throw new CliFatal(errorMsg)
       }
-      log.flush()
-      cancel('Please fund your wallet and try again')
-      process.exit(1)
     }
-
-    // Now safe to get payment status since we know account exists
-    const status = await getPaymentStatus(synapse)
 
     displayAccountInfo(
       address,
@@ -172,7 +175,8 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
     if (isCancel(shouldDeposit)) {
       cancel('Setup cancelled')
-      process.exit(1)
+      setIncompleteExitCode()
+      return
     }
 
     if (shouldDeposit) {
@@ -204,7 +208,8 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
 
       if (isCancel(amountStr)) {
         cancel('Setup cancelled')
-        process.exit(1)
+        setIncompleteExitCode()
+        return
       }
 
       depositAmount = parseUnits(amountStr, 18)
@@ -263,7 +268,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     log.flush()
 
     // Show deposit warning if needed
-    displayDepositWarning(finalStatus.filecoinPayBalance, finalStatus.currentAllowances.lockupUsed)
+    displayDepositWarning(finalStatus.filecoinPayBalance, finalStatus.currentAllowances.lockupUsage)
 
     // Show appropriate outro message based on whether actions were taken
     if (actionsTaken) {
@@ -272,9 +277,13 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
       outro('No changes made to payment setup')
     }
   } catch (error) {
-    console.error(`\n${pc.red('Error:')}`, error instanceof Error ? error.message : error)
-    process.exitCode = 1
-  } finally {
-    process.exit()
+    if (isCliFatal(error)) {
+      s.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
+    s.stop(`${pc.red('✗')} Setup failed: ${msg}`)
+    cancel('Setup failed')
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

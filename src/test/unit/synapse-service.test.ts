@@ -2,12 +2,21 @@ import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initializeSynapse, type SynapseSetupConfig } from '../../core/synapse/index.js'
-import { uploadToSynapse } from '../../core/upload/index.js'
+import { uploadToSynapse } from '../../core/upload/synapse.js'
 import { createLogger } from '../../logger.js'
 import { MockSynapse } from '../mocks/synapse-mocks.js'
 
 // Mock the Synapse SDK
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
+
+// Mock the session key module so tests never hit the real network
+vi.mock('@filoz/synapse-core/session-key', async () => await import('../mocks/synapse-core-session-key.js'))
+
+// Mock the chainId probe so tests never hit a real RPC endpoint
+vi.mock('../../core/synapse/resolve-chain-from-rpc.js', async () => {
+  const { calibration } = await import('../mocks/synapse-sdk.js')
+  return { resolveChainFromRpc: vi.fn(async () => calibration) }
+})
 
 // Test CID for upload tests
 const TEST_CID = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
@@ -71,6 +80,90 @@ describe('synapse-service', () => {
         'Initializing Synapse (read-only)'
       )
     })
+
+    it('should initialize Synapse in session-key mode', async () => {
+      const config: SynapseSetupConfig = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      }
+
+      const infoSpy = vi.spyOn(logger, 'info')
+      const synapse = await initializeSynapse(config, logger)
+
+      expect(synapse).toBeDefined()
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'synapse.init', mode: 'session-key' }),
+        'Initializing Synapse (session key)'
+      )
+    })
+
+    it('should throw when no authentication is provided', async () => {
+      // AccountConfig with null account satisfies the type but triggers the no-auth branch
+      const config = { rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1' } as any
+
+      await expect(initializeSynapse(config, logger)).rejects.toThrow('No authentication provided')
+    })
+
+    it('should throw when walletAddress is provided without sessionKey', async () => {
+      const config = { walletAddress: '0x1234567890123456789012345678901234567890' } as any
+
+      await expect(initializeSynapse(config, logger)).rejects.toThrow('Missing: --session-key / SESSION_KEY')
+    })
+
+    it('should throw when sessionKey is provided without walletAddress', async () => {
+      const config = {
+        sessionKey: '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+      } as any
+
+      await expect(initializeSynapse(config, logger)).rejects.toThrow('Missing: --wallet-address / WALLET_ADDRESS')
+    })
+  })
+
+  describe('initializeSynapse chain resolution', () => {
+    it('uses the chain probed from the RPC URL when no chain hint is provided', async () => {
+      const { resolveChainFromRpc } = await import('../../core/synapse/resolve-chain-from-rpc.js')
+      const { Synapse, calibration } = await import('../mocks/synapse-sdk.js')
+      vi.mocked(resolveChainFromRpc).mockResolvedValueOnce(calibration as never)
+
+      await initializeSynapse({
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://example.test/rpc',
+      })
+
+      expect(resolveChainFromRpc).toHaveBeenCalledTimes(1)
+      const lastCall = vi.mocked(Synapse.create).mock.calls.at(-1) as unknown as [{ chain: unknown }]
+      expect(lastCall[0]).toMatchObject({ chain: calibration })
+    })
+
+    it('lets the RPC probe override a chain hint passed by a programmatic caller', async () => {
+      const { resolveChainFromRpc } = await import('../../core/synapse/resolve-chain-from-rpc.js')
+      const { Synapse, mainnet, calibration } = await import('../mocks/synapse-sdk.js')
+      vi.mocked(resolveChainFromRpc).mockResolvedValueOnce(calibration as never)
+
+      await initializeSynapse({
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://example.test/rpc',
+        chain: mainnet as never,
+      })
+
+      const lastCall = vi.mocked(Synapse.create).mock.calls.at(-1) as unknown as [{ chain: unknown }]
+      expect(lastCall[0]).toMatchObject({ chain: calibration })
+    })
+
+    it('skips probing when no RPC URL is provided and falls back to mainnet', async () => {
+      const { resolveChainFromRpc } = await import('../../core/synapse/resolve-chain-from-rpc.js')
+      const { Synapse, mainnet } = await import('../mocks/synapse-sdk.js')
+      vi.mocked(resolveChainFromRpc).mockClear()
+
+      await initializeSynapse({
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+      })
+
+      expect(resolveChainFromRpc).not.toHaveBeenCalled()
+      const lastCall = vi.mocked(Synapse.create).mock.calls.at(-1) as unknown as [{ chain: unknown }]
+      expect(lastCall[0]).toMatchObject({ chain: mainnet })
+    })
   })
 
   describe('uploadToSynapse', () => {
@@ -121,6 +214,7 @@ describe('synapse-service', () => {
     })
 
     it('should call upload callbacks', async () => {
+      const progressEvents: number[] = []
       let storedCallbackCalled = false
       let piecesAddedCallbackCalled = false
 
@@ -129,11 +223,15 @@ describe('synapse-service', () => {
         contextId: 'pin-789',
         onProgress(event) {
           switch (event.type) {
-            case 'onStored': {
+            case 'uploadProgress': {
+              progressEvents.push(event.data.bytesUploaded)
+              break
+            }
+            case 'stored': {
               storedCallbackCalled = true
               break
             }
-            case 'onPiecesAdded': {
+            case 'piecesAdded': {
               piecesAddedCallbackCalled = true
               break
             }
@@ -141,8 +239,26 @@ describe('synapse-service', () => {
         },
       })
 
+      expect(progressEvents).toEqual([3])
       expect(storedCallbackCalled).toBe(true)
       expect(piecesAddedCallbackCalled).toBe(true)
+    })
+
+    it('should log byte-level upload progress events', async () => {
+      const debugSpy = vi.spyOn(logger, 'debug')
+      const data = new Uint8Array([1, 2, 3, 4])
+      const contextId = 'pin-progress'
+
+      await uploadToSynapse(mockSynapse as any, data, TEST_CID, logger, { contextId })
+
+      expect(debugSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'synapse.upload.progress',
+          contextId,
+          bytesUploaded: 4,
+        }),
+        'Upload progress update'
+      )
     })
 
     it('should throw immediately when signal is already aborted', async () => {
@@ -174,6 +290,22 @@ describe('synapse-service', () => {
           signal: abortController.signal,
         })
       )
+    })
+
+    it('should pass ReadableStream data directly to storage.upload', async () => {
+      const data = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array([1, 2, 3]))
+          controller.close()
+        },
+      })
+      const uploadSpy = vi.spyOn(mockSynapse.storage, 'upload')
+
+      await uploadToSynapse(mockSynapse as any, data, TEST_CID, logger, {
+        contextId: 'pin-stream',
+      })
+
+      expect(uploadSpy).toHaveBeenCalledWith(data, expect.anything())
     })
   })
 

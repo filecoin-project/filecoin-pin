@@ -6,60 +6,63 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { calculateActualStorage } from '../../core/data-set/calculate-actual-storage.js'
-import type { DataSetSummary } from '../../core/data-set/types.js'
-
-vi.mock('../../core/synapse/index.js', () => ({
-  getClientAddress: (synapse: { client: { account: string | { address: string } } }) =>
-    typeof synapse.client.account === 'string' ? synapse.client.account : synapse.client.account.address,
-}))
+import { type DataSetSummary, PieceStatus } from '../../core/data-set/types.js'
 
 // Mock the dependencies
 const {
   mockSynapse,
   mockCreateStorageContext,
-  mockGetSizeFromPieceCID,
+  mockGetDataSetPieces,
+  mockGetProviders,
   defaultCreateStorageContext,
-  defaultGetSizeFromPieceCID,
+  defaultGetDataSetPieces,
   state,
 } = vi.hoisted(() => {
   const state = {
-    piecesByDataSet: new Map<bigint, Array<{ pieceId: bigint; pieceCid: string }>>(),
-    scheduledRemovalsByDataSet: new Map<bigint, bigint[]>(),
-    sizesByPieceCid: new Map<string, number>(),
+    pieces: [] as Array<{ pieceId: number; pieceCid: string; size?: number; status?: string }>,
+    warnings: [] as Array<{ code: string; message: string; context?: Record<string, unknown> }>,
   }
 
-  const defaultGetSizeFromPieceCID = (pieceCid: { toString: () => string } | string) => {
-    const cid = pieceCid.toString()
-    const size = state.sizesByPieceCid.get(cid)
-    if (size == null) {
-      throw new Error(`Unknown PieceCID: ${cid}`)
+  const defaultGetDataSetPieces = async (_synapse: any, dataSetId: bigint, _serviceURL: string, _options?: any) => {
+    if (_options?.signal?.aborted) {
+      const error = new Error('This operation was aborted')
+      error.name = 'AbortError'
+      throw error
     }
-    return size
-  }
 
-  const mockGetSizeFromPieceCID = vi.fn(defaultGetSizeFromPieceCID)
+    const pieces = state.pieces.map((p) => ({
+      pieceId: p.pieceId,
+      pieceCid: p.pieceCid,
+      status: p.status ?? 'ACTIVE',
+      size: p.size ?? undefined,
+    }))
 
-  const defaultCreateStorageContext = async ({ dataSetId }: { dataSetId: bigint }) => {
-    const pieces = state.piecesByDataSet.get(dataSetId) ?? []
+    const totalSizeBytes = pieces.reduce((sum, p) => sum + BigInt(p.size ?? 0), 0n)
+
     return {
+      pieces,
       dataSetId,
-      async getScheduledRemovals() {
-        return state.scheduledRemovalsByDataSet.get(dataSetId) ?? []
-      },
-      async *getPieces() {
-        for (const piece of pieces) {
-          yield {
-            pieceId: piece.pieceId,
-            pieceCid: {
-              toString: () => piece.pieceCid,
-            },
-          }
-        }
-      },
+      totalSizeBytes,
+      warnings: state.warnings,
     }
   }
+
+  const mockGetDataSetPieces = vi.fn(defaultGetDataSetPieces)
+
+  const defaultCreateStorageContext = async ({ dataSetId }: any) => ({
+    storage: { dataSetId },
+    providerInfo: { id: 1 },
+  })
 
   const mockCreateStorageContext = vi.fn(defaultCreateStorageContext)
+
+  const mockGetProviders = vi.fn(async ({ providerIds }: { providerIds: bigint[] }) =>
+    providerIds.map((id) => ({
+      id,
+      name: `Provider ${id}`,
+      pdp: { serviceURL: `https://provider-${id}.example.com` },
+    }))
+  )
 
   const mockSynapse = {
     client: {
@@ -70,80 +73,74 @@ const {
     storage: {
       createContext: mockCreateStorageContext,
     },
+    providers: {
+      getProviders: mockGetProviders,
+    },
   }
 
   return {
     mockSynapse,
     mockCreateStorageContext,
-    mockGetSizeFromPieceCID,
+    mockGetDataSetPieces,
+    mockGetProviders,
     defaultCreateStorageContext,
-    defaultGetSizeFromPieceCID,
+    defaultGetDataSetPieces,
     state,
   }
 })
 
-vi.mock('@filoz/synapse-core/piece', () => ({
-  getSizeFromPieceCID: mockGetSizeFromPieceCID,
+vi.mock('../../core/data-set/get-data-set-pieces.js', () => ({
+  getDataSetPieces: mockGetDataSetPieces,
 }))
-
-vi.mock('@filoz/synapse-sdk', async () => {
-  const sharedMock = await import('../mocks/synapse-sdk.js')
-  return sharedMock
-})
 
 describe('calculateActualStorage', () => {
   beforeEach(() => {
     vi.resetAllMocks()
-    state.piecesByDataSet = new Map()
-    state.scheduledRemovalsByDataSet = new Map()
-    state.sizesByPieceCid = new Map()
+    state.pieces = []
+    state.warnings = []
+
     mockCreateStorageContext.mockImplementation(defaultCreateStorageContext)
-    mockGetSizeFromPieceCID.mockImplementation(defaultGetSizeFromPieceCID)
+    mockGetDataSetPieces.mockImplementation(defaultGetDataSetPieces)
+    mockGetProviders.mockImplementation(async ({ providerIds }) =>
+      providerIds.map((id) => ({
+        id,
+        name: `Provider ${id}`,
+        pdp: { serviceURL: `https://provider-${id}.example.com` },
+      }))
+    )
   })
 
   describe('basic calculation', () => {
     it('should calculate total storage from multiple data sets', async () => {
+      // Setup: 2 data sets with different piece sizes
       const dataSets: DataSetSummary[] = [
         {
           dataSetId: 1n,
-          providerId: 1,
+          providerId: 1n,
           serviceProvider: '0xprovider1',
           isLive: true,
-          currentPieceCount: 2,
         } as unknown as DataSetSummary,
         {
           dataSetId: 2n,
-          providerId: 1,
+          providerId: 1n,
           serviceProvider: '0xprovider1',
           isLive: true,
-          currentPieceCount: 3,
         } as unknown as DataSetSummary,
       ]
 
-      const oneGiB = 1024 * 1024 * 1024
-      state.piecesByDataSet.set(1n, [
-        { pieceId: 1n, pieceCid: 'piece-1a' },
-        { pieceId: 2n, pieceCid: 'piece-1b' },
-      ])
-      state.piecesByDataSet.set(2n, [
-        { pieceId: 3n, pieceCid: 'piece-2a' },
-        { pieceId: 4n, pieceCid: 'piece-2b' },
-        { pieceId: 5n, pieceCid: 'piece-2c' },
-      ])
-      state.sizesByPieceCid = new Map([
-        ['piece-1a', oneGiB],
-        ['piece-1b', oneGiB],
-        ['piece-2a', oneGiB],
-        ['piece-2b', oneGiB],
-        ['piece-2c', oneGiB],
-      ])
+      const oneGiB = 1024n * 1024n * 1024n
+      // pieces apply to both data sets
+      state.pieces = [
+        { pieceId: 1, pieceCid: 'bafy1', size: Number(oneGiB), status: PieceStatus.ACTIVE },
+        { pieceId: 2, pieceCid: 'bafy2', size: Number(oneGiB), status: PieceStatus.ACTIVE },
+      ]
 
       const result = await calculateActualStorage(mockSynapse as any, dataSets)
 
       expect(result.dataSetCount).toBe(2)
       expect(result.dataSetsProcessed).toBe(2)
-      expect(result.totalBytes).toBe(BigInt(oneGiB) * 5n)
-      expect(result.pieceCount).toBe(5)
+      expect(result.totalBytes).toBe(oneGiB * 2n * 2n) // 2 pieces x 2 datasets
+      expect(result.pieceCount).toBe(4)
       expect(result.timedOut).toBeFalsy()
       expect(result.warnings).toHaveLength(0)
     })
@@ -162,12 +159,13 @@ describe('calculateActualStorage', () => {
       const dataSets: DataSetSummary[] = [
         {
           dataSetId: 1n,
-          providerId: 1,
+          providerId: 1n,
           serviceProvider: '0xprovider1',
           isLive: true,
-          currentPieceCount: 0,
         } as unknown as DataSetSummary,
       ]
+
+      state.pieces = []
 
       const result = await calculateActualStorage(mockSynapse as any, dataSets)
 
@@ -177,61 +175,33 @@ describe('calculateActualStorage', () => {
       expect(result.pieceCount).toBe(0)
     })
 
-    it('should warn and continue when a piece size cannot be decoded', async () => {
+    it('should exclude off-chain orphaned pieces from actual storage', async () => {
       const dataSets: DataSetSummary[] = [
         {
           dataSetId: 1n,
-          providerId: 1,
+          providerId: 1n,
           serviceProvider: '0xprovider1',
           isLive: true,
-          currentPieceCount: 2,
         } as unknown as DataSetSummary,
       ]
 
-      state.piecesByDataSet.set(1n, [
-        { pieceId: 1n, pieceCid: 'known-piece' },
-        { pieceId: 2n, pieceCid: 'bad-piece' },
-      ])
-      state.sizesByPieceCid.set('known-piece', 1024)
+      state.pieces = [
+        { pieceId: 1, pieceCid: 'active-piece', size: 1024, status: PieceStatus.ACTIVE },
+        { pieceId: 2, pieceCid: 'offchain-orphaned-piece', size: 2048, status: PieceStatus.OFFCHAIN_ORPHANED },
+      ]
+      state.warnings = [
+        {
+          code: 'OFFCHAIN_ORPHANED',
+          message: 'Piece reported by provider but not found on-chain',
+          context: { pieceId: '2', pieceCid: 'offchain-orphaned-piece' },
+        },
+      ]
 
       const result = await calculateActualStorage(mockSynapse as any, dataSets)
 
-      expect(result.dataSetsProcessed).toBe(1)
       expect(result.totalBytes).toBe(1024n)
       expect(result.pieceCount).toBe(2)
-      expect(result.warnings.some((w) => w.code === 'PIECE_SIZE_DECODE_FAILED')).toBe(true)
-    })
-
-    it('should exclude pieces scheduled for removal from actual storage', async () => {
-      const dataSets: DataSetSummary[] = [
-        {
-          dataSetId: 1n,
-          providerId: 1,
-          serviceProvider: '0xprovider1',
-          isLive: true,
-          currentPieceCount: 3,
-        } as unknown as DataSetSummary,
-      ]
-
-      state.piecesByDataSet.set(1n, [
-        { pieceId: 1n, pieceCid: 'active-piece-a' },
-        { pieceId: 2n, pieceCid: 'pending-removal-piece' },
-        { pieceId: 3n, pieceCid: 'active-piece-b' },
-      ])
-      state.scheduledRemovalsByDataSet.set(1n, [2n])
-      state.sizesByPieceCid = new Map([
-        ['active-piece-a', 512],
-        ['pending-removal-piece', 2048],
-        ['active-piece-b', 1024],
-      ])
-
-      const result = await calculateActualStorage(mockSynapse as any, dataSets)
-      const decodedPieceCids = mockGetSizeFromPieceCID.mock.calls.map(([pieceCid]) => pieceCid.toString())
-
-      expect(result.totalBytes).toBe(1536n)
-      expect(result.pieceCount).toBe(2)
-      expect(decodedPieceCids).toEqual(['active-piece-a', 'active-piece-b'])
-      expect(result.warnings).toHaveLength(0)
+      expect(result.warnings).toContainEqual(expect.objectContaining({ code: 'OFFCHAIN_ORPHANED' }))
     })
   })
 
@@ -240,10 +210,9 @@ describe('calculateActualStorage', () => {
       const dataSets: DataSetSummary[] = [
         {
           dataSetId: 1n,
-          providerId: 1,
+          providerId: 1n,
           serviceProvider: '0xprovider1',
           isLive: true,
-          currentPieceCount: 1,
         } as unknown as DataSetSummary,
       ]
 
@@ -264,34 +233,30 @@ describe('calculateActualStorage', () => {
       const dataSets: DataSetSummary[] = [
         {
           dataSetId: 1n,
-          providerId: 1,
+          providerId: 1n,
           serviceProvider: '0xprovider1',
           isLive: true,
-          currentPieceCount: 1,
         } as unknown as DataSetSummary,
         {
           dataSetId: 2n,
-          providerId: 2,
+          providerId: 2n,
           serviceProvider: '0xprovider2',
           isLive: true,
-          currentPieceCount: 2,
         } as unknown as DataSetSummary,
       ]
 
       const controller = new AbortController()
 
+      // Allow first dataset to complete
       let callCount = 0
-      mockCreateStorageContext.mockImplementation(async ({ dataSetId }: { dataSetId: bigint }) => {
+      mockGetDataSetPieces.mockImplementation(async (_synapse: any, dataSetId: bigint) => {
         callCount++
         if (callCount === 1) {
           return {
+            pieces: [{ pieceId: 1, pieceCid: 'bafy1', size: 1024, status: PieceStatus.ACTIVE }],
             dataSetId,
-            async getScheduledRemovals() {
-              return []
-            },
-            async *getPieces() {
-              yield { pieceId: 1n, pieceCid: { toString: () => 'piece-1' } }
-            },
+            totalSizeBytes: 1024n,
+            warnings: [],
           }
         }
 
@@ -300,18 +265,61 @@ describe('calculateActualStorage', () => {
         error.name = 'AbortError'
         throw error
       })
-      state.sizesByPieceCid.set('piece-1', 1024)
 
       const result = await calculateActualStorage(mockSynapse as any, dataSets, {
         signal: controller.signal,
-        maxParallelProviders: 1,
       })
 
       expect(result.timedOut).toBe(true)
-      expect(result.totalBytes).toBe(1024n)
+      expect(result.totalBytes).toBe(1024n) // Partial result from first dataset
       expect(result.dataSetsProcessed).toBe(1)
       expect(result.pieceCount).toBe(1)
       expect(result.warnings.some((w) => w.code === 'CALCULATION_ABORTED')).toBe(true)
+    })
+  })
+
+  describe('provider enrichment', () => {
+    it('fetches missing providers in a single multicall', async () => {
+      const dataSets: DataSetSummary[] = [
+        { dataSetId: 1n, providerId: 1n, isLive: true } as unknown as DataSetSummary,
+        { dataSetId: 2n, providerId: 1n, isLive: true } as unknown as DataSetSummary,
+        { dataSetId: 3n, providerId: 2n, isLive: true } as unknown as DataSetSummary,
+      ]
+
+      await calculateActualStorage(mockSynapse as any, dataSets)
+
+      expect(mockGetProviders).toHaveBeenCalledTimes(1)
+      expect(mockGetProviders).toHaveBeenCalledWith({ providerIds: [1n, 2n] })
+      // Each dataset should have received the matching serviceURL
+      const serviceURLs = mockGetDataSetPieces.mock.calls.map((call) => call[2])
+      expect(serviceURLs).toContain('https://provider-1.example.com')
+      expect(serviceURLs).toContain('https://provider-2.example.com')
+    })
+
+    it('skips fetching when every dataset already carries provider info', async () => {
+      const dataSets: DataSetSummary[] = [
+        {
+          dataSetId: 1n,
+          providerId: 1n,
+          isLive: true,
+          provider: { id: 1n, name: 'Pre-filled', pdp: { serviceURL: 'https://pre-filled.example.com' } },
+        } as unknown as DataSetSummary,
+      ]
+
+      await calculateActualStorage(mockSynapse as any, dataSets)
+
+      expect(mockGetProviders).not.toHaveBeenCalled()
+      expect(mockGetDataSetPieces.mock.calls[0]?.[2]).toBe('https://pre-filled.example.com')
+    })
+
+    it('continues with empty serviceURL when provider enrichment fails', async () => {
+      mockGetProviders.mockRejectedValueOnce(new Error('Network error'))
+      const dataSets: DataSetSummary[] = [{ dataSetId: 1n, providerId: 1n, isLive: true } as unknown as DataSetSummary]
+
+      const result = await calculateActualStorage(mockSynapse as any, dataSets)
+
+      expect(result.dataSetsProcessed).toBe(1)
+      expect(mockGetDataSetPieces.mock.calls[0]?.[2]).toBe('')
     })
   })
 
@@ -320,38 +328,32 @@ describe('calculateActualStorage', () => {
       const dataSets: DataSetSummary[] = [
         {
           dataSetId: 1n,
-          providerId: 1,
+          providerId: 1n,
           serviceProvider: '0xprovider1',
           isLive: true,
-          currentPieceCount: 1,
         } as unknown as DataSetSummary,
         {
           dataSetId: 2n,
-          providerId: 2,
+          providerId: 2n,
           serviceProvider: '0xprovider2',
           isLive: true,
-          currentPieceCount: 2,
         } as unknown as DataSetSummary,
       ]
 
       let callCount = 0
-      mockCreateStorageContext.mockImplementation(async ({ dataSetId }: { dataSetId: bigint }) => {
+      mockGetDataSetPieces.mockImplementation(async (_synapse: any, dataSetId: bigint) => {
         callCount++
         if (callCount === 1) {
           throw new Error('Dataset query failed')
         }
 
         return {
+          pieces: [{ pieceId: 1, pieceCid: 'bafy1', size: 1024, status: PieceStatus.ACTIVE }],
           dataSetId,
-          async getScheduledRemovals() {
-            return []
-          },
-          async *getPieces() {
-            yield { pieceId: 1n, pieceCid: { toString: () => 'piece-2' } }
-          },
+          totalSizeBytes: 1024n,
+          warnings: [],
         }
       })
-      state.sizesByPieceCid.set('piece-2', 1024)
 
       const result = await calculateActualStorage(mockSynapse as any, dataSets)
 

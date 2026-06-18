@@ -1,13 +1,9 @@
+import type { operatorApprovals } from '@filoz/synapse-core/pay'
+
 /**
- * Service approval status from the Payments contract
+ * Service approval status from the Payments contract.
  */
-export interface ServiceApprovalStatus {
-  rateAllowance: bigint
-  lockupAllowance: bigint
-  lockupUsed: bigint
-  maxLockupPeriod: bigint
-  rateUsed: bigint
-}
+export type ServiceApprovalStatus = operatorApprovals.OutputType
 
 /**
  * Complete payment status including balances and approvals
@@ -33,16 +29,35 @@ export interface StorageAllowances {
   storageCapacityTiB: number
 }
 
-export type StorageRunwayState = 'unknown' | 'no-spend' | 'active'
+export type StorageRunwayState = 'no-spend' | 'active'
 
+/**
+ * Storage runway and coverage summary derived from on-chain account state.
+ *
+ * - `runway*`: time until top-up needed (excludes already-locked funds).
+ * - `coverage*`: total time the deposit covers including current lockup.
+ *
+ * When current lockup exceeds available balance, `runway` collapses toward 0
+ * while `coverage` reflects the time the full deposit still buys.
+ */
 export interface StorageRunwaySummary {
   state: StorageRunwayState
-  available: bigint
+  /** Lockup rate per epoch (USDFC) sourced from on-chain account state. */
   rateUsed: bigint
+  /** Lockup rate per day (rate * 2880). */
   perDay: bigint
+  /** Total funds currently locked into rails for this account. */
   lockupUsed: bigint
-  days: number
-  hours: number
+  /** Funds remaining above (simulated) lockup; matches SDK `availableFunds`. */
+  availableFunds: bigint
+  /** Whole-day component of time until top-up needed. */
+  runwayDays: number
+  /** Hour remainder of time until top-up needed. */
+  runwayHours: number
+  /** Whole-day component of total deposit coverage. */
+  coverageDays: number
+  /** Hour remainder of total deposit coverage. */
+  coverageHours: number
 }
 
 export interface PaymentValidationResult {
@@ -83,14 +98,37 @@ export interface FilecoinPayFundingInsights {
   spendRatePerEpoch: bigint
   spendRatePerDay: bigint
   depositedBalance: bigint
+  /** Deposited balance remaining above lockup; this is not the storage runway */
   availableDeposited: bigint
   walletUsdfcBalance: bigint
   runway: StorageRunwaySummary
+  /** Time until the deposited Filecoin Pay balance is exhausted at the current spend rate */
   filecoinPayDepletionSeconds?: bigint | null
   filecoinPayDepletionTimestampMs?: number | null
+  /** Time until deposited balance plus wallet USDFC is exhausted at the current spend rate */
   ownerDepletionSeconds?: bigint | null
   ownerDepletionTimestampMs?: number | null
 }
+
+/**
+ * Subset of `synapse.payments.accountSummary()` output filecoin-pin consumes.
+ *
+ * Carried separately from `PaymentStatus` because the underlying SDK call
+ * issues two extra RPC reads and most payment commands do not display
+ * runway. Display paths fetch this lazily.
+ */
+import type { getAccountSummary } from '@filoz/synapse-core/pay'
+
+export type AccountSummary = Pick<
+  getAccountSummary.OutputType,
+  | 'funds'
+  | 'availableFunds'
+  | 'debt'
+  | 'totalLockup'
+  | 'lockupRatePerEpoch'
+  | 'runwayInEpochs'
+  | 'grossCoverageInEpochs'
+>
 
 /**
  * Options for calculating a Filecoin Pay funding plan
@@ -102,10 +140,14 @@ export interface FilecoinPayFundingInsights {
  */
 export interface FilecoinPayFundingPlanOptions {
   status: PaymentStatus
+  accountSummary: AccountSummary
   targetRunwayDays?: number | undefined
   targetDeposit?: bigint | undefined
   pieceSizeBytes?: number | undefined
   pricePerTiBPerEpoch?: bigint | undefined
+  minimumPricePerMonth?: bigint | undefined
+  newDataSetCount?: number | undefined
+  withCDN?: boolean | undefined
   mode?: FundingMode | undefined
   allowWithdraw?: boolean | undefined
 }
@@ -131,6 +173,7 @@ export interface FilecoinPayFundingPlan {
   mode: FundingMode
   pieceSizeBytes?: number
   pricePerTiBPerEpoch?: bigint
+  newDataSetCount?: number
   projectedDeposit: bigint
   projectedRateUsed: bigint
   projectedLockupUsed: bigint
@@ -155,6 +198,8 @@ export interface FilecoinPayFundingExecution {
   newDepositedAmount: bigint
   newRunwayDays: number
   newRunwayHours: number
+  newCoverageDays: number
+  newCoverageHours: number
   plan: FilecoinPayFundingPlan
   updatedInsights: FilecoinPayFundingInsights
 }

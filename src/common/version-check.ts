@@ -1,5 +1,7 @@
+import pc from 'picocolors'
 import { compare } from 'semver'
 import { name as packageName, version as packageVersion } from '../core/utils/version.js'
+import { isTTY } from '../utils/cli-logger.js'
 
 type UpdateCheckStatus =
   | {
@@ -106,6 +108,28 @@ export async function checkForUpdate(options: CheckForUpdateOptions = {}): Promi
 
 function getLocalPackageVersion(): string {
   return packageVersion
+}
+
+/**
+ * Print the "update available" banner, but only on an interactive TTY.
+ *
+ * When stdout is piped (CI, scripts, `| jq`, etc.) the banner is noise that can
+ * corrupt machine-readable output, so it is suppressed. `print` and `tty` are
+ * injectable for testing.
+ */
+export function printUpdateBanner(
+  result: UpdateCheckStatus,
+  { tty = isTTY(), print = console.log }: { tty?: boolean; print?: (message: string) => void } = {}
+): void {
+  if (result.status !== 'update-available' || !tty) {
+    return
+  }
+
+  const header = `${pc.yellow(`Update available: filecoin-pin ${result.currentVersion} → ${result.latestVersion}`)}. Upgrade with ${pc.cyan('npm i -g filecoin-pin@latest')}`
+  const releasesLink = 'https://github.com/filecoin-project/filecoin-pin/releases'
+  const instruction = `Visit ${releasesLink} to view release notes or download the latest version.`
+  print(header)
+  print(instruction)
 }
 
 export type { UpdateCheckStatus }

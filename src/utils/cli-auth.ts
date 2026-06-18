@@ -28,10 +28,19 @@ export interface CLIAuthOptions {
   network?: string | undefined
   /** RPC endpoint URL (overrides network if specified) */
   rpcUrl?: string | undefined
-  /** Optional provider ID overrides (comma-separated) */
-  providerIds?: string | undefined
-  /** Optional data set ID overrides (comma-separated) */
-  dataSetIds?: string | undefined
+  /**
+   * Provider ID overrides. Holds values from the canonical repeatable
+   * `--provider-id` flag and the deprecated comma-separated `--provider-ids`
+   * alias, which the CLI layer merges into this array at parse time.
+   */
+  providerIds?: string[] | undefined
+  /**
+   * Data set ID overrides. Holds values from the canonical repeatable
+   * `--data-set-id` flag and the deprecated `--data-set-ids` (comma-separated)
+   * and `--data-set` (single-value) aliases, which the CLI layer merges into
+   * this array at parse time.
+   */
+  dataSetIds?: string[] | undefined
 }
 
 /**
@@ -48,20 +57,25 @@ export interface CLIAuthOptions {
 export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   const network = options.network?.toLowerCase().trim()
   const isDevnet = network === 'devnet'
+  const hasRpcUrl = options.rpcUrl != null && options.rpcUrl !== ''
 
   // For devnet, fall back to the devnet user's private key if none provided
-  const privateKey =
-    options.privateKey || process.env.PRIVATE_KEY || (isDevnet ? resolveDevnetConfig().privateKey : undefined)
-  const walletAddress = options.walletAddress || process.env.WALLET_ADDRESS
-  const sessionKey = options.sessionKey || process.env.SESSION_KEY
-  const viewAddress = options.viewAddress || process.env.VIEW_ADDRESS
+  const privateKey = options.privateKey || (isDevnet ? resolveDevnetConfig().privateKey : undefined)
+  const walletAddress = options.walletAddress
+  const sessionKey = options.sessionKey
+  const viewAddress = options.viewAddress
   const rpcUrl = getRpcUrl(options)
 
+  // --network and --rpc-url are mutually exclusive at the Commander level. Set the chain hint
+  // only when --network was chosen; otherwise leave it undefined and let initializeSynapse probe
+  // the RPC endpoint. When neither is supplied, default to mainnet.
   let chain: Chain | undefined
   if (isDevnet) {
     chain = resolveDevnetConfig().chain
   } else if (network) {
     chain = NETWORK_CHAINS[network as keyof typeof NETWORK_CHAINS]
+  } else if (!hasRpcUrl) {
+    chain = NETWORK_CHAINS.mainnet
   }
 
   // Build config incrementally; initializeSynapse() validates the final shape
@@ -98,23 +112,33 @@ export interface ContextSelectionOptions {
 }
 
 /**
- * Parse a comma-separated list of numeric IDs, validating and deduplicating.
+ * Validate and deduplicate raw ID strings into a bigint[].
+ * Each raw value may itself be comma-separated (aliases/env supply lists).
  * Returns bigint[] since all downstream consumers (SDK, contracts) use bigint.
- * Throws on non-numeric values or duplicate IDs.
+ * Throws on empty input, non-numeric values, or duplicate IDs.
  */
-function parseIdList(raw: string, label: string): bigint[] {
-  const parts = raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s !== '')
+function toIdList(rawValues: string[], label: string): bigint[] {
+  const parts = rawValues.flatMap((value) =>
+    value
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s !== '')
+  )
+
+  if (parts.length === 0) {
+    throw new Error(`Invalid ${label}: no IDs provided. Provide one or more numeric IDs.`)
+  }
 
   const ids: bigint[] = []
   for (const part of parts) {
-    try {
-      ids.push(BigInt(part))
-    } catch {
-      throw new Error(`Invalid ${label}: "${raw}". Provide comma-separated numeric IDs.`)
+    if (!/^\d+$/.test(part)) {
+      throw new Error(`Invalid ${label}: "${part}". Provide positive numeric IDs.`)
     }
+    const id = BigInt(part)
+    if (id <= 0n) {
+      throw new Error(`Invalid ${label}: "${part}". Provide positive numeric IDs.`)
+    }
+    ids.push(id)
   }
 
   const unique = [...new Set(ids)]
@@ -126,32 +150,91 @@ function parseIdList(raw: string, label: string): bigint[] {
   return ids
 }
 
+interface IdSelectionSource {
+  /**
+   * Values from the canonical flag. The CLI layer already merges the deprecated
+   * aliases into this array (see `collectDeprecatedAliasId` in cli-options.ts),
+   * so it covers both the canonical flag and every deprecated alias.
+   */
+  canonical?: string[] | undefined
+  /** Value from the environment variable */
+  env?: string | undefined
+  label: string
+}
+
+/**
+ * Gather IDs from the canonical flag (which already includes any deprecated
+ * alias values) and env, in that precedence: the flag fully replaces env rather
+ * than merging. Returns `provided: false` when no source supplied any value.
+ */
+function gatherIdSelection(source: IdSelectionSource): { provided: boolean; ids: bigint[] } {
+  const raw: string[] = []
+  if (source.canonical != null && source.canonical.length > 0) {
+    raw.push(...source.canonical)
+  } else {
+    const env = source.env?.trim()
+    if (env != null && env !== '') {
+      raw.push(env)
+    }
+  }
+
+  if (raw.length === 0) {
+    return { provided: false, ids: [] }
+  }
+
+  return { provided: true, ids: toIdList(raw, source.label) }
+}
+
+/**
+ * Parse provider IDs from `--provider-id` (repeatable), the deprecated
+ * `--provider-ids` alias, and the `PROVIDER_IDS` env var.
+ */
+export function parseProviderIdSelection(options?: CLIAuthOptions): bigint[] {
+  return gatherIdSelection({
+    canonical: options?.providerIds,
+    env: process.env.PROVIDER_IDS,
+    label: 'provider ID(s)',
+  }).ids
+}
+
+/**
+ * Parse data set IDs from `--data-set-id` (repeatable), the deprecated
+ * `--data-set-ids` / `--data-set` aliases, and the `DATA_SET_IDS` env var.
+ */
+export function parseDataSetIdSelection(options?: CLIAuthOptions): bigint[] {
+  return gatherIdSelection({
+    canonical: options?.dataSetIds,
+    env: process.env.DATA_SET_IDS,
+    label: 'data set ID(s)',
+  }).ids
+}
+
 /**
  * Parse context selection from CLI options and environment variables.
  *
- * Reads provider IDs from --provider-ids / PROVIDER_IDS and
- * data set IDs from --data-set-ids / DATA_SET_IDS. Both accept
- * comma-separated numeric values. They are mutually exclusive.
+ * Reads provider IDs from `--provider-id` / `PROVIDER_IDS` and data set IDs
+ * from `--data-set-id` / `DATA_SET_IDS`. The deprecated `--provider-ids`,
+ * `--data-set-ids`, and `--data-set` aliases are still accepted (with a
+ * warning). Provider and data set selection are mutually exclusive.
  *
  * @param options - CLI authentication options (may contain provider/data-set fields)
  * @returns Context selection options
  */
 export function parseContextSelectionOptions(options?: CLIAuthOptions): ContextSelectionOptions {
-  const providerRaw = (options?.providerIds || process.env.PROVIDER_IDS)?.trim()
-  const dataSetRaw = (options?.dataSetIds || process.env.DATA_SET_IDS)?.trim()
+  const providerIds = parseProviderIdSelection(options)
+  const dataSetIds = parseDataSetIdSelection(options)
 
-  const hasProviders = providerRaw != null && providerRaw !== ''
-  const hasDataSets = dataSetRaw != null && dataSetRaw !== ''
-
-  if (hasProviders && hasDataSets) {
-    throw new Error('Cannot specify both --provider-ids and --data-set-ids. Use one or the other.')
+  if (providerIds.length > 0 && dataSetIds.length > 0) {
+    throw new Error(
+      'Cannot specify both provider IDs (--provider-id/PROVIDER_IDS) and data set IDs (--data-set-id/DATA_SET_IDS). Use one or the other.'
+    )
   }
 
-  if (hasProviders) {
-    return { providerIds: parseIdList(providerRaw, 'provider ID(s)') }
+  if (providerIds.length > 0) {
+    return { providerIds }
   }
-  if (hasDataSets) {
-    return { dataSetIds: parseIdList(dataSetRaw, 'data set ID(s)') }
+  if (dataSetIds.length > 0) {
+    return { dataSetIds }
   }
   return {}
 }

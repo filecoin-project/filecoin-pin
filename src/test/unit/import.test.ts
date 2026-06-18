@@ -13,12 +13,13 @@ import { createWriteStream } from 'node:fs'
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
+import { ReadableStream } from 'node:stream/web'
 import { CarWriter } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runCarImport } from '../../import/import.js'
+import { runCarImport, runCarImportFromCli } from '../../import/import.js'
 import type { ImportOptions } from '../../import/types.js'
 
 // Test constants
@@ -28,6 +29,7 @@ const ZERO_CID = 'bafkqaaa' // Zero CID used when CAR has no roots
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
 vi.mock('../../common/upload-flow.js', () => ({
   validatePaymentSetup: vi.fn(),
+  promptDataSetSelection: vi.fn().mockRejectedValue(new Error('not interactive')),
   performUpload: vi.fn().mockResolvedValue({
     pieceCid: 'bafkzcibtest1234567890',
     size: 1024,
@@ -105,8 +107,11 @@ vi.mock('../../payments/setup.js', () => ({
   formatUSDFC: vi.fn((amount) => `${amount} USDFC`),
   validatePaymentRequirements: vi.fn().mockReturnValue({ isValid: true }),
 }))
+const { mockFindDataSets } = vi.hoisted(() => ({ mockFindDataSets: vi.fn().mockResolvedValue([]) }))
+
 vi.mock('../../core/synapse/index.js', () => ({
   isSessionKeyMode: vi.fn(() => false),
+  getClientAddress: vi.fn(() => '0x1234567890123456789012345678901234567890'),
   initializeSynapse: vi.fn((config: any, _logger: any) => {
     // Validate auth config (mirrors validateAuthConfig in actual code)
     const hasStandardAuth = config.privateKey != null
@@ -120,10 +125,11 @@ vi.mock('../../core/synapse/index.js', () => ({
     }
 
     return {
-      chain: { name: 'calibration', id: 314159 },
+      chain: { name: 'calibration', id: 314159, filbeam: { retrievalDomain: 'calibration.filbeam.io' } },
       client: { account: { address: '0x1234567890123456789012345678901234567890' } },
       storage: {
         upload: vi.fn(),
+        findDataSets: mockFindDataSets,
       },
     }
   }),
@@ -395,10 +401,117 @@ describe('CAR Import', () => {
       const { performUpload } = await import('../../common/upload-flow.js')
       expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
         expect.any(Object),
-        expect.any(Uint8Array),
+        expect.any(ReadableStream),
         expect.any(Object),
         expect.objectContaining({
           pieceMetadata: { ics: '8004' },
+        })
+      )
+    })
+
+    it('resolves --data-set-metadata to dataSetIds and drops metadata when subset matches', async () => {
+      const carPath = join(testDir, 'resolve-match.car')
+      await createTestCarFile(carPath, [], [{ content: 'resolve match' }])
+
+      mockFindDataSets.mockResolvedValueOnce([
+        {
+          pdpVerifierDataSetId: 13260n,
+          providerId: 2n,
+          isLive: true,
+          metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' },
+        },
+        {
+          pdpVerifierDataSetId: 13261n,
+          providerId: 4n,
+          isLive: true,
+          metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' },
+        },
+      ])
+
+      await runCarImport({
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        dataSetMetadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
+      })
+
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.any(ReadableStream),
+        expect.any(Object),
+        expect.objectContaining({ dataSetIds: [13260n, 13261n] })
+      )
+      const lastCall = vi.mocked(performUpload).mock.calls.at(-1)
+      expect(lastCall?.[3]).not.toHaveProperty('metadata')
+    })
+
+    it('calls promptDataSetSelection when --data-set-metadata matches too many data sets', async () => {
+      const carPath = join(testDir, 'resolve-too-many.car')
+      await createTestCarFile(carPath, [], [{ content: 'too-many' }])
+
+      mockFindDataSets.mockResolvedValueOnce([
+        { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
+        { pdpVerifierDataSetId: 2n, providerId: 2n, isLive: true, metadata: { source: 'storacha-migration' } },
+        { pdpVerifierDataSetId: 3n, providerId: 3n, isLive: true, metadata: { source: 'storacha-migration' } },
+        { pdpVerifierDataSetId: 4n, providerId: 4n, isLive: true, metadata: { source: 'storacha-migration' } },
+      ])
+
+      await expect(
+        runCarImport({
+          filePath: carPath,
+          privateKey: testPrivateKey,
+          dataSetMetadata: { source: 'storacha-migration' },
+        })
+      ).rejects.toThrow()
+
+      const { promptDataSetSelection } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(promptDataSetSelection)).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ dataSetId: 1n })]),
+        2,
+        expect.any(Object)
+      )
+    })
+
+    it('throws when --data-set-metadata matches too few data sets', async () => {
+      const carPath = join(testDir, 'resolve-too-few.car')
+      await createTestCarFile(carPath, [], [{ content: 'too-few' }])
+
+      mockFindDataSets.mockResolvedValueOnce([
+        { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
+      ])
+
+      await expect(
+        runCarImport({
+          filePath: carPath,
+          privateKey: testPrivateKey,
+          dataSetMetadata: { source: 'storacha-migration' },
+        })
+      ).rejects.toThrow(/matched only 1 data set.*expected 2/)
+    })
+
+    it('passes upload targeting options through to auto-funding', async () => {
+      const carPath = join(testDir, 'auto-fund.car')
+      await createTestCarFile(carPath, [], [{ content: 'test content' }])
+
+      const options: ImportOptions = {
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        autoFund: true,
+        dataSetIds: ['123'],
+        dataSetMetadata: { erc8004Files: '' },
+      }
+
+      await runCarImport(options)
+
+      const { performAutoFunding } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performAutoFunding)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        expect.anything(),
+        expect.objectContaining({
+          dataSetIds: [123n],
+          copies: 1,
+          metadata: { erc8004Files: '' },
         })
       )
     })
@@ -435,5 +548,128 @@ describe('CAR Import', () => {
       expect(result.copies[0]?.providerId).toBe(1n)
       expect(result.failedAttempts).toHaveLength(0)
     })
+  })
+})
+
+describe('runCarImport withCDN propagation', () => {
+  const testDir = './test-import-cdn-cars'
+  const testPrivateKey = '0x0000000000000000000000000000000000000000000000000000000000000001'
+
+  beforeEach(async () => {
+    await mkdir(testDir, { recursive: true })
+    vi.clearAllMocks()
+  })
+
+  afterEach(async () => {
+    try {
+      await stat(testDir)
+      await rm(testDir, { recursive: true, force: true })
+    } catch {
+      // Directory doesn't exist, nothing to clean up
+    }
+  })
+
+  it('passes filbeamUrl to displayUploadResults when withCDN is true and chain.filbeam is set', async () => {
+    const carPath = join(testDir, 'filbeam-url.car')
+    await createTestCarFile(carPath, [], [{ content: 'filbeam url content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      egressProvider: 'beam',
+    })
+    const { displayUploadResults } = await import('../../common/upload-flow.js')
+    expect(vi.mocked(displayUploadResults)).toHaveBeenCalledWith(
+      expect.anything(),
+      'Import',
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        filbeamUrl: expect.stringMatching(/^https:\/\/0x[0-9a-fA-F]+\.calibration\.filbeam\.io\/.+$/),
+      })
+    )
+  })
+
+  it('omits egress arg to displayUploadResults when withCDN is false', async () => {
+    const carPath = join(testDir, 'no-egress.car')
+    await createTestCarFile(carPath, [], [{ content: 'no egress content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      egressProvider: 'none',
+    })
+    const { displayUploadResults } = await import('../../common/upload-flow.js')
+    const calls = vi.mocked(displayUploadResults).mock.calls
+    const last = calls[calls.length - 1]
+    expect(last?.[4]).toBeUndefined()
+  })
+
+  it('omits egress arg when chain.filbeam is null (devnet)', async () => {
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    vi.mocked(initializeSynapse).mockImplementationOnce(async (config: any) => {
+      if (config.privateKey == null) throw new Error('auth required')
+      return {
+        chain: { name: 'devnet', id: 31337, filbeam: null },
+        client: { account: { address: '0x1234567890123456789012345678901234567890' } },
+        storage: { upload: vi.fn(), findDataSets: mockFindDataSets },
+      } as any
+    })
+    const carPath = join(testDir, 'devnet-egress.car')
+    await createTestCarFile(carPath, [], [{ content: 'devnet egress content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      egressProvider: 'beam',
+    })
+    const { displayUploadResults } = await import('../../common/upload-flow.js')
+    const calls = vi.mocked(displayUploadResults).mock.calls
+    const last = calls[calls.length - 1]
+    expect(last?.[4]).toBeUndefined()
+  })
+})
+
+describe('runCarImportFromCli egress glue', () => {
+  const testDir = './test-import-cli-egress-cars'
+  const testPrivateKey = '0x0000000000000000000000000000000000000000000000000000000000000001'
+
+  beforeEach(async () => {
+    await mkdir(testDir, { recursive: true })
+    vi.clearAllMocks()
+  })
+
+  afterEach(async () => {
+    try {
+      await stat(testDir)
+      await rm(testDir, { recursive: true, force: true })
+    } catch {
+      // Directory doesn't exist, nothing to clean up
+    }
+  })
+
+  it('defaults to beam egress (withCDN: true) when --egress-provider is omitted', async () => {
+    const carPath = join(testDir, 'default-beam.car')
+    await createTestCarFile(carPath, [], [{ content: 'default beam content' }])
+    await runCarImportFromCli(carPath, { privateKey: testPrivateKey, rpcUrl: 'wss://test.rpc.url' })
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+      expect.objectContaining({ withCDN: true }),
+      expect.anything()
+    )
+  })
+
+  it('opts out (withCDN unset) when --egress-provider none is passed', async () => {
+    const carPath = join(testDir, 'opt-out.car')
+    await createTestCarFile(carPath, [], [{ content: 'opt out content' }])
+    await runCarImportFromCli(carPath, {
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      egressProvider: 'none',
+    })
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    const calls = vi.mocked(initializeSynapse).mock.calls
+    const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+    expect(lastConfig.withCDN).toBeUndefined()
   })
 })

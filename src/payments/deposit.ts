@@ -1,20 +1,20 @@
 /**
- * Deposit/top-up command for Filecoin Pay
+ * Deposit command for Filecoin Pay
  *
- * Provides two modes:
- * - Explicit amount: --amount <USDFC>
- * - By duration: --days <N> (fund enough to keep current usage alive for N days)
+ * Adds a specific USDFC amount to the Filecoin Pay balance. One-way: it never
+ * withdraws. To target an exact runway or total (which may deposit or withdraw),
+ * use `payments fund`.
  */
 
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import {
-  calculateStorageRunway,
   checkFILBalance,
   checkUSDFCBalance,
-  computeTopUpForDuration,
   depositUSDFC,
-  getPaymentStatus,
+  toStorageRunwaySummary,
+  validateGasRequirement,
 } from '../core/payments/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
@@ -25,24 +25,20 @@ import { log } from '../utils/cli-logger.js'
 
 export interface DepositOptions extends CLIAuthOptions {
   amount?: string | undefined
-  days?: number | undefined
 }
 
 /**
- * Run the deposit/top-up flow
+ * Run the deposit flow
  */
 export async function runDeposit(options: DepositOptions): Promise<void> {
   intro(pc.bold('Filecoin Onchain Cloud Deposit'))
 
   const spinner = createSpinner()
 
-  // Validate inputs
-  const hasAmount = options.amount != null
-  const hasDays = options.days != null
-
-  if ((hasAmount && hasDays) || (!hasAmount && !hasDays)) {
-    console.error(pc.red('Error: Specify exactly one of --amount <USDFC> or --days <N>'))
-    throw new Error('Error: Specify exactly one of --amount <USDFC> or --days <N>')
+  if (options.amount == null) {
+    log.line(pc.red('Error: --amount <USDFC> is required'))
+    log.flush()
+    throw new CliFatal('--amount <USDFC> is required')
   }
 
   // Connect
@@ -54,75 +50,37 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)
 
-    const [filStatus, walletUsdfcBalance, status] = await Promise.all([
-      checkFILBalance(synapse),
-      checkUSDFCBalance(synapse),
-      getPaymentStatus(synapse),
-    ])
+    const [filStatus, walletUsdfcBalance] = await Promise.all([checkFILBalance(synapse), checkUSDFCBalance(synapse)])
 
     spinner.stop(`${pc.green('✓')} Connected`)
 
     // Validate balances
-    if (!filStatus.hasSufficientGas) {
-      log.line(`${pc.red('✗')} Insufficient FIL for gas fees`)
-      const help = filStatus.isCalibnet
-        ? 'Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'
-        : 'Acquire FIL for gas from an exchange'
-      log.line(`  ${pc.cyan(help)}`)
+    const gasCheck = validateGasRequirement(filStatus.balance, filStatus.isCalibnet)
+    if (!gasCheck.isValid) {
+      const errorMsg = gasCheck.errorMessage ?? 'Insufficient FIL for gas fees'
+      log.line(`${pc.red('✗')} ${errorMsg}`)
+      log.line(`  ${pc.cyan(gasCheck.helpMessage ?? 'Acquire FIL for gas from an exchange')}`)
       log.flush()
       cancel('Deposit aborted')
-      throw new Error('Insufficient FIL for gas fees')
+      throw new CliFatal(errorMsg)
     }
 
-    let depositAmount: bigint = 0n
+    let depositAmount: bigint
+    try {
+      depositAmount = parseUnits(String(options.amount), 18)
+    } catch {
+      throw new Error(`Invalid amount '${options.amount}'`)
+    }
 
-    if (hasAmount) {
-      try {
-        depositAmount = parseUnits(String(options.amount), 18)
-      } catch {
-        throw new Error(`Invalid amount '${options.amount}'`)
-      }
-
-      if (depositAmount <= 0n) {
-        throw new Error('Amount must be greater than 0')
-      }
-    } else if (hasDays) {
-      const days = Number(options.days)
-      if (!Number.isFinite(days) || days <= 0) {
-        throw new Error('--days must be a positive number')
-      }
-
-      const { topUp, rateUsed, perDay } = computeTopUpForDuration(status, days)
-
-      if (rateUsed === 0n) {
-        spinner.stop()
-        log.line(`${pc.yellow('⚠')} No active storage payments detected (rateUsed = 0)`)
-        log.line('Use --amount to deposit a specific USDFC value instead.')
-        log.flush()
-        cancel('Nothing to fund by duration')
-        throw new Error('No active spend detected')
-      }
-
-      depositAmount = topUp
-
-      if (depositAmount === 0n) {
-        spinner.stop()
-        log.line(`${pc.green('✓')} Already funded for at least ${days} day(s) at current spend rate`)
-        log.indent(`Current daily spend: ${formatUSDFC(perDay)} USDFC/day`)
-        log.flush()
-        outro('No deposit needed')
-        return
-      }
+    if (depositAmount <= 0n) {
+      throw new Error('Amount must be greater than 0')
     }
 
     // Ensure wallet has enough USDFC
     if (depositAmount > walletUsdfcBalance) {
-      console.error(
-        pc.red(
-          `✗ Insufficient USDFC (need ${formatUSDFC(depositAmount)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
-        )
+      throw new Error(
+        `Insufficient USDFC (need ${formatUSDFC(depositAmount)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
       )
-      throw new Error('Insufficient USDFC')
     }
 
     spinner.start(`Depositing ${formatUSDFC(depositAmount)} USDFC...`)
@@ -133,28 +91,31 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
     log.indent(pc.gray(`Deposit: ${depositTx}`))
     log.flush()
 
-    // Brief post-deposit summary
-    const updated = await getPaymentStatus(synapse)
-    const runway = calculateStorageRunway(updated)
+    const updatedSummary = await synapse.payments.accountSummary({})
+    const runway = toStorageRunwaySummary(updatedSummary)
     const runwayDisplay = formatRunwaySummary(runway)
 
     log.line('')
     log.line(pc.bold('Deposit Summary'))
-    log.indent(`Total deposit: ${formatUSDFC(updated.filecoinPayBalance)} USDFC`)
+    log.indent(`Total deposit: ${formatUSDFC(updatedSummary.funds)} USDFC`)
     if (runway.state === 'active') {
-      const dailySpend = runway.perDay
-      log.indent(`Current spend: ${formatUSDFC(dailySpend)} USDFC/day`)
-      log.indent(`Runway: ~${runwayDisplay} at current spend`)
+      log.indent(`Current spend: ${formatUSDFC(runway.perDay)} USDFC/day`)
+      log.indent(`Storage covered: ~${runwayDisplay.coverage} total`)
+      log.indent(`Top-up needed in: ~${runwayDisplay.runway}`)
     } else {
-      log.indent(pc.gray(runwayDisplay))
+      log.indent(pc.gray(runwayDisplay.coverage))
     }
     log.flush()
 
     outro('Deposit completed')
   } catch (error) {
-    spinner.stop()
-    console.error(pc.red('✗ Deposit failed'))
-    console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
-    throw error
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
+    spinner.stop(`${pc.red('✗')} Deposit failed: ${msg}`)
+    cancel('Deposit failed')
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

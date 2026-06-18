@@ -7,17 +7,23 @@ branding:
 inputs:
   # Core configuration
   path:
-    description: Path to content to upload (file or directory). Typically your build output directory.
+    description: >-
+      Path to content to upload. Typically your build output directory.
+      If `path` points to a file with the `.car` extension, the action skips its own CAR
+      creation and uploads the file as-is, extracting the IPFS root CID from the CAR header.
+      Otherwise (directory or non-`.car` file) the action packs the content into a CAR first.
+      Pre-built CARs must declare exactly one root; rootless and multi-root CARs are not supported.
     required: true
   walletPrivateKey:
-    description: Wallet private key used to fund uploads (USDFC on Calibration/Mainnet).
-    required: true
+    description: Wallet private key used to fund uploads (USDFC on Calibration/Mainnet). Required unless dryRun is true.
+    required: false
   network:
-    description: What Filecoin network to use. Should either be "mainnet" or "calibration".
-    required: true
+    description: What Filecoin network to use. Should either be "mainnet" or "calibration". Defaults to "mainnet".
+    required: false
+    default: mainnet
 
   # Financial controls
-  minStorageDays:
+  minRunwayDays:
     description: >-
       Minimum runway in days of funding to keep the current data set persisted on Filecoin.
       This number is used to calculate the minimum Filecoin Pay balance to meet this runway.
@@ -25,26 +31,45 @@ inputs:
       which won't be true for wallets that have multiple data sets or are using Filecoin Pay with other Filecoin Onchain Cloud services.
       If this isn't specified, this action will not make any Filecoin Pay deposits.
       If the current Filecoin Pay balance is already above this target, then no token deposits are attempted from the wallet.
-      If the current Filecoin Pay balance is below this target, the necessary deposit will be attempted up through the `filecoinPayBalanceLimit` (see below).
+      If the current Filecoin Pay balance is below this target, the necessary deposit will be attempted up through the `maxBalance` (see below).
       If there are insufficient funds in the wallet, the action will fail.
+      Mirrors the CLI's `--min-runway-days`.
       SECURITY: Hardcode this in trusted workflows.
     required: false
-  filecoinPayBalanceLimit:
+  maxBalance:
     description: >-
-      Specifies a target Filecoin Pin balance in USDFC that this action will never exceed.
+      Specifies a target Filecoin Pay balance in USDFC that this action will never exceed.
       Actions (manual or other) outside of this action may cause the Filecoin Pay balance to exceed this limit,
       but this limit prevents the action from using the wallet to top up the Filecoin Pay balance beyond the limit.
-      As a protection, this must be set if `minStorageDays` is set.
+      As a protection, this must be set if `minRunwayDays` is set.
+      Mirrors the CLI's `--max-balance`.
       SECURITY: Hardcode this in trusted workflows.
     required: false
 
-  # Optional/Advanced configuration
-  withCDN:
-    description: "If true, request CDN in the storage context (depends on provider capabilities). Warning: filecoin-pin does not calculate deposits and run-rate costs properly with CDN enabled."
+  # Dataset targeting
+  dataSetIds:
+    description: >-
+      Comma-separated list of existing Synapse data set IDs to append this upload to
+      (e.g. "13260,13261"). When supplied, the action routes the upload into those
+      datasets and skips creating a new one. Must be positive integers; non-numeric
+      values are rejected. Cannot be combined with the PROVIDER_IDS environment
+      variable. Omit to preserve current behavior (SDK smart-select or new dataset).
     required: false
-    default: "false"
+
+  # Optional/Advanced configuration
+  egressProvider:
+    description: "Egress provider for piece retrieval: \"beam\" (FilBeam CDN) or \"none\" (default). A new CDN data set requires an extra 1 USDFC lockup, which is included in the deposit estimate. CDN egress is paid from funds the data set owner locks up, consumed as retrievals happen, and cannot be estimated upfront."
+    required: false
+    default: "none"
   dryRun:
     description: "If true, run in dry-run mode - build CAR file and validate inputs but skip actual upload to Filecoin. Useful for testing and validation."
+    required: false
+    default: "false"
+  disableTelemetry:
+    description: >-
+      If true, suppress the anonymous upload-outcome telemetry filecoin-pin would otherwise send to BetterStack.
+      Alternatively, set FILECOIN_PIN_TELEMETRY_DISABLED=true or DO_NOT_TRACK=1 in the job's env block;
+      either signal opts out. See the CLI Telemetry section of the filecoin-pin README for what is collected.
     required: false
     default: "false"
 
@@ -69,7 +94,7 @@ outputs:
     description: Path to the created CAR file
     value: ${{ steps.run.outputs.carPath }}
   uploadStatus:
-    description: Upload status (uploaded, reused-cache, reused-artifact)
+    description: Upload status (uploaded, dry-run, fork-pr-blocked, pending-upload)
     value: ${{ steps.run.outputs.uploadStatus }}
 
 runs:
@@ -78,7 +103,7 @@ runs:
     # Create check immediately - no dependencies needed
     - name: Create check run
       id: create-check
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       with:
         script: |
           const fs = require('fs');
@@ -129,21 +154,74 @@ runs:
         REPO_ROOT=$(cd "$REPO_ROOT" && pwd)
         echo "path=$REPO_ROOT" >> $GITHUB_OUTPUT
 
-    - name: Set up pnpm
-      uses: pnpm/action-setup@v4
-      with:
-        run_install: false
-
     - name: Set up Node.js
+      id: setup-node
       uses: actions/setup-node@v6
       with:
         node-version: '24.x'
-        cache: pnpm
-        cache-dependency-path: ${{ steps.repo-root.outputs.path }}/pnpm-lock.yaml
+        # Disable implicit npm cache: setup-node@v6 auto-caches against
+        # the consumer's package.json/package-lock when their packageManager
+        # field is "npm". We manage our own pnpm cache below.
+        package-manager-cache: false
+
+    - name: Get pnpm version
+      id: pnpm-version
+      shell: bash
+      working-directory: ${{ steps.repo-root.outputs.path }}
+      run: |
+        VERSION=$(node -e "
+          const pm = require('./package.json').packageManager;
+          if (typeof pm !== 'string') { console.error('package.json: packageManager field missing or not a string'); process.exit(1); }
+          const match = pm.match(/^pnpm@(.+)$/);
+          if (!match) { console.error('package.json: packageManager must be pnpm@<version>, got: ' + pm); process.exit(1); }
+          process.stdout.write(match[1]);
+        ")
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Set up pnpm
+      uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      with:
+        run_install: false
+        version: ${{ steps.pnpm-version.outputs.version }}
+
+    - name: Get pnpm store path
+      id: pnpm-store
+      shell: bash
+      working-directory: ${{ steps.repo-root.outputs.path }}
+      run: |
+        STORE_PATH=$(pnpm store path --silent)
+        printf 'path=%s\n' "$STORE_PATH" >> "$GITHUB_OUTPUT"
+
+    - name: Compute pnpm-lock.yaml hash
+      id: lockfile
+      shell: bash
+      working-directory: ${{ steps.repo-root.outputs.path }}
+      run: |
+        SHA=$(node -e "
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const buf = fs.readFileSync('pnpm-lock.yaml');
+          process.stdout.write(crypto.createHash('sha256').update(buf).digest('hex'));
+        ")
+        echo "sha256=$SHA" >> $GITHUB_OUTPUT
+
+    - name: Cache pnpm store
+      uses: actions/cache@v5
+      with:
+        path: ${{ steps.pnpm-store.outputs.path }}
+        key: filecoin-pin-upload-action-pnpm-store-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.setup-node.outputs.node-version }}-pnpm-${{ steps.pnpm-version.outputs.version }}-${{ steps.lockfile.outputs.sha256 }}
+        restore-keys: |
+          filecoin-pin-upload-action-pnpm-store-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.setup-node.outputs.node-version }}-pnpm-${{ steps.pnpm-version.outputs.version }}-
 
     - name: Install workspace dependencies
       shell: bash
       working-directory: ${{ steps.repo-root.outputs.path }}
+      # playwright-chromium is a root browser-test devDependency this action
+      # never uses. Its install script (listed in onlyBuiltDependencies in
+      # pnpm-workspace.yaml) downloads a ~167MB browser; skipping that keeps
+      # the install lean. The Test workflow sets the same flag.
+      env:
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
       run: pnpm install --frozen-lockfile
 
     - name: Build filecoin-pin package
@@ -152,7 +230,7 @@ runs:
       run: pnpm run build
 
     - name: Propagate Actions runtime token
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       with:
         script: |
           const token = process.env.ACTIONS_RUNTIME_TOKEN

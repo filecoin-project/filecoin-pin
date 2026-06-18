@@ -39,6 +39,9 @@ vi.mock('@filoz/synapse-sdk', () => {
     calibration: {
       id: 314159,
     },
+    mainnet: {
+      id: 314,
+    },
   }
 })
 
@@ -83,6 +86,13 @@ describe('Payment Setup Tests', () => {
           return parseUnits('100', 18)
         }),
         balance: vi.fn().mockResolvedValue(parseUnits('10', 18)),
+        accountInfo: vi.fn().mockResolvedValue({
+          funds: parseUnits('10', 18),
+          lockupCurrent: 0n,
+          lockupRate: 0n,
+          lockupLastSettledAt: 0n,
+          availableFunds: parseUnits('10', 18),
+        }),
         serviceApproval: vi.fn().mockResolvedValue({
           rateAllowance: parseUnits('0.0001', 18),
           lockupAllowance: parseUnits('2', 18),

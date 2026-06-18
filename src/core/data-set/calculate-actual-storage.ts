@@ -1,10 +1,11 @@
-import { getSizeFromPieceCID } from '@filoz/synapse-core/piece'
-import type { Synapse } from '@filoz/synapse-sdk'
+import type { PDPProvider, Synapse } from '@filoz/synapse-sdk'
 import PQueue from 'p-queue'
 import type { Logger } from 'pino'
 import { getClientAddress } from '../synapse/index.js'
 import type { ProgressEvent, ProgressEventHandler, Warning } from '../utils/types.js'
+import { getDataSetPieces } from './get-data-set-pieces.js'
 import type { DataSetSummary } from './types.js'
+import { PieceStatus } from './types.js'
 
 export interface ActualStorageResult {
   /** Total storage in bytes across all active data sets */
@@ -140,67 +141,51 @@ export async function calculateActualStorage(
     logger?.info({ dataSetCount: dataSets.length, address }, 'Calculating actual storage across data sets')
     signal?.throwIfAborted()
 
+    // Build provider map; trust pre-filled entries and only fetch the missing ones
+    const providerMap = new Map<bigint, PDPProvider>()
+    for (const ds of dataSets) {
+      if (ds.provider != null) {
+        providerMap.set(ds.providerId, ds.provider)
+      }
+    }
+    const missingProviderIds = [...new Set(dataSets.map((ds) => ds.providerId))].filter((id) => !providerMap.has(id))
+    if (missingProviderIds.length > 0) {
+      try {
+        const fetched = await synapse.providers.getProviders({ providerIds: missingProviderIds })
+        for (const provider of fetched) {
+          providerMap.set(provider.id, provider)
+        }
+      } catch (error) {
+        logger?.warn({ error, missingProviderIds }, 'Failed to enrich provider info for actual storage calculation')
+      }
+    }
+
     const processDataSet = async (dataSet: (typeof dataSets)[number]): Promise<void> => {
       signal?.throwIfAborted()
 
       try {
-        const storageContext = await synapse.storage.createContext({ dataSetId: dataSet.dataSetId })
-        let dataSetBytes = 0n
-        let dataSetPieces = 0
-
-        signal?.throwIfAborted()
-
-        let scheduledRemovals = new Set<bigint>()
-        try {
-          scheduledRemovals = new Set(await storageContext.getScheduledRemovals())
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          logger?.warn({ dataSetId: dataSet.dataSetId, error: errorMessage }, 'Failed to get scheduled removals')
-          warnings.push({
-            code: 'SCHEDULED_REMOVALS_UNAVAILABLE',
-            message: `Failed to get scheduled removals for data set ${dataSet.dataSetId}`,
-            context: {
-              dataSetId: dataSet.dataSetId,
-              error: errorMessage,
-            },
-          })
+        const getPiecesOptions: { logger?: Logger; signal?: AbortSignal } = {}
+        if (logger) {
+          getPiecesOptions.logger = logger
         }
-
-        signal?.throwIfAborted()
-
-        for await (const piece of storageContext.getPieces()) {
-          signal?.throwIfAborted()
-
-          if (scheduledRemovals.has(piece.pieceId)) {
-            continue
-          }
-
-          try {
-            dataSetBytes += BigInt(getSizeFromPieceCID(piece.pieceCid))
-          } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error)
-            logger?.warn(
-              { dataSetId: dataSet.dataSetId, pieceId: piece.pieceId, pieceCid: piece.pieceCid.toString(), error },
-              'Failed to calculate piece size from PieceCID'
-            )
-            warnings.push({
-              code: 'PIECE_SIZE_DECODE_FAILED',
-              message: `Failed to calculate piece size for piece ${piece.pieceId} in data set ${dataSet.dataSetId}`,
-              context: {
-                dataSetId: dataSet.dataSetId,
-                pieceId: piece.pieceId,
-                pieceCid: piece.pieceCid.toString(),
-                error: errorMessage,
-              },
-            })
-          }
-
-          dataSetPieces++
+        if (signal) {
+          getPiecesOptions.signal = signal
         }
+        const serviceURL = providerMap.get(dataSet.providerId)?.pdp?.serviceURL ?? ''
+        const result = await getDataSetPieces(synapse, dataSet.dataSetId, serviceURL, getPiecesOptions)
 
-        totalBytes += dataSetBytes
-        pieceCount += dataSetPieces
+        totalBytes += result.pieces.reduce((sum, piece) => {
+          if (piece.status === PieceStatus.OFFCHAIN_ORPHANED || piece.size == null) {
+            return sum
+          }
+          return sum + BigInt(piece.size)
+        }, 0n)
+        pieceCount += result.pieces.length
         dataSetsProcessed++
+
+        if (result.warnings && result.warnings.length > 0) {
+          warnings.push(...result.warnings)
+        }
 
         onProgress?.({
           type: 'actual-storage:progress',

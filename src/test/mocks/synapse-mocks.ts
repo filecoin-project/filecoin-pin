@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import type { PDPProvider } from '@filoz/synapse-sdk'
+import type { SynapseUploadData } from '../../core/upload/index.js'
 
 /**
  * Test utilities for mocking Synapse SDK components
@@ -47,7 +48,7 @@ export class MockStorageContext extends EventEmitter {
   public readonly provider = mockPDPProvider
   public readonly serviceProvider = mockPDPProvider.serviceProvider
 
-  async upload(_data: ArrayBuffer | Uint8Array, options?: any): Promise<any> {
+  async upload(_data: SynapseUploadData, options?: any): Promise<any> {
     // Check if already aborted
     options?.signal?.throwIfAborted()
 
@@ -65,6 +66,9 @@ export class MockStorageContext extends EventEmitter {
     // Simulate callback sequence matching real SDK behavior.
     // StorageManagerUploadOptions nests callbacks under `callbacks`.
     const callbacks = options?.callbacks
+    if (callbacks?.onProgress != null) {
+      callbacks.onProgress(getUploadSize(_data))
+    }
     if (callbacks?.onStored != null) {
       callbacks.onStored(providerId, pieceCid)
     }
@@ -95,6 +99,14 @@ export class MockStorageContext extends EventEmitter {
   }
 }
 
+function getUploadSize(data: SynapseUploadData): number {
+  if (data instanceof Uint8Array) {
+    return data.byteLength
+  }
+
+  return 1024
+}
+
 /**
  * Mock Synapse instance simulating the main SDK class
  *
@@ -111,6 +123,7 @@ export class MockSynapse extends EventEmitter {
   public readonly chain = {
     id: 314159,
     name: 'calibration',
+    filbeam: { retrievalDomain: 'calibration.filbeam.io' },
   }
 
   // Client info
@@ -128,6 +141,7 @@ export class MockSynapse extends EventEmitter {
 
   // Storage namespace matches SDK structure
   public readonly storage = {
+    source: null as string | null,
     createContext: this.createStorageContext.bind(this),
     upload: async (data: any, options: any) => {
       if (this._storageContext == null) {

@@ -14,7 +14,10 @@ export const paymentsCommand = new Command('payments').description('Manage payme
 const setupCommand = new Command('setup')
   .description('Setup payment approvals for Filecoin Onchain Cloud storage')
   .option('--auto', 'Run in automatic mode with defaults')
-  .option('--deposit <amount>', 'USDFC amount to deposit in Filecoin Pay (default: 1)')
+  .option(
+    '--deposit <amount>',
+    'Target Filecoin Pay balance in USDFC (default with --auto: sized from current on-chain pricing to seed initial CDN storage)'
+  )
   .option(
     '--rate-allowance <amount>',
     'Storage allowance for WarmStorage service (e.g., "1TiB/month", "500GiB/month", or "0.0000565" USDFC/epoch, default: 1TiB/month)'
@@ -24,7 +27,7 @@ const setupCommand = new Command('setup')
       const setupOptions: PaymentSetupOptions = {
         ...options,
         auto: options.auto || false,
-        deposit: options.deposit || '1',
+        deposit: options.deposit,
         rateAllowance: options.rateAllowance || '1TiB/month',
         network: options.network,
       }
@@ -44,7 +47,7 @@ paymentsCommand.addCommand(setupCommand)
 
 // Fund command - adjust funds to an exact runway or deposited total
 const fundCommand = new Command('fund')
-  .description('Adjust funds to an exact runway (days) or total deposit')
+  .description('Set deposited funds to an exact runway (days) or total amount; deposits or withdraws to match')
   .option('--days <n>', 'Set final runway to exactly N days (deposit or withdraw as needed)')
   .option('--amount <usdfc>', 'Set final deposited total to exactly this USDFC amount (deposit or withdraw)')
   .option(
@@ -105,15 +108,13 @@ paymentsCommand.addCommand(statusCommand)
 
 // Deposit command
 const depositCommand = new Command('deposit')
-  .description('Deposit or top-up funds in Filecoin Pay')
-  .option('--amount <usdfc>', 'USDFC amount to deposit (e.g., 10.5)')
-  .option('--days <n>', 'Fund enough to keep current spend alive for N days')
+  .description('Deposit a USDFC amount into Filecoin Pay (one-way; never withdraws)')
+  .requiredOption('--amount <usdfc>', 'USDFC amount to deposit (e.g., 10.5)')
   .action(async (options) => {
     try {
       await runDeposit({
         ...options,
         amount: options.amount,
-        days: options.days != null ? Number(options.days) : undefined, // Only pass days if explicitly provided
       })
     } catch {
       process.exit(1)

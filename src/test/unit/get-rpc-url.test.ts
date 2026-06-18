@@ -44,19 +44,24 @@ describe('getRpcUrl', () => {
     ).toBe(calibrationWsUrl)
   })
 
-  it('defaults to calibration when network is missing or blank', () => {
-    expect(getRpcUrl({})).toBe(calibrationWsUrl)
-    expect(getRpcUrl({ network: '' })).toBe(calibrationWsUrl)
-    expect(getRpcUrl({ network: '   ' })).toBe(calibrationWsUrl)
+  it('defaults to mainnet when network is missing or blank', () => {
+    expect(getRpcUrl({})).toBe(mainnetWsUrl)
+    expect(getRpcUrl({ network: '' })).toBe(mainnetWsUrl)
+    expect(getRpcUrl({ network: '   ' })).toBe(mainnetWsUrl)
   })
 
   it('treats empty rpcUrl as falsy and falls back to defaults', () => {
-    expect(getRpcUrl({ rpcUrl: '' })).toBe(calibrationWsUrl)
+    expect(getRpcUrl({ rpcUrl: '' })).toBe(mainnetWsUrl)
   })
 
   it('throws for unsupported networks', () => {
     expect(() => getRpcUrl({ network: 'invalid' })).toThrow(
       'Invalid network: "invalid". Must be "mainnet", "calibration", or "devnet"'
     )
+  })
+
+  it('accepts "calibnet" as an alias for calibration', () => {
+    expect(getRpcUrl({ network: 'calibnet' })).toBe(calibrationWsUrl)
+    expect(getRpcUrl({ network: '  CALIBNET  ' })).toBe(calibrationWsUrl)
   })
 })

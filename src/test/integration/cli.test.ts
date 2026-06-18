@@ -19,4 +19,43 @@ describe('CLI entrypoint', () => {
       })
     }).not.toThrow()
   })
+
+  it('add command exposes --egress-provider in --help', { timeout: 15000 }, () => {
+    const out = execSync('node dist/cli.js add --help', {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    })
+    expect(out).toContain('--egress-provider')
+    expect(out).toContain('beam')
+    expect(out).toContain('none')
+  })
+
+  it('import command exposes --egress-provider in --help', { timeout: 15000 }, () => {
+    const out = execSync('node dist/cli.js import --help', {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    })
+    expect(out).toContain('--egress-provider')
+  })
+
+  it('session revoke command is visible and exposes owner network options', { timeout: 15000 }, () => {
+    const sessionHelp = execSync('node dist/cli.js session --help', {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    })
+    expect(sessionHelp).toContain('revoke')
+
+    const revokeHelp = execSync('node dist/cli.js session revoke --help', {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    })
+    expect(revokeHelp).toContain('<session-address>')
+    expect(revokeHelp).toContain('--private-key')
+    expect(revokeHelp).toContain('--network')
+    expect(revokeHelp).toContain('--rpc-url')
+  })
 })

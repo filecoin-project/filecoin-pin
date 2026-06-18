@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.label.name == 'team/fs-wg'
     steps:
-      - uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2
+      - uses: actions/add-to-project@5afcf98fcd03f1c2f92c3c83f58ae24323cc57fd # v2.0.0
         continue-on-error: true # Don't fail if item already exists in project. actions/add-to-project does not currently handle this case gracefully.
         with:
           project-url: https://github.com/orgs/FilOzone/projects/14

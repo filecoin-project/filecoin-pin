@@ -19,12 +19,12 @@ import { removePiece } from './remove-piece.js'
  * Progress events emitted during batch piece removal
  */
 export type RemoveAllPiecesProgressEvents =
-  | ProgressEvent<'remove-all:fetching', { dataSetId: bigint }>
-  | ProgressEvent<'remove-all:fetched', { dataSetId: bigint; totalPieces: number }>
-  | ProgressEvent<'remove-all:removing', { current: number; total: number; pieceCid: string }>
-  | ProgressEvent<'remove-all:removed', { current: number; total: number; pieceCid: string; txHash: string }>
-  | ProgressEvent<'remove-all:failed', { current: number; total: number; pieceCid: string; error: string }>
-  | ProgressEvent<'remove-all:complete', { totalPieces: number; removedCount: number; failedCount: number }>
+  | ProgressEvent<'removeAll:fetching', { dataSetId: bigint }>
+  | ProgressEvent<'removeAll:fetched', { dataSetId: bigint; totalPieces: number }>
+  | ProgressEvent<'removeAll:removing', { current: number; total: number; pieceCid: string }>
+  | ProgressEvent<'removeAll:removed', { current: number; total: number; pieceCid: string; txHash: string }>
+  | ProgressEvent<'removeAll:failed', { current: number; total: number; pieceCid: string; error: string }>
+  | ProgressEvent<'removeAll:complete', { totalPieces: number; removedCount: number; failedCount: number }>
 
 /**
  * Result of a single piece removal attempt
@@ -43,6 +43,13 @@ export interface RemoveAllPiecesResult {
   dataSetId: bigint
   totalPieces: number
   removedCount: number
+  /**
+   * Of the `removedCount` removals, how many were confirmed on-chain. Only
+   * meaningful when `waitForConfirmation` is true; otherwise stays 0 since no
+   * confirmation is awaited. `removedCount - confirmedCount` is the number of
+   * removals whose confirmation wait timed out (submitted but unconfirmed).
+   */
+  confirmedCount: number
   failedCount: number
   transactions: PieceRemovalResult[]
 }
@@ -106,12 +113,17 @@ export async function removeAllPieces(
   if (providedPieces) {
     // Use pre-fetched pieces (already filtered by caller)
     pieces = providedPieces.filter((p) => p.status === PieceStatus.ACTIVE)
-    onProgress?.({ type: 'remove-all:fetched', data: { dataSetId, totalPieces: pieces.length } })
+    onProgress?.({ type: 'removeAll:fetched', data: { dataSetId, totalPieces: pieces.length } })
   } else {
     // Fetch all pieces from the dataset
-    onProgress?.({ type: 'remove-all:fetching', data: { dataSetId } })
+    onProgress?.({ type: 'removeAll:fetching', data: { dataSetId } })
 
-    const { pieces: allPieces } = await getDataSetPieces(synapse, storageContext, { logger })
+    const { pieces: allPieces } = await getDataSetPieces(
+      synapse,
+      dataSetId,
+      storageContext.provider.pdp?.serviceURL ?? '',
+      { logger }
+    )
 
     // Filter out pieces that are already pending removal - no need to delete them again
     pieces = allPieces.filter((p) => p.status === PieceStatus.ACTIVE)
@@ -121,17 +133,18 @@ export async function removeAllPieces(
       logger?.info({ skipped: skippedCount, total: allPieces.length }, 'Skipped pieces already pending removal')
     }
 
-    onProgress?.({ type: 'remove-all:fetched', data: { dataSetId, totalPieces: pieces.length } })
+    onProgress?.({ type: 'removeAll:fetched', data: { dataSetId, totalPieces: pieces.length } })
   }
 
   const totalPieces = pieces.length
 
   if (totalPieces === 0) {
-    onProgress?.({ type: 'remove-all:complete', data: { totalPieces: 0, removedCount: 0, failedCount: 0 } })
+    onProgress?.({ type: 'removeAll:complete', data: { totalPieces: 0, removedCount: 0, failedCount: 0 } })
     return {
       dataSetId,
       totalPieces: 0,
       removedCount: 0,
+      confirmedCount: 0,
       failedCount: 0,
       transactions: [],
     }
@@ -140,6 +153,7 @@ export async function removeAllPieces(
   // Remove each piece
   const transactions: PieceRemovalResult[] = []
   let removedCount = 0
+  let confirmedCount = 0
   let failedCount = 0
 
   for (let i = 0; i < pieces.length; i++) {
@@ -155,19 +169,26 @@ export async function removeAllPieces(
     const current = i + 1
     const pieceCid = piece.pieceCid
 
-    onProgress?.({ type: 'remove-all:removing', data: { current, total: totalPieces, pieceCid } })
+    onProgress?.({ type: 'removeAll:removing', data: { current, total: totalPieces, pieceCid } })
 
     try {
+      let pieceConfirmed = false
       const txHash = await removePiece(pieceCid, storageContext, {
         synapse,
         waitForConfirmation,
         logger,
+        onProgress: (event) => {
+          if (event.type === 'removePiece:complete') {
+            pieceConfirmed = event.data.confirmed
+          }
+        },
       })
 
       transactions.push({ pieceCid, txHash, success: true })
       removedCount++
+      if (pieceConfirmed) confirmedCount++
 
-      onProgress?.({ type: 'remove-all:removed', data: { current, total: totalPieces, pieceCid, txHash } })
+      onProgress?.({ type: 'removeAll:removed', data: { current, total: totalPieces, pieceCid, txHash } })
 
       logger?.info({ pieceCid, txHash, current, total: totalPieces }, 'Piece removed successfully')
     } catch (error) {
@@ -175,18 +196,19 @@ export async function removeAllPieces(
       transactions.push({ pieceCid, txHash: '', success: false, error: errorMessage })
       failedCount++
 
-      onProgress?.({ type: 'remove-all:failed', data: { current, total: totalPieces, pieceCid, error: errorMessage } })
+      onProgress?.({ type: 'removeAll:failed', data: { current, total: totalPieces, pieceCid, error: errorMessage } })
 
       logger?.error({ pieceCid, error, current, total: totalPieces }, 'Failed to remove piece')
     }
   }
 
-  onProgress?.({ type: 'remove-all:complete', data: { totalPieces, removedCount, failedCount } })
+  onProgress?.({ type: 'removeAll:complete', data: { totalPieces, removedCount, failedCount } })
 
   return {
     dataSetId,
     totalPieces,
     removedCount,
+    confirmedCount,
     failedCount,
     transactions,
   }

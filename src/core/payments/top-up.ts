@@ -5,6 +5,48 @@ import { depositUSDFC, getPaymentStatus } from './index.js'
 import type { TopUpResult } from './types.js'
 
 /**
+ * Result of clamping a requested deposit against a balance limit.
+ *
+ * - `passthrough`: limit is undefined or unreached; deposit equals requested
+ * - `already-at-limit`: current balance already meets/exceeds limit; deposit is 0n
+ * - `clamped`: deposit was reduced to the largest amount that doesn't exceed limit
+ */
+export interface ClampDepositResult {
+  deposit: bigint
+  reason: 'passthrough' | 'already-at-limit' | 'clamped'
+  message?: string
+}
+
+/**
+ * Pure helper: clamp a requested deposit so the resulting balance does not exceed `limit`.
+ *
+ * @param currentBalance - Current Filecoin Pay balance
+ * @param requested - Requested deposit amount (must be > 0n for clamping to apply)
+ * @param limit - Maximum allowed post-deposit balance; undefined means no limit
+ */
+export function clampDepositToLimit(currentBalance: bigint, requested: bigint, limit?: bigint): ClampDepositResult {
+  if (limit == null || limit < 0n || requested <= 0n) {
+    return { deposit: requested, reason: 'passthrough' }
+  }
+  if (currentBalance >= limit) {
+    return {
+      deposit: 0n,
+      reason: 'already-at-limit',
+      message: `Current balance (${formatUSDFC(currentBalance)}) already equals or exceeds the configured balance limit (${formatUSDFC(limit)}). No additional deposits will be made.`,
+    }
+  }
+  if (currentBalance + requested > limit) {
+    const maxAllowed = limit - currentBalance
+    return {
+      deposit: maxAllowed,
+      reason: 'clamped',
+      message: `Required top-up (${formatUSDFC(requested)}) would exceed the configured balance limit (${formatUSDFC(limit)}). Reducing to ${formatUSDFC(maxAllowed)}.`,
+    }
+  }
+  return { deposit: requested, reason: 'passthrough' }
+}
+
+/**
  * Execute a top-up operation with balance limit checking
  *
  * This function handles the complete top-up process including:
@@ -41,40 +83,16 @@ export async function executeTopUp(
   // Get current status for limit checking
   const currentStatus = await getPaymentStatus(synapse)
 
-  // Check if deposit would exceed maximum balance if specified
-  if (balanceLimit != null && balanceLimit >= 0n) {
-    // Check if current balance already equals or exceeds limit
-    if (currentStatus.filecoinPayBalance >= balanceLimit) {
-      const message = `Current balance (${formatUSDFC(currentStatus.filecoinPayBalance)}) already equals or exceeds the configured balance limit (${formatUSDFC(balanceLimit)}). No additional deposits will be made.`
-      logger?.warn(`${message}`)
-      return {
-        success: true,
-        deposited: 0n,
-        message,
-        warnings,
-      }
-    } else {
-      // Check if required top-up would exceed the limit
-      const projectedBalance = currentStatus.filecoinPayBalance + topUpAmount
-      if (projectedBalance > balanceLimit) {
-        // Calculate the maximum allowed top-up that won't exceed the limit
-        const maxAllowedTopUp = balanceLimit - currentStatus.filecoinPayBalance
-        if (maxAllowedTopUp > 0n) {
-          const warning = `Required top-up (${formatUSDFC(topUpAmount)}) would exceed the configured balance limit (${formatUSDFC(balanceLimit)}). Reducing to ${formatUSDFC(maxAllowedTopUp)}.`
-          logger?.warn(`${warning}`)
-          warnings.push(warning)
-          topUpAmount = maxAllowedTopUp
-        } else {
-          return {
-            success: true,
-            deposited: 0n,
-            message: 'Cannot deposit - would exceed balance limit',
-            warnings,
-          }
-        }
-      }
-    }
+  const clamp = clampDepositToLimit(currentStatus.filecoinPayBalance, topUpAmount, balanceLimit)
+  if (clamp.reason === 'already-at-limit') {
+    logger?.warn(clamp.message)
+    return { success: true, deposited: 0n, message: clamp.message ?? '', warnings }
   }
+  if (clamp.reason === 'clamped' && clamp.message != null) {
+    logger?.warn(clamp.message)
+    warnings.push(clamp.message)
+  }
+  topUpAmount = clamp.deposit
 
   // Ensure wallet has sufficient USDFC for the deposit
   if (currentStatus.walletUsdfcBalance < topUpAmount) {

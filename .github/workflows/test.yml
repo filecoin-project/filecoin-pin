@@ -1,5 +1,19 @@
 name: Test
-on: [push, pull_request]
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
 jobs:
   test:
     strategy:
@@ -8,11 +22,15 @@ jobs:
         node: [lts/*, current]
         os: [macos-latest, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    # Lint, typecheck, build, and unit/integration tests finish within a few
+    # minutes. Cap well above that so a stalled step fails fast instead of
+    # riding the default 6h limit.
+    timeout-minutes: 15
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
         with:
           run_install: false
       - name: Use Node.js ${{ matrix.node }}
@@ -23,17 +41,57 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install chromium
+      - name: Configure pnpm script shell
+        if: runner.os == 'Windows'
+        run: pnpm config set script-shell bash
       - name: Run Lint
+        if: runner.os == 'Linux'
         run: pnpm run lint
-      - name: Run Tests
-        run: |
-          pnpm config set script-shell bash
-          pnpm test
-      - name: Build
-        run: pnpm run build
       - name: Check TypeScript
+        if: runner.os == 'Linux'
         run: |
           pnpm run typecheck
           pnpm --dir upload-action run typecheck
+      - name: Build
+        run: pnpm run build
+      - name: Run Unit Tests
+        run: pnpm run test:unit
+      - name: Run Integration Tests
+        run: pnpm run test:integration
+
+  browser-test:
+    runs-on: ubuntu-latest
+    # Browser tests finish in under a minute once the cached Chromium is in
+    # place. Cap with headroom for a cold browser download so a stalled step
+    # fails fast instead of riding the default 6h limit.
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [lts/*, current]
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6.0.2
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+        with:
+          run_install: false
+      - name: Use Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm run build
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium
+      - name: Run Browser Tests
+        run: pnpm run test:browser

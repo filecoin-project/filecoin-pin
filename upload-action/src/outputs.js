@@ -80,6 +80,7 @@ export function getOutputSummary(context, status) {
   /** @type {PaymentStatus} */
   const paymentStatus = {
     filecoinPayBalance: '0',
+    storageCovered: 'Unknown',
     storageRunway: 'Unknown',
     depositedThisRun: '0',
     network,
@@ -87,31 +88,23 @@ export function getOutputSummary(context, status) {
     filBalance: 0n,
     walletUsdfcBalance: '0',
     currentAllowances: {
+      isApproved: false,
       rateAllowance: 0n,
       lockupAllowance: 0n,
-      lockupUsed: 0n,
+      lockupUsage: 0n,
       maxLockupPeriod: 0n,
-      rateUsed: 0n,
+      rateUsage: 0n,
     },
     ...context?.paymentStatus,
   }
   const ipniValidated = context?.ipniValidated === true
-  let centralizedIpfsGatewayPreview
+  let browserGatewayUrl
   if (!ipfsRootCid) {
-    centralizedIpfsGatewayPreview = 'IPFS Root CID unavailable'
+    browserGatewayUrl = 'IPFS Root CID unavailable'
   } else if (ipniValidated) {
-    centralizedIpfsGatewayPreview = `https://dweb.link/ipfs/${ipfsRootCid}`
+    browserGatewayUrl = `https://inbrowser.link/ipfs/${ipfsRootCid}`
   } else {
-    centralizedIpfsGatewayPreview = 'Waiting for IPNI announcement'
-  }
-
-  let inBrowserIpfsGatewayPreview
-  if (!ipfsRootCid) {
-    inBrowserIpfsGatewayPreview = 'IPFS Root CID unavailable'
-  } else if (ipniValidated) {
-    inBrowserIpfsGatewayPreview = `https://inbrowser.link/ipfs/${ipfsRootCid}`
-  } else {
-    inBrowserIpfsGatewayPreview = 'Waiting for IPNI announcement'
+    browserGatewayUrl = 'Waiting for IPNI announcement'
   }
 
   return [
@@ -120,8 +113,8 @@ export function getOutputSummary(context, status) {
     '**IPFS Artifacts:**',
     '',
     `* IPFS Root CID: ${ipfsRootCid}`,
-    `* Centralized IPFS HTTP Gateway Preview: ${centralizedIpfsGatewayPreview}`,
-    `* In-Browser IPFS HTTP Gateway Preview: ${inBrowserIpfsGatewayPreview}`,
+    `* View in browser: ${browserGatewayUrl}`,
+    `* [Retrieval methods](https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/retrieval.md)`,
     `* Status: ${status}`,
     `* Generated CAR on GitHub: ${carDownloadUrl}`,
     `* CAR file size: ${formatSize(carSize)}`,
@@ -138,7 +131,8 @@ export function getOutputSummary(context, status) {
     '',
     `* Current Filecoin Pay balance: ${formatUSDFC(parseUnits(paymentStatus.filecoinPayBalance, 18))} USDFC`,
     `* Amount deposited to Filecoin Pay by this workflow: ${formatUSDFC(parseUnits(paymentStatus.depositedThisRun, 18))} USDFC`,
-    `* Data Set Storage runway: ${paymentStatus.storageRunway}`,
+    `* Storage covered by deposit: ${paymentStatus.storageCovered}`,
+    `* Top-up needed in: ${paymentStatus.storageRunway}`,
     '',
   ].join('\n')
 }

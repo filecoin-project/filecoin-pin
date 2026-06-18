@@ -1,10 +1,10 @@
 import type { CopyResult, FailedAttempt } from '@filoz/synapse-sdk'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
+import type { CLIAutoFundOptions } from '../utils/cli-options.js'
+import type { EgressProvider } from '../utils/cli-options-egress.js'
 
-export interface ImportOptions extends CLIAuthOptions {
+export interface ImportOptions extends CLIAuthOptions, CLIAutoFundOptions {
   filePath: string
-  /** Auto-fund: automatically ensure minimum 30 days of runway */
-  autoFund?: boolean
   /** Number of storage copies to create */
   copies?: number
   /** Piece metadata attached to the imported CAR */
@@ -13,6 +13,8 @@ export interface ImportOptions extends CLIAuthOptions {
   dataSetMetadata?: Record<string, string>
   /** Skip IPNI advertisement verification after upload */
   skipIpniVerification?: boolean
+  /** Egress provider for piece retrieval ('beam' enables FilBeam CDN). Defaults to off when unset. */
+  egressProvider?: EgressProvider
 }
 
 export interface ImportResult {
@@ -21,6 +23,7 @@ export interface ImportResult {
   rootCid: string
   pieceCid: string
   size: number
+  requestedCopies: number
   copies: CopyResult[]
   failedAttempts: FailedAttempt[]
 }

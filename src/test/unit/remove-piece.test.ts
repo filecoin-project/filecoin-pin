@@ -1,9 +1,10 @@
+import type { Hash } from 'viem'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { removePiece } from '../../core/piece/index.js'
 
 const { mockDeletePiece, mockWaitForTransactionReceipt, mockSynapse, storageContext, state } = vi.hoisted(() => {
   const state = {
-    txHash: '0xtest-hash' as `0x${string}`,
+    txHash: '0x7e27000000000000000000000000000000000000000000000000000000000000' as Hash,
     dataSetId: 99n,
   }
 
@@ -26,7 +27,7 @@ const { mockDeletePiece, mockWaitForTransactionReceipt, mockSynapse, storageCont
 describe('removePiece', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    state.txHash = '0xtest-hash'
+    state.txHash = '0x7e27000000000000000000000000000000000000000000000000000000000000'
     state.dataSetId = 99n
     storageContext.dataSetId = state.dataSetId
   })
@@ -64,19 +65,19 @@ describe('removePiece', () => {
       timeout: 120000,
     })
     expect(onProgress).toHaveBeenNthCalledWith(1, {
-      type: 'remove-piece:submitting',
+      type: 'removePiece:submitting',
       data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n },
     })
     expect(onProgress).toHaveBeenNthCalledWith(2, {
-      type: 'remove-piece:submitted',
+      type: 'removePiece:submitted',
       data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n, txHash: state.txHash },
     })
     expect(onProgress).toHaveBeenNthCalledWith(3, {
-      type: 'remove-piece:confirming',
+      type: 'removePiece:confirming',
       data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n, txHash: state.txHash },
     })
     expect(onProgress).toHaveBeenNthCalledWith(4, {
-      type: 'remove-piece:complete',
+      type: 'removePiece:complete',
       data: { txHash: state.txHash, confirmed: true },
     })
   })
@@ -98,11 +99,11 @@ describe('removePiece', () => {
       timeout: 120000,
     })
     expect(onProgress).toHaveBeenCalledWith({
-      type: 'remove-piece:confirmation-failed',
+      type: 'removePiece:confirmationFailed',
       data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n, txHash: state.txHash, message: 'timeout' },
     })
     expect(onProgress).toHaveBeenLastCalledWith({
-      type: 'remove-piece:complete',
+      type: 'removePiece:complete',
       data: { txHash: state.txHash, confirmed: false },
     })
   })
@@ -115,15 +116,15 @@ describe('removePiece', () => {
     expect(result).toBe(state.txHash)
     expect(mockWaitForTransactionReceipt).not.toHaveBeenCalled()
     expect(onProgress).toHaveBeenNthCalledWith(1, {
-      type: 'remove-piece:submitting',
+      type: 'removePiece:submitting',
       data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n },
     })
     expect(onProgress).toHaveBeenNthCalledWith(2, {
-      type: 'remove-piece:submitted',
+      type: 'removePiece:submitted',
       data: { pieceCid: 'bafkzcibpiece', dataSetId: 99n, txHash: state.txHash },
     })
     expect(onProgress).toHaveBeenNthCalledWith(3, {
-      type: 'remove-piece:complete',
+      type: 'removePiece:complete',
       data: { txHash: state.txHash, confirmed: false },
     })
   })

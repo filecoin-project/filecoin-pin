@@ -1,11 +1,23 @@
 import * as core from '@actions/core'
+import { configureTelemetry, flushTelemetry } from 'filecoin-pin/core/telemetry'
+import { readTelemetryConfigFromEnv } from 'filecoin-pin/read-telemetry-config-from-env'
 import { checkForUpdate } from 'filecoin-pin/version-check'
 
 import { runBuild } from './build.js'
 import { getErrorMessage, handleError } from './errors.js'
 import { completeCheck, createCheck } from './github.js'
+import { getInput, parseBoolean } from './inputs.js'
 import { getOutputSummary } from './outputs.js'
 import { runUpload } from './upload.js'
+
+const envConfig = readTelemetryConfigFromEnv()
+configureTelemetry({
+  ...envConfig,
+  affordance: 'GitHub Action',
+  // Either the env (FILECOIN_PIN_TELEMETRY_DISABLED / DO_NOT_TRACK) or the
+  // action input can disable; neither can re-enable the other.
+  disabled: envConfig.disabled || parseBoolean(getInput('disableTelemetry', 'false')),
+})
 
 async function maybeNotifyAboutUpdates() {
   try {
@@ -62,14 +74,32 @@ async function main() {
   })
 }
 
-main().catch(async (err) => {
-  // Complete check with failure
-  await completeCheck({
-    conclusion: 'failure',
-    title: '✗ Upload Failed',
-    summary: `Error: ${getErrorMessage(err)}`,
+main()
+  .then(async () => {
+    // Real uploads can leave SDK/network handles open after all action work is done.
+    // Exit explicitly so GitHub Actions can run post-action cleanup steps.
+    try {
+      await flushTelemetry()
+    } catch (err) {
+      core.warning(`Telemetry flush failed: ${getErrorMessage(err)}`)
+    } finally {
+      process.exit(0)
+    }
   })
+  .catch(async (err) => {
+    // Complete check with failure
+    await completeCheck({
+      conclusion: 'failure',
+      title: '✗ Upload Failed',
+      summary: `Error: ${getErrorMessage(err)}`,
+    })
 
-  handleError(err)
-  process.exit(1)
-})
+    handleError(err)
+    try {
+      await flushTelemetry()
+    } catch (telemetryErr) {
+      core.warning(`Telemetry flush failed: ${getErrorMessage(telemetryErr)}`)
+    } finally {
+      process.exit(1)
+    }
+  })

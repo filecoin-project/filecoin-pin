@@ -1,37 +1,37 @@
 import { Command } from 'commander'
-import { runAdd } from '../add/add.js'
-import type { AddOptions } from '../add/types.js'
-import { MIN_RUNWAY_DAYS } from '../common/constants.js'
-import { addAuthOptions, addContextSelectionOptions, addUploadOptions } from '../utils/cli-options.js'
-import { addMetadataOptions, resolveMetadataOptions } from '../utils/cli-options-metadata.js'
+import { runAddFromCli } from '../add/add.js'
+import {
+  addAuthOptions,
+  addAutoFundOptions,
+  addContextSelectionOptions,
+  addUploadOptions,
+} from '../utils/cli-options.js'
+import { addEgressOptions } from '../utils/cli-options-egress.js'
+import { addMetadataOptions } from '../utils/cli-options-metadata.js'
 
 export const addCommand = new Command('add')
   .description('Add a file or directory to Filecoin via Synapse (creates UnixFS CAR)')
   .argument('<path>', 'Path to the file or directory to add')
-  .option('--bare', 'Add file without directory wrapper (files only, not supported for directories)')
-  .option('--auto-fund', `Automatically ensure minimum ${MIN_RUNWAY_DAYS} days of runway before upload`)
+  .option(
+    '--include-hidden',
+    'Include hidden entries (dotfiles) when packing a directory. Ignored when the target directory itself starts with `.` — its descendants are always traversed in that case.'
+  )
   .option('--copies <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
+  .addHelpText(
+    'after',
+    `
+Retrieving your content after an add:
+  IPFS Root CID  view in a browser, or fetch from any IPFS gateway
+  Piece CID      download the stored CAR directly from the provider
+  Guide: https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/retrieval.md`
+  )
 
 addCommand.action(async (path: string, options: any) => {
   try {
-    const {
-      metadata: _metadata,
-      dataSetMetadata: _dataSetMetadata,
-      datasetMetadata: _datasetMetadata,
-      '8004Type': _erc8004Type,
-      '8004Agent': _erc8004Agent,
-      ...addOptionsFromCli
-    } = options
-    const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
-
-    const addOptions: AddOptions = {
-      ...addOptionsFromCli,
-      filePath: path,
-      ...(pieceMetadata && { pieceMetadata }),
-      ...(dataSetMetadata && { dataSetMetadata }),
+    const result = await runAddFromCli(path, options)
+    if (result.copies.length < result.requestedCopies) {
+      process.exitCode = 1
     }
-
-    await runAdd(addOptions)
   } catch {
     process.exit(1)
   }
@@ -40,4 +40,6 @@ addCommand.action(async (path: string, options: any) => {
 addAuthOptions(addCommand)
 addContextSelectionOptions(addCommand)
 addUploadOptions(addCommand)
+addAutoFundOptions(addCommand)
+addEgressOptions(addCommand)
 addMetadataOptions(addCommand, { includePieceMetadata: true, includeDataSetMetadata: true, includeErc8004: true })

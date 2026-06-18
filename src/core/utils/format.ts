@@ -1,6 +1,6 @@
 import { formatEther, formatUnits } from 'viem'
-import type { StorageRunwaySummary } from '../payments/index.js'
-import { USDFC_DECIMALS } from '../payments/index.js'
+import { USDFC_DECIMALS } from '../payments/constants.js'
+import type { StorageRunwaySummary } from '../payments/types.js'
 
 const DAYS_PER_MONTH = 30
 const DAYS_PER_YEAR = 365
@@ -97,16 +97,25 @@ export function formatRunwayDuration(days: number, hoursRemainder: number = 0): 
 }
 
 /**
- * Convert a storage runway summary into a human-readable string for CLI/action output.
+ * Coverage and runway strings for CLI/action output.
+ *
+ * - `coverage`: total time the deposit covers including currently-locked funds.
+ * - `runway`: time until top-up is required to keep paying ongoing storage.
  */
-export function formatRunwaySummary(runway: StorageRunwaySummary): string {
-  if (runway.state === 'active') {
-    return formatRunwayDuration(runway.days, runway.hours)
-  }
+export interface RunwaySummaryStrings {
+  coverage: string
+  runway: string
+}
 
+export function formatRunwaySummary(runway: StorageRunwaySummary): RunwaySummaryStrings {
   if (runway.state === 'no-spend') {
-    return 'No active spend detected'
+    return {
+      coverage: 'No active spend detected',
+      runway: 'No active spend detected',
+    }
   }
-
-  return 'Unknown'
+  return {
+    coverage: formatRunwayDuration(runway.coverageDays, runway.coverageHours),
+    runway: formatRunwayDuration(runway.runwayDays, runway.runwayHours),
+  }
 }
