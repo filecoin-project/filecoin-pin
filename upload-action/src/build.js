@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import pc from 'picocolors'
 import pino from 'pino'
 import { createCarFile, readCarFile } from './filecoin.js'
-import { readEventPayload, updateCheck } from './github.js'
+import { evaluateUploadProvenance, readEventPayload, updateCheck } from './github.js'
 import { parseInputs, resolveContentPath } from './inputs.js'
 import { formatSize } from './outputs.js'
 
@@ -42,14 +42,15 @@ export async function runBuild() {
     }
   }
 
-  const isForkPR = Boolean(
-    event?.pull_request && event.pull_request.head?.repo?.full_name !== event.pull_request.base?.repo?.full_name
-  )
+  const provenance = evaluateUploadProvenance(event, eventName)
+  const uploadStatus = provenance.trusted ? 'pending-upload' : 'fork-pr-blocked'
 
-  if (isForkPR) {
+  if (!provenance.trusted) {
     console.log('━━━ Fork PR Detected - Preparing CAR but Blocking Upload ━━━')
-    console.error('::error::Fork PR support is currently disabled. Only same-repo workflows are supported.')
-    console.log('::notice::Preparing CAR file but upload will be blocked')
+    console.error(
+      `::error::Fork PR support is currently disabled. Only same-repo workflows are supported. Provenance: ${provenance.reason || 'untrusted source'}`
+    )
+    console.log('::notice::Preparing CAR file, but upload to Filecoin will be blocked')
   }
 
   const inputs = /** @type {ParsedInputs} */ (parseInputs('compute'))
@@ -81,7 +82,7 @@ export async function runBuild() {
     ipfsRootCid,
     carSize,
     carPath,
-    uploadStatus: isForkPR ? 'fork-pr-blocked' : 'pending-upload',
+    uploadStatus,
     contentPath,
     buildRunId,
     eventName,

@@ -31,25 +31,8 @@ export async function runUpload(buildContext = {}) {
     summary: 'Preparing to upload to Filecoin...',
   })
 
-  // Parse inputs (upload phase needs wallet)
-  /** @type {ParsedInputs} */
-  const inputs = parseInputs('upload')
-  const {
-    walletPrivateKey,
-    contentPath,
-    network: inputNetwork,
-    minStorageDays,
-    filecoinPayBalanceLimit,
-    withCDN,
-    providerIds,
-    dataSetIds,
-    dryRun,
-  } = inputs
-
   /** @type {Partial<CombinedContext>} */
-  const context = { ...buildContext, contentPath }
-
-  context.dryRun = dryRun
+  const context = { ...buildContext }
 
   const resolvedPr = await ensurePullRequestContext(context.pr)
   if (resolvedPr) {
@@ -90,6 +73,24 @@ export async function runUpload(buildContext = {}) {
     console.log('✓ Fork PR blocked - PR comment posted explaining the limitation')
     return context
   }
+
+  // Parse inputs only after the entry point has accepted the event provenance.
+  /** @type {ParsedInputs} */
+  const inputs = parseInputs('upload')
+  const {
+    walletPrivateKey,
+    contentPath,
+    network: inputNetwork,
+    minStorageDays,
+    filecoinPayBalanceLimit,
+    withCDN,
+    providerIds,
+    dataSetIds,
+    dryRun,
+  } = inputs
+
+  context.contentPath = contentPath
+  context.dryRun = dryRun
 
   if (!context.ipfsRootCid) {
     throw new Error('No IPFS Root CID found in context. Build phase may have failed.')

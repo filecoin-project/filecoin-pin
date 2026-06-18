@@ -24,6 +24,64 @@ export async function readEventPayload() {
 }
 
 /**
+ * Decide whether the current GitHub event has trusted repository provenance.
+ *
+ * Pull request and workflow_run events can refer to code or artifacts produced
+ * by a fork. Missing repository identity on either event is treated as
+ * untrusted so privileged upload workflows fail closed.
+ *
+ * @param {any} event
+ * @param {string} [eventName]
+ * @returns {{ trusted: boolean, reason?: string }}
+ */
+export function evaluateUploadProvenance(event, eventName = process.env.GITHUB_EVENT_NAME || '') {
+  const isWorkflowRun = eventName === 'workflow_run' || event?.workflow_run != null
+  if (isWorkflowRun) {
+    const headRepository = event?.workflow_run?.head_repository?.full_name
+    const baseRepository = event?.workflow_run?.repository?.full_name
+
+    if (!headRepository || !baseRepository) {
+      return {
+        trusted: false,
+        reason: 'workflow_run repository provenance is incomplete',
+      }
+    }
+
+    if (headRepository !== baseRepository) {
+      return {
+        trusted: false,
+        reason: `workflow_run originated from fork ${headRepository}`,
+      }
+    }
+
+    return { trusted: true }
+  }
+
+  const isPullRequest =
+    eventName === 'pull_request' || eventName === 'pull_request_target' || event?.pull_request != null
+  if (isPullRequest) {
+    const headRepository = event?.pull_request?.head?.repo?.full_name
+    const baseRepository = event?.pull_request?.base?.repo?.full_name
+
+    if (!headRepository || !baseRepository) {
+      return {
+        trusted: false,
+        reason: 'pull request repository provenance is incomplete',
+      }
+    }
+
+    if (headRepository !== baseRepository) {
+      return {
+        trusted: false,
+        reason: `pull request originated from fork ${headRepository}`,
+      }
+    }
+  }
+
+  return { trusted: true }
+}
+
+/**
  * Convert arbitrary numeric value to number when possible
  * @param {unknown} value
  * @returns {number | undefined}
