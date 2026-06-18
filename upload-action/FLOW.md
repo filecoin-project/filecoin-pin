@@ -12,14 +12,14 @@ This document explains how the action works internally and why each step exists.
    - Ensures `cleanupSynapse()` runs on error via try/catch blocks.
 
 2. **Build phase (`src/build.js`)**
+   - Validates event provenance. Direct PRs compare head/base repositories; `workflow_run` events compare `head_repository` with `repository` and fail closed when either identity is missing.
    - Parses inputs via `parseInputs('compute')`. This validates `path` and `network` but does not require the wallet key.
-   - Detects fork PRs (by comparing head/base repo names). When detected, it records `uploadStatus=fork-pr-blocked` in the context and emits a notice that upload will be blocked.
    - Resolves `path` against the workspace and generates a CAR using `createCarFile()`.
    - Returns a context object containing the CAR file path, size, IPFS root CID, and additional metadata (run id, PR details, upload status).
 
 3. **Upload phase (`src/upload.js`)**
+   - If the build phase marked the run as `fork-pr-blocked`, writes outputs, posts the explanatory PR comment when possible, and exits before parsing wallet inputs or touching Filecoin.
    - Parses inputs via `parseInputs('upload')`. This enforces presence of `walletPrivateKey` and confirms `network`, `minRunwayDays`, and `maxBalance` rules.
-   - If the build context marked the run as `fork-pr-blocked`, the upload phase writes outputs, posts the explanatory PR comment, and exits without touching Filecoin.
    - If `dryRun` is enabled, validates the CAR file exists, writes outputs, posts a PR comment, and exits without uploading.
    - Validates that the CAR file still exists on disk.
    - Calls `initializeSynapse({ walletPrivateKey, network })`, which selects the correct RPC endpoint (`RPC_URLS[network].websocket`) and bootstraps filecoin-pin.
@@ -63,4 +63,3 @@ The helper supports both environment-variable fallback (`INPUT_<NAME>`) and the 
 - Domain-specific failures throw `FilecoinPinError` with codes for insufficient funds, invalid private keys, and balance-limit violations.
 - `handleError()` surfaces guidance tailored to the inputs (e.g., advising updates to `maxBalance`).
 - `run.mjs` guarantees Synapse cleanup even when build or upload throws.
-

@@ -66,6 +66,9 @@ const TEST_CID = 'bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq'
 const inputsModulePath: string = '../../../upload-action/src/inputs.js'
 const filecoinModulePath: string = '../../../upload-action/src/filecoin.js'
 const commentsModulePath: string = '../../../upload-action/src/comments/comment.js'
+const githubModulePath: string = '../../../upload-action/src/github.js'
+const buildModulePath: string = '../../../upload-action/src/build.js'
+const uploadModulePath: string = '../../../upload-action/src/upload.js'
 
 interface ParseInputsModule {
   parseInputs: (phase?: string) => {
@@ -104,6 +107,182 @@ interface CommentsModule {
     uploadStatus?: string
   }) => Promise<void>
 }
+
+interface GitHubModule {
+  evaluateUploadProvenance: (event: unknown, eventName?: string) => { trusted: boolean; reason?: string }
+}
+
+interface BuildModule {
+  runBuild: () => Promise<{ uploadStatus?: string; ipfsRootCid?: string }>
+}
+
+interface UploadModule {
+  runUpload: (context?: Record<string, unknown>) => Promise<{ uploadStatus?: string }>
+}
+
+describe('upload action event provenance', () => {
+  it('blocks fork pull requests', async () => {
+    const { evaluateUploadProvenance } = (await import(githubModulePath)) as GitHubModule
+
+    expect(
+      evaluateUploadProvenance(
+        {
+          pull_request: {
+            head: { repo: { full_name: 'contributor/filecoin-pin' } },
+            base: { repo: { full_name: 'filecoin-project/filecoin-pin' } },
+          },
+        },
+        'pull_request'
+      )
+    ).toMatchObject({ trusted: false, reason: expect.stringContaining('fork') })
+  })
+
+  it('blocks fork pull_request_target events', async () => {
+    const { evaluateUploadProvenance } = (await import(githubModulePath)) as GitHubModule
+
+    expect(
+      evaluateUploadProvenance(
+        {
+          pull_request: {
+            head: { repo: { full_name: 'contributor/filecoin-pin' } },
+            base: { repo: { full_name: 'filecoin-project/filecoin-pin' } },
+          },
+        },
+        'pull_request_target'
+      )
+    ).toMatchObject({ trusted: false, reason: expect.stringContaining('fork') })
+  })
+
+  it('blocks workflow runs originating from fork repositories', async () => {
+    const { evaluateUploadProvenance } = (await import(githubModulePath)) as GitHubModule
+
+    expect(
+      evaluateUploadProvenance(
+        {
+          workflow_run: {
+            head_repository: { full_name: 'contributor/filecoin-pin' },
+            repository: { full_name: 'filecoin-project/filecoin-pin' },
+          },
+        },
+        'workflow_run'
+      )
+    ).toMatchObject({ trusted: false, reason: expect.stringContaining('fork') })
+  })
+
+  it('allows workflow runs originating from the same repository', async () => {
+    const { evaluateUploadProvenance } = (await import(githubModulePath)) as GitHubModule
+
+    expect(
+      evaluateUploadProvenance(
+        {
+          workflow_run: {
+            head_repository: { full_name: 'filecoin-project/filecoin-pin' },
+            repository: { full_name: 'filecoin-project/filecoin-pin' },
+          },
+        },
+        'workflow_run'
+      )
+    ).toEqual({ trusted: true })
+  })
+
+  it('fails closed when workflow run repository provenance is incomplete', async () => {
+    const { evaluateUploadProvenance } = (await import(githubModulePath)) as GitHubModule
+
+    expect(
+      evaluateUploadProvenance(
+        { workflow_run: { repository: { full_name: 'filecoin-project/filecoin-pin' } } },
+        'workflow_run'
+      )
+    ).toMatchObject({ trusted: false, reason: expect.stringContaining('incomplete') })
+  })
+})
+
+describe('upload action fork enforcement', () => {
+  const originalEventName = process.env.GITHUB_EVENT_NAME
+  const originalEventPath = process.env.GITHUB_EVENT_PATH
+  const originalInputsJson = process.env.INPUTS_JSON
+  let eventPath: string | undefined
+
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  afterEach(async () => {
+    if (eventPath) await rm(eventPath, { force: true })
+    eventPath = undefined
+
+    if (originalEventName == null) delete process.env.GITHUB_EVENT_NAME
+    else process.env.GITHUB_EVENT_NAME = originalEventName
+
+    if (originalEventPath == null) delete process.env.GITHUB_EVENT_PATH
+    else process.env.GITHUB_EVENT_PATH = originalEventPath
+
+    if (originalInputsJson == null) delete process.env.INPUTS_JSON
+    else process.env.INPUTS_JSON = originalInputsJson
+  })
+
+  it('marks fork workflow runs as blocked during the build phase', async () => {
+    eventPath = join(tmpdir(), `filecoin-pin-upload-event-${randomUUID()}.json`)
+    await writeFile(
+      eventPath,
+      JSON.stringify({
+        workflow_run: {
+          head_repository: { full_name: 'contributor/filecoin-pin' },
+          repository: { full_name: 'filecoin-project/filecoin-pin' },
+        },
+      })
+    )
+    process.env.GITHUB_EVENT_NAME = 'workflow_run'
+    process.env.GITHUB_EVENT_PATH = eventPath
+    process.env.INPUTS_JSON = JSON.stringify({ path: 'dist', network: 'mainnet' })
+
+    const unixfs = await import('filecoin-pin/core/unixfs')
+    vi.mocked(unixfs.createUnixfsCarBuilder).mockReturnValue({
+      buildCar: vi.fn().mockResolvedValue({
+        carPath: '/tmp/fork-content.car',
+        rootCid: TEST_CID,
+        size: 3,
+      }),
+    } as never)
+
+    const logSpies = [
+      vi.spyOn(console, 'log').mockImplementation(() => undefined),
+      vi.spyOn(console, 'error').mockImplementation(() => undefined),
+    ]
+
+    try {
+      const { runBuild } = (await import(buildModulePath)) as BuildModule
+      await expect(runBuild()).resolves.toMatchObject({
+        uploadStatus: 'fork-pr-blocked',
+        ipfsRootCid: TEST_CID,
+      })
+    } finally {
+      for (const spy of logSpies) spy.mockRestore()
+    }
+  })
+
+  it('returns blocked status before requiring upload inputs or a wallet key', async () => {
+    delete process.env.INPUTS_JSON
+
+    const logSpies = [
+      vi.spyOn(console, 'log').mockImplementation(() => undefined),
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined),
+      vi.spyOn(console, 'error').mockImplementation(() => undefined),
+    ]
+
+    try {
+      const { runUpload } = (await import(uploadModulePath)) as UploadModule
+      await expect(
+        runUpload({
+          uploadStatus: 'fork-pr-blocked',
+          pr: { number: 6 },
+        })
+      ).resolves.toMatchObject({ uploadStatus: 'fork-pr-blocked' })
+    } finally {
+      for (const spy of logSpies) spy.mockRestore()
+    }
+  })
+})
 
 describe('upload action inputs', () => {
   const originalInputsJson = process.env.INPUTS_JSON
