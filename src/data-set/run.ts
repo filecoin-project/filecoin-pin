@@ -233,7 +233,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
 
     let dataSet: DataSetSummary
     try {
-      dataSet = await getDetailedDataSet(synapse, BigInt(dataSetId))
+      dataSet = await getDetailedDataSet(synapse, BigInt(dataSetId), { includePieces: false })
     } catch (error) {
       spinner.stop(`${pc.red('✗')} Data set not found`)
       log.line('')
@@ -336,7 +336,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       }
       spinner.message('Transaction confirmed, fetching final status...')
       try {
-        dataSet = await getDetailedDataSet(synapse, BigInt(dataSetId))
+        dataSet = await getDetailedDataSet(synapse, BigInt(dataSetId), { includePieces: false })
       } catch {
         dataSet = {
           ...dataSet,

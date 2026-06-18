@@ -498,6 +498,8 @@ describe('runTerminateDataSetCommand', () => {
   })
 
   it('terminates a dataset without waiting', async () => {
+    state.pieceList = [{ pieceId: 0n, pieceCid: 'bafkpiece0' }]
+
     await runTerminateDataSetCommand(158, {
       privateKey: 'test-key',
       rpcUrl: 'wss://sample',
@@ -505,6 +507,7 @@ describe('runTerminateDataSetCommand', () => {
 
     expect(mockTerminateService).toHaveBeenCalledWith({ dataSetId: 158n, skipProvider: true })
     expect(mockWaitForTransactionReceipt).not.toHaveBeenCalled()
+    expect(mockGetAllPieceMetadata).not.toHaveBeenCalled()
     expect(displayDataSetListMock).toHaveBeenCalledTimes(2)
   })
 
@@ -523,6 +526,7 @@ describe('runTerminateDataSetCommand', () => {
   })
 
   it('terminates a dataset and waits for confirmation', async () => {
+    state.pieceList = [{ pieceId: 0n, pieceCid: 'bafkpiece0' }]
     const updatedDataSet = { ...terminatableDataSet, isLive: false, pdpEndEpoch: 5000 }
     mockGetPdpDataSet
       .mockResolvedValueOnce(toPdpDataSet(terminatableDataSet, provider))
@@ -536,6 +540,7 @@ describe('runTerminateDataSetCommand', () => {
 
     expect(mockTerminateService).toHaveBeenCalledWith({ dataSetId: 158n, skipProvider: true })
     expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith({ hash: '0xtxhash123' })
+    expect(mockGetAllPieceMetadata).not.toHaveBeenCalled()
     expect(displayDataSetListMock).toHaveBeenCalledTimes(2)
   })
 
