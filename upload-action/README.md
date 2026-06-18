@@ -90,7 +90,8 @@ When omitted, the SDK selects or creates a dataset automatically (recommended). 
 
 **⚠️ Fork PR Support Disabled**
 - Only same-repo PRs and direct pushes are supported
-- Fork-sourced `workflow_run` artifacts are rejected before wallet input validation or upload
+- Fork PRs that flow through the documented two-workflow `workflow_run` pattern are also blocked, not just direct `pull_request` triggers
+- Their artifacts are rejected before wallet input validation or upload
 - `workflow_run` events with incomplete repository provenance are rejected rather than allowed
 - This prevents non-maintainer PR actors from draining funds
 

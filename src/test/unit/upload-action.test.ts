@@ -111,6 +111,22 @@ describe('upload action event provenance', () => {
     ).toMatchObject({ trusted: false, reason: expect.stringContaining('fork') })
   })
 
+  it('blocks fork pull_request_target events', async () => {
+    const { evaluateUploadProvenance } = (await import(githubModulePath)) as GitHubModule
+
+    expect(
+      evaluateUploadProvenance(
+        {
+          pull_request: {
+            head: { repo: { full_name: 'contributor/filecoin-pin' } },
+            base: { repo: { full_name: 'filecoin-project/filecoin-pin' } },
+          },
+        },
+        'pull_request_target'
+      )
+    ).toMatchObject({ trusted: false, reason: expect.stringContaining('fork') })
+  })
+
   it('blocks workflow runs originating from fork repositories', async () => {
     const { evaluateUploadProvenance } = (await import(githubModulePath)) as GitHubModule
 

@@ -42,6 +42,7 @@ export async function runUpload(buildContext = {}) {
   console.log('[context-debug] Loaded context from build phase:', context)
 
   // Check if this was a fork PR that was blocked
+  // this gate is only safe because we share a process with runBuild; do not rehydrate uploadStatus from an external source
   if (context.uploadStatus === 'fork-pr-blocked') {
     console.log('━━━ Fork PR Upload Blocked ━━━')
     console.log('::notice::Fork PR detected - content built but not uploaded to Filecoin, will comment on PR')
