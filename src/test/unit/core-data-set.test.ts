@@ -20,6 +20,7 @@ const {
   mockGetScheduledRemovals,
   mockGetProviderDataSet,
   mockGetSizeFromPieceCID,
+  mockPieceFromCID,
   state,
 } = vi.hoisted(() => {
   const state = {
@@ -67,6 +68,7 @@ const {
     if (cidString === 'bafkpiece2') return 4194304
     throw new Error(`Invalid piece CID: ${cidString}`)
   })
+  const mockPieceFromCID = vi.fn((cid: { toString: () => string } | string) => ({ size: mockGetSizeFromPieceCID(cid) }))
 
   const mockSynapse = {
     client: { account: { address: '0xtest-address' as const } },
@@ -84,6 +86,7 @@ const {
     mockGetScheduledRemovals,
     mockGetProviderDataSet,
     mockGetSizeFromPieceCID,
+    mockPieceFromCID,
     state,
   }
 })
@@ -111,6 +114,7 @@ vi.mock('@filoz/synapse-core/sp', () => ({
 // Mock piece size calculation
 vi.mock('@filoz/synapse-core/piece', () => ({
   getSizeFromPieceCID: mockGetSizeFromPieceCID,
+  from: mockPieceFromCID,
   MAX_UPLOAD_SIZE: 32 * 1024 * 1024 * 1024, // 32 GiB
 }))
 
@@ -215,6 +219,9 @@ describe('getDataSetPieces', () => {
       if (cidString === 'bafkpiece2') return 4194304
       throw new Error(`Invalid piece CID: ${cidString}`)
     })
+    mockPieceFromCID.mockImplementation((cid: { toString: () => string } | string) => ({
+      size: mockGetSizeFromPieceCID(cid),
+    }))
   })
 
   it('returns empty array when dataset has no pieces', async () => {

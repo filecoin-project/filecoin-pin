@@ -7,7 +7,7 @@
  */
 
 import { getActivePieces, getScheduledRemovals } from '@filoz/synapse-core/pdp-verifier'
-import { getSizeFromPieceCID } from '@filoz/synapse-core/piece'
+import * as pieceTools from '@filoz/synapse-core/piece'
 import { getDataSet as getProviderDataSet } from '@filoz/synapse-core/sp'
 import { getAllPieceMetadata } from '@filoz/synapse-core/warm-storage'
 import { type DataSetPieceData, METADATA_KEYS, type Synapse } from '@filoz/synapse-sdk'
@@ -16,6 +16,22 @@ import type { Warning } from '../utils/types.js'
 import { type DataSetPiecesResult, type GetDataSetPiecesOptions, type PieceInfo, PieceStatus } from './types.js'
 
 const ACTIVE_PIECES_BATCH_SIZE = 100n
+
+type PieceSizeTools = {
+  getSizeFromPieceCID?: (pieceCid: unknown) => number
+  from?: (pieceCid: unknown) => { size: number }
+}
+
+function getPieceSize(pieceCid: unknown): number {
+  const tools = pieceTools as PieceSizeTools
+  if (tools.getSizeFromPieceCID != null) {
+    return tools.getSizeFromPieceCID(pieceCid)
+  }
+  if (tools.from != null) {
+    return tools.from(pieceCid).size
+  }
+  throw new Error('No piece size helper is available from @filoz/synapse-core/piece')
+}
 
 /**
  * Get all pieces for a dataset.
@@ -100,7 +116,7 @@ export async function getDataSetPieces(
         }
 
         try {
-          pieceInfo.size = getSizeFromPieceCID(piece.cid)
+          pieceInfo.size = getPieceSize(piece.cid)
         } catch (error) {
           logger?.warn(
             { pieceId: piece.id.toString(), pieceCid: piece.cid.toString(), error },
@@ -124,7 +140,7 @@ export async function getDataSetPieces(
           status: PieceStatus.OFFCHAIN_ORPHANED,
         }
         try {
-          pieceInfo.size = getSizeFromPieceCID(providerPiece.pieceCid)
+          pieceInfo.size = getPieceSize(providerPiece.pieceCid)
         } catch {
           // size calculation is best-effort
         }
