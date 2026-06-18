@@ -15,12 +15,13 @@
  * @module synapse/payments
  */
 
+import { isFwssMaxApproved } from '@filoz/synapse-core/pay'
 import { DEFAULT_BUFFER_EPOCHS } from '@filoz/synapse-core/utils'
 import {
   calculateAdditionalLockupRequired,
   calculateBufferAmount,
   calculateRunwayAmount,
-  getServicePrice,
+  type getPriceList,
 } from '@filoz/synapse-core/warm-storage'
 import { calibration, SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { formatUnits, type Hash } from 'viem'
@@ -47,7 +48,7 @@ import type {
 import { padSizeToPDPLeaves } from './utils.js'
 
 // Re-export SDK helpers used by downstream consumers (e.g. upload-action)
-export { getServicePrice } from '@filoz/synapse-core/warm-storage'
+export { getPriceList } from '@filoz/synapse-core/warm-storage'
 // Re-export all constants
 export * from './constants.js'
 export * from './funding.js'
@@ -303,7 +304,8 @@ export async function depositUSDFC(
       operator: synapse.chain.contracts.fwss.address,
       rateAllowance: MAX_RATE_ALLOWANCE,
       lockupAllowance: MAX_LOCKUP_ALLOWANCE,
-      maxLockupPeriod: BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY,
+      // maxLockupPeriod omitted: the SDK resolves the chain default
+      // (priceList.lockups.defaultLockupPeriod) so we always cover it.
     })
   } else {
     txHash = await synapse.payments.deposit({ amount })
@@ -338,10 +340,12 @@ export async function withdrawUSDFC(synapse: Synapse, amount: bigint): Promise<s
  * Set service approvals for WarmStorage operator
  *
  * This authorizes the WarmStorage contract to create payment rails on behalf
- * of the user. The approval consists of three parameters:
+ * of the user. The approval consists of:
  * - Rate allowance: Maximum payment rate per epoch (30 seconds)
  * - Lockup allowance: Maximum funds that can be locked at once
- * - Max lockup period: How far in advance funds can be locked (in epochs)
+ *
+ * The max lockup period is left to the SDK, which resolves the chain default
+ * (`priceList.lockups.defaultLockupPeriod`) so approvals always cover it.
  *
  * Example usage:
  * ```typescript
@@ -364,15 +368,12 @@ export async function setServiceApprovals(
 ): Promise<string> {
   const fwssAddress = synapse.chain.contracts.fwss.address
 
-  // Max lockup period is always 30 days worth of epochs for WarmStorage
-  const maxLockupPeriod = BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
-
-  // Set the service approval
+  // Set the service approval. maxLockupPeriod is omitted so the SDK applies the
+  // chain default lockup period.
   const txHash = await synapse.payments.approveService({
     service: fwssAddress,
     rateAllowance,
     lockupAllowance,
-    maxLockupPeriod,
   })
 
   await synapse.client.waitForTransactionReceipt({ hash: txHash })
@@ -393,15 +394,14 @@ export async function checkAllowances(synapse: Synapse): Promise<{
   currentAllowances: ServiceApprovalStatus
 }> {
   const fwssAddress = synapse.chain.contracts.fwss.address
-  const currentAllowances = await synapse.payments.serviceApproval({ service: fwssAddress })
 
-  // Mirror sdk's `isFwssMaxApproved` (lockupAllowance can decrement from CDN
-  // one-time deductions, so compare against maxUint256/2n rather than equality).
-  const isMaxApproved =
-    currentAllowances.isApproved &&
-    currentAllowances.rateAllowance === MAX_RATE_ALLOWANCE &&
-    currentAllowances.lockupAllowance >= MAX_LOCKUP_ALLOWANCE / 2n &&
-    currentAllowances.maxLockupPeriod >= BigInt(DEFAULT_LOCKUP_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
+  // Defer the max approved check to the SDK's `isFwssMaxApproved`, which
+  // checks rate/lockup allowances and the max lockup period against the chain
+  // default for us (no `requiredMaxLockupPeriod` override needed).
+  const [currentAllowances, isMaxApproved] = await Promise.all([
+    synapse.payments.serviceApproval({ service: fwssAddress }),
+    isFwssMaxApproved(synapse.client, { clientAddress: getClientAddress(synapse) }),
+  ])
 
   return {
     needsUpdate: !isMaxApproved,
@@ -701,24 +701,23 @@ export function computeAdjustmentForExactDeposit(
 /**
  * Compute adjustment to reach target net runway AFTER adding a new piece.
  *
- * Sybil fees are excluded here (`isNewDataSet: false`) because
- * `calculateFilecoinPayFundingPlan` adds `newDataSetCount * USDFC_SYBIL_FEE`
- * separately to cover multi-context uploads. CDN lockup is skipped because
- * filecoin-pin uploads use `noCDN` pricing.
+ * New-data-set costs are excluded here (`isNewDataSet: false`) because
+ * `calculateFilecoinPayFundingPlan` adds `newDataSetCount * createDataSetFee`
+ * (and the fixed CDN lockup) separately to cover multi-context uploads. CDN
+ * lockup is skipped here because filecoin-pin uploads use `noCDN` pricing.
  *
  * @param accountSummary - SDK account summary (current rate + lockup + debt)
  * @param filecoinPayBalance - Current deposited balance
  * @param days - Desired net runway in days after adding the piece
  * @param pieceSizeBytes - Piece file size in bytes
- * @param pricePerTiBPerEpoch - Current pricing from storage service
+ * @param priceList - Current price list from the WarmStorage view contract
  */
 export function computeAdjustmentForExactDaysWithPiece(
   accountSummary: AccountSummary,
   filecoinPayBalance: bigint,
   days: number,
   pieceSizeBytes: number,
-  pricePerTiBPerEpoch: bigint,
-  minimumPricePerMonth: bigint
+  priceList: getPriceList.OutputType
 ): {
   delta: bigint // >0 deposit, <0 withdraw, 0 none
   targetDeposit: bigint
@@ -731,12 +730,10 @@ export function computeAdjustmentForExactDaysWithPiece(
   }
 
   const paddedSizeBytes = padSizeToPDPLeaves(pieceSizeBytes)
-  const pricePerTiBPerMonth = pricePerTiBPerEpoch * TIME_CONSTANTS.EPOCHS_PER_MONTH
   const lockup = calculateAdditionalLockupRequired({
     dataSize: BigInt(paddedSizeBytes),
     currentDataSetSize: 0n,
-    pricePerTiBPerMonth,
-    minimumPricePerMonth,
+    priceList,
     isNewDataSet: false,
     withCDN: false,
   })
@@ -852,14 +849,13 @@ export function calculateRequiredAllowances(pieceSizeBytes: number, pricePerTiBP
  *
  * @param status - Current payment status
  * @param pieceSizeBytes - Size of the piece (CAR, File, etc.) file in bytes
- * @param pricePerTiBPerEpoch - Current pricing from storage service
+ * @param priceList - Current price list from the WarmStorage view contract
  * @returns Piece upload deposit requirements
  */
 export function calculatePieceUploadRequirements(
   status: PaymentStatus,
   pieceSizeBytes: number,
-  pricePerTiBPerEpoch: bigint,
-  minimumPricePerMonth: bigint
+  priceList: getPriceList.OutputType
 ): {
   required: StorageAllowances
   totalDepositNeeded: bigint
@@ -867,18 +863,18 @@ export function calculatePieceUploadRequirements(
   canUpload: boolean
 } {
   const paddedSizeBytes = padSizeToPDPLeaves(pieceSizeBytes)
-  const pricePerTiBPerMonth = pricePerTiBPerEpoch * TIME_CONSTANTS.EPOCHS_PER_MONTH
   const lockup = calculateAdditionalLockupRequired({
     dataSize: BigInt(paddedSizeBytes),
     currentDataSetSize: 0n,
-    pricePerTiBPerMonth,
-    minimumPricePerMonth,
+    priceList,
     isNewDataSet: false,
     withCDN: false,
   })
   const required: StorageAllowances = {
     rateAllowance: lockup.rateDeltaPerEpoch,
-    lockupAllowance: lockup.rateLockupDelta,
+    // Adding a piece to an existing data set only locks up the streaming rate
+    // (isNewDataSet/withCDN false ⇒ lifecycle/CDN lockups are zero).
+    lockupAllowance: lockup.streamingLockup,
     storageCapacityTiB: paddedSizeBytes / Number(SIZE_CONSTANTS.TiB),
   }
   const totalDepositNeeded = required.lockupAllowance
@@ -925,21 +921,11 @@ export async function validatePaymentCapacity(synapse: Synapse, pieceSizeBytes: 
   // Ensure allowances are at max (automatically skips if in session key mode)
   await checkAndSetAllowances(synapse)
 
-  const [status, storageInfo, servicePrice] = await Promise.all([
-    getPaymentStatus(synapse),
-    synapse.storage.getStorageInfo(),
-    getServicePrice(synapse.client),
-  ])
+  const [status, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
 
-  const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
   const storageTiB = pieceSizeBytes / Number(SIZE_CONSTANTS.TiB)
 
-  const uploadRequirements = calculatePieceUploadRequirements(
-    status,
-    pieceSizeBytes,
-    pricePerTiBPerEpoch,
-    servicePrice.minimumPricePerMonth
-  )
+  const uploadRequirements = calculatePieceUploadRequirements(status, pieceSizeBytes, storageInfo.pricing.priceList)
 
   const result: PaymentCapacityCheck = {
     canUpload: uploadRequirements.canUpload,

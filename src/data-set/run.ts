@@ -307,7 +307,13 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
 
     spinner.start('Submitting termination transaction...')
 
-    const txHash = await synapse.storage.terminateDataSet({ dataSetId: BigInt(dataSetId) })
+    // Direct (client-submitted) termination preserves the existing confirmation
+    // UX: `skipProvider` keeps the old `terminateDataSet` behaviour where the
+    // owner wallet submits the on-chain transaction and always gets a tx hash.
+    const { txHash } = await synapse.storage.terminateService({ dataSetId: BigInt(dataSetId), skipProvider: true })
+    if (txHash == null) {
+      throw new Error('Termination did not return a transaction hash')
+    }
 
     if (shouldWait) {
       spinner.message(`Waiting for confirmation: ${txHash}...`)

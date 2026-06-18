@@ -18,7 +18,6 @@ import {
   computeAutoSetupTargetBalance,
   depositUSDFC,
   getPaymentStatus,
-  getServicePrice,
   validateGasRequirement,
   validatePaymentRequirements,
 } from '../core/payments/index.js'
@@ -104,12 +103,11 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     // available to set up DEFAULT_COPIES data sets (including the CDN lockup the
     // default FilCDN upload path needs), then deposit enough to cover it.
     if (targetFilecoinPayBalance == null) {
-      const servicePrice = await getServicePrice(synapse.client)
       const { targetBalance } = computeAutoSetupTargetBalance({
         filecoinPayBalance: status.filecoinPayBalance,
         availableFunds: accountSummary.availableFunds,
         copies: DEFAULT_COPIES,
-        minimumPricePerMonth: servicePrice.minimumPricePerMonth,
+        priceList: storageInfo.pricing.priceList,
       })
       targetFilecoinPayBalance = targetBalance
       log.line(

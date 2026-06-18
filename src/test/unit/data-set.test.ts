@@ -19,7 +19,7 @@ const {
   mockGetProvider,
   mockGetAllPieceMetadata,
   mockGetPdpDataSet,
-  mockTerminateDataSet,
+  mockTerminateService,
   mockWaitForTransactionReceipt,
   mockSynapseCreate,
   mockIsInteractive,
@@ -41,7 +41,7 @@ const {
   const mockGetProvider = vi.fn()
   const mockGetAllPieceMetadata = vi.fn(async () => ({ ...state.pieceMetadata }))
   const mockGetPdpDataSet = vi.fn()
-  const mockTerminateDataSet = vi.fn()
+  const mockTerminateService = vi.fn()
   const mockWaitForTransactionReceipt = vi.fn()
   const mockIsInteractive = vi.fn(() => false)
   const mockConfirm = vi.fn(async () => true)
@@ -100,7 +100,7 @@ const {
       storage: {
         findDataSets: mockFindDataSets,
         createContext: mockCreateContext,
-        terminateDataSet: mockTerminateDataSet,
+        terminateService: mockTerminateService,
       },
       providers: {
         getProvider: mockGetProvider,
@@ -118,7 +118,7 @@ const {
     mockGetProvider,
     mockGetAllPieceMetadata,
     mockGetPdpDataSet,
-    mockTerminateDataSet,
+    mockTerminateService,
     mockWaitForTransactionReceipt,
     mockSynapseCreate,
     mockCreateContext,
@@ -199,10 +199,10 @@ vi.mock('@filoz/synapse-core/sp', () => ({
 // Mock piece size calculation
 vi.mock('@filoz/synapse-core/piece', () => ({
   MAX_UPLOAD_SIZE: 1048576,
-  getSizeFromPieceCID: vi.fn(() => {
+  from: vi.fn(() => ({
     // Return a realistic piece size (1 MiB = 1048576 bytes)
-    return 1048576
-  }),
+    size: 1048576,
+  })),
 }))
 
 type EnhancedDataSetFixture = Record<string, unknown> & {
@@ -505,7 +505,7 @@ describe('runTerminateDataSetCommand', () => {
     mockGetProvider.mockResolvedValue(provider)
     mockGetAllPieceMetadata.mockResolvedValue({})
     mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(terminatableDataSet, provider))
-    mockTerminateDataSet.mockResolvedValue('0xtxhash123')
+    mockTerminateService.mockResolvedValue({ txHash: '0xtxhash123', dataSetId: 158n, endEpoch: 0n })
     mockWaitForTransactionReceipt.mockResolvedValue({ status: 'success' })
   })
 
@@ -520,7 +520,7 @@ describe('runTerminateDataSetCommand', () => {
       rpcUrl: 'wss://sample',
     })
 
-    expect(mockTerminateDataSet).toHaveBeenCalledWith({ dataSetId: 158n })
+    expect(mockTerminateService).toHaveBeenCalledWith({ dataSetId: 158n, skipProvider: true })
     expect(mockWaitForTransactionReceipt).not.toHaveBeenCalled()
     expect(displayDataSetsMock).toHaveBeenCalledTimes(2)
     expect(displayDataSetListMock).not.toHaveBeenCalled()
@@ -535,7 +535,7 @@ describe('runTerminateDataSetCommand', () => {
       rpcUrl: 'wss://sample',
     })
 
-    expect(mockTerminateDataSet).not.toHaveBeenCalled()
+    expect(mockTerminateService).not.toHaveBeenCalled()
     expect(cancelMock).toHaveBeenCalledWith('Termination cancelled')
     expect(process.exitCode).toBe(2)
   })
@@ -552,7 +552,7 @@ describe('runTerminateDataSetCommand', () => {
       wait: true,
     })
 
-    expect(mockTerminateDataSet).toHaveBeenCalledWith({ dataSetId: 158n })
+    expect(mockTerminateService).toHaveBeenCalledWith({ dataSetId: 158n, skipProvider: true })
     expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith({ hash: '0xtxhash123' })
     expect(displayDataSetsMock).toHaveBeenCalledTimes(2)
     expect(displayDataSetListMock).not.toHaveBeenCalled()
@@ -569,7 +569,7 @@ describe('runTerminateDataSetCommand', () => {
       wait: true,
     })
 
-    expect(mockTerminateDataSet).toHaveBeenCalledWith({ dataSetId: 158n })
+    expect(mockTerminateService).toHaveBeenCalledWith({ dataSetId: 158n, skipProvider: true })
     expect(process.exitCode).toBe(2)
   })
 
@@ -582,7 +582,7 @@ describe('runTerminateDataSetCommand', () => {
     ).rejects.toThrow('Signing required for termination')
 
     expect(cancelMock).toHaveBeenCalledWith('Termination failed')
-    expect(mockTerminateDataSet).not.toHaveBeenCalled()
+    expect(mockTerminateService).not.toHaveBeenCalled()
   })
 
   it('rejects when dataset is not owned by the caller', async () => {
@@ -597,7 +597,7 @@ describe('runTerminateDataSetCommand', () => {
     ).rejects.toThrow('not owned by address')
 
     expect(cancelMock).toHaveBeenCalledWith('Termination failed')
-    expect(mockTerminateDataSet).not.toHaveBeenCalled()
+    expect(mockTerminateService).not.toHaveBeenCalled()
   })
 
   it('reports already-terminated datasets without error', async () => {
@@ -609,7 +609,7 @@ describe('runTerminateDataSetCommand', () => {
       rpcUrl: 'wss://sample',
     })
 
-    expect(mockTerminateDataSet).not.toHaveBeenCalled()
+    expect(mockTerminateService).not.toHaveBeenCalled()
     expect(cancelMock).not.toHaveBeenCalled()
   })
 
