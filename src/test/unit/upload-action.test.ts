@@ -10,18 +10,44 @@ const mocks = vi.hoisted(() => ({
 
 // Keep the real `calculateFilecoinPayFundingPlan`/`formatFundingReason` so a
 // `handlePayments` test actually exercises the funding planner (and would catch
-// missing required args like `minimumPricePerMonth`). Only the IO-bound helpers
-// are mocked.
+// missing required args like `priceList`). Only the IO-bound helpers are mocked.
 vi.mock('filecoin-pin/core/payments', async (importOriginal) => {
   const actual = await importOriginal<typeof import('filecoin-pin/core/payments')>()
   return {
     ...actual,
     executeTopUp: vi.fn(),
     getPaymentStatus: vi.fn(),
-    getServicePrice: vi.fn(),
     getStorageRunway: vi.fn(),
   }
 })
+
+/** Minimal on-chain `getPriceList` shape for the funding planner under test. */
+function makePriceList() {
+  return {
+    token: '0x0000000000000000000000000000000000000000',
+    rates: {
+      storagePerTibPerMonth: 1_000_000n * 86_400n,
+      datasetFeePerMonth: 1_000_000n,
+      cdnEgressPerTib: 0n,
+      cacheMissEgressPerTib: 0n,
+    },
+    fees: {
+      createDataSetFee: 100_000_000_000_000_000n,
+      addPiecesBaseFee: 0n,
+      addPiecesPerPieceFee: 0n,
+      schedulePieceRemovalsFee: 0n,
+      terminateFee: 0n,
+    },
+    lockups: {
+      lifecycleReserveTarget: 0n,
+      replenishThreshold: 0n,
+      defaultLockupPeriod: 86_400n,
+      cdnLockupAmount: 1_000_000_000_000_000_000n,
+      cacheMissLockupAmount: 0n,
+      cdnLockupPeriod: 0n,
+    },
+  }
+}
 
 vi.mock('filecoin-pin/core/unixfs', () => ({
   createUnixfsCarBuilder: vi.fn(),
@@ -333,7 +359,7 @@ describe('upload action payments', () => {
     vi.resetModules()
   })
 
-  it('plans funding for a piece without throwing (passes minimumPricePerMonth)', async () => {
+  it('plans funding for a piece without throwing (reads the on-chain price list)', async () => {
     const payments = (await import('filecoin-pin/core/payments')) as typeof import('filecoin-pin/core/payments')
     const utils = (await import('filecoin-pin/core/utils')) as typeof import('filecoin-pin/core/utils')
 
@@ -355,7 +381,6 @@ describe('upload action payments', () => {
     }
 
     vi.mocked(payments.getPaymentStatus).mockResolvedValue(status as never)
-    vi.mocked(payments.getServicePrice).mockResolvedValue({ minimumPricePerMonth: 1_000_000n } as never)
     vi.mocked(payments.executeTopUp).mockResolvedValue({ success: true, deposited: 0n, message: '' } as never)
     vi.mocked(payments.getStorageRunway).mockResolvedValue({} as never)
     vi.mocked(utils.formatRunwaySummary).mockReturnValue({
@@ -377,7 +402,9 @@ describe('upload action payments', () => {
         }),
       },
       storage: {
-        getStorageInfo: async () => ({ pricing: { noCDN: { perTiBPerEpoch: 1_000_000n } } }),
+        getStorageInfo: vi.fn(async () => ({
+          pricing: { noCDN: { perTiBPerEpoch: 1_000_000n }, priceList: makePriceList() },
+        })),
         createContexts: async () => [],
       },
     }
@@ -402,8 +429,9 @@ describe('upload action payments', () => {
 
     logSpy.mockRestore()
 
-    // The funding planner (real, not mocked) ran and required the service price.
-    expect(payments.getServicePrice).toHaveBeenCalledWith(synapse.client)
+    // The funding planner (real, not mocked) ran and read the on-chain price
+    // list via getStorageInfo().
+    expect(synapse.storage.getStorageInfo).toHaveBeenCalled()
   })
 
   it('forwards dataSetIds to createContexts', async () => {
@@ -426,7 +454,6 @@ describe('upload action payments', () => {
         maxLockupPeriod: 30n * 2880n,
       },
     } as never)
-    vi.mocked(payments.getServicePrice).mockResolvedValue({ minimumPricePerMonth: 1_000_000n } as never)
     vi.mocked(payments.executeTopUp).mockResolvedValue({ success: true, deposited: 0n, message: '' } as never)
     vi.mocked(payments.getStorageRunway).mockResolvedValue({} as never)
     vi.mocked(utils.formatRunwaySummary).mockReturnValue({ coverage: 'covered', runway: 'plenty' } as never)
@@ -446,7 +473,9 @@ describe('upload action payments', () => {
         }),
       },
       storage: {
-        getStorageInfo: async () => ({ pricing: { noCDN: { perTiBPerEpoch: 1_000_000n } } }),
+        getStorageInfo: async () => ({
+          pricing: { noCDN: { perTiBPerEpoch: 1_000_000n }, priceList: makePriceList() },
+        }),
         createContexts,
       },
     }

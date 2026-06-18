@@ -1,4 +1,5 @@
 import type { operatorApprovals } from '@filoz/synapse-core/pay'
+import type { getPriceList } from '@filoz/synapse-core/warm-storage'
 
 /**
  * Service approval status from the Payments contract.
@@ -144,8 +145,7 @@ export interface FilecoinPayFundingPlanOptions {
   targetRunwayDays?: number | undefined
   targetDeposit?: bigint | undefined
   pieceSizeBytes?: number | undefined
-  pricePerTiBPerEpoch?: bigint | undefined
-  minimumPricePerMonth?: bigint | undefined
+  priceList?: getPriceList.OutputType | undefined
   newDataSetCount?: number | undefined
   withCDN?: boolean | undefined
   mode?: FundingMode | undefined
@@ -172,7 +172,6 @@ export interface FilecoinPayFundingPlan {
   reasonCode: FundingReasonCode
   mode: FundingMode
   pieceSizeBytes?: number
-  pricePerTiBPerEpoch?: bigint
   newDataSetCount?: number
   projectedDeposit: bigint
   projectedRateUsed: bigint

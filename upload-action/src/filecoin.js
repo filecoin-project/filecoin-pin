@@ -6,7 +6,6 @@ import {
   executeTopUp,
   formatFundingReason,
   getPaymentStatus,
-  getServicePrice,
   getStorageRunway,
 } from 'filecoin-pin/core/payments'
 import { createUnixfsCarBuilder } from 'filecoin-pin/core/unixfs'
@@ -108,7 +107,7 @@ export async function handlePayments(synapse, options, logger) {
   const { minStorageDays, filecoinPayBalanceLimit, pieceSizeBytes, withCDN, providerIds, dataSetIds } = options
 
   console.log('Checking current Filecoin Pay account balance...')
-  const [rawStatus, accountSummary, storageInfo, contexts, servicePrice] = await Promise.all([
+  const [rawStatus, accountSummary, storageInfo, contexts] = await Promise.all([
     getPaymentStatus(synapse),
     synapse.payments.accountSummary({}),
     synapse.storage.getStorageInfo(),
@@ -117,7 +116,6 @@ export async function handlePayments(synapse, options, logger) {
       ...(dataSetIds != null && dataSetIds.length > 0 ? { dataSetIds } : {}),
       ...(withCDN ? { withCDN } : {}),
     }),
-    getServicePrice(synapse.client),
   ])
 
   const initialFilecoinPayBalance = formatUSDFC(rawStatus.filecoinPayBalance)
@@ -136,8 +134,7 @@ export async function handlePayments(synapse, options, logger) {
     allowWithdraw: false,
     targetRunwayDays: minStorageDays,
     pieceSizeBytes,
-    pricePerTiBPerEpoch: storageInfo.pricing.noCDN.perTiBPerEpoch,
-    minimumPricePerMonth: servicePrice.minimumPricePerMonth,
+    priceList: storageInfo.pricing.priceList,
     newDataSetCount,
     withCDN,
   })
@@ -148,9 +145,12 @@ export async function handlePayments(synapse, options, logger) {
   }
 
   if (newDataSetCount > 0) {
+    const feeDescription = withCDN
+      ? 'create-data-set and add-piece fees, lifecycle reserve, and CDN lockup'
+      : 'create-data-set and add-piece fees and lifecycle reserve'
     console.log(
       `Additional funding for ${newDataSetCount} new data set${newDataSetCount === 1 ? '' : 's'} ` +
-        '(sybil fee) is included in the planned top-up'
+        `(${feeDescription}) is included in the planned top-up`
     )
   }
 
