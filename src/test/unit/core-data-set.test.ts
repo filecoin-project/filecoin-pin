@@ -19,7 +19,6 @@ const {
   mockGetActivePieces,
   mockGetScheduledRemovals,
   mockGetProviderDataSet,
-  mockGetSizeFromPieceCID,
   mockPieceFromCID,
   state,
 } = vi.hoisted(() => {
@@ -61,14 +60,13 @@ const {
   const mockGetAllPieceMetadata = vi.fn(async (_client: any, { pieceId }: any) => {
     return state.pieceMetadata[Number(pieceId)] ?? {}
   })
-  const mockGetSizeFromPieceCID = vi.fn((cid: { toString: () => string } | string) => {
+  const mockPieceFromCID = vi.fn((cid: { toString: () => string } | string) => {
     const cidString = typeof cid === 'string' ? cid : cid.toString()
-    if (cidString === 'bafkpiece0') return 1048576
-    if (cidString === 'bafkpiece1') return 2097152
-    if (cidString === 'bafkpiece2') return 4194304
+    if (cidString === 'bafkpiece0') return { size: 1048576 }
+    if (cidString === 'bafkpiece1') return { size: 2097152 }
+    if (cidString === 'bafkpiece2') return { size: 4194304 }
     throw new Error(`Invalid piece CID: ${cidString}`)
   })
-  const mockPieceFromCID = vi.fn((cid: { toString: () => string } | string) => ({ size: mockGetSizeFromPieceCID(cid) }))
 
   const mockSynapse = {
     client: { account: { address: '0xtest-address' as const } },
@@ -85,7 +83,6 @@ const {
     mockGetActivePieces,
     mockGetScheduledRemovals,
     mockGetProviderDataSet,
-    mockGetSizeFromPieceCID,
     mockPieceFromCID,
     state,
   }
@@ -113,7 +110,6 @@ vi.mock('@filoz/synapse-core/sp', () => ({
 
 // Mock piece size calculation
 vi.mock('@filoz/synapse-core/piece', () => ({
-  getSizeFromPieceCID: mockGetSizeFromPieceCID,
   from: mockPieceFromCID,
   MAX_UPLOAD_SIZE: 32 * 1024 * 1024 * 1024, // 32 GiB
 }))
@@ -212,16 +208,13 @@ describe('getDataSetPieces', () => {
       pieces: state.pieces.map((p) => ({ id: p.pieceId, cid: p.pieceCid })),
       hasMore: false,
     }))
-    mockGetSizeFromPieceCID.mockImplementation((cid: { toString: () => string } | string) => {
+    mockPieceFromCID.mockImplementation((cid: { toString: () => string } | string) => {
       const cidString = typeof cid === 'string' ? cid : cid.toString()
-      if (cidString === 'bafkpiece0') return 1048576
-      if (cidString === 'bafkpiece1') return 2097152
-      if (cidString === 'bafkpiece2') return 4194304
+      if (cidString === 'bafkpiece0') return { size: 1048576 }
+      if (cidString === 'bafkpiece1') return { size: 2097152 }
+      if (cidString === 'bafkpiece2') return { size: 4194304 }
       throw new Error(`Invalid piece CID: ${cidString}`)
     })
-    mockPieceFromCID.mockImplementation((cid: { toString: () => string } | string) => ({
-      size: mockGetSizeFromPieceCID(cid),
-    }))
   })
 
   it('returns empty array when dataset has no pieces', async () => {
@@ -366,8 +359,8 @@ describe('getDataSetPieces', () => {
     expect(result.pieces).toHaveLength(2)
     expect(result.pieces[0]?.size).toBe(1048576) // 1 MiB
     expect(result.pieces[1]?.size).toBe(2097152) // 2 MiB
-    expect(mockGetSizeFromPieceCID).toHaveBeenNthCalledWith(1, firstCid)
-    expect(mockGetSizeFromPieceCID).toHaveBeenNthCalledWith(2, secondCid)
+    expect(mockPieceFromCID).toHaveBeenNthCalledWith(1, firstCid)
+    expect(mockPieceFromCID).toHaveBeenNthCalledWith(2, secondCid)
   })
 
   it('calculates total size as sum of all piece sizes', async () => {

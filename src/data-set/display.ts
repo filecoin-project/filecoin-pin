@@ -26,7 +26,7 @@ function plainStatusLabel(dataSet: Pick<DataSetSummary, 'isLive' | 'pdpEndEpoch'
   }
 
   if (dataSet.pdpEndEpoch > 0) {
-    return `terminated @ epoch ${dataSet.pdpEndEpoch}`
+    return 'terminated'
   }
 
   return 'inactive'
@@ -59,6 +59,16 @@ function activePieceCount(dataSet: Pick<DataSetSummary, 'activePieceCount'>): bi
   return dataSet.activePieceCount ?? 0n
 }
 
+function centerCell(cell: string, width: number): string {
+  const totalPadding = width - cell.length
+  if (totalPadding <= 0) {
+    return cell
+  }
+  const leftPadding = Math.floor(totalPadding / 2)
+  const rightPadding = totalPadding - leftPadding
+  return `${' '.repeat(leftPadding)}${cell}${' '.repeat(rightPadding)}`
+}
+
 function buildTable(rows: string[][]): string[] {
   const widths = rows[0]?.map((_, columnIndex) => Math.max(...rows.map((row) => row[columnIndex]?.length ?? 0)))
   if (widths == null) {
@@ -69,7 +79,8 @@ function buildTable(rows: string[][]): string[] {
     row
       .map((cell, columnIndex) => {
         const width = widths[columnIndex] ?? cell.length
-        return columnIndex === row.length - 1 ? cell : cell.padEnd(width)
+        const padded = centerCell(cell, width)
+        return columnIndex === row.length - 1 ? padded.trimEnd() : padded
       })
       .join('  ')
   )

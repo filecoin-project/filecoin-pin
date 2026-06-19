@@ -54,8 +54,8 @@ describe('displayDataSetList', () => {
     expect(output).toContain('Client address: 0xtest')
     expect(output.some((line) => /^ID\s+Status\s+Provider ID\s+Pieces\s+CDN$/.test(line))).toBe(true)
     expect(output.some((line) => /\bSize\b/.test(line))).toBe(false)
-    expect(output.findIndex((line) => /^1\s+live\s+10\s+1\s+disabled$/.test(line))).toBeLessThan(
-      output.findIndex((line) => /^3\s+live\s+30\s+1\s+disabled$/.test(line))
+    expect(output.findIndex((line) => /^1\s+live\s+10\s+1\s+disabled$/.test(line.trim()))).toBeLessThan(
+      output.findIndex((line) => /^3\s+live\s+30\s+1\s+disabled$/.test(line.trim()))
     )
   })
 
@@ -70,7 +70,7 @@ describe('displayDataSetList', () => {
     expect(output).toContain('2 data sets, 3 active pieces')
     expect(output).toContain('Run `filecoin-pin data-set show <id>` for full details.')
     expect(output.some((line) => /total known size/i.test(line))).toBe(false)
-    expect(output.some((line) => /^2\s+live\s+10\s+2\s+enabled$/.test(line))).toBe(true)
+    expect(output.some((line) => /^2\s+live\s+10\s+2\s+enabled$/.test(line.trim()))).toBe(true)
   })
 
   it('renders lifecycle status labels in compact rows', () => {
@@ -81,7 +81,7 @@ describe('displayDataSetList', () => {
     )
 
     const output = lines()
-    expect(output.some((line) => /^1\s+inactive\s+10\s+1\s+disabled$/.test(line))).toBe(true)
-    expect(output.some((line) => /^2\s+terminated @ epoch 42\s+10\s+1\s+disabled$/.test(line))).toBe(true)
+    expect(output.some((line) => /^1\s+inactive\s+10\s+1\s+disabled$/.test(line.trim()))).toBe(true)
+    expect(output.some((line) => /^2\s+terminated\s+10\s+1\s+disabled$/.test(line.trim()))).toBe(true)
   })
 })
