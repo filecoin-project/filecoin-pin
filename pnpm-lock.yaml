@@ -43,7 +43,7 @@ importers:
         version: 5.4.6
       '@libp2p/identify':
         specifier: ^4.1.2
-        version: 4.1.7
+        version: 4.1.8
       '@libp2p/tcp':
         specifier: ^11.0.17
         version: 11.0.22
@@ -554,8 +554,8 @@ packages:
   '@libp2p/crypto@5.1.20':
     resolution: {integrity: sha512-sPz+CvDWPDb+O8xYsueXDdrV6Kf7PciNEYvcCjOR/VqM0iHwzC7aaM0xPiQqrUDj1nggswbY/E/vNZYJ4aCQaA==}
 
-  '@libp2p/identify@4.1.7':
-    resolution: {integrity: sha512-QrCcq2P+VdIkAI2YfQ7ahqEKMgqNX86inHYqrfzaFwha2doB21eZSk/DfEwsaeSatcAFtTLtMHzjBM0lvt5UZg==}
+  '@libp2p/identify@4.1.8':
+    resolution: {integrity: sha512-qcquky5SjOqe1I83DHJMRwWFUmk6mqwqX8z0JMOVFcXe96czBZ3pbXMksOoUWsGvDSoTHygX0yYn07sVDF+uoQ==}
 
   '@libp2p/interface-internal@3.1.7':
     resolution: {integrity: sha512-5qzZOx1JU+CdT8UKLWKtM3LOQ3C9aSlRzVLJkLZXVN0ULhmctlAeZckPEEZ5z4pDtLpgFHjr+H9bd7NSTHqtVQ==}
@@ -2930,7 +2930,7 @@ snapshots:
       uint8arraylist: 3.0.2
       uint8arrays: 6.1.1
 
-  '@libp2p/identify@4.1.7':
+  '@libp2p/identify@4.1.8':
     dependencies:
       '@libp2p/crypto': 5.1.20
       '@libp2p/interface': 3.2.4
@@ -2943,8 +2943,8 @@ snapshots:
       it-drain: 3.0.12
       it-parallel: 3.0.15
       main-event: 1.0.4
-      protons-runtime: 6.0.2
-      uint8arraylist: 2.4.9
+      protons-runtime: 7.0.0
+      uint8arraylist: 3.0.2
       uint8arrays: 6.1.1
 
   '@libp2p/interface-internal@3.1.7':
