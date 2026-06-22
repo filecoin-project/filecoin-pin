@@ -13,35 +13,39 @@ import { getAllPieceMetadata } from '@filoz/synapse-core/warm-storage'
 import { type DataSetPieceData, METADATA_KEYS, type Synapse } from '@filoz/synapse-sdk'
 import { reconcilePieceStatus } from '../piece/piece-status.js'
 import type { Warning } from '../utils/types.js'
-import { type DataSetPiecesResult, type GetDataSetPiecesOptions, type PieceInfo, PieceStatus } from './types.js'
+import {
+  type DataSetPiecesResult,
+  type GetDataSetPiecesOptions,
+  type IterateDataSetPiecesOptions,
+  type IterateDataSetPiecesResult,
+  type PieceInfo,
+  PieceStatus,
+} from './types.js'
 
 const ACTIVE_PIECES_BATCH_SIZE = 100n
 
 /**
- * Get all pieces for a dataset.
+ * Lazily iterate over pieces in a dataset in on-chain batches.
  *
- * Fetches on-chain pieces via PDPVerifier and provider-side pieces from the
- * service URL, reconciles statuses, and optionally enriches with metadata.
+ * Provider-side piece data is still fetched once up front for reconciliation;
+ * the expensive on-chain piece walk is yielded one batch at a time.
  *
  * @param synapse - Initialized Synapse instance
  * @param dataSetId - Dataset ID to fetch pieces for
  * @param serviceURL - Provider PDP service URL for orphan detection
  * @param options - Optional configuration
- * @returns Pieces and warnings
+ * @yields Reconciled piece batches and non-fatal warnings for each batch
  */
-export async function getDataSetPieces(
+export async function* iterateDataSetPieces(
   synapse: Synapse,
   dataSetId: bigint,
   serviceURL: string,
-  options?: GetDataSetPiecesOptions
-): Promise<DataSetPiecesResult> {
+  options?: IterateDataSetPiecesOptions
+): AsyncGenerator<IterateDataSetPiecesResult> {
   const logger = options?.logger
-  const includeMetadata = options?.includeMetadata ?? false
+  const initialWarnings: Warning[] = []
 
-  const pieces: PieceInfo[] = []
-  const warnings: Warning[] = []
-
-  // Fetch scheduled removals and provider-side pieces in parallel
+  // Fetch scheduled removals and provider-side pieces in parallel.
   let scheduledRemovals: readonly bigint[] = []
   let providerPiecesById: Map<bigint, DataSetPieceData> | null = null
 
@@ -54,7 +58,7 @@ export async function getDataSetPieces(
     scheduledRemovals = scheduledRemovalsResult.value
   } else {
     logger?.warn({ error: scheduledRemovalsResult.reason }, 'Failed to get scheduled removals')
-    warnings.push({
+    initialWarnings.push({
       code: 'SCHEDULED_REMOVALS_UNAVAILABLE',
       message: 'Failed to get scheduled removals',
       context: { dataSetId: dataSetId.toString(), error: String(scheduledRemovalsResult.reason) },
@@ -65,24 +69,34 @@ export async function getDataSetPieces(
     providerPiecesById = new Map(providerPiecesResult.value.pieces.map((p) => [p.pieceId, p]))
   } else {
     logger?.warn({ error: providerPiecesResult.reason }, 'Failed to get provider-side pieces for orphan detection')
-    warnings.push({
+    initialWarnings.push({
       code: 'PROVIDER_PIECES_UNAVAILABLE',
       message: 'Failed to fetch provider-side pieces',
       context: { dataSetId: dataSetId.toString(), error: String(providerPiecesResult.reason) },
     })
   }
 
-  // Fetch on-chain pieces (paginated) and reconcile with provider data
   try {
     let offset = 0n
     let hasMore = true
+
     while (hasMore) {
       options?.signal?.throwIfAborted()
+      const warnings = initialWarnings.splice(0)
+      const pieces: PieceInfo[] = []
+
+      /**
+       * TODO:
+       * Replace `getActivePieces` with `getActivePiecesByCursor` once it's available in synapse-core.
+       * This will allow for more efficient pagination and avoid potential issues with large datasets.
+       * ref: https://github.com/FilOzone/synapse-sdk/issues/848
+       */
       const result = await getActivePieces(synapse.client, {
         dataSetId,
         offset,
         limit: ACTIVE_PIECES_BATCH_SIZE,
       })
+
       for (const piece of result.pieces) {
         const { status, warning } = reconcilePieceStatus({
           pieceId: piece.id,
@@ -110,34 +124,41 @@ export async function getDataSetPieces(
 
         pieces.push(pieceInfo)
       }
+
       hasMore = result.hasMore
       offset += ACTIVE_PIECES_BATCH_SIZE
-    }
 
-    // Leftover entries in providerPiecesById are pieces the provider reports
-    // but that are not on-chain (offchain orphans)
-    if (providerPiecesById) {
-      for (const [pieceId, providerPiece] of providerPiecesById) {
-        const pieceInfo: PieceInfo = {
-          pieceId,
-          pieceCid: providerPiece.pieceCid.toString(),
-          status: PieceStatus.OFFCHAIN_ORPHANED,
+      // Leftover entries in providerPiecesById are pieces the provider reports
+      // but that are not on-chain (offchain orphans). These are only known once
+      // the on-chain walk reaches the end.
+      if (!hasMore && providerPiecesById) {
+        for (const [pieceId, providerPiece] of providerPiecesById) {
+          const pieceInfo: PieceInfo = {
+            pieceId,
+            pieceCid: providerPiece.pieceCid.toString(),
+            status: PieceStatus.OFFCHAIN_ORPHANED,
+          }
+          try {
+            pieceInfo.size = pieceFromCID(providerPiece.pieceCid).size
+          } catch {
+            // size calculation is best-effort
+          }
+          pieces.push(pieceInfo)
+          warnings.push({
+            code: 'OFFCHAIN_ORPHANED',
+            message: 'Piece reported by provider but not found on-chain',
+            context: { pieceId: pieceId.toString(), pieceCid: providerPiece.pieceCid.toString() },
+          })
         }
-        try {
-          pieceInfo.size = pieceFromCID(providerPiece.pieceCid).size
-        } catch {
-          // size calculation is best-effort
-        }
-        pieces.push(pieceInfo)
-        warnings.push({
-          code: 'OFFCHAIN_ORPHANED',
-          message: 'Piece reported by provider but not found on-chain',
-          context: { pieceId: pieceId.toString(), pieceCid: providerPiece.pieceCid.toString() },
-        })
+      }
+
+      yield {
+        dataSetId,
+        pieces,
+        hasMore,
+        warnings,
       }
     }
-
-    pieces.sort((a, b) => Number(a.pieceId - b.pieceId))
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw error
@@ -145,6 +166,38 @@ export async function getDataSetPieces(
     logger?.error({ dataSetId: dataSetId.toString(), error }, 'Failed to retrieve pieces from dataset')
     throw new Error(`Failed to retrieve pieces for dataset ${dataSetId}: ${String(error)}`)
   }
+}
+
+/**
+ * Get all pieces for a dataset.
+ *
+ * Fetches on-chain pieces via PDPVerifier and provider-side pieces from the
+ * service URL, reconciles statuses, and optionally enriches with metadata.
+ *
+ * @param synapse - Initialized Synapse instance
+ * @param dataSetId - Dataset ID to fetch pieces for
+ * @param serviceURL - Provider PDP service URL for orphan detection
+ * @param options - Optional configuration
+ * @returns Pieces and warnings
+ */
+export async function getDataSetPieces(
+  synapse: Synapse,
+  dataSetId: bigint,
+  serviceURL: string,
+  options?: GetDataSetPiecesOptions
+): Promise<DataSetPiecesResult> {
+  const logger = options?.logger
+  const includeMetadata = options?.includeMetadata ?? false
+
+  const pieces: PieceInfo[] = []
+  const warnings: Warning[] = []
+
+  for await (const batch of iterateDataSetPieces(synapse, dataSetId, serviceURL, options)) {
+    pieces.push(...batch.pieces)
+    warnings.push(...batch.warnings)
+  }
+
+  pieces.sort((a, b) => Number(a.pieceId - b.pieceId))
 
   // Optionally enrich with metadata
   if (includeMetadata && pieces.length > 0) {
@@ -178,29 +231,49 @@ async function enrichPiecesWithMetadata(
   logger?: GetDataSetPiecesOptions['logger']
 ): Promise<void> {
   for (const piece of pieces) {
-    try {
-      const metadata = await getAllPieceMetadata(synapse.client, { dataSetId, pieceId: piece.pieceId })
+    const warning = await enrichPieceMetadata(synapse, dataSetId, piece, logger)
+    if (warning) {
+      warnings.push(warning)
+    }
+  }
+}
 
-      const rootIpfsCid = metadata[METADATA_KEYS.IPFS_ROOT_CID]
-      if (rootIpfsCid) {
-        piece.rootIpfsCid = rootIpfsCid
-      }
+/**
+ * Fetch and attach WarmStorage metadata for a single piece.
+ *
+ * Mutates the provided `piece` by setting `metadata` and, when present, `rootIpfsCid`.
+ * Metadata lookup failures are non-fatal and returned as warnings so callers can
+ * decide whether to collect or display them.
+ */
+export async function enrichPieceMetadata(
+  synapse: Synapse,
+  dataSetId: bigint,
+  piece: PieceInfo,
+  logger?: GetDataSetPiecesOptions['logger']
+): Promise<Warning | undefined> {
+  try {
+    const metadata = await getAllPieceMetadata(synapse.client, { dataSetId, pieceId: piece.pieceId })
 
-      piece.metadata = metadata
-    } catch (error) {
-      logger?.warn(
-        { dataSetId: dataSetId.toString(), pieceId: piece.pieceId.toString(), error },
-        'Failed to fetch metadata for piece'
-      )
-      warnings.push({
-        code: 'METADATA_FETCH_FAILED',
-        message: `Failed to fetch metadata for piece ${piece.pieceId}`,
-        context: {
-          pieceId: piece.pieceId.toString(),
-          dataSetId: dataSetId.toString(),
-          error: String(error),
-        },
-      })
+    const rootIpfsCid = metadata[METADATA_KEYS.IPFS_ROOT_CID]
+    if (rootIpfsCid) {
+      piece.rootIpfsCid = rootIpfsCid
+    }
+
+    piece.metadata = metadata
+    return
+  } catch (error) {
+    logger?.warn(
+      { dataSetId: dataSetId.toString(), pieceId: piece.pieceId.toString(), error },
+      'Failed to fetch metadata for piece'
+    )
+    return {
+      code: 'METADATA_FETCH_FAILED',
+      message: `Failed to fetch metadata for piece ${piece.pieceId}`,
+      context: {
+        pieceId: piece.pieceId.toString(),
+        dataSetId: dataSetId.toString(),
+        error: String(error),
+      },
     }
   }
 }
