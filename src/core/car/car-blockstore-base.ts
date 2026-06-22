@@ -4,11 +4,16 @@
  */
 
 import type { Blockstore, InputPair, Pair } from 'interface-blockstore'
-import type { AbortOptions, AwaitIterable } from 'interface-store'
 import toBuffer from 'it-to-buffer'
 import { CID } from 'multiformats/cid'
 import varint from 'varint'
 import type { BlockOffset, CARStorageBackend } from './car-storage-backend.js'
+
+interface AbortOptions {
+  signal?: AbortSignal
+}
+
+type AwaitIterable<T> = Iterable<T> | AsyncIterable<T>
 
 /**
  * Statistics about CAR blockstore operations
