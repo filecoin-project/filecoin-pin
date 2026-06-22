@@ -6,7 +6,14 @@
 
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getDataSetPieces, listDataSets } from '../../core/data-set/index.js'
+import {
+  enrichPieceMetadata,
+  getDataSetPieces,
+  iterateDataSetPieces,
+  listDataSets,
+  type PieceInfo,
+} from '../../core/data-set/index.js'
+import { PieceStatus } from '../../core/data-set/types.js'
 
 const TEST_DATA_SET_ID = 123n
 const TEST_SERVICE_URL = 'https://provider.example.com'
@@ -488,5 +495,96 @@ describe('getDataSetPieces', () => {
     ).rejects.toThrow()
     // The loop checks the signal before each page, so it stops after the aborting call
     expect(calls).toBe(2)
+  })
+})
+
+describe('iterateDataSetPieces', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    state.pieces = []
+    state.pieceMetadata = {}
+    state.providerPieces = undefined
+  })
+
+  it('does not fetch the next on-chain batch until the consumer asks for it', async () => {
+    const pages: Record<string, Array<{ id: bigint; cid: { toString: () => string } }>> = {
+      '0': [{ id: 0n, cid: { toString: () => 'bafkpiece0' } }],
+      '100': [{ id: 1n, cid: { toString: () => 'bafkpiece1' } }],
+    }
+    mockGetActivePieces.mockImplementation((async (_client: any, { offset }: any) => ({
+      pieces: pages[String(offset)] ?? [],
+      hasMore: offset < 100n,
+    })) as any)
+
+    const iterator = iterateDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)
+    const first = await iterator.next()
+
+    expect(mockGetActivePieces).toHaveBeenCalledTimes(1)
+    expect(first.done).toBe(false)
+    expect(first.value?.hasMore).toBe(true)
+    expect(first.value?.pieces.map((p: PieceInfo) => p.pieceId)).toEqual([0n])
+
+    const second = await iterator.next()
+    expect(mockGetActivePieces).toHaveBeenCalledTimes(2)
+    expect(second.value?.hasMore).toBe(false)
+  })
+
+  it('only appends OFFCHAIN_ORPHANED leftovers on the final batch', async () => {
+    const cid0 = { toString: () => 'bafkpiece0' }
+    const cid1 = { toString: () => 'bafkpiece1' }
+    const offchainCid = { toString: () => 'bafkorphan' }
+    const pages: Record<string, Array<{ id: bigint; cid: { toString: () => string } }>> = {
+      '0': [{ id: 0n, cid: cid0 }],
+      '100': [{ id: 1n, cid: cid1 }],
+    }
+    mockGetActivePieces.mockImplementation((async (_client: any, { offset }: any) => ({
+      pieces: pages[String(offset)] ?? [],
+      hasMore: offset < 100n,
+    })) as any)
+    // Provider reports an extra piece that never shows up on-chain
+    state.providerPieces = [
+      { pieceId: 0n, pieceCid: cid0, subPieceCid: cid0, subPieceOffset: 0 },
+      { pieceId: 1n, pieceCid: cid1, subPieceCid: cid1, subPieceOffset: 0 },
+      { pieceId: 2n, pieceCid: offchainCid, subPieceCid: offchainCid, subPieceOffset: 0 },
+    ]
+
+    const batches: Array<{ hasMore: boolean; pieceIds: bigint[] }> = []
+    for await (const batch of iterateDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)) {
+      batches.push({ hasMore: batch.hasMore, pieceIds: batch.pieces.map((p) => p.pieceId) })
+    }
+
+    expect(batches).toHaveLength(2)
+    expect(batches[0]).toEqual({ hasMore: true, pieceIds: [0n] })
+    expect(batches[1]?.hasMore).toBe(false)
+    expect(batches[1]?.pieceIds).toEqual([1n, 2n])
+  })
+})
+
+describe('enrichPieceMetadata', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    state.pieceMetadata = {}
+  })
+
+  it('sets metadata and rootIpfsCid on success', async () => {
+    state.pieceMetadata = { 5: { [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot5', label: 'file.txt' } }
+    const piece: PieceInfo = { pieceId: 5n, pieceCid: 'bafkpiece5', status: PieceStatus.ACTIVE }
+
+    const warning = await enrichPieceMetadata(mockSynapse as any, TEST_DATA_SET_ID, piece)
+
+    expect(warning).toBeUndefined()
+    expect(piece.rootIpfsCid).toBe('bafyroot5')
+    expect(piece.metadata).toMatchObject({ label: 'file.txt' })
+  })
+
+  it('returns a warning and leaves the piece unmutated on failure', async () => {
+    mockGetAllPieceMetadata.mockRejectedValueOnce(new Error('boom'))
+    const piece: PieceInfo = { pieceId: 6n, pieceCid: 'bafkpiece6', status: PieceStatus.ACTIVE }
+
+    const warning = await enrichPieceMetadata(mockSynapse as any, TEST_DATA_SET_ID, piece)
+
+    expect(warning).toMatchObject({ code: 'METADATA_FETCH_FAILED' })
+    expect(piece.metadata).toBeUndefined()
+    expect(piece.rootIpfsCid).toBeUndefined()
   })
 })

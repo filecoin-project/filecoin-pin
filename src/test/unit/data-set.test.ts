@@ -24,6 +24,7 @@ const {
   mockIsInteractive,
   mockConfirm,
   mockIsCancel,
+  mockRunPieceStatusPager,
   state,
 } = vi.hoisted(() => {
   const displayDataSetListMock = vi.fn()
@@ -44,6 +45,7 @@ const {
   const mockIsInteractive = vi.fn(() => false)
   const mockConfirm = vi.fn(async () => true)
   const mockIsCancel = vi.fn(() => false)
+  const mockRunPieceStatusPager = vi.fn()
   const state = {
     pieceMetadata: {} as Record<string, string>,
     pieceList: [] as Array<{ pieceId: bigint; pieceCid: string }>,
@@ -122,6 +124,7 @@ const {
     mockIsInteractive,
     mockConfirm,
     mockIsCancel,
+    mockRunPieceStatusPager,
     state,
   }
 })
@@ -129,6 +132,10 @@ const {
 vi.mock('../../data-set/display.js', () => ({
   displayDataSets: displayDataSetListMock,
   displayPieceStatuses: displayPieceStatusesMock,
+}))
+
+vi.mock('../../data-set/piece-status-pager.js', () => ({
+  runPieceStatusPager: mockRunPieceStatusPager,
 }))
 
 vi.mock('../../core/synapse/index.js', () => ({
@@ -693,6 +700,34 @@ describe('runDataSetPieceStatusCommand', () => {
     const call = displayPieceStatusesMock.mock.calls[0] as [PieceInfo[], number, string, string, string | undefined]
     expect(call[0]).toHaveLength(0)
     expect(call[4]).toMatch(/No piece matching bafkmissing/)
+  })
+
+  it('uses the interactive pager instead of the full dump when interactive and no pieceCid is given', async () => {
+    mockIsInteractive.mockReturnValue(true)
+
+    await runDataSetPieceStatusCommand(158, undefined, {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    expect(displayPieceStatusesMock).not.toHaveBeenCalled()
+    expect(mockRunPieceStatusPager).toHaveBeenCalledTimes(1)
+    const [, dataSet] = mockRunPieceStatusPager.mock.calls[0] as [unknown, DataSetSummary]
+    expect(dataSet.dataSetId).toBe(158n)
+    // includePieces: false - the pager fetches pieces itself, lazily.
+    expect(dataSet.pieces).toBeUndefined()
+  })
+
+  it('keeps the full-fetch/filter path when a pieceCid is given even while interactive', async () => {
+    mockIsInteractive.mockReturnValue(true)
+
+    await runDataSetPieceStatusCommand(158, 'bafkpiece1', {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    expect(mockRunPieceStatusPager).not.toHaveBeenCalled()
+    expect(displayPieceStatusesMock).toHaveBeenCalledTimes(1)
   })
 
   it('rejects invalid dataset IDs', async () => {
