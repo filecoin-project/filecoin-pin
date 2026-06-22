@@ -3,7 +3,7 @@ import { runProviderList, runProviderPing, runProviderShow } from '../provider/i
 import type { ProviderListOptions, ProviderPingOptions, ProviderShowOptions } from '../provider/types.js'
 import { addAuthOptions } from '../utils/cli-options.js'
 
-export const providerCommand = new Command('provider').description('Inspect and interact with storage providers')
+export const providerCommand = new Command('provider').description('List and inspect storage providers')
 
 const listCommand = new Command('list')
   .alias('ls')
