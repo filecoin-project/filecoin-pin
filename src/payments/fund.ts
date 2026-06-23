@@ -6,6 +6,7 @@
 
 import { confirm, isCancel } from '@clack/prompts'
 import type { Synapse } from '@filoz/synapse-sdk'
+import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
 import { CliFatal, CliIncomplete, isCliFatal, isCliIncomplete, setIncompleteExitCode } from '../common/cli-errors.js'
@@ -142,11 +143,18 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
 
   spinner?.message('Checking wallet readiness...')
 
+  // Mirror uploadToSynapse's metadata injection: when not targeting specific data
+  // sets by ID, prepend WITH_IPFS_INDEXING so metadataMatches() finds existing
+  // data sets (it uses exact key-count matching — omitting this key causes all
+  // contexts to appear new, inflating the computed deposit).
+  const resolvedMetadata: Record<string, string> =
+    dataSetIds != null ? (metadata ?? {}) : { [METADATA_KEYS.WITH_IPFS_INDEXING]: '', ...(metadata ?? {}) }
+
   const contexts = await synapse.storage.createContexts({
     ...(copies != null ? { copies } : {}),
     ...(providerIds != null ? { providerIds } : {}),
     ...(dataSetIds != null ? { dataSetIds } : {}),
-    ...(metadata != null ? { metadata } : {}),
+    metadata: resolvedMetadata,
   })
   const newDataSetCount = contexts.filter((context) => context.dataSetId == null).length
 
