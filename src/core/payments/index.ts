@@ -21,7 +21,7 @@ import {
   calculateAdditionalLockupRequired,
   calculateBufferAmount,
   calculateRunwayAmount,
-  type getPriceList,
+  getPriceList,
 } from '@filoz/synapse-core/warm-storage'
 import { calibration, SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { formatUnits, type Hash } from 'viem'
@@ -921,11 +921,11 @@ export async function validatePaymentCapacity(synapse: Synapse, pieceSizeBytes: 
   // Ensure allowances are at max (automatically skips if in session key mode)
   await checkAndSetAllowances(synapse)
 
-  const [status, storageInfo] = await Promise.all([getPaymentStatus(synapse), synapse.storage.getStorageInfo()])
+  const [status, priceList] = await Promise.all([getPaymentStatus(synapse), getPriceList(synapse.client)])
 
   const storageTiB = pieceSizeBytes / Number(SIZE_CONSTANTS.TiB)
 
-  const uploadRequirements = calculatePieceUploadRequirements(status, pieceSizeBytes, storageInfo.pricing.priceList)
+  const uploadRequirements = calculatePieceUploadRequirements(status, pieceSizeBytes, priceList)
 
   const result: PaymentCapacityCheck = {
     canUpload: uploadRequirements.canUpload,
