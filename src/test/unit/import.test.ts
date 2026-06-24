@@ -204,6 +204,14 @@ async function createTestCarFile(
   return { cids }
 }
 
+async function createCarWithRoot(carPath: string): Promise<CID> {
+  const { cids } = await createTestCarFile(carPath, [], [{ content: 'test content' }])
+  const cid = cids[0]
+  if (!cid) throw new Error('No CID generated')
+  await createTestCarFile(carPath, [cid], [{ content: 'test content', cid }])
+  return cid
+}
+
 describe('CAR Import', () => {
   const testDir = './test-import-cars'
   const testPrivateKey = '0x0000000000000000000000000000000000000000000000000000000000000001'
@@ -232,23 +240,9 @@ describe('CAR Import', () => {
   describe('CAR File Validation', () => {
     it('should validate a proper CAR file with single root', async () => {
       const carPath = join(testDir, 'valid.car')
-      const { cids } = await createTestCarFile(
-        carPath,
-        [], // Will use first block's CID as root
-        [{ content: 'test content' }]
-      )
-      const cid = cids[0]
-      if (!cid) throw new Error('No CID generated')
+      const cid = await createCarWithRoot(carPath)
 
-      // Update CAR with proper root
-      await createTestCarFile(carPath, [cid], [{ content: 'test content', cid }])
-
-      const options: ImportOptions = {
-        filePath: carPath,
-        privateKey: testPrivateKey,
-      }
-
-      const result = (await runCarImport(options)) as ImportResult
+      const result = (await runCarImport({ filePath: carPath, privateKey: testPrivateKey })) as ImportResult
 
       expect(result.rootCid).toBe(cid.toString())
       expect(result.filePath).toBe(carPath)
@@ -533,20 +527,9 @@ describe('CAR Import', () => {
   describe('Upload Result', () => {
     it('should return complete import result with copies', async () => {
       const carPath = join(testDir, 'result.car')
-      const { cids } = await createTestCarFile(carPath, [], [{ content: 'test content' }])
+      const cid = await createCarWithRoot(carPath)
 
-      const cid = cids[0]
-      if (!cid) throw new Error('No CID generated')
-
-      // Recreate with proper root
-      await createTestCarFile(carPath, [cid], [{ content: 'test content', cid }])
-
-      const options: ImportOptions = {
-        filePath: carPath,
-        privateKey: testPrivateKey,
-      }
-
-      const result = (await runCarImport(options)) as ImportResult
+      const result = (await runCarImport({ filePath: carPath, privateKey: testPrivateKey })) as ImportResult
 
       expect(result).toMatchObject({
         filePath: carPath,
