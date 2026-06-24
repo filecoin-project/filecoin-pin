@@ -11,6 +11,7 @@ import {
 
 const {
   displayDataSetListMock,
+  displayDataSetsMock,
   displayPieceStatusesMock,
   spinnerMock,
   cancelMock,
@@ -27,6 +28,7 @@ const {
   state,
 } = vi.hoisted(() => {
   const displayDataSetListMock = vi.fn()
+  const displayDataSetsMock = vi.fn()
   const displayPieceStatusesMock = vi.fn()
   const cancelMock = vi.fn()
   const spinnerMock = {
@@ -108,6 +110,7 @@ const {
 
   return {
     displayDataSetListMock,
+    displayDataSetsMock,
     displayPieceStatusesMock,
     cancelMock,
     spinnerMock,
@@ -127,7 +130,8 @@ const {
 })
 
 vi.mock('../../data-set/display.js', () => ({
-  displayDataSets: displayDataSetListMock,
+  displayDataSetList: displayDataSetListMock,
+  displayDataSets: displayDataSetsMock,
   displayPieceStatuses: displayPieceStatusesMock,
 }))
 
@@ -291,6 +295,7 @@ describe('runDataSetCommand', () => {
     })
 
     expect(displayDataSetListMock).toHaveBeenCalledTimes(1)
+    expect(displayDataSetsMock).not.toHaveBeenCalled()
     const firstCall = displayDataSetListMock.mock.calls[0]
     expect(firstCall).toBeDefined()
     const [context] = firstCall as [DataSetSummary[]]
@@ -409,8 +414,9 @@ describe('runDataSetCommand', () => {
       rpcUrl: 'wss://sample',
     })
 
-    expect(displayDataSetListMock).toHaveBeenCalledTimes(1)
-    const statusCall = displayDataSetListMock.mock.calls[0]
+    expect(displayDataSetsMock).toHaveBeenCalledTimes(1)
+    expect(displayDataSetListMock).not.toHaveBeenCalled()
+    const statusCall = displayDataSetsMock.mock.calls[0]
     expect(statusCall).toBeDefined()
     const [dataSets] = statusCall as [DataSetSummary[]]
     expect(dataSets).toHaveLength(1)
@@ -449,6 +455,7 @@ describe('runDataSetCommand', () => {
 
     // Should not call display function since it failed early
     expect(displayDataSetListMock).not.toHaveBeenCalled()
+    expect(displayDataSetsMock).not.toHaveBeenCalled()
   })
 })
 
@@ -515,7 +522,8 @@ describe('runTerminateDataSetCommand', () => {
 
     expect(mockTerminateService).toHaveBeenCalledWith({ dataSetId: 158n, skipProvider: true })
     expect(mockWaitForTransactionReceipt).not.toHaveBeenCalled()
-    expect(displayDataSetListMock).toHaveBeenCalledTimes(2)
+    expect(displayDataSetsMock).toHaveBeenCalledTimes(2)
+    expect(displayDataSetListMock).not.toHaveBeenCalled()
   })
 
   it('exits with code 2 when the user cancels the confirmation prompt', async () => {
@@ -546,7 +554,8 @@ describe('runTerminateDataSetCommand', () => {
 
     expect(mockTerminateService).toHaveBeenCalledWith({ dataSetId: 158n, skipProvider: true })
     expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith({ hash: '0xtxhash123' })
-    expect(displayDataSetListMock).toHaveBeenCalledTimes(2)
+    expect(displayDataSetsMock).toHaveBeenCalledTimes(2)
+    expect(displayDataSetListMock).not.toHaveBeenCalled()
   })
 
   it('exits with code 2 when the confirmation wait times out', async () => {

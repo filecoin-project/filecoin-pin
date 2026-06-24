@@ -9,7 +9,7 @@ import { getClientAddress } from '../core/synapse/index.js'
 import { getCliSynapse, parseProviderIdSelection } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import { displayDataSets, displayPieceStatuses } from './display.js'
+import { displayDataSetList, displayDataSets, displayPieceStatuses } from './display.js'
 import type { DataSetCommandOptions, DataSetListCommandOptions } from './types.js'
 
 /**
@@ -165,8 +165,6 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
     const dataSets: DataSetSummary[] =
       options.all || explicitFilter ? allDataSets : allDataSets.filter((dataSet) => dataSet.createdWithFilecoinPin)
 
-    spinner.stop('━━━ Data Sets ━━━')
-
     let emptyMessage: string | undefined
     if (dataSets.length === 0) {
       if (explicitFilter) {
@@ -179,7 +177,8 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
       }
     }
 
-    displayDataSets(dataSets, network, address, emptyMessage)
+    spinner.stop('━━━ Data Sets ━━━')
+    displayDataSetList(dataSets, network, address, emptyMessage)
 
     outro('Data set list complete')
   } catch (error) {
