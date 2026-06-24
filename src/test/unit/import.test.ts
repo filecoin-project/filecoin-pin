@@ -20,7 +20,7 @@ import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runCarImport, runCarImportFromCli } from '../../import/import.js'
-import type { ImportOptions } from '../../import/types.js'
+import type { ImportDryRunResult, ImportOptions, ImportResult } from '../../import/types.js'
 
 // Test constants
 const ZERO_CID = 'bafkqaaa' // Zero CID used when CAR has no roots
@@ -48,6 +48,19 @@ vi.mock('../../common/upload-flow.js', () => ({
   }),
   displayUploadResults: vi.fn(),
   performAutoFunding: vi.fn(),
+  estimateUploadCost: vi.fn().mockResolvedValue({
+    requestedCopies: 2,
+    newDataSetCount: 0,
+    costs: {
+      rates: { perEpoch: 100n, perMonth: 3000n },
+      fees: { total: 500n },
+      lockups: { total: 90000n },
+      depositNeeded: 0n,
+      needsFwssMaxApproval: false,
+      ready: true,
+    },
+  }),
+  displayDryRunEstimate: vi.fn(),
 }))
 vi.mock('../../core/payments/index.js', async () => {
   const actual = await vi.importActual<typeof import('../../core/payments/index.js')>('../../core/payments/index.js')
@@ -235,7 +248,7 @@ describe('CAR Import', () => {
         privateKey: testPrivateKey,
       }
 
-      const result = await runCarImport(options)
+      const result = (await runCarImport(options)) as ImportResult
 
       expect(result.rootCid).toBe(cid.toString())
       expect(result.filePath).toBe(carPath)
@@ -256,7 +269,7 @@ describe('CAR Import', () => {
         privateKey: testPrivateKey,
       }
 
-      const result = await runCarImport(options)
+      const result = (await runCarImport(options)) as ImportResult
 
       expect(result.rootCid).toBe(ZERO_CID) // Zero CID
       expect(result.filePath).toBe(carPath)
@@ -533,7 +546,7 @@ describe('CAR Import', () => {
         privateKey: testPrivateKey,
       }
 
-      const result = await runCarImport(options)
+      const result = (await runCarImport(options)) as ImportResult
 
       expect(result).toMatchObject({
         filePath: carPath,
@@ -547,6 +560,114 @@ describe('CAR Import', () => {
       expect(result.copies[0]?.role).toBe('primary')
       expect(result.copies[0]?.providerId).toBe(1n)
       expect(result.failedAttempts).toHaveLength(0)
+    })
+  })
+
+  describe('dry-run', () => {
+    it('returns ImportDryRunResult and skips upload, funding, and payment validation', async () => {
+      const carPath = join(testDir, 'dry-run.car')
+      await createTestCarFile(carPath, [], [{ content: 'dry-run content' }])
+
+      const result = (await runCarImport({
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        rpcUrl: 'wss://test.rpc.url',
+        dryRun: true,
+      })) as ImportDryRunResult
+
+      expect(result).toMatchObject({
+        dryRun: true,
+        filePath: carPath,
+        fileSize: expect.any(Number),
+        requestedCopies: 2,
+        newDataSetCount: 0,
+        costs: expect.objectContaining({ ready: true }),
+      })
+
+      const { performUpload, performAutoFunding, validatePaymentSetup } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performUpload)).not.toHaveBeenCalled()
+      expect(vi.mocked(performAutoFunding)).not.toHaveBeenCalled()
+      expect(vi.mocked(validatePaymentSetup)).not.toHaveBeenCalled()
+    })
+
+    it('passes copies to estimateUploadCost', async () => {
+      const carPath = join(testDir, 'dry-run-copies.car')
+      await createTestCarFile(carPath, [], [{ content: 'copies content' }])
+
+      await runCarImport({
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        rpcUrl: 'wss://test.rpc.url',
+        dryRun: true,
+        copies: 3,
+      })
+
+      const { estimateUploadCost } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(estimateUploadCost)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        expect.objectContaining({ copies: 3 })
+      )
+    })
+
+    it('passes providerIds to estimateUploadCost', async () => {
+      const carPath = join(testDir, 'dry-run-providers.car')
+      await createTestCarFile(carPath, [], [{ content: 'providers content' }])
+
+      await runCarImport({
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        rpcUrl: 'wss://test.rpc.url',
+        dryRun: true,
+        providerIds: ['7', '8'],
+      })
+
+      const { estimateUploadCost } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(estimateUploadCost)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        expect.objectContaining({ providerIds: [7n, 8n] })
+      )
+    })
+
+    it('passes dataSetIds to estimateUploadCost', async () => {
+      const carPath = join(testDir, 'dry-run-datasets.car')
+      await createTestCarFile(carPath, [], [{ content: 'datasets content' }])
+
+      await runCarImport({
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        rpcUrl: 'wss://test.rpc.url',
+        dryRun: true,
+        dataSetIds: ['123', '456'],
+      })
+
+      const { estimateUploadCost } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(estimateUploadCost)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        expect.objectContaining({ dataSetIds: [123n, 456n] })
+      )
+    })
+
+    it('passes withCDN: false to estimateUploadCost when egressProvider is none', async () => {
+      const carPath = join(testDir, 'dry-run-egress.car')
+      await createTestCarFile(carPath, [], [{ content: 'egress content' }])
+
+      await runCarImport({
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        rpcUrl: 'wss://test.rpc.url',
+        dryRun: true,
+        egressProvider: 'none',
+      })
+
+      const { estimateUploadCost } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(estimateUploadCost)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        expect.objectContaining({ withCDN: false })
+      )
     })
   })
 })

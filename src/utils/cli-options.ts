@@ -271,12 +271,19 @@ export function addNetworkOptions(command: Command): Command {
  * Used by `add` and `import` commands.
  */
 export function addUploadOptions(command: Command): Command {
-  return command.addOption(
-    new Option(
-      '--skip-ipni-verification',
-      'Skip IPNI advertisement verification after upload (automatic for devnet)'
-    ).env('SKIP_IPNI_VERIFICATION')
-  )
+  return command
+    .addOption(
+      new Option(
+        '--skip-ipni-verification',
+        'Skip IPNI advertisement verification after upload (automatic for devnet)'
+      ).env('SKIP_IPNI_VERIFICATION')
+    )
+    .addOption(
+      new Option(
+        '--dry-run',
+        'Estimate upload cost and required deposit, then exit without uploading or moving funds'
+      ).conflicts('autoFund')
+    )
 }
 
 /**

@@ -16,6 +16,7 @@ export const importCommand = new Command('import')
   .action(async (file: string, options) => {
     try {
       const result = await runCarImportFromCli(file, options)
+      if ('dryRun' in result) return
       if (result.copies.length < result.requestedCopies) {
         process.exitCode = 1
       }

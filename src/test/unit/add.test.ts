@@ -13,6 +13,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runAdd, runAddFromCli } from '../../add/add.js'
+import type { AddDryRunResult, AddResult } from '../../add/types.js'
 
 const { mockCarPath, mockFindDataSets } = vi.hoisted(() => ({
   mockCarPath: 'test-add-files/mock.car',
@@ -41,6 +42,19 @@ vi.mock('../../common/upload-flow.js', () => ({
     network: 'calibration',
   }),
   displayUploadResults: vi.fn(),
+  estimateUploadCost: vi.fn().mockResolvedValue({
+    requestedCopies: 2,
+    newDataSetCount: 0,
+    costs: {
+      rates: { perEpoch: 100n, perMonth: 3000n },
+      fees: { total: 500n },
+      lockups: { total: 90000n },
+      depositNeeded: 0n,
+      needsFwssMaxApproval: false,
+      ready: true,
+    },
+  }),
+  displayDryRunEstimate: vi.fn(),
 }))
 
 vi.mock('../../core/synapse/index.js', () => ({
@@ -125,11 +139,11 @@ describe('Add Command', () => {
 
   describe('runAdd command', () => {
     it('should successfully add a file (no directory wrapper)', async () => {
-      const result = await runAdd({
+      const result = (await runAdd({
         filePath: testFile,
         privateKey: 'test-private-key',
         rpcUrl: 'wss://test.rpc.url',
-      })
+      })) as AddResult
 
       // Verify the result structure (multi-copy format)
       expect(result).toMatchObject({
@@ -429,6 +443,100 @@ describe('Add Command', () => {
       const calls = vi.mocked(displayUploadResults).mock.calls
       const last = calls[calls.length - 1]
       expect(last?.[4]).toBeUndefined()
+    })
+
+    describe('dry-run', () => {
+      it('returns AddDryRunResult and skips upload, funding, and payment validation', async () => {
+        const result = (await runAdd({
+          filePath: testFile,
+          privateKey: 'test-private-key',
+          rpcUrl: 'wss://test.rpc.url',
+          dryRun: true,
+        })) as AddDryRunResult
+
+        expect(result).toMatchObject({
+          dryRun: true,
+          filePath: testFile,
+          fileSize: expect.any(Number),
+          rootCid: TEST_FILE_CID,
+          requestedCopies: 2,
+          newDataSetCount: 0,
+          costs: expect.objectContaining({ ready: true }),
+        })
+
+        const { performUpload, performAutoFunding, validatePaymentSetup } = await import('../../common/upload-flow.js')
+        expect(vi.mocked(performUpload)).not.toHaveBeenCalled()
+        expect(vi.mocked(performAutoFunding)).not.toHaveBeenCalled()
+        expect(vi.mocked(validatePaymentSetup)).not.toHaveBeenCalled()
+      })
+
+      it('passes copies to estimateUploadCost', async () => {
+        await runAdd({
+          filePath: testFile,
+          privateKey: 'test-private-key',
+          rpcUrl: 'wss://test.rpc.url',
+          dryRun: true,
+          copies: 3,
+        })
+
+        const { estimateUploadCost } = await import('../../common/upload-flow.js')
+        expect(vi.mocked(estimateUploadCost)).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.any(Number),
+          expect.objectContaining({ copies: 3 })
+        )
+      })
+
+      it('passes providerIds to estimateUploadCost', async () => {
+        await runAdd({
+          filePath: testFile,
+          privateKey: 'test-private-key',
+          rpcUrl: 'wss://test.rpc.url',
+          dryRun: true,
+          providerIds: ['7', '8'],
+        })
+
+        const { estimateUploadCost } = await import('../../common/upload-flow.js')
+        expect(vi.mocked(estimateUploadCost)).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.any(Number),
+          expect.objectContaining({ providerIds: [7n, 8n] })
+        )
+      })
+
+      it('passes dataSetIds to estimateUploadCost', async () => {
+        await runAdd({
+          filePath: testFile,
+          privateKey: 'test-private-key',
+          rpcUrl: 'wss://test.rpc.url',
+          dryRun: true,
+          dataSetIds: ['123', '456'],
+        })
+
+        const { estimateUploadCost } = await import('../../common/upload-flow.js')
+        expect(vi.mocked(estimateUploadCost)).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.any(Number),
+          expect.objectContaining({ dataSetIds: [123n, 456n] })
+        )
+      })
+
+      it('passes withCDN to estimateUploadCost based on egressProvider', async () => {
+        await runAdd({
+          filePath: testFile,
+          privateKey: 'test-private-key',
+          rpcUrl: 'wss://test.rpc.url',
+          dryRun: true,
+          egressProvider: 'none',
+        })
+
+        const { estimateUploadCost } = await import('../../common/upload-flow.js')
+        expect(vi.mocked(estimateUploadCost)).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.any(Number),
+          expect.objectContaining({ withCDN: false })
+        )
+      })
     })
   })
 

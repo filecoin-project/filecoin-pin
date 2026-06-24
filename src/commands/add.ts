@@ -29,6 +29,7 @@ Retrieving your content after an add:
 addCommand.action(async (path: string, options: any) => {
   try {
     const result = await runAddFromCli(path, options)
+    if ('dryRun' in result) return
     if (result.copies.length < result.requestedCopies) {
       process.exitCode = 1
     }

@@ -14,7 +14,9 @@ import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
 import {
+  displayDryRunEstimate,
   displayUploadResults,
+  estimateUploadCost,
   performAutoFunding,
   performUpload,
   promptDataSetSelection,
@@ -33,7 +35,7 @@ import { log } from '../utils/cli-logger.js'
 import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
 import { buildFilbeamUrl, chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
 import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
-import type { AddOptions, AddResult } from './types.js'
+import type { AddDryRunResult, AddOptions, AddResult } from './types.js'
 
 /**
  * Validate that a path exists and is a regular file or directory
@@ -73,7 +75,7 @@ async function validatePath(path: string): Promise<{
  * Commander wiring calls this so option validation errors are displayed by the
  * command UI layer and command files only own exit-code handling.
  */
-export async function runAddFromCli(path: string, options: Record<string, any>): Promise<AddResult> {
+export async function runAddFromCli(path: string, options: Record<string, any>): Promise<AddResult | AddDryRunResult> {
   let addOptions: AddOptions
   try {
     const autoFundOptions = validateAndNormalizeAutoFundOptions(options)
@@ -118,7 +120,7 @@ export async function runAddFromCli(path: string, options: Record<string, any>):
  *
  * @param options - Add configuration
  */
-export async function runAdd(options: AddOptions): Promise<AddResult> {
+export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRunResult> {
   intro(pc.bold('Filecoin Pin Add'))
 
   const spinner = createSpinner()
@@ -219,8 +221,10 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       }
     }
 
-    // Check payment setup (may configure permissions if needed)
-    if (!options.autoFund) {
+    // Check payment setup (may configure permissions if needed).
+    // Skipped for --dry-run: this can submit an allowance-approval transaction,
+    // which a dry run must never do.
+    if (!options.autoFund && !options.dryRun) {
       spinner.start('Checking payment setup...')
       await validatePaymentSetup(synapse, 0, spinner, {
         suppressSuggestions: true,
@@ -251,6 +255,33 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     const { size: carSize } = await stat(tempCarPath)
     const carData = Readable.toWeb(createReadStream(tempCarPath)) as ReadableStream<Uint8Array>
     spinner.stop(`${pc.green('✓')} Packed IPFS content ready (${formatFileSize(carSize)})`)
+
+    if (options.dryRun) {
+      spinner.start('Estimating upload cost...')
+      const estimate = await estimateUploadCost(synapse, carSize, {
+        ...(options.copies != null && { copies: options.copies }),
+        ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
+        ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
+        ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
+        withCDN,
+      })
+      spinner.stop(`${pc.green('✓')} Cost estimate ready`)
+
+      const result: AddDryRunResult = {
+        dryRun: true,
+        filePath: options.filePath,
+        fileSize: carSize,
+        ...(isDirectory && { isDirectory }),
+        rootCid: rootCid.toString(),
+        requestedCopies: estimate.requestedCopies,
+        newDataSetCount: estimate.newDataSetCount,
+        costs: estimate.costs,
+      }
+
+      displayDryRunEstimate(result, estimate, network)
+      outro('Dry run complete — no upload performed')
+      return result
+    }
 
     const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {
       withCDN,

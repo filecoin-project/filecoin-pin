@@ -162,7 +162,7 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
 
   onProgress?.({ type: 'validatingCapacity' })
 
-  const capacityCheck = await validatePaymentCapacity(synapse, fileSize)
+  const capacityCheck = await validatePaymentCapacity(synapse, fileSize) // TODO: checks allowances and set max allowances
   const capacityStatus = determineCapacityStatus(capacityCheck)
 
   if (capacityStatus === 'insufficient') {
