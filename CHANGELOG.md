@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.1.0](https://github.com/filecoin-project/filecoin-pin/compare/v1.0.1...v1.1.0) (2026-06-25)
+
+
+### Features
+
+* compact data-set list output ([#580](https://github.com/filecoin-project/filecoin-pin/issues/580)) ([f350d5b](https://github.com/filecoin-project/filecoin-pin/commit/f350d5b12cc887d14a763814f314da2c415f493d))
+* organize CLI `--help` with command groups ([#594](https://github.com/filecoin-project/filecoin-pin/issues/594)) ([508fcb8](https://github.com/filecoin-project/filecoin-pin/commit/508fcb8116778e182befe5e25f2b5f6d0933a809))
+* organize CLI help by groups ([508fcb8](https://github.com/filecoin-project/filecoin-pin/commit/508fcb8116778e182befe5e25f2b5f6d0933a809))
+
+
+### Bug Fixes
+
+* detect fork-sourced workflow_run events before allowing Filecoin upload ([#588](https://github.com/filecoin-project/filecoin-pin/issues/588)) ([6fb9efd](https://github.com/filecoin-project/filecoin-pin/commit/6fb9efd1796e64a3515dffaa45b262e03cbd197c))
+
+
+### Chores
+
+* **deps:** bump @clack/prompts from 1.4.0 to 1.5.1 ([#569](https://github.com/filecoin-project/filecoin-pin/issues/569)) ([77febab](https://github.com/filecoin-project/filecoin-pin/commit/77febab860b3ab3fa31c70d69d7c658026cc436f))
+* **deps:** bump @libp2p/identify from 4.1.7 to 4.1.8 ([#570](https://github.com/filecoin-project/filecoin-pin/issues/570)) ([20c3248](https://github.com/filecoin-project/filecoin-pin/commit/20c3248a95adf8975dece8e06c69eddf215a8cf8))
+* **deps:** bump libp2p from 3.3.3 to 3.3.4 ([#568](https://github.com/filecoin-project/filecoin-pin/issues/568)) ([6f16c16](https://github.com/filecoin-project/filecoin-pin/commit/6f16c16301df87fb8e0d4b3c8eac3f7c9a1274bc))
+* **deps:** update multiformats@14 and related deps ([#548](https://github.com/filecoin-project/filecoin-pin/issues/548)) ([084307b](https://github.com/filecoin-project/filecoin-pin/commit/084307b5956a0aca6ef1dccc00366b3ab59e2804))
+
 ## [1.0.1](https://github.com/filecoin-project/filecoin-pin/compare/v0.23.2...v1.0.1) (2026-06-18)
 
 
