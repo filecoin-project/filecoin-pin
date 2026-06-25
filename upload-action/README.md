@@ -104,7 +104,7 @@ Use semantic version tags from [filecoin-pin releases](https://github.com/fileco
 - **`@<commit-sha>`** - Maximum supply-chain security
 
 > [!IMPORTANT]
-> The `@v0` line is no longer supported and not receiving security patches. Users should mMigrate any workflows still pinned to `@v0` or `@v0.x.x`.
+> The `@v0` line is no longer supported and not receiving security patches. Users should migrate any workflows still pinned to `@v0` or `@v0.x.x`.
 
 The action checks npm for a newer `filecoin-pin` release at the start of each run and posts a GitHub Actions notice when one is available.
 
