@@ -7,7 +7,7 @@ import { addAuthOptions, addDataSetIdOption } from '../utils/cli-options.js'
 
 export const removeCommand = new Command('remove')
   .alias('rm')
-  .description('Remove piece(s) from one or more DataSets')
+  .description('Remove stored pieces from your data sets')
   .option('--wait', 'Wait for transaction confirmation before exiting')
   .option('--force', 'Skip confirmation prompt when using --all')
 
