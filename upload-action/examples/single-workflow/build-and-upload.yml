@@ -31,7 +31,7 @@ jobs:
 
       # Upload to Filecoin - the action will build CAR and upload in a single flow
       - name: Upload to Filecoin
-        uses: filecoin-project/filecoin-pin/upload-action@v0
+        uses: filecoin-project/filecoin-pin/upload-action@v1
         with:
           walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
           path: dist

@@ -37,7 +37,7 @@ jobs:
       # Upload to Filecoin using the downloaded build artifacts
       # The action will create a CAR file from the downloaded artifacts and upload to Filecoin
       - name: Upload to Filecoin
-        uses: filecoin-project/filecoin-pin/upload-action@v0
+        uses: filecoin-project/filecoin-pin/upload-action@v1
         with:
           path: dist  # Path to the downloaded build artifacts
           walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}

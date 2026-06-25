@@ -32,7 +32,7 @@ If `path` points to a regular file whose name ends in `.car`, the action skips i
 
 ```yaml
 - name: Upload pre-built CAR to Filecoin
-  uses: filecoin-project/filecoin-pin/upload-action@v0
+  uses: filecoin-project/filecoin-pin/upload-action@v1
   with:
     path: build.car
     walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
@@ -46,7 +46,7 @@ For most users, automatic provider selection is recommended. However, for advanc
 
 ```yaml
 - name: Upload to Filecoin
-  uses: filecoin-project/filecoin-pin/upload-action@v0
+  uses: filecoin-project/filecoin-pin/upload-action@v1
   env:
     PROVIDER_IDS: "1,2"  # Target specific providers by their numeric on-chain IDs
   with:
@@ -64,7 +64,7 @@ To append an upload to one or more existing Synapse datasets instead of creating
 
 ```yaml
 - name: Upload to Filecoin
-  uses: filecoin-project/filecoin-pin/upload-action@v0
+  uses: filecoin-project/filecoin-pin/upload-action@v1
   with:
     path: dist
     walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
@@ -75,7 +75,7 @@ When omitted, the SDK selects or creates a dataset automatically (recommended). 
 
 ## Security Checklist
 
-- ✅ Pin action by version tag or commit SHA (`@v0`, `@v0.9.1`, or `@<sha>`)
+- ✅ Pin action by version tag or commit SHA (`@v1`, `@v1.1.0`, or `@<sha>`)
 - ✅ Grant `actions: read` for artifact reuse (cache fallback)
 - ✅ Grant `checks: write` for PR check status
 - ✅ Grant `pull-requests: write` for PR comments
@@ -99,9 +99,12 @@ When omitted, the SDK selects or creates a dataset automatically (recommended). 
 
 Use semantic version tags from [filecoin-pin releases](https://github.com/filecoin-project/filecoin-pin/releases):
 
-- **`@v0`** - Latest v0.x.x (recommended)
-- **`@v0.9.1`** - Specific version (production)
+- **`@v1`** - Latest v1.x.x (recommended)
+- **`@v1.1.0`** - Specific version (production)
 - **`@<commit-sha>`** - Maximum supply-chain security
+
+> [!IMPORTANT]
+> The `@v0` line is no longer supported and not receiving security patches. Users should mMigrate any workflows still pinned to `@v0` or `@v0.x.x`.
 
 The action checks npm for a newer `filecoin-pin` release at the start of each run and posts a GitHub Actions notice when one is available.
 
