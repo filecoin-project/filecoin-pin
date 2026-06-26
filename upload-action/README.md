@@ -32,7 +32,8 @@ If `path` points to a regular file whose name ends in `.car`, the action skips i
 
 ```yaml
 - name: Upload pre-built CAR to Filecoin
-  uses: filecoin-project/filecoin-pin/upload-action@v1
+  # For production, pin to a specific version (e.g. @v1.1.0) or commit SHA instead of @master.
+  uses: filecoin-project/filecoin-pin/upload-action@master
   with:
     path: build.car
     walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
@@ -46,7 +47,8 @@ For most users, automatic provider selection is recommended. However, for advanc
 
 ```yaml
 - name: Upload to Filecoin
-  uses: filecoin-project/filecoin-pin/upload-action@v1
+  # For production, pin to a specific version (e.g. @v1.1.0) or commit SHA instead of @master.
+  uses: filecoin-project/filecoin-pin/upload-action@master
   env:
     PROVIDER_IDS: "1,2"  # Target specific providers by their numeric on-chain IDs
   with:
@@ -64,7 +66,8 @@ To append an upload to one or more existing Synapse datasets instead of creating
 
 ```yaml
 - name: Upload to Filecoin
-  uses: filecoin-project/filecoin-pin/upload-action@v1
+  # For production, pin to a specific version (e.g. @v1.1.0) or commit SHA instead of @master.
+  uses: filecoin-project/filecoin-pin/upload-action@master
   with:
     path: dist
     walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
@@ -75,7 +78,7 @@ When omitted, the SDK selects or creates a dataset automatically (recommended). 
 
 ## Security Checklist
 
-- ✅ Pin action by version tag or commit SHA (`@v1`, `@v1.1.0`, or `@<sha>`)
+- ✅ Pin action by specific version tag (`@v1.1.0`) or commit SHA (`@<sha>`) for production workflows. `@master` is acceptable for tracking latest but accepts whatever maintainers push between releases.
 - ✅ Grant `actions: read` for artifact reuse (cache fallback)
 - ✅ Grant `checks: write` for PR check status
 - ✅ Grant `pull-requests: write` for PR comments
@@ -97,14 +100,14 @@ When omitted, the SDK selects or creates a dataset automatically (recommended). 
 
 ## Versioning and Updates
 
-Use semantic version tags from [filecoin-pin releases](https://github.com/filecoin-project/filecoin-pin/releases):
+Pin the action to one of:
 
-- **`@v1`** - Latest v1.x.x (recommended)
-- **`@v1.1.0`** - Specific version (production)
-- **`@<commit-sha>`** - Maximum supply-chain security
+- **`@v1.1.0`** (or any specific [release tag](https://github.com/filecoin-project/filecoin-pin/releases)). Recommended for production.
+- **`@<commit-sha>`**. Maximum supply-chain security; updates require an intentional commit.
+- **`@master`**. Tracks the latest commit on master. Convenient, and what [filecoin-pin-website's CI](https://github.com/filecoin-project/filecoin-pin-website/blob/main/.github/workflows/filecoin-pin-upload.yml) currently uses, but it accepts whatever maintainers push, so avoid it in security-sensitive workflows.
 
-> [!IMPORTANT]
-> The `@v0` line is no longer supported and not receiving security patches. Users should migrate any workflows still pinned to `@v0` or `@v0.x.x`.
+> [!NOTE]
+> Floating major-version tags (e.g. `@v1`) are not currently maintained. Pin to a specific version, commit SHA, or `@master`.
 
 The action checks npm for a newer `filecoin-pin` release at the start of each run and posts a GitHub Actions notice when one is available.
 
