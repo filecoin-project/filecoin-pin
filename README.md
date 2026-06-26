@@ -64,11 +64,31 @@ Use Filecoin Pin programmatically in your Node.js or browser applications. The l
 ### 📡 IPFS Pinning Server (Daemon Mode)
 Run a localhost IPFS Pinning Service API server that implements the [IPFS Pinning Service API specification](https://ipfs.github.io/pinning-services-api-spec/). This allows you to use standard IPFS tooling (like `ipfs pin remote`) while storing data on Filecoin.
 
-- **Status**: Beta. Works and is tested, but hasn't received as many features as the CLI. State is held in memory and is lost across restarts. If it would benefit your use case, please comment on the [tracking issue](https://github.com/filecoin-project/filecoin-pin/issues/46) so we can be better informed when it comes to prioritizing.
+- **Status**: ⚠️ **Beta — not intended for production use.** Works and is tested but does not yet have the resource controls or hardening required to safely serve untrusted (or even semi-trusted) callers. State is held in memory and is lost across restarts. Feature parity with the CLI is partial. If running a pinning server would benefit your use case, please comment on the [tracking issue](https://github.com/filecoin-project/filecoin-pin/issues/46) so we can prioritize.
 - **Repository**: This repo (`filecoin-pin server` command in CLI)
 - **Usage**: `PRIVATE_KEY=0x... ACCESS_TOKEN=... npx filecoin-pin server` (or use session key auth — see [Configuration](#configuration))
 - **Authentication**: The server refuses to start unless an access token is configured via `--access-token` / `ACCESS_TOKEN`. Clients then authenticate with `Authorization: Bearer <token>` on every request except `GET /`. To run the server open to all requests (not recommended), pass `--allow-no-auth` / `ALLOW_NO_AUTH=true`.
 - **`delegates` is always empty**: Each pin spins up its own short-lived Helia node that is stopped as soon as the pin operation finishes, so there is no long-lived node to advertise. The `delegates` array in pin responses is therefore always `[]`.
+
+#### ⚠️ Known limitations and operational guidance
+
+The pinning server is currently safe to run only in trusted, single-operator environments. Specifically, **it does not enforce** any of the following:
+
+- Per-request, per-user, or global rate limits on `POST /pins`
+- Per-user quotas (active pins, total bytes pinned, transfer)
+- Maximum DAG byte count, block count, or traversal depth
+- Traversal timeout / `AbortController` on pin operations
+- Concurrency cap across in-flight pin operations
+- Filesystem quotas on the configured `CAR_STORAGE_PATH`
+
+As a result, a single caller can submit a CID resolving to a very large DAG (or supply a reachable `origins` peer that serves one) and exhaust disk, network, CPU, or libp2p resources on the host. Hardening this surface is tracked in [#46](https://github.com/filecoin-project/filecoin-pin/issues/46) and will be a prerequisite for promoting the affordance out of beta.
+
+Until then, operators should:
+
+- **Bind to `localhost`** (the default) and never expose the daemon directly to the public internet.
+- **Treat the `ACCESS_TOKEN` as a single-tenant secret.** Do not share it across users you don't fully trust to behave well; there's no per-token quota to contain misbehavior.
+- **Do not enable `ALLOW_NO_AUTH=true`** outside of disposable local development.
+- **Run on a host with bounded storage** (e.g., a dedicated volume) so a runaway pin can't take down other workloads on the same machine.
 
 ### 📊 Management Console GUI
 Web-based management console for monitoring and managing your Filecoin Pin deployments. This is effectively a Web UI equivalent to the [CLI](#-cli) affordance.
