@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.1](https://github.com/filecoin-project/filecoin-pin/compare/v1.1.0...v1.1.1) (2026-06-26)
+
+
+### Bug Fixes
+
+* calculate storage from active piece CIDs ([#488](https://github.com/filecoin-project/filecoin-pin/issues/488)) ([faddc9a](https://github.com/filecoin-project/filecoin-pin/commit/faddc9a1ec35618fbabc147c73a9b4fcb77655b7))
+
+
+### Documentation
+
+* clarify pinning server beta status and operational limits ([afa0193](https://github.com/filecoin-project/filecoin-pin/commit/afa019307db23a703737675e94316edcc6572050))
+* pin upload-action examples to [@master](https://github.com/master), recommend specific version or SHA for production ([#596](https://github.com/filecoin-project/filecoin-pin/issues/596)) ([b88c84c](https://github.com/filecoin-project/filecoin-pin/commit/b88c84c9c6ac2ebd97d4ceb506d592218470f5c9))
+* surface pinning server callout for release-please ([#601](https://github.com/filecoin-project/filecoin-pin/issues/601)) ([afa0193](https://github.com/filecoin-project/filecoin-pin/commit/afa019307db23a703737675e94316edcc6572050))
+
 ## [1.1.0](https://github.com/filecoin-project/filecoin-pin/compare/v1.0.1...v1.1.0) (2026-06-25)
 
 
