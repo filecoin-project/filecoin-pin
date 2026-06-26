@@ -7,11 +7,11 @@
 
 import { isCancel, multiselect } from '@clack/prompts'
 import type { CopyResult, FailedAttempt, Synapse, UploadCosts } from '@filoz/synapse-sdk'
-import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
 import type { DataSetSummary } from '../core/data-set/types.js'
+import { resolveIpfsIndexedMetadata } from '../core/metadata/index.js'
 import { DEFAULT_LOCKUP_DAYS, type PaymentCapacityCheck } from '../core/payments/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import {
@@ -481,14 +481,7 @@ export async function estimateUploadCost(
 ): Promise<UploadCostEstimate> {
   const requestedCopies = options.providerIds?.length ?? options.dataSetIds?.length ?? options.copies ?? DEFAULT_COPIES
 
-  // Mirror uploadToSynapse's metadata injection: when not targeting specific data
-  // sets by ID, prepend WITH_IPFS_INDEXING so metadataMatches() finds existing
-  // data sets that the real upload would also resolve to (it uses exact key-count
-  // matching — omitting this key causes all contexts to resolve as new data sets).
-  const resolvedMetadata: Record<string, string> =
-    options.dataSetIds != null
-      ? (options.metadata ?? {})
-      : { [METADATA_KEYS.WITH_IPFS_INDEXING]: '', ...(options.metadata ?? {}) }
+  const resolvedMetadata = resolveIpfsIndexedMetadata(options.metadata, options.dataSetIds)
 
   const contexts = await synapse.storage.createContexts({
     copies: requestedCopies,

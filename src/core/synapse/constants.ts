@@ -6,11 +6,20 @@ import { METADATA_KEYS } from '@filoz/synapse-sdk'
 export const APPLICATION_SOURCE = 'filecoin-pin'
 
 /**
+ * Base metadata that opts a data set into IPFS indexing.
+ * Injected whenever contexts are resolved by smart-select (not by explicit dataSetIds/contexts),
+ * so metadataMatches() finds existing data sets using exact key-count matching.
+ */
+export const IPFS_INDEXED_METADATA = {
+  [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
+} as const
+
+/**
  * Default metadata for Synapse data sets created by filecoin-pin
  */
 export const DEFAULT_DATA_SET_METADATA = {
-  [METADATA_KEYS.WITH_IPFS_INDEXING]: '', // Enable IPFS indexing for all data sets
-  [METADATA_KEYS.SOURCE]: APPLICATION_SOURCE, // Identify the source application
+  ...IPFS_INDEXED_METADATA,
+  [METADATA_KEYS.SOURCE]: APPLICATION_SOURCE,
 } as const
 
 /**
