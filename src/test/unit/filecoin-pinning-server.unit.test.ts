@@ -3,6 +3,13 @@ import { createConfig } from '../../config.js'
 import { createFilecoinPinningServer } from '../../filecoin-pinning-server.js'
 import { createLogger } from '../../logger.js'
 
+const { mockInitializeSynapse } = vi.hoisted(() => ({
+  mockInitializeSynapse: vi.fn(async () => {
+    const { MockSynapse } = await import('../mocks/synapse-mocks.js')
+    return new MockSynapse()
+  }),
+}))
+
 vi.mock('@filoz/synapse-sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@filoz/synapse-sdk')>()
   const mockModule = await import('../mocks/synapse-sdk.js')
@@ -10,6 +17,31 @@ vi.mock('@filoz/synapse-sdk', async (importOriginal) => {
 })
 
 vi.mock('@filoz/synapse-core/session-key', async () => await import('../mocks/synapse-core-session-key.js'))
+
+vi.mock('fastify', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fastify')>()
+  const createFastify = ((options?: object) => {
+    const server = actual.default(options)
+    server.listen = vi.fn(async () => {
+      await server.ready()
+      return 'http://127.0.0.1:0'
+    }) as typeof server.listen
+    return server
+  }) as typeof actual.default
+
+  return {
+    ...actual,
+    default: createFastify,
+  }
+})
+
+vi.mock('../../core/synapse/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../core/synapse/index.js')>()
+  return {
+    ...actual,
+    initializeSynapse: mockInitializeSynapse,
+  }
+})
 
 const SERVICE_INFO = { service: 'filecoin-pin', version: '0.1.0' }
 const TEST_OUTPUT_DIR = './test-unit-pinning-server-cars'

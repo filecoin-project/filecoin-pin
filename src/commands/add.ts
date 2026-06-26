@@ -10,7 +10,7 @@ import { addEgressOptions } from '../utils/cli-options-egress.js'
 import { addMetadataOptions } from '../utils/cli-options-metadata.js'
 
 export const addCommand = new Command('add')
-  .description('Add a file or directory to Filecoin via Synapse (creates UnixFS CAR)')
+  .description('Upload a file or directory to Filecoin')
   .argument('<path>', 'Path to the file or directory to add')
   .option(
     '--include-hidden',

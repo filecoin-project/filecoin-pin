@@ -9,9 +9,7 @@ import { Command } from 'commander'
 import { runSessionAuthorize, runSessionCreate, runSessionGenerate, runSessionRevoke } from '../session/index.js'
 import { addOwnerAuthOptions, sessionKeyOption } from '../utils/cli-options.js'
 
-export const sessionCommand = new Command('session').description(
-  'Authorize and manage session keys for delegated FWSS access'
-)
+export const sessionCommand = new Command('session').description('Manage session keys for delegated upload access')
 
 // session create — single-party: owner generates (or reuses) a session key and
 // authorizes it on-chain.

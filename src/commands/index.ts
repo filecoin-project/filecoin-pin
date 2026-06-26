@@ -19,19 +19,15 @@ export {
   sessionCommand,
 }
 
-/**
- * Every top-level CLI command in the order they're registered on the program.
- *
- * Adding a new command? Append it here. cli.ts and the network-default tests
- * iterate this list, so registration and coverage stay in sync.
- */
-export const ALL_CLI_COMMANDS: readonly Command[] = [
-  serverCommand,
-  paymentsCommand,
-  dataSetCommand,
-  importCommand,
-  addCommand,
-  removeCommand,
-  providerCommand,
-  sessionCommand,
+interface CliCommandGroup {
+  heading: string
+  commands: readonly Command[]
+}
+
+/** Every top-level CLI command, grouped and ordered for help output. */
+export const CLI_COMMAND_GROUPS: readonly CliCommandGroup[] = [
+  { heading: 'UPLOAD', commands: [addCommand, importCommand] },
+  { heading: 'PAYMENTS', commands: [paymentsCommand] },
+  { heading: 'MANAGEMENT', commands: [dataSetCommand, providerCommand, removeCommand] },
+  { heading: 'ADVANCED', commands: [sessionCommand, serverCommand] },
 ]

@@ -8,7 +8,9 @@ import type { FundOptions, PaymentSetupOptions } from '../payments/types.js'
 import { runWithdraw } from '../payments/withdraw.js'
 import { addAuthOptions } from '../utils/cli-options.js'
 
-export const paymentsCommand = new Command('payments').description('Manage payment setup for Filecoin Onchain Cloud')
+export const paymentsCommand = new Command('payments').description(
+  'Manage storage payments (required before your first upload)'
+)
 
 // Setup command
 const setupCommand = new Command('setup')

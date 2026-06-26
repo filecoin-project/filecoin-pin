@@ -10,7 +10,7 @@ import { addEgressOptions } from '../utils/cli-options-egress.js'
 import { addMetadataOptions } from '../utils/cli-options-metadata.js'
 
 export const importCommand = new Command('import')
-  .description('Import an existing CAR file to Filecoin via Synapse')
+  .description('Upload an existing CAR file to Filecoin')
   .argument('<file>', 'Path to the CAR file to import')
   .option('--copies <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
   .action(async (file: string, options) => {
