@@ -91,7 +91,12 @@ export async function parseCLIAuth(options: CLIAuthOptions): Promise<SynapseSetu
     chain = NETWORK_CHAINS.mainnet
   }
 
-  // Build config incrementally; initializeSynapse() validates the final shape
+  // Resolve a single auth mode; initializeSynapse() validates the final shape.
+  // Precedence mirrors initializeSynapse: read-only, then session key, then an
+  // owner signer (OWS, then private key). View-only and session-key modes never
+  // use the owner account, so the OWS account (which lazily loads the native
+  // adapter and can fail on platforms without a prebuilt) is resolved only when
+  // an owner signer is actually needed.
   const config: {
     privateKey?: string
     walletAddress?: string
@@ -102,7 +107,13 @@ export async function parseCLIAuth(options: CLIAuthOptions): Promise<SynapseSetu
     account?: Awaited<ReturnType<typeof getOwsAccount>>
   } = {}
 
-  if (owsWalletId) {
+  if (viewAddress) {
+    config.walletAddress = viewAddress
+    config.readOnly = true
+  } else if (walletAddress && sessionKey) {
+    config.walletAddress = walletAddress
+    config.sessionKey = sessionKey
+  } else if (owsWalletId) {
     const owsOptions: Parameters<typeof getOwsAccount>[0] = {
       walletId: owsWalletId,
       chain: chain ?? calibration,
@@ -111,14 +122,13 @@ export async function parseCLIAuth(options: CLIAuthOptions): Promise<SynapseSetu
     config.account = await getOwsAccount(owsOptions)
   } else if (privateKey) {
     config.privateKey = privateKey
-  }
-  if (viewAddress) {
-    config.walletAddress = viewAddress
-    config.readOnly = true
   } else if (walletAddress) {
+    // Only one half of session-key auth supplied; pass it through so
+    // initializeSynapse can emit its targeted "requires both" error.
     config.walletAddress = walletAddress
+  } else if (sessionKey) {
+    config.sessionKey = sessionKey
   }
-  if (sessionKey) config.sessionKey = sessionKey
   if (rpcUrl) config.rpcUrl = rpcUrl
   if (chain) config.chain = chain
   return config as SynapseSetupConfig
