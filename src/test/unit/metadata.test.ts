@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeMetadataConfig } from '../../core/metadata/index.js'
+import { normalizeMetadataConfig, PIECE_METADATA_NAME_KEY, withDerivedNameMetadata } from '../../core/metadata/index.js'
 
 describe('normalizeMetadataConfig', () => {
   it('returns undefined metadata when nothing provided', () => {
@@ -56,5 +56,40 @@ describe('normalizeMetadataConfig', () => {
         },
       })
     ).toThrow(/string/)
+  })
+})
+
+describe('withDerivedNameMetadata', () => {
+  it('attaches the derived name when the key is absent', () => {
+    const result = withDerivedNameMetadata(undefined, 'doc.txt')
+    expect(result).toEqual({ [PIECE_METADATA_NAME_KEY]: 'doc.txt' })
+  })
+
+  it('attaches the derived name alongside existing unrelated entries', () => {
+    const result = withDerivedNameMetadata({ region: 'us-west' }, 'doc.txt')
+    expect(result).toEqual({ region: 'us-west', [PIECE_METADATA_NAME_KEY]: 'doc.txt' })
+  })
+
+  it('preserves a user-supplied non-empty name over the derived basename', () => {
+    const result = withDerivedNameMetadata({ [PIECE_METADATA_NAME_KEY]: 'custom.txt' }, 'doc.txt')
+    expect(result).toEqual({ [PIECE_METADATA_NAME_KEY]: 'custom.txt' })
+  })
+
+  it('preserves a user-supplied empty string as an explicit opt-out', () => {
+    // Empty string here is intentional: the user signalled "don't attach
+    // a name." withDerivedNameMetadata must not overwrite it with the
+    // auto-derived basename.
+    const result = withDerivedNameMetadata({ [PIECE_METADATA_NAME_KEY]: '' }, 'doc.txt')
+    expect(result).toEqual({ [PIECE_METADATA_NAME_KEY]: '' })
+  })
+
+  it('returns the input unchanged when the derived name itself is empty', () => {
+    expect(withDerivedNameMetadata(undefined, '')).toBeUndefined()
+    expect(withDerivedNameMetadata({ region: 'us-west' }, '')).toEqual({ region: 'us-west' })
+  })
+
+  it('returns the input unchanged when the derived name is null', () => {
+    expect(withDerivedNameMetadata(undefined, null)).toBeUndefined()
+    expect(withDerivedNameMetadata({ region: 'us-west' }, null)).toEqual({ region: 'us-west' })
   })
 })

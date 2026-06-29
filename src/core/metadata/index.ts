@@ -1,6 +1,23 @@
+import { IPFS_INDEXED_METADATA } from '../synapse/constants.js'
+
+export { IPFS_INDEXED_METADATA }
+
 export const ERC8004_TYPES = ['registration', 'validationrequest', 'validationresponse', 'feedback'] as const
 
 export type ERC8004Type = (typeof ERC8004_TYPES)[number]
+
+/**
+ * Piece metadata key carrying the original basename of the source path
+ * (file basename for single-file uploads, directory basename for directory
+ * uploads). Consumers that need to know whether the source was a file or a
+ * directory should inspect the root CID (codec + UnixFS `Data.Type`) rather
+ * than rely on a key-name distinction; this matches the IPFS Pinning Service
+ * `name` convention and avoids duplicating data the DAG already carries.
+ *
+ * Synapse SDK has no canonical constant for this yet; if it adopts one we
+ * will move to that constant.
+ */
+export const PIECE_METADATA_NAME_KEY = 'name'
 
 export interface MetadataConfigInput {
   pieceMetadata?: Record<string, string> | undefined
@@ -12,6 +29,23 @@ export interface MetadataConfigInput {
 export interface MetadataConfigResult {
   pieceMetadata?: Record<string, string> | undefined
   dataSetMetadata?: Record<string, string> | undefined
+}
+
+/**
+ * Returns the metadata to pass to `createContexts()` when resolving storage contexts.
+ *
+ * When targeting contexts by explicit `dataSetIds`, the caller's metadata is used as-is —
+ * injecting defaults would risk silent mismatches on the resolve-by-id path.
+ * Otherwise, `IPFS_INDEXED_METADATA` is prepended so `metadataMatches()` finds existing
+ * data sets (it uses exact key-count matching; omitting the key causes all contexts to
+ * resolve as new data sets).
+ */
+export function resolveIpfsIndexedMetadata(
+  metadata: Record<string, string> | undefined,
+  dataSetIds: bigint[] | undefined
+): Record<string, string> {
+  if (dataSetIds != null) return metadata ?? {}
+  return { ...IPFS_INDEXED_METADATA, ...(metadata ?? {}) }
 }
 
 export function normalizeMetadataConfig(input: MetadataConfigInput): MetadataConfigResult {
@@ -31,6 +65,39 @@ export function normalizeMetadataConfig(input: MetadataConfigInput): MetadataCon
   return {
     pieceMetadata: Object.keys(pieceMetadata).length > 0 ? pieceMetadata : undefined,
     dataSetMetadata: Object.keys(dataSetMetadata).length > 0 ? dataSetMetadata : undefined,
+  }
+}
+
+/**
+ * Merge a derived source name into existing piece metadata under
+ * `PIECE_METADATA_NAME_KEY`.
+ *
+ * Precedence rules:
+ * - If `derivedName` is `null` (or an empty string), returns the input
+ *   unchanged. There is no name to attach, so nothing is written.
+ * - If the user already set `PIECE_METADATA_NAME_KEY` in `pieceMetadata`,
+ *   that value is preserved, including an explicit empty string, which is
+ *   treated as a user opt-out from the auto-derived name. The derived value
+ *   is dropped silently because this is auto-derived metadata, not a hard
+ *   requirement.
+ * - Otherwise, the derived name is set under `PIECE_METADATA_NAME_KEY`.
+ */
+export function withDerivedNameMetadata(
+  pieceMetadata: Record<string, string> | undefined,
+  derivedName: string | null
+): Record<string, string> | undefined {
+  if (derivedName == null || derivedName === '') {
+    return pieceMetadata
+  }
+
+  const existing = pieceMetadata?.[PIECE_METADATA_NAME_KEY]
+  if (existing != null) {
+    return pieceMetadata
+  }
+
+  return {
+    ...(pieceMetadata ?? {}),
+    [PIECE_METADATA_NAME_KEY]: derivedName,
   }
 }
 

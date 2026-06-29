@@ -31,10 +31,11 @@ jobs:
 
       # Upload to Filecoin - the action will build CAR and upload in a single flow
       - name: Upload to Filecoin
-        uses: filecoin-project/filecoin-pin/upload-action@v0
+        # For production, pin to a specific version (e.g. @v1.1.0) or commit SHA instead of @master.
+        uses: filecoin-project/filecoin-pin/upload-action@master
         with:
-          walletPrivateKey: ${{ secrets.WALLET_PRIVATE_KEY }}
+          walletPrivateKey: ${{ secrets.FILECOIN_WALLET_KEY }}
           path: dist
           network: mainnet
-          minStorageDays: "30"
-          filecoinPayBalanceLimit: "5.00"
+          minRunwayDays: "30"
+          maxBalance: "5.00"

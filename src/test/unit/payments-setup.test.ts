@@ -39,8 +39,18 @@ vi.mock('@filoz/synapse-sdk', () => {
     calibration: {
       id: 314159,
     },
+    mainnet: {
+      id: 314,
+    },
   }
 })
+
+// `checkAllowances` defers the maximum approved decision to the SDK helper.
+// Report it's not, so deposits take the approve-and-deposit path.
+vi.mock('@filoz/synapse-core/pay', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@filoz/synapse-core/pay')>()),
+  isFwssMaxApproved: vi.fn().mockResolvedValue(false),
+}))
 
 describe('assertPriceNonZero', () => {
   it('throws when pricePerTiBPerEpoch is zero', () => {
@@ -83,6 +93,13 @@ describe('Payment Setup Tests', () => {
           return parseUnits('100', 18)
         }),
         balance: vi.fn().mockResolvedValue(parseUnits('10', 18)),
+        accountInfo: vi.fn().mockResolvedValue({
+          funds: parseUnits('10', 18),
+          lockupCurrent: 0n,
+          lockupRate: 0n,
+          lockupLastSettledAt: 0n,
+          availableFunds: parseUnits('10', 18),
+        }),
         serviceApproval: vi.fn().mockResolvedValue({
           rateAllowance: parseUnits('0.0001', 18),
           lockupAllowance: parseUnits('2', 18),
@@ -184,7 +201,6 @@ describe('Payment Setup Tests', () => {
         service: '0xwarmstorage',
         rateAllowance,
         lockupAllowance,
-        maxLockupPeriod: 86400n,
       })
     })
   })

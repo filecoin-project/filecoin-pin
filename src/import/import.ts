@@ -12,9 +12,18 @@ import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
-import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
-import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
+import { describeLockupShortfall } from '../common/lockup-error.js'
+import {
+  displayDryRunEstimate,
+  displayUploadResults,
+  estimateUploadCost,
+  performAutoFunding,
+  performUpload,
+  promptDataSetSelection,
+  validatePaymentSetup,
+} from '../common/upload-flow.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
@@ -23,7 +32,10 @@ import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import type { ImportOptions, ImportResult } from './types.js'
+import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
+import { buildFilbeamUrl, chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
+import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
+import type { ImportDryRunResult, ImportOptions, ImportResult } from './types.js'
 
 /**
  * Zero CID used when CAR has no roots
@@ -125,11 +137,60 @@ async function validateFilePath(filePath: string): Promise<{ exists: boolean; st
 }
 
 /**
+ * Normalize Commander options and run the CAR import flow.
+ *
+ * Commander wiring calls this so option validation errors are displayed by the
+ * command UI layer and command files only own exit-code handling.
+ */
+export async function runCarImportFromCli(
+  file: string,
+  options: Record<string, any>
+): Promise<ImportResult | ImportDryRunResult> {
+  let importOptions: ImportOptions
+  try {
+    const autoFundOptions = validateAndNormalizeAutoFundOptions(options)
+    const {
+      metadata: _metadata,
+      dataSetMetadata: _dataSetMetadata,
+      datasetMetadata: _datasetMetadata,
+      erc8004Type: _erc8004Type,
+      erc8004Agent: _erc8004Agent,
+      '8004Type': _erc8004TypeAlias,
+      '8004Agent': _erc8004AgentAlias,
+      autoFund: _autoFund,
+      minRunwayDays: _minRunwayDays,
+      maxBalance: _maxBalance,
+      egressProvider: rawEgressProvider,
+      ...importOptionsFromCli
+    } = options
+
+    const egressProvider = rawEgressProvider ?? 'beam'
+
+    const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
+    importOptions = {
+      ...importOptionsFromCli,
+      ...autoFundOptions,
+      filePath: file,
+      egressProvider,
+      ...(pieceMetadata && { pieceMetadata }),
+      ...(dataSetMetadata && { dataSetMetadata }),
+    }
+  } catch (error) {
+    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.flush()
+    cancel('Import cancelled')
+    throw error
+  }
+
+  return await runCarImport(importOptions)
+}
+
+/**
  * Run the CAR import process
  *
  * @param options - Import configuration
  */
-export async function runCarImport(options: ImportOptions): Promise<ImportResult> {
+export async function runCarImport(options: ImportOptions): Promise<ImportResult | ImportDryRunResult> {
   intro(pc.bold('Filecoin Pin CAR Import'))
 
   const spinner = createSpinner()
@@ -144,15 +205,8 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     level: process.env.LOG_LEVEL || 'silent',
   })
 
-  // Check CDN status and warn if enabled
-  const withCDN = process.env.WITH_CDN === 'true'
-  if (withCDN) {
-    const proceed = await warnAboutCDNPricingLimitations()
-    if (!proceed) {
-      cancel('Import cancelled')
-      throw new Error('CDN pricing limitations warning cancelled')
-    }
-  }
+  // Map the public egress provider to the SDK's withCDN boolean (internal only).
+  const withCDN = options.egressProvider === 'beam'
 
   try {
     // Validate file exists and is readable
@@ -204,6 +258,10 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
+    if (withCDN && chainSupportsFilbeam(synapse)) {
+      printEgressNotice('beam')
+    }
+
     // Resolve partial --data-set-metadata locally; SDK metadata matching requires exact equality.
     let effectiveDataSetMetadata = dataSetMetadata
     if (dataSetMetadata != null && contextSelection.dataSetIds == null && contextSelection.providerIds == null) {
@@ -217,16 +275,14 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
           `${pc.green('✓')} Matched existing data sets ${resolution.dataSetIds.join(', ')} via metadata filter`
         )
       } else if (resolution.kind === 'too-many-matches') {
-        spinner.stop(`${pc.red('✗')} --data-set-metadata matched too many data sets`)
-        throw new Error(
-          `--data-set-metadata matched ${resolution.matchedIds.length} data sets (${resolution.matchedIds.join(', ')}) ` +
-            `but expected ${resolution.expected} (narrow the filter or pass --data-set-ids to pin the target).`
-        )
+        const chosenIds = await promptDataSetSelection(resolution.matchedDataSets, resolution.expected, spinner)
+        contextSelection.dataSetIds = chosenIds
+        effectiveDataSetMetadata = undefined
       } else if (resolution.kind === 'too-few-matches') {
         spinner.stop(`${pc.red('✗')} --data-set-metadata matched too few data sets`)
         throw new Error(
           `--data-set-metadata matched only ${resolution.matchedIds.length} data set(s) (${resolution.matchedIds.join(', ')}) ` +
-            `but expected ${resolution.expected} (lower --copies, widen the filter, or pass --data-set-ids).`
+            `but expected ${resolution.expected} (lower --copies, widen the filter, or pass --data-set-id).`
         )
       } else {
         spinner.stop(
@@ -235,8 +291,35 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       }
     }
 
+    if (options.dryRun) {
+      spinner.start('Estimating upload cost...')
+      const estimate = await estimateUploadCost(synapse, fileStat.size, {
+        ...(options.copies != null && { copies: options.copies }),
+        ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
+        ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
+        ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
+        withCDN,
+      })
+      spinner.stop(`${pc.green('✓')} Cost estimate ready`)
+
+      const result: ImportDryRunResult = {
+        dryRun: true,
+        filePath: options.filePath,
+        fileSize: fileStat.size,
+        rootCid: rootCidString,
+        requestedCopies: estimate.requestedCopies,
+        newDataSetCount: estimate.newDataSetCount,
+        costs: estimate.costs,
+      }
+
+      displayDryRunEstimate(result, estimate, network)
+      outro('Dry run complete — no upload performed')
+      return result
+    }
+
     if (options.autoFund) {
       const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {
+        withCDN,
         ...(dataSetMetadata && { metadata: dataSetMetadata }),
         ...(options.copies != null && { copies: options.copies }),
       }
@@ -300,11 +383,15 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       rootCid: rootCidString,
       pieceCid: uploadResult.pieceCid,
       size: uploadResult.size,
+      requestedCopies,
       copies: uploadResult.copies,
       failedAttempts: uploadResult.failedAttempts,
     }
 
-    displayUploadResults(result, 'Import', network, networkSlug)
+    const filbeamUrl = buildFilbeamUrl(synapse, uploadResult.pieceCid, withCDN)
+    const egress = filbeamUrl != null ? { filbeamUrl } : undefined
+
+    displayUploadResults(result, 'Import', network, networkSlug, egress)
 
     if (uploadResult.copies.length < requestedCopies) {
       log.line('')
@@ -316,7 +403,6 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       )
       log.flush()
       outro('Import completed with errors')
-      process.exitCode = 1
     } else if (uploadResult.failedAttempts.length > 0) {
       log.line('')
       log.line(pc.gray(`${uploadResult.failedAttempts.length} non-critical copy failure(s) during upload.`))
@@ -328,10 +414,26 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
 
     return result
   } catch (error) {
-    spinner.stop(`${pc.red('✗')} Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    if (isCliFatal(error)) {
+      spinner.stop()
+      logger.error({ event: 'import.failed', error }, 'Import failed')
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : 'Unknown error'
+    const lockup = describeLockupShortfall(error)
+    if (lockup != null) {
+      spinner.stop(`${pc.red('✗')} Import failed: ${lockup.headline}`)
+      log.line('')
+      for (const hint of lockup.hints) {
+        log.line(`  ${pc.cyan(hint)}`)
+      }
+      log.flush()
+    } else {
+      spinner.stop(`${pc.red('✗')} Import failed: ${msg}`)
+    }
     logger.error({ event: 'import.failed', error }, 'Import failed')
 
     cancel('Import failed')
-    throw error
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

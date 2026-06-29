@@ -22,42 +22,39 @@ describe('formatRunwayDuration', () => {
 })
 
 describe('formatRunwaySummary', () => {
-  it('formats active runway using duration formatter', () => {
+  it('formats active state with both metrics', () => {
     const summary = {
       state: 'active',
-      available: 0n,
       rateUsed: 0n,
       perDay: 0n,
       lockupUsed: 0n,
-      days: 5,
-      hours: 12,
+      availableFunds: 0n,
+      runwayDays: 3,
+      runwayHours: 4,
+      coverageDays: 30,
+      coverageHours: 0,
     } as const
-    expect(formatRunwaySummary(summary)).toBe('5 day(s) 12 hour(s)')
+    expect(formatRunwaySummary(summary)).toEqual({
+      coverage: '30 day(s)',
+      runway: '3 day(s) 4 hour(s)',
+    })
   })
 
   it('describes no-spend state', () => {
     const summary = {
       state: 'no-spend',
-      available: 0n,
       rateUsed: 0n,
       perDay: 0n,
       lockupUsed: 0n,
-      days: 0,
-      hours: 0,
+      availableFunds: 0n,
+      runwayDays: 0,
+      runwayHours: 0,
+      coverageDays: 0,
+      coverageHours: 0,
     } as const
-    expect(formatRunwaySummary(summary)).toBe('No active spend detected')
-  })
-
-  it('describes unknown state', () => {
-    const summary = {
-      state: 'unknown',
-      available: 0n,
-      rateUsed: 0n,
-      perDay: 0n,
-      lockupUsed: 0n,
-      days: 0,
-      hours: 0,
-    } as const
-    expect(formatRunwaySummary(summary)).toBe('Unknown')
+    expect(formatRunwaySummary(summary)).toEqual({
+      coverage: 'No active spend detected',
+      runway: 'No active spend detected',
+    })
   })
 })

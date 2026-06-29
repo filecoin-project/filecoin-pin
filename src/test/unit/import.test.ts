@@ -19,8 +19,8 @@ import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runCarImport } from '../../import/import.js'
-import type { ImportOptions } from '../../import/types.js'
+import { runCarImport, runCarImportFromCli } from '../../import/import.js'
+import type { ImportDryRunResult, ImportOptions, ImportResult } from '../../import/types.js'
 
 // Test constants
 const ZERO_CID = 'bafkqaaa' // Zero CID used when CAR has no roots
@@ -29,6 +29,7 @@ const ZERO_CID = 'bafkqaaa' // Zero CID used when CAR has no roots
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
 vi.mock('../../common/upload-flow.js', () => ({
   validatePaymentSetup: vi.fn(),
+  promptDataSetSelection: vi.fn().mockRejectedValue(new Error('not interactive')),
   performUpload: vi.fn().mockResolvedValue({
     pieceCid: 'bafkzcibtest1234567890',
     size: 1024,
@@ -47,6 +48,19 @@ vi.mock('../../common/upload-flow.js', () => ({
   }),
   displayUploadResults: vi.fn(),
   performAutoFunding: vi.fn(),
+  estimateUploadCost: vi.fn().mockResolvedValue({
+    requestedCopies: 2,
+    newDataSetCount: 0,
+    costs: {
+      rates: { perEpoch: 100n, perMonth: 3000n },
+      fees: { total: 500n },
+      lockups: { total: 90000n },
+      depositNeeded: 0n,
+      needsFwssMaxApproval: false,
+      ready: true,
+    },
+  }),
+  displayDryRunEstimate: vi.fn(),
 }))
 vi.mock('../../core/payments/index.js', async () => {
   const actual = await vi.importActual<typeof import('../../core/payments/index.js')>('../../core/payments/index.js')
@@ -124,7 +138,7 @@ vi.mock('../../core/synapse/index.js', () => ({
     }
 
     return {
-      chain: { name: 'calibration', id: 314159 },
+      chain: { name: 'calibration', id: 314159, filbeam: { retrievalDomain: 'calibration.filbeam.io' } },
       client: { account: { address: '0x1234567890123456789012345678901234567890' } },
       storage: {
         upload: vi.fn(),
@@ -190,6 +204,14 @@ async function createTestCarFile(
   return { cids }
 }
 
+async function createCarWithRoot(carPath: string): Promise<CID> {
+  const { cids } = await createTestCarFile(carPath, [], [{ content: 'test content' }])
+  const cid = cids[0]
+  if (!cid) throw new Error('No CID generated')
+  await createTestCarFile(carPath, [cid], [{ content: 'test content', cid }])
+  return cid
+}
+
 describe('CAR Import', () => {
   const testDir = './test-import-cars'
   const testPrivateKey = '0x0000000000000000000000000000000000000000000000000000000000000001'
@@ -218,23 +240,9 @@ describe('CAR Import', () => {
   describe('CAR File Validation', () => {
     it('should validate a proper CAR file with single root', async () => {
       const carPath = join(testDir, 'valid.car')
-      const { cids } = await createTestCarFile(
-        carPath,
-        [], // Will use first block's CID as root
-        [{ content: 'test content' }]
-      )
-      const cid = cids[0]
-      if (!cid) throw new Error('No CID generated')
+      const cid = await createCarWithRoot(carPath)
 
-      // Update CAR with proper root
-      await createTestCarFile(carPath, [cid], [{ content: 'test content', cid }])
-
-      const options: ImportOptions = {
-        filePath: carPath,
-        privateKey: testPrivateKey,
-      }
-
-      const result = await runCarImport(options)
+      const result = (await runCarImport({ filePath: carPath, privateKey: testPrivateKey })) as ImportResult
 
       expect(result.rootCid).toBe(cid.toString())
       expect(result.filePath).toBe(carPath)
@@ -255,7 +263,7 @@ describe('CAR Import', () => {
         privateKey: testPrivateKey,
       }
 
-      const result = await runCarImport(options)
+      const result = (await runCarImport(options)) as ImportResult
 
       expect(result.rootCid).toBe(ZERO_CID) // Zero CID
       expect(result.filePath).toBe(carPath)
@@ -444,7 +452,7 @@ describe('CAR Import', () => {
       expect(lastCall?.[3]).not.toHaveProperty('metadata')
     })
 
-    it('throws when --data-set-metadata matches too many data sets', async () => {
+    it('calls promptDataSetSelection when --data-set-metadata matches too many data sets', async () => {
       const carPath = join(testDir, 'resolve-too-many.car')
       await createTestCarFile(carPath, [], [{ content: 'too-many' }])
 
@@ -461,7 +469,14 @@ describe('CAR Import', () => {
           privateKey: testPrivateKey,
           dataSetMetadata: { source: 'storacha-migration' },
         })
-      ).rejects.toThrow(/matched 4 data sets.*expected 2/)
+      ).rejects.toThrow()
+
+      const { promptDataSetSelection } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(promptDataSetSelection)).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ dataSetId: 1n })]),
+        2,
+        expect.any(Object)
+      )
     })
 
     it('throws when --data-set-metadata matches too few data sets', async () => {
@@ -489,7 +504,7 @@ describe('CAR Import', () => {
         filePath: carPath,
         privateKey: testPrivateKey,
         autoFund: true,
-        dataSetIds: '123',
+        dataSetIds: ['123'],
         dataSetMetadata: { erc8004Files: '' },
       }
 
@@ -512,20 +527,9 @@ describe('CAR Import', () => {
   describe('Upload Result', () => {
     it('should return complete import result with copies', async () => {
       const carPath = join(testDir, 'result.car')
-      const { cids } = await createTestCarFile(carPath, [], [{ content: 'test content' }])
+      const cid = await createCarWithRoot(carPath)
 
-      const cid = cids[0]
-      if (!cid) throw new Error('No CID generated')
-
-      // Recreate with proper root
-      await createTestCarFile(carPath, [cid], [{ content: 'test content', cid }])
-
-      const options: ImportOptions = {
-        filePath: carPath,
-        privateKey: testPrivateKey,
-      }
-
-      const result = await runCarImport(options)
+      const result = (await runCarImport({ filePath: carPath, privateKey: testPrivateKey })) as ImportResult
 
       expect(result).toMatchObject({
         filePath: carPath,
@@ -540,5 +544,236 @@ describe('CAR Import', () => {
       expect(result.copies[0]?.providerId).toBe(1n)
       expect(result.failedAttempts).toHaveLength(0)
     })
+  })
+
+  describe('dry-run', () => {
+    it('returns ImportDryRunResult and skips upload, funding, and payment validation', async () => {
+      const carPath = join(testDir, 'dry-run.car')
+      await createTestCarFile(carPath, [], [{ content: 'dry-run content' }])
+
+      const result = (await runCarImport({
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        rpcUrl: 'wss://test.rpc.url',
+        dryRun: true,
+      })) as ImportDryRunResult
+
+      expect(result).toMatchObject({
+        dryRun: true,
+        filePath: carPath,
+        fileSize: expect.any(Number),
+        requestedCopies: 2,
+        newDataSetCount: 0,
+        costs: expect.objectContaining({ ready: true }),
+      })
+
+      const { performUpload, performAutoFunding, validatePaymentSetup } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(performUpload)).not.toHaveBeenCalled()
+      expect(vi.mocked(performAutoFunding)).not.toHaveBeenCalled()
+      expect(vi.mocked(validatePaymentSetup)).not.toHaveBeenCalled()
+    })
+
+    it('passes copies to estimateUploadCost', async () => {
+      const carPath = join(testDir, 'dry-run-copies.car')
+      await createTestCarFile(carPath, [], [{ content: 'copies content' }])
+
+      await runCarImport({
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        rpcUrl: 'wss://test.rpc.url',
+        dryRun: true,
+        copies: 3,
+      })
+
+      const { estimateUploadCost } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(estimateUploadCost)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        expect.objectContaining({ copies: 3 })
+      )
+    })
+
+    it('passes providerIds to estimateUploadCost', async () => {
+      const carPath = join(testDir, 'dry-run-providers.car')
+      await createTestCarFile(carPath, [], [{ content: 'providers content' }])
+
+      await runCarImport({
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        rpcUrl: 'wss://test.rpc.url',
+        dryRun: true,
+        providerIds: ['7', '8'],
+      })
+
+      const { estimateUploadCost } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(estimateUploadCost)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        expect.objectContaining({ providerIds: [7n, 8n] })
+      )
+    })
+
+    it('passes dataSetIds to estimateUploadCost', async () => {
+      const carPath = join(testDir, 'dry-run-datasets.car')
+      await createTestCarFile(carPath, [], [{ content: 'datasets content' }])
+
+      await runCarImport({
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        rpcUrl: 'wss://test.rpc.url',
+        dryRun: true,
+        dataSetIds: ['123', '456'],
+      })
+
+      const { estimateUploadCost } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(estimateUploadCost)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        expect.objectContaining({ dataSetIds: [123n, 456n] })
+      )
+    })
+
+    it('passes withCDN: false to estimateUploadCost when egressProvider is none', async () => {
+      const carPath = join(testDir, 'dry-run-egress.car')
+      await createTestCarFile(carPath, [], [{ content: 'egress content' }])
+
+      await runCarImport({
+        filePath: carPath,
+        privateKey: testPrivateKey,
+        rpcUrl: 'wss://test.rpc.url',
+        dryRun: true,
+        egressProvider: 'none',
+      })
+
+      const { estimateUploadCost } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(estimateUploadCost)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        expect.objectContaining({ withCDN: false })
+      )
+    })
+  })
+})
+
+describe('runCarImport withCDN propagation', () => {
+  const testDir = './test-import-cdn-cars'
+  const testPrivateKey = '0x0000000000000000000000000000000000000000000000000000000000000001'
+
+  beforeEach(async () => {
+    await mkdir(testDir, { recursive: true })
+    vi.clearAllMocks()
+  })
+
+  afterEach(async () => {
+    try {
+      await stat(testDir)
+      await rm(testDir, { recursive: true, force: true })
+    } catch {
+      // Directory doesn't exist, nothing to clean up
+    }
+  })
+
+  it('passes filbeamUrl to displayUploadResults when withCDN is true and chain.filbeam is set', async () => {
+    const carPath = join(testDir, 'filbeam-url.car')
+    await createTestCarFile(carPath, [], [{ content: 'filbeam url content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      egressProvider: 'beam',
+    })
+    const { displayUploadResults } = await import('../../common/upload-flow.js')
+    expect(vi.mocked(displayUploadResults)).toHaveBeenCalledWith(
+      expect.anything(),
+      'Import',
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        filbeamUrl: expect.stringMatching(/^https:\/\/0x[0-9a-fA-F]+\.calibration\.filbeam\.io\/.+$/),
+      })
+    )
+  })
+
+  it('omits egress arg to displayUploadResults when withCDN is false', async () => {
+    const carPath = join(testDir, 'no-egress.car')
+    await createTestCarFile(carPath, [], [{ content: 'no egress content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      egressProvider: 'none',
+    })
+    const { displayUploadResults } = await import('../../common/upload-flow.js')
+    const calls = vi.mocked(displayUploadResults).mock.calls
+    const last = calls[calls.length - 1]
+    expect(last?.[4]).toBeUndefined()
+  })
+
+  it('omits egress arg when chain.filbeam is null (devnet)', async () => {
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    vi.mocked(initializeSynapse).mockImplementationOnce(async (config: any) => {
+      if (config.privateKey == null) throw new Error('auth required')
+      return {
+        chain: { name: 'devnet', id: 31337, filbeam: null },
+        client: { account: { address: '0x1234567890123456789012345678901234567890' } },
+        storage: { upload: vi.fn(), findDataSets: mockFindDataSets },
+      } as any
+    })
+    const carPath = join(testDir, 'devnet-egress.car')
+    await createTestCarFile(carPath, [], [{ content: 'devnet egress content' }])
+    await runCarImport({
+      filePath: carPath,
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      egressProvider: 'beam',
+    })
+    const { displayUploadResults } = await import('../../common/upload-flow.js')
+    const calls = vi.mocked(displayUploadResults).mock.calls
+    const last = calls[calls.length - 1]
+    expect(last?.[4]).toBeUndefined()
+  })
+})
+
+describe('runCarImportFromCli egress glue', () => {
+  const testDir = './test-import-cli-egress-cars'
+  const testPrivateKey = '0x0000000000000000000000000000000000000000000000000000000000000001'
+
+  beforeEach(async () => {
+    await mkdir(testDir, { recursive: true })
+    vi.clearAllMocks()
+  })
+
+  afterEach(async () => {
+    try {
+      await stat(testDir)
+      await rm(testDir, { recursive: true, force: true })
+    } catch {
+      // Directory doesn't exist, nothing to clean up
+    }
+  })
+
+  it('defaults to beam egress (withCDN: true) when --egress-provider is omitted', async () => {
+    const carPath = join(testDir, 'default-beam.car')
+    await createTestCarFile(carPath, [], [{ content: 'default beam content' }])
+    await runCarImportFromCli(carPath, { privateKey: testPrivateKey, rpcUrl: 'wss://test.rpc.url' })
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+      expect.objectContaining({ withCDN: true }),
+      expect.anything()
+    )
+  })
+
+  it('opts out (withCDN unset) when --egress-provider none is passed', async () => {
+    const carPath = join(testDir, 'opt-out.car')
+    await createTestCarFile(carPath, [], [{ content: 'opt out content' }])
+    await runCarImportFromCli(carPath, {
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      egressProvider: 'none',
+    })
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    const calls = vi.mocked(initializeSynapse).mock.calls
+    const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+    expect(lastConfig.withCDN).toBeUndefined()
   })
 })

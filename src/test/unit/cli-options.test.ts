@@ -1,5 +1,166 @@
-import { describe, expect, it } from 'vitest'
-import { validateAndNormalizeAutoFundOptions } from '../../utils/cli-options.js'
+import { Command, Option } from 'commander'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { serverCommand } from '../../commands/server.js'
+import { sessionCommand } from '../../commands/session.js'
+import { log } from '../../utils/cli-logger.js'
+import {
+  addAuthOptions,
+  addDataSetIdOption,
+  addNetworkOptions,
+  addOwnerAuthOptions,
+  addProviderIdOption,
+  addSigningAuthOptions,
+  validateAndNormalizeAutoFundOptions,
+} from '../../utils/cli-options.js'
+
+function envVarFor(command: Command, long: string): string | undefined {
+  return command.options.find((o) => o.long === long)?.envVar
+}
+
+describe('ID flag attribute merging', () => {
+  it('merges --provider-id and the deprecated --provider-ids into providerIds', () => {
+    const command = addProviderIdOption(new Command()).exitOverride()
+    command.parse(['--provider-id', '7', '--provider-ids', '1,2', '--provider-id', '9'], { from: 'user' })
+    const opts = command.opts()
+    expect(opts.providerIds).toEqual(['7', '1,2', '9'])
+    expect(opts).not.toHaveProperty('providerIdsCsv')
+  })
+
+  it('merges --data-set-id and the deprecated --data-set-ids/--data-set into dataSetIds', () => {
+    const command = addDataSetIdOption(new Command(), { includeSingleAlias: true }).exitOverride()
+    command.parse(['--data-set-id', '3', '--data-set-ids', '4,5', '--data-set', '6'], { from: 'user' })
+    const opts = command.opts()
+    expect(opts.dataSetIds).toEqual(['3', '4,5', '6'])
+    expect(opts).not.toHaveProperty('dataSetIdsCsv')
+    expect(opts).not.toHaveProperty('dataSet')
+  })
+
+  it('warns at most once per deprecated flag even when repeated', () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined)
+    try {
+      const command = addDataSetIdOption(new Command(), { includeSingleAlias: true }).exitOverride()
+      command.parse(['--data-set-ids', '1,2', '--data-set-ids', '3,4', '--data-set', '5', '--data-set', '6'], {
+        from: 'user',
+      })
+      const warnings = warn.mock.calls.map((c) => c[0])
+      expect(warnings.filter((m) => m.includes('--data-set-ids'))).toHaveLength(1)
+      expect(warnings.filter((m) => m.startsWith('--data-set '))).toHaveLength(1)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+})
+
+describe('addNetworkOptions', () => {
+  const originalNetwork = process.env.NETWORK
+
+  beforeEach(() => {
+    delete process.env.NETWORK
+  })
+
+  afterEach(() => {
+    if (originalNetwork === undefined) delete process.env.NETWORK
+    else process.env.NETWORK = originalNetwork
+  })
+
+  it('leaves --network unset when neither flag nor env is provided', () => {
+    const command = addNetworkOptions(new Command()).exitOverride()
+    command.parse([], { from: 'user' })
+    expect(command.opts().network).toBeUndefined()
+  })
+
+  it('reads --network from the NETWORK env var', () => {
+    process.env.NETWORK = 'calibration'
+    const command = addNetworkOptions(new Command()).exitOverride()
+    command.parse([], { from: 'user' })
+    expect(command.opts().network).toBe('calibration')
+  })
+
+  it('errors when --network and --rpc-url are both provided', () => {
+    const command = addNetworkOptions(new Command()).exitOverride()
+    command.addOption(new Option('--rpc-url <url>').env('RPC_URL'))
+    expect(() =>
+      command.parse(['--network', 'mainnet', '--rpc-url', 'wss://example.test/rpc'], { from: 'user' })
+    ).toThrow(/cannot be used with option/)
+  })
+
+  it('errors when NETWORK and RPC_URL env vars are both set', () => {
+    process.env.NETWORK = 'mainnet'
+    process.env.RPC_URL = 'wss://example.test/rpc'
+    const command = addNetworkOptions(new Command()).exitOverride()
+    command.addOption(new Option('--rpc-url <url>').env('RPC_URL'))
+    expect(() => command.parse([], { from: 'user' })).toThrow(/cannot be used with/)
+    delete process.env.RPC_URL
+  })
+
+  it('accepts --network calibnet and normalizes to calibration', () => {
+    const command = addNetworkOptions(new Command()).exitOverride()
+    command.parse(['--network', 'calibnet'], { from: 'user' })
+    expect(command.opts().network).toBe('calibration')
+  })
+
+  it('accepts NETWORK=calibnet env var and normalizes to calibration', () => {
+    process.env.NETWORK = 'calibnet'
+    try {
+      const command = addNetworkOptions(new Command()).exitOverride()
+      command.parse([], { from: 'user' })
+      expect(command.opts().network).toBe('calibration')
+    } finally {
+      delete process.env.NETWORK
+    }
+  })
+
+  it('does not advertise the calibnet alias in --help output', () => {
+    const command = addNetworkOptions(new Command()).exitOverride()
+    const help = command.helpInformation()
+    expect(help).toContain('mainnet')
+    expect(help).toContain('calibration')
+    expect(help).toContain('devnet')
+    expect(help).not.toContain('calibnet')
+  })
+})
+
+describe('auth and context option env bindings', () => {
+  it('binds signing-auth flags to their env vars', () => {
+    const command = addSigningAuthOptions(new Command())
+    expect(envVarFor(command, '--private-key')).toBe('PRIVATE_KEY')
+    expect(envVarFor(command, '--wallet-address')).toBe('WALLET_ADDRESS')
+    expect(envVarFor(command, '--session-key')).toBe('SESSION_KEY')
+  })
+
+  it('shows the env var in --help for signing-auth flags', () => {
+    const help = addSigningAuthOptions(new Command()).helpInformation()
+    expect(help).toContain('PRIVATE_KEY')
+    expect(help).toContain('WALLET_ADDRESS')
+    expect(help).toContain('SESSION_KEY')
+  })
+
+  it('addAuthOptions includes the signing-auth env bindings', () => {
+    const command = addAuthOptions(new Command())
+    expect(envVarFor(command, '--private-key')).toBe('PRIVATE_KEY')
+    expect(envVarFor(command, '--view-address')).toBe('VIEW_ADDRESS')
+  })
+
+  it('addOwnerAuthOptions binds its flags to their env vars', () => {
+    const command = addOwnerAuthOptions(new Command())
+    expect(envVarFor(command, '--private-key')).toBe('PRIVATE_KEY')
+    expect(envVarFor(command, '--rpc-url')).toBe('RPC_URL')
+  })
+
+  it('binds the server auth and rpc flags to their env vars', () => {
+    expect(envVarFor(serverCommand, '--access-token')).toBe('ACCESS_TOKEN')
+    expect(envVarFor(serverCommand, '--rpc-url')).toBe('RPC_URL')
+    expect(envVarFor(serverCommand, '--allow-no-auth')).toBeUndefined()
+  })
+
+  it('binds session create --session-key to its env var', () => {
+    const createCommand = sessionCommand.commands.find((c) => c.name() === 'create')
+    expect(createCommand).toBeDefined()
+    if (createCommand) {
+      expect(envVarFor(createCommand, '--session-key')).toBe('SESSION_KEY')
+    }
+  })
+})
 
 describe('validateAndNormalizeAutoFundOptions', () => {
   it('throws when --min-runway-days is set without --auto-fund', () => {
@@ -29,5 +190,18 @@ describe('validateAndNormalizeAutoFundOptions', () => {
     expect(() => validateAndNormalizeAutoFundOptions({ autoFund: true, minRunwayDays: 0 })).toThrow(
       /--min-runway-days must be a positive integer/
     )
+  })
+})
+
+describe('server command PORT/HOST env bindings', () => {
+  function optionFor(long: string) {
+    return serverCommand.options.find((o) => o.long === long)
+  }
+
+  it('binds --port and --host to their env vars with the CLI defaults', () => {
+    expect(optionFor('--port')?.envVar).toBe('PORT')
+    expect(optionFor('--port')?.defaultValue).toBe('3000')
+    expect(optionFor('--host')?.envVar).toBe('HOST')
+    expect(optionFor('--host')?.defaultValue).toBe('127.0.0.1')
   })
 })

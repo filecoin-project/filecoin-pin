@@ -1,8 +1,7 @@
-import { USDFC_SYBIL_FEE } from '@filoz/synapse-core/utils'
+import { calculateUploadFees, type getPriceList } from '@filoz/synapse-core/warm-storage'
 import { calibration, type Synapse } from '@filoz/synapse-sdk'
-import { MIN_FIL_FOR_GAS } from './constants.js'
+import { USDFC_DECIMALS } from './constants.js'
 import {
-  calculateStorageRunway,
   checkAndSetAllowances,
   computeAdjustmentForExactDays,
   computeAdjustmentForExactDaysWithPiece,
@@ -12,7 +11,9 @@ import {
   validatePaymentRequirements,
   withdrawUSDFC,
 } from './index.js'
+import { toStorageRunwaySummary } from './runway.js'
 import type {
+  AccountSummary,
   FilecoinPayFundingExecution,
   FilecoinPayFundingInsights,
   FilecoinPayFundingPlan,
@@ -24,14 +25,14 @@ import type {
 } from './types.js'
 
 function calculateDepletionTiming(
-  available: bigint,
+  balance: bigint,
   perDay: bigint
 ): { seconds: bigint; timestampMs?: number | null } | null {
-  if (available <= 0n || perDay <= 0n) {
+  if (balance <= 0n || perDay <= 0n) {
     return null
   }
 
-  const seconds = (available * 86_400n) / perDay
+  const seconds = (balance * 86_400n) / perDay
   if (seconds <= 0n) {
     return null
   }
@@ -46,42 +47,47 @@ function calculateDepletionTiming(
 }
 
 /**
- * Get funding insights for a payment status
+ * Get funding insights for a payment status.
  *
- * This function calculates runway projections, depletion times, and spend rates
- * based on current or projected balances and usage.
+ * Current state uses the SDK account summary directly. Projected state
+ * (when `overrides` is provided) builds a synthetic SDK account state and
+ * runs it through `resolveAccountState`, so projected runway/coverage match
+ * SDK semantics rather than a parallel local interpretation.
  *
  * @param status - Current payment status
+ * @param accountSummary - SDK account summary (rate + lockup + runway)
  * @param overrides - Optional overrides for projected scenarios
  * @returns Funding insights including runway and depletion predictions
  */
 export function getFilecoinPayFundingInsights(
   status: PaymentStatus,
-  overrides?: { depositedBalance?: bigint; rateUsed?: bigint; lockupUsed?: bigint }
+  accountSummary: AccountSummary,
+  overrides?: { depositedBalance?: bigint; rateUsed?: bigint; lockupUsed?: bigint; walletUsdfcBalance?: bigint }
 ): FilecoinPayFundingInsights {
   const depositedBalance = overrides?.depositedBalance ?? status.filecoinPayBalance
-  const rateUsed = overrides?.rateUsed ?? status.currentAllowances.rateUsed ?? 0n
-  const lockupUsed = overrides?.lockupUsed ?? status.currentAllowances.lockupUsed ?? 0n
+  const rateUsed = overrides?.rateUsed ?? accountSummary.lockupRatePerEpoch
+  const lockupUsed = overrides?.lockupUsed ?? accountSummary.totalLockup
+  const walletUsdfcBalance = overrides?.walletUsdfcBalance ?? status.walletUsdfcBalance
 
-  const runway = calculateStorageRunway({
-    filecoinPayBalance: depositedBalance,
-    currentAllowances: {
-      ...status.currentAllowances,
-      rateUsed,
-      lockupUsed,
-    },
-  })
+  const runway =
+    overrides == null
+      ? toStorageRunwaySummary(accountSummary)
+      : toStorageRunwaySummary({
+          funds: depositedBalance,
+          lockupCurrent: lockupUsed,
+          lockupRate: rateUsed,
+        })
 
-  const availableDeposited = runway.available
-  const filecoinPayDepletion = calculateDepletionTiming(availableDeposited, runway.perDay)
-  const ownerDepletion = calculateDepletionTiming(availableDeposited + status.walletUsdfcBalance, runway.perDay)
+  const availableDeposited = runway.availableFunds
+  const filecoinPayDepletion = calculateDepletionTiming(depositedBalance, runway.perDay)
+  const ownerDepletion = calculateDepletionTiming(depositedBalance + walletUsdfcBalance, runway.perDay)
 
   return {
     spendRatePerEpoch: rateUsed,
     spendRatePerDay: runway.perDay,
     depositedBalance,
     availableDeposited,
-    walletUsdfcBalance: status.walletUsdfcBalance,
+    walletUsdfcBalance,
     runway,
     filecoinPayDepletionSeconds: filecoinPayDepletion?.seconds ?? null,
     filecoinPayDepletionTimestampMs: filecoinPayDepletion?.timestampMs ?? null,
@@ -121,26 +127,25 @@ export function formatFundingReason(reasonCode: FundingReasonCode, plan?: Fileco
 }
 
 /**
- * Calculate a Filecoin Pay funding plan without making network calls
+ * Calculate a Filecoin Pay funding plan without making network calls.
  *
- * This is a pure calculation function that determines what funding adjustments
- * are needed to reach a target. Use this when you already have PaymentStatus
- * and pricing information, or when you need synchronous calculation logic.
+ * Pure calculation: caller supplies a fresh `PaymentStatus` and matching
+ * `accountSummary`. For the full async workflow that fetches both upstream,
+ * use `planFilecoinPayFunding`.
  *
- * For full workflow including network calls, allowance checks, and execution,
- * use planFilecoinPayFunding instead.
- *
- * @param options - Calculation options with payment status
+ * @param options - Calculation options with payment status and account summary
  * @returns Funding plan with delta, action, and insights
  */
 export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanOptions): FilecoinPayFundingPlan {
   const {
     status,
+    accountSummary,
     targetRunwayDays,
     targetDeposit,
     pieceSizeBytes,
-    pricePerTiBPerEpoch,
+    priceList,
     newDataSetCount = 0,
+    withCDN = false,
     mode = 'exact',
     allowWithdraw = true,
   } = options
@@ -153,8 +158,8 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     throw new Error('A funding target is required')
   }
 
-  if (pieceSizeBytes != null && pricePerTiBPerEpoch == null) {
-    throw new Error('pricePerTiBPerEpoch is required when pieceSizeBytes is provided')
+  if (pieceSizeBytes != null && priceList == null) {
+    throw new Error('priceList is required when pieceSizeBytes is provided')
   }
 
   if (!Number.isInteger(newDataSetCount) || newDataSetCount < 0) {
@@ -163,7 +168,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
 
   let delta: bigint
   let projectedDeposit = status.filecoinPayBalance
-  let projectedRateUsed = status.currentAllowances.rateUsed ?? 0n
+  let projectedRateUsed = accountSummary.lockupRatePerEpoch
   let projectedLockupUsed: bigint
   let resolvedTargetDeposit: bigint | undefined
   let reasonCode: FundingReasonCode = 'none'
@@ -172,18 +177,24 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
   if (targetRunwayDays != null) {
     targetType = 'runway-days'
     if (pieceSizeBytes != null) {
-      if (pricePerTiBPerEpoch == null) {
-        throw new Error('pricePerTiBPerEpoch is required when planning with pieceSizeBytes')
+      if (priceList == null) {
+        throw new Error('priceList is required when planning with pieceSizeBytes')
       }
       const adjustment = computeAdjustmentForExactDaysWithPiece(
-        status,
+        accountSummary,
+        status.filecoinPayBalance,
         targetRunwayDays,
         pieceSizeBytes,
-        pricePerTiBPerEpoch
+        priceList
       )
-      const dataSetCreationFees = BigInt(newDataSetCount) * USDFC_SYBIL_FEE
-      delta = adjustment.delta + dataSetCreationFees
-      resolvedTargetDeposit = adjustment.targetDeposit + dataSetCreationFees
+      const uploadFees = calculateUploadFees({ priceList, isNewDataSet: true })
+      const perNewDataSetCosts =
+        uploadFees.total +
+        priceList.lockups.lifecycleReserveTarget +
+        (withCDN ? priceList.lockups.cdnLockupAmount + priceList.lockups.cacheMissLockupAmount : 0n)
+      const newDataSetCosts = BigInt(newDataSetCount) * perNewDataSetCosts
+      delta = adjustment.delta + newDataSetCosts
+      resolvedTargetDeposit = adjustment.targetDeposit + newDataSetCosts
       projectedRateUsed = adjustment.newRateUsed
       projectedLockupUsed = adjustment.newLockupUsed
 
@@ -201,7 +212,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
         reasonCode = 'withdrawal-excess'
       }
     } else {
-      const adjustment = computeAdjustmentForExactDays(status, targetRunwayDays)
+      const adjustment = computeAdjustmentForExactDays(accountSummary, status.filecoinPayBalance, targetRunwayDays)
       delta = adjustment.delta
       projectedRateUsed = adjustment.rateUsed
       projectedLockupUsed = adjustment.lockupUsed
@@ -216,7 +227,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     }
   } else {
     targetType = 'deposit'
-    const adjustment = computeAdjustmentForExactDeposit(status, targetDeposit ?? 0n)
+    const adjustment = computeAdjustmentForExactDeposit(accountSummary, status.filecoinPayBalance, targetDeposit ?? 0n)
     delta = adjustment.delta
     resolvedTargetDeposit = adjustment.clampedTarget
     projectedLockupUsed = adjustment.lockupUsed
@@ -245,11 +256,16 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
   const walletShortfall =
     delta > 0n && delta > status.walletUsdfcBalance ? delta - status.walletUsdfcBalance : undefined
 
-  const currentInsights = getFilecoinPayFundingInsights(status)
-  const projectedInsights = getFilecoinPayFundingInsights(status, {
+  // Wallet USDFC actually consumed by a deposit (clamped to wallet balance) so projected
+  // owner depletion reflects what the user would still hold after executing the plan.
+  const projectedWalletUsdfcBalance = projectWalletAfterDelta(status.walletUsdfcBalance, delta)
+
+  const currentInsights = getFilecoinPayFundingInsights(status, accountSummary)
+  const projectedInsights = getFilecoinPayFundingInsights(status, accountSummary, {
     depositedBalance: projectedDeposit,
     rateUsed: projectedRateUsed,
     lockupUsed: projectedLockupUsed,
+    walletUsdfcBalance: projectedWalletUsdfcBalance,
   })
 
   const plan: FilecoinPayFundingPlan = {
@@ -266,12 +282,63 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     ...(targetRunwayDays != null ? { targetRunwayDays } : {}),
     ...(resolvedTargetDeposit != null ? { targetDeposit: resolvedTargetDeposit } : {}),
     ...(pieceSizeBytes != null ? { pieceSizeBytes } : {}),
-    ...(pricePerTiBPerEpoch != null ? { pricePerTiBPerEpoch } : {}),
     ...(newDataSetCount > 0 ? { newDataSetCount } : {}),
     ...(walletShortfall != null ? { walletShortfall } : {}),
   }
 
   return plan
+}
+
+/** One USDFC in base units, kept as runway after the initial data sets are created. */
+const ONE_USDFC = 10n ** BigInt(USDFC_DECIMALS)
+
+/**
+ * Work out how much `payments setup --auto` should deposit.
+ *
+ * Setting up the first data sets needs some funds to be available, meaning free
+ * rather than already locked by active rails. Per data set, that requirement is
+ * the create-data-set fee, the minimum monthly (per-data-set) price, and the
+ * fixed CDN + cache-miss lockups the default (FilCDN) upload path needs, plus
+ * one USDFC of runway. All of these are sourced from the on-chain price list.
+ *
+ * `availableFunds` is what the account already has free (the SDK reports it net
+ * of lockup and debt). The deposit only needs to make up the difference, so the
+ * target balance is the current balance plus that shortfall.
+ *
+ * @returns `requiredAvailableFunds` (how much must be free) and `targetBalance`
+ *   (the Filecoin Pay balance to deposit up to).
+ */
+export function computeAutoSetupTargetBalance(params: {
+  filecoinPayBalance: bigint
+  availableFunds: bigint
+  copies: number
+  priceList: getPriceList.OutputType
+}): { requiredAvailableFunds: bigint; targetBalance: bigint } {
+  if (!Number.isInteger(params.copies) || params.copies < 0) {
+    throw new Error('copies must be a non-negative integer')
+  }
+  const { rates, lockups } = params.priceList
+  const uploadFees = calculateUploadFees({ priceList: params.priceList, isNewDataSet: true })
+  const perDataSet =
+    uploadFees.total +
+    rates.datasetFeePerMonth +
+    lockups.lifecycleReserveTarget +
+    lockups.cdnLockupAmount +
+    lockups.cacheMissLockupAmount
+  const requiredAvailableFunds = BigInt(params.copies) * perDataSet + ONE_USDFC
+  const shortfall = requiredAvailableFunds > params.availableFunds ? requiredAvailableFunds - params.availableFunds : 0n
+  return { requiredAvailableFunds, targetBalance: params.filecoinPayBalance + shortfall }
+}
+
+function projectWalletAfterDelta(walletUsdfcBalance: bigint, delta: bigint): bigint {
+  if (delta > 0n) {
+    const consumed = delta > walletUsdfcBalance ? walletUsdfcBalance : delta
+    return walletUsdfcBalance - consumed
+  }
+  if (delta < 0n) {
+    return walletUsdfcBalance + -delta
+  }
+  return walletUsdfcBalance
 }
 
 /**
@@ -287,22 +354,23 @@ export interface PlanFilecoinPayFundingOptions {
   targetRunwayDays?: number | undefined
   targetDeposit?: bigint | undefined
   pieceSizeBytes?: number | undefined
-  pricePerTiBPerEpoch?: bigint | undefined
+  priceList?: getPriceList.OutputType | undefined
   newDataSetCount?: number | undefined
+  withCDN?: boolean | undefined
   mode?: FundingMode | undefined
   allowWithdraw?: boolean | undefined
   ensureAllowances?: boolean | undefined
 }
 
 /**
- * Plan Filecoin Pay funding adjustments with network calls
+ * Plan Filecoin Pay funding adjustments with network calls.
  *
  * This async function handles the full workflow:
- * - Fetches current payment status from chain
+ * - Fetches current payment status and SDK account summary in parallel
  * - Optionally ensures allowances are configured
  * - Validates payment requirements (FIL for gas, USDFC availability)
  * - Fetches pricing if needed
- * - Calculates funding plan using calculateFilecoinPayFundingPlan
+ * - Calculates funding plan via `calculateFilecoinPayFundingPlan`
  *
  * @param options - Planning options including synapse instance
  * @returns Plan with status and allowance information
@@ -310,6 +378,7 @@ export interface PlanFilecoinPayFundingOptions {
 export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOptions): Promise<{
   plan: FilecoinPayFundingPlan
   status: PaymentStatus
+  accountSummary: AccountSummary
   allowances: {
     updated: boolean
     transactionHash?: string
@@ -321,8 +390,9 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     targetRunwayDays,
     targetDeposit,
     pieceSizeBytes,
-    pricePerTiBPerEpoch,
+    priceList: priceListOpt,
     newDataSetCount = 0,
+    withCDN = false,
     mode = 'exact',
     allowWithdraw = true,
     ensureAllowances = false,
@@ -346,7 +416,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     allowanceStatus = await checkAndSetAllowances(synapse)
   }
 
-  const status = await getPaymentStatus(synapse)
+  const [status, accountSummary] = await Promise.all([getPaymentStatus(synapse), synapse.payments.accountSummary({})])
 
   const allowances = allowanceStatus ?? {
     updated: false,
@@ -354,27 +424,27 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
   }
 
   const isCalibnet = status.chainId === calibration.id
-  const hasSufficientGas = status.filBalance >= MIN_FIL_FOR_GAS
-  const validation = validatePaymentRequirements(hasSufficientGas, status.walletUsdfcBalance, isCalibnet)
+  const validation = validatePaymentRequirements(status.filBalance, status.walletUsdfcBalance, isCalibnet)
   if (!validation.isValid) {
     const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
     throw new Error(`${validation.errorMessage}${help}`)
   }
 
-  let pricing = pricePerTiBPerEpoch
-  if (pieceSizeBytes != null && pricing == null) {
+  let priceList = priceListOpt
+  if (pieceSizeBytes != null && priceList == null) {
     const storageInfo = await synapse.storage.getStorageInfo()
-    pricing = storageInfo.pricing.noCDN.perTiBPerEpoch
+    priceList = storageInfo.pricing.priceList
   }
 
-  // Delegate to pure calculation function
   const plan = calculateFilecoinPayFundingPlan({
     status,
+    accountSummary,
     targetRunwayDays,
     targetDeposit,
     pieceSizeBytes,
-    pricePerTiBPerEpoch: pricing,
+    priceList,
     newDataSetCount,
+    withCDN,
     mode,
     allowWithdraw,
   })
@@ -382,6 +452,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
   return {
     plan,
     status,
+    accountSummary,
     allowances,
   }
 }
@@ -406,8 +477,10 @@ export async function executeFilecoinPayFunding(
       adjusted: false,
       delta: 0n,
       newDepositedAmount: plan.projected.depositedBalance,
-      newRunwayDays: plan.projected.runway.days,
-      newRunwayHours: plan.projected.runway.hours,
+      newRunwayDays: plan.projected.runway.runwayDays,
+      newRunwayHours: plan.projected.runway.runwayHours,
+      newCoverageDays: plan.projected.runway.coverageDays,
+      newCoverageHours: plan.projected.runway.coverageHours,
       plan,
       updatedInsights: plan.projected,
     }
@@ -422,16 +495,21 @@ export async function executeFilecoinPayFunding(
     transactionHash = await withdrawUSDFC(synapse, -plan.delta)
   }
 
-  const updatedStatus = await getPaymentStatus(synapse)
-  const updatedInsights = getFilecoinPayFundingInsights(updatedStatus)
+  const [updatedStatus, updatedSummary] = await Promise.all([
+    getPaymentStatus(synapse),
+    synapse.payments.accountSummary({}),
+  ])
+  const updatedInsights = getFilecoinPayFundingInsights(updatedStatus, updatedSummary)
 
   return {
     adjusted: true,
     delta: plan.delta,
     transactionHash,
     newDepositedAmount: updatedStatus.filecoinPayBalance,
-    newRunwayDays: updatedInsights.runway.days,
-    newRunwayHours: updatedInsights.runway.hours,
+    newRunwayDays: updatedInsights.runway.runwayDays,
+    newRunwayHours: updatedInsights.runway.runwayHours,
+    newCoverageDays: updatedInsights.runway.coverageDays,
+    newCoverageHours: updatedInsights.runway.coverageHours,
     plan,
     updatedInsights,
   }

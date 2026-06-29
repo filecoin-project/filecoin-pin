@@ -1,12 +1,15 @@
 import { confirm, isCancel } from '@clack/prompts'
 import type { EnhancedDataSetInfo, Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
+import { WaitForTransactionReceiptTimeoutError } from 'viem'
+import { CliFatal, isCliFatal, setIncompleteExitCode } from '../common/cli-errors.js'
 import { type DataSetSummary, getDetailedDataSet, listDataSets } from '../core/data-set/index.js'
+import type { PieceInfo } from '../core/data-set/types.js'
 import { getClientAddress } from '../core/synapse/index.js'
-import { getCliSynapse } from '../utils/cli-auth.js'
+import { getCliSynapse, parseProviderIdSelection } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import { displayDataSets } from './display.js'
+import { displayDataSetList, displayDataSets, displayPieceStatuses } from './display.js'
 import type { DataSetCommandOptions, DataSetListCommandOptions } from './types.js'
 
 /**
@@ -16,6 +19,15 @@ import type { DataSetCommandOptions, DataSetListCommandOptions } from './types.j
  * @param options - Normalised CLI options
  */
 export async function runDataSetDetailsCommand(dataSetId: number, options: DataSetCommandOptions): Promise<void> {
+  if (Number.isNaN(dataSetId) || dataSetId <= 0) {
+    intro(pc.bold('Filecoin Onchain Cloud Data Set Details'))
+    log.line('')
+    log.line(`${pc.red('Error:')} Provided data set ID is invalid or not a positive integer`)
+    log.flush()
+    cancel('Inspection failed')
+    throw new CliFatal('Invalid data set ID')
+  }
+
   intro(pc.bold(`Filecoin Onchain Cloud Data Set Details for #${dataSetId}`))
   const spinner = createSpinner()
   spinner.start('Connecting to Synapse...')
@@ -34,14 +46,80 @@ export async function runDataSetDetailsCommand(dataSetId: number, options: DataS
 
     outro('Data set inspection complete')
   } catch (error) {
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
     spinner.stop(`${pc.red('✗')} Failed to inspect data set`)
-
     log.line('')
-    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.line(`${pc.red('Error:')} ${msg}`)
     log.flush()
-
     cancel('Inspection failed')
-    throw error
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
+  }
+}
+
+/**
+ * Display the reconciled status of a data set's pieces.
+ *
+ * When `cid` is provided, only the matching piece (by PieceCID or IPFS root
+ * CID) is shown; otherwise every piece in the data set is listed.
+ */
+export async function runDataSetPieceStatusCommand(
+  dataSetId: number,
+  // pieceCid or ipfsRootCid
+  cid: string | undefined,
+  options: DataSetCommandOptions
+): Promise<void> {
+  if (Number.isNaN(dataSetId) || dataSetId <= 0) {
+    intro(pc.bold('Filecoin Onchain Cloud Piece Status'))
+    log.line('')
+    log.line(`${pc.red('Error:')} Provided data set ID is invalid or not a positive integer`)
+    log.flush()
+    cancel('Piece status lookup failed')
+    throw new CliFatal('Invalid data set ID')
+  }
+
+  intro(pc.bold(`Filecoin Onchain Cloud Piece Status for Data Set #${dataSetId}`))
+  const spinner = createSpinner()
+  spinner.start('Connecting to Synapse...')
+
+  try {
+    const synapse = await getCliSynapse(options)
+    const network = synapse.chain.name
+    const address = getClientAddress(synapse)
+
+    spinner.message('Fetching piece status...')
+
+    const dataSet: DataSetSummary = await getDetailedDataSet(synapse, BigInt(dataSetId))
+    const allPieces = dataSet.pieces ?? []
+
+    let pieces: PieceInfo[] = allPieces
+    let emptyMessage: string | undefined
+    if (cid != null) {
+      pieces = allPieces.filter((piece) => piece.pieceCid === cid || piece.rootIpfsCid === cid)
+      if (pieces.length === 0) {
+        emptyMessage = `No piece matching ${cid} was found in data set ${dataSetId}.`
+      }
+    }
+
+    spinner.stop('━━━ Piece Status ━━━')
+    displayPieceStatuses(pieces, dataSetId, network, address, emptyMessage)
+
+    outro('Piece status lookup complete')
+  } catch (error) {
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
+    spinner.stop(`${pc.red('✗')} Failed to look up piece status`)
+    log.line('')
+    log.line(`${pc.red('Error:')} ${msg}`)
+    log.flush()
+    cancel('Piece status lookup failed')
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }
 
@@ -53,19 +131,14 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
   let synapse: Synapse | null = null
 
   try {
-    // Parse and validate provider ID
-    const providerIdRaw = options.providerId != null ? Number(options.providerId) : undefined
-    if (providerIdRaw != null && Number.isNaN(providerIdRaw)) {
-      throw new Error('Invalid provider ID')
-    }
-    const providerId = providerIdRaw != null ? BigInt(providerIdRaw) : undefined
+    const providerIds = parseProviderIdSelection(options)
     const metadataEntries = options.dataSetMetadata ? Object.entries(options.dataSetMetadata) : []
     let filter: ((dataSet: EnhancedDataSetInfo) => boolean) | undefined
 
-    if (providerId != null || metadataEntries.length > 0) {
+    if (providerIds.length > 0 || metadataEntries.length > 0) {
       // TODO: synapse is supposed to be able to filter on dataset metadata, but synapse.storage.findDataSets doesn't accept metadata? How do we filter..
       filter = (dataSet) => {
-        if (providerId != null && dataSet.providerId !== providerId) {
+        if (providerIds.length > 0 && !providerIds.includes(dataSet.providerId)) {
           return false
         }
         if (
@@ -86,14 +159,11 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
     spinner.message('Fetching data sets...')
 
     const allDataSets = await listDataSets(synapse, {
-      withProviderDetails: false,
       filter,
     })
     const explicitFilter = filter != null
     const dataSets: DataSetSummary[] =
       options.all || explicitFilter ? allDataSets : allDataSets.filter((dataSet) => dataSet.createdWithFilecoinPin)
-
-    spinner.stop('━━━ Data Sets ━━━')
 
     let emptyMessage: string | undefined
     if (dataSets.length === 0) {
@@ -107,34 +177,40 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
       }
     }
 
-    displayDataSets(dataSets, network, address, emptyMessage)
+    spinner.stop('━━━ Data Sets ━━━')
+    displayDataSetList(dataSets, network, address, emptyMessage)
 
     outro('Data set list complete')
   } catch (error) {
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
     spinner.stop(`${pc.red('✗')} Failed to list data sets`)
     log.line('')
-    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.line(`${pc.red('Error:')} ${msg}`)
     log.flush()
     cancel('Listing failed')
-    throw error
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }
 
 export async function runTerminateDataSetCommand(dataSetId: number, options: DataSetCommandOptions): Promise<void> {
+  if (Number.isNaN(dataSetId) || dataSetId <= 0) {
+    intro(pc.bold('Terminate Filecoin Onchain Cloud Data Set'))
+    log.line('')
+    log.line(`${pc.red('Error:')} Provided data set ID is invalid or not a positive integer`)
+    log.flush()
+    cancel('Termination failed')
+    throw new CliFatal('Invalid data set ID')
+  }
+
   intro(pc.bold(`Terminate Filecoin Onchain Cloud Data Set #${dataSetId}`))
   const spinner = createSpinner()
   spinner.start('Connecting to Synapse...')
 
   try {
-    if (Number.isNaN(dataSetId) || dataSetId <= 0) {
-      spinner.stop(`${pc.red('✗')} Invalid data set ID`)
-      log.line('')
-      log.line(`${pc.red('Error:')} Provided data set ID is invalid or not a number`)
-      log.flush()
-      cancel('Termination failed')
-      throw new Error('Invalid data set ID')
-    }
-
     const synapse = await getCliSynapse(options)
     const network = synapse.chain.name
     const address = getClientAddress(synapse)
@@ -149,7 +225,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       )
       log.flush()
       cancel('Termination failed')
-      throw new Error('Signing required for termination')
+      throw new CliFatal('Signing required for termination')
     }
 
     spinner.message('Fetching data set details...')
@@ -163,7 +239,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       log.line(`${pc.red('Error:')} Could not find data set with ID ${dataSetId}`)
       log.flush()
       cancel('Termination failed')
-      throw error
+      throw new CliFatal(`Data set ${dataSetId} not found`, { cause: error instanceof Error ? error : undefined })
     }
 
     if (dataSet.payer?.toLowerCase() !== address?.toLowerCase()) {
@@ -174,7 +250,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       log.line(`  Owner: ${dataSet.payer}`)
       log.flush()
       cancel('Termination failed')
-      throw new Error(errorMsg)
+      throw new CliFatal(errorMsg)
     }
 
     if (dataSet.pdpEndEpoch > 0) {
@@ -214,6 +290,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       })
       if (isCancel(proceed) || !proceed) {
         cancel('Termination cancelled')
+        setIncompleteExitCode()
         return
       }
 
@@ -230,11 +307,29 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
 
     spinner.start('Submitting termination transaction...')
 
-    const txHash = await synapse.storage.terminateDataSet({ dataSetId: BigInt(dataSetId) })
+    // Direct (client-submitted) termination preserves the existing confirmation
+    // UX: `skipProvider` keeps the old `terminateDataSet` behaviour where the
+    // owner wallet submits the on-chain transaction and always gets a tx hash.
+    const { txHash } = await synapse.storage.terminateService({ dataSetId: BigInt(dataSetId), skipProvider: true })
+    if (txHash == null) {
+      throw new Error('Termination did not return a transaction hash')
+    }
 
     if (shouldWait) {
       spinner.message(`Waiting for confirmation: ${txHash}...`)
-      const receipt = await synapse.client.waitForTransactionReceipt({ hash: txHash })
+      let receipt: Awaited<ReturnType<typeof synapse.client.waitForTransactionReceipt>>
+      try {
+        receipt = await synapse.client.waitForTransactionReceipt({ hash: txHash })
+      } catch (error) {
+        // The transaction was submitted but the confirmation wait timed out,
+        // matching the incomplete outcome `remove --wait` reports.
+        if (error instanceof WaitForTransactionReceiptTimeoutError) {
+          spinner.stop(`Transaction submitted, confirmation still pending: ${txHash}`)
+          setIncompleteExitCode()
+          return
+        }
+        throw error
+      }
       if (receipt.status !== 'success') {
         throw new Error(`Termination transaction reverted: ${txHash}`)
       }
@@ -280,13 +375,16 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
 
     outro(shouldWait ? 'Data set termination complete' : 'Termination transaction submitted')
   } catch (error) {
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
     spinner.stop(`${pc.red('✗')} Failed to terminate data set`)
-
     log.line('')
-    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.line(`${pc.red('Error:')} ${msg}`)
     log.flush()
-
     cancel('Termination failed')
-    throw error
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

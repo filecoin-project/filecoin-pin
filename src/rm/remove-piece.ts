@@ -9,6 +9,7 @@
  */
 import pc from 'picocolors'
 import pino from 'pino'
+import { setIncompleteExitCode } from '../common/cli-errors.js'
 import { type RemovePieceProgressEvents, removePiece } from '../core/piece/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { parseCLIAuth } from '../utils/cli-auth.js'
@@ -75,24 +76,24 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
     // Remove piece with progress tracking
     const onProgress = (event: RemovePieceProgressEvents): void => {
       switch (event.type) {
-        case 'remove-piece:submitting':
+        case 'removePiece:submitting':
           spinner.message('Submitting remove transaction...')
           break
 
-        case 'remove-piece:submitted':
+        case 'removePiece:submitted':
           spinner.message(`Transaction submitted: ${event.data.txHash}`)
           txHash = event.data.txHash
           break
 
-        case 'remove-piece:confirming':
+        case 'removePiece:confirming':
           spinner.message('Waiting for transaction confirmation...')
           break
 
-        case 'remove-piece:confirmation-failed':
+        case 'removePiece:confirmationFailed':
           spinner.message(`${pc.yellow('⚠')} Confirmation wait timed out: ${event.data.message}`)
           break
 
-        case 'remove-piece:complete':
+        case 'removePiece:complete':
           isConfirmed = event.data.confirmed
           txHash = event.data.txHash
           // Main flow will handle stopping the spinner
@@ -112,6 +113,14 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
       onProgress,
       waitForConfirmation: options.waitForConfirmation ?? false,
     })
+
+    // Time-out waiting for requested confirmation, leaving the removal
+    // unconfirmed. Signal that distinctly so scripts can tell it apart from
+    // both success (0) and a caught error (1).
+    const confirmationPending = options.waitForConfirmation === true && !isConfirmed
+    if (confirmationPending) {
+      setIncompleteExitCode()
+    }
 
     // Ensure spinner is stopped before displaying results
     spinner.stop(`${pc.green('✓')} Piece removed${isConfirmed ? ' and confirmed' : ' (confirmation pending)'}`)
@@ -133,7 +142,11 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
     // Clean up WebSocket providers to allow process termination
     // Synapse instances don't require explicit cleanup
 
-    outro('Remove completed successfully')
+    if (confirmationPending) {
+      outro('Remove submitted; confirmation still pending')
+    } else {
+      outro('Remove completed successfully')
+    }
 
     return result
   } catch (error) {

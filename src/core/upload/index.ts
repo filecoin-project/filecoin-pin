@@ -14,6 +14,7 @@ import {
   validatePaymentRequirements,
 } from '../payments/index.js'
 import { isSessionKeyMode } from '../synapse/index.js'
+import { recordUploadResult } from '../telemetry/index.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 import {
   type ValidateIPNIProgressEvents,
@@ -51,11 +52,11 @@ export function getNetworkSlug(chain: Chain): string {
  * Options for evaluating whether an upload can proceed.
  */
 export type UploadReadinessProgressEvents =
-  | ProgressEvent<'checking-balances'>
-  | ProgressEvent<'checking-allowances'>
-  | ProgressEvent<'configuring-allowances'>
-  | ProgressEvent<'allowances-configured', { transactionHash?: string }>
-  | ProgressEvent<'validating-capacity'>
+  | ProgressEvent<'checkingBalances'>
+  | ProgressEvent<'checkingAllowances'>
+  | ProgressEvent<'configuringAllowances'>
+  | ProgressEvent<'allowancesConfigured', { transactionHash?: string }>
+  | ProgressEvent<'validatingCapacity'>
 
 export interface UploadReadinessOptions {
   /** Initialized Synapse instance. */
@@ -124,12 +125,12 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
   const sessionKeyMode = isSessionKeyMode(synapse)
   const canConfigureAllowances = autoConfigureAllowances && !sessionKeyMode
 
-  onProgress?.({ type: 'checking-balances' })
+  onProgress?.({ type: 'checkingBalances' })
 
   const filStatus = await checkFILBalance(synapse)
   const walletUsdfcBalance = await checkUSDFCBalance(synapse)
 
-  const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
+  const validation = validatePaymentRequirements(filStatus.balance, walletUsdfcBalance, filStatus.isCalibnet)
   if (!validation.isValid) {
     return {
       status: 'blocked',
@@ -144,7 +145,7 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
     }
   }
 
-  onProgress?.({ type: 'checking-allowances' })
+  onProgress?.({ type: 'checkingAllowances' })
 
   const allowanceStatus = await checkAllowances(synapse)
   let allowancesUpdated = false
@@ -152,16 +153,16 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
 
   // Only try to configure allowances if not in session key mode
   if (allowanceStatus.needsUpdate && canConfigureAllowances) {
-    onProgress?.({ type: 'configuring-allowances' })
+    onProgress?.({ type: 'configuringAllowances' })
     const setResult = await setMaxAllowances(synapse)
     allowancesUpdated = true
     allowanceTxHash = setResult.transactionHash
-    onProgress?.({ type: 'allowances-configured', data: { transactionHash: allowanceTxHash } })
+    onProgress?.({ type: 'allowancesConfigured', data: { transactionHash: allowanceTxHash } })
   }
 
-  onProgress?.({ type: 'validating-capacity' })
+  onProgress?.({ type: 'validatingCapacity' })
 
-  const capacityCheck = await validatePaymentCapacity(synapse, fileSize)
+  const capacityCheck = await validatePaymentCapacity(synapse, fileSize) // issue #599: validatePaymentCapacity also calls checkAndSetAllowances internally, making autoConfigureAllowances: false ineffective
   const capacityStatus = determineCapacityStatus(capacityCheck)
 
   if (capacityStatus === 'insufficient') {
@@ -324,18 +325,18 @@ export async function executeUpload(
     )
   }
 
-  // Collect providers from `onProviderSelected` events for IPNI validation
+  // Collect providers from `providerSelected` events for IPNI validation
   const selectedProviders: PDPProvider[] = []
   let ipniValidationPromise: Promise<boolean> | undefined
 
-  const onProgress: ProgressEventHandler<UploadProgressEvents | ValidateIPNIProgressEvents> = (event) => {
+  const emitProgress: ProgressEventHandler<UploadProgressEvents | ValidateIPNIProgressEvents> = (event) => {
     switch (event.type) {
-      case 'onProviderSelected': {
+      case 'providerSelected': {
         selectedProviders.push(event.data.provider)
         break
       }
-      case 'onPiecesAdded': {
-        // Begin IPNI validation on the first onPiecesAdded event
+      case 'piecesAdded': {
+        // Begin IPNI validation on the first piecesAdded event
         if (options.ipniValidation?.enabled !== false && ipniValidationPromise == null) {
           const {
             enabled: _enabled,
@@ -377,7 +378,7 @@ export async function executeUpload(
   }
 
   const uploadOptions: Parameters<typeof uploadToSynapse>[4] = {
-    onProgress,
+    onProgress: emitProgress,
   }
   if (contextId) {
     uploadOptions.contextId = contextId
@@ -411,6 +412,9 @@ export async function executeUpload(
 
   const uploadResult = await uploadToSynapse(synapse, carData, rootCid, logger, uploadOptions)
 
+  const network = getNetworkSlug(synapse.chain)
+  recordUploadResult(uploadResult, network)
+
   options.signal?.throwIfAborted()
 
   let ipniValidated = false
@@ -426,7 +430,7 @@ export async function executeUpload(
 
   return {
     ...uploadResult,
-    network: getNetworkSlug(synapse.chain),
+    network,
     ipniValidated,
   }
 }

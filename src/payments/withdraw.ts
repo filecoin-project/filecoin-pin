@@ -4,7 +4,8 @@
 
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
-import { checkFILBalance, getPaymentStatus, withdrawUSDFC } from '../core/payments/index.js'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
+import { checkFILBalance, getPaymentStatus, validateGasRequirement, withdrawUSDFC } from '../core/payments/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
@@ -23,12 +24,14 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
   try {
     amount = parseUnits(String(options.amount), 18)
   } catch {
-    console.error(pc.red(`Error: Invalid amount '${options.amount}'`))
-    throw new Error(`Invalid amount '${options.amount}'`)
+    log.line(pc.red(`Error: Invalid amount '${options.amount}'`))
+    log.flush()
+    throw new CliFatal(`Invalid amount '${options.amount}'`)
   }
   if (amount <= 0n) {
-    console.error(pc.red('Error: Amount must be greater than 0'))
-    throw new Error('Amount must be greater than 0')
+    log.line(pc.red('Error: Amount must be greater than 0'))
+    log.flush()
+    throw new CliFatal('Amount must be greater than 0')
   }
 
   spinner.start('Connecting...')
@@ -39,16 +42,15 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)
     const filStatus = await checkFILBalance(synapse)
-    if (!filStatus.hasSufficientGas) {
+    const gasCheck = validateGasRequirement(filStatus.balance, filStatus.isCalibnet)
+    if (!gasCheck.isValid) {
       spinner.stop()
-      log.line(`${pc.red('✗')} Insufficient FIL for gas fees`)
-      const help = filStatus.isCalibnet
-        ? 'Get test FIL from: https://faucet.calibnet.chainsafe-fil.io/'
-        : 'Acquire FIL for gas from an exchange'
-      log.line(`  ${pc.cyan(help)}`)
+      const errorMsg = gasCheck.errorMessage ?? 'Insufficient FIL for gas fees'
+      log.line(`${pc.red('✗')} ${errorMsg}`)
+      log.line(`  ${pc.cyan(gasCheck.helpMessage ?? 'Acquire FIL for gas from an exchange')}`)
       log.flush()
       cancel('Withdraw aborted')
-      throw new Error('Insufficient FIL for gas fees')
+      throw new CliFatal(errorMsg)
     }
 
     spinner.stop(`${pc.green('✓')} Connected`)
@@ -70,9 +72,13 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
 
     outro('Withdraw completed')
   } catch (error) {
-    spinner.stop()
-    console.error(pc.red('✗ Withdraw failed'))
-    console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
-    throw error
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
+    spinner.stop(`${pc.red('✗')} Withdraw failed: ${msg}`)
+    cancel('Withdraw failed')
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

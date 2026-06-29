@@ -20,6 +20,18 @@ function statusLabel(dataSet: DataSetSummary): string {
   return pc.yellow('inactive')
 }
 
+function plainStatusLabel(dataSet: Pick<DataSetSummary, 'isLive' | 'pdpEndEpoch'>): string {
+  if (dataSet.isLive) {
+    return 'live'
+  }
+
+  if (dataSet.pdpEndEpoch > 0) {
+    return 'terminated'
+  }
+
+  return 'inactive'
+}
+
 function formatCommission(commissionBps: bigint): string {
   const percent = Number(commissionBps) / 100
   return `${percent.toFixed(2)}%`
@@ -41,6 +53,37 @@ function renderNetworkDetails(network: string, address: string): void {
   log.line(`Network: ${pc.bold(network)}`)
   log.line(`Client address: ${address}`)
   log.line('')
+}
+
+function activePieceCount(dataSet: Pick<DataSetSummary, 'activePieceCount'>): bigint {
+  return dataSet.activePieceCount ?? 0n
+}
+
+function centerCell(cell: string, width: number): string {
+  const totalPadding = width - cell.length
+  if (totalPadding <= 0) {
+    return cell
+  }
+  const leftPadding = Math.floor(totalPadding / 2)
+  const rightPadding = totalPadding - leftPadding
+  return `${' '.repeat(leftPadding)}${cell}${' '.repeat(rightPadding)}`
+}
+
+function buildTable(rows: string[][]): string[] {
+  const widths = rows[0]?.map((_, columnIndex) => Math.max(...rows.map((row) => row[columnIndex]?.length ?? 0)))
+  if (widths == null) {
+    return []
+  }
+
+  return rows.map((row) =>
+    row
+      .map((cell, columnIndex) => {
+        const width = widths[columnIndex] ?? cell.length
+        const padded = centerCell(cell, width)
+        return columnIndex === row.length - 1 ? padded.trimEnd() : padded
+      })
+      .join('  ')
+  )
 }
 
 function renderDataSetHeader(dataSet: DataSetSummary): void {
@@ -181,7 +224,76 @@ function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
 }
 
 /**
- * Print the lightweight dataset list used for the default command output.
+ * Print the status of the given pieces under a data set header.
+ * Callers may pass the full piece list or a pre-filtered subset.
+ */
+export function displayPieceStatuses(
+  pieces: PieceInfo[],
+  dataSetId: number,
+  network: string,
+  address: string,
+  emptyMessage?: string
+): void {
+  renderNetworkDetails(network, address)
+  log.line(`${pc.bold(`Data Set #${dataSetId}`)}`)
+
+  if (pieces.length === 0) {
+    log.line(pc.yellow(emptyMessage ?? 'No pieces found.'))
+    log.flush()
+    return
+  }
+
+  log.line('')
+  for (const piece of pieces) {
+    renderPiece(piece, 1)
+  }
+
+  log.flush()
+}
+
+/**
+ * Print a compact one-row-per-data-set table for the list command.
+ */
+export function displayDataSetList(
+  dataSets: DataSetSummary[],
+  network: string,
+  address: string,
+  emptyMessage?: string
+): void {
+  if (dataSets.length === 0) {
+    log.line(pc.yellow(emptyMessage ?? 'No data sets managed by filecoin-pin were found for this account.'))
+    log.flush()
+    return
+  }
+
+  renderNetworkDetails(network, address)
+
+  const ordered = [...dataSets].sort((a, b) => (a.dataSetId < b.dataSetId ? -1 : a.dataSetId > b.dataSetId ? 1 : 0))
+  const tableRows = [
+    ['ID', 'Status', 'Provider ID', 'Pieces', 'CDN'],
+    ...ordered.map((dataSet) => [
+      dataSet.dataSetId.toString(),
+      plainStatusLabel(dataSet),
+      dataSet.providerId.toString(),
+      activePieceCount(dataSet).toString(),
+      dataSet.withCDN ? 'enabled' : 'disabled',
+    ]),
+  ]
+
+  for (const line of buildTable(tableRows)) {
+    log.line(line)
+  }
+
+  const totalPieces = ordered.reduce((sum, dataSet) => sum + activePieceCount(dataSet), 0n)
+
+  log.line('')
+  log.line(`${ordered.length} data sets, ${totalPieces} active pieces`)
+  log.line('Run `filecoin-pin data-set show <id>` for full details.')
+  log.flush()
+}
+
+/**
+ * Print detailed data-set information.
  */
 export function displayDataSets(
   dataSets: DataSetSummary[],

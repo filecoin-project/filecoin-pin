@@ -8,15 +8,20 @@
 
 import pc from 'picocolors'
 import { parseUnits } from 'viem'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import {
   calculateDepositCapacity,
+  checkAllowances,
   checkAndSetAllowances,
   checkFILBalance,
   checkUSDFCBalance,
+  computeAutoSetupTargetBalance,
   depositUSDFC,
   getPaymentStatus,
+  validateGasRequirement,
   validatePaymentRequirements,
 } from '../core/payments/index.js'
+import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
@@ -34,13 +39,19 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
   intro(pc.bold('Filecoin Onchain Cloud Payment Setup'))
   log.message(pc.gray('Running in auto mode...'))
 
-  // Parse and validate deposit amount
-  let targetFilecoinPayBalance: bigint
-  try {
-    targetFilecoinPayBalance = parseUnits(options.deposit, 18)
-  } catch {
-    console.error(pc.red(`Error: Invalid deposit amount '${options.deposit}'`))
-    process.exit(1)
+  // Parse an explicit --deposit override before the outer try below, throwing
+  // CliFatal so the CLI wrapper exits without re-printing. When omitted, the
+  // target balance is derived from live on-chain pricing after connecting (see
+  // below).
+  let targetFilecoinPayBalance: bigint | undefined
+  if (options.deposit != null) {
+    try {
+      targetFilecoinPayBalance = parseUnits(options.deposit, 18)
+    } catch {
+      log.line(pc.red(`Error: Invalid deposit amount '${options.deposit}'`))
+      log.flush()
+      throw new CliFatal(`Invalid deposit amount '${options.deposit}'`)
+    }
   }
 
   const spinner = createSpinner()
@@ -57,29 +68,21 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
-    // Check balances
+    // Check balances and on-chain payment state. Wallet funding is validated
+    // later, once the transactions this run needs are known: an
+    // already-configured account needs none, so it is never rejected for a
+    // low-gas wallet or for holding all of its USDFC as deposits.
     spinner.start('Checking balances...')
 
     const filStatus = await checkFILBalance(synapse)
     const walletUsdfcBalance = await checkUSDFCBalance(synapse)
+    const [status, accountSummary, allowanceCheck] = await Promise.all([
+      getPaymentStatus(synapse),
+      synapse.payments.accountSummary(),
+      checkAllowances(synapse),
+    ])
 
     spinner.stop(`${pc.green('✓')} Balance check complete`)
-
-    // Validate payment requirements
-    const validation = validatePaymentRequirements(filStatus.hasSufficientGas, walletUsdfcBalance, filStatus.isCalibnet)
-    if (!validation.isValid) {
-      log.line(`${pc.red('✗')} ${validation.errorMessage}`)
-      if (validation.helpMessage) {
-        log.line('')
-        log.line(`  ${pc.cyan(validation.helpMessage)}`)
-      }
-      log.flush()
-      cancel('Please fund your wallet and try again')
-      process.exit(1)
-    }
-
-    // Now safe to get payment status since we know account exists
-    const status = await getPaymentStatus(synapse)
 
     // Display account and balance info using shared function
     displayAccountInfo(
@@ -96,21 +99,61 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     const storageInfo = await synapse.storage.getStorageInfo()
     const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
 
+    // With no --deposit given, ask current on-chain pricing how much must be
+    // available to set up DEFAULT_COPIES data sets (including the CDN lockup the
+    // default FilCDN upload path needs), then deposit enough to cover it.
+    if (targetFilecoinPayBalance == null) {
+      const { targetBalance } = computeAutoSetupTargetBalance({
+        filecoinPayBalance: status.filecoinPayBalance,
+        availableFunds: accountSummary.availableFunds,
+        copies: DEFAULT_COPIES,
+        priceList: storageInfo.pricing.priceList,
+      })
+      targetFilecoinPayBalance = targetBalance
+      log.line(
+        pc.gray(
+          `Using default deposit target ${formatUSDFC(targetFilecoinPayBalance)} USDFC ` +
+            `(covers ${DEFAULT_COPIES} CDN data sets + 1 USDFC runway)`
+        )
+      )
+      log.flush()
+    }
+
     // Track if any changes were made
     let actionsTaken = false
     let actualFilecoinPayTopUp = 0n
 
-    if (status.filecoinPayBalance < targetFilecoinPayBalance) {
+    const needsDeposit = status.filecoinPayBalance < targetFilecoinPayBalance
+    const needsAllowanceUpdate = allowanceCheck.needsUpdate
+
+    // Gate on wallet funding only when this run will send transactions.
+    // A deposit spends wallet USDFC and gas; an allowance update spends gas
+    // alone, so wallet USDFC is not required for it.
+    if (needsDeposit || needsAllowanceUpdate) {
+      const validation = needsDeposit
+        ? validatePaymentRequirements(filStatus.balance, walletUsdfcBalance, filStatus.isCalibnet)
+        : validateGasRequirement(filStatus.balance, filStatus.isCalibnet)
+      if (!validation.isValid) {
+        const errorMsg = validation.errorMessage ?? 'Payment validation failed'
+        log.line(`${pc.red('✗')} ${errorMsg}`)
+        if (validation.helpMessage) {
+          log.line('')
+          log.line(`  ${pc.cyan(validation.helpMessage)}`)
+        }
+        log.flush()
+        cancel('Please fund your wallet and try again')
+        throw new CliFatal(errorMsg)
+      }
+    }
+
+    if (needsDeposit) {
       const neededFilecoinPayTopUp = targetFilecoinPayBalance - status.filecoinPayBalance
       actualFilecoinPayTopUp = neededFilecoinPayTopUp
 
       if (neededFilecoinPayTopUp > walletUsdfcBalance) {
-        console.error(
-          pc.red(
-            `✗ Insufficient USDFC for deposit (need ${formatUSDFC(neededFilecoinPayTopUp)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
-          )
+        throw new Error(
+          `Insufficient USDFC for deposit (need ${formatUSDFC(neededFilecoinPayTopUp)} USDFC, have ${formatUSDFC(walletUsdfcBalance)} USDFC)`
         )
-        process.exit(1)
       }
 
       spinner.start(`Depositing ${formatUSDFC(neededFilecoinPayTopUp)} USDFC...`)
@@ -155,7 +198,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     log.flush()
 
     // Show deposit warning if needed
-    displayDepositWarning(totalDeposit, status.currentAllowances.lockupUsed)
+    displayDepositWarning(totalDeposit, status.currentAllowances.lockupUsage)
 
     // Show appropriate outro message based on whether actions were taken
     if (actionsTaken) {
@@ -164,12 +207,13 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       outro('Payment setup already configured - ready to use')
     }
   } catch (error) {
-    spinner.stop() // Stop spinner without message
-    console.error(pc.red('✗ Setup failed'))
-    console.error(pc.red('Error:'), error instanceof Error ? error.message : error)
-
-    process.exitCode = 1
-  } finally {
-    process.exit()
+    if (isCliFatal(error)) {
+      spinner.stop()
+      throw error
+    }
+    const msg = error instanceof Error ? error.message : String(error)
+    spinner.stop(`${pc.red('✗')} Setup failed: ${msg}`)
+    cancel('Setup failed')
+    throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
 }

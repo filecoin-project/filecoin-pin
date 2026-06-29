@@ -13,13 +13,10 @@ import { parseUnits } from 'viem'
 import { type ActualStorageResult, calculateActualStorage, listDataSets } from '../core/data-set/index.js'
 import {
   calculateDepositCapacity,
-  calculateStorageRunway,
   checkFILBalance,
   checkUSDFCBalance,
-  FLOOR_PRICE_DAYS,
-  FLOOR_PRICE_PER_30_DAYS,
-  getPaymentStatus,
   getUsdfcAcquisitionHelpMessage,
+  toStorageRunwaySummary,
 } from '../core/payments/index.js'
 import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatFIL, formatUSDFC } from '../core/utils/format.js'
@@ -128,11 +125,14 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       throw new Error('No USDFC tokens found')
     }
 
-    const status = await getPaymentStatus(synapse)
+    const [accountSummary, storageInfo] = await Promise.all([
+      synapse.payments.accountSummary({}),
+      synapse.storage.getStorageInfo(),
+    ])
+    const runway = toStorageRunwaySummary(accountSummary)
 
-    // Get storage pricing for capacity calculation and spend summaries
-    const storageInfo = await synapse.storage.getStorageInfo()
     const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
+    const datasetFeePerMonth = storageInfo.pricing.priceList.rates.datasetFeePerMonth
 
     let paymentRailsData: PaymentRailsData | null = null
     if (options.includeRails === true) {
@@ -152,17 +152,17 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     log.line('')
 
     // Show deposit and capacity
-    const lockupUsed = status.currentAllowances.lockupUsed ?? 0n
-    const rateUsed = status.currentAllowances.rateUsed ?? 0n
-    const availableDeposit = status.filecoinPayBalance > lockupUsed ? status.filecoinPayBalance - lockupUsed : 0n
-    const capacity = calculateDepositCapacity(status.filecoinPayBalance, pricePerTiBPerEpoch)
-    const runway = calculateStorageRunway(status)
+    const totalDeposited = accountSummary.funds
+    const lockupUsed = runway.lockupUsed
+    const rateUsed = runway.rateUsed
+    const availableDeposit = totalDeposited > lockupUsed ? totalDeposited - lockupUsed : 0n
+    const capacity = calculateDepositCapacity(totalDeposited, pricePerTiBPerEpoch)
     const runwayDisplay = formatRunwaySummary(runway)
     const dailyCost = runway.perDay
     const monthlyCost = dailyCost * TIME_CONSTANTS.DAYS_PER_MONTH
 
     log.line(pc.bold('Filecoin Pay'))
-    log.indent(`Balance: ${formatUSDFC(status.filecoinPayBalance)} USDFC`)
+    log.indent(`Balance: ${formatUSDFC(totalDeposited)} USDFC`)
     log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC (30-day reserve)`)
     log.indent(`Available: ${formatUSDFC(availableDeposit)} USDFC`)
     if (rateUsed > 0n) {
@@ -187,7 +187,6 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       spinner.start('Fetching data sets...')
       // Get all active data sets for this address
       const dataSets = await listDataSets(synapse, {
-        withProviderDetails: false,
         address,
         filter: (ds) => ds.isLive, // Only count active/live data sets
         logger,
@@ -234,9 +233,10 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     }
 
     if (runway.state === 'active') {
-      log.indent(`Runway: ~${runwayDisplay}`)
+      log.indent(`Storage covered: ~${runwayDisplay.coverage} total`)
+      log.indent(`Top-up needed in: ~${runwayDisplay.runway}`)
     } else {
-      log.indent(pc.gray(`Runway: ${runwayDisplay}`))
+      log.indent(pc.gray(runwayDisplay.coverage))
     }
 
     const capacityTibPerMonth = parseUnits(capacity.tibPerMonth.toString(), 18)
@@ -248,15 +248,14 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
 
     const billedBytes = convertRateToStorageBytes(rateUsed, pricePerTiBPerEpoch)
     if (billedBytes != null) {
-      // Calculate what storage the floor price represents at current pricing
-      const epochsInFloorPeriod = BigInt(FLOOR_PRICE_DAYS) * TIME_CONSTANTS.EPOCHS_PER_DAY
-      const floorRatePerEpoch = FLOOR_PRICE_PER_30_DAYS / epochsInFloorPeriod
+      const epochsInFloorPeriod = TIME_CONSTANTS.DAYS_PER_MONTH * TIME_CONSTANTS.EPOCHS_PER_DAY
+      const floorRatePerEpoch = datasetFeePerMonth / epochsInFloorPeriod
       const floorEquivalentBytes = convertRateToStorageBytes(floorRatePerEpoch, pricePerTiBPerEpoch)
       const floorEquivalentFormatted = floorEquivalentBytes ? formatFileSize(floorEquivalentBytes) : '~24.6 GiB'
 
       const sectionContent = [
         pc.gray('Filecoin Onchain Cloud uses floor pricing for DataSets.'),
-        pc.gray(`Each DataSet is billed a minimum of ${formatUSDFC(FLOOR_PRICE_PER_30_DAYS, 2)} USDFC per 30 days.`),
+        pc.gray(`Each DataSet is billed a minimum of ${formatUSDFC(datasetFeePerMonth, 2)} USDFC per 30 days.`),
         pc.gray(`This is equivalent to ~${floorEquivalentFormatted} per month.`),
         `Billed capacity: ~${formatFileSize(billedBytes)}`,
       ]
@@ -271,7 +270,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     }
 
     // Show deposit warning if needed
-    displayDepositWarning(status.filecoinPayBalance, status.currentAllowances.lockupUsed)
+    displayDepositWarning(totalDeposited, lockupUsed)
     log.flush()
 
     // Show success outro

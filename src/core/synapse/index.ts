@@ -17,9 +17,9 @@ import {
   AddPiecesPermission,
   CreateDataSetPermission,
   DefaultFwssPermissions,
-  DeleteDataSetPermission,
   fromSecp256k1,
   SchedulePieceRemovalsPermission,
+  TerminateServicePermission,
 } from '@filoz/synapse-core/session-key'
 import type { Logger } from 'pino'
 import {
@@ -29,16 +29,15 @@ import {
   getAddress,
   type Hex,
   type HttpTransport,
-  http,
   type WebSocketTransport,
-  webSocket,
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { APPLICATION_SOURCE } from './constants.js'
+import { createTransport } from './create-transport.js'
+import { resolveChainFromRpc } from './resolve-chain-from-rpc.js'
 
 export * from './constants.js'
-
-const WEBSOCKET_REGEX = /^ws(s)?:\/\//i
+export { createTransport } from './create-transport.js'
 
 /**
  * Application configuration for CLI and pinning server
@@ -50,6 +49,8 @@ export interface Config {
   walletAddress: string | undefined
   sessionKey: string | undefined
   accessToken: string | undefined
+  /** Allow the pinning server to start without an access token, serving all requests unauthenticated. */
+  allowNoAuth?: boolean
   rpcUrl: string
   chain?: Chain
   databasePath: string
@@ -61,9 +62,9 @@ export interface Config {
  * Common options for all Synapse configurations
  */
 interface BaseSynapseConfig {
-  /** RPC endpoint for the target Filecoin network. Defaults to calibration chain transport. */
+  /** RPC endpoint for the target Filecoin network. Defaults to mainnet chain transport. */
   rpcUrl?: string
-  /** Target chain. Defaults to calibration. */
+  /** Target chain. Defaults to mainnet. */
   chain?: Chain
   /** Enable CDN service for datasets */
   withCDN?: boolean
@@ -130,16 +131,9 @@ function isReadOnlyConfig(config: SynapseSetupConfig): config is ReadOnlyConfig 
   return 'readOnly' in config && (config as ReadOnlyConfig).readOnly === true && 'walletAddress' in config
 }
 
-function createTransport(rpcUrl: string): HttpTransport | WebSocketTransport {
-  if (WEBSOCKET_REGEX.test(rpcUrl)) {
-    return webSocket(rpcUrl)
-  }
-  return http(rpcUrl)
-}
-
 const PERMISSION_NAMES: Record<string, string> = {
   [CreateDataSetPermission]: 'CreateDataSet',
-  [DeleteDataSetPermission]: 'DeleteDataSet',
+  [TerminateServicePermission]: 'TerminateService',
   [AddPiecesPermission]: 'AddPieces',
   [SchedulePieceRemovalsPermission]: 'SchedulePieceRemovals',
 }
@@ -176,9 +170,22 @@ function checkSessionKeyPermissions(key: SessionKey<'Secp256k1'>, ownerAddress: 
  * @returns Initialized Synapse instance
  */
 export async function initializeSynapse(config: SynapseSetupConfig, logger?: Logger): Promise<Synapse> {
-  const chain = config.chain ?? calibration
-  const rpcUrl = config.rpcUrl ?? chain.rpcUrls.default.webSocket?.[0] ?? chain.rpcUrls.default.http[0]
-  const transport = rpcUrl ? createTransport(rpcUrl) : undefined
+  let chain: Chain
+  let rpcUrl: string | undefined
+  let transport: HttpTransport | WebSocketTransport | undefined
+
+  if (config.rpcUrl) {
+    // Probe the RPC endpoint's chainId so the chain object reflects what the endpoint actually serves.
+    // CLI/server callers enforce that --rpc-url is mutually exclusive with --network, so any chain hint
+    // here is from a programmatic caller and is treated as advisory.
+    rpcUrl = config.rpcUrl
+    transport = createTransport(rpcUrl)
+    chain = await resolveChainFromRpc(transport, logger)
+  } else {
+    chain = config.chain ?? mainnet
+    rpcUrl = chain.rpcUrls.default.webSocket?.[0] ?? chain.rpcUrls.default.http[0]
+    transport = rpcUrl ? createTransport(rpcUrl) : undefined
+  }
 
   let account: Account | Address
   let sessionKey: SessionKey<'Secp256k1'> | undefined

@@ -56,10 +56,10 @@ describe('Config', () => {
       expectedDataDir = join(home, '.filecoin-pin')
     }
 
-    const expectedRpcUrl = calibration.rpcUrls.default.webSocket?.[0] ?? calibration.rpcUrls.default.http[0]
+    const expectedRpcUrl = mainnet.rpcUrls.default.webSocket?.[0] ?? mainnet.rpcUrls.default.http[0]
 
-    expect(config.port).toBe(3456)
-    expect(config.host).toBe('localhost')
+    expect(config.port).toBe(3000)
+    expect(config.host).toBe('127.0.0.1')
     expect(config.rpcUrl).toBe(expectedRpcUrl)
     expect(config.databasePath).toBe(join(expectedDataDir, 'pins.db'))
     expect(config.carStoragePath).toBe(join(expectedDataDir, 'cars'))
@@ -78,6 +78,24 @@ describe('Config', () => {
     expect(config.logLevel).toBe('debug')
   })
 
+  it('treats empty PORT and HOST as unset', () => {
+    process.env.PORT = ''
+    process.env.HOST = ''
+
+    const config = createConfig()
+
+    expect(config.port).toBe(3000)
+    expect(config.host).toBe('127.0.0.1')
+  })
+
+  it('throws on a non-numeric or out-of-range PORT', () => {
+    process.env.PORT = 'abc'
+    expect(() => createConfig()).toThrow(/PORT must be a number/)
+
+    process.env.PORT = '70000'
+    expect(() => createConfig()).toThrow(/PORT must be a number/)
+  })
+
   it('resolves chain from NETWORK so Synapse uses matching contracts', () => {
     process.env.NETWORK = 'mainnet'
     expect(createConfig().chain).toBe(mainnet)
@@ -86,15 +104,18 @@ describe('Config', () => {
     expect(createConfig().chain).toBe(calibration)
   })
 
-  it('skips chain resolution when NETWORK is not set', () => {
+  it('defaults chain to mainnet when NETWORK is not set', () => {
+    expect(createConfig().chain).toBe(mainnet)
+  })
+
+  it('leaves chain undefined when only RPC_URL is set so initializeSynapse can probe it', () => {
+    process.env.RPC_URL = 'wss://custom.example/rpc'
     expect(createConfig().chain).toBeUndefined()
   })
 
-  it('does not load devnet-info.json when NETWORK=devnet but RPC_URL is set', () => {
-    process.env.NETWORK = 'devnet'
+  it('throws when both NETWORK and RPC_URL are set', () => {
+    process.env.NETWORK = 'mainnet'
     process.env.RPC_URL = 'wss://custom.example/rpc'
-    // Would throw "Failed to read devnet info" if we attempted the file load.
-    expect(() => createConfig()).not.toThrow()
-    expect(createConfig().chain).toBeUndefined()
+    expect(() => createConfig()).toThrow(/'NETWORK' and 'RPC_URL' are mutually exclusive/)
   })
 })

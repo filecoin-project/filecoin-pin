@@ -1,38 +1,116 @@
 #!/usr/bin/env node
 import './instrument.js'
-import { Command } from 'commander'
+import { Command, type Help } from 'commander'
 import pc from 'picocolors'
 
-import { addCommand } from './commands/add.js'
-import { dataSetCommand } from './commands/data-set.js'
-import { importCommand } from './commands/import.js'
-import { paymentsCommand } from './commands/payments.js'
-import { providerCommand } from './commands/provider.js'
-import { rmCommand } from './commands/rm.js'
-import { serverCommand } from './commands/server.js'
-import { checkForUpdate, type UpdateCheckStatus } from './common/version-check.js'
+import { CLI_COMMAND_GROUPS } from './commands/index.js'
+import { checkForUpdate, printUpdateBanner, type UpdateCheckStatus } from './common/version-check.js'
+import { configureTelemetry, flushTelemetry } from './core/telemetry/index.js'
 import { version as packageVersion } from './core/utils/version.js'
+import { readTelemetryConfigFromEnv } from './read-telemetry-config-from-env.js'
+import { applyVerboseLogLevel } from './utils/cli-logger.js'
+
+// Apply CLI env vars to the telemetry library before any subcommand runs.
+configureTelemetry({ ...readTelemetryConfigFromEnv(), affordance: 'CLI' })
+
+function formatTopLevelHelp(command: Command, helper: Help): string {
+  const termWidth = helper.padWidth(command, helper)
+  const helpWidth = helper.helpWidth ?? 80
+  const output: string[] = []
+  const formatItem = (term: string, description: string): string =>
+    helper.formatItem(term, termWidth, description, helper)
+  const formatGroup = (heading: string, items: string[]): void => {
+    output.push(...helper.formatItemList(heading, items, helper))
+  }
+
+  const description = helper.commandDescription(command)
+  if (description.length > 0) {
+    output.push(helper.boxWrap(helper.styleCommandDescription(description), helpWidth), '')
+  }
+
+  output.push(helper.styleTitle('USAGE'), `  ${helper.styleUsage(helper.commandUsage(command))}`, '')
+
+  const commandGroups = helper.groupItems(
+    [...command.commands],
+    helper.visibleCommands(command),
+    (subcommand) => subcommand.helpGroup() || 'COMMANDS'
+  )
+  for (const [heading, commands] of commandGroups) {
+    const items = commands.map((subcommand) =>
+      formatItem(
+        helper.styleSubcommandTerm(helper.subcommandTerm(subcommand)),
+        helper.styleSubcommandDescription(helper.subcommandDescription(subcommand))
+      )
+    )
+    formatGroup(heading, items)
+  }
+
+  const optionGroups = helper.groupItems(
+    [...command.options],
+    helper.visibleOptions(command),
+    (option) => option.helpGroupHeading ?? 'OPTIONS'
+  )
+  for (const [heading, options] of optionGroups) {
+    const items = options.map((option) =>
+      formatItem(
+        helper.styleOptionTerm(helper.optionTerm(option)),
+        helper.styleOptionDescription(helper.optionDescription(option))
+      )
+    )
+    formatGroup(heading, items)
+  }
+
+  return output.join('\n')
+}
 
 // Create the main program
 const program = new Command()
   .name('filecoin-pin')
-  .description('IPFS Pinning Service with Filecoin storage via Synapse SDK')
+  .description('IPFS Pinning Service with Filecoin storage')
+  .optionsGroup('OPTIONS')
   .version(packageVersion)
-  .option('-v, --verbose', 'verbose output')
+  .option('-v, --verbose', 'enable debug-level logging (sets LOG_LEVEL=debug)')
   .option('--no-update-check', 'skip check for updates')
+  .helpOption(true)
+  .configureHelp({
+    formatHelp: formatTopLevelHelp,
+    styleTitle: (str) => pc.bold(str.replace(/:$/, '')),
+  })
+  .addHelpText(
+    'after',
+    () => `
+${pc.bold('EXAMPLES')}
+  $ filecoin-pin payments setup --auto
+  $ filecoin-pin add ./myfile.txt
+  $ filecoin-pin import ./archive.car
+  $ filecoin-pin dataset ls
+
+${pc.bold('EXIT CODES')}
+  0  success
+  1  error (the operation failed)
+  2  incomplete (the operation neither succeeded nor failed: a confirmation
+     was declined, or a requested confirmation wait timed out after submission)
+
+${pc.bold('DOCUMENTATION')}
+  https://docs.filecoin.cloud/getting-started/filecoin-pin/`
+  )
 
 // Add subcommands
-program.addCommand(serverCommand)
-program.addCommand(paymentsCommand)
-program.addCommand(dataSetCommand)
-program.addCommand(importCommand)
-program.addCommand(addCommand)
-program.addCommand(rmCommand)
-program.addCommand(providerCommand)
+for (const { heading, commands } of CLI_COMMAND_GROUPS) {
+  program.commandsGroup(heading)
+  for (const command of commands) {
+    program.addCommand(command)
+  }
+}
 
 // Default action - show help if no command specified
 program.action(() => {
   program.help()
+})
+
+// Wire the global `-v/--verbose` flag to the log level before each action runs.
+program.hook('preAction', () => {
+  applyVerboseLogLevel(program.optsWithGlobals<{ verbose?: boolean }>().verbose)
 })
 
 let updateCheckResult: UpdateCheckStatus | null = null
@@ -61,15 +139,10 @@ program.hook('preAction', () => {
 })
 
 program.hook('postAction', async (_thisCommand, actionCommand) => {
-  if (updateCheckResult?.status === 'update-available') {
+  if (updateCheckResult != null) {
     const result = updateCheckResult
     updateCheckResult = null
-
-    const header = `${pc.yellow(`Update available: filecoin-pin ${result.currentVersion} → ${result.latestVersion}`)}. Upgrade with ${pc.cyan('npm i -g filecoin-pin@latest')}`
-    const releasesLink = 'https://github.com/filecoin-project/filecoin-pin/releases'
-    const instruction = `Visit ${releasesLink} to view release notes or download the latest version.`
-    console.log(header)
-    console.log(instruction)
+    printUpdateBanner(result)
   }
 
   // Viem's WebSocket transport holds persistent connections (with keepAlive
@@ -79,7 +152,14 @@ program.hook('postAction', async (_thisCommand, actionCommand) => {
   // which hides the underlying socket. The server command manages its own
   // lifecycle via SIGINT/SIGTERM, so only force-exit for CLI commands.
   if (actionCommand.name() !== 'server') {
-    process.exit(process.exitCode ?? 0)
+    try {
+      await flushTelemetry()
+    } catch (err) {
+      // Never let a telemetry flush failure block the forced exit below.
+      console.error('Telemetry flush failed:', err)
+    } finally {
+      process.exit(process.exitCode ?? 0)
+    }
   }
 })
 

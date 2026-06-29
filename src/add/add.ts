@@ -5,14 +5,26 @@
  * It encodes content as UnixFS, creates CAR files, and uploads to Filecoin.
  */
 
-import { readFile, stat } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { stat } from 'node:fs/promises'
+import { Readable } from 'node:stream'
 import pc from 'picocolors'
 import pino from 'pino'
-import { warnAboutCDNPricingLimitations } from '../common/cdn-warning.js'
+import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
-import { displayUploadResults, performAutoFunding, performUpload, validatePaymentSetup } from '../common/upload-flow.js'
+import { describeLockupShortfall } from '../common/lockup-error.js'
+import {
+  displayDryRunEstimate,
+  displayUploadResults,
+  estimateUploadCost,
+  performAutoFunding,
+  performUpload,
+  promptDataSetSelection,
+  validatePaymentSetup,
+} from '../common/upload-flow.js'
+import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
-import { normalizeMetadataConfig } from '../core/metadata/index.js'
+import { normalizeMetadataConfig, withDerivedNameMetadata } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
@@ -20,15 +32,15 @@ import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import type { AddOptions, AddResult } from './types.js'
+import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
+import { buildFilbeamUrl, chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
+import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
+import type { AddDryRunResult, AddOptions, AddResult } from './types.js'
 
 /**
  * Validate that a path exists and is a regular file or directory
  */
-async function validatePath(
-  path: string,
-  options: AddOptions
-): Promise<{
+async function validatePath(path: string): Promise<{
   exists: boolean
   stats?: any
   isDirectory?: boolean
@@ -40,13 +52,6 @@ async function validatePath(
       return { exists: true, stats, isDirectory: false }
     }
     if (stats.isDirectory()) {
-      // Check if bare flag is used with directory
-      if (options.bare) {
-        return {
-          exists: false,
-          error: `--bare flag is not supported for directories`,
-        }
-      }
       return { exists: true, stats, isDirectory: true }
     }
     // Not a file or directory (could be symlink, socket, etc.)
@@ -65,16 +70,62 @@ async function validatePath(
 }
 
 /**
+ * Normalize Commander options and run the add flow.
+ *
+ * Commander wiring calls this so option validation errors are displayed by the
+ * command UI layer and command files only own exit-code handling.
+ */
+export async function runAddFromCli(path: string, options: Record<string, any>): Promise<AddResult | AddDryRunResult> {
+  let addOptions: AddOptions
+  try {
+    const autoFundOptions = validateAndNormalizeAutoFundOptions(options)
+    const {
+      metadata: _metadata,
+      dataSetMetadata: _dataSetMetadata,
+      datasetMetadata: _datasetMetadata,
+      erc8004Type: _erc8004Type,
+      erc8004Agent: _erc8004Agent,
+      '8004Type': _erc8004TypeAlias,
+      '8004Agent': _erc8004AgentAlias,
+      autoFund: _autoFund,
+      minRunwayDays: _minRunwayDays,
+      maxBalance: _maxBalance,
+      egressProvider: rawEgressProvider,
+      ...addOptionsFromCli
+    } = options
+    const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
+
+    const egressProvider = rawEgressProvider ?? 'beam'
+
+    addOptions = {
+      ...addOptionsFromCli,
+      ...autoFundOptions,
+      filePath: path,
+      egressProvider,
+      ...(pieceMetadata && { pieceMetadata }),
+      ...(dataSetMetadata && { dataSetMetadata }),
+    }
+  } catch (error) {
+    log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
+    log.flush()
+    cancel('Add cancelled')
+    throw error
+  }
+
+  return await runAdd(addOptions)
+}
+
+/**
  * Run the file or directory add process
  *
  * @param options - Add configuration
  */
-export async function runAdd(options: AddOptions): Promise<AddResult> {
+export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRunResult> {
   intro(pc.bold('Filecoin Pin Add'))
 
   const spinner = createSpinner()
 
-  const { pieceMetadata, dataSetMetadata } = normalizeMetadataConfig({
+  const { pieceMetadata: userPieceMetadata, dataSetMetadata } = normalizeMetadataConfig({
     pieceMetadata: options.pieceMetadata,
     dataSetMetadata: options.dataSetMetadata,
   })
@@ -84,15 +135,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     level: process.env.LOG_LEVEL || 'silent',
   })
 
-  // Check CDN status and warn if enabled
-  const withCDN = process.env.WITH_CDN === 'true'
-  if (withCDN) {
-    const proceed = await warnAboutCDNPricingLimitations()
-    if (!proceed) {
-      cancel('Add cancelled')
-      throw new Error('CDN pricing limitations warning cancelled')
-    }
-  }
+  // Map the public egress provider to the SDK's withCDN boolean (internal only).
+  const withCDN = options.egressProvider === 'beam'
 
   let tempCarPath: string | undefined
 
@@ -100,7 +144,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     // Validate path exists and is readable
     spinner.start('Validating path...')
 
-    const pathValidation = await validatePath(options.filePath, options)
+    const pathValidation = await validatePath(options.filePath)
     if (!pathValidation.exists || !pathValidation.stats) {
       spinner.stop(`${pc.red('✗')} ${pathValidation.error}`)
       cancel('Add cancelled')
@@ -113,6 +157,18 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     const pathType = isDirectory ? 'Directory' : 'File'
     const sizeDisplay = isDirectory ? '' : ` (${formatFileSize(pathStat.size)})`
     spinner.stop(`${pc.green('✓')} ${pathType} validated${sizeDisplay}`)
+
+    // Fail fast on CAR-of-CAR before auth/payment checks run.
+    if (!isDirectory) {
+      const sniff = createReadStream(options.filePath)
+      try {
+        if (await isCar(sniff)) {
+          throw carInputError(options.filePath)
+        }
+      } finally {
+        sniff.destroy()
+      }
+    }
 
     // Validate context selection options early (before expensive operations)
     const contextSelection = parseContextSelectionOptions(options)
@@ -132,6 +188,10 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(network)}`)
 
+    if (withCDN && chainSupportsFilbeam(synapse)) {
+      printEgressNotice('beam')
+    }
+
     // Resolve partial --data-set-metadata locally; SDK metadata matching requires exact equality.
     let effectiveDataSetMetadata = dataSetMetadata
     if (dataSetMetadata != null && contextSelection.dataSetIds == null && contextSelection.providerIds == null) {
@@ -145,16 +205,14 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
           `${pc.green('✓')} Matched existing data sets ${resolution.dataSetIds.join(', ')} via metadata filter`
         )
       } else if (resolution.kind === 'too-many-matches') {
-        spinner.stop(`${pc.red('✗')} --data-set-metadata matched too many data sets`)
-        throw new Error(
-          `--data-set-metadata matched ${resolution.matchedIds.length} data sets (${resolution.matchedIds.join(', ')}) ` +
-            `but expected ${resolution.expected} (narrow the filter or pass --data-set-ids to pin the target).`
-        )
+        const chosenIds = await promptDataSetSelection(resolution.matchedDataSets, resolution.expected, spinner)
+        contextSelection.dataSetIds = chosenIds
+        effectiveDataSetMetadata = undefined
       } else if (resolution.kind === 'too-few-matches') {
         spinner.stop(`${pc.red('✗')} --data-set-metadata matched too few data sets`)
         throw new Error(
           `--data-set-metadata matched only ${resolution.matchedIds.length} data set(s) (${resolution.matchedIds.join(', ')}) ` +
-            `but expected ${resolution.expected} (lower --copies, widen the filter, or pass --data-set-ids).`
+            `but expected ${resolution.expected} (lower --copies, widen the filter, or pass --data-set-id).`
         )
       } else {
         spinner.stop(
@@ -163,8 +221,10 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       }
     }
 
-    // Check payment setup (may configure permissions if needed)
-    if (!options.autoFund) {
+    // Check payment setup (may configure permissions if needed).
+    // Skipped for --dry-run: this can submit an allowance-approval transaction,
+    // which a dry run must never do.
+    if (!options.autoFund && !options.dryRun) {
       spinner.start('Checking payment setup...')
       await validatePaymentSetup(synapse, 0, spinner, {
         suppressSuggestions: true,
@@ -172,28 +232,59 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
     }
 
     // Create CAR from file or directory
-    const packingMsg = isDirectory
-      ? 'Packing directory for IPFS...'
-      : `Packing file for IPFS${options.bare ? ' (bare mode)' : ''}...`
+    const packingMsg = isDirectory ? 'Packing directory for IPFS...' : 'Packing file for IPFS...'
     spinner.start(packingMsg)
 
-    const { carPath, rootCid } = await createCarFromPath(options.filePath, {
+    const { carPath, rootCid, name } = await createCarFromPath(options.filePath, {
       logger,
       spinner,
       isDirectory,
-      ...(options.bare !== undefined && { bare: options.bare }),
+      ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }),
     })
     tempCarPath = carPath
 
+    // File-vs-directory is recovered by inspecting the root CID
+    // (codec + UnixFS Data.Type), not from a key-name distinction.
+    const pieceMetadata = withDerivedNameMetadata(userPieceMetadata, name)
+
     spinner.stop(`${pc.green('✓')} ${isDirectory ? 'Directory' : 'File'} packed with root CID: ${rootCid.toString()}`)
 
-    // Read CAR data
-    spinner.start('Loading packed IPFS content ...')
-    const carData = await readFile(tempCarPath)
-    const carSize = carData.length
-    spinner.stop(`${pc.green('✓')} IPFS content loaded (${formatFileSize(carSize)})`)
+    // The CLI still materializes a full CAR on disk first. This only avoids
+    // buffering that CAR again in memory during upload.
+    spinner.start('Inspecting packed IPFS content...')
+    const { size: carSize } = await stat(tempCarPath)
+    const carData = Readable.toWeb(createReadStream(tempCarPath)) as ReadableStream<Uint8Array>
+    spinner.stop(`${pc.green('✓')} Packed IPFS content ready (${formatFileSize(carSize)})`)
+
+    if (options.dryRun) {
+      spinner.start('Estimating upload cost...')
+      const estimate = await estimateUploadCost(synapse, carSize, {
+        ...(options.copies != null && { copies: options.copies }),
+        ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
+        ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
+        ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
+        withCDN,
+      })
+      spinner.stop(`${pc.green('✓')} Cost estimate ready`)
+
+      const result: AddDryRunResult = {
+        dryRun: true,
+        filePath: options.filePath,
+        fileSize: carSize,
+        ...(isDirectory && { isDirectory }),
+        rootCid: rootCid.toString(),
+        requestedCopies: estimate.requestedCopies,
+        newDataSetCount: estimate.newDataSetCount,
+        costs: estimate.costs,
+      }
+
+      displayDryRunEstimate(result, estimate, network)
+      outro('Dry run complete — no upload performed')
+      return result
+    }
 
     const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {
+      withCDN,
       ...(dataSetMetadata && { metadata: dataSetMetadata }),
       ...(options.copies != null && { copies: options.copies }),
     }
@@ -256,11 +347,15 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       rootCid: rootCid.toString(),
       pieceCid: uploadResult.pieceCid,
       size: uploadResult.size,
+      requestedCopies,
       copies: uploadResult.copies,
       failedAttempts: uploadResult.failedAttempts,
     }
 
-    displayUploadResults(result, 'Add', network, networkSlug)
+    const filbeamUrl = buildFilbeamUrl(synapse, uploadResult.pieceCid, withCDN)
+    const egress = filbeamUrl != null ? { filbeamUrl } : undefined
+
+    displayUploadResults(result, 'Add', network, networkSlug, egress)
 
     if (uploadResult.copies.length < requestedCopies) {
       log.line('')
@@ -272,7 +367,6 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       )
       log.flush()
       outro('Add completed with errors')
-      process.exitCode = 1
     } else if (uploadResult.failedAttempts.length > 0) {
       log.line('')
       log.line(pc.gray(`${uploadResult.failedAttempts.length} non-critical copy failure(s) during upload.`))
@@ -284,7 +378,33 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
 
     return result
   } catch (error) {
-    spinner.stop(`${pc.red('✗')} Add failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    if (isCliFatal(error)) {
+      spinner.stop()
+      logger.error({ event: 'add.failed', error }, 'Add failed')
+      if (tempCarPath) {
+        await cleanupTempCar(tempCarPath, logger)
+      }
+      throw error
+    }
+
+    const carInput = error instanceof Error && (error as { code?: string }).code === INPUT_IS_CAR
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    const lockup = describeLockupShortfall(error)
+    if (lockup != null) {
+      spinner.stop(`${pc.red('✗')} Add failed: ${lockup.headline}`)
+      log.line('')
+      for (const hint of lockup.hints) {
+        log.line(`  ${pc.cyan(hint)}`)
+      }
+      log.flush()
+    } else {
+      spinner.stop(`${pc.red('✗')} ${carInput ? message : `Add failed: ${message}`}`)
+      if (carInput) {
+        log.line('')
+        log.line(pc.cyan(`  filecoin-pin import ${options.filePath}`))
+        log.flush()
+      }
+    }
     logger.error({ event: 'add.failed', error }, 'Add failed')
 
     // Always cleanup temp CAR even on error
@@ -292,7 +412,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult> {
       await cleanupTempCar(tempCarPath, logger)
     }
 
-    cancel('Add failed')
-    throw error
+    cancel(carInput ? 'Add cancelled' : 'Add failed')
+    throw new CliFatal(message, { cause: error instanceof Error ? error : undefined })
   }
 }

@@ -4,16 +4,30 @@ on:
   push:
     branches:
       - master
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Run npm publish with --dry-run (manual dispatch only)
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
 
 permissions:
-  id-token: write  # Required for OIDC
-  contents: write
-  issues: write
-  pull-requests: write
+  contents: read
 
 jobs:
   release-please:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
@@ -24,39 +38,170 @@ jobs:
           token: ${{ secrets.FILOZZY_RELEASE_PLEASE_PAT }}
           config-file: release-please-config.json
 
-      # The following steps only run if a release is created
-      - name: Checkout
-        if: ${{ steps.release.outputs.release_created }}
-        uses: actions/checkout@v6
+  validate-dispatch:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
 
-      - name: Set up pnpm
-        if: ${{ steps.release.outputs.release_created }}
-        uses: pnpm/action-setup@903f9c1a6ebcba6cf41d87230be49611ac97822e # v6.0.3
+      - name: Validate dispatch ref and release state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          case "$REF" in
+            refs/tags/v[0-9]*.[0-9]*.[0-9]*) ;;
+            *)
+              echo "::error::Dispatch ref must be a vX.Y.Z tag, got: $REF"
+              exit 1
+              ;;
+          esac
+          TAG="${REF#refs/tags/}"
+          VERSION="${TAG#v}"
+
+          PKG_NAME="$(node -p "require('./package.json').name")"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag $TAG does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+
+          # Confirm the tag commit is on the default branch via GitHub's
+          # compare API (works regardless of local clone depth).
+          STATUS="$(gh api "repos/$GITHUB_REPOSITORY/compare/$DEFAULT_BRANCH...$SHA" --jq .status)"
+          case "$STATUS" in
+            identical|behind) ;;
+            *)
+              echo "::error::Tag commit $SHA is not an ancestor of $DEFAULT_BRANCH (compare status: $STATUS)"
+              exit 1
+              ;;
+          esac
+
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::GitHub release $TAG not found"
+            exit 1
+          fi
+
+          PUBLISHED="$(npm view "$PKG_NAME@$VERSION" version 2>/dev/null || true)"
+          if [ -n "$PUBLISHED" ]; then
+            echo "::error::npm already has $PKG_NAME@$PUBLISHED"
+            exit 1
+          fi
+
+  build:
+    needs: [release-please, validate-dispatch]
+    if: |
+      always() && (
+        needs.release-please.outputs.release_created == 'true' ||
+        needs.validate-dispatch.result == 'success'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    outputs:
+      tarball: ${{ steps.pack.outputs.tarball }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
         with:
           run_install: false
 
-      - name: Setup Node.js
-        if: ${{ steps.release.outputs.release_created }}
-        uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 'lts/*'
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
           registry-url: 'https://registry.npmjs.org'
 
-      # Ensure npm 11.5.1 or later is installed
-      - name: Update npm
-        if: ${{ steps.release.outputs.release_created }}
-        run: npm install -g npm@latest
+      # Pin npm to a known-good major to avoid @latest drift on a publish-path runner.
+      - name: Pin npm
+        run: npm install -g npm@11
 
       - name: Install dependencies
-        if: ${{ steps.release.outputs.release_created }}
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: pnpm install --frozen-lockfile
 
       - name: Build
-        if: ${{ steps.release.outputs.release_created }}
         run: pnpm run build
 
-      - name: Publish to npm
-        if: ${{ steps.release.outputs.release_created }}
-        run: npm publish --access public
+      - name: Pack tarball
+        id: pack
+        run: |
+          set -euo pipefail
+          TARBALL="$(npm pack --silent)"
+          test -n "$TARBALL"
+          test -f "$TARBALL"
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: ${{ steps.pack.outputs.tarball }}
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    # build needs both release-please and validate-dispatch, and exactly one of
+    # those is skipped on every trigger (release-please on dispatch, validate-dispatch
+    # on push). That skip propagates down the needs chain, so publish must override
+    # with always() the same way build does, then gate on build actually succeeding.
+    if: ${{ always() && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # OIDC for npm trusted publishing
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Pin npm
+        run: npm install -g npm@11
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-tarball
+          path: artifact
+
+      - name: Publish tarball to npm
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          TARBALL_NAME: ${{ needs.build.outputs.tarball }}
+        run: |
+          set -euo pipefail
+
+          # Assert exactly one tarball was delivered and it matches the
+          # filename emitted by the build job.
+          COUNT="$(find artifact -maxdepth 1 -name '*.tgz' | wc -l | tr -d ' ')"
+          if [ "$COUNT" != "1" ]; then
+            echo "::error::Expected exactly one tarball in artifact/, found $COUNT"
+            exit 1
+          fi
+          # Absolute path: npm treats a bare "dir/file.tgz" arg as a GitHub
+          # owner/repo shorthand and tries to git-clone it. A leading "/" forces
+          # it to resolve as a local tarball file.
+          TARBALL="$PWD/artifact/$TARBALL_NAME"
+          if [ ! -f "$TARBALL" ]; then
+            echo "::error::Tarball $TARBALL not found"
+            exit 1
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            npm publish --access public --dry-run "$TARBALL"
+          else
+            npm publish --access public "$TARBALL"
+          fi

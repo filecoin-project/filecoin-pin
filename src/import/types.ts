@@ -1,6 +1,8 @@
 import type { CopyResult, FailedAttempt } from '@filoz/synapse-sdk'
+import type { UploadDryRunResult } from '../common/upload-flow.js'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 import type { CLIAutoFundOptions } from '../utils/cli-options.js'
+import type { EgressProvider } from '../utils/cli-options-egress.js'
 
 export interface ImportOptions extends CLIAuthOptions, CLIAutoFundOptions {
   filePath: string
@@ -12,6 +14,10 @@ export interface ImportOptions extends CLIAuthOptions, CLIAutoFundOptions {
   dataSetMetadata?: Record<string, string>
   /** Skip IPNI advertisement verification after upload */
   skipIpniVerification?: boolean
+  /** Egress provider for piece retrieval ('beam' enables FilBeam CDN). Defaults to off when unset. */
+  egressProvider?: EgressProvider
+  /** Estimate upload cost and exit before any upload or deposit transaction */
+  dryRun?: boolean
 }
 
 export interface ImportResult {
@@ -20,6 +26,9 @@ export interface ImportResult {
   rootCid: string
   pieceCid: string
   size: number
+  requestedCopies: number
   copies: CopyResult[]
   failedAttempts: FailedAttempt[]
 }
+
+export type ImportDryRunResult = UploadDryRunResult

@@ -39,6 +39,22 @@ Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metad
 
 FIL is Filecoin's native token.  While [Filecoin Onchain Cloud](#filecoin-onchain-cloud) storage is currently denominated in [USDFC](#usdfc), gas for transactions on the Filecoin blockchain (e.g., adding a [Piece](#piece)) need to be paid for using FIL. Most transactions in the data onboarding flow for Filecoin Onchain Cloud are submitted by storage providers so client typically have minimal need to interact directly with FIL.
 
+## FilBeam egress
+
+This concerns the [/piece retrieval](#piece-retrieval) CDN provided by [FilBeam](https://github.com/filbeam). When `filecoin-pin add` or `filecoin-pin import` is run with `--egress-provider beam` (the default), uploaded pieces are retrievable via FilBeam at `https://{wallet-address}.{filbeam-domain}/{pieceCid}` (e.g., `https://0xabc....calibration.filbeam.io/bafk...` on the [Calibration Network](#calibration-network)).
+
+**What it does today:** Serves [`/piece` Retrieval](#piece-retrieval) only — whole-CAR fetches keyed by [Piece CID](#piece-cid). It does **not** route [`/ipfs` Retrieval](#ipfs-retrieval); for those, use the IPFS retrieval URLs printed alongside the upload result.
+
+**Network support:** FilBeam URLs are only printed on networks with a FilBeam endpoint (mainnet and [Calibration](#calibration-network)). On networks without one (e.g. devnet), `--egress-provider beam` stays the default but no FilBeam URL is shown.
+
+**Cost:** CDN egress is paid from funds the data set owner locks up for it — it is not billed to their wallet at data-set creation. Instead, lockup is consumed as retrievals happen. Anyone who knows the piece CID and wallet address can trigger a retrieval, which draws down that egress lockup.
+
+**Lockup:** Creating a new FilBeam-enabled [Data Set](#data-set) requires an extra fixed lockup of 1 USDFC (on top of the data-set creation fee and ongoing storage cost). This is why a CDN upload that creates a new data set needs more deposited funds than a non-CDN one. `--auto-fund` accounts for it automatically; without it, deposit enough to cover the lockup or the upload fails with an insufficient-funds error.
+
+**Future state:** FilBeam is working on routing IPFS-block retrievals through the same CDN ([filbeam/roadmap#85](https://github.com/filbeam/roadmap/issues/85)). [Data Sets](#data-set) uploaded with FilBeam enabled today will benefit automatically when that ships.
+
+**Opting out:** Pass `--egress-provider none` (or `EGRESS_PROVIDER=none`) to skip FilBeam routing entirely.
+
 ## Filecoin Pay
 
 Filecoin Pay is a generic payment solution between users and various [Filecoin Onchain Cloud](#filecoin-onchain-cloud) services.
@@ -55,13 +71,13 @@ This is often abbreviated as “FOC”, which yes, does phonetically resonate wi
 
 ## Filecoin Pin
 
-https://github.com/FilOzone/filecoin-pin
+https://github.com/filecoin-project/filecoin-pin
 
 Serves as an IPFS-oriented set of tools for interfacing with [Filecoin Onchain Cloud](#filecoin-onchain-cloud) built on top of [Synapse](#synapse).
 
-## `filecoin-pin`
+## `filecoin-pin` CLI
 
-`filecoin-pin` is a CLI tool affordance for [Filecoin Pin](#filecoin-pin).
+The npm package name and CLI tool for [Filecoin Pin](#filecoin-pin). The package includes both the CLI and the [JavaScript library](#filecoin-pin-javascript-library). See [CLI affordance in the README](../README.md#-cli).
 
 ## filecoin-pin-website
 
@@ -74,11 +90,21 @@ Example of [Filecoin Pin](#filecoin-pin) in action within a web-browser.  Its pu
 
 filecoin-pin-website is also hosted at [pin.filecoin.cloud](http://pin.filecoin.cloud), with hardcoded wallet and [session key](#session-key) on the [Calibration](#calibration-network) network.  In future, [integration with tools like Metamask will be supported](https://github.com/filecoin-project/filecoin-pin-website/issues/77).  
 
-## Filecoin Pin example GitHub Action
+## Filecoin Pin GitHub Action
 
-https://github.com/filecoin-project/filecoin-pin/tree/master/upload-action
+See [GitHub Action affordance in the README](../README.md#-github-action).
 
-Example of [Filecoin Pin](#filecoin-pin) in action within a reusable GitHub Action.
+## Filecoin Pin JavaScript Library
+
+See [JavaScript Library affordance in the README](../README.md#-javascript-library).
+
+## Filecoin Pin IPFS Pinning Server
+
+See [IPFS Pinning Server affordance in the README](../README.md#-ipfs-pinning-server-daemon-mode).
+
+## Filecoin Pin Management Console
+
+See [Management Console affordance in the README](../README.md#-management-console-gui).
 
 ## Filecoin Warm Storage Service
 
@@ -86,11 +112,11 @@ This is the primary smart contract used when interacting with the warm storage f
 
 ## IPFS Root CID
 
-The CID for the root of a merkle DAG that is usually encoding a file or directory as UnixFS.  Since each `filecoin-pin add` creates a [CAR](#car), regardless if passed a file or directory, there is a single root corresponding to root of the Merkle DAG made out of encoding the file or directory as UnixFS. Typically this will be presented in base32, beginning with `bafy` and be 59 characters long.
+The CID for the root of a merkle DAG that is usually encoding a file or directory as UnixFS.  Since each `filecoin-pin add` creates a [CAR](#car), regardless if passed a file or directory, there is a single root corresponding to root of the Merkle DAG made out of encoding the file or directory as UnixFS. Typically this will be presented in base32, beginning with `bafy` and be 59 characters long. See [Relationship between Piece CID and IPFS Root CID](#relationship-between-piece-cid-and-ipfs-root-cid) for how this relates to the [Piece CID](#piece-cid).
 
 ## `/ipfs` Retrieval
 
-This is one of two retrieval endpoints that [Service Providers](#service-provider) expose.  This endpoint conforms with the [IPFS Trustless Gateway Specification](https://specs.ipfs.tech/http-gateways/trustless-gateway/).  All CIDs that are indexed by the SP should be retrievable via this endpoint.  This is the endpoint that is announced through the provider records stored by [IPNI](#ipni) Indexers. 
+This is one of two retrieval endpoints that [Service Providers](#service-provider) expose (see [Retrieving Your Data](retrieval.md) for a practical walkthrough).  This endpoint conforms with the [IPFS Trustless Gateway Specification](https://specs.ipfs.tech/http-gateways/trustless-gateway/).  All CIDs that are indexed by the SP should be retrievable via this endpoint.  This is the endpoint that is announced through the provider records stored by [IPNI](#ipni) Indexers. 
 
 As a "trustless" protocol, retrieval of IPFS data using this mechanism provides assurance that data has not been tampered with and that what is being retrieved is _exactly_ what was requested. This is in contrast to a "trusted" gateway where IPFS data is reassembled into a form appropriate for rendering. Developers and users are encouraged to perform this reassembly step as close as possible to the user, using existing IPFS technologies such as [Kubo](https://github.com/ipfs/kubo) and [Helia](https://github.com/ipfs/helia). For example, Helia's [`verified-fetch` package](https://www.npmjs.com/package/@helia/verified-fetch) is able to perform this within a browser context and is powering https://inbrowser.link/.
 
@@ -105,9 +131,15 @@ IPNI is the content routing system that [Filecoin Pin](#filecoin-pin) relies upo
 Key-value pairs stored on-chain, either scoped to [Data Sets](#data-set) or [Pieces](#piece). [Filecoin Pin](#filecoin-pin) uses specific metadata keys:
 
 Key | Purpose | Scope
+--- | --- | ---
 `source` | Set to 'filecoin-pin' to identify data created by this tool | Data Set
 `withIPFSIndexing` | Set to empty string to signal the [SP](#service-provider) to index and advertise the data to [IPNI](#ipni) | Data Set
 `ipfsRootCid` | Stored on each Piece to link the [Piece CID](#piece-cid) back to the [IPFS Root CID](#ipfs-root-cid).  While this is a convention that Filecoin Pin follows, there is nothing onchain enforcing a correct link between `ipfsRootCid` and `pieceCid`. | Piece
+`name` | Original basename of the source path (file or directory). Auto-derived during `add` so the human-readable label survives even though the [UnixFS profile](#unixfs-v1-2025-profile) does not wrap single files in a parent directory. User-supplied piece metadata wins over the auto-derived value; an explicit empty string is treated as an opt-out. Consumers that need to know whether the source was a file or a directory inspect the [IPFS Root CID](#ipfs-root-cid) (codec + UnixFS `Data.Type`), matching the IPFS Pinning Service `name` convention. | Piece
+
+## unixfs-v1-2025 profile
+
+The [IPIP-499](https://github.com/ipfs/specs/pull/499) UnixFS CID profile that Filecoin Pin uses when packing files and directories. Selecting this profile pins importer settings (CIDv1, raw leaves, 1 MiB chunks, 1024-link DAG width, block-bytes HAMT shard estimation) so that the [IPFS Root CID](#ipfs-root-cid) for a given input matches the CID produced by any other conforming implementation. Filecoin Pin does not wrap single files in a parent directory under this profile; the source basename is preserved via the `name` [Metadata](#metadata) entry instead.
 
 ## Piece
 
@@ -117,11 +149,17 @@ With [Filecoin Pin](#filecoin-pin), the Piece is the [CAR](#car) file itself; an
 
 ## Piece CID
 
-PieceCID, or "CommP" (Commitment of Piece), is a specific form of [CID](#cid) used in Filecoin to commit Merkle proofs of large _pieces_ of data on chain. A PieceCID includes a digest of the contiguous bytes, with no special handling of any internal format or packing (including CAR formats containing IPFS data). It uses a modified form of SHA2-256 internally, and further details can be found in [FRC-0069](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0069.md). PieceCID is a variant of CID specifically for use in Filecoin's proof system, and will differ from the CIDs used in IPFS. When presented in standard base32 format, it will begin with the characters `bafkzcib` and be between 64 and 65 characters long.
+PieceCID, or "CommP" (Commitment of Piece), is a specific form of [CID](#cid) used in Filecoin to commit Merkle proofs of large _pieces_ of data on chain. A PieceCID includes a digest of the contiguous bytes, with no special handling of any internal format or packing (including CAR formats containing IPFS data). It uses a modified form of SHA2-256 internally, and further details can be found in [FRC-0069](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0069.md). PieceCID is a variant of CID specifically for use in Filecoin's proof system, and will differ from the CIDs used in IPFS. When presented in standard base32 format, it will begin with the characters `bafkzcib` and be between 64 and 65 characters long. See [Relationship between Piece CID and IPFS Root CID](#relationship-between-piece-cid-and-ipfs-root-cid) for how this relates to the [IPFS Root CID](#ipfs-root-cid).
+
+## Piece Copy
+
+In [Filecoin Pin](#filecoin-pin) and [Synapse](#synapse), a copy is one independent storage placement of the same [Piece](#piece) on a single [Service Provider](#service-provider) (usually in its own [Data Set](#data-set)). All copies share the same [Piece CID](#piece-cid); they differ by which SP holds the bytes and records the piece on chain.
+
+This is not the everyday sense of "original plus one duplicate." Here, N copies means N stored instances across N providers, not N extras on top of an unnamed original. Even the first upload target is called a copy with role "primary". (See [Synapse upload docs](https://docs.filecoin.cloud/reference/filoz/synapse-sdk/storage/classes/storagemanager/#upload).)
 
 ## `/piece` Retrieval
 
-This is a Filecoin-defined retrieval specification outlined in https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0066.md.  It is for retrieving pieces by [Piece CID](#piece-cid), optionally taking a byte range specified by standard HTTP request format. Piece retrieval is useful for downloading the bytes _as they are stored and proven_ in Filecoin, either to request the original non-IPFS data stored, or downloading the CAR format data generated by Filecoin Pin.
+This is a Filecoin-defined retrieval specification outlined in https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0066.md (see [Retrieving Your Data](retrieval.md) for a practical walkthrough).  It is for retrieving pieces by [Piece CID](#piece-cid), optionally taking a byte range specified by standard HTTP request format. Piece retrieval is useful for downloading the bytes _as they are stored and proven_ in Filecoin, either to request the original non-IPFS data stored, or downloading the CAR format data generated by Filecoin Pin.
 
 It takes the form of https://sp.domain/piece/$pieceCid.
 
@@ -132,6 +170,46 @@ https://github.com/FilOzone/pdp
 The cryptographic protocol that verifies [service providers](#service-provider) are actually storing the data they claim to store. Providers must periodically prove they possess the data.  This is distinct from the existing Filecoin proof system, "PoRep" or "Proof of Replication".
 
 This is usually abbreviated as "PDP".
+
+## Relationship between Piece CID and IPFS Root CID
+
+Each `filecoin-pin add` produces both a [Piece CID](#piece-cid) and an [IPFS Root CID](#ipfs-root-cid), but they are computed independently and **neither can be derived directly from the other**.
+
+The **IPFS Root CID** is the root of a Merkle DAG, a tree of content-addressed blocks built by the UnixFS importer. Each block is hashed individually and the root hash rolls up the entire tree. The **Piece CID** is a commitment over the _raw contiguous bytes_ of the [CAR](#car) file that serializes that DAG. It uses a different hash construction (a binary Merkle tree of fixed-size segments using a modified SHA2-256, per [FRC-0069](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0069.md)) and treats the CAR as an opaque byte stream with no awareness of the IPFS blocks inside it.
+
+Because the two hashing schemes are structurally different, there is **no cryptographic link** between them. A Piece CID alone cannot tell you which IPFS Root CID the data represents, and an IPFS Root CID alone cannot tell you which Piece it was packed into.
+
+### How the link is established
+
+[Filecoin Pin](#filecoin-pin) bridges this gap by recording the IPFS Root CID as signed on-chain [Metadata](#metadata) (`ipfsRootCid`) on each [Piece](#piece). The client signs this metadata at upload time, so the mapping is attested by the uploader, not computed from proof. This means:
+
+- **On-chain metadata** is the primary source of truth for the mapping. Anyone can look up a Piece's metadata and find the `ipfsRootCid` the uploader declared.
+- **[IPNI](#ipni)** provides a reverse lookup path: IPNI indexes IPFS CIDs and each advertisement's ContextID encodes the Piece CID, so you can go from an IPFS CID to a Piece CID via the indexer. This is trust-based: you trust the [Service Provider](#service-provider) to have created the advertisement correctly. See [How to go from IPFS CID to Piece CID using IPNI](#how-to-go-from-ipfs-cid-to-piece-cid-using-ipni) for a worked example.
+- **Subgraphs** (e.g., PDP Explorer) can also surface the `ipfsRootCid` metadata for a given Piece, independently of the SP.
+
+All of these paths are **trust-based, not trustless**. The on-chain metadata is as reliable as the client that signed it; the IPNI path trusts the SP's advertisement; the subgraph path trusts the indexer. For end-to-end verification, retrieve the data via [`/piece` retrieval](#piece-retrieval), decode the CAR, and confirm that the DAG root matches the declared IPFS Root CID.
+
+See [Retrieving Your Data](retrieval.md) for how to use each CID to fetch your content.
+
+### How to go from IPFS CID to Piece CID using IPNI
+
+[IPNI](#ipni) advertisements include a `ContextID` that encodes the [Piece CID](#piece-cid). You can use this to reverse-map an IPFS CID back to the Piece it lives in.
+
+1. Look up the IPFS CID in an IPNI indexer, e.g. `https://cid.contact/cid/<ipfs-cid>` (or use [filecoinpin.contact](https://filecoinpin.contact) for data stored via Filecoin Pin).
+2. Find the `ContextID` field in one of the provider records. It is base64-encoded.
+3. Decode the base64, drop the first byte (a version prefix), and treat the remaining bytes as a CID:
+
+```js
+import { CID } from 'multiformats/cid'
+
+const contextId = 'AQGB4gOSICBlxzDbqCDi1dCgK8UmZ/1ACAKoEFxPrfg0zo0IeI8PJQ=='
+const pieceCid = CID.decode(Buffer.from(contextId, 'base64').slice(1))
+// baga6ea4seaqglrzq3oucbywv2cqcxrjgm76uacacvaifyt5n7a2m5diipchq6ji
+```
+
+This gives you the Piece CID that the [Service Provider](#service-provider) advertised for that content. From there you can look up the Piece's on-chain [Metadata](#metadata) to confirm the `ipfsRootCid`, or retrieve the data via [`/piece` retrieval](#piece-retrieval).
+
+Note that this mapping is **trust-based**: you are trusting the SP to have created the IPNI advertisement correctly, and the indexer to have recorded it faithfully.
 
 ## RPC Provider
 
@@ -155,7 +233,7 @@ Session Keys are wallet addresses, registered in the **Session Key Registry** on
 
 A session key acts as a credential that permits a scoped-down set of tasks on behalf of a wallet within an expiration window.  For example, the [filecoin-pin-website](#filecoin-pin-website) uses a shared session key so that anonymous users can test out the tool without bringing their own wallet or funds, while the owner of those actions is original (private) wallet of the service.
 
-Session keys require specific permissions (such as CREATE_DATA_SET and ADD_PIECES) and have expiration timestamps.  The filecoin-pin-website session key is scoped to allowing the creation of [data sets](#data-set) and [pieces](#piece), but prevents transferring of funds for example.
+Session keys require specific permissions (such as CREATE_DATA_SET and ADD_PIECES) and have expiration timestamps.  The filecoin-pin-website session key is scoped to allowing the creation of [data sets](#data-set) and [pieces](#piece), but prevents transferring of funds for example. Wallet owners can also revoke session key permissions before expiration.
 
 
 
