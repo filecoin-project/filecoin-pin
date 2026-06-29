@@ -1,3 +1,7 @@
+import { IPFS_INDEXED_METADATA } from '../synapse/constants.js'
+
+export { IPFS_INDEXED_METADATA }
+
 export const ERC8004_TYPES = ['registration', 'validationrequest', 'validationresponse', 'feedback'] as const
 
 export type ERC8004Type = (typeof ERC8004_TYPES)[number]
@@ -25,6 +29,23 @@ export interface MetadataConfigInput {
 export interface MetadataConfigResult {
   pieceMetadata?: Record<string, string> | undefined
   dataSetMetadata?: Record<string, string> | undefined
+}
+
+/**
+ * Returns the metadata to pass to `createContexts()` when resolving storage contexts.
+ *
+ * When targeting contexts by explicit `dataSetIds`, the caller's metadata is used as-is —
+ * injecting defaults would risk silent mismatches on the resolve-by-id path.
+ * Otherwise, `IPFS_INDEXED_METADATA` is prepended so `metadataMatches()` finds existing
+ * data sets (it uses exact key-count matching; omitting the key causes all contexts to
+ * resolve as new data sets).
+ */
+export function resolveIpfsIndexedMetadata(
+  metadata: Record<string, string> | undefined,
+  dataSetIds: bigint[] | undefined
+): Record<string, string> {
+  if (dataSetIds != null) return metadata ?? {}
+  return { ...IPFS_INDEXED_METADATA, ...(metadata ?? {}) }
 }
 
 export function normalizeMetadataConfig(input: MetadataConfigInput): MetadataConfigResult {

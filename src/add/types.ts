@@ -1,4 +1,5 @@
 import type { CopyResult, FailedAttempt } from '@filoz/synapse-sdk'
+import type { UploadDryRunResult } from '../common/upload-flow.js'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 import type { CLIAutoFundOptions } from '../utils/cli-options.js'
 import type { EgressProvider } from '../utils/cli-options-egress.js'
@@ -17,6 +18,8 @@ export interface AddOptions extends CLIAuthOptions, CLIAutoFundOptions {
   includeHidden?: boolean
   /** Egress provider for piece retrieval ('beam' enables FilBeam CDN). Defaults to off when unset. */
   egressProvider?: EgressProvider
+  /** Estimate upload cost and exit before any upload or deposit transaction */
+  dryRun?: boolean
 }
 
 export interface AddResult {
@@ -29,4 +32,8 @@ export interface AddResult {
   requestedCopies: number
   copies: CopyResult[]
   failedAttempts: FailedAttempt[]
+}
+
+export interface AddDryRunResult extends UploadDryRunResult {
+  isDirectory?: boolean
 }

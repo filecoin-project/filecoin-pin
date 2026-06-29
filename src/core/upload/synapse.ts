@@ -11,7 +11,7 @@ import type { StorageContext, StorageManagerUploadOptions } from '@filoz/synapse
 import type { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import type { Hash } from 'viem'
-import { APPLICATION_SOURCE } from '../synapse/constants.js'
+import { APPLICATION_SOURCE, IPFS_INDEXED_METADATA } from '../synapse/constants.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 
 export type UploadProgressEvents =
@@ -319,9 +319,7 @@ export async function uploadToSynapse(
   } else {
     const hasCallerSource = options.metadata?.[METADATA_KEYS.SOURCE] != null || synapse.storage.source != null
 
-    const baseMetadata: Record<string, string> = {
-      [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
-    }
+    const baseMetadata: Record<string, string> = { ...IPFS_INDEXED_METADATA }
     if (!hasCallerSource) {
       baseMetadata[METADATA_KEYS.SOURCE] = APPLICATION_SOURCE
     }

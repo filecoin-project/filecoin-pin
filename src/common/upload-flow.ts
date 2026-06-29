@@ -6,12 +6,14 @@
  */
 
 import { isCancel, multiselect } from '@clack/prompts'
-import type { CopyResult, FailedAttempt, Synapse } from '@filoz/synapse-sdk'
+import type { CopyResult, FailedAttempt, Synapse, UploadCosts } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
 import type { DataSetSummary } from '../core/data-set/types.js'
+import { resolveIpfsIndexedMetadata } from '../core/metadata/index.js'
 import { DEFAULT_LOCKUP_DAYS, type PaymentCapacityCheck } from '../core/payments/index.js'
+import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import {
   checkUploadReadiness,
   executeUpload,
@@ -419,6 +421,132 @@ function displayPaymentIssues(capacityCheck: PaymentCapacityCheck, fileSize: num
 
   log.line(`${pc.yellow('⚠')} To fix this, run:`)
   log.indent(pc.cyan(`filecoin-pin payments setup --deposit ${suggestedDeposit} --auto`))
+  log.flush()
+}
+
+export interface EstimateUploadCostOptions {
+  /** Number of storage copies to create. Ignored if `providerIds`/`dataSetIds` are set. */
+  copies?: number
+  /** Specific provider IDs to target. Determines copy count when set. */
+  providerIds?: bigint[]
+  /** Specific existing data set IDs to target. Determines copy count when set. */
+  dataSetIds?: bigint[]
+  /** Data set metadata used to match/create contexts. */
+  metadata?: Record<string, string>
+  /** Whether CDN (FilBeam) is enabled for the upload. */
+  withCDN?: boolean
+}
+
+export interface UploadCostEstimate {
+  /** Number of copies the estimate was computed for. */
+  requestedCopies: number
+  /** How many of those copies would create a new data set. */
+  newDataSetCount: number
+  /** Aggregated cost breakdown across all copies. */
+  costs: UploadCosts
+}
+
+/**
+ * Shared shape returned by `add`/`import` when run with `--dry-run`.
+ * Extend per command for any command-specific fields (e.g. `isDirectory` on add).
+ */
+export interface UploadDryRunResult {
+  dryRun: true
+  filePath: string
+  fileSize: number
+  rootCid: string
+  requestedCopies: number
+  newDataSetCount: number
+  costs: UploadCosts
+}
+
+/**
+ * Estimate the cost of an upload without submitting any transaction.
+ *
+ * Resolves contexts via `createContexts()` using the same selectors the real
+ * upload would use, then aggregates costs across all of them with
+ * `calculateMultiContextCosts()`. That function sums per-context lockup/fees
+ * while computing account-level debt/runway/buffer exactly once; calling the
+ * single-context `getUploadCosts()` once per copy and summing the results
+ * would double-count those account-level terms.
+ *
+ * @param synapse - Initialized Synapse instance (read-only auth is sufficient)
+ * @param fileSize - Size of the data to upload, in bytes
+ * @param options - Copy count / targeting / metadata, mirroring the real upload's selectors
+ */
+export async function estimateUploadCost(
+  synapse: Synapse,
+  fileSize: number,
+  options: EstimateUploadCostOptions
+): Promise<UploadCostEstimate> {
+  const requestedCopies = options.providerIds?.length ?? options.dataSetIds?.length ?? options.copies ?? DEFAULT_COPIES
+
+  const resolvedMetadata = resolveIpfsIndexedMetadata(options.metadata, options.dataSetIds)
+
+  const contexts = await synapse.storage.createContexts({
+    copies: requestedCopies,
+    ...(options.providerIds && { providerIds: options.providerIds }),
+    ...(options.dataSetIds && { dataSetIds: options.dataSetIds }),
+    metadata: resolvedMetadata,
+    ...(options.withCDN && { withCDN: options.withCDN }),
+  })
+
+  const newDataSetCount = contexts.filter((context) => context.dataSetId == null).length
+  const costs = await synapse.storage.calculateMultiContextCosts(contexts, { dataSize: BigInt(fileSize) })
+
+  return { requestedCopies, newDataSetCount, costs }
+}
+
+/**
+ * Display a dry-run cost estimate. No upload happens and no funds move.
+ */
+export function displayDryRunEstimate(
+  fileInfo: { filePath: string; fileSize: number; rootCid: string },
+  estimate: UploadCostEstimate,
+  networkDisplay: string
+): void {
+  const { requestedCopies, newDataSetCount, costs } = estimate
+  const existingDataSetCount = requestedCopies - newDataSetCount
+
+  log.line(`Network: ${pc.bold(networkDisplay)}`)
+  log.line('')
+
+  log.line(pc.bold('Content'))
+  log.indent(`File: ${fileInfo.filePath}`)
+  log.indent(`Size: ${formatFileSize(fileInfo.fileSize)}`)
+  log.indent(`Root CID: ${fileInfo.rootCid}`)
+  log.line('')
+
+  log.line(pc.bold('Copies'))
+  const dataSetParts = [
+    newDataSetCount > 0 && `${newDataSetCount} new`,
+    existingDataSetCount > 0 && `${existingDataSetCount} existing`,
+  ].filter((part): part is string => Boolean(part))
+  const dataSetSuffix =
+    dataSetParts.length > 0 ? ` (${dataSetParts.join(', ')} data set${requestedCopies !== 1 ? 's' : ''})` : ''
+  log.indent(`Requested: ${requestedCopies}${dataSetSuffix}`)
+  log.line('')
+
+  log.line(pc.bold('Estimated Cost'))
+  log.indent(`Storage rate: ${formatUSDFC(costs.rates.perMonth)} USDFC/month`)
+  log.indent(`One-time fees: ${formatUSDFC(costs.fees.total)} USDFC`)
+  log.indent(`Lockup (held while active): ${formatUSDFC(costs.lockups.total)} USDFC`)
+  log.indent(`Deposit needed: ${formatUSDFC(costs.depositNeeded)} USDFC`)
+  log.line('')
+
+  if (costs.ready) {
+    log.line(`${pc.green('✓')} Account is ready to upload — no deposit or approval needed`)
+  } else {
+    log.line(`${pc.yellow('⚠')} Account is not ready to upload:`)
+    if (costs.depositNeeded > 0n) {
+      log.indent(`Deposit ${formatUSDFC(costs.depositNeeded)} USDFC before uploading`)
+    }
+    if (costs.needsFwssMaxApproval) {
+      log.indent('WarmStorage operator approval required')
+    }
+  }
+  log.line('')
+  log.line(pc.gray('Dry run — no upload performed, no funds moved.'))
   log.flush()
 }
 

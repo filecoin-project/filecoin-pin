@@ -162,7 +162,7 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
 
   onProgress?.({ type: 'validatingCapacity' })
 
-  const capacityCheck = await validatePaymentCapacity(synapse, fileSize)
+  const capacityCheck = await validatePaymentCapacity(synapse, fileSize) // issue #599: validatePaymentCapacity also calls checkAndSetAllowances internally, making autoConfigureAllowances: false ineffective
   const capacityStatus = determineCapacityStatus(capacityCheck)
 
   if (capacityStatus === 'insufficient') {

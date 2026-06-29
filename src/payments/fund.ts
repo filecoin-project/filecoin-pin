@@ -10,6 +10,7 @@ import pc from 'picocolors'
 import { parseUnits } from 'viem'
 import { CliFatal, CliIncomplete, isCliFatal, isCliIncomplete, setIncompleteExitCode } from '../common/cli-errors.js'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
+import { resolveIpfsIndexedMetadata } from '../core/metadata/index.js'
 import {
   checkUSDFCBalance,
   clampDepositToLimit,
@@ -142,11 +143,13 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
 
   spinner?.message('Checking wallet readiness...')
 
+  const resolvedMetadata = resolveIpfsIndexedMetadata(metadata, dataSetIds)
+
   const contexts = await synapse.storage.createContexts({
     ...(copies != null ? { copies } : {}),
     ...(providerIds != null ? { providerIds } : {}),
     ...(dataSetIds != null ? { dataSetIds } : {}),
-    ...(metadata != null ? { metadata } : {}),
+    metadata: resolvedMetadata,
   })
   const newDataSetCount = contexts.filter((context) => context.dataSetId == null).length
 

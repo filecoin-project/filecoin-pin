@@ -16,7 +16,9 @@ import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
 import {
+  displayDryRunEstimate,
   displayUploadResults,
+  estimateUploadCost,
   performAutoFunding,
   performUpload,
   promptDataSetSelection,
@@ -33,7 +35,7 @@ import { log } from '../utils/cli-logger.js'
 import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
 import { buildFilbeamUrl, chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
 import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
-import type { ImportOptions, ImportResult } from './types.js'
+import type { ImportDryRunResult, ImportOptions, ImportResult } from './types.js'
 
 /**
  * Zero CID used when CAR has no roots
@@ -140,7 +142,10 @@ async function validateFilePath(filePath: string): Promise<{ exists: boolean; st
  * Commander wiring calls this so option validation errors are displayed by the
  * command UI layer and command files only own exit-code handling.
  */
-export async function runCarImportFromCli(file: string, options: Record<string, any>): Promise<ImportResult> {
+export async function runCarImportFromCli(
+  file: string,
+  options: Record<string, any>
+): Promise<ImportResult | ImportDryRunResult> {
   let importOptions: ImportOptions
   try {
     const autoFundOptions = validateAndNormalizeAutoFundOptions(options)
@@ -185,7 +190,7 @@ export async function runCarImportFromCli(file: string, options: Record<string, 
  *
  * @param options - Import configuration
  */
-export async function runCarImport(options: ImportOptions): Promise<ImportResult> {
+export async function runCarImport(options: ImportOptions): Promise<ImportResult | ImportDryRunResult> {
   intro(pc.bold('Filecoin Pin CAR Import'))
 
   const spinner = createSpinner()
@@ -284,6 +289,32 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
           `${pc.gray('•')} No existing data sets matched --data-set-metadata; SDK will create a new data set with the requested metadata`
         )
       }
+    }
+
+    if (options.dryRun) {
+      spinner.start('Estimating upload cost...')
+      const estimate = await estimateUploadCost(synapse, fileStat.size, {
+        ...(options.copies != null && { copies: options.copies }),
+        ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
+        ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
+        ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
+        withCDN,
+      })
+      spinner.stop(`${pc.green('✓')} Cost estimate ready`)
+
+      const result: ImportDryRunResult = {
+        dryRun: true,
+        filePath: options.filePath,
+        fileSize: fileStat.size,
+        rootCid: rootCidString,
+        requestedCopies: estimate.requestedCopies,
+        newDataSetCount: estimate.newDataSetCount,
+        costs: estimate.costs,
+      }
+
+      displayDryRunEstimate(result, estimate, network)
+      outro('Dry run complete — no upload performed')
+      return result
     }
 
     if (options.autoFund) {
