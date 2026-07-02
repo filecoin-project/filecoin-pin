@@ -99,6 +99,7 @@
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:browser": "vitest run --project browser",
+    "test:smoke": "vitest run --project smoke",
     "test:watch": "vitest",
     "lint": "tsc && biome check --no-errors-on-unmatched --files-ignore-unknown=true .",
     "lint:fix": "biome check --no-errors-on-unmatched --files-ignore-unknown=true --fix .",
