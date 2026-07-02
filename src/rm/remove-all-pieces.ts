@@ -61,7 +61,7 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
   try {
     spinner.start('Initializing Synapse SDK...')
 
-    const authConfig = parseCLIAuth(options)
+    const authConfig = await parseCLIAuth(options)
     const synapse = await initializeSynapse(authConfig, logger)
     const network = synapse.chain.name
 

@@ -77,11 +77,24 @@ export function addSigningAuthOptions(command: Command): Command {
  * ```
  */
 export function addAuthOptions(command: Command): Command {
-  addSigningAuthOptions(command).addOption(
-    new Option('--view-address <address>', 'View-only mode (no signing) for the specified wallet address').env(
-      'VIEW_ADDRESS'
+  addSigningAuthOptions(command)
+    .addOption(
+      new Option(
+        '--wallet <id>',
+        'OpenWallet Standard wallet name or ID (signs via OWS, key never leaves vault). Can also use OWS_WALLET_ID env.'
+      ).env('OWS_WALLET_ID')
     )
-  )
+    .addOption(
+      new Option(
+        '--wallet-passphrase <passphrase>',
+        'Passphrase for the OWS wallet (also OWS_WALLET_PASSPHRASE env)'
+      ).env('OWS_WALLET_PASSPHRASE')
+    )
+    .addOption(
+      new Option('--view-address <address>', 'View-only mode (no signing) for the specified wallet address').env(
+        'VIEW_ADDRESS'
+      )
+    )
 
   return addNetworkOptions(command).addOption(
     rpcUrlOption('RPC endpoint')

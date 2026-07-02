@@ -139,6 +139,8 @@
     "@libp2p/tcp": "^11.0.17",
     "@multiformats/multiaddr": "^13.0.1",
     "@multiformats/multiaddr-to-uri": "^12.0.0",
+    "@open-wallet-standard/adapters": "^1.3.2",
+    "@open-wallet-standard/core": "^1.3.2",
     "@sentry/node": "^10.49.0",
     "commander": "^14.0.3",
     "datastore-core": "^11.0.4",

@@ -7,8 +7,9 @@
 
 import type { Chain, Synapse } from '@filoz/synapse-sdk'
 import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rpc-url.js'
+import { getOwsAccount } from '../core/ows/index.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
-import { initializeSynapse } from '../core/synapse/index.js'
+import { calibration, initializeSynapse } from '../core/synapse/index.js'
 import { createLogger } from '../logger.js'
 
 /**
@@ -18,6 +19,10 @@ import { createLogger } from '../logger.js'
 export interface CLIAuthOptions {
   /** Private key for standard authentication */
   privateKey?: string | undefined
+  /** OpenWallet Standard wallet name or ID (signs in-process, key stays in vault) */
+  wallet?: string | undefined
+  /** Optional passphrase for an OWS-managed wallet */
+  walletPassphrase?: string | undefined
   /** Wallet address for session key mode */
   walletAddress?: string | undefined
   /** Session key private key */
@@ -54,13 +59,21 @@ export interface CLIAuthOptions {
  * @param options - CLI authentication options
  * @returns Synapse setup config (validation happens in initializeSynapse)
  */
-export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
+export async function parseCLIAuth(options: CLIAuthOptions): Promise<SynapseSetupConfig> {
   const network = options.network?.toLowerCase().trim()
   const isDevnet = network === 'devnet'
   const hasRpcUrl = options.rpcUrl != null && options.rpcUrl !== ''
 
-  // For devnet, fall back to the devnet user's private key if none provided
-  const privateKey = options.privateKey || (isDevnet ? resolveDevnetConfig().privateKey : undefined)
+  // Env vars are bound to the Commander options via .env() (see cli-options.ts),
+  // so read everything from `options` rather than process.env here.
+  const owsWalletId = options.wallet
+  const owsPassphrase = options.walletPassphrase
+
+  // For devnet, fall back to the devnet user's private key if none provided.
+  // OWS wallets take precedence over PRIVATE_KEY when explicitly supplied.
+  const privateKey = owsWalletId
+    ? undefined
+    : options.privateKey || (isDevnet ? resolveDevnetConfig().privateKey : undefined)
   const walletAddress = options.walletAddress
   const sessionKey = options.sessionKey
   const viewAddress = options.viewAddress
@@ -78,7 +91,12 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
     chain = NETWORK_CHAINS.mainnet
   }
 
-  // Build config incrementally; initializeSynapse() validates the final shape
+  // Resolve a single auth mode; initializeSynapse() validates the final shape.
+  // Precedence mirrors initializeSynapse: read-only, then session key, then an
+  // owner signer (OWS, then private key). View-only and session-key modes never
+  // use the owner account, so the OWS account (which lazily loads the native
+  // adapter and can fail on platforms without a prebuilt) is resolved only when
+  // an owner signer is actually needed.
   const config: {
     privateKey?: string
     walletAddress?: string
@@ -86,16 +104,31 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
     readOnly?: boolean
     rpcUrl?: string
     chain?: Chain
+    account?: Awaited<ReturnType<typeof getOwsAccount>>
   } = {}
 
-  if (privateKey) config.privateKey = privateKey
   if (viewAddress) {
     config.walletAddress = viewAddress
     config.readOnly = true
-  } else if (walletAddress) {
+  } else if (walletAddress && sessionKey) {
     config.walletAddress = walletAddress
+    config.sessionKey = sessionKey
+  } else if (owsWalletId) {
+    const owsOptions: Parameters<typeof getOwsAccount>[0] = {
+      walletId: owsWalletId,
+      chain: chain ?? calibration,
+    }
+    if (owsPassphrase != null) owsOptions.passphrase = owsPassphrase
+    config.account = await getOwsAccount(owsOptions)
+  } else if (privateKey) {
+    config.privateKey = privateKey
+  } else if (walletAddress) {
+    // Only one half of session-key auth supplied; pass it through so
+    // initializeSynapse can emit its targeted "requires both" error.
+    config.walletAddress = walletAddress
+  } else if (sessionKey) {
+    config.sessionKey = sessionKey
   }
-  if (sessionKey) config.sessionKey = sessionKey
   if (rpcUrl) config.rpcUrl = rpcUrl
   if (chain) config.chain = chain
   return config as SynapseSetupConfig
@@ -249,7 +282,7 @@ export function getCLILogger() {
 }
 
 export async function getCliSynapse(options: CLIAuthOptions): Promise<Synapse> {
-  const authConfig = parseCLIAuth(options)
+  const authConfig = await parseCLIAuth(options)
   const logger = getCLILogger()
   return initializeSynapse(authConfig, logger)
 }

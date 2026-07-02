@@ -84,7 +84,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     // Initialize Synapse
     s.start('Initializing connection...')
 
-    const config = parseCLIAuth({ ...options, privateKey })
+    const config = await parseCLIAuth({ ...options, privateKey })
     const synapse = await initializeSynapse(config)
     const network = synapse.chain.name
     const address = getClientAddress(synapse)
