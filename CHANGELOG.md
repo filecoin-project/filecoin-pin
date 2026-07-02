@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.2.0](https://github.com/filecoin-project/filecoin-pin/compare/v1.1.1...v1.2.0) (2026-07-02)
+
+
+### Features
+
+* add `--dry-run` flag to `add` and `import` commands ([#595](https://github.com/filecoin-project/filecoin-pin/issues/595)) ([2a09bda](https://github.com/filecoin-project/filecoin-pin/commit/2a09bda1f5a410562d6aee7ec9a1ecf1882eeee2))
+
+
+### Chores
+
+* **deps:** bump actions/cache from 5 to 6.1.0 ([#605](https://github.com/filecoin-project/filecoin-pin/issues/605)) ([4325482](https://github.com/filecoin-project/filecoin-pin/commit/4325482f180690e34f8c80d5d1b080c295427aea))
+* **deps:** bump actions/cache from 5 to 6.1.0 in /upload-action ([#611](https://github.com/filecoin-project/filecoin-pin/issues/611)) ([bda61d7](https://github.com/filecoin-project/filecoin-pin/commit/bda61d7f7e1ad17765d855c3ad21c8ee05db7577))
+* **deps:** bump actions/checkout from 6.0.2 to 7.0.0 ([#606](https://github.com/filecoin-project/filecoin-pin/issues/606)) ([f551c71](https://github.com/filecoin-project/filecoin-pin/commit/f551c710ba350dfc478df75e338579e06018e45f))
+* **deps:** bump actions/download-artifact from 4 to 8 ([#607](https://github.com/filecoin-project/filecoin-pin/issues/607)) ([47e3c5a](https://github.com/filecoin-project/filecoin-pin/commit/47e3c5aa5ebb855ab194e1a2f839a6a31c1dedf2))
+* **deps:** bump actions/upload-artifact from 4 to 7 ([#609](https://github.com/filecoin-project/filecoin-pin/issues/609)) ([8f0eae6](https://github.com/filecoin-project/filecoin-pin/commit/8f0eae62235ca04313cd34af7e0bf45cca19b9e6))
+* **deps:** bump pnpm/action-setup from 6.0.8 to 6.0.9 ([#608](https://github.com/filecoin-project/filecoin-pin/issues/608)) ([fbed888](https://github.com/filecoin-project/filecoin-pin/commit/fbed88804b3e70ef61b5e9cbae19cbe4f7344eb4))
+* **deps:** bump pnpm/action-setup from 6.0.8 to 6.0.9 in /upload-action ([#610](https://github.com/filecoin-project/filecoin-pin/issues/610)) ([1cc395a](https://github.com/filecoin-project/filecoin-pin/commit/1cc395a3d398f0648f60970b0dec2f7046b4fa26))
+* **deps:** bump pnpm/action-setup in /upload-action ([1cc395a](https://github.com/filecoin-project/filecoin-pin/commit/1cc395a3d398f0648f60970b0dec2f7046b4fa26))
+
 ## [1.1.1](https://github.com/filecoin-project/filecoin-pin/compare/v1.1.0...v1.1.1) (2026-06-26)
 
 
