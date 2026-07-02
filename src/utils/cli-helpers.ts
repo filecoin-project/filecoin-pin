@@ -131,9 +131,13 @@ function formatFileSizeBigInt(bytes: bigint): string {
 /**
  * Check if we can perform interactive prompts.
  *
+ * Prompts (and the piece-status pager) read keystrokes, so stdin must be a TTY
+ * too. Checking stdout alone lets a piped stdin (e.g. `cmd < /dev/null`) reach
+ * a prompt that then hangs or, for the raw-mode pager, throws.
+ *
  * TTY is not enough, we also need to be in an interactive environment.
  * CI/CD environments are not interactive.
  */
 export function isInteractive(): boolean {
-  return isTTY() && process.env.CI !== 'true' && process.env.GITHUB_ACTIONS !== 'true'
+  return isTTY() && process.stdin.isTTY === true && process.env.CI !== 'true' && process.env.GITHUB_ACTIONS !== 'true'
 }

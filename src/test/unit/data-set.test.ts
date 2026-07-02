@@ -25,6 +25,7 @@ const {
   mockIsInteractive,
   mockConfirm,
   mockIsCancel,
+  mockRunPieceStatusPager,
   state,
 } = vi.hoisted(() => {
   const displayDataSetListMock = vi.fn()
@@ -46,6 +47,7 @@ const {
   const mockIsInteractive = vi.fn(() => false)
   const mockConfirm = vi.fn(async () => true)
   const mockIsCancel = vi.fn(() => false)
+  const mockRunPieceStatusPager = vi.fn()
   const state = {
     pieceMetadata: {} as Record<string, string>,
     pieceList: [] as Array<{ pieceId: bigint; pieceCid: string }>,
@@ -125,6 +127,7 @@ const {
     mockIsInteractive,
     mockConfirm,
     mockIsCancel,
+    mockRunPieceStatusPager,
     state,
   }
 })
@@ -133,6 +136,10 @@ vi.mock('../../data-set/display.js', () => ({
   displayDataSetList: displayDataSetListMock,
   displayDataSets: displayDataSetsMock,
   displayPieceStatuses: displayPieceStatusesMock,
+}))
+
+vi.mock('../../data-set/piece-status-pager.js', () => ({
+  runPieceStatusPager: mockRunPieceStatusPager,
 }))
 
 vi.mock('../../core/synapse/index.js', () => ({
@@ -400,14 +407,8 @@ describe('runDataSetCommand', () => {
     expect(call[3]).toMatch(/--all/)
   })
 
-  it('loads detailed information when a dataset id is provided', async () => {
+  it('loads detailed information without fetching pieces when a dataset id is provided', async () => {
     state.pieceList = [{ pieceId: 0n, pieceCid: 'bafkpiece0' }]
-    const pieceMetadata = {
-      [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot0',
-      custom: 'value',
-    }
-    state.pieceMetadata = pieceMetadata
-    mockGetAllPieceMetadata.mockResolvedValue(pieceMetadata)
 
     await runDataSetDetailsCommand(158, {
       privateKey: 'test-key',
@@ -422,14 +423,10 @@ describe('runDataSetCommand', () => {
     expect(dataSets).toHaveLength(1)
     const dataSet = dataSets[0]
     expect(dataSet).toBeDefined()
-    expect(dataSet?.totalSizeBytes).toBe(BigInt(1048576))
-    expect(dataSet?.pieces).toBeDefined()
-    expect(dataSet?.pieces).toHaveLength(1)
-    expect(dataSet?.pieces?.[0]?.size).toBe(1048576)
-    expect(dataSet?.pieces?.[0]?.metadata).toMatchObject({
-      [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot0',
-      custom: 'value',
-    })
+    expect(dataSet?.dataSetId).toBe(158n)
+    expect(dataSet?.pieces).toBeUndefined()
+    expect(dataSet?.totalSizeBytes).toBeUndefined()
+    expect(mockGetAllPieceMetadata).not.toHaveBeenCalled()
   })
 
   it('does not enumerate the whole account when loading a single dataset', async () => {
@@ -515,6 +512,8 @@ describe('runTerminateDataSetCommand', () => {
   })
 
   it('terminates a dataset without waiting', async () => {
+    state.pieceList = [{ pieceId: 0n, pieceCid: 'bafkpiece0' }]
+
     await runTerminateDataSetCommand(158, {
       privateKey: 'test-key',
       rpcUrl: 'wss://sample',
@@ -522,6 +521,7 @@ describe('runTerminateDataSetCommand', () => {
 
     expect(mockTerminateService).toHaveBeenCalledWith({ dataSetId: 158n, skipProvider: true })
     expect(mockWaitForTransactionReceipt).not.toHaveBeenCalled()
+    expect(mockGetAllPieceMetadata).not.toHaveBeenCalled()
     expect(displayDataSetsMock).toHaveBeenCalledTimes(2)
     expect(displayDataSetListMock).not.toHaveBeenCalled()
   })
@@ -541,6 +541,7 @@ describe('runTerminateDataSetCommand', () => {
   })
 
   it('terminates a dataset and waits for confirmation', async () => {
+    state.pieceList = [{ pieceId: 0n, pieceCid: 'bafkpiece0' }]
     const updatedDataSet = { ...terminatableDataSet, isLive: false, pdpEndEpoch: 5000 }
     mockGetPdpDataSet
       .mockResolvedValueOnce(toPdpDataSet(terminatableDataSet, provider))
@@ -554,6 +555,7 @@ describe('runTerminateDataSetCommand', () => {
 
     expect(mockTerminateService).toHaveBeenCalledWith({ dataSetId: 158n, skipProvider: true })
     expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith({ hash: '0xtxhash123' })
+    expect(mockGetAllPieceMetadata).not.toHaveBeenCalled()
     expect(displayDataSetsMock).toHaveBeenCalledTimes(2)
     expect(displayDataSetListMock).not.toHaveBeenCalled()
   })
@@ -707,6 +709,34 @@ describe('runDataSetPieceStatusCommand', () => {
     const call = displayPieceStatusesMock.mock.calls[0] as [PieceInfo[], number, string, string, string | undefined]
     expect(call[0]).toHaveLength(0)
     expect(call[4]).toMatch(/No piece matching bafkmissing/)
+  })
+
+  it('uses the interactive pager instead of the full dump when interactive and no pieceCid is given', async () => {
+    mockIsInteractive.mockReturnValue(true)
+
+    await runDataSetPieceStatusCommand(158, undefined, {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    expect(displayPieceStatusesMock).not.toHaveBeenCalled()
+    expect(mockRunPieceStatusPager).toHaveBeenCalledTimes(1)
+    const [, dataSet] = mockRunPieceStatusPager.mock.calls[0] as [unknown, DataSetSummary]
+    expect(dataSet.dataSetId).toBe(158n)
+    // includePieces: false - the pager fetches pieces itself, lazily.
+    expect(dataSet.pieces).toBeUndefined()
+  })
+
+  it('keeps the full-fetch/filter path when a pieceCid is given even while interactive', async () => {
+    mockIsInteractive.mockReturnValue(true)
+
+    await runDataSetPieceStatusCommand(158, 'bafkpiece1', {
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+    })
+
+    expect(mockRunPieceStatusPager).not.toHaveBeenCalled()
+    expect(displayPieceStatusesMock).toHaveBeenCalledTimes(1)
   })
 
   it('rejects invalid dataset IDs', async () => {

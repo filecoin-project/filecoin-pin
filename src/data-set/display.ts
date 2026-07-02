@@ -204,8 +204,20 @@ function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
 
 function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
   log.indent(pc.bold('Pieces'), indentLevel)
-  log.indent(`Total pieces: ${dataSet.activePieceCount}`, indentLevel + 1)
-  if (dataSet.pieces == null || dataSet.pieces.length === 0) {
+  log.indent(`Total: ${dataSet.activePieceCount}`, indentLevel + 1)
+
+  if (dataSet.pieces == null) {
+    log.line('')
+    log.indent(pc.gray('Tip:'), indentLevel)
+    log.indent(
+      pc.gray(`Run "filecoin-pin data-set piece-status ${dataSet.dataSetId}" to view pieces.`),
+      indentLevel + 1
+    )
+    log.line('')
+    return
+  }
+
+  if (dataSet.pieces.length === 0) {
     log.line('')
     return
   }
