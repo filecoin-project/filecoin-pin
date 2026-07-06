@@ -123,6 +123,8 @@ function makeSummary(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; 
     availableFunds,
     debt: 0n,
     totalLockup,
+    totalRateBasedLockup: 0n,
+    totalFixedLockup: 0n,
     lockupRatePerEpoch,
     runwayInEpochs,
     grossCoverageInEpochs,
