@@ -8,7 +8,12 @@ import type { Synapse } from '@filoz/synapse-sdk'
 import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { calculateActualStorage, listDataSets } from '../core/data-set/index.js'
-import { checkFILBalance, checkUSDFCBalance, getUsdfcAcquisitionHelpMessage, validateGasRequirement } from '../core/payments/index.js'
+import {
+  checkFILBalance,
+  checkUSDFCBalance,
+  getUsdfcAcquisitionHelpMessage,
+  validateGasRequirement,
+} from '../core/payments/index.js'
 import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatFIL, formatUSDFC } from '../core/utils/format.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
@@ -88,9 +93,9 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
 
     log.line(pc.bold('Wallet'))
     log.indent(`${'Address'.padEnd(LBL)} ${address}`)
-    log.indent(`${'FIL'.padEnd(LBL)}  ${formatFIL(filStatus.balance, filStatus.isCalibnet)}`)
-    log.indent(`${'USDFC'.padEnd(LBL)}  ${formatUSDFC(walletUsdfcBalance)} USDFC`)
-    
+    log.indent(`${'FIL'.padEnd(LBL)} ${formatFIL(filStatus.balance, filStatus.isCalibnet)}`)
+    log.indent(`${'USDFC'.padEnd(LBL)} ${formatUSDFC(walletUsdfcBalance)} USDFC`)
+
     const hasSufficientGas = validateGasRequirement(filStatus.balance, filStatus.isCalibnet)
     if (!hasSufficientGas.isValid) {
       log.indent(pc.yellow(`⚠ No FIL for gas — ${hasSufficientGas.helpMessage}`))
@@ -103,14 +108,13 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     }
     log.line('')
 
-    
     log.line(pc.bold('Account'))
     log.indent(`${'Total deposited'.padEnd(LBL)} ${formatUSDFC(funds)} USDFC`)
     log.indent(`${'Available to withdraw'.padEnd(LBL)} ${formatUSDFC(availableFunds)} USDFC`)
     log.indent(`${'Burn rate'.padEnd(LBL)} ${formatUSDFC(burnRatePerMonth)} USDFC / month`)
     log.indent(`${'Total locked'.padEnd(LBL)} ${formatUSDFC(totalLockup)} USDFC`)
     log.indent(
-      `  ├─ ${'Termination reserve'.padEnd(LBL - 5)} ${formatUSDFC(totalRateBasedLockup)} USDFC  (30-day guarantee)`
+      `  ├─ ${'Termination reserve'.padEnd(LBL - 5)} ${formatUSDFC(totalRateBasedLockup)} USDFC   (covers last 30 days after termination)`
     )
     log.indent(
       `  └─ ${'Usage reserve'.padEnd(LBL - 5)} ${formatUSDFC(totalFixedLockup)} USDFC  (Operation + CDN reserve)`
@@ -119,7 +123,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     log.flush()
 
     // Datasets — separate spinner pass
-    const datasetsUnavailable = 'Datasets  ·  (unavailable)'
+    const datasetsUnavailable = `${pc.bold('Datasets')}  ·  (unavailable)`
     try {
       spinner.start('Calculating storage...')
       const dataSets = await listDataSets(synapse, {
@@ -138,7 +142,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       })
 
       const storedStr = actualStorageResult.totalBytes > 0n ? formatFileSize(actualStorageResult.totalBytes) : '0 B'
-      const datasetsLine = `Datasets  ·  ${dataSets.length} active  ·  ${storedStr} stored`
+      const datasetsLine = `${pc.bold('Datasets')}  ·  ${dataSets.length} active  ·  ${storedStr} stored`
 
       if (actualStorageResult.timedOut) {
         spinner.stop(`${pc.yellow('⚠')} Storage calculation timed out`)
@@ -161,7 +165,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     log.flush()
 
     if (options.includeRails === true) {
-      spinner.start('Fetching payment rails...')
+      spinner.start('Getting payment rails...')
       const paymentRailsData = await fetchPaymentRailsData(synapse)
       spinner.stop(pc.bold('Payment Rails'))
       displayPaymentRailsSummary(paymentRailsData)
@@ -182,6 +186,8 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
 interface PaymentRailsData {
   activeRails: number
   terminatedRails: number
+  failedRails: number
+  warnings: string[]
   totalActiveRate: bigint
   totalPendingSettlements: bigint
   railsNeedingSettlement: number
@@ -196,6 +202,8 @@ async function fetchPaymentRailsData(synapse: Synapse): Promise<PaymentRailsData
       return {
         activeRails: 0,
         terminatedRails: 0,
+        failedRails: 0,
+        warnings: [],
         totalActiveRate: 0n,
         totalPendingSettlements: 0n,
         railsNeedingSettlement: 0,
@@ -206,7 +214,9 @@ async function fetchPaymentRailsData(synapse: Synapse): Promise<PaymentRailsData
     let totalActiveRate = 0n
     let activeRails = 0
     let terminatedRails = 0
+    let failedRails = 0
     let railsNeedingSettlement = 0
+    const warnings: string[] = []
 
     for (const rail of payerRails) {
       try {
@@ -225,13 +235,16 @@ async function fetchPaymentRailsData(synapse: Synapse): Promise<PaymentRailsData
           railsNeedingSettlement++
         }
       } catch (error) {
-        log.warn(`Could not analyze rail ${rail.railId}: ${error instanceof Error ? error.message : String(error)}`)
+        failedRails++
+        warnings.push(`Rail ${rail.railId}: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
 
     return {
       activeRails,
       terminatedRails,
+      failedRails,
+      warnings,
       totalActiveRate,
       totalPendingSettlements,
       railsNeedingSettlement,
@@ -240,6 +253,8 @@ async function fetchPaymentRailsData(synapse: Synapse): Promise<PaymentRailsData
     return {
       activeRails: 0,
       terminatedRails: 0,
+      failedRails: 0,
+      warnings: [],
       totalActiveRate: 0n,
       totalPendingSettlements: 0n,
       railsNeedingSettlement: 0,
@@ -254,12 +269,14 @@ function displayPaymentRailsSummary(data: PaymentRailsData): void {
     return
   }
 
-  if (data.activeRails === 0 && data.terminatedRails === 0) {
+  if (data.activeRails === 0 && data.terminatedRails === 0 && data.failedRails === 0) {
     log.indent(pc.gray('No active payment rails'))
     return
   }
 
-  log.indent(`${data.activeRails} active, ${data.terminatedRails} terminated`)
+  const summaryParts = [`${data.activeRails} active`, `${data.terminatedRails} terminated`]
+  if (data.failedRails > 0) summaryParts.push(pc.yellow(`${data.failedRails} failed`))
+  log.indent(summaryParts.join(', '))
 
   if (data.totalPendingSettlements > 0n) {
     log.indent(`Pending settlement: ${formatUSDFC(data.totalPendingSettlements)} USDFC`)
@@ -267,5 +284,12 @@ function displayPaymentRailsSummary(data: PaymentRailsData): void {
 
   if (data.railsNeedingSettlement > 0) {
     log.indent(`${data.railsNeedingSettlement} rail(s) need settlement`)
+  }
+
+  for (const warning of data.warnings) {
+    log.line('')
+    for (const line of warning.split('\n')) {
+      log.indent(pc.yellow(`⚠ ${line}`))
+    }
   }
 }
