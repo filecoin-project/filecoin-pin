@@ -1,8 +1,14 @@
+/**
+ * Payment status display command
+ *
+ * Shows current payment configuration and balances for Filecoin Onchain Cloud.
+ * This provides a quick overview of the user's payment setup without making changes.
+ */
 import type { Synapse } from '@filoz/synapse-sdk'
 import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import { type ActualStorageResult, calculateActualStorage, listDataSets } from '../core/data-set/index.js'
-import { checkFILBalance, checkUSDFCBalance, getUsdfcAcquisitionHelpMessage } from '../core/payments/index.js'
+import { calculateActualStorage, listDataSets } from '../core/data-set/index.js'
+import { checkFILBalance, checkUSDFCBalance, getUsdfcAcquisitionHelpMessage, validateGasRequirement } from '../core/payments/index.js'
 import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatFIL, formatUSDFC } from '../core/utils/format.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
@@ -13,9 +19,8 @@ interface StatusOptions extends CLIAuthOptions {
   includeRails?: boolean
 }
 
-// 14 days in epochs (2880 epochs/day)
-const EPOCHS_14_DAYS = 40320n
-const EPOCH_DURATION_MS = 30_000
+const EPOCHS_14_DAYS = TIME_CONSTANTS.EPOCHS_PER_DAY * 14n
+const EPOCH_DURATION_MS = TIME_CONSTANTS.EPOCH_DURATION * 1000
 
 function deriveAccountStatus(runwayInEpochs: bigint, debt: bigint): 'HEALTHY' | 'WARNING' | 'DEFICIT' {
   if (runwayInEpochs === 0n || debt > 0n) return 'DEFICIT'
@@ -32,7 +37,7 @@ function formatFundedUntil(runwayInEpochs: bigint, lockupRatePerEpoch: bigint): 
     day: 'numeric',
     year: 'numeric',
   }).format(fundedUntilDate)
-  const days = Math.floor(Number(runwayInEpochs) / 2880)
+  const days = Math.floor(Number(runwayInEpochs / TIME_CONSTANTS.EPOCHS_PER_DAY))
   return `Funded until ${dateStr}  (${days} days)`
 }
 
@@ -49,43 +54,12 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     const network = synapse.chain.name
     const address = getClientAddress(synapse)
 
-    const filStatus = await checkFILBalance(synapse)
+    const [filStatus, walletUsdfcBalance, accountSummary] = await Promise.all([
+      checkFILBalance(synapse),
+      checkUSDFCBalance(synapse),
+      synapse.payments.accountSummary({}),
+    ])
 
-    if (filStatus.balance === 0n) {
-      spinner.stop('━━━ Payment Status ━━━')
-      log.line(`Network: ${network}`)
-      log.line('')
-      log.line(`${pc.red('✗')} Account has no FIL balance`)
-      log.line('')
-      log.line(
-        `Get test FIL from: ${filStatus.isCalibnet ? 'https://faucet.calibnet.chainsafe-fil.io/' : 'Purchase FIL from an exchange'}`
-      )
-      log.flush()
-      cancel('Account not funded')
-      throw new Error('Account has no FIL balance')
-    }
-
-    const walletUsdfcBalance = await checkUSDFCBalance(synapse)
-
-    if (walletUsdfcBalance === 0n) {
-      spinner.stop('━━━ Payment Status ━━━')
-      log.line(`Network: ${network}`)
-      log.line('')
-      log.line(`${pc.red('✗')} No USDFC tokens found`)
-      log.line('')
-      const helpMessage = getUsdfcAcquisitionHelpMessage(filStatus.isCalibnet)
-      log.line(`  ${pc.cyan(helpMessage)}`)
-      log.flush()
-      cancel('USDFC required to use Filecoin Onchain Cloud')
-      throw new Error('No USDFC tokens found')
-    }
-
-    const accountSummary = await synapse.payments.accountSummary({})
-
-    let paymentRailsData: PaymentRailsData | null = null
-    if (options.includeRails === true) {
-      paymentRailsData = await fetchPaymentRailsData(synapse)
-    }
     spinner.stop(`${pc.green('✓')} Configuration loaded`)
 
     const {
@@ -104,6 +78,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     const fundedUntilStr = formatFundedUntil(runwayInEpochs, lockupRatePerEpoch)
     const burnRatePerMonth = lockupRatePerEpoch * TIME_CONSTANTS.EPOCHS_PER_DAY * TIME_CONSTANTS.DAYS_PER_MONTH
 
+    const LBL = 25
     log.line('━━━ Payment Status ━━━')
     log.line('')
     log.line(`Network: ${network}`)
@@ -112,12 +87,23 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     log.line('')
 
     log.line(pc.bold('Wallet'))
-    log.indent(`Address: ${address}`)
-    log.indent(`${'FIL'.padEnd(5)}  ${formatFIL(filStatus.balance, filStatus.isCalibnet)}`)
-    log.indent(`${'USDFC'.padEnd(5)}  ${formatUSDFC(walletUsdfcBalance)} USDFC`)
+    log.indent(`${'Address'.padEnd(LBL)} ${address}`)
+    log.indent(`${'FIL'.padEnd(LBL)}  ${formatFIL(filStatus.balance, filStatus.isCalibnet)}`)
+    log.indent(`${'USDFC'.padEnd(LBL)}  ${formatUSDFC(walletUsdfcBalance)} USDFC`)
+    
+    const hasSufficientGas = validateGasRequirement(filStatus.balance, filStatus.isCalibnet)
+    if (!hasSufficientGas.isValid) {
+      log.indent(pc.yellow(`⚠ No FIL for gas — ${hasSufficientGas.helpMessage}`))
+    }
+    if (walletUsdfcBalance === 0n) {
+      const helpLines = `⚠ No USDFC in wallet — ${getUsdfcAcquisitionHelpMessage(filStatus.isCalibnet)}`.split('\n')
+      for (const line of helpLines) {
+        log.indent(pc.yellow(line))
+      }
+    }
     log.line('')
 
-    const LBL = 24
+    
     log.line(pc.bold('Account'))
     log.indent(`${'Total deposited'.padEnd(LBL)} ${formatUSDFC(funds)} USDFC`)
     log.indent(`${'Available to withdraw'.padEnd(LBL)} ${formatUSDFC(availableFunds)} USDFC`)
@@ -130,28 +116,19 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       `  └─ ${'Usage reserve'.padEnd(LBL - 5)} ${formatUSDFC(totalFixedLockup)} USDFC  (Operation + CDN reserve)`
     )
     log.line('')
-
-    if (paymentRailsData != null) {
-      displayPaymentRailsSummary(paymentRailsData)
-      log.line('')
-    }
-
     log.flush()
 
     // Datasets — separate spinner pass
-    let datasetsLine = 'Datasets  ·  (unavailable)'
+    const datasetsUnavailable = 'Datasets  ·  (unavailable)'
     try {
-      spinner.start('Fetching data sets...')
+      spinner.start('Calculating storage...')
       const dataSets = await listDataSets(synapse, {
         address,
         filter: (ds) => ds.isLive,
         logger,
       })
-      spinner.stop(`${pc.green('✓')} Data sets fetched`)
 
-      spinner.start('Calculating storage...')
-      let actualStorageResult: ActualStorageResult | null = null
-      actualStorageResult = await calculateActualStorage(synapse, dataSets, {
+      const actualStorageResult = await calculateActualStorage(synapse, dataSets, {
         logger,
         onProgress: (progress) => {
           if (progress.type === 'actual-storage:progress') {
@@ -160,27 +137,36 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
         },
       })
 
+      const storedStr = actualStorageResult.totalBytes > 0n ? formatFileSize(actualStorageResult.totalBytes) : '0 B'
+      const datasetsLine = `Datasets  ·  ${dataSets.length} active  ·  ${storedStr} stored`
+
       if (actualStorageResult.timedOut) {
         spinner.stop(`${pc.yellow('⚠')} Storage calculation timed out`)
+        log.line(datasetsLine)
       } else if (actualStorageResult.warnings.length > 0) {
         spinner.stop(`${pc.yellow('⚠')} Storage calculated with ${actualStorageResult.warnings.length} warning(s)`)
+        for (const warning of actualStorageResult.warnings) {
+          log.indent(pc.yellow(`⚠ ${warning.message}`))
+        }
+        log.line(datasetsLine)
       } else {
-        spinner.stop(`${pc.green('✓')} Storage calculated`)
+        spinner.stop(datasetsLine)
       }
-
-      for (const warning of actualStorageResult.warnings) {
-        log.indent(pc.yellow(`⚠ ${warning.message}`))
-      }
-
-      const storedStr = actualStorageResult.totalBytes > 0n ? formatFileSize(actualStorageResult.totalBytes) : '0 B'
-      datasetsLine = `Datasets  ·  ${dataSets.length} active  ·  ${storedStr} stored`
     } catch (error) {
       spinner.stop(`${pc.yellow('⚠')} Could not calculate storage`)
       log.indent(pc.gray(`Error: ${error instanceof Error ? error.message : String(error)}`))
+      log.line(datasetsUnavailable)
     }
 
-    log.line(datasetsLine)
     log.flush()
+
+    if (options.includeRails === true) {
+      spinner.start('Fetching payment rails...')
+      const paymentRailsData = await fetchPaymentRailsData(synapse)
+      spinner.stop(pc.bold('Payment Rails'))
+      displayPaymentRailsSummary(paymentRailsData)
+      log.flush()
+    }
 
     outro('Status check complete')
   } catch (error) {
@@ -263,8 +249,6 @@ async function fetchPaymentRailsData(synapse: Synapse): Promise<PaymentRailsData
 }
 
 function displayPaymentRailsSummary(data: PaymentRailsData): void {
-  log.line(pc.bold('Payment Rails'))
-
   if (data.error) {
     log.indent(pc.gray(data.error))
     return
