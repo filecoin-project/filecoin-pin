@@ -22,7 +22,6 @@ import {
 import { formatFileSize, type Spinner } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { type PagerPageResult, runPager } from '../utils/cli-pager.js'
-import { truncate } from '../utils/format.js'
 
 const MAX_PAGE_SIZE = 20
 const MIN_PAGE_SIZE = 1
@@ -32,9 +31,7 @@ const PREFETCH_CONCURRENCY = 10
 const LINES_PER_PIECE = 3
 /** Approximate terminal rows consumed by header/footer chrome around the piece list (network line, title, total-pieces line, page label, navigation footer, blank line, tip line, and spacing) */
 const RESERVED_CHROME_LINES = 11
-const PIECE_CID_DISPLAY_LENGTH = 70
-const ROOT_CID_DISPLAY_LENGTH = 16
-const PIECE_DETAIL_INDENT = ' '.repeat(11)
+const PIECE_DETAIL_INDENT = ' '.repeat(9)
 
 interface PiecePage {
   pieces: PieceInfo[]
@@ -231,15 +228,15 @@ function renderPiecePage(
 }
 
 function formatPieceBlock(piece: PieceInfo): string {
-  const id = `#${piece.pieceId}`.padEnd(8)
-  const pieceCid = truncate(piece.pieceCid, PIECE_CID_DISPLAY_LENGTH).padEnd(PIECE_CID_DISPLAY_LENGTH + 2)
-  const size = formatPieceSize(piece).padEnd(10)
-  const row = `  ${pc.bold(id)} ${pieceCid} ${size} ${formatPieceStatus(piece.status)}`
-  return [row, `${PIECE_DETAIL_INDENT}${pc.gray('ipfsRootCID:')} ${formatRootCid(piece)}`].join('\n')
+  const id = `#${piece.pieceId}`.padEnd(6)
+  const pieceCid = piece.pieceCid.padEnd(piece.pieceCid.length + 10)
+  const row = `  ${pc.bold(id)} ${pieceCid} ${formatPieceSize(piece)} ${formatPieceStatus(piece.status)}`
+  return [row, `${PIECE_DETAIL_INDENT}${pc.bold(pc.gray('ipfsRootCID:'))} ${formatRootCid(piece)}`].join('\n')
 }
 
 function formatPieceSize(piece: PieceInfo): string {
-  return piece.size == null ? pc.gray('unknown') : formatFileSize(piece.size)
+  if (piece.size == null) return pc.gray('unknown'.padEnd(10))
+  return formatFileSize(piece.size).padEnd(10)
 }
 
 function formatRootCid(piece: PieceInfo): string {
@@ -251,7 +248,7 @@ function formatRootCid(piece: PieceInfo): string {
     return pc.yellow('metadata fetch failed')
   }
   const rootCid = piece.rootIpfsCid ?? piece.metadata[METADATA_KEYS.IPFS_ROOT_CID]
-  return rootCid == null || rootCid === '' ? pc.gray('-') : truncate(rootCid, ROOT_CID_DISPLAY_LENGTH)
+  return rootCid == null || rootCid === '' ? pc.gray('-') : pc.gray(rootCid)
 }
 
 function formatPieceStatus(status: PieceStatus): string {
