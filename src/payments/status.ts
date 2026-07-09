@@ -35,14 +35,15 @@ function deriveAccountStatus(runwayInEpochs: bigint, debt: bigint): 'HEALTHY' | 
 
 function formatFundedUntil(runwayInEpochs: bigint, lockupRatePerEpoch: bigint): string {
   if (lockupRatePerEpoch === 0n) return 'No active storage spend'
-  const fundedUntilMs = Date.now() + Number(runwayInEpochs) * EPOCH_DURATION_MS
-  const fundedUntilDate = new Date(fundedUntilMs)
+  const maxEpochsForDate = BigInt(Math.floor((Number.MAX_SAFE_INTEGER - Date.now()) / EPOCH_DURATION_MS))
+  if (runwayInEpochs > maxEpochsForDate) return 'Funded indefinitely'
+  const days = (runwayInEpochs / TIME_CONSTANTS.EPOCHS_PER_DAY).toString()
+  const fundedUntilDate = new Date(Date.now() + Number(runwayInEpochs) * EPOCH_DURATION_MS)
   const dateStr = new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
   }).format(fundedUntilDate)
-  const days = Math.floor(Number(runwayInEpochs / TIME_CONSTANTS.EPOCHS_PER_DAY))
   return `Funded until ${dateStr}  (${days} days)`
 }
 
@@ -96,9 +97,10 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     log.indent(`${'FIL'.padEnd(LBL)} ${formatFIL(filStatus.balance, filStatus.isCalibnet)}`)
     log.indent(`${'USDFC'.padEnd(LBL)} ${formatUSDFC(walletUsdfcBalance)} USDFC`)
 
-    const hasSufficientGas = validateGasRequirement(filStatus.balance, filStatus.isCalibnet)
-    if (!hasSufficientGas.isValid) {
-      log.indent(pc.yellow(`⚠ No FIL for gas — ${hasSufficientGas.helpMessage}`))
+    const gasCheck = validateGasRequirement(filStatus.balance, filStatus.isCalibnet)
+    if (!gasCheck.isValid) {
+      log.indent(pc.yellow(`⚠ ${gasCheck.errorMessage}`))
+      log.indent(pc.yellow(`  ${gasCheck.helpMessage}`))
     }
     if (walletUsdfcBalance === 0n) {
       const helpLines = `⚠ No USDFC in wallet — ${getUsdfcAcquisitionHelpMessage(filStatus.isCalibnet)}`.split('\n')
