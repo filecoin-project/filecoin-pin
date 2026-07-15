@@ -116,10 +116,10 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     log.indent(`${'Burn rate'.padEnd(LBL)} ${formatUSDFC(burnRatePerMonth)} USDFC / month`)
     log.indent(`${'Total locked'.padEnd(LBL)} ${formatUSDFC(totalLockup)} USDFC`)
     log.indent(
-      `  ├─ ${'Termination reserve'.padEnd(LBL - 5)} ${formatUSDFC(totalRateBasedLockup)} USDFC   (covers last 30 days after termination)`
+      `  ├─ ${'Security Deposit'.padEnd(LBL - 5)} ${formatUSDFC(totalRateBasedLockup)} USDFC   (covers last 30 days after termination)`
     )
     log.indent(
-      `  └─ ${'Usage reserve'.padEnd(LBL - 5)} ${formatUSDFC(totalFixedLockup)} USDFC  (Operation + CDN reserve)`
+      `  └─ ${'Usage hold'.padEnd(LBL - 5)} ${formatUSDFC(totalFixedLockup)} USDFC  (Operation + CDN usage)`
     )
     log.line('')
     log.flush()
