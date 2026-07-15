@@ -21,8 +21,8 @@ importers:
         specifier: ^0.7.0
         version: 0.7.0(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.3.6))
       '@filoz/synapse-sdk':
-        specifier: ^1.0.1
-        version: 1.0.1(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.3.6))
+        specifier: ^1.1.0
+        version: 1.1.0(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.3.6))
       '@helia/block-brokers':
         specifier: ^5.1.3
         version: 5.2.4
@@ -485,8 +485,8 @@ packages:
     peerDependencies:
       viem: 2.x
 
-  '@filoz/synapse-sdk@1.0.1':
-    resolution: {integrity: sha512-zUAFPVPit9CNcOfjzv4oH+zqj0FkyVHJkXbeWpuJo4ZQxlCTieILpgEn7zR5LFnGKBpukzM0iIzW1mOEqGZ6jA==}
+  '@filoz/synapse-sdk@1.1.0':
+    resolution: {integrity: sha512-C5paiXZivxzEAujb7VA5HOA26QFaQ+om55yNpDTMLFR0zbGu7kjIWfQ0nXwziYczl1sm9UmNe7qa2SyIKw4hkQ==}
     peerDependencies:
       viem: 2.x
 
@@ -2721,7 +2721,7 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@filoz/synapse-sdk@1.0.1(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.3.6))':
+  '@filoz/synapse-sdk@1.1.0(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.3.6))':
     dependencies:
       '@filoz/synapse-core': 0.7.0(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.3.6))
       multiformats: 14.0.0
