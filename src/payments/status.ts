@@ -27,14 +27,15 @@ interface StatusOptions extends CLIAuthOptions {
 const EPOCHS_14_DAYS = TIME_CONSTANTS.EPOCHS_PER_DAY * 14n
 const EPOCH_DURATION_MS = TIME_CONSTANTS.EPOCH_DURATION * 1000
 
-function deriveAccountStatus(runwayInEpochs: bigint, debt: bigint): 'HEALTHY' | 'WARNING' | 'DEFICIT' {
+export function deriveAccountStatus(runwayInEpochs: bigint, debt: bigint): 'HEALTHY' | 'WARNING' | 'DEFICIT' {
   if (runwayInEpochs === 0n || debt > 0n) return 'DEFICIT'
   if (runwayInEpochs <= EPOCHS_14_DAYS) return 'WARNING'
   return 'HEALTHY'
 }
 
-function formatFundedUntil(runwayInEpochs: bigint, lockupRatePerEpoch: bigint): string {
+export function formatFundedUntil(runwayInEpochs: bigint, lockupRatePerEpoch: bigint): string {
   if (lockupRatePerEpoch === 0n) return 'No active storage spend'
+  if (runwayInEpochs === 0n) return 'Providers may terminate service at any time'
   const maxEpochsForDate = BigInt(Math.floor((Number.MAX_SAFE_INTEGER - Date.now()) / EPOCH_DURATION_MS))
   if (runwayInEpochs > maxEpochsForDate) return 'Funded indefinitely'
   const days = (runwayInEpochs / TIME_CONSTANTS.EPOCHS_PER_DAY).toString()
