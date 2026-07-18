@@ -10,6 +10,7 @@ import { getCliSynapse, parseProviderIdSelection } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { displayDataSetList, displayDataSets, displayPieceStatuses } from './display.js'
+import { runPieceStatusPager } from './piece-status-pager.js'
 import type { DataSetCommandOptions, DataSetListCommandOptions } from './types.js'
 
 /**
@@ -39,7 +40,7 @@ export async function runDataSetDetailsCommand(dataSetId: number, options: DataS
 
     spinner.message('Fetching data set details...')
 
-    const dataSet: DataSetSummary = await getDetailedDataSet(synapse, BigInt(dataSetId))
+    const dataSet: DataSetSummary = await getDetailedDataSet(synapse, BigInt(dataSetId), { includePieces: false })
 
     spinner.stop('━━━ Data Set ━━━')
     displayDataSets([dataSet], network, address)
@@ -90,6 +91,13 @@ export async function runDataSetPieceStatusCommand(
     const network = synapse.chain.name
     const address = getClientAddress(synapse)
 
+    if (!cid && isInteractive()) {
+      const dataSet: DataSetSummary = await getDetailedDataSet(synapse, BigInt(dataSetId), { includePieces: false })
+      await runPieceStatusPager(synapse, dataSet, { spinner })
+      outro('Piece status lookup complete')
+      return
+    }
+
     spinner.message('Fetching piece status...')
 
     const dataSet: DataSetSummary = await getDetailedDataSet(synapse, BigInt(dataSetId))
@@ -98,6 +106,10 @@ export async function runDataSetPieceStatusCommand(
     let pieces: PieceInfo[] = allPieces
     let emptyMessage: string | undefined
     if (cid != null) {
+      // A cheaper PieceCID-only lookup can use findPieceIdsByCid from
+      // @filoz/synapse-core/pdp-verifier, then getAllPieceMetadata({ dataSetId, pieceId })
+      // from @filoz/synapse-core/warm-storage. But IPFS root CID filtering still
+      // needs this metadata scan because there is no root-CID index today.
       pieces = allPieces.filter((piece) => piece.pieceCid === cid || piece.rootIpfsCid === cid)
       if (pieces.length === 0) {
         emptyMessage = `No piece matching ${cid} was found in data set ${dataSetId}.`
@@ -232,7 +244,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
 
     let dataSet: DataSetSummary
     try {
-      dataSet = await getDetailedDataSet(synapse, BigInt(dataSetId))
+      dataSet = await getDetailedDataSet(synapse, BigInt(dataSetId), { includePieces: false })
     } catch (error) {
       spinner.stop(`${pc.red('✗')} Data set not found`)
       log.line('')
@@ -335,7 +347,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       }
       spinner.message('Transaction confirmed, fetching final status...')
       try {
-        dataSet = await getDetailedDataSet(synapse, BigInt(dataSetId))
+        dataSet = await getDetailedDataSet(synapse, BigInt(dataSetId), { includePieces: false })
       } catch {
         dataSet = {
           ...dataSet,

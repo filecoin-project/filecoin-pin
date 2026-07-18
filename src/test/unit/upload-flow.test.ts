@@ -43,9 +43,9 @@ import {
   displayUploadResults,
   performUpload,
   promptDataSetSelection,
-  truncate,
 } from '../../common/upload-flow.js'
 import { createLogger } from '../../logger.js'
+import { truncate } from '../../utils/format.js'
 
 const TEST_CID = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
 
