@@ -164,7 +164,7 @@
     "@vitest/coverage-v8": "^4.0.18",
     "blockstore-core": "^7.0.1",
     "playwright": "1.60.0",
-    "tsx": "~4.21.0",
+    "tsx": "~4.23.1",
     "typedoc": "^0.28.17",
     "typescript": "~6.0.3",
     "vitest": "^4.0.18"
