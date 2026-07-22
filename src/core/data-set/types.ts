@@ -62,6 +62,20 @@ export interface DataSetPiecesResult {
 }
 
 /**
+ * One lazily fetched batch of dataset pieces.
+ */
+export interface IterateDataSetPiecesResult {
+  /** Dataset ID these pieces belong to */
+  dataSetId: bigint
+  /** Pieces yielded for this batch */
+  pieces: PieceInfo[]
+  /** Whether more on-chain piece batches are available */
+  hasMore: boolean
+  /** Non-fatal warnings encountered while producing this batch */
+  warnings: Warning[]
+}
+
+/**
  * Summary information for a dataset
  *
  * Extends EnhancedDataSetInfo from synapse-sdk with optional provider enrichment.
@@ -113,11 +127,17 @@ export interface ListDataSetsOptions {
 /**
  * Options for getting pieces from a dataset
  */
-export interface GetDataSetPiecesOptions {
-  /** Whether to fetch and include piece metadata from WarmStorage */
-  includeMetadata?: boolean
+export interface IterateDataSetPiecesOptions {
   /** Abort signal for cancellation */
   signal?: AbortSignal
   /** Logger instance for debugging (optional) */
   logger?: Logger | undefined
+}
+
+/**
+ * Options for getting pieces from a dataset
+ */
+export interface GetDataSetPiecesOptions extends IterateDataSetPiecesOptions {
+  /** Whether to fetch and include piece metadata from WarmStorage */
+  includeMetadata?: boolean
 }

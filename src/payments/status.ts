@@ -4,284 +4,181 @@
  * Shows current payment configuration and balances for Filecoin Onchain Cloud.
  * This provides a quick overview of the user's payment setup without making changes.
  */
-
-import { SIZE_CONSTANTS } from '@filoz/synapse-core/utils'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import { parseUnits } from 'viem'
-import { type ActualStorageResult, calculateActualStorage, listDataSets } from '../core/data-set/index.js'
+import { calculateActualStorage, listDataSets } from '../core/data-set/index.js'
 import {
-  calculateDepositCapacity,
   checkFILBalance,
   checkUSDFCBalance,
   getUsdfcAcquisitionHelpMessage,
-  toStorageRunwaySummary,
+  validateGasRequirement,
 } from '../core/payments/index.js'
 import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatFIL, formatUSDFC } from '../core/utils/format.js'
-import { formatRunwaySummary } from '../core/utils/index.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import { displayDepositWarning } from './setup.js'
 
 interface StatusOptions extends CLIAuthOptions {
   includeRails?: boolean
 }
 
-const STORAGE_DISPLAY_PRECISION_DIGITS = 6
-const STORAGE_DISPLAY_PRECISION = 10n ** BigInt(STORAGE_DISPLAY_PRECISION_DIGITS)
-const { TiB } = SIZE_CONSTANTS
+const EPOCHS_14_DAYS = TIME_CONSTANTS.EPOCHS_PER_DAY * 14n
+const EPOCH_DURATION_MS = TIME_CONSTANTS.EPOCH_DURATION * 1000
 
-/**
- * Convert a payment rate (USDFC per epoch) to storage bytes using the provider's pricing.
- *
- * This calculates: "How much storage does this payment rate cover?"
- *
- * Formula: storageBytes = (rate / pricePerTiBPerEpoch) * TiB
- *
- * NOTE: This calculation assumes a linear relationship between payment rate and
- * storage size, which breaks down when floor pricing is applied to small files.
- * The result represents "storage equivalent" at the given rate, not actual bytes stored.
- * Use calculateActualStorage() from core/data-set for accurate byte counts.
- *
- * @param ratePerEpoch - Payment rate in USDFC per epoch
- * @param pricePerTiBPerEpoch - Provider's price for 1 TiB per epoch in USDFC
- * @returns Storage bytes that the rate covers, or null if invalid inputs
- */
-function convertRateToStorageBytes(ratePerEpoch: bigint, pricePerTiBPerEpoch: bigint): bigint | null {
-  if (ratePerEpoch <= 0n || pricePerTiBPerEpoch <= 0n) {
-    return null
-  }
-
-  // storageTiBScaled preserves fractional precision using STORAGE_DISPLAY_PRECISION scaling
-  const storageTiBScaled = (ratePerEpoch * STORAGE_DISPLAY_PRECISION) / pricePerTiBPerEpoch
-  if (storageTiBScaled <= 0n) {
-    return null
-  }
-
-  // Convert scaled TiB to bytes: TiB * 1024^4 bytes, then unscale
-  return (storageTiBScaled * TiB) / STORAGE_DISPLAY_PRECISION
+export function deriveAccountStatus(runwayInEpochs: bigint, debt: bigint): 'HEALTHY' | 'WARNING' | 'DEFICIT' {
+  if (runwayInEpochs === 0n || debt > 0n) return 'DEFICIT'
+  if (runwayInEpochs <= EPOCHS_14_DAYS) return 'WARNING'
+  return 'HEALTHY'
 }
 
-/**
- * Display current payment status
- *
- * @param options - Options from command line
- */
+export function formatFundedUntil(runwayInEpochs: bigint, lockupRatePerEpoch: bigint): string {
+  if (lockupRatePerEpoch === 0n) return 'No active storage spend'
+  if (runwayInEpochs === 0n) return 'Providers may terminate service at any time'
+  const maxEpochsForDate = BigInt(Math.floor((Number.MAX_SAFE_INTEGER - Date.now()) / EPOCH_DURATION_MS))
+  if (runwayInEpochs > maxEpochsForDate) return 'Funded indefinitely'
+  const days = (runwayInEpochs / TIME_CONSTANTS.EPOCHS_PER_DAY).toString()
+  const fundedUntilDate = new Date(Date.now() + Number(runwayInEpochs) * EPOCH_DURATION_MS)
+  const dateStr = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(fundedUntilDate)
+  return `Funded until ${dateStr}  (${days} days)`
+}
+
 export async function showPaymentStatus(options: StatusOptions): Promise<void> {
-  intro(pc.bold('Filecoin Onchain Cloud Payment Status'))
+  intro(pc.bold('Payment Status'))
 
   const spinner = createSpinner()
   spinner.start('Fetching current configuration...')
 
   try {
-    // Parse and validate authentication
     const authConfig = await parseCLIAuth(options)
-
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)
     const network = synapse.chain.name
     const address = getClientAddress(synapse)
 
-    // Check balances and status
-    const filStatus = await checkFILBalance(synapse)
-
-    // Early exit if account has no funds
-    if (filStatus.balance === 0n) {
-      spinner.stop('━━━ Current Status ━━━')
-
-      log.line(`Address: ${address}`)
-      log.line(`Network: ${network}`)
-      log.line('')
-      log.line(`${pc.red('✗')} Account has no FIL balance`)
-      log.line('')
-      log.line(
-        `Get test FIL from: ${filStatus.isCalibnet ? 'https://faucet.calibnet.chainsafe-fil.io/' : 'Purchase FIL from an exchange'}`
-      )
-      log.flush()
-
-      cancel('Account not funded')
-      throw new Error('Account has no FIL balance')
-    }
-
-    const walletUsdfcBalance = await checkUSDFCBalance(synapse)
-
-    // Check if we have USDFC tokens before continuing
-    if (walletUsdfcBalance === 0n) {
-      spinner.stop('━━━ Current Status ━━━')
-
-      log.line(`Address: ${address}`)
-      log.line(`Network: ${network}`)
-      log.line('')
-      log.line(`${pc.red('✗')} No USDFC tokens found`)
-      log.line('')
-      const helpMessage = getUsdfcAcquisitionHelpMessage(filStatus.isCalibnet)
-      log.line(`  ${pc.cyan(helpMessage)}`)
-      log.flush()
-
-      cancel('USDFC required to use Filecoin Onchain Cloud')
-      throw new Error('No USDFC tokens found')
-    }
-
-    const [accountSummary, storageInfo] = await Promise.all([
+    const [filStatus, walletUsdfcBalance, accountSummary] = await Promise.all([
+      checkFILBalance(synapse),
+      checkUSDFCBalance(synapse),
       synapse.payments.accountSummary({}),
-      synapse.storage.getStorageInfo(),
     ])
-    const runway = toStorageRunwaySummary(accountSummary)
 
-    const pricePerTiBPerEpoch = storageInfo.pricing.noCDN.perTiBPerEpoch
-    const datasetFeePerMonth = storageInfo.pricing.priceList.rates.datasetFeePerMonth
-
-    let paymentRailsData: PaymentRailsData | null = null
-    if (options.includeRails === true) {
-      paymentRailsData = await fetchPaymentRailsData(synapse)
-    }
     spinner.stop(`${pc.green('✓')} Configuration loaded`)
 
-    // Display all status information
-    log.line('━━━ Current Status ━━━')
+    const {
+      runwayInEpochs,
+      debt,
+      lockupRatePerEpoch,
+      funds,
+      availableFunds,
+      totalLockup,
+      totalRateBasedLockup,
+      totalFixedLockup,
+    } = accountSummary
 
-    // Show wallet balances
+    const accountStatus = deriveAccountStatus(runwayInEpochs, debt)
+    const statusColor = accountStatus === 'HEALTHY' ? pc.green : accountStatus === 'WARNING' ? pc.yellow : pc.red
+    const fundedUntilStr = formatFundedUntil(runwayInEpochs, lockupRatePerEpoch)
+    const burnRatePerMonth = lockupRatePerEpoch * TIME_CONSTANTS.EPOCHS_PER_DAY * TIME_CONSTANTS.DAYS_PER_MONTH
+
+    const LBL = 25
+    log.line('━━━ Payment Status ━━━')
+    log.line('')
+    log.line(`Network: ${network}`)
+    log.line('')
+    log.line(`${statusColor('●')} ${pc.bold(statusColor(accountStatus))}  ${fundedUntilStr}`)
+    log.line('')
+
     log.line(pc.bold('Wallet'))
-    log.indent(`Owner address: ${address}`)
-    log.indent(`Network: ${network}`)
-    log.indent(`FIL: ${formatFIL(filStatus.balance, filStatus.isCalibnet)}`)
-    log.indent(`USDFC: ${formatUSDFC(walletUsdfcBalance)} USDFC`)
-    log.line('')
+    log.indent(`${'Address'.padEnd(LBL)} ${address}`)
+    log.indent(`${'FIL'.padEnd(LBL)} ${formatFIL(filStatus.balance, filStatus.isCalibnet)}`)
+    log.indent(`${'USDFC'.padEnd(LBL)} ${formatUSDFC(walletUsdfcBalance)} USDFC`)
 
-    // Show deposit and capacity
-    const totalDeposited = accountSummary.funds
-    const lockupUsed = runway.lockupUsed
-    const rateUsed = runway.rateUsed
-    const availableDeposit = totalDeposited > lockupUsed ? totalDeposited - lockupUsed : 0n
-    const capacity = calculateDepositCapacity(totalDeposited, pricePerTiBPerEpoch)
-    const runwayDisplay = formatRunwaySummary(runway)
-    const dailyCost = runway.perDay
-    const monthlyCost = dailyCost * TIME_CONSTANTS.DAYS_PER_MONTH
-
-    log.line(pc.bold('Filecoin Pay'))
-    log.indent(`Balance: ${formatUSDFC(totalDeposited)} USDFC`)
-    log.indent(`Locked: ${formatUSDFC(lockupUsed)} USDFC (30-day reserve)`)
-    log.indent(`Available: ${formatUSDFC(availableDeposit)} USDFC`)
-    if (rateUsed > 0n) {
-      log.indent(`Epoch cost: ${formatUSDFC(rateUsed)} USDFC`)
-      log.indent(`Daily cost: ${formatUSDFC(dailyCost)} USDFC`)
-      log.indent(`Monthly cost: ${formatUSDFC(monthlyCost)} USDFC`)
-    } else {
-      log.indent(`Epoch cost: ${pc.gray('0 USDFC')}`)
-      log.indent(`Daily cost: ${pc.gray('0 USDFC')}`)
-      log.indent(`Monthly cost: ${pc.gray('0 USDFC')}`)
+    const gasCheck = validateGasRequirement(filStatus.balance, filStatus.isCalibnet)
+    if (!gasCheck.isValid) {
+      log.indent(pc.yellow(`⚠ ${gasCheck.errorMessage}`))
+      log.indent(pc.yellow(`  ${gasCheck.helpMessage}`))
     }
-    if (paymentRailsData != null) {
-      displayPaymentRailsSummary(paymentRailsData, 1)
+    if (walletUsdfcBalance === 0n) {
+      const helpLines = `⚠ No USDFC in wallet — ${getUsdfcAcquisitionHelpMessage(filStatus.isCalibnet)}`.split('\n')
+      for (const line of helpLines) {
+        log.indent(pc.yellow(line))
+      }
     }
     log.line('')
 
-    // Show storage usage details
-    log.line(pc.bold('WarmStorage Usage'))
+    log.line(pc.bold('Account'))
+    log.indent(`${'Total deposited'.padEnd(LBL)} ${formatUSDFC(funds)} USDFC`)
+    log.indent(`${'Available to withdraw'.padEnd(LBL)} ${formatUSDFC(availableFunds)} USDFC`)
+    log.indent(`${'Burn rate'.padEnd(LBL)} ${formatUSDFC(burnRatePerMonth)} USDFC / month`)
+    log.indent(`${'Total locked'.padEnd(LBL)} ${formatUSDFC(totalLockup)} USDFC`)
+    log.indent(
+      `  ├─ ${'Security Deposit'.padEnd(LBL - 5)} ${formatUSDFC(totalRateBasedLockup)} USDFC   (30 days post-termination + uncollected charges)`
+    )
+    log.indent(`  └─ ${'Usage hold'.padEnd(LBL - 5)} ${formatUSDFC(totalFixedLockup)} USDFC  (Operation + CDN usage)`)
+    log.line('')
+    log.flush()
 
-    let actualStorageResult: ActualStorageResult | null = null
+    // Datasets — separate spinner pass
+    const datasetsUnavailable = `${pc.bold('Datasets')}  ·  (unavailable)`
     try {
-      spinner.start('Fetching data sets...')
-      // Get all active data sets for this address
+      spinner.start('Calculating storage...')
       const dataSets = await listDataSets(synapse, {
         address,
-        filter: (ds) => ds.isLive, // Only count active/live data sets
+        filter: (ds) => ds.isLive,
         logger,
       })
-      spinner.stop(`${pc.green('✓')} Data sets fetched`)
 
-      spinner.start('Calculating actual storage from data sets...')
-      actualStorageResult = await calculateActualStorage(synapse, dataSets, {
+      const actualStorageResult = await calculateActualStorage(synapse, dataSets, {
         logger,
         onProgress: (progress) => {
           if (progress.type === 'actual-storage:progress') {
-            spinner.message(
-              `Calculating actual storage from data sets (${progress.data.dataSetsProcessed}/${progress.data.dataSetCount})`
-            )
+            spinner.message(`Calculating storage (${progress.data.dataSetsProcessed}/${progress.data.dataSetCount})`)
           }
         },
       })
 
-      if (actualStorageResult.timedOut) {
-        spinner.stop(`${pc.yellow('⚠')} Calculation timed out`)
-      } else if (actualStorageResult.warnings.length > 0) {
-        spinner.stop(
-          `${pc.yellow('⚠')} Actual storage calculated with ${actualStorageResult.warnings.length} warning(s)`
-        )
-      } else {
-        spinner.stop(`${pc.green('✓')} Actual storage calculated`)
-      }
+      const storedStr = actualStorageResult.totalBytes > 0n ? formatFileSize(actualStorageResult.totalBytes) : '0 B'
+      const datasetsLine = `${pc.bold('Datasets')}  ·  ${dataSets.length} active  ·  ${storedStr} stored`
 
-      if (actualStorageResult.warnings.length > 0) {
+      if (actualStorageResult.timedOut) {
+        spinner.stop(`${pc.yellow('⚠')} Storage calculation timed out`)
+        log.line(datasetsLine)
+      } else if (actualStorageResult.warnings.length > 0) {
+        spinner.stop(`${pc.yellow('⚠')} Storage calculated with ${actualStorageResult.warnings.length} warning(s)`)
         for (const warning of actualStorageResult.warnings) {
           log.indent(pc.yellow(`⚠ ${warning.message}`))
         }
-      }
-
-      if (actualStorageResult.totalBytes > 0n) {
-        const formattedSize = formatFileSize(actualStorageResult.totalBytes)
-        log.indent(`Stored: ${formattedSize}`)
+        log.line(datasetsLine)
       } else {
-        log.indent(pc.gray('Stored: 0 B'))
+        spinner.stop(datasetsLine)
       }
     } catch (error) {
-      spinner.stop(`${pc.yellow('⚠')} Could not calculate actual storage`)
-      log.indent(pc.gray(`  Error: ${error instanceof Error ? error.message : String(error)}`))
+      spinner.stop(`${pc.yellow('⚠')} Could not calculate storage`)
+      log.indent(pc.gray(`Error: ${error instanceof Error ? error.message : String(error)}`))
+      log.line(datasetsUnavailable)
     }
-
-    if (runway.state === 'active') {
-      log.indent(`Storage covered: ~${runwayDisplay.coverage} total`)
-      log.indent(`Top-up needed in: ~${runwayDisplay.runway}`)
-    } else {
-      log.indent(pc.gray(runwayDisplay.coverage))
-    }
-
-    const capacityTibPerMonth = parseUnits(capacity.tibPerMonth.toString(), 18)
-    const capacityBytes = (capacityTibPerMonth * TiB) / 10n ** 18n
-    const capacityLine = `Funding could cover ~${formatFileSize(capacityBytes)} for one month`
-    log.indent(capacityLine)
 
     log.flush()
 
-    const billedBytes = convertRateToStorageBytes(rateUsed, pricePerTiBPerEpoch)
-    if (billedBytes != null) {
-      const epochsInFloorPeriod = TIME_CONSTANTS.DAYS_PER_MONTH * TIME_CONSTANTS.EPOCHS_PER_DAY
-      const floorRatePerEpoch = datasetFeePerMonth / epochsInFloorPeriod
-      const floorEquivalentBytes = convertRateToStorageBytes(floorRatePerEpoch, pricePerTiBPerEpoch)
-      const floorEquivalentFormatted = floorEquivalentBytes ? formatFileSize(floorEquivalentBytes) : '~24.6 GiB'
-
-      const sectionContent = [
-        pc.gray('Filecoin Onchain Cloud uses floor pricing for DataSets.'),
-        pc.gray(`Each DataSet is billed a minimum of ${formatUSDFC(datasetFeePerMonth, 2)} USDFC per 30 days.`),
-        pc.gray(`This is equivalent to ~${floorEquivalentFormatted} per month.`),
-        `Billed capacity: ~${formatFileSize(billedBytes)}`,
-      ]
-      if (actualStorageResult != null && billedBytes > actualStorageResult.totalBytes) {
-        const additionalStorage = billedBytes - actualStorageResult.totalBytes
-        sectionContent.push(`Storage remaining: ~${formatFileSize(additionalStorage)}`)
-      }
-      log.indent(pc.bold('Storage usage details:'))
-      for (const content of sectionContent) {
-        log.indent(content, 2)
-      }
+    if (options.includeRails === true) {
+      spinner.start('Getting payment rails...')
+      const paymentRailsData = await fetchPaymentRailsData(synapse)
+      spinner.stop(pc.bold('Payment Rails'))
+      displayPaymentRailsSummary(paymentRailsData)
+      log.flush()
     }
 
-    // Show deposit warning if needed
-    displayDepositWarning(totalDeposited, lockupUsed)
-    log.flush()
-
-    // Show success outro
     outro('Status check complete')
   } catch (error) {
     spinner.stop(`${pc.red('✗')} Status check failed`)
-
     log.line('')
     log.line(`${pc.red('Error:')} ${error instanceof Error ? error.message : String(error)}`)
     log.flush()
-
     cancel('Status check failed')
     throw error
   }
@@ -290,36 +187,37 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
 interface PaymentRailsData {
   activeRails: number
   terminatedRails: number
+  failedRails: number
+  warnings: string[]
   totalActiveRate: bigint
   totalPendingSettlements: bigint
   railsNeedingSettlement: number
   error?: string
 }
 
-/**
- * Fetch payment rails data without displaying anything
- */
 async function fetchPaymentRailsData(synapse: Synapse): Promise<PaymentRailsData> {
   try {
-    // Get rails as payer
     const payerRails = await synapse.payments.getRailsAsPayer()
 
     if (payerRails.length === 0) {
       return {
         activeRails: 0,
         terminatedRails: 0,
+        failedRails: 0,
+        warnings: [],
         totalActiveRate: 0n,
         totalPendingSettlements: 0n,
         railsNeedingSettlement: 0,
       }
     }
 
-    // Analyze rails for summary
     let totalPendingSettlements = 0n
     let totalActiveRate = 0n
     let activeRails = 0
     let terminatedRails = 0
+    let failedRails = 0
     let railsNeedingSettlement = 0
+    const warnings: string[] = []
 
     for (const rail of payerRails) {
       try {
@@ -333,19 +231,21 @@ async function fetchPaymentRailsData(synapse: Synapse): Promise<PaymentRailsData
           totalActiveRate += railDetails.paymentRate
         }
 
-        // Check for pending settlements
         if (settlementPreview.totalSettledAmount > 0n) {
           totalPendingSettlements += settlementPreview.totalSettledAmount
           railsNeedingSettlement++
         }
       } catch (error) {
-        log.warn(`Could not analyze rail ${rail.railId}: ${error instanceof Error ? error.message : String(error)}`)
+        failedRails++
+        warnings.push(`Rail ${rail.railId}: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
 
     return {
       activeRails,
       terminatedRails,
+      failedRails,
+      warnings,
       totalActiveRate,
       totalPendingSettlements,
       railsNeedingSettlement,
@@ -354,6 +254,8 @@ async function fetchPaymentRailsData(synapse: Synapse): Promise<PaymentRailsData
     return {
       activeRails: 0,
       terminatedRails: 0,
+      failedRails: 0,
+      warnings: [],
       totalActiveRate: 0n,
       totalPendingSettlements: 0n,
       railsNeedingSettlement: 0,
@@ -362,29 +264,33 @@ async function fetchPaymentRailsData(synapse: Synapse): Promise<PaymentRailsData
   }
 }
 
-/**
- * Display payment rails summary
- */
-function displayPaymentRailsSummary(data: PaymentRailsData, indentLevel: number = 1): void {
-  log.indent(pc.bold('Payment Rails'), indentLevel)
-
+function displayPaymentRailsSummary(data: PaymentRailsData): void {
   if (data.error) {
-    log.indent(pc.gray(data.error), indentLevel + 1)
+    log.indent(pc.gray(data.error))
     return
   }
 
-  if (data.activeRails === 0 && data.terminatedRails === 0) {
-    log.indent(pc.gray('No active payment rails'), indentLevel + 1)
+  if (data.activeRails === 0 && data.terminatedRails === 0 && data.failedRails === 0) {
+    log.indent(pc.gray('No active payment rails'))
     return
   }
 
-  log.indent(`${data.activeRails} active, ${data.terminatedRails} terminated`, indentLevel + 1)
+  const summaryParts = [`${data.activeRails} active`, `${data.terminatedRails} terminated`]
+  if (data.failedRails > 0) summaryParts.push(pc.yellow(`${data.failedRails} failed`))
+  log.indent(summaryParts.join(', '))
 
   if (data.totalPendingSettlements > 0n) {
-    log.indent(`Pending settlement: ${formatUSDFC(data.totalPendingSettlements)} USDFC`, indentLevel + 1)
+    log.indent(`Pending settlement: ${formatUSDFC(data.totalPendingSettlements)} USDFC`)
   }
 
   if (data.railsNeedingSettlement > 0) {
-    log.indent(`${data.railsNeedingSettlement} rail(s) need settlement`, indentLevel + 1)
+    log.indent(`${data.railsNeedingSettlement} rail(s) need settlement`)
+  }
+
+  for (const warning of data.warnings) {
+    log.line('')
+    for (const line of warning.split('\n')) {
+      log.indent(pc.yellow(`⚠ ${line}`))
+    }
   }
 }

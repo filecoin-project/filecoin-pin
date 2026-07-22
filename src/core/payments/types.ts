@@ -126,6 +126,8 @@ export type AccountSummary = Pick<
   | 'availableFunds'
   | 'debt'
   | 'totalLockup'
+  | 'totalRateBasedLockup'
+  | 'totalFixedLockup'
   | 'lockupRatePerEpoch'
   | 'runwayInEpochs'
   | 'grossCoverageInEpochs'

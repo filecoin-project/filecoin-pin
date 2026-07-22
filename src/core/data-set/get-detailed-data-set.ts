@@ -15,9 +15,10 @@ import type { DataSetSummary, ListDataSetsOptions } from './types.js'
 export async function getDetailedDataSet(
   synapse: Synapse,
   dataSetId: bigint,
-  options?: ListDataSetsOptions
+  options?: ListDataSetsOptions & { includePieces?: boolean }
 ): Promise<DataSetSummary> {
   const logger = options?.logger
+  const includePieces = options?.includePieces ?? true
 
   try {
     const pdpDataSet = await getPdpDataSet(synapse.client, { dataSetId })
@@ -25,11 +26,6 @@ export async function getDetailedDataSet(
     if (pdpDataSet == null) {
       throw new Error(`Data set ${dataSetId} not found`)
     }
-
-    const piecesResult = await getDataSetPieces(synapse, dataSetId, pdpDataSet.provider.pdp?.serviceURL ?? '', {
-      includeMetadata: true,
-      logger,
-    })
 
     const createdWithFilecoinPin = Object.entries(DEFAULT_DATA_SET_METADATA).every(
       ([key, value]) => pdpDataSet.metadata[key] === value
@@ -43,10 +39,19 @@ export async function getDetailedDataSet(
       isManaged: pdpDataSet.managed,
       withCDN: pdpDataSet.cdn,
       provider: pdpDataSet.provider,
-      pieces: piecesResult.pieces,
       createdWithFilecoinPin,
     }
 
+    if (!includePieces) {
+      return result
+    }
+
+    const piecesResult = await getDataSetPieces(synapse, dataSetId, pdpDataSet.provider.pdp?.serviceURL ?? '', {
+      includeMetadata: true,
+      logger,
+    })
+
+    result.pieces = piecesResult.pieces
     if (piecesResult.totalSizeBytes != null) {
       result.totalSizeBytes = piecesResult.totalSizeBytes
     }
