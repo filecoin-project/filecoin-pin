@@ -9,7 +9,8 @@ import type { Chain, Synapse } from '@filoz/synapse-sdk'
 import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rpc-url.js'
 import { getOwsAccount } from '../core/ows/index.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
-import { calibration, initializeSynapse } from '../core/synapse/index.js'
+import { createTransport, initializeSynapse } from '../core/synapse/index.js'
+import { resolveChainFromRpc } from '../core/synapse/resolve-chain-from-rpc.js'
 import { createLogger } from '../logger.js'
 
 /**
@@ -114,11 +115,18 @@ export async function parseCLIAuth(options: CLIAuthOptions): Promise<SynapseSetu
     config.walletAddress = walletAddress
     config.sessionKey = sessionKey
   } else if (owsWalletId) {
+    // The OWS adapter derives its CAIP-2 account hint (eip155:<chainId>) from
+    // the chain. With --rpc-url the chain hint is intentionally left undefined
+    // (initializeSynapse probes the endpoint), so probe here too rather than
+    // guessing a network and requesting the wrong eip155 account.
+    const owsChain = chain ?? (rpcUrl ? await resolveChainFromRpc(createTransport(rpcUrl)) : NETWORK_CHAINS.mainnet)
     const owsOptions: Parameters<typeof getOwsAccount>[0] = {
       walletId: owsWalletId,
-      chain: chain ?? calibration,
+      chain: owsChain,
     }
-    if (owsPassphrase != null) owsOptions.passphrase = owsPassphrase
+    // An empty OWS_WALLET_PASSPHRASE (common in CI env files) means "no
+    // passphrase", not a real passphrase value.
+    if (owsPassphrase != null && owsPassphrase !== '') owsOptions.passphrase = owsPassphrase
     config.account = await getOwsAccount(owsOptions)
   } else if (privateKey) {
     config.privateKey = privateKey
