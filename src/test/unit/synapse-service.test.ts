@@ -118,6 +118,30 @@ describe('synapse-service', () => {
 
       await expect(initializeSynapse(config, logger)).rejects.toThrow('Missing: --wallet-address / WALLET_ADDRESS')
     })
+
+    it('should throw a flag-specific error when sessionKey is not a hex private key', async () => {
+      const config = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: 'not-a-private-key',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      } as any
+
+      await expect(initializeSynapse(config, logger)).rejects.toThrow(
+        'Invalid --session-key / SESSION_KEY: expected the session key private key'
+      )
+    })
+
+    it('should explain when the session address is passed as sessionKey', async () => {
+      const config = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: '0x1234567890123456789012345678901234567890',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      } as any
+
+      await expect(initializeSynapse(config, logger)).rejects.toThrow(
+        'this looks like an address, but the session key private key'
+      )
+    })
   })
 
   describe('initializeSynapse chain resolution', () => {

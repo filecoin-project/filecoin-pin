@@ -138,6 +138,23 @@ const PERMISSION_NAMES: Record<string, string> = {
   [SchedulePieceRemovalsPermission]: 'SchedulePieceRemovals',
 }
 
+/**
+ * Reject malformed session key material before it reaches the SDK. Without
+ * this, viem fails with "invalid private key, expected hex or 32 bytes" —
+ * which never names `--session-key` and gives no clue that the flag expects
+ * the session key's private key rather than its address.
+ */
+function assertSessionKeyPrivateKey(value: string): void {
+  if (/^0x[0-9a-fA-F]{64}$/.test(value)) return
+  const detail = /^(0x)?[0-9a-fA-F]{40}$/.test(value)
+    ? 'this looks like an address, but the session key private key (0x-prefixed, 64 hex characters) is required'
+    : 'expected the session key private key (0x-prefixed, 64 hex characters)'
+  throw new Error(
+    `Invalid --session-key / SESSION_KEY: ${detail}. ` +
+      'Use the SESSION_KEY value printed by "filecoin-pin session create" or "filecoin-pin session generate".'
+  )
+}
+
 function checkSessionKeyPermissions(key: SessionKey<'Secp256k1'>, ownerAddress: string): void {
   const missing = DefaultFwssPermissions.filter((p) => !key.hasPermission(p))
   if (missing.length === 0) return
@@ -196,6 +213,7 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
   } else if (isSessionKeyConfig(config)) {
     const walletAddress = getAddress(config.walletAddress)
     account = walletAddress
+    assertSessionKeyPrivateKey(config.sessionKey)
     sessionKey = fromSecp256k1({
       privateKey: config.sessionKey,
       root: walletAddress,
