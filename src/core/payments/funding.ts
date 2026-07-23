@@ -8,6 +8,7 @@ import {
   computeAdjustmentForExactDeposit,
   depositUSDFC,
   getPaymentStatus,
+  validateGasRequirement,
   validatePaymentRequirements,
   withdrawUSDFC,
 } from './index.js'
@@ -427,15 +428,17 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     allowWithdraw,
   })
 
-  // Planning, no-op, and withdrawal paths do not spend wallet USDFC. Only
-  // validate wallet funding when this plan will actually make a deposit.
-  if (plan.delta > 0n) {
-    const isCalibnet = status.chainId === calibration.id
-    const validation = validatePaymentRequirements(status.filBalance, status.walletUsdfcBalance, isCalibnet)
-    if (!validation.isValid) {
-      const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
-      throw new Error(`${validation.errorMessage}${help}`)
-    }
+  // Every plan may be followed by a transaction (allowance, deposit, or
+  // withdrawal), so always validate FIL for gas. Only a deposit spends wallet
+  // USDFC, so retain that check exclusively for positive deltas.
+  const isCalibnet = status.chainId === calibration.id
+  const validation =
+    plan.delta > 0n
+      ? validatePaymentRequirements(status.filBalance, status.walletUsdfcBalance, isCalibnet)
+      : validateGasRequirement(status.filBalance, isCalibnet)
+  if (!validation.isValid) {
+    const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
+    throw new Error(`${validation.errorMessage}${help}`)
   }
 
   const allowances = ensureAllowances

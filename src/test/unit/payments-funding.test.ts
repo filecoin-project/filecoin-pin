@@ -317,6 +317,25 @@ describe('planFilecoinPayFunding', () => {
     expect(validationSpy).not.toHaveBeenCalled()
   })
 
+  it('checks FIL gas before an allowance-only no-op plan', async () => {
+    const deposited = 10n * ONE_USDFC
+    const status = makeStatus({ filecoinPayBalance: deposited, wallet: 0n, filBalance: 0n })
+    const summary = makeSummary({ filecoinPayBalance: deposited })
+    const allowanceSpy = vi.spyOn(paymentsIndex, 'checkAndSetAllowances')
+
+    vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(status)
+
+    await expect(
+      planFilecoinPayFunding({
+        synapse: makeSynapseStub(summary) as any,
+        targetDeposit: deposited,
+        ensureAllowances: true,
+      })
+    ).rejects.toThrow('Insufficient FIL for gas fees (balance: 0.0000 tFIL')
+
+    expect(allowanceSpy).not.toHaveBeenCalled()
+  })
+
   it('throws when both runway and deposit targets are provided', async () => {
     const status = makeStatus({ filecoinPayBalance: 0n, wallet: 1_000n })
     vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(status)
