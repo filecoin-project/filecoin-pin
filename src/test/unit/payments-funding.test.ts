@@ -248,6 +248,75 @@ describe('planFilecoinPayFunding', () => {
     expect(plan.projected.runway.state).toBe('no-spend')
   })
 
+  it('allows a no-op plan when all USDFC is already deposited', async () => {
+    const deposited = 10n * ONE_USDFC
+    const status = makeStatus({ filecoinPayBalance: deposited, wallet: 0n })
+    const summary = makeSummary({ filecoinPayBalance: deposited })
+    const validationSpy = vi.spyOn(paymentsIndex, 'validatePaymentRequirements')
+    vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(status)
+
+    const { plan } = await planFilecoinPayFunding({
+      synapse: makeSynapseStub(summary) as any,
+      targetDeposit: deposited,
+    })
+
+    expect(plan.action).toBe('none')
+    expect(validationSpy).not.toHaveBeenCalled()
+  })
+
+  it('allows a withdrawal plan when wallet USDFC is zero', async () => {
+    const deposited = 10n * ONE_USDFC
+    const status = makeStatus({ filecoinPayBalance: deposited, wallet: 0n })
+    const summary = makeSummary({ filecoinPayBalance: deposited })
+    const validationSpy = vi.spyOn(paymentsIndex, 'validatePaymentRequirements')
+    vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(status)
+
+    const { plan } = await planFilecoinPayFunding({
+      synapse: makeSynapseStub(summary) as any,
+      targetDeposit: 5n * ONE_USDFC,
+    })
+
+    expect(plan.action).toBe('withdraw')
+    expect(plan.delta).toBe(-5n * ONE_USDFC)
+    expect(validationSpy).not.toHaveBeenCalled()
+  })
+
+  it('rejects a deposit plan when wallet USDFC is zero', async () => {
+    const status = makeStatus({ filecoinPayBalance: 0n, wallet: 0n })
+    vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(status)
+
+    await expect(
+      planFilecoinPayFunding({
+        synapse: makeSynapseStub() as any,
+        targetDeposit: ONE_USDFC,
+      })
+    ).rejects.toThrow('No USDFC tokens found')
+  })
+
+  it('allows an allowance-only update when wallet USDFC is zero', async () => {
+    const deposited = 10n * ONE_USDFC
+    const status = makeStatus({ filecoinPayBalance: deposited, wallet: 0n })
+    const summary = makeSummary({ filecoinPayBalance: deposited })
+    const validationSpy = vi.spyOn(paymentsIndex, 'validatePaymentRequirements')
+    vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(status)
+    const allowanceSpy = vi.spyOn(paymentsIndex, 'checkAndSetAllowances').mockResolvedValue({
+      updated: true,
+      transactionHash: '0xallowance',
+      currentAllowances: status.currentAllowances,
+    })
+
+    const { plan, allowances } = await planFilecoinPayFunding({
+      synapse: makeSynapseStub(summary) as any,
+      targetDeposit: deposited,
+      ensureAllowances: true,
+    })
+
+    expect(plan.action).toBe('none')
+    expect(allowances.updated).toBe(true)
+    expect(allowanceSpy).toHaveBeenCalledOnce()
+    expect(validationSpy).not.toHaveBeenCalled()
+  })
+
   it('throws when both runway and deposit targets are provided', async () => {
     const status = makeStatus({ filecoinPayBalance: 0n, wallet: 1_000n })
     vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(status)

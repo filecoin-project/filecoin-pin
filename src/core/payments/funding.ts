@@ -367,10 +367,10 @@ export interface PlanFilecoinPayFundingOptions {
  *
  * This async function handles the full workflow:
  * - Fetches current payment status and SDK account summary in parallel
- * - Optionally ensures allowances are configured
- * - Validates payment requirements (FIL for gas, USDFC availability)
  * - Fetches pricing if needed
  * - Calculates funding plan via `calculateFilecoinPayFundingPlan`
+ * - Validates wallet funding only when the plan requires a deposit
+ * - Optionally ensures allowances are configured
  *
  * @param options - Planning options including synapse instance
  * @returns Plan with status and allowance information
@@ -406,29 +406,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     throw new Error('A funding target is required')
   }
 
-  let allowanceStatus: {
-    updated: boolean
-    transactionHash?: string
-    currentAllowances: ServiceApprovalStatus
-  } | null = null
-
-  if (ensureAllowances) {
-    allowanceStatus = await checkAndSetAllowances(synapse)
-  }
-
   const [status, accountSummary] = await Promise.all([getPaymentStatus(synapse), synapse.payments.accountSummary({})])
-
-  const allowances = allowanceStatus ?? {
-    updated: false,
-    currentAllowances: status.currentAllowances,
-  }
-
-  const isCalibnet = status.chainId === calibration.id
-  const validation = validatePaymentRequirements(status.filBalance, status.walletUsdfcBalance, isCalibnet)
-  if (!validation.isValid) {
-    const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
-    throw new Error(`${validation.errorMessage}${help}`)
-  }
 
   let priceList = priceListOpt
   if (pieceSizeBytes != null && priceList == null) {
@@ -448,6 +426,24 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     mode,
     allowWithdraw,
   })
+
+  // Planning, no-op, and withdrawal paths do not spend wallet USDFC. Only
+  // validate wallet funding when this plan will actually make a deposit.
+  if (plan.delta > 0n) {
+    const isCalibnet = status.chainId === calibration.id
+    const validation = validatePaymentRequirements(status.filBalance, status.walletUsdfcBalance, isCalibnet)
+    if (!validation.isValid) {
+      const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
+      throw new Error(`${validation.errorMessage}${help}`)
+    }
+  }
+
+  const allowances = ensureAllowances
+    ? await checkAndSetAllowances(synapse)
+    : {
+        updated: false,
+        currentAllowances: status.currentAllowances,
+      }
 
   return {
     plan,

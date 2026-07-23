@@ -10,8 +10,8 @@ import {
   checkUSDFCBalance,
   type PaymentCapacityCheck,
   setMaxAllowances,
+  validateGasRequirement,
   validatePaymentCapacity,
-  validatePaymentRequirements,
 } from '../payments/index.js'
 import { isSessionKeyMode } from '../synapse/index.js'
 import { recordUploadResult } from '../telemetry/index.js'
@@ -78,7 +78,7 @@ export interface UploadReadinessOptions {
 export interface UploadReadinessResult {
   /** Overall status of the readiness check. */
   status: 'ready' | 'blocked'
-  /** Gas + USDFC validation outcome. */
+  /** Gas validation outcome. */
   validation: {
     isValid: boolean
     errorMessage?: string
@@ -106,7 +106,7 @@ type CapacityStatus = 'sufficient' | 'warning' | 'insufficient'
  * Check readiness for uploading a CAR file.
  *
  * This performs the same validation chain previously used by the CLI/action:
- * 1. Ensure basic wallet requirements (FIL for gas, USDFC balance)
+ * 1. Ensure the wallet has enough FIL for gas
  * 2. Confirm or configure WarmStorage allowances
  * 3. Validate that the current deposit can cover the upload
  *
@@ -130,7 +130,9 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
   const filStatus = await checkFILBalance(synapse)
   const walletUsdfcBalance = await checkUSDFCBalance(synapse)
 
-  const validation = validatePaymentRequirements(filStatus.balance, walletUsdfcBalance, filStatus.isCalibnet)
+  // Upload readiness never deposits wallet USDFC. Deposited funds are checked
+  // below by validatePaymentCapacity, so only gas belongs in this wallet gate.
+  const validation = validateGasRequirement(filStatus.balance, filStatus.isCalibnet)
   if (!validation.isValid) {
     return {
       status: 'blocked',
