@@ -139,10 +139,8 @@ const PERMISSION_NAMES: Record<string, string> = {
 }
 
 /**
- * Reject malformed session key material before it reaches the SDK. Without
- * this, viem fails with "invalid private key, expected hex or 32 bytes" —
- * which never names `--session-key` and gives no clue that the flag expects
- * the session key's private key rather than its address.
+ * Reject malformed session key material before it reaches the SDK, whose own
+ * error ("invalid private key, expected hex or 32 bytes") never names the flag.
  */
 function assertSessionKeyPrivateKey(value: string): void {
   if (/^0x[0-9a-fA-F]{64}$/.test(value)) return
@@ -187,6 +185,12 @@ function checkSessionKeyPermissions(key: SessionKey<'Secp256k1'>, ownerAddress: 
  * @returns Initialized Synapse instance
  */
 export async function initializeSynapse(config: SynapseSetupConfig, logger?: Logger): Promise<Synapse> {
+  // Validate key material before any network I/O (the RPC chain probe below)
+  // so a malformed --session-key fails fast even when the RPC endpoint is down.
+  if (isSessionKeyConfig(config)) {
+    assertSessionKeyPrivateKey(config.sessionKey)
+  }
+
   let chain: Chain
   let rpcUrl: string | undefined
   let transport: HttpTransport | WebSocketTransport | undefined
@@ -213,13 +217,19 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
   } else if (isSessionKeyConfig(config)) {
     const walletAddress = getAddress(config.walletAddress)
     account = walletAddress
-    assertSessionKeyPrivateKey(config.sessionKey)
-    sessionKey = fromSecp256k1({
-      privateKey: config.sessionKey,
-      root: walletAddress,
-      chain,
-      ...(transport ? { transport } : {}),
-    })
+    try {
+      sessionKey = fromSecp256k1({
+        privateKey: config.sessionKey,
+        root: walletAddress,
+        chain,
+        ...(transport ? { transport } : {}),
+      })
+    } catch (error) {
+      // The format gate in assertSessionKeyPrivateKey can't catch key material
+      // outside the secp256k1 scalar range (e.g. all zeros).
+      const reason = error instanceof Error ? error.message : String(error)
+      throw new Error(`Invalid --session-key / SESSION_KEY: ${reason}`, { cause: error })
+    }
     await sessionKey.syncExpirations()
     checkSessionKeyPermissions(sessionKey, walletAddress)
     logger?.info({ event: 'synapse.init', mode: 'session-key' }, 'Initializing Synapse (session key)')
