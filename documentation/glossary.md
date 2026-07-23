@@ -237,6 +237,10 @@ Session keys require specific permissions (such as CREATE_DATA_SET and ADD_PIECE
 
 
 
+## Squid
+
+Squid is the external cross-chain routing provider that Filecoin Pin uses to quote and execute the bounded acquisition of missing [FIL](#fil) and [USDFC](#usdfc) from explicitly allowlisted source assets. Squid delivers tokens to the owner's Filecoin wallet; the existing [Filecoin Pay](#filecoin-pay) flow remains responsible for deposits and service approvals. Squid is not a Filecoin [Service Provider](#service-provider), and acquisition fails closed on unsupported networks. See the [Payments acquisition route](payments-acquisition-route.md) for the exact route, caps, and recovery contract.
+
 ## Standard IPFS Tooling
 
 This is shorthand way of referring to all the tooling the traditional IPFS ecosystem has built up for finding and retrieving content on [IPFS Mainnet](https://docs.ipfs.tech/concepts/glossary/#mainnet).  This includes tools like Kubo, Helia, and HTTP gateways.  A goal of filecoin-pin is to make sure data stored with it is retrievable with standard IPFS tooling without any special configuration.

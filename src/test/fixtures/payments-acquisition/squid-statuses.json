@@ -1,0 +1,55 @@
+{
+  "success": {
+    "squidTransactionStatus": "success",
+    "id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "fromChain": {
+      "transactionId": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "transactionUrl": "https://arbiscan.io/tx/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "toChain": {
+      "transactionId": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "transactionUrl": "https://filfox.info/en/message/0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "quoteId": "fixture-quote",
+    "requestId": "fixture-request"
+  },
+  "ongoing": {
+    "squidTransactionStatus": "ongoing",
+    "id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "quoteId": "fixture-quote",
+    "requestId": "fixture-request"
+  },
+  "notFound": {
+    "squidTransactionStatus": "not_found",
+    "id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "quoteId": "fixture-quote",
+    "requestId": "fixture-request"
+  },
+  "needsGas": {
+    "squidTransactionStatus": "needs_gas",
+    "id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "axelarTransactionUrl": "https://axelarscan.io/gmp/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "quoteId": "fixture-quote",
+    "requestId": "fixture-request"
+  },
+  "partialSuccess": {
+    "squidTransactionStatus": "partial_success",
+    "id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "toChain": {
+      "transactionId": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "transactionUrl": "https://filfox.info/en/message/0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "quoteId": "fixture-quote",
+    "requestId": "fixture-request"
+  },
+  "refund": {
+    "squidTransactionStatus": "refund",
+    "id": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "fromChain": {
+      "transactionId": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "transactionUrl": "https://arbiscan.io/tx/0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "quoteId": "fixture-quote",
+    "requestId": "fixture-request"
+  }
+}

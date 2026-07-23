@@ -1,0 +1,69 @@
+{
+  "route": {
+    "quoteId": "fixture-usdfc-quote",
+    "params": {
+      "fromAddress": "0x000000000000000000000000000000000000F00D",
+      "fromChain": "42161",
+      "fromToken": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+      "fromAmount": "5000000",
+      "toChain": "314",
+      "toToken": "0x80b98d3aa09ffff255c3ba4a241111ff1262f045",
+      "toAddress": "0x000000000000000000000000000000000000F00D",
+      "slippage": 1,
+      "quoteOnly": false
+    },
+    "estimate": {
+      "fromAmount": "5000000",
+      "toAmount": "4946016184146800461",
+      "toAmountMin": "4894083014213259056",
+      "estimatedRouteDuration": 90,
+      "gasCosts": [
+        {
+          "type": "executeCall",
+          "amount": "11908209600000",
+          "gasLimit": "594400",
+          "amountUsd": "0.02",
+          "token": {
+            "chainId": "42161",
+            "symbol": "ETH",
+            "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "decimals": 18
+          }
+        }
+      ],
+      "actions": [
+        {
+          "type": "swap",
+          "fromChain": "42161",
+          "toChain": "42161",
+          "provider": "Pancakeswap V3"
+        },
+        {
+          "type": "bridge",
+          "fromChain": "42161",
+          "toChain": "314",
+          "provider": "Axelar",
+          "estimatedDuration": 90
+        },
+        {
+          "type": "swap",
+          "fromChain": "314",
+          "toChain": "314",
+          "provider": "Sushiswap V3"
+        }
+      ]
+    },
+    "transactionRequest": {
+      "type": "ON_CHAIN_EXECUTION",
+      "target": "0xce16F69375520ab01377ce7B88f5BA8C48F8D666",
+      "data": "0x846a1bc6",
+      "value": "8157917833036",
+      "gasLimit": "594400",
+      "maxFeePerGas": "40068000",
+      "maxPriorityFeePerGas": "0",
+      "requestId": "fixture-usdfc-request",
+      "expiry": "1784839823",
+      "expiryOffset": "30"
+    }
+  }
+}

@@ -5,3 +5,4 @@
 * [Retrieving Your Data](retrieval.md) - The ways to fetch content back from an IPFS Root CID: browser viewing, public trustless gateways (CAR/raw), and direct `/ipfs` and `/piece` retrieval from Service Providers.
 * [Progress Events](progress-events.md) - Conventions for the typed `onProgress` event unions exposed by the **filecoin-pin JavaScript library's** public APIs (naming, namespacing, consumer pattern). Relevant if you're building with the library programmatically.
 * [Events & Metrics](events-and-metrics.md) - Source of truth for the anonymous telemetry events Filecoin Pin emits and the metrics they produce (names, tags, when emitted).
+* [Payments acquisition route](payments-acquisition-route.md) - Decision record and safety contract for acquiring missing FIL and USDFC before depositing into Filecoin Pay.

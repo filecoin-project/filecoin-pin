@@ -1,0 +1,42 @@
+{
+  "capturedAt": "2026-07-23T00:00:00.000Z",
+  "chains": [
+    {
+      "chainId": "42161",
+      "networkIdentifier": "arbitrum",
+      "type": "evm"
+    },
+    {
+      "chainId": "314",
+      "networkIdentifier": "filecoin",
+      "type": "evm"
+    }
+  ],
+  "unsupportedChainIds": ["314159"],
+  "tokens": [
+    {
+      "chainId": "42161",
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+      "decimals": 6
+    },
+    {
+      "chainId": "314",
+      "symbol": "FIL",
+      "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "decimals": 18
+    },
+    {
+      "chainId": "314",
+      "symbol": "WFIL",
+      "address": "0x60e1773636cf5e4a227d9ac24f20feca034ee25a",
+      "decimals": 18
+    },
+    {
+      "chainId": "314",
+      "symbol": "USDFC",
+      "address": "0x80b98d3aa09ffff255c3ba4a241111ff1262f045",
+      "decimals": 18
+    }
+  ]
+}

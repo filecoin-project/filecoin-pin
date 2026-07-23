@@ -1,0 +1,81 @@
+{
+  "route": {
+    "quoteId": "fixture-fil-quote",
+    "params": {
+      "fromAddress": "0x000000000000000000000000000000000000F00D",
+      "fromChain": "42161",
+      "fromToken": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+      "fromAmount": "5000000",
+      "toChain": "314",
+      "toToken": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "toAddress": "0x000000000000000000000000000000000000F00D",
+      "slippage": 1,
+      "quoteOnly": false
+    },
+    "estimate": {
+      "fromAmount": "5000000",
+      "toAmount": "6845326484299403576",
+      "toAmountMin": "6770027892972110136",
+      "estimatedRouteDuration": 90,
+      "gasCosts": [
+        {
+          "type": "executeCall",
+          "amount": "11908209600000",
+          "gasLimit": "594400",
+          "amountUsd": "0.02",
+          "token": {
+            "chainId": "42161",
+            "symbol": "ETH",
+            "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "decimals": 18
+          }
+        }
+      ],
+      "actions": [
+        {
+          "type": "swap",
+          "fromChain": "42161",
+          "toChain": "42161",
+          "provider": "Pancakeswap V3"
+        },
+        {
+          "type": "bridge",
+          "fromChain": "42161",
+          "toChain": "314",
+          "provider": "Axelar",
+          "estimatedDuration": 90
+        },
+        {
+          "type": "swap",
+          "fromChain": "314",
+          "toChain": "314",
+          "provider": "Sushiswap V3"
+        },
+        {
+          "type": "swap",
+          "fromChain": "314",
+          "toChain": "314",
+          "provider": "Sushiswap V3"
+        },
+        {
+          "type": "custom",
+          "fromChain": "314",
+          "toChain": "314",
+          "description": "Unwrap WFIL to FIL"
+        }
+      ]
+    },
+    "transactionRequest": {
+      "type": "ON_CHAIN_EXECUTION",
+      "target": "0xce16F69375520ab01377ce7B88f5BA8C48F8D666",
+      "data": "0x846a1bc6",
+      "value": "8601905167037",
+      "gasLimit": "594400",
+      "maxFeePerGas": "40068000",
+      "maxPriorityFeePerGas": "0",
+      "requestId": "fixture-fil-request",
+      "expiry": "1784839808",
+      "expiryOffset": "30"
+    }
+  }
+}
