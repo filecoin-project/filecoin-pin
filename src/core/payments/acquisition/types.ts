@@ -35,6 +35,36 @@ export interface AcquisitionQuote {
   expiresAt?: number
 }
 
+/** An approved, executable provider route. This is intentionally internal. */
+export interface PlannedAcquisitionQuote extends AcquisitionQuote {
+  asset: AcquisitionLeg['asset']
+  requestId?: string
+  target: string
+  data: string
+  value: bigint
+  gasLimit: bigint
+  maxFeePerGas: bigint
+  expiresAt: number
+  /** Provider estimate used only to bound status polling; it never authorizes spend. */
+  estimatedRouteDurationSeconds: number
+}
+
+export interface AcquisitionEvidence {
+  asset: AcquisitionLeg['asset']
+  quoteId: string
+  /** Fixed source-token input retained for recovery cap accounting. */
+  sourceAmount?: string
+  requestId?: string
+  sourceTransactionHash?: string
+  sourceTransactionUrl?: string
+  destinationTransactionHash?: string
+  destinationTransactionUrl?: string
+  providerExplorerUrl?: string
+  /** Retained so recovery keeps the original provider polling deadline. */
+  estimatedRouteDurationSeconds?: number
+  status: AcquisitionExecutionStatus
+}
+
 export type AcquisitionExecutionStatus = 'submitted' | 'confirmed' | 'failed' | 'partial' | 'refunded'
 
 /** Provider execution state; providers own any transaction-specific details. */

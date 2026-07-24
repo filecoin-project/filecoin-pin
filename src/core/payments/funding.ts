@@ -365,6 +365,20 @@ export interface PlanFilecoinPayFundingOptions {
    * Defaults to true to preserve existing deposit and auto-funding behavior.
    */
   validateWalletReadiness?: boolean | undefined
+  /**
+   * For source-funded top-ups, defer readiness validation only after the plan
+   * proves a positive delta. Withdrawals and no-op plans retain validation.
+   */
+  deferWalletReadinessForPositiveDelta?: boolean | undefined
+}
+
+function assertWalletReadiness(status: PaymentStatus): void {
+  const isCalibnet = status.chainId === calibration.id
+  const validation = validatePaymentRequirements(status.filBalance, status.walletUsdfcBalance, isCalibnet)
+  if (!validation.isValid) {
+    const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
+    throw new Error(`${validation.errorMessage}${help}`)
+  }
 }
 
 /**
@@ -402,6 +416,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     allowWithdraw = true,
     ensureAllowances = false,
     validateWalletReadiness = true,
+    deferWalletReadinessForPositiveDelta = false,
   } = options
 
   if (targetRunwayDays != null && targetDeposit != null) {
@@ -429,13 +444,8 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     currentAllowances: status.currentAllowances,
   }
 
-  if (validateWalletReadiness) {
-    const isCalibnet = status.chainId === calibration.id
-    const validation = validatePaymentRequirements(status.filBalance, status.walletUsdfcBalance, isCalibnet)
-    if (!validation.isValid) {
-      const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
-      throw new Error(`${validation.errorMessage}${help}`)
-    }
+  if (validateWalletReadiness && !deferWalletReadinessForPositiveDelta) {
+    assertWalletReadiness(status)
   }
 
   let priceList = priceListOpt
@@ -456,6 +466,10 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     mode,
     allowWithdraw,
   })
+
+  if (validateWalletReadiness && deferWalletReadinessForPositiveDelta && plan.delta <= 0n) {
+    assertWalletReadiness(status)
+  }
 
   return {
     plan,

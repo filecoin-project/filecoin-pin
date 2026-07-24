@@ -70,4 +70,13 @@ export interface FundOptions extends CLIAuthOptions {
    * minimum: Adjust funds to match a minimum runway (days) or a minimum deposited amount.
    */
   mode?: FundingMode
+  /** Explicit source selection; acquisition is unavailable without both fields. */
+  fromChain?: string
+  fromToken?: string
+  /** Maximum source-token amount, expressed in the selected token's display units. */
+  maxSourceAmount?: string
+  /** Optional Arbitrum RPC endpoint. It is never inferred from --rpc-url. */
+  sourceRpcUrl?: string
+  /** Quote slippage percentage (0.01 <= n <= 99.99). */
+  slippage?: number
 }

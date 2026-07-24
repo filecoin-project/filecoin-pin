@@ -174,7 +174,8 @@ spender model, fail closed and update this decision record before enabling it.
 
 Poll the Squid status endpoint every five seconds initially, then every
 15 seconds after two minutes. Stop automatic polling after the greater of
-15 minutes or twice `estimatedRouteDuration`. A timeout is an unknown/incomplete
+15 minutes or twice `estimatedRouteDuration`; provider estimates are capped at
+30 minutes, so polling never exceeds one hour. A timeout is an unknown/incomplete
 result, never permission to submit the source transaction again.
 
 | Squid status | Filecoin Pin result | Recovery |

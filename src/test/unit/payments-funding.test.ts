@@ -194,7 +194,7 @@ describe('planFilecoinPayFunding', () => {
     expect(plan.current.runway.state).toBe('active')
   })
 
-  it('defers wallet-readiness validation only when explicitly requested', async () => {
+  it('defers wallet-readiness validation only for a positive source-funded top-up', async () => {
     const rateUsed = 1_000_000_000_000_000_000n
     const status = makeStatus({ filecoinPayBalance: 0n, rateUsed, wallet: 0n, filBalance: 0n })
     const summary = makeSummary({ filecoinPayBalance: 0n, rateUsed })
@@ -214,11 +214,25 @@ describe('planFilecoinPayFunding', () => {
     const { plan } = await planFilecoinPayFunding({
       synapse: makeSynapseStub(summary) as any,
       targetRunwayDays: 1,
-      validateWalletReadiness: false,
+      deferWalletReadinessForPositiveDelta: true,
     })
 
     expect(plan.delta).toBeGreaterThan(0n)
     expect(plan.walletShortfall).toBe(plan.delta)
+  })
+
+  it('keeps wallet readiness validation for a withdrawal even when source funding is configured', async () => {
+    const status = makeStatus({ filecoinPayBalance: 10n, wallet: 0n, filBalance: 0n })
+    const summary = makeSummary({ filecoinPayBalance: 10n })
+    vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValue(status)
+
+    await expect(
+      planFilecoinPayFunding({
+        synapse: makeSynapseStub(summary) as any,
+        targetDeposit: 5n,
+        deferWalletReadinessForPositiveDelta: true,
+      })
+    ).rejects.toThrow('Insufficient FIL for gas fees')
   })
 
   it('clamps withdrawals in minimum mode', async () => {

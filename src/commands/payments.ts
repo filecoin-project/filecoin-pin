@@ -6,7 +6,7 @@ import { runInteractiveSetup } from '../payments/interactive.js'
 import { showPaymentStatus } from '../payments/status.js'
 import type { FundOptions, PaymentSetupOptions } from '../payments/types.js'
 import { runWithdraw } from '../payments/withdraw.js'
-import { addAuthOptions } from '../utils/cli-options.js'
+import { addAuthOptions, addFundingSourceOptions } from '../utils/cli-options.js'
 
 export const paymentsCommand = new Command('payments').description(
   'Manage storage payments (required before your first upload)'
@@ -62,6 +62,11 @@ const fundCommand = new Command('fund')
         ...options,
         amount: options.amount,
         mode: options.mode,
+        fromChain: options.fromChain,
+        fromToken: options.fromToken,
+        maxSourceAmount: options.maxSourceAmount,
+        sourceRpcUrl: options.sourceRpcUrl,
+        slippage: options.slippage,
       }
       if (options.days != null) fundOptions.days = Number(options.days)
       await runFund(fundOptions)
@@ -71,6 +76,7 @@ const fundCommand = new Command('fund')
   })
 
 addAuthOptions(fundCommand)
+addFundingSourceOptions(fundCommand)
 paymentsCommand.addCommand(fundCommand)
 
 // Withdraw command

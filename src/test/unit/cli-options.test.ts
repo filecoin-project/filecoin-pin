@@ -6,10 +6,12 @@ import { log } from '../../utils/cli-logger.js'
 import {
   addAuthOptions,
   addDataSetIdOption,
+  addFundingSourceOptions,
   addNetworkOptions,
   addOwnerAuthOptions,
   addProviderIdOption,
   addSigningAuthOptions,
+  parseSlippageOption,
   validateAndNormalizeAutoFundOptions,
 } from '../../utils/cli-options.js'
 
@@ -159,6 +161,64 @@ describe('auth and context option env bindings', () => {
     if (createCommand) {
       expect(envVarFor(createCommand, '--session-key')).toBe('SESSION_KEY')
     }
+  })
+})
+
+describe('funding-source option environment bindings', () => {
+  const originalSourceRpcUrl = process.env.SOURCE_RPC_URL
+
+  beforeEach(() => {
+    delete process.env.SOURCE_RPC_URL
+  })
+
+  afterEach(() => {
+    if (originalSourceRpcUrl === undefined) delete process.env.SOURCE_RPC_URL
+    else process.env.SOURCE_RPC_URL = originalSourceRpcUrl
+  })
+
+  it('passes an ambient SOURCE_RPC_URL through without inferring an acquisition tuple', () => {
+    process.env.SOURCE_RPC_URL = 'https://ambient-source-rpc.example/rpc'
+    const command = addFundingSourceOptions(new Command()).exitOverride()
+
+    command.parse([], { from: 'user' })
+
+    expect(command.opts()).toMatchObject({ sourceRpcUrl: 'https://ambient-source-rpc.example/rpc' })
+    expect(command.opts()).not.toHaveProperty('fromChain')
+    expect(command.opts()).not.toHaveProperty('fromToken')
+    expect(command.opts()).not.toHaveProperty('maxSourceAmount')
+  })
+
+  it('maps source selection and a positive maximum source amount through Commander', () => {
+    const command = addFundingSourceOptions(new Command()).exitOverride()
+
+    command.parse(['--from-chain', 'arb', '--from-token', 'USDC', '--max-source-amount', '1.25'], { from: 'user' })
+
+    expect(command.opts()).toMatchObject({
+      fromChain: 'arb',
+      fromToken: 'USDC',
+      maxSourceAmount: '1.25',
+    })
+  })
+
+  it.each(['0', '-1', 'not-a-number'])('rejects invalid --max-source-amount %s during Commander parsing', (value) => {
+    const command = addFundingSourceOptions(new Command()).exitOverride()
+
+    expect(() => command.parse(['--max-source-amount', value], { from: 'user' })).toThrow(
+      'Amount must be a positive decimal value'
+    )
+  })
+
+  it('accepts only Squid\'s inclusive provider slippage range', () => {
+    expect(parseSlippageOption('0.01')).toBe(0.01)
+    expect(parseSlippageOption('99.99')).toBe(99.99)
+    expect(() => parseSlippageOption('0.001')).toThrow('between 0.01 and 99.99')
+    expect(() => parseSlippageOption('100')).toThrow('between 0.01 and 99.99')
+  })
+
+  it('rejects invalid --slippage while Commander is parsing the fund options', () => {
+    const command = addFundingSourceOptions(new Command()).exitOverride()
+
+    expect(() => command.parse(['--slippage', '0.001'], { from: 'user' })).toThrow('between 0.01 and 99.99')
   })
 })
 
