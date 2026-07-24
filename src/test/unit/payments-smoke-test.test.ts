@@ -1,10 +1,21 @@
 import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const temporaryDirectories: string[] = []
+const temporaryFiles: string[] = []
 const temporaryProcesses: ChildProcessWithoutNullStreams[] = []
 const supportsPOSIXModes = process.platform !== 'win32'
 
@@ -25,7 +36,7 @@ async function startRpcServer(chainId: number): Promise<string> {
     "  request.on('end', () => {",
     '    const payload = JSON.parse(body)',
     "    response.setHeader('content-type', 'application/json')",
-    "    response.end(JSON.stringify({ jsonrpc: '2.0', id: payload.id, result: `0x${chainId.toString(16)}` }))",
+    `    response.end(JSON.stringify({ jsonrpc: '2.0', id: payload.id, result: '0x${chainId.toString(16)}' }))`,
     '  })',
     '})',
     "server.listen(0, '127.0.0.1', () => console.log(server.address().port))",
@@ -54,25 +65,25 @@ async function startRpcServer(chainId: number): Promise<string> {
 }
 
 function runHarness(args: string[]): {
-  artifact: Record<string, unknown>
+  report: Record<string, unknown>
   output: string
   outputPath: string
   status: number | null
 } {
-  const directory = mkdtempSync(join(tmpdir(), 'filecoin-pin-release-evidence-'))
+  const directory = mkdtempSync(join(tmpdir(), 'filecoin-pin-payments-smoke-test-'))
   temporaryDirectories.push(directory)
-  const outputPath = join(directory, 'evidence.json')
+  const outputPath = join(directory, 'report.json')
   const secret = 'test-only-integrator-value'
   const result = spawnSync(
     process.execPath,
-    [resolve('scripts/release-evidence.mjs'), ...args, '--output', outputPath],
+    [resolve('scripts/payments-smoke-test.mjs'), ...args, '--output', outputPath],
     {
       encoding: 'utf8',
       env: harnessEnv({ SQUID_INTEGRATOR_ID: secret, PRIVATE_KEY: '0xtest-only-key' }),
     }
   )
   return {
-    artifact: JSON.parse(readFileSync(outputPath, 'utf8')) as Record<string, unknown>,
+    report: JSON.parse(readFileSync(outputPath, 'utf8')) as Record<string, unknown>,
     output: `${result.stdout}${result.stderr}`,
     outputPath,
     status: result.status,
@@ -82,28 +93,87 @@ function runHarness(args: string[]): {
 afterEach(() => {
   for (const child of temporaryProcesses.splice(0)) child.kill()
   for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { force: true, recursive: true })
+  for (const file of temporaryFiles.splice(0)) rmSync(file, { force: true })
 })
 
-describe('release evidence harness', () => {
-  it('writes a sanitized dry-run artifact for a mainnet setup route without executing it', () => {
+describe('payments smoke test', () => {
+  it('requires an explicit report path outside the repository checkout', () => {
+    const repositoryOutput = resolve('payments-smoke-test-report-must-not-exist.json')
+    temporaryFiles.push(repositoryOutput)
+    const baseArgs = [
+      resolve('scripts/payments-smoke-test.mjs'),
+      '--network',
+      'devnet',
+      '--flow',
+      'setup',
+      '--deposit',
+      '1',
+    ]
+    const missingOutput = spawnSync(process.execPath, baseArgs, { encoding: 'utf8', env: harnessEnv() })
+    const repositoryLocalOutput = spawnSync(process.execPath, [...baseArgs, '--output', repositoryOutput], {
+      encoding: 'utf8',
+      env: harnessEnv(),
+    })
+
+    expect(missingOutput.status).toBe(1)
+    expect(`${missingOutput.stdout}${missingOutput.stderr}`).toContain(
+      '--output is required and must point outside the repository checkout'
+    )
+    expect(repositoryLocalOutput.status).toBe(1)
+    expect(`${repositoryLocalOutput.stdout}${repositoryLocalOutput.stderr}`).toContain(
+      '--output must point outside the repository checkout'
+    )
+    expect(existsSync(repositoryOutput)).toBe(false)
+  })
+
+  it.runIf(supportsPOSIXModes)('rejects an outside path that resolves through a symlink into the checkout', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'filecoin-pin-payments-smoke-test-'))
+    temporaryDirectories.push(directory)
+    const repositoryLink = join(directory, 'repository-link')
+    const repositoryOutput = resolve('payments-smoke-test-symlink-report-must-not-exist.json')
+    temporaryFiles.push(repositoryOutput)
+    symlinkSync(resolve('.'), repositoryLink, 'dir')
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        resolve('scripts/payments-smoke-test.mjs'),
+        '--network',
+        'devnet',
+        '--flow',
+        'setup',
+        '--deposit',
+        '1',
+        '--output',
+        join(repositoryLink, 'payments-smoke-test-symlink-report-must-not-exist.json'),
+      ],
+      { encoding: 'utf8', env: harnessEnv() }
+    )
+
+    expect(result.status).toBe(1)
+    expect(`${result.stdout}${result.stderr}`).toContain('--output must point outside the repository checkout')
+    expect(existsSync(repositoryOutput)).toBe(false)
+  })
+
+  it('writes a sanitized dry-run report for a mainnet setup route without executing it', () => {
     const result = runHarness(['--network', 'mainnet', '--flow', 'setup', '--deposit', '4', '--source-cap', '5'])
 
     expect(result.status).toBe(0)
-    expect(result.artifact).toMatchObject({
+    expect(result.report).toMatchObject({
       execution: 'dry-run',
       flow: 'setup',
       network: 'mainnet',
       sourceCapUSDC: '5',
       sourceNativeGasCapArbitrumETH: '0.0001',
     })
-    expect(JSON.stringify(result.artifact)).not.toContain('test-only-integrator-value')
-    expect(JSON.stringify(result.artifact)).not.toContain('0xtest-only-key')
+    expect(JSON.stringify(result.report)).not.toContain('test-only-integrator-value')
+    expect(JSON.stringify(result.report)).not.toContain('0xtest-only-key')
     if (supportsPOSIXModes) expect(statSync(result.outputPath).mode & 0o777).toBe(0o600)
-    expect(result.artifact.safety).toMatchObject({
+    expect(result.report.safety).toMatchObject({
       normalCITestCoverageIncludesDryRunsAndUnfundedFakeChildExecuteOnly: true,
       normalCINeverRunsRealCLIOrFundedSmoke: true,
     })
-    expect(result.artifact.command).toEqual([
+    expect(result.report.command).toEqual([
       'node',
       'dist/cli.js',
       'payments',
@@ -127,7 +197,7 @@ describe('release evidence harness', () => {
     const days = runHarness(['--network', 'devnet', '--flow', 'fund', '--days', '30'])
 
     expect(amount.status).toBe(0)
-    expect(amount.artifact.command).toEqual([
+    expect(amount.report.command).toEqual([
       'node',
       'dist/cli.js',
       'payments',
@@ -140,15 +210,15 @@ describe('release evidence harness', () => {
       'calibration',
     ])
     expect(days.status).toBe(0)
-    expect(days.artifact.command).toContain('--days')
-    expect(days.artifact.execution).toBe('dry-run')
+    expect(days.report.command).toContain('--days')
+    expect(days.report.execution).toBe('dry-run')
   })
 
   it('requires a target and a second acknowledgement before any mainnet execute attempt', () => {
     const missingTarget = spawnSync(
       process.execPath,
       [
-        resolve('scripts/release-evidence.mjs'),
+        resolve('scripts/payments-smoke-test.mjs'),
         '--network',
         'mainnet',
         '--flow',
@@ -159,13 +229,13 @@ describe('release evidence harness', () => {
       ],
       { encoding: 'utf8', env: harnessEnv() }
     )
-    const directory = mkdtempSync(join(tmpdir(), 'filecoin-pin-release-evidence-'))
+    const directory = mkdtempSync(join(tmpdir(), 'filecoin-pin-payments-smoke-test-'))
     temporaryDirectories.push(directory)
     const output = join(directory, 'must-not-exist.json')
     const missingAcknowledgement = spawnSync(
       process.execPath,
       [
-        resolve('scripts/release-evidence.mjs'),
+        resolve('scripts/payments-smoke-test.mjs'),
         '--network',
         'mainnet',
         '--flow',
@@ -191,14 +261,14 @@ describe('release evidence harness', () => {
   it('enforces the mainnet source cap exactly in six-decimal USDC base units', () => {
     const ten = runHarness(['--network', 'mainnet', '--flow', 'fund', '--amount', '1', '--source-cap', '10'])
     const belowTen = runHarness(['--network', 'mainnet', '--flow', 'fund', '--amount', '1', '--source-cap', '9.999999'])
-    const directory = mkdtempSync(join(tmpdir(), 'filecoin-pin-release-evidence-'))
+    const directory = mkdtempSync(join(tmpdir(), 'filecoin-pin-payments-smoke-test-'))
     temporaryDirectories.push(directory)
     for (const sourceCap of ['0', 'malformed', '10.000001', '10.0000000000000000000001']) {
       const output = join(directory, `${sourceCap}.json`)
       const result = spawnSync(
         process.execPath,
         [
-          resolve('scripts/release-evidence.mjs'),
+          resolve('scripts/payments-smoke-test.mjs'),
           '--network',
           'mainnet',
           '--flow',
@@ -220,12 +290,12 @@ describe('release evidence harness', () => {
     expect(belowTen.status).toBe(0)
   })
 
-  it('refuses to overwrite an existing dry-run artifact', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'filecoin-pin-release-evidence-'))
+  it('refuses to overwrite an existing dry-run report', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'filecoin-pin-payments-smoke-test-'))
     temporaryDirectories.push(directory)
-    const output = join(directory, 'evidence.json')
+    const output = join(directory, 'report.json')
     const args = [
-      resolve('scripts/release-evidence.mjs'),
+      resolve('scripts/payments-smoke-test.mjs'),
       '--network',
       'devnet',
       '--flow',
@@ -246,13 +316,13 @@ describe('release evidence harness', () => {
 
   it('fails closed before execution when RPC_URL does not match the requested network', async () => {
     const rpcUrl = await startRpcServer(314)
-    const directory = mkdtempSync(join(tmpdir(), 'filecoin-pin-release-evidence-'))
+    const directory = mkdtempSync(join(tmpdir(), 'filecoin-pin-payments-smoke-test-'))
     temporaryDirectories.push(directory)
     const output = join(directory, 'must-not-exist.json')
     const result = spawnSync(
       process.execPath,
       [
-        resolve('scripts/release-evidence.mjs'),
+        resolve('scripts/payments-smoke-test.mjs'),
         '--network',
         'calibration',
         '--flow',
@@ -275,11 +345,11 @@ describe('release evidence harness', () => {
 
   it('persists requested state before an unfunded fake mainnet child and atomically redacts its completion output', async () => {
     const rpcUrl = await startRpcServer(314)
-    const directory = mkdtempSync(join(tmpdir(), 'filecoin-pin-release-evidence-'))
+    const directory = mkdtempSync(join(tmpdir(), 'filecoin-pin-payments-smoke-test-'))
     temporaryDirectories.push(directory)
     const distDirectory = join(directory, 'dist')
     const outputDirectory = join(directory, 'existing-output')
-    const output = join(outputDirectory, 'evidence.json')
+    const output = join(outputDirectory, 'report.json')
     mkdirSync(distDirectory)
     mkdirSync(outputDirectory)
     if (supportsPOSIXModes) chmodSync(outputDirectory, 0o755)
@@ -287,10 +357,10 @@ describe('release evidence harness', () => {
       join(distDirectory, 'cli.js'),
       [
         "import { existsSync, readFileSync } from 'node:fs'",
-        'const artifactPath = process.env.EVIDENCE_ARTIFACT',
-        'if (artifactPath == null || !existsSync(artifactPath)) process.exit(21)',
-        "const artifact = JSON.parse(readFileSync(artifactPath, 'utf8'))",
-        "if (artifact.execution !== 'requested') process.exit(22)",
+        'const reportPath = process.env.SMOKE_TEST_REPORT',
+        'if (reportPath == null || !existsSync(reportPath)) process.exit(21)',
+        "const report = JSON.parse(readFileSync(reportPath, 'utf8'))",
+        "if (report.execution !== 'requested') process.exit(22)",
         "if (process.argv.includes('--network')) process.exit(23)",
         'if (process.env.NETWORK != null) process.exit(24)',
         "console.log('private=' + process.env.PRIVATE_KEY + ' integrator=' + process.env.SQUID_INTEGRATOR_ID + ' rpc=' + process.env.RPC_URL + ' path=https://provider.example.test/v2/path-secret/status')",
@@ -300,7 +370,7 @@ describe('release evidence harness', () => {
     const result = spawnSync(
       process.execPath,
       [
-        resolve('scripts/release-evidence.mjs'),
+        resolve('scripts/payments-smoke-test.mjs'),
         '--network',
         'mainnet',
         '--flow',
@@ -318,7 +388,7 @@ describe('release evidence harness', () => {
         cwd: directory,
         encoding: 'utf8',
         env: harnessEnv({
-          EVIDENCE_ARTIFACT: output,
+          SMOKE_TEST_REPORT: output,
           NETWORK: 'calibration',
           PRIVATE_KEY: '0xfake-private-key',
           RPC_URL: `${rpcUrl}/v2/filecoin-password/rpc?token=filecoin-token`,
@@ -327,18 +397,18 @@ describe('release evidence harness', () => {
         }),
       }
     )
-    const artifact = JSON.parse(readFileSync(output, 'utf8')) as Record<string, unknown>
-    const artifactText = JSON.stringify(artifact)
+    const report = JSON.parse(readFileSync(output, 'utf8')) as Record<string, unknown>
+    const reportText = JSON.stringify(report)
 
     expect(result.status).toBe(0)
-    expect(artifact).toMatchObject({
+    expect(report).toMatchObject({
       execution: 'completed',
       exitCode: 0,
       sourceCapUSDC: '5',
       sourceNativeGasCapArbitrumETH: '0.0001',
     })
-    expect(artifact).toHaveProperty('completedAt')
-    expect(artifact.command).not.toContain('--network')
+    expect(report).toHaveProperty('completedAt')
+    expect(report.command).not.toContain('--network')
     if (supportsPOSIXModes) {
       expect(statSync(output).mode & 0o777).toBe(0o600)
       expect(statSync(outputDirectory).mode & 0o777).toBe(0o755)
@@ -352,12 +422,12 @@ describe('release evidence harness', () => {
       'arb-token',
       'path-secret',
     ]) {
-      expect(artifactText).not.toContain(secret)
+      expect(reportText).not.toContain(secret)
     }
-    expect(artifactText).toContain('[redacted PRIVATE_KEY]')
-    expect(artifactText).toContain('[redacted SQUID_INTEGRATOR_ID]')
-    expect(artifactText).toContain('[redacted RPC_URL]')
-    expect(artifactText).toContain('[redacted SOURCE_RPC_URL]')
-    expect(artifactText).toContain('[redacted URL]')
+    expect(reportText).toContain('[redacted PRIVATE_KEY]')
+    expect(reportText).toContain('[redacted SQUID_INTEGRATOR_ID]')
+    expect(reportText).toContain('[redacted RPC_URL]')
+    expect(reportText).toContain('[redacted SOURCE_RPC_URL]')
+    expect(reportText).toContain('[redacted URL]')
   })
 })

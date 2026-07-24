@@ -4,15 +4,15 @@
 
 ### Features
 
-* add experimental explicit opt-in acquisition from Arbitrum native USDC to Filecoin mainnet FIL and USDFC for `payments fund` and `payments setup --auto`; the funded mainnet release smoke remains pending, while Calibration and devnet stay direct-funding-only
+* add experimental explicit opt-in acquisition from Arbitrum native USDC to Filecoin mainnet FIL and USDFC for `payments fund` and `payments setup --auto`; the funded mainnet smoke test remains pending, while Calibration and devnet stay direct-funding-only
 
 ### Documentation
 
-* document bounded mainnet source acquisition, direct-funding fallbacks, rerun safety, and versioned release-evidence records
+* document bounded mainnet source acquisition, direct-funding fallbacks, rerun safety, and the operator-run payments smoke test
 
 ### Tests
 
-* prove funding and automatic setup preserve authoritative targets and Filecoin Pay deltas across deferred wallet-readiness acquisition, and cover the dry-only release-evidence harness
+* prove funding and automatic setup preserve authoritative targets and Filecoin Pay deltas across deferred wallet-readiness acquisition, and cover the dry-run-only payments smoke-test tool
 
 ## [1.2.0](https://github.com/filecoin-project/filecoin-pin/compare/v1.1.1...v1.2.0) (2026-07-15)
 

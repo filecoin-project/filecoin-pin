@@ -55,7 +55,7 @@ The optional acquisition boundary is deliberately narrow:
 
 The provider stage has typed outcomes: no acquisition needed, completed acquisition, incomplete/unknown acquisition that must not be resent, and a failed pre-submission acquisition. A rerun recomputes shortfalls from fresh balances. Once acquisition has completed, a later deposit or approval failure must offer only direct Filecoin-side recovery, never a source-route retry that could duplicate spending.
 
-Tests follow a ladder: deterministic fixtures and mocked RPCs first; real Filecoin Pay deposit/rerun on local devnet; direct deposit and approval on Calibration where acquisition fails closed; then separately authorized, hard-capped mainnet release evidence. The mainnet smoke is never a normal test or CI task; see [the release-evidence runbook](../../../documentation/release-evidence/README.md).
+Tests follow a ladder: deterministic fixtures and mocked RPCs first; real Filecoin Pay deposit/rerun on local devnet; direct deposit and approval on Calibration where acquisition fails closed; then a separately authorized, hard-capped mainnet smoke test. The mainnet smoke is never a normal test or CI task; see [the payments smoke test](../../../documentation/payments-smoke-test.md).
 
 ## Filecoin Pin Use Examples
 

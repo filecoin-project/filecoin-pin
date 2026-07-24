@@ -211,7 +211,7 @@ filecoin-pin payments setup --auto --network calibration --deposit 1
 filecoin-pin payments setup --auto --network devnet --deposit 1
 ```
 
-On Filecoin mainnet only, the experimental, explicit opt-in acquisition can bring missing FIL and USDFC from the same owner address on Arbitrum One. The currently supported source is native Arbitrum USDC; it is intentionally an allowlist, not a generic bridge, and the funded mainnet release smoke remains pending:
+On Filecoin mainnet only, the experimental, explicit opt-in acquisition can bring missing FIL and USDFC from the same owner address on Arbitrum One. The currently supported source is native Arbitrum USDC; it is intentionally an allowlist, not a generic bridge, and the funded mainnet smoke test remains pending:
 
 ```bash
 # The maximum is a hard cap on source USDC for this run. Pick the smallest cap
@@ -232,11 +232,11 @@ filecoin-pin payments fund --amount 4 --mode minimum --network mainnet \
   --from-chain arb --from-token USDC --max-source-amount 10
 ```
 
-The source and Filecoin wallet must be controlled by the same private key. Keep Arbitrum native gas available for exact-amount ERC-20 approvals and route execution. `SOURCE_RPC_URL` is the Arbitrum RPC; set it and `SQUID_INTEGRATOR_ID` in the environment rather than command history. The examples above use `--network` with the default Filecoin endpoint. To use a custom Filecoin endpoint, omit `--network` and set `RPC_URL` instead; never set both selectors. Never put a wallet key, provider credential, or credential-bearing RPC URL in a script, issue, or artifact. Calibration and devnet intentionally fail acquisition closed: fund those wallets directly and retry. If an acquisition completed but a later Filecoin Pay step failed, rerun only the direct Filecoin deposit or `payments fund` command shown by the CLI; do not repeat source spending.
+The source and Filecoin wallet must be controlled by the same private key. Keep Arbitrum native gas available for exact-amount ERC-20 approvals and route execution. `SOURCE_RPC_URL` is the Arbitrum RPC; set it and `SQUID_INTEGRATOR_ID` in the environment rather than command history. The examples above use `--network` with the default Filecoin endpoint. To use a custom Filecoin endpoint, omit `--network` and set `RPC_URL` instead; never set both selectors. Never put a wallet key, provider credential, or credential-bearing RPC URL in a script, issue, or smoke-test report. Calibration and devnet intentionally fail acquisition closed: fund those wallets directly and retry. If an acquisition completed but a later Filecoin Pay step failed, rerun only the direct Filecoin deposit or `payments fund` command shown by the CLI; do not repeat source spending.
 
-See the [payments acquisition route](documentation/payments-acquisition-route.md) for route caps, transaction stages, polling limits, and recovery, and the [release-evidence runbook](documentation/release-evidence/README.md) for safe evidence capture.
+See the [payments acquisition route](documentation/payments-acquisition-route.md) for route caps, transaction stages, polling limits, and recovery, and the [payments smoke test](documentation/payments-smoke-test.md) for the safety-gated manual verification procedure.
 
-The release-evidence harness writes a private, ignored run artifact under `artifacts/release-evidence/` by default. Its exact dry-run commands, build prerequisite, and promotion rules are in the [release-evidence runbook](documentation/release-evidence/README.md). On POSIX the artifact is created with mode `0600`. Before any Windows mainnet run, choose an explicitly user-private output directory, restrict its ACL to the operator, and verify that another local user cannot read it. Review and sanitize an artifact before promoting only verified, non-sensitive facts into a curated versioned evidence record; do not commit raw run artifacts.
+The smoke-test tool requires an explicit report path outside the repository checkout and refuses to overwrite an existing report. On POSIX it creates the report with mode `0600`. Before any Windows mainnet run, choose an explicitly user-private output directory, restrict its ACL to the operator, and verify that another local user cannot read it. Generated reports are operational data: inspect and sanitize them outside the checkout, and never commit them.
 
 For detailed guides, see:
 - **CLI**: [Complete CLI walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/filecoin-pin-cli)

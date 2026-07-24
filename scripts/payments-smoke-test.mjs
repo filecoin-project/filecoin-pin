@@ -1,27 +1,28 @@
 #!/usr/bin/env node
 
 /**
- * Produce a sanitized release-evidence artifact and, only with explicit
+ * Produce a sanitized payments smoke-test report and, only with explicit
  * consent, run the built CLI smoke command. No package.json script calls this,
  * so normal CI never runs a funded smoke.
  */
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { chmod, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
-import { basename, dirname, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { createPublicClient, http, webSocket } from 'viem'
 
 const allowedNetworks = new Set(['devnet', 'calibration', 'mainnet'])
 const allowedFlows = new Set(['fund', 'setup'])
 const networkChainIds = { calibration: 314159, devnet: 31415926, mainnet: 314 }
+const repositoryRoot = realpathSync(resolve(import.meta.dirname, '..'))
 const usdcBaseUnits = 1_000_000n
 const maxMainnetSourceCapUSDC = 10_000_000n
 
 function usage(message) {
   if (message != null) process.stderr.write(`Error: ${message}\n`)
   process.stderr.write(
-    'Usage: node scripts/release-evidence.mjs --network <devnet|calibration|mainnet> --flow <fund|setup> (--deposit <USDFC> | --amount <USDFC> | --days <days>) [--mode <minimum|exact>] [--source-cap <USDC>] [--execute --ack-mainnet] [--output <path>]\n'
+    'Usage: node scripts/payments-smoke-test.mjs --network <devnet|calibration|mainnet> --flow <fund|setup> (--deposit <USDFC> | --amount <USDFC> | --days <days>) --output <path-outside-repository> [--mode <minimum|exact>] [--source-cap <USDC>] [--execute --ack-mainnet]\n'
   )
   process.exitCode = message == null ? 0 : 1
 }
@@ -105,7 +106,7 @@ function parseArgs(args) {
       return undefined
     }
     if (sourceCapUSDC > maxMainnetSourceCapUSDC) {
-      usage('--source-cap must not exceed the 10 USDC release cap')
+      usage('--source-cap must not exceed the 10 USDC smoke-test cap')
       return undefined
     }
     if (options.execute && !options.ackMainnet) {
@@ -116,7 +117,38 @@ function parseArgs(args) {
     usage('--source-cap and --ack-mainnet are only valid for mainnet')
     return undefined
   }
+  const output = resolveSmokeReportOutput(options.output)
+  if (output == null) return undefined
+  options.output = output
   return options
+}
+
+function resolveSmokeReportOutput(value) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    usage('--output is required and must point outside the repository checkout')
+    return undefined
+  }
+  const output = resolve(value)
+  const canonicalOutput = canonicalizePotentialPath(output)
+  const relativeOutput = relative(repositoryRoot, canonicalOutput)
+  const isInsideRepository =
+    relativeOutput === '' ||
+    (relativeOutput !== '..' && !relativeOutput.startsWith(`..${sep}`) && !isAbsolute(relativeOutput))
+  if (isInsideRepository) {
+    usage('--output must point outside the repository checkout')
+    return undefined
+  }
+  return canonicalOutput
+}
+
+function canonicalizePotentialPath(path) {
+  let existingAncestor = path
+  while (!existsSync(existingAncestor)) {
+    const parent = dirname(existingAncestor)
+    if (parent === existingAncestor) break
+    existingAncestor = parent
+  }
+  return resolve(realpathSync(existingAncestor), relative(existingAncestor, path))
 }
 
 function isPositiveDecimal(value) {
@@ -191,21 +223,16 @@ async function verifyRpcNetwork(options) {
   }
 }
 
-function defaultOutput(network, flow) {
-  const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
-  return resolve('artifacts', 'release-evidence', `${stamp}-${network}-${flow}.json`)
-}
-
-async function writeNewArtifact(output, artifact) {
+async function writeNewReport(output, report) {
   const directory = dirname(output)
   await mkdir(directory, { recursive: true, mode: 0o700 })
-  await writeFile(output, `${JSON.stringify(artifact, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
+  await writeFile(output, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
 }
 
-async function updateArtifact(output, artifact) {
+async function updateReport(output, report) {
   const temporaryOutput = resolve(dirname(output), `.${basename(output)}.${randomUUID()}.tmp`)
   try {
-    await writeFile(temporaryOutput, `${JSON.stringify(artifact, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
+    await writeFile(temporaryOutput, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
     if (process.platform !== 'win32') await chmod(temporaryOutput, 0o600)
     await rename(temporaryOutput, output)
   } catch (error) {
@@ -235,11 +262,11 @@ async function run(command) {
 const options = parseArgs(process.argv.slice(2))
 if (options != null) {
   const command = commandFor(options)
-  const output = resolve(options.output ?? defaultOutput(options.network, options.flow))
+  const output = options.output
   await verifyRpcNetwork(options)
-  const artifact = {
+  const report = {
     schemaVersion: '1.0',
-    kind: 'filecoin-pin-release-evidence-run',
+    kind: 'filecoin-pin-payments-smoke-test',
     createdAt: new Date().toISOString(),
     network: options.network,
     flow: options.flow,
@@ -255,23 +282,23 @@ if (options != null) {
       mainnetRequiresExplicitExecuteExactSourceCapAndAcknowledgement: true,
     },
   }
-  await writeNewArtifact(output, artifact)
+  await writeNewReport(output, report)
 
   if (options.execute) {
     if (!existsSync(resolve('dist', 'cli.js'))) {
       throw new Error('Build the CLI first with pnpm run build; dist/cli.js is required for an execute run')
     }
     const result = await run(command)
-    artifact.execution = 'completed'
-    artifact.exitCode = result.exitCode
-    artifact.stdout = sanitizedText(result.stdout)
-    artifact.stderr = sanitizedText(result.stderr)
-    artifact.completedAt = new Date().toISOString()
-    await updateArtifact(output, artifact)
+    report.execution = 'completed'
+    report.exitCode = result.exitCode
+    report.stdout = sanitizedText(result.stdout)
+    report.stderr = sanitizedText(result.stderr)
+    report.completedAt = new Date().toISOString()
+    await updateReport(output, report)
     process.exitCode = result.exitCode ?? 1
   }
 
   process.stdout.write(
-    `${JSON.stringify({ artifact: basename(output), execution: artifact.execution, flow: artifact.flow, network: artifact.network })}\n`
+    `${JSON.stringify({ execution: report.execution, flow: report.flow, network: report.network, report: basename(output) })}\n`
   )
 }
