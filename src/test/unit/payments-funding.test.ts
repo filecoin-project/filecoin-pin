@@ -221,6 +221,45 @@ describe('planFilecoinPayFunding', () => {
     expect(plan.walletShortfall).toBe(plan.delta)
   })
 
+  it('keeps the authoritative target and delta identical across wallet readiness states when deferring readiness', async () => {
+    const targetDeposit = 5n * ONE_USDFC
+    const summary = makeSummary({ filecoinPayBalance: 0n })
+    const underfunded = makeStatus({ filecoinPayBalance: 0n, wallet: 0n, filBalance: 0n })
+    const funded = makeStatus({ filecoinPayBalance: 0n, wallet: targetDeposit, filBalance: ONE_USDFC })
+    vi.spyOn(paymentsIndex, 'checkAndSetAllowances').mockResolvedValue({
+      updated: false,
+      currentAllowances: underfunded.currentAllowances,
+    })
+    vi.spyOn(paymentsIndex, 'getPaymentStatus').mockResolvedValueOnce(underfunded).mockResolvedValueOnce(funded)
+
+    const underfundedResult = await planFilecoinPayFunding({
+      synapse: makeSynapseStub(summary) as any,
+      targetDeposit,
+      deferWalletReadinessForPositiveDelta: true,
+    })
+    const fundedResult = await planFilecoinPayFunding({
+      synapse: makeSynapseStub(summary) as any,
+      targetDeposit,
+      deferWalletReadinessForPositiveDelta: true,
+    })
+
+    expect({
+      targetDeposit: underfundedResult.plan.targetDeposit,
+      delta: underfundedResult.plan.delta,
+      action: underfundedResult.plan.action,
+      mode: underfundedResult.plan.mode,
+      reasonCode: underfundedResult.plan.reasonCode,
+    }).toEqual({
+      targetDeposit: fundedResult.plan.targetDeposit,
+      delta: fundedResult.plan.delta,
+      action: fundedResult.plan.action,
+      mode: fundedResult.plan.mode,
+      reasonCode: fundedResult.plan.reasonCode,
+    })
+    expect(underfundedResult.plan.walletShortfall).toBe(targetDeposit)
+    expect(fundedResult.plan.walletShortfall).toBeUndefined()
+  })
+
   it('keeps wallet readiness validation for a withdrawal even when source funding is configured', async () => {
     const status = makeStatus({ filecoinPayBalance: 10n, wallet: 0n, filBalance: 0n })
     const summary = makeSummary({ filecoinPayBalance: 10n })

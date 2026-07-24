@@ -6,6 +6,7 @@ const {
   mockCheckAndSetAllowances,
   mockCheckFILBalance,
   mockCheckUSDFCBalance,
+  mockComputeAutoSetupTargetBalance,
   mockDeposit,
   mockEnsureWallet,
   mockGetPaymentStatus,
@@ -19,6 +20,7 @@ const {
   mockCheckAndSetAllowances: vi.fn(),
   mockCheckFILBalance: vi.fn(),
   mockCheckUSDFCBalance: vi.fn(),
+  mockComputeAutoSetupTargetBalance: vi.fn(),
   mockDeposit: vi.fn(),
   mockEnsureWallet: vi.fn(),
   mockGetPaymentStatus: vi.fn(),
@@ -40,7 +42,7 @@ vi.mock('../../core/payments/index.js', () => ({
   checkAndSetAllowances: mockCheckAndSetAllowances,
   checkFILBalance: mockCheckFILBalance,
   checkUSDFCBalance: mockCheckUSDFCBalance,
-  computeAutoSetupTargetBalance: vi.fn(),
+  computeAutoSetupTargetBalance: mockComputeAutoSetupTargetBalance,
   depositUSDFC: mockDeposit,
   getPaymentStatus: mockGetPaymentStatus,
   validateGasRequirement: mockValidateGasRequirement,
@@ -112,6 +114,7 @@ describe('runAutoSetup acquisition integration', () => {
     })
     mockCheckFILBalance.mockResolvedValue({ balance: 0n, isCalibnet: false, hasSufficientGas: false })
     mockCheckUSDFCBalance.mockResolvedValue(0n)
+    mockComputeAutoSetupTargetBalance.mockReturnValue({ requiredAvailableFunds: TWO_USDFC, targetBalance: TWO_USDFC })
     mockCheckAllowances.mockResolvedValue({ needsUpdate: true })
     mockGetPaymentStatus
       .mockResolvedValueOnce({ filecoinPayBalance: 0n, filBalance: 0n, walletUsdfcBalance: 0n, currentAllowances: {} })
@@ -161,6 +164,66 @@ describe('runAutoSetup acquisition integration', () => {
     )
     expect(mockDeposit).toHaveBeenCalledWith(expect.anything(), TWO_USDFC)
     expect(order).toEqual(['acquire', 'deposit'])
+  })
+
+  it('keeps the authoritative default target and deposit delta identical before deferred wallet readiness', async () => {
+    const sourceOptions = {
+      auto: true,
+      rateAllowance: '1TiB/month',
+      fromChain: 'arb',
+      fromToken: 'USDC',
+      maxSourceAmount: '3',
+      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+    } as const
+    const observed: Array<{ targetInput: unknown; deposited: bigint; acquisitionCalls: number }> = []
+
+    mockCheckFILBalance.mockResolvedValue({ balance: 0n, isCalibnet: false, hasSufficientGas: false })
+    mockCheckUSDFCBalance.mockResolvedValue(0n)
+    mockGetPaymentStatus.mockReset()
+    mockGetPaymentStatus
+      .mockResolvedValueOnce({ filecoinPayBalance: 0n, filBalance: 0n, walletUsdfcBalance: 0n, currentAllowances: {} })
+      .mockResolvedValueOnce({
+        filecoinPayBalance: 0n,
+        filBalance: 100n,
+        walletUsdfcBalance: TWO_USDFC,
+        currentAllowances: {},
+      })
+    await runAutoSetup(sourceOptions)
+    observed.push({
+      targetInput: mockComputeAutoSetupTargetBalance.mock.calls.at(-1)?.[0],
+      deposited: mockDeposit.mock.calls.at(-1)?.[1] as bigint,
+      acquisitionCalls: mockEnsureWallet.mock.calls.length,
+    })
+
+    mockEnsureWallet.mockClear()
+    mockDeposit.mockClear()
+    mockCheckFILBalance.mockResolvedValue({ balance: 100n, isCalibnet: false, hasSufficientGas: true })
+    mockCheckUSDFCBalance.mockResolvedValue(TWO_USDFC)
+    mockGetPaymentStatus.mockReset().mockResolvedValue({
+      filecoinPayBalance: 0n,
+      filBalance: 100n,
+      walletUsdfcBalance: TWO_USDFC,
+      currentAllowances: {},
+    })
+    await runAutoSetup(sourceOptions)
+    observed.push({
+      targetInput: mockComputeAutoSetupTargetBalance.mock.calls.at(-1)?.[0],
+      deposited: mockDeposit.mock.calls.at(-1)?.[1] as bigint,
+      acquisitionCalls: mockEnsureWallet.mock.calls.length,
+    })
+
+    expect(observed).toEqual([
+      {
+        targetInput: expect.objectContaining({ filecoinPayBalance: 0n, availableFunds: 0n }),
+        deposited: TWO_USDFC,
+        acquisitionCalls: 1,
+      },
+      {
+        targetInput: expect.objectContaining({ filecoinPayBalance: 0n, availableFunds: 0n }),
+        deposited: TWO_USDFC,
+        acquisitionCalls: 0,
+      },
+    ])
   })
 
   it('does not acquire when the existing Filecoin Pay balance and allowances are sufficient', async () => {

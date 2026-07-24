@@ -41,6 +41,22 @@ Comprehensive payment rail management for Filecoin Pay:
 - **Capacity Calculations**: Human-friendly storage unit conversions
 - **Funding Planner**: Build and execute Filecoin Pay funding plans for runway or fixed deposits
 
+## Automatic setup and acquisition boundary
+
+`payments setup --auto` first asks the on-chain price list for its authoritative Filecoin Pay target. That target and the resulting Filecoin Pay deposit delta are independent of the owner wallet's current FIL and USDFC balances. Only after the target is fixed does the CLI calculate wallet shortfalls and, when requested, validate readiness.
+
+The optional acquisition boundary is deliberately narrow:
+
+1. The estimator determines the Filecoin Pay target and deposit delta.
+2. Readiness compares that delta and required FIL reserve to the owner wallet.
+3. On Filecoin mainnet, the allowlisted provider route may acquire only the remaining FIL/USDFC shortfall from the same owner address; its source amount stays within the explicit user cap.
+4. Fresh Filecoin wallet balances are read after acquisition.
+5. The established `depositUSDFC` and service-approval helpers execute the Filecoin-side payment work.
+
+The provider stage has typed outcomes: no acquisition needed, completed acquisition, incomplete/unknown acquisition that must not be resent, and a failed pre-submission acquisition. A rerun recomputes shortfalls from fresh balances. Once acquisition has completed, a later deposit or approval failure must offer only direct Filecoin-side recovery, never a source-route retry that could duplicate spending.
+
+Tests follow a ladder: deterministic fixtures and mocked RPCs first; real Filecoin Pay deposit/rerun on local devnet; direct deposit and approval on Calibration where acquisition fails closed; then separately authorized, hard-capped mainnet release evidence. The mainnet smoke is never a normal test or CI task; see [the release-evidence runbook](../../../documentation/release-evidence/README.md).
+
 ## Filecoin Pin Use Examples
 
 Below are examples of how we use our custom Synapse SDK abstractions from within Filecoin Pin.

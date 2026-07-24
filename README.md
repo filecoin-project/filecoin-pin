@@ -202,6 +202,42 @@ filecoin-pin data-set <dataset-id>
 filecoin-pin add myfile.txt --network calibration
 ```
 
+### Payment funding and experimental source acquisition
+
+`payments setup --auto` uses the existing [Filecoin Pay](documentation/glossary.md#filecoin-pay) deposit and service-approval flow. On Calibration and local devnet, fund the owner wallet directly with [FIL](documentation/glossary.md#fil) for gas and [USDFC](documentation/glossary.md#usdfc) for the deposit:
+
+```bash
+filecoin-pin payments setup --auto --network calibration --deposit 1
+filecoin-pin payments setup --auto --network devnet --deposit 1
+```
+
+On Filecoin mainnet only, the experimental, explicit opt-in acquisition can bring missing FIL and USDFC from the same owner address on Arbitrum One. The currently supported source is native Arbitrum USDC; it is intentionally an allowlist, not a generic bridge, and the funded mainnet release smoke remains pending:
+
+```bash
+# The maximum is a hard cap on source USDC for this run. Pick the smallest cap
+# that covers the runtime quote; do not reuse this example as a budget.
+filecoin-pin payments setup --auto --network mainnet --deposit 4 \
+  --from-chain arb --from-token USDC --max-source-amount 10
+```
+
+`payments fund` supports both a fixed deposit target and a storage-runway target. Use direct Filecoin-side funding as the normal escape hatch/resume path after a completed acquisition:
+
+```bash
+# Direct Filecoin-side funding (Calibration/devnet, or resume after acquisition)
+filecoin-pin payments fund --amount 2 --mode minimum --network calibration
+filecoin-pin payments fund --days 30 --mode minimum --network devnet
+
+# Experimental mainnet acquisition for a fixed deposit target
+filecoin-pin payments fund --amount 4 --mode minimum --network mainnet \
+  --from-chain arb --from-token USDC --max-source-amount 10
+```
+
+The source and Filecoin wallet must be controlled by the same private key. Keep Arbitrum native gas available for exact-amount ERC-20 approvals and route execution. `SOURCE_RPC_URL` is the Arbitrum RPC; set it and `SQUID_INTEGRATOR_ID` in the environment rather than command history. The examples above use `--network` with the default Filecoin endpoint. To use a custom Filecoin endpoint, omit `--network` and set `RPC_URL` instead; never set both selectors. Never put a wallet key, provider credential, or credential-bearing RPC URL in a script, issue, or artifact. Calibration and devnet intentionally fail acquisition closed: fund those wallets directly and retry. If an acquisition completed but a later Filecoin Pay step failed, rerun only the direct Filecoin deposit or `payments fund` command shown by the CLI; do not repeat source spending.
+
+See the [payments acquisition route](documentation/payments-acquisition-route.md) for route caps, transaction stages, polling limits, and recovery, and the [release-evidence runbook](documentation/release-evidence/README.md) for safe evidence capture.
+
+The release-evidence harness writes a private, ignored run artifact under `artifacts/release-evidence/` by default. Its exact dry-run commands, build prerequisite, and promotion rules are in the [release-evidence runbook](documentation/release-evidence/README.md). On POSIX the artifact is created with mode `0600`. Before any Windows mainnet run, choose an explicitly user-private output directory, restrict its ACL to the operator, and verify that another local user cannot read it. Review and sanitize an artifact before promoting only verified, non-sensitive facts into a curated versioned evidence record; do not commit raw run artifacts.
+
 For detailed guides, see:
 - **CLI**: [Complete CLI walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/filecoin-pin-cli)
 - **GitHub Action**: [CI/CD integration guide](https://docs.filecoin.io/builder-cookbook/filecoin-pin/github-action)
@@ -271,6 +307,10 @@ NETWORK=mainnet                # Network to use: mainnet, calibration, or devnet
 RPC_URL=wss://...              # Filecoin RPC endpoint (overrides NETWORK if specified)
                                # Mainnet: wss://wss.node.glif.io/apigw/lotus/rpc/v1
                                # Calibration: wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1
+
+# Optional - Mainnet source acquisition only (never needed on Calibration/devnet)
+SOURCE_RPC_URL=https://...     # Arbitrum source-chain RPC; keep endpoint credentials out of shell history
+SQUID_INTEGRATOR_ID=...        # Provider credential; never commit or print its value
 
 # Optional for Pinning Server Daemon
 ACCESS_TOKEN=...               # Bearer token required on all API requests except GET /
