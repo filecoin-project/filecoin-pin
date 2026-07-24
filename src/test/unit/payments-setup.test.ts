@@ -8,6 +8,8 @@ import {
   checkUSDFCBalance,
   depositUSDFC,
   getPaymentStatus,
+  MAX_LOCKUP_ALLOWANCE,
+  MAX_RATE_ALLOWANCE,
   setServiceApprovals,
 } from '../../core/payments/index.js'
 import { formatFIL, formatUSDFC } from '../../core/utils/format.js'
@@ -186,6 +188,51 @@ describe('Payment Setup Tests', () => {
 
       expect(result.depositTx).toBe('0xdepositWithPermitAndApproveOperator')
       expect(mockSynapse.payments.depositWithPermitAndApproveOperator).toHaveBeenCalled()
+    })
+
+    it('falls back to direct deposit then service approval for a simulated invalid permit signature', async () => {
+      const permitError = new Error(
+        'Contract Call: depositWithPermitAndApproveOperator reverted: EIP2612: invalid signature'
+      )
+      mockSynapse.payments.depositWithPermitAndApproveOperator.mockRejectedValueOnce(permitError)
+      mockSynapse.payments.deposit.mockResolvedValueOnce('0xdirect-deposit')
+      mockSynapse.payments.approveService.mockResolvedValueOnce('0xservice-approval')
+
+      const result = await depositUSDFC(mockSynapse, parseUnits('5', 18))
+
+      expect(result.depositTx).toBe('0xdirect-deposit')
+      expect(mockSynapse.payments.deposit).toHaveBeenCalledWith({ amount: parseUnits('5', 18) })
+      expect(mockSynapse.payments.approveService).toHaveBeenCalledWith({
+        service: '0xwarmstorage',
+        rateAllowance: MAX_RATE_ALLOWANCE,
+        lockupAllowance: MAX_LOCKUP_ALLOWANCE,
+      })
+      expect(mockSynapse.payments.deposit.mock.invocationCallOrder[0]).toBeLessThan(
+        mockSynapse.payments.approveService.mock.invocationCallOrder[0]
+      )
+    })
+
+    it('does not fall back after an ambiguous permit failure with transaction evidence', async () => {
+      const permitError = Object.assign(
+        new Error('Contract Call: depositWithPermitAndApproveOperator reverted: EIP2612: invalid signature'),
+        { transactionHash: '0xsubmitted' }
+      )
+      mockSynapse.payments.depositWithPermitAndApproveOperator.mockRejectedValueOnce(permitError)
+
+      await expect(depositUSDFC(mockSynapse, parseUnits('5', 18))).rejects.toThrow('EIP2612: invalid signature')
+
+      expect(mockSynapse.payments.deposit).not.toHaveBeenCalled()
+      expect(mockSynapse.payments.approveService).not.toHaveBeenCalled()
+    })
+
+    it('does not fall back for a non-simulation permit error', async () => {
+      const permitError = new Error('EIP2612: invalid signature')
+      mockSynapse.payments.depositWithPermitAndApproveOperator.mockRejectedValueOnce(permitError)
+
+      await expect(depositUSDFC(mockSynapse, parseUnits('5', 18))).rejects.toThrow('EIP2612: invalid signature')
+
+      expect(mockSynapse.payments.deposit).not.toHaveBeenCalled()
+      expect(mockSynapse.payments.approveService).not.toHaveBeenCalled()
     })
   })
 

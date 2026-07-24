@@ -12,7 +12,20 @@ export type {
   StorageAllowances,
 } from '../core/payments/index.js'
 
-export interface PaymentSetupOptions extends CLIAuthOptions {
+/** Source-token controls shared by the explicit funding entry points. */
+export interface FundingSourceCLIOptions {
+  /** Explicit source selection; acquisition is unavailable without both fields. */
+  fromChain?: string
+  fromToken?: string
+  /** Maximum source-token amount, expressed in the selected token's display units. */
+  maxSourceAmount?: string
+  /** Optional source-chain RPC endpoint. It is never inferred from --rpc-url. */
+  sourceRpcUrl?: string
+  /** Quote slippage percentage (0.01 <= n <= 99.99). */
+  slippage?: number
+}
+
+export interface PaymentSetupOptions extends CLIAuthOptions, FundingSourceCLIOptions {
   auto: boolean
   /** Explicit target Filecoin Pay balance (USDFC). When omitted, `--auto` derives it from live on-chain pricing. */
   deposit?: string
@@ -59,7 +72,7 @@ export interface FundingAdjustmentResult {
   warnings?: string[]
 }
 
-export interface FundOptions extends CLIAuthOptions {
+export interface FundOptions extends CLIAuthOptions, FundingSourceCLIOptions {
   days?: number
   amount?: string
   /**
@@ -70,13 +83,4 @@ export interface FundOptions extends CLIAuthOptions {
    * minimum: Adjust funds to match a minimum runway (days) or a minimum deposited amount.
    */
   mode?: FundingMode
-  /** Explicit source selection; acquisition is unavailable without both fields. */
-  fromChain?: string
-  fromToken?: string
-  /** Maximum source-token amount, expressed in the selected token's display units. */
-  maxSourceAmount?: string
-  /** Optional Arbitrum RPC endpoint. It is never inferred from --rpc-url. */
-  sourceRpcUrl?: string
-  /** Quote slippage percentage (0.01 <= n <= 99.99). */
-  slippage?: number
 }

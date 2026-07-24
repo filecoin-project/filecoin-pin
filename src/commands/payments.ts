@@ -1,4 +1,6 @@
 import { Command } from 'commander'
+import pc from 'picocolors'
+import { isCliFatal } from '../common/cli-errors.js'
 import { runAutoSetup } from '../payments/auto.js'
 import { runDeposit } from '../payments/deposit.js'
 import { runFund } from '../payments/fund.js'
@@ -6,11 +8,54 @@ import { runInteractiveSetup } from '../payments/interactive.js'
 import { showPaymentStatus } from '../payments/status.js'
 import type { FundOptions, PaymentSetupOptions } from '../payments/types.js'
 import { runWithdraw } from '../payments/withdraw.js'
+import { log } from '../utils/cli-logger.js'
 import { addAuthOptions, addFundingSourceOptions } from '../utils/cli-options.js'
 
 export const paymentsCommand = new Command('payments').description(
   'Manage storage payments (required before your first upload)'
 )
+
+/**
+ * SOURCE_RPC_URL can be ambient configuration for a future automatic
+ * acquisition. It must not make ordinary interactive setup invalid, whereas
+ * an explicitly supplied source flag is a clear request for the auto-only
+ * workflow.
+ */
+export function hasExplicitInteractiveSourceOption(command: Command): boolean {
+  return ['fromChain', 'fromToken', 'maxSourceAmount', 'sourceRpcUrl', 'slippage'].some(
+    (optionName) => command.getOptionValueSource(optionName) === 'cli'
+  )
+}
+
+/** Execute setup and ensure a Commander action never hides a user-facing error. */
+export async function handlePaymentsSetupAction(options: PaymentSetupOptions, command: Command): Promise<void> {
+  try {
+    const setupOptions: PaymentSetupOptions = {
+      ...options,
+      auto: options.auto || false,
+      rateAllowance: options.rateAllowance || '1TiB/month',
+      ...(options.deposit != null ? { deposit: options.deposit } : {}),
+      ...(options.network != null ? { network: options.network } : {}),
+    }
+
+    if (setupOptions.auto) {
+      await runAutoSetup(setupOptions)
+      return
+    }
+
+    if (hasExplicitInteractiveSourceOption(command)) {
+      throw new Error('Source acquisition options require payments setup --auto')
+    }
+    await runInteractiveSetup(setupOptions)
+  } catch (error) {
+    if (!isCliFatal(error)) {
+      const message = error instanceof Error ? error.message : String(error)
+      log.line(pc.red(`Error: ${message}`))
+      log.flush()
+    }
+    process.exitCode = 1
+  }
+}
 
 // Setup command
 const setupCommand = new Command('setup')
@@ -24,27 +69,10 @@ const setupCommand = new Command('setup')
     '--rate-allowance <amount>',
     'Storage allowance for WarmStorage service (e.g., "1TiB/month", "500GiB/month", or "0.0000565" USDFC/epoch, default: 1TiB/month)'
   )
-  .action(async (options) => {
-    try {
-      const setupOptions: PaymentSetupOptions = {
-        ...options,
-        auto: options.auto || false,
-        deposit: options.deposit,
-        rateAllowance: options.rateAllowance || '1TiB/month',
-        network: options.network,
-      }
-
-      if (setupOptions.auto) {
-        await runAutoSetup(setupOptions)
-      } else {
-        await runInteractiveSetup(setupOptions)
-      }
-    } catch {
-      process.exit(1)
-    }
-  })
+  .action(async (options, command) => handlePaymentsSetupAction(options, command))
 
 addAuthOptions(setupCommand)
+addFundingSourceOptions(setupCommand)
 paymentsCommand.addCommand(setupCommand)
 
 // Fund command - adjust funds to an exact runway or deposited total

@@ -52,6 +52,17 @@ describe('CLI --network option', () => {
     expect(revokeHelp).toContain('--network')
     expect(revokeHelp).toContain('--rpc-url')
   })
+
+  it('exposes bounded source-acquisition options only on payments setup', () => {
+    const setupCommand = paymentsCommand.commands.find((command) => command.name() === 'setup')
+    const setupHelp = setupCommand?.helpInformation() ?? ''
+
+    expect(setupHelp).toContain('--from-chain')
+    expect(setupHelp).toContain('--from-token')
+    expect(setupHelp).toContain('--max-source-amount')
+    expect(setupHelp).toContain('--source-rpc-url')
+    expect(setupHelp).toContain('--slippage')
+  })
 })
 
 describe('remove command naming', () => {

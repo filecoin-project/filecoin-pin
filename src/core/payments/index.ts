@@ -299,14 +299,26 @@ export async function depositUSDFC(
   let txHash: Hash
 
   if (amountMoreThanCurrentAllowance || needsAllowanceUpdate) {
-    txHash = await synapse.payments.depositWithPermitAndApproveOperator({
-      amount,
-      operator: synapse.chain.contracts.fwss.address,
-      rateAllowance: MAX_RATE_ALLOWANCE,
-      lockupAllowance: MAX_LOCKUP_ALLOWANCE,
-      // maxLockupPeriod omitted: the SDK resolves the chain default
-      // (priceList.lockups.defaultLockupPeriod) so we always cover it.
-    })
+    try {
+      txHash = await synapse.payments.depositWithPermitAndApproveOperator({
+        amount,
+        operator: synapse.chain.contracts.fwss.address,
+        rateAllowance: MAX_RATE_ALLOWANCE,
+        lockupAllowance: MAX_LOCKUP_ALLOWANCE,
+        // maxLockupPeriod omitted: the SDK resolves the chain default
+        // (priceList.lockups.defaultLockupPeriod) so we always cover it.
+      })
+    } catch (error) {
+      if (!isPreBroadcastInvalidPermitSignature(error)) throw error
+      // Calibration's current USDFC deployment rejects the SDK's otherwise
+      // valid ERC-2612 permit during contract simulation. The strict guard
+      // above excludes errors with any transaction evidence, so this fallback
+      // cannot turn an ambiguous submission failure into a duplicate deposit.
+      txHash = await synapse.payments.deposit({ amount })
+      await synapse.client.waitForTransactionReceipt({ hash: txHash })
+      await setServiceApprovals(synapse, MAX_RATE_ALLOWANCE, MAX_LOCKUP_ALLOWANCE)
+      return { depositTx: txHash }
+    }
   } else {
     txHash = await synapse.payments.deposit({ amount })
   }
@@ -314,6 +326,28 @@ export async function depositUSDFC(
   await synapse.client.waitForTransactionReceipt({ hash: txHash })
 
   return { depositTx: txHash }
+}
+
+function hasTransactionEvidence(error: unknown): boolean {
+  const visited = new Set<unknown>()
+  const inspect = (value: unknown): boolean => {
+    if (value == null || typeof value !== 'object' || visited.has(value)) return false
+    visited.add(value)
+    const record = value as Record<string, unknown>
+    if (typeof record.transactionHash === 'string' || typeof record.hash === 'string') return true
+    return inspect(record.cause) || inspect(record.details)
+  }
+  return inspect(error)
+}
+
+/** Only a simulated, unsigned permit rejection is safe to replace with a direct deposit. */
+function isPreBroadcastInvalidPermitSignature(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return (
+    /EIP2612:\s*invalid signature/iu.test(message) &&
+    message.includes('Contract Call:') &&
+    !hasTransactionEvidence(error)
+  )
 }
 
 /**
