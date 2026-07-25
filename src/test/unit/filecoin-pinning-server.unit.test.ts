@@ -161,7 +161,7 @@ describe('createFilecoinPinningServer auth selection', () => {
     const logger = createLogger(config)
 
     await expect(createFilecoinPinningServer(config, logger, SERVICE_INFO)).rejects.toThrow(
-      'Session key must be 0x-prefixed hexadecimal'
+      'Invalid --session-key / SESSION_KEY'
     )
   })
 
@@ -177,7 +177,25 @@ describe('createFilecoinPinningServer auth selection', () => {
     const logger = createLogger(config)
 
     await expect(createFilecoinPinningServer(config, logger, SERVICE_INFO)).rejects.toThrow(
-      'Session key must be 32 bytes'
+      'Invalid --session-key / SESSION_KEY'
+    )
+  })
+
+  it('should name the flag and flag the address mix-up when sessionKey looks like a session address', async () => {
+    const config = {
+      ...createConfig(),
+      carStoragePath: TEST_OUTPUT_DIR,
+      port: 0,
+      privateKey: undefined,
+      walletAddress: '0x0000000000000000000000000000000000000002',
+      // A 40-hex-char value shaped like an address, not a 32-byte private key
+      // — the mistake this validator exists to catch on the daemon path too.
+      sessionKey: '0x1234567890123456789012345678901234567890',
+    }
+    const logger = createLogger(config)
+
+    await expect(createFilecoinPinningServer(config, logger, SERVICE_INFO)).rejects.toThrow(
+      /Invalid --session-key \/ SESSION_KEY: this looks like an address/
     )
   })
 

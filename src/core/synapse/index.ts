@@ -142,7 +142,7 @@ const PERMISSION_NAMES: Record<string, string> = {
  * Reject malformed session key material before it reaches the SDK, whose own
  * error ("invalid private key, expected hex or 32 bytes") never names the flag.
  */
-function assertSessionKeyPrivateKey(value: string): void {
+export function assertSessionKeyPrivateKey(value: string): asserts value is Hex {
   if (/^0x[0-9a-fA-F]{64}$/.test(value)) return
   const detail = /^(0x)?[0-9a-fA-F]{40}$/.test(value)
     ? 'this looks like an address, but the session key private key (0x-prefixed, 64 hex characters) is required'
