@@ -76,7 +76,7 @@ export async function startServer(): Promise<void> {
     if (errorMessage.includes('No authentication')) {
       console.error('\n❌ Error: Authentication is required to start the pinning server')
       console.error('   Private key:   --private-key <key>  or  PRIVATE_KEY=0x...')
-      console.error('   Session key:   --wallet-address <addr> --session-key <key>')
+      console.error('   Session key:   --wallet-address <addr> --session-key <private-key>')
       console.error('                  or  WALLET_ADDRESS=0x... SESSION_KEY=0x...\n')
     } else if (errorMessage.includes('No access token')) {
       console.error('\n❌ Error: An access token is required to start the pinning server')
