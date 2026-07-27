@@ -618,7 +618,7 @@ async function executeResolvedSourceAcquisition(
     } = checkpoint
     await options.checkpointStore.save(confirmed)
   }
-  for (const quote of quotes) {
+  for (const [index, quote] of quotes.entries()) {
     const refreshed = await options.refreshQuote(quote)
     assertFixedInputRefresh(quote, refreshed)
     if (
@@ -721,13 +721,28 @@ async function executeResolvedSourceAcquisition(
       }
     }
     const routeCommitment = postApproval.gasLimit * postApproval.maxFeePerGas
+    const remainingCommitment = quotes.slice(index + 1).reduce(
+      (total, remainingQuote) => ({
+        gas: total.gas + remainingQuote.gasLimit * remainingQuote.maxFeePerGas,
+        value: total.value + remainingQuote.value,
+      }),
+      { gas: 0n, value: 0n }
+    )
+    assertCumulativeSourceNativeGas({
+      chainId: source.chain.chainId,
+      committed: committedNativeGas,
+      next: routeCommitment + remainingCommitment.gas,
+    })
+    assertRouteNotExpired(postApproval)
+    await assertActionNativeBalance(
+      routeCommitment + remainingCommitment.gas,
+      postApproval.value + remainingCommitment.value
+    )
     committedNativeGas = assertCumulativeSourceNativeGas({
       chainId: source.chain.chainId,
       committed: committedNativeGas,
       next: routeCommitment,
     })
-    assertRouteNotExpired(postApproval)
-    await assertActionNativeBalance(routeCommitment, postApproval.value)
     const checkpoint: AcquisitionCheckpoint = {
       version: 2,
       owner: account.address,

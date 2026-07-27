@@ -2644,6 +2644,138 @@ describe('wallet shortfall acquisition planning', () => {
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
   })
 
+  it('reserves later strict-route gas when a post-approval refresh raises the current cost', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
+    if (chain == null) throw new Error('Base test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: '0x0000000000000000000000000000000000000003',
+      symbol: 'USDbC',
+      decimals: 8,
+      native: false,
+      display: 'Base USDbC',
+    }
+    const first = {
+      ...executionQuote(),
+      id: 'strict-first-refresh-cap',
+      asset: 'fil' as const,
+      value: 0n,
+      gasLimit: 1n,
+      maxFeePerGas: 1n,
+      source: sourceRouteIdentity(source),
+      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+    }
+    const second = {
+      ...first,
+      id: 'strict-second-refresh-cap',
+      asset: 'usdfc' as const,
+    }
+    const ceiling = sourceNativeGasCeiling(chain.chainId)
+    let firstRefreshes = 0
+    const client = {
+      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getBalance: vi.fn().mockResolvedValue(ceiling * 2n),
+      getGasPrice: vi.fn().mockResolvedValue(1n),
+      getTransactionCount: vi.fn().mockResolvedValue(8),
+      estimateContractGas: vi.fn(),
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+        functionName === 'balanceOf' ? 100n : first.sourceAmount
+      ),
+      waitForTransactionReceipt: vi.fn(),
+    } as unknown as PublicClient
+    const walletClient = { writeContract: vi.fn(), sendTransaction: vi.fn() }
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        source,
+        sourceClient: withResolvedErc20Identity(source, client),
+        walletClient: walletClient as never,
+        quotes: [first, second],
+        maxSourceAmount: 10n,
+        refreshQuote: vi.fn(async (quote) => {
+          if (quote.id !== first.id || ++firstRefreshes === 1) return quote
+          return { ...quote, gasLimit: ceiling }
+        }),
+        getProviderStatus: vi.fn(),
+        checkpointStore: emptyCheckpointStore(),
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).rejects.toThrow('exceeds chain 8453 ceiling')
+
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
+    expect(walletClient.sendTransaction).not.toHaveBeenCalled()
+  })
+
+  it('reserves later strict-route gas against the native balance before signing', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
+    if (chain == null) throw new Error('Base test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: '0x0000000000000000000000000000000000000003',
+      symbol: 'USDbC',
+      decimals: 8,
+      native: false,
+      display: 'Base USDbC',
+    }
+    const first = {
+      ...executionQuote(),
+      id: 'strict-first-refresh-balance',
+      asset: 'fil' as const,
+      value: 0n,
+      gasLimit: 1n,
+      maxFeePerGas: 1n,
+      source: sourceRouteIdentity(source),
+      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+    }
+    const second = {
+      ...first,
+      id: 'strict-second-refresh-balance',
+      asset: 'usdfc' as const,
+      gasLimit: 10n,
+    }
+    const client = {
+      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getBalance: vi.fn().mockResolvedValue(15n),
+      getGasPrice: vi.fn().mockResolvedValue(1n),
+      getTransactionCount: vi.fn().mockResolvedValue(8),
+      estimateContractGas: vi.fn(),
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+        functionName === 'balanceOf' ? 100n : first.sourceAmount
+      ),
+      waitForTransactionReceipt: vi.fn(),
+    } as unknown as PublicClient
+    const walletClient = { writeContract: vi.fn(), sendTransaction: vi.fn() }
+    let firstRefreshes = 0
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        source,
+        sourceClient: withResolvedErc20Identity(source, client),
+        walletClient: walletClient as never,
+        quotes: [first, second],
+        maxSourceAmount: 10n,
+        refreshQuote: vi.fn(async (quote) => {
+          if (quote.id !== first.id || ++firstRefreshes === 1) return quote
+          return { ...quote, gasLimit: 10n }
+        }),
+        getProviderStatus: vi.fn(),
+        checkpointStore: emptyCheckpointStore(),
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).rejects.toThrow('Insufficient source native balance for the next signed action')
+
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
+    expect(walletClient.sendTransaction).not.toHaveBeenCalled()
+  })
+
   it('does not estimate an approval or falsely reject a strict route with exact allowance', async () => {
     const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
     if (chain == null) throw new Error('Base test chain missing')
