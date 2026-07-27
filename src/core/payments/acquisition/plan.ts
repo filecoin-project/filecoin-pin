@@ -1,5 +1,5 @@
 import { parseUnits } from 'viem'
-import { LEGACY_SOURCE_DECIMALS } from './source-assets.js'
+import { isFilecoinSameAssetFundingSource, LEGACY_SOURCE_DECIMALS } from './source-assets.js'
 import type { ResolvedSourceToken } from './source-catalog.js'
 import { getSquidRoute, type SquidProviderOptions } from './squid.js'
 import type { AcquisitionLeg, PlannedAcquisitionQuote, WalletFundingPlan } from './types.js'
@@ -60,6 +60,7 @@ export async function planTokenAcquisition(options: PlanTokenAcquisitionOptions)
   const quotes: PlannedAcquisitionQuote[] = []
   let total = 0n
   for (const leg of options.plan.legs) {
+    assertLegIsNotFilecoinSelfFunding(leg, options.plan.source)
     const quote = await planLeg(leg, options)
     total += quote.sourceAmount
     if (total > options.maxSourceAmount) {
@@ -68,6 +69,12 @@ export async function planTokenAcquisition(options: PlanTokenAcquisitionOptions)
     quotes.push(quote)
   }
   return quotes
+}
+
+function assertLegIsNotFilecoinSelfFunding(leg: AcquisitionLeg, source: WalletFundingPlan['source']): void {
+  if (source != null && isFilecoinSameAssetFundingSource(source, leg.asset)) {
+    throw new Error('Selected Filecoin source asset cannot fund the same wallet shortfall; do not submit a route')
+  }
 }
 
 /**

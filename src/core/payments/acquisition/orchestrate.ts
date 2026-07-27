@@ -171,7 +171,7 @@ export async function ensureWalletReadyForFilecoinTransactions(
   try {
     const pending = await checkpointStore.load()
     if (pending != null && options.resolvedSource == null) assertLegacyCheckpointVersion(pending)
-    if (pending?.approvalIntent != null || pending?.routeIntent != null) {
+    if (pending?.routeIntent != null || (pending?.approvalIntent != null && pending.approvalTransactionHash == null)) {
       throw new Error(
         'Acquisition has a pre-broadcast intent without a transaction hash; inspect the recorded nonce before any rerun'
       )

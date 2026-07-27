@@ -18,7 +18,12 @@ import {
   assertCheckpointSourceCompatibility,
   assertLegacyCheckpointVersion,
 } from './checkpoint.js'
-import { ARBITRUM_USDC, getSourceWalletBalances, SQUID_ROUTER } from './source-assets.js'
+import {
+  ARBITRUM_USDC,
+  getSourceWalletBalances,
+  isFilecoinSameAssetFundingSource,
+  SQUID_ROUTER,
+} from './source-assets.js'
 import {
   type ResolvedSourceToken,
   resolvedTrustedSquidRoutePolicy,
@@ -238,7 +243,10 @@ async function resumeCheckpoint(options: {
       'Acquisition recovery state exceeds the approved source-native gas cap; do not submit another route'
     )
   }
-  if (checkpoint.approvalIntent != null || checkpoint.routeIntent != null) {
+  if (
+    checkpoint.routeIntent != null ||
+    (checkpoint.approvalIntent != null && checkpoint.approvalTransactionHash == null)
+  ) {
     throw new Error(
       'Acquisition has a pre-broadcast intent without a transaction hash; inspect the recorded nonce before any rerun'
     )
@@ -259,7 +267,11 @@ async function resumeCheckpoint(options: {
     if (approvalReceipt.status !== 'success') {
       throw new Error('Source USDC approval transaction failed; do not submit another source route')
     }
-    const { approvalTransactionHash: _approvalTransactionHash, ...confirmedCheckpoint } = checkpoint
+    const {
+      approvalIntent: _approvalIntent,
+      approvalTransactionHash: _approvalTransactionHash,
+      ...confirmedCheckpoint
+    } = checkpoint
     recoveredCheckpoint = { ...confirmedCheckpoint, evidence }
     await options.checkpointStore.save(recoveredCheckpoint)
   }
@@ -326,7 +338,10 @@ async function resumeApprovalOnlyCheckpoint(options: {
       'Acquisition recovery state exceeds the approved source-native gas cap; do not submit another route'
     )
   }
-  if (checkpoint.approvalIntent != null || checkpoint.routeIntent != null) {
+  if (
+    checkpoint.routeIntent != null ||
+    (checkpoint.approvalIntent != null && checkpoint.approvalTransactionHash == null)
+  ) {
     throw new Error(
       'Acquisition has a pre-broadcast intent without a transaction hash; inspect the recorded nonce before any rerun'
     )
@@ -346,7 +361,11 @@ async function resumeApprovalOnlyCheckpoint(options: {
   if (approvalReceipt.status !== 'success') {
     throw new Error('Source USDC approval transaction failed; do not submit another source route')
   }
-  const { approvalTransactionHash: _approvalTransactionHash, ...confirmedCheckpoint } = checkpoint
+  const {
+    approvalIntent: _approvalIntent,
+    approvalTransactionHash: _approvalTransactionHash,
+    ...confirmedCheckpoint
+  } = checkpoint
   await options.checkpointStore.save(confirmedCheckpoint)
   return confirmedCheckpoint
 }
@@ -373,6 +392,9 @@ async function executeResolvedSourceAcquisition(
   const requestedWallet = options.requiredDestinationWallet
   const trustedRoute = resolvedTrustedSquidRoutePolicy(source.chain.chainId)
   for (const quote of options.quotes) {
+    if (isFilecoinSameAssetFundingSource(source, quote.asset)) {
+      throw new Error('Selected Filecoin source asset cannot fund the same wallet shortfall; do not sign')
+    }
     if (
       quote.source == null ||
       quote.source.chainId !== source.chain.chainId ||
@@ -902,7 +924,10 @@ export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOp
         waitForSourceReceipt: (hash) => publicClient.waitForTransactionReceipt({ hash }),
         waitForFilecoinArrival: options.waitForFilecoinArrival,
       })
-    } else if (pending.approvalIntent != null || pending.routeIntent != null) {
+    } else if (
+      pending.routeIntent != null ||
+      (pending.approvalIntent != null && pending.approvalTransactionHash == null)
+    ) {
       throw new Error(
         'Acquisition has a pre-broadcast intent without a transaction hash; inspect the recorded nonce before any rerun'
       )
