@@ -4,6 +4,7 @@ export interface FundingSource {
   token: string
   symbol: string
   decimals?: number
+  native?: boolean
 }
 
 /** The provider-independent action needed to make the Filecoin wallet ready. */
@@ -47,6 +48,14 @@ export interface PlannedAcquisitionQuote extends AcquisitionQuote {
   expiresAt: number
   /** Provider estimate used only to bound status polling; it never authorizes spend. */
   estimatedRouteDurationSeconds: number
+  /** Exact source selected during planning, retained through refresh and recovery. */
+  source?: { chainId: number; token: string; symbol: string; decimals: number; native: boolean }
+  /** Exact wallet that Squid bound as the source owner. Required before selected-source signing. */
+  sourceOwner?: string
+  /** Exact Filecoin wallet destination that Squid bound in the route request. */
+  destinationAddress?: string
+  /** Route target and ERC-20 spender are independently trusted per source chain. */
+  approvalSpender?: string
 }
 
 export interface AcquisitionEvidence {
@@ -62,6 +71,8 @@ export interface AcquisitionEvidence {
   providerExplorerUrl?: string
   /** Retained so recovery keeps the original provider polling deadline. */
   estimatedRouteDurationSeconds?: number
+  /** Provider failure classification retained for recovery and operator remediation. */
+  errorCode?: AcquisitionErrorCode
   status: AcquisitionExecutionStatus
 }
 

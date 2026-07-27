@@ -1,5 +1,10 @@
 import type { Address } from 'viem'
-import { FILECOIN_MAINNET_CHAIN_ID, FILECOIN_NATIVE_TOKEN, FILECOIN_USDFC, SQUID_ROUTER } from './source-assets.js'
+import { FILECOIN_MAINNET_CHAIN_ID, FILECOIN_NATIVE_TOKEN, FILECOIN_USDFC } from './source-assets.js'
+import {
+  isTrustedSquidRouteAddress,
+  resolvedTrustedSquidRoutePolicy,
+  SELECTED_SOURCE_CHAINS,
+} from './source-catalog.js'
 import type {
   AcquisitionErrorCode,
   AcquisitionExecutionStatus,
@@ -12,6 +17,7 @@ export const MIN_SQUID_SLIPPAGE_PERCENT = 0.01
 export const MAX_SQUID_SLIPPAGE_PERCENT = 99.99
 const MAX_RATE_LIMIT_RETRIES = 1
 const MAX_ESTIMATED_ROUTE_DURATION_SECONDS = 30 * 60
+export const DEFAULT_SQUID_REQUEST_TIMEOUT_MS = 15_000
 
 export interface SquidRouteRequest {
   fromAddress: Address
@@ -41,6 +47,8 @@ export interface SquidProviderOptions {
   integratorId: string | undefined
   fetchFn?: typeof fetch
   now?: () => number
+  /** Per-request timeout; polling cannot bound a fetch that never settles on its own. */
+  requestTimeoutMs?: number
 }
 
 export interface SquidStatusResponse {
@@ -96,14 +104,68 @@ function asPositiveBigInt(value: string | undefined, label: string): bigint {
   return BigInt(value)
 }
 
-async function squidFetch(url: string, init: RequestInit, fetchFn: typeof fetch): Promise<Response> {
+function selectedSource(leg: AcquisitionLeg): {
+  chainId: number
+  token: string
+  symbol: string
+  decimals: number
+  native: boolean
+} {
+  const source = leg.source
+  if (source == null)
+    throw providerError('A resolved source token is required for token acquisition', 'unsupported-source')
+  const decimals = source.decimals
+  if (decimals == null || !Number.isSafeInteger(decimals) || decimals < 0 || decimals > 255) {
+    throw providerError('Resolved source token has invalid decimals', 'unsupported-source')
+  }
+  if (!SELECTED_SOURCE_CHAINS.some((chain) => chain.chainId === source.chainId)) {
+    throw providerError(`Source chain ${source.chainId} is not selected for token acquisition`, 'unsupported-source')
+  }
+  return {
+    chainId: source.chainId,
+    token: source.token,
+    symbol: source.symbol,
+    decimals,
+    native: source.native === true,
+  }
+}
+
+async function squidFetch<T>(
+  url: string,
+  init: RequestInit,
+  fetchFn: typeof fetch,
+  requestTimeoutMs: number | undefined,
+  consume: (response: Response) => Promise<T> | T
+): Promise<T> {
   let rateLimitRetries = 0
+  const timeoutMs = requestTimeoutMs ?? DEFAULT_SQUID_REQUEST_TIMEOUT_MS
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw providerError('Squid request timeout must be positive')
   while (true) {
-    const response = await fetchFn(url, init)
-    if (response.status !== 429 || rateLimitRetries >= MAX_RATE_LIMIT_RETRIES) return response
-    rateLimitRetries += 1
-    const retryAfter = Number(response.headers.get('retry-after') ?? '0')
-    if (!Number.isFinite(retryAfter) || retryAfter < 0 || retryAfter > 5) return response
+    const controller = new AbortController()
+    let timedOut = false
+    let retryAfter = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timed = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true
+        controller.abort()
+        reject(providerError('Squid request timed out'))
+      }, timeoutMs)
+    })
+    try {
+      const response = await Promise.race([fetchFn(url, { ...init, signal: controller.signal }), timed])
+      if (response.status !== 429 || rateLimitRetries >= MAX_RATE_LIMIT_RETRIES)
+        return await Promise.race([consume(response), timed])
+      rateLimitRetries += 1
+      retryAfter = Number(response.headers.get('retry-after') ?? '0')
+      if (!Number.isFinite(retryAfter) || retryAfter < 0 || retryAfter > 5)
+        return await Promise.race([consume(response), timed])
+    } catch (error) {
+      if (timedOut || controller.signal.aborted) throw providerError('Squid request timed out')
+      throw error
+    } finally {
+      if (timer != null) clearTimeout(timer)
+    }
     await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000))
   }
 }
@@ -119,32 +181,34 @@ export async function getSquidRoute(
     )
   }
   if (!options.integratorId) throw providerError('Token acquisition requires SQUID_INTEGRATOR_ID')
-  if (request.leg.source?.chainId !== 42161 || request.leg.source.symbol !== 'USDC') {
-    throw providerError('Only Arbitrum USDC is supported for token acquisition', 'unsupported-source')
-  }
+  const source = selectedSource(request.leg)
+  const trusted = resolvedTrustedSquidRoutePolicy(source.chainId)
   const fetchFn = options.fetchFn ?? fetch
   const body = {
     fromAddress: request.fromAddress,
     toAddress: request.fromAddress,
-    fromChain: '42161',
-    fromToken: request.leg.source.token,
+    fromChain: String(source.chainId),
+    fromToken: source.token,
     fromAmount: request.sourceAmount.toString(),
     toChain: String(FILECOIN_MAINNET_CHAIN_ID),
     toToken: destinationToken(request.leg.asset),
     slippage: request.slippage,
     quoteOnly: false,
   }
-  const response = await squidFetch(
+  const { response, parsed } = await squidFetch(
     `${SQUID_API_URL}/route`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-integrator-id': options.integratorId },
       body: JSON.stringify(body),
     },
-    fetchFn
+    fetchFn,
+    options.requestTimeoutMs,
+    async (response) => {
+      if (!response.ok) throw providerError(`Squid quote failed (${response.status})`)
+      return { response, parsed: (await response.json()) as SquidRouteResponse }
+    }
   )
-  if (!response.ok) throw providerError(`Squid quote failed (${response.status})`)
-  const parsed = (await response.json()) as SquidRouteResponse
   const route = parsed.route
   const transaction = route?.transactionRequest
   const params = route?.params
@@ -153,15 +217,15 @@ export async function getSquidRoute(
     transaction == null ||
     params == null ||
     transaction.target == null ||
-    !equalEvmAddresses(transaction.target, SQUID_ROUTER)
+    !isTrustedSquidRouteAddress(source.chainId, transaction.target, 'target')
   ) {
     throw providerError('Squid route failed the approved-target validation')
   }
   if (
-    params.fromChain !== '42161' ||
+    params.fromChain !== String(source.chainId) ||
     params.fromAmount !== request.sourceAmount.toString() ||
     params.toChain !== String(FILECOIN_MAINNET_CHAIN_ID) ||
-    !equalEvmAddresses(params.fromToken, request.leg.source.token) ||
+    !equalEvmAddresses(params.fromToken, source.token) ||
     !equalEvmAddresses(params.toToken, destinationToken(request.leg.asset)) ||
     !equalEvmAddresses(params.fromAddress, request.fromAddress) ||
     !equalEvmAddresses(params.toAddress, request.fromAddress)
@@ -188,6 +252,10 @@ export async function getSquidRoute(
       typeof route.estimate?.estimatedRouteDuration === 'number' && route.estimate.estimatedRouteDuration > 0
         ? route.estimate.estimatedRouteDuration
         : 0,
+    source,
+    sourceOwner: request.fromAddress,
+    destinationAddress: request.fromAddress,
+    approvalSpender: trusted.spender,
     ...(transaction.requestId != null
       ? { requestId: transaction.requestId }
       : response.headers.get('x-request-id') != null
@@ -231,22 +299,25 @@ export async function pollSquidStatus(
     quoteId: request.quoteId,
   })
   if (request.requestId != null) params.set('requestId', request.requestId)
-  const response = await squidFetch(
+  return squidFetch(
     `${SQUID_API_URL}/status?${params.toString()}`,
     { headers: { 'x-integrator-id': options.integratorId } },
-    fetchFn
+    fetchFn,
+    options.requestTimeoutMs,
+    async (response) => {
+      // A just-submitted transaction may not be indexed by the provider yet. Keep it in bounded polling.
+      if (response.status === 404) return mapSquidStatus('not_found')
+      if (!response.ok) throw providerError(`Squid status request failed (${response.status})`)
+      const parsed = (await response.json()) as SquidStatusResponse
+      return {
+        ...mapSquidStatus(parsed.squidTransactionStatus),
+        ...(parsed.fromChain?.transactionUrl != null ? { sourceTransactionUrl: parsed.fromChain.transactionUrl } : {}),
+        ...(parsed.toChain?.transactionId != null ? { destinationTransactionHash: parsed.toChain.transactionId } : {}),
+        ...(parsed.toChain?.transactionUrl != null ? { destinationTransactionUrl: parsed.toChain.transactionUrl } : {}),
+        ...(parsed.axelarTransactionUrl != null ? { providerExplorerUrl: parsed.axelarTransactionUrl } : {}),
+      }
+    }
   )
-  // A just-submitted transaction may not be indexed by the provider yet. Keep it in bounded polling.
-  if (response.status === 404) return mapSquidStatus('not_found')
-  if (!response.ok) throw providerError(`Squid status request failed (${response.status})`)
-  const parsed = (await response.json()) as SquidStatusResponse
-  return {
-    ...mapSquidStatus(parsed.squidTransactionStatus),
-    ...(parsed.fromChain?.transactionUrl != null ? { sourceTransactionUrl: parsed.fromChain.transactionUrl } : {}),
-    ...(parsed.toChain?.transactionId != null ? { destinationTransactionHash: parsed.toChain.transactionId } : {}),
-    ...(parsed.toChain?.transactionUrl != null ? { destinationTransactionUrl: parsed.toChain.transactionUrl } : {}),
-    ...(parsed.axelarTransactionUrl != null ? { providerExplorerUrl: parsed.axelarTransactionUrl } : {}),
-  }
 }
 
 /** Bounded polling never promotes an unresolved provider route to success. */

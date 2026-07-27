@@ -8,12 +8,26 @@ export const FILECOIN_MAINNET_CHAIN_ID = 314
 export const FILECOIN_NATIVE_TOKEN = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' as const
 export const FILECOIN_USDFC = '0x80b98d3aa09ffff255c3ba4a241111ff1262f045' as const
 export const SQUID_ROUTER = '0xce16F69375520ab01377ce7B88f5BA8C48F8D666' as const
+export const LEGACY_SOURCE_DECIMALS = 6
+
+/** A Filecoin wallet cannot make progress by routing one of its own required assets back to itself. */
+export function isFilecoinSameAssetFundingSource(
+  source: Pick<FundingSource, 'chainId' | 'token' | 'native'>,
+  asset: 'fil' | 'usdfc'
+): boolean {
+  if (source.chainId !== FILECOIN_MAINNET_CHAIN_ID) return false
+  const token = source.token.toLowerCase()
+  return (
+    (asset === 'fil' && source.native === true && token === FILECOIN_NATIVE_TOKEN) ||
+    (asset === 'usdfc' && token === FILECOIN_USDFC)
+  )
+}
 
 const source = {
   chainId: ARBITRUM_CHAIN_ID,
   token: ARBITRUM_USDC,
   symbol: 'USDC',
-  decimals: 6,
+  decimals: LEGACY_SOURCE_DECIMALS,
 } satisfies FundingSource
 
 /** Resolve the intentionally small v1 source-asset allowlist. */

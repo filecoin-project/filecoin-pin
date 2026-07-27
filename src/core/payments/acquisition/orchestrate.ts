@@ -1,7 +1,13 @@
 import { mainnet } from '../../synapse/index.js'
 import { MIN_FIL_FOR_GAS } from '../constants.js'
 import { planWalletFunding } from '../wallet-funding.js'
-import { type AcquisitionCheckpoint, acquireAcquisitionLock, createAcquisitionCheckpointStore } from './checkpoint.js'
+import {
+  type AcquisitionCheckpoint,
+  acquireAcquisitionLock,
+  assertCheckpointSourceCompatibility,
+  assertLegacyCheckpointVersion,
+  createAcquisitionCheckpointStore,
+} from './checkpoint.js'
 import {
   executeTokenAcquisition,
   MAX_SOURCE_NATIVE_GAS,
@@ -16,6 +22,8 @@ import {
   validateMaximumSourceSpend,
 } from './plan.js'
 import { resolveSourceToken } from './source-assets.js'
+import type { ResolvedSourceToken } from './source-catalog.js'
+import { sourceNativeGasCeiling, sourceRouteIdentity } from './source-execution.js'
 import { pollSquidStatus, type SquidProviderOptions } from './squid.js'
 import type { AcquisitionEvidence } from './types.js'
 
@@ -36,6 +44,8 @@ export interface EnsureWalletReadyOptions {
   requiredUsdfc: bigint
   fromChain?: string | undefined
   fromToken?: string | undefined
+  /** Internal #16 seam: the exact source resolved by the #15 catalog contract. */
+  resolvedSource?: ResolvedSourceToken | undefined
   maxSourceAmount?: string | undefined
   sourceRpcUrl?: string | undefined
   slippage?: number | undefined
@@ -48,6 +58,8 @@ export interface EnsureWalletReadyOptions {
 
 /** Safe-to-display source-route facts; it intentionally excludes calldata and provider credentials. */
 export interface SourceAcquisitionConfirmation {
+  sourceChainId?: number
+  maxNativeGas?: bigint
   sourceAmount: bigint
   maxSourceAmount: bigint
   legs: Array<{ asset: 'fil' | 'usdfc'; minimumDestinationAmount: bigint; expiresAt: number }>
@@ -81,60 +93,29 @@ function canClearReadyCheckpoint(options: {
   )
 }
 
-async function clearCompatibleReadyCheckpoint(
-  options: EnsureWalletReadyOptions,
-  source: NonNullable<ReturnType<typeof resolveSourceToken>>
-): Promise<void> {
-  if (options.maxSourceAmount == null || options.privateKey == null) return
-  const privateKey = (
-    options.privateKey.startsWith('0x') ? options.privateKey : `0x${options.privateKey}`
-  ) as `0x${string}`
-  const sourceOwner = sourceAddressForPrivateKey(privateKey)
-  const lock = await acquireAcquisitionLock(sourceOwner)
-  const checkpointStore = createAcquisitionCheckpointStore(sourceOwner)
-  try {
-    const pending = await checkpointStore.load()
-    if (
-      pending != null &&
-      canClearReadyCheckpoint({
-        checkpoint: pending,
-        owner: sourceOwner,
-        sourceChainId: source.chainId,
-        destinationChainId: options.destinationChainId,
-        walletFilBalance: options.walletFilBalance,
-        walletUsdfcBalance: options.walletUsdfcBalance,
-      })
-    ) {
-      await checkpointStore.clear()
-    }
-  } finally {
-    await lock.release()
-  }
-}
-
 /** Ensure only the exact wallet deficits are acquired before the existing deposit path continues. */
 export async function ensureWalletReadyForFilecoinTransactions(
   options: EnsureWalletReadyOptions
 ): Promise<AcquisitionEvidence[]> {
-  const source = resolveSourceToken(options.fromChain, options.fromToken)
+  const source = options.resolvedSource ?? resolveSourceToken(options.fromChain, options.fromToken)
+  if (options.resolvedSource != null && options.resolvedSource.chainId !== options.resolvedSource.chain.chainId) {
+    throw new Error('Resolved source chain identity is inconsistent; do not acquire')
+  }
   // The status read that led to this workflow can be stale while an operator
   // completes a direct top-up. Acquire only against the last destination view
   // available before we calculate shortfalls or contact the provider.
   const currentWallet = await options.rereadWalletBalances()
-  const plan = planWalletFunding({
+  const requestedPlan = planWalletFunding({
     requiredUsdfc: options.requiredUsdfc,
     walletUsdfcBalance: currentWallet.usdfc,
     requiredFilReserve: MIN_FIL_FOR_GAS,
     walletFilBalance: currentWallet.fil,
-    ...(source != null ? { source } : {}),
+    ...(source == null ? {} : { source }),
   })
-  if (plan.path === 'ready') {
-    if (source != null) {
-      await clearCompatibleReadyCheckpoint(
-        { ...options, walletFilBalance: currentWallet.fil, walletUsdfcBalance: currentWallet.usdfc },
-        source
-      )
-    }
+  if (
+    requestedPlan.path === 'ready' &&
+    (options.maxSourceAmount == null || source == null || options.privateKey == null)
+  ) {
     return []
   }
   if (options.destinationChainId !== mainnet.id) {
@@ -155,12 +136,105 @@ export async function ensureWalletReadyForFilecoinTransactions(
   const checkpointStore = createAcquisitionCheckpointStore(sourceOwner)
   try {
     const pending = await checkpointStore.load()
-    if (pending?.approvalIntent != null || pending?.routeIntent != null) {
+    const maximumSourceAmount = parseMaximumSourceAmount(options.maxSourceAmount, source) as bigint
+    if (requestedPlan.path === 'ready') {
+      if (pending == null) return []
+      if (
+        canClearReadyCheckpoint({
+          checkpoint: pending,
+          owner: sourceOwner,
+          sourceChainId: source.chainId,
+          destinationChainId: options.destinationChainId,
+          walletFilBalance: currentWallet.fil,
+          walletUsdfcBalance: currentWallet.usdfc,
+        })
+      ) {
+        await checkpointStore.clear()
+        return []
+      }
+      if (pending.routeIntent != null || (pending.approvalIntent != null && pending.approvalTransactionHash == null)) {
+        return []
+      }
+      if (
+        (pending.version === 1 &&
+          (pending.owner.toLowerCase() !== sourceOwner.toLowerCase() ||
+            pending.sourceChainId !== source.chainId ||
+            pending.destinationChainId !== options.destinationChainId)) ||
+        (options.resolvedSource != null && pending.version !== 2)
+      ) {
+        return []
+      }
+    }
+    if (pending != null) {
+      if (options.resolvedSource == null) {
+        assertLegacyCheckpointVersion(pending)
+      } else {
+        assertCheckpointSourceCompatibility(
+          pending,
+          sourceRouteIdentity(options.resolvedSource),
+          maximumSourceAmount,
+          sourceNativeGasCeiling(options.resolvedSource.chain.chainId),
+          { fil: MIN_FIL_FOR_GAS, usdfc: options.requiredUsdfc }
+        )
+      }
+      if (
+        pending.owner.toLowerCase() !== sourceOwner.toLowerCase() ||
+        pending.sourceChainId !== source.chainId ||
+        pending.destinationChainId !== options.destinationChainId
+      ) {
+        throw new Error(
+          'Acquisition recovery state does not match this wallet or destination; do not submit another source route'
+        )
+      }
+    }
+    if (pending?.routeIntent != null || (pending?.approvalIntent != null && pending.approvalTransactionHash == null)) {
       throw new Error(
         'Acquisition has a pre-broadcast intent without a transaction hash; inspect the recorded nonce before any rerun'
       )
     }
-    const maximumSourceAmount = parseMaximumSourceAmount(options.maxSourceAmount) as bigint
+    const requiredWallet = {
+      fil:
+        pending != null && pending.requiredWallet.fil > MIN_FIL_FOR_GAS ? pending.requiredWallet.fil : MIN_FIL_FOR_GAS,
+      usdfc:
+        pending != null && pending.requiredWallet.usdfc > options.requiredUsdfc
+          ? pending.requiredWallet.usdfc
+          : options.requiredUsdfc,
+    }
+    // Every Filecoin ERC-20 acquisition spends FIL from this same wallet for
+    // its approval and route transactions. When any durable wallet shortfall
+    // needs a route, plan enough incoming FIL to cover that bounded spend as
+    // well as the follow-on Filecoin Pay reserve.
+    // The executor still waits for the actual reserve target after the route.
+    const sourceCanRefillFilecoinReserve = source.chainId === mainnet.id && !source.native
+    const requiresSourceAcquisition =
+      currentWallet.fil < requiredWallet.fil || currentWallet.usdfc < requiredWallet.usdfc
+    const plannedFilecoinReserve =
+      sourceCanRefillFilecoinReserve && requiresSourceAcquisition
+        ? requiredWallet.fil + sourceNativeGasCeiling(source.chainId)
+        : requiredWallet.fil
+    const plan = planWalletFunding({
+      requiredUsdfc: requiredWallet.usdfc,
+      walletUsdfcBalance: currentWallet.usdfc,
+      requiredFilReserve: plannedFilecoinReserve,
+      walletFilBalance: currentWallet.fil,
+      source,
+    })
+    if (plan.path === 'ready') {
+      if (
+        pending != null &&
+        canClearReadyCheckpoint({
+          checkpoint: pending,
+          owner: sourceOwner,
+          sourceChainId: source.chainId,
+          destinationChainId: options.destinationChainId,
+          walletFilBalance: currentWallet.fil,
+          walletUsdfcBalance: currentWallet.usdfc,
+        })
+      ) {
+        await checkpointStore.clear()
+      }
+      return []
+    }
     const completedAssets = new Set(pending?.evidence.map((item) => item.asset) ?? [])
     const remainingPlan = { ...plan, legs: plan.legs.filter((leg) => !completedAssets.has(leg.asset)) }
     const needsRoutePlanning =
@@ -186,12 +260,22 @@ export async function ensureWalletReadyForFilecoinTransactions(
       validateMaximumSourceSpend({
         quotes,
         maxSourceAmount: remainingSourceAmount,
-        maxNativeGas: MAX_SOURCE_NATIVE_GAS,
+        maxNativeGas:
+          options.resolvedSource != null
+            ? sourceNativeGasCeiling(options.resolvedSource.chain.chainId)
+            : MAX_SOURCE_NATIVE_GAS,
+        ...(options.resolvedSource != null ? { nativeSource: options.resolvedSource.native } : {}),
       })
       if (quotes.length > 0) {
         await options.confirmSourceAcquisition?.({
           sourceAmount: totalSourceAmount(quotes),
           maxSourceAmount: remainingSourceAmount,
+          ...(options.resolvedSource != null
+            ? {
+                sourceChainId: source.chainId,
+                maxNativeGas: sourceNativeGasCeiling(options.resolvedSource.chain.chainId),
+              }
+            : {}),
           legs: quotes.map((quote) => ({
             asset: quote.asset,
             minimumDestinationAmount: quote.destinationAmount,
@@ -203,6 +287,13 @@ export async function ensureWalletReadyForFilecoinTransactions(
     const evidence = await executeTokenAcquisition({
       privateKey,
       sourceRpcUrl: options.sourceRpcUrl,
+      ...(options.resolvedSource != null
+        ? {
+            source: options.resolvedSource,
+            requiredFilecoinReserve: MIN_FIL_FOR_GAS,
+            requiredDestinationWallet: requiredWallet,
+          }
+        : {}),
       quotes,
       maxSourceAmount: maximumSourceAmount,
       refreshQuote: async (quote) => {
@@ -223,7 +314,7 @@ export async function ensureWalletReadyForFilecoinTransactions(
         return pollSquidStatus(
           {
             transactionId: current.sourceTransactionHash,
-            fromChainId: '42161',
+            fromChainId: String(source.chainId),
             toChainId: String(options.destinationChainId),
             quoteId: current.quoteId,
             ...(current.requestId != null ? { requestId: current.requestId } : {}),
@@ -238,7 +329,7 @@ export async function ensureWalletReadyForFilecoinTransactions(
         waitForFilecoinWalletReadiness({ required, getBalances: options.rereadWalletBalances }),
     })
     await waitForFilecoinWalletReadiness({
-      required: { fil: MIN_FIL_FOR_GAS, usdfc: options.requiredUsdfc },
+      required: requiredWallet,
       getBalances: options.rereadWalletBalances,
     })
     return evidence

@@ -1,5 +1,5 @@
 import type { Address, PublicClient } from 'viem'
-import { FILECOIN_NATIVE_TOKEN, SQUID_ROUTER } from './source-assets.js'
+import { FILECOIN_NATIVE_TOKEN } from './source-assets.js'
 
 export const NATIVE_TOKEN_SELECTOR = 'native'
 export const SQUID_CATALOG_TIMEOUT_MS = 5_000
@@ -26,6 +26,8 @@ export const SELECTED_SOURCE_CHAINS = [
 
 export interface ResolvedSourceToken {
   chain: SelectedSourceChain
+  /** Denormalized for generic execution APIs; must equal chain.chainId. */
+  chainId: number
   token: Address
   symbol: string
   decimals: number
@@ -132,6 +134,7 @@ export function parseSquidCatalog(chainsResponse: unknown, tokensResponse: unkno
     }
     const resolved = {
       chain,
+      chainId: chain.chainId,
       token,
       symbol: raw.symbol.trim(),
       decimals,
@@ -297,11 +300,53 @@ export interface TrustedRoutePolicy {
  * Route targets and approval spenders are explicit deployment-policy inputs.
  * They deliberately do not derive from a catalog token, token symbol, or route display fields.
  */
-export const TRUSTED_SQUID_ROUTE_POLICIES: readonly TrustedRoutePolicy[] = SELECTED_SOURCE_CHAINS.map((chain) => ({
-  chainId: chain.chainId,
-  allowedTargets: [SQUID_ROUTER.toLowerCase() as Address],
-  allowedSpenders: [SQUID_ROUTER.toLowerCase() as Address],
-}))
+/**
+ * Explicit reviewed policy per supported chain. Squid documents its router as the
+ * same deployment on every EVM chain: https://docs.squidrouter.com/additional-resources/contracts
+ * Keep literal entries so adding a selected source chain cannot silently inherit trust.
+ */
+export const TRUSTED_SQUID_ROUTE_POLICIES: readonly TrustedRoutePolicy[] = [
+  {
+    chainId: 1,
+    allowedTargets: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+    allowedSpenders: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+  },
+  {
+    chainId: 10,
+    allowedTargets: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+    allowedSpenders: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+  },
+  {
+    chainId: 56,
+    allowedTargets: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+    allowedSpenders: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+  },
+  {
+    chainId: 137,
+    allowedTargets: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+    allowedSpenders: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+  },
+  {
+    chainId: 314,
+    allowedTargets: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+    allowedSpenders: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+  },
+  {
+    chainId: 8453,
+    allowedTargets: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+    allowedSpenders: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+  },
+  {
+    chainId: 42161,
+    allowedTargets: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+    allowedSpenders: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+  },
+  {
+    chainId: 43114,
+    allowedTargets: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+    allowedSpenders: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
+  },
+]
 
 export function isTrustedSquidRouteAddress(chainId: number, value: string, kind: 'target' | 'spender'): boolean {
   if (!/^0x[0-9a-fA-F]{40}$/.test(value)) return false
@@ -311,4 +356,23 @@ export function isTrustedSquidRouteAddress(chainId: number, value: string, kind:
       (address) => address === value.toLowerCase()
     ) ?? false
   )
+}
+
+/** Resolve the one reviewed execution pair; ambiguous policy cannot authorize signing. */
+export function resolvedTrustedSquidRoutePolicy(chainId: number): { target: Address; spender: Address } {
+  const policies = TRUSTED_SQUID_ROUTE_POLICIES.filter((candidate) => candidate.chainId === chainId)
+  const policy = policies[0]
+  const target = policy?.allowedTargets[0]
+  const spender = policy?.allowedSpenders[0]
+  if (
+    policies.length !== 1 ||
+    policy == null ||
+    policy.allowedTargets.length !== 1 ||
+    policy.allowedSpenders.length !== 1 ||
+    target == null ||
+    spender == null
+  ) {
+    throw new Error(`Trusted Squid route policy for source chain ${chainId} is missing or ambiguous`)
+  }
+  return { target, spender }
 }

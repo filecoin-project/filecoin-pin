@@ -1,18 +1,30 @@
 import { parseUnits } from 'viem'
+import { isFilecoinSameAssetFundingSource, LEGACY_SOURCE_DECIMALS } from './source-assets.js'
+import type { ResolvedSourceToken } from './source-catalog.js'
 import { getSquidRoute, type SquidProviderOptions } from './squid.js'
 import type { AcquisitionLeg, PlannedAcquisitionQuote, WalletFundingPlan } from './types.js'
 
-const SOURCE_DECIMALS = 6
 const MAX_PLANNING_ATTEMPTS = 4
+
+function validatedSourceDecimals(source?: Pick<ResolvedSourceToken, 'decimals'> | { decimals?: number }): number {
+  const decimals = source?.decimals ?? LEGACY_SOURCE_DECIMALS
+  if (!Number.isSafeInteger(decimals) || decimals < 0 || decimals > 255) {
+    throw new Error('Resolved source token has invalid decimals')
+  }
+  return decimals
+}
 
 function ceilDiv(numerator: bigint, denominator: bigint): bigint {
   return (numerator + denominator - 1n) / denominator
 }
 
 /** Parse a positive user maximum in the selected source token's units. */
-export function parseMaximumSourceAmount(value: string | undefined): bigint | undefined {
+export function parseMaximumSourceAmount(
+  value: string | undefined,
+  source?: Pick<ResolvedSourceToken, 'decimals'> | { decimals?: number }
+): bigint | undefined {
   if (value == null) return undefined
-  const parsed = parseUnits(value, SOURCE_DECIMALS)
+  const parsed = parseUnits(value, validatedSourceDecimals(source))
   if (parsed <= 0n) throw new Error('--max-source-amount must be greater than zero')
   return parsed
 }
@@ -48,6 +60,7 @@ export async function planTokenAcquisition(options: PlanTokenAcquisitionOptions)
   const quotes: PlannedAcquisitionQuote[] = []
   let total = 0n
   for (const leg of options.plan.legs) {
+    assertLegIsNotFilecoinSelfFunding(leg, options.plan.source)
     const quote = await planLeg(leg, options)
     total += quote.sourceAmount
     if (total > options.maxSourceAmount) {
@@ -56,6 +69,12 @@ export async function planTokenAcquisition(options: PlanTokenAcquisitionOptions)
     quotes.push(quote)
   }
   return quotes
+}
+
+function assertLegIsNotFilecoinSelfFunding(leg: AcquisitionLeg, source: WalletFundingPlan['source']): void {
+  if (source != null && isFilecoinSameAssetFundingSource(source, leg.asset)) {
+    throw new Error('Selected Filecoin source asset cannot fund the same wallet shortfall; do not submit a route')
+  }
 }
 
 /**
@@ -92,7 +111,11 @@ export async function refreshFixedInputAcquisitionQuote(
 }
 
 async function planLeg(leg: AcquisitionLeg, options: PlanTokenAcquisitionOptions): Promise<PlannedAcquisitionQuote> {
-  let input = options.initialSourceAmount ?? 500_000n
+  // The probe scales with the resolved token, rather than embedding a USDC
+  // base-unit or fiat-value assumption. Subsequent iterations are driven only
+  // by the returned output amount.
+  const decimals = validatedSourceDecimals(options.plan.source)
+  let input = options.initialSourceAmount ?? 5n * 10n ** BigInt(Math.max(0, decimals - 1))
   for (let attempt = 0; attempt < MAX_PLANNING_ATTEMPTS; attempt += 1) {
     const quote = await getSquidRoute(
       { fromAddress: options.owner, sourceAmount: input, leg, slippage: options.slippage },
@@ -123,10 +146,14 @@ export function validateMaximumSourceSpend(params: {
   maxNativeGas: bigint
   /** Estimated costs of exact ERC-20 approval/replacement transactions. */
   approvalGas?: bigint[]
+  nativeSource?: boolean
 }): void {
   const sourceAmount = totalSourceAmount(params.quotes)
   if (sourceAmount > params.maxSourceAmount) throw new Error('Acquisition exceeds --max-source-amount')
-  const routeGas = params.quotes.reduce((total, quote) => total + quote.value + quote.gasLimit * quote.maxFeePerGas, 0n)
+  const routeGas = params.quotes.reduce(
+    (total, quote) => total + (params.nativeSource ? 0n : quote.value) + quote.gasLimit * quote.maxFeePerGas,
+    0n
+  )
   const approvalGas = (params.approvalGas ?? []).reduce((total, gas) => total + gas, 0n)
   const sourceGas = routeGas + approvalGas
   if (sourceGas > params.maxNativeGas) throw new Error('Acquisition exceeds the approved source-native gas cap')

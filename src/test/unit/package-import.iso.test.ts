@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-describe('filecoin-pin isomorphic import', () => {
+// Loading the published isomorphic entrypoint is intentionally expensive when
+// the full unit and browser suites contend for workers, so bound this local
+// package-import contract without widening global test timeouts.
+describe('filecoin-pin isomorphic import', { timeout: 15_000 }, () => {
   it('doesnt throw when importing filecoin-pin', async () => {
     await expect(import('filecoin-pin')).resolves.toBeDefined()
   })

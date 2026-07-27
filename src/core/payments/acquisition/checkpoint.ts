@@ -3,15 +3,23 @@ import { chmod, mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import type { Address, Hex } from 'viem'
+import type { SourceRouteIdentity } from './source-execution.js'
 import type { AcquisitionEvidence } from './types.js'
 
 export interface AcquisitionCheckpoint {
-  version: 1
+  /** Version 2 binds recovery to exact selected-token identity and both caps. */
+  version: 1 | 2
   owner: Address
   sourceChainId: number
   destinationChainId: number
-  /** Sum of every approval/route maximum native-gas commitment ever signed for this acquisition. */
+  /** Sum of approval/route gas plus ERC-20 provider-required native route values ever signed. */
   committedNativeGas: bigint
+  /** Required for v2 recovery; v1 checkpoints are never reinterpreted as another source. */
+  source?: SourceRouteIdentity
+  /** Original invocation-wide source cap, in source.decimals base units. */
+  maxSourceAmount?: bigint
+  /** Explicit selected-chain native ceiling used by this invocation. */
+  maxNativeGas?: bigint
   /** Intent is durably recorded before approval broadcast; a hash is added only after broadcast returns. */
   approvalIntent?: {
     nonce: number
@@ -45,9 +53,12 @@ export interface AcquisitionCheckpointStore {
   clear: () => Promise<void>
 }
 
-interface StoredAcquisitionCheckpoint extends Omit<AcquisitionCheckpoint, 'requiredWallet' | 'committedNativeGas'> {
+export interface StoredAcquisitionCheckpoint
+  extends Omit<AcquisitionCheckpoint, 'requiredWallet' | 'committedNativeGas' | 'maxSourceAmount' | 'maxNativeGas'> {
   requiredWallet: { fil: string; usdfc: string }
   committedNativeGas: string
+  maxSourceAmount?: string
+  maxNativeGas?: string
 }
 
 function acquisitionDataDirectory(): string {
@@ -63,25 +74,93 @@ function isMissingFile(error: unknown): boolean {
 }
 
 function serialize(checkpoint: AcquisitionCheckpoint): StoredAcquisitionCheckpoint {
+  const { maxSourceAmount, maxNativeGas, ...rest } = checkpoint
   return {
-    ...checkpoint,
+    ...rest,
     requiredWallet: {
       fil: checkpoint.requiredWallet.fil.toString(),
       usdfc: checkpoint.requiredWallet.usdfc.toString(),
     },
     committedNativeGas: checkpoint.committedNativeGas.toString(),
+    ...(maxSourceAmount != null ? { maxSourceAmount: maxSourceAmount.toString() } : {}),
+    ...(maxNativeGas != null ? { maxNativeGas: maxNativeGas.toString() } : {}),
   }
 }
 
-function deserialize(stored: StoredAcquisitionCheckpoint): AcquisitionCheckpoint {
-  if (stored.version !== 1 || !/^0x[0-9a-fA-F]{40}$/.test(stored.owner)) {
-    throw new Error('Acquisition recovery state is invalid; do not submit another source route')
+export function deserializeAcquisitionCheckpoint(stored: unknown): AcquisitionCheckpoint {
+  const invalid = () => new Error('Acquisition recovery state is invalid; do not submit another source route')
+  const isBaseUnit = (value: unknown): value is string => typeof value === 'string' && /^\d+$/.test(value)
+  if (typeof stored !== 'object' || stored == null || Array.isArray(stored)) throw invalid()
+  const checkpoint = stored as StoredAcquisitionCheckpoint
+  if (
+    (checkpoint.version !== 1 && checkpoint.version !== 2) ||
+    !/^0x[0-9a-fA-F]{40}$/.test(checkpoint.owner) ||
+    checkpoint.requiredWallet == null ||
+    !isBaseUnit(checkpoint.requiredWallet.fil) ||
+    !isBaseUnit(checkpoint.requiredWallet.usdfc) ||
+    !isBaseUnit(checkpoint.committedNativeGas) ||
+    (checkpoint.maxSourceAmount != null && !isBaseUnit(checkpoint.maxSourceAmount)) ||
+    (checkpoint.maxNativeGas != null && !isBaseUnit(checkpoint.maxNativeGas))
+  ) {
+    throw invalid()
   }
+  const { maxSourceAmount, maxNativeGas, ...rest } = checkpoint
   return {
-    ...stored,
-    owner: stored.owner as Address,
-    requiredWallet: { fil: BigInt(stored.requiredWallet.fil), usdfc: BigInt(stored.requiredWallet.usdfc) },
-    committedNativeGas: BigInt(stored.committedNativeGas),
+    ...rest,
+    owner: checkpoint.owner as Address,
+    requiredWallet: { fil: BigInt(checkpoint.requiredWallet.fil), usdfc: BigInt(checkpoint.requiredWallet.usdfc) },
+    committedNativeGas: BigInt(checkpoint.committedNativeGas),
+    ...(maxSourceAmount != null ? { maxSourceAmount: BigInt(maxSourceAmount) } : {}),
+    ...(maxNativeGas != null ? { maxNativeGas: BigInt(maxNativeGas) } : {}),
+  }
+}
+
+/** A legacy checkpoint lacks the selected token/cap semantics and cannot be resumed safely. */
+export function canAdoptHigherDestinationTarget(checkpoint: AcquisitionCheckpoint): boolean {
+  return (
+    checkpoint.evidence.length === 0 &&
+    checkpoint.routeIntent == null &&
+    (checkpoint.approvalIntent != null ||
+      checkpoint.approvalTransactionHash != null ||
+      checkpoint.committedNativeGas > 0n)
+  )
+}
+
+export function assertCheckpointSourceCompatibility(
+  checkpoint: AcquisitionCheckpoint,
+  source: SourceRouteIdentity,
+  maxSourceAmount: bigint,
+  maxNativeGas: bigint,
+  requiredWallet?: { fil: bigint; usdfc: bigint }
+): void {
+  if (
+    checkpoint.version !== 2 ||
+    checkpoint.source == null ||
+    checkpoint.maxSourceAmount == null ||
+    checkpoint.maxNativeGas == null ||
+    checkpoint.source.chainId !== source.chainId ||
+    checkpoint.source.token.toLowerCase() !== source.token.toLowerCase() ||
+    checkpoint.source.symbol !== source.symbol ||
+    checkpoint.source.decimals !== source.decimals ||
+    checkpoint.source.native !== source.native ||
+    checkpoint.maxSourceAmount !== maxSourceAmount ||
+    checkpoint.maxNativeGas !== maxNativeGas ||
+    (requiredWallet != null &&
+      (checkpoint.requiredWallet.fil < requiredWallet.fil || checkpoint.requiredWallet.usdfc < requiredWallet.usdfc) &&
+      !canAdoptHigherDestinationTarget(checkpoint))
+  ) {
+    throw new Error(
+      'Acquisition recovery state is incompatible with the selected source identity, caps, or destination target; do not submit another route'
+    )
+  }
+}
+
+/** Strict v2 checkpoints carry selected-source base units and must never enter legacy USDC recovery. */
+export function assertLegacyCheckpointVersion(checkpoint: AcquisitionCheckpoint): void {
+  if (checkpoint.version !== 1) {
+    throw new Error(
+      'Strict acquisition recovery state requires the exact selected source; do not resume it through legacy USDC execution'
+    )
   }
 }
 
@@ -141,7 +220,7 @@ export function createAcquisitionCheckpointStore(owner: Address): AcquisitionChe
   return {
     async load(): Promise<AcquisitionCheckpoint | undefined> {
       try {
-        return deserialize(JSON.parse(await readFile(file, 'utf8')) as StoredAcquisitionCheckpoint)
+        return deserializeAcquisitionCheckpoint(JSON.parse(await readFile(file, 'utf8')) as StoredAcquisitionCheckpoint)
       } catch (error) {
         if (isMissingFile(error)) return undefined
         throw error
