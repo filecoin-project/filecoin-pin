@@ -4,13 +4,12 @@ import {
   NATIVE_TOKEN_SELECTOR,
   type ResolvedSourceToken,
   SELECTED_SOURCE_CHAINS,
+  TRUSTED_SQUID_ROUTE_POLICIES,
 } from '../../core/payments/acquisition/source-catalog.js'
 import {
   assertCumulativeSourceNativeGas,
   assertFilecoinSourceReserve,
-  assertRefreshedRouteBinding,
   getSelectedSourceBalance,
-  parseSourceAmountCap,
   requiresErc20Approval,
   sourceNativeGasCeiling,
   sourceRouteIdentity,
@@ -18,8 +17,6 @@ import {
 } from '../../core/payments/acquisition/source-execution.js'
 
 const OWNER = '0x000000000000000000000000000000000000f00d' as const
-const TARGET = '0x000000000000000000000000000000000000beef' as const
-
 function source(chainId: number, decimals = 18, native = false): ResolvedSourceToken {
   const chain = SELECTED_SOURCE_CHAINS.find((candidate) => candidate.chainId === chainId)
   if (chain == null) throw new Error('missing test chain')
@@ -44,9 +41,21 @@ describe('multi-chain selected-source execution substrate', () => {
     expect(assertCumulativeSourceNativeGas({ chainId, committed: 1n, next: 2n })).toBe(3n)
   })
 
-  it('uses non-six-decimal ERC-20 source amounts and chain-bound balances', async () => {
+  it('has one complete, chain-keyed reviewed router policy for every selected source chain', () => {
+    const selectedChainIds = SELECTED_SOURCE_CHAINS.map((chain) => chain.chainId).sort((left, right) => left - right)
+    const policyChainIds = TRUSTED_SQUID_ROUTE_POLICIES.map((policy) => policy.chainId).sort(
+      (left, right) => left - right
+    )
+    expect(policyChainIds).toEqual(selectedChainIds)
+    expect(new Set(policyChainIds).size).toBe(policyChainIds.length)
+    for (const policy of TRUSTED_SQUID_ROUTE_POLICIES) {
+      expect(policy.allowedTargets).toHaveLength(1)
+      expect(policy.allowedSpenders).toHaveLength(1)
+    }
+  })
+
+  it('uses chain-bound ERC-20 source balances', async () => {
     const selected = source(8453, 18)
-    expect(parseSourceAmountCap('1.25', selected)).toBe(1_250_000_000_000_000_000n)
     const client = {
       getChainId: vi.fn().mockResolvedValue(8453),
       getBalance: vi.fn(),
@@ -86,29 +95,11 @@ describe('multi-chain selected-source execution substrate', () => {
     ).toThrow('FIL reserve')
   })
 
-  it('rejects wrong-chain RPCs and untrusted refreshed quote identity', async () => {
+  it('rejects wrong-chain RPCs', async () => {
     const selected = source(8453, 18)
     await expect(verifySourceChain({ getChainId: vi.fn().mockResolvedValue(1) } as never, selected)).rejects.toThrow(
       'does not match selected source chain ID 8453'
     )
-    const binding = {
-      source: sourceRouteIdentity(selected),
-      sourceAmount: 1n,
-      minimumDestinationAmount: 2n,
-      owner: OWNER,
-      destination: OWNER,
-      expiresAt: 2_000_000_000,
-      target: TARGET,
-      spender: TARGET,
-    }
-    expect(() =>
-      assertRefreshedRouteBinding({
-        planned: binding,
-        refreshed: { ...binding, source: { ...binding.source, decimals: 6 } },
-        trustedTarget: TARGET,
-        trustedSpender: TARGET,
-      })
-    ).toThrow('source identity')
   })
 
   it('rejects legacy and mismatched recovery checkpoints instead of reinterpreting a source cap', () => {

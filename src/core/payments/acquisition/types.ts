@@ -50,6 +50,10 @@ export interface PlannedAcquisitionQuote extends AcquisitionQuote {
   estimatedRouteDurationSeconds: number
   /** Exact source selected during planning, retained through refresh and recovery. */
   source?: { chainId: number; token: string; symbol: string; decimals: number; native: boolean }
+  /** Exact wallet that Squid bound as the source owner. Required before selected-source signing. */
+  sourceOwner?: string
+  /** Exact Filecoin wallet destination that Squid bound in the route request. */
+  destinationAddress?: string
   /** Route target and ERC-20 spender are independently trusted per source chain. */
   approvalSpender?: string
 }

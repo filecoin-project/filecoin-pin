@@ -1,5 +1,4 @@
 import type { Address, PublicClient } from 'viem'
-import { parseUnits } from 'viem'
 import type { ResolvedSourceToken } from './source-catalog.js'
 
 /**
@@ -34,24 +33,6 @@ export function sourceRouteIdentity(source: ResolvedSourceToken): SourceRouteIde
     decimals: source.decimals,
     native: source.native,
   }
-}
-
-export function equalSourceRouteIdentity(left: SourceRouteIdentity, right: SourceRouteIdentity): boolean {
-  return (
-    left.chainId === right.chainId &&
-    left.token.toLowerCase() === right.token.toLowerCase() &&
-    left.symbol === right.symbol &&
-    left.decimals === right.decimals &&
-    left.native === right.native
-  )
-}
-
-/** Parse the invocation cap in exactly the resolved source asset's decimals. */
-export function parseSourceAmountCap(value: string | undefined, source: ResolvedSourceToken): bigint | undefined {
-  if (value == null) return undefined
-  const cap = parseUnits(value, source.decimals)
-  if (cap <= 0n) throw new Error('--max-source-amount must be greater than zero')
-  return cap
 }
 
 export function sourceNativeGasCeiling(chainId: number): bigint {
@@ -120,45 +101,4 @@ export function assertFilecoinSourceReserve(options: {
   if (options.nativeBalance < required) {
     throw new Error('Filecoin source balance would fall below the required FIL reserve; do not sign')
   }
-}
-
-export interface RefreshedRouteBinding {
-  source: SourceRouteIdentity
-  sourceAmount: bigint
-  minimumDestinationAmount: bigint
-  owner: Address
-  destination: Address
-  expiresAt: number
-  target: Address
-  spender: Address
-}
-
-/** All execution-bound quote facts are compared after every provider refresh. */
-export function assertRefreshedRouteBinding(options: {
-  planned: RefreshedRouteBinding
-  refreshed: RefreshedRouteBinding
-  trustedTarget: Address
-  trustedSpender: Address
-  nowSeconds?: number
-}): void {
-  const { planned, refreshed } = options
-  if (!equalSourceRouteIdentity(planned.source, refreshed.source))
-    throw new Error('Refreshed route source identity changed; do not sign')
-  if (planned.sourceAmount !== refreshed.sourceAmount) throw new Error('Refreshed route input changed; do not sign')
-  if (refreshed.minimumDestinationAmount < planned.minimumDestinationAmount)
-    throw new Error('Refreshed route output fell below the planned minimum; do not sign')
-  if (
-    planned.owner.toLowerCase() !== refreshed.owner.toLowerCase() ||
-    planned.destination.toLowerCase() !== refreshed.destination.toLowerCase()
-  ) {
-    throw new Error('Refreshed route owner or destination changed; do not sign')
-  }
-  if (
-    refreshed.target.toLowerCase() !== options.trustedTarget.toLowerCase() ||
-    refreshed.spender.toLowerCase() !== options.trustedSpender.toLowerCase()
-  ) {
-    throw new Error('Refreshed route target or approval spender is not trusted for the selected chain; do not sign')
-  }
-  const now = options.nowSeconds ?? Math.floor(Date.now() / 1000)
-  if (refreshed.expiresAt <= now) throw new Error('Refreshed route expired; do not sign')
 }

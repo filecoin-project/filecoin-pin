@@ -240,6 +240,8 @@ export async function getSquidRoute(
         ? route.estimate.estimatedRouteDuration
         : 0,
     source,
+    sourceOwner: request.fromAddress,
+    destinationAddress: request.fromAddress,
     approvalSpender: trusted.spender,
     ...(transaction.requestId != null
       ? { requestId: transaction.requestId }

@@ -132,6 +132,15 @@ export function assertFixedInputRefresh(previous: PlannedAcquisitionQuote, refre
       'Squid route source identity or trusted target/spender changed after refresh; rerun without submitting the route'
     )
   }
+  if (
+    (previous.sourceOwner != null &&
+      (refreshed.sourceOwner == null || previous.sourceOwner.toLowerCase() !== refreshed.sourceOwner.toLowerCase())) ||
+    (previous.destinationAddress != null &&
+      (refreshed.destinationAddress == null ||
+        previous.destinationAddress.toLowerCase() !== refreshed.destinationAddress.toLowerCase()))
+  ) {
+    throw new Error('Squid route owner or destination changed after refresh; rerun without submitting the route')
+  }
   assertRouteNotExpired(refreshed)
 }
 
@@ -366,9 +375,15 @@ async function executeResolvedSourceAcquisition(
       quote.source.symbol !== source.symbol ||
       quote.source.decimals !== source.decimals ||
       quote.source.native !== source.native ||
-      quote.approvalSpender == null
+      quote.approvalSpender == null ||
+      quote.sourceOwner == null ||
+      quote.destinationAddress == null ||
+      quote.sourceOwner.toLowerCase() !== account.address.toLowerCase() ||
+      quote.destinationAddress.toLowerCase() !== account.address.toLowerCase()
     ) {
-      throw new Error('Acquisition quote does not retain the exact resolved source identity and trusted spender')
+      throw new Error(
+        'Acquisition quote does not retain the exact source identity, owner, destination, and trusted spender'
+      )
     }
     if (
       quote.target.toLowerCase() !== trustedRoute.target.toLowerCase() ||
@@ -525,6 +540,19 @@ async function executeResolvedSourceAcquisition(
       : addDestinationAmounts(baseline, options.quotes))
   const evidence: AcquisitionEvidence[] = [...priorEvidence]
   let committedNativeGas = priorCommittedNativeGas
+  const assertActionNativeBalance = async (actionGas: bigint, nativeRouteValue = 0n): Promise<void> => {
+    const actionNativeBalance = await publicClient.getBalance({ address: account.address })
+    if (actionNativeBalance < actionGas + nativeRouteValue) {
+      throw new Error('Insufficient source native balance for the next signed action; do not sign')
+    }
+    assertFilecoinSourceReserve({
+      source,
+      nativeBalance: actionNativeBalance,
+      sourceSpend: nativeRouteValue,
+      routeAndApprovalGas: actionGas,
+      requiredFilecoinReserve: options.requiredFilecoinReserve ?? 0n,
+    })
+  }
   const broadcastApproval = async (params: {
     spender: Address
     amount: bigint
@@ -552,6 +580,7 @@ async function executeResolvedSourceAcquisition(
       evidence,
     }
     await options.checkpointStore.save(checkpoint)
+    await assertActionNativeBalance(params.gas * gasPrice)
     const hash = await walletClient.writeContract({
       address: source.token,
       abi: ERC20_ALLOWANCE_ABI,
@@ -672,6 +701,8 @@ async function executeResolvedSourceAcquisition(
       committed: committedNativeGas,
       next: routeCommitment,
     })
+    assertRouteNotExpired(postApproval)
+    await assertActionNativeBalance(routeCommitment, postApproval.value)
     const checkpoint: AcquisitionCheckpoint = {
       version: 2,
       owner: account.address,
@@ -696,7 +727,6 @@ async function executeResolvedSourceAcquisition(
       evidence,
     }
     await options.checkpointStore.save(checkpoint)
-    assertRouteNotExpired(postApproval)
     const hash = await walletClient.sendTransaction({
       to: getAddress(postApproval.target),
       data: postApproval.data as Hex,
