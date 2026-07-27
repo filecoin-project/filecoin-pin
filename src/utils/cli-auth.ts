@@ -14,6 +14,28 @@ import { resolveChainFromRpc } from '../core/synapse/resolve-chain-from-rpc.js'
 import { createLogger } from '../logger.js'
 
 /**
+ * Where a resolved auth option value came from. Mirrors Commander's
+ * `getOptionValueSource()`, narrowed to the two sources we distinguish for
+ * precedence: an explicit command-line flag versus an environment variable.
+ */
+export type AuthOptionSource = 'cli' | 'env'
+
+/**
+ * Per-option provenance for the mutually exclusive auth flags, keyed by the
+ * Commander attribute name. Populated by the `addAuthOptions` preAction hook
+ * (see `collectAuthOptionSources` in cli-options.ts) so `parseCLIAuth` can tell
+ * an explicit flag from an inherited env var. Absent for programmatic callers,
+ * which are treated as if every supplied value were an explicit flag.
+ */
+export interface AuthOptionSources {
+  privateKey?: AuthOptionSource
+  wallet?: AuthOptionSource
+  walletAddress?: AuthOptionSource
+  sessionKey?: AuthOptionSource
+  viewAddress?: AuthOptionSource
+}
+
+/**
  * Common CLI authentication options interface
  * Used across all commands that require authentication
  */
@@ -30,6 +52,11 @@ export interface CLIAuthOptions {
   sessionKey?: string | undefined
   /** View-only wallet address (no signing) */
   viewAddress?: string | undefined
+  /**
+   * Provenance of the auth flags above, injected by the `addAuthOptions`
+   * preAction hook. Used only to resolve precedence; never forwarded to the SDK.
+   */
+  optionSources?: AuthOptionSources | undefined
   /** Filecoin network: mainnet or calibration */
   network?: string | undefined
   /** RPC endpoint URL (overrides network if specified) */
@@ -47,6 +74,62 @@ export interface CLIAuthOptions {
    * this array at parse time.
    */
   dataSetIds?: string[] | undefined
+}
+
+/**
+ * The mutually exclusive authentication modes, in precedence order. When more
+ * than one mode is supplied, resolution is by source, not by this order: an
+ * explicit flag always wins over an environment variable (see
+ * {@link resolveAuthMode}). This order only fixes how conflicts are reported and
+ * documents the canonical hierarchy.
+ *
+ * 1. `readOnly`   - `--view-address` / `VIEW_ADDRESS` (query only, never signs)
+ * 2. `sessionKey` - `--wallet-address` + `--session-key` (delegated signer)
+ * 3. `ows`        - `--wallet` / `OWS_WALLET_ID` (OWS-backed owner signer)
+ * 4. `privateKey` - `--private-key` / `PRIVATE_KEY` (raw-key owner signer)
+ *
+ * Devnet auto-resolves the devnet user's private key, but only when none of the
+ * above is supplied, so it is a fallback rather than a competing mode.
+ */
+type AuthMode = 'readOnly' | 'sessionKey' | 'ows' | 'privateKey'
+
+interface AuthModeCandidate {
+  mode: AuthMode
+  source: AuthOptionSource
+  /** Human-readable flag/env pair for conflict messages. */
+  label: string
+}
+
+/**
+ * Resolve which single auth mode to use from the modes that were supplied.
+ *
+ * Rules (see {@link AuthMode} for the mode list):
+ * - An explicit command-line flag always beats an environment variable, so a
+ *   flag disambiguates against any env-sourced mode.
+ * - Two or more modes from explicit flags is a hard error (contradictory args).
+ * - With no explicit flag, two or more env-sourced modes is a hard error; the
+ *   user must pass an explicit flag to disambiguate.
+ * - Exactly one supplied mode wins; none supplied returns `undefined` (caller
+ *   applies the devnet fallback or lets initializeSynapse report missing auth).
+ *
+ * Programmatic callers that don't provide `optionSources` have every supplied
+ * value treated as an explicit flag, so any two modes still conflict.
+ */
+function resolveAuthMode(candidates: AuthModeCandidate[]): AuthMode | undefined {
+  const conflict = (modes: AuthModeCandidate[], envOnly: boolean): Error => {
+    const labels = modes.map((c) => c.label).join(' and ')
+    const hint = envOnly ? ' Pass an explicit flag to disambiguate.' : ''
+    return new Error(`Conflicting authentication options: ${labels}. Provide exactly one signing mode.${hint}`)
+  }
+
+  const explicit = candidates.filter((c) => c.source === 'cli')
+  if (explicit.length > 1) throw conflict(explicit, false)
+  const [singleExplicit] = explicit
+  if (singleExplicit) return singleExplicit.mode
+
+  // No explicit flag: every remaining candidate is env-sourced.
+  if (candidates.length > 1) throw conflict(candidates, true)
+  return candidates[0]?.mode
 }
 
 /**
@@ -69,16 +152,44 @@ export async function parseCLIAuth(options: CLIAuthOptions): Promise<SynapseSetu
   // so read everything from `options` rather than process.env here.
   const owsWalletId = options.wallet
   const owsPassphrase = options.walletPassphrase
-
-  // For devnet, fall back to the devnet user's private key if none provided.
-  // OWS wallets take precedence over PRIVATE_KEY when explicitly supplied.
-  const privateKey = owsWalletId
-    ? undefined
-    : options.privateKey || (isDevnet ? resolveDevnetConfig().privateKey : undefined)
   const walletAddress = options.walletAddress
   const sessionKey = options.sessionKey
   const viewAddress = options.viewAddress
   const rpcUrl = getRpcUrl(options)
+
+  const sources = options.optionSources
+  const nonEmpty = (value?: string): value is string => value != null && value !== ''
+  // Effective source of one option: its Commander provenance when known,
+  // otherwise treat a supplied value as an explicit flag (programmatic callers).
+  const sourceOf = (name: keyof AuthOptionSources, value?: string): AuthOptionSource | undefined =>
+    nonEmpty(value) ? (sources?.[name] ?? 'cli') : undefined
+  // A mode spanning several options takes the strongest source among them: a
+  // single explicit flag makes the whole mode explicit.
+  const strongest = (...srcs: Array<AuthOptionSource | undefined>): AuthOptionSource | undefined =>
+    srcs.includes('cli') ? 'cli' : srcs.includes('env') ? 'env' : undefined
+
+  // Build the candidate list in canonical priority order (see AuthMode).
+  const candidates: AuthModeCandidate[] = []
+  const readOnlySource = sourceOf('viewAddress', viewAddress)
+  if (readOnlySource)
+    candidates.push({ mode: 'readOnly', source: readOnlySource, label: '--view-address/VIEW_ADDRESS' })
+  // Session-key mode competes for precedence only when BOTH halves are present.
+  // A lone --wallet-address or --session-key is a lowest-priority fallback
+  // (handled in the default branch), so it never outranks a complete mode like
+  // an OWS wallet or a private key.
+  const walletAddressSource = sourceOf('walletAddress', walletAddress)
+  const sessionKeySource = sourceOf('sessionKey', sessionKey)
+  const sessionSource =
+    walletAddressSource && sessionKeySource ? strongest(walletAddressSource, sessionKeySource) : undefined
+  if (sessionSource)
+    candidates.push({ mode: 'sessionKey', source: sessionSource, label: '--wallet-address/--session-key' })
+  const owsSource = sourceOf('wallet', owsWalletId)
+  if (owsSource) candidates.push({ mode: 'ows', source: owsSource, label: '--wallet/OWS_WALLET_ID' })
+  const privateKeySource = sourceOf('privateKey', options.privateKey)
+  if (privateKeySource)
+    candidates.push({ mode: 'privateKey', source: privateKeySource, label: '--private-key/PRIVATE_KEY' })
+
+  const mode = resolveAuthMode(candidates)
 
   // --network and --rpc-url are mutually exclusive at the Commander level. Set the chain hint
   // only when --network was chosen; otherwise leave it undefined and let initializeSynapse probe
@@ -92,12 +203,9 @@ export async function parseCLIAuth(options: CLIAuthOptions): Promise<SynapseSetu
     chain = NETWORK_CHAINS.mainnet
   }
 
-  // Resolve a single auth mode; initializeSynapse() validates the final shape.
-  // Precedence mirrors initializeSynapse: read-only, then session key, then an
-  // owner signer (OWS, then private key). View-only and session-key modes never
-  // use the owner account, so the OWS account (which lazily loads the native
-  // adapter and can fail on platforms without a prebuilt) is resolved only when
-  // an owner signer is actually needed.
+  // Build the config for the single resolved mode; initializeSynapse() validates
+  // the final shape. The OWS account (which lazily loads the native adapter and
+  // can fail on platforms without a prebuilt) is resolved only when its mode wins.
   const config: {
     privateKey?: string
     walletAddress?: string
@@ -108,34 +216,49 @@ export async function parseCLIAuth(options: CLIAuthOptions): Promise<SynapseSetu
     account?: Awaited<ReturnType<typeof getOwsAccount>>
   } = {}
 
-  if (viewAddress) {
-    config.walletAddress = viewAddress
-    config.readOnly = true
-  } else if (walletAddress && sessionKey) {
-    config.walletAddress = walletAddress
-    config.sessionKey = sessionKey
-  } else if (owsWalletId) {
-    // The OWS adapter derives its CAIP-2 account hint (eip155:<chainId>) from
-    // the chain. With --rpc-url the chain hint is intentionally left undefined
-    // (initializeSynapse probes the endpoint), so probe here too rather than
-    // guessing a network and requesting the wrong eip155 account.
-    const owsChain = chain ?? (rpcUrl ? await resolveChainFromRpc(createTransport(rpcUrl)) : NETWORK_CHAINS.mainnet)
-    const owsOptions: Parameters<typeof getOwsAccount>[0] = {
-      walletId: owsWalletId,
-      chain: owsChain,
+  switch (mode) {
+    case 'readOnly':
+      if (nonEmpty(viewAddress)) config.walletAddress = viewAddress
+      config.readOnly = true
+      break
+    case 'sessionKey':
+      // Both halves are present (that is what made this a competing candidate).
+      if (nonEmpty(walletAddress)) config.walletAddress = walletAddress
+      if (nonEmpty(sessionKey)) config.sessionKey = sessionKey
+      break
+    case 'ows': {
+      // The OWS adapter derives its CAIP-2 account hint (eip155:<chainId>) from
+      // the chain. With --rpc-url the chain hint is intentionally left undefined
+      // (initializeSynapse probes the endpoint), so probe here too rather than
+      // guessing a network and requesting the wrong eip155 account.
+      const owsChain = chain ?? (rpcUrl ? await resolveChainFromRpc(createTransport(rpcUrl)) : NETWORK_CHAINS.mainnet)
+      const owsOptions: Parameters<typeof getOwsAccount>[0] = {
+        walletId: owsWalletId ?? '',
+        chain: owsChain,
+      }
+      // An empty OWS_WALLET_PASSPHRASE (common in CI env files) means "no
+      // passphrase", not a real passphrase value.
+      if (nonEmpty(owsPassphrase)) owsOptions.passphrase = owsPassphrase
+      config.account = await getOwsAccount(owsOptions)
+      break
     }
-    // An empty OWS_WALLET_PASSPHRASE (common in CI env files) means "no
-    // passphrase", not a real passphrase value.
-    if (owsPassphrase != null && owsPassphrase !== '') owsOptions.passphrase = owsPassphrase
-    config.account = await getOwsAccount(owsOptions)
-  } else if (privateKey) {
-    config.privateKey = privateKey
-  } else if (walletAddress) {
-    // Only one half of session-key auth supplied; pass it through so
-    // initializeSynapse can emit its targeted "requires both" error.
-    config.walletAddress = walletAddress
-  } else if (sessionKey) {
-    config.sessionKey = sessionKey
+    case 'privateKey':
+      if (nonEmpty(options.privateKey)) config.privateKey = options.privateKey
+      break
+    default: {
+      // No complete auth mode won. Fallbacks, in priority order: devnet
+      // auto-key, then a lone session-key half passed through so
+      // initializeSynapse can emit its targeted "requires both" error.
+      const devnetKey = isDevnet ? resolveDevnetConfig().privateKey : undefined
+      if (nonEmpty(devnetKey)) {
+        config.privateKey = devnetKey
+      } else if (nonEmpty(walletAddress)) {
+        config.walletAddress = walletAddress
+      } else if (nonEmpty(sessionKey)) {
+        config.sessionKey = sessionKey
+      }
+      break
+    }
   }
   if (rpcUrl) config.rpcUrl = rpcUrl
   if (chain) config.chain = chain
