@@ -499,14 +499,27 @@ async function executeResolvedSourceAcquisition(
   const gasPrice = await publicClient.getGasPrice()
   let approvalGas = 0n
   if (requiresErc20Approval(source)) {
-    for (const quote of quotes) {
-      approvalGas +=
+    // Only estimate an approval that is both needed and signable against the current
+    // chain state. Later legs execute after prior routes consume allowance, so estimating
+    // their hypothetical approvals against today's nonzero allowance can itself revert.
+    const firstQuote = quotes[0]
+    if (firstQuote == null) throw new Error('Resolved source acquisition has no routes to execute')
+    const spender = firstQuote.approvalSpender as Address
+    const allowance = await publicClient.readContract({
+      address: source.token,
+      abi: ERC20_ALLOWANCE_ABI,
+      functionName: 'allowance',
+      args: [account.address, spender],
+    })
+    if (allowance !== firstQuote.sourceAmount) {
+      const amount = allowance > 0n ? 0n : firstQuote.sourceAmount
+      approvalGas =
         (await publicClient.estimateContractGas({
           account: account.address,
           address: source.token,
           abi: ERC20_ALLOWANCE_ABI,
           functionName: 'approve',
-          args: [quote.approvalSpender as Address, quote.sourceAmount],
+          args: [spender, amount],
         })) * gasPrice
     }
   }

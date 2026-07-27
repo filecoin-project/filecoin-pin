@@ -2106,17 +2106,17 @@ describe('wallet shortfall acquisition planning', () => {
       source: sourceRouteIdentity(source),
       approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
     }
+    const allowanceValues = [100_000_000n, 0n, 100_000_000n]
     const sourceClient = {
       getChainId: vi.fn().mockResolvedValue(chain.chainId),
       getBalance: vi.fn().mockResolvedValue(4n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
       estimateContractGas: vi.fn().mockResolvedValue(3n),
-      readContract: vi
-        .fn()
-        .mockResolvedValueOnce(100_000_000n)
-        .mockResolvedValueOnce(0n)
-        .mockResolvedValueOnce(100_000_000n),
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) => {
+        if (functionName === 'balanceOf') return 100_000_000n
+        return allowanceValues.shift() as bigint
+      }),
       waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
     } as unknown as PublicClient
     const walletClient = {
@@ -2424,6 +2424,129 @@ describe('wallet shortfall acquisition planning', () => {
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
   })
 
+  it('does not estimate an approval or falsely reject a strict route with exact allowance', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
+    if (chain == null) throw new Error('Base test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: '0x0000000000000000000000000000000000000003',
+      symbol: 'USDbC',
+      decimals: 8,
+      native: false,
+      display: 'Base USDbC',
+    }
+    const quote = {
+      ...executionQuote(),
+      value: 0n,
+      gasLimit: 1n,
+      maxFeePerGas: 1n,
+      source: sourceRouteIdentity(source),
+      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+    }
+    const estimateContractGas = vi.fn().mockResolvedValue(100n)
+    const client = {
+      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getBalance: vi.fn().mockResolvedValue(1n),
+      getGasPrice: vi.fn().mockResolvedValue(1n),
+      getTransactionCount: vi.fn().mockResolvedValue(8),
+      estimateContractGas,
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+        functionName === 'balanceOf' ? quote.sourceAmount : quote.sourceAmount
+      ),
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+    } as unknown as PublicClient
+    const walletClient = {
+      writeContract: vi.fn(),
+      sendTransaction: vi.fn().mockResolvedValue('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+    }
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        source,
+        sourceClient: client,
+        walletClient: walletClient as never,
+        quotes: [quote],
+        maxSourceAmount: 10n,
+        refreshQuote: vi.fn(async (current) => current),
+        getProviderStatus: vi.fn().mockResolvedValue({ status: 'confirmed' as const }),
+        checkpointStore: emptyCheckpointStore(),
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).resolves.toHaveLength(1)
+
+    expect(estimateContractGas).not.toHaveBeenCalled()
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
+    expect(walletClient.sendTransaction).toHaveBeenCalledTimes(1)
+  })
+
+  it('preflights a zero allowance with the exact approval that can be signed now', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
+    if (chain == null) throw new Error('Base test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: '0x0000000000000000000000000000000000000003',
+      symbol: 'USDbC',
+      decimals: 8,
+      native: false,
+      display: 'Base USDbC',
+    }
+    const quote = {
+      ...executionQuote(),
+      value: 0n,
+      gasLimit: 1n,
+      maxFeePerGas: 1n,
+      source: sourceRouteIdentity(source),
+      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+    }
+    const allowances = [0n, 0n, quote.sourceAmount, quote.sourceAmount]
+    const estimateContractGas = vi.fn().mockResolvedValue(1n)
+    const client = {
+      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getBalance: vi.fn().mockResolvedValue(3n),
+      getGasPrice: vi.fn().mockResolvedValue(1n),
+      getTransactionCount: vi.fn().mockResolvedValue(8),
+      estimateContractGas,
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+        functionName === 'balanceOf' ? quote.sourceAmount : (allowances.shift() as bigint)
+      ),
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+    } as unknown as PublicClient
+    const walletClient = {
+      writeContract: vi.fn().mockResolvedValue('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+      sendTransaction: vi.fn().mockResolvedValue('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
+    }
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        source,
+        sourceClient: client,
+        walletClient: walletClient as never,
+        quotes: [quote],
+        maxSourceAmount: 10n,
+        refreshQuote: vi.fn(async (current) => current),
+        getProviderStatus: vi.fn().mockResolvedValue({ status: 'confirmed' as const }),
+        checkpointStore: emptyCheckpointStore(),
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).resolves.toHaveLength(1)
+
+    expect(estimateContractGas).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ args: [quote.approvalSpender, quote.sourceAmount] })
+    )
+    expect(walletClient.writeContract).toHaveBeenCalledWith(
+      expect.objectContaining({ args: [quote.approvalSpender, quote.sourceAmount] })
+    )
+  })
+
   it('rechecks Filecoin ERC-20 reserve before a stale allowance reset signature', async () => {
     const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 314)
     if (chain == null) throw new Error('Filecoin test chain missing')
@@ -2502,7 +2625,7 @@ describe('wallet shortfall acquisition planning', () => {
       source: sourceRouteIdentity(source),
       approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
     }
-    const allowances = [2n, quote.sourceAmount, quote.sourceAmount]
+    const allowances = [2n, 2n, quote.sourceAmount, quote.sourceAmount]
     const client = {
       getChainId: vi.fn().mockResolvedValue(chain.chainId),
       getBalance: vi
@@ -2742,18 +2865,17 @@ describe('wallet shortfall acquisition planning', () => {
       source: sourceRouteIdentity(source),
       approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
     }
+    const allowanceValues = [0n, 0n, quote.sourceAmount, quote.sourceAmount]
     const sourceClient = {
       getChainId: vi.fn().mockResolvedValue(chain.chainId),
       getBalance: vi.fn().mockResolvedValue(MIN_FIL_FOR_GAS + 1n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
       estimateContractGas: vi.fn().mockResolvedValue(0n),
-      readContract: vi
-        .fn()
-        .mockResolvedValueOnce(quote.sourceAmount)
-        .mockResolvedValueOnce(0n)
-        .mockResolvedValueOnce(quote.sourceAmount)
-        .mockResolvedValueOnce(quote.sourceAmount),
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) => {
+        if (functionName === 'balanceOf') return quote.sourceAmount
+        return allowanceValues.shift() as bigint
+      }),
       waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
     } as unknown as PublicClient
     const walletClient = {
