@@ -2210,6 +2210,7 @@ describe('wallet shortfall acquisition planning', () => {
       })
     ).rejects.toThrow('ceiling')
 
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
     expect(store.clear).not.toHaveBeenCalled()
   })
