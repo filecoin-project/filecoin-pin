@@ -4,6 +4,7 @@ export interface FundingSource {
   token: string
   symbol: string
   decimals?: number
+  native?: boolean
 }
 
 /** The provider-independent action needed to make the Filecoin wallet ready. */
@@ -47,6 +48,10 @@ export interface PlannedAcquisitionQuote extends AcquisitionQuote {
   expiresAt: number
   /** Provider estimate used only to bound status polling; it never authorizes spend. */
   estimatedRouteDurationSeconds: number
+  /** Exact source selected during planning, retained through refresh and recovery. */
+  source?: { chainId: number; token: string; symbol: string; decimals: number; native: boolean }
+  /** Route target and ERC-20 spender are independently trusted per source chain. */
+  approvalSpender?: string
 }
 
 export interface AcquisitionEvidence {

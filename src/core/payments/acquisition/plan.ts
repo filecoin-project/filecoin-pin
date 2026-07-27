@@ -1,8 +1,8 @@
 import { parseUnits } from 'viem'
+import type { ResolvedSourceToken } from './source-catalog.js'
 import { getSquidRoute, type SquidProviderOptions } from './squid.js'
 import type { AcquisitionLeg, PlannedAcquisitionQuote, WalletFundingPlan } from './types.js'
 
-const SOURCE_DECIMALS = 6
 const MAX_PLANNING_ATTEMPTS = 4
 
 function ceilDiv(numerator: bigint, denominator: bigint): bigint {
@@ -10,9 +10,12 @@ function ceilDiv(numerator: bigint, denominator: bigint): bigint {
 }
 
 /** Parse a positive user maximum in the selected source token's units. */
-export function parseMaximumSourceAmount(value: string | undefined): bigint | undefined {
+export function parseMaximumSourceAmount(
+  value: string | undefined,
+  source?: Pick<ResolvedSourceToken, 'decimals'>
+): bigint | undefined {
   if (value == null) return undefined
-  const parsed = parseUnits(value, SOURCE_DECIMALS)
+  const parsed = parseUnits(value, source?.decimals ?? 6)
   if (parsed <= 0n) throw new Error('--max-source-amount must be greater than zero')
   return parsed
 }
@@ -92,7 +95,11 @@ export async function refreshFixedInputAcquisitionQuote(
 }
 
 async function planLeg(leg: AcquisitionLeg, options: PlanTokenAcquisitionOptions): Promise<PlannedAcquisitionQuote> {
-  let input = options.initialSourceAmount ?? 500_000n
+  // The probe scales with the resolved token, rather than embedding a USDC
+  // base-unit or fiat-value assumption. Subsequent iterations are driven only
+  // by the returned output amount.
+  const decimals = options.plan.source?.decimals ?? 6
+  let input = options.initialSourceAmount ?? 5n * 10n ** BigInt(Math.max(0, decimals - 1))
   for (let attempt = 0; attempt < MAX_PLANNING_ATTEMPTS; attempt += 1) {
     const quote = await getSquidRoute(
       { fromAddress: options.owner, sourceAmount: input, leg, slippage: options.slippage },

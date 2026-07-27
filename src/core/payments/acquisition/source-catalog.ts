@@ -26,6 +26,8 @@ export const SELECTED_SOURCE_CHAINS = [
 
 export interface ResolvedSourceToken {
   chain: SelectedSourceChain
+  /** Denormalized for generic execution APIs; must equal chain.chainId. */
+  chainId: number
   token: Address
   symbol: string
   decimals: number
@@ -132,6 +134,7 @@ export function parseSquidCatalog(chainsResponse: unknown, tokensResponse: unkno
     }
     const resolved = {
       chain,
+      chainId: chain.chainId,
       token,
       symbol: raw.symbol.trim(),
       decimals,

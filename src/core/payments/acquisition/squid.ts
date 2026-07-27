@@ -1,5 +1,6 @@
 import type { Address } from 'viem'
 import { FILECOIN_MAINNET_CHAIN_ID, FILECOIN_NATIVE_TOKEN, FILECOIN_USDFC, SQUID_ROUTER } from './source-assets.js'
+import { SELECTED_SOURCE_CHAINS } from './source-catalog.js'
 import type {
   AcquisitionErrorCode,
   AcquisitionExecutionStatus,
@@ -41,6 +42,8 @@ export interface SquidProviderOptions {
   integratorId: string | undefined
   fetchFn?: typeof fetch
   now?: () => number
+  /** Deployment-specific allowlist supplied by the selected source contract. */
+  trustedRoutes?: ReadonlyMap<number, { target: Address; spender: Address }>
 }
 
 export interface SquidStatusResponse {
@@ -96,6 +99,41 @@ function asPositiveBigInt(value: string | undefined, label: string): bigint {
   return BigInt(value)
 }
 
+function selectedSource(leg: AcquisitionLeg): {
+  chainId: number
+  token: string
+  symbol: string
+  decimals: number
+  native: boolean
+} {
+  const source = leg.source
+  if (source == null)
+    throw providerError('A resolved source token is required for token acquisition', 'unsupported-source')
+  const decimals = source.decimals
+  if (decimals == null || !Number.isSafeInteger(decimals) || decimals < 0) {
+    throw providerError('Resolved source token has invalid decimals', 'unsupported-source')
+  }
+  if (!SELECTED_SOURCE_CHAINS.some((chain) => chain.chainId === source.chainId)) {
+    throw providerError(`Source chain ${source.chainId} is not selected for token acquisition`, 'unsupported-source')
+  }
+  return {
+    chainId: source.chainId,
+    token: source.token,
+    symbol: source.symbol,
+    decimals,
+    native: source.native === true,
+  }
+}
+
+function trustedRoute(options: SquidProviderOptions, chainId: number): { target: Address; spender: Address } {
+  const explicit = options.trustedRoutes?.get(chainId)
+  if (explicit != null) return explicit
+  // Compatibility only for the pre-existing Arbitrum fixture path. Every other
+  // chain fails closed until its deployment-specific target/spender is supplied.
+  if (chainId === 42161) return { target: SQUID_ROUTER, spender: SQUID_ROUTER }
+  throw providerError(`No trusted Squid target/spender is configured for source chain ${chainId}`, 'unsupported-source')
+}
+
 async function squidFetch(url: string, init: RequestInit, fetchFn: typeof fetch): Promise<Response> {
   let rateLimitRetries = 0
   while (true) {
@@ -119,15 +157,14 @@ export async function getSquidRoute(
     )
   }
   if (!options.integratorId) throw providerError('Token acquisition requires SQUID_INTEGRATOR_ID')
-  if (request.leg.source?.chainId !== 42161 || request.leg.source.symbol !== 'USDC') {
-    throw providerError('Only Arbitrum USDC is supported for token acquisition', 'unsupported-source')
-  }
+  const source = selectedSource(request.leg)
+  const trusted = trustedRoute(options, source.chainId)
   const fetchFn = options.fetchFn ?? fetch
   const body = {
     fromAddress: request.fromAddress,
     toAddress: request.fromAddress,
-    fromChain: '42161',
-    fromToken: request.leg.source.token,
+    fromChain: String(source.chainId),
+    fromToken: source.token,
     fromAmount: request.sourceAmount.toString(),
     toChain: String(FILECOIN_MAINNET_CHAIN_ID),
     toToken: destinationToken(request.leg.asset),
@@ -153,15 +190,15 @@ export async function getSquidRoute(
     transaction == null ||
     params == null ||
     transaction.target == null ||
-    !equalEvmAddresses(transaction.target, SQUID_ROUTER)
+    !equalEvmAddresses(transaction.target, trusted.target)
   ) {
     throw providerError('Squid route failed the approved-target validation')
   }
   if (
-    params.fromChain !== '42161' ||
+    params.fromChain !== String(source.chainId) ||
     params.fromAmount !== request.sourceAmount.toString() ||
     params.toChain !== String(FILECOIN_MAINNET_CHAIN_ID) ||
-    !equalEvmAddresses(params.fromToken, request.leg.source.token) ||
+    !equalEvmAddresses(params.fromToken, source.token) ||
     !equalEvmAddresses(params.toToken, destinationToken(request.leg.asset)) ||
     !equalEvmAddresses(params.fromAddress, request.fromAddress) ||
     !equalEvmAddresses(params.toAddress, request.fromAddress)
@@ -188,6 +225,8 @@ export async function getSquidRoute(
       typeof route.estimate?.estimatedRouteDuration === 'number' && route.estimate.estimatedRouteDuration > 0
         ? route.estimate.estimatedRouteDuration
         : 0,
+    source,
+    approvalSpender: trusted.spender,
     ...(transaction.requestId != null
       ? { requestId: transaction.requestId }
       : response.headers.get('x-request-id') != null

@@ -3,15 +3,23 @@ import { chmod, mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import type { Address, Hex } from 'viem'
+import type { SourceRouteIdentity } from './source-execution.js'
 import type { AcquisitionEvidence } from './types.js'
 
 export interface AcquisitionCheckpoint {
-  version: 1
+  /** Version 2 binds recovery to exact selected-token identity and both caps. */
+  version: 1 | 2
   owner: Address
   sourceChainId: number
   destinationChainId: number
   /** Sum of every approval/route maximum native-gas commitment ever signed for this acquisition. */
   committedNativeGas: bigint
+  /** Required for v2 recovery; v1 checkpoints are never reinterpreted as another source. */
+  source?: SourceRouteIdentity
+  /** Original invocation-wide source cap, in source.decimals base units. */
+  maxSourceAmount?: bigint
+  /** Explicit selected-chain native ceiling used by this invocation. */
+  maxNativeGas?: bigint
   /** Intent is durably recorded before approval broadcast; a hash is added only after broadcast returns. */
   approvalIntent?: {
     nonce: number
@@ -45,9 +53,12 @@ export interface AcquisitionCheckpointStore {
   clear: () => Promise<void>
 }
 
-interface StoredAcquisitionCheckpoint extends Omit<AcquisitionCheckpoint, 'requiredWallet' | 'committedNativeGas'> {
+interface StoredAcquisitionCheckpoint
+  extends Omit<AcquisitionCheckpoint, 'requiredWallet' | 'committedNativeGas' | 'maxSourceAmount' | 'maxNativeGas'> {
   requiredWallet: { fil: string; usdfc: string }
   committedNativeGas: string
+  maxSourceAmount?: string
+  maxNativeGas?: string
 }
 
 function acquisitionDataDirectory(): string {
@@ -63,25 +74,56 @@ function isMissingFile(error: unknown): boolean {
 }
 
 function serialize(checkpoint: AcquisitionCheckpoint): StoredAcquisitionCheckpoint {
+  const { maxSourceAmount, maxNativeGas, ...rest } = checkpoint
   return {
-    ...checkpoint,
+    ...rest,
     requiredWallet: {
       fil: checkpoint.requiredWallet.fil.toString(),
       usdfc: checkpoint.requiredWallet.usdfc.toString(),
     },
     committedNativeGas: checkpoint.committedNativeGas.toString(),
+    ...(maxSourceAmount != null ? { maxSourceAmount: maxSourceAmount.toString() } : {}),
+    ...(maxNativeGas != null ? { maxNativeGas: maxNativeGas.toString() } : {}),
   }
 }
 
 function deserialize(stored: StoredAcquisitionCheckpoint): AcquisitionCheckpoint {
-  if (stored.version !== 1 || !/^0x[0-9a-fA-F]{40}$/.test(stored.owner)) {
+  if ((stored.version !== 1 && stored.version !== 2) || !/^0x[0-9a-fA-F]{40}$/.test(stored.owner)) {
     throw new Error('Acquisition recovery state is invalid; do not submit another source route')
   }
+  const { maxSourceAmount, maxNativeGas, ...rest } = stored
   return {
-    ...stored,
+    ...rest,
     owner: stored.owner as Address,
     requiredWallet: { fil: BigInt(stored.requiredWallet.fil), usdfc: BigInt(stored.requiredWallet.usdfc) },
     committedNativeGas: BigInt(stored.committedNativeGas),
+    ...(maxSourceAmount != null ? { maxSourceAmount: BigInt(maxSourceAmount) } : {}),
+    ...(maxNativeGas != null ? { maxNativeGas: BigInt(maxNativeGas) } : {}),
+  }
+}
+
+/** A legacy checkpoint lacks the selected token/cap semantics and cannot be resumed safely. */
+export function assertCheckpointSourceCompatibility(
+  checkpoint: AcquisitionCheckpoint,
+  source: SourceRouteIdentity,
+  maxSourceAmount: bigint,
+  maxNativeGas: bigint
+): void {
+  if (
+    checkpoint.version !== 2 ||
+    checkpoint.source == null ||
+    checkpoint.maxSourceAmount == null ||
+    checkpoint.maxNativeGas == null ||
+    checkpoint.source.chainId !== source.chainId ||
+    checkpoint.source.token.toLowerCase() !== source.token.toLowerCase() ||
+    checkpoint.source.decimals !== source.decimals ||
+    checkpoint.source.native !== source.native ||
+    checkpoint.maxSourceAmount !== maxSourceAmount ||
+    checkpoint.maxNativeGas !== maxNativeGas
+  ) {
+    throw new Error(
+      'Acquisition recovery state is incompatible with the selected source identity or caps; do not submit another route'
+    )
   }
 }
 
