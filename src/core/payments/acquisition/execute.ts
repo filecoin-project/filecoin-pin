@@ -358,6 +358,9 @@ async function executeResolvedSourceAcquisition(
     }
   }
   const pending = await options.checkpointStore.load()
+  let priorEvidence: AcquisitionEvidence[] = []
+  let priorCommittedNativeGas = 0n
+  let priorSourceAmount = 0n
   if (pending != null) {
     assertCheckpointSourceCompatibility(pending, sourceRouteIdentity(source), maxSourceAmount, maxNativeGas)
     if (pending.routeIntent != null || (pending.approvalIntent != null && pending.approvalTransactionHash == null)) {
@@ -396,13 +399,15 @@ async function executeResolvedSourceAcquisition(
           throw new Error(
             `Acquisition remains ${status.status}; do not resend the source transaction ${item.sourceTransactionHash}`
           )
+        priorSourceAmount += BigInt(item.sourceAmount ?? '0')
       }
-      await options.waitForFilecoinArrival(pending.requiredWallet)
-      await options.checkpointStore.clear()
-      return pending.evidence
+      priorEvidence = pending.evidence.map((item) => ({ ...item, status: 'confirmed' as const }))
+      priorCommittedNativeGas = pending.committedNativeGas
     }
   }
-  const totalSource = options.quotes.reduce((total, quote) => total + quote.sourceAmount, 0n)
+  const completedAssets = new Set(priorEvidence.map((item) => item.asset))
+  const quotes = options.quotes.filter((quote) => !completedAssets.has(quote.asset))
+  const totalSource = quotes.reduce((total, quote) => total + quote.sourceAmount, priorSourceAmount)
   if (totalSource > maxSourceAmount) throw new Error('Acquisition exceeds --max-source-amount')
   const walletClient: AcquisitionWalletClient =
     options.walletClient ??
@@ -428,7 +433,7 @@ async function executeResolvedSourceAcquisition(
     })()
   const selectedBalance = await getSelectedSourceBalance(publicClient, account.address, source)
   const nativeBalance = await publicClient.getBalance({ address: account.address })
-  const nativeRouteValue = options.quotes.reduce((total, quote) => total + quote.value, 0n)
+  const nativeRouteValue = quotes.reduce((total, quote) => total + quote.value, 0n)
   if (source.native && nativeRouteValue !== totalSource) {
     throw new Error('Native source route value must equal the fixed selected-source amount; do not sign')
   }
@@ -438,11 +443,11 @@ async function executeResolvedSourceAcquisition(
   ) {
     throw new Error('Filecoin source execution requires an explicit positive FIL reserve; do not sign')
   }
-  const routeGas = options.quotes.reduce((total, quote) => total + quote.gasLimit * quote.maxFeePerGas, 0n)
+  const routeGas = quotes.reduce((total, quote) => total + quote.gasLimit * quote.maxFeePerGas, 0n)
   const gasPrice = await publicClient.getGasPrice()
   let approvalGas = 0n
   if (requiresErc20Approval(source)) {
-    for (const quote of options.quotes) {
+    for (const quote of quotes) {
       approvalGas +=
         (await publicClient.estimateContractGas({
           account: account.address,
@@ -470,8 +475,8 @@ async function executeResolvedSourceAcquisition(
     requiredFilecoinReserve: options.requiredFilecoinReserve ?? 0n,
   })
   const baseline = await options.getFilecoinBalances()
-  const evidence: AcquisitionEvidence[] = []
-  let committedNativeGas = 0n
+  const evidence: AcquisitionEvidence[] = [...priorEvidence]
+  let committedNativeGas = priorCommittedNativeGas
   const broadcastApproval = async (params: {
     spender: Address
     amount: bigint
@@ -519,7 +524,7 @@ async function executeResolvedSourceAcquisition(
     } = checkpoint
     await options.checkpointStore.save(confirmed)
   }
-  for (const quote of options.quotes) {
+  for (const quote of quotes) {
     const refreshed = await options.refreshQuote(quote)
     assertFixedInputRefresh(quote, refreshed)
     if (source.native && refreshed.value !== refreshed.sourceAmount) {
