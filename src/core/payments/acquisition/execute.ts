@@ -559,11 +559,6 @@ async function executeResolvedSourceAcquisition(
         const approvalGas = await estimateApproval(spender, pendingQuote.sourceAmount)
         total += approvalGas * (await publicClient.getGasPrice())
       }
-      // A nonzero on-chain allowance is expected to change after this first route
-      // or reset. Do not estimate later approvals against the stale pre-reset state.
-      if (initialAllowance > 0n) {
-        return total
-      }
       // Routes are granted exact allowance and consume it, so every later leg needs a
       // new approval even when the current first-leg allowance is already exact.
       allowance = 0n

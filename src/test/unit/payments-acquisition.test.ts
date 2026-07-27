@@ -2960,7 +2960,7 @@ describe('wallet shortfall acquisition planning', () => {
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
   })
 
-  it('reserves the second strict-leg approval against the invocation-wide gas cap before signing', async () => {
+  it('reserves the second strict-leg approval after an exact first allowance before signing', async () => {
     const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
     if (chain == null) throw new Error('Base test chain missing')
     const source: ResolvedSourceToken = {
@@ -2991,7 +2991,7 @@ describe('wallet shortfall acquisition planning', () => {
       getTransactionCount: vi.fn(),
       estimateContractGas,
       readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
-        functionName === 'balanceOf' ? 100n : 0n
+        functionName === 'balanceOf' ? 100n : first.sourceAmount
       ),
       waitForTransactionReceipt: vi.fn(),
     } as unknown as PublicClient
@@ -3127,7 +3127,7 @@ describe('wallet shortfall acquisition planning', () => {
       getTransactionCount: vi.fn(),
       estimateContractGas,
       readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
-        functionName === 'balanceOf' ? 100n : first.sourceAmount
+        functionName === 'balanceOf' ? 100n : 3n
       ),
       waitForTransactionReceipt: vi.fn(),
     } as unknown as PublicClient
@@ -3150,7 +3150,10 @@ describe('wallet shortfall acquisition planning', () => {
       })
     ).rejects.toThrow('exceeds chain 8453 ceiling')
 
-    expect(estimateContractGas).not.toHaveBeenCalled()
+    expect(estimateContractGas).toHaveBeenCalledWith(expect.objectContaining({ args: [first.approvalSpender, 0n] }))
+    expect(estimateContractGas).not.toHaveBeenCalledWith(
+      expect.objectContaining({ args: [second.approvalSpender, second.sourceAmount] })
+    )
     expect(walletClient.writeContract).not.toHaveBeenCalled()
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
   })
