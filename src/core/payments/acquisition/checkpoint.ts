@@ -116,6 +116,7 @@ export function assertCheckpointSourceCompatibility(
     checkpoint.maxNativeGas == null ||
     checkpoint.source.chainId !== source.chainId ||
     checkpoint.source.token.toLowerCase() !== source.token.toLowerCase() ||
+    checkpoint.source.symbol !== source.symbol ||
     checkpoint.source.decimals !== source.decimals ||
     checkpoint.source.native !== source.native ||
     checkpoint.maxSourceAmount !== maxSourceAmount ||

@@ -130,10 +130,14 @@ export function validateMaximumSourceSpend(params: {
   maxNativeGas: bigint
   /** Estimated costs of exact ERC-20 approval/replacement transactions. */
   approvalGas?: bigint[]
+  nativeSource?: boolean
 }): void {
   const sourceAmount = totalSourceAmount(params.quotes)
   if (sourceAmount > params.maxSourceAmount) throw new Error('Acquisition exceeds --max-source-amount')
-  const routeGas = params.quotes.reduce((total, quote) => total + quote.value + quote.gasLimit * quote.maxFeePerGas, 0n)
+  const routeGas = params.quotes.reduce(
+    (total, quote) => total + (params.nativeSource ? 0n : quote.value) + quote.gasLimit * quote.maxFeePerGas,
+    0n
+  )
   const approvalGas = (params.approvalGas ?? []).reduce((total, gas) => total + gas, 0n)
   const sourceGas = routeGas + approvalGas
   if (sourceGas > params.maxNativeGas) throw new Error('Acquisition exceeds the approved source-native gas cap')

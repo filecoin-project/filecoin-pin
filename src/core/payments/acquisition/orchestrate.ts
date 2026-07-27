@@ -57,6 +57,8 @@ export interface EnsureWalletReadyOptions {
 
 /** Safe-to-display source-route facts; it intentionally excludes calldata and provider credentials. */
 export interface SourceAcquisitionConfirmation {
+  sourceChainId?: number
+  maxNativeGas?: bigint
   sourceAmount: bigint
   maxSourceAmount: bigint
   legs: Array<{ asset: 'fil' | 'usdfc'; minimumDestinationAmount: bigint; expiresAt: number }>
@@ -210,11 +212,18 @@ export async function ensureWalletReadyForFilecoinTransactions(
           options.resolvedSource != null
             ? sourceNativeGasCeiling(options.resolvedSource.chain.chainId)
             : MAX_SOURCE_NATIVE_GAS,
+        ...(options.resolvedSource != null ? { nativeSource: options.resolvedSource.native } : {}),
       })
       if (quotes.length > 0) {
         await options.confirmSourceAcquisition?.({
           sourceAmount: totalSourceAmount(quotes),
           maxSourceAmount: remainingSourceAmount,
+          ...(options.resolvedSource != null
+            ? {
+                sourceChainId: source.chainId,
+                maxNativeGas: sourceNativeGasCeiling(options.resolvedSource.chain.chainId),
+              }
+            : {}),
           legs: quotes.map((quote) => ({
             asset: quote.asset,
             minimumDestinationAmount: quote.destinationAmount,
