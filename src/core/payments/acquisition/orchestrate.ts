@@ -16,6 +16,8 @@ import {
   validateMaximumSourceSpend,
 } from './plan.js'
 import { resolveSourceToken } from './source-assets.js'
+import type { ResolvedSourceToken } from './source-catalog.js'
+import { sourceNativeGasCeiling } from './source-execution.js'
 import { pollSquidStatus, type SquidProviderOptions } from './squid.js'
 import type { AcquisitionEvidence } from './types.js'
 
@@ -36,6 +38,8 @@ export interface EnsureWalletReadyOptions {
   requiredUsdfc: bigint
   fromChain?: string | undefined
   fromToken?: string | undefined
+  /** Internal #16 seam: the exact source resolved by the #15 catalog contract. */
+  resolvedSource?: ResolvedSourceToken | undefined
   maxSourceAmount?: string | undefined
   sourceRpcUrl?: string | undefined
   slippage?: number | undefined
@@ -116,7 +120,7 @@ async function clearCompatibleReadyCheckpoint(
 export async function ensureWalletReadyForFilecoinTransactions(
   options: EnsureWalletReadyOptions
 ): Promise<AcquisitionEvidence[]> {
-  const source = resolveSourceToken(options.fromChain, options.fromToken)
+  const source = options.resolvedSource ?? resolveSourceToken(options.fromChain, options.fromToken)
   // The status read that led to this workflow can be stale while an operator
   // completes a direct top-up. Acquire only against the last destination view
   // available before we calculate shortfalls or contact the provider.
@@ -160,7 +164,7 @@ export async function ensureWalletReadyForFilecoinTransactions(
         'Acquisition has a pre-broadcast intent without a transaction hash; inspect the recorded nonce before any rerun'
       )
     }
-    const maximumSourceAmount = parseMaximumSourceAmount(options.maxSourceAmount) as bigint
+    const maximumSourceAmount = parseMaximumSourceAmount(options.maxSourceAmount, source) as bigint
     const completedAssets = new Set(pending?.evidence.map((item) => item.asset) ?? [])
     const remainingPlan = { ...plan, legs: plan.legs.filter((leg) => !completedAssets.has(leg.asset)) }
     const needsRoutePlanning =
@@ -186,7 +190,10 @@ export async function ensureWalletReadyForFilecoinTransactions(
       validateMaximumSourceSpend({
         quotes,
         maxSourceAmount: remainingSourceAmount,
-        maxNativeGas: MAX_SOURCE_NATIVE_GAS,
+        maxNativeGas:
+          options.resolvedSource != null
+            ? sourceNativeGasCeiling(options.resolvedSource.chain.chainId)
+            : MAX_SOURCE_NATIVE_GAS,
       })
       if (quotes.length > 0) {
         await options.confirmSourceAcquisition?.({
@@ -203,6 +210,9 @@ export async function ensureWalletReadyForFilecoinTransactions(
     const evidence = await executeTokenAcquisition({
       privateKey,
       sourceRpcUrl: options.sourceRpcUrl,
+      ...(options.resolvedSource != null
+        ? { source: options.resolvedSource, requiredFilecoinReserve: MIN_FIL_FOR_GAS }
+        : {}),
       quotes,
       maxSourceAmount: maximumSourceAmount,
       refreshQuote: async (quote) => {
@@ -223,7 +233,7 @@ export async function ensureWalletReadyForFilecoinTransactions(
         return pollSquidStatus(
           {
             transactionId: current.sourceTransactionHash,
-            fromChainId: '42161',
+            fromChainId: String(source.chainId),
             toChainId: String(options.destinationChainId),
             quoteId: current.quoteId,
             ...(current.requestId != null ? { requestId: current.requestId } : {}),

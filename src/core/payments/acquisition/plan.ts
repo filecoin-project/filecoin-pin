@@ -12,7 +12,7 @@ function ceilDiv(numerator: bigint, denominator: bigint): bigint {
 /** Parse a positive user maximum in the selected source token's units. */
 export function parseMaximumSourceAmount(
   value: string | undefined,
-  source?: Pick<ResolvedSourceToken, 'decimals'>
+  source?: Pick<ResolvedSourceToken, 'decimals'> | { decimals?: number }
 ): bigint | undefined {
   if (value == null) return undefined
   const parsed = parseUnits(value, source?.decimals ?? 6)
