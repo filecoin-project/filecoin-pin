@@ -403,6 +403,7 @@ async function executeResolvedSourceAcquisition(
   let priorCommittedNativeGas = 0n
   let priorSourceAmount = 0n
   if (pending != null) {
+    let recoveredCheckpoint = pending
     assertCheckpointSourceCompatibility(pending, sourceRouteIdentity(source), maxSourceAmount, maxNativeGas)
     priorCommittedNativeGas = pending.committedNativeGas
     if (pending.routeIntent != null || (pending.approvalIntent != null && pending.approvalTransactionHash == null)) {
@@ -419,11 +420,12 @@ async function executeResolvedSourceAcquisition(
         approvalTransactionHash: _approvalTransactionHash,
         ...recovered
       } = pending
-      await options.checkpointStore.save(recovered)
+      recoveredCheckpoint = recovered
+      await options.checkpointStore.save(recoveredCheckpoint)
     }
     if (pending.evidence.length > 0) {
       const recoveredEvidence = pending.evidence.map((item) => ({ ...item }))
-      for (const [index, item] of pending.evidence.entries()) {
+      for (const item of pending.evidence) {
         if (item.sourceTransactionHash == null)
           throw new Error('Acquisition recovery evidence lacks a source transaction hash; do not resubmit')
         if (item.sourceAmount == null || !/^\d+$/.test(item.sourceAmount)) {
@@ -435,23 +437,41 @@ async function executeResolvedSourceAcquisition(
         ) {
           throw new Error('Recovered source transaction failed; do not resubmit')
         }
-        const status = await waitForSquidTerminalStatus({
-          getStatus: () => options.getProviderStatus(item),
-          ...(item.estimatedRouteDurationSeconds != null
-            ? { estimatedRouteDurationSeconds: item.estimatedRouteDurationSeconds }
-            : {}),
-        })
-        recoveredEvidence[index] = { ...item, ...status }
-        if (status.status !== 'confirmed') {
-          await options.checkpointStore.save({ ...pending, evidence: recoveredEvidence })
-          throw new Error(
-            `Acquisition remains ${status.status}; do not resend the source transaction ${item.sourceTransactionHash}`
-          )
+      }
+      const balances = await options.getFilecoinBalances()
+      if (
+        balances?.fil >= recoveredCheckpoint.requiredWallet.fil &&
+        balances?.usdfc >= recoveredCheckpoint.requiredWallet.usdfc
+      ) {
+        for (let index = 0; index < recoveredEvidence.length; index += 1) {
+          const item = recoveredEvidence[index]
+          if (item == null) continue
+          recoveredEvidence[index] = { ...item, status: 'confirmed' }
         }
-        priorSourceAmount += BigInt(item.sourceAmount)
+        priorSourceAmount = committedSourceAmount(recoveredEvidence)
+      } else {
+        for (const [index, item] of pending.evidence.entries()) {
+          const status = await waitForSquidTerminalStatus({
+            getStatus: () => options.getProviderStatus(item),
+            ...(item.estimatedRouteDurationSeconds != null
+              ? { estimatedRouteDurationSeconds: item.estimatedRouteDurationSeconds }
+              : {}),
+          })
+          recoveredEvidence[index] = { ...item, ...status }
+          if (status.status !== 'confirmed') {
+            await options.checkpointStore.save({ ...recoveredCheckpoint, evidence: recoveredEvidence })
+            throw new Error(
+              `Acquisition remains ${status.status}; do not resend the source transaction ${item.sourceTransactionHash}`
+            )
+          }
+          if (item.sourceAmount == null) {
+            throw new Error('Acquisition recovery evidence lacks a valid source amount; do not resubmit')
+          }
+          priorSourceAmount += BigInt(item.sourceAmount)
+        }
       }
       priorEvidence = recoveredEvidence
-      await options.checkpointStore.save({ ...pending, evidence: recoveredEvidence })
+      await options.checkpointStore.save({ ...recoveredCheckpoint, evidence: recoveredEvidence })
     }
   }
   const completedAssets = new Set(priorEvidence.map((item) => item.asset))
@@ -781,6 +801,12 @@ async function executeResolvedSourceAcquisition(
       requiresErc20Approval(source) ? postApproval.sourceAmount : 0n
     )
     assertRouteNotExpired(postApproval)
+    if (requiresErc20Approval(source)) {
+      const routeBalance = await getSelectedSourceBalance(publicClient, account.address, source)
+      if (routeBalance < postApproval.sourceAmount) {
+        throw new Error('Insufficient selected source token balance for the next route; do not sign')
+      }
+    }
     committedNativeGas = assertCumulativeSourceNativeGas({
       chainId: source.chain.chainId,
       committed: committedNativeGas,
