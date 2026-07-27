@@ -589,7 +589,7 @@ export async function runFund(options: FundOptions): Promise<void> {
           : acquisitionRecoveryKind === 'deposit-only'
             ? directDepositRecoveryNote()
             : acquisitionRecoveryNote()
-      log.line(pc.yellow(`${resumePrefix}: ${acquisitionResumeCommand}`))
+      log.line(`${resumePrefix}: ${acquisitionResumeCommand}`)
       log.line(pc.yellow(recoveryNote))
       log.flush()
     }
