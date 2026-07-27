@@ -1,6 +1,10 @@
 import type { Address } from 'viem'
 import { FILECOIN_MAINNET_CHAIN_ID, FILECOIN_NATIVE_TOKEN, FILECOIN_USDFC } from './source-assets.js'
-import { isTrustedSquidRouteAddress, SELECTED_SOURCE_CHAINS } from './source-catalog.js'
+import {
+  isTrustedSquidRouteAddress,
+  resolvedTrustedSquidRoutePolicy,
+  SELECTED_SOURCE_CHAINS,
+} from './source-catalog.js'
 import type {
   AcquisitionErrorCode,
   AcquisitionExecutionStatus,
@@ -43,8 +47,6 @@ export interface SquidProviderOptions {
   fetchFn?: typeof fetch
   now?: () => number
   /** Deployment-specific allowlist supplied by the selected source contract. */
-  /** Test-only override; production uses #15's fixed trusted-route lookup. */
-  isTrustedRouteAddress?: (chainId: number, value: string, kind: 'target' | 'spender') => boolean
 }
 
 export interface SquidStatusResponse {
@@ -126,15 +128,6 @@ function selectedSource(leg: AcquisitionLeg): {
   }
 }
 
-function isTrustedRoute(
-  options: SquidProviderOptions,
-  chainId: number,
-  value: string,
-  kind: 'target' | 'spender'
-): boolean {
-  return (options.isTrustedRouteAddress ?? isTrustedSquidRouteAddress)(chainId, value, kind)
-}
-
 async function squidFetch(url: string, init: RequestInit, fetchFn: typeof fetch): Promise<Response> {
   let rateLimitRetries = 0
   while (true) {
@@ -159,6 +152,7 @@ export async function getSquidRoute(
   }
   if (!options.integratorId) throw providerError('Token acquisition requires SQUID_INTEGRATOR_ID')
   const source = selectedSource(request.leg)
+  const trusted = resolvedTrustedSquidRoutePolicy(source.chainId)
   const fetchFn = options.fetchFn ?? fetch
   const body = {
     fromAddress: request.fromAddress,
@@ -190,8 +184,7 @@ export async function getSquidRoute(
     transaction == null ||
     params == null ||
     transaction.target == null ||
-    !isTrustedRoute(options, source.chainId, transaction.target, 'target') ||
-    !isTrustedRoute(options, source.chainId, transaction.target, 'spender')
+    !isTrustedSquidRouteAddress(source.chainId, transaction.target, 'target')
   ) {
     throw providerError('Squid route failed the approved-target validation')
   }
@@ -227,7 +220,7 @@ export async function getSquidRoute(
         ? route.estimate.estimatedRouteDuration
         : 0,
     source,
-    approvalSpender: transaction.target,
+    approvalSpender: trusted.spender,
     ...(transaction.requestId != null
       ? { requestId: transaction.requestId }
       : response.headers.get('x-request-id') != null

@@ -315,3 +315,20 @@ export function isTrustedSquidRouteAddress(chainId: number, value: string, kind:
     ) ?? false
   )
 }
+
+/** Resolve the one reviewed execution pair; ambiguous policy cannot authorize signing. */
+export function resolvedTrustedSquidRoutePolicy(chainId: number): { target: Address; spender: Address } {
+  const policy = TRUSTED_SQUID_ROUTE_POLICIES.find((candidate) => candidate.chainId === chainId)
+  const target = policy?.allowedTargets[0]
+  const spender = policy?.allowedSpenders[0]
+  if (
+    policy == null ||
+    policy.allowedTargets.length !== 1 ||
+    policy.allowedSpenders.length !== 1 ||
+    target == null ||
+    spender == null
+  ) {
+    throw new Error(`Trusted Squid route policy for source chain ${chainId} is missing or ambiguous`)
+  }
+  return { target, spender }
+}
