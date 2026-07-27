@@ -140,6 +140,7 @@ describe('multi-chain selected-source execution substrate', () => {
   })
 
   it('rejects malformed persisted base-unit values with the checkpoint domain error', () => {
+    expect(() => deserializeAcquisitionCheckpoint(null)).toThrow('Acquisition recovery state is invalid')
     expect(() =>
       deserializeAcquisitionCheckpoint({
         version: 2,

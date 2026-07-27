@@ -87,27 +87,29 @@ function serialize(checkpoint: AcquisitionCheckpoint): StoredAcquisitionCheckpoi
   }
 }
 
-export function deserializeAcquisitionCheckpoint(stored: StoredAcquisitionCheckpoint): AcquisitionCheckpoint {
+export function deserializeAcquisitionCheckpoint(stored: unknown): AcquisitionCheckpoint {
   const invalid = () => new Error('Acquisition recovery state is invalid; do not submit another source route')
   const isBaseUnit = (value: unknown): value is string => typeof value === 'string' && /^\d+$/.test(value)
+  if (typeof stored !== 'object' || stored == null || Array.isArray(stored)) throw invalid()
+  const checkpoint = stored as StoredAcquisitionCheckpoint
   if (
-    (stored.version !== 1 && stored.version !== 2) ||
-    !/^0x[0-9a-fA-F]{40}$/.test(stored.owner) ||
-    stored.requiredWallet == null ||
-    !isBaseUnit(stored.requiredWallet.fil) ||
-    !isBaseUnit(stored.requiredWallet.usdfc) ||
-    !isBaseUnit(stored.committedNativeGas) ||
-    (stored.maxSourceAmount != null && !isBaseUnit(stored.maxSourceAmount)) ||
-    (stored.maxNativeGas != null && !isBaseUnit(stored.maxNativeGas))
+    (checkpoint.version !== 1 && checkpoint.version !== 2) ||
+    !/^0x[0-9a-fA-F]{40}$/.test(checkpoint.owner) ||
+    checkpoint.requiredWallet == null ||
+    !isBaseUnit(checkpoint.requiredWallet.fil) ||
+    !isBaseUnit(checkpoint.requiredWallet.usdfc) ||
+    !isBaseUnit(checkpoint.committedNativeGas) ||
+    (checkpoint.maxSourceAmount != null && !isBaseUnit(checkpoint.maxSourceAmount)) ||
+    (checkpoint.maxNativeGas != null && !isBaseUnit(checkpoint.maxNativeGas))
   ) {
     throw invalid()
   }
-  const { maxSourceAmount, maxNativeGas, ...rest } = stored
+  const { maxSourceAmount, maxNativeGas, ...rest } = checkpoint
   return {
     ...rest,
-    owner: stored.owner as Address,
-    requiredWallet: { fil: BigInt(stored.requiredWallet.fil), usdfc: BigInt(stored.requiredWallet.usdfc) },
-    committedNativeGas: BigInt(stored.committedNativeGas),
+    owner: checkpoint.owner as Address,
+    requiredWallet: { fil: BigInt(checkpoint.requiredWallet.fil), usdfc: BigInt(checkpoint.requiredWallet.usdfc) },
+    committedNativeGas: BigInt(checkpoint.committedNativeGas),
     ...(maxSourceAmount != null ? { maxSourceAmount: BigInt(maxSourceAmount) } : {}),
     ...(maxNativeGas != null ? { maxNativeGas: BigInt(maxNativeGas) } : {}),
   }

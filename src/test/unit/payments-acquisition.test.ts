@@ -1108,6 +1108,48 @@ describe('wallet shortfall acquisition planning', () => {
     expect(fetchFn).not.toHaveBeenCalled()
   })
 
+  it('plans a zero-decimal source with a base-unit probe', async () => {
+    const source = { ...supportedSource(), decimals: 0 }
+    const plan = planWalletFunding({
+      requiredUsdfc: 1n,
+      walletUsdfcBalance: 0n,
+      requiredFilReserve: 0n,
+      walletFilBalance: 0n,
+      source,
+    })
+    const fixture = await routeFixture('squid-route-usdfc.json')
+    setFixtureSourceAmount(fixture, 5n)
+    const oneBaseUnitFixture = structuredClone(fixture)
+    setFixtureSourceAmount(oneBaseUnitFixture, 1n)
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response(fixture))
+      .mockResolvedValueOnce(response(oneBaseUnitFixture))
+
+    await expect(
+      planTokenAcquisition({
+        plan,
+        owner: OWNER,
+        maxSourceAmount: 5n,
+        slippage: 1,
+        provider: { integratorId: 'test-only-integrator', fetchFn, now: () => 1_700_000_000_000 },
+      })
+    ).resolves.toHaveLength(1)
+
+    await expect(
+      planTokenAcquisition({
+        plan,
+        owner: OWNER,
+        maxSourceAmount: 1n,
+        initialSourceAmount: 1n,
+        slippage: 1,
+        provider: { integratorId: 'test-only-integrator', fetchFn, now: () => 1_700_000_000_000 },
+      })
+    ).resolves.toHaveLength(1)
+
+    expect(fetchFn.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).fromAmount)).toEqual(['5', '1'])
+  })
+
   it('retains exact downstream shortfalls and scales fixed source input without re-estimating Filecoin funding', async () => {
     const source = supportedSource()
     const plan = planWalletFunding({

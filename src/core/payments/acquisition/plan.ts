@@ -108,7 +108,7 @@ async function planLeg(leg: AcquisitionLeg, options: PlanTokenAcquisitionOptions
   // base-unit or fiat-value assumption. Subsequent iterations are driven only
   // by the returned output amount.
   const decimals = validatedSourceDecimals(options.plan.source)
-  let input = options.initialSourceAmount ?? 5n * 10n ** BigInt(decimals - 1)
+  let input = options.initialSourceAmount ?? 5n * 10n ** BigInt(Math.max(0, decimals - 1))
   for (let attempt = 0; attempt < MAX_PLANNING_ATTEMPTS; attempt += 1) {
     const quote = await getSquidRoute(
       { fromAddress: options.owner, sourceAmount: input, leg, slippage: options.slippage },
