@@ -4,7 +4,7 @@ import type { ResolvedSourceToken } from './source-catalog.js'
 /**
  * Execution policy is deliberately explicit. A missing entry is a signing
  * failure, not an invitation to borrow a gas budget from a different chain.
- * Values are conservative native base-unit ceilings for one invocation.
+ * Values are conservative native base-unit ceilings for one invocation, covering gas and ERC-20 route value.
  */
 export const SOURCE_NATIVE_GAS_CEILINGS: Readonly<Record<number, bigint>> = {
   1: 30_000_000_000_000_000n,
@@ -45,8 +45,7 @@ export function sourceNativeGasCeiling(chainId: number): bigint {
 export function assertCumulativeSourceNativeGas(options: { chainId: number; committed: bigint; next: bigint }): bigint {
   const cap = sourceNativeGasCeiling(options.chainId)
   const total = options.committed + options.next
-  if (total > cap)
-    throw new Error(`Source-native gas commitment ${total} exceeds chain ${options.chainId} ceiling ${cap}`)
+  if (total > cap) throw new Error(`Source-native commitment ${total} exceeds chain ${options.chainId} ceiling ${cap}`)
   return total
 }
 
@@ -87,17 +86,16 @@ export function requiresErc20Approval(source: ResolvedSourceToken): boolean {
   return !source.native
 }
 
-/** Filecoin-source native routes must preserve both route gas and follow-on Filecoin Pay reserve. */
+/** Filecoin source routes must preserve native route value, gas, and the follow-on Filecoin Pay reserve. */
 export function assertFilecoinSourceReserve(options: {
   source: ResolvedSourceToken
   nativeBalance: bigint
-  sourceSpend: bigint
+  nativeRouteValue: bigint
   routeAndApprovalGas: bigint
   requiredFilecoinReserve: bigint
 }): void {
   if (options.source.chain.chainId !== 314) return
-  const protectedBalance = options.routeAndApprovalGas + options.requiredFilecoinReserve
-  const required = options.source.native ? options.sourceSpend + protectedBalance : protectedBalance
+  const required = options.nativeRouteValue + options.routeAndApprovalGas + options.requiredFilecoinReserve
   if (options.nativeBalance < required) {
     throw new Error('Filecoin source balance would fall below the required FIL reserve; do not sign')
   }

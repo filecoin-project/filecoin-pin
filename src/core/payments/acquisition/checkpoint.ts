@@ -12,7 +12,7 @@ export interface AcquisitionCheckpoint {
   owner: Address
   sourceChainId: number
   destinationChainId: number
-  /** Sum of every approval/route maximum native-gas commitment ever signed for this acquisition. */
+  /** Sum of approval/route gas plus ERC-20 provider-required native route values ever signed. */
   committedNativeGas: bigint
   /** Required for v2 recovery; v1 checkpoints are never reinterpreted as another source. */
   source?: SourceRouteIdentity

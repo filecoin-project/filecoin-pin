@@ -571,21 +571,21 @@ async function executeResolvedSourceAcquisition(
     })
   }
   const approvalGas = requiresErc20Approval(source) ? await estimatePendingApprovalGas(quotes, initialAllowance) : 0n
-  const remainingGasCommitment = routeGas + approvalGas
+  const remainingNativeCommitment = routeGas + approvalGas + (source.native ? 0n : nativeRouteValue)
   assertCumulativeSourceNativeGas({
     chainId: source.chain.chainId,
     committed: priorCommittedNativeGas,
-    next: remainingGasCommitment,
+    next: remainingNativeCommitment,
   })
   if (selectedBalance < remainingSourceAmount)
     throw new Error('Insufficient selected source token balance for the planned acquisition')
-  if (nativeBalance < remainingGasCommitment + nativeRouteValue)
+  if (nativeBalance < routeGas + approvalGas + nativeRouteValue)
     throw new Error('Insufficient source native balance for route value and selected-chain gas ceiling')
   assertFilecoinSourceReserve({
     source,
     nativeBalance,
-    sourceSpend: remainingSourceAmount,
-    routeAndApprovalGas: remainingGasCommitment,
+    nativeRouteValue,
+    routeAndApprovalGas: routeGas + approvalGas,
     requiredFilecoinReserve: options.requiredFilecoinReserve ?? 0n,
   })
   const baseline = await options.getFilecoinBalances()
@@ -609,7 +609,7 @@ async function executeResolvedSourceAcquisition(
     assertFilecoinSourceReserve({
       source,
       nativeBalance: actionNativeBalance,
-      sourceSpend: actionRouteValue,
+      nativeRouteValue: actionRouteValue,
       routeAndApprovalGas: actionGas,
       requiredFilecoinReserve: options.requiredFilecoinReserve ?? 0n,
     })
@@ -637,7 +637,7 @@ async function executeResolvedSourceAcquisition(
     assertCumulativeSourceNativeGas({
       chainId: source.chain.chainId,
       committed: committedNativeGas,
-      next: signedActionGas + pending.gas,
+      next: signedActionGas + pending.gas + (source.native ? 0n : pending.value),
     })
     await assertActionNativeBalance(signedActionGas + pending.gas, pending.value)
   }
@@ -700,9 +700,6 @@ async function executeResolvedSourceAcquisition(
     }
     if (source.native && refreshed.value !== refreshed.sourceAmount) {
       throw new Error('Native source route value must equal its fixed source amount; do not sign')
-    }
-    if (!source.native && refreshed.value !== 0n) {
-      throw new Error('ERC-20 source route carries unreviewed native value; do not sign')
     }
     let nonce = await publicClient.getTransactionCount({ address: account.address, blockTag: 'pending' })
     if (requiresErc20Approval(source)) {
@@ -780,9 +777,6 @@ async function executeResolvedSourceAcquisition(
     if (source.native && postApproval.value !== postApproval.sourceAmount) {
       throw new Error('Native source route value must equal its fixed source amount; do not sign')
     }
-    if (!source.native && postApproval.value !== 0n) {
-      throw new Error('ERC-20 source route carries unreviewed native value; do not sign')
-    }
     if (requiresErc20Approval(source)) {
       const postApprovalSpender = postApproval.approvalSpender as Address
       const postApprovalAllowance = await publicClient.readContract({
@@ -795,7 +789,8 @@ async function executeResolvedSourceAcquisition(
         throw new Error('Selected-source allowance changed after route refresh; do not submit a route')
       }
     }
-    const routeCommitment = postApproval.gasLimit * postApproval.maxFeePerGas
+    const routeCommitment =
+      postApproval.gasLimit * postApproval.maxFeePerGas + (source.native ? 0n : postApproval.value)
     await assertPendingNativeCommitments(
       [postApproval, ...quotes.slice(index + 1)],
       requiresErc20Approval(source) ? postApproval.sourceAmount : 0n

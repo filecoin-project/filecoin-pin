@@ -82,7 +82,7 @@ describe('multi-chain selected-source execution substrate', () => {
       assertFilecoinSourceReserve({
         source: source(314, 18, true),
         nativeBalance: 99n,
-        sourceSpend: 50n,
+        nativeRouteValue: 50n,
         routeAndApprovalGas: 20n,
         requiredFilecoinReserve: 30n,
       })
@@ -91,7 +91,7 @@ describe('multi-chain selected-source execution substrate', () => {
       assertFilecoinSourceReserve({
         source: source(314, 6),
         nativeBalance: 49n,
-        sourceSpend: 1_000n,
+        nativeRouteValue: 1_000n,
         routeAndApprovalGas: 20n,
         requiredFilecoinReserve: 30n,
       })
