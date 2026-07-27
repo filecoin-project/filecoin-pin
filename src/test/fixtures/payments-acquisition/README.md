@@ -14,3 +14,6 @@ to the fields Filecoin Pin consumes.
 Tests must use these files deterministically and must not refresh them from the
 network. Refreshing a fixture requires a new provider-validation review because
 spender, target, status, and recovery semantics can change.
+
+`squid-selected-source-catalog.json` is a reduced synthetic EVM catalog shape
+for resolver tests. Its test-only addresses never authorize routes or approvals.

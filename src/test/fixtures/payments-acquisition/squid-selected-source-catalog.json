@@ -1,0 +1,62 @@
+{
+  "chains": [
+    {
+      "chainId": "314",
+      "networkName": "Filecoin",
+      "type": "evm",
+      "nativeCurrency": { "symbol": "FIL", "decimals": 18 }
+    },
+    {
+      "chainId": "42161",
+      "networkName": "Arbitrum",
+      "type": "evm",
+      "nativeCurrency": { "symbol": "ETH", "decimals": 18 }
+    },
+    { "chainId": "1", "networkName": "Ethereum", "type": "evm", "nativeCurrency": { "symbol": "ETH", "decimals": 18 } },
+    { "chainId": "8453", "networkName": "Base", "type": "evm", "nativeCurrency": { "symbol": "ETH", "decimals": 18 } },
+    {
+      "chainId": "10",
+      "networkName": "Optimism",
+      "type": "evm",
+      "nativeCurrency": { "symbol": "ETH", "decimals": 18 }
+    },
+    {
+      "chainId": "137",
+      "networkName": "Polygon",
+      "type": "evm",
+      "nativeCurrency": { "symbol": "POL", "decimals": 18 }
+    },
+    {
+      "chainId": "43114",
+      "networkName": "Avalanche",
+      "type": "evm",
+      "nativeCurrency": { "symbol": "AVAX", "decimals": 18 }
+    },
+    {
+      "chainId": "56",
+      "networkName": "BNB Chain",
+      "type": "evm",
+      "nativeCurrency": { "symbol": "BNB", "decimals": 18 }
+    }
+  ],
+  "tokens": [
+    { "chainId": "314", "symbol": "FIL", "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "decimals": 18 },
+    { "chainId": "42161", "symbol": "ETH", "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "decimals": 18 },
+    { "chainId": "1", "symbol": "ETH", "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "decimals": 18 },
+    { "chainId": "8453", "symbol": "ETH", "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "decimals": 18 },
+    { "chainId": "10", "symbol": "ETH", "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "decimals": 18 },
+    { "chainId": "137", "symbol": "POL", "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "decimals": 18 },
+    { "chainId": "43114", "symbol": "AVAX", "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "decimals": 18 },
+    { "chainId": "56", "symbol": "BNB", "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "decimals": 18 },
+    { "chainId": "8453", "symbol": "USDbC", "address": "0xd9aa3214bcb81c9bd4b8c7a9e20f3c2f6fbe1b0c", "decimals": 6 },
+    { "chainId": "8453", "symbol": "USD", "address": "0x1111111111111111111111111111111111111111", "decimals": 6 },
+    { "chainId": "8453", "symbol": "USD", "address": "0x2222222222222222222222222222222222222222", "decimals": 18 },
+    { "chainId": "42161", "symbol": "ARBX", "address": "0x3333333333333333333333333333333333333333", "decimals": 9 },
+    { "chainId": "1", "symbol": "ETHX", "address": "0x4444444444444444444444444444444444444444", "decimals": 8 },
+    { "chainId": "10", "symbol": "OPX", "address": "0x5555555555555555555555555555555555555555", "decimals": 7 },
+    { "chainId": "137", "symbol": "POLX", "address": "0x6666666666666666666666666666666666666666", "decimals": 5 },
+    { "chainId": "43114", "symbol": "AVAXX", "address": "0x7777777777777777777777777777777777777777", "decimals": 4 },
+    { "chainId": "56", "symbol": "BNBX", "address": "0x8888888888888888888888888888888888888888", "decimals": 3 },
+    { "chainId": "314", "symbol": "FILX", "address": "0x9999999999999999999999999999999999999999", "decimals": 2 }
+  ]
+}
