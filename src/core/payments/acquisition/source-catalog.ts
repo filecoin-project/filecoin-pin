@@ -207,9 +207,15 @@ const erc20Identity = [
 
 /** Verify catalog display and amount fields against the selected ERC-20 before signing. */
 export async function verifyResolvedErc20Source(
-  client: Pick<PublicClient, 'getCode' | 'readContract'>,
+  client: Pick<PublicClient, 'getChainId' | 'getCode' | 'readContract'>,
   source: ResolvedSourceToken
 ): Promise<ResolvedSourceToken> {
+  const actualChainId = await client.getChainId()
+  if (actualChainId !== source.chain.chainId) {
+    throw new Error(
+      `Source RPC chain ID ${actualChainId} does not match selected source chain ID ${source.chain.chainId}`
+    )
+  }
   if (source.native) return source
   const code = await client.getCode({ address: source.token })
   if (code == null || code === '0x') throw new Error(`Source token ${source.token} has no contract code`)

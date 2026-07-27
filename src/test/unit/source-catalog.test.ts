@@ -196,6 +196,7 @@ describe('Squid selected-source catalog contract', () => {
   it('verifies ERC-20 code and catalog identity only when an acquisition caller supplies an RPC client', async () => {
     const source = resolveCatalogSource(parseSquidCatalog(fixture.chains, fixture.tokens), 'base', 'USDbC')
     const client = {
+      getChainId: vi.fn().mockResolvedValue(8453),
       getCode: vi.fn().mockResolvedValue('0x6000'),
       readContract: vi.fn().mockResolvedValueOnce(6).mockResolvedValueOnce('USDbC'),
     }
@@ -203,6 +204,47 @@ describe('Squid selected-source catalog contract', () => {
     await expect(
       verifyResolvedErc20Source({ ...client, getCode: vi.fn().mockResolvedValue('0x') } as never, source)
     ).rejects.toThrow('no contract code')
+  })
+
+  it('rejects wrong-chain RPC clients before source verification, including native sources', async () => {
+    const catalog = parseSquidCatalog(fixture.chains, fixture.tokens)
+    const erc20 = resolveCatalogSource(catalog, 'base', 'USDbC')
+    const wrongErc20Client = {
+      getChainId: vi.fn().mockResolvedValue(1),
+      getCode: vi.fn(),
+      readContract: vi.fn(),
+    }
+    await expect(verifyResolvedErc20Source(wrongErc20Client as never, erc20)).rejects.toThrow(
+      'Source RPC chain ID 1 does not match selected source chain ID 8453'
+    )
+    expect(wrongErc20Client.getCode).not.toHaveBeenCalled()
+    const native = resolveCatalogSource(catalog, 'base', NATIVE_TOKEN_SELECTOR)
+    const wrongNativeClient = {
+      getChainId: vi.fn().mockResolvedValue(1),
+      getCode: vi.fn(),
+      readContract: vi.fn(),
+    }
+    await expect(verifyResolvedErc20Source(wrongNativeClient as never, native)).rejects.toThrow(
+      'Source RPC chain ID 1 does not match selected source chain ID 8453'
+    )
+    expect(wrongNativeClient.getCode).not.toHaveBeenCalled()
+  })
+
+  it('verifies the selected chain for native sources without contract reads', async () => {
+    const native = resolveCatalogSource(
+      parseSquidCatalog(fixture.chains, fixture.tokens),
+      'base',
+      NATIVE_TOKEN_SELECTOR
+    )
+    const client = {
+      getChainId: vi.fn().mockResolvedValue(8453),
+      getCode: vi.fn(),
+      readContract: vi.fn(),
+    }
+    await expect(verifyResolvedErc20Source(client as never, native)).resolves.toBe(native)
+    expect(client.getChainId).toHaveBeenCalledTimes(1)
+    expect(client.getCode).not.toHaveBeenCalled()
+    expect(client.readContract).not.toHaveBeenCalled()
   })
 
   it('keeps direct no-source funding paths free of Squid catalog/provider imports', async () => {
