@@ -376,10 +376,37 @@ async function executeResolvedSourceAcquisition(
   const walletClient: AcquisitionWalletClient =
     options.walletClient ??
     (() => {
-      throw new Error('Resolved source execution requires an injected signing wallet client')
+      if (options.sourceRpcUrl == null || options.sourceRpcUrl.trim() === '') {
+        throw new Error('Resolved source execution requires an explicit selected-source RPC URL')
+      }
+      const chain = defineChain({
+        id: source.chain.chainId,
+        name: source.chain.cliName,
+        nativeCurrency: {
+          name: source.chain.nativeSymbol,
+          symbol: source.chain.nativeSymbol,
+          decimals: source.chain.nativeDecimals,
+        },
+        rpcUrls: { default: { http: [options.sourceRpcUrl] } },
+      })
+      const client = createWalletClient({ account, chain, transport: http(options.sourceRpcUrl) })
+      return {
+        writeContract: (parameters) => client.writeContract(parameters),
+        sendTransaction: (parameters) => client.sendTransaction(parameters),
+      }
     })()
   const selectedBalance = await getSelectedSourceBalance(publicClient, account.address, source)
   const nativeBalance = await publicClient.getBalance({ address: account.address })
+  const nativeRouteValue = options.quotes.reduce((total, quote) => total + quote.value, 0n)
+  if (source.native && nativeRouteValue > totalSource) {
+    throw new Error('Native source route value exceeds the fixed selected-source amount; do not sign')
+  }
+  if (
+    source.chain.chainId === 314 &&
+    (options.requiredFilecoinReserve == null || options.requiredFilecoinReserve <= 0n)
+  ) {
+    throw new Error('Filecoin source execution requires an explicit positive FIL reserve; do not sign')
+  }
   const routeGas = options.quotes.reduce((total, quote) => total + quote.gasLimit * quote.maxFeePerGas, 0n)
   const gasPrice = await publicClient.getGasPrice()
   let approvalGas = 0n
@@ -402,7 +429,8 @@ async function executeResolvedSourceAcquisition(
   })
   if (selectedBalance < totalSource)
     throw new Error('Insufficient selected source token balance for the planned acquisition')
-  if (nativeBalance < totalGas) throw new Error('Insufficient source native balance for the selected-chain gas ceiling')
+  if (nativeBalance < totalGas + nativeRouteValue)
+    throw new Error('Insufficient source native balance for route value and selected-chain gas ceiling')
   assertFilecoinSourceReserve({
     source,
     nativeBalance,
@@ -489,6 +517,17 @@ async function executeResolvedSourceAcquisition(
       maxSourceAmount,
       maxNativeGas,
       committedNativeGas,
+      routeIntent: {
+        nonce,
+        quoteId: refreshed.id,
+        asset: refreshed.asset,
+        sourceAmount: refreshed.sourceAmount.toString(),
+        target: getAddress(refreshed.target),
+        dataHash: keccak256(refreshed.data as Hex),
+        value: refreshed.value.toString(),
+        gasLimit: refreshed.gasLimit.toString(),
+        maxFeePerGas: refreshed.maxFeePerGas.toString(),
+      },
       requiredWallet: addDestinationAmounts(baseline, options.quotes),
       evidence,
     }
@@ -509,7 +548,8 @@ async function executeResolvedSourceAcquisition(
       sourceTransactionHash: hash,
       status: 'submitted',
     })
-    await options.checkpointStore.save({ ...checkpoint, evidence })
+    const { routeIntent: _routeIntent, ...broadcastCheckpoint } = checkpoint
+    await options.checkpointStore.save({ ...broadcastCheckpoint, evidence })
     const receipt = await publicClient.waitForTransactionReceipt({ hash })
     if (receipt.status !== 'success') throw new Error('Selected-source acquisition transaction failed')
     const status = await waitForSquidTerminalStatus({
