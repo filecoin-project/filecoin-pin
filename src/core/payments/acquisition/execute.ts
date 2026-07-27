@@ -2,6 +2,7 @@ import {
   type Address,
   createPublicClient,
   createWalletClient,
+  defineChain,
   getAddress,
   type Hex,
   http,
@@ -13,6 +14,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { arbitrum } from 'viem/chains'
 import type { AcquisitionCheckpoint, AcquisitionCheckpointStore } from './checkpoint.js'
 import { ARBITRUM_USDC, getSourceWalletBalances, SQUID_ROUTER } from './source-assets.js'
+import type { ResolvedSourceToken } from './source-catalog.js'
 import { waitForSquidTerminalStatus } from './squid.js'
 import type { AcquisitionEvidence, AcquisitionExecutionStatus, PlannedAcquisitionQuote } from './types.js'
 
@@ -55,6 +57,38 @@ export function assertArbitrumSourceChain(chainId: number): void {
   if (chainId !== arbitrum.id) {
     throw new Error(`Source RPC chain id ${chainId} is not Arbitrum (${arbitrum.id})`)
   }
+}
+
+/** Verify the exact selected source chain before any signing-capable client is used. */
+export function assertResolvedSourceChain(chainId: number, source: ResolvedSourceToken): void {
+  if (chainId !== source.chain.chainId) {
+    throw new Error(
+      `Source RPC chain ID ${chainId} does not match selected source chain ID ${source.chain.chainId}; do not sign`
+    )
+  }
+}
+
+/** Internal seam for #17: an arbitrary selected EVM source client, chain-verified before use. */
+export async function createVerifiedResolvedSourceClient(
+  source: ResolvedSourceToken,
+  sourceRpcUrl: string | undefined
+): Promise<PublicClient> {
+  if (sourceRpcUrl == null || sourceRpcUrl.trim() === '') {
+    throw new Error('Acquisition requires an explicit selected-source RPC URL')
+  }
+  const chain = defineChain({
+    id: source.chain.chainId,
+    name: source.chain.cliName,
+    nativeCurrency: {
+      name: source.chain.nativeSymbol,
+      symbol: source.chain.nativeSymbol,
+      decimals: source.chain.nativeDecimals,
+    },
+    rpcUrls: { default: { http: [sourceRpcUrl] } },
+  })
+  const client = createPublicClient({ chain, transport: http(sourceRpcUrl) })
+  assertResolvedSourceChain(await client.getChainId(), source)
+  return client
 }
 
 export function assertFixedInputRefresh(previous: PlannedAcquisitionQuote, refreshed: PlannedAcquisitionQuote): void {
