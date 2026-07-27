@@ -239,6 +239,8 @@ A session key acts as a credential that permits a scoped-down set of tasks on be
 
 Session keys require specific permissions (such as CREATE_DATA_SET and ADD_PIECES) and have expiration timestamps.  The filecoin-pin-website session key is scoped to allowing the creation of [data sets](#data-set) and [pieces](#piece), but prevents transferring of funds for example. Wallet owners can also revoke session key permissions before expiration.
 
+Note that the filecoin-pin CLI's `--session-key` flag (and `SESSION_KEY` environment variable) expect the session key's **private key** — the `SESSION_KEY` value printed by `filecoin-pin session create` or `filecoin-pin session generate` — not the session address. The (public) session address is only used when authorizing or revoking: `filecoin-pin session authorize <session-address>` and `filecoin-pin session revoke <session-address>`.
+
 
 
 ## Squid

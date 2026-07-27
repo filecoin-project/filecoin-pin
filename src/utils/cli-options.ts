@@ -46,8 +46,10 @@ export function rpcUrlOption(description: string): Option {
 export function addSigningAuthOptions(command: Command): Command {
   return command
     .addOption(privateKeyOption('Private key for standard auth'))
-    .addOption(new Option('--wallet-address <address>', 'Wallet address for session key auth').env('WALLET_ADDRESS'))
-    .addOption(sessionKeyOption('Session key for session key auth'))
+    .addOption(
+      new Option('--wallet-address <address>', 'Owner wallet address for session key auth').env('WALLET_ADDRESS')
+    )
+    .addOption(sessionKeyOption('Session key private key for session key auth (not the session address)'))
 }
 
 /**

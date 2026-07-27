@@ -118,6 +118,63 @@ describe('synapse-service', () => {
 
       await expect(initializeSynapse(config, logger)).rejects.toThrow('Missing: --wallet-address / WALLET_ADDRESS')
     })
+
+    it('should throw a flag-specific error when sessionKey is not a hex private key', async () => {
+      const config = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: 'not-a-private-key',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      } as any
+
+      await expect(initializeSynapse(config, logger)).rejects.toThrow(
+        'Invalid --session-key / SESSION_KEY: expected the session key private key'
+      )
+    })
+
+    it('should explain when the session address is passed as sessionKey', async () => {
+      const config = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: '0x1234567890123456789012345678901234567890',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      } as any
+
+      await expect(initializeSynapse(config, logger)).rejects.toThrow(
+        'this looks like an address, but the session key private key'
+      )
+    })
+
+    it('should name --session-key when the SDK rejects a well-formed key (e.g. out of curve range)', async () => {
+      const { fromSecp256k1 } = await import('@filoz/synapse-core/session-key')
+      vi.mocked(fromSecp256k1).mockImplementationOnce(() => {
+        // Mirrors viem's privateKeyToAccount error for a zero scalar
+        throw new Error('expected valid private key: 1 <= n < 1157920892…, got 0')
+      })
+
+      const config = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: `0x${'0'.repeat(64)}`,
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      } as any
+
+      await expect(initializeSynapse(config, logger)).rejects.toThrow(
+        'Invalid --session-key / SESSION_KEY: expected valid private key'
+      )
+    })
+
+    it('should report a malformed sessionKey before probing the RPC endpoint', async () => {
+      const { resolveChainFromRpc } = await import('../../core/synapse/resolve-chain-from-rpc.js')
+
+      const config = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: 'not-a-private-key',
+        rpcUrl: 'wss://unreachable.example.com/rpc/v1',
+      } as any
+
+      await expect(initializeSynapse(config, logger)).rejects.toThrow(
+        'Invalid --session-key / SESSION_KEY: expected the session key private key'
+      )
+      expect(resolveChainFromRpc).not.toHaveBeenCalled()
+    })
   })
 
   describe('initializeSynapse chain resolution', () => {
