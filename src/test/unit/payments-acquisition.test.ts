@@ -1105,6 +1105,91 @@ describe('Squid acquisition provider contract', () => {
     }
   })
 
+  it('plans an approval-only recovery against its higher stored wallet target', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      const storedTarget = { fil: MIN_FIL_FOR_GAS, usdfc: 2_000_000_000_000_000_000n }
+      const store = createAcquisitionCheckpointStore(owner)
+      await store.save({
+        version: 1,
+        owner,
+        sourceChainId: 42161,
+        destinationChainId: 314,
+        committedNativeGas: 1n,
+        approvalIntent: {
+          nonce: 8,
+          token: '0xaf88d065e77c8cc2239327c5edb3a432268e5831',
+          spender: SOURCE_APPROVAL_SPENDER,
+          amount: '1',
+          gasLimit: '1',
+          maxFeePerGas: '1',
+        },
+        approvalTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        requiredWallet: storedTarget,
+        evidence: [],
+      })
+      const fixture = await routeFixture('squid-route-usdfc.json')
+      fixture.route.params.fromAddress = owner
+      fixture.route.params.toAddress = owner
+      fixture.route.transactionRequest.expiry = '2000000000'
+      const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, string>
+        fixture.route.params.fromAddress = body.fromAddress
+        fixture.route.params.fromChain = body.fromChain
+        fixture.route.params.fromToken = body.fromToken
+        fixture.route.params.fromAmount = body.fromAmount
+        fixture.route.params.toChain = body.toChain
+        fixture.route.params.toToken = body.toToken
+        fixture.route.params.toAddress = body.toAddress
+        fixture.route.estimate.fromAmount = body.fromAmount
+        return response(fixture)
+      })
+      const confirmation = vi.fn(async (_summary: SourceAcquisitionConfirmation) => {
+        throw new Error('confirmation reached before execution')
+      })
+
+      await expect(
+        ensureWalletReadyForFilecoinTransactions({
+          destinationChainId: 314,
+          walletUsdfcBalance: 1_000_000_000_000_000_000n,
+          walletFilBalance: MIN_FIL_FOR_GAS,
+          requiredUsdfc: 1_000_000_000_000_000_000n,
+          fromChain: 'arb',
+          fromToken: 'USDC',
+          maxSourceAmount: '10',
+          privateKey: PRIVATE_KEY,
+          provider: { integratorId: 'test-only-integrator', fetchFn },
+          confirmSourceAcquisition: confirmation,
+          rereadWalletBalances: vi.fn().mockResolvedValue({
+            fil: MIN_FIL_FOR_GAS,
+            usdfc: 1_000_000_000_000_000_000n,
+          }),
+        })
+      ).rejects.toThrow('confirmation reached before execution')
+
+      expect(fetchFn).toHaveBeenCalledOnce()
+      expect(confirmation).toHaveBeenCalledWith({
+        sourceAmount: 500_000n,
+        maxSourceAmount: 10_000_000n,
+        legs: [
+          {
+            asset: 'usdfc',
+            minimumDestinationAmount: 4_894_083_014_213_259_056n,
+            expiresAt: 2_000_000_000,
+          },
+        ],
+      })
+      await expect(store.load()).resolves.toMatchObject({ requiredWallet: storedTarget })
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('reconciles a hashed approval intent before resuming a completed checkpoint without duplicate submission', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
     const originalHome = process.env.HOME
