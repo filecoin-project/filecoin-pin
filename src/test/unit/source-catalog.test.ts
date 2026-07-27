@@ -88,6 +88,10 @@ describe('Squid selected-source catalog contract', () => {
       index === 3 ? { ...token, symbol: 'WETH', decimals: 17 } : token
     )
     expect(() => parseSquidCatalog(mutuallyWrongChains, mutuallyWrongTokens)).toThrow('native currency conflicts')
+    const wrongNativeToken = fixture.tokens.map((token, index) =>
+      index === 3 ? { ...token, symbol: 'WETH', decimals: 17 } : token
+    )
+    expect(() => parseSquidCatalog(fixture.chains, wrongNativeToken)).toThrow('native token metadata conflicts')
   })
 
   it('canonicalizes byte-identical token duplicates but rejects conflicting canonical identities', () => {
