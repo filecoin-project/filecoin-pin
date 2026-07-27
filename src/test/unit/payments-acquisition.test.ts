@@ -4091,6 +4091,7 @@ describe('wallet shortfall acquisition planning', () => {
     }
     const quote = {
       ...executionQuote(),
+      asset: 'fil' as const,
       value: 1n,
       gasLimit: 1n,
       maxFeePerGas: 1n,
@@ -4139,6 +4140,63 @@ describe('wallet shortfall acquisition planning', () => {
     expect(walletClient.writeContract).toHaveBeenCalledTimes(1)
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
     expect(store.value).toBeDefined()
+  })
+
+  it('does not reset a stale Filecoin ERC-20 FIL-refill allowance below the required reserve', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 314)
+    if (chain == null) throw new Error('Filecoin test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: '0x0000000000000000000000000000000000000003',
+      symbol: 'USDFC',
+      decimals: 18,
+      native: false,
+      display: 'Filecoin USDFC',
+    }
+    const quote = {
+      ...executionQuote(),
+      asset: 'fil' as const,
+      value: 1n,
+      gasLimit: 1n,
+      maxFeePerGas: 1n,
+      source: sourceRouteIdentity(source),
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
+    }
+    const client = {
+      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getBalance: vi.fn().mockResolvedValue(10n),
+      getGasPrice: vi.fn().mockResolvedValue(1n),
+      getTransactionCount: vi.fn().mockResolvedValue(8),
+      estimateContractGas: vi.fn().mockResolvedValue(1n),
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+        functionName === 'balanceOf' ? quote.sourceAmount : 2n
+      ),
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+    } as unknown as PublicClient
+    const walletClient = { writeContract: vi.fn(), sendTransaction: vi.fn() }
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        source,
+        sourceClient: withResolvedErc20Identity(source, client),
+        walletClient: walletClient as never,
+        quotes: [quote],
+        maxSourceAmount: 10n,
+        requiredFilecoinReserve: 10n,
+        requiredDestinationWallet: { fil: 10n, usdfc: quote.destinationAmount },
+        refreshQuote: vi.fn(async (current) => current),
+        getProviderStatus: vi.fn(),
+        checkpointStore: emptyCheckpointStore(),
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).rejects.toThrow('FIL reserve')
+
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
+    expect(walletClient.sendTransaction).not.toHaveBeenCalled()
   })
 
   it('stops after a Filecoin ERC-20 allowance reset before an exact approval or route', async () => {

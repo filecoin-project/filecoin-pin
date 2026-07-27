@@ -621,6 +621,10 @@ async function executeResolvedSourceAcquisition(
     })
   }
   const approvalGas = requiresErc20Approval(source) ? await estimatePendingApprovalGas(quotes, initialAllowance) : 0n
+  const firstQuote = quotes[0]
+  if (firstQuote == null) throw new Error('Resolved source acquisition has no routes to execute')
+  const resetBeforeFilRefill =
+    replenishesFilecoinReserve && initialAllowance > 0n && initialAllowance !== firstQuote.sourceAmount
   const remainingNativeCommitment = routeGas + approvalGas + (source.native ? 0n : nativeRouteValue)
   assertCumulativeSourceNativeGas({
     chainId: source.chain.chainId,
@@ -629,15 +633,17 @@ async function executeResolvedSourceAcquisition(
   })
   if (selectedBalance < remainingSourceAmount)
     throw new Error('Insufficient selected source token balance for the planned acquisition')
-  if (nativeBalance < routeGas + approvalGas + nativeRouteValue)
+  const initialNativeRouteValue = resetBeforeFilRefill ? 0n : nativeRouteValue
+  const initialRouteAndApprovalGas = resetBeforeFilRefill ? approvalGas : routeGas + approvalGas
+  if (nativeBalance < initialRouteAndApprovalGas + initialNativeRouteValue)
     throw new Error('Insufficient source native balance for route value and selected-chain gas ceiling')
   assertFilecoinSourceReserve({
     source,
     nativeBalance,
-    nativeRouteValue,
-    routeAndApprovalGas: routeGas + approvalGas,
+    nativeRouteValue: initialNativeRouteValue,
+    routeAndApprovalGas: initialRouteAndApprovalGas,
     requiredFilecoinReserve: options.requiredFilecoinReserve ?? 0n,
-    replenishesFilecoinReserve,
+    replenishesFilecoinReserve: resetBeforeFilRefill ? false : replenishesFilecoinReserve,
   })
   const baseline = await options.getFilecoinBalances()
   const requiredWallet =
@@ -652,7 +658,11 @@ async function executeResolvedSourceAcquisition(
       : addDestinationAmounts(baseline, options.quotes))
   const evidence: AcquisitionEvidence[] = [...priorEvidence]
   let committedNativeGas = priorCommittedNativeGas
-  const assertActionNativeBalance = async (actionGas: bigint, actionRouteValue = 0n): Promise<void> => {
+  const assertActionNativeBalance = async (
+    actionGas: bigint,
+    actionRouteValue = 0n,
+    actionCanRefillFilecoinReserve = replenishesFilecoinReserve
+  ): Promise<void> => {
     const actionNativeBalance = await publicClient.getBalance({ address: account.address })
     if (actionNativeBalance < actionGas + actionRouteValue) {
       throw new Error('Insufficient source native balance for the next signed action; do not sign')
@@ -663,7 +673,7 @@ async function executeResolvedSourceAcquisition(
       nativeRouteValue: actionRouteValue,
       routeAndApprovalGas: actionGas,
       requiredFilecoinReserve: options.requiredFilecoinReserve ?? 0n,
-      replenishesFilecoinReserve,
+      replenishesFilecoinReserve: actionCanRefillFilecoinReserve,
     })
   }
   const pendingNativeCommitments = async (
@@ -683,7 +693,8 @@ async function executeResolvedSourceAcquisition(
   const assertPendingNativeCommitments = async (
     pendingQuotes: readonly PlannedAcquisitionQuote[],
     allowance: bigint,
-    signedActionGas = 0n
+    signedActionGas = 0n,
+    actionCanRefillFilecoinReserve = replenishesFilecoinReserve
   ): Promise<void> => {
     const pending = await pendingNativeCommitments(pendingQuotes, allowance)
     assertCumulativeSourceNativeGas({
@@ -691,7 +702,7 @@ async function executeResolvedSourceAcquisition(
       committed: committedNativeGas,
       next: signedActionGas + pending.gas + (source.native ? 0n : pending.value),
     })
-    await assertActionNativeBalance(signedActionGas + pending.gas, pending.value)
+    await assertActionNativeBalance(signedActionGas + pending.gas, pending.value, actionCanRefillFilecoinReserve)
   }
   const broadcastApproval = async (params: {
     spender: Address
@@ -773,7 +784,7 @@ async function executeResolvedSourceAcquisition(
             args: [spender, 0n],
           })
           const resetGasPrice = await publicClient.getGasPrice()
-          await assertPendingNativeCommitments([], 0n, resetGas * resetGasPrice)
+          await assertPendingNativeCommitments([], 0n, resetGas * resetGasPrice, false)
           committedNativeGas = assertCumulativeSourceNativeGas({
             chainId: source.chain.chainId,
             committed: committedNativeGas,
