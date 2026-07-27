@@ -2157,6 +2157,65 @@ describe('wallet shortfall acquisition planning', () => {
     expect(store.clear).toHaveBeenCalledTimes(1)
   })
 
+  it('executes the remaining legacy route before waiting for a partial recovered target', async () => {
+    const first = { ...executionQuote(), id: 'confirmed-fil', asset: 'fil' as const, sourceAmount: 10n }
+    const second = {
+      ...executionQuote(),
+      id: 'remaining-usdfc',
+      sourceAmount: 20n,
+      destinationAmount: 4n,
+    }
+    const store = checkpointStore({
+      version: 1,
+      owner: SOURCE_OWNER,
+      sourceChainId: 42161,
+      destinationChainId: 314,
+      committedNativeGas: 0n,
+      requiredWallet: { fil: first.destinationAmount, usdfc: second.destinationAmount },
+      evidence: [
+        {
+          asset: 'fil',
+          quoteId: first.id,
+          sourceAmount: first.sourceAmount.toString(),
+          sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          status: 'submitted',
+        },
+      ],
+    })
+    const walletClient = {
+      writeContract: vi.fn(),
+      sendTransaction: vi.fn().mockResolvedValue('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
+    }
+    const waitForFilecoinArrival = vi.fn(async () => {
+      if (walletClient.sendTransaction.mock.calls.length === 0) {
+        throw new Error('partial recovery waited before submitting its remaining route')
+      }
+    })
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        sourceClient: sourceClientForExecution(() => second.sourceAmount),
+        walletClient: walletClient as never,
+        quotes: [first, second],
+        maxSourceAmount: 100n,
+        refreshQuote: vi.fn(async (current) => current),
+        getProviderStatus: vi.fn().mockResolvedValue({ status: 'confirmed' as const }),
+        checkpointStore: store,
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
+        waitForFilecoinArrival,
+      })
+    ).resolves.toMatchObject([
+      { asset: 'fil', status: 'confirmed' },
+      { asset: 'usdfc', status: 'confirmed' },
+    ])
+
+    expect(walletClient.sendTransaction).toHaveBeenCalledTimes(1)
+    expect(waitForFilecoinArrival).toHaveBeenCalledWith({ fil: 0n, usdfc: second.destinationAmount })
+    expect(store.clear).toHaveBeenCalledTimes(1)
+  })
+
   it('clears a partial recovery when a delayed wallet top-up already meets its stored target', async () => {
     const first = { ...executionQuote(), id: 'recovered-fil', asset: 'fil' as const, destinationAmount: 3n }
     const second = { ...executionQuote(), id: 'unneeded-usdfc', destinationAmount: 4n }

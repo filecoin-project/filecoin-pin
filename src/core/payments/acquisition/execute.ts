@@ -234,7 +234,6 @@ async function resumeCheckpoint(options: {
   getProviderStatus: ExecuteTokenAcquisitionOptions['getProviderStatus']
   getFilecoinBalances: ExecuteTokenAcquisitionOptions['getFilecoinBalances']
   waitForSourceReceipt: (hash: Hex) => Promise<{ status: 'success' | 'reverted' }>
-  waitForFilecoinArrival: ExecuteTokenAcquisitionOptions['waitForFilecoinArrival']
 }): Promise<AcquisitionCheckpoint> {
   const { checkpoint } = options
   let recoveredCheckpoint = checkpoint
@@ -308,7 +307,6 @@ async function resumeCheckpoint(options: {
   }
   const resumedCheckpoint = { ...recoveredCheckpoint, evidence }
   await options.checkpointStore.save(resumedCheckpoint)
-  await options.waitForFilecoinArrival(recoveredCheckpoint.requiredWallet)
   return resumedCheckpoint
 }
 
@@ -931,7 +929,6 @@ export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOp
         getProviderStatus: options.getProviderStatus,
         getFilecoinBalances: options.getFilecoinBalances,
         waitForSourceReceipt: (hash) => publicClient.waitForTransactionReceipt({ hash }),
-        waitForFilecoinArrival: options.waitForFilecoinArrival,
       })
     } else if (
       pending.routeIntent != null ||
@@ -970,6 +967,7 @@ export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOp
     throw new Error('Acquisition exceeds the remaining --max-source-amount after confirmed source routes')
   }
   if (recoveredCheckpoint != null && quotes.length === 0) {
+    await options.waitForFilecoinArrival(recoveredCheckpoint.requiredWallet)
     await options.checkpointStore.clear()
     return priorEvidence
   }
