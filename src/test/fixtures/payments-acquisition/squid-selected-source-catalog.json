@@ -1,0 +1,12 @@
+{
+  "chains": [
+    { "chainId": "8453", "networkName": "Base", "type": "evm" },
+    { "chainId": "42161", "networkName": "Arbitrum", "type": "evm" }
+  ],
+  "tokens": [
+    { "chainId": "8453", "symbol": "USDbC", "address": "0xd9aa3214bcb81c9bd4b8c7a9e20f3c2f6fbe1b0c", "decimals": 6 },
+    { "chainId": "8453", "symbol": "USD", "address": "0x1111111111111111111111111111111111111111", "decimals": 6 },
+    { "chainId": "8453", "symbol": "USD", "address": "0x2222222222222222222222222222222222222222", "decimals": 18 },
+    { "chainId": "8453", "symbol": "ETH", "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "decimals": 18 }
+  ]
+}
