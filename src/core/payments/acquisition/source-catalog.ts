@@ -239,12 +239,15 @@ export async function fetchSquidCatalog(options: SquidCatalogFetchOptions): Prom
   const fetchFn = options.fetchFn ?? fetch
   try {
     const headers = { 'x-integrator-id': options.integratorId }
+    const fetchCatalogEndpoint = async (url: string): Promise<Response> => {
+      const response = await fetchFn(url, { headers, signal: controller.signal })
+      if (!response.ok) throw new Error(`Squid catalog request failed (${response.status})`)
+      return response
+    }
     const [chains, tokens] = await Promise.all([
-      fetchFn('https://apiplus.squidrouter.com/v2/chains', { headers, signal: controller.signal }),
-      fetchFn('https://apiplus.squidrouter.com/v2/tokens', { headers, signal: controller.signal }),
+      fetchCatalogEndpoint('https://apiplus.squidrouter.com/v2/chains'),
+      fetchCatalogEndpoint('https://apiplus.squidrouter.com/v2/tokens'),
     ])
-    if (!chains.ok || !tokens.ok)
-      throw new Error(`Squid catalog request failed (${chains.ok ? tokens.status : chains.status})`)
     const [chainsBody, tokensBody] = await Promise.all([chains.json(), tokens.json()])
     if (
       chainsBody == null ||
