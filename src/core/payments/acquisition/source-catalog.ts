@@ -8,18 +8,20 @@ export interface SelectedSourceChain {
   cliName: string
   chainId: number
   aliases: readonly string[]
+  nativeSymbol: string
+  nativeDecimals: number
 }
 
 /** The product boundary is fixed even though Squid's token catalog is dynamic. */
 export const SELECTED_SOURCE_CHAINS = [
-  { cliName: 'filecoin', chainId: 314, aliases: [] },
-  { cliName: 'arbitrum', chainId: 42161, aliases: ['arb'] },
-  { cliName: 'ethereum', chainId: 1, aliases: ['eth'] },
-  { cliName: 'base', chainId: 8453, aliases: [] },
-  { cliName: 'optimism', chainId: 10, aliases: ['op'] },
-  { cliName: 'polygon', chainId: 137, aliases: ['matic'] },
-  { cliName: 'avalanche', chainId: 43114, aliases: ['avax'] },
-  { cliName: 'bnb', chainId: 56, aliases: ['bsc'] },
+  { cliName: 'filecoin', chainId: 314, aliases: [], nativeSymbol: 'FIL', nativeDecimals: 18 },
+  { cliName: 'arbitrum', chainId: 42161, aliases: ['arb'], nativeSymbol: 'ETH', nativeDecimals: 18 },
+  { cliName: 'ethereum', chainId: 1, aliases: ['eth'], nativeSymbol: 'ETH', nativeDecimals: 18 },
+  { cliName: 'base', chainId: 8453, aliases: [], nativeSymbol: 'ETH', nativeDecimals: 18 },
+  { cliName: 'optimism', chainId: 10, aliases: ['op'], nativeSymbol: 'ETH', nativeDecimals: 18 },
+  { cliName: 'polygon', chainId: 137, aliases: ['matic'], nativeSymbol: 'POL', nativeDecimals: 18 },
+  { cliName: 'avalanche', chainId: 43114, aliases: ['avax'], nativeSymbol: 'AVAX', nativeDecimals: 18 },
+  { cliName: 'bnb', chainId: 56, aliases: ['bsc'], nativeSymbol: 'BNB', nativeDecimals: 18 },
 ] as const satisfies readonly SelectedSourceChain[]
 
 export interface ResolvedSourceToken {
@@ -78,7 +80,8 @@ export function parseSquidCatalog(chainsResponse: unknown, tokensResponse: unkno
     if (raw == null || typeof raw !== 'object') continue
     const id = typeof raw.chainId === 'string' && /^\d+$/.test(raw.chainId) ? Number(raw.chainId) : raw.chainId
     if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0) continue
-    if (!SELECTED_SOURCE_CHAINS.some((chain) => chain.chainId === id)) continue
+    const selected = SELECTED_SOURCE_CHAINS.find((chain) => chain.chainId === id)
+    if (selected == null) continue
     if (raw.type !== 'evm') fail(`selected chain ${id} must be EVM`)
     if (typeof raw.networkName !== 'string' || raw.networkName.trim() === '') {
       fail(`selected chain ${id} is missing networkName`)
@@ -94,6 +97,9 @@ export function parseSquidCatalog(chainsResponse: unknown, tokensResponse: unkno
       nativeDecimals > 255
     ) {
       fail(`selected chain ${id} has invalid native decimals`)
+    }
+    if (nativeSymbol.trim() !== selected.nativeSymbol || nativeDecimals !== selected.nativeDecimals) {
+      fail(`selected chain ${id} native currency conflicts with the trusted registry`)
     }
     if (chains.has(id)) fail(`selected chain ${id} is duplicated`)
     chains.set(id, {
@@ -121,7 +127,7 @@ export function parseSquidCatalog(chainsResponse: unknown, tokensResponse: unkno
     const native = token === FILECOIN_NATIVE_TOKEN
     const chainMetadata = chains.get(id)
     if (chainMetadata == null) fail(`token belongs to unavailable selected chain ${id}`)
-    if (native && (raw.symbol.trim() !== chainMetadata.nativeSymbol || decimals !== chainMetadata.nativeDecimals)) {
+    if (native && (raw.symbol.trim() !== chain.nativeSymbol || decimals !== chain.nativeDecimals)) {
       fail(`native token metadata conflicts with selected chain ${id}`)
     }
     const resolved = {

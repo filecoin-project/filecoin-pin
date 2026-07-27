@@ -76,11 +76,18 @@ describe('Squid selected-source catalog contract', () => {
     const mismatchedChains = fixture.chains.map((chain, index) =>
       index === 3 ? { ...(chain as object), nativeCurrency: { symbol: 'WETH', decimals: 18 } } : chain
     )
-    expect(() => parseSquidCatalog(mismatchedChains, fixture.tokens)).toThrow('native token metadata conflicts')
+    expect(() => parseSquidCatalog(mismatchedChains, fixture.tokens)).toThrow('native currency conflicts')
     const malformedChains = fixture.chains.map((chain, index) =>
       index === 3 ? { ...(chain as object), nativeCurrency: { symbol: 'ETH', decimals: 1.5 } } : chain
     )
     expect(() => parseSquidCatalog(malformedChains, fixture.tokens)).toThrow('invalid native decimals')
+    const mutuallyWrongChains = fixture.chains.map((chain, index) =>
+      index === 3 ? { ...(chain as object), nativeCurrency: { symbol: 'WETH', decimals: 17 } } : chain
+    )
+    const mutuallyWrongTokens = fixture.tokens.map((token, index) =>
+      index === 3 ? { ...token, symbol: 'WETH', decimals: 17 } : token
+    )
+    expect(() => parseSquidCatalog(mutuallyWrongChains, mutuallyWrongTokens)).toThrow('native currency conflicts')
   })
 
   it('canonicalizes byte-identical token duplicates but rejects conflicting canonical identities', () => {
