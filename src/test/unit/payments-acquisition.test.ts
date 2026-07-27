@@ -2626,6 +2626,7 @@ describe('wallet shortfall acquisition planning', () => {
       approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
     }
     const allowances = [2n, 2n, quote.sourceAmount, quote.sourceAmount]
+    const estimateContractGas = vi.fn().mockResolvedValue(1n)
     const client = {
       getChainId: vi.fn().mockResolvedValue(chain.chainId),
       getBalance: vi
@@ -2636,7 +2637,7 @@ describe('wallet shortfall acquisition planning', () => {
         .mockResolvedValueOnce(14n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
-      estimateContractGas: vi.fn().mockResolvedValue(1n),
+      estimateContractGas,
       readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
         functionName === 'balanceOf' ? quote.sourceAmount : (allowances.shift() as bigint)
       ),
@@ -2669,6 +2670,10 @@ describe('wallet shortfall acquisition planning', () => {
       })
     ).rejects.toThrow('FIL reserve')
 
+    expect(estimateContractGas).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ args: [quote.approvalSpender, 0n] })
+    )
     expect(walletClient.writeContract).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({ args: [quote.approvalSpender, 0n] })
