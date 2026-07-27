@@ -200,10 +200,19 @@ export async function ensureWalletReadyForFilecoinTransactions(
           ? pending.requiredWallet.usdfc
           : options.requiredUsdfc,
     }
+    // A Filecoin ERC-20 -> FIL route spends FIL from this same wallet for its
+    // approval and route transactions. Plan enough incoming FIL to cover the
+    // bounded source-side spend as well as the follow-on Filecoin Pay reserve.
+    // The executor still waits for the actual reserve target after the route.
+    const sourceCanRefillFilecoinReserve = source.chainId === mainnet.id && !source.native
+    const plannedFilecoinReserve =
+      sourceCanRefillFilecoinReserve && requestedPlan.legs.some((leg) => leg.asset === 'fil')
+        ? requiredWallet.fil + sourceNativeGasCeiling(source.chainId)
+        : requiredWallet.fil
     const plan = planWalletFunding({
       requiredUsdfc: requiredWallet.usdfc,
       walletUsdfcBalance: currentWallet.usdfc,
-      requiredFilReserve: requiredWallet.fil,
+      requiredFilReserve: plannedFilecoinReserve,
       walletFilBalance: currentWallet.fil,
       ...(source != null ? { source } : {}),
     })

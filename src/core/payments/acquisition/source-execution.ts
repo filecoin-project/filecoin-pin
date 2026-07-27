@@ -93,9 +93,14 @@ export function assertFilecoinSourceReserve(options: {
   nativeRouteValue: bigint
   routeAndApprovalGas: bigint
   requiredFilecoinReserve: bigint
+  /** An ERC-20 route that returns FIL can refill the reserve after its source transactions settle. */
+  replenishesFilecoinReserve?: boolean
 }): void {
   if (options.source.chain.chainId !== 314) return
-  const required = options.nativeRouteValue + options.routeAndApprovalGas + options.requiredFilecoinReserve
+  const required =
+    options.nativeRouteValue +
+    options.routeAndApprovalGas +
+    (options.replenishesFilecoinReserve ? 0n : options.requiredFilecoinReserve)
   if (options.nativeBalance < required) {
     throw new Error('Filecoin source balance would fall below the required FIL reserve; do not sign')
   }

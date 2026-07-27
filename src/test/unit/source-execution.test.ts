@@ -98,6 +98,19 @@ describe('multi-chain selected-source execution substrate', () => {
     ).toThrow('FIL reserve')
   })
 
+  it('permits an ERC-20 Filecoin route that refills FIL to spend only its signing costs up front', () => {
+    expect(() =>
+      assertFilecoinSourceReserve({
+        source: source(314, 6),
+        nativeBalance: 20n,
+        nativeRouteValue: 0n,
+        routeAndApprovalGas: 20n,
+        requiredFilecoinReserve: 30n,
+        replenishesFilecoinReserve: true,
+      })
+    ).not.toThrow()
+  })
+
   it('rejects wrong-chain RPCs', async () => {
     const selected = source(8453, 18)
     await expect(verifySourceChain({ getChainId: vi.fn().mockResolvedValue(1) } as never, selected)).rejects.toThrow(

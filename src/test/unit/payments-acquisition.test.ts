@@ -645,6 +645,63 @@ describe('Squid acquisition provider contract', () => {
     )
   })
 
+  it('plans a Filecoin ERC-20 FIL refill with its bounded source-side signing spend', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 314)
+    if (chain == null) throw new Error('Filecoin test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: FILECOIN_USDFC,
+      symbol: 'USDFC',
+      decimals: 18,
+      native: false,
+      display: 'Filecoin USDFC',
+    }
+    const fixture = await routeFixture('squid-route-fil.json')
+    fixture.route.transactionRequest.expiry = '2000000000'
+    fixture.route.estimate.toAmountMin = MIN_FIL_FOR_GAS.toString()
+    const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, string>
+      fixture.route.params.fromChain = body.fromChain
+      fixture.route.params.fromToken = body.fromToken
+      fixture.route.params.fromAmount = body.fromAmount
+      fixture.route.params.toChain = body.toChain
+      fixture.route.params.toAddress = body.toAddress
+      fixture.route.params.fromAddress = body.fromAddress
+      fixture.route.estimate.fromAmount = body.fromAmount
+      const fromAmount = body.fromAmount
+      if (fromAmount == null) throw new Error('fixture request has no source amount')
+      fixture.route.estimate.toAmountMin = (BigInt(fromAmount) / 5n).toString()
+      return response(fixture)
+    })
+    const confirmation = vi.fn(async (_summary: SourceAcquisitionConfirmation) => {
+      throw new Error('stop after Filecoin refill confirmation')
+    })
+
+    await expect(
+      ensureWalletReadyForFilecoinTransactions({
+        destinationChainId: 314,
+        walletUsdfcBalance: 0n,
+        walletFilBalance: 0n,
+        requiredUsdfc: 0n,
+        resolvedSource: source,
+        maxSourceAmount: '1',
+        privateKey: PRIVATE_KEY,
+        provider: { integratorId: 'test-only-integrator', fetchFn },
+        confirmSourceAcquisition: confirmation,
+        rereadWalletBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
+      })
+    ).rejects.toThrow('stop after Filecoin refill confirmation')
+
+    expect(fetchFn).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(String(fetchFn.mock.calls[1]?.[1]?.body))).toMatchObject({
+      fromChain: '314',
+      fromToken: source.token,
+      fromAmount: ((5n * 10n ** 17n * (MIN_FIL_FOR_GAS + sourceNativeGasCeiling(314))) / MIN_FIL_FOR_GAS).toString(),
+      toToken: FILECOIN_NATIVE_TOKEN,
+    })
+  })
+
   it('rejects a strict checkpoint before legacy provider planning or confirmation', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
     const originalHome = process.env.HOME
@@ -4288,7 +4345,7 @@ describe('wallet shortfall acquisition planning', () => {
     expect(store.value).toBeUndefined()
   })
 
-  it('executes a Filecoin ERC-20 route with exact approval and an absolute post-route reserve target', async () => {
+  it('executes a Filecoin ERC-20 FIL refill with only enough FIL for its approval and route signing costs', async () => {
     const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 314)
     if (chain == null) throw new Error('Filecoin test chain missing')
     const source: ResolvedSourceToken = {
@@ -4302,6 +4359,7 @@ describe('wallet shortfall acquisition planning', () => {
     }
     const quote = {
       ...executionQuote(),
+      asset: 'fil' as const,
       value: 0n,
       gasLimit: 1n,
       maxFeePerGas: 1n,
@@ -4311,10 +4369,10 @@ describe('wallet shortfall acquisition planning', () => {
     const allowanceValues = [0n, 0n, quote.sourceAmount, quote.sourceAmount]
     const sourceClient = {
       getChainId: vi.fn().mockResolvedValue(chain.chainId),
-      getBalance: vi.fn().mockResolvedValue(MIN_FIL_FOR_GAS + 1n),
+      getBalance: vi.fn().mockResolvedValueOnce(2n).mockResolvedValueOnce(2n).mockResolvedValueOnce(1n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
-      estimateContractGas: vi.fn().mockResolvedValue(0n),
+      estimateContractGas: vi.fn().mockResolvedValue(1n),
       readContract: vi.fn(async ({ functionName }: { functionName: string }) => {
         if (functionName === 'balanceOf') return quote.sourceAmount
         return allowanceValues.shift() as bigint
@@ -4325,7 +4383,7 @@ describe('wallet shortfall acquisition planning', () => {
       writeContract: vi.fn().mockResolvedValue('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
       sendTransaction: vi.fn().mockResolvedValue('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
     }
-    const absoluteTarget = { fil: MIN_FIL_FOR_GAS, usdfc: quote.destinationAmount }
+    const absoluteTarget = { fil: 10n, usdfc: quote.destinationAmount }
     const waitForFilecoinArrival = vi.fn().mockResolvedValue(undefined)
 
     await expect(
@@ -4336,13 +4394,13 @@ describe('wallet shortfall acquisition planning', () => {
         walletClient: walletClient as never,
         quotes: [quote],
         maxSourceAmount: 10n,
-        requiredFilecoinReserve: MIN_FIL_FOR_GAS,
+        requiredFilecoinReserve: 10n,
         requiredDestinationWallet: absoluteTarget,
         refreshQuote: vi.fn(async (current) => current),
         getProviderStatus: vi.fn().mockResolvedValue({ status: 'confirmed' as const }),
         checkpointStore: emptyCheckpointStore(),
         destinationChainId: 314,
-        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: MIN_FIL_FOR_GAS - 1n, usdfc: 0n }),
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
         waitForFilecoinArrival,
       })
     ).resolves.toMatchObject([{ status: 'confirmed' }])
@@ -4351,5 +4409,62 @@ describe('wallet shortfall acquisition planning', () => {
     )
     expect(walletClient.sendTransaction).toHaveBeenCalledTimes(1)
     expect(waitForFilecoinArrival).toHaveBeenCalledWith(absoluteTarget)
+  })
+
+  it('does not sign a Filecoin ERC-20 FIL refill that cannot pay its approval and route costs', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 314)
+    if (chain == null) throw new Error('Filecoin test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: '0x0000000000000000000000000000000000000003',
+      symbol: 'USDFC',
+      decimals: 18,
+      native: false,
+      display: 'Filecoin USDFC',
+    }
+    const quote = {
+      ...executionQuote(),
+      asset: 'fil' as const,
+      value: 0n,
+      gasLimit: 1n,
+      maxFeePerGas: 1n,
+      source: sourceRouteIdentity(source),
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
+    }
+    const sourceClient = {
+      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getBalance: vi.fn().mockResolvedValue(1n),
+      getGasPrice: vi.fn().mockResolvedValue(1n),
+      getTransactionCount: vi.fn().mockResolvedValue(8),
+      estimateContractGas: vi.fn().mockResolvedValue(1n),
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+        functionName === 'balanceOf' ? quote.sourceAmount : 0n
+      ),
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+    } as unknown as PublicClient
+    const walletClient = { writeContract: vi.fn(), sendTransaction: vi.fn() }
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        source,
+        sourceClient: withResolvedErc20Identity(source, sourceClient),
+        walletClient: walletClient as never,
+        quotes: [quote],
+        maxSourceAmount: 10n,
+        requiredFilecoinReserve: 10n,
+        requiredDestinationWallet: { fil: 10n, usdfc: quote.destinationAmount },
+        refreshQuote: vi.fn(async (current) => current),
+        getProviderStatus: vi.fn(),
+        checkpointStore: emptyCheckpointStore(),
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).rejects.toThrow('Insufficient source native balance for route value and selected-chain gas ceiling')
+
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
+    expect(walletClient.sendTransaction).not.toHaveBeenCalled()
   })
 })

@@ -546,6 +546,8 @@ async function executeResolvedSourceAcquisition(
   const selectedBalance = await getSelectedSourceBalance(publicClient, account.address, source)
   const nativeBalance = await publicClient.getBalance({ address: account.address })
   const nativeRouteValue = quotes.reduce((total, quote) => total + quote.value, 0n)
+  const replenishesFilecoinReserve =
+    source.chain.chainId === 314 && !source.native && quotes.some((quote) => quote.asset === 'fil')
   if (source.native && nativeRouteValue !== remainingSourceAmount) {
     throw new Error('Native source route value must equal the fixed selected-source amount; do not sign')
   }
@@ -623,6 +625,7 @@ async function executeResolvedSourceAcquisition(
     nativeRouteValue,
     routeAndApprovalGas: routeGas + approvalGas,
     requiredFilecoinReserve: options.requiredFilecoinReserve ?? 0n,
+    replenishesFilecoinReserve,
   })
   const baseline = await options.getFilecoinBalances()
   const requiredWallet =
@@ -648,6 +651,7 @@ async function executeResolvedSourceAcquisition(
       nativeRouteValue: actionRouteValue,
       routeAndApprovalGas: actionGas,
       requiredFilecoinReserve: options.requiredFilecoinReserve ?? 0n,
+      replenishesFilecoinReserve,
     })
   }
   const pendingNativeCommitments = async (
