@@ -2206,4 +2206,63 @@ describe('wallet shortfall acquisition planning', () => {
       expect(walletClient.sendTransaction).not.toHaveBeenCalled()
     }
   })
+
+  it.each(
+    SELECTED_SOURCE_CHAINS
+  )('executes the strict native route contract for selected chain $chainId', async (chain) => {
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+      symbol: chain.nativeSymbol,
+      decimals: chain.nativeDecimals,
+      native: true,
+      display: `${chain.cliName} ${chain.nativeSymbol}`,
+    }
+    const quote = {
+      ...executionQuote(),
+      value: 1n,
+      gasLimit: 1n,
+      maxFeePerGas: 1n,
+      source: sourceRouteIdentity(source),
+      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+    }
+    const client = {
+      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getBalance: vi.fn().mockResolvedValue(100n),
+      getGasPrice: vi.fn().mockResolvedValue(1n),
+      getTransactionCount: vi.fn().mockResolvedValue(8),
+      estimateContractGas: vi.fn(),
+      readContract: vi.fn(),
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+    } as unknown as PublicClient
+    const walletClient = {
+      writeContract: vi.fn(),
+      sendTransaction: vi.fn().mockResolvedValue('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+    }
+    const waitForFilecoinArrival = vi.fn().mockResolvedValue(undefined)
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        source,
+        sourceClient: client,
+        walletClient: walletClient as never,
+        quotes: [quote],
+        maxSourceAmount: 10n,
+        ...(chain.chainId === 314 ? { requiredFilecoinReserve: 1n } : {}),
+        refreshQuote: vi.fn(async (current) => current),
+        getProviderStatus: vi.fn().mockResolvedValue({ status: 'confirmed' as const }),
+        checkpointStore: emptyCheckpointStore(),
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
+        waitForFilecoinArrival,
+      })
+    ).resolves.toMatchObject([{ status: 'confirmed' }])
+
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
+    expect(client.readContract).not.toHaveBeenCalled()
+    expect(walletClient.sendTransaction).toHaveBeenCalledWith(expect.objectContaining({ value: quote.sourceAmount }))
+    expect(waitForFilecoinArrival).toHaveBeenCalledWith({ fil: 0n, usdfc: quote.destinationAmount })
+  })
 })
