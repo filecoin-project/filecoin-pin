@@ -14,7 +14,8 @@
  * @module core/ows
  */
 
-import type { Account, Chain } from 'viem'
+import type { Account, Chain, TypedDataDefinition } from 'viem'
+import { getTypesForEIP712Domain } from 'viem'
 
 export interface OwsAccountOptions {
   /** Wallet name or ID registered with the `ows` CLI / OWS core */
@@ -36,22 +37,67 @@ interface OwsViemAdapter {
   ) => Account
 }
 
+interface OwsCore {
+  signTypedData: (
+    wallet: string,
+    chain: string,
+    typedDataJson: string,
+    passphrase?: string | undefined,
+    index?: number | undefined,
+    vaultPath?: string | undefined
+  ) => { signature: string }
+}
+
+const UNAVAILABLE_MESSAGE =
+  'OpenWallet Standard is not available on this platform. ' +
+  '@open-wallet-standard/core ships napi-rs prebuilt binaries for linux-x64-gnu, ' +
+  'linux-arm64-gnu, darwin-x64, and darwin-arm64 only (no Windows or musl/Alpine artifact today). ' +
+  'Use --private-key / PRIVATE_KEY instead, or run on a supported platform.'
+
+function unavailable(err: unknown): Error {
+  const reason = err instanceof Error ? err.message : String(err)
+  return new Error(`${UNAVAILABLE_MESSAGE}\nUnderlying load error: ${reason}`)
+}
+
 async function loadAdapter(): Promise<OwsViemAdapter> {
   try {
     return (await import('@open-wallet-standard/adapters/viem')) as unknown as OwsViemAdapter
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err)
-    throw new Error(
-      'OpenWallet Standard is not available on this platform. ' +
-        '@open-wallet-standard/core ships napi-rs prebuilt binaries for linux-x64-gnu, ' +
-        'linux-arm64-gnu, darwin-x64, and darwin-arm64 only (no Windows or musl/Alpine artifact today). ' +
-        'Use --private-key / PRIVATE_KEY instead, or run on a supported platform.\n' +
-        `Underlying load error: ${reason}`
-    )
+    throw unavailable(err)
+  }
+}
+
+async function loadCore(): Promise<OwsCore> {
+  try {
+    return (await import('@open-wallet-standard/core')) as unknown as OwsCore
+  } catch (err) {
+    throw unavailable(err)
   }
 }
 
 const EVM_ADDRESS_REGEX = /^0x[0-9a-fA-F]{40}$/
+
+/**
+ * Encode a bigint as the OWS core's EIP-712 parser expects a uint value.
+ *
+ * The parser enforces two constraints:
+ * - Decimal uint values above 2^128 are rejected ("exceeds u128 range; use hex
+ *   encoding"). synapse-sdk's `clientDataSetId` and `nonce` are `randU256()`,
+ *   uniform over the full uint256 range, so hex is required in the general case.
+ * - Hex values must have an even number of digits ("bad uint hex: Odd number of
+ *   digits"), so `0x0` and `0x1ab` are not valid.
+ *
+ * Even-length hex satisfies both and produces signatures identical to viem
+ * across 0, 2^128 - 1, 2^128, and 2^256 - 1.
+ *
+ * Negative values fall back to decimal. synapse-sdk uses only uint EIP-712
+ * fields; the hex form here is unsigned.
+ */
+function bigintToOwsHex(value: bigint): string {
+  if (value < 0n) return value.toString()
+  const hex = value.toString(16)
+  return `0x${hex.length % 2 === 1 ? `0${hex}` : hex}`
+}
 
 /**
  * Build a viem `Account` backed by an OWS wallet.
@@ -80,5 +126,45 @@ export async function getOwsAccount(options: OwsAccountOptions): Promise<Account
         'Check that the wallet has an eip155:* entry in `ows wallet list`.'
     )
   }
-  return account
+
+  const core = await loadCore()
+
+  /**
+   * Sign EIP-712 typed data through the OWS core, which takes the payload as a
+   * JSON string. Every typed-data message synapse-sdk signs carries bigints
+   * (`clientDataSetId`, `nonce`, `pieceIndex`, permit `value`/`deadline`), and
+   * viem hands a local account its message with those bigints intact (only its
+   * JSON-RPC path serializes). So this override does the serialization the core
+   * needs: encode bigints as even-length hex (see `bigintToOwsHex`) and include
+   * the `EIP712Domain` type. Only `signTypedData` needs this shaping;
+   * `signMessage` and `signTransaction` from the adapter encode their own input.
+   */
+  const signTypedData = async (typedData: TypedDataDefinition): Promise<`0x${string}`> => {
+    // viem's signTypedData action adds EIP712Domain to `types` before an account
+    // sees the payload; a direct account.signTypedData() call does not. Add it
+    // here so the core resolves the domain type ("unknown type: EIP712Domain"
+    // otherwise). A caller-supplied EIP712Domain wins via the spread order.
+    const withDomain = {
+      ...typedData,
+      types: {
+        EIP712Domain: getTypesForEIP712Domain({ domain: typedData.domain }),
+        ...typedData.types,
+      },
+    }
+    const serialized = JSON.stringify(withDomain, (_key, value) =>
+      typeof value === 'bigint' ? bigintToOwsHex(value) : value
+    )
+    const result = core.signTypedData(
+      options.walletId,
+      chainId,
+      serialized,
+      options.passphrase,
+      options.index,
+      options.vaultPath
+    )
+    const signature = result.signature
+    return (signature.startsWith('0x') ? signature : `0x${signature}`) as `0x${string}`
+  }
+
+  return { ...account, signTypedData } as Account
 }
