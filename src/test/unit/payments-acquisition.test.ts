@@ -44,6 +44,7 @@ import type {
   AcquisitionLeg,
   PlannedAcquisitionQuote,
 } from '../../core/payments/acquisition/types.js'
+import { MIN_FIL_FOR_GAS } from '../../core/payments/constants.js'
 import { planWalletFunding } from '../../core/payments/wallet-funding.js'
 
 const OWNER = '0x000000000000000000000000000000000000F00D' as const
@@ -430,6 +431,87 @@ describe('Squid acquisition provider contract', () => {
       })
     ).rejects.toThrow('only on Filecoin mainnet')
     expect(fetchFn).not.toHaveBeenCalled()
+  })
+
+  it('returns directly ready for a resolved source without provider or source-RPC calls', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
+    if (chain == null) throw new Error('Base test chain missing')
+    const fetchFn = vi.fn<typeof fetch>()
+    const rereadWalletBalances = vi.fn().mockResolvedValue({ fil: MIN_FIL_FOR_GAS, usdfc: 1n })
+    await expect(
+      ensureWalletReadyForFilecoinTransactions({
+        destinationChainId: 314,
+        walletUsdfcBalance: 0n,
+        walletFilBalance: 0n,
+        requiredUsdfc: 1n,
+        resolvedSource: {
+          chain,
+          chainId: chain.chainId,
+          token: '0x0000000000000000000000000000000000000003',
+          symbol: 'USDbC',
+          decimals: 8,
+          native: false,
+          display: 'Base USDbC',
+        },
+        provider: { integratorId: 'test-only-integrator', fetchFn },
+        rereadWalletBalances,
+      })
+    ).resolves.toEqual([])
+    expect(rereadWalletBalances).toHaveBeenCalledOnce()
+    expect(fetchFn).not.toHaveBeenCalled()
+  })
+
+  it('plans a resolved Base source with its dynamic Squid chain and surfaces its gas ceiling for confirmation', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
+    if (chain == null) throw new Error('Base test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: '0x0000000000000000000000000000000000000003',
+      symbol: 'USDbC',
+      decimals: 8,
+      native: false,
+      display: 'Base USDbC',
+    }
+    const fixture = await routeFixture('squid-route-usdfc.json')
+    fixture.route.transactionRequest.expiry = '2000000000'
+    const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, string>
+      fixture.route.params.fromChain = body.fromChain
+      fixture.route.params.fromToken = body.fromToken
+      fixture.route.params.fromAmount = body.fromAmount
+      fixture.route.params.toChain = body.toChain
+      fixture.route.params.toAddress = body.toAddress
+      fixture.route.params.fromAddress = body.fromAddress
+      fixture.route.estimate.fromAmount = body.fromAmount
+      return response(fixture)
+    })
+    const confirmation = vi.fn(async (_summary: SourceAcquisitionConfirmation) => {
+      throw new Error('stop after resolved confirmation')
+    })
+
+    await expect(
+      ensureWalletReadyForFilecoinTransactions({
+        destinationChainId: 314,
+        walletUsdfcBalance: 0n,
+        walletFilBalance: MIN_FIL_FOR_GAS,
+        requiredUsdfc: 1n,
+        resolvedSource: source,
+        maxSourceAmount: '1',
+        privateKey: PRIVATE_KEY,
+        provider: { integratorId: 'test-only-integrator', fetchFn },
+        confirmSourceAcquisition: confirmation,
+        rereadWalletBalances: vi.fn().mockResolvedValue({ fil: MIN_FIL_FOR_GAS, usdfc: 0n }),
+      })
+    ).rejects.toThrow('stop after resolved confirmation')
+
+    expect(JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body))).toMatchObject({
+      fromChain: '8453',
+      fromToken: source.token,
+    })
+    expect(confirmation).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceChainId: 8453, maxNativeGas: sourceNativeGasCeiling(8453) })
+    )
   })
 
   it('uses a fresh ready wallet view before provider planning and safely clears a compatible checkpoint', async () => {
