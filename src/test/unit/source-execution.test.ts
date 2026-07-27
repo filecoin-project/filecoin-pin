@@ -137,6 +137,19 @@ describe('multi-chain selected-source execution substrate', () => {
         sourceNativeGasCeiling(8453)
       )
     ).toThrow('incompatible')
+    const higherCheckpoint = { ...checkpoint, requiredWallet: { fil: 20n, usdfc: 30n } }
+    expect(() =>
+      assertCheckpointSourceCompatibility(higherCheckpoint, identity, 10n, sourceNativeGasCeiling(8453), {
+        fil: 10n,
+        usdfc: 20n,
+      })
+    ).not.toThrow()
+    expect(() =>
+      assertCheckpointSourceCompatibility(checkpoint, identity, 10n, sourceNativeGasCeiling(8453), {
+        fil: 1n,
+        usdfc: 1n,
+      })
+    ).toThrow('destination target')
   })
 
   it('rejects malformed persisted base-unit values with the checkpoint domain error', () => {

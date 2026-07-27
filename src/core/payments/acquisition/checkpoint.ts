@@ -120,7 +120,8 @@ export function assertCheckpointSourceCompatibility(
   checkpoint: AcquisitionCheckpoint,
   source: SourceRouteIdentity,
   maxSourceAmount: bigint,
-  maxNativeGas: bigint
+  maxNativeGas: bigint,
+  requiredWallet?: { fil: bigint; usdfc: bigint }
 ): void {
   if (
     checkpoint.version !== 2 ||
@@ -133,10 +134,12 @@ export function assertCheckpointSourceCompatibility(
     checkpoint.source.decimals !== source.decimals ||
     checkpoint.source.native !== source.native ||
     checkpoint.maxSourceAmount !== maxSourceAmount ||
-    checkpoint.maxNativeGas !== maxNativeGas
+    checkpoint.maxNativeGas !== maxNativeGas ||
+    (requiredWallet != null &&
+      (checkpoint.requiredWallet.fil < requiredWallet.fil || checkpoint.requiredWallet.usdfc < requiredWallet.usdfc))
   ) {
     throw new Error(
-      'Acquisition recovery state is incompatible with the selected source identity or caps; do not submit another route'
+      'Acquisition recovery state is incompatible with the selected source identity, caps, or destination target; do not submit another route'
     )
   }
 }

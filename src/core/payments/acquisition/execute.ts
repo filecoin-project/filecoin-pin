@@ -370,6 +370,7 @@ async function executeResolvedSourceAcquisition(
   if (maxSourceAmount == null || maxSourceAmount <= 0n)
     throw new Error('Resolved source execution requires a positive source cap')
   const maxNativeGas = sourceNativeGasCeiling(source.chain.chainId)
+  const requestedWallet = options.requiredDestinationWallet
   const trustedRoute = resolvedTrustedSquidRoutePolicy(source.chain.chainId)
   for (const quote of options.quotes) {
     if (
@@ -404,7 +405,13 @@ async function executeResolvedSourceAcquisition(
   let priorSourceAmount = 0n
   if (pending != null) {
     let recoveredCheckpoint = pending
-    assertCheckpointSourceCompatibility(pending, sourceRouteIdentity(source), maxSourceAmount, maxNativeGas)
+    assertCheckpointSourceCompatibility(
+      pending,
+      sourceRouteIdentity(source),
+      maxSourceAmount,
+      maxNativeGas,
+      requestedWallet
+    )
     priorCommittedNativeGas = pending.committedNativeGas
     if (pending.routeIntent != null || (pending.approvalIntent != null && pending.approvalTransactionHash == null)) {
       throw new Error(
@@ -547,10 +554,15 @@ async function executeResolvedSourceAcquisition(
         if (allowance > 0n) {
           const resetGas = await estimateApproval(spender, 0n)
           total += resetGas * (await publicClient.getGasPrice())
-          allowance = 0n
+          return total
         }
         const approvalGas = await estimateApproval(spender, pendingQuote.sourceAmount)
         total += approvalGas * (await publicClient.getGasPrice())
+      }
+      // A nonzero on-chain allowance is expected to change after this first route
+      // or reset. Do not estimate later approvals against the stale pre-reset state.
+      if (initialAllowance > 0n) {
+        return total
       }
       // Routes are granted exact allowance and consume it, so every later leg needs a
       // new approval even when the current first-leg allowance is already exact.
@@ -704,7 +716,7 @@ async function executeResolvedSourceAcquisition(
     let nonce = await publicClient.getTransactionCount({ address: account.address, blockTag: 'pending' })
     if (requiresErc20Approval(source)) {
       const spender = refreshed.approvalSpender as Address
-      let allowance = await publicClient.readContract({
+      const allowance = await publicClient.readContract({
         address: source.token,
         abi: ERC20_ALLOWANCE_ABI,
         functionName: 'allowance',
@@ -721,15 +733,16 @@ async function executeResolvedSourceAcquisition(
             args: [spender, 0n],
           })
           const resetGasPrice = await publicClient.getGasPrice()
-          await assertPendingNativeCommitments(pendingQuotes, 0n, resetGas * resetGasPrice)
+          await assertPendingNativeCommitments([], 0n, resetGas * resetGasPrice)
           committedNativeGas = assertCumulativeSourceNativeGas({
             chainId: source.chain.chainId,
             committed: committedNativeGas,
             next: resetGas * resetGasPrice,
           })
           await broadcastApproval({ spender, amount: 0n, gas: resetGas, maxFeePerGas: resetGasPrice, nonce })
-          nonce += 1
-          allowance = 0n
+          throw new Error(
+            'Selected-source allowance reset is confirmed; rerun acquisition to estimate the exact approval and source route before signing'
+          )
         }
         const approvalGasLimit = await publicClient.estimateContractGas({
           account: account.address,
