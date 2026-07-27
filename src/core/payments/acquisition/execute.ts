@@ -16,6 +16,7 @@ import {
   type AcquisitionCheckpoint,
   type AcquisitionCheckpointStore,
   assertCheckpointSourceCompatibility,
+  assertLegacyCheckpointVersion,
 } from './checkpoint.js'
 import { ARBITRUM_USDC, getSourceWalletBalances, SQUID_ROUTER } from './source-assets.js'
 import {
@@ -860,6 +861,7 @@ export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOp
   const pending = await options.checkpointStore.load()
   let recoveredCheckpoint: AcquisitionCheckpoint | undefined
   if (pending != null) {
+    assertLegacyCheckpointVersion(pending)
     if (pending.evidence.length > 0) {
       recoveredCheckpoint = await resumeCheckpoint({
         checkpoint: pending,

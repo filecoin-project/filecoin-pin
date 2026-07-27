@@ -1783,6 +1783,55 @@ describe('wallet shortfall acquisition planning', () => {
     )
   })
 
+  it('rejects a strict non-USDC checkpoint from legacy recovery before route handling', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
+    if (chain == null) throw new Error('Base test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: '0x0000000000000000000000000000000000000003',
+      symbol: 'USDbC',
+      decimals: 8,
+      native: false,
+      display: 'Base USDbC',
+    }
+    const store = checkpointStore({
+      version: 2,
+      owner: SOURCE_OWNER,
+      sourceChainId: source.chainId,
+      destinationChainId: 314,
+      source: sourceRouteIdentity(source),
+      maxSourceAmount: 10n,
+      maxNativeGas: sourceNativeGasCeiling(source.chainId),
+      committedNativeGas: 0n,
+      requiredWallet: { fil: 1n, usdfc: 1n },
+      evidence: [],
+    })
+    const refreshQuote = vi.fn()
+    const getProviderStatus = vi.fn()
+    const walletClient = { writeContract: vi.fn(), sendTransaction: vi.fn() }
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        sourceClient: { getChainId: vi.fn().mockResolvedValue(42161) } as unknown as PublicClient,
+        walletClient: walletClient as never,
+        quotes: [executionQuote()],
+        refreshQuote,
+        getProviderStatus,
+        checkpointStore: store,
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn(),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).rejects.toThrow('requires the exact selected source')
+
+    expect(refreshQuote).not.toHaveBeenCalled()
+    expect(getProviderStatus).not.toHaveBeenCalled()
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
+    expect(walletClient.sendTransaction).not.toHaveBeenCalled()
+  })
+
   it('resumes a confirmed interrupted route from durable state without quoting or submitting another source transaction', async () => {
     const quote: PlannedAcquisitionQuote = {
       id: 'route-1',

@@ -141,6 +141,15 @@ export function assertCheckpointSourceCompatibility(
   }
 }
 
+/** Strict v2 checkpoints carry selected-source base units and must never enter legacy USDC recovery. */
+export function assertLegacyCheckpointVersion(checkpoint: AcquisitionCheckpoint): void {
+  if (checkpoint.version !== 1) {
+    throw new Error(
+      'Strict acquisition recovery state requires the exact selected source; do not resume it through legacy USDC execution'
+    )
+  }
+}
+
 export interface AcquisitionLock {
   release: () => Promise<void>
 }
