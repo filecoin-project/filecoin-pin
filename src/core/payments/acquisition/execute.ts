@@ -177,7 +177,10 @@ async function resumeCheckpoint(options: {
     await options.checkpointStore.save(recoveredCheckpoint)
   }
   const balances = await options.getFilecoinBalances()
-  if (balances.fil >= recoveredCheckpoint.requiredWallet.fil && balances.usdfc >= recoveredCheckpoint.requiredWallet.usdfc) {
+  if (
+    balances.fil >= recoveredCheckpoint.requiredWallet.fil &&
+    balances.usdfc >= recoveredCheckpoint.requiredWallet.usdfc
+  ) {
     const balanceProvenCheckpoint = {
       ...recoveredCheckpoint,
       evidence: evidence.map((current) => ({ ...current, status: 'confirmed' as const })),

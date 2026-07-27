@@ -1,5 +1,5 @@
-import { createServer } from 'node:http'
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { calibration } from '@filoz/synapse-sdk'
@@ -37,7 +37,11 @@ import {
   pollSquidStatus,
   waitForSquidTerminalStatus,
 } from '../../core/payments/acquisition/squid.js'
-import type { AcquisitionEvidence, AcquisitionLeg, PlannedAcquisitionQuote } from '../../core/payments/acquisition/types.js'
+import type {
+  AcquisitionEvidence,
+  AcquisitionLeg,
+  PlannedAcquisitionQuote,
+} from '../../core/payments/acquisition/types.js'
 import { planWalletFunding } from '../../core/payments/wallet-funding.js'
 
 const OWNER = '0x000000000000000000000000000000000000F00D' as const
@@ -572,7 +576,9 @@ describe('Squid acquisition provider contract', () => {
         })
       ).resolves.toEqual([])
 
-      await expect(store.load()).resolves.toMatchObject({ requiredWallet: { fil: 200_000_000_000_000_000n, usdfc: 5n } })
+      await expect(store.load()).resolves.toMatchObject({
+        requiredWallet: { fil: 200_000_000_000_000_000n, usdfc: 5n },
+      })
       expect(fetchFn).not.toHaveBeenCalled()
 
       await expect(
@@ -1205,13 +1211,15 @@ describe('wallet shortfall acquisition planning', () => {
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
   })
 
-  it('fails closed for concurrent acquisition ownership and releases only its own 0600 lock', async () => {
+  it('fails closed for concurrent acquisition ownership and releases only its own lock', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-lock-'))
     try {
       const first = await acquireAcquisitionLock(OWNER, { directory })
       await expect(acquireAcquisitionLock(OWNER, { directory })).rejects.toThrow('already active')
-      expect((await stat(directory)).mode & 0o777).toBe(0o700)
-      expect((await stat(join(directory, `${OWNER.toLowerCase()}.lock`))).mode & 0o777).toBe(0o600)
+      if (process.platform !== 'win32') {
+        expect((await stat(directory)).mode & 0o777).toBe(0o700)
+        expect((await stat(join(directory, `${OWNER.toLowerCase()}.lock`))).mode & 0o777).toBe(0o600)
+      }
       await first.release()
       const second = await acquireAcquisitionLock(OWNER, { directory })
       await second.release()
@@ -1669,7 +1677,10 @@ describe('wallet shortfall acquisition planning', () => {
     expect(walletClient.sendTransaction).toHaveBeenCalledWith(expect.objectContaining({ to: second.target }))
     expect(getProviderStatus).toHaveBeenCalledTimes(1)
     expect(getProviderStatus).toHaveBeenCalledWith(expect.objectContaining({ asset: 'usdfc' }))
-    expect(waitForFilecoinArrival).toHaveBeenCalledWith({ fil: first.destinationAmount, usdfc: second.destinationAmount })
+    expect(waitForFilecoinArrival).toHaveBeenCalledWith({
+      fil: first.destinationAmount,
+      usdfc: second.destinationAmount,
+    })
     expect(store.clear).toHaveBeenCalledTimes(1)
   })
 

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import * as publicPayments from '../../core/payments/index.js'
+import type { AcquisitionProvider } from '../../core/payments/acquisition/provider.js'
 import type {
   AcquisitionErrorCode,
   AcquisitionQuote,
   WalletFundingPlan,
 } from '../../core/payments/acquisition/types.js'
-import type { AcquisitionProvider } from '../../core/payments/acquisition/provider.js'
+import * as publicPayments from '../../core/payments/index.js'
 import { classifyWalletFundingPath, planWalletFunding } from '../../core/payments/wallet-funding.js'
 
 describe('wallet funding planning', () => {

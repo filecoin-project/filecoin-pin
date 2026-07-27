@@ -8,12 +8,12 @@ import { type Command, InvalidArgumentError, Option } from 'commander'
 import { parseUnits } from 'viem'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import { normalizeNetworkName } from '../common/get-rpc-url.js'
-import { USDFC_DECIMALS } from '../core/payments/constants.js'
 import {
   isSupportedSquidSlippage,
   MAX_SQUID_SLIPPAGE_PERCENT,
   MIN_SQUID_SLIPPAGE_PERCENT,
 } from '../core/payments/acquisition/squid.js'
+import { USDFC_DECIMALS } from '../core/payments/constants.js'
 import { log } from './cli-logger.js'
 
 /**

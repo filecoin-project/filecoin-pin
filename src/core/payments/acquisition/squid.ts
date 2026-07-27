@@ -70,9 +70,7 @@ export interface SquidStatusResult {
 
 /** Squid accepts inclusive percentage slippage in this provider-defined range. */
 export function isSupportedSquidSlippage(value: number): boolean {
-  return (
-    Number.isFinite(value) && value >= MIN_SQUID_SLIPPAGE_PERCENT && value <= MAX_SQUID_SLIPPAGE_PERCENT
-  )
+  return Number.isFinite(value) && value >= MIN_SQUID_SLIPPAGE_PERCENT && value <= MAX_SQUID_SLIPPAGE_PERCENT
 }
 
 function providerError(message: string, code: AcquisitionErrorCode = 'quote-failed'): Error {
