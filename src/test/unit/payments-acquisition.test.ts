@@ -2678,7 +2678,7 @@ describe('wallet shortfall acquisition planning', () => {
       getBalance: vi.fn().mockResolvedValue(ceiling * 2n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
-      estimateContractGas: vi.fn(),
+      estimateContractGas: vi.fn().mockResolvedValue(1n),
       readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
         functionName === 'balanceOf' ? 100n : first.sourceAmount
       ),
@@ -2743,7 +2743,7 @@ describe('wallet shortfall acquisition planning', () => {
       getBalance: vi.fn().mockResolvedValue(15n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
-      estimateContractGas: vi.fn(),
+      estimateContractGas: vi.fn().mockResolvedValue(1n),
       readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
         functionName === 'balanceOf' ? 100n : first.sourceAmount
       ),
@@ -2771,6 +2771,199 @@ describe('wallet shortfall acquisition planning', () => {
         waitForFilecoinArrival: vi.fn(),
       })
     ).rejects.toThrow('Insufficient source native balance for the next signed action')
+
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
+    expect(walletClient.sendTransaction).not.toHaveBeenCalled()
+  })
+
+  it('reserves the second strict-leg approval against the invocation-wide gas cap before signing', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
+    if (chain == null) throw new Error('Base test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: '0x0000000000000000000000000000000000000003',
+      symbol: 'USDbC',
+      decimals: 8,
+      native: false,
+      display: 'Base USDbC',
+    }
+    const first = {
+      ...executionQuote(),
+      id: 'strict-first-approval-cap',
+      asset: 'fil' as const,
+      value: 0n,
+      gasLimit: 1n,
+      maxFeePerGas: 1n,
+      source: sourceRouteIdentity(source),
+      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+    }
+    const second = { ...first, id: 'strict-second-approval-cap', asset: 'usdfc' as const, sourceAmount: 2n }
+    const estimateContractGas = vi.fn().mockResolvedValue(sourceNativeGasCeiling(chain.chainId))
+    const client = {
+      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getBalance: vi.fn().mockResolvedValue(sourceNativeGasCeiling(chain.chainId) * 2n),
+      getGasPrice: vi.fn().mockResolvedValue(1n),
+      getTransactionCount: vi.fn(),
+      estimateContractGas,
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+        functionName === 'balanceOf' ? 100n : first.sourceAmount
+      ),
+      waitForTransactionReceipt: vi.fn(),
+    } as unknown as PublicClient
+    const walletClient = { writeContract: vi.fn(), sendTransaction: vi.fn() }
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        source,
+        sourceClient: withResolvedErc20Identity(source, client),
+        walletClient: walletClient as never,
+        quotes: [first, second],
+        maxSourceAmount: 10n,
+        refreshQuote: vi.fn(async (quote) => quote),
+        getProviderStatus: vi.fn(),
+        checkpointStore: emptyCheckpointStore(),
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).rejects.toThrow('exceeds chain 8453 ceiling')
+
+    expect(estimateContractGas).toHaveBeenCalledWith(
+      expect.objectContaining({ args: [second.approvalSpender, second.sourceAmount] })
+    )
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
+    expect(walletClient.sendTransaction).not.toHaveBeenCalled()
+  })
+
+  it('reserves the second strict-leg approval against native balance before signing', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
+    if (chain == null) throw new Error('Base test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: '0x0000000000000000000000000000000000000003',
+      symbol: 'USDbC',
+      decimals: 8,
+      native: false,
+      display: 'Base USDbC',
+    }
+    const first = {
+      ...executionQuote(),
+      id: 'strict-first-approval-balance',
+      asset: 'fil' as const,
+      value: 0n,
+      gasLimit: 1n,
+      maxFeePerGas: 1n,
+      source: sourceRouteIdentity(source),
+      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+    }
+    const second = {
+      ...first,
+      id: 'strict-second-approval-balance',
+      asset: 'usdfc' as const,
+      sourceAmount: 2n,
+    }
+    const estimateContractGas = vi.fn().mockResolvedValue(10n)
+    const client = {
+      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getBalance: vi.fn().mockResolvedValue(11n),
+      getGasPrice: vi.fn().mockResolvedValue(1n),
+      getTransactionCount: vi.fn(),
+      estimateContractGas,
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+        functionName === 'balanceOf' ? 100n : first.sourceAmount
+      ),
+      waitForTransactionReceipt: vi.fn(),
+    } as unknown as PublicClient
+    const walletClient = { writeContract: vi.fn(), sendTransaction: vi.fn() }
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        source,
+        sourceClient: withResolvedErc20Identity(source, client),
+        walletClient: walletClient as never,
+        quotes: [first, second],
+        maxSourceAmount: 10n,
+        refreshQuote: vi.fn(async (quote) => quote),
+        getProviderStatus: vi.fn(),
+        checkpointStore: emptyCheckpointStore(),
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).rejects.toThrow('Insufficient source native balance for route value and selected-chain gas ceiling')
+
+    expect(estimateContractGas).toHaveBeenCalledWith(
+      expect.objectContaining({ args: [second.approvalSpender, second.sourceAmount] })
+    )
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
+    expect(walletClient.sendTransaction).not.toHaveBeenCalled()
+  })
+
+  it('fails closed before signing when a later reset-required approval cannot be estimated', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
+    if (chain == null) throw new Error('Base test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: '0x0000000000000000000000000000000000000003',
+      symbol: 'USDbC',
+      decimals: 8,
+      native: false,
+      display: 'Base USDbC',
+    }
+    const first = {
+      ...executionQuote(),
+      id: 'strict-first-reset-required',
+      asset: 'fil' as const,
+      value: 0n,
+      gasLimit: 1n,
+      maxFeePerGas: 1n,
+      source: sourceRouteIdentity(source),
+      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+    }
+    const second = {
+      ...first,
+      id: 'strict-second-reset-required',
+      asset: 'usdfc' as const,
+      sourceAmount: 2n,
+    }
+    const estimateContractGas = vi.fn(async ({ args }: { args: readonly unknown[] }) => {
+      if (args[1] === second.sourceAmount) throw new Error('must reset allowance first')
+      return 1n
+    })
+    const client = {
+      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getBalance: vi.fn().mockResolvedValue(100n),
+      getGasPrice: vi.fn().mockResolvedValue(1n),
+      getTransactionCount: vi.fn(),
+      estimateContractGas,
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+        functionName === 'balanceOf' ? 100n : first.sourceAmount
+      ),
+      waitForTransactionReceipt: vi.fn(),
+    } as unknown as PublicClient
+    const walletClient = { writeContract: vi.fn(), sendTransaction: vi.fn() }
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        source,
+        sourceClient: withResolvedErc20Identity(source, client),
+        walletClient: walletClient as never,
+        quotes: [first, second],
+        maxSourceAmount: 10n,
+        refreshQuote: vi.fn(async (quote) => quote),
+        getProviderStatus: vi.fn(),
+        checkpointStore: emptyCheckpointStore(),
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).rejects.toThrow('Cannot safely estimate a pending ERC-20 allowance replacement')
 
     expect(walletClient.writeContract).not.toHaveBeenCalled()
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
@@ -2979,6 +3172,11 @@ describe('wallet shortfall acquisition planning', () => {
     }
     const allowances = [2n, 2n, quote.sourceAmount, quote.sourceAmount]
     const estimateContractGas = vi.fn().mockResolvedValue(1n)
+    let nextGasPrice = 0n
+    const getGasPrice = vi.fn(async () => {
+      nextGasPrice += 1n
+      return nextGasPrice
+    })
     const client = {
       getChainId: vi.fn().mockResolvedValue(chain.chainId),
       getBalance: vi
@@ -2987,7 +3185,7 @@ describe('wallet shortfall acquisition planning', () => {
         .mockResolvedValueOnce(100n)
         .mockResolvedValueOnce(100n)
         .mockResolvedValueOnce(14n),
-      getGasPrice: vi.fn().mockResolvedValueOnce(1n).mockResolvedValueOnce(2n).mockResolvedValueOnce(3n),
+      getGasPrice,
       getTransactionCount: vi.fn().mockResolvedValue(8),
       estimateContractGas,
       readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
@@ -3028,12 +3226,16 @@ describe('wallet shortfall acquisition planning', () => {
     )
     expect(walletClient.writeContract).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ args: [quote.approvalSpender, 0n], maxFeePerGas: 2n })
+      expect.objectContaining({ args: [quote.approvalSpender, 0n] })
     )
     expect(walletClient.writeContract).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ args: [quote.approvalSpender, quote.sourceAmount], maxFeePerGas: 3n })
+      expect.objectContaining({ args: [quote.approvalSpender, quote.sourceAmount] })
     )
+    const resetCall = walletClient.writeContract.mock.calls[0]?.[0]
+    const approvalCall = walletClient.writeContract.mock.calls[1]?.[0]
+    expect(resetCall?.maxFeePerGas).not.toBe(approvalCall?.maxFeePerGas)
+    expect(getGasPrice).toHaveBeenCalled()
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
   })
 

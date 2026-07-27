@@ -499,33 +499,57 @@ async function executeResolvedSourceAcquisition(
     throw new Error('Filecoin source execution requires an explicit positive FIL reserve; do not sign')
   }
   const routeGas = quotes.reduce((total, quote) => total + quote.gasLimit * quote.maxFeePerGas, 0n)
-  const gasPrice = await publicClient.getGasPrice()
-  let approvalGas = 0n
-  if (requiresErc20Approval(source)) {
-    // Only estimate an approval that is both needed and signable against the current
-    // chain state. Later legs execute after prior routes consume allowance, so estimating
-    // their hypothetical approvals against today's nonzero allowance can itself revert.
-    const firstQuote = quotes[0]
-    if (firstQuote == null) throw new Error('Resolved source acquisition has no routes to execute')
-    const spender = firstQuote.approvalSpender as Address
-    const allowance = await publicClient.readContract({
-      address: source.token,
-      abi: ERC20_ALLOWANCE_ABI,
-      functionName: 'allowance',
-      args: [account.address, spender],
-    })
-    if (allowance !== firstQuote.sourceAmount) {
-      const amount = allowance > 0n ? 0n : firstQuote.sourceAmount
-      approvalGas =
-        (await publicClient.estimateContractGas({
+  const estimatePendingApprovalGas = async (
+    pendingQuotes: readonly PlannedAcquisitionQuote[],
+    initialAllowance: bigint
+  ): Promise<bigint> => {
+    const estimateApproval = async (spender: Address, amount: bigint): Promise<bigint> => {
+      try {
+        return await publicClient.estimateContractGas({
           account: account.address,
           address: source.token,
           abi: ERC20_ALLOWANCE_ABI,
           functionName: 'approve',
           args: [spender, amount],
-        })) * gasPrice
+        })
+      } catch {
+        throw new Error(
+          'Cannot safely estimate a pending ERC-20 allowance replacement against current chain state; split the acquisition or clear the allowance before retrying; do not sign'
+        )
+      }
     }
+    let allowance = initialAllowance
+    let total = 0n
+    for (const pendingQuote of pendingQuotes) {
+      if (allowance !== pendingQuote.sourceAmount) {
+        const spender = pendingQuote.approvalSpender as Address
+        if (allowance > 0n) {
+          const resetGas = await estimateApproval(spender, 0n)
+          total += resetGas * (await publicClient.getGasPrice())
+          allowance = 0n
+        }
+        const approvalGas = await estimateApproval(spender, pendingQuote.sourceAmount)
+        total += approvalGas * (await publicClient.getGasPrice())
+      }
+      // Routes are granted exact allowance and consume it, so every later leg needs a
+      // new approval even when the current first-leg allowance is already exact.
+      allowance = 0n
+    }
+    return total
   }
+  let initialAllowance = 0n
+  if (requiresErc20Approval(source)) {
+    const firstQuote = quotes[0]
+    if (firstQuote == null) throw new Error('Resolved source acquisition has no routes to execute')
+    const spender = firstQuote.approvalSpender as Address
+    initialAllowance = await publicClient.readContract({
+      address: source.token,
+      abi: ERC20_ALLOWANCE_ABI,
+      functionName: 'allowance',
+      args: [account.address, spender],
+    })
+  }
+  const approvalGas = requiresErc20Approval(source) ? await estimatePendingApprovalGas(quotes, initialAllowance) : 0n
   const remainingGasCommitment = routeGas + approvalGas
   assertCumulativeSourceNativeGas({
     chainId: source.chain.chainId,
@@ -569,6 +593,33 @@ async function executeResolvedSourceAcquisition(
       requiredFilecoinReserve: options.requiredFilecoinReserve ?? 0n,
     })
   }
+  const pendingNativeCommitments = async (
+    pendingQuotes: readonly PlannedAcquisitionQuote[],
+    allowance: bigint
+  ): Promise<{ gas: bigint; value: bigint }> => {
+    const pendingApprovalGas = requiresErc20Approval(source)
+      ? await estimatePendingApprovalGas(pendingQuotes, allowance)
+      : 0n
+    const pendingRouteGas = pendingQuotes.reduce(
+      (total, pendingQuote) => total + pendingQuote.gasLimit * pendingQuote.maxFeePerGas,
+      0n
+    )
+    const pendingRouteValue = pendingQuotes.reduce((total, pendingQuote) => total + pendingQuote.value, 0n)
+    return { gas: pendingApprovalGas + pendingRouteGas, value: pendingRouteValue }
+  }
+  const assertPendingNativeCommitments = async (
+    pendingQuotes: readonly PlannedAcquisitionQuote[],
+    allowance: bigint,
+    signedActionGas = 0n
+  ): Promise<void> => {
+    const pending = await pendingNativeCommitments(pendingQuotes, allowance)
+    assertCumulativeSourceNativeGas({
+      chainId: source.chain.chainId,
+      committed: committedNativeGas,
+      next: signedActionGas + pending.gas,
+    })
+    await assertActionNativeBalance(signedActionGas + pending.gas, pending.value)
+  }
   const broadcastApproval = async (params: {
     spender: Address
     amount: bigint
@@ -576,7 +627,6 @@ async function executeResolvedSourceAcquisition(
     maxFeePerGas: bigint
     nonce: number
   }): Promise<void> => {
-    await assertActionNativeBalance(params.gas * params.maxFeePerGas)
     const checkpoint: AcquisitionCheckpoint = {
       version: 2,
       owner: account.address,
@@ -636,12 +686,13 @@ async function executeResolvedSourceAcquisition(
     let nonce = await publicClient.getTransactionCount({ address: account.address, blockTag: 'pending' })
     if (requiresErc20Approval(source)) {
       const spender = refreshed.approvalSpender as Address
-      const allowance = await publicClient.readContract({
+      let allowance = await publicClient.readContract({
         address: source.token,
         abi: ERC20_ALLOWANCE_ABI,
         functionName: 'allowance',
         args: [account.address, spender],
       })
+      const pendingQuotes = [refreshed, ...quotes.slice(index + 1)]
       if (allowance !== refreshed.sourceAmount) {
         if (allowance > 0n) {
           const resetGas = await publicClient.estimateContractGas({
@@ -652,6 +703,7 @@ async function executeResolvedSourceAcquisition(
             args: [spender, 0n],
           })
           const resetGasPrice = await publicClient.getGasPrice()
+          await assertPendingNativeCommitments(pendingQuotes, 0n, resetGas * resetGasPrice)
           committedNativeGas = assertCumulativeSourceNativeGas({
             chainId: source.chain.chainId,
             committed: committedNativeGas,
@@ -659,6 +711,7 @@ async function executeResolvedSourceAcquisition(
           })
           await broadcastApproval({ spender, amount: 0n, gas: resetGas, maxFeePerGas: resetGasPrice, nonce })
           nonce += 1
+          allowance = 0n
         }
         const approvalGasLimit = await publicClient.estimateContractGas({
           account: account.address,
@@ -668,6 +721,7 @@ async function executeResolvedSourceAcquisition(
           args: [spender, refreshed.sourceAmount],
         })
         const approvalGasPrice = await publicClient.getGasPrice()
+        await assertPendingNativeCommitments(pendingQuotes, refreshed.sourceAmount, approvalGasLimit * approvalGasPrice)
         committedNativeGas = assertCumulativeSourceNativeGas({
           chainId: source.chain.chainId,
           committed: committedNativeGas,
@@ -721,23 +775,11 @@ async function executeResolvedSourceAcquisition(
       }
     }
     const routeCommitment = postApproval.gasLimit * postApproval.maxFeePerGas
-    const remainingCommitment = quotes.slice(index + 1).reduce(
-      (total, remainingQuote) => ({
-        gas: total.gas + remainingQuote.gasLimit * remainingQuote.maxFeePerGas,
-        value: total.value + remainingQuote.value,
-      }),
-      { gas: 0n, value: 0n }
+    await assertPendingNativeCommitments(
+      [postApproval, ...quotes.slice(index + 1)],
+      requiresErc20Approval(source) ? postApproval.sourceAmount : 0n
     )
-    assertCumulativeSourceNativeGas({
-      chainId: source.chain.chainId,
-      committed: committedNativeGas,
-      next: routeCommitment + remainingCommitment.gas,
-    })
     assertRouteNotExpired(postApproval)
-    await assertActionNativeBalance(
-      routeCommitment + remainingCommitment.gas,
-      postApproval.value + remainingCommitment.value
-    )
     committedNativeGas = assertCumulativeSourceNativeGas({
       chainId: source.chain.chainId,
       committed: committedNativeGas,
