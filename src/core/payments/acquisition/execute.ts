@@ -290,6 +290,7 @@ async function resumeCheckpoint(options: {
   for (let index = 0; index < evidence.length; index += 1) {
     const current = evidence[index]
     if (current == null || current.sourceTransactionHash == null) continue
+    if (current.status === 'confirmed') continue
     const providerStatus = await waitForSquidTerminalStatus({
       getStatus: () => options.getProviderStatus(current),
       ...(current.estimatedRouteDurationSeconds != null
@@ -477,9 +478,17 @@ async function executeResolvedSourceAcquisition(
           if (item == null) continue
           recoveredEvidence[index] = { ...item, status: 'confirmed' }
         }
-        priorSourceAmount = committedSourceAmount(recoveredEvidence)
+        await options.checkpointStore.clear()
+        return recoveredEvidence
       } else {
         for (const [index, item] of pending.evidence.entries()) {
+          if (item.status === 'confirmed') {
+            if (item.sourceAmount == null) {
+              throw new Error('Acquisition recovery evidence lacks a valid source amount; do not resubmit')
+            }
+            priorSourceAmount += BigInt(item.sourceAmount)
+            continue
+          }
           const status = await waitForSquidTerminalStatus({
             getStatus: () => options.getProviderStatus(item),
             ...(item.estimatedRouteDurationSeconds != null
@@ -942,6 +951,17 @@ export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOp
     }
   }
   const priorEvidence = recoveredCheckpoint?.evidence ?? []
+  if (recoveredCheckpoint != null && priorEvidence.length > 0) {
+    const balances = await options.getFilecoinBalances()
+    if (
+      balances.fil >= recoveredCheckpoint.requiredWallet.fil &&
+      balances.usdfc >= recoveredCheckpoint.requiredWallet.usdfc
+    ) {
+      const evidence = priorEvidence.map((item) => ({ ...item, status: 'confirmed' as const }))
+      await options.checkpointStore.clear()
+      return evidence
+    }
+  }
   const completedAssets = new Set(priorEvidence.map((item) => item.asset))
   const quotes = options.quotes.filter((quote) => !completedAssets.has(quote.asset))
   const priorSourceAmount = priorEvidence.length > 0 ? committedSourceAmount(priorEvidence) : 0n

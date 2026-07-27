@@ -2157,6 +2157,57 @@ describe('wallet shortfall acquisition planning', () => {
     expect(store.clear).toHaveBeenCalledTimes(1)
   })
 
+  it('clears a partial recovery when a delayed wallet top-up already meets its stored target', async () => {
+    const first = { ...executionQuote(), id: 'recovered-fil', asset: 'fil' as const, destinationAmount: 3n }
+    const second = { ...executionQuote(), id: 'unneeded-usdfc', destinationAmount: 4n }
+    const store = checkpointStore({
+      version: 1,
+      owner: SOURCE_OWNER,
+      sourceChainId: 42161,
+      destinationChainId: 314,
+      committedNativeGas: 0n,
+      requiredWallet: { fil: first.destinationAmount, usdfc: second.destinationAmount },
+      evidence: [
+        {
+          asset: 'fil',
+          quoteId: first.id,
+          sourceAmount: first.sourceAmount.toString(),
+          sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          status: 'submitted',
+        },
+      ],
+    })
+    const refreshQuote = vi.fn()
+    const getProviderStatus = vi.fn()
+    const walletClient = { writeContract: vi.fn(), sendTransaction: vi.fn() }
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        sourceClient: {
+          getChainId: vi.fn().mockResolvedValue(42161),
+          waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+        } as unknown as PublicClient,
+        walletClient: walletClient as never,
+        quotes: [first, second],
+        refreshQuote,
+        getProviderStatus,
+        checkpointStore: store,
+        destinationChainId: 314,
+        getFilecoinBalances: vi
+          .fn()
+          .mockResolvedValue({ fil: first.destinationAmount, usdfc: second.destinationAmount }),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).resolves.toMatchObject([{ asset: 'fil', status: 'confirmed' }])
+
+    expect(getProviderStatus).not.toHaveBeenCalled()
+    expect(refreshQuote).not.toHaveBeenCalled()
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
+    expect(walletClient.sendTransaction).not.toHaveBeenCalled()
+    expect(store.clear).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps a confirmed approval commitment after a crash and rejects the later route above the cumulative cap', async () => {
     const quote = {
       ...executionQuote(),
@@ -2221,7 +2272,7 @@ describe('wallet shortfall acquisition planning', () => {
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
   })
 
-  it('uses Filecoin balance proof to recover an arrived first leg while Squid remains unresolved', async () => {
+  it('clears a partial recovery when Filecoin balance proof meets its stored target', async () => {
     const first = { ...executionQuote(), id: 'first-fil-arrived', asset: 'fil' as const, sourceAmount: 10n }
     const second = {
       ...executionQuote(),
@@ -2270,19 +2321,11 @@ describe('wallet shortfall acquisition planning', () => {
         getFilecoinBalances,
         waitForFilecoinArrival,
       })
-    ).resolves.toMatchObject([
-      { asset: 'fil', status: 'confirmed' },
-      { asset: 'usdfc', status: 'confirmed' },
-    ])
+    ).resolves.toMatchObject([{ asset: 'fil', status: 'confirmed' }])
 
-    expect(walletClient.sendTransaction).toHaveBeenCalledTimes(1)
-    expect(walletClient.sendTransaction).toHaveBeenCalledWith(expect.objectContaining({ to: second.target }))
-    expect(getProviderStatus).toHaveBeenCalledTimes(1)
-    expect(getProviderStatus).toHaveBeenCalledWith(expect.objectContaining({ asset: 'usdfc' }))
-    expect(waitForFilecoinArrival).toHaveBeenCalledWith({
-      fil: first.destinationAmount,
-      usdfc: second.destinationAmount,
-    })
+    expect(walletClient.sendTransaction).not.toHaveBeenCalled()
+    expect(getProviderStatus).not.toHaveBeenCalled()
+    expect(waitForFilecoinArrival).not.toHaveBeenCalled()
     expect(store.clear).toHaveBeenCalledTimes(1)
   })
 
@@ -3010,6 +3053,92 @@ describe('wallet shortfall acquisition planning', () => {
     expect(getTransactionCount).not.toHaveBeenCalled()
     expect(walletClient.writeContract).not.toHaveBeenCalled()
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
+  })
+
+  it('does not repoll confirmed strict recovery evidence before executing the remaining leg', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
+    if (chain == null) throw new Error('Base test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: '0x0000000000000000000000000000000000000003',
+      symbol: 'USDbC',
+      decimals: 8,
+      native: false,
+      display: 'Base USDbC',
+    }
+    const routeFields = {
+      value: 0n,
+      gasLimit: 1n,
+      maxFeePerGas: 1n,
+      source: sourceRouteIdentity(source),
+      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      sourceOwner: SOURCE_OWNER,
+      destinationAddress: SOURCE_OWNER,
+    }
+    const first = { ...executionQuote(), ...routeFields, id: 'confirmed-fil', asset: 'fil' as const }
+    const second = { ...executionQuote(), ...routeFields, id: 'remaining-usdfc' }
+    const store = checkpointStore({
+      version: 2,
+      owner: SOURCE_OWNER,
+      sourceChainId: source.chainId,
+      destinationChainId: 314,
+      source: sourceRouteIdentity(source),
+      maxSourceAmount: 10n,
+      maxNativeGas: sourceNativeGasCeiling(source.chainId),
+      committedNativeGas: 0n,
+      requiredWallet: { fil: first.destinationAmount, usdfc: second.destinationAmount },
+      evidence: [
+        {
+          asset: 'fil',
+          quoteId: first.id,
+          sourceAmount: first.sourceAmount.toString(),
+          sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          status: 'confirmed',
+        },
+      ],
+    })
+    const getProviderStatus = vi.fn().mockResolvedValue({ status: 'confirmed' as const })
+    const walletClient = {
+      writeContract: vi.fn(),
+      sendTransaction: vi.fn().mockResolvedValue('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
+    }
+    const client = {
+      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getCode: vi.fn().mockResolvedValue('0x01'),
+      getBalance: vi.fn().mockResolvedValue(100n),
+      getGasPrice: vi.fn().mockResolvedValue(1n),
+      getTransactionCount: vi.fn().mockResolvedValue(8),
+      estimateContractGas: vi.fn(),
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+        functionName === 'balanceOf' ? 100n : second.sourceAmount
+      ),
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+    } as unknown as PublicClient
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        source,
+        sourceClient: withResolvedErc20Identity(source, client),
+        walletClient: walletClient as never,
+        quotes: [first, second],
+        maxSourceAmount: 10n,
+        refreshQuote: vi.fn(async (quote) => quote),
+        getProviderStatus,
+        checkpointStore: store,
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).resolves.toMatchObject([
+      { asset: 'fil', status: 'confirmed' },
+      { asset: 'usdfc', status: 'confirmed' },
+    ])
+
+    expect(getProviderStatus).toHaveBeenCalledTimes(1)
+    expect(getProviderStatus).toHaveBeenCalledWith(expect.objectContaining({ quoteId: second.id }))
+    expect(walletClient.sendTransaction).toHaveBeenCalledTimes(1)
   })
 
   it('reserves later strict-route gas when a post-approval refresh raises the current cost', async () => {
@@ -4083,7 +4212,7 @@ describe('wallet shortfall acquisition planning', () => {
     expect(getProviderStatus).not.toHaveBeenCalled()
     expect(walletClient.writeContract).not.toHaveBeenCalled()
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
-    expect(waitForFilecoinArrival).toHaveBeenCalledWith(requiredWallet)
+    expect(waitForFilecoinArrival).not.toHaveBeenCalled()
     expect(store.clear).toHaveBeenCalledTimes(1)
   })
 
