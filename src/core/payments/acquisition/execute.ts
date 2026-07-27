@@ -1017,6 +1017,22 @@ export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOp
   }
 
   const baseline = await options.getFilecoinBalances()
+  const computedRequiredWallet = addDestinationAmounts(baseline, quotes)
+  const recoveryRequiredWallet =
+    recoveredCheckpoint == null
+      ? undefined
+      : {
+          fil:
+            computedRequiredWallet.fil > recoveredCheckpoint.requiredWallet.fil
+              ? computedRequiredWallet.fil
+              : recoveredCheckpoint.requiredWallet.fil,
+          usdfc:
+            computedRequiredWallet.usdfc > recoveredCheckpoint.requiredWallet.usdfc
+              ? computedRequiredWallet.usdfc
+              : recoveredCheckpoint.requiredWallet.usdfc,
+        }
+  const requiredWalletForCheckpoint = (completedQuotes: PlannedAcquisitionQuote[]) =>
+    recoveryRequiredWallet ?? addDestinationAmounts(baseline, completedQuotes)
   let committedNativeGas = recoveredCheckpoint?.committedNativeGas ?? 0n
   const evidence: AcquisitionEvidence[] = [...priorEvidence]
   for (const [index, quote] of quotes.entries()) {
@@ -1093,7 +1109,7 @@ export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOp
           gasLimit: approvalGasLimit.toString(),
           maxFeePerGas: approvalMaxFeePerGas.toString(),
         },
-        requiredWallet: addDestinationAmounts(baseline, quotes.slice(0, evidence.length - priorEvidence.length)),
+        requiredWallet: requiredWalletForCheckpoint(quotes.slice(0, evidence.length - priorEvidence.length)),
         evidence,
       })
       const approvalHash = await walletClient.writeContract({
@@ -1112,7 +1128,7 @@ export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOp
         destinationChainId: options.destinationChainId,
         committedNativeGas,
         approvalTransactionHash: approvalHash,
-        requiredWallet: addDestinationAmounts(baseline, quotes.slice(0, evidence.length - priorEvidence.length)),
+        requiredWallet: requiredWalletForCheckpoint(quotes.slice(0, evidence.length - priorEvidence.length)),
         evidence,
       })
       const approvalReceipt = await publicClient.waitForTransactionReceipt({ hash: approvalHash })
@@ -1123,7 +1139,7 @@ export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOp
         sourceChainId: arbitrum.id,
         destinationChainId: options.destinationChainId,
         committedNativeGas,
-        requiredWallet: addDestinationAmounts(baseline, quotes.slice(0, evidence.length - priorEvidence.length)),
+        requiredWallet: requiredWalletForCheckpoint(quotes.slice(0, evidence.length - priorEvidence.length)),
         evidence,
       })
     }
@@ -1171,7 +1187,7 @@ export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOp
         gasLimit: refreshedQuote.gasLimit.toString(),
         maxFeePerGas: refreshedQuote.maxFeePerGas.toString(),
       },
-      requiredWallet: addDestinationAmounts(baseline, quotes.slice(0, evidence.length - priorEvidence.length)),
+      requiredWallet: requiredWalletForCheckpoint(quotes.slice(0, evidence.length - priorEvidence.length)),
       evidence,
     })
     assertRouteNotExpired(refreshedQuote)
@@ -1198,7 +1214,7 @@ export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOp
       sourceChainId: arbitrum.id,
       destinationChainId: options.destinationChainId,
       committedNativeGas,
-      requiredWallet: addDestinationAmounts(baseline, quotes.slice(0, evidence.length - priorEvidence.length)),
+      requiredWallet: requiredWalletForCheckpoint(quotes.slice(0, evidence.length - priorEvidence.length)),
       evidence,
     })
     const sourceReceipt = await publicClient.waitForTransactionReceipt({ hash: sourceTransactionHash })
@@ -1212,7 +1228,7 @@ export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOp
         sourceChainId: arbitrum.id,
         destinationChainId: options.destinationChainId,
         committedNativeGas,
-        requiredWallet: addDestinationAmounts(baseline, quotes.slice(0, evidence.length - priorEvidence.length)),
+        requiredWallet: requiredWalletForCheckpoint(quotes.slice(0, evidence.length - priorEvidence.length)),
         evidence,
       })
       throw new Error('Source acquisition transaction failed')
@@ -1231,7 +1247,7 @@ export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOp
         sourceChainId: arbitrum.id,
         destinationChainId: options.destinationChainId,
         committedNativeGas,
-        requiredWallet: addDestinationAmounts(baseline, quotes.slice(0, evidence.length - priorEvidence.length)),
+        requiredWallet: requiredWalletForCheckpoint(quotes.slice(0, evidence.length - priorEvidence.length)),
         evidence,
       })
       throw new Error(
@@ -1245,25 +1261,11 @@ export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOp
       sourceChainId: arbitrum.id,
       destinationChainId: options.destinationChainId,
       committedNativeGas,
-      requiredWallet: addDestinationAmounts(baseline, quotes.slice(0, evidence.length - priorEvidence.length)),
+      requiredWallet: requiredWalletForCheckpoint(quotes.slice(0, evidence.length - priorEvidence.length)),
       evidence,
     })
   }
-  const computedRequiredWallet = addDestinationAmounts(baseline, quotes)
-  const requiredWallet =
-    recoveredCheckpoint == null
-      ? computedRequiredWallet
-      : {
-          fil:
-            computedRequiredWallet.fil > recoveredCheckpoint.requiredWallet.fil
-              ? computedRequiredWallet.fil
-              : recoveredCheckpoint.requiredWallet.fil,
-          usdfc:
-            computedRequiredWallet.usdfc > recoveredCheckpoint.requiredWallet.usdfc
-              ? computedRequiredWallet.usdfc
-              : recoveredCheckpoint.requiredWallet.usdfc,
-        }
-  await options.waitForFilecoinArrival(requiredWallet)
+  await options.waitForFilecoinArrival(recoveryRequiredWallet ?? computedRequiredWallet)
   await options.checkpointStore.clear()
   return evidence
 }

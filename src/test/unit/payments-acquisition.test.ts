@@ -2219,6 +2219,88 @@ describe('wallet shortfall acquisition planning', () => {
     expect(store.clear).toHaveBeenCalledTimes(1)
   })
 
+  it('persists the full recovered target when the remaining legacy route is interrupted', async () => {
+    const first = { ...executionQuote(), id: 'confirmed-fil', asset: 'fil' as const, sourceAmount: 10n }
+    const second = {
+      ...executionQuote(),
+      id: 'remaining-usdfc',
+      sourceAmount: 20n,
+      destinationAmount: 4n,
+    }
+    const requiredWallet = { fil: first.destinationAmount, usdfc: second.destinationAmount }
+    const store = checkpointStore({
+      version: 1,
+      owner: SOURCE_OWNER,
+      sourceChainId: 42161,
+      destinationChainId: 314,
+      committedNativeGas: 0n,
+      requiredWallet,
+      evidence: [
+        {
+          asset: 'fil',
+          quoteId: first.id,
+          sourceAmount: first.sourceAmount.toString(),
+          sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          status: 'submitted',
+        },
+      ],
+    })
+    const walletClient = {
+      writeContract: vi.fn(),
+      sendTransaction: vi.fn().mockResolvedValue('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
+    }
+    const getProviderStatus = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'confirmed' as const })
+      .mockResolvedValueOnce({ status: 'ongoing' as const })
+      .mockResolvedValue({ status: 'confirmed' as const })
+    const waitForFilecoinArrival = vi.fn().mockResolvedValue(undefined)
+    const getFilecoinBalances = vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n })
+    const commonOptions = {
+      privateKey: PRIVATE_KEY,
+      quotes: [first, second],
+      maxSourceAmount: 100n,
+      refreshQuote: vi.fn(async (current: PlannedAcquisitionQuote) => current),
+      getProviderStatus,
+      checkpointStore: store,
+      destinationChainId: 314,
+      getFilecoinBalances,
+      waitForFilecoinArrival,
+    }
+
+    await expect(
+      executeTokenAcquisition({
+        ...commonOptions,
+        sourceClient: sourceClientForExecution(() => second.sourceAmount),
+        walletClient: walletClient as never,
+      })
+    ).rejects.toThrow('Acquisition remains ongoing')
+
+    expect(store.value?.requiredWallet).toEqual(requiredWallet)
+    expect(store.value?.evidence).toMatchObject([
+      { asset: 'fil', status: 'confirmed' },
+      { asset: 'usdfc', status: 'ongoing' },
+    ])
+    expect(walletClient.sendTransaction).toHaveBeenCalledTimes(1)
+
+    await expect(
+      executeTokenAcquisition({
+        ...commonOptions,
+        sourceClient: {
+          getChainId: vi.fn().mockResolvedValue(42161),
+          waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+        } as unknown as PublicClient,
+      })
+    ).resolves.toMatchObject([
+      { asset: 'fil', status: 'confirmed' },
+      { asset: 'usdfc', status: 'confirmed' },
+    ])
+
+    expect(walletClient.sendTransaction).toHaveBeenCalledTimes(1)
+    expect(waitForFilecoinArrival).toHaveBeenCalledWith(requiredWallet)
+    expect(store.clear).toHaveBeenCalledTimes(1)
+  })
+
   it('clears a partial recovery when a delayed wallet top-up already meets its stored target', async () => {
     const first = { ...executionQuote(), id: 'recovered-fil', asset: 'fil' as const, destinationAmount: 3n }
     const second = { ...executionQuote(), id: 'unneeded-usdfc', destinationAmount: 4n }
