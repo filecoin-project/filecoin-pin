@@ -553,15 +553,15 @@ async function executeResolvedSourceAcquisition(
       : addDestinationAmounts(baseline, options.quotes))
   const evidence: AcquisitionEvidence[] = [...priorEvidence]
   let committedNativeGas = priorCommittedNativeGas
-  const assertActionNativeBalance = async (actionGas: bigint, nativeRouteValue = 0n): Promise<void> => {
+  const assertActionNativeBalance = async (actionGas: bigint, actionRouteValue = 0n): Promise<void> => {
     const actionNativeBalance = await publicClient.getBalance({ address: account.address })
-    if (actionNativeBalance < actionGas + nativeRouteValue) {
+    if (actionNativeBalance < actionGas + actionRouteValue) {
       throw new Error('Insufficient source native balance for the next signed action; do not sign')
     }
     assertFilecoinSourceReserve({
       source,
       nativeBalance: actionNativeBalance,
-      sourceSpend: nativeRouteValue,
+      sourceSpend: actionRouteValue,
       routeAndApprovalGas: actionGas,
       requiredFilecoinReserve: options.requiredFilecoinReserve ?? 0n,
     })
@@ -570,9 +570,10 @@ async function executeResolvedSourceAcquisition(
     spender: Address
     amount: bigint
     gas: bigint
+    maxFeePerGas: bigint
     nonce: number
   }): Promise<void> => {
-    await assertActionNativeBalance(params.gas * gasPrice)
+    await assertActionNativeBalance(params.gas * params.maxFeePerGas)
     const checkpoint: AcquisitionCheckpoint = {
       version: 2,
       owner: account.address,
@@ -588,7 +589,7 @@ async function executeResolvedSourceAcquisition(
         spender: params.spender,
         amount: params.amount.toString(),
         gasLimit: params.gas.toString(),
-        maxFeePerGas: gasPrice.toString(),
+        maxFeePerGas: params.maxFeePerGas.toString(),
       },
       requiredWallet,
       evidence,
@@ -600,7 +601,7 @@ async function executeResolvedSourceAcquisition(
       functionName: 'approve',
       args: [params.spender, params.amount],
       gas: params.gas,
-      maxFeePerGas: gasPrice,
+      maxFeePerGas: params.maxFeePerGas,
       nonce: params.nonce,
     })
     await options.checkpointStore.save({ ...checkpoint, approvalTransactionHash: hash })
@@ -647,12 +648,13 @@ async function executeResolvedSourceAcquisition(
             functionName: 'approve',
             args: [spender, 0n],
           })
+          const resetGasPrice = await publicClient.getGasPrice()
           committedNativeGas = assertCumulativeSourceNativeGas({
             chainId: source.chain.chainId,
             committed: committedNativeGas,
-            next: resetGas * gasPrice,
+            next: resetGas * resetGasPrice,
           })
-          await broadcastApproval({ spender, amount: 0n, gas: resetGas, nonce })
+          await broadcastApproval({ spender, amount: 0n, gas: resetGas, maxFeePerGas: resetGasPrice, nonce })
           nonce += 1
         }
         const approvalGasLimit = await publicClient.estimateContractGas({
@@ -662,12 +664,19 @@ async function executeResolvedSourceAcquisition(
           functionName: 'approve',
           args: [spender, refreshed.sourceAmount],
         })
+        const approvalGasPrice = await publicClient.getGasPrice()
         committedNativeGas = assertCumulativeSourceNativeGas({
           chainId: source.chain.chainId,
           committed: committedNativeGas,
-          next: approvalGasLimit * gasPrice,
+          next: approvalGasLimit * approvalGasPrice,
         })
-        await broadcastApproval({ spender, amount: refreshed.sourceAmount, gas: approvalGasLimit, nonce })
+        await broadcastApproval({
+          spender,
+          amount: refreshed.sourceAmount,
+          gas: approvalGasLimit,
+          maxFeePerGas: approvalGasPrice,
+          nonce,
+        })
         nonce += 1
       }
       const confirmedAllowance = await publicClient.readContract({

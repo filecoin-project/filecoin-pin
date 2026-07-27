@@ -71,6 +71,22 @@ function supportedSource() {
   return source
 }
 
+function resolvedArbitrumSource(): ResolvedSourceToken {
+  const source = supportedSource()
+  const chain = SELECTED_SOURCE_CHAINS.find((candidate) => candidate.chainId === source.chainId)
+  if (chain == null) throw new Error('Arbitrum source chain missing from catalog')
+  if (source.decimals == null) throw new Error('Arbitrum source decimals missing')
+  return {
+    chain,
+    chainId: source.chainId,
+    token: source.token as `0x${string}`,
+    symbol: source.symbol,
+    decimals: source.decimals,
+    native: false,
+    display: 'Arbitrum USDC',
+  }
+}
+
 function checkpointStore(
   initial: AcquisitionCheckpoint
 ): AcquisitionCheckpointStore & { value: AcquisitionCheckpoint | undefined } {
@@ -166,6 +182,20 @@ describe('Squid acquisition provider contract', () => {
         { integratorId: 'test-only-integrator', fetchFn: vi.fn<typeof fetch>().mockResolvedValue(response(fixture)) }
       )
     ).rejects.toThrow('approved-target')
+  })
+
+  it('rejects invalid resolved source decimals before requesting a route', async () => {
+    const fetchFn = vi.fn<typeof fetch>()
+    const source = { ...supportedSource(), decimals: 256 }
+
+    await expect(
+      getSquidRoute(
+        { fromAddress: OWNER, sourceAmount: 1n, leg: { asset: 'fil', amount: 1n, source }, slippage: 1 },
+        { integratorId: 'test-only-integrator', fetchFn }
+      )
+    ).rejects.toThrow('invalid decimals')
+
+    expect(fetchFn).not.toHaveBeenCalled()
   })
 
   it('fails closed when the provider params do not retain the fixed source amount', async () => {
@@ -551,19 +581,23 @@ describe('Squid acquisition provider contract', () => {
     )
   })
 
-  it('uses a fresh ready wallet view before provider planning and safely clears a compatible checkpoint', async () => {
+  it('uses a fresh ready wallet view and clears a completed checkpoint with an incompatible cap', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
     const originalHome = process.env.HOME
     process.env.HOME = directory
     try {
       const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
       const store = createAcquisitionCheckpointStore(owner)
+      const source = resolvedArbitrumSource()
       await store.save({
-        version: 1,
+        version: 2,
         owner,
         sourceChainId: 42161,
         destinationChainId: 314,
         committedNativeGas: 1n,
+        source: sourceRouteIdentity(source),
+        maxSourceAmount: 999n,
+        maxNativeGas: sourceNativeGasCeiling(source.chainId) + 1n,
         requiredWallet: { fil: 100_000_000_000_000_000n, usdfc: 1n },
         evidence: [
           {
@@ -585,8 +619,7 @@ describe('Squid acquisition provider contract', () => {
           walletUsdfcBalance: 0n,
           walletFilBalance: 0n,
           requiredUsdfc: 1n,
-          fromChain: 'arb',
-          fromToken: 'USDC',
+          resolvedSource: source,
           maxSourceAmount: '1',
           privateKey: PRIVATE_KEY,
           provider: { integratorId: 'test-only-integrator', fetchFn },
@@ -640,6 +673,7 @@ describe('Squid acquisition provider contract', () => {
           requiredUsdfc: 1n,
           fromChain: 'arb',
           fromToken: 'USDC',
+          resolvedSource: resolvedArbitrumSource(),
           maxSourceAmount: '1',
           privateKey: PRIVATE_KEY,
           provider: { integratorId: undefined, fetchFn },
@@ -690,6 +724,7 @@ describe('Squid acquisition provider contract', () => {
           requiredUsdfc: 1n,
           fromChain: 'arb',
           fromToken: 'USDC',
+          resolvedSource: resolvedArbitrumSource(),
           maxSourceAmount: '1',
           privateKey: PRIVATE_KEY,
           provider: { integratorId: undefined, fetchFn },
@@ -751,6 +786,7 @@ describe('Squid acquisition provider contract', () => {
           requiredUsdfc: 1n,
           fromChain: 'arb',
           fromToken: 'USDC',
+          resolvedSource: resolvedArbitrumSource(),
           maxSourceAmount: '1',
           privateKey: PRIVATE_KEY,
           provider: { integratorId: undefined },
@@ -1046,6 +1082,30 @@ describe('wallet shortfall acquisition planning', () => {
     expect(resolveSourceToken('arb', 'DAI')).toBeUndefined()
     expect(() => parseMaximumSourceAmount('0')).toThrow('greater than zero')
     expect(() => parseMaximumSourceAmount('-1')).toThrow('greater than zero')
+  })
+
+  it('rejects invalid source decimals before planning contacts the provider', async () => {
+    const source = { ...supportedSource(), decimals: 256 }
+    const plan = planWalletFunding({
+      requiredUsdfc: 1n,
+      walletUsdfcBalance: 0n,
+      requiredFilReserve: 0n,
+      walletFilBalance: 0n,
+      source,
+    })
+    const fetchFn = vi.fn<typeof fetch>()
+
+    await expect(
+      planTokenAcquisition({
+        plan,
+        owner: OWNER,
+        maxSourceAmount: 1n,
+        slippage: 1,
+        provider: { integratorId: 'test-only-integrator', fetchFn },
+      })
+    ).rejects.toThrow('invalid decimals')
+
+    expect(fetchFn).not.toHaveBeenCalled()
   })
 
   it('retains exact downstream shortfalls and scales fixed source input without re-estimating Filecoin funding', async () => {
@@ -2635,7 +2695,7 @@ describe('wallet shortfall acquisition planning', () => {
         .mockResolvedValueOnce(100n)
         .mockResolvedValueOnce(100n)
         .mockResolvedValueOnce(14n),
-      getGasPrice: vi.fn().mockResolvedValue(1n),
+      getGasPrice: vi.fn().mockResolvedValueOnce(1n).mockResolvedValueOnce(2n).mockResolvedValueOnce(3n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
       estimateContractGas,
       readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
@@ -2676,11 +2736,11 @@ describe('wallet shortfall acquisition planning', () => {
     )
     expect(walletClient.writeContract).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ args: [quote.approvalSpender, 0n] })
+      expect.objectContaining({ args: [quote.approvalSpender, 0n], maxFeePerGas: 2n })
     )
     expect(walletClient.writeContract).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ args: [quote.approvalSpender, quote.sourceAmount] })
+      expect.objectContaining({ args: [quote.approvalSpender, quote.sourceAmount], maxFeePerGas: 3n })
     )
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
   })

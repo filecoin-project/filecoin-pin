@@ -1,9 +1,18 @@
 import { parseUnits } from 'viem'
+import { LEGACY_SOURCE_DECIMALS } from './source-assets.js'
 import type { ResolvedSourceToken } from './source-catalog.js'
 import { getSquidRoute, type SquidProviderOptions } from './squid.js'
 import type { AcquisitionLeg, PlannedAcquisitionQuote, WalletFundingPlan } from './types.js'
 
 const MAX_PLANNING_ATTEMPTS = 4
+
+function validatedSourceDecimals(source?: Pick<ResolvedSourceToken, 'decimals'> | { decimals?: number }): number {
+  const decimals = source?.decimals ?? LEGACY_SOURCE_DECIMALS
+  if (!Number.isSafeInteger(decimals) || decimals < 0 || decimals > 255) {
+    throw new Error('Resolved source token has invalid decimals')
+  }
+  return decimals
+}
 
 function ceilDiv(numerator: bigint, denominator: bigint): bigint {
   return (numerator + denominator - 1n) / denominator
@@ -15,7 +24,7 @@ export function parseMaximumSourceAmount(
   source?: Pick<ResolvedSourceToken, 'decimals'> | { decimals?: number }
 ): bigint | undefined {
   if (value == null) return undefined
-  const parsed = parseUnits(value, source?.decimals ?? 6)
+  const parsed = parseUnits(value, validatedSourceDecimals(source))
   if (parsed <= 0n) throw new Error('--max-source-amount must be greater than zero')
   return parsed
 }
@@ -98,8 +107,8 @@ async function planLeg(leg: AcquisitionLeg, options: PlanTokenAcquisitionOptions
   // The probe scales with the resolved token, rather than embedding a USDC
   // base-unit or fiat-value assumption. Subsequent iterations are driven only
   // by the returned output amount.
-  const decimals = options.plan.source?.decimals ?? 6
-  let input = options.initialSourceAmount ?? 5n * 10n ** BigInt(Math.max(0, decimals - 1))
+  const decimals = validatedSourceDecimals(options.plan.source)
+  let input = options.initialSourceAmount ?? 5n * 10n ** BigInt(decimals - 1)
   for (let attempt = 0; attempt < MAX_PLANNING_ATTEMPTS; attempt += 1) {
     const quote = await getSquidRoute(
       { fromAddress: options.owner, sourceAmount: input, leg, slippage: options.slippage },

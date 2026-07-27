@@ -1,12 +1,7 @@
 import { mainnet } from '../../synapse/index.js'
 import { MIN_FIL_FOR_GAS } from '../constants.js'
 import { planWalletFunding } from '../wallet-funding.js'
-import {
-  type AcquisitionCheckpoint,
-  acquireAcquisitionLock,
-  assertCheckpointSourceCompatibility,
-  createAcquisitionCheckpointStore,
-} from './checkpoint.js'
+import { type AcquisitionCheckpoint, acquireAcquisitionLock, createAcquisitionCheckpointStore } from './checkpoint.js'
 import {
   executeTokenAcquisition,
   MAX_SOURCE_NATIVE_GAS,
@@ -22,7 +17,7 @@ import {
 } from './plan.js'
 import { resolveSourceToken } from './source-assets.js'
 import type { ResolvedSourceToken } from './source-catalog.js'
-import { sourceNativeGasCeiling, sourceRouteIdentity } from './source-execution.js'
+import { sourceNativeGasCeiling } from './source-execution.js'
 import { pollSquidStatus, type SquidProviderOptions } from './squid.js'
 import type { AcquisitionEvidence } from './types.js'
 
@@ -105,14 +100,6 @@ async function clearCompatibleReadyCheckpoint(
   const checkpointStore = createAcquisitionCheckpointStore(sourceOwner)
   try {
     const pending = await checkpointStore.load()
-    if (pending != null && options.resolvedSource != null && options.maxSourceAmount != null) {
-      assertCheckpointSourceCompatibility(
-        pending,
-        sourceRouteIdentity(options.resolvedSource),
-        parseMaximumSourceAmount(options.maxSourceAmount, options.resolvedSource) as bigint,
-        sourceNativeGasCeiling(options.resolvedSource.chain.chainId)
-      )
-    }
     if (
       pending != null &&
       canClearReadyCheckpoint({

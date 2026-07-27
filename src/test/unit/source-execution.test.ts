@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { assertCheckpointSourceCompatibility } from '../../core/payments/acquisition/checkpoint.js'
+import {
+  assertCheckpointSourceCompatibility,
+  deserializeAcquisitionCheckpoint,
+} from '../../core/payments/acquisition/checkpoint.js'
 import {
   NATIVE_TOKEN_SELECTOR,
   type ResolvedSourceToken,
@@ -34,9 +37,9 @@ function source(chainId: number, decimals = 18, native = false): ResolvedSourceT
 }
 
 describe('multi-chain selected-source execution substrate', () => {
-  it.each([
-    1, 10, 56, 137, 314, 8453, 42161, 43114,
-  ])('has an explicit fail-closed native-gas ceiling for chain %i', (chainId) => {
+  it.each(
+    SELECTED_SOURCE_CHAINS.map((chain) => [chain.chainId])
+  )('has an explicit fail-closed native-gas ceiling for chain %i', (chainId) => {
     expect(sourceNativeGasCeiling(chainId)).toBeGreaterThan(0n)
     expect(assertCumulativeSourceNativeGas({ chainId, committed: 1n, next: 2n })).toBe(3n)
   })
@@ -134,5 +137,30 @@ describe('multi-chain selected-source execution substrate', () => {
         sourceNativeGasCeiling(8453)
       )
     ).toThrow('incompatible')
+  })
+
+  it('rejects malformed persisted base-unit values with the checkpoint domain error', () => {
+    expect(() =>
+      deserializeAcquisitionCheckpoint({
+        version: 2,
+        owner: OWNER,
+        sourceChainId: 8453,
+        destinationChainId: 314,
+        committedNativeGas: 'not-a-number',
+        requiredWallet: { fil: '1', usdfc: '-1' },
+        evidence: [],
+      } as never)
+    ).toThrow('Acquisition recovery state is invalid')
+    expect(() =>
+      deserializeAcquisitionCheckpoint({
+        version: 2,
+        owner: OWNER,
+        sourceChainId: 8453,
+        destinationChainId: 314,
+        committedNativeGas: '1',
+        requiredWallet: null,
+        evidence: [],
+      } as never)
+    ).toThrow('Acquisition recovery state is invalid')
   })
 })

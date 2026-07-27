@@ -53,7 +53,7 @@ export interface AcquisitionCheckpointStore {
   clear: () => Promise<void>
 }
 
-interface StoredAcquisitionCheckpoint
+export interface StoredAcquisitionCheckpoint
   extends Omit<AcquisitionCheckpoint, 'requiredWallet' | 'committedNativeGas' | 'maxSourceAmount' | 'maxNativeGas'> {
   requiredWallet: { fil: string; usdfc: string }
   committedNativeGas: string
@@ -87,9 +87,20 @@ function serialize(checkpoint: AcquisitionCheckpoint): StoredAcquisitionCheckpoi
   }
 }
 
-function deserialize(stored: StoredAcquisitionCheckpoint): AcquisitionCheckpoint {
-  if ((stored.version !== 1 && stored.version !== 2) || !/^0x[0-9a-fA-F]{40}$/.test(stored.owner)) {
-    throw new Error('Acquisition recovery state is invalid; do not submit another source route')
+export function deserializeAcquisitionCheckpoint(stored: StoredAcquisitionCheckpoint): AcquisitionCheckpoint {
+  const invalid = () => new Error('Acquisition recovery state is invalid; do not submit another source route')
+  const isBaseUnit = (value: unknown): value is string => typeof value === 'string' && /^\d+$/.test(value)
+  if (
+    (stored.version !== 1 && stored.version !== 2) ||
+    !/^0x[0-9a-fA-F]{40}$/.test(stored.owner) ||
+    stored.requiredWallet == null ||
+    !isBaseUnit(stored.requiredWallet.fil) ||
+    !isBaseUnit(stored.requiredWallet.usdfc) ||
+    !isBaseUnit(stored.committedNativeGas) ||
+    (stored.maxSourceAmount != null && !isBaseUnit(stored.maxSourceAmount)) ||
+    (stored.maxNativeGas != null && !isBaseUnit(stored.maxNativeGas))
+  ) {
+    throw invalid()
   }
   const { maxSourceAmount, maxNativeGas, ...rest } = stored
   return {
@@ -184,7 +195,7 @@ export function createAcquisitionCheckpointStore(owner: Address): AcquisitionChe
   return {
     async load(): Promise<AcquisitionCheckpoint | undefined> {
       try {
-        return deserialize(JSON.parse(await readFile(file, 'utf8')) as StoredAcquisitionCheckpoint)
+        return deserializeAcquisitionCheckpoint(JSON.parse(await readFile(file, 'utf8')) as StoredAcquisitionCheckpoint)
       } catch (error) {
         if (isMissingFile(error)) return undefined
         throw error

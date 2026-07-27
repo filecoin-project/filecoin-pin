@@ -115,7 +115,7 @@ function selectedSource(leg: AcquisitionLeg): {
   if (source == null)
     throw providerError('A resolved source token is required for token acquisition', 'unsupported-source')
   const decimals = source.decimals
-  if (decimals == null || !Number.isSafeInteger(decimals) || decimals < 0) {
+  if (decimals == null || !Number.isSafeInteger(decimals) || decimals < 0 || decimals > 255) {
     throw providerError('Resolved source token has invalid decimals', 'unsupported-source')
   }
   if (!SELECTED_SOURCE_CHAINS.some((chain) => chain.chainId === source.chainId)) {
