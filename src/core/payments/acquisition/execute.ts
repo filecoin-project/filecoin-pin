@@ -360,12 +360,43 @@ async function executeResolvedSourceAcquisition(
   const pending = await options.checkpointStore.load()
   if (pending != null) {
     assertCheckpointSourceCompatibility(pending, sourceRouteIdentity(source), maxSourceAmount, maxNativeGas)
-    if (pending.approvalIntent != null || pending.routeIntent != null) {
+    if (pending.routeIntent != null || (pending.approvalIntent != null && pending.approvalTransactionHash == null)) {
       throw new Error(
         'Acquisition has a pre-broadcast intent without a transaction hash; inspect the recorded nonce before any rerun'
       )
     }
+    if (pending.approvalTransactionHash != null) {
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: pending.approvalTransactionHash as Hex })
+      if (receipt.status !== 'success')
+        throw new Error('Selected-source approval transaction failed; do not submit a route')
+      const {
+        approvalIntent: _approvalIntent,
+        approvalTransactionHash: _approvalTransactionHash,
+        ...recovered
+      } = pending
+      await options.checkpointStore.save(recovered)
+    }
     if (pending.evidence.length > 0) {
+      for (const item of pending.evidence) {
+        if (item.sourceTransactionHash == null)
+          throw new Error('Acquisition recovery evidence lacks a source transaction hash; do not resubmit')
+        if (
+          (await publicClient.waitForTransactionReceipt({ hash: item.sourceTransactionHash as Hex })).status !==
+          'success'
+        ) {
+          throw new Error('Recovered source transaction failed; do not resubmit')
+        }
+        const status = await waitForSquidTerminalStatus({
+          getStatus: () => options.getProviderStatus(item),
+          ...(item.estimatedRouteDurationSeconds != null
+            ? { estimatedRouteDurationSeconds: item.estimatedRouteDurationSeconds }
+            : {}),
+        })
+        if (status.status !== 'confirmed')
+          throw new Error(
+            `Acquisition remains ${status.status}; do not resend the source transaction ${item.sourceTransactionHash}`
+          )
+      }
       await options.waitForFilecoinArrival(pending.requiredWallet)
       await options.checkpointStore.clear()
       return pending.evidence
@@ -398,8 +429,8 @@ async function executeResolvedSourceAcquisition(
   const selectedBalance = await getSelectedSourceBalance(publicClient, account.address, source)
   const nativeBalance = await publicClient.getBalance({ address: account.address })
   const nativeRouteValue = options.quotes.reduce((total, quote) => total + quote.value, 0n)
-  if (source.native && nativeRouteValue > totalSource) {
-    throw new Error('Native source route value exceeds the fixed selected-source amount; do not sign')
+  if (source.native && nativeRouteValue !== totalSource) {
+    throw new Error('Native source route value must equal the fixed selected-source amount; do not sign')
   }
   if (
     source.chain.chainId === 314 &&
@@ -444,6 +475,12 @@ async function executeResolvedSourceAcquisition(
   for (const quote of options.quotes) {
     const refreshed = await options.refreshQuote(quote)
     assertFixedInputRefresh(quote, refreshed)
+    if (source.native && refreshed.value !== refreshed.sourceAmount) {
+      throw new Error('Native source route value must equal its fixed source amount; do not sign')
+    }
+    if (!source.native && refreshed.value !== 0n) {
+      throw new Error('ERC-20 source route carries unreviewed native value; do not sign')
+    }
     const routeCommitment = refreshed.gasLimit * refreshed.maxFeePerGas
     let nonce = await publicClient.getTransactionCount({ address: account.address, blockTag: 'pending' })
     if (requiresErc20Approval(source)) {
