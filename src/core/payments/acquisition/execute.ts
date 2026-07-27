@@ -155,6 +155,8 @@ export interface ExecuteTokenAcquisitionOptions {
   maxSourceAmount?: bigint
   /** Explicit Filecoin Pay reserve needed after a same-chain source route. */
   requiredFilecoinReserve?: bigint | undefined
+  /** Absolute destination wallet target for same-wallet Filecoin source routes. */
+  requiredDestinationWallet?: { fil: bigint; usdfc: bigint } | undefined
   /** Re-fetch after approval with the same fixed source input; it may never increase spend. */
   refreshQuote: (quote: PlannedAcquisitionQuote) => Promise<PlannedAcquisitionQuote>
   getProviderStatus: (evidence: AcquisitionEvidence) => Promise<{
@@ -346,6 +348,9 @@ async function executeResolvedSourceAcquisition(
   source: ResolvedSourceToken
 ): Promise<AcquisitionEvidence[]> {
   const account = privateKeyToAccount(options.privateKey)
+  if (source.chainId !== source.chain.chainId) {
+    throw new Error('Resolved source chain identity is inconsistent; do not sign')
+  }
   const publicClient = options.sourceClient ?? (await createVerifiedResolvedSourceClient(source, options.sourceRpcUrl))
   await verifySourceChain(publicClient, source)
   const maxSourceAmount = options.maxSourceAmount
@@ -398,7 +403,8 @@ async function executeResolvedSourceAcquisition(
       await options.checkpointStore.save(recovered)
     }
     if (pending.evidence.length > 0) {
-      for (const item of pending.evidence) {
+      const recoveredEvidence = pending.evidence.map((item) => ({ ...item }))
+      for (const [index, item] of pending.evidence.entries()) {
         if (item.sourceTransactionHash == null)
           throw new Error('Acquisition recovery evidence lacks a source transaction hash; do not resubmit')
         if (item.sourceAmount == null || !/^\d+$/.test(item.sourceAmount)) {
@@ -416,13 +422,17 @@ async function executeResolvedSourceAcquisition(
             ? { estimatedRouteDurationSeconds: item.estimatedRouteDurationSeconds }
             : {}),
         })
-        if (status.status !== 'confirmed')
+        recoveredEvidence[index] = { ...item, ...status }
+        if (status.status !== 'confirmed') {
+          await options.checkpointStore.save({ ...pending, evidence: recoveredEvidence })
           throw new Error(
             `Acquisition remains ${status.status}; do not resend the source transaction ${item.sourceTransactionHash}`
           )
+        }
         priorSourceAmount += BigInt(item.sourceAmount)
       }
-      priorEvidence = pending.evidence.map((item) => ({ ...item, status: 'confirmed' as const }))
+      priorEvidence = recoveredEvidence
+      await options.checkpointStore.save({ ...pending, evidence: recoveredEvidence })
     }
   }
   const completedAssets = new Set(priorEvidence.map((item) => item.asset))
@@ -503,7 +513,16 @@ async function executeResolvedSourceAcquisition(
     requiredFilecoinReserve: options.requiredFilecoinReserve ?? 0n,
   })
   const baseline = await options.getFilecoinBalances()
-  const requiredWallet = pending?.requiredWallet ?? addDestinationAmounts(baseline, options.quotes)
+  const requiredWallet =
+    pending?.requiredWallet ??
+    (source.chain.chainId === 314
+      ? (() => {
+          if (options.requiredDestinationWallet == null) {
+            throw new Error('Filecoin source execution requires an absolute destination wallet target; do not sign')
+          }
+          return options.requiredDestinationWallet
+        })()
+      : addDestinationAmounts(baseline, options.quotes))
   const evidence: AcquisitionEvidence[] = [...priorEvidence]
   let committedNativeGas = priorCommittedNativeGas
   const broadcastApproval = async (params: {

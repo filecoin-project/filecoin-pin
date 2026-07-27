@@ -236,7 +236,11 @@ export async function ensureWalletReadyForFilecoinTransactions(
       privateKey,
       sourceRpcUrl: options.sourceRpcUrl,
       ...(options.resolvedSource != null
-        ? { source: options.resolvedSource, requiredFilecoinReserve: MIN_FIL_FOR_GAS }
+        ? {
+            source: options.resolvedSource,
+            requiredFilecoinReserve: MIN_FIL_FOR_GAS,
+            requiredDestinationWallet: { fil: MIN_FIL_FOR_GAS, usdfc: options.requiredUsdfc },
+          }
         : {}),
       quotes,
       maxSourceAmount: maximumSourceAmount,

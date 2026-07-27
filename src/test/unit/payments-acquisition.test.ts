@@ -2332,7 +2332,12 @@ describe('wallet shortfall acquisition planning', () => {
         walletClient: walletClient as never,
         quotes: [quote],
         maxSourceAmount: 10n,
-        ...(chain.chainId === 314 ? { requiredFilecoinReserve: 1n } : {}),
+        ...(chain.chainId === 314
+          ? {
+              requiredFilecoinReserve: 1n,
+              requiredDestinationWallet: { fil: MIN_FIL_FOR_GAS, usdfc: quote.destinationAmount },
+            }
+          : {}),
         refreshQuote: vi.fn(async (current) => current),
         getProviderStatus: vi.fn().mockResolvedValue({ status: 'confirmed' as const }),
         checkpointStore: emptyCheckpointStore(),
@@ -2345,6 +2350,10 @@ describe('wallet shortfall acquisition planning', () => {
     expect(walletClient.writeContract).not.toHaveBeenCalled()
     expect(client.readContract).not.toHaveBeenCalled()
     expect(walletClient.sendTransaction).toHaveBeenCalledWith(expect.objectContaining({ value: quote.sourceAmount }))
-    expect(waitForFilecoinArrival).toHaveBeenCalledWith({ fil: 0n, usdfc: quote.destinationAmount })
+    expect(waitForFilecoinArrival).toHaveBeenCalledWith(
+      chain.chainId === 314
+        ? { fil: MIN_FIL_FOR_GAS, usdfc: quote.destinationAmount }
+        : { fil: 0n, usdfc: quote.destinationAmount }
+    )
   })
 })
