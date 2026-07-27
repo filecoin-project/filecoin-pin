@@ -862,7 +862,11 @@ async function executeResolvedSourceAcquisition(
     assertRouteNotExpired(postApproval)
     if (requiresErc20Approval(source)) {
       const routeBalance = await getSelectedSourceBalance(publicClient, account.address, source)
-      if (routeBalance < postApproval.sourceAmount) {
+      const pendingSourceAmount = [postApproval, ...quotes.slice(index + 1)].reduce(
+        (total, pendingQuote) => total + pendingQuote.sourceAmount,
+        0n
+      )
+      if (routeBalance < pendingSourceAmount) {
         throw new Error('Insufficient selected source token balance for the next route; do not sign')
       }
     }

@@ -4522,17 +4522,22 @@ describe('wallet shortfall acquisition planning', () => {
     expect(store.clear).toHaveBeenCalledTimes(1)
   })
 
-  it('rechecks the ERC-20 route balance before recording or broadcasting the strict route', async () => {
+  it('reserves all pending ERC-20 route inputs after an external balance reduction', async () => {
     const source = resolvedBaseSource()
-    const quote = {
+    const first = {
       ...executionQuote(),
+      id: 'external-balance-first',
       value: 0n,
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
       approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
-    const routeBalances = [quote.sourceAmount, 0n]
+    const second = { ...first, id: 'external-balance-second', asset: 'fil' as const, sourceAmount: 2n }
+    // The first route remains coverable after an external transfer, but the
+    // complete pending plan does not. Do not broadcast a route that strands
+    // the later leg.
+    const routeBalances = [first.sourceAmount + second.sourceAmount, first.sourceAmount]
     const sourceClient = {
       getChainId: vi.fn().mockResolvedValue(source.chainId),
       getBalance: vi.fn().mockResolvedValue(100n),
@@ -4541,7 +4546,7 @@ describe('wallet shortfall acquisition planning', () => {
       estimateContractGas: vi.fn().mockResolvedValue(1n),
       readContract: vi.fn(async ({ functionName }: { functionName: string }) => {
         if (functionName === 'balanceOf') return routeBalances.shift() ?? 0n
-        return quote.sourceAmount
+        return first.sourceAmount
       }),
       waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
     } as unknown as PublicClient
@@ -4554,7 +4559,7 @@ describe('wallet shortfall acquisition planning', () => {
         source,
         sourceClient: withResolvedErc20Identity(source, sourceClient),
         walletClient: walletClient as never,
-        quotes: [quote],
+        quotes: [first, second],
         maxSourceAmount: 10n,
         refreshQuote: vi.fn(async (current) => current),
         getProviderStatus: vi.fn(),
