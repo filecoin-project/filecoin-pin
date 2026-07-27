@@ -18,7 +18,7 @@ import {
   assertCheckpointSourceCompatibility,
 } from './checkpoint.js'
 import { ARBITRUM_USDC, getSourceWalletBalances, SQUID_ROUTER } from './source-assets.js'
-import type { ResolvedSourceToken } from './source-catalog.js'
+import { type ResolvedSourceToken, resolvedTrustedSquidRoutePolicy } from './source-catalog.js'
 import {
   assertCumulativeSourceNativeGas,
   assertFilecoinSourceReserve,
@@ -29,7 +29,12 @@ import {
   verifySourceChain,
 } from './source-execution.js'
 import { waitForSquidTerminalStatus } from './squid.js'
-import type { AcquisitionEvidence, AcquisitionExecutionStatus, PlannedAcquisitionQuote } from './types.js'
+import type {
+  AcquisitionErrorCode,
+  AcquisitionEvidence,
+  AcquisitionExecutionStatus,
+  PlannedAcquisitionQuote,
+} from './types.js'
 
 const ERC20_ALLOWANCE_ABI = [
   {
@@ -117,6 +122,7 @@ export function assertFixedInputRefresh(previous: PlannedAcquisitionQuote, refre
     (refreshed.source == null ||
       previous.source.chainId !== refreshed.source.chainId ||
       previous.source.token.toLowerCase() !== refreshed.source.token.toLowerCase() ||
+      previous.source.symbol !== refreshed.source.symbol ||
       previous.source.decimals !== refreshed.source.decimals ||
       previous.source.native !== refreshed.source.native ||
       previous.approvalSpender?.toLowerCase() !== refreshed.approvalSpender?.toLowerCase() ||
@@ -153,6 +159,7 @@ export interface ExecuteTokenAcquisitionOptions {
   refreshQuote: (quote: PlannedAcquisitionQuote) => Promise<PlannedAcquisitionQuote>
   getProviderStatus: (evidence: AcquisitionEvidence) => Promise<{
     status: AcquisitionExecutionStatus
+    errorCode?: AcquisitionErrorCode
     sourceTransactionUrl?: string
     destinationTransactionHash?: string
     destinationTransactionUrl?: string
@@ -345,16 +352,26 @@ async function executeResolvedSourceAcquisition(
   if (maxSourceAmount == null || maxSourceAmount <= 0n)
     throw new Error('Resolved source execution requires a positive source cap')
   const maxNativeGas = sourceNativeGasCeiling(source.chain.chainId)
+  const trustedRoute = resolvedTrustedSquidRoutePolicy(source.chain.chainId)
   for (const quote of options.quotes) {
     if (
       quote.source == null ||
       quote.source.chainId !== source.chain.chainId ||
       quote.source.token.toLowerCase() !== source.token.toLowerCase() ||
+      quote.source.symbol !== source.symbol ||
       quote.source.decimals !== source.decimals ||
       quote.source.native !== source.native ||
       quote.approvalSpender == null
     ) {
       throw new Error('Acquisition quote does not retain the exact resolved source identity and trusted spender')
+    }
+    if (
+      quote.target.toLowerCase() !== trustedRoute.target.toLowerCase() ||
+      quote.approvalSpender.toLowerCase() !== trustedRoute.spender.toLowerCase()
+    ) {
+      throw new Error(
+        'Acquisition quote target or approval spender is not locally trusted for the selected source chain'
+      )
     }
   }
   const pending = await options.checkpointStore.load()
@@ -363,6 +380,7 @@ async function executeResolvedSourceAcquisition(
   let priorSourceAmount = 0n
   if (pending != null) {
     assertCheckpointSourceCompatibility(pending, sourceRouteIdentity(source), maxSourceAmount, maxNativeGas)
+    priorCommittedNativeGas = pending.committedNativeGas
     if (pending.routeIntent != null || (pending.approvalIntent != null && pending.approvalTransactionHash == null)) {
       throw new Error(
         'Acquisition has a pre-broadcast intent without a transaction hash; inspect the recorded nonce before any rerun'
@@ -405,7 +423,6 @@ async function executeResolvedSourceAcquisition(
         priorSourceAmount += BigInt(item.sourceAmount)
       }
       priorEvidence = pending.evidence.map((item) => ({ ...item, status: 'confirmed' as const }))
-      priorCommittedNativeGas = pending.committedNativeGas
     }
   }
   const completedAssets = new Set(priorEvidence.map((item) => item.asset))
@@ -468,23 +485,25 @@ async function executeResolvedSourceAcquisition(
         })) * gasPrice
     }
   }
-  const totalGas = assertCumulativeSourceNativeGas({
+  const remainingGasCommitment = routeGas + approvalGas
+  assertCumulativeSourceNativeGas({
     chainId: source.chain.chainId,
     committed: priorCommittedNativeGas,
-    next: routeGas + approvalGas,
+    next: remainingGasCommitment,
   })
   if (selectedBalance < remainingSourceAmount)
     throw new Error('Insufficient selected source token balance for the planned acquisition')
-  if (nativeBalance < totalGas + nativeRouteValue)
+  if (nativeBalance < remainingGasCommitment + nativeRouteValue)
     throw new Error('Insufficient source native balance for route value and selected-chain gas ceiling')
   assertFilecoinSourceReserve({
     source,
     nativeBalance,
     sourceSpend: remainingSourceAmount,
-    routeAndApprovalGas: totalGas,
+    routeAndApprovalGas: remainingGasCommitment,
     requiredFilecoinReserve: options.requiredFilecoinReserve ?? 0n,
   })
   const baseline = await options.getFilecoinBalances()
+  const requiredWallet = pending?.requiredWallet ?? addDestinationAmounts(baseline, options.quotes)
   const evidence: AcquisitionEvidence[] = [...priorEvidence]
   let committedNativeGas = priorCommittedNativeGas
   const broadcastApproval = async (params: {
@@ -510,7 +529,7 @@ async function executeResolvedSourceAcquisition(
         gasLimit: params.gas.toString(),
         maxFeePerGas: gasPrice.toString(),
       },
-      requiredWallet: addDestinationAmounts(baseline, options.quotes),
+      requiredWallet,
       evidence,
     }
     await options.checkpointStore.save(checkpoint)
@@ -537,13 +556,18 @@ async function executeResolvedSourceAcquisition(
   for (const quote of quotes) {
     const refreshed = await options.refreshQuote(quote)
     assertFixedInputRefresh(quote, refreshed)
+    if (
+      refreshed.target.toLowerCase() !== trustedRoute.target.toLowerCase() ||
+      refreshed.approvalSpender?.toLowerCase() !== trustedRoute.spender.toLowerCase()
+    ) {
+      throw new Error('Refreshed acquisition route target or spender is not locally trusted; do not sign')
+    }
     if (source.native && refreshed.value !== refreshed.sourceAmount) {
       throw new Error('Native source route value must equal its fixed source amount; do not sign')
     }
     if (!source.native && refreshed.value !== 0n) {
       throw new Error('ERC-20 source route carries unreviewed native value; do not sign')
     }
-    const routeCommitment = refreshed.gasLimit * refreshed.maxFeePerGas
     let nonce = await publicClient.getTransactionCount({ address: account.address, blockTag: 'pending' })
     if (requiresErc20Approval(source)) {
       const spender = refreshed.approvalSpender as Address
@@ -585,7 +609,45 @@ async function executeResolvedSourceAcquisition(
         await broadcastApproval({ spender, amount: refreshed.sourceAmount, gas: approvalGasLimit, nonce })
         nonce += 1
       }
+      const confirmedAllowance = await publicClient.readContract({
+        address: source.token,
+        abi: ERC20_ALLOWANCE_ABI,
+        functionName: 'allowance',
+        args: [account.address, spender],
+      })
+      if (confirmedAllowance !== refreshed.sourceAmount) {
+        throw new Error('Selected-source approval did not set the exact route allowance; do not submit a route')
+      }
     }
+    // Approval receipts may take long enough for a provider route to rotate. Re-fetch and
+    // re-bind every signing fact; only this post-approval route is eligible for broadcast.
+    const postApproval = await options.refreshQuote(refreshed)
+    assertFixedInputRefresh(refreshed, postApproval)
+    if (
+      postApproval.target.toLowerCase() !== trustedRoute.target.toLowerCase() ||
+      postApproval.approvalSpender?.toLowerCase() !== trustedRoute.spender.toLowerCase()
+    ) {
+      throw new Error('Post-approval route target or spender is not locally trusted; do not sign')
+    }
+    if (source.native && postApproval.value !== postApproval.sourceAmount) {
+      throw new Error('Native source route value must equal its fixed source amount; do not sign')
+    }
+    if (!source.native && postApproval.value !== 0n) {
+      throw new Error('ERC-20 source route carries unreviewed native value; do not sign')
+    }
+    if (requiresErc20Approval(source)) {
+      const postApprovalSpender = postApproval.approvalSpender as Address
+      const postApprovalAllowance = await publicClient.readContract({
+        address: source.token,
+        abi: ERC20_ALLOWANCE_ABI,
+        functionName: 'allowance',
+        args: [account.address, postApprovalSpender],
+      })
+      if (postApprovalAllowance !== postApproval.sourceAmount) {
+        throw new Error('Selected-source allowance changed after route refresh; do not submit a route')
+      }
+    }
+    const routeCommitment = postApproval.gasLimit * postApproval.maxFeePerGas
     committedNativeGas = assertCumulativeSourceNativeGas({
       chainId: source.chain.chainId,
       committed: committedNativeGas,
@@ -602,32 +664,34 @@ async function executeResolvedSourceAcquisition(
       committedNativeGas,
       routeIntent: {
         nonce,
-        quoteId: refreshed.id,
-        asset: refreshed.asset,
-        sourceAmount: refreshed.sourceAmount.toString(),
-        target: getAddress(refreshed.target),
-        dataHash: keccak256(refreshed.data as Hex),
-        value: refreshed.value.toString(),
-        gasLimit: refreshed.gasLimit.toString(),
-        maxFeePerGas: refreshed.maxFeePerGas.toString(),
+        quoteId: postApproval.id,
+        asset: postApproval.asset,
+        sourceAmount: postApproval.sourceAmount.toString(),
+        target: getAddress(postApproval.target),
+        dataHash: keccak256(postApproval.data as Hex),
+        value: postApproval.value.toString(),
+        gasLimit: postApproval.gasLimit.toString(),
+        maxFeePerGas: postApproval.maxFeePerGas.toString(),
       },
-      requiredWallet: addDestinationAmounts(baseline, options.quotes),
+      requiredWallet,
       evidence,
     }
     await options.checkpointStore.save(checkpoint)
-    assertRouteNotExpired(refreshed)
+    assertRouteNotExpired(postApproval)
     const hash = await walletClient.sendTransaction({
-      to: getAddress(refreshed.target),
-      data: refreshed.data as Hex,
-      value: refreshed.value,
-      gas: refreshed.gasLimit,
-      maxFeePerGas: refreshed.maxFeePerGas,
+      to: getAddress(postApproval.target),
+      data: postApproval.data as Hex,
+      value: postApproval.value,
+      gas: postApproval.gasLimit,
+      maxFeePerGas: postApproval.maxFeePerGas,
       nonce,
     })
     evidence.push({
-      asset: refreshed.asset,
-      quoteId: refreshed.id,
-      sourceAmount: refreshed.sourceAmount.toString(),
+      asset: postApproval.asset,
+      quoteId: postApproval.id,
+      sourceAmount: postApproval.sourceAmount.toString(),
+      ...(postApproval.requestId != null ? { requestId: postApproval.requestId } : {}),
+      estimatedRouteDurationSeconds: postApproval.estimatedRouteDurationSeconds,
       sourceTransactionHash: hash,
       status: 'submitted',
     })
@@ -637,17 +701,17 @@ async function executeResolvedSourceAcquisition(
     if (receipt.status !== 'success') throw new Error('Selected-source acquisition transaction failed')
     const status = await waitForSquidTerminalStatus({
       getStatus: () => options.getProviderStatus(evidence[evidence.length - 1] as AcquisitionEvidence),
-      estimatedRouteDurationSeconds: refreshed.estimatedRouteDurationSeconds,
+      estimatedRouteDurationSeconds: postApproval.estimatedRouteDurationSeconds,
     })
-    if (status.status !== 'confirmed')
-      throw new Error(`Acquisition remains ${status.status}; do not resend the source transaction ${hash}`)
     evidence[evidence.length - 1] = {
       ...(evidence[evidence.length - 1] as AcquisitionEvidence),
       ...status,
-      status: 'confirmed',
     }
+    await options.checkpointStore.save({ ...broadcastCheckpoint, committedNativeGas, evidence })
+    if (status.status !== 'confirmed')
+      throw new Error(`Acquisition remains ${status.status}; do not resend the source transaction ${hash}`)
   }
-  await options.waitForFilecoinArrival(addDestinationAmounts(baseline, options.quotes))
+  await options.waitForFilecoinArrival(requiredWallet)
   await options.checkpointStore.clear()
   return evidence
 }

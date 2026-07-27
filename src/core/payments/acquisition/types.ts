@@ -67,6 +67,8 @@ export interface AcquisitionEvidence {
   providerExplorerUrl?: string
   /** Retained so recovery keeps the original provider polling deadline. */
   estimatedRouteDurationSeconds?: number
+  /** Provider failure classification retained for recovery and operator remediation. */
+  errorCode?: AcquisitionErrorCode
   status: AcquisitionExecutionStatus
 }
 

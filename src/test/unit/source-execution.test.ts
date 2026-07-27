@@ -135,5 +135,13 @@ describe('multi-chain selected-source execution substrate', () => {
     expect(() => assertCheckpointSourceCompatibility(checkpoint, identity, 11n, sourceNativeGasCeiling(8453))).toThrow(
       'incompatible'
     )
+    expect(() =>
+      assertCheckpointSourceCompatibility(
+        checkpoint,
+        { ...identity, symbol: 'WRONG' },
+        10n,
+        sourceNativeGasCeiling(8453)
+      )
+    ).toThrow('incompatible')
   })
 })
