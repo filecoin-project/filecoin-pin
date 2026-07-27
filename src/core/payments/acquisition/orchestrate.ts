@@ -1,7 +1,12 @@
 import { mainnet } from '../../synapse/index.js'
 import { MIN_FIL_FOR_GAS } from '../constants.js'
 import { planWalletFunding } from '../wallet-funding.js'
-import { type AcquisitionCheckpoint, acquireAcquisitionLock, createAcquisitionCheckpointStore } from './checkpoint.js'
+import {
+  type AcquisitionCheckpoint,
+  acquireAcquisitionLock,
+  assertCheckpointSourceCompatibility,
+  createAcquisitionCheckpointStore,
+} from './checkpoint.js'
 import {
   executeTokenAcquisition,
   MAX_SOURCE_NATIVE_GAS,
@@ -17,7 +22,7 @@ import {
 } from './plan.js'
 import { resolveSourceToken } from './source-assets.js'
 import type { ResolvedSourceToken } from './source-catalog.js'
-import { sourceNativeGasCeiling } from './source-execution.js'
+import { sourceNativeGasCeiling, sourceRouteIdentity } from './source-execution.js'
 import { pollSquidStatus, type SquidProviderOptions } from './squid.js'
 import type { AcquisitionEvidence } from './types.js'
 
@@ -87,7 +92,7 @@ function canClearReadyCheckpoint(options: {
 
 async function clearCompatibleReadyCheckpoint(
   options: EnsureWalletReadyOptions,
-  source: NonNullable<ReturnType<typeof resolveSourceToken>>
+  source: NonNullable<ReturnType<typeof resolveSourceToken>> | ResolvedSourceToken
 ): Promise<void> {
   if (options.maxSourceAmount == null || options.privateKey == null) return
   const privateKey = (
@@ -98,6 +103,14 @@ async function clearCompatibleReadyCheckpoint(
   const checkpointStore = createAcquisitionCheckpointStore(sourceOwner)
   try {
     const pending = await checkpointStore.load()
+    if (pending != null && options.resolvedSource != null && options.maxSourceAmount != null) {
+      assertCheckpointSourceCompatibility(
+        pending,
+        sourceRouteIdentity(options.resolvedSource),
+        parseMaximumSourceAmount(options.maxSourceAmount, options.resolvedSource) as bigint,
+        sourceNativeGasCeiling(options.resolvedSource.chain.chainId)
+      )
+    }
     if (
       pending != null &&
       canClearReadyCheckpoint({
@@ -121,6 +134,9 @@ export async function ensureWalletReadyForFilecoinTransactions(
   options: EnsureWalletReadyOptions
 ): Promise<AcquisitionEvidence[]> {
   const source = options.resolvedSource ?? resolveSourceToken(options.fromChain, options.fromToken)
+  if (options.resolvedSource != null && options.resolvedSource.chainId !== options.resolvedSource.chain.chainId) {
+    throw new Error('Resolved source chain identity is inconsistent; do not acquire')
+  }
   // The status read that led to this workflow can be stale while an operator
   // completes a direct top-up. Acquire only against the last destination view
   // available before we calculate shortfalls or contact the provider.
