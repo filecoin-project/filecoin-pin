@@ -1,7 +1,12 @@
 import { mainnet } from '../../synapse/index.js'
 import { MIN_FIL_FOR_GAS } from '../constants.js'
 import { planWalletFunding } from '../wallet-funding.js'
-import { type AcquisitionCheckpoint, acquireAcquisitionLock, createAcquisitionCheckpointStore } from './checkpoint.js'
+import {
+  type AcquisitionCheckpoint,
+  acquireAcquisitionLock,
+  assertLegacyCheckpointVersion,
+  createAcquisitionCheckpointStore,
+} from './checkpoint.js'
 import {
   executeTokenAcquisition,
   MAX_SOURCE_NATIVE_GAS,
@@ -100,6 +105,7 @@ async function clearCompatibleReadyCheckpoint(
   const checkpointStore = createAcquisitionCheckpointStore(sourceOwner)
   try {
     const pending = await checkpointStore.load()
+    if (pending != null && options.resolvedSource == null) assertLegacyCheckpointVersion(pending)
     if (
       pending != null &&
       canClearReadyCheckpoint({
@@ -164,6 +170,7 @@ export async function ensureWalletReadyForFilecoinTransactions(
   const checkpointStore = createAcquisitionCheckpointStore(sourceOwner)
   try {
     const pending = await checkpointStore.load()
+    if (pending != null && options.resolvedSource == null) assertLegacyCheckpointVersion(pending)
     if (pending?.approvalIntent != null || pending?.routeIntent != null) {
       throw new Error(
         'Acquisition has a pre-broadcast intent without a transaction hash; inspect the recorded nonce before any rerun'

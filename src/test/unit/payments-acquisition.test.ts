@@ -636,6 +636,83 @@ describe('Squid acquisition provider contract', () => {
     )
   })
 
+  it('rejects a strict checkpoint before legacy provider planning or confirmation', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
+      if (chain == null) throw new Error('Base test chain missing')
+      const source: ResolvedSourceToken = {
+        chain,
+        chainId: chain.chainId,
+        token: '0x0000000000000000000000000000000000000003',
+        symbol: 'USDbC',
+        decimals: 8,
+        native: false,
+        display: 'Base USDbC',
+      }
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      const store = createAcquisitionCheckpointStore(owner)
+      await store.save({
+        version: 2,
+        owner,
+        sourceChainId: source.chainId,
+        destinationChainId: 314,
+        source: sourceRouteIdentity(source),
+        maxSourceAmount: 10n,
+        maxNativeGas: sourceNativeGasCeiling(source.chainId),
+        committedNativeGas: 0n,
+        requiredWallet: { fil: MIN_FIL_FOR_GAS, usdfc: 1n },
+        evidence: [],
+      })
+      const fetchFn = vi.fn<typeof fetch>()
+      const confirmation = vi.fn(async (_summary: SourceAcquisitionConfirmation) => undefined)
+
+      await expect(
+        ensureWalletReadyForFilecoinTransactions({
+          destinationChainId: 314,
+          walletUsdfcBalance: 0n,
+          walletFilBalance: 0n,
+          requiredUsdfc: 1n,
+          fromChain: 'arb',
+          fromToken: 'USDC',
+          maxSourceAmount: '10',
+          privateKey: PRIVATE_KEY,
+          provider: { integratorId: 'test-only-integrator', fetchFn },
+          confirmSourceAcquisition: confirmation,
+          rereadWalletBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
+        })
+      ).rejects.toThrow('requires the exact selected source')
+
+      expect(fetchFn).not.toHaveBeenCalled()
+      expect(confirmation).not.toHaveBeenCalled()
+      await expect(store.load()).resolves.toMatchObject({ version: 2, source: sourceRouteIdentity(source) })
+
+      await expect(
+        ensureWalletReadyForFilecoinTransactions({
+          destinationChainId: 314,
+          walletUsdfcBalance: 0n,
+          walletFilBalance: 0n,
+          requiredUsdfc: 1n,
+          fromChain: 'arb',
+          fromToken: 'USDC',
+          maxSourceAmount: '10',
+          privateKey: PRIVATE_KEY,
+          provider: { integratorId: 'test-only-integrator', fetchFn },
+          confirmSourceAcquisition: confirmation,
+          rereadWalletBalances: vi.fn().mockResolvedValue({ fil: MIN_FIL_FOR_GAS, usdfc: 1n }),
+        })
+      ).rejects.toThrow('requires the exact selected source')
+
+      await expect(store.load()).resolves.toMatchObject({ version: 2, source: sourceRouteIdentity(source) })
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('uses a fresh ready wallet view and clears a completed checkpoint with an incompatible cap', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
     const originalHome = process.env.HOME
