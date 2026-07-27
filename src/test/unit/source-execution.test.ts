@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { assertCheckpointSourceCompatibility } from '../../core/payments/acquisition/checkpoint.js'
 import {
   NATIVE_TOKEN_SELECTOR,
   type ResolvedSourceToken,
@@ -108,5 +109,31 @@ describe('multi-chain selected-source execution substrate', () => {
         trustedSpender: TARGET,
       })
     ).toThrow('source identity')
+  })
+
+  it('rejects legacy and mismatched recovery checkpoints instead of reinterpreting a source cap', () => {
+    const selected = source(8453, 18)
+    const identity = sourceRouteIdentity(selected)
+    const checkpoint = {
+      version: 2 as const,
+      owner: OWNER,
+      sourceChainId: 8453,
+      destinationChainId: 314,
+      committedNativeGas: 0n,
+      source: identity,
+      maxSourceAmount: 10n,
+      maxNativeGas: sourceNativeGasCeiling(8453),
+      requiredWallet: { fil: 0n, usdfc: 0n },
+      evidence: [],
+    }
+    expect(() =>
+      assertCheckpointSourceCompatibility(checkpoint, identity, 10n, sourceNativeGasCeiling(8453))
+    ).not.toThrow()
+    expect(() =>
+      assertCheckpointSourceCompatibility({ ...checkpoint, version: 1 }, identity, 10n, sourceNativeGasCeiling(8453))
+    ).toThrow('incompatible')
+    expect(() => assertCheckpointSourceCompatibility(checkpoint, identity, 11n, sourceNativeGasCeiling(8453))).toThrow(
+      'incompatible'
+    )
   })
 })
