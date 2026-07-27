@@ -782,6 +782,93 @@ describe('Squid acquisition provider contract', () => {
     }
   })
 
+  it('plans FIL signing overhead alongside a USDFC shortfall from a different Filecoin ERC-20 source', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 314)
+      if (chain == null) throw new Error('Filecoin test chain missing')
+      const source: ResolvedSourceToken = {
+        chain,
+        chainId: chain.chainId,
+        token: '0x0000000000000000000000000000000000000003',
+        symbol: 'OTHER',
+        decimals: 18,
+        native: false,
+        display: 'Filecoin OTHER',
+      }
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      const durableTarget = { fil: MIN_FIL_FOR_GAS, usdfc: 1n }
+      const store = createAcquisitionCheckpointStore(owner)
+      await store.save({
+        version: 2,
+        owner,
+        sourceChainId: source.chainId,
+        destinationChainId: 314,
+        source: sourceRouteIdentity(source),
+        maxSourceAmount: 10n * 10n ** 18n,
+        maxNativeGas: sourceNativeGasCeiling(source.chainId),
+        committedNativeGas: 0n,
+        requiredWallet: durableTarget,
+        evidence: [],
+      })
+      const filFixture = await routeFixture('squid-route-fil.json')
+      const usdfcFixture = await routeFixture('squid-route-usdfc.json')
+      filFixture.route.transactionRequest.expiry = '2000000000'
+      usdfcFixture.route.transactionRequest.expiry = '2000000000'
+      const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, string>
+        const fixture = body.toToken === FILECOIN_NATIVE_TOKEN ? filFixture : usdfcFixture
+        fixture.route.params.fromChain = body.fromChain
+        fixture.route.params.fromToken = body.fromToken
+        fixture.route.params.fromAmount = body.fromAmount
+        fixture.route.params.toChain = body.toChain
+        fixture.route.params.toToken = body.toToken
+        fixture.route.params.toAddress = body.toAddress
+        fixture.route.params.fromAddress = body.fromAddress
+        fixture.route.estimate.fromAmount = body.fromAmount
+        return response(fixture)
+      })
+      const confirmation = vi.fn(async (_summary: SourceAcquisitionConfirmation) => {
+        throw new Error('stop after Filecoin overhead confirmation')
+      })
+
+      await expect(
+        ensureWalletReadyForFilecoinTransactions({
+          destinationChainId: 314,
+          walletUsdfcBalance: 0n,
+          walletFilBalance: MIN_FIL_FOR_GAS,
+          requiredUsdfc: 1n,
+          resolvedSource: source,
+          maxSourceAmount: '10',
+          privateKey: PRIVATE_KEY,
+          provider: { integratorId: 'test-only-integrator', fetchFn },
+          confirmSourceAcquisition: confirmation,
+          rereadWalletBalances: vi.fn().mockResolvedValue({ fil: MIN_FIL_FOR_GAS, usdfc: 0n }),
+        })
+      ).rejects.toThrow('stop after Filecoin overhead confirmation')
+
+      expect(fetchFn).toHaveBeenCalledTimes(2)
+      expect(JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body))).toMatchObject({
+        toToken: FILECOIN_NATIVE_TOKEN,
+      })
+      expect(JSON.parse(String(fetchFn.mock.calls[1]?.[1]?.body))).toMatchObject({
+        toToken: FILECOIN_USDFC,
+      })
+      expect(confirmation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          legs: [expect.objectContaining({ asset: 'fil' }), expect.objectContaining({ asset: 'usdfc' })],
+        })
+      )
+      await expect(store.load()).resolves.toMatchObject({ requiredWallet: durableTarget })
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('rejects a strict checkpoint before legacy provider planning or confirmation', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
     const originalHome = process.env.HOME
