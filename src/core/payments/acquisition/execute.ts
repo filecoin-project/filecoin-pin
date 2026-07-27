@@ -383,6 +383,9 @@ async function executeResolvedSourceAcquisition(
       for (const item of pending.evidence) {
         if (item.sourceTransactionHash == null)
           throw new Error('Acquisition recovery evidence lacks a source transaction hash; do not resubmit')
+        if (item.sourceAmount == null || !/^\d+$/.test(item.sourceAmount)) {
+          throw new Error('Acquisition recovery evidence lacks a valid source amount; do not resubmit')
+        }
         if (
           (await publicClient.waitForTransactionReceipt({ hash: item.sourceTransactionHash as Hex })).status !==
           'success'
@@ -399,7 +402,7 @@ async function executeResolvedSourceAcquisition(
           throw new Error(
             `Acquisition remains ${status.status}; do not resend the source transaction ${item.sourceTransactionHash}`
           )
-        priorSourceAmount += BigInt(item.sourceAmount ?? '0')
+        priorSourceAmount += BigInt(item.sourceAmount)
       }
       priorEvidence = pending.evidence.map((item) => ({ ...item, status: 'confirmed' as const }))
       priorCommittedNativeGas = pending.committedNativeGas
@@ -407,8 +410,15 @@ async function executeResolvedSourceAcquisition(
   }
   const completedAssets = new Set(priorEvidence.map((item) => item.asset))
   const quotes = options.quotes.filter((quote) => !completedAssets.has(quote.asset))
-  const totalSource = quotes.reduce((total, quote) => total + quote.sourceAmount, priorSourceAmount)
+  const remainingSourceAmount = quotes.reduce((total, quote) => total + quote.sourceAmount, 0n)
+  const totalSource = priorSourceAmount + remainingSourceAmount
   if (totalSource > maxSourceAmount) throw new Error('Acquisition exceeds --max-source-amount')
+  if (quotes.length === 0) {
+    if (pending == null) throw new Error('Resolved source acquisition has no routes to execute')
+    await options.waitForFilecoinArrival(pending.requiredWallet)
+    await options.checkpointStore.clear()
+    return priorEvidence
+  }
   const walletClient: AcquisitionWalletClient =
     options.walletClient ??
     (() => {
@@ -434,7 +444,7 @@ async function executeResolvedSourceAcquisition(
   const selectedBalance = await getSelectedSourceBalance(publicClient, account.address, source)
   const nativeBalance = await publicClient.getBalance({ address: account.address })
   const nativeRouteValue = quotes.reduce((total, quote) => total + quote.value, 0n)
-  if (source.native && nativeRouteValue !== totalSource) {
+  if (source.native && nativeRouteValue !== remainingSourceAmount) {
     throw new Error('Native source route value must equal the fixed selected-source amount; do not sign')
   }
   if (
@@ -460,17 +470,17 @@ async function executeResolvedSourceAcquisition(
   }
   const totalGas = assertCumulativeSourceNativeGas({
     chainId: source.chain.chainId,
-    committed: 0n,
+    committed: priorCommittedNativeGas,
     next: routeGas + approvalGas,
   })
-  if (selectedBalance < totalSource)
+  if (selectedBalance < remainingSourceAmount)
     throw new Error('Insufficient selected source token balance for the planned acquisition')
   if (nativeBalance < totalGas + nativeRouteValue)
     throw new Error('Insufficient source native balance for route value and selected-chain gas ceiling')
   assertFilecoinSourceReserve({
     source,
     nativeBalance,
-    sourceSpend: totalSource,
+    sourceSpend: remainingSourceAmount,
     routeAndApprovalGas: totalGas,
     requiredFilecoinReserve: options.requiredFilecoinReserve ?? 0n,
   })
