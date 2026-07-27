@@ -12,9 +12,22 @@ import {
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { arbitrum } from 'viem/chains'
-import type { AcquisitionCheckpoint, AcquisitionCheckpointStore } from './checkpoint.js'
+import {
+  type AcquisitionCheckpoint,
+  type AcquisitionCheckpointStore,
+  assertCheckpointSourceCompatibility,
+} from './checkpoint.js'
 import { ARBITRUM_USDC, getSourceWalletBalances, SQUID_ROUTER } from './source-assets.js'
 import type { ResolvedSourceToken } from './source-catalog.js'
+import {
+  assertCumulativeSourceNativeGas,
+  assertFilecoinSourceReserve,
+  getSelectedSourceBalance,
+  requiresErc20Approval,
+  sourceNativeGasCeiling,
+  sourceRouteIdentity,
+  verifySourceChain,
+} from './source-execution.js'
 import { waitForSquidTerminalStatus } from './squid.js'
 import type { AcquisitionEvidence, AcquisitionExecutionStatus, PlannedAcquisitionQuote } from './types.js'
 
@@ -129,9 +142,13 @@ export interface ExecuteTokenAcquisitionOptions {
   sourceClient?: PublicClient | undefined
   /** Test seam; production always creates the wallet client from the supplied test-only source key. */
   walletClient?: AcquisitionWalletClient | undefined
+  /** #16 path: exact #15 selected source; this path has no legacy defaults. */
+  source?: ResolvedSourceToken | undefined
   quotes: PlannedAcquisitionQuote[]
   /** Original operator source-token cap, retained across an interrupted multi-leg acquisition. */
   maxSourceAmount?: bigint
+  /** Explicit Filecoin Pay reserve needed after a same-chain source route. */
+  requiredFilecoinReserve?: bigint | undefined
   /** Re-fetch after approval with the same fixed source input; it may never increase spend. */
   refreshQuote: (quote: PlannedAcquisitionQuote) => Promise<PlannedAcquisitionQuote>
   getProviderStatus: (evidence: AcquisitionEvidence) => Promise<{
@@ -313,11 +330,212 @@ async function resumeApprovalOnlyCheckpoint(options: {
 }
 
 /**
+ * Strict #16 execution path. It is intentionally separate from the legacy
+ * compatibility body below: callers must provide the exact #15 source token,
+ * and no selected-chain fact is inferred from a symbol or a default chain.
+ */
+async function executeResolvedSourceAcquisition(
+  options: ExecuteTokenAcquisitionOptions,
+  source: ResolvedSourceToken
+): Promise<AcquisitionEvidence[]> {
+  const account = privateKeyToAccount(options.privateKey)
+  const publicClient = options.sourceClient ?? (await createVerifiedResolvedSourceClient(source, options.sourceRpcUrl))
+  await verifySourceChain(publicClient, source)
+  const maxSourceAmount = options.maxSourceAmount
+  if (maxSourceAmount == null || maxSourceAmount <= 0n)
+    throw new Error('Resolved source execution requires a positive source cap')
+  const maxNativeGas = sourceNativeGasCeiling(source.chain.chainId)
+  for (const quote of options.quotes) {
+    if (
+      quote.source == null ||
+      quote.source.chainId !== source.chain.chainId ||
+      quote.source.token.toLowerCase() !== source.token.toLowerCase() ||
+      quote.source.decimals !== source.decimals ||
+      quote.source.native !== source.native ||
+      quote.approvalSpender == null
+    ) {
+      throw new Error('Acquisition quote does not retain the exact resolved source identity and trusted spender')
+    }
+  }
+  const pending = await options.checkpointStore.load()
+  if (pending != null) {
+    assertCheckpointSourceCompatibility(pending, sourceRouteIdentity(source), maxSourceAmount, maxNativeGas)
+    if (pending.approvalIntent != null || pending.routeIntent != null) {
+      throw new Error(
+        'Acquisition has a pre-broadcast intent without a transaction hash; inspect the recorded nonce before any rerun'
+      )
+    }
+    if (pending.evidence.length > 0) {
+      await options.waitForFilecoinArrival(pending.requiredWallet)
+      await options.checkpointStore.clear()
+      return pending.evidence
+    }
+  }
+  const totalSource = options.quotes.reduce((total, quote) => total + quote.sourceAmount, 0n)
+  if (totalSource > maxSourceAmount) throw new Error('Acquisition exceeds --max-source-amount')
+  const walletClient: AcquisitionWalletClient =
+    options.walletClient ??
+    (() => {
+      throw new Error('Resolved source execution requires an injected signing wallet client')
+    })()
+  const selectedBalance = await getSelectedSourceBalance(publicClient, account.address, source)
+  const nativeBalance = await publicClient.getBalance({ address: account.address })
+  const routeGas = options.quotes.reduce((total, quote) => total + quote.gasLimit * quote.maxFeePerGas, 0n)
+  const gasPrice = await publicClient.getGasPrice()
+  let approvalGas = 0n
+  if (requiresErc20Approval(source)) {
+    for (const quote of options.quotes) {
+      approvalGas +=
+        (await publicClient.estimateContractGas({
+          account: account.address,
+          address: source.token,
+          abi: ERC20_ALLOWANCE_ABI,
+          functionName: 'approve',
+          args: [quote.approvalSpender as Address, quote.sourceAmount],
+        })) * gasPrice
+    }
+  }
+  const totalGas = assertCumulativeSourceNativeGas({
+    chainId: source.chain.chainId,
+    committed: 0n,
+    next: routeGas + approvalGas,
+  })
+  if (selectedBalance < totalSource)
+    throw new Error('Insufficient selected source token balance for the planned acquisition')
+  if (nativeBalance < totalGas) throw new Error('Insufficient source native balance for the selected-chain gas ceiling')
+  assertFilecoinSourceReserve({
+    source,
+    nativeBalance,
+    sourceSpend: totalSource,
+    routeAndApprovalGas: totalGas,
+    requiredFilecoinReserve: options.requiredFilecoinReserve ?? 0n,
+  })
+  const baseline = await options.getFilecoinBalances()
+  const evidence: AcquisitionEvidence[] = []
+  let committedNativeGas = 0n
+  for (const quote of options.quotes) {
+    const refreshed = await options.refreshQuote(quote)
+    assertFixedInputRefresh(quote, refreshed)
+    const routeCommitment = refreshed.gasLimit * refreshed.maxFeePerGas
+    let nonce = await publicClient.getTransactionCount({ address: account.address, blockTag: 'pending' })
+    if (requiresErc20Approval(source)) {
+      const spender = refreshed.approvalSpender as Address
+      const allowance = await publicClient.readContract({
+        address: source.token,
+        abi: ERC20_ALLOWANCE_ABI,
+        functionName: 'allowance',
+        args: [account.address, spender],
+      })
+      if (allowance !== refreshed.sourceAmount) {
+        if (allowance > 0n) {
+          const resetGas = await publicClient.estimateContractGas({
+            account: account.address,
+            address: source.token,
+            abi: ERC20_ALLOWANCE_ABI,
+            functionName: 'approve',
+            args: [spender, 0n],
+          })
+          committedNativeGas = assertCumulativeSourceNativeGas({
+            chainId: source.chain.chainId,
+            committed: committedNativeGas,
+            next: resetGas * gasPrice,
+          })
+          await walletClient.writeContract({
+            address: source.token,
+            abi: ERC20_ALLOWANCE_ABI,
+            functionName: 'approve',
+            args: [spender, 0n],
+            gas: resetGas,
+            maxFeePerGas: gasPrice,
+            nonce,
+          })
+          nonce += 1
+        }
+        const approvalGasLimit = await publicClient.estimateContractGas({
+          account: account.address,
+          address: source.token,
+          abi: ERC20_ALLOWANCE_ABI,
+          functionName: 'approve',
+          args: [spender, refreshed.sourceAmount],
+        })
+        committedNativeGas = assertCumulativeSourceNativeGas({
+          chainId: source.chain.chainId,
+          committed: committedNativeGas,
+          next: approvalGasLimit * gasPrice,
+        })
+        await walletClient.writeContract({
+          address: source.token,
+          abi: ERC20_ALLOWANCE_ABI,
+          functionName: 'approve',
+          args: [spender, refreshed.sourceAmount],
+          gas: approvalGasLimit,
+          maxFeePerGas: gasPrice,
+          nonce,
+        })
+        nonce += 1
+      }
+    }
+    committedNativeGas = assertCumulativeSourceNativeGas({
+      chainId: source.chain.chainId,
+      committed: committedNativeGas,
+      next: routeCommitment,
+    })
+    const checkpoint: AcquisitionCheckpoint = {
+      version: 2,
+      owner: account.address,
+      sourceChainId: source.chain.chainId,
+      destinationChainId: options.destinationChainId,
+      source: sourceRouteIdentity(source),
+      maxSourceAmount,
+      maxNativeGas,
+      committedNativeGas,
+      requiredWallet: addDestinationAmounts(baseline, options.quotes),
+      evidence,
+    }
+    await options.checkpointStore.save(checkpoint)
+    assertRouteNotExpired(refreshed)
+    const hash = await walletClient.sendTransaction({
+      to: getAddress(refreshed.target),
+      data: refreshed.data as Hex,
+      value: refreshed.value,
+      gas: refreshed.gasLimit,
+      maxFeePerGas: refreshed.maxFeePerGas,
+      nonce,
+    })
+    evidence.push({
+      asset: refreshed.asset,
+      quoteId: refreshed.id,
+      sourceAmount: refreshed.sourceAmount.toString(),
+      sourceTransactionHash: hash,
+      status: 'submitted',
+    })
+    await options.checkpointStore.save({ ...checkpoint, evidence })
+    const receipt = await publicClient.waitForTransactionReceipt({ hash })
+    if (receipt.status !== 'success') throw new Error('Selected-source acquisition transaction failed')
+    const status = await waitForSquidTerminalStatus({
+      getStatus: () => options.getProviderStatus(evidence[evidence.length - 1] as AcquisitionEvidence),
+      estimatedRouteDurationSeconds: refreshed.estimatedRouteDurationSeconds,
+    })
+    if (status.status !== 'confirmed')
+      throw new Error(`Acquisition remains ${status.status}; do not resend the source transaction ${hash}`)
+    evidence[evidence.length - 1] = {
+      ...(evidence[evidence.length - 1] as AcquisitionEvidence),
+      ...status,
+      status: 'confirmed',
+    }
+  }
+  await options.waitForFilecoinArrival(addDestinationAmounts(baseline, options.quotes))
+  await options.checkpointStore.clear()
+  return evidence
+}
+
+/**
  * Submit the strictly validated, fixed-input source routes. This function is
  * deliberately not called for Calibration/devnet: those networks have no
  * approved acquisition route.
  */
 export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOptions): Promise<AcquisitionEvidence[]> {
+  if (options.source != null) return executeResolvedSourceAcquisition(options, options.source)
   const account = privateKeyToAccount(options.privateKey)
   const publicClient = options.sourceClient ?? (await createSourcePublicClient(options.sourceRpcUrl))
   if (options.sourceClient != null) assertArbitrumSourceChain(await publicClient.getChainId())
