@@ -18,6 +18,34 @@ export const SOURCE_NATIVE_GAS_CEILINGS: Readonly<Record<number, bigint>> = {
   43114: 10_000_000_000_000_000n,
 }
 
+/**
+ * Route authorization is local policy, never a field accepted from Squid. The
+ * legacy Arbitrum deployment remains only to preserve the pre-#16 workflow;
+ * every newly selected chain must receive its audited target/spender pair at
+ * the call boundary before it can sign.
+ */
+export interface SourceRoutePolicy {
+  target: Address
+  spender: Address
+}
+
+export const SOURCE_ROUTE_POLICY: ReadonlyMap<number, SourceRoutePolicy> = new Map([
+  [
+    42161,
+    { target: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666', spender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666' },
+  ],
+])
+
+export function sourceRoutePolicy(
+  chainId: number,
+  policy: ReadonlyMap<number, SourceRoutePolicy> = SOURCE_ROUTE_POLICY
+): SourceRoutePolicy {
+  const route = policy.get(chainId)
+  if (route == null)
+    throw new Error(`No trusted Squid target/spender is configured for source chain ${chainId}; do not sign`)
+  return route
+}
+
 export interface SourceRouteIdentity {
   chainId: number
   token: Address

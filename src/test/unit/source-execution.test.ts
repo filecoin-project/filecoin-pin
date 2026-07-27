@@ -13,6 +13,7 @@ import {
   requiresErc20Approval,
   sourceNativeGasCeiling,
   sourceRouteIdentity,
+  sourceRoutePolicy,
   verifySourceChain,
 } from '../../core/payments/acquisition/source-execution.js'
 
@@ -108,5 +109,11 @@ describe('multi-chain selected-source execution substrate', () => {
         trustedSpender: TARGET,
       })
     ).toThrow('source identity')
+  })
+
+  it('takes target/spender authority from local selected-chain policy, never provider metadata', () => {
+    const policy = new Map([[8453, { target: TARGET, spender: OWNER }]])
+    expect(sourceRoutePolicy(8453, policy)).toEqual({ target: TARGET, spender: OWNER })
+    expect(() => sourceRoutePolicy(8453)).toThrow('No trusted Squid target/spender')
   })
 })

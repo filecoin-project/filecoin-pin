@@ -1,6 +1,7 @@
 import type { Address } from 'viem'
-import { FILECOIN_MAINNET_CHAIN_ID, FILECOIN_NATIVE_TOKEN, FILECOIN_USDFC, SQUID_ROUTER } from './source-assets.js'
+import { FILECOIN_MAINNET_CHAIN_ID, FILECOIN_NATIVE_TOKEN, FILECOIN_USDFC } from './source-assets.js'
 import { SELECTED_SOURCE_CHAINS } from './source-catalog.js'
+import { type SourceRoutePolicy, sourceRoutePolicy } from './source-execution.js'
 import type {
   AcquisitionErrorCode,
   AcquisitionExecutionStatus,
@@ -43,7 +44,8 @@ export interface SquidProviderOptions {
   fetchFn?: typeof fetch
   now?: () => number
   /** Deployment-specific allowlist supplied by the selected source contract. */
-  trustedRoutes?: ReadonlyMap<number, { target: Address; spender: Address }>
+  /** Locally configured selected-chain authorization policy; never provider response metadata. */
+  routePolicy?: ReadonlyMap<number, SourceRoutePolicy>
 }
 
 export interface SquidStatusResponse {
@@ -125,13 +127,12 @@ function selectedSource(leg: AcquisitionLeg): {
   }
 }
 
-function trustedRoute(options: SquidProviderOptions, chainId: number): { target: Address; spender: Address } {
-  const explicit = options.trustedRoutes?.get(chainId)
-  if (explicit != null) return explicit
-  // Compatibility only for the pre-existing Arbitrum fixture path. Every other
-  // chain fails closed until its deployment-specific target/spender is supplied.
-  if (chainId === 42161) return { target: SQUID_ROUTER, spender: SQUID_ROUTER }
-  throw providerError(`No trusted Squid target/spender is configured for source chain ${chainId}`, 'unsupported-source')
+function trustedRoute(options: SquidProviderOptions, chainId: number): SourceRoutePolicy {
+  try {
+    return sourceRoutePolicy(chainId, options.routePolicy)
+  } catch (error) {
+    throw providerError(error instanceof Error ? error.message : 'Source route policy is invalid', 'unsupported-source')
+  }
 }
 
 async function squidFetch(url: string, init: RequestInit, fetchFn: typeof fetch): Promise<Response> {
