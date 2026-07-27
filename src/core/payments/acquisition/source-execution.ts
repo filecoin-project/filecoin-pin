@@ -1,4 +1,5 @@
 import type { Address, PublicClient } from 'viem'
+import { FILECOIN_MAINNET_CHAIN_ID } from './source-assets.js'
 import type { ResolvedSourceToken } from './source-catalog.js'
 
 /**
@@ -96,7 +97,7 @@ export function assertFilecoinSourceReserve(options: {
   /** An ERC-20 route that returns FIL can refill the reserve after its source transactions settle. */
   replenishesFilecoinReserve?: boolean
 }): void {
-  if (options.source.chain.chainId !== 314) return
+  if (options.source.chain.chainId !== FILECOIN_MAINNET_CHAIN_ID) return
   const required =
     options.nativeRouteValue +
     options.routeAndApprovalGas +

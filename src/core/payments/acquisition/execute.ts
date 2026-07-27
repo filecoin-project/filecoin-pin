@@ -20,6 +20,7 @@ import {
 } from './checkpoint.js'
 import {
   ARBITRUM_USDC,
+  FILECOIN_MAINNET_CHAIN_ID,
   getSourceWalletBalances,
   isFilecoinSameAssetFundingSource,
   SQUID_ROUTER,
@@ -547,12 +548,14 @@ async function executeResolvedSourceAcquisition(
   const nativeBalance = await publicClient.getBalance({ address: account.address })
   const nativeRouteValue = quotes.reduce((total, quote) => total + quote.value, 0n)
   const replenishesFilecoinReserve =
-    source.chain.chainId === 314 && !source.native && quotes.some((quote) => quote.asset === 'fil')
+    source.chain.chainId === FILECOIN_MAINNET_CHAIN_ID &&
+    !source.native &&
+    quotes.some((quote) => quote.asset === 'fil')
   if (source.native && nativeRouteValue !== remainingSourceAmount) {
     throw new Error('Native source route value must equal the fixed selected-source amount; do not sign')
   }
   if (
-    source.chain.chainId === 314 &&
+    source.chain.chainId === FILECOIN_MAINNET_CHAIN_ID &&
     (options.requiredFilecoinReserve == null || options.requiredFilecoinReserve <= 0n)
   ) {
     throw new Error('Filecoin source execution requires an explicit positive FIL reserve; do not sign')
@@ -630,7 +633,7 @@ async function executeResolvedSourceAcquisition(
   const baseline = await options.getFilecoinBalances()
   const requiredWallet =
     pending?.requiredWallet ??
-    (source.chain.chainId === 314
+    (source.chain.chainId === FILECOIN_MAINNET_CHAIN_ID
       ? (() => {
           if (options.requiredDestinationWallet == null) {
             throw new Error('Filecoin source execution requires an absolute destination wallet target; do not sign')

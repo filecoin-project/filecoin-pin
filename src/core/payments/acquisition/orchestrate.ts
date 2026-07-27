@@ -110,7 +110,7 @@ export async function ensureWalletReadyForFilecoinTransactions(
     walletUsdfcBalance: currentWallet.usdfc,
     requiredFilReserve: MIN_FIL_FOR_GAS,
     walletFilBalance: currentWallet.fil,
-    ...(source != null ? { source } : {}),
+    ...(source == null ? {} : { source }),
   })
   if (
     requestedPlan.path === 'ready' &&
@@ -217,7 +217,7 @@ export async function ensureWalletReadyForFilecoinTransactions(
       walletUsdfcBalance: currentWallet.usdfc,
       requiredFilReserve: plannedFilecoinReserve,
       walletFilBalance: currentWallet.fil,
-      ...(source != null ? { source } : {}),
+      source,
     })
     if (plan.path === 'ready') {
       if (
