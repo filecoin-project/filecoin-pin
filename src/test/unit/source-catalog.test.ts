@@ -6,6 +6,7 @@ import {
   NATIVE_TOKEN_SELECTOR,
   parseSquidCatalog,
   resolveCatalogSource,
+  SELECTED_SOURCE_CHAINS,
   verifyResolvedErc20Source,
 } from '../../core/payments/acquisition/source-catalog.js'
 
@@ -29,6 +30,33 @@ describe('Squid selected-source catalog contract', () => {
     expect(token.display).toContain(token.token)
   })
 
+  it('keeps exactly the selected eight chains, their stable aliases, and representative tokens', () => {
+    expect(SELECTED_SOURCE_CHAINS.map((chain) => [chain.cliName, chain.chainId])).toEqual([
+      ['filecoin', 314],
+      ['arbitrum', 42161],
+      ['ethereum', 1],
+      ['base', 8453],
+      ['optimism', 10],
+      ['polygon', 137],
+      ['avalanche', 43114],
+      ['bnb', 56],
+    ])
+    const catalog = parseSquidCatalog(fixture.chains, fixture.tokens)
+    const representatives: Array<[string, string, string, number]> = [
+      ['filecoin', 'filecoin', 'FILX', 2],
+      ['arbitrum', 'arb', 'ARBX', 9],
+      ['ethereum', 'eth', 'ETHX', 8],
+      ['base', 'base', 'USDbC', 6],
+      ['optimism', 'op', 'OPX', 7],
+      ['polygon', 'matic', 'POLX', 5],
+      ['avalanche', 'avax', 'AVAXX', 4],
+      ['bnb', 'bsc', 'BNBX', 3],
+    ]
+    for (const [chain, alias, symbol, decimals] of representatives) {
+      expect(resolveCatalogSource(catalog, alias, symbol)).toMatchObject({ chain: { cliName: chain }, decimals })
+    }
+  })
+
   it('rejects duplicate symbols but exact address disambiguates them', () => {
     const catalog = parseSquidCatalog(fixture.chains, fixture.tokens)
     expect(() => resolveCatalogSource(catalog, 'base', 'USD')).toThrow('ambiguous')
@@ -42,6 +70,28 @@ describe('Squid selected-source catalog contract', () => {
       native: true,
       decimals: 18,
     })
+  })
+
+  it('rejects native tokens that conflict with selected-chain native-currency metadata', () => {
+    const mismatchedChains = fixture.chains.map((chain, index) =>
+      index === 3 ? { ...(chain as object), nativeCurrency: { symbol: 'WETH', decimals: 18 } } : chain
+    )
+    expect(() => parseSquidCatalog(mismatchedChains, fixture.tokens)).toThrow('native token metadata conflicts')
+    const malformedChains = fixture.chains.map((chain, index) =>
+      index === 3 ? { ...(chain as object), nativeCurrency: { symbol: 'ETH', decimals: 1.5 } } : chain
+    )
+    expect(() => parseSquidCatalog(malformedChains, fixture.tokens)).toThrow('invalid native decimals')
+  })
+
+  it('canonicalizes byte-identical token duplicates but rejects conflicting canonical identities', () => {
+    const identical = fixture.tokens[8]
+    const catalog = parseSquidCatalog(fixture.chains, [...fixture.tokens, identical])
+    expect(catalog.tokens.filter((token) => token.token === '0xd9aa3214bcb81c9bd4b8c7a9e20f3c2f6fbe1b0c')).toHaveLength(
+      1
+    )
+    expect(() => parseSquidCatalog(fixture.chains, [...fixture.tokens, { ...identical, decimals: 18 }])).toThrow(
+      'duplicated with conflicting metadata'
+    )
   })
 
   it('fails closed for unsupported chains, non-EVM selected chains, and malformed catalog fields', () => {
@@ -107,5 +157,16 @@ describe('Squid selected-source catalog contract', () => {
     await expect(
       verifyResolvedErc20Source({ ...client, getCode: vi.fn().mockResolvedValue('0x') } as never, source)
     ).rejects.toThrow('no contract code')
+  })
+
+  it('keeps direct no-source funding paths free of Squid catalog/provider imports', async () => {
+    const [fund, auto] = await Promise.all([
+      readFile(new URL('../../payments/fund.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../../payments/auto.ts', import.meta.url), 'utf8'),
+    ])
+    expect(fund).not.toContain('source-catalog')
+    expect(auto).not.toContain('source-catalog')
+    expect(fund).not.toContain('fetchSquidCatalog')
+    expect(auto).not.toContain('fetchSquidCatalog')
   })
 })

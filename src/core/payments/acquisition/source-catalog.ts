@@ -33,7 +33,7 @@ export interface ResolvedSourceToken {
 }
 
 export interface SquidCatalog {
-  chains: ReadonlyMap<number, { type: 'evm'; networkIdentifier: string }>
+  chains: ReadonlyMap<number, { type: 'evm'; networkIdentifier: string; nativeSymbol: string; nativeDecimals: number }>
   tokens: readonly ResolvedSourceToken[]
 }
 
@@ -41,6 +41,7 @@ interface SquidChainWire {
   chainId?: string | number
   networkName?: string
   type?: string
+  nativeCurrency?: { symbol?: string; decimals?: number }
 }
 
 interface SquidTokenWire {
@@ -69,7 +70,10 @@ function selectedChain(input: string | undefined): SelectedSourceChain | undefin
 /** Parse only the selected EVM boundary and reject malformed selected entries. */
 export function parseSquidCatalog(chainsResponse: unknown, tokensResponse: unknown): SquidCatalog {
   if (!Array.isArray(chainsResponse) || !Array.isArray(tokensResponse)) fail('chains and tokens must be arrays')
-  const chains = new Map<number, { type: 'evm'; networkIdentifier: string }>()
+  const chains = new Map<
+    number,
+    { type: 'evm'; networkIdentifier: string; nativeSymbol: string; nativeDecimals: number }
+  >()
   for (const raw of chainsResponse as SquidChainWire[]) {
     if (raw == null || typeof raw !== 'object') continue
     const id = typeof raw.chainId === 'string' && /^\d+$/.test(raw.chainId) ? Number(raw.chainId) : raw.chainId
@@ -79,10 +83,28 @@ export function parseSquidCatalog(chainsResponse: unknown, tokensResponse: unkno
     if (typeof raw.networkName !== 'string' || raw.networkName.trim() === '') {
       fail(`selected chain ${id} is missing networkName`)
     }
+    const nativeSymbol = raw.nativeCurrency?.symbol
+    const nativeDecimals = raw.nativeCurrency?.decimals
+    if (typeof nativeSymbol !== 'string' || nativeSymbol.trim() === '')
+      fail(`selected chain ${id} is missing native symbol`)
+    if (
+      typeof nativeDecimals !== 'number' ||
+      !Number.isSafeInteger(nativeDecimals) ||
+      nativeDecimals < 0 ||
+      nativeDecimals > 255
+    ) {
+      fail(`selected chain ${id} has invalid native decimals`)
+    }
     if (chains.has(id)) fail(`selected chain ${id} is duplicated`)
-    chains.set(id, { type: 'evm', networkIdentifier: raw.networkName })
+    chains.set(id, {
+      type: 'evm',
+      networkIdentifier: raw.networkName,
+      nativeSymbol: nativeSymbol.trim(),
+      nativeDecimals,
+    })
   }
   const tokens: ResolvedSourceToken[] = []
+  const tokensByIdentity = new Map<string, ResolvedSourceToken>()
   for (const raw of tokensResponse as SquidTokenWire[]) {
     if (raw == null || typeof raw !== 'object') continue
     const id = typeof raw.chainId === 'string' && /^\d+$/.test(raw.chainId) ? Number(raw.chainId) : raw.chainId
@@ -97,14 +119,33 @@ export function parseSquidCatalog(chainsResponse: unknown, tokensResponse: unkno
     }
     const token = address(raw.address, `token ${raw.symbol} on ${id}`)
     const native = token === FILECOIN_NATIVE_TOKEN
-    tokens.push({
+    const chainMetadata = chains.get(id)
+    if (chainMetadata == null) fail(`token belongs to unavailable selected chain ${id}`)
+    if (native && (raw.symbol.trim() !== chainMetadata.nativeSymbol || decimals !== chainMetadata.nativeDecimals)) {
+      fail(`native token metadata conflicts with selected chain ${id}`)
+    }
+    const resolved = {
       chain,
       token,
       symbol: raw.symbol.trim(),
       decimals,
       native,
       display: native ? `${raw.symbol.trim()} (native)` : `${raw.symbol.trim()} (${token})`,
-    })
+    }
+    const identity = `${id}:${token}`
+    const existing = tokensByIdentity.get(identity)
+    if (existing != null) {
+      if (
+        existing.symbol !== resolved.symbol ||
+        existing.decimals !== resolved.decimals ||
+        existing.native !== resolved.native
+      ) {
+        fail(`token ${token} on ${id} is duplicated with conflicting metadata`)
+      }
+      continue
+    }
+    tokensByIdentity.set(identity, resolved)
+    tokens.push(resolved)
   }
   return { chains, tokens }
 }
