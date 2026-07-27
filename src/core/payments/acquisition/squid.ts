@@ -17,6 +17,7 @@ export const MIN_SQUID_SLIPPAGE_PERCENT = 0.01
 export const MAX_SQUID_SLIPPAGE_PERCENT = 99.99
 const MAX_RATE_LIMIT_RETRIES = 1
 const MAX_ESTIMATED_ROUTE_DURATION_SECONDS = 30 * 60
+export const DEFAULT_SQUID_REQUEST_TIMEOUT_MS = 15_000
 
 export interface SquidRouteRequest {
   fromAddress: Address
@@ -46,7 +47,8 @@ export interface SquidProviderOptions {
   integratorId: string | undefined
   fetchFn?: typeof fetch
   now?: () => number
-  /** Deployment-specific allowlist supplied by the selected source contract. */
+  /** Per-request timeout; polling cannot bound a fetch that never settles on its own. */
+  requestTimeoutMs?: number
 }
 
 export interface SquidStatusResponse {
@@ -128,10 +130,27 @@ function selectedSource(leg: AcquisitionLeg): {
   }
 }
 
-async function squidFetch(url: string, init: RequestInit, fetchFn: typeof fetch): Promise<Response> {
+async function squidFetch(
+  url: string,
+  init: RequestInit,
+  fetchFn: typeof fetch,
+  requestTimeoutMs: number | undefined
+): Promise<Response> {
   let rateLimitRetries = 0
+  const timeoutMs = requestTimeoutMs ?? DEFAULT_SQUID_REQUEST_TIMEOUT_MS
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw providerError('Squid request timeout must be positive')
   while (true) {
-    const response = await fetchFn(url, init)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+    let response: Response
+    try {
+      response = await fetchFn(url, { ...init, signal: controller.signal })
+    } catch (error) {
+      if (controller.signal.aborted) throw providerError('Squid request timed out')
+      throw error
+    } finally {
+      clearTimeout(timeout)
+    }
     if (response.status !== 429 || rateLimitRetries >= MAX_RATE_LIMIT_RETRIES) return response
     rateLimitRetries += 1
     const retryAfter = Number(response.headers.get('retry-after') ?? '0')
@@ -172,7 +191,8 @@ export async function getSquidRoute(
       headers: { 'content-type': 'application/json', 'x-integrator-id': options.integratorId },
       body: JSON.stringify(body),
     },
-    fetchFn
+    fetchFn,
+    options.requestTimeoutMs
   )
   if (!response.ok) throw providerError(`Squid quote failed (${response.status})`)
   const parsed = (await response.json()) as SquidRouteResponse
@@ -267,7 +287,8 @@ export async function pollSquidStatus(
   const response = await squidFetch(
     `${SQUID_API_URL}/status?${params.toString()}`,
     { headers: { 'x-integrator-id': options.integratorId } },
-    fetchFn
+    fetchFn,
+    options.requestTimeoutMs
   )
   // A just-submitted transaction may not be indexed by the provider yet. Keep it in bounded polling.
   if (response.status === 404) return mapSquidStatus('not_found')
