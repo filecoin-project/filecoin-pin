@@ -17,6 +17,7 @@ import {
   type AcquisitionCheckpointStore,
   assertCheckpointSourceCompatibility,
   assertLegacyCheckpointVersion,
+  canAdoptHigherDestinationTarget,
 } from './checkpoint.js'
 import {
   ARBITRUM_USDC,
@@ -422,6 +423,14 @@ async function executeResolvedSourceAcquisition(
     }
   }
   const pending = await options.checkpointStore.load()
+  const adoptedPendingWallet =
+    pending != null && requestedWallet != null && canAdoptHigherDestinationTarget(pending)
+      ? {
+          fil: pending.requiredWallet.fil > requestedWallet.fil ? pending.requiredWallet.fil : requestedWallet.fil,
+          usdfc:
+            pending.requiredWallet.usdfc > requestedWallet.usdfc ? pending.requiredWallet.usdfc : requestedWallet.usdfc,
+        }
+      : pending?.requiredWallet
   let priorEvidence: AcquisitionEvidence[] = []
   let priorCommittedNativeGas = 0n
   let priorSourceAmount = 0n
@@ -632,7 +641,7 @@ async function executeResolvedSourceAcquisition(
   })
   const baseline = await options.getFilecoinBalances()
   const requiredWallet =
-    pending?.requiredWallet ??
+    adoptedPendingWallet ??
     (source.chain.chainId === FILECOIN_MAINNET_CHAIN_ID
       ? (() => {
           if (options.requiredDestinationWallet == null) {

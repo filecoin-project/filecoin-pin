@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   assertCheckpointSourceCompatibility,
+  canAdoptHigherDestinationTarget,
   deserializeAcquisitionCheckpoint,
 } from '../../core/payments/acquisition/checkpoint.js'
 import {
@@ -159,6 +160,30 @@ describe('multi-chain selected-source execution substrate', () => {
     ).not.toThrow()
     expect(() =>
       assertCheckpointSourceCompatibility(checkpoint, identity, 10n, sourceNativeGasCeiling(8453), {
+        fil: 1n,
+        usdfc: 1n,
+      })
+    ).toThrow('destination target')
+
+    const approvalOnlyCheckpoint = {
+      ...checkpoint,
+      committedNativeGas: 1n,
+      approvalTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    }
+    expect(canAdoptHigherDestinationTarget(approvalOnlyCheckpoint)).toBe(true)
+    expect(() =>
+      assertCheckpointSourceCompatibility(approvalOnlyCheckpoint, identity, 10n, sourceNativeGasCeiling(8453), {
+        fil: 1n,
+        usdfc: 1n,
+      })
+    ).not.toThrow()
+    const submittedRouteCheckpoint = {
+      ...approvalOnlyCheckpoint,
+      evidence: [{ asset: 'usdfc' as const, quoteId: 'submitted-route', status: 'submitted' as const }],
+    }
+    expect(canAdoptHigherDestinationTarget(submittedRouteCheckpoint)).toBe(false)
+    expect(() =>
+      assertCheckpointSourceCompatibility(submittedRouteCheckpoint, identity, 10n, sourceNativeGasCeiling(8453), {
         fil: 1n,
         usdfc: 1n,
       })

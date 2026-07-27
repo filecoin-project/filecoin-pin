@@ -116,6 +116,16 @@ export function deserializeAcquisitionCheckpoint(stored: unknown): AcquisitionCh
 }
 
 /** A legacy checkpoint lacks the selected token/cap semantics and cannot be resumed safely. */
+export function canAdoptHigherDestinationTarget(checkpoint: AcquisitionCheckpoint): boolean {
+  return (
+    checkpoint.evidence.length === 0 &&
+    checkpoint.routeIntent == null &&
+    (checkpoint.approvalIntent != null ||
+      checkpoint.approvalTransactionHash != null ||
+      checkpoint.committedNativeGas > 0n)
+  )
+}
+
 export function assertCheckpointSourceCompatibility(
   checkpoint: AcquisitionCheckpoint,
   source: SourceRouteIdentity,
@@ -136,7 +146,8 @@ export function assertCheckpointSourceCompatibility(
     checkpoint.maxSourceAmount !== maxSourceAmount ||
     checkpoint.maxNativeGas !== maxNativeGas ||
     (requiredWallet != null &&
-      (checkpoint.requiredWallet.fil < requiredWallet.fil || checkpoint.requiredWallet.usdfc < requiredWallet.usdfc))
+      (checkpoint.requiredWallet.fil < requiredWallet.fil || checkpoint.requiredWallet.usdfc < requiredWallet.usdfc) &&
+      !canAdoptHigherDestinationTarget(checkpoint))
   ) {
     throw new Error(
       'Acquisition recovery state is incompatible with the selected source identity, caps, or destination target; do not submit another route'
