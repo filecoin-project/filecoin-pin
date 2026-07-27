@@ -2456,6 +2456,7 @@ describe('wallet shortfall acquisition planning', () => {
       waitForTransactionReceipt: vi.fn(),
     } as unknown as PublicClient
     const walletClient = { writeContract: vi.fn(), sendTransaction: vi.fn() }
+    const store = emptyCheckpointStore()
 
     await expect(
       executeTokenAcquisition({
@@ -2469,7 +2470,7 @@ describe('wallet shortfall acquisition planning', () => {
         requiredDestinationWallet: { fil: 10n, usdfc: quote.destinationAmount },
         refreshQuote: vi.fn(async (current) => current),
         getProviderStatus: vi.fn(),
-        checkpointStore: emptyCheckpointStore(),
+        checkpointStore: store,
         destinationChainId: 314,
         getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
         waitForFilecoinArrival: vi.fn(),
@@ -2478,6 +2479,7 @@ describe('wallet shortfall acquisition planning', () => {
 
     expect(walletClient.writeContract).not.toHaveBeenCalled()
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
+    expect(store.value).toBeUndefined()
   })
 
   it('uses reset plus exact Filecoin ERC-20 approval and rejects a higher post-refresh route cost', async () => {

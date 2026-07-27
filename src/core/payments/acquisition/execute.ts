@@ -559,6 +559,7 @@ async function executeResolvedSourceAcquisition(
     gas: bigint
     nonce: number
   }): Promise<void> => {
+    await assertActionNativeBalance(params.gas * gasPrice)
     const checkpoint: AcquisitionCheckpoint = {
       version: 2,
       owner: account.address,
@@ -580,7 +581,6 @@ async function executeResolvedSourceAcquisition(
       evidence,
     }
     await options.checkpointStore.save(checkpoint)
-    await assertActionNativeBalance(params.gas * gasPrice)
     const hash = await walletClient.writeContract({
       address: source.token,
       abi: ERC20_ALLOWANCE_ABI,
