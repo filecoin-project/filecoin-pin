@@ -1249,7 +1249,21 @@ export async function executeTokenAcquisition(options: ExecuteTokenAcquisitionOp
       evidence,
     })
   }
-  await options.waitForFilecoinArrival(addDestinationAmounts(baseline, quotes))
+  const computedRequiredWallet = addDestinationAmounts(baseline, quotes)
+  const requiredWallet =
+    recoveredCheckpoint == null
+      ? computedRequiredWallet
+      : {
+          fil:
+            computedRequiredWallet.fil > recoveredCheckpoint.requiredWallet.fil
+              ? computedRequiredWallet.fil
+              : recoveredCheckpoint.requiredWallet.fil,
+          usdfc:
+            computedRequiredWallet.usdfc > recoveredCheckpoint.requiredWallet.usdfc
+              ? computedRequiredWallet.usdfc
+              : recoveredCheckpoint.requiredWallet.usdfc,
+        }
+  await options.waitForFilecoinArrival(requiredWallet)
   await options.checkpointStore.clear()
   return evidence
 }

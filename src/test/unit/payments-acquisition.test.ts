@@ -2212,7 +2212,10 @@ describe('wallet shortfall acquisition planning', () => {
     ])
 
     expect(walletClient.sendTransaction).toHaveBeenCalledTimes(1)
-    expect(waitForFilecoinArrival).toHaveBeenCalledWith({ fil: 0n, usdfc: second.destinationAmount })
+    expect(waitForFilecoinArrival).toHaveBeenCalledWith({
+      fil: first.destinationAmount,
+      usdfc: second.destinationAmount,
+    })
     expect(store.clear).toHaveBeenCalledTimes(1)
   })
 
