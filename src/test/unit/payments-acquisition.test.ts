@@ -1980,6 +1980,7 @@ describe('wallet shortfall acquisition planning', () => {
     }
     const quote = {
       ...executionQuote(),
+      sourceAmount: 100_000_000n,
       value: 0n,
       gasLimit: 1n,
       maxFeePerGas: 1n,
@@ -1992,7 +1993,11 @@ describe('wallet shortfall acquisition planning', () => {
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
       estimateContractGas: vi.fn().mockResolvedValue(3n),
-      readContract: vi.fn().mockResolvedValueOnce(10n).mockResolvedValueOnce(0n).mockResolvedValueOnce(1n),
+      readContract: vi
+        .fn()
+        .mockResolvedValueOnce(100_000_000n)
+        .mockResolvedValueOnce(0n)
+        .mockResolvedValueOnce(100_000_000n),
       waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
     } as unknown as PublicClient
     const walletClient = {
@@ -2007,7 +2012,7 @@ describe('wallet shortfall acquisition planning', () => {
         sourceClient,
         walletClient: walletClient as never,
         quotes: [quote],
-        maxSourceAmount: 10n,
+        maxSourceAmount: 1_000_000_000n,
         refreshQuote: vi
           .fn()
           .mockResolvedValueOnce(quote)
@@ -2021,6 +2026,9 @@ describe('wallet shortfall acquisition planning', () => {
     ).rejects.toThrow('trusted target/spender')
 
     expect(walletClient.writeContract).toHaveBeenCalledTimes(1)
+    expect(walletClient.writeContract).toHaveBeenCalledWith(
+      expect.objectContaining({ args: [quote.approvalSpender, 100_000_000n] })
+    )
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
   })
 
