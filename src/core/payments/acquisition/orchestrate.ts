@@ -206,7 +206,7 @@ export async function ensureWalletReadyForFilecoinTransactions(
     // The executor still waits for the actual reserve target after the route.
     const sourceCanRefillFilecoinReserve = source.chainId === mainnet.id && !source.native
     const plannedFilecoinReserve =
-      sourceCanRefillFilecoinReserve && requestedPlan.legs.some((leg) => leg.asset === 'fil')
+      sourceCanRefillFilecoinReserve && currentWallet.fil < requiredWallet.fil
         ? requiredWallet.fil + sourceNativeGasCeiling(source.chainId)
         : requiredWallet.fil
     const plan = planWalletFunding({

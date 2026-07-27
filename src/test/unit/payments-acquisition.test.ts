@@ -702,6 +702,86 @@ describe('Squid acquisition provider contract', () => {
     })
   })
 
+  it('adds Filecoin signing spend to a higher strict checkpoint FIL shortfall without raising its durable target', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 314)
+      if (chain == null) throw new Error('Filecoin test chain missing')
+      const source: ResolvedSourceToken = {
+        chain,
+        chainId: chain.chainId,
+        token: FILECOIN_USDFC,
+        symbol: 'USDFC',
+        decimals: 18,
+        native: false,
+        display: 'Filecoin USDFC',
+      }
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      const durableTarget = { fil: MIN_FIL_FOR_GAS * 2n, usdfc: 0n }
+      const store = createAcquisitionCheckpointStore(owner)
+      await store.save({
+        version: 2,
+        owner,
+        sourceChainId: source.chainId,
+        destinationChainId: 314,
+        source: sourceRouteIdentity(source),
+        maxSourceAmount: 10n ** 18n,
+        maxNativeGas: sourceNativeGasCeiling(source.chainId),
+        committedNativeGas: 0n,
+        requiredWallet: durableTarget,
+        evidence: [],
+      })
+      const fixture = await routeFixture('squid-route-fil.json')
+      fixture.route.transactionRequest.expiry = '2000000000'
+      fixture.route.estimate.toAmountMin = MIN_FIL_FOR_GAS.toString()
+      const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, string>
+        const fromAmount = body.fromAmount
+        if (fromAmount == null) throw new Error('fixture request has no source amount')
+        fixture.route.params.fromChain = body.fromChain
+        fixture.route.params.fromToken = body.fromToken
+        fixture.route.params.fromAmount = fromAmount
+        fixture.route.params.toChain = body.toChain
+        fixture.route.params.toAddress = body.toAddress
+        fixture.route.params.fromAddress = body.fromAddress
+        fixture.route.estimate.fromAmount = fromAmount
+        fixture.route.estimate.toAmountMin = (BigInt(fromAmount) / 5n).toString()
+        return response(fixture)
+      })
+      const confirmation = vi.fn(async (_summary: SourceAcquisitionConfirmation) => {
+        throw new Error('stop after strict Filecoin checkpoint confirmation')
+      })
+
+      await expect(
+        ensureWalletReadyForFilecoinTransactions({
+          destinationChainId: 314,
+          walletUsdfcBalance: 0n,
+          walletFilBalance: MIN_FIL_FOR_GAS,
+          requiredUsdfc: 0n,
+          resolvedSource: source,
+          maxSourceAmount: '1',
+          privateKey: PRIVATE_KEY,
+          provider: { integratorId: 'test-only-integrator', fetchFn },
+          confirmSourceAcquisition: confirmation,
+          rereadWalletBalances: vi.fn().mockResolvedValue({ fil: MIN_FIL_FOR_GAS, usdfc: 0n }),
+        })
+      ).rejects.toThrow('stop after strict Filecoin checkpoint confirmation')
+
+      const durableShortfall = durableTarget.fil - MIN_FIL_FOR_GAS
+      expect(fetchFn).toHaveBeenCalledTimes(2)
+      expect(JSON.parse(String(fetchFn.mock.calls[1]?.[1]?.body))).toMatchObject({
+        fromAmount: ((5n * 10n ** 17n * (durableShortfall + sourceNativeGasCeiling(314))) / MIN_FIL_FOR_GAS).toString(),
+      })
+      await expect(store.load()).resolves.toMatchObject({ requiredWallet: durableTarget })
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('rejects a strict checkpoint before legacy provider planning or confirmation', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
     const originalHome = process.env.HOME
