@@ -472,6 +472,53 @@ async function executeResolvedSourceAcquisition(
   const baseline = await options.getFilecoinBalances()
   const evidence: AcquisitionEvidence[] = []
   let committedNativeGas = 0n
+  const broadcastApproval = async (params: {
+    spender: Address
+    amount: bigint
+    gas: bigint
+    nonce: number
+  }): Promise<void> => {
+    const checkpoint: AcquisitionCheckpoint = {
+      version: 2,
+      owner: account.address,
+      sourceChainId: source.chain.chainId,
+      destinationChainId: options.destinationChainId,
+      source: sourceRouteIdentity(source),
+      maxSourceAmount,
+      maxNativeGas,
+      committedNativeGas,
+      approvalIntent: {
+        nonce: params.nonce,
+        token: source.token,
+        spender: params.spender,
+        amount: params.amount.toString(),
+        gasLimit: params.gas.toString(),
+        maxFeePerGas: gasPrice.toString(),
+      },
+      requiredWallet: addDestinationAmounts(baseline, options.quotes),
+      evidence,
+    }
+    await options.checkpointStore.save(checkpoint)
+    const hash = await walletClient.writeContract({
+      address: source.token,
+      abi: ERC20_ALLOWANCE_ABI,
+      functionName: 'approve',
+      args: [params.spender, params.amount],
+      gas: params.gas,
+      maxFeePerGas: gasPrice,
+      nonce: params.nonce,
+    })
+    await options.checkpointStore.save({ ...checkpoint, approvalTransactionHash: hash })
+    if ((await publicClient.waitForTransactionReceipt({ hash })).status !== 'success') {
+      throw new Error('Selected-source approval transaction failed')
+    }
+    const {
+      approvalIntent: _approvalIntent,
+      approvalTransactionHash: _approvalTransactionHash,
+      ...confirmed
+    } = checkpoint
+    await options.checkpointStore.save(confirmed)
+  }
   for (const quote of options.quotes) {
     const refreshed = await options.refreshQuote(quote)
     assertFixedInputRefresh(quote, refreshed)
@@ -505,15 +552,7 @@ async function executeResolvedSourceAcquisition(
             committed: committedNativeGas,
             next: resetGas * gasPrice,
           })
-          await walletClient.writeContract({
-            address: source.token,
-            abi: ERC20_ALLOWANCE_ABI,
-            functionName: 'approve',
-            args: [spender, 0n],
-            gas: resetGas,
-            maxFeePerGas: gasPrice,
-            nonce,
-          })
+          await broadcastApproval({ spender, amount: 0n, gas: resetGas, nonce })
           nonce += 1
         }
         const approvalGasLimit = await publicClient.estimateContractGas({
@@ -528,15 +567,7 @@ async function executeResolvedSourceAcquisition(
           committed: committedNativeGas,
           next: approvalGasLimit * gasPrice,
         })
-        await walletClient.writeContract({
-          address: source.token,
-          abi: ERC20_ALLOWANCE_ABI,
-          functionName: 'approve',
-          args: [spender, refreshed.sourceAmount],
-          gas: approvalGasLimit,
-          maxFeePerGas: gasPrice,
-          nonce,
-        })
+        await broadcastApproval({ spender, amount: refreshed.sourceAmount, gas: approvalGasLimit, nonce })
         nonce += 1
       }
     }
