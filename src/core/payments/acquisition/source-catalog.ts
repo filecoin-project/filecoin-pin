@@ -231,7 +231,11 @@ export async function fetchSquidCatalog(options: SquidCatalogFetchOptions): Prom
   const timeout = options.timeoutMs ?? SQUID_CATALOG_TIMEOUT_MS
   if (!Number.isSafeInteger(timeout) || timeout <= 0) throw new Error('Squid catalog timeout must be positive')
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeout)
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeout)
   const fetchFn = options.fetchFn ?? fetch
   try {
     const headers = { 'x-integrator-id': options.integratorId }
@@ -260,7 +264,8 @@ export async function fetchSquidCatalog(options: SquidCatalogFetchOptions): Prom
     }
     return parseSquidCatalog((chainsBody as { chains: unknown[] }).chains, (tokensBody as { tokens: unknown[] }).tokens)
   } catch (error) {
-    if (controller.signal.aborted) throw new Error('Squid catalog request timed out')
+    if (!controller.signal.aborted) controller.abort()
+    if (timedOut) throw new Error('Squid catalog request timed out')
     throw error
   } finally {
     clearTimeout(timer)

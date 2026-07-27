@@ -118,6 +118,23 @@ describe('Squid selected-source catalog contract', () => {
     expect(fetchFn).toHaveBeenCalledTimes(2)
   })
 
+  it('aborts the peer request after a catalog failure without relabeling it as a timeout', async () => {
+    let peerAborted = false
+    const originalFailure = new Error('catalog unavailable')
+    const fetchFn = vi.fn<typeof fetch>((url, init) => {
+      if (url.toString().endsWith('/chains')) return Promise.reject(originalFailure)
+      return new Promise<Response>((_resolve, reject) =>
+        init?.signal?.addEventListener('abort', () => {
+          peerAborted = init.signal?.aborted === true
+          reject(new DOMException('aborted', 'AbortError'))
+        })
+      )
+    })
+    await expect(fetchSquidCatalog({ integratorId: 'test', fetchFn, timeoutMs: 1_000 })).rejects.toBe(originalFailure)
+    expect(fetchFn).toHaveBeenCalledTimes(2)
+    expect(peerAborted).toBe(true)
+  })
+
   it('unwraps the current catalog response shape and rejects missing wrappers', async () => {
     const fetchFn = vi
       .fn<typeof fetch>()
