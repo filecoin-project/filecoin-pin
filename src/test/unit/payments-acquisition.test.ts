@@ -54,6 +54,7 @@ import { planWalletFunding } from '../../core/payments/wallet-funding.js'
 const OWNER = '0x000000000000000000000000000000000000F00D' as const
 const PRIVATE_KEY = '0x0000000000000000000000000000000000000000000000000000000000000001' as const
 const SOURCE_OWNER = '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf' as const
+const SOURCE_APPROVAL_SPENDER = '0xce16F69375520ab01377ce7B88f5BA8C48F8D666' as const
 const FIXTURES = new URL('../fixtures/payments-acquisition/', import.meta.url)
 
 async function routeFixture(name: string): Promise<Record<string, any>> {
@@ -88,6 +89,20 @@ function resolvedArbitrumSource(): ResolvedSourceToken {
     decimals: source.decimals,
     native: false,
     display: 'Arbitrum USDC',
+  }
+}
+
+function resolvedBaseSource(): ResolvedSourceToken {
+  const chain = SELECTED_SOURCE_CHAINS.find((candidate) => candidate.chainId === 8453)
+  if (chain == null) throw new Error('Base test chain missing')
+  return {
+    chain,
+    chainId: chain.chainId,
+    token: '0x0000000000000000000000000000000000000003',
+    symbol: 'USDbC',
+    decimals: 8,
+    native: false,
+    display: 'Base USDbC',
   }
 }
 
@@ -588,17 +603,7 @@ describe('Squid acquisition provider contract', () => {
   })
 
   it('plans a resolved Base source with its dynamic Squid chain and surfaces its gas ceiling for confirmation', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const fixture = await routeFixture('squid-route-usdfc.json')
     fixture.route.transactionRequest.expiry = '2000000000'
     const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
@@ -645,17 +650,7 @@ describe('Squid acquisition provider contract', () => {
     const originalHome = process.env.HOME
     process.env.HOME = directory
     try {
-      const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-      if (chain == null) throw new Error('Base test chain missing')
-      const source: ResolvedSourceToken = {
-        chain,
-        chainId: chain.chainId,
-        token: '0x0000000000000000000000000000000000000003',
-        symbol: 'USDbC',
-        decimals: 8,
-        native: false,
-        display: 'Base USDbC',
-      }
+      const source = resolvedBaseSource()
       const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
       const store = createAcquisitionCheckpointStore(owner)
       await store.save({
@@ -1163,7 +1158,7 @@ describe('Squid acquisition provider contract', () => {
         approvalIntent: {
           nonce: 8,
           token: '0xaf88d065e77c8cc2239327c5edb3a432268e5831',
-          spender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+          spender: SOURCE_APPROVAL_SPENDER,
           amount: '1',
           gasLimit: '1',
           maxFeePerGas: '1',
@@ -1918,7 +1913,7 @@ describe('wallet shortfall acquisition planning', () => {
 
     expect(walletClient.writeContract).toHaveBeenCalledWith(
       expect.objectContaining({
-        args: ['0xce16F69375520ab01377ce7B88f5BA8C48F8D666', quote.sourceAmount],
+        args: [SOURCE_APPROVAL_SPENDER, quote.sourceAmount],
         gas: 3n,
         maxFeePerGas: 5n,
         nonce: 8,
@@ -1966,7 +1961,7 @@ describe('wallet shortfall acquisition planning', () => {
 
     expect(walletClient.writeContract).toHaveBeenCalledTimes(1)
     expect(walletClient.writeContract).toHaveBeenCalledWith(
-      expect.objectContaining({ args: ['0xce16F69375520ab01377ce7B88f5BA8C48F8D666', second.sourceAmount] })
+      expect.objectContaining({ args: [SOURCE_APPROVAL_SPENDER, second.sourceAmount] })
     )
     expect(walletClient.sendTransaction).toHaveBeenCalledTimes(2)
   })
@@ -1992,17 +1987,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('rejects a strict non-USDC checkpoint from legacy recovery before route handling', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const store = checkpointStore({
       version: 2,
       owner: SOURCE_OWNER,
@@ -2041,22 +2026,12 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('rejects an external-source checkpoint whose saved Filecoin target is below the current request', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const quote = {
       ...executionQuote(),
       value: 0n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const store = checkpointStore({
       version: 2,
@@ -2078,7 +2053,7 @@ describe('wallet shortfall acquisition planning', () => {
         privateKey: PRIVATE_KEY,
         source,
         sourceClient: withResolvedErc20Identity(source, {
-          getChainId: vi.fn().mockResolvedValue(chain.chainId),
+          getChainId: vi.fn().mockResolvedValue(source.chainId),
         } as unknown as PublicClient),
         walletClient: walletClient as never,
         quotes: [quote],
@@ -2368,7 +2343,7 @@ describe('wallet shortfall acquisition planning', () => {
       approvalIntent: {
         nonce: 8,
         token: '0xaf88d065e77c8cc2239327c5edb3a432268e5831',
-        spender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+        spender: SOURCE_APPROVAL_SPENDER,
         amount: quote.sourceAmount.toString(),
         gasLimit: '1',
         maxFeePerGas: '1',
@@ -2661,17 +2636,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('uses only remaining gas for a partial-rerun balance check while preserving the original destination proof', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const quote = {
       ...executionQuote(),
       id: 'remaining-usdfc',
@@ -2681,7 +2646,7 @@ describe('wallet shortfall acquisition planning', () => {
       gasLimit: 10n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const prior = {
       ...quote,
@@ -2694,11 +2659,11 @@ describe('wallet shortfall acquisition planning', () => {
     const store = checkpointStore({
       version: 2,
       owner: '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf',
-      sourceChainId: chain.chainId,
+      sourceChainId: source.chainId,
       destinationChainId: 314,
       source: sourceRouteIdentity(source),
       maxSourceAmount: 100n,
-      maxNativeGas: sourceNativeGasCeiling(chain.chainId),
+      maxNativeGas: sourceNativeGasCeiling(source.chainId),
       committedNativeGas: priorGas,
       requiredWallet: { fil: prior.destinationAmount, usdfc: quote.destinationAmount },
       evidence: [
@@ -2712,7 +2677,7 @@ describe('wallet shortfall acquisition planning', () => {
       ],
     })
     const sourceClient = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       // The remaining route costs 10 and the conservative approval reservation costs 3; priorGas is already spent.
       getBalance: vi.fn().mockResolvedValue(13n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
@@ -2754,17 +2719,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('refuses a provider target change after approval and never broadcasts the stale route', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const quote = {
       ...executionQuote(),
       sourceAmount: 100_000_000n,
@@ -2772,11 +2727,11 @@ describe('wallet shortfall acquisition planning', () => {
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const allowanceValues = [100_000_000n, 0n, 100_000_000n]
     const sourceClient = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       getBalance: vi.fn().mockResolvedValue(4n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
@@ -2820,30 +2775,20 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('retains an approval-only checkpoint gas commitment when enforcing the rerun ceiling', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const quote = {
       ...executionQuote(),
       value: 0n,
       gasLimit: 2n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
-    const ceiling = sourceNativeGasCeiling(chain.chainId)
+    const ceiling = sourceNativeGasCeiling(source.chainId)
     const store = checkpointStore({
       version: 2,
       owner: '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf',
-      sourceChainId: chain.chainId,
+      sourceChainId: source.chainId,
       destinationChainId: 314,
       source: sourceRouteIdentity(source),
       maxSourceAmount: 10n,
@@ -2854,7 +2799,7 @@ describe('wallet shortfall acquisition planning', () => {
       evidence: [],
     })
     const sourceClient = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       getBalance: vi.fn().mockResolvedValue(ceiling),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
@@ -2901,7 +2846,7 @@ describe('wallet shortfall acquisition planning', () => {
     const quote = {
       ...executionQuote(),
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
       value: 1n,
     }
     const store = emptyCheckpointStore()
@@ -2957,26 +2902,16 @@ describe('wallet shortfall acquisition planning', () => {
     ['decimals', 7, 'USDbC', 'decimals conflict'],
     ['symbol', 8, 'WRONG', 'symbol conflicts'],
   ])('rejects a catalog %s mismatch before any source signing work', async (_field, decimals, symbol, error) => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const quote = {
       ...executionQuote(),
       value: 0n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const estimateContractGas = vi.fn()
     const client = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       getCode: vi.fn().mockResolvedValue('0x01'),
       readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
         functionName === 'decimals' ? decimals : symbol
@@ -3010,22 +2945,12 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('rejects untrusted initial route targets and approval spenders before any signature', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const trustedQuote = {
       ...executionQuote(),
       value: 0n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     for (const quote of [
       { ...trustedQuote, target: '0x0000000000000000000000000000000000000005' },
@@ -3037,7 +2962,7 @@ describe('wallet shortfall acquisition planning', () => {
           privateKey: PRIVATE_KEY,
           source,
           sourceClient: withResolvedErc20Identity(source, {
-            getChainId: vi.fn().mockResolvedValue(chain.chainId),
+            getChainId: vi.fn().mockResolvedValue(source.chainId),
           } as unknown as PublicClient),
           walletClient: walletClient as never,
           quotes: [quote],
@@ -3074,7 +2999,7 @@ describe('wallet shortfall acquisition planning', () => {
       ...executionQuote(),
       value: 0n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const walletClient = { writeContract: vi.fn(), sendTransaction: vi.fn() }
 
@@ -3120,7 +3045,7 @@ describe('wallet shortfall acquisition planning', () => {
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const client = {
       getChainId: vi.fn().mockResolvedValue(chain.chainId),
@@ -3200,23 +3125,13 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('does not repoll confirmed strict recovery evidence before executing the remaining leg', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const routeFields = {
       value: 0n,
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
       sourceOwner: SOURCE_OWNER,
       destinationAddress: SOURCE_OWNER,
     }
@@ -3248,7 +3163,7 @@ describe('wallet shortfall acquisition planning', () => {
       sendTransaction: vi.fn().mockResolvedValue('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
     }
     const client = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       getCode: vi.fn().mockResolvedValue('0x01'),
       getBalance: vi.fn().mockResolvedValue(100n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
@@ -3286,17 +3201,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('reserves later strict-route gas when a post-approval refresh raises the current cost', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const first = {
       ...executionQuote(),
       id: 'strict-first-refresh-cap',
@@ -3305,17 +3210,17 @@ describe('wallet shortfall acquisition planning', () => {
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const second = {
       ...first,
       id: 'strict-second-refresh-cap',
       asset: 'usdfc' as const,
     }
-    const ceiling = sourceNativeGasCeiling(chain.chainId)
+    const ceiling = sourceNativeGasCeiling(source.chainId)
     let firstRefreshes = 0
     const client = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       getBalance: vi.fn().mockResolvedValue(ceiling * 2n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
@@ -3352,17 +3257,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('reserves later strict-route gas against the native balance before signing', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const first = {
       ...executionQuote(),
       id: 'strict-first-refresh-balance',
@@ -3371,7 +3266,7 @@ describe('wallet shortfall acquisition planning', () => {
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const second = {
       ...first,
@@ -3380,7 +3275,7 @@ describe('wallet shortfall acquisition planning', () => {
       gasLimit: 10n,
     }
     const client = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       getBalance: vi.fn().mockResolvedValue(15n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
@@ -3418,17 +3313,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('reserves the second strict-leg approval after an exact first allowance before signing', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const first = {
       ...executionQuote(),
       id: 'strict-first-approval-cap',
@@ -3437,13 +3322,13 @@ describe('wallet shortfall acquisition planning', () => {
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const second = { ...first, id: 'strict-second-approval-cap', asset: 'usdfc' as const, sourceAmount: 2n }
-    const estimateContractGas = vi.fn().mockResolvedValue(sourceNativeGasCeiling(chain.chainId))
+    const estimateContractGas = vi.fn().mockResolvedValue(sourceNativeGasCeiling(source.chainId))
     const client = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
-      getBalance: vi.fn().mockResolvedValue(sourceNativeGasCeiling(chain.chainId) * 2n),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
+      getBalance: vi.fn().mockResolvedValue(sourceNativeGasCeiling(source.chainId) * 2n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn(),
       estimateContractGas,
@@ -3479,17 +3364,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('reserves the second strict-leg approval against the native balance before signing', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const first = {
       ...executionQuote(),
       id: 'strict-first-approval-balance',
@@ -3498,7 +3373,7 @@ describe('wallet shortfall acquisition planning', () => {
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const second = {
       ...first,
@@ -3508,7 +3383,7 @@ describe('wallet shortfall acquisition planning', () => {
     }
     const estimateContractGas = vi.fn().mockResolvedValue(10n)
     const client = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       getBalance: vi.fn().mockResolvedValue(11n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn(),
@@ -3545,17 +3420,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('does not preflight a later reset-required approval against a stale nonzero allowance', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const first = {
       ...executionQuote(),
       id: 'strict-first-reset-required',
@@ -3564,21 +3429,21 @@ describe('wallet shortfall acquisition planning', () => {
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const second = {
       ...first,
       id: 'strict-second-reset-required',
       asset: 'usdfc' as const,
       sourceAmount: 2n,
-      gasLimit: sourceNativeGasCeiling(chain.chainId),
+      gasLimit: sourceNativeGasCeiling(source.chainId),
     }
     const estimateContractGas = vi.fn(async ({ args }: { args: readonly unknown[] }) => {
       if (args[1] === second.sourceAmount) throw new Error('must reset allowance first')
       return 1n
     })
     const client = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       getBalance: vi.fn().mockResolvedValue(100n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn(),
@@ -3616,24 +3481,14 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('requires a rerun after a reset-required strict approval before exact approval or routing', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const quote = {
       ...executionQuote(),
       value: 0n,
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     let allowance = 2n
     const estimateContractGas = vi.fn(async ({ args }: { args: readonly unknown[] }) => {
@@ -3641,7 +3496,7 @@ describe('wallet shortfall acquisition planning', () => {
       return 1n
     })
     const client = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       getBalance: vi.fn().mockResolvedValue(100n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
@@ -3693,28 +3548,18 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('executes a strict ERC-20 route with exact allowance and provider-required native value', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const quote = {
       ...executionQuote(),
       value: 1n,
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const estimateContractGas = vi.fn().mockResolvedValue(100n)
     const client = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       getBalance: vi.fn().mockResolvedValue(2n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
@@ -3767,27 +3612,17 @@ describe('wallet shortfall acquisition planning', () => {
       error: 'Insufficient source native balance for route value and selected-chain gas ceiling',
     },
   ])('rejects a fresh strict ERC-20 route that exceeds the $name before any broadcast', async (scenario) => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const quote = {
       ...executionQuote(),
       value: scenario.value,
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const client = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       getBalance: vi.fn().mockResolvedValue(scenario.nativeBalance),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
@@ -3834,28 +3669,18 @@ describe('wallet shortfall acquisition planning', () => {
       error: 'Insufficient source native balance for the next signed action',
     },
   ])('rejects a post-refresh strict ERC-20 $name increase before any broadcast', async (scenario) => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const quote = {
       ...executionQuote(),
       value: 0n,
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const nativeBalances = [...scenario.nativeBalances]
     const client = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       getBalance: vi.fn(async () => nativeBalances.shift() ?? 0n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
@@ -3890,29 +3715,19 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('preflights a zero allowance with the exact approval that can be signed now', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const quote = {
       ...executionQuote(),
       value: 0n,
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const allowances = [0n, 0n, quote.sourceAmount, quote.sourceAmount]
     const estimateContractGas = vi.fn().mockResolvedValue(1n)
     const client = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       getBalance: vi.fn().mockResolvedValue(3n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
@@ -3971,7 +3786,7 @@ describe('wallet shortfall acquisition planning', () => {
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const client = {
       getChainId: vi.fn().mockResolvedValue(chain.chainId),
@@ -4035,7 +3850,7 @@ describe('wallet shortfall acquisition planning', () => {
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const allowances = [2n, 2n, quote.sourceAmount, quote.sourceAmount]
     const estimateContractGas = vi.fn().mockResolvedValue(1n)
@@ -4118,7 +3933,7 @@ describe('wallet shortfall acquisition planning', () => {
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const client = {
       getChainId: vi.fn().mockResolvedValue(chain.chainId),
@@ -4169,38 +3984,28 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('never resubmits a strict route across before-hash and after-hash recovery', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const quote = {
       ...executionQuote(),
       value: 0n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const checkpoint = {
       version: 2 as const,
       owner: '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf' as const,
-      sourceChainId: chain.chainId,
+      sourceChainId: source.chainId,
       destinationChainId: 314,
       source: sourceRouteIdentity(source),
       maxSourceAmount: 10n,
-      maxNativeGas: sourceNativeGasCeiling(chain.chainId),
+      maxNativeGas: sourceNativeGasCeiling(source.chainId),
       committedNativeGas: 1n,
       requiredWallet: { fil: 0n, usdfc: quote.destinationAmount },
       evidence: [],
     }
     const walletClient = { writeContract: vi.fn(), sendTransaction: vi.fn() }
     const client = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
     } as unknown as PublicClient
     const routeIntent = {
@@ -4266,17 +4071,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('recovers strict multi-leg evidence from Filecoin balances while the provider still lags', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const fil = {
       ...executionQuote(),
       id: 'strict-recovered-fil',
@@ -4285,7 +4080,7 @@ describe('wallet shortfall acquisition planning', () => {
       destinationAmount: 3n,
       value: 0n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const usdfc = {
       ...executionQuote(),
@@ -4294,17 +4089,17 @@ describe('wallet shortfall acquisition planning', () => {
       destinationAmount: 4n,
       value: 0n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const requiredWallet = { fil: fil.destinationAmount, usdfc: usdfc.destinationAmount }
     const store = checkpointStore({
       version: 2,
       owner: '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf',
-      sourceChainId: chain.chainId,
+      sourceChainId: source.chainId,
       destinationChainId: 314,
       source: sourceRouteIdentity(source),
       maxSourceAmount: 100n,
-      maxNativeGas: sourceNativeGasCeiling(chain.chainId),
+      maxNativeGas: sourceNativeGasCeiling(source.chainId),
       committedNativeGas: 2n,
       requiredWallet,
       evidence: [
@@ -4328,7 +4123,7 @@ describe('wallet shortfall acquisition planning', () => {
     const getProviderStatus = vi.fn().mockResolvedValue({ status: 'ongoing' as const })
     const waitForFilecoinArrival = vi.fn().mockResolvedValue(undefined)
     const sourceClient = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
     } as unknown as PublicClient
 
@@ -4361,34 +4156,24 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('rechecks the ERC-20 route balance before recording or broadcasting the strict route', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
-    const source: ResolvedSourceToken = {
-      chain,
-      chainId: chain.chainId,
-      token: '0x0000000000000000000000000000000000000003',
-      symbol: 'USDbC',
-      decimals: 8,
-      native: false,
-      display: 'Base USDbC',
-    }
+    const source = resolvedBaseSource()
     const quote = {
       ...executionQuote(),
       value: 0n,
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const routeBalances = [quote.sourceAmount, 0n]
     const sourceClient = {
-      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getChainId: vi.fn().mockResolvedValue(source.chainId),
       getBalance: vi.fn().mockResolvedValue(100n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
       estimateContractGas: vi.fn().mockResolvedValue(1n),
       readContract: vi.fn(async ({ functionName }: { functionName: string }) => {
-        if (functionName === 'balanceOf') return routeBalances.shift()
+        if (functionName === 'balanceOf') return routeBalances.shift() ?? 0n
         return quote.sourceAmount
       }),
       waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
@@ -4436,7 +4221,7 @@ describe('wallet shortfall acquisition planning', () => {
       gasLimit: 1n,
       maxFeePerGas: 1n,
       source: sourceRouteIdentity(source),
-      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
     }
     const allowanceValues = [0n, 0n, quote.sourceAmount, quote.sourceAmount]
     const sourceClient = {
