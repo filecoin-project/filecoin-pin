@@ -65,6 +65,20 @@ export function assertFixedInputRefresh(previous: PlannedAcquisitionQuote, refre
   ) {
     throw new Error('Squid route changed after refresh; rerun without submitting the route')
   }
+  if (
+    previous.source != null &&
+    (refreshed.source == null ||
+      previous.source.chainId !== refreshed.source.chainId ||
+      previous.source.token.toLowerCase() !== refreshed.source.token.toLowerCase() ||
+      previous.source.decimals !== refreshed.source.decimals ||
+      previous.source.native !== refreshed.source.native ||
+      previous.approvalSpender?.toLowerCase() !== refreshed.approvalSpender?.toLowerCase() ||
+      previous.target.toLowerCase() !== refreshed.target.toLowerCase())
+  ) {
+    throw new Error(
+      'Squid route source identity or trusted target/spender changed after refresh; rerun without submitting the route'
+    )
+  }
   assertRouteNotExpired(refreshed)
 }
 
