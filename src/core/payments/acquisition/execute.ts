@@ -18,7 +18,11 @@ import {
   assertCheckpointSourceCompatibility,
 } from './checkpoint.js'
 import { ARBITRUM_USDC, getSourceWalletBalances, SQUID_ROUTER } from './source-assets.js'
-import { type ResolvedSourceToken, resolvedTrustedSquidRoutePolicy } from './source-catalog.js'
+import {
+  type ResolvedSourceToken,
+  resolvedTrustedSquidRoutePolicy,
+  verifyResolvedErc20Source,
+} from './source-catalog.js'
 import {
   assertCumulativeSourceNativeGas,
   assertFilecoinSourceReserve,
@@ -26,7 +30,6 @@ import {
   requiresErc20Approval,
   sourceNativeGasCeiling,
   sourceRouteIdentity,
-  verifySourceChain,
 } from './source-execution.js'
 import { waitForSquidTerminalStatus } from './squid.js'
 import type {
@@ -361,7 +364,7 @@ async function executeResolvedSourceAcquisition(
     throw new Error('Resolved source chain identity is inconsistent; do not sign')
   }
   const publicClient = options.sourceClient ?? (await createVerifiedResolvedSourceClient(source, options.sourceRpcUrl))
-  await verifySourceChain(publicClient, source)
+  await verifyResolvedErc20Source(publicClient, source)
   const maxSourceAmount = options.maxSourceAmount
   if (maxSourceAmount == null || maxSourceAmount <= 0n)
     throw new Error('Resolved source execution requires a positive source cap')

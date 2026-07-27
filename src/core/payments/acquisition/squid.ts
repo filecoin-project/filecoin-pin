@@ -130,31 +130,42 @@ function selectedSource(leg: AcquisitionLeg): {
   }
 }
 
-async function squidFetch(
+async function squidFetch<T>(
   url: string,
   init: RequestInit,
   fetchFn: typeof fetch,
-  requestTimeoutMs: number | undefined
-): Promise<Response> {
+  requestTimeoutMs: number | undefined,
+  consume: (response: Response) => Promise<T> | T
+): Promise<T> {
   let rateLimitRetries = 0
   const timeoutMs = requestTimeoutMs ?? DEFAULT_SQUID_REQUEST_TIMEOUT_MS
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw providerError('Squid request timeout must be positive')
   while (true) {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
-    let response: Response
+    let timedOut = false
+    let retryAfter = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timed = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true
+        controller.abort()
+        reject(providerError('Squid request timed out'))
+      }, timeoutMs)
+    })
     try {
-      response = await fetchFn(url, { ...init, signal: controller.signal })
+      const response = await Promise.race([fetchFn(url, { ...init, signal: controller.signal }), timed])
+      if (response.status !== 429 || rateLimitRetries >= MAX_RATE_LIMIT_RETRIES)
+        return await Promise.race([consume(response), timed])
+      rateLimitRetries += 1
+      retryAfter = Number(response.headers.get('retry-after') ?? '0')
+      if (!Number.isFinite(retryAfter) || retryAfter < 0 || retryAfter > 5)
+        return await Promise.race([consume(response), timed])
     } catch (error) {
-      if (controller.signal.aborted) throw providerError('Squid request timed out')
+      if (timedOut || controller.signal.aborted) throw providerError('Squid request timed out')
       throw error
     } finally {
-      clearTimeout(timeout)
+      if (timer != null) clearTimeout(timer)
     }
-    if (response.status !== 429 || rateLimitRetries >= MAX_RATE_LIMIT_RETRIES) return response
-    rateLimitRetries += 1
-    const retryAfter = Number(response.headers.get('retry-after') ?? '0')
-    if (!Number.isFinite(retryAfter) || retryAfter < 0 || retryAfter > 5) return response
     await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000))
   }
 }
@@ -184,7 +195,7 @@ export async function getSquidRoute(
     slippage: request.slippage,
     quoteOnly: false,
   }
-  const response = await squidFetch(
+  const { response, parsed } = await squidFetch(
     `${SQUID_API_URL}/route`,
     {
       method: 'POST',
@@ -192,10 +203,12 @@ export async function getSquidRoute(
       body: JSON.stringify(body),
     },
     fetchFn,
-    options.requestTimeoutMs
+    options.requestTimeoutMs,
+    async (response) => {
+      if (!response.ok) throw providerError(`Squid quote failed (${response.status})`)
+      return { response, parsed: (await response.json()) as SquidRouteResponse }
+    }
   )
-  if (!response.ok) throw providerError(`Squid quote failed (${response.status})`)
-  const parsed = (await response.json()) as SquidRouteResponse
   const route = parsed.route
   const transaction = route?.transactionRequest
   const params = route?.params
@@ -286,23 +299,25 @@ export async function pollSquidStatus(
     quoteId: request.quoteId,
   })
   if (request.requestId != null) params.set('requestId', request.requestId)
-  const response = await squidFetch(
+  return squidFetch(
     `${SQUID_API_URL}/status?${params.toString()}`,
     { headers: { 'x-integrator-id': options.integratorId } },
     fetchFn,
-    options.requestTimeoutMs
+    options.requestTimeoutMs,
+    async (response) => {
+      // A just-submitted transaction may not be indexed by the provider yet. Keep it in bounded polling.
+      if (response.status === 404) return mapSquidStatus('not_found')
+      if (!response.ok) throw providerError(`Squid status request failed (${response.status})`)
+      const parsed = (await response.json()) as SquidStatusResponse
+      return {
+        ...mapSquidStatus(parsed.squidTransactionStatus),
+        ...(parsed.fromChain?.transactionUrl != null ? { sourceTransactionUrl: parsed.fromChain.transactionUrl } : {}),
+        ...(parsed.toChain?.transactionId != null ? { destinationTransactionHash: parsed.toChain.transactionId } : {}),
+        ...(parsed.toChain?.transactionUrl != null ? { destinationTransactionUrl: parsed.toChain.transactionUrl } : {}),
+        ...(parsed.axelarTransactionUrl != null ? { providerExplorerUrl: parsed.axelarTransactionUrl } : {}),
+      }
+    }
   )
-  // A just-submitted transaction may not be indexed by the provider yet. Keep it in bounded polling.
-  if (response.status === 404) return mapSquidStatus('not_found')
-  if (!response.ok) throw providerError(`Squid status request failed (${response.status})`)
-  const parsed = (await response.json()) as SquidStatusResponse
-  return {
-    ...mapSquidStatus(parsed.squidTransactionStatus),
-    ...(parsed.fromChain?.transactionUrl != null ? { sourceTransactionUrl: parsed.fromChain.transactionUrl } : {}),
-    ...(parsed.toChain?.transactionId != null ? { destinationTransactionHash: parsed.toChain.transactionId } : {}),
-    ...(parsed.toChain?.transactionUrl != null ? { destinationTransactionUrl: parsed.toChain.transactionUrl } : {}),
-    ...(parsed.axelarTransactionUrl != null ? { providerExplorerUrl: parsed.axelarTransactionUrl } : {}),
-  }
 }
 
 /** Bounded polling never promotes an unresolved provider route to success. */

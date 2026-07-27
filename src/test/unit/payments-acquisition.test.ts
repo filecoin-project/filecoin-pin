@@ -149,6 +149,19 @@ function sourceClientForExecution(allowance: () => bigint): PublicClient {
   } as unknown as PublicClient
 }
 
+function withResolvedErc20Identity(source: ResolvedSourceToken, client: PublicClient): PublicClient {
+  const readContract = client.readContract
+  return {
+    ...client,
+    getCode: vi.fn().mockResolvedValue('0x01'),
+    readContract: vi.fn(async (request: { functionName: string }) => {
+      if (request.functionName === 'decimals') return source.decimals
+      if (request.functionName === 'symbol') return source.symbol
+      return readContract(request as never)
+    }),
+  } as unknown as PublicClient
+}
+
 describe('Squid acquisition provider contract', () => {
   it('uses the sanitised fixture only with the approved owner, assets, router, and credential header', async () => {
     const fixture = await routeFixture('squid-route-usdfc.json')
@@ -239,6 +252,48 @@ describe('Squid acquisition provider contract', () => {
       const status = pollSquidStatus(
         { transactionId: 'source', fromChainId: '42161', toChainId: '314', quoteId: 'quote' },
         { integratorId: 'test-only-integrator', fetchFn: abortingFetch, requestTimeoutMs: 1 }
+      )
+      const statusTimeout = expect(status).rejects.toThrow('timed out')
+      await vi.advanceTimersByTimeAsync(1)
+      await statusTimeout
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('aborts route and status JSON body stalls at the configured per-request timeout', async () => {
+    vi.useFakeTimers()
+    const stalledResponse = {
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: () => new Promise(() => undefined),
+    } as unknown as Response
+    try {
+      const route = getSquidRoute(
+        {
+          fromAddress: OWNER,
+          sourceAmount: 1n,
+          leg: { asset: 'fil', amount: 1n, source: supportedSource() },
+          slippage: 1,
+        },
+        {
+          integratorId: 'test-only-integrator',
+          fetchFn: vi.fn<typeof fetch>().mockResolvedValue(stalledResponse),
+          requestTimeoutMs: 1,
+        }
+      )
+      const routeTimeout = expect(route).rejects.toThrow('timed out')
+      await vi.advanceTimersByTimeAsync(1)
+      await routeTimeout
+
+      const status = pollSquidStatus(
+        { transactionId: 'source', fromChainId: '42161', toChainId: '314', quoteId: 'quote' },
+        {
+          integratorId: 'test-only-integrator',
+          fetchFn: vi.fn<typeof fetch>().mockResolvedValue(stalledResponse),
+          requestTimeoutMs: 1,
+        }
       )
       const statusTimeout = expect(status).rejects.toThrow('timed out')
       await vi.advanceTimersByTimeAsync(1)
@@ -2167,7 +2222,7 @@ describe('wallet shortfall acquisition planning', () => {
       executeTokenAcquisition({
         privateKey: PRIVATE_KEY,
         source,
-        sourceClient,
+        sourceClient: withResolvedErc20Identity(source, sourceClient),
         walletClient: walletClient as never,
         quotes: [prior, quote],
         maxSourceAmount: 100n,
@@ -2230,7 +2285,7 @@ describe('wallet shortfall acquisition planning', () => {
       executeTokenAcquisition({
         privateKey: PRIVATE_KEY,
         source,
-        sourceClient,
+        sourceClient: withResolvedErc20Identity(source, sourceClient),
         walletClient: walletClient as never,
         quotes: [quote],
         maxSourceAmount: 1_000_000_000n,
@@ -2302,7 +2357,7 @@ describe('wallet shortfall acquisition planning', () => {
       executeTokenAcquisition({
         privateKey: PRIVATE_KEY,
         source,
-        sourceClient,
+        sourceClient: withResolvedErc20Identity(source, sourceClient),
         walletClient: walletClient as never,
         quotes: [quote],
         maxSourceAmount: 10n,
@@ -2345,6 +2400,7 @@ describe('wallet shortfall acquisition planning', () => {
     }
     const nativeClient = {
       getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getCode: vi.fn(),
       getBalance: vi.fn().mockResolvedValue(100n),
       getGasPrice: vi.fn().mockResolvedValue(1n),
       getTransactionCount: vi.fn().mockResolvedValue(8),
@@ -2380,9 +2436,66 @@ describe('wallet shortfall acquisition planning', () => {
         providerExplorerUrl: 'https://provider.example/route',
       },
     ])
+    expect(nativeClient.getCode).not.toHaveBeenCalled()
     expect(nativeClient.readContract).not.toHaveBeenCalled()
     expect(walletClient.writeContract).not.toHaveBeenCalled()
     expect(store.clear).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['decimals', 7, 'USDbC', 'decimals conflict'],
+    ['symbol', 8, 'WRONG', 'symbol conflicts'],
+  ])('rejects a catalog %s mismatch before any source signing work', async (_field, decimals, symbol, error) => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
+    if (chain == null) throw new Error('Base test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: '0x0000000000000000000000000000000000000003',
+      symbol: 'USDbC',
+      decimals: 8,
+      native: false,
+      display: 'Base USDbC',
+    }
+    const quote = {
+      ...executionQuote(),
+      value: 0n,
+      source: sourceRouteIdentity(source),
+      approvalSpender: '0xce16F69375520ab01377ce7B88f5BA8C48F8D666',
+    }
+    const estimateContractGas = vi.fn()
+    const client = {
+      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getCode: vi.fn().mockResolvedValue('0x01'),
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+        functionName === 'decimals' ? decimals : symbol
+      ),
+      getBalance: vi.fn(),
+      getGasPrice: vi.fn(),
+      estimateContractGas,
+    } as unknown as PublicClient
+    const walletClient = { writeContract: vi.fn(), sendTransaction: vi.fn() }
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        source,
+        sourceClient: client,
+        walletClient: walletClient as never,
+        quotes: [quote],
+        maxSourceAmount: 10n,
+        refreshQuote: vi.fn(),
+        getProviderStatus: vi.fn(),
+        checkpointStore: emptyCheckpointStore(),
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn(),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).rejects.toThrow(error)
+
+    expect(estimateContractGas).not.toHaveBeenCalled()
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
+    expect(walletClient.sendTransaction).not.toHaveBeenCalled()
   })
 
   it('rejects untrusted initial route targets and approval spenders before any signature', async () => {
@@ -2412,7 +2525,9 @@ describe('wallet shortfall acquisition planning', () => {
         executeTokenAcquisition({
           privateKey: PRIVATE_KEY,
           source,
-          sourceClient: { getChainId: vi.fn().mockResolvedValue(chain.chainId) } as unknown as PublicClient,
+          sourceClient: withResolvedErc20Identity(source, {
+            getChainId: vi.fn().mockResolvedValue(chain.chainId),
+          } as unknown as PublicClient),
           walletClient: walletClient as never,
           quotes: [quote],
           maxSourceAmount: 10n,
@@ -2456,7 +2571,10 @@ describe('wallet shortfall acquisition planning', () => {
       executeTokenAcquisition({
         privateKey: PRIVATE_KEY,
         source,
-        sourceClient: sourceClientForExecution(() => quote.sourceAmount),
+        sourceClient: withResolvedErc20Identity(
+          source,
+          sourceClientForExecution(() => quote.sourceAmount)
+        ),
         walletClient: walletClient as never,
         quotes: [quote],
         maxSourceAmount: 10n,
@@ -2567,7 +2685,7 @@ describe('wallet shortfall acquisition planning', () => {
       executeTokenAcquisition({
         privateKey: PRIVATE_KEY,
         source,
-        sourceClient: client,
+        sourceClient: withResolvedErc20Identity(source, client),
         walletClient: walletClient as never,
         quotes: [quote],
         maxSourceAmount: 10n,
@@ -2627,7 +2745,7 @@ describe('wallet shortfall acquisition planning', () => {
       executeTokenAcquisition({
         privateKey: PRIVATE_KEY,
         source,
-        sourceClient: client,
+        sourceClient: withResolvedErc20Identity(source, client),
         walletClient: walletClient as never,
         quotes: [quote],
         maxSourceAmount: 10n,
@@ -2687,7 +2805,7 @@ describe('wallet shortfall acquisition planning', () => {
       executeTokenAcquisition({
         privateKey: PRIVATE_KEY,
         source,
-        sourceClient: client,
+        sourceClient: withResolvedErc20Identity(source, client),
         walletClient: walletClient as never,
         quotes: [quote],
         maxSourceAmount: 10n,
@@ -2754,7 +2872,7 @@ describe('wallet shortfall acquisition planning', () => {
       executeTokenAcquisition({
         privateKey: PRIVATE_KEY,
         source,
-        sourceClient: client,
+        sourceClient: withResolvedErc20Identity(source, client),
         walletClient: walletClient as never,
         quotes: [quote],
         maxSourceAmount: 10n,
@@ -2905,7 +3023,7 @@ describe('wallet shortfall acquisition planning', () => {
       executeTokenAcquisition({
         privateKey: PRIVATE_KEY,
         source,
-        sourceClient: client,
+        sourceClient: withResolvedErc20Identity(source, client),
         walletClient: walletClient as never,
         quotes: [quote],
         maxSourceAmount: 10n,
@@ -2935,7 +3053,7 @@ describe('wallet shortfall acquisition planning', () => {
       executeTokenAcquisition({
         privateKey: PRIVATE_KEY,
         source,
-        sourceClient: client,
+        sourceClient: withResolvedErc20Identity(source, client),
         walletClient: walletClient as never,
         quotes: [quote],
         maxSourceAmount: 10n,
@@ -2996,7 +3114,7 @@ describe('wallet shortfall acquisition planning', () => {
       executeTokenAcquisition({
         privateKey: PRIVATE_KEY,
         source,
-        sourceClient,
+        sourceClient: withResolvedErc20Identity(source, sourceClient),
         walletClient: walletClient as never,
         quotes: [quote],
         maxSourceAmount: 10n,
