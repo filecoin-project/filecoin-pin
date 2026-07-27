@@ -294,7 +294,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       if (!acquisitionRequested) {
         const message = `${walletShortfallMessage(shortfalls.filShortfall, shortfalls.usdfcShortfall)}. Fund the Filecoin wallet directly, then retry.`
         log.line(pc.red(`✗ ${message}`))
-        log.line(pc.cyan(`Retry with source acquisition: ${retryCommand}`))
+        log.line(`Retry with source acquisition: ${retryCommand}`)
         log.flush()
         cancel('Please fund your wallet and try again')
         throw new CliFatal(message)
@@ -304,9 +304,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
         const message = `${walletShortfallMessage(shortfalls.filShortfall, shortfalls.usdfcShortfall)}. Token acquisition is available only on Filecoin mainnet; fund this wallet directly on ${network}.`
         log.line(pc.red(`✗ ${message}`))
         log.line(
-          pc.cyan(
-            `Retry direct deposit: ${formatAutoSetupDirectRetryCommand(options, resolvedTargetFilecoinPayBalance)}`
-          )
+          `Retry direct deposit: ${formatAutoSetupDirectRetryCommand(options, resolvedTargetFilecoinPayBalance)}`
         )
         log.flush()
         cancel('Please fund your wallet directly and try again')
@@ -435,10 +433,10 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
     spinner.stop(`${pc.red('✗')} Setup failed: ${msg}`)
     if (acquisitionRequested) {
       if (acquisitionCompleted && directRetryCommand != null) {
-        log.line(pc.yellow(`Retry direct deposit: ${directRetryCommand}`))
+        log.line(`Retry direct deposit: ${directRetryCommand}`)
         log.flush()
       } else if (acquisitionRetryCommand != null) {
-        log.line(pc.yellow(`Retry source acquisition: ${acquisitionRetryCommand}`))
+        log.line(`Retry source acquisition: ${acquisitionRetryCommand}`)
         log.line(pc.yellow(acquisitionRecoveryNote()))
         log.flush()
       }
