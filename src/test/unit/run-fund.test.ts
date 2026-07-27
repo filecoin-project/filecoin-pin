@@ -407,25 +407,27 @@ describe('runFund confirmation exit codes', () => {
     const line = mockLogLine.mock.calls.flat().find((value) => value.includes('After provider arrival'))
     if (line == null) throw new Error('expected acquisition recovery command')
     const command = line.slice(line.indexOf(': ') + 2)
-    const argumentsList = execFileSync('/bin/sh', ['-c', `set -- ${command}; printf '%s\\n' "$@"`], {
-      encoding: 'utf8',
-    })
-      .trimEnd()
-      .split('\n')
+    if (process.platform !== 'win32') {
+      const argumentsList = execFileSync('/bin/sh', ['-c', `set -- ${command}; printf '%s\\n' "$@"`], {
+        encoding: 'utf8',
+      })
+        .trimEnd()
+        .split('\n')
 
-    expect(argumentsList).toEqual([
-      'filecoin-pin',
-      'payments',
-      'fund',
-      '--amount',
-      '5',
-      '--from-chain',
-      "arb'quoted",
-      '--from-token',
-      'USDC',
-      '--max-source-amount',
-      '10',
-    ])
+      expect(argumentsList).toEqual([
+        'filecoin-pin',
+        'payments',
+        'fund',
+        '--amount',
+        '5',
+        '--from-chain',
+        "arb'quoted",
+        '--from-token',
+        'USDC',
+        '--max-source-amount',
+        '10',
+      ])
+    }
     expect(line).not.toContain(privateKey)
     expect(line).not.toContain('source-secret')
     expect(line).not.toContain('filecoin-secret')
@@ -606,7 +608,10 @@ describe('runFund confirmation exit codes', () => {
 
   it.each([
     ['standalone slippage', { amount: '5', slippage: 1 }],
-    ['partial acquisition tuple', { amount: '5', fromChain: 'arb', sourceRpcUrl: 'https://ambient-source-rpc.example/rpc' }],
+    [
+      'partial acquisition tuple',
+      { amount: '5', fromChain: 'arb', sourceRpcUrl: 'https://ambient-source-rpc.example/rpc' },
+    ],
   ])('visibly rejects %s before any provider, acquisition, or deposit work', async (_description, options) => {
     const message = 'Acquisition requires --from-chain, --from-token, and --max-source-amount together'
 

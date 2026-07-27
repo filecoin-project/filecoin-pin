@@ -208,7 +208,7 @@ describe('funding-source option environment bindings', () => {
     )
   })
 
-  it('accepts only Squid\'s inclusive provider slippage range', () => {
+  it("accepts only Squid's inclusive provider slippage range", () => {
     expect(parseSlippageOption('0.01')).toBe(0.01)
     expect(parseSlippageOption('99.99')).toBe(99.99)
     expect(() => parseSlippageOption('0.001')).toThrow('between 0.01 and 99.99')

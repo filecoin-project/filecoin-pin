@@ -54,10 +54,18 @@ export function planWalletFunding(options: PlanWalletFundingOptions): WalletFund
   const legs: AcquisitionLeg[] = []
 
   if (shortfalls.filShortfall > 0n) {
-    legs.push({ asset: 'fil', amount: shortfalls.filShortfall, ...(options.source != null ? { source: options.source } : {}) })
+    legs.push({
+      asset: 'fil',
+      amount: shortfalls.filShortfall,
+      ...(options.source != null ? { source: options.source } : {}),
+    })
   }
   if (shortfalls.usdfcShortfall > 0n) {
-    legs.push({ asset: 'usdfc', amount: shortfalls.usdfcShortfall, ...(options.source != null ? { source: options.source } : {}) })
+    legs.push({
+      asset: 'usdfc',
+      amount: shortfalls.usdfcShortfall,
+      ...(options.source != null ? { source: options.source } : {}),
+    })
   }
 
   return {
