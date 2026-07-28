@@ -198,7 +198,7 @@ export async function waitForIpniProviderResults(
 
   if (outcome.success) {
     try {
-      // Legacy retryCount semantics: number of retryUpdate emissions across all CIDs minus 1.
+      // retryCount mirrors the ':retryUpdate' counter: total emissions across all CIDs minus 1.
       const totalAttempts = outcome.verified.reduce((sum, v) => sum + v.attempts, 0)
       const retryCount = totalAttempts > 0 ? totalAttempts - 1 : 0
       options?.onProgress?.({ type: 'ipniProviderResults:complete', data: { result: true, retryCount } })
@@ -222,7 +222,7 @@ export async function waitForIpniProviderResults(
  * {@link IpniValidationOutcome} with full per-CID verified/failed lists.
  *
  * Use this when you need diagnostic visibility into which specific CIDs
- * verified vs. timed out vs. were aborted mid-walk. The boolean-returning
+ * verified, failed, or were aborted mid-walk. The boolean-returning
  * {@link waitForIpniProviderResults} is a thin wrapper around this function.
  */
 export async function waitForIpniProviderResultsDetailed(
@@ -509,8 +509,8 @@ async function validateOneCid(cid: CID, config: ValidateOneCidConfig): Promise<C
 /**
  * Promise-based delay that rejects when `signal` aborts mid-sleep.
  *
- * Replaces `setTimeout` + `await` so an outer `AbortSignal.timeout(...)` does
- * not have to wait for the next fetch boundary to take effect.
+ * An outer `AbortSignal.timeout(...)` takes effect during the sleep rather
+ * than at the next fetch boundary.
  */
 function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -535,11 +535,12 @@ function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * Build the legacy single-Error message + attach the structured outcome as
- * `cause` so consumers that want per-CID detail can read `error.cause`.
+ * Build the single Error thrown by {@link waitForIpniProviderResults}, with
+ * the structured outcome attached as `cause` so consumers that want per-CID
+ * detail can read `error.cause`.
  *
- * Message format is preserved verbatim from prior versions for callers that
- * pattern-match on it (e.g. tests).
+ * The message format is part of the function's contract: callers and tests
+ * pattern-match on it, so change it deliberately or not at all.
  */
 function buildOutcomeError(
   outcome: IpniValidationOutcome,

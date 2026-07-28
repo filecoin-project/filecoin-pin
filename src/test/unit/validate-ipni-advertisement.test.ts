@@ -651,8 +651,8 @@ describe('waitForIpniProviderResults', () => {
         const childCid1 = CID.parse('bafkreia7wx2ue2r5x2bwsxns2r4jtrsu7dzw2r3abjtw3obqckm3w2b2mu')
         const childCid2 = CID.parse('bafkreidm5pjnb6q4mwkj7s7g6kfjs5hr2ql6grnq2qg5fbq5cppxnpzqle')
         mockFetch
-          .mockResolvedValueOnce(successResponse()) // root ✓
-          .mockResolvedValueOnce(emptyProviderResponse()) // child1 ✗
+          .mockResolvedValueOnce(successResponse()) // root verifies
+          .mockResolvedValueOnce(emptyProviderResponse()) // child1 fails
 
         const promise = waitForIpniProviderResultsDetailed(testCid, {
           childBlocks: [childCid1, childCid2],
@@ -726,14 +726,14 @@ describe('waitForIpniProviderResults', () => {
         await vi.advanceTimersByTimeAsync(0)
         expect(mockFetch).toHaveBeenCalledTimes(1)
 
-        // we should now be inside the 60s inter-attempt sleep — abort and verify
-        // we resolve without advancing to delayMs
+        // now inside the 60s inter-attempt sleep.. abort should resolve
+        // the promise without advancing to delayMs
         abortController.abort()
         const outcome = await promise
 
         expect(outcome.success).toBe(false)
         expect(outcome.failed[0]?.reason.type).toBe('aborted')
-        // crucially: only one fetch — sleep was interrupted before retry
+        // still one fetch: the abort interrupted the sleep before the retry
         expect(mockFetch).toHaveBeenCalledTimes(1)
       })
 
