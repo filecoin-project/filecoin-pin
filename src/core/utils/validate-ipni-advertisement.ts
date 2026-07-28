@@ -403,6 +403,11 @@ async function validateOneCid(cid: CID, config: ValidateOneCidConfig): Promise<C
         lastActualUris = new Set(rawAddrs.map(multiaddrToNormalizedUri))
         lastReason = null
       } catch (parseError) {
+        // An abort can interrupt body consumption after headers arrive, which
+        // rejects response.json(); classify it as aborted, not parse.
+        if (options?.signal?.aborted) {
+          return { verified: false, reason: { type: 'aborted', attempts: retryCount + 1 }, attempts: retryCount + 1 }
+        }
         lastActualMultiaddrs = new Set()
         lastActualUris = new Set()
         const message = getErrorMessage(parseError)
@@ -539,8 +544,10 @@ function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
  * the structured outcome attached as `cause` so consumers that want per-CID
  * detail can read `error.cause`.
  *
- * The message format is part of the function's contract: callers and tests
- * pattern-match on it, so change it deliberately or not at all.
+ * The message prefix (`IPFS CID "..." does not have expected IPNI
+ * ProviderResults after N attempts`) and the expected-serviceURLs suffix are
+ * contractual: callers and tests pattern-match on them. The `Last
+ * observation:` tail is best-effort diagnostic prose and may change.
  */
 function buildOutcomeError(
   outcome: IpniValidationOutcome,

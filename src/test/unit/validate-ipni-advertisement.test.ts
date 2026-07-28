@@ -769,6 +769,43 @@ describe('waitForIpniProviderResults', () => {
         expect(outcome.success).toBe(true)
         expect(outcome.verified).toHaveLength(1)
       })
+
+      it('emits outcome before failed on the failure path', async () => {
+        mockFetch.mockResolvedValue(emptyProviderResponse())
+        const onProgress = vi.fn()
+        const promise = waitForIpniProviderResults(testCid, { maxAttempts: 1, onProgress })
+        await vi.runAllTimersAsync()
+        await expect(promise).rejects.toThrow('does not have expected IPNI ProviderResults')
+
+        const types = onProgress.mock.calls.map(([e]) => e.type)
+        const outcomeIndex = types.indexOf('ipniProviderResults:outcome')
+        const failedIndex = types.indexOf('ipniProviderResults:failed')
+        expect(outcomeIndex).toBeGreaterThanOrEqual(0)
+        expect(failedIndex).toBeGreaterThanOrEqual(0)
+        expect(outcomeIndex).toBeLessThan(failedIndex)
+        expect(types).not.toContain('ipniProviderResults:complete')
+      })
+
+      it('classifies an abort during response body parsing as aborted, not parse', async () => {
+        const abortController = new AbortController()
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: vi.fn(async () => {
+            abortController.abort()
+            throw new DOMException('The operation was aborted', 'AbortError')
+          }),
+        })
+
+        const promise = waitForIpniProviderResultsDetailed(testCid, {
+          maxAttempts: 1,
+          signal: abortController.signal,
+        })
+        await vi.runAllTimersAsync()
+        const outcome = await promise
+
+        expect(outcome.success).toBe(false)
+        expect(outcome.failed[0]?.reason.type).toBe('aborted')
+      })
     })
 
     it('should use custom IPNI indexer URL when provided', async () => {
