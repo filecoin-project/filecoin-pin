@@ -8,6 +8,8 @@ import {
   checkAllowances,
   checkFILBalance,
   checkUSDFCBalance,
+  getDepositedBalance,
+  getUsdfcAcquisitionHelpMessage,
   type PaymentCapacityCheck,
   setMaxAllowances,
   validateGasRequirement,
@@ -78,7 +80,7 @@ export interface UploadReadinessOptions {
 export interface UploadReadinessResult {
   /** Overall status of the readiness check. */
   status: 'ready' | 'blocked'
-  /** Gas validation outcome. */
+  /** Wallet validation outcome (gas, or no USDFC anywhere). */
   validation: {
     isValid: boolean
     errorMessage?: string
@@ -107,8 +109,9 @@ type CapacityStatus = 'sufficient' | 'warning' | 'insufficient'
  *
  * This performs the same validation chain previously used by the CLI/action:
  * 1. Ensure the wallet has enough FIL for gas
- * 2. Confirm or configure WarmStorage allowances
- * 3. Validate that the current deposit can cover the upload
+ * 2. Ensure the account holds USDFC somewhere (wallet or deposit)
+ * 3. Confirm or configure WarmStorage allowances
+ * 4. Validate that the current deposit can cover the upload
  *
  * The function only mutates state when `autoConfigureAllowances` is enabled
  * (default), in which case it will call {@link setMaxAllowances} as needed.
@@ -127,8 +130,11 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
 
   onProgress?.({ type: 'checkingBalances' })
 
-  const filStatus = await checkFILBalance(synapse)
-  const walletUsdfcBalance = await checkUSDFCBalance(synapse)
+  const [filStatus, walletUsdfcBalance, depositedBalance] = await Promise.all([
+    checkFILBalance(synapse),
+    checkUSDFCBalance(synapse),
+    getDepositedBalance(synapse),
+  ])
 
   // Upload readiness never deposits wallet USDFC. Deposited funds are checked
   // below by validatePaymentCapacity, so only gas belongs in this wallet gate.
@@ -137,6 +143,28 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
     return {
       status: 'blocked',
       validation,
+      filStatus,
+      walletUsdfcBalance,
+      allowances: {
+        needsUpdate: false,
+        updated: false,
+      },
+      suggestions: [],
+    }
+  }
+
+  // A wallet with no USDFC anywhere (wallet or deposit) can never upload, no
+  // matter the file size. Block here, before any allowance transaction spends
+  // gas, and point the user at how to acquire USDFC. Accounts holding all
+  // their USDFC as deposits pass this gate and are checked on capacity below.
+  if (walletUsdfcBalance === 0n && depositedBalance === 0n) {
+    return {
+      status: 'blocked',
+      validation: {
+        isValid: false,
+        errorMessage: 'No USDFC tokens found',
+        helpMessage: getUsdfcAcquisitionHelpMessage(filStatus.isCalibnet),
+      },
       filStatus,
       walletUsdfcBalance,
       allowances: {
@@ -168,6 +196,11 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
   const capacityStatus = determineCapacityStatus(capacityCheck)
 
   if (capacityStatus === 'insufficient') {
+    // Suggesting a deposit is useless when the wallet holds no USDFC to
+    // deposit, so include how to acquire it alongside the deposit suggestion.
+    if (walletUsdfcBalance === 0n) {
+      capacityCheck.suggestions.push(getUsdfcAcquisitionHelpMessage(filStatus.isCalibnet))
+    }
     return {
       status: 'blocked',
       validation,
