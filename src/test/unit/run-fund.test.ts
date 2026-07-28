@@ -13,6 +13,7 @@ const {
   mockPlan,
   mockDeposit,
   mockWithdraw,
+  mockGetPaymentStatus,
   mockInitialize,
   mockGetClientAddress,
   mockEnsureWallet,
@@ -31,6 +32,7 @@ const {
   mockPlan: vi.fn(),
   mockDeposit: vi.fn(),
   mockWithdraw: vi.fn(),
+  mockGetPaymentStatus: vi.fn(),
   mockInitialize: vi.fn(async () => ({ chain: { id: 314 } })),
   mockGetClientAddress: vi.fn(() => '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf'),
   mockEnsureWallet: vi.fn(),
@@ -84,6 +86,7 @@ vi.mock('../../core/payments/index.js', () => ({
   checkUSDFCBalance: vi.fn(async () => 1_000_000_000_000_000_000_000n),
   depositUSDFC: mockDeposit,
   withdrawUSDFC: mockWithdraw,
+  getPaymentStatus: mockGetPaymentStatus,
   clampDepositToLimit: vi.fn((v: bigint) => v),
   executeFilecoinPayFunding: vi.fn(),
   toStorageRunwaySummary: vi.fn(() => ({})),
@@ -140,6 +143,7 @@ describe('runFund confirmation exit codes', () => {
     } as never)
     mockGetClientAddress.mockReturnValue('0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf')
     mockEnsureWallet.mockResolvedValue(undefined)
+    mockGetPaymentStatus.mockResolvedValue({ filBalance: 0n, walletUsdfcBalance: 0n })
     mockFetchCatalog.mockResolvedValue({})
     mockResolveCatalogSource.mockImplementation((_catalog, chain, token) =>
       resolvedSource(chain === 'arb' ? 'arbitrum' : chain, token, token === 'native')
@@ -238,13 +242,17 @@ describe('runFund confirmation exit codes', () => {
     expect(adjustment).toHaveBeenCalledWith(synapse, 5_000_000_000_000_000_000n)
   })
 
-  it('keeps a wallet-held-USDFC deposit direct when complete source flags are supplied', async () => {
+  it('keeps a newly funded wallet deposit direct when the planner snapshot is stale', async () => {
     const synapse = {
       chain: { id: 314 },
       payments: { accountSummary: vi.fn().mockResolvedValue({ funds: 0n }) },
     }
     mockInitialize.mockResolvedValueOnce(synapse)
-    mockPlan.mockResolvedValueOnce(planResult(5_000_000_000_000_000_000n))
+    mockPlan.mockResolvedValueOnce(underfundedPlan(5_000_000_000_000_000_000n))
+    mockGetPaymentStatus.mockResolvedValueOnce({
+      filBalance: 1_000_000_000_000_000_000n,
+      walletUsdfcBalance: 1_000_000_000_000_000_000_000n,
+    })
     mockParseCLIAuth.mockReturnValueOnce({ readOnly: true })
     mockConfirm.mockResolvedValueOnce(true)
     mockDeposit.mockResolvedValueOnce({ depositTx: '0xdeposit' })
@@ -254,11 +262,11 @@ describe('runFund confirmation exit codes', () => {
       fromChain: 'base',
       fromToken: 'USDC',
       maxSourceAmount: '10',
-      sourceRpcUrl: 'https://base.example/rpc',
       viewAddress: '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf',
     })
 
     expect(mockDeposit).toHaveBeenCalledWith(synapse, 5_000_000_000_000_000_000n)
+    expect(mockGetPaymentStatus).toHaveBeenCalledWith(synapse)
     expect(mockFetchCatalog).not.toHaveBeenCalled()
     expect(mockResolveCatalogSource).not.toHaveBeenCalled()
     expect(mockCreateVerifiedSourceClient).not.toHaveBeenCalled()

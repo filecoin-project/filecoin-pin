@@ -508,10 +508,10 @@ export async function runFund(options: FundOptions): Promise<void> {
     }
 
     if (plan.delta > 0n && acquisitionRequested) {
-      const filShortfall =
-        planResult.status.filBalance < MIN_FIL_FOR_GAS ? MIN_FIL_FOR_GAS - planResult.status.filBalance : 0n
+      const currentStatus = await getPaymentStatus(synapse)
+      const filShortfall = currentStatus.filBalance < MIN_FIL_FOR_GAS ? MIN_FIL_FOR_GAS - currentStatus.filBalance : 0n
       const usdfcShortfall =
-        planResult.status.walletUsdfcBalance < plan.delta ? plan.delta - planResult.status.walletUsdfcBalance : 0n
+        currentStatus.walletUsdfcBalance < plan.delta ? plan.delta - currentStatus.walletUsdfcBalance : 0n
       if (filShortfall > 0n || usdfcShortfall > 0n) {
         if (synapse.chain.id !== mainnet.id) {
           acquisitionDiagnostics =
@@ -540,8 +540,8 @@ export async function runFund(options: FundOptions): Promise<void> {
         acquisitionResumeCommand = acquisitionRecoveryCommand(options, hasDays, resolvedSource)
         const completedAcquisition = await ensureWalletReadyForFilecoinTransactions({
           destinationChainId: synapse.chain.id,
-          walletUsdfcBalance: planResult.status.walletUsdfcBalance,
-          walletFilBalance: planResult.status.filBalance,
+          walletUsdfcBalance: currentStatus.walletUsdfcBalance,
+          walletFilBalance: currentStatus.filBalance,
           requiredUsdfc: plan.delta,
           fromChain: options.fromChain,
           fromToken: options.fromToken,
