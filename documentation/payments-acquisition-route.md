@@ -209,6 +209,12 @@ result, never permission to submit the source transaction again.
 | HTTP 429 | bounded retry | Honor `Retry-After` once per quote attempt. |
 | Other provider, validation, or RPC error | failure | Preserve identifiers, do not advance to deposit, and do not retry a submitted transaction automatically. |
 
+If Squid is unavailable or cannot return a route with enough liquidity, stop
+without widening the selected chain, token, or spending caps. Fund the Filecoin
+wallet directly with FIL and USDFC, then rerun the command without `--from-*`.
+Never use a provider failure as permission to repeat a submitted source
+transaction.
+
 Persist or print enough recovery evidence to identify each leg without exposing
 credentials: leg name, quote ID, request ID, source transaction hash,
 destination transaction hash when available, source/destination chain IDs, and

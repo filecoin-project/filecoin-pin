@@ -8,6 +8,7 @@ import {
   parseSquidCatalog,
   resolveCatalogSource,
   SELECTED_SOURCE_CHAINS,
+  TRUSTED_SQUID_ROUTE_POLICIES,
   verifyResolvedErc20Source,
 } from '../../core/payments/acquisition/source-catalog.js'
 
@@ -208,9 +209,24 @@ describe('Squid selected-source catalog contract', () => {
     )
   })
 
-  it('keeps target and spender authorization explicit and fail-closed', () => {
-    expect(isTrustedSquidRouteAddress(8453, '0xce16F69375520ab01377ce7B88f5BA8C48F8D666', 'target')).toBe(true)
-    expect(isTrustedSquidRouteAddress(8453, '0x1111111111111111111111111111111111111111', 'spender')).toBe(false)
+  it('keeps target and spender authorization explicit and fail-closed on every selected chain', () => {
+    expect(TRUSTED_SQUID_ROUTE_POLICIES.map((policy) => policy.chainId).sort((a, b) => a - b)).toEqual(
+      SELECTED_SOURCE_CHAINS.map((chain) => chain.chainId).sort((a, b) => a - b)
+    )
+    for (const chain of SELECTED_SOURCE_CHAINS) {
+      expect(isTrustedSquidRouteAddress(chain.chainId, '0xce16F69375520ab01377ce7B88f5BA8C48F8D666', 'target')).toBe(
+        true
+      )
+      expect(isTrustedSquidRouteAddress(chain.chainId, '0xce16F69375520ab01377ce7B88f5BA8C48F8D666', 'spender')).toBe(
+        true
+      )
+      expect(isTrustedSquidRouteAddress(chain.chainId, '0x1111111111111111111111111111111111111111', 'target')).toBe(
+        false
+      )
+      expect(isTrustedSquidRouteAddress(chain.chainId, '0x1111111111111111111111111111111111111111', 'spender')).toBe(
+        false
+      )
+    }
   })
 
   it('verifies ERC-20 code and catalog identity only when an acquisition caller supplies an RPC client', async () => {
