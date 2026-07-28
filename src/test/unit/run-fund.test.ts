@@ -304,13 +304,16 @@ describe('runFund confirmation exit codes', () => {
       privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
     })
 
-    expect(mockReconcileReadyCheckpoint).toHaveBeenCalledWith({
-      destinationOwner: '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf',
-      destinationChainId: 314,
-      walletFilBalance: 1_000_000_000_000_000_000n,
-      walletUsdfcBalance: 1_000_000_000_000_000_000_000n,
-      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
-    })
+    expect(mockReconcileReadyCheckpoint).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destinationOwner: '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf',
+        destinationChainId: 314,
+        walletFilBalance: 1_000_000_000_000_000_000n,
+        walletUsdfcBalance: 1_000_000_000_000_000_000_000n,
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        resolveRequestedSource: expect.any(Function),
+      })
+    )
     expect(mockFetchCatalog).not.toHaveBeenCalled()
     expect(mockCreateVerifiedSourceClient).not.toHaveBeenCalled()
     expect(mockEnsureWallet).not.toHaveBeenCalled()

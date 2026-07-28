@@ -603,6 +603,7 @@ export async function runFund(options: FundOptions): Promise<void> {
           walletFilBalance: currentStatus.filBalance,
           walletUsdfcBalance: currentStatus.walletUsdfcBalance,
           privateKey: options.privateKey,
+          resolveRequestedSource: () => resolveFundAcquisitionSource(options),
         })
       }
     }
