@@ -325,6 +325,45 @@ describe('runFund confirmation exit codes', () => {
     expect(mockDeposit).toHaveBeenCalledWith(synapse, 5_000_000_000_000_000_000n)
   })
 
+  it('reconciles a removed-source approval after direct funding makes the wallet ready', async () => {
+    const synapse = {
+      chain: { id: 314 },
+      payments: { accountSummary: vi.fn().mockResolvedValue({ funds: 0n }) },
+    }
+    mockInitialize.mockResolvedValueOnce(synapse)
+    mockPlan.mockResolvedValueOnce(underfundedPlan(5_000_000_000_000_000_000n))
+    mockGetPaymentStatus.mockResolvedValueOnce({
+      filBalance: 1_000_000_000_000_000_000n,
+      walletUsdfcBalance: 1_000_000_000_000_000_000_000n,
+    })
+    mockRecoverRemovedSource.mockResolvedValueOnce([])
+    mockConfirm.mockResolvedValueOnce(true)
+    mockDeposit.mockResolvedValueOnce({ depositTx: '0xdeposit' })
+
+    await runFund({
+      amount: '5',
+      fromChain: 'base',
+      fromToken: 'USDC',
+      maxSourceAmount: '10',
+      sourceRpcUrl: 'https://base.example/rpc',
+      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+    })
+
+    expect(mockRecoverRemovedSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destinationOwner: '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf',
+        destinationChainId: 314,
+        fromChain: 'base',
+        fromToken: 'USDC',
+        allowMissingCheckpoint: true,
+      })
+    )
+    expect(mockReconcileReadyCheckpoint).not.toHaveBeenCalled()
+    expect(mockFetchCatalog).not.toHaveBeenCalled()
+    expect(mockEnsureWallet).not.toHaveBeenCalled()
+    expect(mockDeposit).toHaveBeenCalledWith(synapse, 5_000_000_000_000_000_000n)
+  })
+
   it('blocks a ready retry with a pending checkpoint owned by a different Filecoin wallet', async () => {
     const sessionOwner = '0x1111111111111111111111111111111111111111'
     const checkpointOwnerKey = '0x0000000000000000000000000000000000000000000000000000000000000001'

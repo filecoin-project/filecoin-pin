@@ -190,6 +190,11 @@ export async function recoverRemovedSourceAcquisition(options: {
   fromToken?: string | undefined
   provider: SquidProviderOptions
   rereadWalletBalances: () => Promise<{ fil: bigint; usdfc: bigint }>
+  /**
+   * A ready-wallet cleanup may have no checkpoint at all. Underfunded calls
+   * keep treating that state as a rejected fresh acquisition.
+   */
+  allowMissingCheckpoint?: boolean | undefined
   /** Test seam; production uses the standard five-second readiness interval. */
   filecoinArrivalWait?: ((milliseconds: number) => Promise<void>) | undefined
   /** Test seam; production creates a chain-verified read-only source client. */
@@ -212,6 +217,7 @@ export async function recoverRemovedSourceAcquisition(options: {
   try {
     const pending = await checkpointStore.load()
     if (pending == null) {
+      if (options.allowMissingCheckpoint === true) return undefined
       throw new Error(`Unsupported source chain for a new acquisition: ${recoveryChain.cliName}`)
     }
     if (
@@ -271,6 +277,14 @@ export async function recoverRemovedSourceAcquisition(options: {
       await checkpointStore.save(recoveredCheckpoint)
     }
     if (pending.evidence.length === 0) {
+      const balances = await options.rereadWalletBalances()
+      if (
+        balances.fil >= recoveredCheckpoint.requiredWallet.fil &&
+        balances.usdfc >= recoveredCheckpoint.requiredWallet.usdfc
+      ) {
+        await checkpointStore.clear()
+        return []
+      }
       throw new Error(
         `No ${recoveryChain.cliName} route was broadcast before support was removed; fresh planning and signing are disabled`
       )

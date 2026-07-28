@@ -1193,6 +1193,67 @@ describe('Squid acquisition provider contract', () => {
     }
   })
 
+  it('clears a confirmed Base approval-only checkpoint after direct Filecoin funding', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      const store = createAcquisitionCheckpointStore(owner)
+      const source = removedBaseSource()
+      await store.save({
+        version: 2,
+        owner,
+        sourceChainId: source.chainId,
+        destinationChainId: 314,
+        source: sourceRouteIdentity(source),
+        maxSourceAmount: 1_000_000n,
+        maxNativeGas: 3_000_000_000_000_000n,
+        committedNativeGas: 1n,
+        approvalIntent: {
+          nonce: 8,
+          token: source.token,
+          spender: SOURCE_APPROVAL_SPENDER,
+          amount: '1',
+          gasLimit: '1',
+          maxFeePerGas: '1',
+        },
+        approvalTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        requiredWallet: { fil: MIN_FIL_FOR_GAS, usdfc: 1n },
+        evidence: [],
+      })
+      const sourceClient = {
+        getChainId: vi.fn().mockResolvedValue(8453),
+        waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+      }
+      const rereadWalletBalances = vi.fn().mockResolvedValue({ fil: MIN_FIL_FOR_GAS, usdfc: 1n })
+
+      await expect(
+        recoverRemovedSourceAcquisition({
+          destinationOwner: owner,
+          destinationChainId: 314,
+          privateKey: PRIVATE_KEY,
+          fromChain: 'base',
+          fromToken: 'USDC',
+          provider: { integratorId: 'test-only-integrator' },
+          rereadWalletBalances,
+          allowMissingCheckpoint: true,
+          sourceClient: sourceClient as never,
+        })
+      ).resolves.toEqual([])
+
+      expect(sourceClient.waitForTransactionReceipt).toHaveBeenCalledWith({
+        hash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      })
+      expect(rereadWalletBalances).toHaveBeenCalledOnce()
+      await expect(store.load()).resolves.toBeUndefined()
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('rejects a fresh Base acquisition when no recovery checkpoint exists', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
     const originalHome = process.env.HOME
@@ -1210,6 +1271,31 @@ describe('Squid acquisition provider contract', () => {
           rereadWalletBalances: vi.fn(),
         })
       ).rejects.toThrow('Unsupported source chain for a new acquisition: base')
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('allows ready-wallet removed-source cleanup when no checkpoint exists', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      await expect(
+        recoverRemovedSourceAcquisition({
+          destinationOwner: owner,
+          destinationChainId: 314,
+          privateKey: PRIVATE_KEY,
+          fromChain: 'base',
+          fromToken: 'USDC',
+          provider: { integratorId: 'test-only-integrator' },
+          rereadWalletBalances: vi.fn(),
+          allowMissingCheckpoint: true,
+        })
+      ).resolves.toBeUndefined()
     } finally {
       if (originalHome == null) delete process.env.HOME
       else process.env.HOME = originalHome

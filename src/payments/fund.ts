@@ -612,15 +612,32 @@ export async function runFund(options: FundOptions): Promise<void> {
           acquisitionRecoveryKind = 'deposit-only'
         }
       } else {
-        await reconcileReadyAcquisitionCheckpoint({
-          destinationOwner: getClientAddress(synapse),
+        const destinationOwner = getClientAddress(synapse)
+        const removedSourceRecovery = await recoverRemovedSourceAcquisition({
+          destinationOwner,
           destinationChainId: synapse.chain.id,
-          walletFilBalance: currentStatus.filBalance,
-          walletUsdfcBalance: currentStatus.walletUsdfcBalance,
           privateKey: options.privateKey,
+          sourceRpcUrl: options.sourceRpcUrl,
           fromChain: options.fromChain,
           fromToken: options.fromToken,
+          provider: { integratorId: process.env.SQUID_INTEGRATOR_ID },
+          rereadWalletBalances: async () => {
+            const freshStatus = await getPaymentStatus(synapse)
+            return { fil: freshStatus.filBalance, usdfc: freshStatus.walletUsdfcBalance }
+          },
+          allowMissingCheckpoint: true,
         })
+        if (removedSourceRecovery == null) {
+          await reconcileReadyAcquisitionCheckpoint({
+            destinationOwner,
+            destinationChainId: synapse.chain.id,
+            walletFilBalance: currentStatus.filBalance,
+            walletUsdfcBalance: currentStatus.walletUsdfcBalance,
+            privateKey: options.privateKey,
+            fromChain: options.fromChain,
+            fromToken: options.fromToken,
+          })
+        }
       }
     }
 

@@ -393,15 +393,31 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       currentWalletFilBalance = refreshedStatus.filBalance
       currentWalletUsdfcBalance = refreshedStatus.walletUsdfcBalance
     } else if (acquisitionRequested) {
-      await reconcileReadyAcquisitionCheckpoint({
+      const removedSourceRecovery = await recoverRemovedSourceAcquisition({
         destinationOwner: address,
         destinationChainId: synapse.chain.id,
-        walletFilBalance: currentWalletFilBalance,
-        walletUsdfcBalance: currentWalletUsdfcBalance,
         privateKey: options.privateKey,
+        sourceRpcUrl: options.sourceRpcUrl,
         fromChain: options.fromChain,
         fromToken: options.fromToken,
+        provider: { integratorId: process.env.SQUID_INTEGRATOR_ID },
+        rereadWalletBalances: async () => {
+          const freshStatus = await getPaymentStatus(synapse)
+          return { fil: freshStatus.filBalance, usdfc: freshStatus.walletUsdfcBalance }
+        },
+        allowMissingCheckpoint: true,
       })
+      if (removedSourceRecovery == null) {
+        await reconcileReadyAcquisitionCheckpoint({
+          destinationOwner: address,
+          destinationChainId: synapse.chain.id,
+          walletFilBalance: currentWalletFilBalance,
+          walletUsdfcBalance: currentWalletUsdfcBalance,
+          privateKey: options.privateKey,
+          fromChain: options.fromChain,
+          fromToken: options.fromToken,
+        })
+      }
     }
 
     // Preserve the existing validation and transaction behavior after the

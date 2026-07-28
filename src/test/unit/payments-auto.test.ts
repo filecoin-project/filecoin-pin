@@ -266,6 +266,38 @@ describe('runAutoSetup acquisition integration', () => {
     expect(mockDeposit).toHaveBeenCalledWith(expect.anything(), TWO_USDFC)
   })
 
+  it('reconciles a removed-source approval after direct funding makes setup ready', async () => {
+    mockCheckFILBalance.mockResolvedValueOnce({ balance: 100n, isCalibnet: false, hasSufficientGas: true })
+    mockCheckUSDFCBalance.mockResolvedValueOnce(TWO_USDFC)
+    mockRecoverRemovedSource.mockResolvedValueOnce([])
+
+    await expect(
+      runAutoSetup({
+        auto: true,
+        deposit: '2',
+        rateAllowance: '1TiB/month',
+        fromChain: 'base',
+        fromToken: 'USDC',
+        maxSourceAmount: '3',
+        sourceRpcUrl: 'https://base.example/rpc',
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+      } as any)
+    ).resolves.toBeUndefined()
+
+    expect(mockRecoverRemovedSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destinationChainId: 314,
+        fromChain: 'base',
+        fromToken: 'USDC',
+        allowMissingCheckpoint: true,
+      })
+    )
+    expect(mockReconcileReadyCheckpoint).not.toHaveBeenCalled()
+    expect(mockFetchSquidCatalog).not.toHaveBeenCalled()
+    expect(mockEnsureWallet).not.toHaveBeenCalled()
+    expect(mockDeposit).toHaveBeenCalledWith(expect.anything(), TWO_USDFC)
+  })
+
   it('uses a verified non-Arbitrum ERC-20 source only after finding a shortfall', async () => {
     await expect(
       runAutoSetup({
