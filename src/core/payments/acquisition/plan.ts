@@ -1,7 +1,7 @@
 import { parseUnits } from 'viem'
 import { isFilecoinSameAssetFundingSource, LEGACY_SOURCE_DECIMALS } from './source-assets.js'
 import type { ResolvedSourceToken } from './source-catalog.js'
-import { getSquidRoute, type SquidProviderOptions } from './squid.js'
+import { getSquidRoute, isSquidMinimumAmountError, type SquidProviderOptions } from './squid.js'
 import type { AcquisitionLeg, PlannedAcquisitionQuote, WalletFundingPlan } from './types.js'
 
 const MAX_PLANNING_ATTEMPTS = 4
@@ -85,7 +85,7 @@ export async function planTokenAcquisition(options: PlanTokenAcquisitionOptions)
           options.provider
         )
       } catch (error) {
-        if (!state.downscaled) throw error
+        if (!state.downscaled || !isSquidMinimumAmountError(error)) throw error
         throw new Error(
           'Squid could not quote the proportional source amount; the route may require a provider minimum, so fund directly rather than spending the seed quote',
           { cause: error }
