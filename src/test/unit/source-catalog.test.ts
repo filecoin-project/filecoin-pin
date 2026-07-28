@@ -22,23 +22,21 @@ describe('Squid selected-source catalog contract', () => {
     ) as typeof fixture
   })
 
-  it('resolves a unique Base token using the catalog decimal and safe display identity', () => {
-    const token = resolveCatalogSource(parseSquidCatalog(fixture.chains, fixture.tokens), 'base', 'usdbc')
+  it('resolves a unique Avalanche token using the catalog decimal and safe display identity', () => {
+    const token = resolveCatalogSource(parseSquidCatalog(fixture.chains, fixture.tokens), 'avalanche', 'usdc')
     expect(token).toMatchObject({
-      chain: { chainId: 8453 },
+      chain: { chainId: 43114 },
       token: '0xd9aa3214bcb81c9bd4b8c7a9e20f3c2f6fbe1b0c',
       decimals: 6,
     })
     expect(token.display).toContain(token.token)
   })
 
-  it('keeps exactly the selected eight chains, their stable aliases, and representative tokens', () => {
+  it('keeps exactly the selected six chains, their stable aliases, and representative tokens', () => {
     expect(SELECTED_SOURCE_CHAINS.map((chain) => [chain.cliName, chain.chainId])).toEqual([
       ['filecoin', 314],
       ['arbitrum', 42161],
       ['ethereum', 1],
-      ['base', 8453],
-      ['optimism', 10],
       ['polygon', 137],
       ['avalanche', 43114],
       ['bnb', 56],
@@ -48,10 +46,8 @@ describe('Squid selected-source catalog contract', () => {
       ['filecoin', 'filecoin', 'FILX', 2],
       ['arbitrum', 'arb', 'ARBX', 9],
       ['ethereum', 'eth', 'ETHX', 8],
-      ['base', 'base', 'USDbC', 6],
-      ['optimism', 'op', 'OPX', 7],
       ['polygon', 'matic', 'POLX', 5],
-      ['avalanche', 'avax', 'AVAXX', 4],
+      ['avalanche', 'avax', 'USDC', 6],
       ['bnb', 'bsc', 'BNBX', 3],
     ]
     for (const [chain, alias, symbol, decimals] of representatives) {
@@ -59,15 +55,23 @@ describe('Squid selected-source catalog contract', () => {
     }
   })
 
+  it('excludes Base and Optimism even when Squid advertises them', () => {
+    const catalog = parseSquidCatalog(fixture.chains, fixture.tokens)
+    expect(() => resolveCatalogSource(catalog, 'base', 'native')).toThrow('Unsupported source chain')
+    expect(() => resolveCatalogSource(catalog, 'optimism', 'native')).toThrow('Unsupported source chain')
+    expect(catalog.chains.has(8453)).toBe(false)
+    expect(catalog.chains.has(10)).toBe(false)
+  })
+
   it('rejects duplicate symbols but exact address disambiguates them', () => {
     const catalog = parseSquidCatalog(fixture.chains, fixture.tokens)
-    expect(() => resolveCatalogSource(catalog, 'base', 'USD')).toThrow('ambiguous')
-    expect(resolveCatalogSource(catalog, 'base', '0x2222222222222222222222222222222222222222').decimals).toBe(18)
+    expect(() => resolveCatalogSource(catalog, 'avalanche', 'USD')).toThrow('ambiguous')
+    expect(resolveCatalogSource(catalog, 'avalanche', '0x2222222222222222222222222222222222222222').decimals).toBe(18)
   })
 
   it('uses an explicit native selector and preserves the native marker', () => {
     expect(
-      resolveCatalogSource(parseSquidCatalog(fixture.chains, fixture.tokens), 'base', NATIVE_TOKEN_SELECTOR)
+      resolveCatalogSource(parseSquidCatalog(fixture.chains, fixture.tokens), 'avalanche', NATIVE_TOKEN_SELECTOR)
     ).toMatchObject({
       native: true,
       decimals: 18,
@@ -76,41 +80,41 @@ describe('Squid selected-source catalog contract', () => {
 
   it('matches ready-retry selectors only against the stored catalog-verified identity', () => {
     const catalog = parseSquidCatalog(fixture.chains, fixture.tokens)
-    const usdbc = resolveCatalogSource(catalog, 'base', 'usdbc')
-    const native = resolveCatalogSource(catalog, 'base', NATIVE_TOKEN_SELECTOR)
+    const usdc = resolveCatalogSource(catalog, 'avalanche', 'usdc')
+    const native = resolveCatalogSource(catalog, 'avalanche', NATIVE_TOKEN_SELECTOR)
 
-    expect(matchesRequestedSourceSelectors(usdbc, ' BASE ', 'USDBC')).toBe(true)
-    expect(matchesRequestedSourceSelectors(usdbc, 'base', `0x${usdbc.token.slice(2).toUpperCase()}`)).toBe(true)
-    expect(matchesRequestedSourceSelectors(native, 'base', 'NATIVE')).toBe(true)
-    expect(matchesRequestedSourceSelectors(native, 'base', 'eth')).toBe(true)
+    expect(matchesRequestedSourceSelectors(usdc, ' AVALANCHE ', 'USDC')).toBe(true)
+    expect(matchesRequestedSourceSelectors(usdc, 'avax', `0x${usdc.token.slice(2).toUpperCase()}`)).toBe(true)
+    expect(matchesRequestedSourceSelectors(native, 'avalanche', 'NATIVE')).toBe(true)
+    expect(matchesRequestedSourceSelectors(native, 'avax', 'avax')).toBe(true)
 
-    expect(matchesRequestedSourceSelectors(usdbc, 'arb', 'USDBC')).toBe(false)
-    expect(matchesRequestedSourceSelectors(usdbc, 'base', 'native')).toBe(false)
-    expect(matchesRequestedSourceSelectors(usdbc, 'base', '0x0000000000000000000000000000000000000001')).toBe(false)
-    expect(matchesRequestedSourceSelectors(usdbc, 'base', 'USDC')).toBe(false)
-    expect(matchesRequestedSourceSelectors(usdbc, 'solana', 'USDBC')).toBe(false)
-    expect(matchesRequestedSourceSelectors(usdbc, undefined, 'USDBC')).toBe(false)
-    expect(matchesRequestedSourceSelectors(usdbc, 'base', undefined)).toBe(false)
+    expect(matchesRequestedSourceSelectors(usdc, 'arb', 'USDC')).toBe(false)
+    expect(matchesRequestedSourceSelectors(usdc, 'avalanche', 'native')).toBe(false)
+    expect(matchesRequestedSourceSelectors(usdc, 'avalanche', '0x0000000000000000000000000000000000000001')).toBe(false)
+    expect(matchesRequestedSourceSelectors(usdc, 'avalanche', 'AVAXX')).toBe(false)
+    expect(matchesRequestedSourceSelectors(usdc, 'solana', 'USDC')).toBe(false)
+    expect(matchesRequestedSourceSelectors(usdc, undefined, 'USDC')).toBe(false)
+    expect(matchesRequestedSourceSelectors(usdc, 'avalanche', undefined)).toBe(false)
   })
 
   it('rejects native tokens that conflict with selected-chain native-currency metadata', () => {
     const mismatchedChains = fixture.chains.map((chain, index) =>
-      index === 3 ? { ...(chain as object), nativeCurrency: { symbol: 'WETH', decimals: 18 } } : chain
+      index === 6 ? { ...(chain as object), nativeCurrency: { symbol: 'WAVAX', decimals: 18 } } : chain
     )
     expect(() => parseSquidCatalog(mismatchedChains, fixture.tokens)).toThrow('native currency conflicts')
     const malformedChains = fixture.chains.map((chain, index) =>
-      index === 3 ? { ...(chain as object), nativeCurrency: { symbol: 'ETH', decimals: 1.5 } } : chain
+      index === 6 ? { ...(chain as object), nativeCurrency: { symbol: 'AVAX', decimals: 1.5 } } : chain
     )
     expect(() => parseSquidCatalog(malformedChains, fixture.tokens)).toThrow('invalid native decimals')
     const mutuallyWrongChains = fixture.chains.map((chain, index) =>
-      index === 3 ? { ...(chain as object), nativeCurrency: { symbol: 'WETH', decimals: 17 } } : chain
+      index === 6 ? { ...(chain as object), nativeCurrency: { symbol: 'WAVAX', decimals: 17 } } : chain
     )
     const mutuallyWrongTokens = fixture.tokens.map((token, index) =>
-      index === 3 ? { ...token, symbol: 'WETH', decimals: 17 } : token
+      index === 6 ? { ...token, symbol: 'WAVAX', decimals: 17 } : token
     )
     expect(() => parseSquidCatalog(mutuallyWrongChains, mutuallyWrongTokens)).toThrow('native currency conflicts')
     const wrongNativeToken = fixture.tokens.map((token, index) =>
-      index === 3 ? { ...token, symbol: 'WETH', decimals: 17 } : token
+      index === 6 ? { ...token, symbol: 'WAVAX', decimals: 17 } : token
     )
     expect(() => parseSquidCatalog(fixture.chains, wrongNativeToken)).toThrow('native token metadata conflicts')
   })
@@ -130,7 +134,7 @@ describe('Squid selected-source catalog contract', () => {
     expect(() => resolveCatalogSource(parseSquidCatalog(fixture.chains, fixture.tokens), 'solana', 'USDC')).toThrow(
       'Unsupported'
     )
-    expect(() => parseSquidCatalog([{ chainId: '8453', networkName: 'Base', type: 'cosmos' }], [])).toThrow(
+    expect(() => parseSquidCatalog([{ chainId: '43114', networkName: 'Avalanche', type: 'cosmos' }], [])).toThrow(
       'must be EVM'
     )
     expect(() => parseSquidCatalog(fixture.chains, [{ ...fixture.tokens[0], decimals: 1.5 }])).toThrow(
@@ -191,7 +195,7 @@ describe('Squid selected-source catalog contract', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ chains: fixture.chains })))
       .mockResolvedValueOnce(new Response(JSON.stringify({ tokens: fixture.tokens })))
     await expect(fetchSquidCatalog({ integratorId: 'test', fetchFn })).resolves.toMatchObject({
-      tokens: expect.arrayContaining([expect.objectContaining({ symbol: 'USDbC', decimals: 6 })]),
+      tokens: expect.arrayContaining([expect.objectContaining({ symbol: 'USDC', decimals: 6 })]),
     })
     const malformedFetch = vi
       .fn<typeof fetch>()
@@ -230,11 +234,11 @@ describe('Squid selected-source catalog contract', () => {
   })
 
   it('verifies ERC-20 code and catalog identity only when an acquisition caller supplies an RPC client', async () => {
-    const source = resolveCatalogSource(parseSquidCatalog(fixture.chains, fixture.tokens), 'base', 'USDbC')
+    const source = resolveCatalogSource(parseSquidCatalog(fixture.chains, fixture.tokens), 'avalanche', 'USDC')
     const client = {
-      getChainId: vi.fn().mockResolvedValue(8453),
+      getChainId: vi.fn().mockResolvedValue(43114),
       getCode: vi.fn().mockResolvedValue('0x6000'),
-      readContract: vi.fn().mockResolvedValueOnce(6).mockResolvedValueOnce('USDbC'),
+      readContract: vi.fn().mockResolvedValueOnce(6).mockResolvedValueOnce('USDC'),
     }
     await expect(verifyResolvedErc20Source(client as never, source)).resolves.toBe(source)
     await expect(
@@ -244,24 +248,24 @@ describe('Squid selected-source catalog contract', () => {
 
   it('rejects wrong-chain RPC clients before source verification, including native sources', async () => {
     const catalog = parseSquidCatalog(fixture.chains, fixture.tokens)
-    const erc20 = resolveCatalogSource(catalog, 'base', 'USDbC')
+    const erc20 = resolveCatalogSource(catalog, 'avalanche', 'USDC')
     const wrongErc20Client = {
       getChainId: vi.fn().mockResolvedValue(1),
       getCode: vi.fn(),
       readContract: vi.fn(),
     }
     await expect(verifyResolvedErc20Source(wrongErc20Client as never, erc20)).rejects.toThrow(
-      'Source RPC chain ID 1 does not match selected source chain ID 8453'
+      'Source RPC chain ID 1 does not match selected source chain ID 43114'
     )
     expect(wrongErc20Client.getCode).not.toHaveBeenCalled()
-    const native = resolveCatalogSource(catalog, 'base', NATIVE_TOKEN_SELECTOR)
+    const native = resolveCatalogSource(catalog, 'avalanche', NATIVE_TOKEN_SELECTOR)
     const wrongNativeClient = {
       getChainId: vi.fn().mockResolvedValue(1),
       getCode: vi.fn(),
       readContract: vi.fn(),
     }
     await expect(verifyResolvedErc20Source(wrongNativeClient as never, native)).rejects.toThrow(
-      'Source RPC chain ID 1 does not match selected source chain ID 8453'
+      'Source RPC chain ID 1 does not match selected source chain ID 43114'
     )
     expect(wrongNativeClient.getCode).not.toHaveBeenCalled()
   })
@@ -269,11 +273,11 @@ describe('Squid selected-source catalog contract', () => {
   it('verifies the selected chain for native sources without contract reads', async () => {
     const native = resolveCatalogSource(
       parseSquidCatalog(fixture.chains, fixture.tokens),
-      'base',
+      'avalanche',
       NATIVE_TOKEN_SELECTOR
     )
     const client = {
-      getChainId: vi.fn().mockResolvedValue(8453),
+      getChainId: vi.fn().mockResolvedValue(43114),
       getCode: vi.fn(),
       readContract: vi.fn(),
     }

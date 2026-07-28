@@ -9,11 +9,9 @@ import type { ResolvedSourceToken } from './source-catalog.js'
  */
 export const SOURCE_NATIVE_GAS_CEILINGS: Readonly<Record<number, bigint>> = {
   1: 30_000_000_000_000_000n,
-  10: 3_000_000_000_000_000n,
   56: 5_000_000_000_000_000n,
   137: 10_000_000_000_000_000n,
   314: 30_000_000_000_000_000n,
-  8453: 3_000_000_000_000_000n,
   42161: 3_000_000_000_000_000n,
   43114: 10_000_000_000_000_000n,
 }

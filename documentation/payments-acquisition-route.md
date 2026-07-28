@@ -18,7 +18,7 @@ Squid's live catalog:
 | Field | FIL leg | USDFC leg |
 | --- | --- | --- |
 | Provider | [Squid](glossary.md#squid) v2 API | Squid v2 API |
-| Source chain | one selected catalog chain: Filecoin (`314`), Arbitrum (`42161`), Ethereum (`1`), Base (`8453`), Optimism (`10`), Polygon (`137`), Avalanche (`43114`), or BNB Chain (`56`) | same selected chain |
+| Source chain | one selected catalog chain: Filecoin (`314`), Arbitrum (`42161`), Ethereum (`1`), Polygon (`137`), Avalanche (`43114`), or BNB Chain (`56`) | same selected chain |
 | Source token | one unambiguous live-catalog token selected by unique symbol, exact address, or `native` | same selected token |
 | Destination chain | Filecoin mainnet (`314`) | Filecoin mainnet (`314`) |
 | Destination token | native sentinel `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee` | USDFC, 18 decimals, `0x80b98d3aa09ffff255c3ba4a241111ff1262f045` |
@@ -30,6 +30,10 @@ chain and ERC-20 metadata (when applicable) verify against `SOURCE_RPC_URL`,
 and the route matches the reviewed target and spender for that selected chain.
 No other source chain, destination token, recipient, or provider target is
 part of the allowlist.
+
+Base and Optimism are intentionally outside this boundary. Their OP Stack L1
+data fee has no transaction-level maximum, so an estimate cannot enforce the
+hard source-native spend ceiling required before signing.
 
 `--max-source-amount` is expressed in the resolved source token's decimals,
 not as a fixed USDC quantity. Native transaction commitments are separately
@@ -44,14 +48,19 @@ The provider accepts a source amount rather than a required output amount.
 Filecoin Pin therefore plans each leg from its exact wallet shortfall and finds
 a source amount whose `toAmountMin` covers that shortfall:
 
-1. Quote an estimated source amount for the leg.
-2. If `toAmountMin` is short, scale the source amount by
-   `ceil(currentSource * requiredOutput / toAmountMin)` and quote again.
-3. Allow no more than four planning quote attempts per leg. Honor at most one
+1. Quote an estimated source amount for the leg. This is a probe, never an
+   executable default.
+2. For every positive `toAmountMin`, calculate
+   `ceil(currentSource * requiredOutput / toAmountMin)` and quote that
+   proportional amount whenever it differs, including when it is smaller than
+   a successful seed quote.
+3. If Squid rejects the proportional amount or returns zero output, report the
+   provider-minimum boundary and fail instead of retaining the larger seed.
+4. Allow no more than four planning quote attempts per leg. Honor at most one
    bounded `Retry-After` retry for each attempt that receives HTTP 429.
-4. Sum both source amounts and fail before any approval if the user-provided
+5. Sum both source amounts and fail before any approval if the user-provided
    maximum would be exceeded.
-5. Finalize each leg with at most two additional fixed-input quote attempts:
+6. Finalize each leg with at most two additional fixed-input quote attempts:
    one immediately before approval and one after approval confirmation. The
    fixed input is the exact planned source amount; a refresh must not silently
    increase it. Recheck the output requirement, target allowlist, expiry,

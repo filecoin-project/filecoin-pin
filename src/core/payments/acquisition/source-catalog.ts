@@ -17,8 +17,6 @@ export const SELECTED_SOURCE_CHAINS = [
   { cliName: 'filecoin', chainId: 314, aliases: [], nativeSymbol: 'FIL', nativeDecimals: 18 },
   { cliName: 'arbitrum', chainId: 42161, aliases: ['arb'], nativeSymbol: 'ETH', nativeDecimals: 18 },
   { cliName: 'ethereum', chainId: 1, aliases: ['eth'], nativeSymbol: 'ETH', nativeDecimals: 18 },
-  { cliName: 'base', chainId: 8453, aliases: [], nativeSymbol: 'ETH', nativeDecimals: 18 },
-  { cliName: 'optimism', chainId: 10, aliases: ['op'], nativeSymbol: 'ETH', nativeDecimals: 18 },
   { cliName: 'polygon', chainId: 137, aliases: ['matic'], nativeSymbol: 'POL', nativeDecimals: 18 },
   { cliName: 'avalanche', chainId: 43114, aliases: ['avax'], nativeSymbol: 'AVAX', nativeDecimals: 18 },
   { cliName: 'bnb', chainId: 56, aliases: ['bsc'], nativeSymbol: 'BNB', nativeDecimals: 18 },
@@ -340,11 +338,6 @@ export const TRUSTED_SQUID_ROUTE_POLICIES: readonly TrustedRoutePolicy[] = [
     allowedSpenders: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
   },
   {
-    chainId: 10,
-    allowedTargets: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
-    allowedSpenders: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
-  },
-  {
     chainId: 56,
     allowedTargets: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
     allowedSpenders: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
@@ -356,11 +349,6 @@ export const TRUSTED_SQUID_ROUTE_POLICIES: readonly TrustedRoutePolicy[] = [
   },
   {
     chainId: 314,
-    allowedTargets: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
-    allowedSpenders: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
-  },
-  {
-    chainId: 8453,
     allowedTargets: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
     allowedSpenders: ['0xce16f69375520ab01377ce7b88f5ba8c48f8d666'],
   },

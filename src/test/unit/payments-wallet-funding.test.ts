@@ -57,11 +57,11 @@ describe('wallet funding planning', () => {
       walletUsdfcBalance: 10n,
       walletFilBalance: 0n,
       requiredFilReserve: 2n,
-      source: { chainId: 10, token: 'USDC', symbol: 'USDC' },
+      source: { chainId: 137, token: 'USDC', symbol: 'USDC' },
     })
 
     expect(plan.path).toBe('acquire-fil')
-    expect(plan.source).toEqual({ chainId: 10, token: 'USDC', symbol: 'USDC' })
+    expect(plan.source).toEqual({ chainId: 137, token: 'USDC', symbol: 'USDC' })
   })
 
   it('admits a provider contract without a concrete provider', async () => {

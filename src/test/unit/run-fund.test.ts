@@ -125,8 +125,8 @@ function underfundedPlan(delta: bigint) {
 }
 
 function resolvedSource(chain = 'arbitrum', token = 'USDC', native = false): ResolvedSourceToken {
-  const chainId = chain === 'base' ? 8453 : chain === 'filecoin' ? 314 : 42161
-  const nativeSymbol = chain === 'filecoin' ? 'FIL' : 'ETH'
+  const chainId = chain === 'avalanche' ? 43114 : chain === 'filecoin' ? 314 : 42161
+  const nativeSymbol = chain === 'filecoin' ? 'FIL' : chain === 'avalanche' ? 'AVAX' : 'ETH'
   return {
     chain: { cliName: chain, chainId, aliases: [], nativeSymbol, nativeDecimals: 18 },
     chainId,
@@ -266,7 +266,7 @@ describe('runFund confirmation exit codes', () => {
 
     await runFund({
       amount: '5',
-      fromChain: 'base',
+      fromChain: 'avalanche',
       fromToken: 'USDC',
       maxSourceAmount: '10',
       viewAddress: '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf',
@@ -298,7 +298,7 @@ describe('runFund confirmation exit codes', () => {
 
     await runFund({
       amount: '5',
-      fromChain: 'base',
+      fromChain: 'avalanche',
       fromToken: 'USDC',
       maxSourceAmount: '10',
       privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
@@ -311,7 +311,7 @@ describe('runFund confirmation exit codes', () => {
         walletFilBalance: 1_000_000_000_000_000_000n,
         walletUsdfcBalance: 1_000_000_000_000_000_000_000n,
         privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
-        fromChain: 'base',
+        fromChain: 'avalanche',
         fromToken: 'USDC',
       })
     )
@@ -342,7 +342,7 @@ describe('runFund confirmation exit codes', () => {
     await expect(
       runFund({
         amount: '5',
-        fromChain: 'base',
+        fromChain: 'avalanche',
         fromToken: 'USDC',
         maxSourceAmount: '10',
         viewAddress: sessionOwner,
@@ -378,7 +378,7 @@ describe('runFund confirmation exit codes', () => {
 
     await runFund({
       amount: '5',
-      fromChain: 'base',
+      fromChain: 'avalanche',
       fromToken: 'USDC',
       maxSourceAmount: '10',
       viewAddress: sessionOwner,
@@ -392,7 +392,7 @@ describe('runFund confirmation exit codes', () => {
         walletFilBalance: 1_000_000_000_000_000_000n,
         walletUsdfcBalance: 1_000_000_000_000_000_000_000n,
         privateKey: checkpointOwnerKey,
-        fromChain: 'base',
+        fromChain: 'avalanche',
         fromToken: 'USDC',
       })
     )
@@ -436,7 +436,7 @@ describe('runFund confirmation exit codes', () => {
     await expect(
       runFund({
         amount: '5',
-        fromChain: 'base',
+        fromChain: 'avalanche',
         fromToken: 'USDC',
         maxSourceAmount: '20',
       })
@@ -459,10 +459,10 @@ describe('runFund confirmation exit codes', () => {
     await expect(
       runFund({
         amount: '5',
-        fromChain: 'base',
+        fromChain: 'avalanche',
         fromToken: 'USDC',
         maxSourceAmount: '20',
-        sourceRpcUrl: 'https://base.example/rpc',
+        sourceRpcUrl: 'https://avalanche.example/rpc',
       })
     ).rejects.toThrow('Token acquisition requires --private-key for source transactions')
 
@@ -477,30 +477,30 @@ describe('runFund confirmation exit codes', () => {
     expect(mockDeposit).not.toHaveBeenCalled()
   })
 
-  it('integrates a unique Base ERC-20 source with its dynamic decimals', async () => {
-    const baseUsdc = resolvedSource('base', 'USDC')
-    mockResolveCatalogSource.mockReturnValueOnce(baseUsdc)
+  it('integrates a unique Avalanche ERC-20 source with its dynamic decimals', async () => {
+    const avalancheUsdc = resolvedSource('avalanche', 'USDC')
+    mockResolveCatalogSource.mockReturnValueOnce(avalancheUsdc)
     mockPlan.mockResolvedValueOnce(underfundedPlan(5_000_000_000_000_000_000n))
     mockConfirm.mockResolvedValueOnce(false)
 
     await runFund({
       amount: '5',
-      fromChain: 'base',
+      fromChain: 'avalanche',
       fromToken: 'USDC',
       maxSourceAmount: '20',
-      sourceRpcUrl: 'https://base.example/rpc',
+      sourceRpcUrl: 'https://avalanche.example/rpc',
       privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
     })
 
-    expect(mockResolveCatalogSource).toHaveBeenCalledWith({}, 'base', 'USDC')
+    expect(mockResolveCatalogSource).toHaveBeenCalledWith({}, 'avalanche', 'USDC')
     expect(mockEnsureWallet).toHaveBeenCalledWith(
-      expect.objectContaining({ resolvedSource: baseUsdc, maxSourceAmount: '20' })
+      expect.objectContaining({ resolvedSource: avalancheUsdc, maxSourceAmount: '20' })
     )
   })
 
   it.each([
-    ['exact address', 'base', '0x2222222222222222222222222222222222222222', resolvedSource('base', 'USDC')],
-    ['native token', 'base', 'native', resolvedSource('base', 'ETH', true)],
+    ['exact address', 'avalanche', '0x2222222222222222222222222222222222222222', resolvedSource('avalanche', 'USDC')],
+    ['native token', 'avalanche', 'native', resolvedSource('avalanche', 'AVAX', true)],
     ['Filecoin same-chain', 'filecoin', 'USDFC', resolvedSource('filecoin', 'USDFC')],
   ])('passes the resolved %s identity to the shared executor', async (_label, chain, token, source) => {
     mockResolveCatalogSource.mockReturnValueOnce(source)
@@ -522,19 +522,19 @@ describe('runFund confirmation exit codes', () => {
   it('stops an ambiguous source symbol before provider or source execution', async () => {
     mockPlan.mockResolvedValueOnce(underfundedPlan(5_000_000_000_000_000_000n))
     mockResolveCatalogSource.mockImplementationOnce(() => {
-      throw new Error('Source token symbol USDC is ambiguous on base; use one of: 0x1, 0x2')
+      throw new Error('Source token symbol USDC is ambiguous on avalanche; use one of: 0x1, 0x2')
     })
 
     await expect(
       runFund({
         amount: '5',
-        fromChain: 'base',
+        fromChain: 'avalanche',
         fromToken: 'USDC',
         maxSourceAmount: '20',
-        sourceRpcUrl: 'https://base.example/rpc',
+        sourceRpcUrl: 'https://avalanche.example/rpc',
         privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
       })
-    ).rejects.toThrow('ambiguous on base')
+    ).rejects.toThrow('ambiguous on avalanche')
 
     expect(mockCreateVerifiedSourceClient).not.toHaveBeenCalled()
     expect(mockEnsureWallet).not.toHaveBeenCalled()
@@ -543,19 +543,19 @@ describe('runFund confirmation exit codes', () => {
   it('stops a selected-source RPC chain mismatch before provider execution', async () => {
     mockPlan.mockResolvedValueOnce(underfundedPlan(5_000_000_000_000_000_000n))
     mockVerifyResolvedSource.mockRejectedValueOnce(
-      new Error('Source RPC chain ID 1 does not match selected source chain ID 8453')
+      new Error('Source RPC chain ID 1 does not match selected source chain ID 43114')
     )
 
     await expect(
       runFund({
         amount: '5',
-        fromChain: 'base',
+        fromChain: 'avalanche',
         fromToken: 'USDC',
         maxSourceAmount: '20',
-        sourceRpcUrl: 'https://base.example/rpc',
+        sourceRpcUrl: 'https://avalanche.example/rpc',
         privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
       })
-    ).rejects.toThrow('does not match selected source chain ID 8453')
+    ).rejects.toThrow('does not match selected source chain ID 43114')
 
     expect(mockEnsureWallet).not.toHaveBeenCalled()
   })
@@ -690,17 +690,17 @@ describe('runFund confirmation exit codes', () => {
     await expect(
       runFund({
         amount: '5',
-        fromChain: 'base',
+        fromChain: 'avalanche',
         fromToken: 'native',
         maxSourceAmount: '10',
-        sourceRpcUrl: 'https://base.example/rpc',
+        sourceRpcUrl: 'https://avalanche.example/rpc',
         privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
       })
-    ).rejects.toThrow('Source: base (8453), ETH (native), 18 decimals. Remaining wallet shortfalls')
+    ).rejects.toThrow('Source: avalanche (43114), AVAX (native), 18 decimals. Remaining wallet shortfalls')
 
     const output = mockLogLine.mock.calls.flat().join('\n')
-    expect(output).toContain("'--from-chain' 'base' '--from-token' 'native'")
-    expect(output).not.toContain('https://base.example/rpc')
+    expect(output).toContain("'--from-chain' 'avalanche' '--from-token' 'native'")
+    expect(output).not.toContain('https://avalanche.example/rpc')
   })
 
   it('rejects acquisition before provider work when its private key does not own the Synapse wallet', async () => {
