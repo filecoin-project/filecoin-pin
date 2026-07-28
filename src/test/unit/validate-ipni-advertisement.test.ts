@@ -774,8 +774,11 @@ describe('waitForIpniProviderResults', () => {
         mockFetch.mockResolvedValue(emptyProviderResponse())
         const onProgress = vi.fn()
         const promise = waitForIpniProviderResults(testCid, { maxAttempts: 1, onProgress })
+        // attach the rejection handler before advancing timers so the
+        // rejection is never unhandled
+        const rejection = expect(promise).rejects.toThrow('does not have expected IPNI ProviderResults')
         await vi.runAllTimersAsync()
-        await expect(promise).rejects.toThrow('does not have expected IPNI ProviderResults')
+        await rejection
 
         const types = onProgress.mock.calls.map(([e]) => e.type)
         const outcomeIndex = types.indexOf('ipniProviderResults:outcome')
