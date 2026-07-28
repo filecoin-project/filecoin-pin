@@ -34,10 +34,11 @@ part of the allowlist.
 `--max-source-amount` is expressed in the resolved source token's decimals,
 not as a fixed USDC quantity. Native transaction commitments are separately
 bounded by the selected chain's configured native-token ceiling and are checked
-in that chain's native base units. These two limits are independent: an ERC-20
-source needs native gas for approvals and route execution, while a native
-source spends its route value from the native balance and creates no ERC-20
-approval.
+in that chain's native base units. These two limits are independent: for an
+ERC-20 source, the native ceiling covers approvals, allowance replacements, and
+route gas/value commitments; for a native source, route value is instead bounded
+by `--max-source-amount` and the source wallet balance, while the native ceiling
+covers transaction gas only.
 
 The provider accepts a source amount rather than a required output amount.
 Filecoin Pin therefore plans each leg from its exact wallet shortfall and finds
@@ -245,9 +246,11 @@ an explicit source-token maximum and the selected chain's native-token ceiling:
 - `--max-source-amount` is a hard maximum across both legs in the selected
   source token's base units;
 - the configured selected-chain native ceiling is a hard maximum for every
-  source-chain transaction commitment, including exact-amount approvals,
+  ERC-20-source transaction commitment, including exact-amount approvals,
   allowance replacements, route value, and route execution gas, in the
-  selected chain's native-token base units;
+  selected chain's native-token base units. For a native source, the ceiling
+  covers transaction gas only; route value is bounded by
+  `--max-source-amount` and the source wallet balance;
 - exact-amount ERC-20 approvals only.
 
 The captured Arbitrum route executions consumed about 64.4% of their historical
