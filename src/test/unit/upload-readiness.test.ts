@@ -119,8 +119,9 @@ describe('checkUploadReadiness', () => {
     expect(result.validation.helpMessage).toContain('Get test USDFC')
   })
 
-  it('appends USDFC acquisition help when the deposit is insufficient and the wallet holds no USDFC', async () => {
-    mocks.checkUSDFCBalance.mockResolvedValue(0n)
+  it('appends USDFC acquisition help when the wallet cannot cover the deposit shortfall', async () => {
+    // Wallet holds some USDFC, but less than the 0.04 shortfall below.
+    mocks.checkUSDFCBalance.mockResolvedValue(parseEther('0.001'))
     mocks.getDepositedBalance.mockResolvedValue(parseEther('0.01'))
     mocks.validatePaymentCapacity.mockResolvedValue({
       canUpload: false,
@@ -137,13 +138,18 @@ describe('checkUploadReadiness', () => {
     const result = await checkUploadReadiness({ synapse: {} as any, fileSize: 1024 })
 
     expect(result.status).toBe('blocked')
-    expect(result.suggestions[0]).toBe('Deposit at least 0.04 USDFC')
-    expect(result.suggestions[1]).toContain('Bridge USDFC to Filecoin mainnet')
+    const allSuggestions = result.suggestions.join('\n')
+    expect(allSuggestions).toContain('Deposit at least 0.04 USDFC')
+    expect(allSuggestions).toContain('Bridge USDFC to Filecoin mainnet')
+    // Each suggestion renders as one bullet, so entries must be single-line
+    for (const suggestion of result.suggestions) {
+      expect(suggestion).not.toContain('\n')
+    }
     // displayPaymentIssues prints capacity.suggestions, so the help must land there too
     expect(result.capacity?.suggestions).toEqual(result.suggestions)
   })
 
-  it('does not append acquisition help when the wallet holds USDFC to deposit', async () => {
+  it('does not append acquisition help when the wallet can cover the shortfall', async () => {
     mocks.checkUSDFCBalance.mockResolvedValue(parseEther('5'))
     mocks.getDepositedBalance.mockResolvedValue(parseEther('0.01'))
     mocks.validatePaymentCapacity.mockResolvedValue({

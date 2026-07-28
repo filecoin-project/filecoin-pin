@@ -12,8 +12,8 @@ import {
   getUsdfcAcquisitionHelpMessage,
   type PaymentCapacityCheck,
   setMaxAllowances,
-  validateGasRequirement,
   validatePaymentCapacity,
+  validatePaymentRequirements,
 } from '../payments/index.js'
 import { isSessionKeyMode } from '../synapse/index.js'
 import { recordUploadResult } from '../telemetry/index.js'
@@ -136,35 +136,20 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
     getDepositedBalance(synapse),
   ])
 
-  // Upload readiness never deposits wallet USDFC. Deposited funds are checked
-  // below by validatePaymentCapacity, so only gas belongs in this wallet gate.
-  const validation = validateGasRequirement(filStatus.balance, filStatus.isCalibnet)
+  // Validate against total USDFC (wallet + deposited): uploads pay from the
+  // deposit, so an account holding all its USDFC as deposits is funded, while
+  // an account with no USDFC anywhere can never upload and must be blocked
+  // here, before any allowance transaction spends gas. Whether the deposit
+  // covers this file is checked below by validatePaymentCapacity.
+  const validation = validatePaymentRequirements(
+    filStatus.balance,
+    walletUsdfcBalance + depositedBalance,
+    filStatus.isCalibnet
+  )
   if (!validation.isValid) {
     return {
       status: 'blocked',
       validation,
-      filStatus,
-      walletUsdfcBalance,
-      allowances: {
-        needsUpdate: false,
-        updated: false,
-      },
-      suggestions: [],
-    }
-  }
-
-  // A wallet with no USDFC anywhere (wallet or deposit) can never upload, no
-  // matter the file size. Block here, before any allowance transaction spends
-  // gas, and point the user at how to acquire USDFC. Accounts holding all
-  // their USDFC as deposits pass this gate and are checked on capacity below.
-  if (walletUsdfcBalance === 0n && depositedBalance === 0n) {
-    return {
-      status: 'blocked',
-      validation: {
-        isValid: false,
-        errorMessage: 'No USDFC tokens found',
-        helpMessage: getUsdfcAcquisitionHelpMessage(filStatus.isCalibnet),
-      },
       filStatus,
       walletUsdfcBalance,
       allowances: {
@@ -196,10 +181,14 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
   const capacityStatus = determineCapacityStatus(capacityCheck)
 
   if (capacityStatus === 'insufficient') {
-    // Suggesting a deposit is useless when the wallet holds no USDFC to
-    // deposit, so include how to acquire it alongside the deposit suggestion.
-    if (walletUsdfcBalance === 0n) {
-      capacityCheck.suggestions.push(getUsdfcAcquisitionHelpMessage(filStatus.isCalibnet))
+    // Suggesting a deposit is useless when the wallet cannot cover the
+    // shortfall, so include how to acquire USDFC alongside the suggestion.
+    // Suggestions render one bullet per entry, so split multi-line help.
+    if (walletUsdfcBalance < (capacityCheck.issues.insufficientDeposit ?? 0n)) {
+      const helpLines = getUsdfcAcquisitionHelpMessage(filStatus.isCalibnet)
+        .split('\n')
+        .map((line) => line.trim())
+      capacityCheck.suggestions.push(...helpLines)
     }
     return {
       status: 'blocked',
