@@ -295,6 +295,29 @@ describe('runFund confirmation exit codes', () => {
     )
   })
 
+  it('fails visibly before catalog or provider work when an underfunded acquisition has no source RPC', async () => {
+    mockPlan.mockResolvedValueOnce(underfundedPlan(5_000_000_000_000_000_000n))
+
+    await expect(
+      runFund({
+        amount: '5',
+        fromChain: 'base',
+        fromToken: 'USDC',
+        maxSourceAmount: '20',
+      })
+    ).rejects.toThrow('Token acquisition requires --source-rpc-url or SOURCE_RPC_URL')
+
+    expect(mockLogLine).toHaveBeenCalledWith(
+      expect.stringContaining('Token acquisition requires --source-rpc-url or SOURCE_RPC_URL')
+    )
+    expect(mockFetchCatalog).not.toHaveBeenCalled()
+    expect(mockResolveCatalogSource).not.toHaveBeenCalled()
+    expect(mockCreateVerifiedSourceClient).not.toHaveBeenCalled()
+    expect(mockVerifyResolvedSource).not.toHaveBeenCalled()
+    expect(mockEnsureWallet).not.toHaveBeenCalled()
+    expect(mockDeposit).not.toHaveBeenCalled()
+  })
+
   it('integrates a unique Base ERC-20 source with its dynamic decimals', async () => {
     const baseUsdc = resolvedSource('base', 'USDC')
     mockResolveCatalogSource.mockReturnValueOnce(baseUsdc)

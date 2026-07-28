@@ -513,6 +513,9 @@ export async function runFund(options: FundOptions): Promise<void> {
       const usdfcShortfall =
         planResult.status.walletUsdfcBalance < plan.delta ? plan.delta - planResult.status.walletUsdfcBalance : 0n
       if (filShortfall > 0n || usdfcShortfall > 0n) {
+        if (options.sourceRpcUrl == null || options.sourceRpcUrl.trim() === '') {
+          throwDisplayedFatal('Token acquisition requires --source-rpc-url or SOURCE_RPC_URL')
+        }
         if ('readOnly' in authConfig && authConfig.readOnly === true) {
           throwDisplayedFatal('Token acquisition requires signing auth; --view-address is read-only')
         }
