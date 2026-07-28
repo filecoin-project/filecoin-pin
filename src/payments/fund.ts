@@ -15,6 +15,7 @@ import { createVerifiedResolvedSourceClient, sourceAddressForPrivateKey } from '
 import {
   ensureWalletReadyForFilecoinTransactions,
   reconcileReadyAcquisitionCheckpoint,
+  recoverRemovedSourceAcquisition,
 } from '../core/payments/acquisition/orchestrate.js'
 import {
   fetchSquidCatalog,
@@ -538,56 +539,70 @@ export async function runFund(options: FundOptions): Promise<void> {
         acquisitionDiagnostics = `Remaining wallet shortfalls: FIL ${formatUnits(filShortfall, 18)}, USDFC ${formatUnits(usdfcShortfall, 18)}. Squid fallback: https://app.squidrouter.com/`
         acquisitionResumeCommand = acquisitionRecoveryCommand(options, hasDays)
         acquisitionRecoveryKind = 'await-provider'
-        const resolvedSource = await resolveFundAcquisitionSource(options)
-        acquisitionDiagnostics = `Source: ${sourceIdentityForDiagnostics(resolvedSource)}. Remaining wallet shortfalls: FIL ${formatUnits(filShortfall, 18)}, USDFC ${formatUnits(usdfcShortfall, 18)}. Squid fallback: https://app.squidrouter.com/`
-        acquisitionResumeCommand = acquisitionRecoveryCommand(options, hasDays, resolvedSource)
-        const completedAcquisition = await ensureWalletReadyForFilecoinTransactions({
+        const rereadWalletBalances = async () => {
+          const status = await getPaymentStatus(synapse)
+          return { fil: status.filBalance, usdfc: status.walletUsdfcBalance }
+        }
+        const removedSourceRecovery = await recoverRemovedSourceAcquisition({
+          destinationOwner: getClientAddress(synapse),
           destinationChainId: synapse.chain.id,
-          walletUsdfcBalance: currentStatus.walletUsdfcBalance,
-          walletFilBalance: currentStatus.filBalance,
-          requiredUsdfc: plan.delta,
+          privateKey: options.privateKey,
+          sourceRpcUrl: options.sourceRpcUrl,
           fromChain: options.fromChain,
           fromToken: options.fromToken,
-          resolvedSource,
-          maxSourceAmount: options.maxSourceAmount,
-          sourceRpcUrl: options.sourceRpcUrl,
-          slippage: options.slippage,
-          privateKey: options.privateKey,
           provider: { integratorId: process.env.SQUID_INTEGRATOR_ID },
-          confirmSourceAcquisition: isTTY()
-            ? async (summary) => {
-                if (summary.sourceAmount > summary.maxSourceAmount) {
-                  throw new Error('Validated source route exceeds --max-source-amount before confirmation')
-                }
-                const routeLegs = summary.legs
-                  .map(
-                    (leg) =>
-                      `${formatUnits(leg.minimumDestinationAmount, 18)} ${leg.asset.toUpperCase()} (expires ${new Date(leg.expiresAt * 1_000).toISOString()})`
-                  )
-                  .join(', ')
-                const sourceIdentity = sourceTokenIdentity(resolvedSource)
-                const nativeCommitment = formatUnits(
-                  summary.nativeCommitment ?? 0n,
-                  resolvedSource.chain.nativeDecimals
-                )
-                const nativeCeiling = formatUnits(summary.maxNativeGas ?? 0n, resolvedSource.chain.nativeDecimals)
-                const proceed = await confirm({
-                  message:
-                    `Acquire ${formatUnits(summary.sourceAmount, resolvedSource.decimals)} ${sourceIdentity} ` +
-                    `on ${resolvedSource.chain.cliName} (${resolvedSource.chainId}, ${resolvedSource.decimals} decimals; ` +
-                    `cap ${formatUnits(summary.maxSourceAmount, resolvedSource.decimals)}; ` +
-                    `quoted route-native commitment ${nativeCommitment}; ceiling ${nativeCeiling} ${resolvedSource.chain.nativeSymbol}) ` +
-                    `for ${routeLegs} before depositing ${formatUSDFC(plan.delta)} USDFC?`,
-                  initialValue: false,
-                })
-                if (isCancel(proceed) || !proceed) throw new CliIncomplete('Source acquisition cancelled by user')
-              }
-            : undefined,
-          rereadWalletBalances: async () => {
-            const status = await getPaymentStatus(synapse)
-            return { fil: status.filBalance, usdfc: status.walletUsdfcBalance }
-          },
+          rereadWalletBalances,
         })
+        let completedAcquisition = removedSourceRecovery
+        if (removedSourceRecovery == null) {
+          const resolvedSource = await resolveFundAcquisitionSource(options)
+          acquisitionDiagnostics = `Source: ${sourceIdentityForDiagnostics(resolvedSource)}. Remaining wallet shortfalls: FIL ${formatUnits(filShortfall, 18)}, USDFC ${formatUnits(usdfcShortfall, 18)}. Squid fallback: https://app.squidrouter.com/`
+          acquisitionResumeCommand = acquisitionRecoveryCommand(options, hasDays, resolvedSource)
+          completedAcquisition = await ensureWalletReadyForFilecoinTransactions({
+            destinationChainId: synapse.chain.id,
+            walletUsdfcBalance: currentStatus.walletUsdfcBalance,
+            walletFilBalance: currentStatus.filBalance,
+            requiredUsdfc: plan.delta,
+            fromChain: options.fromChain,
+            fromToken: options.fromToken,
+            resolvedSource,
+            maxSourceAmount: options.maxSourceAmount,
+            sourceRpcUrl: options.sourceRpcUrl,
+            slippage: options.slippage,
+            privateKey: options.privateKey,
+            provider: { integratorId: process.env.SQUID_INTEGRATOR_ID },
+            confirmSourceAcquisition: isTTY()
+              ? async (summary) => {
+                  if (summary.sourceAmount > summary.maxSourceAmount) {
+                    throw new Error('Validated source route exceeds --max-source-amount before confirmation')
+                  }
+                  const routeLegs = summary.legs
+                    .map(
+                      (leg) =>
+                        `${formatUnits(leg.minimumDestinationAmount, 18)} ${leg.asset.toUpperCase()} (expires ${new Date(leg.expiresAt * 1_000).toISOString()})`
+                    )
+                    .join(', ')
+                  const sourceIdentity = sourceTokenIdentity(resolvedSource)
+                  const nativeCommitment = formatUnits(
+                    summary.nativeCommitment ?? 0n,
+                    resolvedSource.chain.nativeDecimals
+                  )
+                  const nativeCeiling = formatUnits(summary.maxNativeGas ?? 0n, resolvedSource.chain.nativeDecimals)
+                  const proceed = await confirm({
+                    message:
+                      `Acquire ${formatUnits(summary.sourceAmount, resolvedSource.decimals)} ${sourceIdentity} ` +
+                      `on ${resolvedSource.chain.cliName} (${resolvedSource.chainId}, ${resolvedSource.decimals} decimals; ` +
+                      `cap ${formatUnits(summary.maxSourceAmount, resolvedSource.decimals)}; ` +
+                      `quoted route-native commitment ${nativeCommitment}; ceiling ${nativeCeiling} ${resolvedSource.chain.nativeSymbol}) ` +
+                      `for ${routeLegs} before depositing ${formatUSDFC(plan.delta)} USDFC?`,
+                    initialValue: false,
+                  })
+                  if (isCancel(proceed) || !proceed) throw new CliIncomplete('Source acquisition cancelled by user')
+                }
+              : undefined,
+            rereadWalletBalances,
+          })
+        }
         const acquisitionEvidence = completedAcquisition ?? []
         if (acquisitionEvidence.length > 0) {
           log.section('Acquisition evidence', acquisitionEvidenceLines(acquisitionEvidence))
@@ -597,15 +612,32 @@ export async function runFund(options: FundOptions): Promise<void> {
           acquisitionRecoveryKind = 'deposit-only'
         }
       } else {
-        await reconcileReadyAcquisitionCheckpoint({
-          destinationOwner: getClientAddress(synapse),
+        const destinationOwner = getClientAddress(synapse)
+        const removedSourceRecovery = await recoverRemovedSourceAcquisition({
+          destinationOwner,
           destinationChainId: synapse.chain.id,
-          walletFilBalance: currentStatus.filBalance,
-          walletUsdfcBalance: currentStatus.walletUsdfcBalance,
           privateKey: options.privateKey,
+          sourceRpcUrl: options.sourceRpcUrl,
           fromChain: options.fromChain,
           fromToken: options.fromToken,
+          provider: { integratorId: process.env.SQUID_INTEGRATOR_ID },
+          rereadWalletBalances: async () => {
+            const freshStatus = await getPaymentStatus(synapse)
+            return { fil: freshStatus.filBalance, usdfc: freshStatus.walletUsdfcBalance }
+          },
+          allowMissingCheckpoint: true,
         })
+        if (removedSourceRecovery == null) {
+          await reconcileReadyAcquisitionCheckpoint({
+            destinationOwner,
+            destinationChainId: synapse.chain.id,
+            walletFilBalance: currentStatus.filBalance,
+            walletUsdfcBalance: currentStatus.walletUsdfcBalance,
+            privateKey: options.privateKey,
+            fromChain: options.fromChain,
+            fromToken: options.fromToken,
+          })
+        }
       }
     }
 

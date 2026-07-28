@@ -76,15 +76,64 @@ export interface SquidStatusResult {
   providerExplorerUrl?: string
 }
 
+interface SquidProviderError extends Error {
+  httpStatus?: number | undefined
+  providerMessage?: string | undefined
+}
+
 /** Squid accepts inclusive percentage slippage in this provider-defined range. */
 export function isSupportedSquidSlippage(value: number): boolean {
   return Number.isFinite(value) && value >= MIN_SQUID_SLIPPAGE_PERCENT && value <= MAX_SQUID_SLIPPAGE_PERCENT
 }
 
-function providerError(message: string, code: AcquisitionErrorCode = 'quote-failed'): Error {
-  const error = new Error(message)
+function providerError(
+  message: string,
+  code: AcquisitionErrorCode = 'quote-failed',
+  details?: { httpStatus?: number | undefined; providerMessage?: string | undefined }
+): SquidProviderError {
+  const error: SquidProviderError = new Error(message)
   error.name = code
+  error.httpStatus = details?.httpStatus
+  error.providerMessage = details?.providerMessage
   return error
+}
+
+function providerMessageFromBody(body: unknown): string | undefined {
+  if (typeof body === 'string') return body.trim() || undefined
+  if (body == null || typeof body !== 'object') return undefined
+  const record = body as Record<string, unknown>
+  for (const key of ['message', 'detail', 'error']) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim() !== '') return value.trim()
+    if (value != null && typeof value === 'object') {
+      const nestedMessage = (value as Record<string, unknown>).message
+      if (typeof nestedMessage === 'string' && nestedMessage.trim() !== '') return nestedMessage.trim()
+    }
+  }
+  return undefined
+}
+
+async function readProviderMessage(response: Response): Promise<string | undefined> {
+  try {
+    return providerMessageFromBody(await response.json())
+  } catch {
+    return undefined
+  }
+}
+
+/** True only for an explicit client-error response identifying an invalid or below-minimum input amount. */
+export function isSquidMinimumAmountError(error: unknown): boolean {
+  if (!(error instanceof Error) || error.name !== 'quote-failed') return false
+  const provider = error as SquidProviderError
+  if (provider.httpStatus !== 400 && provider.httpStatus !== 422) return false
+  const message = provider.providerMessage?.toLowerCase()
+  if (message == null) return false
+  return (
+    /\b(?:below|under|less than)\b.*\bminimum\b/.test(message) ||
+    /\bminimum\b.*\b(?:amount|input)\b/.test(message) ||
+    /\b(?:amount|input)\b.*\btoo (?:low|small)\b/.test(message) ||
+    /\binvalid\b.*\b(?:amount|input)\b/.test(message)
+  )
 }
 
 function destinationToken(asset: AcquisitionLeg['asset']): string {
@@ -205,7 +254,12 @@ export async function getSquidRoute(
     fetchFn,
     options.requestTimeoutMs,
     async (response) => {
-      if (!response.ok) throw providerError(`Squid quote failed (${response.status})`)
+      if (!response.ok) {
+        throw providerError(`Squid quote failed (${response.status})`, 'quote-failed', {
+          httpStatus: response.status,
+          providerMessage: await readProviderMessage(response),
+        })
+      }
       return { response, parsed: (await response.json()) as SquidRouteResponse }
     }
   )

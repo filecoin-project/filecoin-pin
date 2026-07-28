@@ -120,7 +120,7 @@ export function addFundingSourceOptions(command: Command): Command {
   return command
     .option(
       '--from-chain <chain>',
-      'Selected source chain: filecoin, arbitrum (arb), ethereum, base, optimism, polygon, avalanche, or bnb'
+      'Selected source chain: filecoin, arbitrum (arb), ethereum, polygon, avalanche, or bnb'
     )
     .option(
       '--from-token <token>',

@@ -14,6 +14,7 @@ const {
   mockInitialize,
   mockLogLine,
   mockParseCLIAuth,
+  mockRecoverRemovedSource,
   mockReconcileReadyCheckpoint,
   mockResolveCatalogSource,
   mockValidateGasRequirement,
@@ -33,6 +34,7 @@ const {
   mockInitialize: vi.fn(),
   mockLogLine: vi.fn(),
   mockParseCLIAuth: vi.fn(),
+  mockRecoverRemovedSource: vi.fn(),
   mockReconcileReadyCheckpoint: vi.fn(),
   mockResolveCatalogSource: vi.fn(),
   mockValidateGasRequirement: vi.fn(),
@@ -43,6 +45,7 @@ const {
 
 vi.mock('../../core/payments/acquisition/orchestrate.js', () => ({
   ensureWalletReadyForFilecoinTransactions: mockEnsureWallet,
+  recoverRemovedSourceAcquisition: mockRecoverRemovedSource,
   reconcileReadyAcquisitionCheckpoint: mockReconcileReadyCheckpoint,
 }))
 
@@ -54,12 +57,16 @@ vi.mock('../../core/payments/acquisition/execute.js', () => ({
 vi.mock('../../core/payments/acquisition/source-catalog.js', () => ({
   fetchSquidCatalog: mockFetchSquidCatalog,
   resolveCatalogSource: mockResolveCatalogSource,
-  selectedSourceChainId: vi.fn((chain: string | undefined) => {
+  recoverySourceChainId: vi.fn((chain: string | undefined) => {
     const aliases: Record<string, number> = {
       arb: 42161,
       arbitrum: 42161,
+      avalanche: 43114,
+      avax: 43114,
       base: 8453,
       filecoin: 314,
+      op: 10,
+      optimism: 10,
     }
     return chain == null ? undefined : aliases[chain.toLowerCase()]
   }),
@@ -112,9 +119,9 @@ vi.mock('../../payments/setup.js', () => ({
 import { formatAutoSetupRetryCommand, runAutoSetup } from '../../payments/auto.js'
 
 const TWO_USDFC = parseUnits('2', 18)
-const BASE_USDC_SOURCE = {
-  chain: { cliName: 'base', chainId: 8453, aliases: [], nativeSymbol: 'ETH', nativeDecimals: 18 },
-  chainId: 8453,
+const AVALANCHE_USDC_SOURCE = {
+  chain: { cliName: 'avalanche', chainId: 43114, aliases: ['avax'], nativeSymbol: 'AVAX', nativeDecimals: 18 },
+  chainId: 43114,
   token: '0x1111111111111111111111111111111111111111',
   symbol: 'USDC',
   decimals: 6,
@@ -179,9 +186,10 @@ describe('runAutoSetup acquisition integration', () => {
     mockValidatePaymentRequirements.mockReturnValue({ isValid: true })
     mockValidateGasRequirement.mockReturnValue({ isValid: true })
     mockEnsureWallet.mockResolvedValue([])
+    mockRecoverRemovedSource.mockResolvedValue(undefined)
     mockReconcileReadyCheckpoint.mockResolvedValue(false)
     mockFetchSquidCatalog.mockResolvedValue({})
-    mockResolveCatalogSource.mockReturnValue(BASE_USDC_SOURCE)
+    mockResolveCatalogSource.mockReturnValue(AVALANCHE_USDC_SOURCE)
     mockCreateVerifiedResolvedSourceClient.mockResolvedValue({})
     mockVerifyResolvedErc20Source.mockImplementation(async (_client, source) => source)
     mockDeposit.mockResolvedValue({ depositTx: '0xdeposit' })
@@ -218,14 +226,24 @@ describe('runAutoSetup acquisition integration', () => {
         requiredUsdfc: TWO_USDFC,
         walletFilBalance: 0n,
         walletUsdfcBalance: 0n,
-        resolvedSource: BASE_USDC_SOURCE,
+        resolvedSource: AVALANCHE_USDC_SOURCE,
       })
     )
     expect(mockDeposit).toHaveBeenCalledWith(expect.anything(), TWO_USDFC)
     expect(order).toEqual(['acquire', 'deposit'])
   })
 
-  it('uses a verified non-Arbitrum ERC-20 source only after finding a shortfall', async () => {
+  it('recovers an already-broadcast removed-source route without resolving a fresh catalog source', async () => {
+    mockRecoverRemovedSource.mockResolvedValueOnce([
+      {
+        asset: 'usdfc',
+        quoteId: 'recovered-base-route',
+        sourceAmount: '1',
+        sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        status: 'confirmed',
+      },
+    ])
+
     await expect(
       runAutoSetup({
         auto: true,
@@ -236,13 +254,71 @@ describe('runAutoSetup acquisition integration', () => {
         maxSourceAmount: '3',
         sourceRpcUrl: 'https://base.example/rpc',
         privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+      } as any)
+    ).resolves.toBeUndefined()
+
+    expect(mockRecoverRemovedSource).toHaveBeenCalledWith(
+      expect.objectContaining({ destinationChainId: 314, fromChain: 'base', fromToken: 'USDC' })
+    )
+    expect(mockFetchSquidCatalog).not.toHaveBeenCalled()
+    expect(mockResolveCatalogSource).not.toHaveBeenCalled()
+    expect(mockEnsureWallet).not.toHaveBeenCalled()
+    expect(mockDeposit).toHaveBeenCalledWith(expect.anything(), TWO_USDFC)
+  })
+
+  it('reconciles a removed-source approval after direct funding makes setup ready', async () => {
+    mockCheckFILBalance.mockResolvedValueOnce({ balance: 100n, isCalibnet: false, hasSufficientGas: true })
+    mockCheckUSDFCBalance.mockResolvedValueOnce(TWO_USDFC)
+    mockRecoverRemovedSource.mockResolvedValueOnce([])
+
+    await expect(
+      runAutoSetup({
+        auto: true,
+        deposit: '2',
+        rateAllowance: '1TiB/month',
+        fromChain: 'base',
+        fromToken: 'USDC',
+        maxSourceAmount: '3',
+        sourceRpcUrl: 'https://base.example/rpc',
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+      } as any)
+    ).resolves.toBeUndefined()
+
+    expect(mockRecoverRemovedSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destinationChainId: 314,
+        fromChain: 'base',
+        fromToken: 'USDC',
+        allowMissingCheckpoint: true,
+      })
+    )
+    expect(mockReconcileReadyCheckpoint).not.toHaveBeenCalled()
+    expect(mockFetchSquidCatalog).not.toHaveBeenCalled()
+    expect(mockEnsureWallet).not.toHaveBeenCalled()
+    expect(mockDeposit).toHaveBeenCalledWith(expect.anything(), TWO_USDFC)
+  })
+
+  it('uses a verified non-Arbitrum ERC-20 source only after finding a shortfall', async () => {
+    await expect(
+      runAutoSetup({
+        auto: true,
+        deposit: '2',
+        rateAllowance: '1TiB/month',
+        fromChain: 'avalanche',
+        fromToken: 'USDC',
+        maxSourceAmount: '3',
+        sourceRpcUrl: 'https://avalanche.example/rpc',
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
       })
     ).resolves.toBeUndefined()
 
     expect(mockFetchSquidCatalog).toHaveBeenCalledTimes(1)
-    expect(mockResolveCatalogSource).toHaveBeenCalledWith({}, 'base', 'USDC')
-    expect(mockCreateVerifiedResolvedSourceClient).toHaveBeenCalledWith(BASE_USDC_SOURCE, 'https://base.example/rpc')
-    expect(mockEnsureWallet).toHaveBeenCalledWith(expect.objectContaining({ resolvedSource: BASE_USDC_SOURCE }))
+    expect(mockResolveCatalogSource).toHaveBeenCalledWith({}, 'avalanche', 'USDC')
+    expect(mockCreateVerifiedResolvedSourceClient).toHaveBeenCalledWith(
+      AVALANCHE_USDC_SOURCE,
+      'https://avalanche.example/rpc'
+    )
+    expect(mockEnsureWallet).toHaveBeenCalledWith(expect.objectContaining({ resolvedSource: AVALANCHE_USDC_SOURCE }))
   })
 
   it('passes a Filecoin native source to the shared reserve-aware acquisition flow', async () => {
@@ -504,7 +580,7 @@ describe('runAutoSetup acquisition integration', () => {
         auto: true,
         deposit: '2',
         rateAllowance: '1TiB/month',
-        fromChain: 'base',
+        fromChain: 'avalanche',
         fromToken: 'USDC',
         maxSourceAmount: '3',
         privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
@@ -518,7 +594,7 @@ describe('runAutoSetup acquisition integration', () => {
 
   it('fails an ambiguous catalog selection before provider execution', async () => {
     mockResolveCatalogSource.mockImplementation(() => {
-      throw new Error('Source token symbol USDC is ambiguous on base; use an exact address')
+      throw new Error('Source token symbol USDC is ambiguous on avalanche; use an exact address')
     })
 
     await expect(
@@ -526,13 +602,13 @@ describe('runAutoSetup acquisition integration', () => {
         auto: true,
         deposit: '2',
         rateAllowance: '1TiB/month',
-        fromChain: 'base',
+        fromChain: 'avalanche',
         fromToken: 'USDC',
         maxSourceAmount: '3',
-        sourceRpcUrl: 'https://base.example/rpc',
+        sourceRpcUrl: 'https://avalanche.example/rpc',
         privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
       })
-    ).rejects.toThrow('Source token symbol USDC is ambiguous on base')
+    ).rejects.toThrow('Source token symbol USDC is ambiguous on avalanche')
 
     expect(mockEnsureWallet).not.toHaveBeenCalled()
     expect(mockDeposit).not.toHaveBeenCalled()
@@ -640,10 +716,10 @@ describe('runAutoSetup acquisition integration', () => {
         maxSourceAmount: '3',
       },
       TWO_USDFC,
-      BASE_USDC_SOURCE
+      AVALANCHE_USDC_SOURCE
     )
 
-    expect(command).toContain("'--from-chain' 'base'")
+    expect(command).toContain("'--from-chain' 'avalanche'")
     expect(command).toContain("'--from-token' '0x1111111111111111111111111111111111111111'")
   })
 
@@ -693,7 +769,7 @@ describe('runAutoSetup acquisition integration', () => {
 
     const output = mockLogLine.mock.calls.flat().join('\n')
     expect(output).toContain('Retry source acquisition:')
-    expect(output).toContain("'--from-chain' 'base'")
+    expect(output).toContain("'--from-chain' 'avalanche'")
     expect(output).not.toContain(sourceRpcUrl)
     expect(output).not.toContain(rpcUrl)
     expect(output).not.toContain(privateKey)

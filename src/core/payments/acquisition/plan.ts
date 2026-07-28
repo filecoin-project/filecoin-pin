@@ -1,7 +1,7 @@
 import { parseUnits } from 'viem'
 import { isFilecoinSameAssetFundingSource, LEGACY_SOURCE_DECIMALS } from './source-assets.js'
 import type { ResolvedSourceToken } from './source-catalog.js'
-import { getSquidRoute, type SquidProviderOptions } from './squid.js'
+import { getSquidRoute, isSquidMinimumAmountError, type SquidProviderOptions } from './squid.js'
 import type { AcquisitionLeg, PlannedAcquisitionQuote, WalletFundingPlan } from './types.js'
 
 const MAX_PLANNING_ATTEMPTS = 4
@@ -73,15 +73,24 @@ export async function planTokenAcquisition(options: PlanTokenAcquisitionOptions)
     leg,
     input: seed,
     quote: undefined as PlannedAcquisitionQuote | undefined,
+    downscaled: false,
   }))
   for (let attempt = 0; attempt < MAX_PLANNING_ATTEMPTS; attempt += 1) {
     assertCandidateSourceTotal(states, options.maxSourceAmount)
     for (const state of states) {
       if (state.quote != null) continue
-      state.quote = await getSquidRoute(
-        { fromAddress: options.owner, sourceAmount: state.input, leg: state.leg, slippage: options.slippage },
-        options.provider
-      )
+      try {
+        state.quote = await getSquidRoute(
+          { fromAddress: options.owner, sourceAmount: state.input, leg: state.leg, slippage: options.slippage },
+          options.provider
+        )
+      } catch (error) {
+        if (!state.downscaled || !isSquidMinimumAmountError(error)) throw error
+        throw new Error(
+          'Squid could not quote the proportional source amount; the route may require a provider minimum, so fund directly rather than spending the seed quote',
+          { cause: error }
+        )
+      }
     }
     const candidates = states.map((state) => {
       const quote = state.quote
@@ -92,16 +101,25 @@ export async function planTokenAcquisition(options: PlanTokenAcquisitionOptions)
     })
     const hasZeroOutput = states.some((state) => state.quote?.destinationAmount === 0n)
     const hasShortfall = states.some((state) => state.quote != null && state.quote.destinationAmount < state.leg.amount)
-    if (!hasZeroOutput && !hasShortfall) return states.map((state) => state.quote as PlannedAcquisitionQuote)
+    const hasCandidateChange = states.some((state, index) => candidates[index] !== state.input)
+    if (!hasZeroOutput && !hasShortfall && !hasCandidateChange) {
+      return states.map((state) => state.quote as PlannedAcquisitionQuote)
+    }
 
     if (hasZeroOutput) {
       for (const state of states) {
-        if (state.quote?.destinationAmount === 0n) state.quote = undefined
+        if (state.quote?.destinationAmount !== 0n) continue
+        if (state.downscaled) {
+          throw new Error(
+            'Squid returned zero output for the proportional source amount; the route may require a provider minimum, so fund directly rather than spending the seed quote'
+          )
+        }
+        state.quote = undefined
       }
     } else {
-      // When another leg needs a larger input, minimize successful but
-      // overproducing seed quotes too. This lets an asymmetric valid split fit
-      // under one aggregate cap without ever signing a probe.
+      // Re-quote every positive proportional candidate, including a candidate
+      // smaller than a successful seed. Seed quotes are probes and must never
+      // become executable merely because they already cover the shortfall.
       assertCandidateSourceTotal(
         candidates.map((input) => ({ input })),
         options.maxSourceAmount
@@ -110,6 +128,7 @@ export async function planTokenAcquisition(options: PlanTokenAcquisitionOptions)
         const candidate = candidates[index]
         if (candidate == null) throw new Error('Acquisition quote planning lost a candidate input')
         if (candidate !== state.input) {
+          state.downscaled = candidate < state.input
           state.input = candidate
           state.quote = undefined
         }
@@ -119,7 +138,7 @@ export async function planTokenAcquisition(options: PlanTokenAcquisitionOptions)
       if (hasZeroOutput) {
         throw new Error('Squid returned a zero minimum destination amount; cannot plan a safe acquisition')
       }
-      throw new Error(`Squid could not satisfy the required wallet outputs within ${MAX_PLANNING_ATTEMPTS} quotes`)
+      throw new Error(`Squid could not converge on minimum safe source inputs within ${MAX_PLANNING_ATTEMPTS} quotes`)
     }
   }
   throw new Error('Acquisition quote planning ended unexpectedly')

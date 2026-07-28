@@ -13,12 +13,13 @@ import { createVerifiedResolvedSourceClient, sourceAddressForPrivateKey } from '
 import {
   ensureWalletReadyForFilecoinTransactions,
   reconcileReadyAcquisitionCheckpoint,
+  recoverRemovedSourceAcquisition,
 } from '../core/payments/acquisition/orchestrate.js'
 import {
   fetchSquidCatalog,
   type ResolvedSourceToken,
+  recoverySourceChainId,
   resolveCatalogSource,
-  selectedSourceChainId,
   sourceTokenIdentity,
   verifyResolvedErc20Source,
 } from '../core/payments/acquisition/source-catalog.js'
@@ -136,7 +137,7 @@ function validateAcquisitionOptions(options: PaymentSetupOptions): boolean {
     if (maximum == null || !/^\d+(?:\.\d+)?$/.test(maximum) || !/[1-9]/.test(maximum)) {
       throwDisplayedFatal('--max-source-amount must be greater than zero')
     }
-    if (selectedSourceChainId(options.fromChain) == null) {
+    if (recoverySourceChainId(options.fromChain) == null) {
       throwDisplayedFatal(`Unsupported source chain: ${options.fromChain ?? '(missing)'}`)
     }
   }
@@ -348,29 +349,42 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
         throwDisplayedFatal('Token acquisition requires --private-key for source transactions')
       }
       assertAcquisitionOwnerMatchesSynapse(address, options.privateKey)
-      const resolvedSource = await resolveAutoSetupAcquisitionSource(options)
-      acquisitionRetryCommand = formatAutoSetupRetryCommand(options, resolvedTargetFilecoinPayBalance, resolvedSource)
-      log.line(pc.gray(`Source: ${sourceIdentityForDiagnostics(resolvedSource)}`))
-      log.flush()
-
-      await ensureWalletReadyForFilecoinTransactions({
+      const rereadWalletBalances = async () => {
+        const freshStatus = await getPaymentStatus(synapse)
+        return { fil: freshStatus.filBalance, usdfc: freshStatus.walletUsdfcBalance }
+      }
+      const removedSourceRecovery = await recoverRemovedSourceAcquisition({
+        destinationOwner: address,
         destinationChainId: synapse.chain.id,
-        walletUsdfcBalance: currentWalletUsdfcBalance,
-        walletFilBalance: currentWalletFilBalance,
-        requiredUsdfc: neededFilecoinPayTopUp,
+        privateKey: options.privateKey,
+        sourceRpcUrl: options.sourceRpcUrl,
         fromChain: options.fromChain,
         fromToken: options.fromToken,
-        resolvedSource,
-        maxSourceAmount: options.maxSourceAmount,
-        sourceRpcUrl: options.sourceRpcUrl,
-        slippage: options.slippage,
-        privateKey: options.privateKey,
         provider: { integratorId: process.env.SQUID_INTEGRATOR_ID },
-        rereadWalletBalances: async () => {
-          const freshStatus = await getPaymentStatus(synapse)
-          return { fil: freshStatus.filBalance, usdfc: freshStatus.walletUsdfcBalance }
-        },
+        rereadWalletBalances,
       })
+      if (removedSourceRecovery == null) {
+        const resolvedSource = await resolveAutoSetupAcquisitionSource(options)
+        acquisitionRetryCommand = formatAutoSetupRetryCommand(options, resolvedTargetFilecoinPayBalance, resolvedSource)
+        log.line(pc.gray(`Source: ${sourceIdentityForDiagnostics(resolvedSource)}`))
+        log.flush()
+
+        await ensureWalletReadyForFilecoinTransactions({
+          destinationChainId: synapse.chain.id,
+          walletUsdfcBalance: currentWalletUsdfcBalance,
+          walletFilBalance: currentWalletFilBalance,
+          requiredUsdfc: neededFilecoinPayTopUp,
+          fromChain: options.fromChain,
+          fromToken: options.fromToken,
+          resolvedSource,
+          maxSourceAmount: options.maxSourceAmount,
+          sourceRpcUrl: options.sourceRpcUrl,
+          slippage: options.slippage,
+          privateKey: options.privateKey,
+          provider: { integratorId: process.env.SQUID_INTEGRATOR_ID },
+          rereadWalletBalances,
+        })
+      }
       // A successful source route has already funded the Filecoin wallet. Any
       // later failure must resume only the local Filecoin payment work, never
       // suggest another provider route that could acquire funds again.
@@ -379,15 +393,31 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       currentWalletFilBalance = refreshedStatus.filBalance
       currentWalletUsdfcBalance = refreshedStatus.walletUsdfcBalance
     } else if (acquisitionRequested) {
-      await reconcileReadyAcquisitionCheckpoint({
+      const removedSourceRecovery = await recoverRemovedSourceAcquisition({
         destinationOwner: address,
         destinationChainId: synapse.chain.id,
-        walletFilBalance: currentWalletFilBalance,
-        walletUsdfcBalance: currentWalletUsdfcBalance,
         privateKey: options.privateKey,
+        sourceRpcUrl: options.sourceRpcUrl,
         fromChain: options.fromChain,
         fromToken: options.fromToken,
+        provider: { integratorId: process.env.SQUID_INTEGRATOR_ID },
+        rereadWalletBalances: async () => {
+          const freshStatus = await getPaymentStatus(synapse)
+          return { fil: freshStatus.filBalance, usdfc: freshStatus.walletUsdfcBalance }
+        },
+        allowMissingCheckpoint: true,
       })
+      if (removedSourceRecovery == null) {
+        await reconcileReadyAcquisitionCheckpoint({
+          destinationOwner: address,
+          destinationChainId: synapse.chain.id,
+          walletFilBalance: currentWalletFilBalance,
+          walletUsdfcBalance: currentWalletUsdfcBalance,
+          privateKey: options.privateKey,
+          fromChain: options.fromChain,
+          fromToken: options.fromToken,
+        })
+      }
     }
 
     // Preserve the existing validation and transaction behavior after the

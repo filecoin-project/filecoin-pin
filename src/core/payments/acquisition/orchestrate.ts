@@ -1,3 +1,4 @@
+import type { PublicClient } from 'viem'
 import { mainnet } from '../../synapse/index.js'
 import { MIN_FIL_FOR_GAS } from '../constants.js'
 import { planWalletFunding } from '../wallet-funding.js'
@@ -9,6 +10,7 @@ import {
   createAcquisitionCheckpointStore,
 } from './checkpoint.js'
 import {
+  createVerifiedResolvedSourceClient,
   executeTokenAcquisition,
   MAX_SOURCE_NATIVE_GAS,
   sourceAddressForPrivateKey,
@@ -22,9 +24,15 @@ import {
   validateMaximumSourceSpend,
 } from './plan.js'
 import { resolveSourceToken } from './source-assets.js'
-import { matchesRequestedSourceSelectors, type ResolvedSourceToken, selectedSourceChainId } from './source-catalog.js'
+import {
+  matchesRequestedSourceSelectors,
+  type ResolvedSourceToken,
+  recoveryOnlySourceChain,
+  recoverySourceChainId,
+  sourceTokenIdentity,
+} from './source-catalog.js'
 import { sourceNativeGasCeiling, sourceRouteIdentity } from './source-execution.js'
-import { pollSquidStatus, type SquidProviderOptions } from './squid.js'
+import { pollSquidStatus, type SquidProviderOptions, waitForSquidTerminalStatus } from './squid.js'
 import type { AcquisitionEvidence } from './types.js'
 
 function consumedSourceAmount(evidence: AcquisitionEvidence[]): bigint {
@@ -142,7 +150,7 @@ export async function reconcileReadyAcquisitionCheckpoint(options: {
     ) {
       throw new Error('Acquisition private key must control the configured Filecoin wallet owner')
     }
-    const requestedSourceChainId = selectedSourceChainId(options.fromChain)
+    const requestedSourceChainId = recoverySourceChainId(options.fromChain)
     assertReadyCheckpointSourceSelectors(pending, options.fromChain, options.fromToken)
     if (requestedSourceChainId == null) {
       throw new Error(
@@ -163,6 +171,174 @@ export async function reconcileReadyAcquisitionCheckpoint(options: {
     }
     await checkpointStore.clear()
     return true
+  } finally {
+    await lock.release()
+  }
+}
+
+/**
+ * Poll an already-broadcast checkpoint from a source that is no longer allowed
+ * for new acquisitions. This path can read receipts and provider status, but
+ * it cannot quote, approve, or sign another source transaction.
+ */
+export async function recoverRemovedSourceAcquisition(options: {
+  destinationOwner: string
+  destinationChainId: number
+  privateKey?: string | undefined
+  sourceRpcUrl?: string | undefined
+  fromChain?: string | undefined
+  fromToken?: string | undefined
+  provider: SquidProviderOptions
+  rereadWalletBalances: () => Promise<{ fil: bigint; usdfc: bigint }>
+  /**
+   * A ready-wallet cleanup may have no checkpoint at all. Underfunded calls
+   * keep treating that state as a rejected fresh acquisition.
+   */
+  allowMissingCheckpoint?: boolean | undefined
+  /** Test seam; production uses the standard five-second readiness interval. */
+  filecoinArrivalWait?: ((milliseconds: number) => Promise<void>) | undefined
+  /** Test seam; production creates a chain-verified read-only source client. */
+  sourceClient?: Pick<PublicClient, 'getChainId' | 'waitForTransactionReceipt'> | undefined
+}): Promise<AcquisitionEvidence[] | undefined> {
+  const recoveryChain = recoveryOnlySourceChain(options.fromChain)
+  if (recoveryChain == null) return undefined
+  if (options.privateKey == null || options.privateKey.trim() === '') {
+    throw new Error('Removed-source checkpoint recovery requires the wallet owner private key')
+  }
+  const privateKey = (
+    options.privateKey.startsWith('0x') ? options.privateKey : `0x${options.privateKey}`
+  ) as `0x${string}`
+  const sourceOwner = sourceAddressForPrivateKey(privateKey)
+  if (sourceOwner.toLowerCase() !== options.destinationOwner.toLowerCase()) {
+    throw new Error('Acquisition private key must control the configured Filecoin wallet owner')
+  }
+  const lock = await acquireAcquisitionLock(sourceOwner)
+  const checkpointStore = createAcquisitionCheckpointStore(sourceOwner)
+  try {
+    const pending = await checkpointStore.load()
+    if (pending == null) {
+      if (options.allowMissingCheckpoint === true) return undefined
+      throw new Error(`Unsupported source chain for a new acquisition: ${recoveryChain.cliName}`)
+    }
+    if (
+      pending.version !== 2 ||
+      pending.source == null ||
+      pending.maxSourceAmount == null ||
+      pending.maxNativeGas == null ||
+      pending.owner.toLowerCase() !== sourceOwner.toLowerCase() ||
+      pending.sourceChainId !== recoveryChain.chainId ||
+      pending.source.chainId !== recoveryChain.chainId ||
+      pending.destinationChainId !== options.destinationChainId ||
+      pending.committedNativeGas > pending.maxNativeGas ||
+      !matchesRequestedSourceSelectors(pending.source, options.fromChain, options.fromToken)
+    ) {
+      throw new Error(
+        'Acquisition recovery state is incompatible with the selected source identity, caps, or destination; do not submit another route'
+      )
+    }
+    if (pending.routeIntent != null || (pending.approvalIntent != null && pending.approvalTransactionHash == null)) {
+      throw new Error(
+        'Acquisition has a pre-broadcast intent without a transaction hash; inspect the recorded nonce before any rerun'
+      )
+    }
+
+    const source: ResolvedSourceToken = {
+      chain: recoveryChain,
+      chainId: recoveryChain.chainId,
+      token: pending.source.token,
+      symbol: pending.source.symbol,
+      decimals: pending.source.decimals,
+      native: pending.source.native,
+      display: sourceTokenIdentity(pending.source),
+    }
+    const sourceClient =
+      options.sourceClient ?? (await createVerifiedResolvedSourceClient(source, options.sourceRpcUrl))
+    const sourceChainId = await sourceClient.getChainId()
+    if (sourceChainId !== recoveryChain.chainId) {
+      throw new Error(
+        `Source RPC chain ID ${sourceChainId} does not match recovery source chain ID ${recoveryChain.chainId}; do not continue`
+      )
+    }
+
+    let recoveredCheckpoint = pending
+    if (pending.approvalTransactionHash != null) {
+      const receipt = await sourceClient.waitForTransactionReceipt({
+        hash: pending.approvalTransactionHash as `0x${string}`,
+      })
+      if (receipt.status !== 'success') {
+        throw new Error('Removed-source approval transaction failed; do not submit a route')
+      }
+      const {
+        approvalIntent: _approvalIntent,
+        approvalTransactionHash: _approvalTransactionHash,
+        ...recovered
+      } = pending
+      recoveredCheckpoint = recovered
+      await checkpointStore.save(recoveredCheckpoint)
+    }
+    if (pending.evidence.length === 0) {
+      const balances = await options.rereadWalletBalances()
+      if (
+        balances.fil >= recoveredCheckpoint.requiredWallet.fil &&
+        balances.usdfc >= recoveredCheckpoint.requiredWallet.usdfc
+      ) {
+        await checkpointStore.clear()
+        return []
+      }
+      throw new Error(
+        `No ${recoveryChain.cliName} route was broadcast before support was removed; fresh planning and signing are disabled`
+      )
+    }
+
+    const evidence = pending.evidence.map((item) => ({ ...item }))
+    for (const [index, item] of evidence.entries()) {
+      if (item.sourceTransactionHash == null) {
+        throw new Error('Acquisition recovery evidence lacks a source transaction hash; do not resubmit')
+      }
+      if (
+        (
+          await sourceClient.waitForTransactionReceipt({
+            hash: item.sourceTransactionHash as `0x${string}`,
+          })
+        ).status !== 'success'
+      ) {
+        throw new Error('Recovered source transaction failed; do not resubmit')
+      }
+      if (item.status === 'confirmed') continue
+      const status = await waitForSquidTerminalStatus({
+        getStatus: () =>
+          pollSquidStatus(
+            {
+              transactionId: item.sourceTransactionHash as string,
+              fromChainId: String(recoveryChain.chainId),
+              toChainId: String(options.destinationChainId),
+              quoteId: item.quoteId,
+              ...(item.requestId != null ? { requestId: item.requestId } : {}),
+            },
+            options.provider
+          ),
+        ...(item.estimatedRouteDurationSeconds != null
+          ? { estimatedRouteDurationSeconds: item.estimatedRouteDurationSeconds }
+          : {}),
+      })
+      evidence[index] = { ...item, ...status }
+      await checkpointStore.save({ ...recoveredCheckpoint, evidence })
+      if (status.status !== 'confirmed') {
+        throw new Error(
+          `Acquisition remains ${status.status}; do not resend the source transaction ${item.sourceTransactionHash}`
+        )
+      }
+    }
+
+    const confirmedEvidence = evidence.map((item) => ({ ...item, status: 'confirmed' as const }))
+    await checkpointStore.save({ ...recoveredCheckpoint, evidence: confirmedEvidence })
+    await waitForFilecoinWalletReadiness({
+      required: recoveredCheckpoint.requiredWallet,
+      getBalances: options.rereadWalletBalances,
+      ...(options.filecoinArrivalWait != null ? { wait: options.filecoinArrivalWait } : {}),
+    })
+    await checkpointStore.clear()
+    return confirmedEvidence
   } finally {
     await lock.release()
   }

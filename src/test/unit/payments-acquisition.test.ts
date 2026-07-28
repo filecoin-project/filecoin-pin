@@ -23,6 +23,7 @@ import {
 import {
   ensureWalletReadyForFilecoinTransactions,
   reconcileReadyAcquisitionCheckpoint,
+  recoverRemovedSourceAcquisition,
   type SourceAcquisitionConfirmation,
 } from '../../core/payments/acquisition/orchestrate.js'
 import {
@@ -36,7 +37,11 @@ import {
   FILECOIN_USDFC,
   resolveSourceToken,
 } from '../../core/payments/acquisition/source-assets.js'
-import { type ResolvedSourceToken, SELECTED_SOURCE_CHAINS } from '../../core/payments/acquisition/source-catalog.js'
+import {
+  type ResolvedSourceToken,
+  recoveryOnlySourceChain,
+  SELECTED_SOURCE_CHAINS,
+} from '../../core/payments/acquisition/source-catalog.js'
 import { sourceNativeGasCeiling, sourceRouteIdentity } from '../../core/payments/acquisition/source-execution.js'
 import {
   getSquidRoute,
@@ -93,17 +98,31 @@ function resolvedArbitrumSource(): ResolvedSourceToken {
   }
 }
 
-function resolvedBaseSource(): ResolvedSourceToken {
-  const chain = SELECTED_SOURCE_CHAINS.find((candidate) => candidate.chainId === 8453)
-  if (chain == null) throw new Error('Base test chain missing')
+function resolvedAvalancheSource(): ResolvedSourceToken {
+  const chain = SELECTED_SOURCE_CHAINS.find((candidate) => candidate.chainId === 43114)
+  if (chain == null) throw new Error('Avalanche test chain missing')
   return {
     chain,
     chainId: chain.chainId,
     token: '0x0000000000000000000000000000000000000003',
-    symbol: 'USDbC',
-    decimals: 8,
+    symbol: 'USDC',
+    decimals: 6,
     native: false,
-    display: 'Base USDbC',
+    display: 'Avalanche USDC',
+  }
+}
+
+function removedBaseSource(): ResolvedSourceToken {
+  const chain = recoveryOnlySourceChain('base')
+  if (chain == null) throw new Error('Base recovery chain missing')
+  return {
+    chain,
+    chainId: chain.chainId,
+    token: '0x0000000000000000000000000000000000000004',
+    symbol: 'USDC',
+    decimals: 6,
+    native: false,
+    display: 'Base USDC',
   }
 }
 
@@ -576,8 +595,8 @@ describe('Squid acquisition provider contract', () => {
   })
 
   it('returns directly ready for a resolved source without provider or source-RPC calls', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 8453)
-    if (chain == null) throw new Error('Base test chain missing')
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 43114)
+    if (chain == null) throw new Error('Avalanche test chain missing')
     const fetchFn = vi.fn<typeof fetch>()
     const rereadWalletBalances = vi.fn().mockResolvedValue({ fil: MIN_FIL_FOR_GAS, usdfc: 1n })
     await expect(
@@ -590,10 +609,10 @@ describe('Squid acquisition provider contract', () => {
           chain,
           chainId: chain.chainId,
           token: '0x0000000000000000000000000000000000000003',
-          symbol: 'USDbC',
+          symbol: 'USDC',
           decimals: 8,
           native: false,
-          display: 'Base USDbC',
+          display: 'Avalanche USDC',
         },
         provider: { integratorId: 'test-only-integrator', fetchFn },
         rereadWalletBalances,
@@ -603,8 +622,8 @@ describe('Squid acquisition provider contract', () => {
     expect(fetchFn).not.toHaveBeenCalled()
   })
 
-  it('plans a resolved Base source with its dynamic Squid chain and surfaces its gas ceiling for confirmation', async () => {
-    const source = resolvedBaseSource()
+  it('plans a resolved Avalanche source with its dynamic Squid chain and surfaces its gas ceiling for confirmation', async () => {
+    const source = resolvedAvalancheSource()
     const fixture = await routeFixture('squid-route-usdfc.json')
     fixture.route.transactionRequest.expiry = '2000000000'
     const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
@@ -638,11 +657,11 @@ describe('Squid acquisition provider contract', () => {
     ).rejects.toThrow('stop after resolved confirmation')
 
     expect(JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body))).toMatchObject({
-      fromChain: '8453',
+      fromChain: '43114',
       fromToken: source.token,
     })
     expect(confirmation).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceChainId: 8453, maxNativeGas: sourceNativeGasCeiling(8453) })
+      expect.objectContaining({ sourceChainId: 43114, maxNativeGas: sourceNativeGasCeiling(43114) })
     )
   })
 
@@ -829,6 +848,8 @@ describe('Squid acquisition provider contract', () => {
         fixture.route.params.toAddress = body.toAddress
         fixture.route.params.fromAddress = body.fromAddress
         fixture.route.estimate.fromAmount = body.fromAmount
+        fixture.route.estimate.toAmountMin =
+          body.toToken === FILECOIN_NATIVE_TOKEN ? sourceNativeGasCeiling(314).toString() : '1'
         return response(fixture)
       })
       const confirmation = vi.fn(async (_summary: SourceAcquisitionConfirmation) => {
@@ -875,7 +896,7 @@ describe('Squid acquisition provider contract', () => {
     const originalHome = process.env.HOME
     process.env.HOME = directory
     try {
-      const source = resolvedBaseSource()
+      const source = resolvedAvalancheSource()
       const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
       const store = createAcquisitionCheckpointStore(owner)
       await store.save({
@@ -1046,6 +1067,294 @@ describe('Squid acquisition provider contract', () => {
     }
   })
 
+  it('recovers an already-broadcast Base route without catalog resolution or another signature', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      const store = createAcquisitionCheckpointStore(owner)
+      const source = removedBaseSource()
+      await store.save({
+        version: 2,
+        owner,
+        sourceChainId: source.chainId,
+        destinationChainId: 314,
+        source: sourceRouteIdentity(source),
+        maxSourceAmount: 1_000_000n,
+        maxNativeGas: 3_000_000_000_000_000n,
+        committedNativeGas: 1n,
+        requiredWallet: { fil: MIN_FIL_FOR_GAS, usdfc: 1n },
+        evidence: [
+          {
+            asset: 'usdfc',
+            quoteId: 'already-broadcast-base-route',
+            sourceAmount: '1',
+            sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            status: 'submitted',
+          },
+        ],
+      })
+      const sourceClient = {
+        getChainId: vi.fn().mockResolvedValue(8453),
+        waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+      }
+      const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
+        response({
+          squidTransactionStatus: 'success',
+          fromChain: { transactionUrl: 'https://base.example/source' },
+          toChain: { transactionId: '0xdestination', transactionUrl: 'https://filecoin.example/destination' },
+        })
+      )
+
+      const rereadWalletBalances = vi
+        .fn()
+        .mockResolvedValueOnce({ fil: MIN_FIL_FOR_GAS, usdfc: 0n })
+        .mockResolvedValueOnce({ fil: MIN_FIL_FOR_GAS, usdfc: 1n })
+      const filecoinArrivalWait = vi.fn().mockResolvedValue(undefined)
+
+      await expect(
+        recoverRemovedSourceAcquisition({
+          destinationOwner: owner,
+          destinationChainId: 314,
+          privateKey: PRIVATE_KEY,
+          fromChain: 'base',
+          fromToken: 'USDC',
+          provider: { integratorId: 'test-only-integrator', fetchFn },
+          rereadWalletBalances,
+          filecoinArrivalWait,
+          sourceClient: sourceClient as never,
+        })
+      ).resolves.toEqual([
+        expect.objectContaining({
+          quoteId: 'already-broadcast-base-route',
+          sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          status: 'confirmed',
+        }),
+      ])
+
+      expect(sourceClient.waitForTransactionReceipt).toHaveBeenCalledOnce()
+      expect(fetchFn).toHaveBeenCalledOnce()
+      expect(rereadWalletBalances).toHaveBeenCalledTimes(2)
+      expect(filecoinArrivalWait).toHaveBeenCalledWith(5_000)
+      await expect(store.load()).resolves.toBeUndefined()
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('clears a completed Base checkpoint after its Filecoin balances arrive', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      const store = createAcquisitionCheckpointStore(owner)
+      const source = removedBaseSource()
+      await store.save({
+        version: 2,
+        owner,
+        sourceChainId: source.chainId,
+        destinationChainId: 314,
+        source: sourceRouteIdentity(source),
+        maxSourceAmount: 1_000_000n,
+        maxNativeGas: 3_000_000_000_000_000n,
+        committedNativeGas: 1n,
+        requiredWallet: { fil: MIN_FIL_FOR_GAS, usdfc: 1n },
+        evidence: [
+          {
+            asset: 'usdfc',
+            quoteId: 'completed-base-route',
+            sourceAmount: '1',
+            sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            status: 'confirmed',
+          },
+        ],
+      })
+
+      await expect(
+        reconcileReadyAcquisitionCheckpoint({
+          destinationOwner: owner,
+          destinationChainId: 314,
+          walletFilBalance: MIN_FIL_FOR_GAS,
+          walletUsdfcBalance: 1n,
+          privateKey: PRIVATE_KEY,
+          fromChain: 'base',
+          fromToken: 'USDC',
+        })
+      ).resolves.toBe(true)
+      await expect(store.load()).resolves.toBeUndefined()
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('clears a confirmed Base approval-only checkpoint after direct Filecoin funding', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      const store = createAcquisitionCheckpointStore(owner)
+      const source = removedBaseSource()
+      await store.save({
+        version: 2,
+        owner,
+        sourceChainId: source.chainId,
+        destinationChainId: 314,
+        source: sourceRouteIdentity(source),
+        maxSourceAmount: 1_000_000n,
+        maxNativeGas: 3_000_000_000_000_000n,
+        committedNativeGas: 1n,
+        approvalIntent: {
+          nonce: 8,
+          token: source.token,
+          spender: SOURCE_APPROVAL_SPENDER,
+          amount: '1',
+          gasLimit: '1',
+          maxFeePerGas: '1',
+        },
+        approvalTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        requiredWallet: { fil: MIN_FIL_FOR_GAS, usdfc: 1n },
+        evidence: [],
+      })
+      const sourceClient = {
+        getChainId: vi.fn().mockResolvedValue(8453),
+        waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+      }
+      const rereadWalletBalances = vi.fn().mockResolvedValue({ fil: MIN_FIL_FOR_GAS, usdfc: 1n })
+
+      await expect(
+        recoverRemovedSourceAcquisition({
+          destinationOwner: owner,
+          destinationChainId: 314,
+          privateKey: PRIVATE_KEY,
+          fromChain: 'base',
+          fromToken: 'USDC',
+          provider: { integratorId: 'test-only-integrator' },
+          rereadWalletBalances,
+          allowMissingCheckpoint: true,
+          sourceClient: sourceClient as never,
+        })
+      ).resolves.toEqual([])
+
+      expect(sourceClient.waitForTransactionReceipt).toHaveBeenCalledWith({
+        hash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      })
+      expect(rereadWalletBalances).toHaveBeenCalledOnce()
+      await expect(store.load()).resolves.toBeUndefined()
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a fresh Base acquisition when no recovery checkpoint exists', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      await expect(
+        recoverRemovedSourceAcquisition({
+          destinationOwner: owner,
+          destinationChainId: 314,
+          privateKey: PRIVATE_KEY,
+          fromChain: 'base',
+          fromToken: 'USDC',
+          provider: { integratorId: 'test-only-integrator' },
+          rereadWalletBalances: vi.fn(),
+        })
+      ).rejects.toThrow('Unsupported source chain for a new acquisition: base')
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('allows ready-wallet removed-source cleanup when no checkpoint exists', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      await expect(
+        recoverRemovedSourceAcquisition({
+          destinationOwner: owner,
+          destinationChainId: 314,
+          privateKey: PRIVATE_KEY,
+          fromChain: 'base',
+          fromToken: 'USDC',
+          provider: { integratorId: 'test-only-integrator' },
+          rereadWalletBalances: vi.fn(),
+          allowMissingCheckpoint: true,
+        })
+      ).resolves.toBeUndefined()
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('reports the actual source RPC chain when removed-source recovery is misconfigured', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      const store = createAcquisitionCheckpointStore(owner)
+      const source = removedBaseSource()
+      await store.save({
+        version: 2,
+        owner,
+        sourceChainId: source.chainId,
+        destinationChainId: 314,
+        source: sourceRouteIdentity(source),
+        maxSourceAmount: 1_000_000n,
+        maxNativeGas: 3_000_000_000_000_000n,
+        committedNativeGas: 1n,
+        requiredWallet: { fil: MIN_FIL_FOR_GAS, usdfc: 1n },
+        evidence: [
+          {
+            asset: 'usdfc',
+            quoteId: 'wrong-source-rpc',
+            sourceAmount: '1',
+            sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            status: 'submitted',
+          },
+        ],
+      })
+
+      await expect(
+        recoverRemovedSourceAcquisition({
+          destinationOwner: owner,
+          destinationChainId: 314,
+          privateKey: PRIVATE_KEY,
+          fromChain: 'base',
+          fromToken: 'USDC',
+          provider: { integratorId: 'test-only-integrator' },
+          rereadWalletBalances: vi.fn(),
+          sourceClient: {
+            getChainId: vi.fn().mockResolvedValue(10),
+            waitForTransactionReceipt: vi.fn(),
+          } as never,
+        })
+      ).rejects.toThrow('Source RPC chain ID 10 does not match recovery source chain ID 8453')
+      await expect(store.load()).resolves.toBeDefined()
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('clears a submitted selected-source checkpoint after a late arrival, then leaves a later ready retry alone', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
     const originalHome = process.env.HOME
@@ -1171,7 +1480,7 @@ describe('Squid acquisition provider contract', () => {
   })
 
   it.each([
-    ['chain', 'base', 'USDC'],
+    ['chain', 'ethereum', 'USDC'],
     ['token', 'arb', '0x0000000000000000000000000000000000000002'],
     ['symbol', 'arb', 'USDC.e'],
     ['native flag', 'arb', 'native'],
@@ -1231,14 +1540,14 @@ describe('Squid acquisition provider contract', () => {
     try {
       const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
       const store = createAcquisitionCheckpointStore(owner)
-      const base = resolvedBaseSource()
+      const avalanche = resolvedAvalancheSource()
       const source: ResolvedSourceToken = {
-        ...base,
+        ...avalanche,
         token: FILECOIN_NATIVE_TOKEN,
-        symbol: 'ETH',
+        symbol: 'AVAX',
         decimals: 18,
         native: true,
-        display: 'ETH (native)',
+        display: 'AVAX (native)',
       }
       await store.save({
         version: 2,
@@ -1268,7 +1577,7 @@ describe('Squid acquisition provider contract', () => {
           walletFilBalance: 100_000_000_000_000_000n,
           walletUsdfcBalance: 1n,
           privateKey: PRIVATE_KEY,
-          fromChain: 'base',
+          fromChain: 'avalanche',
           fromToken: 'native',
         })
       ).resolves.toBe(true)
@@ -1520,7 +1829,13 @@ describe('Squid acquisition provider contract', () => {
       fixture.route.params.fromAddress = owner
       fixture.route.params.toAddress = owner
       fixture.route.transactionRequest.expiry = '2000000000'
-      setFixtureSourceAmount(fixture, 500_000n)
+      const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, string>
+        fixture.route.params.fromAmount = body.fromAmount
+        fixture.route.estimate.fromAmount = body.fromAmount
+        fixture.route.estimate.toAmountMin = body.fromAmount
+        return response(fixture)
+      })
       const confirmation = vi.fn(async (_summary: SourceAcquisitionConfirmation) => {
         throw new Error('confirmation reached before execution')
       })
@@ -1537,7 +1852,7 @@ describe('Squid acquisition provider contract', () => {
           privateKey: PRIVATE_KEY,
           provider: {
             integratorId: 'test-only-integrator',
-            fetchFn: vi.fn<typeof fetch>().mockResolvedValue(response(fixture)),
+            fetchFn,
           },
           confirmSourceAcquisition: confirmation,
           rereadWalletBalances: vi.fn().mockResolvedValue({ fil: 100_000_000_000_000_000n, usdfc: 0n }),
@@ -1546,12 +1861,12 @@ describe('Squid acquisition provider contract', () => {
 
       expect(confirmation).toHaveBeenCalledOnce()
       expect(confirmation).toHaveBeenCalledWith({
-        sourceAmount: 500_000n,
+        sourceAmount: 1n,
         maxSourceAmount: 9_999_999n,
         legs: [
           {
             asset: 'usdfc',
-            minimumDestinationAmount: 4_894_083_014_213_259_056n,
+            minimumDestinationAmount: 1n,
             expiresAt: 2_000_000_000,
           },
         ],
@@ -1596,6 +1911,7 @@ describe('Squid acquisition provider contract', () => {
       fixture.route.transactionRequest.expiry = '2000000000'
       const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
         const body = JSON.parse(String(init?.body)) as Record<string, string>
+        if (body.fromAmount == null) throw new Error('Source amount missing from route request')
         fixture.route.params.fromAddress = body.fromAddress
         fixture.route.params.fromChain = body.fromChain
         fixture.route.params.fromToken = body.fromToken
@@ -1604,6 +1920,7 @@ describe('Squid acquisition provider contract', () => {
         fixture.route.params.toToken = body.toToken
         fixture.route.params.toAddress = body.toAddress
         fixture.route.estimate.fromAmount = body.fromAmount
+        fixture.route.estimate.toAmountMin = (BigInt(body.fromAmount) * 10_000_000_000_000n).toString()
         return response(fixture)
       })
       const confirmation = vi.fn(async (_summary: SourceAcquisitionConfirmation) => {
@@ -1629,14 +1946,14 @@ describe('Squid acquisition provider contract', () => {
         })
       ).rejects.toThrow('confirmation reached before execution')
 
-      expect(fetchFn).toHaveBeenCalledOnce()
+      expect(fetchFn).toHaveBeenCalledTimes(2)
       expect(confirmation).toHaveBeenCalledWith({
-        sourceAmount: 500_000n,
+        sourceAmount: 100_000n,
         maxSourceAmount: 10_000_000n,
         legs: [
           {
             asset: 'usdfc',
-            minimumDestinationAmount: 4_894_083_014_213_259_056n,
+            minimumDestinationAmount: 1_000_000_000_000_000_000n,
             expiresAt: 2_000_000_000,
           },
         ],
@@ -1927,6 +2244,7 @@ describe('wallet shortfall acquisition planning', () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(response(fixture))
       .mockResolvedValueOnce(response(oneBaseUnitFixture))
+      .mockResolvedValueOnce(response(oneBaseUnitFixture))
 
     await expect(
       planTokenAcquisition({
@@ -1949,10 +2267,10 @@ describe('wallet shortfall acquisition planning', () => {
       })
     ).resolves.toHaveLength(1)
 
-    expect(fetchFn.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).fromAmount)).toEqual(['5', '1'])
+    expect(fetchFn.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).fromAmount)).toEqual(['5', '1', '1'])
   })
 
-  it('seeds an 18-decimal high-value token within a 0.01-token source cap', async () => {
+  it('downscales an overproducing 18-decimal seed quote before it can reach signing', async () => {
     const source = { ...supportedSource(), decimals: 18 }
     const plan = planWalletFunding({
       requiredUsdfc: 1n,
@@ -1974,7 +2292,7 @@ describe('wallet shortfall acquisition planning', () => {
       quoted.route.params.toToken = body.toToken
       quoted.route.params.fromAddress = body.fromAddress
       quoted.route.params.toAddress = body.toAddress
-      quoted.route.estimate.toAmountMin = '1'
+      quoted.route.estimate.toAmountMin = body.fromAmount
       return response(quoted)
     })
 
@@ -1986,8 +2304,79 @@ describe('wallet shortfall acquisition planning', () => {
       provider: { integratorId: 'test-only-integrator', fetchFn, now: () => 1_700_000_000_000 },
     })
 
-    expect(quotes).toMatchObject([{ sourceAmount: cap, destinationAmount: 1n }])
-    expect(JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body)).fromAmount).toBe(cap.toString())
+    expect(quotes).toMatchObject([{ sourceAmount: 1n, destinationAmount: 1n }])
+    expect(fetchFn.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).fromAmount)).toEqual([
+      cap.toString(),
+      '1',
+    ])
+  })
+
+  it('fails explicitly when a provider minimum rejects the proportional source amount', async () => {
+    const source = { ...supportedSource(), decimals: 18 }
+    const plan = planWalletFunding({
+      requiredUsdfc: 1n,
+      walletUsdfcBalance: 0n,
+      requiredFilReserve: 0n,
+      walletFilBalance: 0n,
+      source,
+    })
+    const fixture = await routeFixture('squid-route-usdfc.json')
+    const cap = 10n ** 16n
+    setFixtureSourceAmount(fixture, cap)
+    fixture.route.estimate.toAmountMin = cap.toString()
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response(fixture))
+      .mockResolvedValueOnce(response({ message: 'amount below route minimum' }, 400))
+
+    await expect(
+      planTokenAcquisition({
+        plan,
+        owner: OWNER,
+        maxSourceAmount: cap,
+        slippage: 1,
+        provider: { integratorId: 'test-only-integrator', fetchFn, now: () => 1_700_000_000_000 },
+      })
+    ).rejects.toThrow('provider minimum')
+
+    expect(fetchFn).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    { label: 'server failure', status: 500, expectedCalls: 2 },
+    { label: 'exhausted rate limit', status: 429, expectedCalls: 3 },
+  ])('preserves a transient $label from the proportional quote attempt', async ({ status, expectedCalls }) => {
+    const source = { ...supportedSource(), decimals: 18 }
+    const plan = planWalletFunding({
+      requiredUsdfc: 1n,
+      walletUsdfcBalance: 0n,
+      requiredFilReserve: 0n,
+      walletFilBalance: 0n,
+      source,
+    })
+    const fixture = await routeFixture('squid-route-usdfc.json')
+    const cap = 10n ** 16n
+    setFixtureSourceAmount(fixture, cap)
+    fixture.route.estimate.toAmountMin = cap.toString()
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response(fixture))
+      .mockResolvedValue(response({ message: 'temporary provider failure' }, status))
+
+    await expect(
+      planTokenAcquisition({
+        plan,
+        owner: OWNER,
+        maxSourceAmount: cap,
+        slippage: 1,
+        provider: { integratorId: 'test-only-integrator', fetchFn, now: () => 1_700_000_000_000 },
+      })
+    ).rejects.toMatchObject({
+      message: `Squid quote failed (${status})`,
+      name: 'quote-failed',
+    })
+
+    expect(fetchFn).toHaveBeenCalledTimes(expectedCalls)
   })
 
   it('allocates multi-leg seed probes within one aggregate source cap', async () => {
@@ -2689,7 +3078,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('rejects a strict non-USDC checkpoint from legacy recovery before route handling', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const store = checkpointStore({
       version: 2,
       owner: SOURCE_OWNER,
@@ -2728,7 +3117,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('rejects an external-source checkpoint whose saved Filecoin target is below the current request', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const quote = {
       ...executionQuote(),
       value: 0n,
@@ -3338,7 +3727,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('uses only remaining gas for a partial-rerun balance check while preserving the original destination proof', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const quote = {
       ...executionQuote(),
       id: 'remaining-usdfc',
@@ -3421,7 +3810,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('refuses a provider target change after approval and never broadcasts the stale route', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const quote = {
       ...executionQuote(),
       sourceAmount: 100_000_000n,
@@ -3477,7 +3866,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('retains an approval-only checkpoint gas commitment when enforcing the rerun ceiling', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const quote = {
       ...executionQuote(),
       value: 0n,
@@ -3534,16 +3923,16 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('persists partial provider status and URLs before refusing to resubmit the route', async () => {
-    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 10)
-    if (chain == null) throw new Error('Optimism test chain missing')
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 137)
+    if (chain == null) throw new Error('Polygon test chain missing')
     const source: ResolvedSourceToken = {
       chain,
       chainId: chain.chainId,
       token: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
-      symbol: 'ETH',
+      symbol: 'POL',
       decimals: 18,
       native: true,
-      display: 'Optimism ETH',
+      display: 'Polygon POL',
     }
     const quote = {
       ...executionQuote(),
@@ -3602,9 +3991,9 @@ describe('wallet shortfall acquisition planning', () => {
 
   it.each([
     ['decimals', 7, 'USDbC', 'decimals conflict'],
-    ['symbol', 8, 'WRONG', 'symbol conflicts'],
+    ['symbol', 6, 'WRONG', 'symbol conflicts'],
   ])('rejects a catalog %s mismatch before any source signing work', async (_field, decimals, symbol, error) => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const quote = {
       ...executionQuote(),
       value: 0n,
@@ -3647,7 +4036,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('rejects untrusted initial route targets and approval spenders before any signature', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const trustedQuote = {
       ...executionQuote(),
       value: 0n,
@@ -3827,7 +4216,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('does not repoll confirmed strict recovery evidence before executing the remaining leg', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const routeFields = {
       value: 0n,
       gasLimit: 1n,
@@ -3903,7 +4292,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('reserves later strict-route gas when a post-approval refresh raises the current cost', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const first = {
       ...executionQuote(),
       id: 'strict-first-refresh-cap',
@@ -3952,14 +4341,14 @@ describe('wallet shortfall acquisition planning', () => {
         getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
         waitForFilecoinArrival: vi.fn(),
       })
-    ).rejects.toThrow('exceeds chain 8453 ceiling')
+    ).rejects.toThrow('exceeds chain 43114 ceiling')
 
     expect(walletClient.writeContract).not.toHaveBeenCalled()
     expect(walletClient.sendTransaction).not.toHaveBeenCalled()
   })
 
   it('reserves later strict-route gas against the native balance before signing', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const first = {
       ...executionQuote(),
       id: 'strict-first-refresh-balance',
@@ -4015,7 +4404,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('reserves the second strict-leg approval after an exact first allowance before signing', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const first = {
       ...executionQuote(),
       id: 'strict-first-approval-cap',
@@ -4056,7 +4445,7 @@ describe('wallet shortfall acquisition planning', () => {
         getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
         waitForFilecoinArrival: vi.fn(),
       })
-    ).rejects.toThrow('exceeds chain 8453 ceiling')
+    ).rejects.toThrow('exceeds chain 43114 ceiling')
 
     expect(estimateContractGas).toHaveBeenCalledWith(
       expect.objectContaining({ args: [second.approvalSpender, second.sourceAmount] })
@@ -4066,7 +4455,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('reserves the second strict-leg approval against the native balance before signing', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const first = {
       ...executionQuote(),
       id: 'strict-first-approval-balance',
@@ -4122,7 +4511,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('does not preflight a later reset-required approval against a stale nonzero allowance', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const first = {
       ...executionQuote(),
       id: 'strict-first-reset-required',
@@ -4172,7 +4561,7 @@ describe('wallet shortfall acquisition planning', () => {
         getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
         waitForFilecoinArrival: vi.fn(),
       })
-    ).rejects.toThrow('exceeds chain 8453 ceiling')
+    ).rejects.toThrow('exceeds chain 43114 ceiling')
 
     expect(estimateContractGas).toHaveBeenCalledWith(expect.objectContaining({ args: [first.approvalSpender, 0n] }))
     expect(estimateContractGas).not.toHaveBeenCalledWith(
@@ -4183,7 +4572,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('requires a rerun after a reset-required strict approval before exact approval or routing', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const quote = {
       ...executionQuote(),
       value: 0n,
@@ -4250,7 +4639,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('executes a strict ERC-20 route with exact allowance and provider-required native value', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const quote = {
       ...executionQuote(),
       value: 1n,
@@ -4303,9 +4692,9 @@ describe('wallet shortfall acquisition planning', () => {
   it.each([
     {
       name: 'native commitment cap',
-      value: sourceNativeGasCeiling(8453),
-      nativeBalance: sourceNativeGasCeiling(8453) * 2n,
-      error: 'exceeds chain 8453 ceiling',
+      value: sourceNativeGasCeiling(43114),
+      nativeBalance: sourceNativeGasCeiling(43114) * 2n,
+      error: 'exceeds chain 43114 ceiling',
     },
     {
       name: 'native balance',
@@ -4314,7 +4703,7 @@ describe('wallet shortfall acquisition planning', () => {
       error: 'Insufficient source native balance for route value and selected-chain gas ceiling',
     },
   ])('rejects a fresh strict ERC-20 route that exceeds the $name before any broadcast', async (scenario) => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const quote = {
       ...executionQuote(),
       value: scenario.value,
@@ -4360,9 +4749,9 @@ describe('wallet shortfall acquisition planning', () => {
   it.each([
     {
       name: 'native commitment cap',
-      value: sourceNativeGasCeiling(8453),
-      nativeBalances: [sourceNativeGasCeiling(8453) * 2n],
-      error: 'exceeds chain 8453 ceiling',
+      value: sourceNativeGasCeiling(43114),
+      nativeBalances: [sourceNativeGasCeiling(43114) * 2n],
+      error: 'exceeds chain 43114 ceiling',
     },
     {
       name: 'native balance',
@@ -4371,7 +4760,7 @@ describe('wallet shortfall acquisition planning', () => {
       error: 'Insufficient source native balance for the next signed action',
     },
   ])('rejects a post-refresh strict ERC-20 $name increase before any broadcast', async (scenario) => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const quote = {
       ...executionQuote(),
       value: 0n,
@@ -4417,7 +4806,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('preflights a zero allowance with the exact approval that can be signed now', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const quote = {
       ...executionQuote(),
       value: 0n,
@@ -4799,7 +5188,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('never resubmits a strict route across before-hash and after-hash recovery', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const quote = {
       ...executionQuote(),
       value: 0n,
@@ -4886,7 +5275,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('recovers strict multi-leg evidence from Filecoin balances while the provider still lags', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const fil = {
       ...executionQuote(),
       id: 'strict-recovered-fil',
@@ -4971,7 +5360,7 @@ describe('wallet shortfall acquisition planning', () => {
   })
 
   it('reserves all pending ERC-20 route inputs after an external balance reduction', async () => {
-    const source = resolvedBaseSource()
+    const source = resolvedAvalancheSource()
     const first = {
       ...executionQuote(),
       id: 'external-balance-first',

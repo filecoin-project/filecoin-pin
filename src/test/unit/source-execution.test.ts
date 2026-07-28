@@ -61,9 +61,9 @@ describe('multi-chain selected-source execution substrate', () => {
   })
 
   it('uses chain-bound ERC-20 source balances', async () => {
-    const selected = source(8453, 18)
+    const selected = source(43114, 18)
     const client = {
-      getChainId: vi.fn().mockResolvedValue(8453),
+      getChainId: vi.fn().mockResolvedValue(43114),
       getBalance: vi.fn(),
       readContract: vi.fn().mockResolvedValue(9n),
     }
@@ -73,7 +73,7 @@ describe('multi-chain selected-source execution substrate', () => {
   })
 
   it('uses native balances and never asks native sources for an approval', async () => {
-    const selected = source(10, 18, true)
+    const selected = source(137, 18, true)
     const client = { getBalance: vi.fn().mockResolvedValue(7n), readContract: vi.fn() }
     await expect(getSelectedSourceBalance(client as never, OWNER, selected)).resolves.toBe(7n)
     expect(requiresErc20Approval(selected)).toBe(false)
@@ -135,34 +135,34 @@ describe('multi-chain selected-source execution substrate', () => {
   })
 
   it('rejects wrong-chain RPCs', async () => {
-    const selected = source(8453, 18)
+    const selected = source(43114, 18)
     await expect(verifySourceChain({ getChainId: vi.fn().mockResolvedValue(1) } as never, selected)).rejects.toThrow(
-      'does not match selected source chain ID 8453'
+      'does not match selected source chain ID 43114'
     )
   })
 
   it('rejects legacy and mismatched recovery checkpoints instead of reinterpreting a source cap', () => {
-    const selected = source(8453, 18)
+    const selected = source(43114, 18)
     const identity = sourceRouteIdentity(selected)
     const checkpoint = {
       version: 2 as const,
       owner: OWNER,
-      sourceChainId: 8453,
+      sourceChainId: 43114,
       destinationChainId: 314,
       committedNativeGas: 0n,
       source: identity,
       maxSourceAmount: 10n,
-      maxNativeGas: sourceNativeGasCeiling(8453),
+      maxNativeGas: sourceNativeGasCeiling(43114),
       requiredWallet: { fil: 0n, usdfc: 0n },
       evidence: [],
     }
     expect(() =>
-      assertCheckpointSourceCompatibility(checkpoint, identity, 10n, sourceNativeGasCeiling(8453))
+      assertCheckpointSourceCompatibility(checkpoint, identity, 10n, sourceNativeGasCeiling(43114))
     ).not.toThrow()
     expect(() =>
-      assertCheckpointSourceCompatibility({ ...checkpoint, version: 1 }, identity, 10n, sourceNativeGasCeiling(8453))
+      assertCheckpointSourceCompatibility({ ...checkpoint, version: 1 }, identity, 10n, sourceNativeGasCeiling(43114))
     ).toThrow('incompatible')
-    expect(() => assertCheckpointSourceCompatibility(checkpoint, identity, 11n, sourceNativeGasCeiling(8453))).toThrow(
+    expect(() => assertCheckpointSourceCompatibility(checkpoint, identity, 11n, sourceNativeGasCeiling(43114))).toThrow(
       'incompatible'
     )
     expect(() =>
@@ -170,18 +170,18 @@ describe('multi-chain selected-source execution substrate', () => {
         checkpoint,
         { ...identity, symbol: 'WRONG' },
         10n,
-        sourceNativeGasCeiling(8453)
+        sourceNativeGasCeiling(43114)
       )
     ).toThrow('incompatible')
     const higherCheckpoint = { ...checkpoint, requiredWallet: { fil: 20n, usdfc: 30n } }
     expect(() =>
-      assertCheckpointSourceCompatibility(higherCheckpoint, identity, 10n, sourceNativeGasCeiling(8453), {
+      assertCheckpointSourceCompatibility(higherCheckpoint, identity, 10n, sourceNativeGasCeiling(43114), {
         fil: 10n,
         usdfc: 20n,
       })
     ).not.toThrow()
     expect(() =>
-      assertCheckpointSourceCompatibility(checkpoint, identity, 10n, sourceNativeGasCeiling(8453), {
+      assertCheckpointSourceCompatibility(checkpoint, identity, 10n, sourceNativeGasCeiling(43114), {
         fil: 1n,
         usdfc: 1n,
       })
@@ -194,7 +194,7 @@ describe('multi-chain selected-source execution substrate', () => {
     }
     expect(canAdoptHigherDestinationTarget(approvalOnlyCheckpoint)).toBe(true)
     expect(() =>
-      assertCheckpointSourceCompatibility(approvalOnlyCheckpoint, identity, 10n, sourceNativeGasCeiling(8453), {
+      assertCheckpointSourceCompatibility(approvalOnlyCheckpoint, identity, 10n, sourceNativeGasCeiling(43114), {
         fil: 1n,
         usdfc: 1n,
       })
@@ -205,7 +205,7 @@ describe('multi-chain selected-source execution substrate', () => {
     }
     expect(canAdoptHigherDestinationTarget(submittedRouteCheckpoint)).toBe(false)
     expect(() =>
-      assertCheckpointSourceCompatibility(submittedRouteCheckpoint, identity, 10n, sourceNativeGasCeiling(8453), {
+      assertCheckpointSourceCompatibility(submittedRouteCheckpoint, identity, 10n, sourceNativeGasCeiling(43114), {
         fil: 1n,
         usdfc: 1n,
       })
@@ -218,7 +218,7 @@ describe('multi-chain selected-source execution substrate', () => {
       deserializeAcquisitionCheckpoint({
         version: 2,
         owner: OWNER,
-        sourceChainId: 8453,
+        sourceChainId: 43114,
         destinationChainId: 314,
         committedNativeGas: 'not-a-number',
         requiredWallet: { fil: '1', usdfc: '-1' },
@@ -229,7 +229,7 @@ describe('multi-chain selected-source execution substrate', () => {
       deserializeAcquisitionCheckpoint({
         version: 2,
         owner: OWNER,
-        sourceChainId: 8453,
+        sourceChainId: 43114,
         destinationChainId: 314,
         committedNativeGas: '1',
         requiredWallet: null,
