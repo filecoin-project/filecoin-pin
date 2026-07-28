@@ -1,5 +1,5 @@
 import type { Address, PublicClient } from 'viem'
-import { FILECOIN_MAINNET_CHAIN_ID } from './source-assets.js'
+import { FILECOIN_MAINNET_CHAIN_ID, FILECOIN_USDFC } from './source-assets.js'
 import type { ResolvedSourceToken } from './source-catalog.js'
 
 /**
@@ -104,5 +104,31 @@ export function assertFilecoinSourceReserve(options: {
     (options.replenishesFilecoinReserve ? 0n : options.requiredFilecoinReserve)
   if (options.nativeBalance < required) {
     throw new Error('Filecoin source balance would fall below the required FIL reserve; do not sign')
+  }
+}
+
+/**
+ * A Filecoin USDFC source route spends the same wallet balance needed for the
+ * later Filecoin Pay deposit. Reserve both every remaining fixed input and
+ * the absolute post-route deposit target before any signature.
+ */
+export function assertFilecoinUsdfcSourceReserve(options: {
+  source: Pick<ResolvedSourceToken, 'chainId' | 'token' | 'native'>
+  walletUsdfcBalance: bigint
+  pendingSourceAmount: bigint
+  requiredWalletUsdfc: bigint
+}): void {
+  if (
+    options.source.chainId !== FILECOIN_MAINNET_CHAIN_ID ||
+    options.source.native ||
+    options.source.token.toLowerCase() !== FILECOIN_USDFC
+  ) {
+    return
+  }
+  const required = options.pendingSourceAmount + options.requiredWalletUsdfc
+  if (options.walletUsdfcBalance < required) {
+    throw new Error(
+      'Filecoin USDFC source balance must cover all remaining route inputs plus the required post-route USDFC deposit; do not sign'
+    )
   }
 }

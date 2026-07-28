@@ -34,6 +34,7 @@ import {
 import {
   assertCumulativeSourceNativeGas,
   assertFilecoinSourceReserve,
+  assertFilecoinUsdfcSourceReserve,
   getSelectedSourceBalance,
   requiresErc20Approval,
   sourceNativeGasCeiling,
@@ -633,6 +634,23 @@ async function executeResolvedSourceAcquisition(
   })
   if (selectedBalance < remainingSourceAmount)
     throw new Error('Insufficient selected source token balance for the planned acquisition')
+  const baseline = await options.getFilecoinBalances()
+  const requiredWallet =
+    adoptedPendingWallet ??
+    (source.chain.chainId === FILECOIN_MAINNET_CHAIN_ID
+      ? (() => {
+          if (options.requiredDestinationWallet == null) {
+            throw new Error('Filecoin source execution requires an absolute destination wallet target; do not sign')
+          }
+          return options.requiredDestinationWallet
+        })()
+      : addDestinationAmounts(baseline, options.quotes))
+  assertFilecoinUsdfcSourceReserve({
+    source,
+    walletUsdfcBalance: selectedBalance,
+    pendingSourceAmount: remainingSourceAmount,
+    requiredWalletUsdfc: requiredWallet.usdfc,
+  })
   const initialNativeRouteValue = resetBeforeFilRefill ? 0n : nativeRouteValue
   const initialRouteAndApprovalGas = resetBeforeFilRefill ? approvalGas : routeGas + approvalGas
   if (nativeBalance < initialRouteAndApprovalGas + initialNativeRouteValue)
@@ -645,17 +663,6 @@ async function executeResolvedSourceAcquisition(
     requiredFilecoinReserve: options.requiredFilecoinReserve ?? 0n,
     replenishesFilecoinReserve: resetBeforeFilRefill ? false : replenishesFilecoinReserve,
   })
-  const baseline = await options.getFilecoinBalances()
-  const requiredWallet =
-    adoptedPendingWallet ??
-    (source.chain.chainId === FILECOIN_MAINNET_CHAIN_ID
-      ? (() => {
-          if (options.requiredDestinationWallet == null) {
-            throw new Error('Filecoin source execution requires an absolute destination wallet target; do not sign')
-          }
-          return options.requiredDestinationWallet
-        })()
-      : addDestinationAmounts(baseline, options.quotes))
   const evidence: AcquisitionEvidence[] = [...priorEvidence]
   let committedNativeGas = priorCommittedNativeGas
   const assertActionNativeBalance = async (
@@ -703,6 +710,22 @@ async function executeResolvedSourceAcquisition(
       next: signedActionGas + pending.gas + (source.native ? 0n : pending.value),
     })
     await assertActionNativeBalance(signedActionGas + pending.gas, pending.value, actionCanRefillFilecoinReserve)
+  }
+  const assertPendingSelectedSourceReserve = async (
+    pendingQuotes: readonly PlannedAcquisitionQuote[]
+  ): Promise<void> => {
+    if (!requiresErc20Approval(source)) return
+    const pendingSourceAmount = pendingQuotes.reduce((total, pendingQuote) => total + pendingQuote.sourceAmount, 0n)
+    const balance = await getSelectedSourceBalance(publicClient, account.address, source)
+    if (balance < pendingSourceAmount) {
+      throw new Error('Insufficient selected source token balance for the next route; do not sign')
+    }
+    assertFilecoinUsdfcSourceReserve({
+      source,
+      walletUsdfcBalance: balance,
+      pendingSourceAmount,
+      requiredWalletUsdfc: requiredWallet.usdfc,
+    })
   }
   const broadcastApproval = async (params: {
     spender: Address
@@ -804,6 +827,7 @@ async function executeResolvedSourceAcquisition(
         })
         const approvalGasPrice = await publicClient.getGasPrice()
         await assertPendingNativeCommitments(pendingQuotes, refreshed.sourceAmount, approvalGasLimit * approvalGasPrice)
+        await assertPendingSelectedSourceReserve(pendingQuotes)
         committedNativeGas = assertCumulativeSourceNativeGas({
           chainId: source.chain.chainId,
           committed: committedNativeGas,
@@ -859,17 +883,8 @@ async function executeResolvedSourceAcquisition(
       [postApproval, ...quotes.slice(index + 1)],
       requiresErc20Approval(source) ? postApproval.sourceAmount : 0n
     )
+    await assertPendingSelectedSourceReserve([postApproval, ...quotes.slice(index + 1)])
     assertRouteNotExpired(postApproval)
-    if (requiresErc20Approval(source)) {
-      const routeBalance = await getSelectedSourceBalance(publicClient, account.address, source)
-      const pendingSourceAmount = [postApproval, ...quotes.slice(index + 1)].reduce(
-        (total, pendingQuote) => total + pendingQuote.sourceAmount,
-        0n
-      )
-      if (routeBalance < pendingSourceAmount) {
-        throw new Error('Insufficient selected source token balance for the next route; do not sign')
-      }
-    }
     committedNativeGas = assertCumulativeSourceNativeGas({
       chainId: source.chain.chainId,
       committed: committedNativeGas,

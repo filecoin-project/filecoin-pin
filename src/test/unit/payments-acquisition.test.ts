@@ -4882,6 +4882,130 @@ describe('wallet shortfall acquisition planning', () => {
     expect(waitForFilecoinArrival).toHaveBeenCalledWith(absoluteTarget)
   })
 
+  it('does not sign a Filecoin USDFC-funded FIL refill that would spend the deposit target', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 314)
+    if (chain == null) throw new Error('Filecoin test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: FILECOIN_USDFC,
+      symbol: 'USDFC',
+      decimals: 18,
+      native: false,
+      display: 'Filecoin USDFC',
+    }
+    const quote = {
+      ...executionQuote(),
+      asset: 'fil' as const,
+      value: 0n,
+      gasLimit: 1n,
+      maxFeePerGas: 1n,
+      source: sourceRouteIdentity(source),
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
+    }
+    const absoluteTarget = { fil: 10n, usdfc: quote.destinationAmount }
+    const sourceClient = {
+      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getBalance: vi.fn().mockResolvedValue(2n),
+      getGasPrice: vi.fn().mockResolvedValue(1n),
+      getTransactionCount: vi.fn().mockResolvedValue(8),
+      estimateContractGas: vi.fn().mockResolvedValue(1n),
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+        functionName === 'balanceOf' ? absoluteTarget.usdfc : 0n
+      ),
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+    } as unknown as PublicClient
+    const walletClient = { writeContract: vi.fn(), sendTransaction: vi.fn() }
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        source,
+        sourceClient: withResolvedErc20Identity(source, sourceClient),
+        walletClient: walletClient as never,
+        quotes: [quote],
+        maxSourceAmount: 10n,
+        requiredFilecoinReserve: 10n,
+        requiredDestinationWallet: absoluteTarget,
+        refreshQuote: vi.fn(async (current) => current),
+        getProviderStatus: vi.fn(),
+        checkpointStore: emptyCheckpointStore(),
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 2n, usdfc: absoluteTarget.usdfc }),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).rejects.toThrow('plus the required post-route USDFC deposit')
+
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
+    expect(walletClient.sendTransaction).not.toHaveBeenCalled()
+  })
+
+  it('allows a Filecoin USDFC-funded FIL refill only with a source-input surplus over the deposit target', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 314)
+    if (chain == null) throw new Error('Filecoin test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: FILECOIN_USDFC,
+      symbol: 'USDFC',
+      decimals: 18,
+      native: false,
+      display: 'Filecoin USDFC',
+    }
+    const quote = {
+      ...executionQuote(),
+      asset: 'fil' as const,
+      value: 0n,
+      gasLimit: 1n,
+      maxFeePerGas: 1n,
+      source: sourceRouteIdentity(source),
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
+    }
+    const absoluteTarget = { fil: 10n, usdfc: quote.destinationAmount }
+    const allowanceValues = [0n, 0n, quote.sourceAmount]
+    const sourceClient = {
+      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getBalance: vi.fn().mockResolvedValue(2n),
+      getGasPrice: vi.fn().mockResolvedValue(1n),
+      getTransactionCount: vi.fn().mockResolvedValue(8),
+      estimateContractGas: vi.fn().mockResolvedValue(1n),
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+        functionName === 'balanceOf'
+          ? absoluteTarget.usdfc + quote.sourceAmount
+          : (allowanceValues.shift() ?? quote.sourceAmount)
+      ),
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+    } as unknown as PublicClient
+    const walletClient = {
+      writeContract: vi.fn().mockResolvedValue('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+      sendTransaction: vi.fn().mockResolvedValue('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
+    }
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        source,
+        sourceClient: withResolvedErc20Identity(source, sourceClient),
+        walletClient: walletClient as never,
+        quotes: [quote],
+        maxSourceAmount: 10n,
+        requiredFilecoinReserve: 10n,
+        requiredDestinationWallet: absoluteTarget,
+        refreshQuote: vi.fn(async (current) => current),
+        getProviderStatus: vi.fn().mockResolvedValue({ status: 'confirmed' as const }),
+        checkpointStore: emptyCheckpointStore(),
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 2n, usdfc: absoluteTarget.usdfc + quote.sourceAmount }),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).resolves.toMatchObject([{ asset: 'fil', status: 'confirmed' }])
+
+    expect(walletClient.writeContract).toHaveBeenCalledWith(
+      expect.objectContaining({ args: [quote.approvalSpender, quote.sourceAmount] })
+    )
+    expect(walletClient.sendTransaction).toHaveBeenCalledTimes(1)
+  })
+
   it('does not sign a Filecoin ERC-20 FIL refill that cannot pay its approval and route costs', async () => {
     const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 314)
     if (chain == null) throw new Error('Filecoin test chain missing')

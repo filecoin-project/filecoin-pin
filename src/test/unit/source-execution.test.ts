@@ -4,6 +4,7 @@ import {
   canAdoptHigherDestinationTarget,
   deserializeAcquisitionCheckpoint,
 } from '../../core/payments/acquisition/checkpoint.js'
+import { FILECOIN_USDFC } from '../../core/payments/acquisition/source-assets.js'
 import {
   NATIVE_TOKEN_SELECTOR,
   type ResolvedSourceToken,
@@ -13,6 +14,7 @@ import {
 import {
   assertCumulativeSourceNativeGas,
   assertFilecoinSourceReserve,
+  assertFilecoinUsdfcSourceReserve,
   getSelectedSourceBalance,
   requiresErc20Approval,
   sourceNativeGasCeiling,
@@ -108,6 +110,26 @@ describe('multi-chain selected-source execution substrate', () => {
         routeAndApprovalGas: 20n,
         requiredFilecoinReserve: 30n,
         replenishesFilecoinReserve: true,
+      })
+    ).not.toThrow()
+  })
+
+  it('reserves the Filecoin USDFC deposit target alongside every remaining fixed source input', () => {
+    const filecoinUsdfc = { ...source(314, 18), token: FILECOIN_USDFC, symbol: 'USDFC' }
+    expect(() =>
+      assertFilecoinUsdfcSourceReserve({
+        source: filecoinUsdfc,
+        walletUsdfcBalance: 4n,
+        pendingSourceAmount: 3n,
+        requiredWalletUsdfc: 2n,
+      })
+    ).toThrow('plus the required post-route USDFC deposit')
+    expect(() =>
+      assertFilecoinUsdfcSourceReserve({
+        source: filecoinUsdfc,
+        walletUsdfcBalance: 5n,
+        pendingSourceAmount: 3n,
+        requiredWalletUsdfc: 2n,
       })
     ).not.toThrow()
   })
