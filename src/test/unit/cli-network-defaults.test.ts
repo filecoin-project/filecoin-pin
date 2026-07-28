@@ -63,6 +63,16 @@ describe('CLI --network option', () => {
     expect(setupHelp).toContain('--source-rpc-url')
     expect(setupHelp).toContain('--slippage')
   })
+
+  it.each(['setup', 'fund'])('lists only supported source chains in payments %s help', (commandName) => {
+    const command = paymentsCommand.commands.find((candidate) => candidate.name() === commandName)
+    const help = command?.helpInformation() ?? ''
+    const normalizedHelp = help.replace(/\s+/g, ' ')
+
+    expect(normalizedHelp).toContain('filecoin, arbitrum (arb), ethereum, polygon, avalanche, or bnb')
+    expect(normalizedHelp).not.toContain('ethereum, base')
+    expect(normalizedHelp).not.toContain('optimism')
+  })
 })
 
 describe('remove command naming', () => {
