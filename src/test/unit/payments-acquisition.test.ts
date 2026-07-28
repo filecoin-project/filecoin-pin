@@ -1952,6 +1952,164 @@ describe('wallet shortfall acquisition planning', () => {
     expect(fetchFn.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).fromAmount)).toEqual(['5', '1'])
   })
 
+  it('seeds an 18-decimal high-value token within a 0.01-token source cap', async () => {
+    const source = { ...supportedSource(), decimals: 18 }
+    const plan = planWalletFunding({
+      requiredUsdfc: 1n,
+      walletUsdfcBalance: 0n,
+      requiredFilReserve: 0n,
+      walletFilBalance: 0n,
+      source,
+    })
+    const fixture = await routeFixture('squid-route-usdfc.json')
+    const cap = 10n ** 16n
+    const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, string>
+      if (body.fromAmount == null) throw new Error('Source amount missing from route request')
+      const quoted = structuredClone(fixture)
+      setFixtureSourceAmount(quoted, BigInt(body.fromAmount))
+      quoted.route.params.fromChain = body.fromChain
+      quoted.route.params.fromToken = body.fromToken
+      quoted.route.params.toChain = body.toChain
+      quoted.route.params.toToken = body.toToken
+      quoted.route.params.fromAddress = body.fromAddress
+      quoted.route.params.toAddress = body.toAddress
+      quoted.route.estimate.toAmountMin = '1'
+      return response(quoted)
+    })
+
+    const quotes = await planTokenAcquisition({
+      plan,
+      owner: OWNER,
+      maxSourceAmount: cap,
+      slippage: 1,
+      provider: { integratorId: 'test-only-integrator', fetchFn, now: () => 1_700_000_000_000 },
+    })
+
+    expect(quotes).toMatchObject([{ sourceAmount: cap, destinationAmount: 1n }])
+    expect(JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body)).fromAmount).toBe(cap.toString())
+  })
+
+  it('allocates multi-leg seed probes within one aggregate source cap', async () => {
+    const source = supportedSource()
+    const plan = planWalletFunding({
+      requiredUsdfc: 1n,
+      walletUsdfcBalance: 0n,
+      requiredFilReserve: 1n,
+      walletFilBalance: 0n,
+      source,
+    })
+    const filFixture = await routeFixture('squid-route-fil.json')
+    const usdfcFixture = await routeFixture('squid-route-usdfc.json')
+    const cap = 600_000n
+    const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, string>
+      if (body.fromAmount == null) throw new Error('Source amount missing from route request')
+      const quoted = structuredClone(body.toToken === FILECOIN_USDFC ? usdfcFixture : filFixture)
+      setFixtureSourceAmount(quoted, BigInt(body.fromAmount))
+      quoted.route.params.fromChain = body.fromChain
+      quoted.route.params.fromToken = body.fromToken
+      quoted.route.params.toChain = body.toChain
+      quoted.route.params.toToken = body.toToken
+      quoted.route.params.fromAddress = body.fromAddress
+      quoted.route.params.toAddress = body.toAddress
+      quoted.route.estimate.toAmountMin = '1'
+      return response(quoted)
+    })
+
+    const quotes = await planTokenAcquisition({
+      plan,
+      owner: OWNER,
+      maxSourceAmount: cap,
+      slippage: 1,
+      provider: { integratorId: 'test-only-integrator', fetchFn, now: () => 1_700_000_000_000 },
+    })
+
+    expect(quotes.map((quote) => quote.sourceAmount)).toEqual([300_000n, 300_000n])
+    expect(quotes.reduce((total, quote) => total + quote.sourceAmount, 0n)).toBe(cap)
+  })
+
+  it('downscales an overproducing leg before checking an asymmetric 90/10 aggregate split', async () => {
+    const source = supportedSource()
+    const plan = planWalletFunding({
+      requiredUsdfc: 1n,
+      walletUsdfcBalance: 0n,
+      requiredFilReserve: 9n,
+      walletFilBalance: 0n,
+      source,
+    })
+    const filFixture = await routeFixture('squid-route-fil.json')
+    const usdfcFixture = await routeFixture('squid-route-usdfc.json')
+    const cap = 1_000_000n
+    const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, string>
+      if (body.fromAmount == null) throw new Error('Source amount missing from route request')
+      const quoted = structuredClone(body.toToken === FILECOIN_USDFC ? usdfcFixture : filFixture)
+      const amount = BigInt(body.fromAmount)
+      setFixtureSourceAmount(quoted, amount)
+      quoted.route.params.fromChain = body.fromChain
+      quoted.route.params.fromToken = body.fromToken
+      quoted.route.params.toChain = body.toChain
+      quoted.route.params.toToken = body.toToken
+      quoted.route.params.fromAddress = body.fromAddress
+      quoted.route.params.toAddress = body.toAddress
+      quoted.route.estimate.toAmountMin = (amount / 100_000n).toString()
+      return response(quoted)
+    })
+
+    const quotes = await planTokenAcquisition({
+      plan,
+      owner: OWNER,
+      maxSourceAmount: cap,
+      slippage: 1,
+      provider: { integratorId: 'test-only-integrator', fetchFn, now: () => 1_700_000_000_000 },
+    })
+
+    expect(quotes.map((quote) => quote.sourceAmount)).toEqual([900_000n, 100_000n])
+    expect(quotes.reduce((total, quote) => total + quote.sourceAmount, 0n)).toBe(cap)
+  })
+
+  it('rejects an impossible output-driven route before probing above the source cap', async () => {
+    const source = { ...supportedSource(), decimals: 18 }
+    const plan = planWalletFunding({
+      requiredUsdfc: 2n,
+      walletUsdfcBalance: 0n,
+      requiredFilReserve: 0n,
+      walletFilBalance: 0n,
+      source,
+    })
+    const fixture = await routeFixture('squid-route-usdfc.json')
+    const cap = 10n ** 16n
+    const requestedAmounts: bigint[] = []
+    const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, string>
+      if (body.fromAmount == null) throw new Error('Source amount missing from route request')
+      const amount = BigInt(body.fromAmount)
+      requestedAmounts.push(amount)
+      const quoted = structuredClone(fixture)
+      setFixtureSourceAmount(quoted, amount)
+      quoted.route.params.fromChain = body.fromChain
+      quoted.route.params.fromToken = body.fromToken
+      quoted.route.params.toChain = body.toChain
+      quoted.route.params.toToken = body.toToken
+      quoted.route.params.fromAddress = body.fromAddress
+      quoted.route.params.toAddress = body.toAddress
+      quoted.route.estimate.toAmountMin = '1'
+      return response(quoted)
+    })
+
+    await expect(
+      planTokenAcquisition({
+        plan,
+        owner: OWNER,
+        maxSourceAmount: cap,
+        slippage: 1,
+        provider: { integratorId: 'test-only-integrator', fetchFn, now: () => 1_700_000_000_000 },
+      })
+    ).rejects.toThrow('more than --max-source-amount')
+    expect(requestedAmounts).toEqual([cap])
+  })
+
   it('retains exact downstream shortfalls and scales fixed source input without re-estimating Filecoin funding', async () => {
     const source = supportedSource()
     const plan = planWalletFunding({
