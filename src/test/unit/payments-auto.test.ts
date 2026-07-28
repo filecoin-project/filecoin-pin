@@ -266,6 +266,27 @@ describe('runAutoSetup acquisition integration', () => {
     )
   })
 
+  it('accepts a small 18-decimal source cap after resolving a Filecoin native source', async () => {
+    mockResolveCatalogSource.mockReturnValue(FILECOIN_NATIVE_SOURCE)
+
+    await expect(
+      runAutoSetup({
+        auto: true,
+        deposit: '2',
+        rateAllowance: '1TiB/month',
+        fromChain: 'filecoin',
+        fromToken: 'native',
+        maxSourceAmount: '0.0000001',
+        sourceRpcUrl: 'https://filecoin-source.example/rpc',
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+      })
+    ).resolves.toBeUndefined()
+
+    expect(mockEnsureWallet).toHaveBeenCalledWith(
+      expect.objectContaining({ resolvedSource: FILECOIN_NATIVE_SOURCE, maxSourceAmount: '0.0000001' })
+    )
+  })
+
   it('keeps the authoritative default target and deposit delta identical before deferred wallet readiness', async () => {
     const sourceOptions = {
       auto: true,
@@ -458,7 +479,7 @@ describe('runAutoSetup acquisition integration', () => {
 
   it.each([
     ['a non-positive source maximum', 'arb', 'USDC', '0', '--max-source-amount must be greater than zero'],
-    ['an unsupported source route', 'eth', 'USDC', '1', 'Unsupported source chain: eth'],
+    ['an unsupported source route', 'unsupported', 'USDC', '1', 'Unsupported source chain: unsupported'],
   ])('validates %s before connecting even when setup would otherwise be a no-op', async (_description, fromChain, fromToken, maxSourceAmount, message) => {
     await expect(
       runAutoSetup({

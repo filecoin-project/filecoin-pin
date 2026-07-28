@@ -14,7 +14,6 @@ import {
   ensureWalletReadyForFilecoinTransactions,
   reconcileReadyAcquisitionCheckpoint,
 } from '../core/payments/acquisition/orchestrate.js'
-import { parseMaximumSourceAmount } from '../core/payments/acquisition/plan.js'
 import {
   fetchSquidCatalog,
   type ResolvedSourceToken,
@@ -130,10 +129,12 @@ function validateAcquisitionOptions(options: PaymentSetupOptions): boolean {
     )
   }
   if (count === 3) {
-    try {
-      parseMaximumSourceAmount(options.maxSourceAmount)
-    } catch (error) {
-      throwDisplayedFatal(error instanceof Error ? error.message : String(error))
+    // The token's decimals are catalog-verified only after a wallet shortfall
+    // requires acquisition. Keep this preflight decimal-free: parsing with a
+    // legacy scale here would reject a valid small 18-decimal native cap.
+    const maximum = options.maxSourceAmount
+    if (maximum == null || !/^\d+(?:\.\d+)?$/.test(maximum) || !/[1-9]/.test(maximum)) {
+      throwDisplayedFatal('--max-source-amount must be greater than zero')
     }
     if (selectedSourceChainId(options.fromChain) == null) {
       throwDisplayedFatal(`Unsupported source chain: ${options.fromChain ?? '(missing)'}`)
