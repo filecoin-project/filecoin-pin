@@ -235,7 +235,7 @@ filecoin-pin payments fund --amount 4 --mode minimum --network mainnet \
   --from-chain arb --from-token USDC --max-source-amount 10
 ```
 
-The source and Filecoin wallet must be controlled by the same private key. Keep Arbitrum native gas available for exact-amount ERC-20 approvals and route execution. `SOURCE_RPC_URL` is the Arbitrum RPC; set it and `SQUID_INTEGRATOR_ID` in the environment rather than command history. The examples above use `--network` with the default Filecoin endpoint. To use a custom Filecoin endpoint, omit `--network` and set `RPC_URL` instead; never set both selectors. Never put a wallet key, provider credential, or credential-bearing RPC URL in a script, issue, or smoke-test report. Calibration and devnet intentionally fail acquisition closed: fund those wallets directly and retry. If an acquisition completed but a later Filecoin Pay step failed, rerun only the direct Filecoin deposit or `payments fund` command shown by the CLI; do not repeat source spending.
+For `payments fund`, the selected source networks are Filecoin, Arbitrum, Ethereum, Base, Optimism, Polygon, Avalanche, and BNB Chain. `--from-token` accepts a unique symbol, an exact token address, or `native`; Filecoin Pin resolves it against the live [Squid](documentation/glossary.md#squid) catalog, verifies it on the selected chain, and proceeds only with a valid route. The source and Filecoin wallet must be controlled by the same private key. Keep the selected source chain's native gas available for exact-amount ERC-20 approvals and route execution. `SOURCE_RPC_URL` must point to the selected `--from-chain`, not Filecoin; set it and `SQUID_INTEGRATOR_ID` in the environment rather than command history. The examples above use `--network` with the default Filecoin endpoint. To use a custom Filecoin endpoint, omit `--network` and set `RPC_URL` instead; never set both selectors. Never put a wallet key, provider credential, or credential-bearing RPC URL in a script, issue, or smoke-test report. Calibration and devnet intentionally fail acquisition closed: fund those wallets directly and retry. If an acquisition completed but a later Filecoin Pay step failed, rerun only the direct Filecoin deposit or `payments fund` command shown by the CLI; do not repeat source spending.
 
 See the [payments acquisition route](documentation/payments-acquisition-route.md) for route caps, transaction stages, polling limits, and recovery, and the [payments smoke test](documentation/payments-smoke-test.md) for the safety-gated manual verification procedure.
 
@@ -312,7 +312,7 @@ RPC_URL=wss://...              # Filecoin RPC endpoint (overrides NETWORK if spe
                                # Calibration: wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1
 
 # Optional - Mainnet source acquisition only (never needed on Calibration/devnet)
-SOURCE_RPC_URL=https://...     # Arbitrum source-chain RPC; keep endpoint credentials out of shell history
+SOURCE_RPC_URL=https://...     # RPC for the selected --from-chain; keep endpoint credentials out of shell history
 SQUID_INTEGRATOR_ID=...        # Provider credential; never commit or print its value
 
 # Optional for Pinning Server Daemon

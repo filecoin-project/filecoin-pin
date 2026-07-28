@@ -122,19 +122,28 @@ export function addFundingSourceOptions(command: Command, scope: 'fund' | 'setup
     .option(
       '--from-chain <chain>',
       supportsSelectedSources
-        ? 'Selected Squid-supported source chain (arb remains an alias)'
+        ? 'Selected source chain: filecoin, arbitrum (arb), ethereum, base, optimism, polygon, avalanche, or bnb'
         : 'Source chain (arb only)'
     )
     .option(
       '--from-token <token>',
-      supportsSelectedSources ? 'Unique symbol, exact token address, or native' : 'Source token (USDC only)'
+      supportsSelectedSources
+        ? 'Unique Squid-catalog symbol, exact token address, or native (requires a verified route)'
+        : 'Source token (USDC only)'
     )
     .option(
       '--max-source-amount <amount>',
       'Hard maximum source-token spend (required for acquisition)',
       parsePositiveTokenAmount
     )
-    .addOption(new Option('--source-rpc-url <url>', 'Source-chain RPC endpoint').env('SOURCE_RPC_URL'))
+    .addOption(
+      new Option(
+        '--source-rpc-url <url>',
+        supportsSelectedSources
+          ? 'Source-chain RPC endpoint matching --from-chain'
+          : 'Arbitrum source-chain RPC endpoint'
+      ).env('SOURCE_RPC_URL')
+    )
     .option('--slippage <percent>', 'Maximum quote slippage percent (default: 1)', parseSlippageOption)
 }
 

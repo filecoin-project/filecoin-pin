@@ -17,6 +17,7 @@ import {
   fetchSquidCatalog,
   type ResolvedSourceToken,
   resolveCatalogSource,
+  sourceTokenIdentity,
   verifyResolvedErc20Source,
 } from '../core/payments/acquisition/source-catalog.js'
 import {
@@ -110,8 +111,7 @@ function acquisitionRecoveryNote(): string {
 }
 
 function sourceIdentityForDiagnostics(source: ResolvedSourceToken): string {
-  const token = source.native ? `${source.symbol} (native)` : `${source.symbol} (${source.token})`
-  return `${source.chain.cliName} (${source.chainId}), ${token}, ${source.decimals} decimals`
+  return `${source.chain.cliName} (${source.chainId}), ${sourceTokenIdentity(source)}, ${source.decimals} decimals`
 }
 
 function directDepositRecoveryCommand(options: FundOptions, hasDays: boolean): string {
@@ -562,9 +562,7 @@ export async function runFund(options: FundOptions): Promise<void> {
                       `${formatUnits(leg.minimumDestinationAmount, 18)} ${leg.asset.toUpperCase()} (expires ${new Date(leg.expiresAt * 1_000).toISOString()})`
                   )
                   .join(', ')
-                const sourceIdentity = resolvedSource.native
-                  ? `${resolvedSource.symbol} (native)`
-                  : `${resolvedSource.symbol} (${resolvedSource.token})`
+                const sourceIdentity = sourceTokenIdentity(resolvedSource)
                 const nativeCommitment = formatUnits(
                   summary.nativeCommitment ?? 0n,
                   resolvedSource.chain.nativeDecimals

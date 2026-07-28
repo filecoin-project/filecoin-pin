@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { calibration } from '@filoz/synapse-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ResolvedSourceToken } from '../../core/payments/acquisition/source-catalog.js'
 import { runFund } from '../../payments/fund.js'
 
 const {
@@ -55,7 +56,8 @@ vi.mock('../../core/synapse/index.js', () => ({
 vi.mock('../../core/payments/acquisition/orchestrate.js', () => ({
   ensureWalletReadyForFilecoinTransactions: mockEnsureWallet,
 }))
-vi.mock('../../core/payments/acquisition/source-catalog.js', () => ({
+vi.mock('../../core/payments/acquisition/source-catalog.js', async (importOriginal) => ({
+  ...(await importOriginal()),
   fetchSquidCatalog: mockFetchCatalog,
   resolveCatalogSource: mockResolveCatalogSource,
   verifyResolvedErc20Source: mockVerifyResolvedSource,
@@ -119,13 +121,15 @@ function underfundedPlan(delta: bigint) {
   return result
 }
 
-function resolvedSource(chain = 'arbitrum', token = 'USDC', native = false) {
+function resolvedSource(chain = 'arbitrum', token = 'USDC', native = false): ResolvedSourceToken {
   const chainId = chain === 'base' ? 8453 : chain === 'filecoin' ? 314 : 42161
   const nativeSymbol = chain === 'filecoin' ? 'FIL' : 'ETH'
   return {
     chain: { cliName: chain, chainId, aliases: [], nativeSymbol, nativeDecimals: 18 },
     chainId,
-    token: native ? '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' : '0x1111111111111111111111111111111111111111',
+    token: (native
+      ? '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+      : '0x1111111111111111111111111111111111111111') as `0x${string}`,
     symbol: native ? nativeSymbol : token,
     decimals: native ? 18 : 6,
     native,
@@ -479,6 +483,8 @@ describe('runFund confirmation exit codes', () => {
         confirmSourceAcquisition?: (summary: {
           sourceAmount: bigint
           maxSourceAmount: bigint
+          nativeCommitment?: bigint
+          maxNativeGas?: bigint
           legs: Array<{ asset: 'fil' | 'usdfc'; minimumDestinationAmount: bigint; expiresAt: number }>
         }) => Promise<void>
       }) => {
@@ -487,6 +493,8 @@ describe('runFund confirmation exit codes', () => {
         await options.confirmSourceAcquisition({
           sourceAmount: 1_000_000n,
           maxSourceAmount: 10_000_000n,
+          nativeCommitment: 1_234_000_000_000_000_000n,
+          maxNativeGas: 2_500_000_000_000_000_000n,
           legs: [{ asset: 'usdfc', minimumDestinationAmount: 1_000_000_000_000_000_000n, expiresAt: 2_000_000_000 }],
         })
       }
@@ -506,6 +514,11 @@ describe('runFund confirmation exit codes', () => {
     expect(mockConfirm).toHaveBeenCalledWith(
       expect.objectContaining({
         message: expect.stringContaining('1 USDC (0x1111111111111111111111111111111111111111)'),
+      })
+    )
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('quoted route-native commitment 1.234; ceiling 2.5 ETH'),
       })
     )
     expect(mockDeposit).not.toHaveBeenCalled()

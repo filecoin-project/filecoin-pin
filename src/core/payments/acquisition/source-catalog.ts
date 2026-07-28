@@ -36,6 +36,11 @@ export interface ResolvedSourceToken {
   display: string
 }
 
+/** Safe, consistent source-token identity for confirmation and diagnostic output. */
+export function sourceTokenIdentity(source: Pick<ResolvedSourceToken, 'symbol' | 'token' | 'native'>): string {
+  return source.native ? `${source.symbol} (native)` : `${source.symbol} (${source.token})`
+}
+
 export interface SquidCatalog {
   chains: ReadonlyMap<number, { type: 'evm'; networkIdentifier: string; nativeSymbol: string; nativeDecimals: number }>
   tokens: readonly ResolvedSourceToken[]
@@ -139,7 +144,7 @@ export function parseSquidCatalog(chainsResponse: unknown, tokensResponse: unkno
       symbol: raw.symbol.trim(),
       decimals,
       native,
-      display: native ? `${raw.symbol.trim()} (native)` : `${raw.symbol.trim()} (${token})`,
+      display: sourceTokenIdentity({ symbol: raw.symbol.trim(), token, native }),
     }
     const identity = `${id}:${token}`
     const existing = tokensByIdentity.get(identity)
