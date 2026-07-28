@@ -22,8 +22,8 @@ import {
   validateMaximumSourceSpend,
 } from './plan.js'
 import { resolveSourceToken } from './source-assets.js'
-import type { ResolvedSourceToken } from './source-catalog.js'
-import { type SourceRouteIdentity, sourceNativeGasCeiling, sourceRouteIdentity } from './source-execution.js'
+import { matchesRequestedSourceSelectors, type ResolvedSourceToken, selectedSourceChainId } from './source-catalog.js'
+import { sourceNativeGasCeiling, sourceRouteIdentity } from './source-execution.js'
 import { pollSquidStatus, type SquidProviderOptions } from './squid.js'
 import type { AcquisitionEvidence } from './types.js'
 
@@ -94,15 +94,15 @@ function canClearReadyCheckpoint(options: {
   )
 }
 
-function assertReadyCheckpointSourceIdentity(checkpoint: AcquisitionCheckpoint, source: SourceRouteIdentity): void {
+function assertReadyCheckpointSourceSelectors(
+  checkpoint: AcquisitionCheckpoint,
+  fromChain: string | undefined,
+  fromToken: string | undefined
+): void {
   if (
     checkpoint.version !== 2 ||
     checkpoint.source == null ||
-    checkpoint.source.chainId !== source.chainId ||
-    checkpoint.source.token.toLowerCase() !== source.token.toLowerCase() ||
-    checkpoint.source.symbol !== source.symbol ||
-    checkpoint.source.decimals !== source.decimals ||
-    checkpoint.source.native !== source.native
+    !matchesRequestedSourceSelectors(checkpoint.source, fromChain, fromToken)
   ) {
     throw new Error(
       'Acquisition recovery state is incompatible with the selected source identity; do not submit another route'
@@ -122,8 +122,9 @@ export async function reconcileReadyAcquisitionCheckpoint(options: {
   walletFilBalance: bigint
   walletUsdfcBalance: bigint
   privateKey?: string | undefined
-  /** Invoked only after an owner-matched checkpoint exists, never on the ordinary ready path. */
-  resolveRequestedSource?: (() => Promise<ResolvedSourceToken>) | undefined
+  /** Raw retry selectors, matched only against the saved catalog-verified identity. */
+  fromChain?: string | undefined
+  fromToken?: string | undefined
 }): Promise<boolean> {
   if (options.privateKey == null || options.privateKey.trim() === '') return false
   const privateKey = (
@@ -141,19 +142,18 @@ export async function reconcileReadyAcquisitionCheckpoint(options: {
     ) {
       throw new Error('Acquisition private key must control the configured Filecoin wallet owner')
     }
-    if (options.resolveRequestedSource == null) {
+    const requestedSourceChainId = selectedSourceChainId(options.fromChain)
+    assertReadyCheckpointSourceSelectors(pending, options.fromChain, options.fromToken)
+    if (requestedSourceChainId == null) {
       throw new Error(
-        'Acquisition recovery state requires the exact selected source identity; do not submit another route'
+        'Acquisition recovery state is incompatible with the selected source identity; do not submit another route'
       )
     }
-    const requestedSource = await options.resolveRequestedSource()
-    const requestedSourceIdentity = sourceRouteIdentity(requestedSource)
-    assertReadyCheckpointSourceIdentity(pending, requestedSourceIdentity)
     if (
       !canClearReadyCheckpoint({
         checkpoint: pending,
         owner: sourceOwner,
-        sourceChainId: requestedSourceIdentity.chainId,
+        sourceChainId: requestedSourceChainId,
         destinationChainId: options.destinationChainId,
         walletFilBalance: options.walletFilBalance,
         walletUsdfcBalance: options.walletUsdfcBalance,

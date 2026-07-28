@@ -311,7 +311,8 @@ describe('runFund confirmation exit codes', () => {
         walletFilBalance: 1_000_000_000_000_000_000n,
         walletUsdfcBalance: 1_000_000_000_000_000_000_000n,
         privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
-        resolveRequestedSource: expect.any(Function),
+        fromChain: 'base',
+        fromToken: 'USDC',
       })
     )
     expect(mockFetchCatalog).not.toHaveBeenCalled()

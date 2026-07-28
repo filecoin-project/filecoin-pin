@@ -76,6 +76,29 @@ function selectedChain(input: string | undefined): SelectedSourceChain | undefin
   )
 }
 
+/** Resolve a requested CLI chain selector within the trusted source boundary. */
+export function selectedSourceChainId(input: string | undefined): number | undefined {
+  return selectedChain(input)?.chainId
+}
+
+/**
+ * Match retry selectors against a source identity that was catalog-verified
+ * before its checkpoint was written. This deliberately performs no catalog or
+ * RPC lookup: retries do not authorize a new route.
+ */
+export function matchesRequestedSourceSelectors(
+  source: Pick<ResolvedSourceToken, 'chainId' | 'token' | 'symbol' | 'native'>,
+  fromChain: string | undefined,
+  fromToken: string | undefined
+): boolean {
+  if (selectedSourceChainId(fromChain) !== source.chainId) return false
+  const selector = fromToken?.trim()
+  if (selector == null || selector === '') return false
+  if (selector.toLowerCase() === NATIVE_TOKEN_SELECTOR) return source.native
+  if (/^0x[0-9a-fA-F]{40}$/.test(selector)) return selector.toLowerCase() === source.token.toLowerCase()
+  return selector.toLowerCase() === source.symbol.trim().toLowerCase()
+}
+
 /** Parse only the selected EVM boundary and reject malformed selected entries. */
 export function parseSquidCatalog(chainsResponse: unknown, tokensResponse: unknown): SquidCatalog {
   if (!Array.isArray(chainsResponse) || !Array.isArray(tokensResponse)) fail('chains and tokens must be arrays')

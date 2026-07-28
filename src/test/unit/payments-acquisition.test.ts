@@ -1082,7 +1082,8 @@ describe('Squid acquisition provider contract', () => {
           walletFilBalance: 100_000_000_000_000_000n,
           walletUsdfcBalance: 1n,
           privateKey: PRIVATE_KEY,
-          resolveRequestedSource: async () => source,
+          fromChain: 'arb',
+          fromToken: 'USDC',
         })
       ).resolves.toBe(true)
       await expect(store.load()).resolves.toBeUndefined()
@@ -1093,7 +1094,8 @@ describe('Squid acquisition provider contract', () => {
           walletFilBalance: 100_000_000_000_000_000n,
           walletUsdfcBalance: 1n,
           privateKey: PRIVATE_KEY,
-          resolveRequestedSource: async () => source,
+          fromChain: 'arb',
+          fromToken: 'USDC',
         })
       ).resolves.toBe(false)
     } finally {
@@ -1103,13 +1105,11 @@ describe('Squid acquisition provider contract', () => {
     }
   })
 
-  it('does not resolve a source when a ready retry has no checkpoint', async () => {
+  it('does not need a source RPC when a ready retry has no checkpoint', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
     const originalHome = process.env.HOME
     process.env.HOME = directory
     try {
-      const resolveRequestedSource = vi.fn(async () => resolvedArbitrumSource())
-
       await expect(
         reconcileReadyAcquisitionCheckpoint({
           destinationOwner: sourceAddressForPrivateKey(PRIVATE_KEY),
@@ -1117,10 +1117,10 @@ describe('Squid acquisition provider contract', () => {
           walletFilBalance: 100_000_000_000_000_000n,
           walletUsdfcBalance: 1n,
           privateKey: PRIVATE_KEY,
-          resolveRequestedSource,
+          fromChain: 'arb',
+          fromToken: 'USDC',
         })
       ).resolves.toBe(false)
-      expect(resolveRequestedSource).not.toHaveBeenCalled()
     } finally {
       if (originalHome == null) delete process.env.HOME
       else process.env.HOME = originalHome
@@ -1171,20 +1171,12 @@ describe('Squid acquisition provider contract', () => {
   })
 
   it.each([
-    ['chain', resolvedBaseSource()],
-    ['token', { ...resolvedArbitrumSource(), token: '0x0000000000000000000000000000000000000002' as `0x${string}` }],
-    ['symbol', { ...resolvedArbitrumSource(), symbol: 'USDC.e' }],
-    [
-      'native flag',
-      {
-        ...resolvedArbitrumSource(),
-        token: FILECOIN_NATIVE_TOKEN,
-        symbol: 'ETH',
-        decimals: 18,
-        native: true,
-      },
-    ],
-  ])('retains a submitted checkpoint when the retry selects a different source %s', async (_kind, requestedSource) => {
+    ['chain', 'base', 'USDC'],
+    ['token', 'arb', '0x0000000000000000000000000000000000000002'],
+    ['symbol', 'arb', 'USDC.e'],
+    ['native flag', 'arb', 'native'],
+    ['missing selector', undefined, undefined],
+  ])('retains a submitted checkpoint when the retry selects a different source %s', async (_kind, fromChain, fromToken) => {
     const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
     const originalHome = process.env.HOME
     process.env.HOME = directory
@@ -1220,7 +1212,8 @@ describe('Squid acquisition provider contract', () => {
           walletFilBalance: 100_000_000_000_000_000n,
           walletUsdfcBalance: 1n,
           privateKey: PRIVATE_KEY,
-          resolveRequestedSource: async () => requestedSource,
+          fromChain,
+          fromToken,
         })
       ).rejects.toThrow('incompatible with the selected source identity')
       await expect(store.load()).resolves.toMatchObject({ source: sourceRouteIdentity(checkpointSource) })
@@ -1275,7 +1268,8 @@ describe('Squid acquisition provider contract', () => {
           walletFilBalance: 100_000_000_000_000_000n,
           walletUsdfcBalance: 1n,
           privateKey: PRIVATE_KEY,
-          resolveRequestedSource: async () => source,
+          fromChain: 'base',
+          fromToken: 'native',
         })
       ).resolves.toBe(true)
       await expect(store.load()).resolves.toBeUndefined()
