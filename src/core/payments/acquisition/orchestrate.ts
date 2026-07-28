@@ -100,6 +100,8 @@ function canClearReadyCheckpoint(options: {
  * resolve a source token or contact the provider.
  */
 export async function reconcileReadyAcquisitionCheckpoint(options: {
+  /** The configured Filecoin wallet that would receive the later deposit. */
+  destinationOwner: string
   destinationChainId: number
   walletFilBalance: bigint
   walletUsdfcBalance: bigint
@@ -115,6 +117,12 @@ export async function reconcileReadyAcquisitionCheckpoint(options: {
   try {
     const pending = await checkpointStore.load()
     if (pending == null) return false
+    if (
+      sourceOwner.toLowerCase() !== options.destinationOwner.toLowerCase() ||
+      pending.owner.toLowerCase() !== sourceOwner.toLowerCase()
+    ) {
+      throw new Error('Acquisition private key must control the configured Filecoin wallet owner')
+    }
     if (
       !canClearReadyCheckpoint({
         checkpoint: pending,

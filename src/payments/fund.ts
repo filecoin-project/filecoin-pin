@@ -598,6 +598,7 @@ export async function runFund(options: FundOptions): Promise<void> {
         }
       } else {
         await reconcileReadyAcquisitionCheckpoint({
+          destinationOwner: getClientAddress(synapse),
           destinationChainId: synapse.chain.id,
           walletFilBalance: currentStatus.filBalance,
           walletUsdfcBalance: currentStatus.walletUsdfcBalance,

@@ -305,6 +305,7 @@ describe('runFund confirmation exit codes', () => {
     })
 
     expect(mockReconcileReadyCheckpoint).toHaveBeenCalledWith({
+      destinationOwner: '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf',
       destinationChainId: 314,
       walletFilBalance: 1_000_000_000_000_000_000n,
       walletUsdfcBalance: 1_000_000_000_000_000_000_000n,
@@ -314,6 +315,76 @@ describe('runFund confirmation exit codes', () => {
     expect(mockCreateVerifiedSourceClient).not.toHaveBeenCalled()
     expect(mockEnsureWallet).not.toHaveBeenCalled()
     expect(mockDeposit).toHaveBeenCalledWith(synapse, 5_000_000_000_000_000_000n)
+  })
+
+  it('blocks a ready retry with a pending checkpoint owned by a different Filecoin wallet', async () => {
+    const sessionOwner = '0x1111111111111111111111111111111111111111'
+    const checkpointOwnerKey = '0x0000000000000000000000000000000000000000000000000000000000000001'
+    const synapse = {
+      chain: { id: 314 },
+      payments: { accountSummary: vi.fn().mockResolvedValue({ funds: 0n }) },
+    }
+    mockInitialize.mockResolvedValueOnce(synapse)
+    mockGetClientAddress.mockReturnValueOnce(sessionOwner)
+    mockPlan.mockResolvedValueOnce(underfundedPlan(5_000_000_000_000_000_000n))
+    mockGetPaymentStatus.mockResolvedValueOnce({
+      filBalance: 1_000_000_000_000_000_000n,
+      walletUsdfcBalance: 1_000_000_000_000_000_000_000n,
+    })
+    mockReconcileReadyCheckpoint.mockRejectedValueOnce(
+      new Error('Acquisition private key must control the configured Filecoin wallet owner')
+    )
+
+    await expect(
+      runFund({
+        amount: '5',
+        fromChain: 'base',
+        fromToken: 'USDC',
+        maxSourceAmount: '10',
+        viewAddress: sessionOwner,
+        privateKey: checkpointOwnerKey,
+      })
+    ).rejects.toThrow('Acquisition private key must control the configured Filecoin wallet owner')
+
+    expect(mockReconcileReadyCheckpoint).toHaveBeenCalledWith(
+      expect.objectContaining({ destinationOwner: sessionOwner, privateKey: checkpointOwnerKey })
+    )
+    expect(mockDeposit).not.toHaveBeenCalled()
+    expect(mockFetchCatalog).not.toHaveBeenCalled()
+    expect(mockCreateVerifiedSourceClient).not.toHaveBeenCalled()
+  })
+
+  it('keeps a ready no-checkpoint retry direct when the session wallet and supplied private key differ', async () => {
+    const sessionOwner = '0x1111111111111111111111111111111111111111'
+    const checkpointOwnerKey = '0x0000000000000000000000000000000000000000000000000000000000000001'
+    const synapse = {
+      chain: { id: 314 },
+      payments: { accountSummary: vi.fn().mockResolvedValue({ funds: 0n }) },
+    }
+    mockInitialize.mockResolvedValueOnce(synapse)
+    mockGetClientAddress.mockReturnValueOnce(sessionOwner)
+    mockPlan.mockResolvedValueOnce(underfundedPlan(5_000_000_000_000_000_000n))
+    mockGetPaymentStatus.mockResolvedValueOnce({
+      filBalance: 1_000_000_000_000_000_000n,
+      walletUsdfcBalance: 1_000_000_000_000_000_000_000n,
+    })
+    mockReconcileReadyCheckpoint.mockResolvedValueOnce(false)
+    mockConfirm.mockResolvedValueOnce(true)
+    mockDeposit.mockResolvedValueOnce({ depositTx: '0xdeposit' })
+
+    await runFund({
+      amount: '5',
+      fromChain: 'base',
+      fromToken: 'USDC',
+      maxSourceAmount: '10',
+      viewAddress: sessionOwner,
+      privateKey: checkpointOwnerKey,
+    })
+
+    expect(mockDeposit).toHaveBeenCalledWith(synapse, 5_000_000_000_000_000_000n)
+    expect(mockFetchCatalog).not.toHaveBeenCalled()
+    expect(mockCreateVerifiedSourceClient).not.toHaveBeenCalled()
+    expect(mockEnsureWallet).not.toHaveBeenCalled()
   })
 
   it('uses source RPC and slippage only when the complete acquisition tuple is present', async () => {

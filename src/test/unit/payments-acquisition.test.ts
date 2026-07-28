@@ -1077,6 +1077,7 @@ describe('Squid acquisition provider contract', () => {
 
       await expect(
         reconcileReadyAcquisitionCheckpoint({
+          destinationOwner: owner,
           destinationChainId: 314,
           walletFilBalance: 100_000_000_000_000_000n,
           walletUsdfcBalance: 1n,
@@ -1086,12 +1087,55 @@ describe('Squid acquisition provider contract', () => {
       await expect(store.load()).resolves.toBeUndefined()
       await expect(
         reconcileReadyAcquisitionCheckpoint({
+          destinationOwner: owner,
           destinationChainId: 314,
           walletFilBalance: 100_000_000_000_000_000n,
           walletUsdfcBalance: 1n,
           privateKey: PRIVATE_KEY,
         })
       ).resolves.toBe(false)
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('retains a submitted checkpoint when a different configured Filecoin owner is ready', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      const store = createAcquisitionCheckpointStore(owner)
+      await store.save({
+        version: 1,
+        owner,
+        sourceChainId: 42161,
+        destinationChainId: 314,
+        committedNativeGas: 1n,
+        requiredWallet: { fil: 100_000_000_000_000_000n, usdfc: 1n },
+        evidence: [
+          {
+            asset: 'usdfc',
+            quoteId: 'different-filecoin-owner',
+            sourceAmount: '1',
+            sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            status: 'submitted',
+          },
+        ],
+      })
+
+      await expect(
+        reconcileReadyAcquisitionCheckpoint({
+          destinationOwner: '0x1111111111111111111111111111111111111111',
+          destinationChainId: 314,
+          walletFilBalance: 100_000_000_000_000_000n,
+          walletUsdfcBalance: 1n,
+          privateKey: PRIVATE_KEY,
+        })
+      ).rejects.toThrow('Acquisition private key must control the configured Filecoin wallet owner')
+      await expect(store.load()).resolves.toMatchObject({ owner })
     } finally {
       if (originalHome == null) delete process.env.HOME
       else process.env.HOME = originalHome
