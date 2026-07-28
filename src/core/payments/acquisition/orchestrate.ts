@@ -22,7 +22,7 @@ import {
   validateMaximumSourceSpend,
 } from './plan.js'
 import { resolveSourceToken } from './source-assets.js'
-import type { ResolvedSourceToken } from './source-catalog.js'
+import { matchesRequestedSourceSelectors, type ResolvedSourceToken, selectedSourceChainId } from './source-catalog.js'
 import { sourceNativeGasCeiling, sourceRouteIdentity } from './source-execution.js'
 import { pollSquidStatus, type SquidProviderOptions } from './squid.js'
 import type { AcquisitionEvidence } from './types.js'
@@ -59,6 +59,7 @@ export interface EnsureWalletReadyOptions {
 /** Safe-to-display source-route facts; it intentionally excludes calldata and provider credentials. */
 export interface SourceAcquisitionConfirmation {
   sourceChainId?: number
+  nativeCommitment?: bigint
   maxNativeGas?: bigint
   sourceAmount: bigint
   maxSourceAmount: bigint
@@ -91,6 +92,80 @@ function canClearReadyCheckpoint(options: {
     options.walletFilBalance >= checkpoint.requiredWallet.fil &&
     options.walletUsdfcBalance >= checkpoint.requiredWallet.usdfc
   )
+}
+
+function assertReadyCheckpointSourceSelectors(
+  checkpoint: AcquisitionCheckpoint,
+  fromChain: string | undefined,
+  fromToken: string | undefined
+): void {
+  if (
+    checkpoint.version !== 2 ||
+    checkpoint.source == null ||
+    !matchesRequestedSourceSelectors(checkpoint.source, fromChain, fromToken)
+  ) {
+    throw new Error(
+      'Acquisition recovery state is incompatible with the selected source identity; do not submit another route'
+    )
+  }
+}
+
+/**
+ * Reconcile a submitted acquisition after a direct top-up or late arrival made
+ * the Filecoin wallet ready. This reads only local recovery state; it must not
+ * resolve a source token or contact the provider.
+ */
+export async function reconcileReadyAcquisitionCheckpoint(options: {
+  /** The configured Filecoin wallet that would receive the later deposit. */
+  destinationOwner: string
+  destinationChainId: number
+  walletFilBalance: bigint
+  walletUsdfcBalance: bigint
+  privateKey?: string | undefined
+  /** Raw retry selectors, matched only against the saved catalog-verified identity. */
+  fromChain?: string | undefined
+  fromToken?: string | undefined
+}): Promise<boolean> {
+  if (options.privateKey == null || options.privateKey.trim() === '') return false
+  const privateKey = (
+    options.privateKey.startsWith('0x') ? options.privateKey : `0x${options.privateKey}`
+  ) as `0x${string}`
+  const sourceOwner = sourceAddressForPrivateKey(privateKey)
+  const lock = await acquireAcquisitionLock(sourceOwner)
+  const checkpointStore = createAcquisitionCheckpointStore(sourceOwner)
+  try {
+    const pending = await checkpointStore.load()
+    if (pending == null) return false
+    if (
+      sourceOwner.toLowerCase() !== options.destinationOwner.toLowerCase() ||
+      pending.owner.toLowerCase() !== sourceOwner.toLowerCase()
+    ) {
+      throw new Error('Acquisition private key must control the configured Filecoin wallet owner')
+    }
+    const requestedSourceChainId = selectedSourceChainId(options.fromChain)
+    assertReadyCheckpointSourceSelectors(pending, options.fromChain, options.fromToken)
+    if (requestedSourceChainId == null) {
+      throw new Error(
+        'Acquisition recovery state is incompatible with the selected source identity; do not submit another route'
+      )
+    }
+    if (
+      !canClearReadyCheckpoint({
+        checkpoint: pending,
+        owner: sourceOwner,
+        sourceChainId: requestedSourceChainId,
+        destinationChainId: options.destinationChainId,
+        walletFilBalance: options.walletFilBalance,
+        walletUsdfcBalance: options.walletUsdfcBalance,
+      })
+    ) {
+      return false
+    }
+    await checkpointStore.clear()
+    return true
+  } finally {
+    await lock.release()
+  }
 }
 
 /** Ensure only the exact wallet deficits are acquired before the existing deposit path continues. */
@@ -273,6 +348,13 @@ export async function ensureWalletReadyForFilecoinTransactions(
           ...(options.resolvedSource != null
             ? {
                 sourceChainId: source.chainId,
+                nativeCommitment: quotes.reduce(
+                  (total, quote) =>
+                    total +
+                    quote.gasLimit * quote.maxFeePerGas +
+                    (options.resolvedSource?.native === true ? 0n : quote.value),
+                  0n
+                ),
                 maxNativeGas: sourceNativeGasCeiling(options.resolvedSource.chain.chainId),
               }
             : {}),

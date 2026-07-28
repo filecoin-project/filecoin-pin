@@ -11,8 +11,18 @@ import { formatUnits, parseUnits } from 'viem'
 import { CliFatal, CliIncomplete, isCliFatal, isCliIncomplete, setIncompleteExitCode } from '../common/cli-errors.js'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import { resolveIpfsIndexedMetadata } from '../core/metadata/index.js'
-import { sourceAddressForPrivateKey } from '../core/payments/acquisition/execute.js'
-import { ensureWalletReadyForFilecoinTransactions } from '../core/payments/acquisition/orchestrate.js'
+import { createVerifiedResolvedSourceClient, sourceAddressForPrivateKey } from '../core/payments/acquisition/execute.js'
+import {
+  ensureWalletReadyForFilecoinTransactions,
+  reconcileReadyAcquisitionCheckpoint,
+} from '../core/payments/acquisition/orchestrate.js'
+import {
+  fetchSquidCatalog,
+  type ResolvedSourceToken,
+  resolveCatalogSource,
+  sourceTokenIdentity,
+  verifyResolvedErc20Source,
+} from '../core/payments/acquisition/source-catalog.js'
 import {
   isSupportedSquidSlippage,
   MAX_SQUID_SLIPPAGE_PERCENT,
@@ -74,7 +84,11 @@ function shellQuote(value: string | number): string {
   return `'${String(value).replaceAll("'", "'\"'\"'")}'`
 }
 
-function acquisitionRecoveryCommand(options: FundOptions, hasDays: boolean): string {
+function acquisitionRecoveryCommand(
+  options: FundOptions,
+  hasDays: boolean,
+  resolvedSource?: ResolvedSourceToken
+): string {
   const argumentsList = [
     'filecoin-pin',
     'payments',
@@ -82,9 +96,9 @@ function acquisitionRecoveryCommand(options: FundOptions, hasDays: boolean): str
     hasDays ? '--days' : '--amount',
     hasDays ? String(options.days) : String(options.amount),
     '--from-chain',
-    String(options.fromChain),
+    resolvedSource?.chain.cliName ?? String(options.fromChain),
     '--from-token',
-    String(options.fromToken),
+    resolvedSource?.native === true ? 'native' : (resolvedSource?.token ?? String(options.fromToken)),
     '--max-source-amount',
     String(options.maxSourceAmount),
   ]
@@ -97,6 +111,10 @@ function acquisitionRecoveryCommand(options: FundOptions, hasDays: boolean): str
 
 function acquisitionRecoveryNote(): string {
   return 'Before resuming, supply SOURCE_RPC_URL and RPC_URL through the environment or CLI flags. Endpoint URLs are intentionally omitted from this command.'
+}
+
+function sourceIdentityForDiagnostics(source: ResolvedSourceToken): string {
+  return `${source.chain.cliName} (${source.chainId}), ${sourceTokenIdentity(source)}, ${source.decimals} decimals`
 }
 
 function directDepositRecoveryCommand(options: FundOptions, hasDays: boolean): string {
@@ -182,6 +200,14 @@ function throwDisplayedFatal(message: string): never {
   log.line(pc.red(`Error: ${message}`))
   log.flush()
   throw new CliFatal(message)
+}
+
+/** Resolve and verify a source only after the Filecoin funding planner needs acquisition. */
+async function resolveFundAcquisitionSource(options: FundOptions): Promise<ResolvedSourceToken> {
+  const catalog = await fetchSquidCatalog({ integratorId: process.env.SQUID_INTEGRATOR_ID })
+  const resolved = resolveCatalogSource(catalog, options.fromChain, options.fromToken)
+  const sourceClient = await createVerifiedResolvedSourceClient(resolved, options.sourceRpcUrl)
+  return verifyResolvedErc20Source(sourceClient, resolved)
 }
 
 // Helper: perform deposit or withdraw according to delta
@@ -484,67 +510,102 @@ export async function runFund(options: FundOptions): Promise<void> {
       return
     }
 
-    if (plan.delta > 0n && acquisitionRequested && 'readOnly' in authConfig && authConfig.readOnly === true) {
-      throwDisplayedFatal('Token acquisition requires signing auth; --view-address is read-only')
-    }
-
     if (plan.delta > 0n && acquisitionRequested) {
-      assertAcquisitionOwnerMatchesSynapse(synapse, options.privateKey)
-      const filShortfall =
-        planResult.status.filBalance < MIN_FIL_FOR_GAS ? MIN_FIL_FOR_GAS - planResult.status.filBalance : 0n
+      const currentStatus = await getPaymentStatus(synapse)
+      const filShortfall = currentStatus.filBalance < MIN_FIL_FOR_GAS ? MIN_FIL_FOR_GAS - currentStatus.filBalance : 0n
       const usdfcShortfall =
-        planResult.status.walletUsdfcBalance < plan.delta ? plan.delta - planResult.status.walletUsdfcBalance : 0n
-      acquisitionDiagnostics = `Remaining wallet shortfalls: FIL ${formatUnits(filShortfall, 18)}, USDFC ${formatUnits(usdfcShortfall, 18)}. Squid fallback: https://app.squidrouter.com/`
-      acquisitionResumeCommand = acquisitionRecoveryCommand(options, hasDays)
-      acquisitionRecoveryKind = 'await-provider'
-      if (synapse.chain.id !== mainnet.id) {
-        acquisitionDiagnostics =
-          'Direct wallet funding is required on this network: add FIL and USDFC, then retry the Filecoin Pay deposit without source acquisition.'
-        acquisitionResumeCommand = directDepositRecoveryCommand(options, hasDays)
-        acquisitionRecoveryKind = 'direct-funding'
-      }
-      const completedAcquisition = await ensureWalletReadyForFilecoinTransactions({
-        destinationChainId: synapse.chain.id,
-        walletUsdfcBalance: planResult.status.walletUsdfcBalance,
-        walletFilBalance: planResult.status.filBalance,
-        requiredUsdfc: plan.delta,
-        fromChain: options.fromChain,
-        fromToken: options.fromToken,
-        maxSourceAmount: options.maxSourceAmount,
-        sourceRpcUrl: options.sourceRpcUrl,
-        slippage: options.slippage,
-        privateKey: options.privateKey,
-        provider: { integratorId: process.env.SQUID_INTEGRATOR_ID },
-        confirmSourceAcquisition: isTTY()
-          ? async (summary) => {
-              if (summary.sourceAmount > summary.maxSourceAmount) {
-                throw new Error('Validated source route exceeds --max-source-amount before confirmation')
-              }
-              const routeLegs = summary.legs
-                .map(
-                  (leg) =>
-                    `${formatUnits(leg.minimumDestinationAmount, 18)} ${leg.asset.toUpperCase()} (expires ${new Date(leg.expiresAt * 1_000).toISOString()})`
+        currentStatus.walletUsdfcBalance < plan.delta ? plan.delta - currentStatus.walletUsdfcBalance : 0n
+      if (filShortfall > 0n || usdfcShortfall > 0n) {
+        if (synapse.chain.id !== mainnet.id) {
+          acquisitionDiagnostics =
+            'Direct wallet funding is required on this network: add FIL and USDFC, then retry the Filecoin Pay deposit without source acquisition.'
+          acquisitionResumeCommand = directDepositRecoveryCommand(options, hasDays)
+          acquisitionRecoveryKind = 'direct-funding'
+          throw new Error(
+            'Token acquisition is available only on Filecoin mainnet; use a direct USDFC deposit on this network'
+          )
+        }
+        if (options.sourceRpcUrl == null || options.sourceRpcUrl.trim() === '') {
+          throwDisplayedFatal('Token acquisition requires --source-rpc-url or SOURCE_RPC_URL')
+        }
+        if (options.privateKey == null || options.privateKey.trim() === '') {
+          throwDisplayedFatal('Token acquisition requires --private-key for source transactions')
+        }
+        if ('readOnly' in authConfig && authConfig.readOnly === true) {
+          throwDisplayedFatal('Token acquisition requires signing auth; --view-address is read-only')
+        }
+        assertAcquisitionOwnerMatchesSynapse(synapse, options.privateKey)
+        acquisitionDiagnostics = `Remaining wallet shortfalls: FIL ${formatUnits(filShortfall, 18)}, USDFC ${formatUnits(usdfcShortfall, 18)}. Squid fallback: https://app.squidrouter.com/`
+        acquisitionResumeCommand = acquisitionRecoveryCommand(options, hasDays)
+        acquisitionRecoveryKind = 'await-provider'
+        const resolvedSource = await resolveFundAcquisitionSource(options)
+        acquisitionDiagnostics = `Source: ${sourceIdentityForDiagnostics(resolvedSource)}. Remaining wallet shortfalls: FIL ${formatUnits(filShortfall, 18)}, USDFC ${formatUnits(usdfcShortfall, 18)}. Squid fallback: https://app.squidrouter.com/`
+        acquisitionResumeCommand = acquisitionRecoveryCommand(options, hasDays, resolvedSource)
+        const completedAcquisition = await ensureWalletReadyForFilecoinTransactions({
+          destinationChainId: synapse.chain.id,
+          walletUsdfcBalance: currentStatus.walletUsdfcBalance,
+          walletFilBalance: currentStatus.filBalance,
+          requiredUsdfc: plan.delta,
+          fromChain: options.fromChain,
+          fromToken: options.fromToken,
+          resolvedSource,
+          maxSourceAmount: options.maxSourceAmount,
+          sourceRpcUrl: options.sourceRpcUrl,
+          slippage: options.slippage,
+          privateKey: options.privateKey,
+          provider: { integratorId: process.env.SQUID_INTEGRATOR_ID },
+          confirmSourceAcquisition: isTTY()
+            ? async (summary) => {
+                if (summary.sourceAmount > summary.maxSourceAmount) {
+                  throw new Error('Validated source route exceeds --max-source-amount before confirmation')
+                }
+                const routeLegs = summary.legs
+                  .map(
+                    (leg) =>
+                      `${formatUnits(leg.minimumDestinationAmount, 18)} ${leg.asset.toUpperCase()} (expires ${new Date(leg.expiresAt * 1_000).toISOString()})`
+                  )
+                  .join(', ')
+                const sourceIdentity = sourceTokenIdentity(resolvedSource)
+                const nativeCommitment = formatUnits(
+                  summary.nativeCommitment ?? 0n,
+                  resolvedSource.chain.nativeDecimals
                 )
-                .join(', ')
-              const proceed = await confirm({
-                message: `Acquire ${formatUnits(summary.sourceAmount, 6)} Arbitrum USDC (cap ${formatUnits(summary.maxSourceAmount, 6)}) for ${routeLegs} before depositing ${formatUSDFC(plan.delta)} USDFC?`,
-                initialValue: false,
-              })
-              if (isCancel(proceed) || !proceed) throw new CliIncomplete('Source acquisition cancelled by user')
-            }
-          : undefined,
-        rereadWalletBalances: async () => {
-          const status = await getPaymentStatus(synapse)
-          return { fil: status.filBalance, usdfc: status.walletUsdfcBalance }
-        },
-      })
-      const acquisitionEvidence = completedAcquisition ?? []
-      if (acquisitionEvidence.length > 0) {
-        log.section('Acquisition evidence', acquisitionEvidenceLines(acquisitionEvidence))
-        acquisitionDiagnostics =
-          'Acquisition is confirmed: FIL and USDFC are already in the Filecoin wallet. The Filecoin Pay deposit can be retried without another source acquisition.'
-        acquisitionResumeCommand = directDepositRecoveryCommand(options, hasDays)
-        acquisitionRecoveryKind = 'deposit-only'
+                const nativeCeiling = formatUnits(summary.maxNativeGas ?? 0n, resolvedSource.chain.nativeDecimals)
+                const proceed = await confirm({
+                  message:
+                    `Acquire ${formatUnits(summary.sourceAmount, resolvedSource.decimals)} ${sourceIdentity} ` +
+                    `on ${resolvedSource.chain.cliName} (${resolvedSource.chainId}, ${resolvedSource.decimals} decimals; ` +
+                    `cap ${formatUnits(summary.maxSourceAmount, resolvedSource.decimals)}; ` +
+                    `quoted route-native commitment ${nativeCommitment}; ceiling ${nativeCeiling} ${resolvedSource.chain.nativeSymbol}) ` +
+                    `for ${routeLegs} before depositing ${formatUSDFC(plan.delta)} USDFC?`,
+                  initialValue: false,
+                })
+                if (isCancel(proceed) || !proceed) throw new CliIncomplete('Source acquisition cancelled by user')
+              }
+            : undefined,
+          rereadWalletBalances: async () => {
+            const status = await getPaymentStatus(synapse)
+            return { fil: status.filBalance, usdfc: status.walletUsdfcBalance }
+          },
+        })
+        const acquisitionEvidence = completedAcquisition ?? []
+        if (acquisitionEvidence.length > 0) {
+          log.section('Acquisition evidence', acquisitionEvidenceLines(acquisitionEvidence))
+          acquisitionDiagnostics =
+            'Acquisition is confirmed: FIL and USDFC are already in the Filecoin wallet. The Filecoin Pay deposit can be retried without another source acquisition.'
+          acquisitionResumeCommand = directDepositRecoveryCommand(options, hasDays)
+          acquisitionRecoveryKind = 'deposit-only'
+        }
+      } else {
+        await reconcileReadyAcquisitionCheckpoint({
+          destinationOwner: getClientAddress(synapse),
+          destinationChainId: synapse.chain.id,
+          walletFilBalance: currentStatus.filBalance,
+          walletUsdfcBalance: currentStatus.walletUsdfcBalance,
+          privateKey: options.privateKey,
+          fromChain: options.fromChain,
+          fromToken: options.fromToken,
+        })
       }
     }
 

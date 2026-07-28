@@ -104,7 +104,7 @@ const fundCommand = new Command('fund')
   })
 
 addAuthOptions(fundCommand)
-addFundingSourceOptions(fundCommand)
+addFundingSourceOptions(fundCommand, 'fund')
 paymentsCommand.addCommand(fundCommand)
 
 // Withdraw command

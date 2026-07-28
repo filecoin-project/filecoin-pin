@@ -57,18 +57,79 @@ export async function planTokenAcquisition(options: PlanTokenAcquisitionOptions)
   if (options.plan.path === 'unsupported' || options.plan.source == null) {
     throw new Error('A supported --from-chain and --from-token are required to acquire wallet shortfalls')
   }
-  const quotes: PlannedAcquisitionQuote[] = []
-  let total = 0n
-  for (const leg of options.plan.legs) {
-    assertLegIsNotFilecoinSelfFunding(leg, options.plan.source)
-    const quote = await planLeg(leg, options)
-    total += quote.sourceAmount
-    if (total > options.maxSourceAmount) {
-      throw new Error(`Acquisition would spend more than --max-source-amount (${total} source base units required)`)
-    }
-    quotes.push(quote)
+  for (const leg of options.plan.legs) assertLegIsNotFilecoinSelfFunding(leg, options.plan.source)
+  const decimals = validatedSourceDecimals(options.plan.source)
+  const defaultSeed = options.initialSourceAmount ?? 5n * 10n ** BigInt(Math.max(0, decimals - 1))
+  const perLegSeed = options.maxSourceAmount / BigInt(options.plan.legs.length)
+  if (perLegSeed <= 0n) {
+    throw new Error(
+      'Acquisition would spend more than --max-source-amount (each route needs at least one source base unit)'
+    )
   }
-  return quotes
+  const seed = defaultSeed < perLegSeed ? defaultSeed : perLegSeed
+  if (seed <= 0n) throw new Error('Initial source quote amount must be greater than zero')
+
+  const states = options.plan.legs.map((leg) => ({
+    leg,
+    input: seed,
+    quote: undefined as PlannedAcquisitionQuote | undefined,
+  }))
+  for (let attempt = 0; attempt < MAX_PLANNING_ATTEMPTS; attempt += 1) {
+    assertCandidateSourceTotal(states, options.maxSourceAmount)
+    for (const state of states) {
+      if (state.quote != null) continue
+      state.quote = await getSquidRoute(
+        { fromAddress: options.owner, sourceAmount: state.input, leg: state.leg, slippage: options.slippage },
+        options.provider
+      )
+    }
+    const candidates = states.map((state) => {
+      const quote = state.quote
+      if (quote == null) throw new Error('Acquisition quote planning lost a requested route')
+      return quote.destinationAmount <= 0n
+        ? state.input
+        : ceilDiv(state.input * state.leg.amount, quote.destinationAmount)
+    })
+    const hasZeroOutput = states.some((state) => state.quote?.destinationAmount === 0n)
+    const hasShortfall = states.some((state) => state.quote != null && state.quote.destinationAmount < state.leg.amount)
+    if (!hasZeroOutput && !hasShortfall) return states.map((state) => state.quote as PlannedAcquisitionQuote)
+
+    if (hasZeroOutput) {
+      for (const state of states) {
+        if (state.quote?.destinationAmount === 0n) state.quote = undefined
+      }
+    } else {
+      // When another leg needs a larger input, minimize successful but
+      // overproducing seed quotes too. This lets an asymmetric valid split fit
+      // under one aggregate cap without ever signing a probe.
+      assertCandidateSourceTotal(
+        candidates.map((input) => ({ input })),
+        options.maxSourceAmount
+      )
+      for (const [index, state] of states.entries()) {
+        const candidate = candidates[index]
+        if (candidate == null) throw new Error('Acquisition quote planning lost a candidate input')
+        if (candidate !== state.input) {
+          state.input = candidate
+          state.quote = undefined
+        }
+      }
+    }
+    if (attempt + 1 === MAX_PLANNING_ATTEMPTS) {
+      if (hasZeroOutput) {
+        throw new Error('Squid returned a zero minimum destination amount; cannot plan a safe acquisition')
+      }
+      throw new Error(`Squid could not satisfy the required wallet outputs within ${MAX_PLANNING_ATTEMPTS} quotes`)
+    }
+  }
+  throw new Error('Acquisition quote planning ended unexpectedly')
+}
+
+function assertCandidateSourceTotal(states: Array<{ input: bigint }>, maxSourceAmount: bigint): void {
+  const total = states.reduce((sum, state) => sum + state.input, 0n)
+  if (total > maxSourceAmount) {
+    throw new Error(`Acquisition would spend more than --max-source-amount (${total} source base units required)`)
+  }
 }
 
 function assertLegIsNotFilecoinSelfFunding(leg: AcquisitionLeg, source: WalletFundingPlan['source']): void {
@@ -108,31 +169,6 @@ export async function refreshFixedInputAcquisitionQuote(
     throw new Error('Squid route changed after refresh; do not submit the route')
   }
   return refreshed
-}
-
-async function planLeg(leg: AcquisitionLeg, options: PlanTokenAcquisitionOptions): Promise<PlannedAcquisitionQuote> {
-  // The probe scales with the resolved token, rather than embedding a USDC
-  // base-unit or fiat-value assumption. Subsequent iterations are driven only
-  // by the returned output amount.
-  const decimals = validatedSourceDecimals(options.plan.source)
-  let input = options.initialSourceAmount ?? 5n * 10n ** BigInt(Math.max(0, decimals - 1))
-  for (let attempt = 0; attempt < MAX_PLANNING_ATTEMPTS; attempt += 1) {
-    const quote = await getSquidRoute(
-      { fromAddress: options.owner, sourceAmount: input, leg, slippage: options.slippage },
-      options.provider
-    )
-    if (quote.destinationAmount <= 0n) {
-      if (attempt + 1 === MAX_PLANNING_ATTEMPTS) {
-        throw new Error('Squid returned a zero minimum destination amount; cannot plan a safe acquisition')
-      }
-      continue
-    }
-    if (quote.destinationAmount >= leg.amount) return quote
-    input = ceilDiv(input * leg.amount, quote.destinationAmount)
-  }
-  throw new Error(
-    `Squid could not satisfy the required ${leg.asset.toUpperCase()} output within ${MAX_PLANNING_ATTEMPTS} quotes`
-  )
 }
 
 export function totalSourceAmount(quotes: PlannedAcquisitionQuote[]): bigint {

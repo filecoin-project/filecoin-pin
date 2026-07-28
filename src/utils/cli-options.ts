@@ -115,17 +115,35 @@ export function parsePositiveTokenAmount(value: string): string {
   return value
 }
 
-/** Add the deliberately narrow source-token controls used by payments fund. */
-export function addFundingSourceOptions(command: Command): Command {
+/** Add source-token controls, with expanded selection advertised only by payments fund. */
+export function addFundingSourceOptions(command: Command, scope: 'fund' | 'setup' = 'setup'): Command {
+  const supportsSelectedSources = scope === 'fund'
   return command
-    .option('--from-chain <chain>', 'Source chain for acquisition (currently: arb)')
-    .option('--from-token <token>', 'Source token for acquisition (currently: USDC)')
+    .option(
+      '--from-chain <chain>',
+      supportsSelectedSources
+        ? 'Selected source chain: filecoin, arbitrum (arb), ethereum, base, optimism, polygon, avalanche, or bnb'
+        : 'Source chain (arb only)'
+    )
+    .option(
+      '--from-token <token>',
+      supportsSelectedSources
+        ? 'Unique Squid-catalog symbol, exact token address, or native (requires a verified route)'
+        : 'Source token (USDC only)'
+    )
     .option(
       '--max-source-amount <amount>',
       'Hard maximum source-token spend (required for acquisition)',
       parsePositiveTokenAmount
     )
-    .addOption(new Option('--source-rpc-url <url>', 'Source-chain RPC endpoint').env('SOURCE_RPC_URL'))
+    .addOption(
+      new Option(
+        '--source-rpc-url <url>',
+        supportsSelectedSources
+          ? 'Source-chain RPC endpoint matching --from-chain'
+          : 'Arbitrum source-chain RPC endpoint'
+      ).env('SOURCE_RPC_URL')
+    )
     .option('--slippage <percent>', 'Maximum quote slippage percent (default: 1)', parseSlippageOption)
 }
 

@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   fetchSquidCatalog,
   isTrustedSquidRouteAddress,
+  matchesRequestedSourceSelectors,
   NATIVE_TOKEN_SELECTOR,
   parseSquidCatalog,
   resolveCatalogSource,
@@ -70,6 +71,25 @@ describe('Squid selected-source catalog contract', () => {
       native: true,
       decimals: 18,
     })
+  })
+
+  it('matches ready-retry selectors only against the stored catalog-verified identity', () => {
+    const catalog = parseSquidCatalog(fixture.chains, fixture.tokens)
+    const usdbc = resolveCatalogSource(catalog, 'base', 'usdbc')
+    const native = resolveCatalogSource(catalog, 'base', NATIVE_TOKEN_SELECTOR)
+
+    expect(matchesRequestedSourceSelectors(usdbc, ' BASE ', 'USDBC')).toBe(true)
+    expect(matchesRequestedSourceSelectors(usdbc, 'base', `0x${usdbc.token.slice(2).toUpperCase()}`)).toBe(true)
+    expect(matchesRequestedSourceSelectors(native, 'base', 'NATIVE')).toBe(true)
+    expect(matchesRequestedSourceSelectors(native, 'base', 'eth')).toBe(true)
+
+    expect(matchesRequestedSourceSelectors(usdbc, 'arb', 'USDBC')).toBe(false)
+    expect(matchesRequestedSourceSelectors(usdbc, 'base', 'native')).toBe(false)
+    expect(matchesRequestedSourceSelectors(usdbc, 'base', '0x0000000000000000000000000000000000000001')).toBe(false)
+    expect(matchesRequestedSourceSelectors(usdbc, 'base', 'USDC')).toBe(false)
+    expect(matchesRequestedSourceSelectors(usdbc, 'solana', 'USDBC')).toBe(false)
+    expect(matchesRequestedSourceSelectors(usdbc, undefined, 'USDBC')).toBe(false)
+    expect(matchesRequestedSourceSelectors(usdbc, 'base', undefined)).toBe(false)
   })
 
   it('rejects native tokens that conflict with selected-chain native-currency metadata', () => {
@@ -247,14 +267,13 @@ describe('Squid selected-source catalog contract', () => {
     expect(client.readContract).not.toHaveBeenCalled()
   })
 
-  it('keeps direct no-source funding paths free of Squid catalog/provider imports', async () => {
+  it('keeps setup auto-funding free of Squid catalog/provider imports', async () => {
     const [fund, auto] = await Promise.all([
       readFile(new URL('../../payments/fund.ts', import.meta.url), 'utf8'),
       readFile(new URL('../../payments/auto.ts', import.meta.url), 'utf8'),
     ])
-    expect(fund).not.toContain('source-catalog')
     expect(auto).not.toContain('source-catalog')
-    expect(fund).not.toContain('fetchSquidCatalog')
     expect(auto).not.toContain('fetchSquidCatalog')
+    expect(fund).toContain('fetchSquidCatalog')
   })
 })
