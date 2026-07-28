@@ -190,6 +190,8 @@ export async function recoverRemovedSourceAcquisition(options: {
   fromToken?: string | undefined
   provider: SquidProviderOptions
   rereadWalletBalances: () => Promise<{ fil: bigint; usdfc: bigint }>
+  /** Test seam; production uses the standard five-second readiness interval. */
+  filecoinArrivalWait?: ((milliseconds: number) => Promise<void>) | undefined
   /** Test seam; production creates a chain-verified read-only source client. */
   sourceClient?: Pick<PublicClient, 'getChainId' | 'waitForTransactionReceipt'> | undefined
 }): Promise<AcquisitionEvidence[] | undefined> {
@@ -245,9 +247,10 @@ export async function recoverRemovedSourceAcquisition(options: {
     }
     const sourceClient =
       options.sourceClient ?? (await createVerifiedResolvedSourceClient(source, options.sourceRpcUrl))
-    if ((await sourceClient.getChainId()) !== recoveryChain.chainId) {
+    const sourceChainId = await sourceClient.getChainId()
+    if (sourceChainId !== recoveryChain.chainId) {
       throw new Error(
-        `Source RPC chain ID does not match recovery source chain ID ${recoveryChain.chainId}; do not continue`
+        `Source RPC chain ID ${sourceChainId} does not match recovery source chain ID ${recoveryChain.chainId}; do not continue`
       )
     }
 
@@ -313,19 +316,15 @@ export async function recoverRemovedSourceAcquisition(options: {
       }
     }
 
-    const balances = await options.rereadWalletBalances()
     const confirmedEvidence = evidence.map((item) => ({ ...item, status: 'confirmed' as const }))
-    if (
-      balances.fil >= recoveredCheckpoint.requiredWallet.fil &&
-      balances.usdfc >= recoveredCheckpoint.requiredWallet.usdfc
-    ) {
-      await checkpointStore.clear()
-      return confirmedEvidence
-    }
     await checkpointStore.save({ ...recoveredCheckpoint, evidence: confirmedEvidence })
-    throw new Error(
-      `The broadcast ${recoveryChain.cliName} route is confirmed, but the recorded Filecoin wallet target is not ready; fund the remaining shortfall directly`
-    )
+    await waitForFilecoinWalletReadiness({
+      required: recoveredCheckpoint.requiredWallet,
+      getBalances: options.rereadWalletBalances,
+      ...(options.filecoinArrivalWait != null ? { wait: options.filecoinArrivalWait } : {}),
+    })
+    await checkpointStore.clear()
+    return confirmedEvidence
   } finally {
     await lock.release()
   }

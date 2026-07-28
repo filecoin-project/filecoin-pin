@@ -1107,6 +1107,12 @@ describe('Squid acquisition provider contract', () => {
         })
       )
 
+      const rereadWalletBalances = vi
+        .fn()
+        .mockResolvedValueOnce({ fil: MIN_FIL_FOR_GAS, usdfc: 0n })
+        .mockResolvedValueOnce({ fil: MIN_FIL_FOR_GAS, usdfc: 1n })
+      const filecoinArrivalWait = vi.fn().mockResolvedValue(undefined)
+
       await expect(
         recoverRemovedSourceAcquisition({
           destinationOwner: owner,
@@ -1115,7 +1121,8 @@ describe('Squid acquisition provider contract', () => {
           fromChain: 'base',
           fromToken: 'USDC',
           provider: { integratorId: 'test-only-integrator', fetchFn },
-          rereadWalletBalances: vi.fn().mockResolvedValue({ fil: MIN_FIL_FOR_GAS, usdfc: 1n }),
+          rereadWalletBalances,
+          filecoinArrivalWait,
           sourceClient: sourceClient as never,
         })
       ).resolves.toEqual([
@@ -1128,6 +1135,8 @@ describe('Squid acquisition provider contract', () => {
 
       expect(sourceClient.waitForTransactionReceipt).toHaveBeenCalledOnce()
       expect(fetchFn).toHaveBeenCalledOnce()
+      expect(rereadWalletBalances).toHaveBeenCalledTimes(2)
+      expect(filecoinArrivalWait).toHaveBeenCalledWith(5_000)
       await expect(store.load()).resolves.toBeUndefined()
     } finally {
       if (originalHome == null) delete process.env.HOME
@@ -1201,6 +1210,58 @@ describe('Squid acquisition provider contract', () => {
           rereadWalletBalances: vi.fn(),
         })
       ).rejects.toThrow('Unsupported source chain for a new acquisition: base')
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('reports the actual source RPC chain when removed-source recovery is misconfigured', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      const store = createAcquisitionCheckpointStore(owner)
+      const source = removedBaseSource()
+      await store.save({
+        version: 2,
+        owner,
+        sourceChainId: source.chainId,
+        destinationChainId: 314,
+        source: sourceRouteIdentity(source),
+        maxSourceAmount: 1_000_000n,
+        maxNativeGas: 3_000_000_000_000_000n,
+        committedNativeGas: 1n,
+        requiredWallet: { fil: MIN_FIL_FOR_GAS, usdfc: 1n },
+        evidence: [
+          {
+            asset: 'usdfc',
+            quoteId: 'wrong-source-rpc',
+            sourceAmount: '1',
+            sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            status: 'submitted',
+          },
+        ],
+      })
+
+      await expect(
+        recoverRemovedSourceAcquisition({
+          destinationOwner: owner,
+          destinationChainId: 314,
+          privateKey: PRIVATE_KEY,
+          fromChain: 'base',
+          fromToken: 'USDC',
+          provider: { integratorId: 'test-only-integrator' },
+          rereadWalletBalances: vi.fn(),
+          sourceClient: {
+            getChainId: vi.fn().mockResolvedValue(10),
+            waitForTransactionReceipt: vi.fn(),
+          } as never,
+        })
+      ).rejects.toThrow('Source RPC chain ID 10 does not match recovery source chain ID 8453')
+      await expect(store.load()).resolves.toBeDefined()
     } finally {
       if (originalHome == null) delete process.env.HOME
       else process.env.HOME = originalHome
