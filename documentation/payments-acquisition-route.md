@@ -211,7 +211,8 @@ result, never permission to submit the source transaction again.
 
 If Squid is unavailable or cannot return a route with enough liquidity, stop
 without widening the selected chain, token, or spending caps. Fund the Filecoin
-wallet directly with FIL and USDFC, then rerun the command without `--from-*`.
+wallet directly with [FIL](glossary.md#fil) and [USDFC](glossary.md#usdfc), then
+rerun the command without `--from-*`.
 Never use a provider failure as permission to repeat a submitted source
 transaction.
 
