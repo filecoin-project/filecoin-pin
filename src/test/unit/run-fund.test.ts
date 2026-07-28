@@ -18,6 +18,7 @@ const {
   mockInitialize,
   mockGetClientAddress,
   mockEnsureWallet,
+  mockReconcileReadyCheckpoint,
   mockFetchCatalog,
   mockResolveCatalogSource,
   mockVerifyResolvedSource,
@@ -37,6 +38,7 @@ const {
   mockInitialize: vi.fn(async () => ({ chain: { id: 314 } })),
   mockGetClientAddress: vi.fn(() => '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf'),
   mockEnsureWallet: vi.fn(),
+  mockReconcileReadyCheckpoint: vi.fn(),
   mockFetchCatalog: vi.fn(),
   mockResolveCatalogSource: vi.fn(),
   mockVerifyResolvedSource: vi.fn(),
@@ -55,6 +57,7 @@ vi.mock('../../core/synapse/index.js', () => ({
 }))
 vi.mock('../../core/payments/acquisition/orchestrate.js', () => ({
   ensureWalletReadyForFilecoinTransactions: mockEnsureWallet,
+  reconcileReadyAcquisitionCheckpoint: mockReconcileReadyCheckpoint,
 }))
 vi.mock('../../core/payments/acquisition/source-catalog.js', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -276,6 +279,41 @@ describe('runFund confirmation exit codes', () => {
     expect(mockCreateVerifiedSourceClient).not.toHaveBeenCalled()
     expect(mockVerifyResolvedSource).not.toHaveBeenCalled()
     expect(mockEnsureWallet).not.toHaveBeenCalled()
+  })
+
+  it('reconciles a ready submitted acquisition locally without resolving a new source route', async () => {
+    const synapse = {
+      chain: { id: 314 },
+      payments: { accountSummary: vi.fn().mockResolvedValue({ funds: 0n }) },
+    }
+    mockInitialize.mockResolvedValueOnce(synapse)
+    mockPlan.mockResolvedValueOnce(underfundedPlan(5_000_000_000_000_000_000n))
+    mockGetPaymentStatus.mockResolvedValueOnce({
+      filBalance: 1_000_000_000_000_000_000n,
+      walletUsdfcBalance: 1_000_000_000_000_000_000_000n,
+    })
+    mockReconcileReadyCheckpoint.mockResolvedValueOnce(true)
+    mockConfirm.mockResolvedValueOnce(true)
+    mockDeposit.mockResolvedValueOnce({ depositTx: '0xdeposit' })
+
+    await runFund({
+      amount: '5',
+      fromChain: 'base',
+      fromToken: 'USDC',
+      maxSourceAmount: '10',
+      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+    })
+
+    expect(mockReconcileReadyCheckpoint).toHaveBeenCalledWith({
+      destinationChainId: 314,
+      walletFilBalance: 1_000_000_000_000_000_000n,
+      walletUsdfcBalance: 1_000_000_000_000_000_000_000n,
+      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+    })
+    expect(mockFetchCatalog).not.toHaveBeenCalled()
+    expect(mockCreateVerifiedSourceClient).not.toHaveBeenCalled()
+    expect(mockEnsureWallet).not.toHaveBeenCalled()
+    expect(mockDeposit).toHaveBeenCalledWith(synapse, 5_000_000_000_000_000_000n)
   })
 
   it('uses source RPC and slippage only when the complete acquisition tuple is present', async () => {

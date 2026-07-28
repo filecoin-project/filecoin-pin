@@ -12,7 +12,10 @@ import { CliFatal, CliIncomplete, isCliFatal, isCliIncomplete, setIncompleteExit
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import { resolveIpfsIndexedMetadata } from '../core/metadata/index.js'
 import { createVerifiedResolvedSourceClient, sourceAddressForPrivateKey } from '../core/payments/acquisition/execute.js'
-import { ensureWalletReadyForFilecoinTransactions } from '../core/payments/acquisition/orchestrate.js'
+import {
+  ensureWalletReadyForFilecoinTransactions,
+  reconcileReadyAcquisitionCheckpoint,
+} from '../core/payments/acquisition/orchestrate.js'
 import {
   fetchSquidCatalog,
   type ResolvedSourceToken,
@@ -593,6 +596,13 @@ export async function runFund(options: FundOptions): Promise<void> {
           acquisitionResumeCommand = directDepositRecoveryCommand(options, hasDays)
           acquisitionRecoveryKind = 'deposit-only'
         }
+      } else {
+        await reconcileReadyAcquisitionCheckpoint({
+          destinationChainId: synapse.chain.id,
+          walletFilBalance: currentStatus.filBalance,
+          walletUsdfcBalance: currentStatus.walletUsdfcBalance,
+          privateKey: options.privateKey,
+        })
       }
     }
 

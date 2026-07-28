@@ -22,6 +22,7 @@ import {
 } from '../../core/payments/acquisition/execute.js'
 import {
   ensureWalletReadyForFilecoinTransactions,
+  reconcileReadyAcquisitionCheckpoint,
   type SourceAcquisitionConfirmation,
 } from '../../core/payments/acquisition/orchestrate.js'
 import {
@@ -1038,6 +1039,59 @@ describe('Squid acquisition provider contract', () => {
 
       await expect(store.load()).resolves.toBeUndefined()
       expect(fetchFn).not.toHaveBeenCalled()
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('clears a submitted selected-source checkpoint after a late arrival, then leaves a later ready retry alone', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      const store = createAcquisitionCheckpointStore(owner)
+      const source = resolvedArbitrumSource()
+      await store.save({
+        version: 2,
+        owner,
+        sourceChainId: source.chainId,
+        destinationChainId: 314,
+        source: sourceRouteIdentity(source),
+        maxSourceAmount: 1n,
+        maxNativeGas: sourceNativeGasCeiling(source.chainId),
+        committedNativeGas: 1n,
+        requiredWallet: { fil: 100_000_000_000_000_000n, usdfc: 1n },
+        evidence: [
+          {
+            asset: 'usdfc',
+            quoteId: 'late-arrival-submitted-route',
+            sourceAmount: '1',
+            sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            status: 'submitted',
+          },
+        ],
+      })
+
+      await expect(
+        reconcileReadyAcquisitionCheckpoint({
+          destinationChainId: 314,
+          walletFilBalance: 100_000_000_000_000_000n,
+          walletUsdfcBalance: 1n,
+          privateKey: PRIVATE_KEY,
+        })
+      ).resolves.toBe(true)
+      await expect(store.load()).resolves.toBeUndefined()
+      await expect(
+        reconcileReadyAcquisitionCheckpoint({
+          destinationChainId: 314,
+          walletFilBalance: 100_000_000_000_000_000n,
+          walletUsdfcBalance: 1n,
+          privateKey: PRIVATE_KEY,
+        })
+      ).resolves.toBe(false)
     } finally {
       if (originalHome == null) delete process.env.HOME
       else process.env.HOME = originalHome

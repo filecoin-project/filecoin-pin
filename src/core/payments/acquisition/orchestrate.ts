@@ -94,6 +94,46 @@ function canClearReadyCheckpoint(options: {
   )
 }
 
+/**
+ * Reconcile a submitted acquisition after a direct top-up or late arrival made
+ * the Filecoin wallet ready. This reads only local recovery state; it must not
+ * resolve a source token or contact the provider.
+ */
+export async function reconcileReadyAcquisitionCheckpoint(options: {
+  destinationChainId: number
+  walletFilBalance: bigint
+  walletUsdfcBalance: bigint
+  privateKey?: string | undefined
+}): Promise<boolean> {
+  if (options.privateKey == null || options.privateKey.trim() === '') return false
+  const privateKey = (
+    options.privateKey.startsWith('0x') ? options.privateKey : `0x${options.privateKey}`
+  ) as `0x${string}`
+  const sourceOwner = sourceAddressForPrivateKey(privateKey)
+  const lock = await acquireAcquisitionLock(sourceOwner)
+  const checkpointStore = createAcquisitionCheckpointStore(sourceOwner)
+  try {
+    const pending = await checkpointStore.load()
+    if (pending == null) return false
+    if (
+      !canClearReadyCheckpoint({
+        checkpoint: pending,
+        owner: sourceOwner,
+        sourceChainId: pending.sourceChainId,
+        destinationChainId: options.destinationChainId,
+        walletFilBalance: options.walletFilBalance,
+        walletUsdfcBalance: options.walletUsdfcBalance,
+      })
+    ) {
+      return false
+    }
+    await checkpointStore.clear()
+    return true
+  } finally {
+    await lock.release()
+  }
+}
+
 /** Ensure only the exact wallet deficits are acquired before the existing deposit path continues. */
 export async function ensureWalletReadyForFilecoinTransactions(
   options: EnsureWalletReadyOptions
