@@ -59,6 +59,7 @@ export interface EnsureWalletReadyOptions {
 /** Safe-to-display source-route facts; it intentionally excludes calldata and provider credentials. */
 export interface SourceAcquisitionConfirmation {
   sourceChainId?: number
+  nativeCommitment?: bigint
   maxNativeGas?: bigint
   sourceAmount: bigint
   maxSourceAmount: bigint
@@ -273,6 +274,13 @@ export async function ensureWalletReadyForFilecoinTransactions(
           ...(options.resolvedSource != null
             ? {
                 sourceChainId: source.chainId,
+                nativeCommitment: quotes.reduce(
+                  (total, quote) =>
+                    total +
+                    quote.gasLimit * quote.maxFeePerGas +
+                    (options.resolvedSource?.native === true ? 0n : quote.value),
+                  0n
+                ),
                 maxNativeGas: sourceNativeGasCeiling(options.resolvedSource.chain.chainId),
               }
             : {}),

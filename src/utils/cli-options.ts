@@ -115,11 +115,20 @@ export function parsePositiveTokenAmount(value: string): string {
   return value
 }
 
-/** Add the deliberately narrow source-token controls used by payments fund. */
-export function addFundingSourceOptions(command: Command): Command {
+/** Add source-token controls, with expanded selection advertised only by payments fund. */
+export function addFundingSourceOptions(command: Command, scope: 'fund' | 'setup' = 'setup'): Command {
+  const supportsSelectedSources = scope === 'fund'
   return command
-    .option('--from-chain <chain>', 'Source chain for acquisition (currently: arb)')
-    .option('--from-token <token>', 'Source token for acquisition (currently: USDC)')
+    .option(
+      '--from-chain <chain>',
+      supportsSelectedSources
+        ? 'Selected Squid-supported source chain (arb remains an alias)'
+        : 'Source chain (arb only)'
+    )
+    .option(
+      '--from-token <token>',
+      supportsSelectedSources ? 'Unique symbol, exact token address, or native' : 'Source token (USDC only)'
+    )
     .option(
       '--max-source-amount <amount>',
       'Hard maximum source-token spend (required for acquisition)',

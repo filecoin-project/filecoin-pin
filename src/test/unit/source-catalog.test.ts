@@ -247,14 +247,13 @@ describe('Squid selected-source catalog contract', () => {
     expect(client.readContract).not.toHaveBeenCalled()
   })
 
-  it('keeps direct no-source funding paths free of Squid catalog/provider imports', async () => {
+  it('keeps setup auto-funding free of Squid catalog/provider imports', async () => {
     const [fund, auto] = await Promise.all([
       readFile(new URL('../../payments/fund.ts', import.meta.url), 'utf8'),
       readFile(new URL('../../payments/auto.ts', import.meta.url), 'utf8'),
     ])
-    expect(fund).not.toContain('source-catalog')
     expect(auto).not.toContain('source-catalog')
-    expect(fund).not.toContain('fetchSquidCatalog')
     expect(auto).not.toContain('fetchSquidCatalog')
+    expect(fund).toContain('fetchSquidCatalog')
   })
 })
