@@ -513,16 +513,6 @@ export async function runFund(options: FundOptions): Promise<void> {
       const usdfcShortfall =
         planResult.status.walletUsdfcBalance < plan.delta ? plan.delta - planResult.status.walletUsdfcBalance : 0n
       if (filShortfall > 0n || usdfcShortfall > 0n) {
-        if (options.sourceRpcUrl == null || options.sourceRpcUrl.trim() === '') {
-          throwDisplayedFatal('Token acquisition requires --source-rpc-url or SOURCE_RPC_URL')
-        }
-        if ('readOnly' in authConfig && authConfig.readOnly === true) {
-          throwDisplayedFatal('Token acquisition requires signing auth; --view-address is read-only')
-        }
-        assertAcquisitionOwnerMatchesSynapse(synapse, options.privateKey)
-        acquisitionDiagnostics = `Remaining wallet shortfalls: FIL ${formatUnits(filShortfall, 18)}, USDFC ${formatUnits(usdfcShortfall, 18)}. Squid fallback: https://app.squidrouter.com/`
-        acquisitionResumeCommand = acquisitionRecoveryCommand(options, hasDays)
-        acquisitionRecoveryKind = 'await-provider'
         if (synapse.chain.id !== mainnet.id) {
           acquisitionDiagnostics =
             'Direct wallet funding is required on this network: add FIL and USDFC, then retry the Filecoin Pay deposit without source acquisition.'
@@ -532,6 +522,19 @@ export async function runFund(options: FundOptions): Promise<void> {
             'Token acquisition is available only on Filecoin mainnet; use a direct USDFC deposit on this network'
           )
         }
+        if (options.sourceRpcUrl == null || options.sourceRpcUrl.trim() === '') {
+          throwDisplayedFatal('Token acquisition requires --source-rpc-url or SOURCE_RPC_URL')
+        }
+        if (options.privateKey == null || options.privateKey.trim() === '') {
+          throwDisplayedFatal('Token acquisition requires --private-key for source transactions')
+        }
+        if ('readOnly' in authConfig && authConfig.readOnly === true) {
+          throwDisplayedFatal('Token acquisition requires signing auth; --view-address is read-only')
+        }
+        assertAcquisitionOwnerMatchesSynapse(synapse, options.privateKey)
+        acquisitionDiagnostics = `Remaining wallet shortfalls: FIL ${formatUnits(filShortfall, 18)}, USDFC ${formatUnits(usdfcShortfall, 18)}. Squid fallback: https://app.squidrouter.com/`
+        acquisitionResumeCommand = acquisitionRecoveryCommand(options, hasDays)
+        acquisitionRecoveryKind = 'await-provider'
         const resolvedSource = await resolveFundAcquisitionSource(options)
         acquisitionDiagnostics = `Source: ${sourceIdentityForDiagnostics(resolvedSource)}. Remaining wallet shortfalls: FIL ${formatUnits(filShortfall, 18)}, USDFC ${formatUnits(usdfcShortfall, 18)}. Squid fallback: https://app.squidrouter.com/`
         acquisitionResumeCommand = acquisitionRecoveryCommand(options, hasDays, resolvedSource)

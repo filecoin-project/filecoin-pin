@@ -206,7 +206,6 @@ describe('runFund confirmation exit codes', () => {
         fromChain: 'arb',
         fromToken: 'USDC',
         maxSourceAmount: '10',
-        sourceRpcUrl: 'https://arbitrum.example/rpc',
         privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
       })
     ).rejects.toThrow('Token acquisition is available only on Filecoin mainnet')
@@ -309,6 +308,30 @@ describe('runFund confirmation exit codes', () => {
 
     expect(mockLogLine).toHaveBeenCalledWith(
       expect.stringContaining('Token acquisition requires --source-rpc-url or SOURCE_RPC_URL')
+    )
+    expect(mockFetchCatalog).not.toHaveBeenCalled()
+    expect(mockResolveCatalogSource).not.toHaveBeenCalled()
+    expect(mockCreateVerifiedSourceClient).not.toHaveBeenCalled()
+    expect(mockVerifyResolvedSource).not.toHaveBeenCalled()
+    expect(mockEnsureWallet).not.toHaveBeenCalled()
+    expect(mockDeposit).not.toHaveBeenCalled()
+  })
+
+  it('fails visibly before catalog or provider work when an underfunded acquisition has no private key', async () => {
+    mockPlan.mockResolvedValueOnce(underfundedPlan(5_000_000_000_000_000_000n))
+
+    await expect(
+      runFund({
+        amount: '5',
+        fromChain: 'base',
+        fromToken: 'USDC',
+        maxSourceAmount: '20',
+        sourceRpcUrl: 'https://base.example/rpc',
+      })
+    ).rejects.toThrow('Token acquisition requires --private-key for source transactions')
+
+    expect(mockLogLine).toHaveBeenCalledWith(
+      expect.stringContaining('Token acquisition requires --private-key for source transactions')
     )
     expect(mockFetchCatalog).not.toHaveBeenCalled()
     expect(mockResolveCatalogSource).not.toHaveBeenCalled()
@@ -526,6 +549,7 @@ describe('runFund confirmation exit codes', () => {
         fromToken: 'native',
         maxSourceAmount: '10',
         sourceRpcUrl: 'https://base.example/rpc',
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
       })
     ).rejects.toThrow('Source: base (8453), ETH (native), 18 decimals. Remaining wallet shortfalls')
 
