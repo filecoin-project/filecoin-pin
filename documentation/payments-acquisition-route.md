@@ -11,20 +11,33 @@ and Filecoin Warm Storage Service approval.
 
 ## Approved route
 
-The first release supports exactly two output-driven legs from the same owner:
+The implementation plans up to two output-driven legs from the same owner. The
+source is selected at runtime from the reviewed source-chain boundary and
+Squid's live catalog:
 
 | Field | FIL leg | USDFC leg |
 | --- | --- | --- |
 | Provider | [Squid](glossary.md#squid) v2 API | Squid v2 API |
-| Source chain | Arbitrum One (`42161`) | Arbitrum One (`42161`) |
-| Source token | native USDC, 6 decimals, `0xaf88d065e77c8cc2239327c5edb3a432268e5831` | same |
+| Source chain | one selected catalog chain: Filecoin (`314`), Arbitrum (`42161`), Ethereum (`1`), Base (`8453`), Optimism (`10`), Polygon (`137`), Avalanche (`43114`), or BNB Chain (`56`) | same selected chain |
+| Source token | one unambiguous live-catalog token selected by unique symbol, exact address, or `native` | same selected token |
 | Destination chain | Filecoin mainnet (`314`) | Filecoin mainnet (`314`) |
 | Destination token | native sentinel `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee` | USDFC, 18 decimals, `0x80b98d3aa09ffff255c3ba4a241111ff1262f045` |
 | Recipient | the source signer address | the source signer address |
 
 Both legs must use one EVM owner address on the source and destination chains.
-No other chain, source token, destination token, recipient, or provider target
-is part of the allowlist.
+The source token is valid only when the catalog entry is unambiguous, its
+chain and ERC-20 metadata (when applicable) verify against `SOURCE_RPC_URL`,
+and the route matches the reviewed target and spender for that selected chain.
+No other source chain, destination token, recipient, or provider target is
+part of the allowlist.
+
+`--max-source-amount` is expressed in the resolved source token's decimals,
+not as a fixed USDC quantity. Native transaction commitments are separately
+bounded by the selected chain's configured native-token ceiling and are checked
+in that chain's native base units. These two limits are independent: an ERC-20
+source needs native gas for approvals and route execution, while a native
+source spends its route value from the native balance and creates no ERC-20
+approval.
 
 The provider accepts a source amount rather than a required output amount.
 Filecoin Pin therefore plans each leg from its exact wallet shortfall and finds
@@ -56,7 +69,12 @@ reapproval path.
 The two legs are independent transactions. A FIL leg that succeeds must not be
 repeated merely because the USDFC leg is incomplete.
 
-## Live evidence
+## Captured Arbitrum-USDC evidence
+
+The following observations were captured for the original Arbitrum USDC route.
+They remain useful fixtures and budget evidence for that route only; they do
+not make Arbitrum USDC a global token allowlist or establish rates, minimums,
+or native-gas limits for another selected source chain or token.
 
 Read-only calls with the dedicated integrator identity returned HTTP 200 from
 the live `/v2/chains` and `/v2/tokens` endpoints. The response contained
@@ -87,7 +105,7 @@ or submitted.
 
 These observations prove a usable floor of **at most 0.5 USDC per leg** on the
 captured route. They are fixtures and budget inputs, not stable exchange-rate
-guarantees. Runtime quotes remain authoritative.
+guarantees. Runtime quotes remain authoritative for every selected source.
 
 The captured path was:
 
@@ -146,13 +164,14 @@ output and all caps or the leg stops without execution.
 
 ## Spender and signing contract
 
-The live routes targeted Squid's canonical mainnet `SquidRouter`:
+The reviewed selected-chain policies currently target Squid's canonical mainnet
+`SquidRouter` deployment:
 `0xce16F69375520ab01377ce7B88f5BA8C48F8D666`.
 
-For the captured route, the owner grants a normal ERC-20 allowance directly to
-that target. The selected route does **not** require Permit2. The OmniPin
-reference used Permit2, but current provider behavior is the authority for this
-integration.
+For an ERC-20 source, the owner grants an exact normal allowance directly to
+the locally trusted spender. A native source does not create an allowance. The
+selected route does **not** require Permit2. The OmniPin reference used Permit2,
+but current provider behavior is the authority for this integration.
 
 Before every approval or execution, Filecoin Pin must verify that:
 
@@ -215,30 +234,35 @@ cannot prove live bridge delivery or production liquidity.
 ## Mainnet smoke-test budget
 
 The existing Filecoin gas reserve is 0.1 FIL. Initial setup currently requires
-about 3.32 USDFC for two data sets under the test price model. The live probes
-showed that these outputs fit comfortably below 5 source USDC in total at the
-captured rates.
+about 3.32 USDFC for two data sets under the test price model. The historical
+Arbitrum-USDC probes showed that these outputs fit comfortably below 5 source
+USDC in total at the captured rates; that observation is not a budget for a
+different source token or chain.
 
-The [mainnet payments smoke test](glossary.md#payments-smoke-test) must use these hard maximums unless a separately reviewed update
-lowers or raises them:
+Every [mainnet payments smoke test](glossary.md#payments-smoke-test) must use
+an explicit source-token maximum and the selected chain's native-token ceiling:
 
-- **10 USDC total source-token spend** across both legs;
-- **0.0001 Arbitrum ETH** total for every source-chain transaction commitment,
-  including exact-amount approvals, allowance replacements, and both route
-  executions;
+- `--max-source-amount` is a hard maximum across both legs in the selected
+  source token's base units;
+- the configured selected-chain native ceiling is a hard maximum for every
+  source-chain transaction commitment, including exact-amount approvals,
+  allowance replacements, route value, and route execution gas, in the
+  selected chain's native-token base units;
 - exact-amount ERC-20 approvals only.
 
-The captured route executions consume about 64.4% of that native cap before
-approval gas. Runtime estimation, not this observation, decides whether the
-complete transaction set fits. Any current quote or approval plan that causes
-either cap to be exceeded is a no-go for the smoke test. The operator must
-record starting balances, both quotes, approval gas estimates and transactions,
-route transaction hashes, destination arrivals, the Filecoin Pay deposit, and
-the no-duplicate rerun.
+The captured Arbitrum route executions consumed about 64.4% of their historical
+`0.0001 ETH` smoke-test cap before approval gas; that legacy cap applies only to
+the captured Arbitrum-USDC record. Runtime estimation and the selected chain's
+configured ceiling, not that observation, decide whether a complete transaction
+set fits. Any current quote or approval plan that causes either cap to be
+exceeded is a no-go for the smoke test. The operator must record starting
+balances, both quotes, approval gas estimates and transactions, route
+transaction hashes, destination arrivals, the Filecoin Pay deposit, and the
+no-duplicate rerun.
 
-Same-chain FIL to USDFC remains deferred. The approved first route acquires both
-assets directly from Arbitrum USDC, which avoids spending the newly acquired
-Filecoin gas reserve.
+Same-chain FIL to USDFC remains deferred. When Filecoin is the selected source,
+the source reserve check preserves the FIL required for the planned route,
+source gas, and the follow-on Filecoin Pay transaction.
 
 ## Sources
 
