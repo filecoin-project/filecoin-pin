@@ -267,13 +267,14 @@ describe('Squid selected-source catalog contract', () => {
     expect(client.readContract).not.toHaveBeenCalled()
   })
 
-  it('keeps setup auto-funding free of Squid catalog/provider imports', async () => {
+  it('keeps setup auto source resolution behind the wallet-shortfall boundary', async () => {
     const [fund, auto] = await Promise.all([
       readFile(new URL('../../payments/fund.ts', import.meta.url), 'utf8'),
       readFile(new URL('../../payments/auto.ts', import.meta.url), 'utf8'),
     ])
-    expect(auto).not.toContain('source-catalog')
-    expect(auto).not.toContain('fetchSquidCatalog')
+    expect(auto).toContain('source-catalog')
+    expect(auto).toContain('fetchSquidCatalog')
+    expect(auto).toContain('only after the existing setup flow finds a wallet shortfall')
     expect(fund).toContain('fetchSquidCatalog')
   })
 })

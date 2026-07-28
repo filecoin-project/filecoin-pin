@@ -9,10 +9,19 @@
 import pc from 'picocolors'
 import { formatUnits, parseUnits } from 'viem'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
-import { sourceAddressForPrivateKey } from '../core/payments/acquisition/execute.js'
-import { ensureWalletReadyForFilecoinTransactions } from '../core/payments/acquisition/orchestrate.js'
-import { parseMaximumSourceAmount } from '../core/payments/acquisition/plan.js'
-import { resolveSourceToken } from '../core/payments/acquisition/source-assets.js'
+import { createVerifiedResolvedSourceClient, sourceAddressForPrivateKey } from '../core/payments/acquisition/execute.js'
+import {
+  ensureWalletReadyForFilecoinTransactions,
+  reconcileReadyAcquisitionCheckpoint,
+} from '../core/payments/acquisition/orchestrate.js'
+import {
+  fetchSquidCatalog,
+  type ResolvedSourceToken,
+  resolveCatalogSource,
+  selectedSourceChainId,
+  sourceTokenIdentity,
+  verifyResolvedErc20Source,
+} from '../core/payments/acquisition/source-catalog.js'
 import {
   isSupportedSquidSlippage,
   MAX_SQUID_SLIPPAGE_PERCENT,
@@ -46,7 +55,11 @@ function shellQuote(value: string | number): string {
 }
 
 /** A safe-to-paste retry that never includes RPC endpoints or private keys. */
-export function formatAutoSetupRetryCommand(options: PaymentSetupOptions, targetFilecoinPayBalance: bigint): string {
+export function formatAutoSetupRetryCommand(
+  options: PaymentSetupOptions,
+  targetFilecoinPayBalance: bigint,
+  resolvedSource?: ResolvedSourceToken
+): string {
   const argumentsList = [
     'filecoin-pin',
     'payments',
@@ -55,9 +68,9 @@ export function formatAutoSetupRetryCommand(options: PaymentSetupOptions, target
     '--deposit',
     formatUnits(targetFilecoinPayBalance, 18),
     '--from-chain',
-    options.fromChain ?? '<supported-chain>',
+    resolvedSource?.chain.cliName ?? options.fromChain ?? '<supported-chain>',
     '--from-token',
-    options.fromToken ?? '<source-token>',
+    resolvedSource?.native === true ? 'native' : (resolvedSource?.token ?? options.fromToken ?? '<source-token>'),
     '--max-source-amount',
     options.maxSourceAmount ?? '<maximum-source-amount>',
   ]
@@ -116,16 +129,30 @@ function validateAcquisitionOptions(options: PaymentSetupOptions): boolean {
     )
   }
   if (count === 3) {
-    try {
-      parseMaximumSourceAmount(options.maxSourceAmount)
-    } catch (error) {
-      throwDisplayedFatal(error instanceof Error ? error.message : String(error))
+    // The token's decimals are catalog-verified only after a wallet shortfall
+    // requires acquisition. Keep this preflight decimal-free: parsing with a
+    // legacy scale here would reject a valid small 18-decimal native cap.
+    const maximum = options.maxSourceAmount
+    if (maximum == null || !/^\d+(?:\.\d+)?$/.test(maximum) || !/[1-9]/.test(maximum)) {
+      throwDisplayedFatal('--max-source-amount must be greater than zero')
     }
-    if (resolveSourceToken(options.fromChain, options.fromToken) == null) {
-      throwDisplayedFatal('Acquisition supports only --from-chain arb and --from-token USDC')
+    if (selectedSourceChainId(options.fromChain) == null) {
+      throwDisplayedFatal(`Unsupported source chain: ${options.fromChain ?? '(missing)'}`)
     }
   }
   return count === 3
+}
+
+/** Resolve and verify a source only after the existing setup flow finds a wallet shortfall. */
+async function resolveAutoSetupAcquisitionSource(options: PaymentSetupOptions): Promise<ResolvedSourceToken> {
+  const catalog = await fetchSquidCatalog({ integratorId: process.env.SQUID_INTEGRATOR_ID })
+  const resolved = resolveCatalogSource(catalog, options.fromChain, options.fromToken)
+  const sourceClient = await createVerifiedResolvedSourceClient(resolved, options.sourceRpcUrl)
+  return verifyResolvedErc20Source(sourceClient, resolved)
+}
+
+function sourceIdentityForDiagnostics(source: ResolvedSourceToken): string {
+  return `${source.chain.cliName} (${source.chainId}), ${sourceTokenIdentity(source)}, ${source.decimals} decimals`
 }
 
 function walletShortfallMessage(filShortfall: bigint, usdfcShortfall: bigint): string {
@@ -314,7 +341,17 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       if ('readOnly' in authConfig && authConfig.readOnly === true) {
         throwDisplayedFatal('Token acquisition requires signing auth; --view-address is read-only')
       }
+      if (options.sourceRpcUrl == null || options.sourceRpcUrl.trim() === '') {
+        throwDisplayedFatal('Token acquisition requires --source-rpc-url or SOURCE_RPC_URL')
+      }
+      if (options.privateKey == null || options.privateKey.trim() === '') {
+        throwDisplayedFatal('Token acquisition requires --private-key for source transactions')
+      }
       assertAcquisitionOwnerMatchesSynapse(address, options.privateKey)
+      const resolvedSource = await resolveAutoSetupAcquisitionSource(options)
+      acquisitionRetryCommand = formatAutoSetupRetryCommand(options, resolvedTargetFilecoinPayBalance, resolvedSource)
+      log.line(pc.gray(`Source: ${sourceIdentityForDiagnostics(resolvedSource)}`))
+      log.flush()
 
       await ensureWalletReadyForFilecoinTransactions({
         destinationChainId: synapse.chain.id,
@@ -323,6 +360,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
         requiredUsdfc: neededFilecoinPayTopUp,
         fromChain: options.fromChain,
         fromToken: options.fromToken,
+        resolvedSource,
         maxSourceAmount: options.maxSourceAmount,
         sourceRpcUrl: options.sourceRpcUrl,
         slippage: options.slippage,
@@ -340,6 +378,16 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
       const refreshedStatus = await getPaymentStatus(synapse)
       currentWalletFilBalance = refreshedStatus.filBalance
       currentWalletUsdfcBalance = refreshedStatus.walletUsdfcBalance
+    } else if (acquisitionRequested) {
+      await reconcileReadyAcquisitionCheckpoint({
+        destinationOwner: address,
+        destinationChainId: synapse.chain.id,
+        walletFilBalance: currentWalletFilBalance,
+        walletUsdfcBalance: currentWalletUsdfcBalance,
+        privateKey: options.privateKey,
+        fromChain: options.fromChain,
+        fromToken: options.fromToken,
+      })
     }
 
     // Preserve the existing validation and transaction behavior after the
