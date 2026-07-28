@@ -263,9 +263,9 @@ balances, both quotes, approval gas estimates and transactions, route
 transaction hashes, destination arrivals, the Filecoin Pay deposit, and the
 no-duplicate rerun.
 
-Same-chain FIL to USDFC remains deferred. When Filecoin is the selected source,
-the source reserve check preserves the FIL required for the planned route,
-source gas, and the follow-on Filecoin Pay transaction.
+Same-chain native FIL to USDFC is permitted when Filecoin is the selected
+source and the pre-sign reserve check proves the wallet can cover the fixed
+route value, route gas, and the follow-on Filecoin Pay FIL reserve.
 
 ## Sources
 

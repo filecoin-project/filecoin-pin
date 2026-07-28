@@ -385,6 +385,17 @@ describe('runFund confirmation exit codes', () => {
       privateKey: checkpointOwnerKey,
     })
 
+    expect(mockReconcileReadyCheckpoint).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destinationOwner: sessionOwner,
+        destinationChainId: 314,
+        walletFilBalance: 1_000_000_000_000_000_000n,
+        walletUsdfcBalance: 1_000_000_000_000_000_000_000n,
+        privateKey: checkpointOwnerKey,
+        fromChain: 'base',
+        fromToken: 'USDC',
+      })
+    )
     expect(mockDeposit).toHaveBeenCalledWith(synapse, 5_000_000_000_000_000_000n)
     expect(mockFetchCatalog).not.toHaveBeenCalled()
     expect(mockCreateVerifiedSourceClient).not.toHaveBeenCalled()

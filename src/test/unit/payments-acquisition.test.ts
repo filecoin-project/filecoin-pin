@@ -4677,7 +4677,7 @@ describe('wallet shortfall acquisition planning', () => {
 
   it.each(
     SELECTED_SOURCE_CHAINS
-  )('executes the strict native route contract for selected chain $chainId', async (chain) => {
+  )('executes the strict native route contract for selected chain $chainId, including Filecoin FIL to USDFC', async (chain) => {
     const source: ResolvedSourceToken = {
       chain,
       chainId: chain.chainId,
@@ -4741,6 +4741,61 @@ describe('wallet shortfall acquisition planning', () => {
         ? { fil: MIN_FIL_FOR_GAS, usdfc: quote.destinationAmount }
         : { fil: 0n, usdfc: quote.destinationAmount }
     )
+  })
+
+  it('rejects Filecoin native FIL to USDFC before signing when the post-route reserve is absent', async () => {
+    const chain = SELECTED_SOURCE_CHAINS.find((item) => item.chainId === 314)
+    if (chain == null) throw new Error('Filecoin test chain missing')
+    const source: ResolvedSourceToken = {
+      chain,
+      chainId: chain.chainId,
+      token: FILECOIN_NATIVE_TOKEN,
+      symbol: 'FIL',
+      decimals: 18,
+      native: true,
+      display: 'Filecoin FIL',
+    }
+    const quote = {
+      ...executionQuote(),
+      asset: 'usdfc' as const,
+      value: 1n,
+      gasLimit: 1n,
+      maxFeePerGas: 1n,
+      source: sourceRouteIdentity(source),
+      approvalSpender: SOURCE_APPROVAL_SPENDER,
+    }
+    const client = {
+      getChainId: vi.fn().mockResolvedValue(chain.chainId),
+      getBalance: vi.fn().mockResolvedValue(2n),
+      getGasPrice: vi.fn().mockResolvedValue(1n),
+      getTransactionCount: vi.fn().mockResolvedValue(8),
+      estimateContractGas: vi.fn(),
+      readContract: vi.fn(),
+      waitForTransactionReceipt: vi.fn(),
+    } as unknown as PublicClient
+    const walletClient = { writeContract: vi.fn(), sendTransaction: vi.fn() }
+
+    await expect(
+      executeTokenAcquisition({
+        privateKey: PRIVATE_KEY,
+        source,
+        sourceClient: client,
+        walletClient: walletClient as never,
+        quotes: [quote],
+        maxSourceAmount: 10n,
+        requiredFilecoinReserve: 1n,
+        requiredDestinationWallet: { fil: 1n, usdfc: quote.destinationAmount },
+        refreshQuote: vi.fn(async (current) => current),
+        getProviderStatus: vi.fn(),
+        checkpointStore: emptyCheckpointStore(),
+        destinationChainId: 314,
+        getFilecoinBalances: vi.fn().mockResolvedValue({ fil: 0n, usdfc: 0n }),
+        waitForFilecoinArrival: vi.fn(),
+      })
+    ).rejects.toThrow('would fall below the required FIL reserve')
+
+    expect(walletClient.writeContract).not.toHaveBeenCalled()
+    expect(walletClient.sendTransaction).not.toHaveBeenCalled()
   })
 
   it('never resubmits a strict route across before-hash and after-hash recovery', async () => {
