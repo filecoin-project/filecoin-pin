@@ -9,12 +9,17 @@ const {
   mockComputeAutoSetupTargetBalance,
   mockDeposit,
   mockEnsureWallet,
+  mockFetchSquidCatalog,
   mockGetPaymentStatus,
   mockInitialize,
   mockLogLine,
   mockParseCLIAuth,
+  mockReconcileReadyCheckpoint,
+  mockResolveCatalogSource,
   mockValidateGasRequirement,
   mockValidatePaymentRequirements,
+  mockVerifyResolvedErc20Source,
+  mockCreateVerifiedResolvedSourceClient,
 } = vi.hoisted(() => ({
   mockCheckAllowances: vi.fn(),
   mockCheckAndSetAllowances: vi.fn(),
@@ -23,16 +28,44 @@ const {
   mockComputeAutoSetupTargetBalance: vi.fn(),
   mockDeposit: vi.fn(),
   mockEnsureWallet: vi.fn(),
+  mockFetchSquidCatalog: vi.fn(),
   mockGetPaymentStatus: vi.fn(),
   mockInitialize: vi.fn(),
   mockLogLine: vi.fn(),
   mockParseCLIAuth: vi.fn(),
+  mockReconcileReadyCheckpoint: vi.fn(),
+  mockResolveCatalogSource: vi.fn(),
   mockValidateGasRequirement: vi.fn(),
   mockValidatePaymentRequirements: vi.fn(),
+  mockVerifyResolvedErc20Source: vi.fn(),
+  mockCreateVerifiedResolvedSourceClient: vi.fn(),
 }))
 
 vi.mock('../../core/payments/acquisition/orchestrate.js', () => ({
   ensureWalletReadyForFilecoinTransactions: mockEnsureWallet,
+  reconcileReadyAcquisitionCheckpoint: mockReconcileReadyCheckpoint,
+}))
+
+vi.mock('../../core/payments/acquisition/execute.js', () => ({
+  createVerifiedResolvedSourceClient: mockCreateVerifiedResolvedSourceClient,
+  sourceAddressForPrivateKey: vi.fn(() => '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf'),
+}))
+
+vi.mock('../../core/payments/acquisition/source-catalog.js', () => ({
+  fetchSquidCatalog: mockFetchSquidCatalog,
+  resolveCatalogSource: mockResolveCatalogSource,
+  selectedSourceChainId: vi.fn((chain: string | undefined) => {
+    const aliases: Record<string, number> = {
+      arb: 42161,
+      arbitrum: 42161,
+      base: 8453,
+      filecoin: 314,
+    }
+    return chain == null ? undefined : aliases[chain.toLowerCase()]
+  }),
+  sourceTokenIdentity: (source: { symbol: string; token: string; native: boolean }) =>
+    source.native ? `${source.symbol} (native)` : `${source.symbol} (${source.token})`,
+  verifyResolvedErc20Source: mockVerifyResolvedErc20Source,
 }))
 
 vi.mock('../../core/payments/index.js', () => ({
@@ -79,6 +112,24 @@ vi.mock('../../payments/setup.js', () => ({
 import { formatAutoSetupRetryCommand, runAutoSetup } from '../../payments/auto.js'
 
 const TWO_USDFC = parseUnits('2', 18)
+const BASE_USDC_SOURCE = {
+  chain: { cliName: 'base', chainId: 8453, aliases: [], nativeSymbol: 'ETH', nativeDecimals: 18 },
+  chainId: 8453,
+  token: '0x1111111111111111111111111111111111111111',
+  symbol: 'USDC',
+  decimals: 6,
+  native: false,
+  display: 'USDC (0x1111111111111111111111111111111111111111)',
+} as const
+const FILECOIN_NATIVE_SOURCE = {
+  chain: { cliName: 'filecoin', chainId: 314, aliases: [], nativeSymbol: 'FIL', nativeDecimals: 18 },
+  chainId: 314,
+  token: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  symbol: 'FIL',
+  decimals: 18,
+  native: true,
+  display: 'FIL (native)',
+} as const
 
 function serializeErrorTree(value: unknown, seen = new Set<unknown>()): string {
   if (value == null || typeof value !== 'object') return String(value)
@@ -116,6 +167,7 @@ describe('runAutoSetup acquisition integration', () => {
     mockCheckUSDFCBalance.mockResolvedValue(0n)
     mockComputeAutoSetupTargetBalance.mockReturnValue({ requiredAvailableFunds: TWO_USDFC, targetBalance: TWO_USDFC })
     mockCheckAllowances.mockResolvedValue({ needsUpdate: true })
+    mockGetPaymentStatus.mockReset()
     mockGetPaymentStatus
       .mockResolvedValueOnce({ filecoinPayBalance: 0n, filBalance: 0n, walletUsdfcBalance: 0n, currentAllowances: {} })
       .mockResolvedValueOnce({
@@ -127,6 +179,11 @@ describe('runAutoSetup acquisition integration', () => {
     mockValidatePaymentRequirements.mockReturnValue({ isValid: true })
     mockValidateGasRequirement.mockReturnValue({ isValid: true })
     mockEnsureWallet.mockResolvedValue([])
+    mockReconcileReadyCheckpoint.mockResolvedValue(false)
+    mockFetchSquidCatalog.mockResolvedValue({})
+    mockResolveCatalogSource.mockReturnValue(BASE_USDC_SOURCE)
+    mockCreateVerifiedResolvedSourceClient.mockResolvedValue({})
+    mockVerifyResolvedErc20Source.mockImplementation(async (_client, source) => source)
     mockDeposit.mockResolvedValue({ depositTx: '0xdeposit' })
     mockCheckAndSetAllowances.mockResolvedValue({ updated: false })
   })
@@ -150,6 +207,7 @@ describe('runAutoSetup acquisition integration', () => {
         fromChain: 'arb',
         fromToken: 'USDC',
         maxSourceAmount: '3',
+        sourceRpcUrl: 'https://arb.example/rpc',
         privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
       } as any)
     ).resolves.toBeUndefined()
@@ -160,10 +218,52 @@ describe('runAutoSetup acquisition integration', () => {
         requiredUsdfc: TWO_USDFC,
         walletFilBalance: 0n,
         walletUsdfcBalance: 0n,
+        resolvedSource: BASE_USDC_SOURCE,
       })
     )
     expect(mockDeposit).toHaveBeenCalledWith(expect.anything(), TWO_USDFC)
     expect(order).toEqual(['acquire', 'deposit'])
+  })
+
+  it('uses a verified non-Arbitrum ERC-20 source only after finding a shortfall', async () => {
+    await expect(
+      runAutoSetup({
+        auto: true,
+        deposit: '2',
+        rateAllowance: '1TiB/month',
+        fromChain: 'base',
+        fromToken: 'USDC',
+        maxSourceAmount: '3',
+        sourceRpcUrl: 'https://base.example/rpc',
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+      })
+    ).resolves.toBeUndefined()
+
+    expect(mockFetchSquidCatalog).toHaveBeenCalledTimes(1)
+    expect(mockResolveCatalogSource).toHaveBeenCalledWith({}, 'base', 'USDC')
+    expect(mockCreateVerifiedResolvedSourceClient).toHaveBeenCalledWith(BASE_USDC_SOURCE, 'https://base.example/rpc')
+    expect(mockEnsureWallet).toHaveBeenCalledWith(expect.objectContaining({ resolvedSource: BASE_USDC_SOURCE }))
+  })
+
+  it('passes a Filecoin native source to the shared reserve-aware acquisition flow', async () => {
+    mockResolveCatalogSource.mockReturnValue(FILECOIN_NATIVE_SOURCE)
+
+    await expect(
+      runAutoSetup({
+        auto: true,
+        deposit: '2',
+        rateAllowance: '1TiB/month',
+        fromChain: 'filecoin',
+        fromToken: 'native',
+        maxSourceAmount: '3',
+        sourceRpcUrl: 'https://filecoin-source.example/rpc',
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+      })
+    ).resolves.toBeUndefined()
+
+    expect(mockEnsureWallet).toHaveBeenCalledWith(
+      expect.objectContaining({ resolvedSource: FILECOIN_NATIVE_SOURCE, requiredUsdfc: TWO_USDFC })
+    )
   })
 
   it('keeps the authoritative default target and deposit delta identical before deferred wallet readiness', async () => {
@@ -173,6 +273,7 @@ describe('runAutoSetup acquisition integration', () => {
       fromChain: 'arb',
       fromToken: 'USDC',
       maxSourceAmount: '3',
+      sourceRpcUrl: 'https://arb.example/rpc',
       privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
     } as const
     const observed: Array<{ targetInput: unknown; deposited: bigint; acquisitionCalls: number }> = []
@@ -249,6 +350,8 @@ describe('runAutoSetup acquisition integration', () => {
     ).resolves.toBeUndefined()
 
     expect(mockEnsureWallet).not.toHaveBeenCalled()
+    expect(mockFetchSquidCatalog).not.toHaveBeenCalled()
+    expect(mockCreateVerifiedResolvedSourceClient).not.toHaveBeenCalled()
     expect(mockDeposit).not.toHaveBeenCalled()
   })
 
@@ -277,6 +380,7 @@ describe('runAutoSetup acquisition integration', () => {
         fromChain: 'arb',
         fromToken: 'USDC',
         maxSourceAmount: '3',
+        sourceRpcUrl: 'https://arb.example/rpc',
         privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
       })
     ).resolves.toBeUndefined()
@@ -297,6 +401,7 @@ describe('runAutoSetup acquisition integration', () => {
         fromChain: 'arb',
         fromToken: 'USDC',
         maxSourceAmount: '3',
+        sourceRpcUrl: 'https://arb.example/rpc',
         privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
       })
     ).rejects.toThrow('deposit failed')
@@ -331,6 +436,7 @@ describe('runAutoSetup acquisition integration', () => {
         fromChain: 'arb',
         fromToken: 'USDC',
         maxSourceAmount: '3',
+        sourceRpcUrl: 'https://arb.example/rpc',
         privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
       })
     ).rejects.toThrow('approval failed')
@@ -352,13 +458,7 @@ describe('runAutoSetup acquisition integration', () => {
 
   it.each([
     ['a non-positive source maximum', 'arb', 'USDC', '0', '--max-source-amount must be greater than zero'],
-    [
-      'an unsupported source route',
-      'eth',
-      'USDC',
-      '1',
-      'Acquisition supports only --from-chain arb and --from-token USDC',
-    ],
+    ['an unsupported source route', 'eth', 'USDC', '1', 'Unsupported source chain: eth'],
   ])('validates %s before connecting even when setup would otherwise be a no-op', async (_description, fromChain, fromToken, maxSourceAmount, message) => {
     await expect(
       runAutoSetup({
@@ -375,6 +475,46 @@ describe('runAutoSetup acquisition integration', () => {
     expect(mockEnsureWallet).not.toHaveBeenCalled()
     expect(mockDeposit).not.toHaveBeenCalled()
     expect(mockCheckAndSetAllowances).not.toHaveBeenCalled()
+  })
+
+  it('fails before catalog or signing when an underfunded acquisition lacks a source RPC', async () => {
+    await expect(
+      runAutoSetup({
+        auto: true,
+        deposit: '2',
+        rateAllowance: '1TiB/month',
+        fromChain: 'base',
+        fromToken: 'USDC',
+        maxSourceAmount: '3',
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+      })
+    ).rejects.toThrow('Token acquisition requires --source-rpc-url or SOURCE_RPC_URL')
+
+    expect(mockFetchSquidCatalog).not.toHaveBeenCalled()
+    expect(mockEnsureWallet).not.toHaveBeenCalled()
+    expect(mockDeposit).not.toHaveBeenCalled()
+  })
+
+  it('fails an ambiguous catalog selection before provider execution', async () => {
+    mockResolveCatalogSource.mockImplementation(() => {
+      throw new Error('Source token symbol USDC is ambiguous on base; use an exact address')
+    })
+
+    await expect(
+      runAutoSetup({
+        auto: true,
+        deposit: '2',
+        rateAllowance: '1TiB/month',
+        fromChain: 'base',
+        fromToken: 'USDC',
+        maxSourceAmount: '3',
+        sourceRpcUrl: 'https://base.example/rpc',
+        privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+      })
+    ).rejects.toThrow('Source token symbol USDC is ambiguous on base')
+
+    expect(mockEnsureWallet).not.toHaveBeenCalled()
+    expect(mockDeposit).not.toHaveBeenCalled()
   })
 
   it('fails closed on Calibration before invoking the mainnet acquisition provider', async () => {
@@ -468,6 +608,24 @@ describe('runAutoSetup acquisition integration', () => {
     expect(command).not.toContain('private-key')
   })
 
+  it('formats recovery with the exact verified source identity', () => {
+    const command = formatAutoSetupRetryCommand(
+      {
+        auto: true,
+        deposit: '2',
+        rateAllowance: '1TiB/month',
+        fromChain: 'arb',
+        fromToken: 'USDC',
+        maxSourceAmount: '3',
+      },
+      TWO_USDFC,
+      BASE_USDC_SOURCE
+    )
+
+    expect(command).toContain("'--from-chain' 'base'")
+    expect(command).toContain("'--from-token' '0x1111111111111111111111111111111111111111'")
+  })
+
   it('sanitizes acquisition failures and prints a secret-free retry before any payment transaction', async () => {
     const sourceRpcUrl = 'https://arbitrum.example/rpc?apiKey=source-secret'
     const rpcUrl = 'https://filecoin.example/rpc?token=filecoin-secret'
@@ -514,7 +672,7 @@ describe('runAutoSetup acquisition integration', () => {
 
     const output = mockLogLine.mock.calls.flat().join('\n')
     expect(output).toContain('Retry source acquisition:')
-    expect(output).toContain("'--from-chain' 'arb'")
+    expect(output).toContain("'--from-chain' 'base'")
     expect(output).not.toContain(sourceRpcUrl)
     expect(output).not.toContain(rpcUrl)
     expect(output).not.toContain(privateKey)
