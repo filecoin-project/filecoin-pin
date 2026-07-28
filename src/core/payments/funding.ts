@@ -428,17 +428,21 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     allowWithdraw,
   })
 
-  // Every plan may be followed by a transaction (allowance, deposit, or
-  // withdrawal), so always validate FIL for gas. Only a deposit spends wallet
+  // Validate wallet funding only when the plan can send a transaction: a
+  // nonzero delta deposits or withdraws, and ensureAllowances may update
+  // allowances. A no-op plan without allowance changes is read-only, so it
+  // must not fail on insufficient FIL for gas. Only a deposit spends wallet
   // USDFC, so retain that check exclusively for positive deltas.
-  const isCalibnet = status.chainId === calibration.id
-  const validation =
-    plan.delta > 0n
-      ? validatePaymentRequirements(status.filBalance, status.walletUsdfcBalance, isCalibnet)
-      : validateGasRequirement(status.filBalance, isCalibnet)
-  if (!validation.isValid) {
-    const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
-    throw new Error(`${validation.errorMessage}${help}`)
+  if (plan.delta !== 0n || ensureAllowances) {
+    const isCalibnet = status.chainId === calibration.id
+    const validation =
+      plan.delta > 0n
+        ? validatePaymentRequirements(status.filBalance, status.walletUsdfcBalance, isCalibnet)
+        : validateGasRequirement(status.filBalance, isCalibnet)
+    if (!validation.isValid) {
+      const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
+      throw new Error(`${validation.errorMessage}${help}`)
+    }
   }
 
   const allowances = ensureAllowances
@@ -448,6 +452,8 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
         currentAllowances: status.currentAllowances,
       }
 
+  // status is captured before any allowance update; when allowances.updated
+  // is true, read fresh allowance state from allowances.currentAllowances.
   return {
     plan,
     status,
