@@ -18,6 +18,7 @@ const {
   mockInitialize,
   mockGetClientAddress,
   mockEnsureWallet,
+  mockRecoverRemovedSource,
   mockReconcileReadyCheckpoint,
   mockFetchCatalog,
   mockResolveCatalogSource,
@@ -38,6 +39,7 @@ const {
   mockInitialize: vi.fn(async () => ({ chain: { id: 314 } })),
   mockGetClientAddress: vi.fn(() => '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf'),
   mockEnsureWallet: vi.fn(),
+  mockRecoverRemovedSource: vi.fn(),
   mockReconcileReadyCheckpoint: vi.fn(),
   mockFetchCatalog: vi.fn(),
   mockResolveCatalogSource: vi.fn(),
@@ -57,6 +59,7 @@ vi.mock('../../core/synapse/index.js', () => ({
 }))
 vi.mock('../../core/payments/acquisition/orchestrate.js', () => ({
   ensureWalletReadyForFilecoinTransactions: mockEnsureWallet,
+  recoverRemovedSourceAcquisition: mockRecoverRemovedSource,
   reconcileReadyAcquisitionCheckpoint: mockReconcileReadyCheckpoint,
 }))
 vi.mock('../../core/payments/acquisition/source-catalog.js', async (importOriginal) => ({
@@ -150,6 +153,7 @@ describe('runFund confirmation exit codes', () => {
     } as never)
     mockGetClientAddress.mockReturnValue('0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf')
     mockEnsureWallet.mockResolvedValue(undefined)
+    mockRecoverRemovedSource.mockResolvedValue(undefined)
     mockGetPaymentStatus.mockResolvedValue({ filBalance: 0n, walletUsdfcBalance: 0n })
     mockFetchCatalog.mockResolvedValue({})
     mockResolveCatalogSource.mockImplementation((_catalog, chain, token) =>
@@ -598,6 +602,40 @@ describe('runFund confirmation exit codes', () => {
 
     expect(mockEnsureWallet).not.toHaveBeenCalled()
     expect(mockDeposit).not.toHaveBeenCalled()
+  })
+
+  it('recovers an already-broadcast removed-source route without resolving a fresh catalog source', async () => {
+    mockPlan.mockResolvedValueOnce(underfundedPlan(5_000_000_000_000_000_000n))
+    mockRecoverRemovedSource.mockResolvedValueOnce([
+      {
+        asset: 'usdfc',
+        quoteId: 'recovered-base-route',
+        sourceAmount: '1',
+        sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        status: 'confirmed',
+      },
+    ])
+    mockConfirm.mockResolvedValueOnce(false)
+
+    await runFund({
+      amount: '5',
+      fromChain: 'base',
+      fromToken: 'USDC',
+      maxSourceAmount: '10',
+      sourceRpcUrl: 'https://base.example/rpc',
+      privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+    })
+
+    expect(mockRecoverRemovedSource).toHaveBeenCalledWith(
+      expect.objectContaining({ destinationChainId: 314, fromChain: 'base', fromToken: 'USDC' })
+    )
+    expect(mockFetchCatalog).not.toHaveBeenCalled()
+    expect(mockResolveCatalogSource).not.toHaveBeenCalled()
+    expect(mockEnsureWallet).not.toHaveBeenCalled()
+    expect(mockLogSection).toHaveBeenCalledWith(
+      'Acquisition evidence',
+      expect.arrayContaining([expect.stringContaining('recovered-base-route')])
+    )
   })
 
   it('exits with code 2 when an interactive source acquisition is declined before execution', async () => {

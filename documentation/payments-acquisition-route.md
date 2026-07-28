@@ -35,6 +35,13 @@ Base and Optimism are intentionally outside this boundary. Their OP Stack L1
 data fee has no transaction-level maximum, so an estimate cannot enforce the
 hard source-native spend ceiling required before signing.
 
+Version 2 checkpoints created before their removal retain a recovery-only chain
+identity. When such a checkpoint contains an already-broadcast route, the CLI
+may verify its source receipt and poll provider status. It never fetches a new
+quote, changes an allowance, or signs another Base or Optimism transaction. A
+checkpoint with no broadcast route remains disabled and the wallet must be
+funded directly.
+
 `--max-source-amount` is expressed in the resolved source token's decimals,
 not as a fixed USDC quantity. Native transaction commitments are separately
 bounded by the selected chain's configured native-token ceiling and are checked

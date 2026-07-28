@@ -6,8 +6,11 @@ import {
   matchesRequestedSourceSelectors,
   NATIVE_TOKEN_SELECTOR,
   parseSquidCatalog,
+  recoveryOnlySourceChain,
+  recoverySourceChainId,
   resolveCatalogSource,
   SELECTED_SOURCE_CHAINS,
+  selectedSourceChainId,
   TRUSTED_SQUID_ROUTE_POLICIES,
   verifyResolvedErc20Source,
 } from '../../core/payments/acquisition/source-catalog.js'
@@ -61,6 +64,38 @@ describe('Squid selected-source catalog contract', () => {
     expect(() => resolveCatalogSource(catalog, 'optimism', 'native')).toThrow('Unsupported source chain')
     expect(catalog.chains.has(8453)).toBe(false)
     expect(catalog.chains.has(10)).toBe(false)
+  })
+
+  it('recognizes removed OP Stack selectors only for exact checkpoint recovery', () => {
+    expect(selectedSourceChainId('base')).toBeUndefined()
+    expect(selectedSourceChainId('op')).toBeUndefined()
+    expect(recoverySourceChainId('base')).toBe(8453)
+    expect(recoverySourceChainId('optimism')).toBe(10)
+    expect(recoveryOnlySourceChain('op')).toMatchObject({ cliName: 'optimism', chainId: 10 })
+    expect(
+      matchesRequestedSourceSelectors(
+        {
+          chainId: 8453,
+          token: '0x1111111111111111111111111111111111111111',
+          symbol: 'USDC',
+          native: false,
+        },
+        'base',
+        'USDC'
+      )
+    ).toBe(true)
+    expect(
+      matchesRequestedSourceSelectors(
+        {
+          chainId: 8453,
+          token: '0x1111111111111111111111111111111111111111',
+          symbol: 'USDC',
+          native: false,
+        },
+        'optimism',
+        'USDC'
+      )
+    ).toBe(false)
   })
 
   it('rejects duplicate symbols but exact address disambiguates them', () => {

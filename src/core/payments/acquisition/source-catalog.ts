@@ -22,6 +22,16 @@ export const SELECTED_SOURCE_CHAINS = [
   { cliName: 'bnb', chainId: 56, aliases: ['bsc'], nativeSymbol: 'BNB', nativeDecimals: 18 },
 ] as const satisfies readonly SelectedSourceChain[]
 
+/**
+ * Removed sources remain recognizable only so an already-broadcast v2
+ * checkpoint can be polled after an upgrade. They are never catalog-selected,
+ * quoted, or passed to a signing path.
+ */
+const RECOVERY_ONLY_SOURCE_CHAINS = [
+  { cliName: 'base', chainId: 8453, aliases: [], nativeSymbol: 'ETH', nativeDecimals: 18 },
+  { cliName: 'optimism', chainId: 10, aliases: ['op'], nativeSymbol: 'ETH', nativeDecimals: 18 },
+] as const satisfies readonly SelectedSourceChain[]
+
 export interface ResolvedSourceToken {
   chain: SelectedSourceChain
   /** Denormalized for generic execution APIs; must equal chain.chainId. */
@@ -74,9 +84,22 @@ function selectedChain(input: string | undefined): SelectedSourceChain | undefin
   )
 }
 
+/** Resolve only a removed chain identity retained for read-only checkpoint recovery. */
+export function recoveryOnlySourceChain(input: string | undefined): SelectedSourceChain | undefined {
+  const normalized = input?.trim().toLowerCase()
+  return RECOVERY_ONLY_SOURCE_CHAINS.find(
+    (chain) => chain.cliName === normalized || (chain.aliases as readonly string[]).includes(normalized ?? '')
+  )
+}
+
 /** Resolve a requested CLI chain selector within the trusted source boundary. */
 export function selectedSourceChainId(input: string | undefined): number | undefined {
   return selectedChain(input)?.chainId
+}
+
+/** Accept active selectors plus removed identities that may name an existing checkpoint. */
+export function recoverySourceChainId(input: string | undefined): number | undefined {
+  return selectedSourceChainId(input) ?? recoveryOnlySourceChain(input)?.chainId
 }
 
 /**
@@ -89,7 +112,7 @@ export function matchesRequestedSourceSelectors(
   fromChain: string | undefined,
   fromToken: string | undefined
 ): boolean {
-  if (selectedSourceChainId(fromChain) !== source.chainId) return false
+  if (recoverySourceChainId(fromChain) !== source.chainId) return false
   const selector = fromToken?.trim()
   if (selector == null || selector === '') return false
   if (selector.toLowerCase() === NATIVE_TOKEN_SELECTOR) return source.native

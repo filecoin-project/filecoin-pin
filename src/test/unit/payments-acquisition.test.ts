@@ -23,6 +23,7 @@ import {
 import {
   ensureWalletReadyForFilecoinTransactions,
   reconcileReadyAcquisitionCheckpoint,
+  recoverRemovedSourceAcquisition,
   type SourceAcquisitionConfirmation,
 } from '../../core/payments/acquisition/orchestrate.js'
 import {
@@ -36,7 +37,11 @@ import {
   FILECOIN_USDFC,
   resolveSourceToken,
 } from '../../core/payments/acquisition/source-assets.js'
-import { type ResolvedSourceToken, SELECTED_SOURCE_CHAINS } from '../../core/payments/acquisition/source-catalog.js'
+import {
+  type ResolvedSourceToken,
+  recoveryOnlySourceChain,
+  SELECTED_SOURCE_CHAINS,
+} from '../../core/payments/acquisition/source-catalog.js'
 import { sourceNativeGasCeiling, sourceRouteIdentity } from '../../core/payments/acquisition/source-execution.js'
 import {
   getSquidRoute,
@@ -104,6 +109,20 @@ function resolvedAvalancheSource(): ResolvedSourceToken {
     decimals: 6,
     native: false,
     display: 'Avalanche USDC',
+  }
+}
+
+function removedBaseSource(): ResolvedSourceToken {
+  const chain = recoveryOnlySourceChain('base')
+  if (chain == null) throw new Error('Base recovery chain missing')
+  return {
+    chain,
+    chainId: chain.chainId,
+    token: '0x0000000000000000000000000000000000000004',
+    symbol: 'USDC',
+    decimals: 6,
+    native: false,
+    display: 'Base USDC',
   }
 }
 
@@ -1041,6 +1060,147 @@ describe('Squid acquisition provider contract', () => {
 
       await expect(store.load()).resolves.toBeUndefined()
       expect(fetchFn).not.toHaveBeenCalled()
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('recovers an already-broadcast Base route without catalog resolution or another signature', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      const store = createAcquisitionCheckpointStore(owner)
+      const source = removedBaseSource()
+      await store.save({
+        version: 2,
+        owner,
+        sourceChainId: source.chainId,
+        destinationChainId: 314,
+        source: sourceRouteIdentity(source),
+        maxSourceAmount: 1_000_000n,
+        maxNativeGas: 3_000_000_000_000_000n,
+        committedNativeGas: 1n,
+        requiredWallet: { fil: MIN_FIL_FOR_GAS, usdfc: 1n },
+        evidence: [
+          {
+            asset: 'usdfc',
+            quoteId: 'already-broadcast-base-route',
+            sourceAmount: '1',
+            sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            status: 'submitted',
+          },
+        ],
+      })
+      const sourceClient = {
+        getChainId: vi.fn().mockResolvedValue(8453),
+        waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+      }
+      const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
+        response({
+          squidTransactionStatus: 'success',
+          fromChain: { transactionUrl: 'https://base.example/source' },
+          toChain: { transactionId: '0xdestination', transactionUrl: 'https://filecoin.example/destination' },
+        })
+      )
+
+      await expect(
+        recoverRemovedSourceAcquisition({
+          destinationOwner: owner,
+          destinationChainId: 314,
+          privateKey: PRIVATE_KEY,
+          fromChain: 'base',
+          fromToken: 'USDC',
+          provider: { integratorId: 'test-only-integrator', fetchFn },
+          rereadWalletBalances: vi.fn().mockResolvedValue({ fil: MIN_FIL_FOR_GAS, usdfc: 1n }),
+          sourceClient: sourceClient as never,
+        })
+      ).resolves.toEqual([
+        expect.objectContaining({
+          quoteId: 'already-broadcast-base-route',
+          sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          status: 'confirmed',
+        }),
+      ])
+
+      expect(sourceClient.waitForTransactionReceipt).toHaveBeenCalledOnce()
+      expect(fetchFn).toHaveBeenCalledOnce()
+      await expect(store.load()).resolves.toBeUndefined()
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('clears a completed Base checkpoint after its Filecoin balances arrive', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      const store = createAcquisitionCheckpointStore(owner)
+      const source = removedBaseSource()
+      await store.save({
+        version: 2,
+        owner,
+        sourceChainId: source.chainId,
+        destinationChainId: 314,
+        source: sourceRouteIdentity(source),
+        maxSourceAmount: 1_000_000n,
+        maxNativeGas: 3_000_000_000_000_000n,
+        committedNativeGas: 1n,
+        requiredWallet: { fil: MIN_FIL_FOR_GAS, usdfc: 1n },
+        evidence: [
+          {
+            asset: 'usdfc',
+            quoteId: 'completed-base-route',
+            sourceAmount: '1',
+            sourceTransactionHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            status: 'confirmed',
+          },
+        ],
+      })
+
+      await expect(
+        reconcileReadyAcquisitionCheckpoint({
+          destinationOwner: owner,
+          destinationChainId: 314,
+          walletFilBalance: MIN_FIL_FOR_GAS,
+          walletUsdfcBalance: 1n,
+          privateKey: PRIVATE_KEY,
+          fromChain: 'base',
+          fromToken: 'USDC',
+        })
+      ).resolves.toBe(true)
+      await expect(store.load()).resolves.toBeUndefined()
+    } finally {
+      if (originalHome == null) delete process.env.HOME
+      else process.env.HOME = originalHome
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a fresh Base acquisition when no recovery checkpoint exists', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'filecoin-pin-acquisition-home-'))
+    const originalHome = process.env.HOME
+    process.env.HOME = directory
+    try {
+      const owner = sourceAddressForPrivateKey(PRIVATE_KEY)
+      await expect(
+        recoverRemovedSourceAcquisition({
+          destinationOwner: owner,
+          destinationChainId: 314,
+          privateKey: PRIVATE_KEY,
+          fromChain: 'base',
+          fromToken: 'USDC',
+          provider: { integratorId: 'test-only-integrator' },
+          rereadWalletBalances: vi.fn(),
+        })
+      ).rejects.toThrow('Unsupported source chain for a new acquisition: base')
     } finally {
       if (originalHome == null) delete process.env.HOME
       else process.env.HOME = originalHome
