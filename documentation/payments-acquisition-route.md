@@ -54,8 +54,10 @@ a source amount whose `toAmountMin` covers that shortfall:
    `ceil(currentSource * requiredOutput / toAmountMin)` and quote that
    proportional amount whenever it differs, including when it is smaller than
    a successful seed quote.
-3. If Squid rejects the proportional amount or returns zero output, report the
-   provider-minimum boundary and fail instead of retaining the larger seed.
+3. If Squid rejects a downscaled proportional amount or returns zero output for
+   it, report the provider-minimum boundary and fail instead of retaining the
+   larger seed. Increased proportional quote failures retain their provider
+   error.
 4. Allow no more than four planning quote attempts per leg. Honor at most one
    bounded `Retry-After` retry for each attempt that receives HTTP 429.
 5. Sum both source amounts and fail before any approval if the user-provided

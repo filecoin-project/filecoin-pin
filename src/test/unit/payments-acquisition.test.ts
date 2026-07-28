@@ -101,7 +101,7 @@ function resolvedAvalancheSource(): ResolvedSourceToken {
     chainId: chain.chainId,
     token: '0x0000000000000000000000000000000000000003',
     symbol: 'USDC',
-    decimals: 8,
+    decimals: 6,
     native: false,
     display: 'Avalanche USDC',
   }
@@ -3647,7 +3647,7 @@ describe('wallet shortfall acquisition planning', () => {
 
   it.each([
     ['decimals', 7, 'USDbC', 'decimals conflict'],
-    ['symbol', 8, 'WRONG', 'symbol conflicts'],
+    ['symbol', 6, 'WRONG', 'symbol conflicts'],
   ])('rejects a catalog %s mismatch before any source signing work', async (_field, decimals, symbol, error) => {
     const source = resolvedAvalancheSource()
     const quote = {
