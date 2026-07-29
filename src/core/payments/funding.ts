@@ -370,7 +370,7 @@ export interface PlanFilecoinPayFundingOptions {
  * - Fetches current payment status and SDK account summary in parallel
  * - Fetches pricing if needed
  * - Calculates funding plan via `calculateFilecoinPayFundingPlan`
- * - Validates wallet funding only when the plan requires a deposit
+ * - Validates wallet funding whenever the plan will send a transaction
  * - Optionally ensures allowances are configured
  *
  * @param options - Planning options including synapse instance
