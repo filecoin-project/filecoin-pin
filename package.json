@@ -140,7 +140,7 @@
     "@multiformats/multiaddr": "^13.0.1",
     "@multiformats/multiaddr-to-uri": "^12.0.0",
     "@sentry/node": "^10.49.0",
-    "commander": "^14.0.3",
+    "commander": "^15.0.0",
     "datastore-core": "^11.0.4",
     "fastify": "^5.8.5",
     "interface-blockstore": "^7.0.1",
