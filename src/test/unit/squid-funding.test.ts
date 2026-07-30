@@ -147,7 +147,7 @@ describe('Squid payment shortfalls', () => {
     await expect(stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('leaves a mode-0600 marker when execution fails and sanitizes secrets', async () => {
+  it('leaves a private marker when execution fails and sanitizes secrets', async () => {
     const privateKey = PRIVATE_KEY.slice(2)
     const rpcUrl = input().options.sourceRpcUrl
     const integratorId = process.env.SQUID_INTEGRATOR_ID as string
@@ -167,7 +167,7 @@ describe('Squid payment shortfalls', () => {
     for (const secret of [PRIVATE_KEY, privateKey, rpcUrl, integratorId]) {
       expect(serialized).not.toContain(secret)
     }
-    expect((await stat(marker)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(marker)).mode & 0o777).toBe(0o600)
     expect(JSON.parse(await readFile(marker, 'utf8'))).toMatchObject({
       owner: OWNER,
       sourceChain: 42161,
