@@ -1,0 +1,192 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { runFund } from '../../payments/fund.js'
+
+const { mockAcquire, mockCalculate, mockConfirm, mockGetPaymentStatus, mockInitialize, mockInteractive, mockPlan } =
+  vi.hoisted(() => ({
+    mockAcquire: vi.fn(),
+    mockCalculate: vi.fn(),
+    mockConfirm: vi.fn(),
+    mockGetPaymentStatus: vi.fn(),
+    mockInitialize: vi.fn(),
+    mockInteractive: vi.fn(() => true),
+    mockPlan: vi.fn(),
+  }))
+
+vi.mock('@clack/prompts', () => ({ confirm: mockConfirm, isCancel: vi.fn(() => false) }))
+vi.mock('../../core/synapse/index.js', () => ({
+  getClientAddress: vi.fn(() => '0x1111111111111111111111111111111111111111'),
+  initializeSynapse: mockInitialize,
+  mainnet: { id: 314 },
+}))
+vi.mock('../../utils/cli-auth.js', () => ({
+  parseCLIAuth: vi.fn(() => ({})),
+  getCLILogger: vi.fn(() => ({})),
+}))
+vi.mock('../../utils/cli-helpers.js', () => ({
+  intro: vi.fn(),
+  outro: vi.fn(),
+  cancel: vi.fn(),
+  isInteractive: mockInteractive,
+  createSpinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() })),
+}))
+vi.mock('../../utils/cli-logger.js', () => ({
+  isTTY: vi.fn(() => true),
+  log: { line: vi.fn(), indent: vi.fn(), flush: vi.fn(), section: vi.fn() },
+}))
+vi.mock('../../core/payments/index.js', () => ({
+  DEFAULT_LOCKUP_DAYS: 30,
+  MIN_FIL_FOR_GAS: 100n,
+  calculateFilecoinPayFundingPlan: mockCalculate,
+  getPaymentStatus: mockGetPaymentStatus,
+  planFilecoinPayFunding: mockPlan,
+  checkUSDFCBalance: vi.fn(),
+  depositUSDFC: vi.fn(),
+  withdrawUSDFC: vi.fn(),
+  clampDepositToLimit: vi.fn(),
+  executeFilecoinPayFunding: vi.fn(),
+  toStorageRunwaySummary: vi.fn(() => ({ state: 'no-spend' })),
+}))
+vi.mock('../../core/utils/format.js', () => ({ formatUSDFC: vi.fn((value: bigint) => String(value)) }))
+vi.mock('../../core/utils/index.js', () => ({ formatRunwaySummary: vi.fn(() => ({ coverage: 'No spend' })) }))
+vi.mock('../../payments/squid-funding.js', () => ({
+  acquirePaymentShortfalls: mockAcquire,
+  isFundingSourceRequested: (options: Record<string, string | undefined>) =>
+    [options.fromChain, options.fromToken, options.maxSourceAmount, options.sourceRpcUrl].some(
+      (value) => value != null && value.trim() !== ''
+    ),
+  validateFundingSourceOptions: (options: Record<string, string | undefined>) => {
+    const values = [options.fromChain, options.fromToken, options.maxSourceAmount, options.sourceRpcUrl]
+    if (values.some((value) => value != null && value.trim() !== '') && values.some((value) => !value?.trim())) {
+      throw new Error(
+        'Source acquisition requires --from-chain, --from-token, --max-source-amount, and --source-rpc-url together'
+      )
+    }
+  },
+}))
+
+const sourceOptions = {
+  amount: '1',
+  fromChain: 'arbitrum',
+  fromToken: 'USDC',
+  maxSourceAmount: '2',
+  sourceRpcUrl: 'https://rpc.example',
+  privateKey: `0x${'01'.padStart(64, '0')}`,
+}
+
+function refreshedPlan() {
+  return {
+    plan: {
+      targetType: 'deposit',
+      mode: 'exact',
+      delta: 0n,
+      targetDeposit: 1_000_000_000_000_000_000n,
+      projected: { runway: { state: 'no-spend' }, depositedBalance: 1_000_000_000_000_000_000n },
+      current: { runway: { rateUsed: 0n } },
+    },
+    status: { walletUsdfcBalance: 1_000_000_000_000_000_000n },
+  }
+}
+
+describe('interactive Squid funding command', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.exitCode = 0
+    mockInteractive.mockReset().mockReturnValue(true)
+    mockConfirm.mockReset().mockResolvedValue(true)
+    mockInitialize.mockResolvedValue({
+      chain: { id: 314 },
+      payments: { accountSummary: vi.fn(async () => ({ funds: 0n })) },
+    })
+    mockGetPaymentStatus.mockResolvedValue({ filBalance: 90n, walletUsdfcBalance: 2n })
+    mockCalculate.mockReturnValue({ delta: 10n, walletShortfall: 8n })
+    mockPlan.mockResolvedValue(refreshedPlan())
+    mockAcquire.mockImplementation(async (options) => {
+      await options.confirm({
+        source: { symbol: 'USDC', decimals: 6, chain: { networkName: 'Arbitrum' } },
+        maxSourceAmount: 4_000_000n,
+        quotes: [
+          {
+            sourceAmount: 1_000_000n,
+            requirement: { id: 'filecoin-fil', amount: options.filShortfall },
+          },
+          {
+            sourceAmount: 2_000_000n,
+            requirement: { id: 'filecoin-usdfc', amount: options.usdfcShortfall },
+          },
+        ],
+      })
+      return true
+    })
+  })
+
+  it('passes the exact planner shortfalls, confirms, and replans after acquisition', async () => {
+    await runFund(sourceOptions)
+
+    expect(mockAcquire).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filShortfall: 10n,
+        usdfcShortfall: 8n,
+        requiredWalletUsdfc: 10n,
+        options: expect.objectContaining({ privateKey: sourceOptions.privateKey }),
+      })
+    )
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('Spend 3 USDC from Arbitrum') })
+    )
+    expect(mockConfirm.mock.calls[0]?.[0].message).toContain('source cap: 4 USDC')
+    expect(mockPlan).toHaveBeenCalledOnce()
+  })
+
+  it('does not enter the acquisition adapter when the planner reports no shortfall', async () => {
+    mockGetPaymentStatus.mockResolvedValueOnce({ filBalance: 100n, walletUsdfcBalance: 10n })
+    mockCalculate.mockReturnValueOnce({ delta: 0n, walletShortfall: 0n })
+    mockInteractive.mockReturnValue(false)
+
+    await runFund(sourceOptions)
+
+    expect(mockAcquire).not.toHaveBeenCalled()
+    expect(mockPlan).toHaveBeenCalledOnce()
+  })
+
+  it('requires an interactive terminal before contacting Squid', async () => {
+    mockInteractive.mockReturnValueOnce(false)
+
+    await expect(runFund(sourceOptions)).rejects.toThrow(/interactive terminal/)
+    expect(mockInitialize).toHaveBeenCalledOnce()
+    expect(mockAcquire).not.toHaveBeenCalled()
+  })
+
+  it('fails explicit Calibration selection before contacting Squid', async () => {
+    mockInitialize.mockResolvedValueOnce({
+      chain: { id: 314159 },
+      payments: { accountSummary: vi.fn(async () => ({ funds: 0n })) },
+    })
+    await expect(runFund({ ...sourceOptions, network: 'calibration' })).rejects.toThrow(/only for Filecoin Mainnet/)
+    expect(mockAcquire).not.toHaveBeenCalled()
+  })
+
+  it('fails a probed non-Mainnet RPC before payment or Squid calls', async () => {
+    mockInitialize.mockResolvedValueOnce({
+      chain: { id: 314159 },
+      payments: { accountSummary: vi.fn(async () => ({ funds: 0n })) },
+    })
+
+    await expect(runFund(sourceOptions)).rejects.toThrow(/only for Filecoin Mainnet/)
+    expect(mockGetPaymentStatus).toHaveBeenCalledOnce()
+    expect(mockAcquire).not.toHaveBeenCalled()
+  })
+
+  it('rejects incomplete source options before connecting', async () => {
+    await expect(runFund({ amount: '1', fromChain: 'arbitrum' })).rejects.toThrow(/requires --from-chain/)
+    expect(mockInitialize).not.toHaveBeenCalled()
+  })
+
+  it('treats declined source-spend confirmation as an incomplete operation', async () => {
+    mockConfirm.mockResolvedValueOnce(false)
+
+    await runFund(sourceOptions)
+
+    expect(process.exitCode).toBe(2)
+    expect(mockPlan).not.toHaveBeenCalled()
+  })
+})

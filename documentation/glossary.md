@@ -237,6 +237,9 @@ Session keys require specific permissions (such as CREATE_DATA_SET and ADD_PIECE
 
 Note that the filecoin-pin CLI's `--session-key` flag (and `SESSION_KEY` environment variable) expect the session key's **private key** — the `SESSION_KEY` value printed by `filecoin-pin session create` or `filecoin-pin session generate` — not the session address. The (public) session address is only used when authorizing or revoking: `filecoin-pin session authorize <session-address>` and `filecoin-pin session revoke <session-address>`.
 
+## Squid
+
+Squid is the cross-chain routing service [Filecoin Pin](#filecoin-pin) can use to acquire FIL or [USDFC](#usdfc) missing from a Filecoin Mainnet wallet during interactive funding. Supported tokens and available routes come from Squid at command time; see the [Squid API documentation](https://docs.squidrouter.com/api).
 
 
 ## Standard IPFS Tooling

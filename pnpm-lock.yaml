@@ -92,6 +92,9 @@ importers:
       semver:
         specifier: ^7.7.4
         version: 7.8.5
+      squid-evm-funding:
+        specifier: github:snissn/squid-evm-funding#ad4c7f007637d9ae2ba2f2bdb48cf9f7beea01b6
+        version: https://codeload.github.com/snissn/squid-evm-funding/tar.gz/ad4c7f007637d9ae2ba2f2bdb48cf9f7beea01b6(typescript@6.0.3)(zod@4.3.6)
       varint:
         specifier: ^6.0.0
         version: 6.0.0
@@ -2113,6 +2116,11 @@ packages:
   split2@4.2.0:
     resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
     engines: {node: '>= 10.x'}
+
+  squid-evm-funding@https://codeload.github.com/snissn/squid-evm-funding/tar.gz/ad4c7f007637d9ae2ba2f2bdb48cf9f7beea01b6:
+    resolution: {tarball: https://codeload.github.com/snissn/squid-evm-funding/tar.gz/ad4c7f007637d9ae2ba2f2bdb48cf9f7beea01b6}
+    version: 0.1.0
+    engines: {node: '>=24'}
 
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
@@ -4654,6 +4662,15 @@ snapshots:
   sparse-array@1.3.2: {}
 
   split2@4.2.0: {}
+
+  squid-evm-funding@https://codeload.github.com/snissn/squid-evm-funding/tar.gz/ad4c7f007637d9ae2ba2f2bdb48cf9f7beea01b6(typescript@6.0.3)(zod@4.3.6):
+    dependencies:
+      viem: 2.48.4(typescript@6.0.3)(zod@4.3.6)
+    transitivePeerDependencies:
+      - bufferutil
+      - typescript
+      - utf-8-validate
+      - zod
 
   stackback@0.0.2: {}
 

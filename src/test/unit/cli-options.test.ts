@@ -1,5 +1,6 @@
 import { Command, Option } from 'commander'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { paymentsCommand } from '../../commands/payments.js'
 import { serverCommand } from '../../commands/server.js'
 import { sessionCommand } from '../../commands/session.js'
 import { log } from '../../utils/cli-logger.js'
@@ -159,6 +160,17 @@ describe('auth and context option env bindings', () => {
     if (createCommand) {
       expect(envVarFor(createCommand, '--session-key')).toBe('SESSION_KEY')
     }
+  })
+})
+
+describe('Squid source options', () => {
+  it('adds the four source options only to payments fund', () => {
+    const sourceFlags = ['--from-chain', '--from-token', '--max-source-amount', '--source-rpc-url']
+    const fund = paymentsCommand.commands.find((command) => command.name() === 'fund')
+    const setup = paymentsCommand.commands.find((command) => command.name() === 'setup')
+
+    expect(sourceFlags.every((flag) => fund?.options.some((option) => option.long === flag))).toBe(true)
+    expect(sourceFlags.some((flag) => setup?.options.some((option) => option.long === flag))).toBe(false)
   })
 })
 

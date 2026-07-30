@@ -19,6 +19,14 @@ export interface PaymentSetupOptions extends CLIAuthOptions {
   rateAllowance: string
 }
 
+/** Explicit source selection for interactive `payments fund`. */
+export interface FundingSourceOptions {
+  fromChain?: string
+  fromToken?: string
+  maxSourceAmount?: string
+  sourceRpcUrl?: string
+}
+
 export interface AutoFundOptions {
   /** Synapse instance (required) */
   synapse: Synapse
@@ -59,7 +67,7 @@ export interface FundingAdjustmentResult {
   warnings?: string[]
 }
 
-export interface FundOptions extends CLIAuthOptions {
+export interface FundOptions extends CLIAuthOptions, FundingSourceOptions {
   days?: number
   amount?: string
   /**

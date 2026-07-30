@@ -17,6 +17,11 @@ vi.mock('@clack/prompts', () => ({
 vi.mock('../../core/synapse/index.js', () => ({
   initializeSynapse: vi.fn(async () => ({})),
 }))
+vi.mock('../../payments/squid-funding.js', () => ({
+  acquirePaymentShortfalls: vi.fn(),
+  isFundingSourceRequested: vi.fn(() => false),
+  validateFundingSourceOptions: vi.fn(),
+}))
 vi.mock('../../utils/cli-auth.js', () => ({
   parseCLIAuth: vi.fn(() => ({})),
   getCLILogger: vi.fn(() => ({})),

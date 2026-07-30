@@ -8,3 +8,4 @@ onlyBuiltDependencies:
   - esbuild
   - node-datachannel
   - playwright
+  - squid-evm-funding

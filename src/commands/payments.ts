@@ -6,7 +6,7 @@ import { runInteractiveSetup } from '../payments/interactive.js'
 import { showPaymentStatus } from '../payments/status.js'
 import type { FundOptions, PaymentSetupOptions } from '../payments/types.js'
 import { runWithdraw } from '../payments/withdraw.js'
-import { addAuthOptions } from '../utils/cli-options.js'
+import { addAuthOptions, addFundingSourceOptions } from '../utils/cli-options.js'
 
 export const paymentsCommand = new Command('payments').description(
   'Manage storage payments (required before your first upload)'
@@ -71,6 +71,7 @@ const fundCommand = new Command('fund')
   })
 
 addAuthOptions(fundCommand)
+addFundingSourceOptions(fundCommand)
 paymentsCommand.addCommand(fundCommand)
 
 // Withdraw command
