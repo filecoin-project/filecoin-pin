@@ -46,6 +46,16 @@ const originalEnvironment = {
   rpcUrl: process.env.RPC_URL,
 }
 
+function serializeErrorChain(error: unknown): string {
+  const chain: unknown[] = []
+  let current = error
+  while (current instanceof Error) {
+    chain.push({ name: current.name, message: current.message, stack: current.stack })
+    current = current.cause
+  }
+  return JSON.stringify(chain)
+}
+
 function input(overrides: Record<string, unknown> = {}) {
   return {
     synapse: { chain: { id: 314 }, client: {} } as never,
@@ -138,11 +148,25 @@ describe('Squid payment shortfalls', () => {
   })
 
   it('leaves a mode-0600 marker when execution fails and sanitizes secrets', async () => {
-    mockExecute.mockRejectedValueOnce(new Error(`failed ${PRIVATE_KEY} at https://rpc.example/secret`))
+    const privateKey = PRIVATE_KEY.slice(2)
+    const rpcUrl = input().options.sourceRpcUrl
+    const integratorId = process.env.SQUID_INTEGRATOR_ID as string
+    mockExecute.mockRejectedValueOnce(
+      new Error(`failed ${PRIVATE_KEY} or ${privateKey} at ${rpcUrl} for ${integratorId}`)
+    )
 
-    await expect(
-      acquirePaymentShortfalls(input({ options: { ...input().options, privateKey: PRIVATE_KEY.slice(2) } }))
-    ).rejects.toThrow('failed [redacted] at [redacted]')
+    let failure: unknown
+    try {
+      await acquirePaymentShortfalls(input({ options: { ...input().options, privateKey } }))
+    } catch (error) {
+      failure = error
+    }
+    const serialized = serializeErrorChain(failure)
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toContain('[redacted]')
+    for (const secret of [PRIVATE_KEY, privateKey, rpcUrl, integratorId]) {
+      expect(serialized).not.toContain(secret)
+    }
     expect((await stat(marker)).mode & 0o777).toBe(0o600)
     expect(JSON.parse(await readFile(marker, 'utf8'))).toMatchObject({
       owner: OWNER,

@@ -295,10 +295,7 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
         privateKey?.startsWith('0x') ? undefined : `0x${privateKey}`,
         privateKey,
         integratorId,
-      ]),
-      {
-        cause: error instanceof Error ? error : undefined,
-      }
+      ])
     )
   }
 }
