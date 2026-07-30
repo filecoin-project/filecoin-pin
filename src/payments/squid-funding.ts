@@ -61,6 +61,8 @@ interface PaymentAcquisitionSummary {
   source: SourceToken
   quotes: readonly SquidQuote[]
   maxSourceAmount: bigint
+  maxNativeFee: bigint
+  nativeCurrency: { symbol: string; decimals: number }
 }
 
 export interface AcquirePaymentShortfallsInput {
@@ -224,7 +226,13 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
           : 0n
     const nativeBalanceFloor = policy.chain.id === filecoinMainnet.id ? MIN_FIL_FOR_GAS : 0n
 
-    await input.confirm({ source, quotes, maxSourceAmount })
+    await input.confirm({
+      source,
+      quotes,
+      maxSourceAmount,
+      maxNativeFee: policy.maxNativeFee,
+      nativeCurrency: policy.chain.nativeCurrency,
+    })
     await mkdir(dirname(path), { recursive: true })
     try {
       await writeFile(

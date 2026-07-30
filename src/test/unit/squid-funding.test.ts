@@ -197,11 +197,20 @@ describe('Squid payment shortfalls', () => {
 
   it('wires all eight source-chain policies and OP Stack fee accounting', async () => {
     for (const [fromChain, chainId] of Object.entries(CHAIN_IDS)) {
-      await acquirePaymentShortfalls(input({ options: { ...input().options, fromChain } }))
+      const request = input({ options: { ...input().options, fromChain } })
+      await acquirePaymentShortfalls(request)
       expect(mockResolve).toHaveBeenLastCalledWith({}, chainId, 'USDC')
       const execution = mockExecute.mock.calls.at(-1)?.[0]
       expect(execution.feeMode).toBe(fromChain === 'base' || fromChain === 'optimism' ? 'op-stack' : 'standard')
       if (execution.feeMode === 'op-stack') expect(execution.opStackFeeBuffer(4n)).toBe(5n)
+      if (fromChain === 'ethereum') {
+        expect(request.confirm).toHaveBeenCalledWith(
+          expect.objectContaining({
+            maxNativeFee: 30_000_000_000_000_000n,
+            nativeCurrency: expect.objectContaining({ symbol: 'ETH', decimals: 18 }),
+          })
+        )
+      }
     }
   })
 

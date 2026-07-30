@@ -66,7 +66,7 @@ vi.mock('../../payments/squid-funding.js', () => ({
 
 const sourceOptions = {
   amount: '1',
-  fromChain: 'arbitrum',
+  fromChain: 'ethereum',
   fromToken: 'USDC',
   maxSourceAmount: '2',
   sourceRpcUrl: 'https://rpc.example',
@@ -102,8 +102,10 @@ describe('interactive Squid funding command', () => {
     mockPlan.mockResolvedValue(refreshedPlan())
     mockAcquire.mockImplementation(async (options) => {
       await options.confirm({
-        source: { symbol: 'USDC', decimals: 6, chain: { networkName: 'Arbitrum' } },
+        source: { symbol: 'USDC', decimals: 6, chain: { networkName: 'Ethereum' } },
         maxSourceAmount: 4_000_000n,
+        maxNativeFee: 30_000_000_000_000_000n,
+        nativeCurrency: { symbol: 'ETH', decimals: 18 },
         quotes: [
           {
             sourceAmount: 1_000_000n,
@@ -131,9 +133,12 @@ describe('interactive Squid funding command', () => {
       })
     )
     expect(mockConfirm).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining('Spend 3 USDC from Arbitrum') })
+      expect.objectContaining({ message: expect.stringContaining('Spend 3 USDC from Ethereum') })
     )
-    expect(mockConfirm.mock.calls[0]?.[0].message).toContain('source cap: 4 USDC')
+    expect(mockConfirm.mock.calls[0]?.[0].message).toContain('source-token cap: 4 USDC')
+    expect(mockConfirm.mock.calls[0]?.[0].message).toContain(
+      'additional network-fee commitment cap: 0.03 ETH, not a guaranteed final debit'
+    )
     expect(mockPlan).toHaveBeenCalledOnce()
   })
 

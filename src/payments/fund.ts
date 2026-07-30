@@ -31,11 +31,7 @@ import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import type { Spinner } from '../utils/cli-helpers.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
-import {
-  acquirePaymentShortfalls,
-  isFundingSourceRequested,
-  validateFundingSourceOptions,
-} from './squid-funding.js'
+import { acquirePaymentShortfalls, isFundingSourceRequested, validateFundingSourceOptions } from './squid-funding.js'
 import type { AutoFundOptions, FundingAdjustmentResult, FundOptions } from './types.js'
 
 // Helper: confirm/warn or bail when target implies < lockup-days runway
@@ -322,7 +318,7 @@ export async function runFund(options: FundOptions): Promise<void> {
               )
               .join(' and ')
             const proceed = await confirm({
-              message: `Spend ${formatUnits(spend, summary.source.decimals)} ${summary.source.symbol} from ${summary.source.chain.networkName} via Squid to receive ${targets} on Filecoin (source cap: ${formatUnits(summary.maxSourceAmount, summary.source.decimals)} ${summary.source.symbol})?`,
+              message: `Spend ${formatUnits(spend, summary.source.decimals)} ${summary.source.symbol} from ${summary.source.chain.networkName} via Squid to receive ${targets} on Filecoin (source-token cap: ${formatUnits(summary.maxSourceAmount, summary.source.decimals)} ${summary.source.symbol}; additional network-fee commitment cap: ${formatUnits(summary.maxNativeFee, summary.nativeCurrency.decimals)} ${summary.nativeCurrency.symbol}, not a guaranteed final debit)?`,
               initialValue: false,
             })
             if (isCancel(proceed) || !proceed) throw new CliIncomplete('Source acquisition cancelled by user')
