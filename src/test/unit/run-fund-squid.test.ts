@@ -135,9 +135,9 @@ describe('interactive Squid funding command', () => {
     expect(mockConfirm).toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringContaining('Spend 3 USDC from Ethereum') })
     )
-    expect(mockConfirm.mock.calls[0]?.[0].message).toContain('source-token cap: 4 USDC')
+    expect(mockConfirm.mock.calls[0]?.[0].message).toContain('source-token limit: 4 USDC')
     expect(mockConfirm.mock.calls[0]?.[0].message).toContain(
-      'additional network-fee commitment cap: 0.03 ETH, not a guaranteed final debit'
+      'buffered network-fee limit: 0.03 ETH; final network fees may vary'
     )
     expect(mockPlan).toHaveBeenCalledOnce()
   })

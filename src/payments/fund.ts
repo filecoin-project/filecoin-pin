@@ -318,7 +318,7 @@ export async function runFund(options: FundOptions): Promise<void> {
               )
               .join(' and ')
             const proceed = await confirm({
-              message: `Spend ${formatUnits(spend, summary.source.decimals)} ${summary.source.symbol} from ${summary.source.chain.networkName} via Squid to receive ${targets} on Filecoin (source-token cap: ${formatUnits(summary.maxSourceAmount, summary.source.decimals)} ${summary.source.symbol}; additional network-fee commitment cap: ${formatUnits(summary.maxNativeFee, summary.nativeCurrency.decimals)} ${summary.nativeCurrency.symbol}, not a guaranteed final debit)?`,
+              message: `Spend ${formatUnits(spend, summary.source.decimals)} ${summary.source.symbol} from ${summary.source.chain.networkName} via Squid to receive ${targets} on Filecoin (source-token limit: ${formatUnits(summary.maxSourceAmount, summary.source.decimals)} ${summary.source.symbol}; buffered network-fee limit: ${formatUnits(summary.maxNativeFee, summary.nativeCurrency.decimals)} ${summary.nativeCurrency.symbol}; final network fees may vary)?`,
               initialValue: false,
             })
             if (isCancel(proceed) || !proceed) throw new CliIncomplete('Source acquisition cancelled by user')
