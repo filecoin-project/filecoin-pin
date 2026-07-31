@@ -19,8 +19,7 @@ vi.mock('../../core/synapse/index.js', () => ({
 }))
 vi.mock('../../payments/squid-funding.js', () => ({
   acquirePaymentShortfalls: vi.fn(),
-  isFundingSourceRequested: vi.fn(() => false),
-  validateFundingSourceOptions: vi.fn(),
+  validateFundingSourceOptions: vi.fn(() => false),
 }))
 vi.mock('../../utils/cli-auth.js', () => ({
   parseCLIAuth: vi.fn(() => ({})),

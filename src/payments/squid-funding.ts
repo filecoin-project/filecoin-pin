@@ -1,29 +1,17 @@
-import { access, mkdir, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Synapse } from '@filoz/synapse-sdk'
 import {
   type DestinationRequirement,
   executeSquidFunding,
-  fetchSquidCatalog,
   NATIVE_TOKEN_ADDRESS,
   planSquidFunding,
-  quoteSquidRoute,
-  resolveSourceToken,
   type SourceToken,
   type SquidPublicClient,
   type SquidQuote,
   type SquidWalletClient,
 } from 'squid-evm-funding'
-import {
-  type Address,
-  type Chain,
-  createPublicClient,
-  createWalletClient,
-  getAddress,
-  type Hex,
-  http,
-  parseUnits,
-} from 'viem'
+import { type Address, type Chain, createPublicClient, createWalletClient, getAddress, type Hex, http } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { arbitrum, avalanche, base, bsc, mainnet as ethereum, filecoin, optimism, polygon } from 'viem/chains'
 import { publicActionsL2 } from 'viem/op-stack'
@@ -31,6 +19,7 @@ import { CliIncomplete } from '../common/cli-errors.js'
 import { createConfig } from '../config.js'
 import { MIN_FIL_FOR_GAS } from '../core/payments/index.js'
 import { mainnet as filecoinMainnet } from '../core/synapse/index.js'
+import type { CLIAuthOptions } from '../utils/cli-auth.js'
 import type { FundingSourceOptions } from './types.js'
 
 const SQUID_ROUTER = getAddress('0xce16F69375520ab01377ce7B88f5BA8C48F8D666')
@@ -59,6 +48,7 @@ const SOURCE_POLICIES: readonly SourcePolicy[] = [
 
 interface PaymentAcquisitionSummary {
   source: SourceToken
+  sourceChainName: string
   quotes: readonly SquidQuote[]
   maxSourceAmount: bigint
   maxNativeFee: bigint
@@ -72,18 +62,15 @@ export interface AcquirePaymentShortfallsInput {
   usdfcShortfall: bigint
   /** Wallet USDFC reserved for the later Filecoin Pay deposit. */
   requiredWalletUsdfc: bigint
-  options: FundingSourceOptions & { privateKey?: string | undefined }
+  options: FundingSourceOptions & Pick<CLIAuthOptions, 'privateKey' | 'walletAddress' | 'sessionKey' | 'viewAddress'>
   confirm: (summary: PaymentAcquisitionSummary) => Promise<void>
 }
 
-export function isFundingSourceRequested(options: FundingSourceOptions): boolean {
-  return [options.fromChain, options.fromToken, options.maxSourceAmount, options.sourceRpcUrl].some(
+export function validateFundingSourceOptions(options: FundingSourceOptions): boolean {
+  const requested = [options.fromChain, options.fromToken, options.maxSourceAmount, options.sourceRpcUrl].some(
     (value) => value != null && value.trim() !== ''
   )
-}
-
-export function validateFundingSourceOptions(options: FundingSourceOptions): void {
-  if (!isFundingSourceRequested(options)) return
+  if (!requested) return false
   if (
     [options.fromChain, options.fromToken, options.maxSourceAmount, options.sourceRpcUrl].some(
       (value) => !value?.trim()
@@ -93,6 +80,7 @@ export function validateFundingSourceOptions(options: FundingSourceOptions): voi
       'Source acquisition requires --from-chain, --from-token, --max-source-amount, and --source-rpc-url together'
     )
   }
+  return true
 }
 
 function sourcePolicy(name: string | undefined): SourcePolicy {
@@ -162,16 +150,6 @@ function pendingError(path: string): Error {
   )
 }
 
-async function assertNoPendingMarker(path: string): Promise<void> {
-  try {
-    await access(path)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-    throw error
-  }
-  throw pendingError(path)
-}
-
 function makeSourceClients(policy: SourcePolicy, rpcUrl: string, privateKey: string | undefined, owner: Address) {
   const account = signingAccount(privateKey, owner)
   const transport = http(rpcUrl, { timeout: REQUEST_TIMEOUT_MS })
@@ -185,17 +163,18 @@ function makeSourceClients(policy: SourcePolicy, rpcUrl: string, privateKey: str
 }
 
 /** Acquire only the positive FIL and USDFC shortfalls supplied by the existing payment planner. */
-export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsInput): Promise<boolean> {
+export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsInput): Promise<void> {
   const destinationRequirements = requirements(input)
-  if (destinationRequirements.length === 0) return false
+  if (destinationRequirements.length === 0) return
   validateFundingSourceOptions(input.options)
   if (input.synapse.chain.id !== filecoinMainnet.id) {
     throw new Error('Squid source acquisition is available only for Filecoin Mainnet')
   }
+  if (input.options.walletAddress != null || input.options.sessionKey != null || input.options.viewAddress != null) {
+    throw new Error('Squid source acquisition requires owner private-key auth')
+  }
 
   const path = markerPath()
-  await assertNoPendingMarker(path)
-
   const policy = sourcePolicy(input.options.fromChain)
   const sourceRpcUrl = input.options.sourceRpcUrl as string
   const integratorId = process.env.SQUID_INTEGRATOR_ID ?? ''
@@ -204,32 +183,30 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
 
   try {
     const clients = makeSourceClients(policy, sourceRpcUrl, input.options.privateKey, input.owner)
-    const catalog = await fetchSquidCatalog(squid)
-    const source = resolveSourceToken(catalog, policy.chain.id, input.options.fromToken as string)
-    const maxSourceAmount = parseUnits(input.options.maxSourceAmount as string, source.decimals)
-    if (maxSourceAmount <= 0n) throw new Error('--max-source-amount must be greater than zero')
-    const quotes = await planSquidFunding(
+    const plan = await planSquidFunding(
       {
         owner: input.owner,
-        source,
+        sourceChainId: policy.chain.id,
+        sourceToken: input.options.fromToken as string,
         requirements: destinationRequirements,
-        maxSourceAmount,
+        maxSourceAmount: input.options.maxSourceAmount as string,
         slippage: SLIPPAGE_PERCENT,
       },
       squid
     )
     const sourceBalanceFloor =
-      policy.chain.id === filecoinMainnet.id && source.token.toLowerCase() === FILECOIN_USDFC.toLowerCase()
+      policy.chain.id === filecoinMainnet.id && plan.source.token.toLowerCase() === FILECOIN_USDFC.toLowerCase()
         ? input.requiredWalletUsdfc
-        : policy.chain.id === filecoinMainnet.id && source.native
+        : policy.chain.id === filecoinMainnet.id && plan.source.token === NATIVE_TOKEN_ADDRESS
           ? MIN_FIL_FOR_GAS
           : 0n
     const nativeBalanceFloor = policy.chain.id === filecoinMainnet.id ? MIN_FIL_FOR_GAS : 0n
 
     await input.confirm({
-      source,
-      quotes,
-      maxSourceAmount,
+      source: plan.source,
+      sourceChainName: policy.chain.name,
+      quotes: plan.quotes,
+      maxSourceAmount: plan.maxSourceAmount,
       maxNativeFee: policy.maxNativeFee,
       nativeCurrency: policy.chain.nativeCurrency,
     })
@@ -239,9 +216,9 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
         path,
         JSON.stringify({
           owner: input.owner,
-          sourceChain: source.chain.chainId,
-          sourceToken: source.token,
-          maxSourceAmount: maxSourceAmount.toString(),
+          sourceChain: plan.source.chainId,
+          sourceToken: plan.source.token,
+          maxSourceAmount: plan.maxSourceAmount.toString(),
           createdAt: new Date().toISOString(),
           targets: destinationRequirements.map((requirement) => ({
             token: requirement.token,
@@ -257,10 +234,7 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
 
     await executeSquidFunding(
       {
-        account: clients.account.address,
-        source,
-        quotes,
-        maxSourceAmount,
+        plan,
         maxNativeFee: policy.maxNativeFee,
         sourceBalanceFloor,
         nativeBalanceFloor,
@@ -274,26 +248,11 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
       {
         publicClient: clients.publicClient,
         walletClient: clients.walletClient,
-        destinationClient: (chainId) => {
-          if (chainId !== filecoinMainnet.id) throw new Error(`Unsupported destination chain ${chainId}`)
-          return input.synapse.client as unknown as SquidPublicClient
-        },
-        refreshQuote: (quote) =>
-          quoteSquidRoute(
-            {
-              owner: input.owner,
-              source: quote.source,
-              requirement: quote.requirement,
-              sourceAmount: quote.sourceAmount,
-              slippage: SLIPPAGE_PERCENT,
-            },
-            squid
-          ),
-        squidStatusOptions: squid,
+        destinationClient: input.synapse.client as unknown as SquidPublicClient,
+        squid,
       }
     )
     await unlink(path)
-    return true
   } catch (error) {
     if (error instanceof CliIncomplete) throw error
     const privateKey = input.options.privateKey

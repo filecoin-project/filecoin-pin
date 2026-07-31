@@ -152,7 +152,7 @@
     "picocolors": "^1.1.1",
     "pino": "^10.3.1",
     "semver": "^7.7.4",
-    "squid-evm-funding": "github:snissn/squid-evm-funding#ad4c7f007637d9ae2ba2f2bdb48cf9f7beea01b6",
+    "squid-evm-funding": "github:snissn/squid-evm-funding#831c922c7e3ec138a12aea25b0fa93539562993c",
     "varint": "^6.0.0",
     "viem": "^2.48.3"
   },

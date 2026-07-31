@@ -24,14 +24,14 @@ import {
   toStorageRunwaySummary,
   withdrawUSDFC,
 } from '../core/payments/index.js'
-import { getClientAddress, initializeSynapse, mainnet } from '../core/synapse/index.js'
+import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
 import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import type { Spinner } from '../utils/cli-helpers.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
-import { acquirePaymentShortfalls, isFundingSourceRequested, validateFundingSourceOptions } from './squid-funding.js'
+import { acquirePaymentShortfalls, validateFundingSourceOptions } from './squid-funding.js'
 import type { AutoFundOptions, FundingAdjustmentResult, FundOptions } from './types.js'
 
 // Helper: confirm/warn or bail when target implies < lockup-days runway
@@ -249,8 +249,7 @@ export async function runFund(options: FundOptions): Promise<void> {
 
   spinner.start('Connecting...')
   try {
-    const sourceRequested = isFundingSourceRequested(options)
-    validateFundingSourceOptions(options)
+    const sourceRequested = validateFundingSourceOptions(options)
 
     // Parse and validate authentication
     const authConfig = parseCLIAuth(options)
@@ -290,18 +289,6 @@ export async function runFund(options: FundOptions): Promise<void> {
       const usdfcShortfall = preview.delta > 0n ? (preview.walletShortfall ?? 0n) : 0n
       if (filShortfall > 0n || usdfcShortfall > 0n) {
         if (!isInteractive()) throw new Error('Squid source acquisition requires an interactive terminal')
-        if (synapse.chain.id !== mainnet.id) {
-          throw new Error('Squid source acquisition is available only for Filecoin Mainnet')
-        }
-        if (
-          options.privateKey == null ||
-          options.privateKey.trim() === '' ||
-          options.walletAddress != null ||
-          options.sessionKey != null ||
-          options.viewAddress != null
-        ) {
-          throw new Error('Squid source acquisition requires owner private-key auth')
-        }
         await acquirePaymentShortfalls({
           synapse,
           owner: getClientAddress(synapse),
@@ -318,7 +305,7 @@ export async function runFund(options: FundOptions): Promise<void> {
               )
               .join(' and ')
             const proceed = await confirm({
-              message: `Spend ${formatUnits(spend, summary.source.decimals)} ${summary.source.symbol} from ${summary.source.chain.networkName} via Squid to receive ${targets} on Filecoin (source-token limit: ${formatUnits(summary.maxSourceAmount, summary.source.decimals)} ${summary.source.symbol}; buffered network-fee limit: ${formatUnits(summary.maxNativeFee, summary.nativeCurrency.decimals)} ${summary.nativeCurrency.symbol}; final network fees may vary)?`,
+              message: `Spend ${formatUnits(spend, summary.source.decimals)} ${summary.source.symbol} from ${summary.sourceChainName} via Squid to receive ${targets} on Filecoin (source-token limit: ${formatUnits(summary.maxSourceAmount, summary.source.decimals)} ${summary.source.symbol}; buffered network-fee limit: ${formatUnits(summary.maxNativeFee, summary.nativeCurrency.decimals)} ${summary.nativeCurrency.symbol}; final network fees may vary)?`,
               initialValue: false,
             })
             if (isCancel(proceed) || !proceed) throw new CliIncomplete('Source acquisition cancelled by user')

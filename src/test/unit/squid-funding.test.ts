@@ -6,21 +6,15 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { acquirePaymentShortfalls, validateFundingSourceOptions } from '../../payments/squid-funding.js'
 
-const { mockExecute, mockFetchCatalog, mockPlan, mockQuote, mockResolve } = vi.hoisted(() => ({
+const { mockExecute, mockPlan } = vi.hoisted(() => ({
   mockExecute: vi.fn(),
-  mockFetchCatalog: vi.fn(),
   mockPlan: vi.fn(),
-  mockQuote: vi.fn(),
-  mockResolve: vi.fn(),
 }))
 
 vi.mock('squid-evm-funding', () => ({
   NATIVE_TOKEN_ADDRESS: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
   executeSquidFunding: mockExecute,
-  fetchSquidCatalog: mockFetchCatalog,
   planSquidFunding: mockPlan,
-  quoteSquidRoute: mockQuote,
-  resolveSourceToken: mockResolve,
 }))
 
 const PRIVATE_KEY = `0x${'01'.padStart(64, '0')}` as Hex
@@ -85,28 +79,27 @@ describe('Squid payment shortfalls', () => {
     delete process.env.NETWORK
     delete process.env.RPC_URL
 
-    mockFetchCatalog.mockResolvedValue({})
-    mockResolve.mockImplementation((_catalog, chainId) => ({
-      chain: { chainId, networkName: 'source' },
-      token: '0x1111111111111111111111111111111111111111',
-      symbol: 'USDC',
-      decimals: 6,
-      native: false,
-    }))
-    mockPlan.mockImplementation(async ({ source, requirements }) =>
-      requirements.map((requirement: Record<string, unknown>, index: number) => ({
+    mockPlan.mockImplementation(async ({ owner, sourceChainId, requirements, maxSourceAmount }) => ({
+      owner,
+      source: {
+        chainId: sourceChainId,
+        token: '0x1111111111111111111111111111111111111111',
+        symbol: 'USDC',
+        decimals: 6,
+      },
+      quotes: requirements.map((requirement: Record<string, unknown>, index: number) => ({
         id: `quote-${index}`,
         requirement,
-        source,
         sourceAmount: 1_000_000n,
         destinationAmount: requirement.amount,
         target: ROUTER,
         data: '0x12',
         value: 0n,
-        gasLimit: 1n,
         expiresAt: 2_000_000_000,
-      }))
-    )
+      })),
+      maxSourceAmount: BigInt(maxSourceAmount) * 1_000_000n,
+      slippage: 1,
+    }))
     mockExecute.mockResolvedValue({ sourceAmount: 2_000_000n, nativeFee: 1n, routes: [] })
   })
 
@@ -127,19 +120,20 @@ describe('Squid payment shortfalls', () => {
   })
 
   it('requires all four source options together', () => {
+    expect(validateFundingSourceOptions({})).toBe(false)
     expect(() => validateFundingSourceOptions({ fromChain: 'arbitrum' })).toThrow(/requires --from-chain/)
-    expect(() =>
+    expect(
       validateFundingSourceOptions({
         fromChain: 'arbitrum',
         fromToken: 'USDC',
         maxSourceAmount: '1',
         sourceRpcUrl: 'https://rpc.example',
       })
-    ).not.toThrow()
+    ).toBe(true)
   })
 
   it('passes exact FIL and USDFC shortfalls and removes the marker after verified execution', async () => {
-    await expect(acquirePaymentShortfalls(input())).resolves.toBe(true)
+    await expect(acquirePaymentShortfalls(input())).resolves.toBeUndefined()
 
     const planned = mockPlan.mock.calls[0]?.[0]
     expect(planned.requirements.map((requirement: { amount: bigint }) => requirement.amount)).toEqual([2n, 3n])
@@ -175,16 +169,16 @@ describe('Squid payment shortfalls', () => {
     })
   })
 
-  it('refuses a pending marker before contacting Squid', async () => {
+  it('uses atomic marker creation to block an ambiguous rerun', async () => {
     await writeFile(marker, '{}', { mode: 0o600 })
 
     await expect(acquirePaymentShortfalls(input())).rejects.toThrow(marker)
-    expect(mockFetchCatalog).not.toHaveBeenCalled()
+    expect(mockExecute).not.toHaveBeenCalled()
   })
 
   it('does nothing when there is no shortfall', async () => {
-    await expect(acquirePaymentShortfalls(input({ filShortfall: 0n, usdfcShortfall: 0n }))).resolves.toBe(false)
-    expect(mockFetchCatalog).not.toHaveBeenCalled()
+    await expect(acquirePaymentShortfalls(input({ filShortfall: 0n, usdfcShortfall: 0n }))).resolves.toBeUndefined()
+    expect(mockPlan).not.toHaveBeenCalled()
     expect(mockExecute).not.toHaveBeenCalled()
   })
 
@@ -192,14 +186,27 @@ describe('Squid payment shortfalls', () => {
     await expect(
       acquirePaymentShortfalls(input({ owner: '0x2222222222222222222222222222222222222222' }))
     ).rejects.toThrow(/must control the Filecoin payment owner/)
-    expect(mockFetchCatalog).not.toHaveBeenCalled()
+    expect(mockPlan).not.toHaveBeenCalled()
+  })
+
+  it('owns Mainnet and private-key authentication checks in the adapter', async () => {
+    await expect(
+      acquirePaymentShortfalls(input({ synapse: { chain: { id: 314159 }, client: {} } as never }))
+    ).rejects.toThrow(/only for Filecoin Mainnet/)
+    await expect(
+      acquirePaymentShortfalls(input({ options: { ...input().options, walletAddress: OWNER } }))
+    ).rejects.toThrow(/owner private-key auth/)
+    expect(mockPlan).not.toHaveBeenCalled()
   })
 
   it('wires all eight source-chain policies and OP Stack fee accounting', async () => {
     for (const [fromChain, chainId] of Object.entries(CHAIN_IDS)) {
       const request = input({ options: { ...input().options, fromChain } })
       await acquirePaymentShortfalls(request)
-      expect(mockResolve).toHaveBeenLastCalledWith({}, chainId, 'USDC')
+      expect(mockPlan).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sourceChainId: chainId, sourceToken: 'USDC' }),
+        expect.anything()
+      )
       const execution = mockExecute.mock.calls.at(-1)?.[0]
       expect(execution.feeMode).toBe(fromChain === 'base' || fromChain === 'optimism' ? 'op-stack' : 'standard')
       if (execution.feeMode === 'op-stack') expect(execution.opStackFeeBuffer(4n)).toBe(5n)
@@ -215,16 +222,39 @@ describe('Squid payment shortfalls', () => {
   })
 
   it('preserves the Filecoin FIL and USDFC reserves when Filecoin is the source', async () => {
-    mockResolve.mockReturnValueOnce({
-      chain: { chainId: 314, networkName: 'filecoin' },
-      token: '0x80B98d3aa09ffff255c3ba4A241111Ff1262F045',
-      symbol: 'USDFC',
-      decimals: 18,
-      native: false,
+    mockPlan.mockResolvedValueOnce({
+      owner: OWNER,
+      source: {
+        chainId: 314,
+        token: '0x80B98d3aa09ffff255c3ba4A241111Ff1262F045',
+        symbol: 'USDFC',
+        decimals: 18,
+      },
+      quotes: [],
+      maxSourceAmount: 10n,
+      slippage: 1,
     })
     await acquirePaymentShortfalls(input({ options: { ...input().options, fromChain: 'filecoin' } }))
     expect(mockExecute.mock.calls[0]?.[0]).toMatchObject({
       sourceBalanceFloor: 8n,
+      nativeBalanceFloor: 100_000_000_000_000_000n,
+    })
+
+    mockPlan.mockResolvedValueOnce({
+      owner: OWNER,
+      source: {
+        chainId: 314,
+        token: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+        symbol: 'FIL',
+        decimals: 18,
+      },
+      quotes: [],
+      maxSourceAmount: 10n,
+      slippage: 1,
+    })
+    await acquirePaymentShortfalls(input({ options: { ...input().options, fromChain: 'filecoin' } }))
+    expect(mockExecute.mock.calls[1]?.[0]).toMatchObject({
+      sourceBalanceFloor: 100_000_000_000_000_000n,
       nativeBalanceFloor: 100_000_000_000_000_000n,
     })
   })

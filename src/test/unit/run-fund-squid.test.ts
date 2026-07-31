@@ -50,17 +50,15 @@ vi.mock('../../core/utils/format.js', () => ({ formatUSDFC: vi.fn((value: bigint
 vi.mock('../../core/utils/index.js', () => ({ formatRunwaySummary: vi.fn(() => ({ coverage: 'No spend' })) }))
 vi.mock('../../payments/squid-funding.js', () => ({
   acquirePaymentShortfalls: mockAcquire,
-  isFundingSourceRequested: (options: Record<string, string | undefined>) =>
-    [options.fromChain, options.fromToken, options.maxSourceAmount, options.sourceRpcUrl].some(
-      (value) => value != null && value.trim() !== ''
-    ),
   validateFundingSourceOptions: (options: Record<string, string | undefined>) => {
     const values = [options.fromChain, options.fromToken, options.maxSourceAmount, options.sourceRpcUrl]
-    if (values.some((value) => value != null && value.trim() !== '') && values.some((value) => !value?.trim())) {
+    const requested = values.some((value) => value != null && value.trim() !== '')
+    if (requested && values.some((value) => !value?.trim())) {
       throw new Error(
         'Source acquisition requires --from-chain, --from-token, --max-source-amount, and --source-rpc-url together'
       )
     }
+    return requested
   },
 }))
 
@@ -102,7 +100,8 @@ describe('interactive Squid funding command', () => {
     mockPlan.mockResolvedValue(refreshedPlan())
     mockAcquire.mockImplementation(async (options) => {
       await options.confirm({
-        source: { symbol: 'USDC', decimals: 6, chain: { networkName: 'Ethereum' } },
+        source: { symbol: 'USDC', decimals: 6, chainId: 1 },
+        sourceChainName: 'Ethereum',
         maxSourceAmount: 4_000_000n,
         maxNativeFee: 30_000_000_000_000_000n,
         nativeCurrency: { symbol: 'ETH', decimals: 18 },
@@ -117,7 +116,6 @@ describe('interactive Squid funding command', () => {
           },
         ],
       })
-      return true
     })
   })
 
@@ -158,26 +156,6 @@ describe('interactive Squid funding command', () => {
 
     await expect(runFund(sourceOptions)).rejects.toThrow(/interactive terminal/)
     expect(mockInitialize).toHaveBeenCalledOnce()
-    expect(mockAcquire).not.toHaveBeenCalled()
-  })
-
-  it('fails explicit Calibration selection before contacting Squid', async () => {
-    mockInitialize.mockResolvedValueOnce({
-      chain: { id: 314159 },
-      payments: { accountSummary: vi.fn(async () => ({ funds: 0n })) },
-    })
-    await expect(runFund({ ...sourceOptions, network: 'calibration' })).rejects.toThrow(/only for Filecoin Mainnet/)
-    expect(mockAcquire).not.toHaveBeenCalled()
-  })
-
-  it('fails a probed non-Mainnet RPC before payment or Squid calls', async () => {
-    mockInitialize.mockResolvedValueOnce({
-      chain: { id: 314159 },
-      payments: { accountSummary: vi.fn(async () => ({ funds: 0n })) },
-    })
-
-    await expect(runFund(sourceOptions)).rejects.toThrow(/only for Filecoin Mainnet/)
-    expect(mockGetPaymentStatus).toHaveBeenCalledOnce()
     expect(mockAcquire).not.toHaveBeenCalled()
   })
 
