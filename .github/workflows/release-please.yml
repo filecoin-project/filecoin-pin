@@ -118,9 +118,10 @@ jobs:
         with:
           run_install: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 'lts/*'
+          check-latest: true
           registry-url: 'https://registry.npmjs.org'
 
       # Pin npm to a known-good major to avoid @latest drift on a publish-path runner.
@@ -164,9 +165,10 @@ jobs:
       contents: read
     timeout-minutes: 20
     steps:
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 'lts/*'
+          check-latest: true
           registry-url: 'https://registry.npmjs.org'
 
       - name: Pin npm
