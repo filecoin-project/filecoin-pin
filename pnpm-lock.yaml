@@ -93,8 +93,8 @@ importers:
         specifier: ^7.7.4
         version: 7.8.5
       squid-evm-funding:
-        specifier: github:snissn/squid-evm-funding#v0.1.0
-        version: https://codeload.github.com/snissn/squid-evm-funding/tar.gz/b89293a964cc233909cac60899c9c1a0bc7a6df9(typescript@6.0.3)(zod@4.3.6)
+        specifier: github:FilOzone/squid-evm-funding#v0.1.0
+        version: https://codeload.github.com/FilOzone/squid-evm-funding/tar.gz/b89293a964cc233909cac60899c9c1a0bc7a6df9(typescript@6.0.3)(zod@4.3.6)
       varint:
         specifier: ^6.0.0
         version: 6.0.0
@@ -2117,8 +2117,8 @@ packages:
     resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
     engines: {node: '>= 10.x'}
 
-  squid-evm-funding@https://codeload.github.com/snissn/squid-evm-funding/tar.gz/b89293a964cc233909cac60899c9c1a0bc7a6df9:
-    resolution: {tarball: https://codeload.github.com/snissn/squid-evm-funding/tar.gz/b89293a964cc233909cac60899c9c1a0bc7a6df9}
+  squid-evm-funding@https://codeload.github.com/FilOzone/squid-evm-funding/tar.gz/b89293a964cc233909cac60899c9c1a0bc7a6df9:
+    resolution: {tarball: https://codeload.github.com/FilOzone/squid-evm-funding/tar.gz/b89293a964cc233909cac60899c9c1a0bc7a6df9}
     version: 0.1.0
     engines: {node: '>=24'}
 
@@ -4663,7 +4663,7 @@ snapshots:
 
   split2@4.2.0: {}
 
-  squid-evm-funding@https://codeload.github.com/snissn/squid-evm-funding/tar.gz/b89293a964cc233909cac60899c9c1a0bc7a6df9(typescript@6.0.3)(zod@4.3.6):
+  squid-evm-funding@https://codeload.github.com/FilOzone/squid-evm-funding/tar.gz/b89293a964cc233909cac60899c9c1a0bc7a6df9(typescript@6.0.3)(zod@4.3.6):
     dependencies:
       viem: 2.48.4(typescript@6.0.3)(zod@4.3.6)
     transitivePeerDependencies:
