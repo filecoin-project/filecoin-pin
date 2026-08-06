@@ -46,7 +46,7 @@ importers:
         version: 4.1.8
       '@libp2p/tcp':
         specifier: ^11.0.17
-        version: 11.0.23
+        version: 11.0.25
       '@multiformats/multiaddr':
         specifier: ^13.0.1
         version: 13.0.3
@@ -730,6 +730,9 @@ packages:
   '@libp2p/logger@6.2.10':
     resolution: {integrity: sha512-recRqNABHG32YXvpMvNepFCuU14d51dF5hs+vR2C/tkqXBQc0Sqg5LtWB2NYPoIJV+JUB50iWLrvBXZUOjLc9Q==}
 
+  '@libp2p/logger@6.2.11':
+    resolution: {integrity: sha512-zZ4m2EKyyRY2G8GAzmG/ZJm4CIqmaJucl5X7zTmGs1SXlb4Ayj4aP1vsaP/cVWadf/RuPWjgmIJP+Y/sZoE7Rg==}
+
   '@libp2p/multistream-select@7.0.22':
     resolution: {integrity: sha512-KJ1/i6NVAdPjsGFByB7eECW1j/c54nZIfCyDH3/gl4cLX+l1Pnkm2AgLRuk/3D/tNNVjsSJC2VOwJg6Z8NW3ww==}
 
@@ -745,11 +748,14 @@ packages:
   '@libp2p/peer-store@12.0.22':
     resolution: {integrity: sha512-LoBq4uZp5TvPVcU1DtEsuBEC8Fcq1sprgY+KBoIoecL2bsUpCaQsbPIqbByLR6hCfDgWPv5ChFvIoZwn3YCyDw==}
 
-  '@libp2p/tcp@11.0.23':
-    resolution: {integrity: sha512-c9ozk/DhFcL9Oa/MSxOM/DdZPTdqkuayQUPFzE0i46+HpSLrXuGtc02IhiT32Uxsh2GmfBr+ITyprIFz9YCcdQ==}
+  '@libp2p/tcp@11.0.25':
+    resolution: {integrity: sha512-Qv68uvb2i2MeP4AQKpZchddaGLWDNPj7QsU3CFlHJSSdTbApUBOg7mnJu5B8Gn0ArpwN477ZwRtMCYjtj8+YSw==}
 
   '@libp2p/utils@7.2.4':
     resolution: {integrity: sha512-rp5mlFJqV1cc+Kfuxt61RXbWaHaku/HmfhiEHIvFaaP3do1QUSlG+Tjbufwb5r7JzotYnmL4egNDTlNnpjZsBA==}
+
+  '@libp2p/utils@7.3.1':
+    resolution: {integrity: sha512-kIV7Nrtn8mMephggO+xFD75sIRH7birJyfhOlGnprRLKjE8Ots5rsSqTjlrjLhrJxhxO71F+UOSyVAkqxi+d4w==}
 
   '@multiformats/dns@1.0.15':
     resolution: {integrity: sha512-W0zAMABtAn+3chgFcPGvllKND7M6GblMAAFcJQTy+iMmGiyFErZYPzAh2b50Y3SFf340iFV7+ckVgZkGfUyxzA==}
@@ -770,11 +776,12 @@ packages:
   '@multiformats/uri-to-multiaddr@10.0.0':
     resolution: {integrity: sha512-QsmwLmY6iB1wDU1e1wyctqF0eP/2KD1QPLQ+APISuqETbCTSpaq159S/K/ssmWlBpSEkhH0SUfBUgGi014Ttfw==}
 
-  '@napi-rs/wasm-runtime@1.1.6':
-    resolution: {integrity: sha512-ZLv/JdUfkvOy9eCnnBaGfiO+XimbjebAeO+MRQqD/B+FR1tnRN0tpKSJHRbE8sFfS6aqsXZ67TQjfwfsxULVbg==}
+  '@napi-rs/wasm-runtime@1.2.0':
+    resolution: {integrity: sha512-kDoONqMa+VnZ4vvvu/ZUurpJ4gkZU57e7g69qpNgWhYcZFPUHZM2CEMKm+cG6ufDVALbjMvfmMjFVqaK7uEMnA==}
+    engines: {node: ^20.19.0 || ^22.13.0 || >=23.5.0}
     peerDependencies:
-      '@emnapi/core': ^1.7.1
-      '@emnapi/runtime': ^1.7.1
+      '@emnapi/core': ^2.0.0-alpha.3
+      '@emnapi/runtime': ^2.0.0-alpha.3
 
   '@noble/ciphers@1.3.0':
     resolution: {integrity: sha512-2I0gnIVPtfnMw9ee9h1dJG7tp81+8Ob3OJb3Mv37rx5L40/b0i7djjCVvGOVqc9AEIQyvyu1i6ypKdFw8R8gQw==}
@@ -1194,8 +1201,8 @@ packages:
   abstract-logging@2.0.1:
     resolution: {integrity: sha512-2BjRTZxTPvheOvGbBslFSYOUkr+SjPtOnrLP33f+VIWLzezQpZcqVg7ja3L4dBXmzzgwT+a029jRx5PCi3JuiA==}
 
-  acorn@8.17.0:
-    resolution: {integrity: sha512-xRQbDb9BnwDafYNn6Vwl839DYVjqXYb1XVGtWAZ1kcDc6iwAL4hg3B1dZlRiuENFeO2H53gFG3in621AdERVAg==}
+  acorn@8.18.0:
+    resolution: {integrity: sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ==}
     engines: {node: '>=0.4.0'}
     hasBin: true
 
@@ -1288,6 +1295,10 @@ packages:
 
   cborg@5.1.7:
     resolution: {integrity: sha512-rGg2MG9zZEUKtKqjkBppIWUecTXf9N1vs1Qru43vJWoDaODhCrtmzdehCaA/aq/c1cPI5A0kPrJ5Tf+jIfhV4w==}
+    hasBin: true
+
+  cborg@5.1.8:
+    resolution: {integrity: sha512-enonPtLyeEF8M8GF/5NdjLHmRGslrwKR2LvkN+yFYQJw7mzt6iOoPvkVs3vcb3rUvltzL0QfvtM6FQ44o8nhSg==}
     hasBin: true
 
   chai@6.2.2:
@@ -1967,8 +1978,8 @@ packages:
     resolution: {integrity: sha512-LKWqWJRhstyYo9pGvgor/ivk2w94eSjE3RGVuzLGlr3NmD8bf7RcYGze1mNdEHRP6TRP6rMuDHk5t44hnTRyow==}
     engines: {node: '>=14.19.0'}
 
-  postcss@8.5.22:
-    resolution: {integrity: sha512-KBDEIpLrvpv16pp3K0Fw+UCoZfopFjjgeB+0tA/aaThfEE74kKDLrgg603YvOWJyg3+WYtyq3xYsQWsIyZlPqQ==}
+  postcss@8.5.24:
+    resolution: {integrity: sha512-8RyVklq0owXUTa4xlpzu4l9AaVKIdQvAcOHZWaMh98HgySsUtxRVf/chRe3dsSLqb6i40BzGRzEUddRaI+9TSw==}
     engines: {node: ^10 || ^12 || >=14}
 
   process-warning@4.0.1:
@@ -2799,7 +2810,7 @@ snapshots:
       '@helia/interface': 6.2.1
       '@helia/utils': 2.5.2
       '@libp2p/interface': 3.2.5
-      '@libp2p/logger': 6.2.10
+      '@libp2p/logger': 6.2.11
       '@libp2p/peer-collections': 7.0.22
       '@libp2p/utils': 7.2.4
       '@multiformats/multiaddr': 13.0.3
@@ -3045,6 +3056,14 @@ snapshots:
       multiformats: 14.0.4
       weald: 1.1.3
 
+  '@libp2p/logger@6.2.11':
+    dependencies:
+      '@libp2p/interface': 3.2.5
+      '@multiformats/multiaddr': 13.0.3
+      interface-datastore: 10.0.1
+      multiformats: 14.0.4
+      weald: 1.1.3
+
   '@libp2p/multistream-select@7.0.22':
     dependencies:
       '@libp2p/interface': 3.2.5
@@ -3096,10 +3115,10 @@ snapshots:
       uint8arraylist: 3.0.2
       uint8arrays: 6.1.1
 
-  '@libp2p/tcp@11.0.23':
+  '@libp2p/tcp@11.0.25':
     dependencies:
       '@libp2p/interface': 3.2.5
-      '@libp2p/utils': 7.2.4
+      '@libp2p/utils': 7.3.1
       '@multiformats/multiaddr': 13.0.3
       '@multiformats/multiaddr-matcher': 3.0.2
       main-event: 1.0.4
@@ -3112,12 +3131,12 @@ snapshots:
       '@chainsafe/is-ip': 2.1.0
       '@chainsafe/netmask': 2.0.0
       '@libp2p/interface': 3.2.5
-      '@libp2p/logger': 6.2.10
+      '@libp2p/logger': 6.2.11
       '@multiformats/multiaddr': 13.0.3
       '@multiformats/multiaddr-matcher': 3.0.2
       '@sindresorhus/fnv1a': 3.1.0
       any-signal: 4.2.0
-      cborg: 5.1.7
+      cborg: 5.1.8
       delay: 7.0.0
       is-loopback-addr: 2.0.2
       it-length-prefixed: 11.0.1
@@ -3129,6 +3148,34 @@ snapshots:
       p-defer: 4.0.1
       p-event: 7.1.0
       progress-events: 1.1.0
+      race-signal: 2.0.0
+      uint8-varint: 3.0.0
+      uint8arraylist: 3.0.2
+      uint8arrays: 6.1.1
+
+  '@libp2p/utils@7.3.1':
+    dependencies:
+      '@chainsafe/is-ip': 2.1.0
+      '@chainsafe/netmask': 2.0.0
+      '@libp2p/interface': 3.2.5
+      '@libp2p/logger': 6.2.11
+      '@multiformats/multiaddr': 13.0.3
+      '@multiformats/multiaddr-matcher': 3.0.2
+      '@sindresorhus/fnv1a': 3.1.0
+      any-signal: 4.2.0
+      cborg: 5.1.8
+      delay: 7.0.0
+      is-loopback-addr: 2.0.2
+      it-length-prefixed: 11.0.1
+      it-pipe: 3.0.1
+      it-pushable: 3.2.4
+      it-stream-types: 2.0.4
+      main-event: 1.0.4
+      netmask: 2.1.1
+      p-defer: 4.0.1
+      p-event: 7.1.0
+      progress-events: 1.1.0
+      protons-runtime: 7.0.0
       race-signal: 2.0.0
       uint8-varint: 3.0.0
       uint8arraylist: 3.0.2
@@ -3167,7 +3214,7 @@ snapshots:
       '@multiformats/multiaddr': 13.0.3
       is-ip: 5.0.1
 
-  '@napi-rs/wasm-runtime@1.1.6(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)':
+  '@napi-rs/wasm-runtime@1.2.0(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)':
     dependencies:
       '@emnapi/core': 1.9.1
       '@emnapi/runtime': 1.9.1
@@ -3355,7 +3402,7 @@ snapshots:
 
   '@rolldown/binding-wasm32-wasi@1.0.0-rc.9(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)':
     dependencies:
-      '@napi-rs/wasm-runtime': 1.1.6(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)
+      '@napi-rs/wasm-runtime': 1.2.0(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -3584,7 +3631,7 @@ snapshots:
 
   abstract-logging@2.0.1: {}
 
-  acorn@8.17.0:
+  acorn@8.18.0:
     optional: true
 
   ajv-formats@3.0.1(ajv@8.18.0):
@@ -3646,7 +3693,7 @@ snapshots:
 
   blockstore-core@6.1.3:
     dependencies:
-      '@libp2p/logger': 6.2.10
+      '@libp2p/logger': 6.2.11
       interface-blockstore: 6.0.2
       interface-store: 7.0.2
       it-all: 3.0.11
@@ -3686,6 +3733,8 @@ snapshots:
   cborg@4.5.8: {}
 
   cborg@5.1.7: {}
+
+  cborg@5.1.8: {}
 
   chai@6.2.2: {}
 
@@ -4048,7 +4097,7 @@ snapshots:
     dependencies:
       '@libp2p/crypto': 5.1.20
       '@libp2p/interface': 3.2.5
-      '@libp2p/logger': 6.2.10
+      '@libp2p/logger': 6.2.11
       cborg: 4.5.8
       interface-datastore: 9.0.3
       multiformats: 13.4.2
@@ -4494,7 +4543,7 @@ snapshots:
 
   pngjs@7.0.0: {}
 
-  postcss@8.5.22:
+  postcss@8.5.24:
     dependencies:
       nanoid: 3.3.16
       picocolors: 1.1.1
@@ -4690,7 +4739,7 @@ snapshots:
   terser@5.48.0:
     dependencies:
       '@jridgewell/source-map': 0.3.11
-      acorn: 8.17.0
+      acorn: 8.18.0
       commander: 2.20.3
       source-map-support: 0.5.21
     optional: true
@@ -4823,7 +4872,7 @@ snapshots:
       '@oxc-project/runtime': 0.115.0
       lightningcss: 1.33.0
       picomatch: 4.0.5
-      postcss: 8.5.22
+      postcss: 8.5.24
       rolldown: 1.0.0-rc.9(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)
       tinyglobby: 0.2.17
     optionalDependencies:
