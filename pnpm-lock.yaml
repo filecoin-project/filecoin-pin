@@ -19,10 +19,10 @@ importers:
         version: 1.5.1
       '@filoz/synapse-core':
         specifier: ^0.7.0
-        version: 0.7.0(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.3.6))
+        version: 0.7.1(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.4.3))
       '@filoz/synapse-sdk':
         specifier: ^1.1.0
-        version: 1.1.0(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.3.6))
+        version: 1.1.0(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.4.3))
       '@helia/block-brokers':
         specifier: ^5.1.3
         version: 5.2.4
@@ -97,7 +97,7 @@ importers:
         version: 6.0.0
       viem:
         specifier: ^2.48.3
-        version: 2.48.4(typescript@6.0.3)(zod@4.3.6)
+        version: 2.48.4(typescript@6.0.3)(zod@4.4.3)
     devDependencies:
       '@biomejs/biome':
         specifier: 2.4.5
@@ -642,8 +642,8 @@ packages:
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==}
 
-  '@filoz/synapse-core@0.7.0':
-    resolution: {integrity: sha512-54G+yH1DrqXpCrtSZF5SYvNma3W2iA/LH6hLWmADy5tW1CkPlvtHZ5essqrJtlk3lfNRYMWk3+13ejzXxDAWWw==}
+  '@filoz/synapse-core@0.7.1':
+    resolution: {integrity: sha512-4vZZJbumv64ZKR+BjfhLJvP57ga/GhSHy/k2jIWuXInXGwM5qPmKvaCS7CkpzQwiSIXahO161DBNRLVH8SrVfQ==}
     peerDependencies:
       viem: 2.x
 
@@ -1184,8 +1184,8 @@ packages:
       zod:
         optional: true
 
-  abitype@1.2.4:
-    resolution: {integrity: sha512-dpKH+N27vRjarMVTFFkeY445VTKftzGWpL0FiT7xmVmzQRKazZexzC5uHG0f6XKsVLAuUlndnbGau6lRejClxg==}
+  abitype@1.3.0:
+    resolution: {integrity: sha512-fk6Te+bojIFrMvMZrnOO+SxCB+RUksTGOzq/60ZRvs1L+BVzvi2bqt9L3W/17ZLdZsyM1FuYf65P5nlmoiH1Bg==}
     peerDependencies:
       typescript: '>=5.0.4'
       zod: ^3.22.0 || ^4.0.0
@@ -1214,8 +1214,8 @@ packages:
       ajv:
         optional: true
 
-  ajv@8.18.0:
-    resolution: {integrity: sha512-PlXPeEWMXMZ7sPYOHqmDyCJzcfNrUr3fGNKtezX14ykXOEIvyK81d+qydx89KY5O71FKMPaQ2vBfBFI5NHR63A==}
+  ajv@8.20.0:
+    resolution: {integrity: sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==}
 
   any-signal@4.2.0:
     resolution: {integrity: sha512-LndMvYuAPf4rC195lk7oSFuHOYFpOszIYrNYv0gHAvz+aEhE9qPZLhmrIz5pXP2BSsPOXvsuHDXEGaiQhIh9wA==}
@@ -1376,8 +1376,8 @@ packages:
   dnum@2.17.0:
     resolution: {integrity: sha512-Abo8RU2ZoABVO2R051XlJEgDIXAlA8/ZjOT2F1uAWvm6Vb8TphmN4k7qgu5nWKSv/JUGLVty6QPEeLTvaxNRYQ==}
 
-  dot-prop@10.1.0:
-    resolution: {integrity: sha512-MVUtAugQMOff5RnBy2d9N31iG0lNwg1qAoAOn7pOK5wf94WIaE3My2p3uwTQuvS2AcqchkcR3bHByjaM0mmi7Q==}
+  dot-prop@10.2.0:
+    resolution: {integrity: sha512-BTJ9aZYL3vCfZlZOBLy9v8TUqWGQ0pzFnygKwFZt5udj6viBoFIBviKPUoZLDCPn1FoXffv6McQFDenrm5Krfw==}
     engines: {node: '>=20'}
 
   entities@4.5.0:
@@ -1450,8 +1450,8 @@ packages:
   fast-string-width@3.0.2:
     resolution: {integrity: sha512-gX8LrtNEI5hq8DVUfRQMbr5lpaS4nMIWV+7XEbXk2b8kiQIizgnlr12B4dA3ZEx3308ze0O4Q1R+cHts8kyUJg==}
 
-  fast-uri@3.1.0:
-    resolution: {integrity: sha512-iPeeDKJSWf4IEOasVVrknXpaBV0IApz/gp7S2bb7Z4Lljbl2MGJRqInZiUrQwV16cpzw/D3S5j5Julj/gT52AA==}
+  fast-uri@3.1.5:
+    resolution: {integrity: sha512-gHwA1O9LDIcKunMKhObS/HimwtehO1nPUECKAu5TpKgaO19fcWEl4bliWe1jWxVFvIXztJjjQ4L8XQ1EU9f7Jw==}
 
   fast-wrap-ansi@0.2.2:
     resolution: {integrity: sha512-7F2Fl+TjRSenLqlU3UjSH0iyqopqoZIu7eZVpEirP2g1GtWa2G/ecEmBdgz31+Mxr+ELclgg6sokpSFIQiZ02Q==}
@@ -1513,8 +1513,8 @@ packages:
   html-escaper@2.0.2:
     resolution: {integrity: sha512-H2iMtd0I4Mt5eYiapRdIDjp+XzelXQ0tFE4JS7YFwFevXXMmOp9myNrUvCg0D6ws8iqkRPBfKHgbwig1SmlLfg==}
 
-  idb-keyval@6.2.2:
-    resolution: {integrity: sha512-yjD9nARJ/jb1g+CvD0tlhUHOrJ9Sy0P8T9MF3YaLlHnSRpwPfpTX0XIvpmw3gAJUmEu3FiICLBDPXVwyEvrleg==}
+  idb-keyval@6.3.0:
+    resolution: {integrity: sha512-um+2dgAWmYsu615EXpWVwSmapJhON0G43t3Ka/EVaohzPQXSMqKEqeDK/oIW3Ow+BXaF2PvSc+oBTFp793A5Ow==}
 
   ieee754@1.2.1:
     resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
@@ -1718,8 +1718,8 @@ packages:
   json-with-bigint@3.5.8:
     resolution: {integrity: sha512-eq/4KP6K34kwa7TcFdtvnftvHCD9KvHOGGICWwMFc4dOOKF5t4iYqnfLK8otCRCRv06FXOzGGyqE8h8ElMvvdw==}
 
-  kysely@0.29.2:
-    resolution: {integrity: sha512-s6WVJyEZrbm6jhBpiKHsGHyePMrVQKJ85wZCFCr9W4QHv6WTjWIrdvTmO9hDEA3bNK0xkrE2DqrHsXMLWuZpQg==}
+  kysely@0.29.4:
+    resolution: {integrity: sha512-y5mVgQNkMbs1eK9Xyc0pmNdabN2wHhRYY/5r4W5HrUT1rYCEPeVNSj1RUJeSDKT3U0p+mXCvLgkrFuIafYI6BA==}
     engines: {node: '>=22.0.0'}
 
   libp2p@3.3.4:
@@ -1907,8 +1907,8 @@ packages:
       typescript:
         optional: true
 
-  ox@0.14.29:
-    resolution: {integrity: sha512-M5j87Ec4V99MQdRct/g09eWXW60g6zhHTUs1lr4deUtrPDnezBdCJTgKd7pxqTpSZBFveV0ALi9jMMuT1qKyNg==}
+  ox@0.14.33:
+    resolution: {integrity: sha512-rooA/4o7bBof4Ge2VH/eovfNPb/AEEYyrNj03wggc55g5HZD8Pjs/OeWhttgjic3dDcqn0r29bDuvQEdTiUemQ==}
     peerDependencies:
       typescript: '>=5.4.0'
     peerDependenciesMeta:
@@ -1923,8 +1923,8 @@ packages:
     resolution: {integrity: sha512-/lkPs5W1aC3cp6vqZefpdosOn65J571sWodyfOQiF0+tmDCpU+H8Atwpu0vQROCVUlZuToDN5eyTLsMLLc54mg==}
     engines: {node: '>=20'}
 
-  p-limit@7.3.0:
-    resolution: {integrity: sha512-7cIXg/Z0M5WZRblrsOla88S4wAK+zOQQWeBYfV3qJuJXMr+LnbYjaadrFaS0JILfEDPVqHyKnZ1Z/1d6J9VVUw==}
+  p-limit@7.3.1:
+    resolution: {integrity: sha512-0trZaiG7Y7kN/Egy9a8j47t9osC0Tch4PaIWd9yGF6bvmlk7muExRvGNYb8sXBwEKMoNKsbNN9P8EefuQekE4Q==}
     engines: {node: '>=20'}
 
   p-locate@7.0.0:
@@ -2228,8 +2228,8 @@ packages:
     resolution: {integrity: sha512-1h/Lnq9yajKY2PEbBadPXj3VxsDDu844OnaAo52UVmIzIvwwtBPIuNvkjuzBlTWpfJyUbG3ez0KSBibQkj4ojg==}
     engines: {node: '>=0.6.11 <=0.7.0 || >=0.7.3'}
 
-  type-fest@5.4.4:
-    resolution: {integrity: sha512-JnTrzGu+zPV3aXIUhnyWJj4z/wigMsdYajGLIYakqyOW1nPllzXEJee0QQbHj+CTIQtXGlAjuK0UY+2xTyjVAw==}
+  type-fest@5.8.0:
+    resolution: {integrity: sha512-YGYEVz3Fm5iy/AybuA0oyNFq7H4CgQNfRp/qfe8nurE1kuCeNm3/vfm9X4Mtl+qLyaKJUh5xrFZwogr41SMjYA==}
     engines: {node: '>=20'}
 
   typedoc@0.28.19:
@@ -2435,8 +2435,8 @@ packages:
     resolution: {integrity: sha512-4LCcse/U2MHZ63HAJVE+v71o7yOdIe4cZ70Wpf8D/IyjDKYQLV5GD46B+hSTjJsvV5PztjvHoU580EftxjDZFQ==}
     engines: {node: '>=12.20'}
 
-  zod@4.3.6:
-    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
 snapshots:
 
@@ -2760,9 +2760,9 @@ snapshots:
 
   '@fastify/ajv-compiler@4.0.5':
     dependencies:
-      ajv: 8.18.0
-      ajv-formats: 3.0.1(ajv@8.18.0)
-      fast-uri: 3.1.0
+      ajv: 8.20.0
+      ajv-formats: 3.0.1(ajv@8.20.0)
+      fast-uri: 3.1.5
 
   '@fastify/error@4.2.0': {}
 
@@ -2781,26 +2781,26 @@ snapshots:
       '@fastify/forwarded': 3.0.1
       ipaddr.js: 2.3.0
 
-  '@filoz/synapse-core@0.7.0(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.3.6))':
+  '@filoz/synapse-core@0.7.1(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.4.3))':
     dependencies:
       dnum: 2.17.0
       iso-web: 3.1.2
       multiformats: 14.0.4
-      ox: 0.14.29(typescript@6.0.3)(zod@4.3.6)
+      ox: 0.14.33(typescript@6.0.3)(zod@4.4.3)
       p-locate: 7.0.0
       p-queue: 9.3.3
       p-some: 7.0.0
       sync-multihash-sha2: 1.0.0
-      viem: 2.48.4(typescript@6.0.3)(zod@4.3.6)
-      zod: 4.3.6
+      viem: 2.48.4(typescript@6.0.3)(zod@4.4.3)
+      zod: 4.4.3
     transitivePeerDependencies:
       - typescript
 
-  '@filoz/synapse-sdk@1.1.0(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.3.6))':
+  '@filoz/synapse-sdk@1.1.0(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.4.3))':
     dependencies:
-      '@filoz/synapse-core': 0.7.0(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.3.6))
+      '@filoz/synapse-core': 0.7.1(typescript@6.0.3)(viem@2.48.4(typescript@6.0.3)(zod@4.4.3))
       multiformats: 14.0.4
-      viem: 2.48.4(typescript@6.0.3)(zod@4.3.6)
+      viem: 2.48.4(typescript@6.0.3)(zod@4.4.3)
     transitivePeerDependencies:
       - typescript
 
@@ -3624,15 +3624,15 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
 
-  abitype@1.2.3(typescript@6.0.3)(zod@4.3.6):
+  abitype@1.2.3(typescript@6.0.3)(zod@4.4.3):
     optionalDependencies:
       typescript: 6.0.3
-      zod: 4.3.6
+      zod: 4.4.3
 
-  abitype@1.2.4(typescript@6.0.3)(zod@4.3.6):
+  abitype@1.3.0(typescript@6.0.3)(zod@4.4.3):
     optionalDependencies:
       typescript: 6.0.3
-      zod: 4.3.6
+      zod: 4.4.3
 
   abort-error@1.0.2: {}
 
@@ -3641,14 +3641,14 @@ snapshots:
   acorn@8.18.0:
     optional: true
 
-  ajv-formats@3.0.1(ajv@8.18.0):
+  ajv-formats@3.0.1(ajv@8.20.0):
     optionalDependencies:
-      ajv: 8.18.0
+      ajv: 8.20.0
 
-  ajv@8.18.0:
+  ajv@8.20.0:
     dependencies:
       fast-deep-equal: 3.1.3
-      fast-uri: 3.1.0
+      fast-uri: 3.1.5
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
@@ -3760,11 +3760,11 @@ snapshots:
 
   conf@15.1.0:
     dependencies:
-      ajv: 8.18.0
-      ajv-formats: 3.0.1(ajv@8.18.0)
+      ajv: 8.20.0
+      ajv-formats: 3.0.1(ajv@8.20.0)
       atomically: 2.1.1
       debounce-fn: 6.0.0
-      dot-prop: 10.1.0
+      dot-prop: 10.2.0
       env-paths: 3.0.0
       json-schema-typed: 8.0.2
       semver: 7.8.5
@@ -3826,9 +3826,9 @@ snapshots:
     dependencies:
       from-exponential: 1.1.1
 
-  dot-prop@10.1.0:
+  dot-prop@10.2.0:
     dependencies:
-      type-fest: 5.4.4
+      type-fest: 5.8.0
 
   entities@4.5.0: {}
 
@@ -3930,9 +3930,9 @@ snapshots:
   fast-json-stringify@6.3.0:
     dependencies:
       '@fastify/merge-json-schemas': 0.2.1
-      ajv: 8.18.0
-      ajv-formats: 3.0.1(ajv@8.18.0)
-      fast-uri: 3.1.0
+      ajv: 8.20.0
+      ajv-formats: 3.0.1(ajv@8.20.0)
+      fast-uri: 3.1.5
       json-schema-ref-resolver: 3.0.0
       rfdc: 1.4.1
 
@@ -3946,7 +3946,7 @@ snapshots:
     dependencies:
       fast-string-truncated-width: 3.0.3
 
-  fast-uri@3.1.0: {}
+  fast-uri@3.1.5: {}
 
   fast-wrap-ansi@0.2.2:
     dependencies:
@@ -4013,7 +4013,7 @@ snapshots:
 
   html-escaper@2.0.2: {}
 
-  idb-keyval@6.2.2: {}
+  idb-keyval@6.3.0: {}
 
   ieee754@1.2.1: {}
 
@@ -4143,9 +4143,9 @@ snapshots:
   iso-kv@3.2.0:
     dependencies:
       conf: 15.1.0
-      idb-keyval: 6.2.2
+      idb-keyval: 6.3.0
       iso-base: 4.4.0
-      kysely: 0.29.2
+      kysely: 0.29.4
 
   iso-web@3.1.2:
     dependencies:
@@ -4294,7 +4294,7 @@ snapshots:
 
   json-with-bigint@3.5.8: {}
 
-  kysely@0.29.2: {}
+  kysely@0.29.4: {}
 
   libp2p@3.3.4:
     dependencies:
@@ -4461,7 +4461,7 @@ snapshots:
 
   on-exit-leak-free@2.1.2: {}
 
-  ox@0.14.20(typescript@6.0.3)(zod@4.3.6):
+  ox@0.14.20(typescript@6.0.3)(zod@4.4.3):
     dependencies:
       '@adraffy/ens-normalize': 1.11.1
       '@noble/ciphers': 1.3.0
@@ -4469,14 +4469,14 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.4(typescript@6.0.3)(zod@4.3.6)
+      abitype: 1.2.3(typescript@6.0.3)(zod@4.4.3)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 6.0.3
     transitivePeerDependencies:
       - zod
 
-  ox@0.14.29(typescript@6.0.3)(zod@4.3.6):
+  ox@0.14.33(typescript@6.0.3)(zod@4.4.3):
     dependencies:
       '@adraffy/ens-normalize': 1.11.1
       '@noble/ciphers': 1.3.0
@@ -4484,7 +4484,7 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.4(typescript@6.0.3)(zod@4.3.6)
+      abitype: 1.3.0(typescript@6.0.3)(zod@4.4.3)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 6.0.3
@@ -4497,13 +4497,13 @@ snapshots:
     dependencies:
       p-timeout: 7.0.1
 
-  p-limit@7.3.0:
+  p-limit@7.3.1:
     dependencies:
       yocto-queue: 1.2.2
 
   p-locate@7.0.0:
     dependencies:
-      p-limit: 7.3.0
+      p-limit: 7.3.1
 
   p-queue@9.3.3:
     dependencies:
@@ -4802,7 +4802,7 @@ snapshots:
 
   tunnel@0.0.6: {}
 
-  type-fest@5.4.4:
+  type-fest@5.8.0:
     dependencies:
       tagged-tag: 1.0.0
 
@@ -4863,15 +4863,15 @@ snapshots:
 
   varint@6.0.0: {}
 
-  viem@2.48.4(typescript@6.0.3)(zod@4.3.6):
+  viem@2.48.4(typescript@6.0.3)(zod@4.4.3):
     dependencies:
       '@noble/curves': 1.9.1
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@6.0.3)(zod@4.3.6)
+      abitype: 1.2.3(typescript@6.0.3)(zod@4.4.3)
       isows: 1.0.7(ws@8.18.3)
-      ox: 0.14.20(typescript@6.0.3)(zod@4.3.6)
+      ox: 0.14.20(typescript@6.0.3)(zod@4.4.3)
       ws: 8.18.3
     optionalDependencies:
       typescript: 6.0.3
@@ -4959,4 +4959,4 @@ snapshots:
 
   yocto-queue@1.2.2: {}
 
-  zod@4.3.6: {}
+  zod@4.4.3: {}
