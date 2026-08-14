@@ -1,17 +1,19 @@
 /**
  * CLI-facing migrate runner: option normalization, Synapse initialization,
- * payment validation, and the state DB lifecycle around `runMigrate`.
+ * payment validation, staging-budget setup, and the state DB lifecycle
+ * around `runMigrate`.
  */
 
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, statfs } from 'node:fs/promises'
 import { join } from 'node:path'
+import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { validatePaymentSetup } from '../common/upload-flow.js'
 import { getDataDirectory } from '../config.js'
 import { DEFAULT_COPIES, IPFS_INDEXED_METADATA } from '../core/synapse/constants.js'
-import { APPLICATION_SOURCE, initializeSynapse } from '../core/synapse/index.js'
+import { APPLICATION_SOURCE, getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
@@ -20,9 +22,10 @@ import { chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-eg
 import { DEFAULT_GATEWAYS } from './car-url.js'
 import { MigrationDB } from './db.js'
 import { DEFAULT_ASSUMED_WINDOW_MS } from './gc-window.js'
+import { formatBytes } from './metrics.js'
 import { DEFAULT_PACK_TARGET_BYTES, MAX_UPLOAD_BYTES } from './pack-cars.js'
-import { type MigrateMode, type MigrateSummary, runMigrate } from './run-migrate.js'
-import { parseCidList, parsePositiveInt, parseSize } from './util.js'
+import { type MigrateSummary, runMigrate } from './run-migrate.js'
+import { log, parseCidList, parsePositiveInt, parseSize } from './util.js'
 
 /**
  * Data-set metadata for migrate runs. Exact key-count matching makes migrate
@@ -35,28 +38,27 @@ export const MIGRATE_DATA_SET_METADATA = {
   migrate: 'true',
 } as const
 
+/** Fraction of the staging filesystem's free space the budget may claim. */
+const BUDGET_FREE_SPACE_FRACTION = 0.8
+
 /** Migrate options after CLI-flag normalization and validation. */
 export interface NormalizedMigrateOptions {
-  mode: MigrateMode
   packTargetBytes: number
   concurrency: number
   assumedWindowMs: number
   copies: number
   gateways: string[]
   withCDN: boolean
-  manifest: boolean
+  /** Explicit staging cap; null means derive from free disk space. */
+  maxStagedBytes: number | null
 }
 
 /**
- * Validate and normalize the migrate-specific Commander options. Pure, so the
- * flag defaults (streaming mode, egress none, manifest on) are unit-testable
- * without a network.
+ * Validate and normalize the migrate-specific Commander options. Pure, so
+ * the flag defaults (egress none, gateway list, pack target) are
+ * unit-testable without a network.
  */
 export function normalizeMigrateOptions(options: Record<string, unknown>): NormalizedMigrateOptions {
-  const mode = (options.mode ?? 'streaming') as string
-  if (mode !== 'streaming' && mode !== 'staged') {
-    throw new Error(`unknown --mode ${mode} (expected streaming|staged)`)
-  }
   const packTargetBytes = Number(parseSize(String(options.packTargetSize ?? DEFAULT_PACK_TARGET_BYTES.toString())))
   if (packTargetBytes > MAX_UPLOAD_BYTES) {
     throw new Error(`--pack-target-size ${packTargetBytes} exceeds the per-piece upload cap ${MAX_UPLOAD_BYTES}`)
@@ -72,40 +74,84 @@ export function normalizeMigrateOptions(options: Record<string, unknown>): Norma
   // Bulk archival should not pay CDN lockup by default; `--egress-provider
   // beam` opts in (the add/import default is the inverse).
   const egressProvider = (options.egressProvider as string | undefined) ?? 'none'
+  const maxStagedBytes = options.maxStagedBytes == null ? null : Number(parseSize(String(options.maxStagedBytes)))
+  if (maxStagedBytes != null && maxStagedBytes < 2 * packTargetBytes) {
+    throw new Error(
+      `--max-staged-bytes ${formatBytes(maxStagedBytes)} is too small: assembling one piece needs at least ` +
+        `2x the pack target (${formatBytes(2 * packTargetBytes)})`
+    )
+  }
   return {
-    mode: mode as MigrateMode,
     packTargetBytes,
     concurrency,
     assumedWindowMs: assumedWindowMinutes * 60_000,
     copies,
     gateways,
     withCDN: egressProvider === 'beam',
-    manifest: options.manifest !== false,
+    maxStagedBytes,
   }
 }
 
 /**
  * Resolve the migrate state paths under the platform data directory:
- * `<dataDir>/migrate/migrate.db` (unless `--db` overrides it) and
- * `<dataDir>/migrate/cars` for staged CAR files.
+ * `<dataDir>/migrate/migrate.db` (unless `--db` overrides it),
+ * `<dataDir>/migrate/members` for verified member CARs, and
+ * `<dataDir>/migrate/cars` for assembled pieces.
  */
 export function resolveMigratePaths(
   dataDir: string,
   dbFlag?: string
-): { migrateDir: string; dbPath: string; carStore: string } {
+): { migrateDir: string; dbPath: string; memberDir: string; carStore: string } {
   const migrateDir = join(dataDir, 'migrate')
   return {
     migrateDir,
     dbPath: dbFlag ?? join(migrateDir, 'migrate.db'),
+    memberDir: join(migrateDir, 'members'),
     carStore: join(migrateDir, 'cars'),
   }
 }
 
 /**
+ * Deduplicate a CID list by parsed bytes: CIDv0 and CIDv1 encodings of the
+ * same content are one migration item, and letting both through would stage
+ * the same bytes twice and collide inside a packed piece.
+ */
+export function dedupeCids(cids: string[]): { unique: string[]; duplicates: string[] } {
+  const seen = new Set<string>()
+  const unique: string[] = []
+  const duplicates: string[] = []
+  for (const cid of cids) {
+    let key: string
+    try {
+      key = CID.parse(cid).toV1().toString()
+    } catch {
+      // Not parseable as a CID; keep it so the download stage reports it
+      // as a per-CID failure instead of silently dropping the line.
+      key = cid
+    }
+    if (seen.has(key)) {
+      duplicates.push(cid)
+      continue
+    }
+    seen.add(key)
+    unique.push(cid)
+  }
+  return { unique, duplicates }
+}
+
+/** Staging budget from free disk space, capped by `--max-staged-bytes`. */
+export async function resolveStagingBudget(stagingDir: string, maxStagedBytes: number | null): Promise<number> {
+  const fs = await statfs(stagingDir)
+  const free = Number(fs.bavail) * Number(fs.bsize)
+  const fromDisk = Math.floor(free * BUDGET_FREE_SPACE_FRACTION)
+  return maxStagedBytes == null ? fromDisk : Math.min(fromDisk, maxStagedBytes)
+}
+
+/**
  * Normalize Commander options and run the migrate flow.
  *
- * Commander wiring calls this so option validation errors are displayed by the
- * command UI layer and command files only own exit-code handling.
+ * Commander wiring calls this so option validation errors are displayed by
+ * the command UI layer and command files only own exit-code handling.
  */
 export async function runMigrateFromCli(
   cidListFile: string,
@@ -118,14 +164,17 @@ export async function runMigrateFromCli(
 
   try {
     const normalized = normalizeMigrateOptions(options)
-    const { mode, packTargetBytes, concurrency, assumedWindowMs, copies, gateways, withCDN, manifest } = normalized
+    const { packTargetBytes, concurrency, assumedWindowMs, copies, gateways, withCDN, maxStagedBytes } = normalized
 
     const contextSelection = parseContextSelectionOptions(options)
 
     // Read the CID list before any network work so a bad path fails fast.
-    const cids = parseCidList(await readFile(cidListFile, 'utf8'))
+    const { unique: cids, duplicates } = dedupeCids(parseCidList(await readFile(cidListFile, 'utf8')))
     if (cids.length === 0) {
       throw new Error(`no CIDs found in ${cidListFile} (one CID per line; # comments and blank lines are ignored)`)
+    }
+    if (duplicates.length > 0) {
+      log(`ignoring ${duplicates.length} duplicate CID(s) in ${cidListFile}: ${duplicates.join(', ')}`)
     }
 
     spinner.start('Initializing Synapse SDK...')
@@ -140,16 +189,24 @@ export async function runMigrateFromCli(
       printEgressNotice('beam')
     }
 
-    // The total upload size is unknown until the commP pass runs, so validate
-    // the minimum payment setup here; per-batch capacity failures surface from
+    // The total upload size is unknown until CIDs download, so validate the
+    // minimum payment setup here; per-batch capacity failures surface from
     // the commit path with the payments hints.
     spinner.start('Checking payment setup...')
     await validatePaymentSetup(synapse, 0, spinner)
 
-    const { migrateDir, dbPath, carStore } = resolveMigratePaths(getDataDirectory(), options.db as string | undefined)
-    await mkdir(migrateDir, { recursive: true })
+    const { migrateDir, dbPath, memberDir, carStore } = resolveMigratePaths(
+      getDataDirectory(),
+      options.db as string | undefined
+    )
+    await mkdir(memberDir, { recursive: true })
+    await mkdir(carStore, { recursive: true })
+    const budgetBytes = await resolveStagingBudget(migrateDir, maxStagedBytes)
 
-    const db = new MigrationDB(dbPath, networkSlug)
+    // Scope state per network AND owner: two wallets on one machine must not
+    // resume each other's rows.
+    const scope = `${networkSlug}:${getClientAddress(synapse).toLowerCase()}`
+    const db = new MigrationDB(dbPath, scope)
     try {
       db.addCids(cids)
       cliLog.line(`Registered ${cids.length} CID(s) from ${cidListFile} (state: ${db.path})`)
@@ -158,30 +215,25 @@ export async function runMigrateFromCli(
       const summary = await runMigrate(db, {
         synapse,
         gateways,
+        memberDir,
         carStore,
-        mode,
         packTargetBytes,
         concurrency,
+        budgetBytes,
         copies,
         providerIds: contextSelection.providerIds,
         dataSetIds: contextSelection.dataSetIds,
         assumedWindowMs,
         dataSetMetadata: contextSelection.dataSetIds == null ? { ...MIGRATE_DATA_SET_METADATA } : undefined,
         withCDN,
-        manifest,
       })
 
       // stdout carries only the machine-readable summary; progress went to
       // stderr as it happened.
       console.log(JSON.stringify(summary, null, 2))
 
-      if (summary.manifest != null) {
-        cliLog.line(`Manifest root CID: ${pc.bold(summary.manifest.rootCid)}`)
-        cliLog.flush()
-      }
-
       if (migrateIncomplete(summary)) {
-        outro('Migrate finished with unmigrated CIDs: re-run to retry')
+        outro('Migrate finished with unmigrated CIDs; re-run to retry')
       } else {
         outro('Migrate completed successfully')
       }
@@ -207,7 +259,8 @@ export async function runMigrateFromCli(
 export function migrateIncomplete(summary: MigrateSummary): boolean {
   return (
     summary.pieces.failed > 0 ||
+    summary.pieces.pending > 0 ||
     summary.overCap.length > 0 ||
-    summary.providers.some((p) => p.failed > 0 || p.collected > 0)
+    summary.providers.some((p) => p.failed > 0 || p.collected > 0 || p.addUnconfirmed > 0)
   )
 }

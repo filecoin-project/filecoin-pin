@@ -14,7 +14,8 @@ import {
 // Drives the real runDirectUpload control flow with fake providers, to lock in
 // the direct-upload guarantees: store-then-batch-commit, the add_unconfirmed
 // breadcrumb, GC detection lowering the window and re-storing only what is
-// actually gone, and CAR eviction only after every copy is committed.
+// actually gone, commP verification of what the provider received, and CAR
+// eviction once the primary copy is committed.
 
 // Real PieceCIDs so CID.parse succeeds.
 const P1 = 'bafkzcibf3ck4uais4fgennh4hbfx5z3i6hue4xgq2cdeamtus4hjbsrjs5lf2azbxmsa'
@@ -22,23 +23,31 @@ const P2 = 'bafkzcibewpkqwewyhz3yxutlxbpt2nkb6si5qilg4qqtzzij32uw7ammsc73a4wkgi'
 
 const fakeSynapse = { chain: { name: 'calibration' } } as unknown as Synapse
 const OPTS: DirectUploadOptions = { synapse: fakeSynapse, copies: 2 }
+const SCOPE = 'calibration:0xabc'
 
 async function dbAt(name: string) {
   const dir = await mkdtemp(join(tmpdir(), `fp-${name}-`))
-  return { dir, db: new MigrationDB(join(dir, 'migrate.db'), 'calibration') }
+  return { dir, db: new MigrationDB(join(dir, 'migrate.db'), SCOPE) }
 }
 
 function seedBuilt(db: MigrationDB, subPieceCid: string, carPath: string) {
   const src = `src-${subPieceCid.slice(-8)}`
   db.addCids([src])
-  db.recordPieceSuccess(src, subPieceCid, 1024, 'g', `https://gw/ipfs/${src}?format=car`, null)
+  db.recordPieceSuccess(src, {
+    pieceCid: subPieceCid,
+    rawSize: 1024,
+    gateway: 'g',
+    url: `https://gw/ipfs/${src}?format=car`,
+    memberCarPath: `${carPath}.member`,
+    memberSha256: 'sha',
+  })
   db.recordBuiltSubPiece({
     subPieceCid,
     assembledCarLength: 1024,
     targetSizeBytes: 1024,
     carPath,
     assembledSha256: 'sha',
-    members: [{ cid: src, sha256: null, rawSize: 1024 }],
+    members: [{ cid: src, sha256: 'sha', rawSize: 1024 }],
   })
 }
 
@@ -48,6 +57,8 @@ interface FakeBehavior {
   /** Per-CID presence answers for hasPiece during re-verify. */
   present?: (cid: string) => boolean
   pullFails?: boolean
+  /** Store answers a different commitment than requested (commP mismatch). */
+  storeReturns?: (pieceCid: string) => string
   /** Receipt answers for add_unconfirmed reconciliation. Default: not landed. */
   txLanded?: (txHash: string) => boolean
   /** PiecesAdded event answers for landed-tx resolution. Default: none found. */
@@ -64,8 +75,10 @@ function fakeDeps(b: FakeBehavior = {}) {
     serviceURL: `fake://${providerId}`,
     dataSetId: b.ctxDataSetId ?? null,
     async store(_data, options) {
-      calls.store.push(`${providerId}:${String(options.pieceCid)}`)
-      return { pieceCid: options.pieceCid, size: 1024 }
+      const requested = String(options.pieceCid)
+      calls.store.push(`${providerId}:${requested}`)
+      const answered = b.storeReturns ? b.storeReturns(requested) : requested
+      return { pieceCid: answered, size: 1024 }
     },
     async presignForCommit() {
       return '0xfake'
@@ -134,6 +147,7 @@ describe('runDirectUpload', () => {
       expect(evicted).toHaveLength(2)
       expect(summary.providers[0]?.committed).toBe(2)
       expect(summary.providers[0]?.role).toBe('primary')
+      expect(summary.providers[0]?.addUnconfirmed).toBe(0)
       // The summary must surface the addPieces transactions behind the commits.
       expect(summary.providers[0]?.txHashes).toEqual(['0xtx-p1-1'])
       expect(summary.providers[1]?.txHashes).toEqual(['0xtx-p2-1'])
@@ -143,17 +157,60 @@ describe('runDirectUpload', () => {
     }
   })
 
-  it('secondary pull failure leaves the primary committed and the secondary failed', async () => {
+  it('secondary pull failure leaves the secondary failed but frees the CAR once the primary commits', async () => {
     const { dir, db } = await dbAt('du-pullfail')
     try {
       seedBuilt(db, P1, join(dir, 'a.car'))
       const { deps, evicted } = fakeDeps({ pullFails: true })
-      await runDirectUpload(db, OPTS, deps)
+      const summary = await runDirectUpload(db, OPTS, deps)
 
       expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(1)
       expect(db.uploadsByStatus('p2', 'failed')).toHaveLength(1)
-      // The CAR must survive: the secondary copy never landed.
+      // A secondary retry pulls provider-to-provider from the committed
+      // primary; it never needs the local file, so the CAR is evicted.
+      expect(evicted).toHaveLength(1)
+      // The failed copy still marks the run incomplete for the exit code.
+      expect(summary.providers[1]?.failed).toBe(1)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('a commP mismatch from store() fails the piece instead of committing the wrong bytes', async () => {
+    const { dir, db } = await dbAt('du-commp')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      const { deps, calls, evicted } = fakeDeps({ storeReturns: () => P2 })
+      await runDirectUpload(db, OPTS, deps)
+
+      const failed = db.uploadsByStatus('p1', 'failed')
+      expect(failed).toHaveLength(1)
+      expect(failed[0]?.error).toMatch(/commP mismatch/)
+      expect(calls.commit.get('p1') ?? 0).toBe(0)
       expect(evicted).toHaveLength(0)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('repairs a missing secondary copy left by a crash between store and pull', async () => {
+    const { dir, db } = await dbAt('du-repair')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      // The crash shape: the primary parked but the secondary pull never
+      // started, so the secondary has no row at all.
+      db.recordUploadParked(P1, 'p1', 'primary', null)
+      const { deps, calls } = fakeDeps()
+      await runDirectUpload(db, OPTS, deps)
+
+      // No re-store on the primary; the secondary copy was pulled and both
+      // copies committed.
+      expect(calls.store).toHaveLength(0)
+      expect(calls.pull).toBe(1)
+      expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(1)
+      expect(db.uploadsByStatus('p2', 'committed')).toHaveLength(1)
     } finally {
       db.close()
       await rm(dir, { recursive: true, force: true })
@@ -201,33 +258,37 @@ describe('runDirectUpload', () => {
       expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(1)
 
       // Second run: the tx actually landed on chain even though confirmation
-      // was missed. The reconciliation must leave the row alone: no store, no
-      // commit.
+      // was missed. The reconciliation must leave the row alone: no store,
+      // no commit: and the summary must count it.
       const second = fakeDeps({ txLanded: () => true })
-      await runDirectUpload(db, OPTS, second.deps)
+      const summary = await runDirectUpload(db, OPTS, second.deps)
       expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(1)
       expect(second.calls.store.filter((s) => s.startsWith('p1:'))).toHaveLength(0)
       expect(second.calls.commit.get('p1') ?? 0).toBe(0)
+      expect(summary.providers[0]?.addUnconfirmed).toBe(1)
     } finally {
       db.close()
       await rm(dir, { recursive: true, force: true })
     }
   })
 
-  it('a landed tx with a verifiable PiecesAdded event auto-resolves to committed', async () => {
+  it('a landed tx resolves from the PiecesAdded event using the data set recorded on the row', async () => {
     const { dir, db } = await dbAt('du-landed-event')
     try {
       seedBuilt(db, P1, join(dir, 'a.car'))
       const first = fakeDeps({
+        ctxDataSetId: '7',
         failCommit: { providerId: 'p1', call: 1, message: 'confirmation poll timed out' },
       })
       await runDirectUpload(db, OPTS, first.deps)
       expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(1)
 
+      // Second run opens fresh contexts with no resolved data set; the row's
+      // own data_set_id (recorded when the piece parked) must drive the
+      // event lookup.
       const second = fakeDeps({
         txLanded: () => true,
-        ctxDataSetId: '7',
-        addPiecesEvent: () => ({ pieceIds: [42n], pieceCids: [P1] }),
+        addPiecesEvent: (dataSetId) => (dataSetId === 7 ? { pieceIds: [42n], pieceCids: [P1] } : null),
       })
       await runDirectUpload(db, OPTS, second.deps)
       const committed = db.uploadsByStatus('p1', 'committed')
@@ -242,7 +303,7 @@ describe('runDirectUpload', () => {
     }
   })
 
-  it('non-GC commit failure leaves the batch add_unconfirmed, and a later run reconciles it', async () => {
+  it('non-GC commit failure leaves the batch add_unconfirmed with no stale tx hash after re-park', async () => {
     const { dir, db } = await dbAt('du-unconfirmed')
     try {
       seedBuilt(db, P1, join(dir, 'a.car'))
@@ -253,10 +314,13 @@ describe('runDirectUpload', () => {
       expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(1)
 
       // Second run: the piece is still parked on the provider, so the resume
-      // reconciliation re-queues it and the commit lands: without re-storing.
+      // reconciliation re-queues it and the commit lands, without re-storing
+      // and with the failed attempt's tx hash replaced by the real one.
       const second = fakeDeps()
       await runDirectUpload(db, OPTS, second.deps)
-      expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(1)
+      const committed = db.uploadsByStatus('p1', 'committed')
+      expect(committed).toHaveLength(1)
+      expect(committed[0]?.txHash).toBe('0xtx-p1-1')
       expect(second.calls.store.filter((s) => s.startsWith('p1:'))).toHaveLength(0)
     } finally {
       db.close()
@@ -264,15 +328,15 @@ describe('runDirectUpload', () => {
     }
   })
 
-  it('scopes state per network: another network sees none of the rows', async () => {
-    const { dir, db } = await dbAt('du-network')
+  it('scopes state: another network/owner scope sees none of the rows', async () => {
+    const { dir, db } = await dbAt('du-scope')
     try {
       seedBuilt(db, P1, join(dir, 'a.car'))
       const { deps } = fakeDeps()
       await runDirectUpload(db, OPTS, deps)
       expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(1)
 
-      const other = new MigrationDB(db.path, 'mainnet')
+      const other = new MigrationDB(db.path, 'mainnet:0xdef')
       try {
         expect(other.subPiecesNeedingUpload('p1')).toHaveLength(0)
         expect(other.uploadsByStatus('p1', 'committed')).toHaveLength(0)

@@ -38,38 +38,6 @@ export function parseSize(input: string): bigint {
   return value * multiplier
 }
 
-/**
- * Run `fn` over `items` with at most `limit` in flight at once. Preserves input
- * order in the returned array. Rejections are captured per-item so one failure
- * does not abort the whole batch.
- */
-export async function pool<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T, index: number) => Promise<R>
-): Promise<Array<{ ok: true; value: R } | { ok: false; error: Error }>> {
-  const results = new Array<{ ok: true; value: R } | { ok: false; error: Error }>(items.length)
-  let cursor = 0
-
-  async function worker(): Promise<void> {
-    while (cursor < items.length) {
-      const index = cursor++
-      // `index < items.length` guarantees the element exists; the cast covers
-      // noUncheckedIndexedAccess.
-      const item = items[index] as T
-      try {
-        results[index] = { ok: true, value: await fn(item, index) }
-      } catch (err) {
-        results[index] = { ok: false, error: err instanceof Error ? err : new Error(String(err)) }
-      }
-    }
-  }
-
-  const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker())
-  await Promise.all(workers)
-  return results
-}
-
 /** Parse a positive integer flag value; throws a clear error for missing or non-positive input. */
 export function parsePositiveInt(raw: string | undefined, flag: string): number {
   if (raw == null) {

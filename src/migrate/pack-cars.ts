@@ -1,5 +1,5 @@
 /**
- * Pack multiple source CIDs into one multi-root CAR sub-piece.
+ * Pack verified member CARs into multi-root CAR pieces.
  *
  * Uploading one piece per source CID caps throughput on per-piece overhead
  * (store round-trips, addPieces batch slots). Packing groups M source CIDs
@@ -7,34 +7,22 @@
  * the number of pieces (and the number of addPieces slots) drops by ~M.
  *
  * Pack stage:
- *   1. Sort source pieces by parsed CID bytes (CIDv0 and CIDv1 of the same DAG
- *      collapse). The sort order pins the multi-root CAR's bytes.
- *   2. Largest-first bin pack under `--pack-target-size` (raw bytes, not
- *      padded). A piece whose own raw size exceeds the target ships alone in
- *      its own bin, as long as it fits one uploadable piece; anything over the
- *      SDK's per-piece upload cap genuinely cannot migrate on this path.
- *   3. Inside each pack plan, reject if a member CID appears twice:
- *      Curio's indexer collapses duplicate `(piece_cid, payload_multihash)`
- *      rows, so a collision would silently lose one copy.
- *
- * Build stage (one bin at a time):
- *   - Re-fetch each member CAR in canonical order via the block-verified
- *     canonical path (`gateway-blocks.ts`): the same serialization the commP
- *     pass hashed, so a truncated gateway response can never silently drop
- *     blocks from the assembled piece.
- *   - Walk it via `@ipld/car`'s `CarBlockIterator`; rejecting any zero-length
- *     section catches the truncation hazard in Curio's indexer
- *     (`ZeroLengthSectionAsEOF(true)`).
- *   - Re-emit through `CarWriter` (single multi-root header + deterministic
- *     `varint(len) || cid || data` framing).
- *   - Tee bytes into the piece hasher and a sha256 digest, and write through
- *     to a file under the staging directory.
- *   - Record the sub-piece row (with members) atomically once the assembled
- *     commitment is computed and the file is on disk.
+ *   1. Bin-pack the free verified members largest-first under the pack
+ *      target. Within each bin, members sort by parsed CID bytes (CIDv0 and
+ *      CIDv1 of the same DAG collapse), which pins the multi-root CAR's
+ *      bytes.
+ *   2. Assemble each bin from the LOCAL member files, streaming block by
+ *      block: no member CAR is ever buffered whole, so memory stays bounded
+ *      regardless of piece size. The assembled piece commitment and sha256
+ *      are computed from the same write stream.
+ *   3. Record the piece row and its member list in one transaction, then
+ *      delete the member files. A crash before the record leaves the members
+ *      intact and the bin rebuilds; a crash after it leaves redundant member
+ *      files the next run sweeps.
  */
 
 import { createHash } from 'node:crypto'
-import { createWriteStream } from 'node:fs'
+import { createReadStream, createWriteStream } from 'node:fs'
 import { mkdir, rename, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { hasher } from '@filoz/synapse-core/piece'
@@ -42,11 +30,10 @@ import { SIZE_CONSTANTS } from '@filoz/synapse-sdk'
 import { CarBlockIterator, CarWriter } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import type { MigrationDB, PieceRow } from './db.js'
-import { fetchCanonicalCar } from './gateway-blocks.js'
 import { log } from './util.js'
 
 /**
- * Default target raw size for one assembled sub-piece. 1016 MiB is the SDK's
+ * Default target raw size for one assembled piece. 1016 MiB is the SDK's
  * per-piece cap; 1000 MiB leaves headroom for the multi-root CAR header and
  * framing the bin-packing weight ignores.
  */
@@ -72,9 +59,9 @@ export interface PackedBin {
 /**
  * Compare two CID strings by their parsed binary form. CIDv0 (`Qm...`) and
  * CIDv1 (`baf...`) of the same DAG produce wildly different lexicographic
- * orderings on the string form; comparing parsed bytes collapses that alias so
- * a single canonical ordering exists regardless of which form the source CID
- * was registered as.
+ * orderings on the string form; comparing parsed bytes collapses that alias
+ * so a single canonical ordering exists regardless of which form the source
+ * CID was registered as.
  */
 export function compareCidBytes(a: string, b: string): number {
   const ba = CID.parse(a).bytes
@@ -91,10 +78,10 @@ export function compareCidBytes(a: string, b: string): number {
 }
 
 /**
- * Largest-first bin pack under `targetSizeBytes` (raw bytes). Pieces above the
- * target on their own are returned in the `oversized` list so the caller can
- * ship each as a single-member bin (or refuse it past the upload cap). Within
- * each bin the members are emitted in canonical sort order.
+ * Largest-first bin pack under `targetSizeBytes` (raw bytes). Pieces above
+ * the target on their own are returned in the `oversized` list so the caller
+ * can ship each as a single-member bin (or refuse it past the upload cap).
+ * Within each bin the members are emitted in canonical sort order.
  */
 export function planBins(
   pieces: PackPlanInput[],
@@ -105,7 +92,6 @@ export function planBins(
   }
   // Reject the CID collision up-front: the same source CID appearing twice in
   // the plan would collapse to one indexed entry on the provider side.
-  // Higher-level callers should de-duplicate the input.
   const seen = new Set<string>()
   for (const p of pieces) {
     if (seen.has(p.cid)) {
@@ -150,8 +136,8 @@ export function planBins(
 
 /**
  * Sink shape that `assembleMultiRootCar` writes through. The file-store
- * implementation writes through to disk; tests can pass an in-memory stand-in
- * to verify the assembly without touching the filesystem.
+ * implementation writes through to disk; tests can pass an in-memory
+ * stand-in to verify the assembly without touching the filesystem.
  */
 export interface WritableStreamWithLength {
   write(chunk: Uint8Array): Promise<void>
@@ -159,49 +145,20 @@ export interface WritableStreamWithLength {
 }
 
 /**
- * Build a multi-root CAR from a list of member CARs.
+ * Build a multi-root CAR from member CAR streams, one block at a time.
  *
- * The result is fully streamed: the function writes `Uint8Array` chunks to the
- * sink as blocks become available, computes the assembled PieceCID v2, the
- * assembled sha256, and the total byte length, and verifies every member CAR's
- * bytes by walking the `CarBlockIterator`. A zero-length section in any member
- * causes a hard rejection: the provider's indexer would silently truncate the
- * rest of the block stream (`ZeroLengthSectionAsEOF(true)`).
+ * Each member is opened in canonical order, its declared roots checked
+ * against the expected CID, and its blocks copied straight into the writer:
+ * at no point is a whole member CAR held in memory, so a full-size piece
+ * assembles in constant memory. A zero-length block section in any member is
+ * a hard rejection. Curio's indexer treats it as EOF and would silently
+ * truncate everything after it (`ZeroLengthSectionAsEOF(true)`).
  */
 export async function assembleMultiRootCar(
-  memberStreams: Array<{ cid: string; body: ReadableStream<Uint8Array> }>,
+  members: Array<{ cid: string; open(): ReadableStream<Uint8Array> }>,
   sink: WritableStreamWithLength
 ): Promise<{ pieceCid: string; assembledBytes: number; sha256: string; roots: string[] }> {
-  // Walk each member CAR first to surface its roots and validate the block
-  // stream (rejecting zero-length sections). Then re-emit through CarWriter so
-  // the output is one deterministic multi-root CAR.
-  const roots: CID[] = []
-  const blockRuns: Array<{ cid: CID; bytes: Uint8Array }[]> = []
-  for (const member of memberStreams) {
-    const expected = CID.parse(member.cid)
-    const reader = await CarBlockIterator.fromIterable(toAsyncIterable(member.body))
-    const blocks: Array<{ cid: CID; bytes: Uint8Array }> = []
-    for await (const block of reader) {
-      if (block.bytes.length === 0) {
-        // Curio's indexer treats a zero-length block section as EOF and stops
-        // walking the rest of the CAR; the missing blocks never become
-        // retrievable. Refuse to assemble such a member.
-        throw new Error(
-          `member ${member.cid}: zero-length block section at cid ${block.cid.toString()}: indexer would truncate`
-        )
-      }
-      blocks.push({ cid: block.cid, bytes: block.bytes })
-    }
-    const memberRoots = await reader.getRoots()
-    if (!memberRoots.some((r) => r.equals(expected) || r.toString() === member.cid)) {
-      throw new Error(
-        `member ${member.cid}: CAR root mismatch: declares [${memberRoots.map((r) => r.toString()).join(', ')}]`
-      )
-    }
-    roots.push(expected)
-    blockRuns.push(blocks)
-  }
-
+  const roots = members.map((m) => CID.parse(m.cid))
   const { writer, out } = CarWriter.create(roots)
   const pieceHasher = hasher()
   const sha = createHash('sha256')
@@ -216,18 +173,39 @@ export async function assembleMultiRootCar(
     }
   })()
 
-  for (const run of blockRuns) {
-    for (const block of run) {
-      await writer.put(block)
+  try {
+    for (const member of members) {
+      const expected = CID.parse(member.cid)
+      const reader = await CarBlockIterator.fromIterable(toAsyncIterable(member.open()))
+      const memberRoots = await reader.getRoots()
+      if (!memberRoots.some((r) => r.equals(expected) || r.toString() === member.cid)) {
+        throw new Error(
+          `member ${member.cid}: CAR root mismatch (declares [${memberRoots.map((r) => r.toString()).join(', ')}])`
+        )
+      }
+      for await (const block of reader) {
+        if (block.bytes.length === 0) {
+          throw new Error(
+            `member ${member.cid}: zero-length block section at cid ${block.cid.toString()}; indexer would truncate`
+          )
+        }
+        await writer.put(block)
+      }
     }
+  } catch (err) {
+    // Release the writer, the drain loop, and the sink's file descriptor
+    // before surfacing the member error; their own failures are secondary.
+    await writer.close().catch(() => undefined)
+    await drained.catch(() => undefined)
+    await sink.end().catch(() => undefined)
+    throw err
   }
   await writer.close()
   await drained
   await sink.end()
 
-  const pieceCid = pieceHasher.finalize().toString()
   return {
-    pieceCid,
+    pieceCid: pieceHasher.finalize().toString(),
     assembledBytes,
     sha256: sha.digest('hex'),
     roots: roots.map((r) => r.toString()),
@@ -241,20 +219,16 @@ async function* toAsyncIterable(body: ReadableStream<Uint8Array>): AsyncIterable
 }
 
 /**
- * Stream-write sink backed by a file under the staging directory. The file is
- * flushed via the regular WriteStream `end`; a write or open failure unlinks
- * the partial file and surfaces the original error.
+ * Stream-write sink backed by a file under the staging directory. A write or
+ * open failure unlinks the partial file and surfaces the original error.
  */
-export function createCarStoreSink(filePath: string): WritableStreamWithLength {
+export function createCarStoreSink(filePath: string, onBytes?: (delta: number) => void): WritableStreamWithLength {
   const stream = createWriteStream(filePath)
   let firstError: Error | null = null
   let cleanupDone = false
   const unlinkPartial = async () => {
     if (cleanupDone) return
     cleanupDone = true
-    // The file may not exist (createWriteStream's open failed) or may be
-    // partially written. unlink errors are swallowed: the failure we surface
-    // is the write/open error, not the cleanup error.
     await unlink(filePath).catch(() => undefined)
   }
   stream.on('error', (err) => {
@@ -264,6 +238,7 @@ export function createCarStoreSink(filePath: string): WritableStreamWithLength {
   return {
     write(chunk) {
       if (firstError != null) return Promise.reject(firstError)
+      onBytes?.(chunk.length)
       return new Promise<void>((resolve, reject) => {
         if (firstError != null) {
           reject(firstError)
@@ -300,12 +275,14 @@ export function createCarStoreSink(filePath: string): WritableStreamWithLength {
 }
 
 export interface PackCarsOptions {
-  /** Source-CAR gateways, used to re-fetch member CARs during assembly. */
-  gateways: string[]
-  /** Per-sub-piece raw-size budget. Default `DEFAULT_PACK_TARGET_BYTES`. */
+  /** Per-piece raw-size budget. Default `DEFAULT_PACK_TARGET_BYTES`. */
   targetSizeBytes?: number
   /** Directory under which assembled CAR files are persisted. */
   carStore: string
+  /** Byte-accounting hook for assembly writes (the disk-budget counter). */
+  onBytesStaged?: ((delta: number) => void) | undefined
+  /** Byte-accounting hook fired as each member file is deleted post-record. */
+  onMemberEvicted?: ((bytes: number) => void) | undefined
 }
 
 export interface PackCarsSummary {
@@ -315,27 +292,27 @@ export interface PackCarsSummary {
   /** Source CIDs skipped because they exceed the per-piece upload cap. */
   overCap: string[]
   /**
-   * Source CIDs whose bin failed to assemble. They stay `done` and re-enter the
-   * free pool on the next run (a transient gateway flap recovers); a CID that
-   * keeps reappearing here across runs has a permanent assembly problem the
-   * operator must investigate. Surfaced per-CID because `failed` counts bins,
-   * not CIDs.
+   * Source CIDs whose bin failed to assemble. They stay `done` and re-enter
+   * the free pool on the next run; a CID that keeps reappearing here has a
+   * permanent assembly problem the operator must investigate. Surfaced
+   * per-CID because `failed` counts bins, not CIDs.
    */
   failedMemberCids: string[]
 }
 
 /** The bin assembler `runPackCars` drives; injectable so the pack loop's
- *  success/failure accounting is testable without re-fetching member CARs. */
+ *  success/failure accounting is testable without real member files. */
 export type BinBuilder = (
   bin: PackedBin,
   carStore: string,
-  gateways: string[]
+  memberPaths: Map<string, string>,
+  onBytes?: (delta: number) => void
 ) => Promise<{ pieceCid: string; assembledBytes: number; sha256: string; filePath: string }>
 
 /**
- * Drive the pack stage end-to-end: bin the free `done` pieces, assemble each
- * bin to disk, record each sub-piece row. Idempotent: re-running picks up
- * only pieces not yet locked into a sub-piece.
+ * Drive the pack stage: bin the free verified members, assemble each bin
+ * from local member files, record it, delete the member files. Idempotent:
+ * re-running picks up only members not yet locked into a piece.
  */
 export async function runPackCars(
   db: MigrationDB,
@@ -348,21 +325,23 @@ export async function runPackCars(
   }
   await mkdir(opts.carStore, { recursive: true })
 
-  // Snapshot the free pieces once. planBins partitions them into disjoint
-  // bins, so the member-size map built here stays valid for every bin even as
-  // each recordBuiltSubPiece locks its own members: a later bin never
-  // references a CID an earlier bin already claimed.
+  // Snapshot the free members once. planBins partitions them into disjoint
+  // bins, so this map stays valid for every bin even as each
+  // recordBuiltSubPiece locks its own members.
   const free = db.donePiecesFreeForPacking()
   const piecesByCid = new Map<string, PieceRow>(free.map((p) => [p.cid, p]))
-  const inputsForBuild: PackPlanInput[] = free.map((p) => ({
-    cid: p.cid,
-    rawSize: p.rawSize ?? 0,
-  }))
+  const memberPaths = new Map<string, string>()
+  for (const p of free) {
+    if (p.memberCarPath != null) memberPaths.set(p.cid, p.memberCarPath)
+  }
+  const inputsForBuild: PackPlanInput[] = free
+    .filter((p) => p.memberCarPath != null)
+    .map((p) => ({ cid: p.cid, rawSize: p.rawSize ?? 0 }))
   const { bins, oversized } = planBins(inputsForBuild, target)
 
-  // An oversized-for-bin piece still ships as a CAR file, alone in its own
-  // bin, as long as it fits one uploadable piece. Anything over the per-piece
-  // cap genuinely cannot migrate on this path.
+  // An oversized-for-bin member still ships as its own single-member piece,
+  // as long as it fits one uploadable piece. Anything over the per-piece cap
+  // genuinely cannot migrate on this path.
   const overCap: string[] = []
   for (const p of oversized) {
     if (p.rawSize > MAX_UPLOAD_BYTES) {
@@ -375,12 +354,28 @@ export async function runPackCars(
 
   const summary: PackCarsSummary = { bins: bins.length, built: 0, failed: 0, overCap, failedMemberCids: [] }
   for (const bin of bins) {
+    // Track this bin's writes so a failed assembly returns its bytes to the
+    // budget along with the unlinked partial file.
+    let binWritten = 0
+    const onBytes = (delta: number): void => {
+      binWritten += delta
+      opts.onBytesStaged?.(delta)
+    }
     try {
-      const built = await buildBin(bin, opts.carStore, opts.gateways)
-      // One transaction inserts the sub_piece row in `built` status alongside
-      // its members. A crash anywhere before this returns leaves no partial DB
-      // state: the CAR file on disk is the only stranded artifact, and the
-      // next pack pass can rebuild and replace it.
+      const built = await buildBin(bin, opts.carStore, memberPaths, onBytes)
+      // The multi-root header and framing add bytes the planning weight
+      // ignores; the assembled length is what the SDK caps.
+      if (built.assembledBytes > MAX_UPLOAD_BYTES) {
+        await unlink(built.filePath).catch(() => undefined)
+        throw new Error(
+          `assembled piece ${built.pieceCid} is ${built.assembledBytes} bytes, over the ${MAX_UPLOAD_BYTES}-byte cap; ` +
+            `lower --pack-target-size`
+        )
+      }
+      // One transaction inserts the piece row alongside its members. A crash
+      // anywhere before this returns leaves no partial DB state: the CAR
+      // file on disk is the only stranded artifact, and the next pack pass
+      // rebuilds it.
       db.recordBuiltSubPiece({
         subPieceCid: built.pieceCid,
         assembledCarLength: built.assembledBytes,
@@ -390,20 +385,27 @@ export async function runPackCars(
         members: bin.memberCids.map((cid) => ({
           cid,
           rawSize: piecesByCid.get(cid)?.rawSize ?? null,
-          sha256: null,
+          sha256: piecesByCid.get(cid)?.memberSha256 ?? null,
         })),
       })
-      log(`  + sub-piece ${built.pieceCid} (${built.assembledBytes} bytes, ${bin.memberCids.length} member(s))`)
+      // Members are redundant now that the recorded piece holds their bytes.
+      for (const cid of bin.memberCids) {
+        const memberPath = memberPaths.get(cid)
+        if (memberPath != null) {
+          await unlink(memberPath).catch(() => undefined)
+          opts.onMemberEvicted?.(piecesByCid.get(cid)?.rawSize ?? 0)
+        }
+      }
+      log(`  + piece ${built.pieceCid} (${built.assembledBytes} bytes, ${bin.memberCids.length} member(s))`)
       summary.built += 1
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      // Surface which source CIDs failed to pack: `failed` alone counts bins,
-      // not CIDs, so without this the operator can't tell what didn't migrate.
       // No DB write: the members stay `done` and a transient failure recovers
-      // on the next run; a CID that keeps failing here is a permanent problem
-      // to investigate, not a silent drop.
+      // on the next pass. The partial bin file is gone, so its bytes return
+      // to the budget.
+      if (binWritten > 0) opts.onBytesStaged?.(-binWritten)
       summary.failedMemberCids.push(...bin.memberCids)
-      log(`  ! sub-piece build failed (${bin.memberCids.length} member(s): ${bin.memberCids.join(', ')}): ${message}`)
+      log(`  ! piece build failed (${bin.memberCids.length} member(s): ${bin.memberCids.join(', ')}): ${message}`)
       summary.failed += 1
     }
   }
@@ -411,68 +413,28 @@ export async function runPackCars(
   return summary
 }
 
-/**
- * Fetch a member CAR via the canonical block-verified path, trying each
- * gateway in order until one yields a body. A single gateway flap must not
- * fail the whole bin when fallbacks are configured.
- */
-async function fetchCarFromAnyGateway(gateways: string[], cid: string): Promise<{ body: ReadableStream<Uint8Array> }> {
-  const errors: string[] = []
-  for (const gateway of gateways) {
-    try {
-      return await fetchCanonicalCar(gateway, cid)
-    } catch (err) {
-      errors.push(`${gateway}: ${err instanceof Error ? err.message : String(err)}`)
-    }
-  }
-  throw new Error(`all gateways failed for ${cid}: ${errors.join('; ')}`)
-}
-
 async function buildOneBin(
   bin: PackedBin,
   carStore: string,
-  gateways: string[]
+  memberPaths: Map<string, string>,
+  onBytes?: (delta: number) => void
 ): Promise<{ pieceCid: string; assembledBytes: number; sha256: string; filePath: string }> {
-  // Fetch lazily, one member at a time. Pre-fetching all member streams in
-  // parallel keeps the later ones idle while the first is consumed; the
-  // gateway closes those idle response bodies after its inactivity timeout
-  // and the consumer sees `Unexpected end of data`. Streaming each member in
-  // turn keeps every response under active read. The assembler iterates
-  // `memberStreams` sequentially, so each body materialises just before its
-  // bytes are read.
-  const memberStreams: Array<{ cid: string; body: ReadableStream<Uint8Array> }> = bin.memberCids.map((cid) => {
-    let lazy: ReadableStream<Uint8Array> | null = null
+  const members = bin.memberCids.map((cid) => {
+    const memberPath = memberPaths.get(cid)
+    if (memberPath == null) {
+      throw new Error(`member ${cid} has no staged CAR file`)
+    }
     return {
       cid,
-      get body(): ReadableStream<Uint8Array> {
-        if (lazy != null) return lazy
-        const promise = fetchCarFromAnyGateway(gateways, cid).then((r) => r.body)
-        lazy = new ReadableStream<Uint8Array>({
-          async start(controller) {
-            try {
-              const body = await promise
-              const reader = body.getReader()
-              while (true) {
-                const { value, done } = await reader.read()
-                if (done) break
-                controller.enqueue(value)
-              }
-              controller.close()
-            } catch (err) {
-              controller.error(err)
-            }
-          },
-        })
-        return lazy
-      },
+      open: () => webStreamFromFile(memberPath),
     }
   })
 
   const tmpName = `pack-${process.pid}-${Date.now()}.car`
   const tmpPath = path.join(carStore, tmpName)
-  const sink = createCarStoreSink(tmpPath)
+  const sink = createCarStoreSink(tmpPath, onBytes)
   try {
-    const result = await assembleMultiRootCar(memberStreams, sink)
+    const result = await assembleMultiRootCar(members, sink)
     const finalPath = path.join(carStore, `${result.pieceCid}.car`)
     // Rename through the same directory so it's an atomic move on local FS.
     await rename(tmpPath, finalPath)
@@ -486,4 +448,9 @@ async function buildOneBin(
     await unlink(tmpPath).catch(() => undefined)
     throw err
   }
+}
+
+function webStreamFromFile(filePath: string): ReadableStream<Uint8Array> {
+  const from = (ReadableStream as unknown as { from(it: AsyncIterable<Uint8Array>): ReadableStream<Uint8Array> }).from
+  return from(createReadStream(filePath) as unknown as AsyncIterable<Uint8Array>)
 }

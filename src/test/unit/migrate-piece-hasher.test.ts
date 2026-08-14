@@ -46,7 +46,7 @@ async function rawBlock(seed: number, size: number): Promise<{ cid: CID; bytes: 
   return { cid: CID.createV1(raw.code, digest), bytes }
 }
 
-async function memberCar(seed: number): Promise<{ cid: string; body: ReadableStream<Uint8Array> }> {
+async function memberCar(seed: number): Promise<{ cid: string; open(): ReadableStream<Uint8Array> }> {
   const block = await rawBlock(seed, 256 + seed)
   const { writer, out } = CarWriter.create([block.cid])
   const chunks: Uint8Array[] = []
@@ -57,7 +57,7 @@ async function memberCar(seed: number): Promise<{ cid: string; body: ReadableStr
   await writer.close()
   await drained
   const from = (ReadableStream as unknown as { from(it: Iterable<Uint8Array>): ReadableStream<Uint8Array> }).from
-  return { cid: block.cid.toString(), body: from(chunks) }
+  return { cid: block.cid.toString(), open: () => from([...chunks]) }
 }
 
 function memorySink(): { sink: WritableStreamWithLength; bytes: () => Uint8Array } {
@@ -101,7 +101,7 @@ describe('assembleMultiRootCar', () => {
     const member = await memberCar(3)
     const other = await memberCar(5)
     const { sink } = memorySink()
-    await expect(assembleMultiRootCar([{ cid: other.cid, body: member.body }], sink)).rejects.toThrow(
+    await expect(assembleMultiRootCar([{ cid: other.cid, open: member.open }], sink)).rejects.toThrow(
       /CAR root mismatch/
     )
   })

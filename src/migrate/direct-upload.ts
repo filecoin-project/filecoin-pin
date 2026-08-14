@@ -53,11 +53,19 @@ export interface DirectUploadOptions {
   /** Route retrieval through the FilBeam egress CDN. */
   withCDN?: boolean | undefined
   /**
-   * Streaming hook: called when no sub-piece is currently pending. Resolves
+   * Pipeline hook: called when no sub-piece is currently pending. Resolves
    * true when new sub-pieces may have appeared (re-poll), false when the
    * source is drained. Absent means the source was fully staged up-front.
    */
   waitForMore?: (() => Promise<boolean>) | undefined
+  /**
+   * Pipeline hook: when it returns true while the upload queue is empty,
+   * parked pieces are flushed immediately instead of waiting for a full
+   * batch or the GC-window timer. The disk-budget gate uses this so blocked
+   * downloads are never left waiting on a commit the batcher sees no reason
+   * to hurry.
+   */
+  forceFlush?: (() => boolean) | undefined
 }
 
 /** The storage-context surface the loop drives; narrowed for fakes in tests. */
@@ -172,6 +180,12 @@ export interface DirectUploadSummary {
     committed: number
     collected: number
     failed: number
+    /**
+     * Pieces whose addPieces outcome is unknown (the attempt was made but
+     * never confirmed either way). Anything non-zero means the run is
+     * incomplete: resolve on chain before retrying.
+     */
+    addUnconfirmed: number
     flushes: number
     assumedWindowMs: number
     /** Distinct addPieces transaction hashes behind the committed pieces. */
@@ -271,7 +285,7 @@ export async function runDirectUpload(
   // row is the piece's provenance), so track what this run already unlinked.
   const evictedPaths = new Set<string>()
   const evictCommitted = async (): Promise<void> => {
-    for (const path of db.carPathsFullyCommitted()) {
+    for (const path of db.carPathsEvictable()) {
       if (evictedPaths.has(path)) continue
       await deps.evictCar(path)
       evictedPaths.add(path)
@@ -309,12 +323,22 @@ export async function runDirectUpload(
   // Main loop: store on the primary, fan out to secondaries, flush as batches
   // and window timers demand. Sequential per piece: the upstream bandwidth is
   // the bottleneck, and one in-flight store keeps the disk footprint bounded.
-  // In streaming mode an empty pending list means "wait for the packer", not
+  // In the pipeline an empty pending list means "wait for the packer", not
   // "done": `waitForMore` resolves false only when the source is drained.
+  // A piece the provider disagreed with (commP mismatch) is deterministic for
+  // these bytes; skip it for the rest of the run instead of re-storing it in
+  // a loop.
+  const mismatched = new Set<string>()
   for (;;) {
     const pending = db.subPiecesNeedingUpload(primary.providerId)
-    const next = pending[0]
+    const next = pending.find((p) => !mismatched.has(p.subPieceCid))
     if (next == null) {
+      if (opts.forceFlush?.() === true) {
+        // Downloads are blocked on the disk budget; commit whatever is
+        // parked now so eviction can free space, rather than holding the
+        // batch for the GC-window timer.
+        await maybeFlush(true)
+      }
       if (opts.waitForMore != null && (await opts.waitForMore())) {
         continue
       }
@@ -327,7 +351,18 @@ export async function runDirectUpload(
     }
 
     const storeTimer = new Timer()
-    const stored = await storeCar(primary, deps, next.carPath, next.subPieceCid)
+    let stored: { size: number }
+    try {
+      stored = await storeCar(primary, deps, next.carPath, next.subPieceCid)
+    } catch (err) {
+      if (err instanceof CommPMismatchError) {
+        db.markUploadFailed(next.subPieceCid, primary.providerId, 'primary', err.message)
+        mismatched.add(next.subPieceCid)
+        log(`error: ${err.message}`)
+        continue
+      }
+      throw err
+    }
     storedBytes += stored.size
     db.recordUploadParked(next.subPieceCid, primary.providerId, 'primary', primary.dataSetId)
     log(
@@ -335,6 +370,10 @@ export async function runDirectUpload(
         `in ${formatDuration(storeTimer.stop())}`
     )
 
+    // Check the flush timers before the secondary fanout as well as after: a
+    // slow provider-to-provider pull must not age already-parked pieces past
+    // the GC window.
+    await maybeFlush(false)
     for (const secondary of secondaries) {
       await pullToSecondary(db, primary, secondary, next.subPieceCid)
     }
@@ -348,13 +387,23 @@ export async function runDirectUpload(
   // from the primary, which still holds the bytes.
   await maybeFlush(true)
   for (let attempt = 0; attempt < 3; attempt++) {
+    // A crash between the primary store and the secondary pull leaves a
+    // sub-piece with a live primary row and no row at all for the secondary;
+    // repair those alongside the recorded retry states, or the secondary
+    // copy would silently never exist.
+    const missingSecondaries = secondaries.flatMap((ctx) =>
+      db.subPiecesMissingSecondary(primary.providerId, ctx.providerId).map((subPieceCid) => ({ ctx, subPieceCid }))
+    )
     const needsRetry = contexts.flatMap((ctx, i) =>
       ['collected' as const, ...(i > 0 ? ['failed' as const] : [])]
         .flatMap((status) => db.uploadsByStatus(ctx.providerId, status))
         .map((u) => ({ ctx, u }))
     )
-    if (needsRetry.length === 0) break
-    log(`retrying ${needsRetry.length} piece(s) that did not land (attempt ${attempt + 1})`)
+    if (needsRetry.length === 0 && missingSecondaries.length === 0) break
+    log(`retrying ${needsRetry.length + missingSecondaries.length} piece(s) that did not land (attempt ${attempt + 1})`)
+    for (const { ctx, subPieceCid } of missingSecondaries) {
+      await pullToSecondary(db, primary, ctx, subPieceCid)
+    }
     for (const { ctx, u } of needsRetry) {
       if (u.role === 'secondary') {
         await pullToSecondary(db, primary, ctx, u.subPieceCid)
@@ -365,9 +414,18 @@ export async function runDirectUpload(
         log(`error: collected ${u.subPieceCid} has no local CAR; cannot re-store`)
         continue
       }
-      const stored = await storeCar(ctx, deps, sub.carPath, sub.subPieceCid)
-      storedBytes += stored.size
-      db.recordUploadParked(sub.subPieceCid, ctx.providerId, u.role, ctx.dataSetId)
+      try {
+        const stored = await storeCar(ctx, deps, sub.carPath, sub.subPieceCid)
+        storedBytes += stored.size
+        db.recordUploadParked(sub.subPieceCid, ctx.providerId, u.role, ctx.dataSetId)
+      } catch (err) {
+        if (err instanceof CommPMismatchError) {
+          db.markUploadFailed(sub.subPieceCid, ctx.providerId, u.role, err.message)
+          log(`error: ${err.message}`)
+          continue
+        }
+        throw err
+      }
     }
     await maybeFlush(true)
   }
@@ -385,6 +443,7 @@ export async function runDirectUpload(
         committed: committed.length,
         collected: db.uploadsByStatus(ctx.providerId, 'collected').length,
         failed: db.uploadsByStatus(ctx.providerId, 'failed').length,
+        addUnconfirmed: db.uploadsByStatus(ctx.providerId, 'add_unconfirmed').length,
         flushes: flushCounts.get(ctx.providerId) ?? 0,
         assumedWindowMs: windowFor(ctx),
         txHashes: [...new Set(committed.map((u) => u.txHash).filter((h): h is string => h != null))],
@@ -397,6 +456,14 @@ export async function runDirectUpload(
   return summary
 }
 
+/** Thrown when the provider's commitment over the uploaded bytes disagrees with ours. */
+export class CommPMismatchError extends Error {
+  constructor(subPieceCid: string, providerId: string, got: string) {
+    super(`commP mismatch on provider ${providerId}: expected ${subPieceCid}, provider computed ${got}`)
+    this.name = 'CommPMismatchError'
+  }
+}
+
 async function storeCar(
   ctx: UploadContextLike,
   deps: DirectUploadDeps,
@@ -404,6 +471,12 @@ async function storeCar(
   subPieceCid: string
 ): Promise<{ size: number }> {
   const result = await ctx.store(deps.openCar(carPath), { pieceCid: CID.parse(subPieceCid) })
+  // The committed CID must be the commitment over the bytes the provider
+  // actually holds; trusting the SDK to throw on divergence is not enough.
+  const got = String(result.pieceCid)
+  if (got !== subPieceCid) {
+    throw new CommPMismatchError(subPieceCid, ctx.providerId, got)
+  }
   return { size: result.size }
 }
 
@@ -423,8 +496,9 @@ async function reconcileUnconfirmed(
     if (u.txHash != null && (await deps.txLanded(synapse, u.txHash))) {
       // The commit landed; only local confirmation was missed. Resolve it from
       // the canonical witness (the PiecesAdded event) rather than trusting
-      // any side channel.
-      const dataSetId = ctx.dataSetId
+      // any side channel. The row's own data set takes precedence: a resumed
+      // run may have opened a different context than the one that committed.
+      const dataSetId = u.dataSetId ?? ctx.dataSetId
       if (dataSetId != null) {
         const event = await deps.fetchAddPiecesEvent(synapse, Number(dataSetId), u.txHash)
         const pieceIndex = event == null ? -1 : event.pieceCids.indexOf(u.subPieceCid)
