@@ -12,3 +12,6 @@ test-car-output/
 test-e2e-cars/
 test-simple-car-output/
 coverage
+
+# Local scratch artifacts
+.lavish/
