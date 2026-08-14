@@ -19,6 +19,7 @@ import { createReadStream } from 'node:fs'
 import { readdir, stat, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Synapse } from '@filoz/synapse-sdk'
+import { formatFileSize } from '../utils/cli-helpers.js'
 import type { MigrationDB } from './db.js'
 import {
   type DirectUploadDeps,
@@ -27,7 +28,6 @@ import {
   defaultDirectUploadDeps,
   runDirectUpload,
 } from './direct-upload.js'
-import { formatBytes } from './metrics.js'
 import { type BinBuilder, runPackCars } from './pack-cars.js'
 import { log } from './util.js'
 import { categoryOf, type StagedMember, stageMember, VerifyCarError, type VerifyCarOptions } from './verify-car.js'
@@ -259,8 +259,8 @@ export async function runMigrate(
 ): Promise<MigrateSummary> {
   if (opts.budgetBytes < 2 * opts.packTargetBytes) {
     throw new Error(
-      `staging budget ${formatBytes(opts.budgetBytes)} is too small to assemble one ` +
-        `${formatBytes(opts.packTargetBytes)} piece; free disk space or lower --pack-target-size`
+      `staging budget ${formatFileSize(opts.budgetBytes)} is too small to assemble one ` +
+        `${formatFileSize(opts.packTargetBytes)} piece; free disk space or lower --pack-target-size`
     )
   }
   const stage = opts.stageMemberFn ?? stageMember
@@ -282,7 +282,9 @@ export async function runMigrate(
 
   const budget = new StagingBudget(opts.budgetBytes, opts.packTargetBytes)
   budget.used = await sweepStaging(db, opts.memberDir, opts.carStore)
-  log(`staging budget ${formatBytes(budget.total)} (${formatBytes(budget.used)} already staged from a previous run)`)
+  log(
+    `staging budget ${formatFileSize(budget.total)} (${formatFileSize(budget.used)} already staged from a previous run)`
+  )
 
   // Track each built piece's size so eviction can return its bytes.
   const binBytes = new Map<string, number>()

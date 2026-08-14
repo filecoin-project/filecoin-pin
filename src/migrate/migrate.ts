@@ -16,13 +16,12 @@ import { DEFAULT_COPIES, IPFS_INDEXED_METADATA } from '../core/synapse/constants
 import { APPLICATION_SOURCE, getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
-import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
+import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log as cliLog } from '../utils/cli-logger.js'
 import { chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
 import { DEFAULT_GATEWAYS } from './car-url.js'
 import { MigrationDB } from './db.js'
 import { DEFAULT_ASSUMED_WINDOW_MS } from './gc-window.js'
-import { formatBytes } from './metrics.js'
 import { DEFAULT_PACK_TARGET_BYTES, MAX_UPLOAD_BYTES } from './pack-cars.js'
 import { type MigrateSummary, runMigrate } from './run-migrate.js'
 import { log, parseCidList, parsePositiveInt, parseSize } from './util.js'
@@ -77,8 +76,8 @@ export function normalizeMigrateOptions(options: Record<string, unknown>): Norma
   const maxStagedBytes = options.maxStagedBytes == null ? null : Number(parseSize(String(options.maxStagedBytes)))
   if (maxStagedBytes != null && maxStagedBytes < 2 * packTargetBytes) {
     throw new Error(
-      `--max-staged-bytes ${formatBytes(maxStagedBytes)} is too small: assembling one piece needs at least ` +
-        `2x the pack target (${formatBytes(2 * packTargetBytes)})`
+      `--max-staged-bytes ${formatFileSize(maxStagedBytes)} is too small: assembling one piece needs at least ` +
+        `2x the pack target (${formatFileSize(2 * packTargetBytes)})`
     )
   }
   return {

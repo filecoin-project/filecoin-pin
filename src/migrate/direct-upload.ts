@@ -24,6 +24,7 @@ import { Readable } from 'node:stream'
 import { findPiece } from '@filoz/synapse-core/sp'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
+import { formatFileSize } from '../utils/cli-helpers.js'
 import type { MigrationDB } from './db.js'
 import {
   collectedCidFromError,
@@ -33,7 +34,7 @@ import {
   marginFromConfirmations,
   shouldFlush,
 } from './gc-window.js'
-import { formatBytes, formatDuration, Timer } from './metrics.js'
+import { formatDuration, Timer } from './metrics.js'
 import { type AddPiecesEvent, dataSetPieceId, fetchAddPiecesEvent, txLanded } from './pdp-verifier.js'
 import { log } from './util.js'
 
@@ -367,7 +368,7 @@ export async function runDirectUpload(
     storedBytes += stored.size
     db.recordUploadParked(next.subPieceCid, primary.providerId, 'primary', primary.dataSetId)
     log(
-      `parked ${next.subPieceCid} (${formatBytes(stored.size)}) on primary ${primary.providerId} ` +
+      `parked ${next.subPieceCid} (${formatFileSize(stored.size)}) on primary ${primary.providerId} ` +
         `in ${formatDuration(storeTimer.stop())}`
     )
 
@@ -453,7 +454,7 @@ export async function runDirectUpload(
     storedBytes,
     evictedCars: evictedPaths.size,
   }
-  log(`direct upload finished in ${formatDuration(runTimer.stop())}: ${formatBytes(storedBytes)} stored`)
+  log(`direct upload finished in ${formatDuration(runTimer.stop())}: ${formatFileSize(storedBytes)} stored`)
   return summary
 }
 
