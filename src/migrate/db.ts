@@ -94,6 +94,8 @@ export interface UploadRow {
   txHash: string | null
   pieceId: string | null
   committedAt: string | null
+  /** Timestamp of the row's last state transition. */
+  updatedAt: string
   error: string | null
 }
 
@@ -660,7 +662,7 @@ export class MigrationDB {
     const rows = this.#db
       .prepare(
         `SELECT sub_piece_cid, provider_id, role, data_set_id, status, parked_at,
-                tx_hash, piece_id, committed_at, error
+                tx_hash, piece_id, committed_at, updated_at, error
          FROM uploads WHERE scope = ? AND provider_id = ? AND status = ? ORDER BY parked_at`
       )
       .all(this.scope, providerId, status)
@@ -741,6 +743,7 @@ function toUploadRow(r: unknown): UploadRow {
     txHash: row.tx_hash == null ? null : String(row.tx_hash),
     pieceId: row.piece_id == null ? null : String(row.piece_id),
     committedAt: row.committed_at == null ? null : String(row.committed_at),
+    updatedAt: String(row.updated_at ?? row.parked_at),
     error: row.error == null ? null : String(row.error),
   }
 }

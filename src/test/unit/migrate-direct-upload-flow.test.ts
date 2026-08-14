@@ -67,6 +67,8 @@ interface FakeBehavior {
   dataSetPieceId?: (dataSetId: number, pieceCid: string) => string | null
   /** Pre-resolved data set id for every context. Default null (created lazily). */
   ctxDataSetId?: string
+  /** Offset added to the fake clock, for aging add_unconfirmed breadcrumbs. */
+  nowOffsetMs?: number
 }
 
 function fakeDeps(b: FakeBehavior = {}) {
@@ -113,7 +115,7 @@ function fakeDeps(b: FakeBehavior = {}) {
     async setup() {
       return { contexts: [mkCtx('p1'), mkCtx('p2')] }
     },
-    now: () => Date.now(),
+    now: () => Date.now() + (b.nowOffsetMs ?? 0),
     openCar: () => new Uint8Array(8),
     evictCar: async (path) => {
       evicted.push(path)
@@ -355,18 +357,40 @@ describe('runDirectUpload', () => {
     }
   })
 
-  it('re-parks a hashless add_unconfirmed row that is absent from the data set', async () => {
-    const { dir, db } = await dbAt('du-hashless-absent')
+  it('holds a fresh hashless add_unconfirmed row even when absent from the data set', async () => {
+    const { dir, db } = await dbAt('du-hashless-fresh')
     try {
       seedBuilt(db, P1, join(dir, 'a.car'))
       db.recordUploadParked(P1, 'p1', 'primary', '7')
       db.markUploadsAddUnconfirmed([P1], 'p1')
 
+      // A just-written breadcrumb cannot rule out a transaction still in
+      // flight; the row must stay unresolved this run.
       const { deps, calls } = fakeDeps()
+      const summary = await runDirectUpload(db, OPTS, deps)
+
+      expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(1)
+      expect(calls.commit.get('p1') ?? 0).toBe(0)
+      expect(summary.providers[0]?.addUnconfirmed).toBe(1)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('re-parks a hashless add_unconfirmed row absent from the data set once it has aged out', async () => {
+    const { dir, db } = await dbAt('du-hashless-aged')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      db.recordUploadParked(P1, 'p1', 'primary', '7')
+      db.markUploadsAddUnconfirmed([P1], 'p1')
+
+      // Two hours later, an in-flight transaction would have landed or died;
+      // absent on chain and still parked on the provider means re-queue, and
+      // the commit lands without re-storing.
+      const { deps, calls } = fakeDeps({ nowOffsetMs: 2 * 60 * 60_000 })
       await runDirectUpload(db, OPTS, deps)
 
-      // Absent on chain and still parked on the provider: re-queued and the
-      // commit lands without re-storing.
       expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(1)
       expect(calls.store.filter((s) => s.startsWith('p1:'))).toHaveLength(0)
       expect(calls.commit.get('p1')).toBe(1)

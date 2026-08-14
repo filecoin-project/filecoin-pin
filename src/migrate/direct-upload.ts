@@ -457,6 +457,13 @@ export async function runDirectUpload(
   return summary
 }
 
+/**
+ * How old a hashless add_unconfirmed breadcrumb must be before an
+ * absent-on-chain verdict is trusted enough to re-queue the piece. Sized to
+ * outlast any realistic transaction confirmation window.
+ */
+export const HASHLESS_REQUEUE_AFTER_MS = 60 * 60_000
+
 /** Thrown when the provider's commitment over the uploaded bytes disagrees with ours. */
 export class CommPMismatchError extends Error {
   constructor(subPieceCid: string, providerId: string, got: string) {
@@ -514,8 +521,24 @@ async function reconcileUnconfirmed(
         log(`resume: ${u.subPieceCid} found on chain in data set ${dataSetId} (piece ${pieceId}); marked committed`)
         continue
       }
-      // Not on chain. Fall through to the presence check below so the piece
-      // re-parks or re-stores like any other unconfirmed attempt.
+      // Absent on chain. A transaction the provider broadcast just before
+      // the crash could still land, and re-queueing while it can would add
+      // the piece twice, so the row only re-enters the flow once the
+      // breadcrumb is older than any realistic confirmation window. Younger
+      // rows stay unresolved and the run exits incomplete; a re-run later
+      // resolves them one way or the other.
+      const ageMs = deps.now() - Date.parse(u.updatedAt)
+      if (ageMs < HASHLESS_REQUEUE_AFTER_MS) {
+        log(
+          `resume: ${u.subPieceCid} has an unconfirmed addPieces with no transaction hash and is absent from ` +
+            `data set ${dataSetId}; too recent to rule out an in-flight transaction, left add_unconfirmed ` +
+            `(re-run after ${formatDuration(HASHLESS_REQUEUE_AFTER_MS - ageMs)})`
+        )
+        continue
+      }
+      // Old enough that an in-flight transaction would have landed or died.
+      // Fall through to the presence check below so the piece re-parks or
+      // re-stores like any other unconfirmed attempt.
     }
     if (u.txHash != null && (await deps.txLanded(synapse, u.txHash))) {
       // The commit landed; only local confirmation was missed. Resolve it from
