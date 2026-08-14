@@ -63,6 +63,8 @@ interface FakeBehavior {
   txLanded?: (txHash: string) => boolean
   /** PiecesAdded event answers for landed-tx resolution. Default: none found. */
   addPiecesEvent?: (dataSetId: number, txHash: string) => { pieceIds: bigint[]; pieceCids: string[] } | null
+  /** On-chain piece-id answers for hashless reconciliation. Default: absent. */
+  dataSetPieceId?: (dataSetId: number, pieceCid: string) => string | null
   /** Pre-resolved data set id for every context. Default null (created lazily). */
   ctxDataSetId?: string
 }
@@ -121,6 +123,8 @@ function fakeDeps(b: FakeBehavior = {}) {
       const event = b.addPiecesEvent ? b.addPiecesEvent(dataSetId, txHash) : null
       return event == null ? null : { ...event, blockNumber: 1n }
     },
+    dataSetPieceId: async (_synapse, dataSetId, pieceCid) =>
+      b.dataSetPieceId ? b.dataSetPieceId(dataSetId, pieceCid) : null,
   }
   return { deps, calls, evicted }
 }
@@ -322,6 +326,69 @@ describe('runDirectUpload', () => {
       expect(committed).toHaveLength(1)
       expect(committed[0]?.txHash).toBe('0xtx-p1-1')
       expect(second.calls.store.filter((s) => s.startsWith('p1:'))).toHaveLength(0)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('resolves a hashless add_unconfirmed row from the data set itself when the piece is on chain', async () => {
+    const { dir, db } = await dbAt('du-hashless-committed')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      // The crash shape: the breadcrumb was written and the commit may have
+      // broadcast, but the process died before the tx hash callback.
+      db.recordUploadParked(P1, 'p1', 'primary', '7')
+      db.markUploadsAddUnconfirmed([P1], 'p1')
+
+      const { deps, calls } = fakeDeps({ dataSetPieceId: (dataSetId) => (dataSetId === 7 ? '42' : null) })
+      await runDirectUpload(db, OPTS, deps)
+
+      const committed = db.uploadsByStatus('p1', 'committed')
+      expect(committed).toHaveLength(1)
+      expect(committed[0]?.pieceId).toBe('42')
+      // Resolved from the chain: no re-store, no second commit for it.
+      expect(calls.store.filter((s) => s.startsWith('p1:'))).toHaveLength(0)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('re-parks a hashless add_unconfirmed row that is absent from the data set', async () => {
+    const { dir, db } = await dbAt('du-hashless-absent')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      db.recordUploadParked(P1, 'p1', 'primary', '7')
+      db.markUploadsAddUnconfirmed([P1], 'p1')
+
+      const { deps, calls } = fakeDeps()
+      await runDirectUpload(db, OPTS, deps)
+
+      // Absent on chain and still parked on the provider: re-queued and the
+      // commit lands without re-storing.
+      expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(1)
+      expect(calls.store.filter((s) => s.startsWith('p1:'))).toHaveLength(0)
+      expect(calls.commit.get('p1')).toBe(1)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('leaves a hashless add_unconfirmed row alone when no data set is known', async () => {
+    const { dir, db } = await dbAt('du-hashless-unknown')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      db.recordUploadParked(P1, 'p1', 'primary', null)
+      db.markUploadsAddUnconfirmed([P1], 'p1')
+
+      const { deps, calls } = fakeDeps()
+      const summary = await runDirectUpload(db, OPTS, deps)
+
+      expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(1)
+      expect(calls.commit.get('p1') ?? 0).toBe(0)
+      expect(summary.providers[0]?.addUnconfirmed).toBe(1)
     } finally {
       db.close()
       await rm(dir, { recursive: true, force: true })

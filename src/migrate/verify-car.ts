@@ -130,6 +130,13 @@ export interface VerifyCarOptions {
    * off a download that would overrun the staging budget.
    */
   onBytes?: ((delta: number) => void) | undefined
+  /**
+   * Root the completeness walk starts from. Without it the first declared
+   * root is walked, which is not enough when the caller requested a specific
+   * CID: a response could declare an unrelated-but-complete first root and
+   * an incomplete requested one.
+   */
+  expectedRoot?: CID | undefined
 }
 
 /**
@@ -176,7 +183,7 @@ export async function verifyCarStream(
   // Completeness: every link reachable from the root must be present. A
   // response that ended early at a block boundary parses cleanly and fails
   // exactly here.
-  const root = roots[0]
+  const root = opts.expectedRoot ?? roots[0]
   if (root == null) {
     throw new VerifyCarError('CAR declares no roots', 'car_incomplete')
   }
@@ -269,7 +276,9 @@ export async function stageMember(
     try {
       const { url, body } = await fetcher(gateway, cid)
       const sink = createFileSink(tmpPath)
-      const verified = await verifyCarStream(body, sink, opts)
+      // The completeness walk must start from the CID the caller asked for,
+      // not whatever root the response happens to declare first.
+      const verified = await verifyCarStream(body, sink, { ...opts, expectedRoot: expected })
       if (!verified.roots.some((r) => r.equals(expected) || r.toString() === cid)) {
         throw new VerifyCarError(
           `CAR root mismatch: expected ${cid}, CAR declares [${verified.roots.map((r) => r.toString()).join(', ')}]`,

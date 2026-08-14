@@ -152,6 +152,39 @@ describe('stageMember', () => {
     }
   })
 
+  it('rejects a CAR whose requested root is incomplete even when another declared root is complete', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'fp-stage-decoy-'))
+    try {
+      // Decoy: a complete single-block DAG declared as the first root. The
+      // requested DAG's root block is present but its leaf is not.
+      const decoy = await rawBlock(11, 64)
+      const { root: requestedRoot } = await linkedDag()
+      const requested = requestedRoot.cid.toString()
+      const { writer, out } = CarWriter.create([decoy.cid, requestedRoot.cid])
+      const chunks: Uint8Array[] = []
+      const drained = (async () => {
+        for await (const chunk of out) chunks.push(chunk)
+      })()
+      await writer.put(decoy)
+      await writer.put(requestedRoot)
+      await writer.close()
+      await drained
+      const total = chunks.reduce((sum, c) => sum + c.length, 0)
+      const car = new Uint8Array(total)
+      let offset = 0
+      for (const c of chunks) {
+        car.set(c, offset)
+        offset += c.length
+      }
+
+      await expect(
+        stageMember(requested, ['fake://gw'], dir, {}, async () => ({ url: 'fake://gw/x', body: streamOf(car) }))
+      ).rejects.toThrow(/incomplete/)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('rejects a CAR whose root is not the requested CID and leaves no file behind', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'fp-stage-root-'))
     try {

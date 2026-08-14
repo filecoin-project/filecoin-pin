@@ -341,12 +341,22 @@ export async function runPackCars(
 
   // An oversized-for-bin member still ships as its own single-member piece,
   // as long as it fits one uploadable piece. Anything over the per-piece cap
-  // genuinely cannot migrate on this path.
+  // genuinely cannot migrate on this path: mark it terminal and reclaim its
+  // staged bytes, or it would sit in the free pool consuming budget forever.
   const overCap: string[] = []
   for (const p of oversized) {
     if (p.rawSize > MAX_UPLOAD_BYTES) {
       log(`! ${p.cid} (${p.rawSize} bytes) exceeds the ${MAX_UPLOAD_BYTES}-byte upload cap; not migrated`)
       overCap.push(p.cid)
+      db.markOversized([p.cid])
+      const memberPath = memberPaths.get(p.cid)
+      if (memberPath != null) {
+        const gone = await unlink(memberPath).then(
+          () => true,
+          () => false
+        )
+        if (gone) opts.onMemberEvicted?.(p.rawSize)
+      }
       continue
     }
     bins.push({ memberCids: [p.cid], totalRawSize: p.rawSize })
@@ -389,11 +399,16 @@ export async function runPackCars(
         })),
       })
       // Members are redundant now that the recorded piece holds their bytes.
+      // Budget is returned only for files actually gone; a file that resists
+      // deletion keeps occupying real disk and must keep counting.
       for (const cid of bin.memberCids) {
         const memberPath = memberPaths.get(cid)
         if (memberPath != null) {
-          await unlink(memberPath).catch(() => undefined)
-          opts.onMemberEvicted?.(piecesByCid.get(cid)?.rawSize ?? 0)
+          const gone = await unlink(memberPath).then(
+            () => true,
+            (err: NodeJS.ErrnoException) => err.code === 'ENOENT'
+          )
+          if (gone) opts.onMemberEvicted?.(piecesByCid.get(cid)?.rawSize ?? 0)
         }
       }
       log(`  + piece ${built.pieceCid} (${built.assembledBytes} bytes, ${bin.memberCids.length} member(s))`)

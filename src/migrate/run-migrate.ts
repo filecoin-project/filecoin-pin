@@ -59,7 +59,7 @@ export interface MigrateRunOptions {
 
 export interface MigrateSummary extends DirectUploadSummary {
   /** Download outcome over the registered source CIDs. */
-  pieces: { total: number; succeeded: number; failed: number; pending: number }
+  pieces: { total: number; succeeded: number; failed: number; pending: number; oversized: number }
   /** Source CIDs skipped because they exceed the per-piece upload cap. */
   overCap: string[]
 }
@@ -200,6 +200,23 @@ async function sweepStaging(db: MigrationDB, memberDir: string, carStore: string
       await unlink(sub.carPath).catch(() => undefined)
       continue
     }
+    // An uncommitted piece must still hash to what assembly recorded; its
+    // members are gone, so a corrupt file's only recovery is re-downloading
+    // its source CIDs and rebuilding.
+    if (sub.assembledSha256 != null) {
+      const actual = await sha256File(sub.carPath).catch(() => null)
+      if (actual !== sub.assembledSha256) {
+        log(
+          `sweep: staged piece ${sub.subPieceCid} does not match its recorded hash; ` +
+            `re-queueing its source CIDs for download`
+        )
+        await unlink(sub.carPath).catch(() => undefined)
+        for (const memberCid of db.deleteSubPieceForRebuild(sub.subPieceCid)) {
+          db.resetPieceToPending(memberCid)
+        }
+        continue
+      }
+    }
     staged += sub.assembledCarLength
   }
 
@@ -272,6 +289,12 @@ export async function runMigrate(
   }
   const waitForMore = async (): Promise<boolean> => {
     if (drained) return false
+    // A pack can record new pieces between the uploader's empty poll and this
+    // call (its notification would find nobody parked and vanish); re-check
+    // in the same synchronous block that parks.
+    if (primaryProviderId != null && db.subPiecesNeedingUpload(primaryProviderId).length > 0) {
+      return true
+    }
     await new Promise<void>((resolve) => {
       uploaderParked = true
       wakeUploader.push(resolve)
@@ -324,7 +347,12 @@ export async function runMigrate(
           {
             targetSizeBytes: opts.packTargetBytes,
             carStore: opts.carStore,
-            onBytesStaged: (delta) => budget.add(delta),
+            onBytesStaged: (delta) => {
+              // A failed assembly refunds its partial bytes with a negative
+              // delta; that is freed space and must wake parked waiters.
+              if (delta < 0) budget.free(-delta)
+              else budget.add(delta)
+            },
             onMemberEvicted: (bytes) => budget.free(bytes),
           },
           opts.buildBin
@@ -339,6 +367,11 @@ export async function runMigrate(
       })
       .catch((err) => {
         if (packError == null) packError = err
+        // Nothing downstream of a broken packer can free budget or produce
+        // uploads; fail the parked downloads and drain the uploader so the
+        // run exits with the error instead of hanging.
+        budget.failAll(err instanceof Error ? err : new Error(String(err)))
+        notifyUploader()
       })
     return packChain
   }
@@ -424,7 +457,12 @@ export async function runMigrate(
     ...cachedDeps,
     evictCar: async (path) => {
       await cachedDeps.evictCar(path)
-      budget.free(binBytes.get(path) ?? 0)
+      // Budget returns only for bytes actually off the disk; an eviction that
+      // failed (permissions, EBUSY) leaves the file occupying real space.
+      const remaining = await stat(path).catch(() => null)
+      if (remaining == null) {
+        budget.free(binBytes.get(path) ?? 0)
+      }
     },
   }
 
@@ -445,7 +483,13 @@ export async function runMigrate(
   const counts = db.counts()
   return {
     ...uploadSummary,
-    pieces: { total: counts.total, succeeded: counts.done, failed: counts.failed, pending: counts.pending },
+    pieces: {
+      total: counts.total,
+      succeeded: counts.done,
+      failed: counts.failed,
+      pending: counts.pending,
+      oversized: counts.oversized,
+    },
     overCap,
   }
 }

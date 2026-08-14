@@ -104,11 +104,15 @@ async function harness(config: HarnessOptions) {
     },
     now: () => Date.now(),
     openCar: () => new Uint8Array(8),
-    evictCar: async () => {
+    evictCar: async (path) => {
+      // Mirror the real deps: eviction deletes the file, and the budget only
+      // returns bytes for files actually gone.
+      await rm(path, { force: true })
       events.push('evict')
     },
     txLanded: async () => false,
     fetchAddPiecesEvent: async () => null,
+    dataSetPieceId: async () => null,
   }
 
   const options: MigrateRunOptions = {
@@ -145,7 +149,7 @@ describe('runMigrate pipeline', () => {
       // packed piece hit the provider: the point of the pipeline.
       expect(firstStore).toBeLessThan(lastFetch)
 
-      expect(summary.pieces).toEqual({ total: 3, succeeded: 3, failed: 0, pending: 0 })
+      expect(summary.pieces).toEqual({ total: 3, succeeded: 3, failed: 0, pending: 0, oversized: 0 })
       expect(h.db.uploadsByStatus('p1', 'committed').length).toBeGreaterThan(0)
       expect(h.db.subPiecesNeedingUpload('p1')).toHaveLength(0)
     } finally {
@@ -165,7 +169,7 @@ describe('runMigrate pipeline', () => {
     try {
       const summary = await runMigrate(h.db, h.options, h.deps)
 
-      expect(summary.pieces).toEqual({ total: 6, succeeded: 6, failed: 0, pending: 0 })
+      expect(summary.pieces).toEqual({ total: 6, succeeded: 6, failed: 0, pending: 0, oversized: 0 })
       const committed = h.db.uploadsByStatus('p1', 'committed')
       const memberCount = committed
         .map((u) => h.db.subPieceMemberCids(u.subPieceCid).length)
@@ -177,6 +181,89 @@ describe('runMigrate pipeline', () => {
       await rm(h.dir, { recursive: true, force: true })
     }
   }, 15_000)
+
+  it('a resumed run after full completion re-downloads nothing', async () => {
+    const cids = [
+      { cid: await cidFor('a'), delayMs: 0 },
+      { cid: await cidFor('b'), delayMs: 0 },
+    ]
+    const h = await harness({ cids, budgetBytes: 100_000, packTargetBytes: 1000 })
+    try {
+      const first = await runMigrate(h.db, h.options, h.deps)
+      expect(first.pieces.pending).toBe(0)
+      h.events.length = 0
+
+      // Second run over the same state: packed members must not be treated
+      // as missing downloads, and nothing re-uploads.
+      const again = await runMigrate(
+        h.db,
+        { ...h.options, stageMemberFn: async (cid) => Promise.reject(new Error(`must not re-download ${cid}`)) },
+        h.deps
+      )
+      expect(again.pieces).toEqual(first.pieces)
+      expect(h.events.filter((e) => e.startsWith('fetch:') || e.startsWith('store:'))).toEqual([])
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rebuilds a staged piece whose CAR no longer matches its recorded hash', async () => {
+    const cids = [{ cid: await cidFor('rebuild-me'), delayMs: 0 }]
+    const h = await harness({ cids, budgetBytes: 100_000, packTargetBytes: 1000 })
+    try {
+      const first = await runMigrate(h.db, h.options, h.deps)
+      expect(first.pieces.succeeded).toBe(1)
+
+      // Corrupt the run's outcome: pretend an uncommitted staged piece is on
+      // disk with bytes that no longer hash to what assembly recorded.
+      const subPieceCid = await cidFor('corrupt-bin')
+      const carPath = join(h.options.carStore, `${subPieceCid}.car`)
+      await writeFile(carPath, new Uint8Array(64))
+      const source = await cidFor('victim')
+      h.db.addCids([source])
+      h.db.recordPieceSuccess(source, {
+        pieceCid: await cidFor(`piece-${source}`),
+        rawSize: 600,
+        gateway: 'fake',
+        url: `fake://gw/${source}`,
+        memberCarPath: join(h.options.memberDir, `${source}.car`),
+        memberSha256: 'sha',
+      })
+      h.db.recordBuiltSubPiece({
+        subPieceCid,
+        assembledCarLength: 64,
+        targetSizeBytes: 1000,
+        carPath,
+        assembledSha256: 'not-the-real-hash',
+        members: [{ cid: source, sha256: 'sha', rawSize: 600 }],
+      })
+
+      const anyCidStager: typeof h.options.stageMemberFn = async (cid, _gateways, memberDir, opts) => {
+        opts?.onBytes?.(600)
+        const memberCarPath = join(memberDir, `${cid}.car`)
+        await writeFile(memberCarPath, new Uint8Array(600))
+        return {
+          cid,
+          pieceCid: await cidFor(`piece-${cid}`),
+          rawSize: 600,
+          gateway: 'fake',
+          url: `fake://gw/${cid}`,
+          memberCarPath,
+          memberSha256: 'sha',
+        }
+      }
+      const second = await runMigrate(h.db, { ...h.options, stageMemberFn: anyCidStager }, h.deps)
+      // The corrupt piece was deleted and its source CID re-downloaded into a
+      // fresh piece; nothing is left pending.
+      expect(h.db.subPieceByCid(subPieceCid)).toBeNull()
+      expect(second.pieces.pending).toBe(0)
+      expect(second.pieces.failed).toBe(0)
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  })
 
   it('reuses members already staged on disk when resuming', async () => {
     const staged = await cidFor('already-staged')
@@ -208,7 +295,7 @@ describe('runMigrate pipeline', () => {
       const summary = await runMigrate(h.db, h.options, h.deps)
 
       expect(h.events.filter((e) => e.startsWith('fetch:'))).toEqual([`fetch:${fresh}`])
-      expect(summary.pieces).toEqual({ total: 2, succeeded: 2, failed: 0, pending: 0 })
+      expect(summary.pieces).toEqual({ total: 2, succeeded: 2, failed: 0, pending: 0, oversized: 0 })
       expect(h.db.subPiecesNeedingUpload('p1')).toHaveLength(0)
     } finally {
       h.db.close()

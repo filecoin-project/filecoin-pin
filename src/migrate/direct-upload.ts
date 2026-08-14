@@ -34,7 +34,7 @@ import {
   shouldFlush,
 } from './gc-window.js'
 import { formatBytes, formatDuration, Timer } from './metrics.js'
-import { type AddPiecesEvent, fetchAddPiecesEvent, txLanded } from './pdp-verifier.js'
+import { type AddPiecesEvent, dataSetPieceId, fetchAddPiecesEvent, txLanded } from './pdp-verifier.js'
 import { log } from './util.js'
 
 export interface DirectUploadOptions {
@@ -116,6 +116,8 @@ export interface DirectUploadDeps {
   txLanded(synapse: Synapse, txHash: string): Promise<boolean>
   /** Canonical on-chain witness for a landed addPieces (see pdp-verifier). */
   fetchAddPiecesEvent(synapse: Synapse, dataSetId: number, txHash: string): Promise<AddPiecesEvent | null>
+  /** On-chain piece id lookup for a data set, or null when absent (see pdp-verifier). */
+  dataSetPieceId(synapse: Synapse, dataSetId: number, pieceCid: string): Promise<string | null>
 }
 
 export const defaultDirectUploadDeps: DirectUploadDeps = {
@@ -169,6 +171,7 @@ export const defaultDirectUploadDeps: DirectUploadDeps = {
   },
   txLanded,
   fetchAddPiecesEvent,
+  dataSetPieceId,
 }
 
 export interface DirectUploadSummary {
@@ -325,13 +328,12 @@ export async function runDirectUpload(
   // the bottleneck, and one in-flight store keeps the disk footprint bounded.
   // In the pipeline an empty pending list means "wait for the packer", not
   // "done": `waitForMore` resolves false only when the source is drained.
-  // A piece the provider disagreed with (commP mismatch) is deterministic for
-  // these bytes; skip it for the rest of the run instead of re-storing it in
-  // a loop.
-  const mismatched = new Set<string>()
+  // A piece the provider disagreed with (commP mismatch) is recorded as a
+  // failed upload and drops out of this query, so it cannot re-store in a
+  // loop.
   for (;;) {
     const pending = db.subPiecesNeedingUpload(primary.providerId)
-    const next = pending.find((p) => !mismatched.has(p.subPieceCid))
+    const next = pending[0]
     if (next == null) {
       if (opts.forceFlush?.() === true) {
         // Downloads are blocked on the disk budget; commit whatever is
@@ -357,7 +359,6 @@ export async function runDirectUpload(
     } catch (err) {
       if (err instanceof CommPMismatchError) {
         db.markUploadFailed(next.subPieceCid, primary.providerId, 'primary', err.message)
-        mismatched.add(next.subPieceCid)
         log(`error: ${err.message}`)
         continue
       }
@@ -493,6 +494,29 @@ async function reconcileUnconfirmed(
   deps: DirectUploadDeps
 ): Promise<void> {
   for (const u of db.uploadsByStatus(ctx.providerId, 'add_unconfirmed')) {
+    if (u.txHash == null) {
+      // The crash landed between the transaction broadcast and the hash
+      // callback, so no receipt can be checked. The data set itself is the
+      // witness: a piece present on chain is committed; an absent one did
+      // not land. Without a known data set neither can be told apart, so the
+      // row stays unresolved and the run exits incomplete.
+      const dataSetId = u.dataSetId ?? ctx.dataSetId
+      if (dataSetId == null) {
+        log(
+          `resume: ${u.subPieceCid} has an unconfirmed addPieces with no transaction hash and no known data set ` +
+            `on provider ${ctx.providerId}; left add_unconfirmed for manual resolution`
+        )
+        continue
+      }
+      const pieceId = await deps.dataSetPieceId(synapse, Number(dataSetId), u.subPieceCid)
+      if (pieceId != null) {
+        db.markUploadCommitted(u.subPieceCid, ctx.providerId, { dataSetId, pieceId, txHash: null })
+        log(`resume: ${u.subPieceCid} found on chain in data set ${dataSetId} (piece ${pieceId}); marked committed`)
+        continue
+      }
+      // Not on chain. Fall through to the presence check below so the piece
+      // re-parks or re-stores like any other unconfirmed attempt.
+    }
     if (u.txHash != null && (await deps.txLanded(synapse, u.txHash))) {
       // The commit landed; only local confirmation was missed. Resolve it from
       // the canonical witness (the PiecesAdded event) rather than trusting

@@ -107,6 +107,52 @@ describe('assembleMultiRootCar', () => {
   })
 })
 
+describe('runPackCars oversized handling', () => {
+  it('marks an over-cap CID terminal and reclaims its staged bytes', async () => {
+    const { mkdtemp, rm, writeFile, readFile } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { MigrationDB } = await import('../../migrate/db.js')
+    const { MAX_UPLOAD_BYTES, runPackCars } = await import('../../migrate/pack-cars.js')
+
+    const dir = await mkdtemp(join(tmpdir(), 'fp-overcap-'))
+    const db = new MigrationDB(join(dir, 'migrate.db'), 'calibration:0xabc')
+    try {
+      const cid = 'bafkzcibf3ck4uais4fgennh4hbfx5z3i6hue4xgq2cdeamtus4hjbsrjs5lf2azbxmsa'
+      const memberCarPath = join(dir, 'member.car')
+      await writeFile(memberCarPath, new Uint8Array(8))
+      db.addCids([cid])
+      db.recordPieceSuccess(cid, {
+        pieceCid: cid,
+        rawSize: MAX_UPLOAD_BYTES + 1,
+        gateway: 'g',
+        url: 'fake://gw/x',
+        memberCarPath,
+        memberSha256: 'sha',
+      })
+
+      const freed: number[] = []
+      const summary = await runPackCars(db, {
+        targetSizeBytes: 1000,
+        carStore: join(dir, 'cars'),
+        onMemberEvicted: (bytes) => freed.push(bytes),
+      })
+
+      expect(summary.overCap).toEqual([cid])
+      // Terminal: out of the free pool and the retry queue, budget returned,
+      // member file gone.
+      expect(db.counts().oversized).toBe(1)
+      expect(db.pendingCids()).toEqual([])
+      expect(db.freeMemberBytes()).toBe(0)
+      expect(freed).toEqual([MAX_UPLOAD_BYTES + 1])
+      await expect(readFile(memberCarPath)).rejects.toThrow()
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('planBins', () => {
   it('rejects duplicate source CIDs', () => {
     expect(() =>

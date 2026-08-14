@@ -260,6 +260,7 @@ export function migrateIncomplete(summary: MigrateSummary): boolean {
   return (
     summary.pieces.failed > 0 ||
     summary.pieces.pending > 0 ||
+    summary.pieces.oversized > 0 ||
     summary.overCap.length > 0 ||
     summary.providers.some((p) => p.failed > 0 || p.collected > 0 || p.addUnconfirmed > 0)
   )

@@ -15,7 +15,7 @@
 
 import { DatabaseSync } from 'node:sqlite'
 
-export type PieceStatus = 'pending' | 'done' | 'failed'
+export type PieceStatus = 'pending' | 'done' | 'failed' | 'oversized'
 
 /**
  * Failure taxonomy set alongside `pieces.error` so operators can triage by
@@ -260,13 +260,14 @@ export class MigrationDB {
       .run(new Date().toISOString(), this.scope, cid)
   }
 
-  counts(): { pending: number; done: number; failed: number; total: number } {
+  counts(): { pending: number; done: number; failed: number; oversized: number; total: number } {
     const row = this.#db
       .prepare(
         `SELECT
            SUM(status='pending')    AS pending,
            SUM(status='done')       AS done,
            SUM(status='failed')     AS failed,
+           SUM(status='oversized')  AS oversized,
            COUNT(*)                 AS total
          FROM pieces WHERE scope = ?`
       )
@@ -275,6 +276,7 @@ export class MigrationDB {
       pending: Number(row.pending ?? 0),
       done: Number(row.done ?? 0),
       failed: Number(row.failed ?? 0),
+      oversized: Number(row.oversized ?? 0),
       total: Number(row.total ?? 0),
     }
   }
@@ -332,11 +334,69 @@ export class MigrationDB {
       args.members.forEach((m, i) => {
         insertMember.run(this.scope, args.subPieceCid, m.cid, i, m.sha256, m.rawSize)
       })
+      // The members' bytes now live in the recorded piece; clearing their
+      // member-file columns in the same transaction keeps the startup sweep
+      // from treating the soon-deleted files as missing and re-queueing
+      // already-packed downloads.
+      const clearMember = this.#db.prepare(
+        `UPDATE pieces SET member_car_path = NULL, member_sha256 = NULL, updated_at = ?
+         WHERE scope = ? AND cid = ?`
+      )
+      for (const m of args.members) {
+        clearMember.run(now, this.scope, m.cid)
+      }
       this.#db.exec('COMMIT')
     } catch (err) {
       this.#db.exec('ROLLBACK')
       throw err
     }
+  }
+
+  /**
+   * Remove a staged piece whose CAR file failed re-verification, freeing its
+   * member CIDs to re-download. One transaction deletes the piece, its
+   * member list, and any upload rows, then returns the affected source CIDs
+   * so the caller can reset them to pending. Refuses a piece whose primary
+   * copy is already committed: that piece is on chain and its local file no
+   * longer matters.
+   */
+  deleteSubPieceForRebuild(subPieceCid: string): string[] {
+    const committed = this.#db
+      .prepare(
+        `SELECT 1 FROM uploads WHERE scope = ? AND sub_piece_cid = ? AND role = 'primary' AND status = 'committed'`
+      )
+      .get(this.scope, subPieceCid)
+    if (committed != null) {
+      throw new Error(`refusing to rebuild ${subPieceCid}: its primary copy is committed on chain`)
+    }
+    const members = this.subPieceMemberCids(subPieceCid)
+    this.#db.exec('BEGIN')
+    try {
+      this.#db.prepare(`DELETE FROM uploads WHERE scope = ? AND sub_piece_cid = ?`).run(this.scope, subPieceCid)
+      this.#db
+        .prepare(`DELETE FROM sub_piece_members WHERE scope = ? AND sub_piece_cid = ?`)
+        .run(this.scope, subPieceCid)
+      this.#db.prepare(`DELETE FROM sub_pieces WHERE scope = ? AND sub_piece_cid = ?`).run(this.scope, subPieceCid)
+      this.#db.exec('COMMIT')
+    } catch (err) {
+      this.#db.exec('ROLLBACK')
+      throw err
+    }
+    return members
+  }
+
+  /**
+   * Mark CIDs whose CAR exceeds the per-piece upload cap. Terminal: they
+   * leave the free pool and the retry queue, and only appear in reporting.
+   */
+  markOversized(cids: string[]): void {
+    const stmt = this.#db.prepare(
+      `UPDATE pieces SET status='oversized', failure_category='oversized',
+                          member_car_path=NULL, member_sha256=NULL, updated_at=?
+       WHERE scope=? AND cid=?`
+    )
+    const now = new Date().toISOString()
+    for (const cid of cids) stmt.run(now, this.scope, cid)
   }
 
   /** Look up a sub-piece by its packed PieceCID v2. Null when no row exists. */
@@ -413,9 +473,11 @@ export class MigrationDB {
     const rows = this.#db
       .prepare(
         `SELECT cid, member_car_path, member_sha256
-         FROM pieces WHERE scope = ? AND status='done' AND member_car_path IS NOT NULL`
+         FROM pieces
+         WHERE scope = ? AND status='done' AND member_car_path IS NOT NULL
+           AND cid NOT IN (SELECT member_cid FROM sub_piece_members WHERE scope = ?)`
       )
-      .all(this.scope)
+      .all(this.scope, this.scope)
     return rows.map((r) => {
       const row = r as Record<string, unknown>
       return {
@@ -441,7 +503,7 @@ export class MigrationDB {
              WHERE u.scope = sp.scope
                AND u.sub_piece_cid = sp.sub_piece_cid
                AND u.provider_id = ?
-               AND u.status IN ('parked', 'add_unconfirmed', 'committed')
+               AND u.status IN ('parked', 'add_unconfirmed', 'committed', 'failed')
            )
          ORDER BY sp.created_at, sp.rowid`
       )
@@ -531,7 +593,7 @@ export class MigrationDB {
   markUploadCommitted(
     subPieceCid: string,
     providerId: string,
-    info: { dataSetId: string; pieceId: string; txHash: string }
+    info: { dataSetId: string; pieceId: string; txHash: string | null }
   ): void {
     const now = new Date().toISOString()
     this.#db

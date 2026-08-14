@@ -5,6 +5,7 @@
  */
 
 import { pdp as PDP_ABI } from '@filoz/synapse-core/abis'
+import { findPieceIdsByCid } from '@filoz/synapse-core/pdp-verifier'
 import { from as pieceCidFrom } from '@filoz/synapse-core/piece'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { type Hash, type Hex, parseEventLogs } from 'viem'
@@ -20,6 +21,20 @@ export interface AddPiecesEvent {
   blockNumber: bigint
   pieceIds: bigint[]
   pieceCids: string[]
+}
+
+/**
+ * The on-chain piece id of `pieceCid` in `dataSetId`, or null when the data
+ * set does not contain it. One contract read; used to resolve an
+ * add_unconfirmed row that never captured its transaction hash.
+ */
+export async function dataSetPieceId(synapse: Synapse, dataSetId: number, pieceCid: string): Promise<string | null> {
+  const ids = await findPieceIdsByCid(synapse.client as never, {
+    dataSetId: BigInt(dataSetId),
+    pieceCid: pieceCidFrom(pieceCid),
+  })
+  const first = ids[0]
+  return first == null ? null : String(first)
 }
 
 /** Whether a transaction landed successfully on chain (receipt status success). */
