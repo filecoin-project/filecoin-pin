@@ -361,13 +361,22 @@ export class MigrationDB {
    * longer matters.
    */
   deleteSubPieceForRebuild(subPieceCid: string): string[] {
-    const committed = this.#db
+    // Live provider-side state blocks a rebuild: a committed primary is
+    // final, an add_unconfirmed row is an unresolved breadcrumb whose
+    // deletion could turn into a duplicate on-chain add, and a parked copy
+    // can still commit from the provider's bytes without the local file.
+    // Reconciliation resolves those states first; the rebuild waits for a
+    // run where none remain.
+    const live = this.#db
       .prepare(
-        `SELECT 1 FROM uploads WHERE scope = ? AND sub_piece_cid = ? AND role = 'primary' AND status = 'committed'`
+        `SELECT status FROM uploads
+         WHERE scope = ? AND sub_piece_cid = ?
+           AND (status IN ('parked', 'add_unconfirmed') OR (role = 'primary' AND status = 'committed'))
+         LIMIT 1`
       )
-      .get(this.scope, subPieceCid)
-    if (committed != null) {
-      throw new Error(`refusing to rebuild ${subPieceCid}: its primary copy is committed on chain`)
+      .get(this.scope, subPieceCid) as { status: string } | undefined
+    if (live != null) {
+      throw new Error(`refusing to rebuild ${subPieceCid}: it has a live upload in status '${live.status}'`)
     }
     const members = this.subPieceMemberCids(subPieceCid)
     this.#db.exec('BEGIN')

@@ -395,6 +395,30 @@ describe('runDirectUpload', () => {
     }
   })
 
+  it('refuses to rebuild a staged piece while it has live upload state', async () => {
+    const { dir, db } = await dbAt('du-rebuild-guard')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      db.recordUploadParked(P1, 'p1', 'primary', '7')
+      db.markUploadsAddUnconfirmed([P1], 'p1')
+
+      // An unresolved breadcrumb must survive any rebuild attempt: deleting
+      // it and re-adding the source CIDs could duplicate the piece on chain.
+      expect(() => db.deleteSubPieceForRebuild(P1)).toThrow(/live upload/)
+      expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(1)
+
+      // Once reconciliation resolves the row to a terminal retry state, the
+      // rebuild goes through and frees the members.
+      db.markUploadCollected(P1, 'p1')
+      const members = db.deleteSubPieceForRebuild(P1)
+      expect(members).toHaveLength(1)
+      expect(db.subPieceByCid(P1)).toBeNull()
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('scopes state: another network/owner scope sees none of the rows', async () => {
     const { dir, db } = await dbAt('du-scope')
     try {

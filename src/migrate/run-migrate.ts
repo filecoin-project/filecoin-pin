@@ -202,16 +202,32 @@ async function sweepStaging(db: MigrationDB, memberDir: string, carStore: string
     }
     // An uncommitted piece must still hash to what assembly recorded; its
     // members are gone, so a corrupt file's only recovery is re-downloading
-    // its source CIDs and rebuilding.
+    // its source CIDs and rebuilding. The rebuild is refused while the piece
+    // has live upload state: an add_unconfirmed breadcrumb must reconcile
+    // against the chain first (deleting it could turn into a duplicate add),
+    // and a parked copy can still commit from the provider's bytes. Such a
+    // piece keeps its rows and its budget bytes until a later run finds it
+    // rebuild-safe.
     if (sub.assembledSha256 != null) {
       const actual = await sha256File(sub.carPath).catch(() => null)
       if (actual !== sub.assembledSha256) {
+        let memberCids: string[]
+        try {
+          memberCids = db.deleteSubPieceForRebuild(sub.subPieceCid)
+        } catch (err) {
+          log(
+            `sweep: staged piece ${sub.subPieceCid} does not match its recorded hash but cannot rebuild yet: ` +
+              `${err instanceof Error ? err.message : String(err)}`
+          )
+          staged += sub.assembledCarLength
+          continue
+        }
         log(
           `sweep: staged piece ${sub.subPieceCid} does not match its recorded hash; ` +
             `re-queueing its source CIDs for download`
         )
         await unlink(sub.carPath).catch(() => undefined)
-        for (const memberCid of db.deleteSubPieceForRebuild(sub.subPieceCid)) {
+        for (const memberCid of memberCids) {
           db.resetPieceToPending(memberCid)
         }
         continue
