@@ -14,7 +14,12 @@ function resolveChain(network: string | undefined, hasExplicitRpcUrl: boolean): 
   return undefined
 }
 
-function getDataDirectory(): string {
+/**
+ * Platform data directory for filecoin-pin state (pins.db, CAR storage,
+ * migrate.db). Follows XDG on Linux, Application Support on macOS, %APPDATA%
+ * on Windows.
+ */
+export function getDataDirectory(): string {
   const home = homedir()
   const plat = platform()
 
