@@ -186,7 +186,10 @@ npm install -g filecoin-pin
 #    Private key:   export PRIVATE_KEY=0x...
 #                   (or pass --private-key <key> to each command)
 #    Session key:   export WALLET_ADDRESS=0x... SESSION_KEY=0x...
-#                   (or pass --wallet-address <addr> --session-key <key> to each command)
+#                   WALLET_ADDRESS is the owner wallet address; SESSION_KEY is the
+#                   session key PRIVATE key (not the session address), as printed by
+#                   `filecoin-pin session create` or `filecoin-pin session generate`
+#                   (or pass --wallet-address <addr> --session-key <private-key> to each command)
 #    Revoke later:  filecoin-pin session revoke <session-address>
 
 # 1. Configure payment permissions (one-time setup)
@@ -254,7 +257,7 @@ filecoin-pin add myfile.txt
 * `-v`, `--verbose`: Verbose output
 * `--private-key`: Ethereum-style (`0x`) private key (wallet and signer), funded with USDFC
 * `--wallet-address`: Session key mode: owner wallet address
-* `--session-key`: Session key mode: scoped signing key registered to the wallet
+* `--session-key`: Session key mode: the session key's **private key** (printed as `SESSION_KEY` by `filecoin-pin session create` / `session generate`), not the session address
 * `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `mainnet`). Mutually exclusive with `--rpc-url`.
 * `--rpc-url`: Filecoin RPC endpoint. Filecoin Pin probes its `eth_chainId` to derive the chain. Mutually exclusive with `--network`.
 

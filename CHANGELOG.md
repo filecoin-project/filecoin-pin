@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.3.0](https://github.com/filecoin-project/filecoin-pin/compare/v1.2.0...v1.3.0) (2026-08-03)
+
+
+### Features
+
+* **payments:** redesign status command output ([#613](https://github.com/filecoin-project/filecoin-pin/issues/613)) ([ef20acf](https://github.com/filecoin-project/filecoin-pin/commit/ef20acf4a5e77879f16390b0a88ef0fe46b0730f))
+
+
+### Bug Fixes
+
+* **cli:** clarify that --session-key expects a session key private key ([#629](https://github.com/filecoin-project/filecoin-pin/issues/629)) ([8121d9b](https://github.com/filecoin-project/filecoin-pin/commit/8121d9b079649aea76fde1e5613efad445ebf133))
+* make payment preflight deposit-aware ([#631](https://github.com/filecoin-project/filecoin-pin/issues/631)) ([8489f91](https://github.com/filecoin-project/filecoin-pin/commit/8489f9179b71cf38a6d9eb33f7092d402f6bff5d))
+
+
+### Chores
+
+* **deps-dev:** bump @ipld/dag-cbor from 9.2.6 to 10.0.1 ([#619](https://github.com/filecoin-project/filecoin-pin/issues/619)) ([c9a7937](https://github.com/filecoin-project/filecoin-pin/commit/c9a79371868887bababde6300f980016bd8e745a))
+* **deps-dev:** bump @types/node from 25.7.0 to 26.1.1 ([#620](https://github.com/filecoin-project/filecoin-pin/issues/620)) ([5d66370](https://github.com/filecoin-project/filecoin-pin/commit/5d663708e35d36cef16d377b206c8680e0886a2c))
+* **deps-dev:** bump tsx from 4.21.0 to 4.23.1 ([#625](https://github.com/filecoin-project/filecoin-pin/issues/625)) ([7794b37](https://github.com/filecoin-project/filecoin-pin/commit/7794b3799a02ba982bb0fa0bac301769c9507479))
+* **deps:** bump @libp2p/tcp from 11.0.22 to 11.0.23 ([#622](https://github.com/filecoin-project/filecoin-pin/issues/622)) ([9bca479](https://github.com/filecoin-project/filecoin-pin/commit/9bca47936f1b8a1aef1c6da99778374a28e6c022))
+* **deps:** bump @sentry/node from 10.49.0 to 10.67.0 ([#636](https://github.com/filecoin-project/filecoin-pin/issues/636)) ([08bb6c1](https://github.com/filecoin-project/filecoin-pin/commit/08bb6c1208da13e31558be1157eed39d70ef199c))
+* **deps:** bump actions/checkout from 7.0.0 to 7.0.1 ([#640](https://github.com/filecoin-project/filecoin-pin/issues/640)) ([0acccfc](https://github.com/filecoin-project/filecoin-pin/commit/0acccfcedba503ec0001834cf99d10d54c152bfa))
+* **deps:** bump actions/setup-node from 6 to 7 ([#639](https://github.com/filecoin-project/filecoin-pin/issues/639)) ([9f4ebca](https://github.com/filecoin-project/filecoin-pin/commit/9f4ebca23b6fc339790a48bfe5391ce1311d3a15))
+* **deps:** bump actions/setup-node from 6 to 7 in /upload-action ([#641](https://github.com/filecoin-project/filecoin-pin/issues/641)) ([5125912](https://github.com/filecoin-project/filecoin-pin/commit/5125912188ad3c2ff6929b05dbf4d7c8ab64093c))
+* **deps:** bump commander from 14.0.3 to 15.0.0 ([#633](https://github.com/filecoin-project/filecoin-pin/issues/633)) ([50bbb0b](https://github.com/filecoin-project/filecoin-pin/commit/50bbb0be71a1dfcb6ade9d9a725ce128c755dd0a))
+* **deps:** bump multiformats from 14.0.0 to 14.0.4 ([#632](https://github.com/filecoin-project/filecoin-pin/issues/632)) ([b8b7779](https://github.com/filecoin-project/filecoin-pin/commit/b8b7779299778a558a5f244405f0bb898aff352a))
+* **deps:** bump semver from 7.7.4 to 7.8.5 ([#626](https://github.com/filecoin-project/filecoin-pin/issues/626)) ([dc8ed36](https://github.com/filecoin-project/filecoin-pin/commit/dc8ed36af50cb6f91e94fab0cebd8e82530ff7d3))
+* set CODEOWNERS ([#638](https://github.com/filecoin-project/filecoin-pin/issues/638)) ([aae76a1](https://github.com/filecoin-project/filecoin-pin/commit/aae76a1950e0e3058657b52dbb1dc4bffe3e4735))
+
 ## [1.2.0](https://github.com/filecoin-project/filecoin-pin/compare/v1.1.1...v1.2.0) (2026-07-15)
 
 

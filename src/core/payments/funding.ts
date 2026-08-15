@@ -8,6 +8,7 @@ import {
   computeAdjustmentForExactDeposit,
   depositUSDFC,
   getPaymentStatus,
+  validateGasRequirement,
   validatePaymentRequirements,
   withdrawUSDFC,
 } from './index.js'
@@ -367,10 +368,10 @@ export interface PlanFilecoinPayFundingOptions {
  *
  * This async function handles the full workflow:
  * - Fetches current payment status and SDK account summary in parallel
- * - Optionally ensures allowances are configured
- * - Validates payment requirements (FIL for gas, USDFC availability)
  * - Fetches pricing if needed
  * - Calculates funding plan via `calculateFilecoinPayFundingPlan`
+ * - Validates wallet funding whenever the plan will send a transaction
+ * - Optionally ensures allowances are configured
  *
  * @param options - Planning options including synapse instance
  * @returns Plan with status and allowance information
@@ -406,29 +407,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     throw new Error('A funding target is required')
   }
 
-  let allowanceStatus: {
-    updated: boolean
-    transactionHash?: string
-    currentAllowances: ServiceApprovalStatus
-  } | null = null
-
-  if (ensureAllowances) {
-    allowanceStatus = await checkAndSetAllowances(synapse)
-  }
-
   const [status, accountSummary] = await Promise.all([getPaymentStatus(synapse), synapse.payments.accountSummary({})])
-
-  const allowances = allowanceStatus ?? {
-    updated: false,
-    currentAllowances: status.currentAllowances,
-  }
-
-  const isCalibnet = status.chainId === calibration.id
-  const validation = validatePaymentRequirements(status.filBalance, status.walletUsdfcBalance, isCalibnet)
-  if (!validation.isValid) {
-    const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
-    throw new Error(`${validation.errorMessage}${help}`)
-  }
 
   let priceList = priceListOpt
   if (pieceSizeBytes != null && priceList == null) {
@@ -449,6 +428,32 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     allowWithdraw,
   })
 
+  // Validate wallet funding only when the plan can send a transaction: a
+  // nonzero delta deposits or withdraws, and ensureAllowances may update
+  // allowances. A no-op plan without allowance changes is read-only, so it
+  // must not fail on insufficient FIL for gas. Only a deposit spends wallet
+  // USDFC, so retain that check exclusively for positive deltas.
+  if (plan.delta !== 0n || ensureAllowances) {
+    const isCalibnet = status.chainId === calibration.id
+    const validation =
+      plan.delta > 0n
+        ? validatePaymentRequirements(status.filBalance, status.walletUsdfcBalance, isCalibnet)
+        : validateGasRequirement(status.filBalance, isCalibnet)
+    if (!validation.isValid) {
+      const help = validation.helpMessage ? ` ${validation.helpMessage}` : ''
+      throw new Error(`${validation.errorMessage}${help}`)
+    }
+  }
+
+  const allowances = ensureAllowances
+    ? await checkAndSetAllowances(synapse)
+    : {
+        updated: false,
+        currentAllowances: status.currentAllowances,
+      }
+
+  // status is captured before any allowance update; when allowances.updated
+  // is true, read fresh allowance state from allowances.currentAllowances.
   return {
     plan,
     status,
