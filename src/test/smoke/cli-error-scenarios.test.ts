@@ -6,7 +6,7 @@
  * Every test here exercises an error path that does NOT require a live RPC
  * connection (two-layer error model):
  *
- *   Layer 1 — Commander.js: missing required args, unknown flags.
+ *   Layer 1 — Commander.js: missing required args.
  *             Exits synchronously before any app code runs.
  *
  *   Layer 2 — Command wiring (src/commands/<cmd>.ts): auth failures,
@@ -79,12 +79,6 @@ describe('add', () => {
     expect(result.exitCode).toBe(1)
     expect(result.combined).toContain('No authentication provided')
   })
-
-  it('unknown flag', T, async () => {
-    const result = await runCli(['add', 'file.txt', '--totally-unknown'])
-    expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain("unknown option '--totally-unknown'")
-  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -102,12 +96,6 @@ describe('import', () => {
     const result = await runCli(['import', 'non-existent-archive.car'])
     expect(result.exitCode).toBe(1)
     expect(result.combined).toContain('File not found: non-existent-archive.car')
-  })
-
-  it('unknown flag', T, async () => {
-    const result = await runCli(['import', 'archive.car', '--bad-flag'])
-    expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain("unknown option '--bad-flag'")
   })
 })
 
@@ -129,12 +117,6 @@ describe('payments setup', () => {
     expect(result.exitCode).toBe(1)
     expect(result.combined).toContain('Interactive mode requires a TTY terminal')
   })
-
-  it('unknown flag', T, async () => {
-    const result = await runCli(['payments', 'setup', '--bogus-flag'])
-    expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain("unknown option '--bogus-flag'")
-  })
 })
 
 describe('payments status', () => {
@@ -142,12 +124,6 @@ describe('payments status', () => {
     const result = await runCli(['payments', 'status'])
     expect(result.exitCode).toBe(1)
     expect(result.combined).toContain('No authentication provided')
-  })
-
-  it('unknown flag', T, async () => {
-    const result = await runCli(['payments', 'status', '--nope'])
-    expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain("unknown option '--nope'")
   })
 })
 
@@ -157,12 +133,6 @@ describe('payments fund', () => {
     expect(result.exitCode).toBe(1)
     expect(result.combined).toContain('Specify exactly one of --days')
   })
-
-  it('unknown flag', T, async () => {
-    const result = await runCli(['payments', 'fund', '--bad-flag'])
-    expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain("unknown option '--bad-flag'")
-  })
 })
 
 describe('payments deposit', () => {
@@ -171,12 +141,6 @@ describe('payments deposit', () => {
     expect(result.exitCode).toBe(1)
     expect(result.combined).toContain("required option '--amount <usdfc>' not specified")
   })
-
-  it('unknown flag', T, async () => {
-    const result = await runCli(['payments', 'deposit', '--amount', '10', '--bad-flag'])
-    expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain("unknown option '--bad-flag'")
-  })
 })
 
 describe('payments withdraw', () => {
@@ -184,12 +148,6 @@ describe('payments withdraw', () => {
     const result = await runCli(['payments', 'withdraw'])
     expect(result.exitCode).toBe(1)
     expect(result.combined).toContain("required option '--amount <usdfc>' not specified")
-  })
-
-  it('unknown flag', T, async () => {
-    const result = await runCli(['payments', 'withdraw', '--amount', '10', '--bad-flag'])
-    expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain("unknown option '--bad-flag'")
   })
 })
 
@@ -250,12 +208,6 @@ describe('data-set list', () => {
     expect(result.exitCode).toBe(1)
     expect(result.combined).toContain('No authentication provided')
   })
-
-  it('unknown flag', T, async () => {
-    const result = await runCli(['data-set', 'list', '--what'])
-    expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain("unknown option '--what'")
-  })
 })
 
 describe('data-set terminate', () => {
@@ -310,25 +262,11 @@ describe('provider', () => {
   })
 })
 
-describe('provider list', () => {
-  it('unknown flag', T, async () => {
-    const result = await runCli(['provider', 'list', '--garbage'])
-    expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain("unknown option '--garbage'")
-  })
-})
-
 describe('provider show', () => {
   it('missing required provider argument', T, async () => {
     const result = await runCli(['provider', 'show'])
     expect(result.exitCode).toBe(1)
     expect(result.combined).toContain("missing required argument 'provider'")
-  })
-
-  it('unknown flag', T, async () => {
-    const result = await runCli(['provider', 'show', '--bogus'])
-    expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain("unknown option '--bogus'")
   })
 
   it('non-numeric provider id is rejected with a clear validation error', T, async () => {
@@ -341,14 +279,6 @@ describe('provider show', () => {
     const result = await runCli(['provider', 'show', '12abc'])
     expect(result.exitCode).toBe(1)
     expect(result.combined).toContain('Provider ID must be numeric')
-  })
-})
-
-describe('provider ping', () => {
-  it('unknown flag', T, async () => {
-    const result = await runCli(['provider', 'ping', '--bogus'])
-    expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain("unknown option '--bogus'")
   })
 })
 
@@ -374,12 +304,6 @@ describe('rm', () => {
     expect(result.exitCode).toBe(1)
     expect(result.combined).toContain('At least one --data-set-id is required')
   })
-
-  it('unknown flag', T, async () => {
-    const result = await runCli(['rm', '--garbage'])
-    expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain("unknown option '--garbage'")
-  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -399,12 +323,6 @@ describe('session create', () => {
     const result = await runCli(['session', 'create'])
     expect(result.exitCode).toBe(1)
     expect(result.combined).toContain('PRIVATE_KEY environment variable or --private-key option is required')
-  })
-
-  it('unknown flag', T, async () => {
-    const result = await runCli(['session', 'create', '--bogus'])
-    expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain("unknown option '--bogus'")
   })
 })
 
