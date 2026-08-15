@@ -3,7 +3,7 @@ import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { isAddress, isHex } from 'viem'
 import type { Chain, Config } from './core/synapse/index.js'
-import { initializeSynapse, type SynapseSetupConfig } from './core/synapse/index.js'
+import { assertSessionKeyPrivateKey, initializeSynapse, type SynapseSetupConfig } from './core/synapse/index.js'
 import { FilecoinPinStore, type PinOptions } from './filecoin-pin-store.js'
 import type { ServiceInfo } from './server.js'
 
@@ -100,12 +100,7 @@ function buildSynapseConfig(config: Config): SynapseSetupConfig {
     if (!isAddress(config.walletAddress)) {
       throw new Error('Wallet address must be an ethereum address')
     }
-    if (!isHex(config.sessionKey)) {
-      throw new Error('Session key must be 0x-prefixed hexadecimal')
-    }
-    if (config.sessionKey.length !== 66) {
-      throw new Error('Session key must be 32 bytes')
-    }
+    assertSessionKeyPrivateKey(config.sessionKey)
     return {
       ...base,
       walletAddress: config.walletAddress,
