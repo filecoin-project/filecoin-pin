@@ -8,6 +8,8 @@ import {
   checkAllowances,
   checkFILBalance,
   checkUSDFCBalance,
+  getDepositedBalance,
+  getUsdfcAcquisitionHelpMessage,
   type PaymentCapacityCheck,
   setMaxAllowances,
   validatePaymentCapacity,
@@ -78,7 +80,7 @@ export interface UploadReadinessOptions {
 export interface UploadReadinessResult {
   /** Overall status of the readiness check. */
   status: 'ready' | 'blocked'
-  /** Gas + USDFC validation outcome. */
+  /** Wallet validation outcome (gas, or no USDFC anywhere). */
   validation: {
     isValid: boolean
     errorMessage?: string
@@ -106,9 +108,10 @@ type CapacityStatus = 'sufficient' | 'warning' | 'insufficient'
  * Check readiness for uploading a CAR file.
  *
  * This performs the same validation chain previously used by the CLI/action:
- * 1. Ensure basic wallet requirements (FIL for gas, USDFC balance)
- * 2. Confirm or configure WarmStorage allowances
- * 3. Validate that the current deposit can cover the upload
+ * 1. Ensure the wallet has enough FIL for gas
+ * 2. Ensure the account holds USDFC somewhere (wallet or deposit)
+ * 3. Confirm or configure WarmStorage allowances
+ * 4. Validate that the current deposit can cover the upload
  *
  * The function only mutates state when `autoConfigureAllowances` is enabled
  * (default), in which case it will call {@link setMaxAllowances} as needed.
@@ -127,10 +130,22 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
 
   onProgress?.({ type: 'checkingBalances' })
 
-  const filStatus = await checkFILBalance(synapse)
-  const walletUsdfcBalance = await checkUSDFCBalance(synapse)
+  const [filStatus, walletUsdfcBalance, depositedBalance] = await Promise.all([
+    checkFILBalance(synapse),
+    checkUSDFCBalance(synapse),
+    getDepositedBalance(synapse),
+  ])
 
-  const validation = validatePaymentRequirements(filStatus.balance, walletUsdfcBalance, filStatus.isCalibnet)
+  // Validate against total USDFC (wallet + deposited): uploads pay from the
+  // deposit, so an account holding all its USDFC as deposits is funded, while
+  // an account with no USDFC anywhere can never upload and must be blocked
+  // here, before any allowance transaction spends gas. Whether the deposit
+  // covers this file is checked below by validatePaymentCapacity.
+  const validation = validatePaymentRequirements(
+    filStatus.balance,
+    walletUsdfcBalance + depositedBalance,
+    filStatus.isCalibnet
+  )
   if (!validation.isValid) {
     return {
       status: 'blocked',
@@ -166,6 +181,15 @@ export async function checkUploadReadiness(options: UploadReadinessOptions): Pro
   const capacityStatus = determineCapacityStatus(capacityCheck)
 
   if (capacityStatus === 'insufficient') {
+    // Suggesting a deposit is useless when the wallet cannot cover the
+    // shortfall, so include how to acquire USDFC alongside the suggestion.
+    // Suggestions render one bullet per entry, so split multi-line help.
+    if (walletUsdfcBalance < (capacityCheck.issues.insufficientDeposit ?? 0n)) {
+      const helpLines = getUsdfcAcquisitionHelpMessage(filStatus.isCalibnet)
+        .split('\n')
+        .map((line) => line.trim())
+      capacityCheck.suggestions.push(...helpLines)
+    }
     return {
       status: 'blocked',
       validation,

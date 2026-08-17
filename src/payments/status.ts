@@ -103,7 +103,9 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       log.indent(pc.yellow(`⚠ ${gasCheck.errorMessage}`))
       log.indent(pc.yellow(`  ${gasCheck.helpMessage}`))
     }
-    if (walletUsdfcBalance === 0n) {
+    // Acquisition links only help when there is no USDFC anywhere; a wallet
+    // holding its USDFC as deposits is the expected healthy state.
+    if (walletUsdfcBalance === 0n && funds === 0n) {
       const helpLines = `⚠ No USDFC in wallet — ${getUsdfcAcquisitionHelpMessage(filStatus.isCalibnet)}`.split('\n')
       for (const line of helpLines) {
         log.indent(pc.yellow(line))
