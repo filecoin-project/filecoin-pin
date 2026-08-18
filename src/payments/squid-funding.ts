@@ -194,12 +194,14 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
       },
       squid
     )
-    const sourceBalanceFloor =
-      policy.chain.id === filecoinMainnet.id && plan.source.token.toLowerCase() === FILECOIN_USDFC.toLowerCase()
-        ? input.requiredWalletUsdfc
-        : policy.chain.id === filecoinMainnet.id && plan.source.token === NATIVE_TOKEN_ADDRESS
-          ? MIN_FIL_FOR_GAS
-          : 0n
+    let sourceBalanceFloor = 0n
+    if (policy.chain.id === filecoinMainnet.id) {
+      if (plan.source.token.toLowerCase() === FILECOIN_USDFC.toLowerCase()) {
+        sourceBalanceFloor = input.requiredWalletUsdfc
+      } else if (plan.source.token === NATIVE_TOKEN_ADDRESS) {
+        sourceBalanceFloor = MIN_FIL_FOR_GAS
+      }
+    }
     const nativeBalanceFloor = policy.chain.id === filecoinMainnet.id ? MIN_FIL_FOR_GAS : 0n
 
     await input.confirm({
