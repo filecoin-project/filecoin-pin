@@ -164,9 +164,11 @@ describe('Squid payment shortfalls', () => {
 
   it('uses atomic marker creation to block an ambiguous rerun', async () => {
     await writeFile(marker, '{}', { mode: 0o600 })
+    const request = input()
 
-    await expect(acquirePaymentShortfalls(input())).rejects.toThrow(marker)
+    await expect(acquirePaymentShortfalls(request)).rejects.toThrow(marker)
     expect(mockPlan).not.toHaveBeenCalled()
+    expect(request.confirm).not.toHaveBeenCalled()
     expect(mockExecute).not.toHaveBeenCalled()
   })
 
