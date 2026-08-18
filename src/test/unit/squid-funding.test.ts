@@ -221,7 +221,7 @@ describe('Squid payment shortfalls', () => {
     }
   })
 
-  it('preserves the Filecoin FIL and USDFC reserves when Filecoin is the source', async () => {
+  it('allows Filecoin USDFC to acquire a FIL shortfall without spending reserved USDFC', async () => {
     mockPlan.mockResolvedValueOnce({
       owner: OWNER,
       source: {
@@ -235,11 +235,14 @@ describe('Squid payment shortfalls', () => {
       slippage: 1,
     })
     await acquirePaymentShortfalls(input({ options: { ...input().options, fromChain: 'filecoin' } }))
+    expect(mockPlan.mock.calls[0]?.[0].requirements[0].amount).toBe(30_000_000_000_000_002n)
     expect(mockExecute.mock.calls[0]?.[0]).toMatchObject({
       sourceBalanceFloor: 8n,
-      nativeBalanceFloor: 100_000_000_000_000_000n,
+      nativeBalanceFloor: 0n,
     })
+  })
 
+  it('preserves the Filecoin FIL reserve when FIL funds a USDFC-only shortfall', async () => {
     mockPlan.mockResolvedValueOnce({
       owner: OWNER,
       source: {
@@ -252,8 +255,8 @@ describe('Squid payment shortfalls', () => {
       maxSourceAmount: 10n,
       slippage: 1,
     })
-    await acquirePaymentShortfalls(input({ options: { ...input().options, fromChain: 'filecoin' } }))
-    expect(mockExecute.mock.calls[1]?.[0]).toMatchObject({
+    await acquirePaymentShortfalls(input({ filShortfall: 0n, options: { ...input().options, fromChain: 'filecoin' } }))
+    expect(mockExecute.mock.calls[0]?.[0]).toMatchObject({
       sourceBalanceFloor: 100_000_000_000_000_000n,
       nativeBalanceFloor: 100_000_000_000_000_000n,
     })

@@ -99,7 +99,7 @@ function signingAccount(value: string | undefined, owner: Address) {
   return account
 }
 
-function requirements(input: AcquirePaymentShortfallsInput): DestinationRequirement[] {
+function requirements(input: AcquirePaymentShortfallsInput, filFeeBuffer: bigint): DestinationRequirement[] {
   return [
     ...(input.filShortfall > 0n
       ? [
@@ -107,7 +107,7 @@ function requirements(input: AcquirePaymentShortfallsInput): DestinationRequirem
             id: 'filecoin-fil',
             chainId: filecoinMainnet.id,
             token: NATIVE_TOKEN_ADDRESS,
-            amount: input.filShortfall,
+            amount: input.filShortfall + filFeeBuffer,
             recipient: input.owner,
           },
         ]
@@ -164,8 +164,7 @@ function makeSourceClients(policy: SourcePolicy, rpcUrl: string, privateKey: str
 
 /** Acquire only the positive FIL and USDFC shortfalls supplied by the existing payment planner. */
 export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsInput): Promise<void> {
-  const destinationRequirements = requirements(input)
-  if (destinationRequirements.length === 0) return
+  if (input.filShortfall <= 0n && input.usdfcShortfall <= 0n) return
   validateFundingSourceOptions(input.options)
   if (input.synapse.chain.id !== filecoinMainnet.id) {
     throw new Error('Squid source acquisition is available only for Filecoin Mainnet')
@@ -176,6 +175,8 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
 
   const path = markerPath()
   const policy = sourcePolicy(input.options.fromChain)
+  const filFeeBuffer = policy.chain.id === filecoinMainnet.id && input.filShortfall > 0n ? policy.maxNativeFee : 0n
+  const destinationRequirements = requirements(input, filFeeBuffer)
   const sourceRpcUrl = input.options.sourceRpcUrl as string
   const integratorId = process.env.SQUID_INTEGRATOR_ID ?? ''
   if (integratorId.trim() === '') throw new Error('SQUID_INTEGRATOR_ID is required')
@@ -202,7 +203,7 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
         sourceBalanceFloor = MIN_FIL_FOR_GAS
       }
     }
-    const nativeBalanceFloor = policy.chain.id === filecoinMainnet.id ? MIN_FIL_FOR_GAS : 0n
+    const nativeBalanceFloor = policy.chain.id === filecoinMainnet.id && input.filShortfall <= 0n ? MIN_FIL_FOR_GAS : 0n
 
     await input.confirm({
       source: plan.source,
