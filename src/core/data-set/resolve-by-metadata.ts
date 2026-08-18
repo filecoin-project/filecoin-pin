@@ -12,6 +12,13 @@ export type MetadataResolution =
 export interface ResolveByMetadataOptions {
   expectedCopies: number
   logger?: Logger
+  /**
+   * Metadata keys that must be present on the dataset, with any value.
+   * Complements `requestedMetadata`, which matches exact key/value pairs.
+   * Used for keys whose value varies across SDK versions (e.g. `withCDN`
+   * is `''` when set by the SDK but `'true'` when set by hand).
+   */
+  requireKeys?: string[]
 }
 
 /**
@@ -32,9 +39,15 @@ export async function resolveDataSetIdsByMetadata(
     return { kind: 'no-match' }
   }
 
+  const requireKeys = options.requireKeys ?? []
+
   const matched = await listDataSets(synapse, {
     filter: (dataSet) => {
       if (!dataSet.isLive) {
+        return false
+      }
+      // Exclude datasets scheduled for termination; uploads must target active ones.
+      if ((dataSet.pdpEndEpoch ?? 0n) !== 0n) {
         return false
       }
       const metadata = dataSet.metadata
@@ -47,7 +60,10 @@ export async function resolveDataSetIdsByMetadata(
        * carry `someKey` at all, which violates the "requested keys are a subset
        * of dataset metadata" rule.
        */
-      return entries.every(([key, value]) => key in metadata && metadata[key] === value)
+      if (!entries.every(([key, value]) => key in metadata && metadata[key] === value)) {
+        return false
+      }
+      return requireKeys.every((key) => key in metadata)
     },
     ...(options.logger != null && { logger: options.logger }),
   })

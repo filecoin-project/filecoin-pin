@@ -123,4 +123,31 @@ describe('resolveDataSetIdsByMetadata', () => {
 
     expect(result).toEqual({ kind: 'matched', dataSetIds: [2n] })
   })
+
+  it('skips datasets scheduled for termination (pdpEndEpoch set)', async () => {
+    withFixtures([
+      { ...dataSet(1n, { source: 'filecoin-pin' }), pdpEndEpoch: 4006167n },
+      { ...dataSet(2n, { source: 'filecoin-pin' }), pdpEndEpoch: 0n },
+    ])
+
+    const result = await resolveDataSetIdsByMetadata(fakeSynapse, { source: 'filecoin-pin' }, { expectedCopies: 1 })
+
+    expect(result).toEqual({ kind: 'matched', dataSetIds: [2n] })
+  })
+
+  it('requireKeys matches on key presence regardless of value', async () => {
+    withFixtures([
+      dataSet(1n, { source: 'filecoin-pin' }),
+      dataSet(2n, { source: 'filecoin-pin', withCDN: '' }),
+      dataSet(3n, { source: 'filecoin-pin', withCDN: 'true' }),
+    ])
+
+    const result = await resolveDataSetIdsByMetadata(
+      fakeSynapse,
+      { source: 'filecoin-pin' },
+      { expectedCopies: 2, requireKeys: ['withCDN'] }
+    )
+
+    expect(result).toEqual({ kind: 'matched', dataSetIds: [2n, 3n] })
+  })
 })

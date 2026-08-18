@@ -25,6 +25,7 @@ vi.mock('../../common/upload-flow.js', () => ({
   validatePaymentSetup: vi.fn(),
   performAutoFunding: vi.fn(),
   promptDataSetSelection: vi.fn().mockRejectedValue(new Error('not interactive')),
+  resolveDefaultDataSetReuse: vi.fn().mockResolvedValue(undefined),
   performUpload: vi.fn().mockResolvedValue({
     pieceCid: 'bafkzcibtest1234567890',
     size: 1024,
@@ -335,6 +336,52 @@ describe('Add Command', () => {
           dataSetMetadata: { source: 'storacha-migration' },
         })
       ).rejects.toThrow(/matched only 1 data set.*expected 2/)
+    })
+
+    it('routes data set IDs from resolveDefaultDataSetReuse to performUpload when no targeting is given', async () => {
+      const { resolveDefaultDataSetReuse, performUpload } = await import('../../common/upload-flow.js')
+      vi.mocked(resolveDefaultDataSetReuse).mockResolvedValueOnce([7n, 9n])
+
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+      })
+
+      expect(vi.mocked(resolveDefaultDataSetReuse)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ expectedCopies: 2, withCDN: false })
+      )
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ dataSetIds: [7n, 9n], copies: 2 })
+      )
+    })
+
+    it('skips default data set reuse when --data-set-id is passed', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        dataSetIds: ['123'],
+      })
+
+      const { resolveDefaultDataSetReuse } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(resolveDefaultDataSetReuse)).not.toHaveBeenCalled()
+    })
+
+    it('skips default data set reuse when --data-set-metadata is passed', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        dataSetMetadata: { purpose: 'erc8004' },
+      })
+
+      const { resolveDefaultDataSetReuse } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(resolveDefaultDataSetReuse)).not.toHaveBeenCalled()
     })
 
     it('passes upload targeting options through to auto-funding', async () => {

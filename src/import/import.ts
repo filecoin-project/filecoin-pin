@@ -22,6 +22,7 @@ import {
   performAutoFunding,
   performUpload,
   promptDataSetSelection,
+  resolveDefaultDataSetReuse,
   validatePaymentSetup,
 } from '../common/upload-flow.js'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
@@ -288,6 +289,14 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
         spinner.stop(
           `${pc.gray('•')} No existing data sets matched --data-set-metadata; SDK will create a new data set with the requested metadata`
         )
+      }
+    } else if (dataSetMetadata == null && contextSelection.dataSetIds == null && contextSelection.providerIds == null) {
+      // No explicit targeting: reuse existing filecoin-pin data sets, including
+      // ones the SDK's exact metadata matching would skip (e.g. carrying withCDN).
+      const expectedCopies = options.copies ?? DEFAULT_COPIES
+      const reuseIds = await resolveDefaultDataSetReuse(synapse, { expectedCopies, withCDN, spinner, logger })
+      if (reuseIds != null) {
+        contextSelection.dataSetIds = reuseIds
       }
     }
 

@@ -30,6 +30,7 @@ vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'
 vi.mock('../../common/upload-flow.js', () => ({
   validatePaymentSetup: vi.fn(),
   promptDataSetSelection: vi.fn().mockRejectedValue(new Error('not interactive')),
+  resolveDefaultDataSetReuse: vi.fn().mockResolvedValue(undefined),
   performUpload: vi.fn().mockResolvedValue({
     pieceCid: 'bafkzcibtest1234567890',
     size: 1024,
@@ -760,6 +761,26 @@ describe('runCarImportFromCli egress glue', () => {
     const calls = vi.mocked(initializeSynapse).mock.calls
     const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
     expect(lastConfig.withCDN).toBeUndefined()
+  })
+
+  it('routes data set IDs from resolveDefaultDataSetReuse to performUpload when no targeting is given', async () => {
+    const carPath = join(testDir, 'default-reuse.car')
+    await createTestCarFile(carPath, [], [{ content: 'default reuse content' }])
+    const { resolveDefaultDataSetReuse, performUpload } = await import('../../common/upload-flow.js')
+    vi.mocked(resolveDefaultDataSetReuse).mockResolvedValueOnce([7n, 9n])
+
+    await runCarImportFromCli(carPath, { privateKey: testPrivateKey, rpcUrl: 'wss://test.rpc.url' })
+
+    expect(vi.mocked(resolveDefaultDataSetReuse)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ expectedCopies: 2, withCDN: false })
+    )
+    expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ dataSetIds: [7n, 9n], copies: 2 })
+    )
   })
 
   it('opts in (withCDN: true) when --egress-provider beam is passed', async () => {

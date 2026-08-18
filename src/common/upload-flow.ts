@@ -6,14 +6,15 @@
  */
 
 import { isCancel, multiselect } from '@clack/prompts'
-import type { CopyResult, FailedAttempt, Synapse, UploadCosts } from '@filoz/synapse-sdk'
+import { type CopyResult, type FailedAttempt, METADATA_KEYS, type Synapse, type UploadCosts } from '@filoz/synapse-sdk'
 import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
+import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import type { DataSetSummary } from '../core/data-set/types.js'
 import { resolveIpfsIndexedMetadata } from '../core/metadata/index.js'
 import { DEFAULT_LOCKUP_DAYS, type PaymentCapacityCheck } from '../core/payments/index.js'
-import { DEFAULT_COPIES } from '../core/synapse/constants.js'
+import { DEFAULT_COPIES, DEFAULT_DATA_SET_METADATA } from '../core/synapse/constants.js'
 import {
   checkUploadReadiness,
   executeUpload,
@@ -118,6 +119,90 @@ export async function promptDataSetSelection(
 
     message = `${pc.yellow(`Please select ${exact} — got ${chosen.length}. Try again:`)}`
   }
+}
+
+/**
+ * Choose `count` data sets to reuse from a larger candidate pool.
+ *
+ * Preference order: the data sets storing the most pieces first (ties broken by
+ * lowest ID for determinism), spreading picks across distinct providers before
+ * doubling up on one — copies on the same provider add no redundancy.
+ */
+export function pickDataSetsForReuse(dataSets: DataSetSummary[], count: number): bigint[] {
+  const sorted = [...dataSets].sort((a, b) => {
+    if (a.activePieceCount !== b.activePieceCount) {
+      return a.activePieceCount > b.activePieceCount ? -1 : 1
+    }
+    return a.dataSetId < b.dataSetId ? -1 : 1
+  })
+
+  const picked: DataSetSummary[] = []
+  const seenProviders = new Set<bigint>()
+  for (const ds of sorted) {
+    if (picked.length >= count) break
+    if (seenProviders.has(ds.providerId)) continue
+    seenProviders.add(ds.providerId)
+    picked.push(ds)
+  }
+  for (const ds of sorted) {
+    if (picked.length >= count) break
+    if (!picked.includes(ds)) picked.push(ds)
+  }
+
+  return picked.map((ds) => ds.dataSetId)
+}
+
+/**
+ * Resolve existing filecoin-pin data sets to reuse when the user gave no
+ * explicit targeting (`--data-set-id`, `--provider-id`, `--data-set-metadata`).
+ *
+ * Matches on a metadata subset (the SDK's smart-select requires exact
+ * equality, so it skips data sets carrying extra keys such as `withCDN` and
+ * creates new ones instead). Any live, active filecoin-pin data set qualifies,
+ * CDN-tagged ones included: `--egress-provider none` means "do not request or
+ * create CDN", not "never add to a CDN data set". When FilBeam egress is
+ * requested, only CDN-enabled data sets qualify. Piece-count ordering and
+ * provider spreading apply only when more data sets match than requested;
+ * an exact-count match is used as-is.
+ *
+ * Returns the data set IDs to upload to, or `undefined` when the SDK should
+ * resolve or create data sets itself (no matches, or fewer than requested).
+ */
+export async function resolveDefaultDataSetReuse(
+  synapse: Synapse,
+  options: { expectedCopies: number; withCDN: boolean; spinner: Spinner; logger: Logger }
+): Promise<bigint[] | undefined> {
+  const { expectedCopies, withCDN, spinner, logger } = options
+
+  spinner.start('Checking for existing filecoin-pin data sets...')
+  const resolution = await resolveDataSetIdsByMetadata(synapse, DEFAULT_DATA_SET_METADATA, {
+    expectedCopies,
+    logger,
+    ...(withCDN && { requireKeys: [METADATA_KEYS.WITH_CDN] }),
+  })
+
+  if (resolution.kind === 'matched') {
+    spinner.stop(`${pc.green('✓')} Reusing existing data sets ${resolution.dataSetIds.join(', ')}`)
+    return resolution.dataSetIds
+  }
+
+  if (resolution.kind === 'too-many-matches') {
+    const chosen = pickDataSetsForReuse(resolution.matchedDataSets, expectedCopies)
+    spinner.stop(
+      `${pc.green('✓')} Reusing existing data sets ${chosen.join(', ')} (${resolution.matchedIds.length} matched, picked the ${expectedCopies} storing the most data)`
+    )
+    return chosen
+  }
+
+  if (resolution.kind === 'too-few-matches') {
+    spinner.stop(
+      `${pc.gray('•')} Found ${resolution.matchedIds.length} existing data set(s) but need ${expectedCopies}; the SDK will resolve or create data sets`
+    )
+    return undefined
+  }
+
+  spinner.stop(`${pc.gray('•')} No existing filecoin-pin data sets found; the SDK will create new ones`)
+  return undefined
 }
 
 export interface UploadFlowOptions {

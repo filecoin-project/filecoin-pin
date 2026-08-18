@@ -42,7 +42,9 @@ import {
   differentiatingKeys,
   displayUploadResults,
   performUpload,
+  pickDataSetsForReuse,
   promptDataSetSelection,
+  resolveDefaultDataSetReuse,
 } from '../../common/upload-flow.js'
 import { createLogger } from '../../logger.js'
 import { truncate } from '../../utils/format.js'
@@ -368,5 +370,125 @@ describe('buildOptionLabel', () => {
     const ds = { dataSetId: 1n, activePieceCount: 0n, metadata: { v: 'abcdefghijklmnopqrstuvwxyz' } } as any
     const label = buildOptionLabel(ds, ['v'])
     expect(label).toContain('v=abcdefghijklm…uvwxyz')
+  })
+})
+
+describe('pickDataSetsForReuse', () => {
+  const ds = (o: { dataSetId: bigint; providerId: bigint; pieces: bigint }) =>
+    ({ dataSetId: o.dataSetId, providerId: o.providerId, activePieceCount: o.pieces }) as any
+
+  it('picks the data sets storing the most pieces', () => {
+    const picked = pickDataSetsForReuse(
+      [
+        ds({ dataSetId: 101n, providerId: 1n, pieces: 0n }),
+        ds({ dataSetId: 102n, providerId: 2n, pieces: 5n }),
+        ds({ dataSetId: 103n, providerId: 3n, pieces: 9n }),
+      ],
+      2
+    )
+    expect(picked).toEqual([103n, 102n])
+  })
+
+  it('breaks piece-count ties by lowest data set ID', () => {
+    const picked = pickDataSetsForReuse(
+      [
+        ds({ dataSetId: 109n, providerId: 1n, pieces: 3n }),
+        ds({ dataSetId: 104n, providerId: 2n, pieces: 3n }),
+        ds({ dataSetId: 107n, providerId: 3n, pieces: 3n }),
+      ],
+      2
+    )
+    expect(picked).toEqual([104n, 107n])
+  })
+
+  it('spreads across distinct providers before doubling up on one', () => {
+    const picked = pickDataSetsForReuse(
+      [
+        ds({ dataSetId: 101n, providerId: 1n, pieces: 9n }),
+        ds({ dataSetId: 102n, providerId: 1n, pieces: 8n }),
+        ds({ dataSetId: 103n, providerId: 2n, pieces: 1n }),
+      ],
+      2
+    )
+    expect(picked).toEqual([101n, 103n])
+  })
+
+  it('doubles up on a provider when there are not enough distinct ones', () => {
+    const picked = pickDataSetsForReuse(
+      [ds({ dataSetId: 101n, providerId: 1n, pieces: 9n }), ds({ dataSetId: 102n, providerId: 1n, pieces: 8n })],
+      2
+    )
+    expect(picked).toEqual([101n, 102n])
+  })
+})
+
+describe('resolveDefaultDataSetReuse', () => {
+  const spinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn(), clear: vi.fn() } as any
+  const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as any
+
+  const makeSynapse = (dataSets: any[]) =>
+    ({
+      client: { account: { address: '0x1234567890123456789012345678901234567890' } },
+      storage: { findDataSets: vi.fn().mockResolvedValue(dataSets) },
+    }) as any
+
+  const pinSet = (over: Record<string, unknown>) => ({
+    isLive: true,
+    pdpEndEpoch: 0n,
+    activePieceCount: 0n,
+    metadata: { withIPFSIndexing: '', source: 'filecoin-pin' },
+    ...over,
+  })
+
+  it('reuses live filecoin-pin data sets, including ones with extra metadata keys', async () => {
+    const synapse = makeSynapse([
+      pinSet({
+        pdpVerifierDataSetId: 1n,
+        providerId: 1n,
+        metadata: { withIPFSIndexing: '', source: 'filecoin-pin', withCDN: '' },
+      }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 2n }),
+    ])
+    const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 2, withCDN: false, spinner, logger })
+    expect(ids).toEqual([1n, 2n])
+  })
+
+  it('ignores data sets from other sources, dead ones, and terminating ones', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, metadata: { withIPFSIndexing: '', source: 'other-tool' } }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 2n, isLive: false }),
+      pinSet({ pdpVerifierDataSetId: 3n, providerId: 3n, pdpEndEpoch: 100n }),
+    ])
+    const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 2, withCDN: false, spinner, logger })
+    expect(ids).toBeUndefined()
+  })
+
+  it('picks the sets storing the most data when more match than requested', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, activePieceCount: 1n }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 2n, activePieceCount: 9n }),
+      pinSet({ pdpVerifierDataSetId: 3n, providerId: 3n, activePieceCount: 5n }),
+    ])
+    const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 2, withCDN: false, spinner, logger })
+    expect(ids).toEqual([2n, 3n])
+  })
+
+  it('returns undefined when fewer sets match than requested copies', async () => {
+    const synapse = makeSynapse([pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n })])
+    const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 2, withCDN: false, spinner, logger })
+    expect(ids).toBeUndefined()
+  })
+
+  it('only reuses CDN-enabled data sets when FilBeam egress is requested', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n }),
+      pinSet({
+        pdpVerifierDataSetId: 2n,
+        providerId: 2n,
+        metadata: { withIPFSIndexing: '', source: 'filecoin-pin', withCDN: 'true' },
+      }),
+    ])
+    const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 1, withCDN: true, spinner, logger })
+    expect(ids).toEqual([2n])
   })
 })
