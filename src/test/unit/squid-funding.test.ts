@@ -157,7 +157,8 @@ describe('Squid payment shortfalls', () => {
     expect(JSON.parse(await readFile(marker, 'utf8'))).toMatchObject({
       owner: OWNER,
       sourceChain: 42161,
-      maxSourceAmount: '10000000',
+      sourceToken: 'USDC',
+      maxSourceAmount: '10',
     })
   })
 
@@ -165,6 +166,7 @@ describe('Squid payment shortfalls', () => {
     await writeFile(marker, '{}', { mode: 0o600 })
 
     await expect(acquirePaymentShortfalls(input())).rejects.toThrow(marker)
+    expect(mockPlan).not.toHaveBeenCalled()
     expect(mockExecute).not.toHaveBeenCalled()
   })
 

@@ -182,6 +182,28 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
   if (integratorId.trim() === '') throw new Error('SQUID_INTEGRATOR_ID is required')
   const squid = { integratorId, fetch: fetchWithTimeout }
 
+  await mkdir(dirname(path), { recursive: true })
+  try {
+    await writeFile(
+      path,
+      JSON.stringify({
+        owner: input.owner,
+        sourceChain: policy.chain.id,
+        sourceToken: input.options.fromToken,
+        maxSourceAmount: input.options.maxSourceAmount,
+        createdAt: new Date().toISOString(),
+        targets: destinationRequirements.map((requirement) => ({
+          token: requirement.token,
+          amount: requirement.amount.toString(),
+        })),
+      }),
+      { encoding: 'utf8', flag: 'wx', mode: 0o600 }
+    )
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw pendingError(path)
+    throw error
+  }
+
   try {
     const clients = makeSourceClients(policy, sourceRpcUrl, input.options.privateKey, input.owner)
     const plan = await planSquidFunding(
@@ -213,28 +235,6 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
       maxNativeFee: policy.maxNativeFee,
       nativeCurrency: policy.chain.nativeCurrency,
     })
-    await mkdir(dirname(path), { recursive: true })
-    try {
-      await writeFile(
-        path,
-        JSON.stringify({
-          owner: input.owner,
-          sourceChain: plan.source.chainId,
-          sourceToken: plan.source.token,
-          maxSourceAmount: plan.maxSourceAmount.toString(),
-          createdAt: new Date().toISOString(),
-          targets: destinationRequirements.map((requirement) => ({
-            token: requirement.token,
-            amount: requirement.amount.toString(),
-          })),
-        }),
-        { encoding: 'utf8', flag: 'wx', mode: 0o600 }
-      )
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw pendingError(path)
-      throw error
-    }
-
     await executeSquidFunding(
       {
         plan,
