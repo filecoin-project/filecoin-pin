@@ -5,7 +5,7 @@
  */
 
 import { confirm, isCancel } from '@clack/prompts'
-import type { Synapse } from '@filoz/synapse-sdk'
+import { type Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { formatUnits, parseUnits } from 'viem'
 import { CliFatal, CliIncomplete, isCliFatal, isCliIncomplete, setIncompleteExitCode } from '../common/cli-errors.js'
@@ -286,7 +286,10 @@ export async function runFund(options: FundOptions): Promise<void> {
       const preview = calculateFilecoinPayFundingPlan({ status, accountSummary, ...planOptions })
       const filShortfall =
         preview.delta !== 0n && status.filBalance < MIN_FIL_FOR_GAS ? MIN_FIL_FOR_GAS - status.filBalance : 0n
-      const usdfcShortfall = preview.delta > 0n ? (preview.walletShortfall ?? 0n) : 0n
+      const requiredWalletUsdfc =
+        preview.delta > 0n ? preview.delta + preview.current.spendRatePerEpoch * TIME_CONSTANTS.EPOCHS_PER_HOUR : 0n
+      const usdfcShortfall =
+        requiredWalletUsdfc > status.walletUsdfcBalance ? requiredWalletUsdfc - status.walletUsdfcBalance : 0n
       if (filShortfall > 0n || usdfcShortfall > 0n) {
         if (!isInteractive()) throw new Error('Squid source acquisition requires an interactive terminal')
         await acquirePaymentShortfalls({
@@ -294,7 +297,7 @@ export async function runFund(options: FundOptions): Promise<void> {
           owner: getClientAddress(synapse),
           filShortfall,
           usdfcShortfall,
-          requiredWalletUsdfc: preview.delta > 0n ? preview.delta : 0n,
+          requiredWalletUsdfc,
           options,
           confirm: async (summary) => {
             const spend = summary.quotes.reduce((total, quote) => total + quote.sourceAmount, 0n)

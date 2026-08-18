@@ -87,7 +87,7 @@ describe('interactive Squid funding command', () => {
       payments: { accountSummary: vi.fn(async () => ({ funds: 0n })) },
     })
     mockGetPaymentStatus.mockResolvedValue({ filBalance: 90n, walletUsdfcBalance: 2n })
-    mockCalculate.mockReturnValue({ delta: 10n, walletShortfall: 8n })
+    mockCalculate.mockReturnValue({ delta: 10n, current: { spendRatePerEpoch: 1n } })
     mockPlan.mockResolvedValue(refreshedPlan())
     mockAcquire.mockImplementation(async (options) => {
       await options.confirm({
@@ -110,14 +110,14 @@ describe('interactive Squid funding command', () => {
     })
   })
 
-  it('passes the exact planner shortfalls, confirms, and replans after acquisition', async () => {
+  it('buffers the wallet shortfall for one hour of spend, confirms, and replans after acquisition', async () => {
     await runFund(sourceOptions)
 
     expect(mockAcquire).toHaveBeenCalledWith(
       expect.objectContaining({
         filShortfall: 10n,
-        usdfcShortfall: 8n,
-        requiredWalletUsdfc: 10n,
+        usdfcShortfall: 128n,
+        requiredWalletUsdfc: 130n,
         options: expect.objectContaining({ privateKey: sourceOptions.privateKey }),
       })
     )
