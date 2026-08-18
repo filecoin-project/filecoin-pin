@@ -133,6 +133,23 @@ describe('Squid payment shortfalls', () => {
     await expect(stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('adds one percent price headroom without exceeding the source cap', async () => {
+    const defaultPlan = mockPlan.getMockImplementation()
+    if (defaultPlan == null) throw new Error('Missing default plan mock')
+    mockPlan.mockImplementationOnce(async (request) => ({
+      ...(await defaultPlan(request)),
+      maxSourceAmount: 2_010_000n,
+    }))
+
+    await acquirePaymentShortfalls(input())
+
+    const plan = mockExecute.mock.calls[0]?.[0].plan
+    expect(plan.quotes.map((quote: { sourceAmount: bigint }) => quote.sourceAmount)).toEqual([1_010_000n, 1_000_000n])
+    expect(plan.quotes.reduce((total: bigint, quote: { sourceAmount: bigint }) => total + quote.sourceAmount, 0n)).toBe(
+      plan.maxSourceAmount
+    )
+  })
+
   it('leaves a private marker when execution fails and sanitizes secrets', async () => {
     const privateKey = PRIVATE_KEY.slice(2)
     const rpcUrl = input().options.sourceRpcUrl

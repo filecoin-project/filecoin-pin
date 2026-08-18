@@ -26,6 +26,7 @@ const SQUID_ROUTER = getAddress('0xce16F69375520ab01377ce7B88f5BA8C48F8D666')
 const FILECOIN_USDFC = filecoinMainnet.contracts.usdfc.address
 const REQUEST_TIMEOUT_MS = 15_000
 const SLIPPAGE_PERCENT = 1
+const PRICE_DRIFT_HEADROOM_PERCENT = 1n
 
 interface SourcePolicy {
   chain: Chain
@@ -207,7 +208,7 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
   let executionStarted = false
   try {
     const clients = makeSourceClients(policy, sourceRpcUrl, input.options.privateKey, input.owner)
-    const plan = await planSquidFunding(
+    const planned = await planSquidFunding(
       {
         owner: input.owner,
         sourceChainId: policy.chain.id,
@@ -218,6 +219,18 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
       },
       squid
     )
+    let availableHeadroom =
+      planned.maxSourceAmount - planned.quotes.reduce((total, quote) => total + quote.sourceAmount, 0n)
+    if (availableHeadroom < 0n) availableHeadroom = 0n
+    const plan = {
+      ...planned,
+      quotes: planned.quotes.map((quote) => {
+        let headroom = (quote.sourceAmount * PRICE_DRIFT_HEADROOM_PERCENT + 99n) / 100n
+        if (headroom > availableHeadroom) headroom = availableHeadroom
+        availableHeadroom -= headroom
+        return { ...quote, sourceAmount: quote.sourceAmount + headroom }
+      }),
+    }
     let sourceBalanceFloor = 0n
     if (policy.chain.id === filecoinMainnet.id) {
       if (plan.source.token.toLowerCase() === FILECOIN_USDFC.toLowerCase()) {
