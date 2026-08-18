@@ -34,10 +34,10 @@ const CHAIN_IDS: Record<string, number> = {
 let directory: string
 let marker: string
 const originalEnvironment = {
-  databasePath: process.env.DATABASE_PATH,
-  integratorId: process.env.SQUID_INTEGRATOR_ID,
-  network: process.env.NETWORK,
-  rpcUrl: process.env.RPC_URL,
+  DATABASE_PATH: process.env.DATABASE_PATH,
+  SQUID_INTEGRATOR_ID: process.env.SQUID_INTEGRATOR_ID,
+  NETWORK: process.env.NETWORK,
+  RPC_URL: process.env.RPC_URL,
 }
 
 function serializeErrorChain(error: unknown): string {
@@ -104,15 +104,7 @@ describe('Squid payment shortfalls', () => {
   })
 
   afterEach(async () => {
-    for (const [name, value] of Object.entries(originalEnvironment)) {
-      const key =
-        name === 'databasePath'
-          ? 'DATABASE_PATH'
-          : name === 'integratorId'
-            ? 'SQUID_INTEGRATOR_ID'
-            : name === 'network'
-              ? 'NETWORK'
-              : 'RPC_URL'
+    for (const [key, value] of Object.entries(originalEnvironment)) {
       if (value == null) delete process.env[key]
       else process.env[key] = value
     }
