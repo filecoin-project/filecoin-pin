@@ -95,7 +95,7 @@ export async function runAddFromCli(path: string, options: Record<string, any>):
     } = options
     const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
 
-    const egressProvider = rawEgressProvider ?? 'beam'
+    const egressProvider = rawEgressProvider ?? 'none'
 
     addOptions = {
       ...addOptionsFromCli,

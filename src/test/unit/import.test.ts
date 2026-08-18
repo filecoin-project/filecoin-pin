@@ -752,10 +752,24 @@ describe('runCarImportFromCli egress glue', () => {
     }
   })
 
-  it('defaults to beam egress (withCDN: true) when --egress-provider is omitted', async () => {
-    const carPath = join(testDir, 'default-beam.car')
-    await createTestCarFile(carPath, [], [{ content: 'default beam content' }])
+  it('defaults to no egress (withCDN unset) when --egress-provider is omitted', async () => {
+    const carPath = join(testDir, 'default-none.car')
+    await createTestCarFile(carPath, [], [{ content: 'default none content' }])
     await runCarImportFromCli(carPath, { privateKey: testPrivateKey, rpcUrl: 'wss://test.rpc.url' })
+    const { initializeSynapse } = await import('../../core/synapse/index.js')
+    const calls = vi.mocked(initializeSynapse).mock.calls
+    const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+    expect(lastConfig.withCDN).toBeUndefined()
+  })
+
+  it('opts in (withCDN: true) when --egress-provider beam is passed', async () => {
+    const carPath = join(testDir, 'opt-in-beam.car')
+    await createTestCarFile(carPath, [], [{ content: 'opt in beam content' }])
+    await runCarImportFromCli(carPath, {
+      privateKey: testPrivateKey,
+      rpcUrl: 'wss://test.rpc.url',
+      egressProvider: 'beam',
+    })
     const { initializeSynapse } = await import('../../core/synapse/index.js')
     expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
       expect.objectContaining({ withCDN: true }),

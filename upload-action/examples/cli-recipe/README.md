@@ -50,7 +50,7 @@ If you produce the CAR with [`ipfs-deploy-action`](https://github.com/ipshipyard
 - **Network flag.** Use `--network mainnet` or `--network calibration`. (There is no `--mainnet` / `--calibnet` shorthand.) Mainnet is the default, so `--network mainnet` is optional.
 - **Gate this yourself.** Running the CLI spends wallet funds, so decide where it is allowed to run. The example workflow gates on `push` to the default branch; never run it on untrusted fork pull requests.
 - **Pin the version.** The examples pin `filecoin-pin@0.22.3` so a future release cannot change behavior under your CI without a code review.
-- **Egress.** The CLI defaults `--egress-provider` to `beam` (FilBeam CDN). Pass `--egress-provider none` to opt out. (Note: the composite upload-action defaults egress to `none` instead.)
+- **Egress.** The CLI defaults `--egress-provider` to `none`, matching the composite upload-action. Pass `--egress-provider beam` to route piece/CAR retrieval through the FilBeam CDN.
 
 ## See also
 

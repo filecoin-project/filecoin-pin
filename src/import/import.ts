@@ -164,7 +164,7 @@ export async function runCarImportFromCli(
       ...importOptionsFromCli
     } = options
 
-    const egressProvider = rawEgressProvider ?? 'beam'
+    const egressProvider = rawEgressProvider ?? 'none'
 
     const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
     importOptions = {

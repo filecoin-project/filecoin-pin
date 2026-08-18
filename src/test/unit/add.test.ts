@@ -541,8 +541,20 @@ describe('Add Command', () => {
   })
 
   describe('runAddFromCli egress glue', () => {
-    it('defaults to beam egress (withCDN: true) when --egress-provider is omitted', async () => {
+    it('defaults to no egress (withCDN unset) when --egress-provider is omitted', async () => {
       await runAddFromCli(testFile, { privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url' })
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      const calls = vi.mocked(initializeSynapse).mock.calls
+      const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+      expect(lastConfig.withCDN).toBeUndefined()
+    })
+
+    it('opts in (withCDN: true) when --egress-provider beam is passed', async () => {
+      await runAddFromCli(testFile, {
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        egressProvider: 'beam',
+      })
       const { initializeSynapse } = await import('../../core/synapse/index.js')
       expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
         expect.objectContaining({ withCDN: true }),
