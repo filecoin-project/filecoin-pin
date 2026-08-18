@@ -142,6 +142,15 @@ describe('interactive Squid funding command', () => {
     expect(mockPlan).toHaveBeenCalledOnce()
   })
 
+  it('does not acquire FIL for a withdrawal', async () => {
+    mockCalculate.mockReturnValueOnce({ delta: -10n })
+
+    await runFund(sourceOptions)
+
+    expect(mockAcquire).not.toHaveBeenCalled()
+    expect(mockPlan).toHaveBeenCalledOnce()
+  })
+
   it('requires an interactive terminal before contacting Squid', async () => {
     mockInteractive.mockReturnValueOnce(false)
 

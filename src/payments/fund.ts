@@ -285,7 +285,7 @@ export async function runFund(options: FundOptions): Promise<void> {
       ])
       const preview = calculateFilecoinPayFundingPlan({ status, accountSummary, ...planOptions })
       const filShortfall =
-        preview.delta !== 0n && status.filBalance < MIN_FIL_FOR_GAS ? MIN_FIL_FOR_GAS - status.filBalance : 0n
+        preview.delta > 0n && status.filBalance < MIN_FIL_FOR_GAS ? MIN_FIL_FOR_GAS - status.filBalance : 0n
       const requiredWalletUsdfc =
         preview.delta > 0n ? preview.delta + preview.current.spendRatePerEpoch * TIME_CONSTANTS.EPOCHS_PER_HOUR : 0n
       const usdfcShortfall =
