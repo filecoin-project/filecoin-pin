@@ -16,7 +16,7 @@ vi.mock('@clack/prompts', () => ({ confirm: mockConfirm, isCancel: vi.fn(() => f
 vi.mock('../../core/synapse/index.js', () => ({
   getClientAddress: vi.fn(() => '0x1111111111111111111111111111111111111111'),
   initializeSynapse: mockInitialize,
-  mainnet: { id: 314 },
+  mainnet: { id: 314, contracts: { usdfc: { address: '0x80B98d3aa09ffff255c3ba4A241111Ff1262F045' } } },
 }))
 vi.mock('../../utils/cli-auth.js', () => ({
   parseCLIAuth: vi.fn(() => ({})),
@@ -48,19 +48,10 @@ vi.mock('../../core/payments/index.js', () => ({
 }))
 vi.mock('../../core/utils/format.js', () => ({ formatUSDFC: vi.fn((value: bigint) => String(value)) }))
 vi.mock('../../core/utils/index.js', () => ({ formatRunwaySummary: vi.fn(() => ({ coverage: 'No spend' })) }))
-vi.mock('../../payments/squid-funding.js', () => ({
-  acquirePaymentShortfalls: mockAcquire,
-  validateFundingSourceOptions: (options: Record<string, string | undefined>) => {
-    const values = [options.fromChain, options.fromToken, options.maxSourceAmount, options.sourceRpcUrl]
-    const requested = values.some((value) => value != null && value.trim() !== '')
-    if (requested && values.some((value) => !value?.trim())) {
-      throw new Error(
-        'Source acquisition requires --from-chain, --from-token, --max-source-amount, and --source-rpc-url together'
-      )
-    }
-    return requested
-  },
-}))
+vi.mock('../../payments/squid-funding.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../payments/squid-funding.js')>()
+  return { ...actual, acquirePaymentShortfalls: mockAcquire }
+})
 
 const sourceOptions = {
   amount: '1',
