@@ -204,6 +204,7 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
     throw error
   }
 
+  let executionStarted = false
   try {
     const clients = makeSourceClients(policy, sourceRpcUrl, input.options.privateKey, input.owner)
     const plan = await planSquidFunding(
@@ -235,6 +236,7 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
       maxNativeFee: policy.maxNativeFee,
       nativeCurrency: policy.chain.nativeCurrency,
     })
+    executionStarted = true
     await executeSquidFunding(
       {
         plan,
@@ -257,6 +259,7 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
     )
     await unlink(path)
   } catch (error) {
+    if (!executionStarted) await unlink(path).catch(() => undefined)
     if (error instanceof CliIncomplete) throw error
     const privateKey = input.options.privateKey
     throw new Error(

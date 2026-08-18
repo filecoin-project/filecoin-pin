@@ -172,6 +172,21 @@ describe('Squid payment shortfalls', () => {
     expect(mockExecute).not.toHaveBeenCalled()
   })
 
+  it('removes the marker when confirmation fails before execution', async () => {
+    await expect(
+      acquirePaymentShortfalls(
+        input({
+          confirm: vi.fn(async () => {
+            throw new Error('declined')
+          }),
+        })
+      )
+    ).rejects.toThrow('declined')
+
+    await expect(stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(mockExecute).not.toHaveBeenCalled()
+  })
+
   it('does nothing when there is no shortfall', async () => {
     await expect(acquirePaymentShortfalls(input({ filShortfall: 0n, usdfcShortfall: 0n }))).resolves.toBeUndefined()
     expect(mockPlan).not.toHaveBeenCalled()
