@@ -3,9 +3,10 @@ packages:
 
 minimumReleaseAge: 10080
 minimumReleaseAgeExclude:
+  - "@filecoin-project/squid-evm-funding"
   - "@filoz/*"
 onlyBuiltDependencies:
   - esbuild
   - node-datachannel
   - playwright
-  - squid-evm-funding
+  - "@filecoin-project/squid-evm-funding"

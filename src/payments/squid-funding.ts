@@ -1,6 +1,5 @@
 import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { Synapse } from '@filoz/synapse-sdk'
 import {
   type DestinationRequirement,
   executeSquidFunding,
@@ -10,7 +9,8 @@ import {
   type SquidPublicClient,
   type SquidQuote,
   type SquidWalletClient,
-} from 'squid-evm-funding'
+} from '@filecoin-project/squid-evm-funding'
+import type { Synapse } from '@filoz/synapse-sdk'
 import { type Address, type Chain, createPublicClient, createWalletClient, getAddress, type Hex, http } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { arbitrum, avalanche, base, bsc, mainnet as ethereum, filecoin, optimism, polygon } from 'viem/chains'
