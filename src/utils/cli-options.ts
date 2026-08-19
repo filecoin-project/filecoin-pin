@@ -38,7 +38,7 @@ export function addFundingSourceOptions(command: Command): Command {
     .option('--source-rpc-url <url>', 'Source-chain RPC endpoint')
     .addHelpText(
       'after',
-      '\nSquid funding requires Filecoin Mainnet, an interactive terminal, owner private-key auth, and SQUID_INTEGRATOR_ID.\n'
+      '\nSquid funding requires Filecoin Mainnet, an interactive terminal, and owner private-key auth.\n'
     )
 }
 

@@ -23,6 +23,7 @@ import type { CLIAuthOptions } from '../utils/cli-auth.js'
 import type { FundingSourceOptions } from './types.js'
 
 const SQUID_ROUTER = getAddress('0xce16F69375520ab01377ce7B88f5BA8C48F8D666')
+const DEFAULT_SQUID_INTEGRATOR_ID = 'filecoin-testing-94a4a25a-d40b-41cb-b148-e96098862'
 const FILECOIN_USDFC = filecoinMainnet.contracts.usdfc.address
 const REQUEST_TIMEOUT_MS = 15_000
 const SLIPPAGE_PERCENT = 1
@@ -179,8 +180,7 @@ export async function acquirePaymentShortfalls(input: AcquirePaymentShortfallsIn
   const filFeeBuffer = policy.chain.id === filecoinMainnet.id && input.filShortfall > 0n ? policy.maxNativeFee : 0n
   const destinationRequirements = requirements(input, filFeeBuffer)
   const sourceRpcUrl = input.options.sourceRpcUrl as string
-  const integratorId = process.env.SQUID_INTEGRATOR_ID ?? ''
-  if (integratorId.trim() === '') throw new Error('SQUID_INTEGRATOR_ID is required')
+  const integratorId = process.env.SQUID_INTEGRATOR_ID?.trim() || DEFAULT_SQUID_INTEGRATOR_ID
   const squid = { integratorId, fetch: fetchWithTimeout }
 
   await mkdir(dirname(path), { recursive: true })

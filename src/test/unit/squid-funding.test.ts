@@ -129,8 +129,19 @@ describe('Squid payment shortfalls', () => {
 
     const planned = mockPlan.mock.calls[0]?.[0]
     expect(planned.requirements.map((requirement: { amount: bigint }) => requirement.amount)).toEqual([2n, 3n])
+    expect(mockPlan.mock.calls[0]?.[1]).toMatchObject({ integratorId: 'test-integrator' })
     expect(mockExecute).toHaveBeenCalledOnce()
     await expect(stat(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('uses the built-in public Squid integrator ID when no override is set', async () => {
+    delete process.env.SQUID_INTEGRATOR_ID
+
+    await acquirePaymentShortfalls(input())
+
+    expect(mockPlan.mock.calls[0]?.[1]).toMatchObject({
+      integratorId: 'filecoin-testing-94a4a25a-d40b-41cb-b148-e96098862',
+    })
   })
 
   it('adds one percent price headroom without exceeding the source cap', async () => {
