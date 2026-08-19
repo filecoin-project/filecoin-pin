@@ -17,6 +17,9 @@ importers:
       '@clack/prompts':
         specifier: ^1.0.1
         version: 1.5.1
+      '@filecoin-project/squid-evm-funding':
+        specifier: ^0.1.7
+        version: 0.1.7(typescript@6.0.3)(zod@4.4.3)
       '@filoz/synapse-core':
         specifier: ^0.7.0
         version: 0.7.1(typescript@6.0.3)(viem@2.55.10(typescript@6.0.3)(zod@4.4.3))
@@ -92,9 +95,6 @@ importers:
       semver:
         specifier: ^7.7.4
         version: 7.8.5
-      squid-evm-funding:
-        specifier: github:FilOzone/squid-evm-funding#v0.1.0
-        version: https://codeload.github.com/FilOzone/squid-evm-funding/tar.gz/b89293a964cc233909cac60899c9c1a0bc7a6df9(typescript@6.0.3)(zod@4.4.3)
       varint:
         specifier: ^6.0.0
         version: 6.0.0
@@ -644,6 +644,10 @@ packages:
 
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==}
+
+  '@filecoin-project/squid-evm-funding@0.1.7':
+    resolution: {integrity: sha512-N3ml/Z5LCzTTj/9GVl1hcaZpE9buGT0IQKiX9gllIqvIUMvavnU5Iyi7KT5DAYSVXY9NVw/wsSMiKl8vC58TRA==}
+    engines: {node: '>=18'}
 
   '@filoz/synapse-core@0.7.1':
     resolution: {integrity: sha512-4vZZJbumv64ZKR+BjfhLJvP57ga/GhSHy/k2jIWuXInXGwM5qPmKvaCS7CkpzQwiSIXahO161DBNRLVH8SrVfQ==}
@@ -2116,11 +2120,6 @@ packages:
     resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
     engines: {node: '>= 10.x'}
 
-  squid-evm-funding@https://codeload.github.com/FilOzone/squid-evm-funding/tar.gz/b89293a964cc233909cac60899c9c1a0bc7a6df9:
-    resolution: {tarball: https://codeload.github.com/FilOzone/squid-evm-funding/tar.gz/b89293a964cc233909cac60899c9c1a0bc7a6df9}
-    version: 0.1.0
-    engines: {node: '>=24'}
-
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
 
@@ -2769,6 +2768,15 @@ snapshots:
     dependencies:
       '@fastify/forwarded': 3.0.1
       ipaddr.js: 2.3.0
+
+  '@filecoin-project/squid-evm-funding@0.1.7(typescript@6.0.3)(zod@4.4.3)':
+    dependencies:
+      viem: 2.55.10(typescript@6.0.3)(zod@4.4.3)
+    transitivePeerDependencies:
+      - bufferutil
+      - typescript
+      - utf-8-validate
+      - zod
 
   '@filoz/synapse-core@0.7.1(typescript@6.0.3)(viem@2.55.10(typescript@6.0.3)(zod@4.4.3))':
     dependencies:
@@ -4685,15 +4693,6 @@ snapshots:
   sparse-array@1.3.2: {}
 
   split2@4.2.0: {}
-
-  squid-evm-funding@https://codeload.github.com/FilOzone/squid-evm-funding/tar.gz/b89293a964cc233909cac60899c9c1a0bc7a6df9(typescript@6.0.3)(zod@4.4.3):
-    dependencies:
-      viem: 2.55.10(typescript@6.0.3)(zod@4.4.3)
-    transitivePeerDependencies:
-      - bufferutil
-      - typescript
-      - utf-8-validate
-      - zod
 
   stackback@0.0.2: {}
 

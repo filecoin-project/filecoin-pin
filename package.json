@@ -152,7 +152,7 @@
     "picocolors": "^1.1.1",
     "pino": "^10.3.1",
     "semver": "^7.7.4",
-    "squid-evm-funding": "github:FilOzone/squid-evm-funding#v0.1.0",
+    "@filecoin-project/squid-evm-funding": "^0.1.7",
     "varint": "^6.0.0",
     "viem": "^2.48.3"
   },

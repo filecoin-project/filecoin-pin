@@ -11,7 +11,7 @@ const { mockExecute, mockPlan } = vi.hoisted(() => ({
   mockPlan: vi.fn(),
 }))
 
-vi.mock('squid-evm-funding', () => ({
+vi.mock('@filecoin-project/squid-evm-funding', () => ({
   NATIVE_TOKEN_ADDRESS: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
   executeSquidFunding: mockExecute,
   planSquidFunding: mockPlan,
