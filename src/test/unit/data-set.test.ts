@@ -217,6 +217,10 @@ type EnhancedDataSetFixture = Record<string, unknown> & {
   isLive?: boolean
   isManaged?: boolean
   withCDN?: boolean
+  /** bigint to mirror synapse-sdk's DataSetInfo; number literals here misrepresent SDK data. */
+  pdpEndEpoch?: bigint
+  /** bigint to mirror synapse-sdk's DataSetInfo. */
+  commissionBps?: bigint
   metadata: Record<string, string>
   payer: string
 }
@@ -258,8 +262,8 @@ describe('runDataSetCommand', () => {
     payer: '0x123',
     payee: '0x456',
     serviceProvider: '0xservice',
-    commissionBps: 100,
-    pdpEndEpoch: 0,
+    commissionBps: 100n,
+    pdpEndEpoch: 0n,
     cdnEndEpoch: 0,
     metadata: {
       [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
@@ -472,8 +476,8 @@ describe('runTerminateDataSetCommand', () => {
     payer: '0xtest',
     payee: '0x456',
     serviceProvider: '0xservice',
-    commissionBps: 100,
-    pdpEndEpoch: 0,
+    commissionBps: 100n,
+    pdpEndEpoch: 0n,
     cdnEndEpoch: 0,
     metadata: {
       [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
@@ -542,7 +546,7 @@ describe('runTerminateDataSetCommand', () => {
 
   it('terminates a dataset and waits for confirmation', async () => {
     state.pieceList = [{ pieceId: 0n, pieceCid: 'bafkpiece0' }]
-    const updatedDataSet = { ...terminatableDataSet, isLive: false, pdpEndEpoch: 5000 }
+    const updatedDataSet = { ...terminatableDataSet, isLive: false, pdpEndEpoch: 5000n }
     mockGetPdpDataSet
       .mockResolvedValueOnce(toPdpDataSet(terminatableDataSet, provider))
       .mockResolvedValueOnce(toPdpDataSet(updatedDataSet, provider))
@@ -603,7 +607,7 @@ describe('runTerminateDataSetCommand', () => {
   })
 
   it('reports already-terminated datasets without error', async () => {
-    const terminatedDataSet = { ...terminatableDataSet, pdpEndEpoch: 5000 }
+    const terminatedDataSet = { ...terminatableDataSet, pdpEndEpoch: 5000n }
     mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(terminatedDataSet, provider))
 
     await runTerminateDataSetCommand(158, {
@@ -640,8 +644,8 @@ describe('runDataSetPieceStatusCommand', () => {
     payer: '0x123',
     payee: '0x456',
     serviceProvider: '0xservice',
-    commissionBps: 100,
-    pdpEndEpoch: 0,
+    commissionBps: 100n,
+    pdpEndEpoch: 0n,
     cdnEndEpoch: 0,
     metadata: {
       [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
