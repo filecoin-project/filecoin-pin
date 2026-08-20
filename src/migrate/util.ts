@@ -1,6 +1,6 @@
 /**
- * Small helpers for the migrate runner: stderr logging, size parsing, a
- * bounded concurrency pool, and CID-list parsing.
+ * Small helpers for the migrate runner: stderr logging, size parsing, and
+ * CID-list parsing.
  */
 
 /** Log to stderr so stdout stays reserved for machine-readable output. */
@@ -8,15 +8,21 @@ export function log(...args: unknown[]): void {
   console.error(...args)
 }
 
+// Decimal spellings (kb, mb, ...) are accepted as binary aliases: staging
+// sizes are power-of-two territory and rejecting `32GB` helps nobody.
 const SIZE_UNITS: Record<string, bigint> = {
   b: 1n,
   k: 1024n,
+  kb: 1024n,
   kib: 1024n,
   m: 1024n ** 2n,
+  mb: 1024n ** 2n,
   mib: 1024n ** 2n,
   g: 1024n ** 3n,
+  gb: 1024n ** 3n,
   gib: 1024n ** 3n,
   t: 1024n ** 4n,
+  tb: 1024n ** 4n,
   tib: 1024n ** 4n,
 }
 
