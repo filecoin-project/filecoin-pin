@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { calculate } from '@filoz/synapse-core/piece'
 import { CarWriter } from '@ipld/car'
 import * as dagCbor from '@ipld/dag-cbor'
+import * as dagPb from '@ipld/dag-pb'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
@@ -196,6 +197,46 @@ describe('stageMember', () => {
         stageMember(other, ['fake://gw'], dir, {}, async () => ({ url: 'fake://gw/x', body: streamOf(car) }))
       ).rejects.toThrow(/all gateways failed/)
       await expect(readFile(join(dir, `${other}.car`))).rejects.toThrow()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a truncated DAG whose root block is relabeled with a linkless codec', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'fp-stage-relabel-'))
+    try {
+      // Attack shape: the dag-cbor root's bytes served under a `raw` CID with
+      // the same multihash, children omitted. Raw has no links, so a
+      // multihash-only completeness walk would accept the truncated DAG.
+      const { root } = await linkedDag()
+      const relabeled = { cid: CID.createV1(raw.code, root.cid.multihash), bytes: root.bytes }
+      const car = await buildCar(root.cid, [relabeled])
+
+      await expect(
+        stageMember(root.cid.toString(), ['fake://gw'], dir, {}, async () => ({
+          url: 'fake://gw/x',
+          body: streamOf(car),
+        }))
+      ).rejects.toThrow(/codec/)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('accepts the equivalent CIDv1 root for a CIDv0 request', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'fp-stage-v0v1-'))
+    try {
+      const data = dagPb.encode({ Links: [] })
+      const digest = await sha256.digest(data)
+      const v0 = CID.createV0(digest)
+      const v1 = CID.createV1(dagPb.code, digest)
+      const car = await buildCar(v1, [{ cid: v1, bytes: data }])
+
+      const staged = await stageMember(v0.toString(), ['fake://gw'], dir, {}, async () => ({
+        url: 'fake://gw/x',
+        body: streamOf(car),
+      }))
+      expect(staged.cid).toBe(v0.toString())
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

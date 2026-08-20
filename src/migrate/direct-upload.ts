@@ -21,6 +21,7 @@
 import { createReadStream } from 'node:fs'
 import { unlink } from 'node:fs/promises'
 import { Readable } from 'node:stream'
+import { FindPieceError } from '@filoz/synapse-core/errors'
 import { findPiece } from '@filoz/synapse-core/sp'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
@@ -116,9 +117,9 @@ export interface DirectUploadDeps {
   /** Whether a transaction landed successfully on chain (receipt status 1). */
   txLanded(synapse: Synapse, txHash: string): Promise<boolean>
   /** Canonical on-chain witness for a landed addPieces (see pdp-verifier). */
-  fetchAddPiecesEvent(synapse: Synapse, dataSetId: number, txHash: string): Promise<AddPiecesEvent | null>
+  fetchAddPiecesEvent(synapse: Synapse, txHash: string, dataSetId: string | null): Promise<AddPiecesEvent | null>
   /** On-chain piece id lookup for a data set, or null when absent (see pdp-verifier). */
-  dataSetPieceId(synapse: Synapse, dataSetId: number, pieceCid: string): Promise<string | null>
+  dataSetPieceId(synapse: Synapse, dataSetId: string, pieceCid: string): Promise<string | null>
 }
 
 export const defaultDirectUploadDeps: DirectUploadDeps = {
@@ -150,8 +151,12 @@ export const defaultDirectUploadDeps: DirectUploadDeps = {
             try {
               await findPiece({ serviceURL, pieceCid: pieceCid as never, retryCount: 0 })
               return true
-            } catch {
-              return false
+            } catch (err) {
+              // False feeds "collected" transitions that trigger a full
+              // re-store, so only the SP's own not-found answer counts.
+              // Timeouts and transport errors propagate and abort the pass.
+              if (err instanceof FindPieceError && !err.message.includes('Timeout')) return false
+              throw err
             }
           },
         }
@@ -245,6 +250,10 @@ export async function runDirectUpload(
           txHash: result.txHash,
         })
       })
+      // A context created without a data set learns its id at the first
+      // commit; recording it here means later parks and resumes carry the
+      // set id on the row instead of depending on context re-resolution.
+      ctx.dataSetId = String(result.dataSetId)
       log(`committed ${batch.length} piece(s) on provider ${ctx.providerId} (data set ${result.dataSetId})`)
     } catch (err) {
       const message = (err as Error).message ?? String(err)
@@ -459,11 +468,13 @@ export async function runDirectUpload(
 }
 
 /**
- * How old a hashless add_unconfirmed breadcrumb must be before an
- * absent-on-chain verdict is trusted enough to re-queue the piece. Sized to
- * outlast any realistic transaction confirmation window.
+ * How old an add_unconfirmed breadcrumb must be before its piece re-enters
+ * the flow: for a hashless row, before an absent-on-chain verdict is
+ * trusted; for a row whose tx has no receipt, before the tx is presumed
+ * dead. Sized to outlast any realistic confirmation window, because the
+ * failure mode on both paths is a duplicate on-chain add.
  */
-export const HASHLESS_REQUEUE_AFTER_MS = 60 * 60_000
+export const UNCONFIRMED_REQUEUE_AFTER_MS = 60 * 60_000
 
 /** Thrown when the provider's commitment over the uploaded bytes disagrees with ours. */
 export class CommPMismatchError extends Error {
@@ -516,7 +527,7 @@ async function reconcileUnconfirmed(
         )
         continue
       }
-      const pieceId = await deps.dataSetPieceId(synapse, Number(dataSetId), u.subPieceCid)
+      const pieceId = await deps.dataSetPieceId(synapse, dataSetId, u.subPieceCid)
       if (pieceId != null) {
         db.markUploadCommitted(u.subPieceCid, ctx.providerId, { dataSetId, pieceId, txHash: null })
         log(`resume: ${u.subPieceCid} found on chain in data set ${dataSetId} (piece ${pieceId}); marked committed`)
@@ -529,11 +540,11 @@ async function reconcileUnconfirmed(
       // rows stay unresolved and the run exits incomplete; a re-run later
       // resolves them one way or the other.
       const ageMs = deps.now() - Date.parse(u.updatedAt)
-      if (ageMs < HASHLESS_REQUEUE_AFTER_MS) {
+      if (ageMs < UNCONFIRMED_REQUEUE_AFTER_MS) {
         log(
           `resume: ${u.subPieceCid} has an unconfirmed addPieces with no transaction hash and is absent from ` +
             `data set ${dataSetId}; too recent to rule out an in-flight transaction, left add_unconfirmed ` +
-            `(re-run after ${formatDuration(HASHLESS_REQUEUE_AFTER_MS - ageMs)})`
+            `(re-run after ${formatDuration(UNCONFIRMED_REQUEUE_AFTER_MS - ageMs)})`
         )
         continue
       }
@@ -541,16 +552,17 @@ async function reconcileUnconfirmed(
       // Fall through to the presence check below so the piece re-parks or
       // re-stores like any other unconfirmed attempt.
     }
-    if (u.txHash != null && (await deps.txLanded(synapse, u.txHash))) {
-      // The commit landed; only local confirmation was missed. Resolve it from
-      // the canonical witness (the PiecesAdded event) rather than trusting
-      // any side channel. The row's own data set takes precedence: a resumed
-      // run may have opened a different context than the one that committed.
-      const dataSetId = u.dataSetId ?? ctx.dataSetId
-      if (dataSetId != null) {
-        const event = await deps.fetchAddPiecesEvent(synapse, Number(dataSetId), u.txHash)
+    if (u.txHash != null) {
+      if (await deps.txLanded(synapse, u.txHash)) {
+        // The commit landed; only local confirmation was missed. Resolve it
+        // from the canonical witness (the PiecesAdded event) rather than
+        // trusting any side channel. The row's own data set takes precedence
+        // when known; a first-commit crash on a new data set has none, and
+        // then the event's own setId is the recovery path.
+        const event = await deps.fetchAddPiecesEvent(synapse, u.txHash, u.dataSetId ?? ctx.dataSetId)
         const pieceIndex = event == null ? -1 : event.pieceCids.indexOf(u.subPieceCid)
         if (event != null && pieceIndex >= 0) {
+          const dataSetId = String(event.dataSetId)
           db.markUploadCommitted(u.subPieceCid, ctx.providerId, {
             dataSetId,
             pieceId: String(event.pieceIds[pieceIndex] ?? ''),
@@ -562,13 +574,26 @@ async function reconcileUnconfirmed(
           )
           continue
         }
+        log(
+          `resume: ${u.subPieceCid} has a LANDED addPieces tx ${u.txHash} on provider ${ctx.providerId} ` +
+            `but its PiecesAdded event could not be verified; leaving add_unconfirmed: check the data set ` +
+            `on the explorer before any manual retry (a blind re-add would duplicate the piece)`
+        )
+        continue
       }
-      log(
-        `resume: ${u.subPieceCid} has a LANDED addPieces tx ${u.txHash} on provider ${ctx.providerId} ` +
-          `but its PiecesAdded event could not be verified; leaving add_unconfirmed: check the data set ` +
-          `on the explorer before any manual retry (a blind re-add would duplicate the piece)`
-      )
-      continue
+      // Not landed is not dead: the tx can still be in the mempool, and
+      // re-parking now would let the next flush double-add once it lands.
+      // Same age gate as the hashless path: only a breadcrumb older than any
+      // realistic confirmation window re-enters the flow.
+      const ageMs = deps.now() - Date.parse(u.updatedAt)
+      if (ageMs < UNCONFIRMED_REQUEUE_AFTER_MS) {
+        log(
+          `resume: ${u.subPieceCid} has an unlanded addPieces tx ${u.txHash} on provider ${ctx.providerId}; ` +
+            `too recent to rule out an in-flight transaction, left add_unconfirmed ` +
+            `(re-run after ${formatDuration(UNCONFIRMED_REQUEUE_AFTER_MS - ageMs)})`
+        )
+        continue
+      }
     }
     if (await ctx.hasPiece(CID.parse(u.subPieceCid))) {
       db.revertUploadsToParked([u.subPieceCid], ctx.providerId)

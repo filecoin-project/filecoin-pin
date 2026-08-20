@@ -105,6 +105,29 @@ describe('assembleMultiRootCar', () => {
       /CAR root mismatch/
     )
   })
+
+  it('assembles a member containing an empty block', async () => {
+    // An empty file is a zero-byte raw block. Its CAR section still has a
+    // positive length (the CID bytes), so it is not the zero-length-section
+    // truncation hazard and must pack.
+    const empty = new Uint8Array(0)
+    const cid = CID.createV1(raw.code, await sha256.digest(empty))
+    const { writer, out } = CarWriter.create([cid])
+    const chunks: Uint8Array[] = []
+    const drained = (async () => {
+      for await (const chunk of out) chunks.push(chunk)
+    })()
+    await writer.put({ cid, bytes: empty })
+    await writer.close()
+    await drained
+    const from = (ReadableStream as unknown as { from(it: Iterable<Uint8Array>): ReadableStream<Uint8Array> }).from
+    const member = { cid: cid.toString(), open: () => from([...chunks]) }
+
+    const { sink, bytes } = memorySink()
+    const result = await assembleMultiRootCar([member], sink)
+    expect(result.roots).toEqual([cid.toString()])
+    expect((await calculate(bytes())).toString()).toBe(result.pieceCid)
+  })
 })
 
 describe('runPackCars oversized handling', () => {
