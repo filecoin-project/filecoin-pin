@@ -57,15 +57,21 @@ export interface PackedBin {
 }
 
 /**
- * Compare two CID strings by their parsed binary form. CIDv0 (`Qm...`) and
- * CIDv1 (`baf...`) of the same DAG produce wildly different lexicographic
- * orderings on the string form; comparing parsed bytes collapses that alias
- * so a single canonical ordering exists regardless of which form the source
- * CID was registered as.
+ * Compare two CID strings by multihash bytes. CIDv0 (`Qm...`) and CIDv1
+ * (`baf...`) of the same DAG produce wildly different lexicographic
+ * orderings on the string form, and even parsed CID bytes differ (v0 is the
+ * bare multihash); comparing multihashes collapses the alias so a single
+ * canonical ordering exists regardless of which form the source CID was
+ * registered as.
  */
 export function compareCidBytes(a: string, b: string): number {
-  const ba = CID.parse(a).bytes
-  const bb = CID.parse(b).bytes
+  return compareMultihashBytes(CID.parse(a), CID.parse(b))
+}
+
+/** Order two CIDs by multihash bytes; v0 and v1 of the same block compare equal. */
+function compareMultihashBytes(a: CID, b: CID): number {
+  const ba = a.multihash.bytes
+  const bb = b.multihash.bytes
   const len = Math.min(ba.length, bb.length)
   for (let i = 0; i < len; i += 1) {
     const xa = ba[i] ?? 0
@@ -150,9 +156,11 @@ export interface WritableStreamWithLength {
  * Each member is opened in canonical order, its declared roots checked
  * against the expected CID, and its blocks copied straight into the writer:
  * at no point is a whole member CAR held in memory, so a full-size piece
- * assembles in constant memory. A zero-length block section in any member is
- * a hard rejection. Curio's indexer treats it as EOF and would silently
- * truncate everything after it (`ZeroLengthSectionAsEOF(true)`).
+ * assembles in constant memory. Zero-length *sections* (the Curio indexer's
+ * `ZeroLengthSectionAsEOF` truncation hazard) need no guard here: a
+ * section's length always covers its CID bytes, so even an empty block is a
+ * positive-length section, and `@ipld/car` rejects a true zero-length
+ * section in the parser.
  */
 export async function assembleMultiRootCar(
   members: Array<{ cid: string; open(): ReadableStream<Uint8Array> }>,
@@ -178,18 +186,18 @@ export async function assembleMultiRootCar(
       const expected = CID.parse(member.cid)
       const reader = await CarBlockIterator.fromIterable(toAsyncIterable(member.open()))
       const memberRoots = await reader.getRoots()
-      if (!memberRoots.some((r) => r.equals(expected) || r.toString() === member.cid)) {
+      // Multihash comparison: a member registered as CIDv0 may sit in a CAR
+      // whose gateway declared the equivalent CIDv1 root.
+      if (!memberRoots.some((r) => compareMultihashBytes(r, expected) === 0)) {
         throw new Error(
           `member ${member.cid}: CAR root mismatch (declares [${memberRoots.map((r) => r.toString()).join(', ')}])`
         )
       }
       for await (const block of reader) {
-        if (block.bytes.length === 0) {
-          throw new Error(
-            `member ${member.cid}: zero-length block section at cid ${block.cid.toString()}; indexer would truncate`
-          )
-        }
-        await writer.put(block)
+        // Raced against the drain loop: if the sink dies (disk full), the
+        // `out` channel stops being consumed and this put would otherwise
+        // park forever with the failure unobserved.
+        await Promise.race([writer.put(block), drained])
       }
     }
   } catch (err) {
@@ -247,16 +255,25 @@ export function createCarStoreSink(filePath: string, onBytes?: (delta: number) =
         const onError = (err: Error) => reject(err)
         stream.once('error', onError)
         const cleanup = () => stream.off('error', onError)
+        // A buffered write resolves immediately; a flush failure lands in
+        // `firstError` and fails the next write or end(). Only backpressure
+        // defers (to `drain`): waiting out each flush would serialize
+        // assembly on disk latency.
         const ok = stream.write(chunk, (err) => {
-          cleanup()
-          if (err) reject(err)
-          else if (ok) resolve()
+          if (err) {
+            cleanup()
+            reject(err)
+          }
         })
-        if (!ok)
+        if (ok) {
+          cleanup()
+          resolve()
+        } else {
           stream.once('drain', () => {
             cleanup()
             resolve()
           })
+        }
       })
     },
     async end() {
@@ -367,12 +384,17 @@ export async function runPackCars(
     // Track this bin's writes so a failed assembly returns its bytes to the
     // budget along with the unlinked partial file.
     let binWritten = 0
+    // Set while a finalized CAR exists on disk without a DB row; the catch
+    // unlinks it so a failed record does not strand a file whose bytes were
+    // refunded to the budget.
+    let builtPath: string | null = null
     const onBytes = (delta: number): void => {
       binWritten += delta
       opts.onBytesStaged?.(delta)
     }
     try {
       const built = await buildBin(bin, opts.carStore, memberPaths, onBytes)
+      builtPath = built.filePath
       // The multi-root header and framing add bytes the planning weight
       // ignores; the assembled length is what the SDK caps.
       if (built.assembledBytes > MAX_UPLOAD_BYTES) {
@@ -398,6 +420,7 @@ export async function runPackCars(
           sha256: piecesByCid.get(cid)?.memberSha256 ?? null,
         })),
       })
+      builtPath = null
       // Members are redundant now that the recorded piece holds their bytes.
       // Budget is returned only for files actually gone; a file that resists
       // deletion keeps occupying real disk and must keep counting.
@@ -416,8 +439,9 @@ export async function runPackCars(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       // No DB write: the members stay `done` and a transient failure recovers
-      // on the next pass. The partial bin file is gone, so its bytes return
-      // to the budget.
+      // on the next pass. A finalized CAR without a DB row is unlinked here
+      // so the refund below matches what is actually on disk.
+      if (builtPath != null) await unlink(builtPath).catch(() => undefined)
       if (binWritten > 0) opts.onBytesStaged?.(-binWritten)
       summary.failedMemberCids.push(...bin.memberCids)
       log(`  ! piece build failed (${bin.memberCids.length} member(s): ${bin.memberCids.join(', ')}): ${message}`)
