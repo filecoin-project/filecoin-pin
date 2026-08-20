@@ -164,17 +164,22 @@ export async function verifyCarStream(
     }
   }
 
-  /** Present blocks and their outgoing links, keyed by multihash bytes. */
-  const links = new Map<string, CID[]>()
+  /**
+   * Present blocks and their outgoing links, keyed by multihash bytes. The
+   * codec the CAR entry declared is kept alongside: links were decoded with
+   * it, so a walk that reaches the same multihash under a different codec
+   * must not trust them (see the codec check below).
+   */
+  const links = new Map<string, { code: number; links: CID[] }>()
   let blockCount = 0
 
   const reader = await CarBlockIterator.fromIterable(tap())
   for await (const block of reader) {
     const cid = block.cid
     if (!(await digestMatches(cid, block.bytes))) {
-      throw new VerifyCarError(`block ${cid.toString()} does not match its multihash`, 'car_root_mismatch')
+      throw new VerifyCarError(`block ${cid.toString()} does not match its multihash`, 'car_block_mismatch')
     }
-    links.set(blockKey(cid), linksOf(cid, block.bytes))
+    links.set(blockKey(cid), { code: cid.code, links: linksOf(cid, block.bytes) })
     blockCount++
   }
   const roots = await reader.getRoots()
@@ -201,21 +206,39 @@ export async function verifyCarStream(
       stack.push(...linksOf(cid, cid.multihash.digest))
       continue
     }
-    const outgoing = links.get(key)
-    if (outgoing == null) {
+    const entry = links.get(key)
+    if (entry == null) {
       throw new VerifyCarError(
         `CAR is incomplete: block ${cid.toString()} is reachable from the root but missing`,
         'car_incomplete'
       )
     }
-    stack.push(...outgoing)
+    // A block that arrived under a different codec than the walk reached it
+    // by had its links decoded with the wrong decoder. Accepting it would
+    // let a gateway relabel the root bytes as `raw` (no links) and pass the
+    // completeness walk on a truncated DAG.
+    if (entry.code !== cid.code) {
+      throw new VerifyCarError(
+        `block ${cid.toString()} arrived with codec 0x${entry.code.toString(16)} but is referenced ` +
+          `with codec 0x${cid.code.toString(16)}`,
+        'car_block_mismatch'
+      )
+    }
+    stack.push(...entry.links)
   }
 
   return { pieceCid: pieceHasher.finalize().toString(), rawSize, sha256: sha.digest('hex'), roots, blockCount }
 }
 
+export interface FileSink {
+  write(chunk: Uint8Array): Promise<void>
+  end(): Promise<void>
+  /** Release the descriptor after a failure so the temp file can unlink (Windows holds EBUSY otherwise). */
+  destroy(): void
+}
+
 /** File-backed sink for `verifyCarStream`; unlinks the partial file on failure. */
-export function createFileSink(filePath: string): { write(chunk: Uint8Array): Promise<void>; end(): Promise<void> } {
+export function createFileSink(filePath: string): FileSink {
   const stream = createWriteStream(filePath)
   let firstError: Error | null = null
   stream.on('error', (err) => {
@@ -225,11 +248,16 @@ export function createFileSink(filePath: string): { write(chunk: Uint8Array): Pr
     write(chunk) {
       if (firstError != null) return Promise.reject(firstError)
       return new Promise<void>((resolve, reject) => {
+        // A buffered write resolves immediately; a flush failure lands in
+        // `firstError` via the error listener and fails the next write or
+        // end(). Only backpressure defers, and then to `drain`, not to the
+        // flush callback: waiting out the flush per chunk would serialize
+        // the whole download on disk latency.
         const ok = stream.write(chunk, (err) => {
           if (err) reject(err)
-          else if (ok) resolve()
         })
-        if (!ok) stream.once('drain', resolve)
+        if (ok) resolve()
+        else stream.once('drain', resolve)
       })
     },
     async end() {
@@ -237,6 +265,10 @@ export function createFileSink(filePath: string): { write(chunk: Uint8Array): Pr
       await new Promise<void>((resolve, reject) => {
         stream.end((err?: Error | null) => (err ? reject(err) : resolve()))
       })
+      if (firstError != null) throw firstError
+    },
+    destroy() {
+      stream.destroy()
     },
   }
 }
@@ -273,13 +305,20 @@ export async function stageMember(
 
   for (const gateway of gateways) {
     const tmpPath = join(memberDir, `${cid}.car.tmp-${process.pid}`)
+    let body: ReadableStream<Uint8Array> | null = null
+    let sink: FileSink | null = null
     try {
-      const { url, body } = await fetcher(gateway, cid)
-      const sink = createFileSink(tmpPath)
+      const fetched = await fetcher(gateway, cid)
+      const url = fetched.url
+      body = fetched.body
+      sink = createFileSink(tmpPath)
       // The completeness walk must start from the CID the caller asked for,
       // not whatever root the response happens to declare first.
       const verified = await verifyCarStream(body, sink, { ...opts, expectedRoot: expected })
-      if (!verified.roots.some((r) => r.equals(expected) || r.toString() === cid)) {
+      // Roots compare by multihash: the trustless-gateway spec permits
+      // answering a CIDv0 request with the equivalent CIDv1 root, and the
+      // walk's codec check above already rejects a relabeled root.
+      if (!verified.roots.some((r) => blockKey(r) === blockKey(expected))) {
         throw new VerifyCarError(
           `CAR root mismatch: expected ${cid}, CAR declares [${verified.roots.map((r) => r.toString()).join(', ')}]`,
           'car_root_mismatch'
@@ -297,6 +336,11 @@ export async function stageMember(
         memberSha256: verified.sha256,
       }
     } catch (err) {
+      // Release the descriptor and the HTTP connection before the unlink:
+      // an open handle blocks deletion on Windows, and an unconsumed body
+      // holds the socket until GC.
+      sink?.destroy()
+      await body?.cancel().catch(() => undefined)
       await unlink(tmpPath).catch(() => undefined)
       const message = err instanceof Error ? err.message : String(err)
       errors.push(`${gateway}: ${message}`)
