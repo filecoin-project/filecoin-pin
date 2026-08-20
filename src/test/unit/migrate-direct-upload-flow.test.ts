@@ -62,9 +62,12 @@ interface FakeBehavior {
   /** Receipt answers for add_unconfirmed reconciliation. Default: not landed. */
   txLanded?: (txHash: string) => boolean
   /** PiecesAdded event answers for landed-tx resolution. Default: none found. */
-  addPiecesEvent?: (dataSetId: number, txHash: string) => { pieceIds: bigint[]; pieceCids: string[] } | null
+  addPiecesEvent?: (
+    dataSetId: string | null,
+    txHash: string
+  ) => { dataSetId: bigint; pieceIds: bigint[]; pieceCids: string[] } | null
   /** On-chain piece-id answers for hashless reconciliation. Default: absent. */
-  dataSetPieceId?: (dataSetId: number, pieceCid: string) => string | null
+  dataSetPieceId?: (dataSetId: string, pieceCid: string) => string | null
   /** Pre-resolved data set id for every context. Default null (created lazily). */
   ctxDataSetId?: string
   /** Offset added to the fake clock, for aging add_unconfirmed breadcrumbs. */
@@ -121,7 +124,7 @@ function fakeDeps(b: FakeBehavior = {}) {
       evicted.push(path)
     },
     txLanded: async (_synapse, txHash) => (b.txLanded ? b.txLanded(txHash) : false),
-    fetchAddPiecesEvent: async (_synapse, dataSetId, txHash) => {
+    fetchAddPiecesEvent: async (_synapse, txHash, dataSetId) => {
       const event = b.addPiecesEvent ? b.addPiecesEvent(dataSetId, txHash) : null
       return event == null ? null : { ...event, blockNumber: 1n }
     },
@@ -294,7 +297,8 @@ describe('runDirectUpload', () => {
       // event lookup.
       const second = fakeDeps({
         txLanded: () => true,
-        addPiecesEvent: (dataSetId) => (dataSetId === 7 ? { pieceIds: [42n], pieceCids: [P1] } : null),
+        addPiecesEvent: (dataSetId) =>
+          dataSetId === '7' ? { dataSetId: 7n, pieceIds: [42n], pieceCids: [P1] } : null,
       })
       await runDirectUpload(db, OPTS, second.deps)
       const committed = db.uploadsByStatus('p1', 'committed')
@@ -319,10 +323,13 @@ describe('runDirectUpload', () => {
       await runDirectUpload(db, OPTS, first.deps)
       expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(1)
 
-      // Second run: the piece is still parked on the provider, so the resume
-      // reconciliation re-queues it and the commit lands, without re-storing
-      // and with the failed attempt's tx hash replaced by the real one.
-      const second = fakeDeps()
+      // Second run, past the requeue window (a younger row with a captured
+      // tx hash is held: the tx could still land and re-adding would
+      // double-add). The piece is still parked on the provider, so the
+      // resume reconciliation re-queues it and the commit lands, without
+      // re-storing and with the failed attempt's tx hash replaced by the
+      // real one.
+      const second = fakeDeps({ nowOffsetMs: 61 * 60_000 })
       await runDirectUpload(db, OPTS, second.deps)
       const committed = db.uploadsByStatus('p1', 'committed')
       expect(committed).toHaveLength(1)
@@ -343,7 +350,7 @@ describe('runDirectUpload', () => {
       db.recordUploadParked(P1, 'p1', 'primary', '7')
       db.markUploadsAddUnconfirmed([P1], 'p1')
 
-      const { deps, calls } = fakeDeps({ dataSetPieceId: (dataSetId) => (dataSetId === 7 ? '42' : null) })
+      const { deps, calls } = fakeDeps({ dataSetPieceId: (dataSetId) => (dataSetId === '7' ? '42' : null) })
       await runDirectUpload(db, OPTS, deps)
 
       const committed = db.uploadsByStatus('p1', 'committed')
@@ -351,6 +358,54 @@ describe('runDirectUpload', () => {
       expect(committed[0]?.pieceId).toBe('42')
       // Resolved from the chain: no re-store, no second commit for it.
       expect(calls.store.filter((s) => s.startsWith('p1:'))).toHaveLength(0)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('holds a fresh add_unconfirmed row whose tx has no receipt yet', async () => {
+    const { dir, db } = await dbAt('du-pending-tx')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      db.recordUploadParked(P1, 'p1', 'primary', '7')
+      db.markUploadsAddUnconfirmed([P1], 'p1')
+      db.markUploadTxSubmitted([P1], 'p1', '0xpending')
+
+      // txLanded false = no receipt. The tx can still be in the mempool, so
+      // the row must not re-park (a second commit would double-add).
+      const { deps, calls } = fakeDeps({ txLanded: () => false })
+      await runDirectUpload(db, OPTS, deps)
+
+      expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(1)
+      expect(calls.commit.get('p1') ?? 0).toBe(0)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('recovers the data set id from the PiecesAdded event when none was recorded', async () => {
+    const { dir, db } = await dbAt('du-event-setid')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      // First-commit crash shape on a new data set: parked before any set id
+      // existed, tx hash captured, no data_set_id anywhere.
+      db.recordUploadParked(P1, 'p1', 'primary', null)
+      db.markUploadsAddUnconfirmed([P1], 'p1')
+      db.markUploadTxSubmitted([P1], 'p1', '0xfirst')
+
+      const { deps } = fakeDeps({
+        txLanded: () => true,
+        addPiecesEvent: (dataSetId) =>
+          dataSetId == null ? { dataSetId: 9n, pieceIds: [5n], pieceCids: [P1] } : null,
+      })
+      await runDirectUpload(db, OPTS, deps)
+
+      const committed = db.uploadsByStatus('p1', 'committed')
+      expect(committed).toHaveLength(1)
+      expect(committed[0]?.dataSetId).toBe('9')
+      expect(committed[0]?.pieceId).toBe('5')
     } finally {
       db.close()
       await rm(dir, { recursive: true, force: true })
