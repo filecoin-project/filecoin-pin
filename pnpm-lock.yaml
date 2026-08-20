@@ -18,8 +18,8 @@ importers:
         specifier: ^1.0.1
         version: 1.5.1
       '@filecoin-project/squid-evm-funding':
-        specifier: ^0.1.7
-        version: 0.1.7(typescript@6.0.3)(zod@4.4.3)
+        specifier: ^0.2.0
+        version: 0.2.0(typescript@6.0.3)(zod@4.4.3)
       '@filoz/synapse-core':
         specifier: ^0.7.0
         version: 0.7.1(typescript@6.0.3)(viem@2.55.10(typescript@6.0.3)(zod@4.4.3))
@@ -645,8 +645,8 @@ packages:
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==}
 
-  '@filecoin-project/squid-evm-funding@0.1.7':
-    resolution: {integrity: sha512-N3ml/Z5LCzTTj/9GVl1hcaZpE9buGT0IQKiX9gllIqvIUMvavnU5Iyi7KT5DAYSVXY9NVw/wsSMiKl8vC58TRA==}
+  '@filecoin-project/squid-evm-funding@0.2.0':
+    resolution: {integrity: sha512-ZVgH7nNyvM5Tx9d95WyTNKz/pSJYyj5mhTSBv2ATZD1nXhR0JN4Xt8o0p3oCy0yHe65zlvWz6aH1Ca+6/yNRpQ==}
     engines: {node: '>=18'}
 
   '@filoz/synapse-core@0.7.1':
@@ -2769,7 +2769,7 @@ snapshots:
       '@fastify/forwarded': 3.0.1
       ipaddr.js: 2.3.0
 
-  '@filecoin-project/squid-evm-funding@0.1.7(typescript@6.0.3)(zod@4.4.3)':
+  '@filecoin-project/squid-evm-funding@0.2.0(typescript@6.0.3)(zod@4.4.3)':
     dependencies:
       viem: 2.55.10(typescript@6.0.3)(zod@4.4.3)
     transitivePeerDependencies:

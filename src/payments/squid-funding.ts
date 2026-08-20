@@ -6,8 +6,8 @@ import {
   NATIVE_TOKEN_ADDRESS,
   planSquidFunding,
   type SourceToken,
+  type SquidPriceQuote,
   type SquidPublicClient,
-  type SquidQuote,
   type SquidWalletClient,
 } from '@filecoin-project/squid-evm-funding'
 import type { Synapse } from '@filoz/synapse-sdk'
@@ -51,7 +51,7 @@ const SOURCE_POLICIES: readonly SourcePolicy[] = [
 interface PaymentAcquisitionSummary {
   source: SourceToken
   sourceChainName: string
-  quotes: readonly SquidQuote[]
+  quotes: readonly SquidPriceQuote[]
   maxSourceAmount: bigint
   maxNativeFee: bigint
   nativeCurrency: { symbol: string; decimals: number }

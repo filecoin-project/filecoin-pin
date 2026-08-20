@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { SquidFundingPlan } from '@filecoin-project/squid-evm-funding'
 import type { Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -19,7 +20,6 @@ vi.mock('@filecoin-project/squid-evm-funding', () => ({
 
 const PRIVATE_KEY = `0x${'01'.padStart(64, '0')}` as Hex
 const OWNER = privateKeyToAccount(PRIVATE_KEY).address
-const ROUTER = '0xce16F69375520ab01377ce7B88f5BA8C48F8D666'
 const CHAIN_IDS: Record<string, number> = {
   filecoin: 314,
   arbitrum: 42161,
@@ -79,27 +79,28 @@ describe('Squid payment shortfalls', () => {
     delete process.env.NETWORK
     delete process.env.RPC_URL
 
-    mockPlan.mockImplementation(async ({ owner, sourceChainId, requirements, maxSourceAmount }) => ({
-      owner,
-      source: {
-        chainId: sourceChainId,
-        token: '0x1111111111111111111111111111111111111111',
-        symbol: 'USDC',
-        decimals: 6,
-      },
-      quotes: requirements.map((requirement: Record<string, unknown>, index: number) => ({
-        id: `quote-${index}`,
-        requirement,
-        sourceAmount: 1_000_000n,
-        destinationAmount: requirement.amount,
-        target: ROUTER,
-        data: '0x12',
-        value: 0n,
-        expiresAt: 2_000_000_000,
-      })),
-      maxSourceAmount: BigInt(maxSourceAmount) * 1_000_000n,
-      slippage: 1,
-    }))
+    mockPlan.mockImplementation(async ({ owner, sourceChainId, requirements, maxSourceAmount }) => {
+      const plan: SquidFundingPlan = {
+        owner,
+        source: {
+          chainId: sourceChainId,
+          token: '0x1111111111111111111111111111111111111111',
+          symbol: 'USDC',
+          decimals: 6,
+        },
+        quotes: requirements.map((requirement: SquidFundingPlan['quotes'][number]['requirement'], index: number) => ({
+          id: `quote-${index}`,
+          requirement,
+          sourceAmount: 1_000_000n,
+          destinationAmount: requirement.amount,
+          actions: [],
+          costs: [],
+        })),
+        maxSourceAmount: BigInt(maxSourceAmount) * 1_000_000n,
+        slippage: 1,
+      }
+      return plan
+    })
     mockExecute.mockResolvedValue({ sourceAmount: 2_000_000n, nativeFee: 1n, routes: [] })
   })
 
