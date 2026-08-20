@@ -62,6 +62,12 @@ export interface MigrateSummary extends DirectUploadSummary {
   pieces: { total: number; succeeded: number; failed: number; pending: number; oversized: number }
   /** Source CIDs skipped because they exceed the per-piece upload cap. */
   overCap: string[]
+  /**
+   * Downloaded CIDs left outside any recorded piece when the run ended
+   * (packing failed or the pipeline stopped early). On disk, not on chain:
+   * the run is incomplete and a re-run picks them up.
+   */
+  unpacked: string[]
 }
 
 /** Raised into parked download workers when nothing can ever free the budget. */
@@ -433,6 +439,18 @@ export async function runMigrate(
               // The temp file is gone either way; return its bytes.
               budget.free(written)
               if (categoryOf(err) === 'staging_budget') {
+                // A member whose own bytes overran the hard cap can never
+                // fit no matter how much eviction frees; retrying would spin
+                // on the same download forever.
+                if (written > budget.hardCap) {
+                  db.recordPieceFailure(
+                    cid,
+                    `member CAR exceeds the staging budget's ${formatFileSize(budget.hardCap)} download ceiling; ` +
+                      `raise --max-staged-bytes and re-run`,
+                    'staging_budget'
+                  )
+                  break
+                }
                 continue
               }
               const message = err instanceof Error ? err.message : String(err)
@@ -490,9 +508,20 @@ export async function runMigrate(
     evictingDeps
   )
 
-  // Surface whichever side failed; a producer failure still drains the
-  // consumer (the finally above), so both settle.
-  const [, uploadSummary] = await Promise.all([producer, consumer])
+  // Both sides must settle before this function returns: a producer failure
+  // drains the consumer (the finally above), and a consumer failure fails
+  // the budget so parked and looping download workers stop instead of
+  // racing the caller's db.close(). The consumer's own error wins the
+  // rethrow; producer workers mostly fail derivatively from failAll.
+  const consumerGuarded = consumer.catch((err: unknown) => {
+    budget.failAll(err instanceof Error ? err : new Error(String(err)))
+    notifyUploader()
+    throw err
+  })
+  const [producerResult, consumerResult] = await Promise.allSettled([producer, consumerGuarded])
+  if (consumerResult.status === 'rejected') throw consumerResult.reason
+  if (producerResult.status === 'rejected') throw producerResult.reason
+  const uploadSummary = consumerResult.value
 
   if (stuck) {
     log('warn: run stopped early: staging budget full with unresolved commits; the summary lists them')
@@ -509,5 +538,9 @@ export async function runMigrate(
       oversized: counts.oversized,
     },
     overCap,
+    // Anything still `done` outside a recorded piece never shipped: pack
+    // failures leave members in exactly this state, and the documented exit
+    // contract says such a run must not exit 0.
+    unpacked: db.donePiecesFreeForPacking().map((p) => p.cid),
   }
 }

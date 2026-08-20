@@ -1,7 +1,7 @@
-import { Command } from 'commander'
+import { Command, Option } from 'commander'
 import { migrateIncomplete, runMigrateFromCli } from '../migrate/migrate.js'
 import { addAuthOptions, addContextSelectionOptions } from '../utils/cli-options.js'
-import { addEgressOptions } from '../utils/cli-options-egress.js'
+import { EGRESS_PROVIDERS } from '../utils/cli-options-egress.js'
 
 export const migrateCommand = new Command('migrate')
   .description('Migrate IPFS content to Filecoin from a list of CIDs, packing them into batched pieces')
@@ -37,4 +37,13 @@ function collect(value: string, previous: string[] = []): string[] {
 
 addAuthOptions(migrateCommand)
 addContextSelectionOptions(migrateCommand)
-addEgressOptions(migrateCommand)
+// Deliberately not addEgressOptions: that variant reads EGRESS_PROVIDER from
+// the environment, and a variable exported for add/import would silently opt
+// a bulk migration into CDN lockup. Migrate pays egress only on an explicit
+// flag, and its help states its own `none` default.
+migrateCommand.addOption(
+  new Option(
+    '--egress-provider <provider>',
+    'Egress provider for piece retrieval: beam (FilBeam CDN; egress drawn from the owner lockup) or none (default).'
+  ).choices(EGRESS_PROVIDERS as readonly string[])
+)

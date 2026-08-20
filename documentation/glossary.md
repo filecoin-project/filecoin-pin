@@ -110,6 +110,10 @@ See [Management Console affordance in the README](../README.md#-management-conso
 
 This is the primary smart contract used when interacting with the warm storage functionality offered in [Filecoin Onchain Cloud](#filecoin-onchain-cloud).  It acts as both a "service" contract and a "validator" contract for payment management and settlements, ensuring the warm storage service is actually delivered before payments are released to the [Service Provider](#service-provider).
 
+## GC Window
+
+The time a [Service Provider](#service-provider)'s [Curio](#curio) instance keeps a [Parked Piece](#parked-piece) before garbage-collecting it (roughly 2 hours by default, provider-configurable, not discoverable on chain). The `migrate` command schedules its batched `addPieces` commits to land before its per-provider estimate of this window expires, and lowers the estimate when it observes a GC rejection.
+
 ## IPFS Root CID
 
 The CID for the root of a merkle DAG that is usually encoding a file or directory as UnixFS.  Since each `filecoin-pin add` creates a [CAR](#car), regardless if passed a file or directory, there is a single root corresponding to root of the Merkle DAG made out of encoding the file or directory as UnixFS. Typically this will be presented in base32, beginning with `bafy` and be 59 characters long. See [Relationship between Piece CID and IPFS Root CID](#relationship-between-piece-cid-and-ipfs-root-cid) for how this relates to the [Piece CID](#piece-cid).
@@ -136,6 +140,14 @@ Key | Purpose | Scope
 `withIPFSIndexing` | Set to empty string to signal the [SP](#service-provider) to index and advertise the data to [IPNI](#ipni) | Data Set
 `ipfsRootCid` | Stored on each Piece to link the [Piece CID](#piece-cid) back to the [IPFS Root CID](#ipfs-root-cid).  While this is a convention that Filecoin Pin follows, there is nothing onchain enforcing a correct link between `ipfsRootCid` and `pieceCid`. | Piece
 `name` | Original basename of the source path (file or directory). Auto-derived during `add` so the human-readable label survives even though the [UnixFS profile](#unixfs-v1-2025-profile) does not wrap single files in a parent directory. User-supplied piece metadata wins over the auto-derived value; an explicit empty string is treated as an opt-out. Consumers that need to know whether the source was a file or a directory inspect the [IPFS Root CID](#ipfs-root-cid) (codec + UnixFS `Data.Type`), matching the IPFS Pinning Service `name` convention. | Piece
+
+## Member CAR
+
+A single source [CID](#cid)'s verified [CAR](#car), downloaded from a trustless gateway by the `migrate` command and staged on disk. Members are bin-packed into one multi-root CAR that becomes a [Piece](#piece); the member file is deleted once the packed piece records it. See [How migrate works](migrate.md).
+
+## Parked Piece
+
+A [Piece](#piece) stored on a [Service Provider](#service-provider) but not yet committed on chain via `addPieces`. Parking starts the provider's [GC Window](#gc-window) clock: a piece parked past the window is garbage-collected and must be stored again.
 
 ## unixfs-v1-2025 profile
 
@@ -238,6 +250,10 @@ Session keys require specific permissions (such as CREATE_DATA_SET and ADD_PIECE
 Note that the filecoin-pin CLI's `--session-key` flag (and `SESSION_KEY` environment variable) expect the session key's **private key** — the `SESSION_KEY` value printed by `filecoin-pin session create` or `filecoin-pin session generate` — not the session address. The (public) session address is only used when authorizing or revoking: `filecoin-pin session authorize <session-address>` and `filecoin-pin session revoke <session-address>`.
 
 
+
+## Staging Budget
+
+The byte budget the `migrate` command grants its staging directory (free space at startup, capped by `--max-staged-bytes`). Everything staged counts against it: [Member CARs](#member-car), in-flight downloads, assembling pieces, and packed pieces not yet committed. A full budget blocks downloads until commits evict pieces, so a disk smaller than the migration cycles instead of failing. See [How migrate works](migrate.md).
 
 ## Standard IPFS Tooling
 

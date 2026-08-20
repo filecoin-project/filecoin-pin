@@ -6,6 +6,7 @@ import type { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
+import { migrateIncomplete } from '../../migrate/migrate.js'
 import { describe, expect, it } from 'vitest'
 import { MigrationDB } from '../../migrate/db.js'
 import type { DirectUploadDeps, UploadContextLike } from '../../migrate/direct-upload.js'
@@ -150,8 +151,35 @@ describe('runMigrate pipeline', () => {
       expect(firstStore).toBeLessThan(lastFetch)
 
       expect(summary.pieces).toEqual({ total: 3, succeeded: 3, failed: 0, pending: 0, oversized: 0 })
+      expect(summary.unpacked).toEqual([])
       expect(h.db.uploadsByStatus('p1', 'committed').length).toBeGreaterThan(0)
       expect(h.db.subPiecesNeedingUpload('p1')).toHaveLength(0)
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  })
+
+  it('reports downloaded CIDs whose packing failed, so the run cannot exit 0', async () => {
+    const cids = [{ cid: await cidFor('a'), delayMs: 0 }]
+    const h = await harness({ cids, budgetBytes: 100_000, packTargetBytes: 1000 })
+    try {
+      const summary = await runMigrate(
+        h.db,
+        {
+          ...h.options,
+          buildBin: async () => {
+            throw new Error('assembly exploded')
+          },
+        },
+        h.deps
+      )
+
+      // Downloaded, never shipped: the summary must say so and the exit-code
+      // predicate must treat it as incomplete.
+      expect(summary.pieces.succeeded).toBe(1)
+      expect(summary.unpacked).toEqual([cids[0]?.cid])
+      expect(migrateIncomplete(summary)).toBe(true)
     } finally {
       h.db.close()
       await rm(h.dir, { recursive: true, force: true })

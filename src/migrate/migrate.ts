@@ -67,11 +67,13 @@ export function normalizeMigrateOptions(options: Record<string, unknown>): Norma
     options.assumedWindowMinutes == null
       ? DEFAULT_ASSUMED_WINDOW_MS / 60_000
       : parsePositiveInt(String(options.assumedWindowMinutes), '--assumed-window-minutes')
-  const copies = options.copies == null ? DEFAULT_COPIES : Number(options.copies)
+  const copies = options.copies == null ? DEFAULT_COPIES : parsePositiveInt(String(options.copies), '--copies')
   const gateways =
     Array.isArray(options.gateway) && options.gateway.length > 0 ? (options.gateway as string[]) : DEFAULT_GATEWAYS
   // Bulk archival should not pay CDN lockup by default; `--egress-provider
-  // beam` opts in (the add/import default is the inverse).
+  // beam` opts in. Only the explicit flag can set this: the migrate command
+  // registers its option without env binding, so an EGRESS_PROVIDER exported
+  // for add/import cannot flip a bulk run to beam.
   const egressProvider = (options.egressProvider as string | undefined) ?? 'none'
   const maxStagedBytes = options.maxStagedBytes == null ? null : Number(parseSize(String(options.maxStagedBytes)))
   if (maxStagedBytes != null && maxStagedBytes < 2 * packTargetBytes) {
@@ -261,6 +263,7 @@ export function migrateIncomplete(summary: MigrateSummary): boolean {
     summary.pieces.pending > 0 ||
     summary.pieces.oversized > 0 ||
     summary.overCap.length > 0 ||
+    summary.unpacked.length > 0 ||
     summary.providers.some((p) => p.failed > 0 || p.collected > 0 || p.addUnconfirmed > 0)
   )
 }
