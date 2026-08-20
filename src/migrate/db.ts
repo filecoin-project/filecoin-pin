@@ -28,6 +28,7 @@ export type FailureCategory =
   | 'source_gateway_timeout'
   | 'car_incomplete'
   | 'car_root_mismatch'
+  | 'car_block_mismatch'
   | 'commp_mismatch'
   | 'oversized'
   | 'staging_budget'
@@ -163,6 +164,10 @@ export class MigrationDB {
         FOREIGN KEY (scope, sub_piece_cid) REFERENCES sub_pieces(scope, sub_piece_cid),
         FOREIGN KEY (scope, member_cid) REFERENCES pieces(scope, cid)
       );
+      -- A member belongs to at most one sub-piece: double-packing a source
+      -- CID must fail at the store, not survive as silent corruption.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_sub_piece_members_member
+        ON sub_piece_members (scope, member_cid);
       CREATE TABLE IF NOT EXISTS uploads (
         scope         TEXT NOT NULL,
         sub_piece_cid TEXT NOT NULL,
@@ -357,14 +362,15 @@ export class MigrationDB {
   /**
    * Remove a staged piece whose CAR file failed re-verification, freeing its
    * member CIDs to re-download. One transaction deletes the piece, its
-   * member list, and any upload rows, then returns the affected source CIDs
-   * so the caller can reset them to pending. Refuses a piece whose primary
-   * copy is already committed: that piece is on chain and its local file no
-   * longer matters.
+   * member list, and any upload rows, and resets the member CIDs to
+   * `pending`; the returned CIDs are for logging. Refuses a piece any of
+   * whose copies is already committed: that piece is on chain and its local
+   * file no longer matters.
    */
   deleteSubPieceForRebuild(subPieceCid: string): string[] {
-    // Live provider-side state blocks a rebuild: a committed primary is
-    // final, an add_unconfirmed row is an unresolved breadcrumb whose
+    // Live provider-side state blocks a rebuild: a committed copy (either
+    // role) is on chain and deleting its row would let later flow re-add the
+    // same piece, an add_unconfirmed row is an unresolved breadcrumb whose
     // deletion could turn into a duplicate on-chain add, and a parked copy
     // can still commit from the provider's bytes without the local file.
     // Reconciliation resolves those states first; the rebuild waits for a
@@ -373,7 +379,7 @@ export class MigrationDB {
       .prepare(
         `SELECT status FROM uploads
          WHERE scope = ? AND sub_piece_cid = ?
-           AND (status IN ('parked', 'add_unconfirmed') OR (role = 'primary' AND status = 'committed'))
+           AND status IN ('parked', 'add_unconfirmed', 'committed')
          LIMIT 1`
       )
       .get(this.scope, subPieceCid) as { status: string } | undefined
@@ -381,6 +387,16 @@ export class MigrationDB {
       throw new Error(`refusing to rebuild ${subPieceCid}: it has a live upload in status '${live.status}'`)
     }
     const members = this.subPieceMemberCids(subPieceCid)
+    // Members reset to pending inside the same transaction: a crash between
+    // deleting the sub-piece and re-queueing its sources would otherwise
+    // leave `done` rows with no member file and no membership, which nothing
+    // re-queues.
+    const resetMember = this.#db.prepare(
+      `UPDATE pieces SET status='pending', member_car_path=NULL, member_sha256=NULL,
+                          piece_cid=NULL, raw_size=NULL, error=NULL, failure_category=NULL, updated_at=?
+       WHERE scope=? AND cid=?`
+    )
+    const now = new Date().toISOString()
     this.#db.exec('BEGIN')
     try {
       this.#db.prepare(`DELETE FROM uploads WHERE scope = ? AND sub_piece_cid = ?`).run(this.scope, subPieceCid)
@@ -388,6 +404,9 @@ export class MigrationDB {
         .prepare(`DELETE FROM sub_piece_members WHERE scope = ? AND sub_piece_cid = ?`)
         .run(this.scope, subPieceCid)
       this.#db.prepare(`DELETE FROM sub_pieces WHERE scope = ? AND sub_piece_cid = ?`).run(this.scope, subPieceCid)
+      for (const cid of members) {
+        resetMember.run(now, this.scope, cid)
+      }
       this.#db.exec('COMMIT')
     } catch (err) {
       this.#db.exec('ROLLBACK')
@@ -542,6 +561,7 @@ export class MigrationDB {
              SELECT 1 FROM uploads u
              WHERE u.scope = sp.scope AND u.sub_piece_cid = sp.sub_piece_cid
                AND u.provider_id = ?
+               AND u.status IN ('parked', 'add_unconfirmed', 'committed', 'failed')
            )
          ORDER BY sp.created_at, sp.rowid`
       )
@@ -560,7 +580,8 @@ export class MigrationDB {
            role = excluded.role, data_set_id = excluded.data_set_id,
            status = 'parked', parked_at = excluded.parked_at,
            tx_hash = NULL, piece_id = NULL, committed_at = NULL, error = NULL,
-           updated_at = excluded.updated_at`
+           updated_at = excluded.updated_at
+         WHERE uploads.status != 'committed'`
       )
       .run(this.scope, subPieceCid, providerId, role, dataSetId, now, now)
   }
