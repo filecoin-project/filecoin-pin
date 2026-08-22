@@ -100,10 +100,42 @@ describe('interactive Squid funding command', () => {
           {
             sourceAmount: 1_000_000n,
             requirement: { id: 'filecoin-fil', amount: options.filShortfall },
+            costs: [],
           },
           {
             sourceAmount: 2_000_000n,
             requirement: { id: 'filecoin-usdfc', amount: options.usdfcShortfall },
+            costs: [
+              {
+                kind: 'fee',
+                amount: 1_500_000_000_000_000n,
+                token: {
+                  address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+                  chainId: 1,
+                },
+              },
+              {
+                kind: 'fee',
+                amount: 9_000_000_000_000_000n,
+                token: { chainId: 1 },
+              },
+              {
+                kind: 'fee',
+                amount: 9_000_000_000_000_000n,
+                token: {
+                  address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+                  chainId: 8453,
+                },
+              },
+              {
+                kind: 'gas',
+                amount: 9_000_000_000_000_000n,
+                token: {
+                  address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+                  chainId: 1,
+                },
+              },
+            ],
           },
         ],
       })
@@ -125,9 +157,8 @@ describe('interactive Squid funding command', () => {
       expect.objectContaining({ message: expect.stringContaining('Spend 3 USDC from Ethereum') })
     )
     expect(mockConfirm.mock.calls[0]?.[0].message).toContain('source-token limit: 4 USDC')
-    expect(mockConfirm.mock.calls[0]?.[0].message).toContain(
-      'buffered network-fee limit: 0.03 ETH; final network fees may vary'
-    )
+    expect(mockConfirm.mock.calls[0]?.[0].message).toContain('estimated Squid route fee: 0.0015 ETH')
+    expect(mockConfirm.mock.calls[0]?.[0].message).toContain('transaction-gas limit: 0.03 ETH')
     expect(mockPlan).toHaveBeenCalledOnce()
   })
 

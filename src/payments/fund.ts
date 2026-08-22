@@ -5,6 +5,7 @@
  */
 
 import { confirm, isCancel } from '@clack/prompts'
+import { NATIVE_TOKEN_ADDRESS } from '@filecoin-project/squid-evm-funding'
 import { type Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { formatUnits, parseUnits } from 'viem'
@@ -301,6 +302,15 @@ export async function runFund(options: FundOptions): Promise<void> {
           options,
           confirm: async (summary) => {
             const spend = summary.quotes.reduce((total, quote) => total + quote.sourceAmount, 0n)
+            const nativeRouteFee = summary.quotes
+              .flatMap((quote) => quote.costs)
+              .filter(
+                (cost) =>
+                  cost.kind === 'fee' &&
+                  cost.token.chainId === summary.source.chainId &&
+                  cost.token.address?.toLowerCase() === NATIVE_TOKEN_ADDRESS
+              )
+              .reduce((total, cost) => total + cost.amount, 0n)
             const targets = summary.quotes
               .map(
                 (quote) =>
@@ -308,7 +318,7 @@ export async function runFund(options: FundOptions): Promise<void> {
               )
               .join(' and ')
             const proceed = await confirm({
-              message: `Spend ${formatUnits(spend, summary.source.decimals)} ${summary.source.symbol} from ${summary.sourceChainName} via Squid to receive ${targets} on Filecoin (source-token limit: ${formatUnits(summary.maxSourceAmount, summary.source.decimals)} ${summary.source.symbol}; buffered network-fee limit: ${formatUnits(summary.maxNativeFee, summary.nativeCurrency.decimals)} ${summary.nativeCurrency.symbol}; final network fees may vary)?`,
+              message: `Spend ${formatUnits(spend, summary.source.decimals)} ${summary.source.symbol} from ${summary.sourceChainName} via Squid to receive ${targets} on Filecoin (source-token limit: ${formatUnits(summary.maxSourceAmount, summary.source.decimals)} ${summary.source.symbol}; estimated Squid route fee: ${formatUnits(nativeRouteFee, summary.nativeCurrency.decimals)} ${summary.nativeCurrency.symbol}; transaction-gas limit: ${formatUnits(summary.maxNativeFee, summary.nativeCurrency.decimals)} ${summary.nativeCurrency.symbol}; final network fees may vary)?`,
               initialValue: false,
             })
             if (isCancel(proceed) || !proceed) throw new CliIncomplete('Source acquisition cancelled by user')
