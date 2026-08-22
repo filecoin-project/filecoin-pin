@@ -34,6 +34,13 @@ export function scopesOption(description: string): Option {
   return new Option('--scopes <ids>', `${description}. Any of: ${SCOPE_IDS.join(', ')}`)
 }
 
+export function envFileOption(): Option {
+  return new Option(
+    '--env-file <path>',
+    'Load environment variables (e.g. SESSION_KEY, WALLET_ADDRESS) from a dotenv-style file before other options are resolved. Does not override variables already set in the environment.'
+  )
+}
+
 export function rpcUrlOption(description: string): Option {
   return new Option('--rpc-url <url>', description).env('RPC_URL')
 }
@@ -53,7 +60,11 @@ export function addSigningAuthOptions(command: Command): Command {
     .addOption(
       new Option('--wallet-address <address>', 'Owner wallet address for session key auth').env('WALLET_ADDRESS')
     )
-    .addOption(sessionKeyOption('Session key private key for session key auth (not the session address)'))
+    .addOption(
+      sessionKeyOption(
+        'Session key private key for session key auth (not the session address). Can be supplied via --env-file <path> (e.g. a downloaded credentials file).'
+      )
+    )
 }
 
 /**
@@ -94,10 +105,12 @@ export function addAuthOptions(command: Command): Command {
     )
   )
 
-  return addNetworkOptions(command).addOption(
-    rpcUrlOption('RPC endpoint')
-    // default rpcUrl value is defined in ../common/get-rpc-url.ts
-  )
+  return addNetworkOptions(command)
+    .addOption(
+      rpcUrlOption('RPC endpoint')
+      // default rpcUrl value is defined in ../common/get-rpc-url.ts
+    )
+    .addOption(envFileOption())
 }
 
 /**

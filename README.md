@@ -190,6 +190,7 @@ npm install -g filecoin-pin
 #                   session key PRIVATE key (not the session address), as printed by
 #                   `filecoin-pin session create` or `filecoin-pin session generate`
 #                   (or pass --wallet-address <addr> --session-key <private-key> to each command)
+#                   Or load both from a downloaded file: filecoin-pin add --env-file ~/.filecoin-session-key.env
 #    Revoke later:  filecoin-pin session revoke <session-address>
 #    Scoped keys:   session create/authorize/revoke take --scopes <ids> to grant or
 #                   revoke a subset (default: all). Ids: createDataSet, addPieces,
@@ -264,6 +265,7 @@ filecoin-pin add myfile.txt
 * `--session-key`: Session key mode: the session key's **private key** (printed as `SESSION_KEY` by `filecoin-pin session create` / `session generate`), not the session address
 * `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `mainnet`). Mutually exclusive with `--rpc-url`.
 * `--rpc-url`: Filecoin RPC endpoint. Filecoin Pin probes its `eth_chainId` to derive the chain. Mutually exclusive with `--network`.
+* `--env-file <path>`: Load environment variables (e.g. `SESSION_KEY`, `WALLET_ADDRESS`) from a dotenv-style file before other options are resolved, e.g. a downloaded credentials file. Never overrides a variable already set in the environment.
 
 Other arguments are possible for individual commands, use `--help` to find out more.
 
