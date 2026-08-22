@@ -1,4 +1,5 @@
 import { confirm, isCancel } from '@clack/prompts'
+import { TerminateServicePermission } from '@filoz/synapse-core/session-key'
 import type { EnhancedDataSetInfo, Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { WaitForTransactionReceiptTimeoutError } from 'viem'
@@ -218,7 +219,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
   spinner.start('Connecting to Synapse...')
 
   try {
-    const synapse = await getCliSynapse(options)
+    const synapse = await getCliSynapse(options, [TerminateServicePermission])
     const network = synapse.chain.name
     const address = getClientAddress(synapse)
 

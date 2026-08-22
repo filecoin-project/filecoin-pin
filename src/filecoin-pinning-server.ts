@@ -1,3 +1,8 @@
+import {
+  AddPiecesPermission,
+  CreateDataSetPermission,
+  SchedulePieceRemovalsPermission,
+} from '@filoz/synapse-core/session-key'
 import fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
@@ -105,6 +110,8 @@ function buildSynapseConfig(config: Config): SynapseSetupConfig {
       ...base,
       walletAddress: config.walletAddress,
       sessionKey: config.sessionKey,
+      // The pinning API creates datasets, adds pieces, and deletes pins.
+      requiredPermissions: [CreateDataSetPermission, AddPiecesPermission, SchedulePieceRemovalsPermission],
     }
   }
 

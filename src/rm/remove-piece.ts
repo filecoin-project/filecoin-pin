@@ -7,6 +7,8 @@
  * - Wire up progress events to spinner output
  * - Return transaction hash and confirmation status (or throw on failure)
  */
+
+import { SchedulePieceRemovalsPermission } from '@filoz/synapse-core/session-key'
 import pc from 'picocolors'
 import pino from 'pino'
 import { setIncompleteExitCode } from '../common/cli-errors.js'
@@ -59,6 +61,7 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
     spinner.start('Initializing Synapse SDK...')
 
     const authConfig = parseCLIAuth(options)
+    authConfig.requiredPermissions = [SchedulePieceRemovalsPermission]
     const synapse = await initializeSynapse(authConfig, logger)
     const network = synapse.chain.name
 

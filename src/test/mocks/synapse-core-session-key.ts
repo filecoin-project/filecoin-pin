@@ -19,6 +19,13 @@ export const DefaultFwssPermissions = [
   SchedulePieceRemovalsPermission,
 ]
 
+export const PermissionNames: Record<string, string> = {
+  [CreateDataSetPermission]: 'CreateDataSet',
+  [TerminateServicePermission]: 'TerminateService',
+  [AddPiecesPermission]: 'AddPieces',
+  [SchedulePieceRemovalsPermission]: 'SchedulePieceRemovals',
+}
+
 const mockExpirations = Object.fromEntries(DefaultFwssPermissions.map((p) => [p, 0n]))
 
 export const fromSecp256k1: Mock = vi.fn(() => ({

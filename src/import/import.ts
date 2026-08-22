@@ -8,6 +8,7 @@
 import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { Readable } from 'node:stream'
+import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
@@ -250,6 +251,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       config.dataSetMetadata = dataSetMetadata
     }
     if (withCDN) config.withCDN = true
+    config.requiredPermissions = [CreateDataSetPermission, AddPiecesPermission]
 
     const synapse = await initializeSynapse(config, logger)
     const networkSlug = getNetworkSlug(synapse.chain)

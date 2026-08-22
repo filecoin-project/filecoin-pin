@@ -261,11 +261,25 @@ filecoin-pin add myfile.txt
 * `-v`, `--verbose`: Verbose output
 * `--private-key`: Ethereum-style (`0x`) private key (wallet and signer), funded with USDFC
 * `--wallet-address`: Session key mode: owner wallet address
-* `--session-key`: Session key mode: the session key's **private key** (printed as `SESSION_KEY` by `filecoin-pin session create` / `session generate`), not the session address
+* `--session-key`: Session key mode: the session key's **private key** (printed as `SESSION_KEY` by `filecoin-pin session create` / `session generate`), not the session address. Each command checks only the permissions it needs; see [Session-Key Permissions](#session-key-permissions) below.
 * `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `mainnet`). Mutually exclusive with `--rpc-url`.
 * `--rpc-url`: Filecoin RPC endpoint. Filecoin Pin probes its `eth_chainId` to derive the chain. Mutually exclusive with `--network`.
 
 Other arguments are possible for individual commands, use `--help` to find out more.
+
+### Session-Key Permissions
+
+In session-key mode, each command checks only the on-chain permissions it needs — a delegate does not need the full FWSS permission set to run a scoped subset of commands.
+
+| Command | Required scopes |
+| --- | --- |
+| Read commands (`payments status`, `data-set ls`, `provider ls`, `data-set show`, `data-set piece-status`, …) | None |
+| `add`, `import` | `CreateDataSet`, `AddPieces` |
+| `rm` (`--piece` or `--all`) | `SchedulePieceRemovals` |
+| `data-set terminate` | `TerminateService` |
+| Pinning server (`filecoin-pinning-server`) | `CreateDataSet`, `AddPieces`, `SchedulePieceRemovals` |
+
+If the session key is missing a required scope, the command fails up front with a console link to approve the missing scope with the owner wallet, plus the equivalent `filecoin-pin session authorize` / `filecoin-pin session create` commands for the account owner to run.
 
 ### Environment Variables
 

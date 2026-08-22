@@ -5,6 +5,7 @@
  * and preparing them for use with the Synapse SDK.
  */
 
+import type { Permission } from '@filoz/synapse-core/session-key'
 import type { FilecoinChain, Synapse } from '@filoz/synapse-sdk'
 import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rpc-url.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
@@ -248,8 +249,11 @@ export function getCLILogger() {
   return createLogger({ logLevel: process.env.LOG_LEVEL })
 }
 
-export async function getCliSynapse(options: CLIAuthOptions): Promise<Synapse> {
+export async function getCliSynapse(options: CLIAuthOptions, requiredPermissions?: Permission[]): Promise<Synapse> {
   const authConfig = parseCLIAuth(options)
+  if (requiredPermissions != null) {
+    authConfig.requiredPermissions = requiredPermissions
+  }
   const logger = getCLILogger()
   return initializeSynapse(authConfig, logger)
 }

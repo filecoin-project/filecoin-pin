@@ -8,6 +8,7 @@
 import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { Readable } from 'node:stream'
+import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import pc from 'picocolors'
 import pino from 'pino'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
@@ -180,6 +181,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       config.dataSetMetadata = dataSetMetadata
     }
     if (withCDN) config.withCDN = true
+    config.requiredPermissions = [CreateDataSetPermission, AddPiecesPermission]
 
     const synapse = await initializeSynapse(config, logger)
     const networkSlug = getNetworkSlug(synapse.chain)
