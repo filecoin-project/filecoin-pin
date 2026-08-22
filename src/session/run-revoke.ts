@@ -19,6 +19,7 @@ import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli
 import { log } from '../utils/cli-logger.js'
 import { formatRevokeSessionOutput } from './format.js'
 import { resolveNetwork } from './resolve-network.js'
+import { describeScopes, type ParsedScopes, parseScopes } from './scopes.js'
 import type { SessionRevokeOptions } from './types.js'
 
 /**
@@ -43,6 +44,17 @@ export async function runSessionRevoke(options: SessionRevokeOptions): Promise<R
     throw new Error(`Invalid session address: ${options.sessionAddress}`)
   }
 
+  let scopes: ParsedScopes | undefined
+  if (options.scopes) {
+    try {
+      scopes = parseScopes(options.scopes)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      cancel(message)
+      throw error
+    }
+  }
+
   const { chain, transport } = await resolveNetwork(options)
 
   const ownerAccount: Account = privateKeyToAccount(privateKey as Hex)
@@ -51,6 +63,7 @@ export async function runSessionRevoke(options: SessionRevokeOptions): Promise<R
     pc.gray(`Owner:           ${ownerAccount.address}`),
     pc.gray(`Session address: ${sessionAddress}`),
     pc.gray(`Chain:           ${chain.name} (id ${chain.id})`),
+    pc.gray(`Scopes:          ${describeScopes(scopes?.ids)}`),
     pc.yellow('This revokes the Filecoin Pin FWSS permissions for this session address.'),
   ])
   log.flush()
@@ -92,6 +105,7 @@ export async function runSessionRevoke(options: SessionRevokeOptions): Promise<R
     const result = await revokeSessionAddress(client, {
       sessionAddress,
       onProgress,
+      ...(scopes ? { permissions: scopes.permissions } : {}),
     })
 
     spinner.stop(`${pc.green('✓')} Session address revoked on ${chain.name} (chain id ${chain.id})`)

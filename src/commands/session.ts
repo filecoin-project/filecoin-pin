@@ -16,6 +16,10 @@ export const sessionCommand = new Command('session').description('Manage session
 const createCommand = new Command('create')
   .description('Generate (or reuse) a session key and authorize it on-chain')
   .option('--validity-days <days>', 'Number of days the session key should be valid (max 365)', '10')
+  .option(
+    '--scopes <ids>',
+    'Comma-separated permissions to grant (default: all). Any of: createDataSet,addPieces,schedulePieceRemovals,terminateService (aliases: create,add,remove, delete,terminate)'
+  )
   .addOption(sessionKeyOption('Reuse an existing session private key'))
   .action(async (options) => {
     try {
@@ -33,6 +37,10 @@ const authorizeCommand = new Command('authorize')
   .description('Authorize an externally generated session address on-chain (two-party flow)')
   .argument('<session-address>', 'Session address to authorize')
   .option('--validity-days <days>', 'Number of days the authorization is valid (max 365)', '10')
+  .option(
+    '--scopes <ids>',
+    'Comma-separated permissions to grant (default: all). Any of: createDataSet,addPieces,schedulePieceRemovals,terminateService (aliases: create,add,remove, delete,terminate)'
+  )
   .action(async (sessionAddress, options) => {
     try {
       await runSessionAuthorize({ ...options, sessionAddress })
@@ -48,6 +56,10 @@ sessionCommand.addCommand(authorizeCommand)
 const revokeCommand = new Command('revoke')
   .description('Revoke Filecoin Pin permissions for an authorized session address')
   .argument('<session-address>', 'Session address to revoke')
+  .option(
+    '--scopes <ids>',
+    'Comma-separated permissions to revoke (default: all). Any of: createDataSet,addPieces,schedulePieceRemovals,terminateService (aliases: create,add,remove, delete,terminate)'
+  )
   .action(async (sessionAddress, options) => {
     try {
       await runSessionRevoke({ ...options, sessionAddress })

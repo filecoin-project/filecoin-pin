@@ -22,6 +22,7 @@ import { log } from '../utils/cli-logger.js'
 import { formatAuthorizeSessionOutput } from './format.js'
 import { parseValidityDays } from './parse-validity-days.js'
 import { resolveNetwork } from './resolve-network.js'
+import { describeScopes, type ParsedScopes, parseScopes } from './scopes.js'
 import type { SessionAuthorizeOptions } from './types.js'
 
 /**
@@ -57,6 +58,17 @@ export async function runSessionAuthorize(
     throw error
   }
 
+  let scopes: ParsedScopes | undefined
+  if (options.scopes) {
+    try {
+      scopes = parseScopes(options.scopes)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      cancel(message)
+      throw error
+    }
+  }
+
   const { chain, transport } = await resolveNetwork(options)
 
   const ownerAccount: Account = privateKeyToAccount(privateKey as Hex)
@@ -66,6 +78,7 @@ export async function runSessionAuthorize(
     pc.gray(`Session address: ${sessionAddress}`),
     pc.gray(`Chain:           ${chain.name} (id ${chain.id})`),
     pc.gray(`Validity:        ${validityDays} days`),
+    pc.gray(`Scopes:          ${describeScopes(scopes?.ids)}`),
     pc.yellow('Verify the session address out-of-band before continuing.'),
   ])
   log.flush()
@@ -107,6 +120,7 @@ export async function runSessionAuthorize(
     const result = await authorizeSessionAddress(client, {
       sessionAddress,
       validityDays,
+      ...(scopes ? { permissions: scopes.permissions } : {}),
       onProgress,
     })
 
