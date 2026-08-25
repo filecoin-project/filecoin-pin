@@ -16,7 +16,7 @@ import { log } from './cli-logger.js'
  * Commander attribute names for the mutually exclusive auth flags whose
  * provenance {@link parseCLIAuth} needs to resolve precedence.
  */
-const AUTH_OPTION_NAMES = ['privateKey', 'wallet', 'walletAddress', 'sessionKey', 'viewAddress'] as const
+const AUTH_OPTION_NAMES = ['privateKey', 'walletAddress', 'sessionKey', 'viewAddress'] as const
 
 /**
  * Read each auth flag's provenance from a Commander command, narrowed to the
@@ -110,24 +110,11 @@ export function addSigningAuthOptions(command: Command): Command {
  * ```
  */
 export function addAuthOptions(command: Command): Command {
-  addSigningAuthOptions(command)
-    .addOption(
-      new Option(
-        '--wallet <id>',
-        'OpenWallet Standard wallet name or ID (signs via OWS, key never leaves vault). Can also use OWS_WALLET_ID env.'
-      ).env('OWS_WALLET_ID')
+  addSigningAuthOptions(command).addOption(
+    new Option('--view-address <address>', 'View-only mode (no signing) for the specified wallet address').env(
+      'VIEW_ADDRESS'
     )
-    .addOption(
-      new Option(
-        '--wallet-passphrase <passphrase>',
-        'Passphrase for the OWS wallet (also OWS_WALLET_PASSPHRASE env)'
-      ).env('OWS_WALLET_PASSPHRASE')
-    )
-    .addOption(
-      new Option('--view-address <address>', 'View-only mode (no signing) for the specified wallet address').env(
-        'VIEW_ADDRESS'
-      )
-    )
+  )
 
   // Capture each auth flag's provenance (explicit flag vs env var) before the
   // action runs, and stash it on the parsed options as `optionSources`. This is

@@ -53,12 +53,6 @@ importers:
       '@multiformats/multiaddr-to-uri':
         specifier: ^12.0.0
         version: 12.0.0
-      '@open-wallet-standard/adapters':
-        specifier: ^1.4.2
-        version: 1.4.2(viem@2.55.10(typescript@6.0.3)(zod@4.4.3))
-      '@open-wallet-standard/core':
-        specifier: ^1.4.2
-        version: 1.4.2
       '@sentry/node':
         specifier: ^10.49.0
         version: 10.67.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))
@@ -876,44 +870,6 @@ packages:
 
   '@octokit/types@16.0.0':
     resolution: {integrity: sha512-sKq+9r1Mm4efXW1FCk7hFSeJo4QKreL/tTbR0rz/qx/r1Oa2VV83LTA/H/MuCOX7uCIJmQVRKBcbmWoySjAnSg==}
-
-  '@open-wallet-standard/adapters@1.4.2':
-    resolution: {integrity: sha512-xXKBRmfNltnJH6BhTyTlpCExWga0bD16GNlx18sr7FbvIOh51CpF+6tn4z0lTNoz7VNAVM/jCS4UNL66V0II5w==}
-    peerDependencies:
-      '@solana/web3.js': '>=1.0.0'
-      '@tetherto/wdk-wallet': '>=1.0.0-beta.0'
-      viem: '>=2.0.0'
-    peerDependenciesMeta:
-      '@solana/web3.js':
-        optional: true
-      '@tetherto/wdk-wallet':
-        optional: true
-      viem:
-        optional: true
-
-  '@open-wallet-standard/core-darwin-arm64@1.4.2':
-    resolution: {integrity: sha512-0bu36U0vGLqIn7rxHAJNA253VvV9xt+AbWLWf8NHxiDoLaZX0RSVyBd79g80Pyi6N9/KkgltDWAq4hfruOaz9A==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@open-wallet-standard/core-darwin-x64@1.4.2':
-    resolution: {integrity: sha512-RvFMd6PhOT4UDH0NnybYiouLcjH9hPaP0i0I42R/mGnqNZq/ZwQ2h7jhFRu8hj213xV4LYfT2mWCnSp5eviMMg==}
-    cpu: [x64]
-    os: [darwin]
-
-  '@open-wallet-standard/core-linux-arm64-gnu@1.4.2':
-    resolution: {integrity: sha512-srJiGO5A6mc1j3QU4Br3/sUZbikRi4T9c1wZdT8MBZcSFiJ5MONqyduMHQhfbd60jTJK73MeqDFXdKaBnxU9qg==}
-    cpu: [arm64]
-    os: [linux]
-
-  '@open-wallet-standard/core-linux-x64-gnu@1.4.2':
-    resolution: {integrity: sha512-0Hqsv/qu/YAlQ9oKJ6c1ZwFhbzf4O58OSb9EK7v6Ji0Ih+SS4VX4X3shuikjQuBD3sNXYer5pLLA0OSGNYmFxw==}
-    cpu: [x64]
-    os: [linux]
-
-  '@open-wallet-standard/core@1.4.2':
-    resolution: {integrity: sha512-alu69/tEeGYJhC1nyc7EGhJM6oqOU8XQv3S1qYe+LFYU/iHHi7QQrnTvNBesUkosccWf8TRZzhmGluRhaE44KQ==}
-    hasBin: true
 
   '@opentelemetry/api-logs@0.220.0':
     resolution: {integrity: sha512-CmVa4ImJ+ynfrPMNaAXHET6Bhb44SwzmfyVJFq9ni2jgXJR/l7C6gfVFddNmHP+ZOkP9cf4f9DBe68qVLTHc9w==}
@@ -3344,32 +3300,6 @@ snapshots:
   '@octokit/types@16.0.0':
     dependencies:
       '@octokit/openapi-types': 27.0.0
-
-  '@open-wallet-standard/adapters@1.4.2(viem@2.55.10(typescript@6.0.3)(zod@4.4.3))':
-    dependencies:
-      '@noble/curves': 1.9.1
-      '@open-wallet-standard/core': 1.4.2
-    optionalDependencies:
-      viem: 2.55.10(typescript@6.0.3)(zod@4.4.3)
-
-  '@open-wallet-standard/core-darwin-arm64@1.4.2':
-    optional: true
-
-  '@open-wallet-standard/core-darwin-x64@1.4.2':
-    optional: true
-
-  '@open-wallet-standard/core-linux-arm64-gnu@1.4.2':
-    optional: true
-
-  '@open-wallet-standard/core-linux-x64-gnu@1.4.2':
-    optional: true
-
-  '@open-wallet-standard/core@1.4.2':
-    optionalDependencies:
-      '@open-wallet-standard/core-darwin-arm64': 1.4.2
-      '@open-wallet-standard/core-darwin-x64': 1.4.2
-      '@open-wallet-standard/core-linux-arm64-gnu': 1.4.2
-      '@open-wallet-standard/core-linux-x64-gnu': 1.4.2
 
   '@opentelemetry/api-logs@0.220.0':
     dependencies:

@@ -5,7 +5,7 @@ const { mockPassword, mockIsCancel, mockIsTTY, mockParseCLIAuth, mockInitializeS
   mockPassword: vi.fn(),
   mockIsCancel: vi.fn(() => false),
   mockIsTTY: vi.fn(() => true),
-  mockParseCLIAuth: vi.fn(async (_options: { wallet?: string; privateKey?: string }) => ({})),
+  mockParseCLIAuth: vi.fn(async (_options: { sessionKey?: string; privateKey?: string }) => ({})),
   // Throw right after auth resolves so the flow stops before any network work.
   mockInitializeSynapse: vi.fn(async () => {
     throw new Error('__stop_after_auth__')
@@ -58,18 +58,6 @@ describe('runInteractiveSetup exit codes', () => {
     await runInteractiveSetup({} as any)
 
     expect(process.exitCode).toBe(2)
-  })
-
-  it('does not prompt for a private key when an OWS wallet is supplied', async () => {
-    // Prompting here would inject a private key alongside --wallet and trip
-    // parseCLIAuth's mutual-exclusion check for interactive OWS setup.
-    await runInteractiveSetup({ wallet: 'fil-test', network: 'calibration' } as any).catch(() => undefined)
-
-    expect(mockPassword).not.toHaveBeenCalled()
-    expect(mockParseCLIAuth).toHaveBeenCalledTimes(1)
-    const passed = mockParseCLIAuth.mock.calls[0]?.[0]
-    expect(passed?.wallet).toBe('fil-test')
-    expect(passed?.privateKey).toBeUndefined()
   })
 
   it('does not prompt for a private key when a complete session key is supplied', async () => {

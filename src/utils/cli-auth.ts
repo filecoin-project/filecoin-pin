@@ -7,10 +7,8 @@
 
 import type { Chain, Synapse } from '@filoz/synapse-sdk'
 import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rpc-url.js'
-import { getOwsAccount } from '../core/ows/index.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
-import { createTransport, initializeSynapse } from '../core/synapse/index.js'
-import { resolveChainFromRpc } from '../core/synapse/resolve-chain-from-rpc.js'
+import { initializeSynapse } from '../core/synapse/index.js'
 import { createLogger } from '../logger.js'
 
 /**
@@ -29,7 +27,6 @@ export type AuthOptionSource = 'cli' | 'env'
  */
 export interface AuthOptionSources {
   privateKey?: AuthOptionSource
-  wallet?: AuthOptionSource
   walletAddress?: AuthOptionSource
   sessionKey?: AuthOptionSource
   viewAddress?: AuthOptionSource
@@ -42,10 +39,6 @@ export interface AuthOptionSources {
 export interface CLIAuthOptions {
   /** Private key for standard authentication */
   privateKey?: string | undefined
-  /** OpenWallet Standard wallet name or ID (signs in-process, key stays in vault) */
-  wallet?: string | undefined
-  /** Optional passphrase for an OWS-managed wallet */
-  walletPassphrase?: string | undefined
   /** Wallet address for session key mode */
   walletAddress?: string | undefined
   /** Session key private key */
@@ -85,13 +78,12 @@ export interface CLIAuthOptions {
  *
  * 1. `readOnly`   - `--view-address` / `VIEW_ADDRESS` (query only, never signs)
  * 2. `sessionKey` - `--wallet-address` + `--session-key` (delegated signer)
- * 3. `ows`        - `--wallet` / `OWS_WALLET_ID` (OWS-backed owner signer)
- * 4. `privateKey` - `--private-key` / `PRIVATE_KEY` (raw-key owner signer)
+ * 3. `privateKey` - `--private-key` / `PRIVATE_KEY` (raw-key owner signer)
  *
  * Devnet auto-resolves the devnet user's private key, but only when none of the
  * above is supplied, so it is a fallback rather than a competing mode.
  */
-type AuthMode = 'readOnly' | 'sessionKey' | 'ows' | 'privateKey'
+type AuthMode = 'readOnly' | 'sessionKey' | 'privateKey'
 
 interface AuthModeCandidate {
   mode: AuthMode
@@ -150,8 +142,6 @@ export async function parseCLIAuth(options: CLIAuthOptions): Promise<SynapseSetu
 
   // Env vars are bound to the Commander options via .env() (see cli-options.ts),
   // so read everything from `options` rather than process.env here.
-  const owsWalletId = options.wallet
-  const owsPassphrase = options.walletPassphrase
   const walletAddress = options.walletAddress
   const sessionKey = options.sessionKey
   const viewAddress = options.viewAddress
@@ -176,15 +166,13 @@ export async function parseCLIAuth(options: CLIAuthOptions): Promise<SynapseSetu
   // Session-key mode competes for precedence only when BOTH halves are present.
   // A lone --wallet-address or --session-key is a lowest-priority fallback
   // (handled in the default branch), so it never outranks a complete mode like
-  // an OWS wallet or a private key.
+  // a private key.
   const walletAddressSource = sourceOf('walletAddress', walletAddress)
   const sessionKeySource = sourceOf('sessionKey', sessionKey)
   const sessionSource =
     walletAddressSource && sessionKeySource ? strongest(walletAddressSource, sessionKeySource) : undefined
   if (sessionSource)
     candidates.push({ mode: 'sessionKey', source: sessionSource, label: '--wallet-address/--session-key' })
-  const owsSource = sourceOf('wallet', owsWalletId)
-  if (owsSource) candidates.push({ mode: 'ows', source: owsSource, label: '--wallet/OWS_WALLET_ID' })
   const privateKeySource = sourceOf('privateKey', options.privateKey)
   if (privateKeySource)
     candidates.push({ mode: 'privateKey', source: privateKeySource, label: '--private-key/PRIVATE_KEY' })
@@ -204,8 +192,7 @@ export async function parseCLIAuth(options: CLIAuthOptions): Promise<SynapseSetu
   }
 
   // Build the config for the single resolved mode; initializeSynapse() validates
-  // the final shape. The OWS account (which lazily loads the native adapter and
-  // can fail on platforms without a prebuilt) is resolved only when its mode wins.
+  // the final shape.
   const config: {
     privateKey?: string
     walletAddress?: string
@@ -213,7 +200,6 @@ export async function parseCLIAuth(options: CLIAuthOptions): Promise<SynapseSetu
     readOnly?: boolean
     rpcUrl?: string
     chain?: Chain
-    account?: Awaited<ReturnType<typeof getOwsAccount>>
   } = {}
 
   switch (mode) {
@@ -226,22 +212,6 @@ export async function parseCLIAuth(options: CLIAuthOptions): Promise<SynapseSetu
       if (nonEmpty(walletAddress)) config.walletAddress = walletAddress
       if (nonEmpty(sessionKey)) config.sessionKey = sessionKey
       break
-    case 'ows': {
-      // The OWS adapter derives its CAIP-2 account hint (eip155:<chainId>) from
-      // the chain. With --rpc-url the chain hint is intentionally left undefined
-      // (initializeSynapse probes the endpoint), so probe here too rather than
-      // guessing a network and requesting the wrong eip155 account.
-      const owsChain = chain ?? (rpcUrl ? await resolveChainFromRpc(createTransport(rpcUrl)) : NETWORK_CHAINS.mainnet)
-      const owsOptions: Parameters<typeof getOwsAccount>[0] = {
-        walletId: owsWalletId ?? '',
-        chain: owsChain,
-      }
-      // An empty OWS_WALLET_PASSPHRASE (common in CI env files) means "no
-      // passphrase", not a real passphrase value.
-      if (nonEmpty(owsPassphrase)) owsOptions.passphrase = owsPassphrase
-      config.account = await getOwsAccount(owsOptions)
-      break
-    }
     case 'privateKey':
       if (nonEmpty(options.privateKey)) config.privateKey = options.privateKey
       break

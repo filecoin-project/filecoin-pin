@@ -12,3 +12,7 @@ test-car-output/
 test-e2e-cars/
 test-simple-car-output/
 coverage
+
+# local tool artifacts
+.lavish/
+.slopcheck/

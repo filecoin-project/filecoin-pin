@@ -255,9 +255,8 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
       )
     }
     throw new Error(
-      'No authentication provided. Supply an OWS wallet (--wallet / OWS_WALLET_ID), ' +
-        'private key (--private-key / PRIVATE_KEY), ' +
-        'wallet address (--wallet-address / WALLET_ADDRESS), or session key (--session-key / SESSION_KEY).'
+      'No authentication provided. Supply a private key (--private-key / PRIVATE_KEY), ' +
+        'or a wallet address (--wallet-address / WALLET_ADDRESS) with a session key (--session-key / SESSION_KEY).'
     )
   }
 

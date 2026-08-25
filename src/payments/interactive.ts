@@ -52,12 +52,12 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     let privateKey = options.privateKey
 
     // Only prompt for a private key when no signing auth mode was supplied. An
-    // OWS wallet or a complete session key signs in parseCLIAuth below, so
+    // A complete session key signs in parseCLIAuth below, so
     // prompting would add a private key as a second signing mode and trip the
     // mutual-exclusion check. A view address (read-only) and a lone session-key
     // half cannot run setup, so they do not suppress the prompt.
     const nonEmpty = (value?: string): boolean => value != null && value !== ''
-    const hasSigningAuth = nonEmpty(options.wallet) || (nonEmpty(options.walletAddress) && nonEmpty(options.sessionKey))
+    const hasSigningAuth = nonEmpty(options.walletAddress) && nonEmpty(options.sessionKey)
 
     if (!privateKey && !hasSigningAuth) {
       const input = await password({
