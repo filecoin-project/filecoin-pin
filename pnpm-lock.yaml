@@ -120,6 +120,9 @@ importers:
       blockstore-core:
         specifier: ^7.0.1
         version: 7.0.1
+      pkg-pr-new:
+        specifier: ^0.0.88
+        version: 0.0.88
       playwright:
         specifier: 1.60.0
         version: 1.60.0
@@ -1976,6 +1979,10 @@ packages:
 
   pino@10.3.1:
     resolution: {integrity: sha512-r34yH/GlQpKZbU1BvFFqOjhISRo1MNx1tWYsYvmj6KIRHSPMT2+yHOEb1SG6NMvRoHRF0a07kCOox/9yakl1vg==}
+    hasBin: true
+
+  pkg-pr-new@0.0.88:
+    resolution: {integrity: sha512-Xc6PMJ2gher0WZP+rtjefFk26hIb7V1PTLL30bmy1Z2vsRmSvqiss7Ag1XUdyplTGYzIlFNJp4L3vMNmK44N6g==}
     hasBin: true
 
   playwright-core@1.60.0:
@@ -4571,6 +4578,8 @@ snapshots:
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.1
       thread-stream: 4.0.0
+
+  pkg-pr-new@0.0.88: {}
 
   playwright-core@1.60.0: {}
 
