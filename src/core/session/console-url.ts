@@ -6,14 +6,18 @@
  */
 
 /**
- * Known console deployments by chain id.
+ * Known console deployments by chain id. One deployment serves both networks
+ * (the console switches network in-app), so mainnet and calibration share a
+ * base URL. `CONSOLE_URL` still overrides for local/preview consoles.
  *
- * TODO: add pay.filecoin.cloud for 314/314159 once the console's
- * session-keys page (and its ?authorize=&scopes= pairing params) ships to
- * production — today it only exists on an unreleased branch, so a default
- * link would 404. Until then the link only renders when CONSOLE_URL is set.
+ * NOTE: links 404 until the console's session-keys page (with its
+ * ?authorize=&scopes= pairing params) is deployed — this PR is opened
+ * together with that console PR and must not ship ahead of it.
  */
-export const DEFAULT_CONSOLE_URLS: Record<number, string> = {}
+export const DEFAULT_CONSOLE_URLS: Record<number, string> = {
+  314: 'https://pay.filecoin.cloud',
+  314159: 'https://pay.filecoin.cloud',
+}
 
 /**
  * Pick the console base URL: an explicit override wins, then `CONSOLE_URL`,
