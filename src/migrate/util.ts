@@ -1,12 +1,7 @@
 /**
- * Small helpers for the migrate runner: stderr logging, size parsing, and
- * CID-list parsing.
+ * Small helpers for the migrate runner: size parsing and CID-list parsing.
+ * Output goes through `src/utils/cli-logger.ts` like every other command.
  */
-
-/** Log to stderr so stdout stays reserved for machine-readable output. */
-export function log(...args: unknown[]): void {
-  console.error(...args)
-}
 
 // Decimal spellings (kb, mb, ...) are accepted as binary aliases: staging
 // sizes are power-of-two territory and rejecting `32GB` helps nobody.
