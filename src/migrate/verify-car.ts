@@ -32,7 +32,7 @@ import * as raw from 'multiformats/codecs/raw'
 import { sha256, sha512 } from 'multiformats/hashes/sha2'
 import type { FailureCategory } from './db.js'
 import { fetchCar, GatewayError } from './gateway.js'
-import { log } from './util.js'
+import { log } from '../utils/cli-logger.js'
 
 /**
  * Error thrown by the verify path, carrying a failure category alongside the
@@ -325,7 +325,7 @@ export async function stageMember(
         )
       }
       await rename(tmpPath, finalPath)
-      log(`  ok ${cid} (${verified.rawSize} bytes, ${verified.blockCount} block(s) verified) via ${gateway}`)
+      log.message(`  ok ${cid} (${verified.rawSize} bytes, ${verified.blockCount} block(s) verified) via ${gateway}`)
       return {
         cid,
         pieceCid: verified.pieceCid,
@@ -345,7 +345,7 @@ export async function stageMember(
       const message = err instanceof Error ? err.message : String(err)
       errors.push(`${gateway}: ${message}`)
       categories.push(categoryOf(err))
-      log(`  ! ${cid} via ${gateway} failed: ${message}`)
+      log.message(`  ! ${cid} via ${gateway} failed: ${message}`)
       // A budget cutoff is not a gateway problem; do not burn the other
       // gateways on it.
       if (categoryOf(err) === 'staging_budget') {
