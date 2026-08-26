@@ -37,7 +37,7 @@ import {
 } from './gc-window.js'
 import { formatDuration, Timer } from './metrics.js'
 import { type AddPiecesEvent, dataSetPieceId, fetchAddPiecesEvent, txLanded } from './pdp-verifier.js'
-import { log } from './util.js'
+import { log } from '../utils/cli-logger.js'
 
 export interface DirectUploadOptions {
   /** Initialized Synapse instance (auth, chain, and transport already resolved). */
@@ -171,7 +171,7 @@ export const defaultDirectUploadDeps: DirectUploadDeps = {
     } catch (err) {
       // A resumed run may find the CAR already evicted by a prior run.
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        log(`warn: failed to evict cached CAR ${path}: ${(err as Error).message}`)
+        log.message(`warn: failed to evict cached CAR ${path}: ${(err as Error).message}`)
       }
     }
   },
@@ -214,7 +214,7 @@ export async function runDirectUpload(
   const [primary, ...secondaries] = contexts
   if (primary == null) throw new Error('no primary storage context')
 
-  log(
+  log.message(
     `direct upload to ${contexts.length} provider(s): ` +
       contexts.map((c, i) => `${i === 0 ? 'primary' : 'secondary'} ${c.providerId} (${c.serviceURL})`).join(', ')
   )
@@ -232,7 +232,7 @@ export async function runDirectUpload(
     if (batch.length === 0) return
     flushCounts.set(ctx.providerId, (flushCounts.get(ctx.providerId) ?? 0) + 1)
     const cids = batch.map((b) => b.subPieceCid)
-    log(`flush [${reason}] provider ${ctx.providerId}: committing ${batch.length} piece(s)`)
+    log.message(`flush [${reason}] provider ${ctx.providerId}: committing ${batch.length} piece(s)`)
     // Durable breadcrumb before the attempt: a crash mid-commit must never be
     // auto-resolved into a blind re-add.
     db.markUploadsAddUnconfirmed(cids, ctx.providerId)
@@ -254,14 +254,14 @@ export async function runDirectUpload(
       // commit; recording it here means later parks and resumes carry the
       // set id on the row instead of depending on context re-resolution.
       ctx.dataSetId = String(result.dataSetId)
-      log(`committed ${batch.length} piece(s) on provider ${ctx.providerId} (data set ${result.dataSetId})`)
+      log.message(`committed ${batch.length} piece(s) on provider ${ctx.providerId} (data set ${result.dataSetId})`)
     } catch (err) {
       const message = (err as Error).message ?? String(err)
       const gcCid = collectedCidFromError(message)
       if (gcCid == null) {
         // Not a GC rejection: leave the batch in add_unconfirmed for the
         // resume reconciliation: a blind retry could double-add on chain.
-        log(`error: commit failed on provider ${ctx.providerId} (batch left add_unconfirmed): ${message}`)
+        log.message(`error: commit failed on provider ${ctx.providerId} (batch left add_unconfirmed): ${message}`)
         return
       }
       // Curio rejected the batch because a parked piece is gone. The batch is
@@ -270,12 +270,12 @@ export async function runDirectUpload(
       // Curio reports only the FIRST miss.
       const collected = batch.find((b) => b.subPieceCid === gcCid)
       if (collected == null) {
-        log(`warn: provider ${ctx.providerId} rejected unknown sub-piece ${gcCid}; re-verifying batch`)
+        log.message(`warn: provider ${ctx.providerId} rejected unknown sub-piece ${gcCid}; re-verifying batch`)
       } else {
         const age = deps.now() - Date.parse(collected.parkedAt)
         const lowered = lowerWindowOnGc(windowFor(ctx), age)
         db.lowerProviderWindow(ctx.providerId, lowered)
-        log(
+        log.message(
           `GC detected on provider ${ctx.providerId}: ${gcCid} collected after ${formatDuration(age)} parked; ` +
             `window lowered to ${formatDuration(lowered)}`
         )
@@ -286,7 +286,7 @@ export async function runDirectUpload(
           db.revertUploadsToParked([b.subPieceCid], ctx.providerId)
         } else {
           db.markUploadCollected(b.subPieceCid, ctx.providerId)
-          log(`collected: ${b.subPieceCid} on provider ${ctx.providerId} (will re-store)`)
+          log.message(`collected: ${b.subPieceCid} on provider ${ctx.providerId} (will re-store)`)
         }
       }
     }
@@ -369,14 +369,14 @@ export async function runDirectUpload(
     } catch (err) {
       if (err instanceof CommPMismatchError) {
         db.markUploadFailed(next.subPieceCid, primary.providerId, 'primary', err.message)
-        log(`error: ${err.message}`)
+        log.message(`error: ${err.message}`)
         continue
       }
       throw err
     }
     storedBytes += stored.size
     db.recordUploadParked(next.subPieceCid, primary.providerId, 'primary', primary.dataSetId)
-    log(
+    log.message(
       `parked ${next.subPieceCid} (${formatFileSize(stored.size)}) on primary ${primary.providerId} ` +
         `in ${formatDuration(storeTimer.stop())}`
     )
@@ -411,7 +411,7 @@ export async function runDirectUpload(
         .map((u) => ({ ctx, u }))
     )
     if (needsRetry.length === 0 && missingSecondaries.length === 0) break
-    log(`retrying ${needsRetry.length + missingSecondaries.length} piece(s) that did not land (attempt ${attempt + 1})`)
+    log.message(`retrying ${needsRetry.length + missingSecondaries.length} piece(s) that did not land (attempt ${attempt + 1})`)
     for (const { ctx, subPieceCid } of missingSecondaries) {
       await pullToSecondary(db, primary, ctx, subPieceCid)
     }
@@ -422,7 +422,7 @@ export async function runDirectUpload(
       }
       const sub = db.subPieceByCid(u.subPieceCid)
       if (sub?.carPath == null) {
-        log(`error: collected ${u.subPieceCid} has no local CAR; cannot re-store`)
+        log.message(`error: collected ${u.subPieceCid} has no local CAR; cannot re-store`)
         continue
       }
       try {
@@ -432,7 +432,7 @@ export async function runDirectUpload(
       } catch (err) {
         if (err instanceof CommPMismatchError) {
           db.markUploadFailed(sub.subPieceCid, ctx.providerId, u.role, err.message)
-          log(`error: ${err.message}`)
+          log.message(`error: ${err.message}`)
           continue
         }
         throw err
@@ -463,7 +463,7 @@ export async function runDirectUpload(
     storedBytes,
     evictedCars: evictedPaths.size,
   }
-  log(`direct upload finished in ${formatDuration(runTimer.stop())}: ${formatFileSize(storedBytes)} stored`)
+  log.message(`direct upload finished in ${formatDuration(runTimer.stop())}: ${formatFileSize(storedBytes)} stored`)
   return summary
 }
 
@@ -521,7 +521,7 @@ async function reconcileUnconfirmed(
       // row stays unresolved and the run exits incomplete.
       const dataSetId = u.dataSetId ?? ctx.dataSetId
       if (dataSetId == null) {
-        log(
+        log.message(
           `resume: ${u.subPieceCid} has an unconfirmed addPieces with no transaction hash and no known data set ` +
             `on provider ${ctx.providerId}; left add_unconfirmed for manual resolution`
         )
@@ -530,7 +530,7 @@ async function reconcileUnconfirmed(
       const pieceId = await deps.dataSetPieceId(synapse, dataSetId, u.subPieceCid)
       if (pieceId != null) {
         db.markUploadCommitted(u.subPieceCid, ctx.providerId, { dataSetId, pieceId, txHash: null })
-        log(`resume: ${u.subPieceCid} found on chain in data set ${dataSetId} (piece ${pieceId}); marked committed`)
+        log.message(`resume: ${u.subPieceCid} found on chain in data set ${dataSetId} (piece ${pieceId}); marked committed`)
         continue
       }
       // Absent on chain. A transaction the provider broadcast just before
@@ -541,7 +541,7 @@ async function reconcileUnconfirmed(
       // resolves them one way or the other.
       const ageMs = deps.now() - Date.parse(u.updatedAt)
       if (ageMs < UNCONFIRMED_REQUEUE_AFTER_MS) {
-        log(
+        log.message(
           `resume: ${u.subPieceCid} has an unconfirmed addPieces with no transaction hash and is absent from ` +
             `data set ${dataSetId}; too recent to rule out an in-flight transaction, left add_unconfirmed ` +
             `(re-run after ${formatDuration(UNCONFIRMED_REQUEUE_AFTER_MS - ageMs)})`
@@ -568,13 +568,13 @@ async function reconcileUnconfirmed(
             pieceId: String(event.pieceIds[pieceIndex] ?? ''),
             txHash: u.txHash,
           })
-          log(
+          log.message(
             `resume: ${u.subPieceCid} confirmed on chain via PiecesAdded (tx ${u.txHash}, ` +
               `data set ${dataSetId}); marked committed`
           )
           continue
         }
-        log(
+        log.message(
           `resume: ${u.subPieceCid} has a LANDED addPieces tx ${u.txHash} on provider ${ctx.providerId} ` +
             `but its PiecesAdded event could not be verified; leaving add_unconfirmed: check the data set ` +
             `on the explorer before any manual retry (a blind re-add would duplicate the piece)`
@@ -587,7 +587,7 @@ async function reconcileUnconfirmed(
       // realistic confirmation window re-enters the flow.
       const ageMs = deps.now() - Date.parse(u.updatedAt)
       if (ageMs < UNCONFIRMED_REQUEUE_AFTER_MS) {
-        log(
+        log.message(
           `resume: ${u.subPieceCid} has an unlanded addPieces tx ${u.txHash} on provider ${ctx.providerId}; ` +
             `too recent to rule out an in-flight transaction, left add_unconfirmed ` +
             `(re-run after ${formatDuration(UNCONFIRMED_REQUEUE_AFTER_MS - ageMs)})`
@@ -597,10 +597,10 @@ async function reconcileUnconfirmed(
     }
     if (await ctx.hasPiece(CID.parse(u.subPieceCid))) {
       db.revertUploadsToParked([u.subPieceCid], ctx.providerId)
-      log(`resume: ${u.subPieceCid} still parked on provider ${ctx.providerId}; re-queued for commit`)
+      log.message(`resume: ${u.subPieceCid} still parked on provider ${ctx.providerId}; re-queued for commit`)
     } else {
       db.markUploadCollected(u.subPieceCid, ctx.providerId)
-      log(`resume: ${u.subPieceCid} gone from provider ${ctx.providerId}; will re-store`)
+      log.message(`resume: ${u.subPieceCid} gone from provider ${ctx.providerId}; will re-store`)
     }
   }
 }
@@ -623,14 +623,14 @@ async function pullToSecondary(
     })
     if (pulled.status === 'complete') {
       db.recordUploadParked(subPieceCid, secondary.providerId, 'secondary', secondary.dataSetId)
-      log(`parked ${subPieceCid} on secondary ${secondary.providerId} (pulled from primary)`)
+      log.message(`parked ${subPieceCid} on secondary ${secondary.providerId} (pulled from primary)`)
     } else {
       db.markUploadFailed(subPieceCid, secondary.providerId, 'secondary', 'secondary pull failed')
-      log(`warn: secondary ${secondary.providerId} failed to pull ${subPieceCid}`)
+      log.message(`warn: secondary ${secondary.providerId} failed to pull ${subPieceCid}`)
     }
   } catch (err) {
     db.markUploadFailed(subPieceCid, secondary.providerId, 'secondary', (err as Error).message)
-    log(`warn: secondary ${secondary.providerId} pull error for ${subPieceCid}: ${(err as Error).message}`)
+    log.message(`warn: secondary ${secondary.providerId} pull error for ${subPieceCid}: ${(err as Error).message}`)
   }
 }
 
