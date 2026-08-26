@@ -2,6 +2,7 @@ import type { Command } from 'commander'
 import { addCommand } from './add.js'
 import { dataSetCommand } from './data-set.js'
 import { importCommand } from './import.js'
+import { migrateCommand } from './migrate.js'
 import { paymentsCommand } from './payments.js'
 import { providerCommand } from './provider.js'
 import { removeCommand } from './remove.js'
@@ -12,6 +13,7 @@ export {
   addCommand,
   dataSetCommand,
   importCommand,
+  migrateCommand,
   paymentsCommand,
   providerCommand,
   removeCommand,
@@ -26,7 +28,7 @@ interface CliCommandGroup {
 
 /** Every top-level CLI command, grouped and ordered for help output. */
 export const CLI_COMMAND_GROUPS: readonly CliCommandGroup[] = [
-  { heading: 'UPLOAD', commands: [addCommand, importCommand] },
+  { heading: 'UPLOAD', commands: [addCommand, importCommand, migrateCommand] },
   { heading: 'PAYMENTS', commands: [paymentsCommand] },
   { heading: 'MANAGEMENT', commands: [dataSetCommand, providerCommand, removeCommand] },
   { heading: 'ADVANCED', commands: [sessionCommand, serverCommand] },
