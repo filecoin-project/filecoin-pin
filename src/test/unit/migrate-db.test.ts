@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MigrationDB } from '../../migrate/db.js'
-import { parseSize } from '../../migrate/util.js'
+import { parseSize } from '../../utils/cli-helpers.js'
 
 const CID_A = 'bafkreialpha'
 const CID_B = 'bafkreibravo'
