@@ -18,15 +18,14 @@ describe('resolveConsoleUrl', () => {
     expect(resolveConsoleUrl(314159)).toBe('https://pay.filecoin.cloud')
   })
 
-  it('returns undefined for unknown chains without an override', () => {
+  it('returns undefined for unknown chains', () => {
     delete process.env.CONSOLE_URL
     expect(resolveConsoleUrl(1)).toBeUndefined()
   })
 
-  it('prefers CONSOLE_URL over the default, and the explicit override over both', () => {
+  it('prefers CONSOLE_URL over the default', () => {
     process.env.CONSOLE_URL = 'http://localhost:3005'
     expect(resolveConsoleUrl(314)).toBe('http://localhost:3005')
-    expect(resolveConsoleUrl(314, 'http://preview.test')).toBe('http://preview.test')
   })
 })
 

@@ -20,12 +20,12 @@ export const DEFAULT_CONSOLE_URLS: Record<number, string> = {
 }
 
 /**
- * Pick the console base URL: an explicit override wins, then `CONSOLE_URL`,
- * then the known deployment for the chain. Returns `undefined` when none of
- * those resolve — the caller falls back to a console-without-a-link message.
+ * Pick the console base URL: `CONSOLE_URL` wins, then the known deployment
+ * for the chain. Returns `undefined` when neither resolves — the caller
+ * falls back to a console-without-a-link message.
  */
-export function resolveConsoleUrl(chainId: number, override?: string): string | undefined {
-  return override ?? process.env.CONSOLE_URL ?? DEFAULT_CONSOLE_URLS[chainId]
+export function resolveConsoleUrl(chainId: number): string | undefined {
+  return process.env.CONSOLE_URL ?? DEFAULT_CONSOLE_URLS[chainId]
 }
 
 /** Console network slug by chain id; the console validates and guards on it. */
