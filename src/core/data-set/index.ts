@@ -7,7 +7,7 @@
  *
  * Key features:
  * - List datasets with optional provider enrichment
- * - Get pieces from a StorageContext with optional metadata
+ * - Get and reconcile pieces from a StorageContext
  * - Calculate actual storage across all data sets
  * - Graceful error handling with structured warnings
  * - Clean separation of concerns (follows SOLID principles)

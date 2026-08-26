@@ -39,12 +39,8 @@ export interface PieceInfo {
   /** Piece Commitment (CommP) as string */
   pieceCid: string
   status: PieceStatus
-  /** Root IPFS CID (from metadata, if available) */
-  rootIpfsCid?: string
   /** Piece size in bytes (if available) */
   size?: number
-  /** Additional piece metadata (key-value pairs) */
-  metadata?: Record<string, string>
 }
 
 /**
@@ -127,7 +123,7 @@ export interface ListDataSetsOptions {
 /**
  * Options for getting pieces from a dataset
  */
-export interface IterateDataSetPiecesOptions {
+export interface GetDataSetPiecesOptions {
   /** Abort signal for cancellation */
   signal?: AbortSignal
   /** Logger instance for debugging (optional) */
@@ -135,9 +131,6 @@ export interface IterateDataSetPiecesOptions {
 }
 
 /**
- * Options for getting pieces from a dataset
+ * Options for iterating over pieces from a dataset
  */
-export interface GetDataSetPiecesOptions extends IterateDataSetPiecesOptions {
-  /** Whether to fetch and include piece metadata from WarmStorage */
-  includeMetadata?: boolean
-}
+export interface IterateDataSetPiecesOptions extends GetDataSetPiecesOptions {}

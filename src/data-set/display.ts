@@ -1,4 +1,3 @@
-import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import type { DataSetSummary, PieceInfo } from '../core/data-set/types.js'
 import { PieceStatus } from '../core/data-set/types.js'
@@ -172,7 +171,7 @@ function renderMetadata(metadata: Record<string, string>, indentLevel: number = 
 }
 
 /**
- * Render a single piece entry including CommP, root CID, size, and extra metadata.
+ * Render a single piece entry including PieceCID, size, and reconciled status.
  */
 function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
   const sizeDisplay = piece.size != null ? formatFileSize(piece.size) : pc.gray('unknown')
@@ -198,8 +197,7 @@ function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
   log.indent(pc.bold(`#${piece.pieceId} (${pieceStatusDisplay})`), baseIndentLevel)
   log.indent(`PieceCID: ${piece.pieceCid}`, baseIndentLevel + 1)
   log.indent(`Size: ${sizeDisplay}`, baseIndentLevel + 1)
-  const extraMetadataEntries = Object.entries(piece.metadata ?? {})
-  renderMetadata(Object.fromEntries(extraMetadataEntries), baseIndentLevel + 1)
+  log.line('')
 }
 
 function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
@@ -222,12 +220,8 @@ function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
     return
   }
   const uniqueCommPs = new Set(dataSet.pieces.map((p) => p.pieceCid))
-  const uniqueRootCids = new Set(
-    dataSet.pieces.map((p) => p.rootIpfsCid ?? p.metadata?.[METADATA_KEYS.IPFS_ROOT_CID]).filter(Boolean)
-  )
   log.indent(`Total size: ${formatBytes(dataSet.totalSizeBytes)}`, indentLevel + 1)
   log.indent(`Unique PieceCIDs: ${uniqueCommPs.size}`, indentLevel + 1)
-  log.indent(`Unique IPFS Root CIDs: ${uniqueRootCids.size}`, indentLevel + 1)
   log.line('')
 
   for (const piece of dataSet.pieces) {
