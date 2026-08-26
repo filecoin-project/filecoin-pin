@@ -28,11 +28,28 @@ export function resolveConsoleUrl(chainId: number, override?: string): string | 
   return override ?? process.env.CONSOLE_URL ?? DEFAULT_CONSOLE_URLS[chainId]
 }
 
+/** Console network slug by chain id; the console validates and guards on it. */
+const CONSOLE_NETWORK_SLUG: Record<number, string> = {
+  314: 'mainnet',
+  314159: 'calibration',
+}
+
 /**
  * Build the console deep link that pre-fills the session address and the
- * scopes it needs on the session-keys authorization page.
+ * scopes it needs on the session-keys authorization page. Carries the
+ * network the failure happened on so the console can refuse to prefill
+ * when the connected wallet is on a different chain — without it, a
+ * calibration remediation link approved by a mainnet-connected wallet
+ * silently grants the scopes on mainnet.
  */
-export function buildAuthorizeUrl(consoleUrl: string, sessionAddress: string, scopeIds: string[]): string {
+export function buildAuthorizeUrl(
+  consoleUrl: string,
+  sessionAddress: string,
+  scopeIds: string[],
+  chainId?: number
+): string {
   const base = consoleUrl.endsWith('/') ? consoleUrl.slice(0, -1) : consoleUrl
-  return `${base}/console/session-keys?authorize=${sessionAddress}&scopes=${scopeIds.join(',')}`
+  const network = chainId != null ? CONSOLE_NETWORK_SLUG[chainId] : undefined
+  const networkParam = network ? `&network=${network}` : ''
+  return `${base}/console/session-keys?authorize=${sessionAddress}&scopes=${scopeIds.join(',')}${networkParam}`
 }

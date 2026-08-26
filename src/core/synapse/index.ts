@@ -189,7 +189,7 @@ function checkSessionKeyPermissions(
   const lines = [problem, '']
   if (consoleUrl != null) {
     lines.push('Recommended — approve in the browser with the owner wallet:')
-    lines.push(`  ${buildAuthorizeUrl(consoleUrl, key.address, scopeIds)}`)
+    lines.push(`  ${buildAuthorizeUrl(consoleUrl, key.address, scopeIds, chainId)}`)
   } else {
     lines.push('Authorize in the Filecoin Pay console (set CONSOLE_URL for a direct link).')
   }
