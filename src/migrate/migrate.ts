@@ -16,7 +16,15 @@ import { DEFAULT_COPIES, IPFS_INDEXED_METADATA } from '../core/synapse/constants
 import { APPLICATION_SOURCE, getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
-import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
+import {
+  cancel,
+  createSpinner,
+  formatFileSize,
+  intro,
+  outro,
+  parsePositiveInt,
+  parseSize,
+} from '../utils/cli-helpers.js'
 import { log as cliLog } from '../utils/cli-logger.js'
 import { chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
 import { DEFAULT_GATEWAYS } from './car-url.js'
@@ -24,7 +32,7 @@ import { MigrationDB } from './db.js'
 import { DEFAULT_ASSUMED_WINDOW_MS } from './gc-window.js'
 import { DEFAULT_PACK_TARGET_BYTES, MAX_UPLOAD_BYTES } from './pack-cars.js'
 import { type MigrateSummary, runMigrate } from './run-migrate.js'
-import { log, parseCidList, parsePositiveInt, parseSize } from './util.js'
+import { parseCidList } from './util.js'
 
 /**
  * Data-set metadata for migrate runs. Exact key-count matching makes migrate
@@ -175,7 +183,7 @@ export async function runMigrateFromCli(
       throw new Error(`no CIDs found in ${cidListFile} (one CID per line; # comments and blank lines are ignored)`)
     }
     if (duplicates.length > 0) {
-      log(`ignoring ${duplicates.length} duplicate CID(s) in ${cidListFile}: ${duplicates.join(', ')}`)
+      cliLog.message(`ignoring ${duplicates.length} duplicate CID(s) in ${cidListFile}: ${duplicates.join(', ')}`)
     }
 
     spinner.start('Initializing Synapse SDK...')
@@ -229,9 +237,7 @@ export async function runMigrateFromCli(
         withCDN,
       })
 
-      // stdout carries only the machine-readable summary; progress went to
-      // stderr as it happened.
-      console.log(JSON.stringify(summary, null, 2))
+      printSummary(summary)
 
       if (migrateIncomplete(summary)) {
         outro('Migrate finished with unmigrated CIDs; re-run to retry')
@@ -254,6 +260,37 @@ export async function runMigrateFromCli(
     cancel('Migrate failed')
     throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
   }
+}
+
+/**
+ * Print the run summary in the same `log.line` block style the data-set
+ * command uses. Problem CIDs are listed by name; everything else is counts.
+ * The full record lives in migrate.db, and a `--json` output mode is a
+ * possible follow-up for scripted consumption.
+ */
+function printSummary(summary: MigrateSummary): void {
+  cliLog.line('')
+  cliLog.line(pc.bold('Migration summary'))
+  const p = summary.pieces
+  cliLog.line(
+    `CIDs: ${p.total} total, ${pc.green(String(p.succeeded))} downloaded, ${p.failed} failed, ` +
+      `${p.pending} pending, ${p.oversized} oversized`
+  )
+  cliLog.line(`Stored: ${formatFileSize(summary.storedBytes)}`)
+  for (const prov of summary.providers) {
+    cliLog.line(
+      `Provider ${prov.providerId} (${prov.role}${prov.dataSetId == null ? '' : `, data set ${prov.dataSetId}`}): ` +
+        `${prov.committed} committed, ${prov.collected} collected, ${prov.failed} failed, ` +
+        `${prov.addUnconfirmed} unconfirmed`
+    )
+  }
+  if (summary.overCap.length > 0) {
+    cliLog.line(pc.yellow(`Over the per-piece cap (cannot migrate on this path): ${summary.overCap.join(', ')}`))
+  }
+  if (summary.unpacked.length > 0) {
+    cliLog.line(pc.yellow(`Downloaded but not yet packed (re-run to retry): ${summary.unpacked.join(', ')}`))
+  }
+  cliLog.flush()
 }
 
 /** Whether a completed migrate run left anything unmigrated (exit-code input). */

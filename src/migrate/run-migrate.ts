@@ -29,7 +29,7 @@ import {
   runDirectUpload,
 } from './direct-upload.js'
 import { type BinBuilder, runPackCars } from './pack-cars.js'
-import { log } from './util.js'
+import { log } from '../utils/cli-logger.js'
 import { categoryOf, type StagedMember, stageMember, VerifyCarError, type VerifyCarOptions } from './verify-car.js'
 
 export interface MigrateRunOptions {
@@ -168,7 +168,7 @@ async function sweepStaging(db: MigrationDB, memberDir: string, carStore: string
     referenced.add(piece.memberCarPath)
     const fileStat = await stat(piece.memberCarPath).catch(() => null)
     if (fileStat == null || !fileStat.isFile()) {
-      log(`sweep: member file for ${piece.cid} is missing; re-queueing the download`)
+      log.message(`sweep: member file for ${piece.cid} is missing; re-queueing the download`)
       db.resetPieceToPending(piece.cid)
       continue
     }
@@ -180,7 +180,7 @@ async function sweepStaging(db: MigrationDB, memberDir: string, carStore: string
     if (piece.memberSha256 != null) {
       const actual = await sha256File(piece.memberCarPath).catch(() => null)
       if (actual !== piece.memberSha256) {
-        log(`sweep: member file for ${piece.cid} does not match its recorded hash; re-queueing the download`)
+        log.message(`sweep: member file for ${piece.cid} does not match its recorded hash; re-queueing the download`)
         await unlink(piece.memberCarPath).catch(() => undefined)
         db.resetPieceToPending(piece.cid)
       }
@@ -197,7 +197,7 @@ async function sweepStaging(db: MigrationDB, memberDir: string, carStore: string
     const fileStat = await stat(sub.carPath).catch(() => null)
     if (fileStat == null) {
       if (!evictable.has(sub.carPath)) {
-        log(`sweep: staged piece ${sub.subPieceCid} is missing its CAR file; its upload cannot be retried locally`)
+        log.message(`sweep: staged piece ${sub.subPieceCid} is missing its CAR file; its upload cannot be retried locally`)
       }
       continue
     }
@@ -221,14 +221,14 @@ async function sweepStaging(db: MigrationDB, memberDir: string, carStore: string
         try {
           memberCids = db.deleteSubPieceForRebuild(sub.subPieceCid)
         } catch (err) {
-          log(
+          log.message(
             `sweep: staged piece ${sub.subPieceCid} does not match its recorded hash but cannot rebuild yet: ` +
               `${err instanceof Error ? err.message : String(err)}`
           )
           staged += sub.assembledCarLength
           continue
         }
-        log(
+        log.message(
           `sweep: staged piece ${sub.subPieceCid} does not match its recorded hash; ` +
             `re-queueing its source CIDs for download`
         )
@@ -288,7 +288,7 @@ export async function runMigrate(
 
   const budget = new StagingBudget(opts.budgetBytes, opts.packTargetBytes)
   budget.used = await sweepStaging(db, opts.memberDir, opts.carStore)
-  log(
+  log.message(
     `staging budget ${formatFileSize(budget.total)} (${formatFileSize(budget.used)} already staged from a previous run)`
   )
 
@@ -403,7 +403,7 @@ export async function runMigrate(
   const producer = (async () => {
     try {
       const pending = db.pendingCids()
-      log(`downloading ${pending.length} CID(s) (concurrency ${opts.concurrency}, budget-gated)...`)
+      log.message(`downloading ${pending.length} CID(s) (concurrency ${opts.concurrency}, budget-gated)...`)
       let cursor = 0
       const worker = async (): Promise<void> => {
         while (cursor < pending.length) {
@@ -524,7 +524,7 @@ export async function runMigrate(
   const uploadSummary = consumerResult.value
 
   if (stuck) {
-    log('warn: run stopped early: staging budget full with unresolved commits; the summary lists them')
+    log.message('warn: run stopped early: staging budget full with unresolved commits; the summary lists them')
   }
 
   const counts = db.counts()
