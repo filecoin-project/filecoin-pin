@@ -14,6 +14,7 @@ export { calibration, mainnet, type FilecoinChain }
 
 import type { SessionKey } from '@filoz/synapse-core/session-key'
 import { fromSecp256k1, type Permission, PermissionNames } from '@filoz/synapse-core/session-key'
+import pc from 'picocolors'
 import type { Logger } from 'pino'
 import {
   type Account,
@@ -189,7 +190,9 @@ function checkSessionKeyPermissions(
   const lines = [problem, '']
   if (consoleUrl != null) {
     lines.push('Recommended — approve in the browser with the owner wallet:')
-    lines.push(`  ${buildAuthorizeUrl(consoleUrl, key.address, scopeIds, chainId)}`)
+    // pc.cyan+underline: conventional terminal hyperlink styling so the link
+    // stands out of the error wall; picocolors self-disables when not a TTY.
+    lines.push(`  ${pc.cyan(pc.underline(buildAuthorizeUrl(consoleUrl, key.address, scopeIds, chainId)))}`)
   } else {
     lines.push('Authorize in the Filecoin Pay console (set CONSOLE_URL for a direct link).')
   }
