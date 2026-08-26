@@ -12,52 +12,7 @@
  * both.
  */
 import { readFileSync } from 'node:fs'
-
-/**
- * Parse dotenv-style `KEY=VALUE` lines.
- *
- * Blank lines and lines starting with `#` are ignored. A single pair of
- * surrounding single or double quotes is stripped from the value. Lines
- * that don't match `KEY=VALUE` are skipped.
- */
-export function parseEnvFile(contents: string): Record<string, string> {
-  const result: Record<string, string> = {}
-
-  for (const rawLine of contents.split(/\r?\n/)) {
-    const line = rawLine.trim()
-    if (line === '' || line.startsWith('#')) {
-      continue
-    }
-
-    const eq = line.indexOf('=')
-    if (eq === -1) {
-      continue
-    }
-
-    let key = line.slice(0, eq).trim()
-    // Accept shell-sourceable files: `export KEY=VALUE` means KEY=VALUE.
-    if (key.startsWith('export ')) {
-      key = key.slice('export '.length).trim()
-    }
-    // A key with whitespace is never a valid env var name — skip, don't inject garbage.
-    if (key === '' || /\s/.test(key)) {
-      continue
-    }
-
-    let value = line.slice(eq + 1).trim()
-    if (value.length >= 2) {
-      const first = value[0]
-      const last = value[value.length - 1]
-      if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
-        value = value.slice(1, -1)
-      }
-    }
-
-    result[key] = value
-  }
-
-  return result
-}
+import { parseEnv } from 'node:util'
 
 /**
  * Load a dotenv-style file at `path` into `env`, without overriding
@@ -75,7 +30,7 @@ export function loadEnvFile(path: string, env: NodeJS.ProcessEnv = process.env):
     throw new Error(`--env-file: could not read "${path}": ${reason}`)
   }
 
-  const parsed = parseEnvFile(contents)
+  const parsed = parseEnv(contents)
   if (Object.keys(parsed).length === 0) {
     throw new Error(
       `--env-file: no usable entries in "${path}". Expected dotenv-style lines like:\n` +

@@ -2,37 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { applyEnvFileArg, findEnvFileArg, loadEnvFile, parseEnvFile } from '../../utils/env-file.js'
-
-describe('parseEnvFile', () => {
-  it('parses KEY=VALUE lines', () => {
-    expect(parseEnvFile('FOO=bar\nBAZ=qux')).toEqual({ FOO: 'bar', BAZ: 'qux' })
-  })
-
-  it('ignores blank lines and comments', () => {
-    expect(parseEnvFile('# a comment\n\nFOO=bar\n  \n# another\nBAZ=qux\n')).toEqual({ FOO: 'bar', BAZ: 'qux' })
-  })
-
-  it('strips a single pair of surrounding single or double quotes', () => {
-    expect(parseEnvFile(`FOO="bar"\nBAZ='qux'\nQUUX=no-quotes`)).toEqual({
-      FOO: 'bar',
-      BAZ: 'qux',
-      QUUX: 'no-quotes',
-    })
-  })
-
-  it('does not strip mismatched or partial quotes', () => {
-    expect(parseEnvFile(`FOO="bar'\nBAZ='qux`)).toEqual({ FOO: '"bar\'', BAZ: "'qux" })
-  })
-
-  it('trims whitespace around keys and values', () => {
-    expect(parseEnvFile('  FOO  =  bar  ')).toEqual({ FOO: 'bar' })
-  })
-
-  it('skips lines without an =', () => {
-    expect(parseEnvFile('not a valid line\nFOO=bar')).toEqual({ FOO: 'bar' })
-  })
-})
+import { applyEnvFileArg, findEnvFileArg, loadEnvFile } from '../../utils/env-file.js'
 
 describe('loadEnvFile', () => {
   let dir: string
@@ -112,16 +82,6 @@ describe('applyEnvFileArg', () => {
     applyEnvFileArg(['node', 'cli.js', 'add', '--env-file', path], env)
 
     expect(env.SESSION_KEY).toBe('0xabc')
-  })
-})
-
-describe('parseEnvFile shell-sourceable input', () => {
-  it('strips a leading export prefix', () => {
-    expect(parseEnvFile('export SESSION_KEY=0xabc')).toEqual({ SESSION_KEY: '0xabc' })
-  })
-
-  it('skips keys containing whitespace', () => {
-    expect(parseEnvFile('BAD KEY=1\nGOOD=2')).toEqual({ GOOD: '2' })
   })
 })
 
