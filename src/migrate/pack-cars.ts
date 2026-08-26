@@ -30,7 +30,7 @@ import { SIZE_CONSTANTS } from '@filoz/synapse-sdk'
 import { CarBlockIterator, CarWriter } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import type { MigrationDB, PieceRow } from './db.js'
-import { log } from './util.js'
+import { log } from '../utils/cli-logger.js'
 
 /**
  * Default target raw size for one assembled piece. 1016 MiB is the SDK's
@@ -363,7 +363,7 @@ export async function runPackCars(
   const overCap: string[] = []
   for (const p of oversized) {
     if (p.rawSize > MAX_UPLOAD_BYTES) {
-      log(`! ${p.cid} (${p.rawSize} bytes) exceeds the ${MAX_UPLOAD_BYTES}-byte upload cap; not migrated`)
+      log.message(`! ${p.cid} (${p.rawSize} bytes) exceeds the ${MAX_UPLOAD_BYTES}-byte upload cap; not migrated`)
       overCap.push(p.cid)
       db.markOversized([p.cid])
       const memberPath = memberPaths.get(p.cid)
@@ -434,7 +434,7 @@ export async function runPackCars(
           if (gone) opts.onMemberEvicted?.(piecesByCid.get(cid)?.rawSize ?? 0)
         }
       }
-      log(`  + piece ${built.pieceCid} (${built.assembledBytes} bytes, ${bin.memberCids.length} member(s))`)
+      log.message(`  + piece ${built.pieceCid} (${built.assembledBytes} bytes, ${bin.memberCids.length} member(s))`)
       summary.built += 1
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -444,7 +444,7 @@ export async function runPackCars(
       if (builtPath != null) await unlink(builtPath).catch(() => undefined)
       if (binWritten > 0) opts.onBytesStaged?.(-binWritten)
       summary.failedMemberCids.push(...bin.memberCids)
-      log(`  ! piece build failed (${bin.memberCids.length} member(s): ${bin.memberCids.join(', ')}): ${message}`)
+      log.message(`  ! piece build failed (${bin.memberCids.length} member(s): ${bin.memberCids.join(', ')}): ${message}`)
       summary.failed += 1
     }
   }
