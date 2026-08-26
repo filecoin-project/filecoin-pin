@@ -52,4 +52,4 @@ Egress defaults to `none` for migrate: bulk archives will not pay [FilBeam](glos
 
 ## What the exit code means
 
-`0` means every CID in the list is committed on chain at the requested number of copies. Anything short of that (failed downloads, over-cap CIDs, unresolved commits, missing copies) exits `1`, and the summary JSON on stdout says exactly which CIDs need attention. Re-running is always safe.
+`0` means every CID in the list is committed on chain at the requested number of copies. Anything short of that (failed downloads, over-cap CIDs, unresolved commits, missing copies) exits `1`, and the summary printed at the end says exactly which CIDs need attention (the full record lives in `migrate.db`). Re-running is always safe.
