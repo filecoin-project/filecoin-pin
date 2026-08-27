@@ -8,7 +8,7 @@
  *
  * Throws when the chainId does not match any known chain.
  */
-import { type Chain, calibration, mainnet } from '@filoz/synapse-sdk'
+import { type FilecoinChain as Chain, calibration, mainnet } from '@filoz/synapse-sdk'
 import type { Logger } from 'pino'
 import { createPublicClient, type Transport } from 'viem'
 

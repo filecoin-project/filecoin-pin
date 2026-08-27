@@ -64,8 +64,7 @@ export function buildOptionLabel(ds: DataSetSummary, keys: string[]): string {
   const overflow = pairs.length - visible.length
   const overflowSuffix = overflow > 0 ? `  (+${overflow} more)` : ''
 
-  const pieces = Number(ds.activePieceCount ?? 0n)
-  const piecesLabel = `(${pieces} piece${pieces !== 1 ? 's' : ''})`
+  const piecesLabel = ds.hasActivePieces ? '(has pieces)' : '(empty)'
 
   const label = [`#${ds.dataSetId}`, ...visible, piecesLabel].join('  ') + overflowSuffix
 

@@ -1,6 +1,6 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
-import type { Chain } from '@filoz/synapse-sdk'
+import type { FilecoinChain as Chain } from '@filoz/synapse-sdk'
 import { getRpcUrl, NETWORK_CHAINS, normalizeNetworkName, resolveDevnetConfig } from './common/get-rpc-url.js'
 import type { Config } from './core/synapse/index.js'
 

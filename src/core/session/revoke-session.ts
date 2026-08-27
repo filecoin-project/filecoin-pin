@@ -4,7 +4,7 @@
  */
 
 import { type Permission, revokeSync } from '@filoz/synapse-core/session-key'
-import type { Chain } from '@filoz/synapse-sdk'
+import type { FilecoinChain as Chain } from '@filoz/synapse-sdk'
 import type { Account, Address, Client, Transport } from 'viem'
 import { getAddress } from 'viem'
 import { APPLICATION_SOURCE } from '../synapse/constants.js'

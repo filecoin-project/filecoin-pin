@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { toChain, validateDevnetInfo } from '@filoz/synapse-core/devnet'
-import type { Chain } from '@filoz/synapse-sdk'
+import type { FilecoinChain as Chain } from '@filoz/synapse-sdk'
 
 function getDefaultDevnetInfoPath(): string {
   const baseDir = process.env.FOC_DEVNET_BASEDIR?.trim() || join(homedir(), '.foc-devnet')

@@ -1,4 +1,4 @@
-import type { Chain, PDPProvider, Synapse } from '@filoz/synapse-sdk'
+import type { FilecoinChain as Chain, PDPProvider, Synapse } from '@filoz/synapse-sdk'
 import { calibration, mainnet } from '@filoz/synapse-sdk'
 import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import type { CID } from 'multiformats/cid'

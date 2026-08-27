@@ -29,7 +29,7 @@ const MIN_PAGE_SIZE = 1
 const PREFETCH_CONCURRENCY = 10
 /** Approximate terminal rows consumed by each piece block (row + ipfsRootCID line + blank line) */
 const LINES_PER_PIECE = 3
-/** Approximate terminal rows consumed by header/footer chrome around the piece list (network line, title, total-pieces line, page label, navigation footer, blank line, tip line, and spacing) */
+/** Approximate terminal rows consumed by header/footer chrome around the piece list (network line, title, piece-presence line, page label, navigation footer, blank line, tip line, and spacing) */
 const RESERVED_CHROME_LINES = 11
 const PIECE_DETAIL_INDENT = ' '.repeat(9)
 
@@ -167,7 +167,7 @@ export async function runPieceStatusPager(
   log.section('Summary', [
     `Network: ${network}`,
     `Data set: #${dataSet.dataSetId}`,
-    `Total active pieces: ${dataSet.activePieceCount}`,
+    `Has active pieces: ${dataSet.hasActivePieces ? 'yes' : 'no'}`,
   ])
 }
 
@@ -197,7 +197,7 @@ function renderPiecePage(
     pc.gray(`Network: ${network}`),
     '',
     pc.bold(`Pieces for Data Set #${dataSet.dataSetId}`),
-    pc.gray(`Total active pieces: ${dataSet.activePieceCount}`),
+    pc.gray(`Has active pieces: ${dataSet.hasActivePieces ? 'yes' : 'no'}`),
     '',
     pageLabel,
     '',

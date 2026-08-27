@@ -1,4 +1,4 @@
-import { type Chain, calibration } from '@filoz/synapse-sdk'
+import { type FilecoinChain as Chain, calibration } from '@filoz/synapse-sdk'
 import type { Account, Client, Transport } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { describe, expect, it, vi } from 'vitest'

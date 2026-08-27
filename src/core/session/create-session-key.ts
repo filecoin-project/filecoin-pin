@@ -4,7 +4,7 @@
  */
 
 import type { Permission } from '@filoz/synapse-core/session-key'
-import type { Chain } from '@filoz/synapse-sdk'
+import type { FilecoinChain as Chain } from '@filoz/synapse-sdk'
 import { type Address, createWalletClient, type Hex, type Transport } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import type { ProgressEventHandler } from '../utils/types.js'

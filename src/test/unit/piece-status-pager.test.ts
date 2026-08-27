@@ -70,10 +70,10 @@ vi.mock('../../utils/cli-logger.js', async () => {
 
 const fakeSynapse = { chain: { name: 'calibration' }, client: {} } as any
 
-function makeDataSet(overrides: Partial<{ dataSetId: bigint; activePieceCount: number }> = {}): any {
+function makeDataSet(overrides: Partial<{ dataSetId: bigint; hasActivePieces: boolean }> = {}): any {
   return {
     dataSetId: 158n,
-    activePieceCount: 3,
+    hasActivePieces: true,
     provider: { pdp: { serviceURL: 'https://pdp.local' } },
     ...overrides,
   }
@@ -328,9 +328,9 @@ describe('runPieceStatusPager', () => {
     expect(mockLogSection).not.toHaveBeenCalled()
   })
 
-  it('logs a summary with network, data set id, and active piece count after the pager exits', async () => {
+  it('logs a summary with network, data set id, and active piece presence after the pager exits', async () => {
     state.batches = [{ pieces: [makePiece(0n, 'bafkpiece0')], hasMore: false }]
-    const resultPromise = runPieceStatusPager(fakeSynapse, makeDataSet({ dataSetId: 158n, activePieceCount: 42 }), {
+    const resultPromise = runPieceStatusPager(fakeSynapse, makeDataSet({ dataSetId: 158n, hasActivePieces: true }), {
       output: { rows: 12 } as any,
     })
     await vi.waitFor(() => expect(state.capturedOptions).toBeDefined())
@@ -343,7 +343,7 @@ describe('runPieceStatusPager', () => {
       expect.arrayContaining([
         expect.stringContaining('calibration'),
         expect.stringContaining('158'),
-        expect.stringContaining('42'),
+        expect.stringContaining('yes'),
       ])
     )
   })

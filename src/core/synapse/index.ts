@@ -8,9 +8,12 @@
  * @module core/synapse
  */
 
-import { type Chain, calibration, mainnet, Synapse, type SynapseOptions } from '@filoz/synapse-sdk'
+import { calibration, type FilecoinChain, mainnet, Synapse, type SynapseOptions } from '@filoz/synapse-sdk'
 
-export { calibration, mainnet, type Chain }
+export { calibration, mainnet, type FilecoinChain }
+
+/** Backwards-compatible alias for the Filecoin chain configuration type. */
+export type Chain = FilecoinChain
 
 import type { SessionKey } from '@filoz/synapse-core/session-key'
 import {

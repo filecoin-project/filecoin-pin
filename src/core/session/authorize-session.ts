@@ -7,7 +7,7 @@
  */
 
 import { DefaultFwssPermissions, loginSync, type Permission } from '@filoz/synapse-core/session-key'
-import type { Chain } from '@filoz/synapse-sdk'
+import type { FilecoinChain as Chain } from '@filoz/synapse-sdk'
 import { type Account, type Address, type Client, getAddress, keccak256, stringToHex, type Transport } from 'viem'
 import { APPLICATION_SOURCE } from '../synapse/constants.js'
 import type { ProgressEventHandler } from '../utils/types.js'
