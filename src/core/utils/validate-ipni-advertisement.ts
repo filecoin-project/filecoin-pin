@@ -50,6 +50,10 @@ interface ProviderResult {
  * `attempts` counts attempts started when the failure was observed: an abort
  * mid-fetch counts the in-flight attempt, while an abort between attempts
  * (before the loop or during the retry sleep) does not add one.
+ *
+ * `aborted.reason` carries the abort signal's `reason` (e.g. `AbortSignal.timeout`
+ * reports `"signal timed out"`) when it is meaningful; a plain
+ * `controller.abort()` leaves it unset.
  */
 export type IpniFailureReason =
   | {
@@ -61,7 +65,7 @@ export type IpniFailureReason =
   | { type: 'fetch'; attempts: number; message: string }
   | { type: 'parse'; attempts: number; message: string }
   | { type: 'http'; attempts: number; status: number; statusText?: string }
-  | { type: 'aborted'; attempts: number }
+  | { type: 'aborted'; attempts: number; reason?: string }
   | { type: 'notAttempted' }
 
 export interface IpniVerifiedEntry {
@@ -88,25 +92,24 @@ export interface IpniValidationOutcome {
   failed: IpniFailedEntry[]
 }
 
+export interface IpniRetryUpdateData {
+  retryCount: number
+  attempt: number
+  totalAttempts: number
+  cid: CID
+  cidIndex: number
+  cidCount: number
+  cidAttempt: number
+  cidMaxAttempts: number
+}
+
 export type ValidateIPNIProgressEvents =
-  | ProgressEvent<
-      'ipniProviderResults:retryUpdate',
-      {
-        retryCount: number
-        attempt: number
-        totalAttempts: number
-        cid: CID
-        cidIndex: number
-        cidCount: number
-        cidAttempt: number
-        cidMaxAttempts: number
-      }
-    >
+  | ProgressEvent<'ipniProviderResults:retryUpdate', IpniRetryUpdateData>
   | ProgressEvent<'ipniProviderResults:outcome', { outcome: IpniValidationOutcome }>
   | ProgressEvent<'ipniProviderResults:complete', { result: true; retryCount: number }>
   | ProgressEvent<'ipniProviderResults:failed', { error: Error }>
 
-export interface WaitForIpniProviderResultsOptions {
+export interface IpniValidationCoreOptions {
   /**
    * maximum number of attempts
    *
@@ -146,13 +149,6 @@ export interface WaitForIpniProviderResultsOptions {
   expectedProviders?: PDPProvider[] | undefined
 
   /**
-   * Callback for progress updates
-   *
-   * @default: undefined
-   */
-  onProgress?: ProgressEventHandler<ValidateIPNIProgressEvents>
-
-  /**
    * IPNI indexer URL to query for provider records to confirm that advertisements were processed.
    *
    * @default 'https://filecoinpin.contact'
@@ -163,6 +159,15 @@ export interface WaitForIpniProviderResultsOptions {
    * Child blocks that must also be validated against expected providers.
    */
   childBlocks?: CID[] | undefined
+}
+
+export interface WaitForIpniProviderResultsOptions extends IpniValidationCoreOptions {
+  /**
+   * Callback for progress updates
+   *
+   * @default: undefined
+   */
+  onProgress?: ProgressEventHandler<ValidateIPNIProgressEvents>
 }
 
 /**
@@ -178,6 +183,11 @@ export interface WaitForIpniProviderResultsOptions {
  * `verified` and `failed` lists. CIDs not yet walked at failure time appear in
  * `failed` with `reason.type === 'notAttempted'`.
  *
+ * Emits `ipniProviderResults:retryUpdate`, `:outcome`, and `:complete` or
+ * `:failed` progress events when `options.onProgress` is provided. The
+ * event-free core walk is exposed as
+ * {@link waitForIpniProviderResultsDetailed}.
+ *
  * Should not be called until you receive confirmation from the SP that the
  * piece has been parked (e.g. `onPieceAdded` in `synapse.storage.upload`).
  *
@@ -188,7 +198,13 @@ export async function waitForIpniProviderResults(
   ipfsRootCid: CID,
   options?: WaitForIpniProviderResultsOptions
 ): Promise<boolean> {
-  const outcome = await waitForIpniProviderResultsDetailed(ipfsRootCid, options)
+  const outcome = await runIpniValidationWalk(ipfsRootCid, options, (data) => {
+    try {
+      options?.onProgress?.({ type: 'ipniProviderResults:retryUpdate', data })
+    } catch (error) {
+      options?.logger?.warn({ error }, 'Error in consumer onProgress callback for retryUpdate event')
+    }
+  })
 
   try {
     options?.onProgress?.({ type: 'ipniProviderResults:outcome', data: { outcome } })
@@ -222,12 +238,32 @@ export async function waitForIpniProviderResults(
  * {@link IpniValidationOutcome} with full per-CID verified/failed lists.
  *
  * Use this when you need diagnostic visibility into which specific CIDs
- * verified, failed, or were aborted mid-walk. The boolean-returning
- * {@link waitForIpniProviderResults} is a thin wrapper around this function.
+ * verified, failed, or were aborted mid-walk. This function performs the
+ * validation walk and returns its outcome; it does not emit progress events.
+ * The boolean-returning {@link waitForIpniProviderResults} wraps the same
+ * walk and adds the `retryUpdate`/`outcome`/`complete`/`failed` event
+ * surface plus its throw-on-failure behavior.
  */
 export async function waitForIpniProviderResultsDetailed(
   ipfsRootCid: CID,
-  options?: WaitForIpniProviderResultsOptions
+  options?: IpniValidationCoreOptions
+): Promise<IpniValidationOutcome> {
+  return runIpniValidationWalk(ipfsRootCid, options)
+}
+
+/**
+ * Core validation walk shared by {@link waitForIpniProviderResults} and
+ * {@link waitForIpniProviderResultsDetailed}. Never throws on per-CID
+ * failures; always resolves to an {@link IpniValidationOutcome}.
+ *
+ * `onRetryUpdate` receives one entry per started attempt so the throwing
+ * wrapper can surface `retryUpdate` progress events. The detailed wrapper
+ * passes nothing: the walk stays event-free.
+ */
+async function runIpniValidationWalk(
+  ipfsRootCid: CID,
+  options: IpniValidationCoreOptions | undefined,
+  onRetryUpdate?: (data: IpniRetryUpdateData) => void
 ): Promise<IpniValidationOutcome> {
   const delayMs = options?.delayMs ?? 5000
   const maxAttempts = options?.maxAttempts ?? 20
@@ -272,10 +308,14 @@ export async function waitForIpniProviderResultsDetailed(
       hasProviderExpectations,
       cidIndex: index + 1,
       cidCount: cidsToValidate.length,
-      totalAttempts,
-      onRetryUpdate: () => {
+      onRetryUpdate: (data) => {
         totalChecks++
-        return { retryCount: totalChecks - 1, attempt: totalChecks }
+        onRetryUpdate?.({
+          retryCount: totalChecks - 1,
+          attempt: totalChecks,
+          totalAttempts,
+          ...data,
+        })
       },
       options,
     })
@@ -317,9 +357,8 @@ interface ValidateOneCidConfig {
   hasProviderExpectations: boolean
   cidIndex: number
   cidCount: number
-  totalAttempts: number
-  onRetryUpdate: (() => { retryCount: number; attempt: number }) | undefined
-  options: WaitForIpniProviderResultsOptions | undefined
+  onRetryUpdate: ((data: Omit<IpniRetryUpdateData, 'retryCount' | 'attempt' | 'totalAttempts'>) => void) | undefined
+  options: IpniValidationCoreOptions | undefined
 }
 
 async function validateOneCid(cid: CID, config: ValidateOneCidConfig): Promise<CidValidationResult> {
@@ -332,7 +371,6 @@ async function validateOneCid(cid: CID, config: ValidateOneCidConfig): Promise<C
     hasProviderExpectations,
     cidIndex,
     cidCount,
-    totalAttempts,
     onRetryUpdate,
     options,
   } = config
@@ -344,7 +382,7 @@ async function validateOneCid(cid: CID, config: ValidateOneCidConfig): Promise<C
 
   while (true) {
     if (options?.signal?.aborted) {
-      return { verified: false, reason: { type: 'aborted', attempts: retryCount }, attempts: retryCount }
+      return { verified: false, reason: abortedReason(options?.signal, retryCount), attempts: retryCount }
     }
 
     options?.logger?.info(
@@ -353,20 +391,13 @@ async function validateOneCid(cid: CID, config: ValidateOneCidConfig): Promise<C
       cid.toString()
     )
 
-    const emittedRetryMetadata = onRetryUpdate?.()
     try {
-      options?.onProgress?.({
-        type: 'ipniProviderResults:retryUpdate',
-        data: {
-          retryCount: emittedRetryMetadata?.retryCount ?? retryCount,
-          attempt: emittedRetryMetadata?.attempt ?? retryCount + 1,
-          totalAttempts,
-          cid,
-          cidIndex,
-          cidCount,
-          cidAttempt: retryCount + 1,
-          cidMaxAttempts: maxAttempts,
-        },
+      onRetryUpdate?.({
+        cid,
+        cidIndex,
+        cidCount,
+        cidAttempt: retryCount + 1,
+        cidMaxAttempts: maxAttempts,
       })
     } catch (error) {
       options?.logger?.warn({ error }, 'Error in consumer onProgress callback for retryUpdate event')
@@ -384,7 +415,7 @@ async function validateOneCid(cid: CID, config: ValidateOneCidConfig): Promise<C
       response = await fetch(`${ipniIndexerUrl}/cid/${cid}`, fetchOptions)
     } catch (fetchError) {
       if (options?.signal?.aborted) {
-        return { verified: false, reason: { type: 'aborted', attempts: retryCount + 1 }, attempts: retryCount + 1 }
+        return { verified: false, reason: abortedReason(options?.signal, retryCount + 1), attempts: retryCount + 1 }
       }
       lastActualMultiaddrs = new Set()
       lastActualUris = new Set()
@@ -406,7 +437,7 @@ async function validateOneCid(cid: CID, config: ValidateOneCidConfig): Promise<C
         // An abort can interrupt body consumption after headers arrive, which
         // rejects response.json(); classify it as aborted, not parse.
         if (options?.signal?.aborted) {
-          return { verified: false, reason: { type: 'aborted', attempts: retryCount + 1 }, attempts: retryCount + 1 }
+          return { verified: false, reason: abortedReason(options?.signal, retryCount + 1), attempts: retryCount + 1 }
         }
         lastActualMultiaddrs = new Set()
         lastActualUris = new Set()
@@ -493,7 +524,7 @@ async function validateOneCid(cid: CID, config: ValidateOneCidConfig): Promise<C
       try {
         await abortableDelay(delayMs, options?.signal)
       } catch {
-        return { verified: false, reason: { type: 'aborted', attempts: retryCount }, attempts: retryCount }
+        return { verified: false, reason: abortedReason(options?.signal, retryCount), attempts: retryCount }
       }
       continue
     }
@@ -509,6 +540,38 @@ async function validateOneCid(cid: CID, config: ValidateOneCidConfig): Promise<C
     }
     return { verified: false, reason: finalReason, attempts: retryCount }
   }
+}
+
+/**
+ * Build the `aborted` failure reason for a signal that is currently aborted.
+ *
+ * `signal.reason` is carried when it adds information beyond "this was
+ * aborted" — e.g. `AbortSignal.timeout(...)` reasons (`TimeoutError`:
+ * "signal timed out") or a caller-supplied `controller.abort('why')`. A
+ * plain `controller.abort()` sets `reason` to the default `AbortError`
+ * DOMException, which duplicates the `type: 'aborted'` discriminator and
+ * is omitted.
+ */
+function abortedReason(signal: AbortSignal | undefined, attempts: number): IpniFailureReason {
+  const message = signalAbortMessage(signal)
+  if (message != null) {
+    return { type: 'aborted', attempts, reason: message }
+  }
+  return { type: 'aborted', attempts }
+}
+
+function signalAbortMessage(signal: AbortSignal | undefined): string | undefined {
+  if (signal == null || !signal.aborted) {
+    return undefined
+  }
+  const reason = signal.reason
+  if (reason == null) {
+    return undefined
+  }
+  if (reason instanceof DOMException && reason.name === 'AbortError') {
+    return undefined
+  }
+  return getErrorMessage(reason)
 }
 
 /**
@@ -561,7 +624,10 @@ function buildOutcomeError(
   }
 
   if (firstFailure.reason.type === 'aborted') {
-    return new Error('Check IPNI announce aborted', { cause: outcome })
+    const why = firstFailure.reason.reason
+    return new Error(why != null ? `Check IPNI announce aborted: ${why}` : 'Check IPNI announce aborted', {
+      cause: outcome,
+    })
   }
 
   const expectedProviders = options?.expectedProviders?.filter((p) => p != null) ?? []

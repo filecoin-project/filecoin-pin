@@ -712,6 +712,69 @@ describe('waitForIpniProviderResults', () => {
         expect(childFail?.reason.type).toBe('aborted')
       })
 
+      it('carries a TimeoutError abort reason on aborted failures (AbortSignal.timeout-style)', async () => {
+        const abortController = new AbortController()
+        mockFetch.mockResolvedValue({ ok: false })
+
+        const promise = waitForIpniProviderResultsDetailed(testCid, {
+          maxAttempts: 5,
+          delayMs: 60_000,
+          signal: abortController.signal,
+        })
+
+        // first attempt completes; we are sleeping when the timeout fires
+        await vi.advanceTimersByTimeAsync(0)
+        expect(mockFetch).toHaveBeenCalledTimes(1)
+        // abort with the same DOMException shape AbortSignal.timeout produces
+        abortController.abort(new DOMException('signal timed out', 'TimeoutError'))
+        const outcome = await promise
+
+        expect(outcome.success).toBe(false)
+        const abortedEntry = outcome.failed.find((f) => f.reason.type === 'aborted')
+        expect(abortedEntry?.reason.type).toBe('aborted')
+        if (abortedEntry?.reason.type === 'aborted') {
+          expect(abortedEntry.reason.reason).toBe('signal timed out')
+        }
+      })
+
+      it('carries a caller-supplied abort reason on aborted failures', async () => {
+        const abortController = new AbortController()
+        mockFetch.mockResolvedValue({ ok: false })
+
+        const promise = waitForIpniProviderResultsDetailed(testCid, {
+          maxAttempts: 5,
+          delayMs: 60_000,
+          signal: abortController.signal,
+        })
+        await vi.advanceTimersByTimeAsync(0)
+        abortController.abort('parent deadline exceeded')
+        const outcome = await promise
+
+        expect(outcome.success).toBe(false)
+        expect(outcome.failed[0]?.reason.type).toBe('aborted')
+        if (outcome.failed[0]?.reason.type === 'aborted') {
+          expect(outcome.failed[0].reason.reason).toBe('parent deadline exceeded')
+        }
+      })
+
+      it('omits the reason for a plain abort() (default AbortError adds no information)', async () => {
+        const abortController = new AbortController()
+        abortController.abort()
+
+        const promise = waitForIpniProviderResultsDetailed(testCid, {
+          maxAttempts: 1,
+          signal: abortController.signal,
+        })
+        await vi.runAllTimersAsync()
+        const outcome = await promise
+
+        expect(outcome.success).toBe(false)
+        expect(outcome.failed[0]?.reason.type).toBe('aborted')
+        if (outcome.failed[0]?.reason.type === 'aborted') {
+          expect(outcome.failed[0].reason.reason).toBeUndefined()
+        }
+      })
+
       it('aborts during inter-attempt sleep without waiting for delayMs (signal-aware)', async () => {
         const abortController = new AbortController()
         mockFetch.mockResolvedValue({ ok: false })
@@ -737,6 +800,22 @@ describe('waitForIpniProviderResults', () => {
         expect(mockFetch).toHaveBeenCalledTimes(1)
       })
 
+      it('includes the abort reason in the thrown error message when one is present', async () => {
+        const abortController = new AbortController()
+        abortController.abort('deadline reached')
+
+        const promise = waitForIpniProviderResults(testCid, { signal: abortController.signal })
+        let caught: Error | undefined
+        promise.catch((e) => {
+          caught = e
+        })
+        await vi.runAllTimersAsync()
+        await promise.catch(() => undefined)
+
+        expect(caught).toBeInstanceOf(Error)
+        expect(caught?.message).toBe('Check IPNI announce aborted: deadline reached')
+      })
+
       it('attaches outcome via Error.cause on aborted failure (consistent with other failures)', async () => {
         const abortController = new AbortController()
         abortController.abort()
@@ -754,6 +833,38 @@ describe('waitForIpniProviderResults', () => {
         expect(cause).toBeDefined()
         expect(cause.success).toBe(false)
         expect(cause.failed[0]?.reason.type).toBe('aborted')
+      })
+
+      it('emits ipniProviderResults:retryUpdate events from the wrapper while walking', async () => {
+        const childCid = CID.parse('bafkreia7wx2ue2r5x2bwsxns2r4jtrsu7dzw2r3abjtw3obqckm3w2b2mu')
+        // root succeeds, child fails with ok:false on every attempt
+        mockFetch.mockResolvedValueOnce(successResponse()).mockResolvedValue({ ok: false })
+
+        const onProgress = vi.fn()
+        const promise = waitForIpniProviderResults(testCid, {
+          childBlocks: [childCid],
+          maxAttempts: 3,
+          delayMs: 1000,
+          onProgress,
+        })
+        // attach the rejection handler before advancing timers so the
+        // rejection is never unhandled
+        const rejection = expect(promise).rejects.toThrow('does not have expected IPNI ProviderResults')
+        await vi.runAllTimersAsync()
+        await rejection
+
+        const retries = onProgress.mock.calls.filter(([e]) => e.type === 'ipniProviderResults:retryUpdate')
+        // root (1 attempt) + child (3 attempts)
+        expect(retries.map(([e]) => e.data.cid.toString())).toEqual([
+          testCid.toString(),
+          childCid.toString(),
+          childCid.toString(),
+          childCid.toString(),
+        ])
+        const childRetries = retries.filter(([e]) => e.data.cid.toString() === childCid.toString())
+        expect(childRetries.map(([e]) => e.data.cidAttempt)).toEqual([1, 2, 3])
+        expect(childRetries.map(([e]) => e.data.cidMaxAttempts)).toEqual([3, 3, 3])
+        expect(retries.map(([e]) => e.data.attempt).sort((a, b) => a - b)).toEqual([1, 2, 3, 4])
       })
 
       it('emits ipniProviderResults:outcome event with full per-CID detail', async () => {

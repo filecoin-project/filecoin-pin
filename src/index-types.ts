@@ -53,6 +53,8 @@ export type { AnyProgressEvent, ProgressEvent, ProgressEventHandler, Warning } f
 export type {
   IpniFailedEntry,
   IpniFailureReason,
+  IpniRetryUpdateData,
+  IpniValidationCoreOptions,
   IpniValidationOutcome,
   IpniVerifiedEntry,
   ValidateIPNIProgressEvents,
