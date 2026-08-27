@@ -121,7 +121,7 @@ export interface ListDataSetsOptions {
 }
 
 /**
- * Options for getting pieces from a dataset
+ * Options for getting or iterating over pieces from a dataset
  */
 export interface GetDataSetPiecesOptions {
   /** Abort signal for cancellation */
@@ -129,8 +129,3 @@ export interface GetDataSetPiecesOptions {
   /** Logger instance for debugging (optional) */
   logger?: Logger | undefined
 }
-
-/**
- * Options for iterating over pieces from a dataset
- */
-export interface IterateDataSetPiecesOptions extends GetDataSetPiecesOptions {}

@@ -15,7 +15,6 @@ import type { Warning } from '../utils/types.js'
 import {
   type DataSetPiecesResult,
   type GetDataSetPiecesOptions,
-  type IterateDataSetPiecesOptions,
   type IterateDataSetPiecesResult,
   type PieceInfo,
   PieceStatus,
@@ -39,7 +38,7 @@ export async function* iterateDataSetPieces(
   synapse: Synapse,
   dataSetId: bigint,
   serviceURL: string,
-  options?: IterateDataSetPiecesOptions
+  options?: GetDataSetPiecesOptions
 ): AsyncGenerator<IterateDataSetPiecesResult> {
   const logger = options?.logger
   const initialWarnings: Warning[] = []

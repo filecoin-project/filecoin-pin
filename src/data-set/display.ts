@@ -155,8 +155,8 @@ function renderPaymentDetails(dataSet: DataSetSummary, indentLevel: number = 0):
 /**
  * Render metadata key-value pairs with consistent indentation.
  */
-function renderMetadata(metadata: Record<string, string>, indentLevel: number = 1, title: string = 'Metadata'): void {
-  log.indent(pc.bold(title), indentLevel)
+function renderMetadata(metadata: Record<string, string>, indentLevel: number = 1): void {
+  log.indent(pc.bold('Metadata'), indentLevel)
   const entries = Object.entries(metadata)
   if (entries.length === 0) {
     log.indent(pc.gray('none'), indentLevel + 1)
