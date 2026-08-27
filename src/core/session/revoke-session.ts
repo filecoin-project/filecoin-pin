@@ -4,7 +4,7 @@
  */
 
 import { type Permission, revokeSync } from '@filoz/synapse-core/session-key'
-import type { FilecoinChain as Chain } from '@filoz/synapse-sdk'
+import type { FilecoinChain } from '@filoz/synapse-sdk'
 import type { Account, Address, Client, Transport } from 'viem'
 import { getAddress } from 'viem'
 import { APPLICATION_SOURCE } from '../synapse/constants.js'
@@ -30,7 +30,7 @@ export interface RevokeSessionOptions {
  * @throws if the chain has no `sessionKeyRegistry` and no `registryAddress` override is provided
  */
 export async function revokeSessionAddress(
-  client: Client<Transport, Chain, Account>,
+  client: Client<Transport, FilecoinChain, Account>,
   options: RevokeSessionOptions
 ): Promise<RevokeSessionResult> {
   const sessionAddress = getAddress(options.sessionAddress)

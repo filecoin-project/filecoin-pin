@@ -2,7 +2,7 @@ import fastify, { type FastifyError, type FastifyInstance, type FastifyReply, ty
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { isAddress, isHex } from 'viem'
-import type { Chain, Config } from './core/synapse/index.js'
+import type { Config, FilecoinChain } from './core/synapse/index.js'
 import { assertSessionKeyPrivateKey, initializeSynapse, type SynapseSetupConfig } from './core/synapse/index.js'
 import { FilecoinPinStore, type PinOptions } from './filecoin-pin-store.js'
 import type { ServiceInfo } from './server.js'
@@ -91,7 +91,7 @@ function parsePinMutationBody(body: unknown): { options: PinMutationBody } | { e
 }
 
 function buildSynapseConfig(config: Config): SynapseSetupConfig {
-  const base: { rpcUrl: string; chain?: Chain } = { rpcUrl: config.rpcUrl }
+  const base: { rpcUrl: string; chain?: FilecoinChain } = { rpcUrl: config.rpcUrl }
   if (config.chain) {
     base.chain = config.chain
   }

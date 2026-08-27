@@ -1,10 +1,10 @@
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
-import type { FilecoinChain as Chain } from '@filoz/synapse-sdk'
+import type { FilecoinChain } from '@filoz/synapse-sdk'
 import { getRpcUrl, NETWORK_CHAINS, normalizeNetworkName, resolveDevnetConfig } from './common/get-rpc-url.js'
 import type { Config } from './core/synapse/index.js'
 
-function resolveChain(network: string | undefined, hasExplicitRpcUrl: boolean): Chain | undefined {
+function resolveChain(network: string | undefined, hasExplicitRpcUrl: boolean): FilecoinChain | undefined {
   const normalized = normalizeNetworkName(network)
   if (!normalized) return undefined
   if (normalized === 'mainnet' || normalized === 'calibration') return NETWORK_CHAINS[normalized]

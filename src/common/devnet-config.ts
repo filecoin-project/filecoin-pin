@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { toChain, validateDevnetInfo } from '@filoz/synapse-core/devnet'
-import type { FilecoinChain as Chain } from '@filoz/synapse-sdk'
+import type { FilecoinChain } from '@filoz/synapse-sdk'
 
 function getDefaultDevnetInfoPath(): string {
   const baseDir = process.env.FOC_DEVNET_BASEDIR?.trim() || join(homedir(), '.foc-devnet')
@@ -18,7 +18,7 @@ function getDefaultDevnetInfoPath(): string {
 }
 
 export interface DevnetConfig {
-  chain: Chain
+  chain: FilecoinChain
   privateKey: string | undefined
 }
 
@@ -27,7 +27,7 @@ let cachedDevnetConfig: DevnetConfig | undefined
 /**
  * Load and cache devnet configuration from devnet-info.json.
  *
- * Reads the devnet info file, validates it, and builds a Chain via synapse-core's
+ * Reads the devnet info file, validates it, and builds a FilecoinChain via synapse-core's
  * toChain(). The result is cached for the lifetime of the process so that
  * getRpcUrl() and parseCLIAuth() share the same chain object.
  */

@@ -1,13 +1,13 @@
 /**
  * Authorize a session key on the on-chain session key registry.
  *
- * Accepts a viem `Client<Transport, Chain, Account>`. The signer and transport
+ * Accepts a viem `Client<Transport, FilecoinChain, Account>`. The signer and transport
  * are owned by the caller, so any account viem supports (raw key, EIP-1193
  * provider, hardware wallet) can drive the authorization.
  */
 
 import { DefaultFwssPermissions, loginSync, type Permission } from '@filoz/synapse-core/session-key'
-import type { FilecoinChain as Chain } from '@filoz/synapse-sdk'
+import type { FilecoinChain } from '@filoz/synapse-sdk'
 import { type Account, type Address, type Client, getAddress, keccak256, stringToHex, type Transport } from 'viem'
 import { APPLICATION_SOURCE } from '../synapse/constants.js'
 import type { ProgressEventHandler } from '../utils/types.js'
@@ -46,7 +46,7 @@ const MAX_VALIDITY_DAYS = 365
  * @throws if the chain has no `sessionKeyRegistry` and no `registryAddress` override is provided
  */
 export async function authorizeSessionAddress(
-  client: Client<Transport, Chain, Account>,
+  client: Client<Transport, FilecoinChain, Account>,
   options: AuthorizeSessionOptions
 ): Promise<AuthorizeSessionResult> {
   const validityDays = options.validityDays ?? 10

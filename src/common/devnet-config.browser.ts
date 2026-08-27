@@ -8,10 +8,10 @@
  * catches this throw and falls through to the unsupported-chain error.
  */
 
-import type { FilecoinChain as Chain } from '@filoz/synapse-sdk'
+import type { FilecoinChain } from '@filoz/synapse-sdk'
 
 export interface DevnetConfig {
-  chain: Chain
+  chain: FilecoinChain
   privateKey: string | undefined
 }
 

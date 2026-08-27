@@ -1,5 +1,5 @@
 /**
- * Probe an RPC endpoint's chainId and resolve the matching Chain.
+ * Probe an RPC endpoint's chainId and resolve the matching FilecoinChain.
  *
  * Filecoin chain id mapping:
  *   314      → mainnet
@@ -8,11 +8,11 @@
  *
  * Throws when the chainId does not match any known chain.
  */
-import { type FilecoinChain as Chain, calibration, mainnet } from '@filoz/synapse-sdk'
+import { calibration, type FilecoinChain, mainnet } from '@filoz/synapse-sdk'
 import type { Logger } from 'pino'
 import { createPublicClient, type Transport } from 'viem'
 
-export async function resolveChainFromRpc(transport: Transport, logger?: Logger): Promise<Chain> {
+export async function resolveChainFromRpc(transport: Transport, logger?: Logger): Promise<FilecoinChain> {
   const client = createPublicClient({ transport })
   logger?.debug('probing RPC chainId')
   const start = Date.now()
