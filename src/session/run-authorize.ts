@@ -59,7 +59,7 @@ export async function runSessionAuthorize(
   }
 
   let scopes: ParsedScopes | undefined
-  if (options.scopes) {
+  if (options.scopes !== undefined) {
     try {
       scopes = parseScopes(options.scopes)
     } catch (error) {

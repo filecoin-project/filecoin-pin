@@ -45,7 +45,7 @@ export async function runSessionRevoke(options: SessionRevokeOptions): Promise<R
   }
 
   let scopes: ParsedScopes | undefined
-  if (options.scopes) {
+  if (options.scopes !== undefined) {
     try {
       scopes = parseScopes(options.scopes)
     } catch (error) {

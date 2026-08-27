@@ -18,7 +18,7 @@ const createCommand = new Command('create')
   .option('--validity-days <days>', 'Number of days the session key should be valid (max 365)', '10')
   .option(
     '--scopes <ids>',
-    'Comma-separated permissions to grant (default: all). Any of: createDataSet,addPieces,schedulePieceRemovals,terminateService (aliases: create,add,remove, delete,terminate)'
+    'Comma-separated permissions to grant (default: all). Any of: createDataSet, addPieces, schedulePieceRemovals, terminateService (aliases: create, add, remove, delete, terminate)'
   )
   .addOption(sessionKeyOption('Reuse an existing session private key'))
   .action(async (options) => {

@@ -44,7 +44,7 @@ export async function runSessionCreate(options: SessionCreateOptions): Promise<C
   }
 
   let scopes: ParsedScopes | undefined
-  if (options.scopes) {
+  if (options.scopes !== undefined) {
     try {
       scopes = parseScopes(options.scopes)
     } catch (error) {
