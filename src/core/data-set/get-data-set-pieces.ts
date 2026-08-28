@@ -6,7 +6,7 @@
  * @module core/data-set/get-data-set-pieces
  */
 
-import { getActivePieces, getScheduledRemovals } from '@filoz/synapse-core/pdp-verifier'
+import { getActivePiecesByCursor, getScheduledRemovals } from '@filoz/synapse-core/pdp-verifier'
 import { from as pieceFromCID } from '@filoz/synapse-core/piece'
 import { getDataSet as getProviderDataSet } from '@filoz/synapse-core/sp'
 import type { DataSetPieceData, Synapse } from '@filoz/synapse-sdk'
@@ -75,7 +75,7 @@ export async function* iterateDataSetPieces(
   }
 
   try {
-    let offset = 0n
+    let cursor = 0n
     let hasMore = true
 
     while (hasMore) {
@@ -83,19 +83,13 @@ export async function* iterateDataSetPieces(
       const warnings = initialWarnings.splice(0)
       const pieces: PieceInfo[] = []
 
-      /**
-       * TODO:
-       * Replace `getActivePieces` with `getActivePiecesByCursor` once it's available in synapse-core.
-       * This will allow for more efficient pagination and avoid potential issues with large datasets.
-       * ref: https://github.com/FilOzone/synapse-sdk/issues/848
-       */
-      const result = await getActivePieces(synapse.client, {
+      const result = await getActivePiecesByCursor(synapse.client, {
         dataSetId,
-        offset,
+        cursor,
         limit: ACTIVE_PIECES_BATCH_SIZE,
       })
 
-      for (const piece of result.pieces) {
+      for (const piece of result.items) {
         const { status, warning } = reconcilePieceStatus({
           pieceId: piece.id,
           pieceCid: piece.cid,
@@ -123,8 +117,15 @@ export async function* iterateDataSetPieces(
         pieces.push(pieceInfo)
       }
 
-      hasMore = result.hasMore
-      offset += ACTIVE_PIECES_BATCH_SIZE
+      const nextCursor = result.nextCursor
+      hasMore = nextCursor != null
+      if (nextCursor != null) {
+        if (nextCursor <= cursor) {
+          throw new Error('`nextCursor` must advance beyond the current cursor.')
+        }
+        // Cursors are opaque continuation values and must be passed back unchanged.
+        cursor = nextCursor
+      }
 
       // Leftover entries in providerPiecesById are pieces the provider reports
       // but that are not on-chain (offchain orphans). These are only known once

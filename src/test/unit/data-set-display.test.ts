@@ -19,7 +19,7 @@ function row(fields: Partial<DataSetSummary> = {}): DataSetSummary {
     dataSetId: 1n,
     pdpVerifierDataSetId: 1n,
     providerId: 10n,
-    activePieceCount: 1n,
+    hasActivePieces: true,
     isLive: true,
     isManaged: true,
     withCDN: false,
@@ -56,25 +56,25 @@ describe('displayDataSetList', () => {
     const output = lines()
     expect(output.some((line) => line.includes('Network:') && line.includes('calibration'))).toBe(true)
     expect(output).toContain('Client address: 0xtest')
-    expect(output.some((line) => /^ID\s+Status\s+Provider ID\s+Pieces\s+CDN$/.test(line))).toBe(true)
+    expect(output.some((line) => /^ID\s+Status\s+Provider ID\s+Has Pieces\s+CDN$/.test(line))).toBe(true)
     expect(output.some((line) => /\bSize\b/.test(line))).toBe(false)
-    expect(output.findIndex((line) => /^1\s+live\s+10\s+1\s+disabled$/.test(line.trim()))).toBeLessThan(
-      output.findIndex((line) => /^3\s+live\s+30\s+1\s+disabled$/.test(line.trim()))
+    expect(output.findIndex((line) => /^1\s+live\s+10\s+yes\s+disabled$/.test(line.trim()))).toBeLessThan(
+      output.findIndex((line) => /^3\s+live\s+30\s+yes\s+disabled$/.test(line.trim()))
     )
   })
 
   it('renders footer totals and the show command hint', () => {
     displayDataSetList(
-      [row({ dataSetId: 1n, activePieceCount: 1n }), row({ dataSetId: 2n, activePieceCount: 2n, withCDN: true })],
+      [row({ dataSetId: 1n }), row({ dataSetId: 2n, hasActivePieces: false, withCDN: true })],
       'calibration',
       '0xtest'
     )
 
     const output = lines()
-    expect(output).toContain('2 data sets, 3 active pieces')
+    expect(output).toContain('2 data sets, 1 with active pieces')
     expect(output).toContain('Run `filecoin-pin data-set show <id>` for full details.')
     expect(output.some((line) => /total known size/i.test(line))).toBe(false)
-    expect(output.some((line) => /^2\s+live\s+10\s+2\s+enabled$/.test(line.trim()))).toBe(true)
+    expect(output.some((line) => /^2\s+live\s+10\s+no\s+enabled$/.test(line.trim()))).toBe(true)
   })
 
   it('renders lifecycle status labels in compact rows', () => {
@@ -85,8 +85,8 @@ describe('displayDataSetList', () => {
     )
 
     const output = lines()
-    expect(output.some((line) => /^1\s+inactive\s+10\s+1\s+disabled$/.test(line.trim()))).toBe(true)
-    expect(output.some((line) => /^2\s+terminated\s+10\s+1\s+disabled$/.test(line.trim()))).toBe(true)
+    expect(output.some((line) => /^1\s+inactive\s+10\s+yes\s+disabled$/.test(line.trim()))).toBe(true)
+    expect(output.some((line) => /^2\s+terminated\s+10\s+yes\s+disabled$/.test(line.trim()))).toBe(true)
   })
 })
 

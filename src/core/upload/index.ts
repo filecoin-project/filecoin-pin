@@ -1,4 +1,4 @@
-import type { Chain, PDPProvider, Synapse } from '@filoz/synapse-sdk'
+import type { FilecoinChain, PDPProvider, Synapse } from '@filoz/synapse-sdk'
 import { calibration, mainnet } from '@filoz/synapse-sdk'
 import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import type { CID } from 'multiformats/cid'
@@ -37,7 +37,7 @@ export { getDownloadURL, getServiceURL, uploadToSynapse } from './synapse.js'
  * Derive a URL-safe network slug from the chain definition.
  * Falls back to the chain name for unknown chains.
  */
-export function getNetworkSlug(chain: Chain): string {
+export function getNetworkSlug(chain: FilecoinChain): string {
   switch (chain.id) {
     case mainnet.id:
       return 'mainnet'

@@ -178,9 +178,8 @@ vi.mock('@filoz/synapse-core/warm-storage', () => ({
 }))
 
 vi.mock('@filoz/synapse-core/pdp-verifier', () => ({
-  getActivePieces: vi.fn(async () => ({
-    pieces: state.pieceList.map((p) => ({ id: p.pieceId, cid: { toString: () => p.pieceCid } })),
-    hasMore: false,
+  getActivePiecesByCursor: vi.fn(async () => ({
+    items: state.pieceList.map((p) => ({ id: p.pieceId, cid: { toString: () => p.pieceCid } })),
   })),
   getScheduledRemovals: vi.fn(async () => [] as readonly bigint[]),
 }))
@@ -238,7 +237,7 @@ function toPdpDataSet(summary: EnhancedDataSetFixture, providerFixture: Record<s
     cdn: summary.withCDN ?? false,
     metadata: summary.metadata,
     provider: providerFixture,
-    activePieceCount: 0n,
+    hasActivePieces: false,
   }
 }
 

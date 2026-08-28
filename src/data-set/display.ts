@@ -54,8 +54,8 @@ function renderNetworkDetails(network: string, address: string): void {
   log.line('')
 }
 
-function activePieceCount(dataSet: Pick<DataSetSummary, 'activePieceCount'>): bigint {
-  return dataSet.activePieceCount ?? 0n
+function activePiecePresence(dataSet: Pick<DataSetSummary, 'hasActivePieces'>): string {
+  return dataSet.hasActivePieces ? 'yes' : 'no'
 }
 
 function centerCell(cell: string, width: number): string {
@@ -202,7 +202,7 @@ function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
 
 function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
   log.indent(pc.bold('Pieces'), indentLevel)
-  log.indent(`Total: ${dataSet.activePieceCount}`, indentLevel + 1)
+  log.indent(`Has active pieces: ${activePiecePresence(dataSet)}`, indentLevel + 1)
 
   if (dataSet.pieces == null) {
     log.line('')
@@ -276,12 +276,12 @@ export function displayDataSetList(
 
   const ordered = [...dataSets].sort((a, b) => (a.dataSetId < b.dataSetId ? -1 : a.dataSetId > b.dataSetId ? 1 : 0))
   const tableRows = [
-    ['ID', 'Status', 'Provider ID', 'Pieces', 'CDN'],
+    ['ID', 'Status', 'Provider ID', 'Has Pieces', 'CDN'],
     ...ordered.map((dataSet) => [
       dataSet.dataSetId.toString(),
       plainStatusLabel(dataSet),
       dataSet.providerId.toString(),
-      activePieceCount(dataSet).toString(),
+      activePiecePresence(dataSet),
       dataSet.withCDN ? 'enabled' : 'disabled',
     ]),
   ]
@@ -290,10 +290,10 @@ export function displayDataSetList(
     log.line(line)
   }
 
-  const totalPieces = ordered.reduce((sum, dataSet) => sum + activePieceCount(dataSet), 0n)
+  const dataSetsWithPieces = ordered.filter((dataSet) => dataSet.hasActivePieces).length
 
   log.line('')
-  log.line(`${ordered.length} data sets, ${totalPieces} active pieces`)
+  log.line(`${ordered.length} data sets, ${dataSetsWithPieces} with active pieces`)
   log.line('Run `filecoin-pin data-set show <id>` for full details.')
   log.flush()
 }

@@ -77,9 +77,9 @@ describe('promptDataSetSelection', () => {
   })
 
   const dataSets = [
-    { dataSetId: 1n, activePieceCount: 2n, metadata: { source: 'a' } },
-    { dataSetId: 2n, activePieceCount: 3n, metadata: { source: 'b' } },
-    { dataSetId: 3n, activePieceCount: 1n, metadata: { source: 'c' } },
+    { dataSetId: 1n, hasActivePieces: true, metadata: { source: 'a' } },
+    { dataSetId: 2n, hasActivePieces: true, metadata: { source: 'b' } },
+    { dataSetId: 3n, hasActivePieces: true, metadata: { source: 'c' } },
   ] as any[]
 
   it('throws with the hard error message when not in a TTY', async () => {
@@ -307,24 +307,24 @@ describe('differentiatingKeys', () => {
 
   it('falls back to all keys when all datasets have uniform metadata values', () => {
     const datasets = [
-      { dataSetId: 1n, activePieceCount: 0n, metadata: { env: 'prod', region: 'us-east' } },
-      { dataSetId: 2n, activePieceCount: 0n, metadata: { env: 'prod', region: 'us-east' } },
+      { dataSetId: 1n, hasActivePieces: false, metadata: { env: 'prod', region: 'us-east' } },
+      { dataSetId: 2n, hasActivePieces: false, metadata: { env: 'prod', region: 'us-east' } },
     ] as any[]
     expect(differentiatingKeys(datasets)).toEqual(expect.arrayContaining(['env', 'region']))
   })
 
   it('returns only the keys whose values differ across datasets', () => {
     const datasets = [
-      { dataSetId: 1n, activePieceCount: 0n, metadata: { source: 'alpha', env: 'prod' } },
-      { dataSetId: 2n, activePieceCount: 0n, metadata: { source: 'beta', env: 'prod' } },
+      { dataSetId: 1n, hasActivePieces: false, metadata: { source: 'alpha', env: 'prod' } },
+      { dataSetId: 2n, hasActivePieces: false, metadata: { source: 'beta', env: 'prod' } },
     ] as any[]
     expect(differentiatingKeys(datasets)).toEqual(['source'])
   })
 
   it('collects keys that appear on any dataset, not just all of them', () => {
     const datasets = [
-      { dataSetId: 1n, activePieceCount: 0n, metadata: { source: 'a' } },
-      { dataSetId: 2n, activePieceCount: 0n, metadata: { source: 'a', region: 'us' } },
+      { dataSetId: 1n, hasActivePieces: false, metadata: { source: 'a' } },
+      { dataSetId: 2n, hasActivePieces: false, metadata: { source: 'a', region: 'us' } },
     ] as any[]
     // 'region' only exists on one dataset — undefined vs 'us' differs, so it's included
     expect(differentiatingKeys(datasets)).toContain('region')
@@ -332,32 +332,32 @@ describe('differentiatingKeys', () => {
 })
 
 describe('buildOptionLabel', () => {
-  it('shows dataset ID and piece count with no metadata keys', () => {
-    const ds = { dataSetId: 5n, activePieceCount: 0n, metadata: {} } as any
-    expect(buildOptionLabel(ds, [])).toBe('#5  (0 pieces)')
+  it('shows an empty dataset label with no metadata keys', () => {
+    const ds = { dataSetId: 5n, hasActivePieces: false, metadata: {} } as any
+    expect(buildOptionLabel(ds, [])).toBe('#5  (empty)')
   })
 
-  it('uses singular "piece" when activePieceCount is 1', () => {
-    const ds = { dataSetId: 5n, activePieceCount: 1n, metadata: {} } as any
-    expect(buildOptionLabel(ds, [])).toBe('#5  (1 piece)')
+  it('shows when a dataset has active pieces', () => {
+    const ds = { dataSetId: 5n, hasActivePieces: true, metadata: {} } as any
+    expect(buildOptionLabel(ds, [])).toBe('#5  (has pieces)')
   })
 
   it('shows key=value pairs for the provided keys', () => {
-    const ds = { dataSetId: 1n, activePieceCount: 2n, metadata: { source: 'alpha' } } as any
+    const ds = { dataSetId: 1n, hasActivePieces: true, metadata: { source: 'alpha' } } as any
     const label = buildOptionLabel(ds, ['source'])
     expect(label).toContain('source=alpha')
-    expect(label).toContain('(2 pieces)')
+    expect(label).toContain('(has pieces)')
   })
 
   it('shows just the key name when the metadata value is an empty string', () => {
-    const ds = { dataSetId: 1n, activePieceCount: 0n, metadata: { source: '' } } as any
+    const ds = { dataSetId: 1n, hasActivePieces: false, metadata: { source: '' } } as any
     const label = buildOptionLabel(ds, ['source'])
     expect(label).toContain('source')
     expect(label).not.toContain('source=')
   })
 
   it('caps visible pairs at 3 and appends an overflow suffix for the rest', () => {
-    const ds = { dataSetId: 1n, activePieceCount: 0n, metadata: { a: '1', b: '2', c: '3', d: '4' } } as any
+    const ds = { dataSetId: 1n, hasActivePieces: false, metadata: { a: '1', b: '2', c: '3', d: '4' } } as any
     const label = buildOptionLabel(ds, ['a', 'b', 'c', 'd'])
     expect(label).toContain('(+1 more)')
     expect(label).toContain('a=1')
@@ -365,7 +365,7 @@ describe('buildOptionLabel', () => {
   })
 
   it('truncates metadata values longer than 20 characters', () => {
-    const ds = { dataSetId: 1n, activePieceCount: 0n, metadata: { v: 'abcdefghijklmnopqrstuvwxyz' } } as any
+    const ds = { dataSetId: 1n, hasActivePieces: false, metadata: { v: 'abcdefghijklmnopqrstuvwxyz' } } as any
     const label = buildOptionLabel(ds, ['v'])
     expect(label).toContain('v=abcdefghijklm…uvwxyz')
   })

@@ -15,7 +15,7 @@ const {
   mockSynapse,
   mockFindDataSets,
   mockGetProviders,
-  mockGetActivePieces,
+  mockGetActivePiecesByCursor,
   mockGetScheduledRemovals,
   mockGetProviderDataSet,
   mockPieceFromCID,
@@ -40,10 +40,17 @@ const {
   const mockGetProviders = vi.fn(async ({ providerIds }: { providerIds: any[] }) => {
     return state.providers.filter((p) => providerIds.includes(p.id))
   })
-  const mockGetActivePieces = vi.fn(async (_client: any, _args: any) => ({
-    pieces: state.pieces.map((p) => ({ id: p.pieceId, cid: p.pieceCid })),
-    hasMore: false,
-  }))
+  const mockGetActivePiecesByCursor = vi.fn(
+    async (
+      _client: any,
+      _args: any
+    ): Promise<{
+      items: Array<{ id: bigint; cid: { toString: () => string } }>
+      nextCursor?: bigint
+    }> => ({
+      items: state.pieces.map((p) => ({ id: p.pieceId, cid: p.pieceCid })),
+    })
+  )
   const mockGetScheduledRemovals = vi.fn(async () => [] as readonly bigint[])
   const mockGetProviderDataSet = vi.fn(async () => {
     if (state.providerPieces === null) throw new Error('Provider unavailable')
@@ -74,7 +81,7 @@ const {
     mockSynapse,
     mockFindDataSets,
     mockGetProviders,
-    mockGetActivePieces,
+    mockGetActivePiecesByCursor,
     mockGetScheduledRemovals,
     mockGetProviderDataSet,
     mockPieceFromCID,
@@ -90,7 +97,7 @@ vi.mock('@filoz/synapse-sdk', async () => {
 })
 
 vi.mock('@filoz/synapse-core/pdp-verifier', () => ({
-  getActivePieces: mockGetActivePieces,
+  getActivePiecesByCursor: mockGetActivePiecesByCursor,
   getScheduledRemovals: mockGetScheduledRemovals,
 }))
 
@@ -193,9 +200,8 @@ describe('getDataSetPieces', () => {
     vi.clearAllMocks()
     state.pieces = []
     state.providerPieces = undefined
-    mockGetActivePieces.mockImplementation(async () => ({
-      pieces: state.pieces.map((p) => ({ id: p.pieceId, cid: p.pieceCid })),
-      hasMore: false,
+    mockGetActivePiecesByCursor.mockImplementation(async () => ({
+      items: state.pieces.map((p) => ({ id: p.pieceId, cid: p.pieceCid })),
     }))
     mockPieceFromCID.mockImplementation((cid: { toString: () => string } | string) => {
       const cidString = typeof cid === 'string' ? cid : cid.toString()
@@ -234,7 +240,7 @@ describe('getDataSetPieces', () => {
   })
 
   it('throws error when getPieces fails completely', async () => {
-    mockGetActivePieces.mockRejectedValueOnce(new Error('Network error'))
+    mockGetActivePiecesByCursor.mockRejectedValueOnce(new Error('Network error'))
 
     await expect(getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)).rejects.toThrow(
       'Failed to retrieve pieces for dataset 123'
@@ -367,32 +373,45 @@ describe('getDataSetPieces', () => {
     expect(result.warnings).toContainEqual(expect.objectContaining({ code: 'PROVIDER_PIECES_UNAVAILABLE' }))
   })
 
-  it('paginates getActivePieces across multiple pages', async () => {
+  it('passes opaque getActivePiecesByCursor cursors through unchanged', async () => {
     const pages: Record<string, Array<{ id: bigint; cid: { toString: () => string } }>> = {
       '0': [{ id: 0n, cid: { toString: () => 'bafkpiece0' } }],
-      '100': [{ id: 1n, cid: { toString: () => 'bafkpiece1' } }],
-      '200': [{ id: 2n, cid: { toString: () => 'bafkpiece2' } }],
+      '7': [{ id: 7n, cid: { toString: () => 'bafkpiece1' } }],
+      '53': [{ id: 53n, cid: { toString: () => 'bafkpiece2' } }],
     }
-    mockGetActivePieces.mockImplementation((async (_client: any, { offset }: any) => ({
-      pieces: pages[String(offset)] ?? [],
-      hasMore: offset < 200n,
+    const nextCursors: Record<string, bigint | undefined> = { '0': 7n, '7': 53n }
+    mockGetActivePiecesByCursor.mockImplementation((async (_client: any, { cursor }: any) => ({
+      items: pages[String(cursor)] ?? [],
+      nextCursor: nextCursors[String(cursor)],
     })) as any)
 
     const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)
 
-    expect(mockGetActivePieces).toHaveBeenCalledTimes(3)
-    expect(mockGetActivePieces.mock.calls.map((c: any) => c[1].offset)).toEqual([0n, 100n, 200n])
-    expect((mockGetActivePieces.mock.calls[0] as any)?.[1].limit).toBe(100n)
-    expect(result.pieces.map((p) => p.pieceId)).toEqual([0n, 1n, 2n])
+    expect(mockGetActivePiecesByCursor).toHaveBeenCalledTimes(3)
+    expect(mockGetActivePiecesByCursor.mock.calls.map((c: any) => c[1].cursor)).toEqual([0n, 7n, 53n])
+    expect((mockGetActivePiecesByCursor.mock.calls[0] as any)?.[1].limit).toBe(100n)
+    expect(result.pieces.map((p) => p.pieceId)).toEqual([0n, 7n, 53n])
+  })
+
+  it('rejects a non-advancing getActivePiecesByCursor cursor', async () => {
+    mockGetActivePiecesByCursor.mockResolvedValue({
+      items: [],
+      nextCursor: 0n,
+    })
+
+    await expect(getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)).rejects.toThrow(
+      '`nextCursor` must advance beyond the current cursor.'
+    )
+    expect(mockGetActivePiecesByCursor).toHaveBeenCalledTimes(1)
   })
 
   it('stops paginating when the abort signal fires', async () => {
     const controller = new AbortController()
     let calls = 0
-    mockGetActivePieces.mockImplementation((async () => {
+    mockGetActivePiecesByCursor.mockImplementation((async () => {
       calls++
       if (calls === 2) controller.abort()
-      return { pieces: [], hasMore: true }
+      return { items: [], nextCursor: BigInt(calls) }
     }) as any)
 
     await expect(
@@ -415,21 +434,21 @@ describe('iterateDataSetPieces', () => {
       '0': [{ id: 0n, cid: { toString: () => 'bafkpiece0' } }],
       '100': [{ id: 1n, cid: { toString: () => 'bafkpiece1' } }],
     }
-    mockGetActivePieces.mockImplementation((async (_client: any, { offset }: any) => ({
-      pieces: pages[String(offset)] ?? [],
-      hasMore: offset < 100n,
+    mockGetActivePiecesByCursor.mockImplementation((async (_client: any, { cursor }: any) => ({
+      items: pages[String(cursor)] ?? [],
+      ...(cursor === 0n ? { nextCursor: 100n } : {}),
     })) as any)
 
     const iterator = iterateDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)
     const first = await iterator.next()
 
-    expect(mockGetActivePieces).toHaveBeenCalledTimes(1)
+    expect(mockGetActivePiecesByCursor).toHaveBeenCalledTimes(1)
     expect(first.done).toBe(false)
     expect(first.value?.hasMore).toBe(true)
     expect(first.value?.pieces.map((p: PieceInfo) => p.pieceId)).toEqual([0n])
 
     const second = await iterator.next()
-    expect(mockGetActivePieces).toHaveBeenCalledTimes(2)
+    expect(mockGetActivePiecesByCursor).toHaveBeenCalledTimes(2)
     expect(second.value?.hasMore).toBe(false)
   })
 
@@ -441,9 +460,9 @@ describe('iterateDataSetPieces', () => {
       '0': [{ id: 0n, cid: cid0 }],
       '100': [{ id: 1n, cid: cid1 }],
     }
-    mockGetActivePieces.mockImplementation((async (_client: any, { offset }: any) => ({
-      pieces: pages[String(offset)] ?? [],
-      hasMore: offset < 100n,
+    mockGetActivePiecesByCursor.mockImplementation((async (_client: any, { cursor }: any) => ({
+      items: pages[String(cursor)] ?? [],
+      ...(cursor === 0n ? { nextCursor: 100n } : {}),
     })) as any)
     // Provider reports an extra piece that never shows up on-chain
     state.providerPieces = [

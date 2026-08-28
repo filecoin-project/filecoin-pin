@@ -78,7 +78,7 @@ export interface IterateDataSetPiecesResult {
  * This includes all fields needed by both the CLI and website:
  * - Rail IDs (pdpRailId, cdnRailId, cacheMissRailId)
  * - Contract details (commissionBps, pdpEndEpoch, cdnEndEpoch)
- * - Piece tracking (nextPieceId, currentPieceCount)
+ * - Piece presence (hasActivePieces)
  * - Provider enrichment (optional provider field)
  * - Dataset metadata (inherited from EnhancedDataSetInfo.metadata - key-value pairs from WarmStorage)
  * - Filecoin-pin creation flag (indicates if created by filecoin-pin)
