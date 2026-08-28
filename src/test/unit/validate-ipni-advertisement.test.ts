@@ -817,6 +817,28 @@ describe('waitForIndexingConfirmation', () => {
     await expectPromise
 
     expect(onProgress).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'indexingConfirmation:mismatch' }))
+    // Nothing else reports this failure, so it must still reach the caller.
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ type: 'ipniProviderResults:failed' }))
+  })
+
+  it('should treat a 404 from the confirming query as a genuine mismatch, not a query failure', async () => {
+    // cid.contact returns 404 (not a 200 with an empty body) for a CID it hasn't indexed yet.
+    const provider = createPDPProvider('https://sp.example.com')
+    mockFetch.mockResolvedValueOnce(pieceStatusResponse(true)).mockResolvedValue({ ok: false, status: 404 })
+    const onProgress = vi.fn()
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      indexerMaxAttempts: 1,
+      onProgress,
+    })
+    const expectPromise = expect(promise).rejects.toBeInstanceOf(IndexerMismatchError)
+
+    await vi.runAllTimersAsync()
+    await expectPromise
+
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ type: 'indexingConfirmation:mismatch' }))
+    expect(onProgress).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'ipniProviderResults:failed' }))
   })
 
   it('should name the actual configured indexer in the mismatch message, not a hardcoded cid.contact', async () => {
@@ -838,7 +860,7 @@ describe('waitForIndexingConfirmation', () => {
     const provider = createPDPProvider('https://sp.example.com')
     const abortController = new AbortController()
     mockFetch.mockImplementation(async (url: string) => {
-      if (url.includes('/pdp/piece/')) return pieceStatusResponse(true)
+      if (url.includes('/piece/')) return pieceStatusResponse(true)
       return { ok: false }
     })
     const onProgress = vi.fn()
@@ -916,6 +938,18 @@ describe('waitForIndexingConfirmation', () => {
     const promise = waitForIndexingConfirmation(testCid, testPieceCid, {})
 
     await expect(promise).rejects.toThrow(/requires expectedProviders/)
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('should reject rather than silently poll fewer providers when one is missing a serviceURL', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    const providerWithoutURL = { ...provider, id: 999n, pdp: {} } as unknown as PDPProvider
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider, providerWithoutURL],
+    })
+
+    await expect(promise).rejects.toThrow(/missing a PDP serviceURL/)
     expect(mockFetch).not.toHaveBeenCalled()
   })
 

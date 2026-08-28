@@ -397,7 +397,8 @@ async function checkIpniIndexerForCid(
       } else if (response != null) {
         lastActualMultiaddrs = new Set()
         lastActualUris = new Set()
-        lastQuerySucceeded = false
+        // A 404 is how this API reports "no results for this CID" — a genuine query, not a failure.
+        lastQuerySucceeded = response.status === 404
         lastFailureReason = `IPNI indexer request failed with status ${response.status}`
         options?.logger?.info(
           { status: response.status, statusText: response.statusText },
@@ -685,12 +686,15 @@ export async function waitForIndexingConfirmation(
     pieceSyncController.abort()
   }
 
+  let interceptedFailedEvent: Extract<ValidateIPNIProgressEvents, { type: 'ipniProviderResults:failed' }> | undefined
   const indexerOptions = buildIndexerOptions(
     options,
     expectedProviders,
     options?.indexerMaxAttempts ?? 1,
     options?.indexerDelayMs ?? 5000,
-    true
+    (event) => {
+      interceptedFailedEvent = event
+    }
   )
 
   try {
@@ -698,8 +702,19 @@ export async function waitForIndexingConfirmation(
   } catch (error) {
     options?.signal?.throwIfAborted()
 
-    // A transport/parse/HTTP failure isn't a real disagreement — propagate it as-is.
+    // A transport/parse/HTTP failure isn't a real disagreement — forward the failure
+    // event we held back (nothing else will report it), then propagate as-is.
     if (!(error instanceof IndexerQueryFailedError) || !error.queriedSuccessfully) {
+      if (interceptedFailedEvent != null) {
+        try {
+          options?.onProgress?.(interceptedFailedEvent)
+        } catch (callbackError) {
+          options?.logger?.warn(
+            { error: callbackError },
+            'Error in consumer onProgress callback for ipniProviderResults failed event'
+          )
+        }
+      }
       throw error
     }
 
@@ -722,9 +737,9 @@ function buildIndexerOptions(
   expectedProviders: PDPProvider[],
   maxAttempts: number,
   delayMs: number,
-  // Suppresses the inner ipniProviderResults:failed when the caller reports the same
-  // failure itself with more context — see the mismatch branch below.
-  suppressFailedEvent = false
+  // Intercepts ipniProviderResults:failed instead of forwarding it — the caller decides
+  // whether to replace it with a mismatch event or forward it as-is.
+  onFailedEvent: (event: Extract<ValidateIPNIProgressEvents, { type: 'ipniProviderResults:failed' }>) => void
 ): CheckIpniIndexerOptions {
   const indexerOptions: CheckIpniIndexerOptions = {
     maxAttempts,
@@ -739,13 +754,13 @@ function buildIndexerOptions(
   }
   const onProgress = options?.onProgress
   if (onProgress != null) {
-    indexerOptions.onProgress = suppressFailedEvent
-      ? (event) => {
-          if (event.type !== 'ipniProviderResults:failed') {
-            onProgress(event)
-          }
-        }
-      : onProgress
+    indexerOptions.onProgress = (event) => {
+      if (event.type === 'ipniProviderResults:failed') {
+        onFailedEvent(event)
+        return
+      }
+      onProgress(event)
+    }
   }
   return indexerOptions
 }
@@ -754,9 +769,10 @@ function deriveServiceUrls(providers: PDPProvider[]): string[] {
   const urls = new Set<string>()
   for (const provider of providers) {
     const serviceURL = provider.pdp?.serviceURL
-    if (serviceURL) {
-      urls.add(serviceURL)
+    if (!serviceURL) {
+      throw new Error(`Expected provider ${provider.id} is missing a PDP serviceURL; cannot poll piece-status for it`)
     }
+    urls.add(serviceURL)
   }
   return Array.from(urls)
 }
