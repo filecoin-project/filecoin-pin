@@ -6,21 +6,13 @@
 
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  enrichPieceMetadata,
-  getDataSetPieces,
-  iterateDataSetPieces,
-  listDataSets,
-  type PieceInfo,
-} from '../../core/data-set/index.js'
-import { PieceStatus } from '../../core/data-set/types.js'
+import { getDataSetPieces, iterateDataSetPieces, listDataSets, type PieceInfo } from '../../core/data-set/index.js'
 
 const TEST_DATA_SET_ID = 123n
 const TEST_SERVICE_URL = 'https://provider.example.com'
 
 const {
   mockSynapse,
-  mockGetAllPieceMetadata,
   mockFindDataSets,
   mockGetProviders,
   mockGetActivePiecesByCursor,
@@ -33,7 +25,6 @@ const {
     datasets: [] as any[],
     providers: [] as any[],
     pieces: [] as Array<{ pieceId: bigint; pieceCid: { toString: () => string } }>,
-    pieceMetadata: {} as Record<number, Record<string, string>>,
     providerPieces: undefined as
       | Array<{
           pieceId: bigint
@@ -71,9 +62,6 @@ const {
     return { id: 123n, nextChallengeEpoch: 100, pieces }
   })
 
-  const mockGetAllPieceMetadata = vi.fn(async (_client: any, { pieceId }: any) => {
-    return state.pieceMetadata[Number(pieceId)] ?? {}
-  })
   const mockPieceFromCID = vi.fn((cid: { toString: () => string } | string) => {
     const cidString = typeof cid === 'string' ? cid : cid.toString()
     if (cidString === 'bafkpiece0') return { size: 1048576 }
@@ -91,7 +79,6 @@ const {
 
   return {
     mockSynapse,
-    mockGetAllPieceMetadata,
     mockFindDataSets,
     mockGetProviders,
     mockGetActivePiecesByCursor,
@@ -108,10 +95,6 @@ vi.mock('@filoz/synapse-sdk', async () => {
     ...sharedMock,
   }
 })
-
-vi.mock('@filoz/synapse-core/warm-storage', () => ({
-  getAllPieceMetadata: mockGetAllPieceMetadata,
-}))
 
 vi.mock('@filoz/synapse-core/pdp-verifier', () => ({
   getActivePiecesByCursor: mockGetActivePiecesByCursor,
@@ -216,7 +199,6 @@ describe('getDataSetPieces', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     state.pieces = []
-    state.pieceMetadata = {}
     state.providerPieces = undefined
     mockGetActivePiecesByCursor.mockImplementation(async () => ({
       items: state.pieces.map((p) => ({ id: p.pieceId, cid: p.pieceCid })),
@@ -238,96 +220,22 @@ describe('getDataSetPieces', () => {
     expect(result.warnings).toEqual([])
   })
 
-  it('retrieves pieces without metadata when includeMetadata is false', async () => {
+  it('retrieves pieces', async () => {
     state.pieces = [
       { pieceId: 0n, pieceCid: { toString: () => 'bafkpiece0' } },
       { pieceId: 1n, pieceCid: { toString: () => 'bafkpiece1' } },
     ]
 
-    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL, {
-      includeMetadata: false,
-    })
+    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)
 
     expect(result.pieces).toHaveLength(2)
     expect(result.pieces[0]).toMatchObject({
       pieceId: 0n,
       pieceCid: 'bafkpiece0',
     })
-    expect(result.pieces[0]?.metadata).toBeUndefined()
     expect(result.pieces[1]).toMatchObject({
       pieceId: 1n,
       pieceCid: 'bafkpiece1',
-    })
-  })
-
-  it('enriches pieces with metadata when includeMetadata is true', async () => {
-    state.pieces = [
-      { pieceId: 0n, pieceCid: { toString: () => 'bafkpiece0' } },
-      { pieceId: 1n, pieceCid: { toString: () => 'bafkpiece1' } },
-    ]
-    state.pieceMetadata = {
-      0: {
-        [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot0',
-        label: 'test-file-0.txt',
-      },
-      1: {
-        [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot1',
-        label: 'test-file-1.txt',
-      },
-    }
-
-    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL, {
-      includeMetadata: true,
-    })
-
-    expect(result.pieces).toHaveLength(2)
-    expect(result.pieces[0]).toMatchObject({
-      pieceId: 0n,
-      pieceCid: 'bafkpiece0',
-      rootIpfsCid: 'bafyroot0',
-      metadata: {
-        [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot0',
-        label: 'test-file-0.txt',
-      },
-    })
-    expect(mockGetAllPieceMetadata).toHaveBeenCalledWith(mockSynapse.client, { dataSetId: 123n, pieceId: 0n })
-  })
-
-  it('handles metadata fetch failures gracefully with warnings', async () => {
-    state.pieces = [
-      { pieceId: 0n, pieceCid: { toString: () => 'bafkpiece0' } },
-      { pieceId: 1n, pieceCid: { toString: () => 'bafkpiece1' } },
-    ]
-    state.pieceMetadata = {
-      0: {
-        [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot0',
-      },
-    }
-    // Simulate failure for piece 1
-    mockGetAllPieceMetadata.mockImplementation(async (_client: any, { pieceId }: any) => {
-      const metadata = state.pieceMetadata[Number(pieceId)]
-      if (metadata == null) {
-        throw new Error('Metadata not found')
-      }
-      return metadata
-    })
-
-    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL, {
-      includeMetadata: true,
-    })
-
-    expect(result.pieces).toHaveLength(2)
-    expect(result.pieces[0]?.metadata).toBeDefined()
-    expect(result.pieces[1]?.metadata).toBeUndefined()
-    expect(result.warnings).toHaveLength(1)
-    expect(result.warnings?.[0]).toMatchObject({
-      code: 'METADATA_FETCH_FAILED',
-      message: 'Failed to fetch metadata for piece 1',
-      context: {
-        pieceId: '1',
-        dataSetId: '123',
-        error: expect.any(String),
-      },
     })
   })
 
@@ -337,26 +245,6 @@ describe('getDataSetPieces', () => {
     await expect(getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL)).rejects.toThrow(
       'Failed to retrieve pieces for dataset 123'
     )
-  })
-
-  it('handles pieces without root IPFS CID in metadata', async () => {
-    state.pieces = [{ pieceId: 0n, pieceCid: { toString: () => 'bafkpiece0' } }]
-    state.pieceMetadata = {
-      0: {
-        label: 'no-cid-file.txt',
-        // No IPFS_ROOT_CID
-      },
-    }
-
-    const result = await getDataSetPieces(mockSynapse as any, TEST_DATA_SET_ID, TEST_SERVICE_URL, {
-      includeMetadata: true,
-    })
-
-    expect(result.pieces).toHaveLength(1)
-    expect(result.pieces[0]?.rootIpfsCid).toBeUndefined()
-    expect(result.pieces[0]?.metadata).toMatchObject({
-      label: 'no-cid-file.txt',
-    })
   })
 
   it('calculates piece sizes from piece CIDs', async () => {
@@ -538,7 +426,6 @@ describe('iterateDataSetPieces', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     state.pieces = []
-    state.pieceMetadata = {}
     state.providerPieces = undefined
   })
 
@@ -593,34 +480,5 @@ describe('iterateDataSetPieces', () => {
     expect(batches[0]).toEqual({ hasMore: true, pieceIds: [0n] })
     expect(batches[1]?.hasMore).toBe(false)
     expect(batches[1]?.pieceIds).toEqual([1n, 2n])
-  })
-})
-
-describe('enrichPieceMetadata', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    state.pieceMetadata = {}
-  })
-
-  it('sets metadata and rootIpfsCid on success', async () => {
-    state.pieceMetadata = { 5: { [METADATA_KEYS.IPFS_ROOT_CID]: 'bafyroot5', label: 'file.txt' } }
-    const piece: PieceInfo = { pieceId: 5n, pieceCid: 'bafkpiece5', status: PieceStatus.ACTIVE }
-
-    const warning = await enrichPieceMetadata(mockSynapse as any, TEST_DATA_SET_ID, piece)
-
-    expect(warning).toBeUndefined()
-    expect(piece.rootIpfsCid).toBe('bafyroot5')
-    expect(piece.metadata).toMatchObject({ label: 'file.txt' })
-  })
-
-  it('returns a warning and leaves the piece unmutated on failure', async () => {
-    mockGetAllPieceMetadata.mockRejectedValueOnce(new Error('boom'))
-    const piece: PieceInfo = { pieceId: 6n, pieceCid: 'bafkpiece6', status: PieceStatus.ACTIVE }
-
-    const warning = await enrichPieceMetadata(mockSynapse as any, TEST_DATA_SET_ID, piece)
-
-    expect(warning).toMatchObject({ code: 'METADATA_FETCH_FAILED' })
-    expect(piece.metadata).toBeUndefined()
-    expect(piece.rootIpfsCid).toBeUndefined()
   })
 })

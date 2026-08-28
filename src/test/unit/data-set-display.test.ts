@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DataSetSummary } from '../../core/data-set/types.js'
-import { displayDataSetList } from '../../data-set/display.js'
+import { type DataSetSummary, type PieceInfo, PieceStatus } from '../../core/data-set/types.js'
+import { displayDataSetList, displayPieceStatuses } from '../../data-set/display.js'
 
 const { logMock } = vi.hoisted(() => ({
   logMock: {
@@ -32,6 +32,10 @@ function row(fields: Partial<DataSetSummary> = {}): DataSetSummary {
 
 function lines(): string[] {
   return logMock.line.mock.calls.map(([line]) => line as string)
+}
+
+function renderedText(): string {
+  return [...logMock.line.mock.calls, ...logMock.indent.mock.calls].map(([line]) => String(line)).join('\n')
 }
 
 describe('displayDataSetList', () => {
@@ -83,5 +87,29 @@ describe('displayDataSetList', () => {
     const output = lines()
     expect(output.some((line) => /^1\s+inactive\s+10\s+yes\s+disabled$/.test(line.trim()))).toBe(true)
     expect(output.some((line) => /^2\s+terminated\s+10\s+yes\s+disabled$/.test(line.trim()))).toBe(true)
+  })
+})
+
+describe('displayPieceStatuses', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('does not expose legacy piece metadata fields', () => {
+    const piece = {
+      pieceId: 1n,
+      pieceCid: 'bafkpiece1',
+      status: PieceStatus.ACTIVE,
+      size: 1024,
+      rootIpfsCid: 'bafyroot1',
+      metadata: { ipfsRootCID: 'bafyroot1', secret: 'value' },
+    } as unknown as PieceInfo
+
+    displayPieceStatuses([piece], 1, 'calibration', '0xtest')
+
+    const output = renderedText()
+    expect(output).toContain('bafkpiece1')
+    expect(output).not.toContain('bafyroot1')
+    expect(output).not.toContain('secret')
   })
 })

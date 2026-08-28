@@ -17,7 +17,6 @@ const {
   cancelMock,
   mockFindDataSets,
   mockGetProvider,
-  mockGetAllPieceMetadata,
   mockGetPdpDataSet,
   mockTerminateService,
   mockWaitForTransactionReceipt,
@@ -40,7 +39,6 @@ const {
   }
   const mockFindDataSets = vi.fn()
   const mockGetProvider = vi.fn()
-  const mockGetAllPieceMetadata = vi.fn(async () => ({ ...state.pieceMetadata }))
   const mockGetPdpDataSet = vi.fn()
   const mockTerminateService = vi.fn()
   const mockWaitForTransactionReceipt = vi.fn()
@@ -49,7 +47,6 @@ const {
   const mockIsCancel = vi.fn(() => false)
   const mockRunPieceStatusPager = vi.fn()
   const state = {
-    pieceMetadata: {} as Record<string, string>,
     pieceList: [] as Array<{ pieceId: bigint; pieceCid: string }>,
   }
 
@@ -118,7 +115,6 @@ const {
     spinnerMock,
     mockFindDataSets,
     mockGetProvider,
-    mockGetAllPieceMetadata,
     mockGetPdpDataSet,
     mockTerminateService,
     mockWaitForTransactionReceipt,
@@ -178,7 +174,6 @@ vi.mock('@filoz/synapse-sdk', async () => {
 })
 
 vi.mock('@filoz/synapse-core/warm-storage', () => ({
-  getAllPieceMetadata: mockGetAllPieceMetadata,
   getPdpDataSet: mockGetPdpDataSet,
 }))
 
@@ -285,11 +280,9 @@ describe('runDataSetCommand', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    state.pieceMetadata = {}
     state.pieceList = []
     mockFindDataSets.mockResolvedValue([summaryDataSet])
     mockGetProvider.mockResolvedValue(provider)
-    mockGetAllPieceMetadata.mockResolvedValue({})
     mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(summaryDataSet, provider))
   })
 
@@ -429,7 +422,6 @@ describe('runDataSetCommand', () => {
     expect(dataSet?.dataSetId).toBe(158n)
     expect(dataSet?.pieces).toBeUndefined()
     expect(dataSet?.totalSizeBytes).toBeUndefined()
-    expect(mockGetAllPieceMetadata).not.toHaveBeenCalled()
   })
 
   it('does not enumerate the whole account when loading a single dataset', async () => {
@@ -499,11 +491,9 @@ describe('runTerminateDataSetCommand', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    state.pieceMetadata = {}
     state.pieceList = []
     mockFindDataSets.mockResolvedValue([terminatableDataSet])
     mockGetProvider.mockResolvedValue(provider)
-    mockGetAllPieceMetadata.mockResolvedValue({})
     mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(terminatableDataSet, provider))
     mockTerminateService.mockResolvedValue({ txHash: '0xtxhash123', dataSetId: 158n, endEpoch: 0n })
     mockWaitForTransactionReceipt.mockResolvedValue({ status: 'success' })
@@ -524,7 +514,6 @@ describe('runTerminateDataSetCommand', () => {
 
     expect(mockTerminateService).toHaveBeenCalledWith({ dataSetId: 158n, skipProvider: true })
     expect(mockWaitForTransactionReceipt).not.toHaveBeenCalled()
-    expect(mockGetAllPieceMetadata).not.toHaveBeenCalled()
     expect(displayDataSetsMock).toHaveBeenCalledTimes(2)
     expect(displayDataSetListMock).not.toHaveBeenCalled()
   })
@@ -558,7 +547,6 @@ describe('runTerminateDataSetCommand', () => {
 
     expect(mockTerminateService).toHaveBeenCalledWith({ dataSetId: 158n, skipProvider: true })
     expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith({ hash: '0xtxhash123' })
-    expect(mockGetAllPieceMetadata).not.toHaveBeenCalled()
     expect(displayDataSetsMock).toHaveBeenCalledTimes(2)
     expect(displayDataSetListMock).not.toHaveBeenCalled()
   })
@@ -664,13 +652,11 @@ describe('runDataSetPieceStatusCommand', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    state.pieceMetadata = {}
     state.pieceList = [
       { pieceId: 0n, pieceCid: 'bafkpiece0' },
       { pieceId: 1n, pieceCid: 'bafkpiece1' },
     ]
     mockGetProvider.mockResolvedValue(provider)
-    mockGetAllPieceMetadata.mockResolvedValue({})
     mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(summaryDataSet, provider))
   })
 
