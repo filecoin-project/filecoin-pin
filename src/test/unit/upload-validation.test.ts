@@ -7,7 +7,7 @@ import { executeUpload } from '../../core/upload/index.js'
 import { uploadToSynapse } from '../../core/upload/synapse.js'
 import { waitForIndexingConfirmation } from '../../core/utils/validate-ipni-advertisement.js'
 import { createLogger } from '../../logger.js'
-import { MockSynapse } from '../mocks/synapse-mocks.js'
+import { MockSynapse, mockPDPProvider } from '../mocks/synapse-mocks.js'
 
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
 vi.mock('../../core/utils/validate-ipni-advertisement.js', () => ({
@@ -209,6 +209,20 @@ describe('upload option validation', () => {
       })
 
       expect(waitForIndexingConfirmation).not.toHaveBeenCalled()
+    })
+
+    it('collects expectedProviders from options.contexts when pre-created contexts are used', async () => {
+      const logger = createLogger({ logLevel: 'error' })
+      const mockSynapse = new MockSynapse()
+      const contextProvider = { ...mockPDPProvider, id: 42n }
+
+      await executeUpload(mockSynapse as any, new Uint8Array([1]), TEST_CID, {
+        logger,
+        contexts: [{ provider: contextProvider } as any],
+      })
+
+      const [, , validationOptions] = vi.mocked(waitForIndexingConfirmation).mock.calls[0] ?? []
+      expect(validationOptions?.expectedProviders).toEqual([contextProvider])
     })
   })
 

@@ -220,6 +220,16 @@ export type WaitForIpniProviderResultsOptions = CheckIpniIndexerOptions
  */
 export const waitForIpniProviderResults = checkIpniIndexer
 
+/** `queriedSuccessfully` separates a genuine not-found result from a transport/parse/HTTP failure. */
+class IndexerQueryFailedError extends Error {
+  readonly queriedSuccessfully: boolean
+  constructor(message: string, queriedSuccessfully: boolean) {
+    super(message)
+    this.name = 'IndexerQueryFailedError'
+    this.queriedSuccessfully = queriedSuccessfully
+  }
+}
+
 async function checkIpniIndexerForCid(
   cid: CID,
   config: {
@@ -254,6 +264,8 @@ async function checkIpniIndexerForCid(
     let retryCount = 0
     // Tracks the most recent validation failure reason for error reporting
     let lastFailureReason: string | undefined
+    // True once a response was fetched and parsed cleanly, even if results didn't match
+    let lastQuerySucceeded = false
     // Tracks the normalized URIs (for comparison) and raw multiaddrs (for display) from the last IPNI response
     let lastActualUris: Set<string> = new Set()
     let lastActualMultiaddrs: Set<string> = new Set()
@@ -306,6 +318,7 @@ async function checkIpniIndexerForCid(
       } catch (fetchError) {
         lastActualMultiaddrs = new Set()
         lastActualUris = new Set()
+        lastQuerySucceeded = false
         lastFailureReason = `Failed to query IPNI indexer: ${getErrorMessage(fetchError)}`
         options?.logger?.warn({ error: fetchError }, `${lastFailureReason}. Retrying...`)
       }
@@ -324,10 +337,12 @@ async function checkIpniIndexerForCid(
           lastActualMultiaddrs = new Set(rawAddrs)
           lastActualUris = new Set(rawAddrs.map(multiaddrToNormalizedUri))
           lastFailureReason = undefined
+          lastQuerySucceeded = true
         } catch (parseError) {
           // Clear actual multiaddrs on parse error
           lastActualMultiaddrs = new Set()
           lastActualUris = new Set()
+          lastQuerySucceeded = false
           lastFailureReason = `Failed to parse IPNI response body: ${getErrorMessage(parseError)}`
           options?.logger?.warn({ error: parseError }, `${lastFailureReason}. Retrying...`)
         }
@@ -382,6 +397,7 @@ async function checkIpniIndexerForCid(
       } else if (response != null) {
         lastActualMultiaddrs = new Set()
         lastActualUris = new Set()
+        lastQuerySucceeded = false
         lastFailureReason = `IPNI indexer request failed with status ${response.status}`
         options?.logger?.info(
           { status: response.status, statusText: response.statusText },
@@ -411,7 +427,7 @@ async function checkIpniIndexerForCid(
         if (hasProviderExpectations) {
           msg = `${msg}. Expected serviceURLs: [${Array.from(uriToServiceUrl.values()).join(', ')}]. Actual multiaddrs in response: [${Array.from(lastActualMultiaddrs).join(', ')}]`
         }
-        const error = new Error(msg)
+        const error = new IndexerQueryFailedError(msg, lastQuerySucceeded)
         options?.logger?.warn({ error }, msg)
         throw error
       }
@@ -536,12 +552,10 @@ export interface WaitForIndexingConfirmationOptions {
   delayMs?: number | undefined
 
   /**
-   * Maximum attempts for the final confirming indexer query. Kept small: once the
-   * indexer confirms the advertisement is indexed, the CID lookup should already
-   * reflect it, and cid.contact negative-caches misses for minutes, so this should
-   * not become a long poll.
+   * Maximum attempts for the final confirming indexer query. Defaults to 1: a miss gets
+   * negative-cached for minutes, so retrying within that window can't succeed anyway.
    *
-   * @default: 3
+   * @default: 1
    */
   indexerMaxAttempts?: number | undefined
 
@@ -617,9 +631,12 @@ export async function waitForIndexingConfirmation(
   const serviceUrls = deriveServiceUrls(expectedProviders)
 
   if (serviceUrls.length === 0) {
-    // No provider serviceURLs to poll, so fall back to a direct lookup at the patient cadence.
-    options?.logger?.warn('No provider serviceURLs to poll piece-status for; falling back to a patient indexer check')
-    return await checkIpniIndexer(ipfsRootCid, buildIndexerOptions(options, expectedProviders, maxAttempts, delayMs))
+    // No provider to establish a synced signal from — refuse rather than guess.
+    throw new Error(
+      'waitForIndexingConfirmation requires expectedProviders to poll piece-status for. ' +
+        'Without a provider to confirm sync with Curio first, querying the indexer directly ' +
+        'risks negative-cache poisoning. Pass expectedProviders, or use checkIpniIndexer directly.'
+    )
   }
 
   const providerCount = serviceUrls.length
@@ -671,7 +688,7 @@ export async function waitForIndexingConfirmation(
   const indexerOptions = buildIndexerOptions(
     options,
     expectedProviders,
-    options?.indexerMaxAttempts ?? 3,
+    options?.indexerMaxAttempts ?? 1,
     options?.indexerDelayMs ?? 5000,
     true
   )
@@ -681,8 +698,13 @@ export async function waitForIndexingConfirmation(
   } catch (error) {
     options?.signal?.throwIfAborted()
 
+    // A transport/parse/HTTP failure isn't a real disagreement — propagate it as-is.
+    if (!(error instanceof IndexerQueryFailedError) || !error.queriedSuccessfully) {
+      throw error
+    }
+
     const mismatch = new IndexerMismatchError(
-      `Curio reported piece "${pieceCid.toString()}" as synced, but the confirming cid.contact check still failed: ${getErrorMessage(error)}`,
+      `Curio reported piece "${pieceCid.toString()}" as synced, but the confirming ${indexerOptions.ipniIndexerUrl} check still failed: ${getErrorMessage(error)}`,
       { cause: error }
     )
     options?.logger?.error({ error: mismatch }, mismatch.message)

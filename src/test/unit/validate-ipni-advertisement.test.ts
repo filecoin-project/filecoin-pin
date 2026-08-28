@@ -801,6 +801,39 @@ describe('waitForIndexingConfirmation', () => {
     expect(onProgress).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'ipniProviderResults:failed' }))
   })
 
+  it('should propagate a plain error, not IndexerMismatchError, when the confirming query itself fails', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    mockFetch.mockResolvedValueOnce(pieceStatusResponse(true)).mockRejectedValue(new Error('network down'))
+    const onProgress = vi.fn()
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      indexerMaxAttempts: 1,
+      onProgress,
+    })
+    const expectPromise = expect(promise).rejects.not.toBeInstanceOf(IndexerMismatchError)
+
+    await vi.runAllTimersAsync()
+    await expectPromise
+
+    expect(onProgress).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'indexingConfirmation:mismatch' }))
+  })
+
+  it('should name the actual configured indexer in the mismatch message, not a hardcoded cid.contact', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    mockFetch.mockResolvedValueOnce(pieceStatusResponse(true)).mockResolvedValue(emptyProviderResponse())
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      indexerMaxAttempts: 1,
+      ipniIndexerUrl: 'https://custom-indexer.example.com',
+    })
+    const expectPromise = expect(promise).rejects.toThrow('https://custom-indexer.example.com')
+
+    await vi.runAllTimersAsync()
+    await expectPromise
+  })
+
   it('should propagate a plain abort, not IndexerMismatchError, when the caller cancels during the final confirming check', async () => {
     const provider = createPDPProvider('https://sp.example.com')
     const abortController = new AbortController()
@@ -879,34 +912,11 @@ describe('waitForIndexingConfirmation', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('should skip piece-status polling and go straight to the indexer when there are no expected providers', async () => {
-    mockFetch.mockResolvedValueOnce(successResponse())
-
+  it('should fail immediately, without querying the indexer, when there are no expected providers', async () => {
     const promise = waitForIndexingConfirmation(testCid, testPieceCid, {})
-    await vi.runAllTimersAsync()
-    const result = await promise
 
-    expect(result).toBe(true)
-    expect(mockFetch).toHaveBeenCalledTimes(1)
-    expect(mockFetch).toHaveBeenCalledWith(`https://cid.contact/cid/${testCid}`, {
-      headers: { Accept: 'application/json' },
-    })
-  })
-
-  it('should use the patient budget, not the short indexerMaxAttempts, when there is no piece-status signal', async () => {
-    mockFetch
-      .mockResolvedValueOnce(emptyProviderResponse())
-      .mockResolvedValueOnce(emptyProviderResponse())
-      .mockResolvedValueOnce(emptyProviderResponse())
-      .mockResolvedValueOnce(emptyProviderResponse())
-      .mockResolvedValueOnce(successResponse())
-
-    const promise = waitForIndexingConfirmation(testCid, testPieceCid, { delayMs: 1, indexerMaxAttempts: 3 })
-    await vi.runAllTimersAsync()
-    const result = await promise
-
-    expect(result).toBe(true)
-    expect(mockFetch).toHaveBeenCalledTimes(5)
+    await expect(promise).rejects.toThrow(/requires expectedProviders/)
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 
   it('should abort a sibling provider poll once another exhausts its attempts', async () => {

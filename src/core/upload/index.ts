@@ -351,7 +351,8 @@ export async function executeUpload(
   }
 
   // pieceCid is identical across providers for the same upload, so any `stored` event works.
-  const selectedProviders: PDPProvider[] = []
+  // contexts carry their provider directly — no providerSelected event fires for them.
+  const selectedProviders: PDPProvider[] = options.contexts?.map((context) => context.provider) ?? []
   let pieceCidForValidation: PieceCID | undefined
   let ipniValidationPromise: Promise<boolean> | undefined
 
