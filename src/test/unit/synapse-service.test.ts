@@ -174,6 +174,33 @@ describe('synapse-service', () => {
       }
     })
 
+    it('should say a previously granted scope expired, with its timestamp, rather than the generic wording', async () => {
+      // AddPieces WAS granted and lapsed (nonzero past expiry); another grant is
+      // still live, so this is the missing-scope shape, not never-authorized.
+      mockSessionKeyOnce((p) => p !== AddPiecesPermission, {
+        [CreateDataSetPermission]: 9999999999n,
+        [AddPiecesPermission]: 1000n, // 1970-01-01T00:16:40.000Z — unambiguously past
+        [SchedulePieceRemovalsPermission]: 9999999999n,
+        [TerminateServicePermission]: 9999999999n,
+      })
+
+      const config: SynapseSetupConfig = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+        requiredPermissions: [AddPiecesPermission],
+      }
+
+      const error = await initializeSynapse(config, logger).then(
+        () => null,
+        (e: unknown) => e as Error
+      )
+      expect(error).not.toBeNull()
+      expect(error?.message).toContain('lacks AddPieces for this operation on ')
+      expect(error?.message).toContain('AddPieces: expired at 1970-01-01T00:16:40.000Z')
+      expect(error?.message).not.toContain('never granted')
+    })
+
     it("should use the 'never authorized, or expired/revoked' wording when the key holds no live grant", async () => {
       mockSessionKeyOnce(() => false, {
         [CreateDataSetPermission]: 0n,

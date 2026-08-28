@@ -182,12 +182,25 @@ function checkSessionKeyPermissions(
   const scopeLabels = missing.map((p) => PermissionNames[p] ?? p).join(', ')
   const scopesArg = scopeIds.join(',')
 
+  // Per-scope detail preserves the expired-at vs never-granted distinction
+  // the on-chain expirations carry — an expired grant points at renewal,
+  // a never-granted scope points at a fresh authorization.
+  const now = BigInt(Math.floor(Date.now() / 1000))
+  const scopeDetails = missing.map((p) => {
+    const name = PermissionNames[p] ?? p
+    const expiry = key.expirations[p] ?? 0n
+    if (expiry > 0n && expiry <= now) {
+      return `  • ${name}: expired at ${new Date(Number(expiry) * 1000).toISOString()}`
+    }
+    return `  • ${name}: never granted`
+  })
+
   const problem = neverAuthorized
     ? `Session key ${key.address} isn't authorized for account ${ownerAddress} on ${networkName} — never authorized, expired/revoked, or the key is for a different network (check --network).`
     : `Session key ${key.address} lacks ${scopeLabels} for this operation on ${networkName}.`
 
   const consoleUrl = resolveConsoleUrl(chainId)
-  const lines = [problem, '']
+  const lines = neverAuthorized ? [problem, ''] : [problem, ...scopeDetails, '']
   if (consoleUrl != null) {
     lines.push('Recommended — approve in the browser with the owner wallet:')
     // pc.cyan+underline: conventional terminal hyperlink styling so the link

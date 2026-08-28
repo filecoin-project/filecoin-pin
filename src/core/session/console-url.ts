@@ -41,6 +41,10 @@ const CONSOLE_NETWORK_SLUG: Record<number, string> = {
  * when the connected wallet is on a different chain — without it, a
  * calibration remediation link approved by a mainnet-connected wallet
  * silently grants the scopes on mainnet.
+ *
+ * The address is lowercased: the console validates it with viem's strict
+ * `isAddress`, which accepts all-lowercase or a correct EIP-55 checksum but
+ * silently rejects mixed-case with a wrong checksum. Lowercase always passes.
  */
 export function buildAuthorizeUrl(
   consoleUrl: string,
@@ -51,5 +55,5 @@ export function buildAuthorizeUrl(
   const base = consoleUrl.endsWith('/') ? consoleUrl.slice(0, -1) : consoleUrl
   const network = chainId != null ? CONSOLE_NETWORK_SLUG[chainId] : undefined
   const networkParam = network ? `&network=${network}` : ''
-  return `${base}/console/session-keys?authorize=${sessionAddress}&scopes=${scopeIds.join(',')}${networkParam}`
+  return `${base}/console/session-keys?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam}`
 }

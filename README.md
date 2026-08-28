@@ -269,15 +269,15 @@ Other arguments are possible for individual commands, use `--help` to find out m
 
 ### Session-Key Permissions
 
-In session-key mode, each command checks only the on-chain permissions it needs — a delegate does not need the full FWSS permission set to run a scoped subset of commands.
+In session-key mode, each command checks only the on-chain permissions it needs — a delegate does not need every storage-service permission to run a scoped subset of commands.
 
 | Command | Required scopes |
 | --- | --- |
 | Read commands (`payments status`, `data-set ls`, `provider ls`, `data-set show`, `data-set piece-status`, …) | None |
-| `add`, `import` | `CreateDataSet`, `AddPieces` |
-| `rm` (`--piece` or `--all`) | `SchedulePieceRemovals` |
-| `data-set terminate` | `TerminateService` |
-| Pinning server (`filecoin-pinning-server`) | `CreateDataSet`, `AddPieces`, `SchedulePieceRemovals` |
+| `add`, `import` | `createDataSet`, `addPieces` |
+| `rm` (`--piece` or `--all`) | `schedulePieceRemovals` |
+| `data-set terminate` | `terminateService` |
+| Pinning server (`filecoin-pinning-server`) | `createDataSet`, `addPieces`, `schedulePieceRemovals` |
 
 If the session key is missing a required scope, the command fails up front with a console link to approve the missing scope with the owner wallet, plus the equivalent `filecoin-pin session authorize` / `filecoin-pin session create` commands for the account owner to run.
 

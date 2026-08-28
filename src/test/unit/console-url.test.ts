@@ -30,20 +30,22 @@ describe('resolveConsoleUrl', () => {
 })
 
 describe('buildAuthorizeUrl', () => {
-  it('builds the session-keys deep link with pairing params', () => {
+  it('builds the session-keys deep link with pairing params, lowercasing the address', () => {
+    // Lowercase is the contract: the console's strict isAddress silently
+    // rejects mixed-case with a wrong EIP-55 checksum; lowercase always passes.
     expect(
       buildAuthorizeUrl('https://pay.filecoin.cloud', '0xAbC0000000000000000000000000000000000001', [
         'createDataSet',
         'addPieces',
       ])
     ).toBe(
-      'https://pay.filecoin.cloud/console/session-keys?authorize=0xAbC0000000000000000000000000000000000001&scopes=createDataSet,addPieces'
+      'https://pay.filecoin.cloud/console/session-keys?authorize=0xabc0000000000000000000000000000000000001&scopes=createDataSet,addPieces'
     )
   })
 
   it('tolerates a trailing slash on the base URL', () => {
     expect(buildAuthorizeUrl('http://localhost:3005/', '0xA', ['addPieces'])).toBe(
-      'http://localhost:3005/console/session-keys?authorize=0xA&scopes=addPieces'
+      'http://localhost:3005/console/session-keys?authorize=0xa&scopes=addPieces'
     )
   })
 })
@@ -51,7 +53,7 @@ describe('buildAuthorizeUrl', () => {
 describe('buildAuthorizeUrl network param', () => {
   it('carries the network slug for known chain ids', () => {
     expect(buildAuthorizeUrl('https://pay.filecoin.cloud', '0xA', ['addPieces'], 314159)).toBe(
-      'https://pay.filecoin.cloud/console/session-keys?authorize=0xA&scopes=addPieces&network=calibration'
+      'https://pay.filecoin.cloud/console/session-keys?authorize=0xa&scopes=addPieces&network=calibration'
     )
     expect(buildAuthorizeUrl('https://pay.filecoin.cloud', '0xA', ['addPieces'], 314)).toMatch(/&network=mainnet$/)
   })
