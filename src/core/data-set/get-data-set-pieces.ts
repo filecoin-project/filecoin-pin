@@ -1,7 +1,7 @@
 /**
  * Get Data Set Pieces
  *
- * Functions for retrieving pieces from a dataset with optional metadata enrichment.
+ * Functions for retrieving pieces from a dataset.
  *
  * @module core/data-set/get-data-set-pieces
  */
@@ -9,14 +9,12 @@
 import { getActivePieces, getScheduledRemovals } from '@filoz/synapse-core/pdp-verifier'
 import { from as pieceFromCID } from '@filoz/synapse-core/piece'
 import { getDataSet as getProviderDataSet } from '@filoz/synapse-core/sp'
-import { getAllPieceMetadata } from '@filoz/synapse-core/warm-storage'
-import { type DataSetPieceData, METADATA_KEYS, type Synapse } from '@filoz/synapse-sdk'
+import type { DataSetPieceData, Synapse } from '@filoz/synapse-sdk'
 import { reconcilePieceStatus } from '../piece/piece-status.js'
 import type { Warning } from '../utils/types.js'
 import {
   type DataSetPiecesResult,
   type GetDataSetPiecesOptions,
-  type IterateDataSetPiecesOptions,
   type IterateDataSetPiecesResult,
   type PieceInfo,
   PieceStatus,
@@ -40,7 +38,7 @@ export async function* iterateDataSetPieces(
   synapse: Synapse,
   dataSetId: bigint,
   serviceURL: string,
-  options?: IterateDataSetPiecesOptions
+  options?: GetDataSetPiecesOptions
 ): AsyncGenerator<IterateDataSetPiecesResult> {
   const logger = options?.logger
   const initialWarnings: Warning[] = []
@@ -172,7 +170,7 @@ export async function* iterateDataSetPieces(
  * Get all pieces for a dataset.
  *
  * Fetches on-chain pieces via PDPVerifier and provider-side pieces from the
- * service URL, reconciles statuses, and optionally enriches with metadata.
+ * service URL, and reconciles statuses.
  *
  * @param synapse - Initialized Synapse instance
  * @param dataSetId - Dataset ID to fetch pieces for
@@ -186,9 +184,6 @@ export async function getDataSetPieces(
   serviceURL: string,
   options?: GetDataSetPiecesOptions
 ): Promise<DataSetPiecesResult> {
-  const logger = options?.logger
-  const includeMetadata = options?.includeMetadata ?? false
-
   const pieces: PieceInfo[] = []
   const warnings: Warning[] = []
 
@@ -198,11 +193,6 @@ export async function getDataSetPieces(
   }
 
   pieces.sort((a, b) => Number(a.pieceId - b.pieceId))
-
-  // Optionally enrich with metadata
-  if (includeMetadata && pieces.length > 0) {
-    await enrichPiecesWithMetadata(synapse, dataSetId, pieces, warnings, logger)
-  }
 
   // Calculate total size from pieces that have sizes
   const piecesWithSizes = pieces.filter((p): p is PieceInfo & { size: number } => p.size != null)
@@ -218,62 +208,4 @@ export async function getDataSetPieces(
   }
 
   return result
-}
-
-/**
- * Internal helper: Enrich pieces with metadata from WarmStorage via synapse-core
- */
-async function enrichPiecesWithMetadata(
-  synapse: Synapse,
-  dataSetId: bigint,
-  pieces: PieceInfo[],
-  warnings: Warning[],
-  logger?: GetDataSetPiecesOptions['logger']
-): Promise<void> {
-  for (const piece of pieces) {
-    const warning = await enrichPieceMetadata(synapse, dataSetId, piece, logger)
-    if (warning) {
-      warnings.push(warning)
-    }
-  }
-}
-
-/**
- * Fetch and attach WarmStorage metadata for a single piece.
- *
- * Mutates the provided `piece` by setting `metadata` and, when present, `rootIpfsCid`.
- * Metadata lookup failures are non-fatal and returned as warnings so callers can
- * decide whether to collect or display them.
- */
-export async function enrichPieceMetadata(
-  synapse: Synapse,
-  dataSetId: bigint,
-  piece: PieceInfo,
-  logger?: GetDataSetPiecesOptions['logger']
-): Promise<Warning | undefined> {
-  try {
-    const metadata = await getAllPieceMetadata(synapse.client, { dataSetId, pieceId: piece.pieceId })
-
-    const rootIpfsCid = metadata[METADATA_KEYS.IPFS_ROOT_CID]
-    if (rootIpfsCid) {
-      piece.rootIpfsCid = rootIpfsCid
-    }
-
-    piece.metadata = metadata
-    return
-  } catch (error) {
-    logger?.warn(
-      { dataSetId: dataSetId.toString(), pieceId: piece.pieceId.toString(), error },
-      'Failed to fetch metadata for piece'
-    )
-    return {
-      code: 'METADATA_FETCH_FAILED',
-      message: `Failed to fetch metadata for piece ${piece.pieceId}`,
-      context: {
-        pieceId: piece.pieceId.toString(),
-        dataSetId: dataSetId.toString(),
-        error: String(error),
-      },
-    }
-  }
 }

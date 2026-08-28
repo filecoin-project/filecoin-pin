@@ -128,14 +128,16 @@ IPNI is the content routing system that [Filecoin Pin](#filecoin-pin) relies upo
 
 ## Metadata
 
-Key-value pairs stored on-chain, either scoped to [Data Sets](#data-set) or [Pieces](#piece). [Filecoin Pin](#filecoin-pin) uses specific metadata keys:
+Key-value pairs supplied when creating [Data Sets](#data-set) or adding [Pieces](#piece). [Filecoin Pin](#filecoin-pin) uses specific metadata keys:
 
 Key | Purpose | Scope
 --- | --- | ---
 `source` | Set to 'filecoin-pin' to identify data created by this tool | Data Set
 `withIPFSIndexing` | Set to empty string to signal the [SP](#service-provider) to index and advertise the data to [IPNI](#ipni) | Data Set
-`ipfsRootCid` | Stored on each Piece to link the [Piece CID](#piece-cid) back to the [IPFS Root CID](#ipfs-root-cid).  While this is a convention that Filecoin Pin follows, there is nothing onchain enforcing a correct link between `ipfsRootCid` and `pieceCid`. | Piece
+`ipfsRootCID` | Submitted with each Piece to link the [Piece CID](#piece-cid) back to the [IPFS Root CID](#ipfs-root-cid). While this is a convention that Filecoin Pin follows, there is nothing onchain enforcing a correct link between `ipfsRootCID` and `pieceCid`. | Piece
 `name` | Original basename of the source path (file or directory). Auto-derived during `add` so the human-readable label survives even though the [UnixFS profile](#unixfs-v1-2025-profile) does not wrap single files in a parent directory. User-supplied piece metadata wins over the auto-derived value; an explicit empty string is treated as an opt-out. Consumers that need to know whether the source was a file or a directory inspect the [IPFS Root CID](#ipfs-root-cid) (codec + UnixFS `Data.Type`), matching the IPFS Pinning Service `name` convention. | Piece
+
+Data Set metadata is stored and remains queryable on-chain. Piece metadata (`ipfsRootCID`, `name`, and user-supplied `--metadata`) is signed and emitted in the Filecoin Warm Storage Service's `PieceAdded` event, but is not retained for later contract queries. Filecoin Pin therefore writes piece metadata during uploads but does not read or display it. `filecoin-pin data-set show` still displays Data Set metadata, while `filecoin-pin data-set piece-status` displays piece ID, PieceCID, size, and reconciled status.
 
 ## unixfs-v1-2025 profile
 
@@ -181,13 +183,12 @@ Because the two hashing schemes are structurally different, there is **no crypto
 
 ### How the link is established
 
-[Filecoin Pin](#filecoin-pin) bridges this gap by recording the IPFS Root CID as signed on-chain [Metadata](#metadata) (`ipfsRootCid`) on each [Piece](#piece). The client signs this metadata at upload time, so the mapping is attested by the uploader, not computed from proof. This means:
+[Filecoin Pin](#filecoin-pin) submits the IPFS Root CID as signed Piece [Metadata](#metadata) (`ipfsRootCID`) during upload. The mapping is attested by the uploader, not computed from proof. Filecoin Warm Storage Service emits the metadata in its `PieceAdded` event but does not retain it for later contract queries. This means:
 
-- **On-chain metadata** is the primary source of truth for the mapping. Anyone can look up a Piece's metadata and find the `ipfsRootCid` the uploader declared.
+- **Event indexers**, including subgraphs such as PDP Explorer, can recover the uploader-declared `ipfsRootCID` from `PieceAdded`. Filecoin Pin does not currently perform this lookup.
 - **[IPNI](#ipni)** provides a reverse lookup path: IPNI indexes IPFS CIDs and each advertisement's ContextID encodes the Piece CID, so you can go from an IPFS CID to a Piece CID via the indexer. This is trust-based: you trust the [Service Provider](#service-provider) to have created the advertisement correctly. See [How to go from IPFS CID to Piece CID using IPNI](#how-to-go-from-ipfs-cid-to-piece-cid-using-ipni) for a worked example.
-- **Subgraphs** (e.g., PDP Explorer) can also surface the `ipfsRootCid` metadata for a given Piece, independently of the SP.
 
-All of these paths are **trust-based, not trustless**. The on-chain metadata is as reliable as the client that signed it; the IPNI path trusts the SP's advertisement; the subgraph path trusts the indexer. For end-to-end verification, retrieve the data via [`/piece` retrieval](#piece-retrieval), decode the CAR, and confirm that the DAG root matches the declared IPFS Root CID.
+Both paths are **trust-based, not trustless**. Event metadata attests only what the client declared, event lookups trust the indexer, and IPNI lookups trust the SP and indexer. For end-to-end verification, retrieve the data via [`/piece` retrieval](#piece-retrieval), decode the CAR, and confirm that the DAG root matches the declared IPFS Root CID.
 
 See [Retrieving Your Data](retrieval.md) for how to use each CID to fetch your content.
 
@@ -207,7 +208,7 @@ const pieceCid = CID.decode(Buffer.from(contextId, 'base64').slice(1))
 // baga6ea4seaqglrzq3oucbywv2cqcxrjgm76uacacvaifyt5n7a2m5diipchq6ji
 ```
 
-This gives you the Piece CID that the [Service Provider](#service-provider) advertised for that content. From there you can look up the Piece's on-chain [Metadata](#metadata) to confirm the `ipfsRootCid`, or retrieve the data via [`/piece` retrieval](#piece-retrieval).
+This gives you the Piece CID that the [Service Provider](#service-provider) advertised for that content. From there, use an event indexer to recover the emitted `ipfsRootCID`, or retrieve the data via [`/piece` retrieval](#piece-retrieval) and verify the CAR's DAG root directly.
 
 Note that this mapping is **trust-based**: you are trusting the SP to have created the IPNI advertisement correctly, and the indexer to have recorded it faithfully.
 
