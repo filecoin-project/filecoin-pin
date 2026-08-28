@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.1](https://github.com/filecoin-project/filecoin-pin/compare/v1.3.0...v1.3.1) (2026-08-21)
+
+
+### Chores
+
+* **deps:** bump @filoz/synapse-core from 0.7.0 to 0.7.1 ([#644](https://github.com/filecoin-project/filecoin-pin/issues/644)) ([27b65c4](https://github.com/filecoin-project/filecoin-pin/commit/27b65c4d7314fb8539d2d5fcee06a2ab03fa4d21))
+* **deps:** bump @libp2p/tcp from 11.0.23 to 11.0.25 ([#643](https://github.com/filecoin-project/filecoin-pin/issues/643)) ([d7ed22f](https://github.com/filecoin-project/filecoin-pin/commit/d7ed22f38250d604e1afc8149902c93c4cad965b))
+* **deps:** bump @libp2p/tcp from 11.0.25 to 11.0.26 ([#649](https://github.com/filecoin-project/filecoin-pin/issues/649)) ([e02b324](https://github.com/filecoin-project/filecoin-pin/commit/e02b324ca85194836e4b692e35ed7b460bcf8927))
+* **deps:** bump it-to-buffer from 4.0.12 to 5.0.0 ([#647](https://github.com/filecoin-project/filecoin-pin/issues/647)) ([0c977d0](https://github.com/filecoin-project/filecoin-pin/commit/0c977d01f44426b875f9cfca5d19da3afb198797))
+* **deps:** bump p-queue from 9.1.2 to 9.3.3 ([#642](https://github.com/filecoin-project/filecoin-pin/issues/642)) ([0cc20bf](https://github.com/filecoin-project/filecoin-pin/commit/0cc20bfd7bde05f1bd1ee71533482e6b7a48bdde))
+* **deps:** bump viem from 2.48.4 to 2.55.10 ([#645](https://github.com/filecoin-project/filecoin-pin/issues/645)) ([eca5f54](https://github.com/filecoin-project/filecoin-pin/commit/eca5f546780993916c7c0c0af043011e21fa1e9f))
+
 ## [1.3.0](https://github.com/filecoin-project/filecoin-pin/compare/v1.2.0...v1.3.0) (2026-08-03)
 
 

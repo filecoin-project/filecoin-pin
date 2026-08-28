@@ -28,7 +28,7 @@ graph TD
     SetupPay[FP: Setup Filecoin Pay Account<br/><br/>✓ Filecoin Pay balance visible]
     IdentifyDataSet[FP: Identify Data Set SP and ID]
     CreateDataSet{{SP: Create Data Set & Add Piece<br/><br/>✓ Blockchain Transaction}}
-    ConfirmBlockchainTx[FP: Confirm Blockchain Transaction<br/><br/>✓ Data Set & Piece metadata onchain]
+    ConfirmBlockchainTx[FP: Confirm Blockchain Transaction<br/><br/>✓ Data Set metadata stored<br/>✓ Piece metadata emitted]
     ProveData{{SP: Prove Data Possession<br/><br/>✓ Cryptographic proofs onchain and visible on explorers}}
 
     %% Milestone
@@ -91,10 +91,13 @@ This is a function of the size of the input file and the hardware. Typical DAGif
 
 The [Service Provider](glossary.md#service-provider) needs to be given the bytes to store so it can serve retrievals and prove to the chain that it possesses them.   This is done via an HTTP `PUT /pdp/piece/upload`.
 
-The upload includes [metadata](glossary.md#metadata) that will be stored on-chain:
-- `ipfsRootCid`: The IPFS Root CID, linking the [Piece](glossary.md#piece) back to IPFS
-- `withIPFSIndexing`: Signals the SP to index and advertise to [IPNI](glossary.md#ipni)
-- `name`: Original basename of the source file or directory (auto-derived from the input path; user-supplied piece metadata wins)
+The storage workflow supplies [metadata](glossary.md#metadata) when creating a Data Set or adding a Piece:
+
+- Data Set `withIPFSIndexing`: Signals the SP to index and advertise to [IPNI](glossary.md#ipni). Data Set metadata is stored and queryable on-chain.
+- Piece `ipfsRootCID`: Links the [Piece](glossary.md#piece) back to its IPFS Root CID.
+- Piece `name`: Preserves the source file or directory basename; user-supplied piece metadata wins.
+
+Piece metadata, including custom `--metadata` entries, is emitted in the `PieceAdded` event but is not retained for later contract queries.
 
 *Outputs:*
 
@@ -186,7 +189,7 @@ This should take less than a couple of seconds as it involves hitting RPC provid
 
 *What/why:*
 
-A single blockchain transaction that create a [Data Set](glossary.md#data-set) if one doesn't already exist and adds a [Piece](glossary.md#piece) to the Data Set for the corresponding [CAR](glossary.md#car) file.  This is done as one operation rather than just "Create Data Set" and "Add Piece" to improve interaction latency.  The Piece uses a Filecoin-internal hash function resulting in a [Piece CID](glossary.md#piece-cid), which is what is stored onchain.  The [Filecoin Warm Storage Service](glossary.md#filecoin-warm-storage-service) then has record of what SP is storing which data that it needs to periodically prove it has possession of.  Filecoin Pin stores additional [metadata](glossary.md#metadata) on the piece denoting that the uploaded data should be indexed by the SP and advertised to [IPNI](glossary.md#ipni) indexers.  
+A single blockchain transaction creates a [Data Set](glossary.md#data-set), if necessary, and adds a [Piece](glossary.md#piece) for the corresponding [CAR](glossary.md#car). Combining these operations reduces interaction latency. The [Filecoin Warm Storage Service](glossary.md#filecoin-warm-storage-service) stores the resulting [Piece CID](glossary.md#piece-cid) and Data Set metadata so it can track what the SP must prove. Signed Piece metadata is emitted in `PieceAdded` but is not retained for later contract queries.
 
 *Outputs:*
 

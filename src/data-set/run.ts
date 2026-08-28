@@ -64,12 +64,11 @@ export async function runDataSetDetailsCommand(dataSetId: number, options: DataS
 /**
  * Display the reconciled status of a data set's pieces.
  *
- * When `cid` is provided, only the matching piece (by PieceCID or IPFS root
- * CID) is shown; otherwise every piece in the data set is listed.
+ * When `cid` is provided, only the matching piece (by PieceCID) is shown;
+ * otherwise every piece in the data set is listed.
  */
 export async function runDataSetPieceStatusCommand(
   dataSetId: number,
-  // pieceCid or ipfsRootCid
   cid: string | undefined,
   options: DataSetCommandOptions
 ): Promise<void> {
@@ -106,11 +105,7 @@ export async function runDataSetPieceStatusCommand(
     let pieces: PieceInfo[] = allPieces
     let emptyMessage: string | undefined
     if (cid != null) {
-      // A cheaper PieceCID-only lookup can use findPieceIdsByCid from
-      // @filoz/synapse-core/pdp-verifier, then getAllPieceMetadata({ dataSetId, pieceId })
-      // from @filoz/synapse-core/warm-storage. But IPFS root CID filtering still
-      // needs this metadata scan because there is no root-CID index today.
-      pieces = allPieces.filter((piece) => piece.pieceCid === cid || piece.rootIpfsCid === cid)
+      pieces = allPieces.filter((piece) => piece.pieceCid === cid)
       if (pieces.length === 0) {
         emptyMessage = `No piece matching ${cid} was found in data set ${dataSetId}.`
       }
