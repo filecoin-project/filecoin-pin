@@ -5,7 +5,6 @@ import {
   checkIpniIndexer,
   IndexerMismatchError,
   waitForIndexingConfirmation,
-  waitForIpniProviderResults,
 } from '../../core/utils/validate-ipni-advertisement.js'
 
 const createPDPProvider = (serviceURL: string): PDPProvider =>
@@ -658,12 +657,6 @@ describe('checkIpniIndexer', () => {
         headers: { Accept: 'application/json' },
       })
     })
-  })
-})
-
-describe('waitForIpniProviderResults (deprecated alias)', () => {
-  it('is the same function as checkIpniIndexer', () => {
-    expect(waitForIpniProviderResults).toBe(checkIpniIndexer)
   })
 })
 
