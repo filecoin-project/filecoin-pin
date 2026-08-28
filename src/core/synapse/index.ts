@@ -66,9 +66,11 @@ interface BaseSynapseConfig {
   /** Default metadata to apply when creating datasets */
   dataSetMetadata?: Record<string, string>
   /**
-   * Session-key mode only: on-chain permissions this invocation needs, checked
-   * up front so a missing grant fails with a remediation message instead of a
-   * tx revert. Defaults to none — commands that only read require no permissions.
+   * Session-key mode only: the permissions this command needs. Before doing
+   * any work, we check the session key's on-chain grants cover these. If one
+   * is missing, the command stops immediately with instructions for getting
+   * it granted (console link), rather than failing later mid-transaction.
+   * Leave unset for read-only commands — they need no permissions.
    */
   requiredPermissions?: Permission[]
 }
