@@ -1,22 +1,12 @@
 /**
- * Console URL helper for session-key preflight remediation messages.
- *
- * TEMPORARY: dedupe with the session console-pairing helpers
- * (resolveConsoleUrl/buildAuthorizeUrl) when that work lands on master.
+ * Console URL helpers: the canonical builder for Filecoin Cloud console
+ * deep links. Session-key pairing/login work builds on these same helpers.
  */
 
-/**
- * Known console deployments by chain id. One deployment serves both networks
- * (the console switches network in-app), so mainnet and calibration share a
- * base URL. `CONSOLE_URL` still overrides for local/preview consoles.
- *
- * NOTE: links 404 until the console's session-keys page (with its
- * ?authorize=&scopes= pairing params) is deployed — this PR is opened
- * together with that console PR and must not ship ahead of it.
- */
+/** Console deployments by chain id; calibration lives under a path prefix. */
 export const DEFAULT_CONSOLE_URLS: Record<number, string> = {
   314: 'https://pay.filecoin.cloud',
-  314159: 'https://pay.filecoin.cloud',
+  314159: 'https://pay.filecoin.cloud/calibration',
 }
 
 /**

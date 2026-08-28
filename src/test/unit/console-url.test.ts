@@ -15,7 +15,7 @@ describe('resolveConsoleUrl', () => {
   it('defaults to the production console on both networks', () => {
     delete process.env.CONSOLE_URL
     expect(resolveConsoleUrl(314)).toBe('https://pay.filecoin.cloud')
-    expect(resolveConsoleUrl(314159)).toBe('https://pay.filecoin.cloud')
+    expect(resolveConsoleUrl(314159)).toBe('https://pay.filecoin.cloud/calibration')
   })
 
   it('returns undefined for unknown chains', () => {
