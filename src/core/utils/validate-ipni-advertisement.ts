@@ -906,8 +906,6 @@ async function waitForPieceSynced(
   }
 
   if (unsupported) {
-    throw new Error(
-      `Piece status on "${serviceURL}" has no \`synced\` field; provider needs Curio v1.28.6 or newer`
-    )
+    throw new Error(`Piece status on "${serviceURL}" has no \`synced\` field; provider needs Curio v1.28.6 or newer`)
   }
 }

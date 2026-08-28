@@ -48,7 +48,6 @@ const pieceStatusResponse = (synced: boolean) => ({
   json: vi.fn(async () => ({ synced })),
 })
 
-
 describe('checkIpniIndexer', () => {
   const testCid = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
   const defaultIndexerUrl = 'https://cid.contact'
