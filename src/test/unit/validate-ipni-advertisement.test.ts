@@ -49,6 +49,12 @@ const pieceStatusResponse = (synced: boolean) => ({
   json: vi.fn(async () => ({ synced })),
 })
 
+// curio before v1.28.6 reported `retrieved` and had no `synced` field
+const legacyPieceStatusResponse = () => ({
+  ok: true,
+  json: vi.fn(async () => ({ retrieved: true })),
+})
+
 describe('checkIpniIndexer', () => {
   const testCid = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
   const defaultIndexerUrl = 'https://cid.contact'
@@ -882,6 +888,23 @@ describe('waitForIndexingConfirmation', () => {
     await expect(promise).rejects.toThrow('This operation was aborted')
 
     expect(onProgress).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'indexingConfirmation:mismatch' }))
+  })
+
+  it('should fail immediately when the provider predates the synced field', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    mockFetch.mockResolvedValue(legacyPieceStatusResponse())
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      maxAttempts: 20,
+      delayMs: 5000,
+    })
+    const rejection = expect(promise).rejects.toThrow('needs Curio v1.28.6 or newer')
+    await vi.runAllTimersAsync()
+    await rejection
+
+    // one poll, not 20, and the indexer is never queried
+    expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
   it('should stop the piece-sync wait on abort without riding out delayMs', async () => {

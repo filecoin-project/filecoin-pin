@@ -803,6 +803,14 @@ function deriveServiceUrls(providers: PDPProvider[]): string[] {
   return Array.from(urls)
 }
 
+/** Provider is on a Curio that predates the `synced` field; retrying cannot help. */
+class PieceStatusUnsupportedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'PieceStatusUnsupportedError'
+  }
+}
+
 async function fetchJson<T>(url: string, signal: AbortSignal | undefined, requestLabel: string): Promise<T> {
   const fetchOptions: RequestInit = { headers: { Accept: 'application/json' } }
   if (signal) {
@@ -815,10 +823,22 @@ async function fetchJson<T>(url: string, signal: AbortSignal | undefined, reques
   return (await response.json()) as T
 }
 
-async function fetchPieceSynced(serviceURL: string, pieceCid: PieceCID | CID, signal: AbortSignal | undefined) {
+/**
+ * Read `synced` from a provider's piece status.
+ *
+ * Returns `undefined` when the field is absent, which means the provider is on a
+ * Curio older than v1.28.6: that release replaced `retrieved` with `synced`, and
+ * serialises `synced` on every response. Polling such a provider can never
+ * succeed, so the caller stops rather than waiting out its attempts.
+ */
+async function fetchPieceSynced(
+  serviceURL: string,
+  pieceCid: PieceCID | CID,
+  signal: AbortSignal | undefined
+): Promise<boolean | undefined> {
   const url = `${serviceURL.replace(/\/+$/, '')}/pdp/piece/${encodeURIComponent(pieceCid.toString())}/status`
   const body = await fetchJson<PdpPieceStatusResponse>(url, signal, 'Piece status request')
-  return body.synced === true
+  return typeof body.synced === 'boolean' ? body.synced : undefined
 }
 
 async function waitForPieceSynced(
@@ -859,6 +879,11 @@ async function waitForPieceSynced(
 
     try {
       const synced = await fetchPieceSynced(serviceURL, pieceCid, signal)
+      if (synced === undefined) {
+        throw new PieceStatusUnsupportedError(
+          `Piece status on "${serviceURL}" has no \`synced\` field; provider needs Curio v1.28.6 or newer`
+        )
+      }
       if (synced) {
         try {
           options?.onProgress?.({
@@ -875,7 +900,7 @@ async function waitForPieceSynced(
       }
       lastFailureReason = 'Piece not yet synced'
     } catch (error) {
-      if (signal.aborted) {
+      if (signal.aborted || error instanceof PieceStatusUnsupportedError) {
         throw error
       }
       lastFailureReason = getErrorMessage(error)
