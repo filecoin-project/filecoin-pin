@@ -210,16 +210,6 @@ export async function checkIpniIndexer(ipfsRootCid: CID, options: CheckIpniIndex
   }
 }
 
-/** @deprecated Use {@link CheckIpniIndexerOptions}. */
-export type WaitForIpniProviderResultsOptions = CheckIpniIndexerOptions
-
-/**
- * @deprecated Use {@link checkIpniIndexer} — same behavior, renamed because it's now one
- * of two exports here rather than the sole post-upload check. `ipniIndexerUrl` is now
- * required (previously defaulted to filecoinpin.contact, now retired): pass it explicitly.
- */
-export const waitForIpniProviderResults = checkIpniIndexer
-
 /** `queriedSuccessfully` separates a genuine not-found result from a transport/parse/HTTP failure. */
 class IndexerQueryFailedError extends Error {
   readonly queriedSuccessfully: boolean
