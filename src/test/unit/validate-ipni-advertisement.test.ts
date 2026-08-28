@@ -884,6 +884,30 @@ describe('waitForIndexingConfirmation', () => {
     expect(onProgress).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'indexingConfirmation:mismatch' }))
   })
 
+  it('should stop the piece-sync wait on abort without riding out delayMs', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    const abortController = new AbortController()
+    mockFetch.mockResolvedValue(pieceStatusResponse(false))
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      maxAttempts: 20,
+      delayMs: 60_000,
+      signal: abortController.signal,
+    })
+
+    // first poll resolves, so we are now inside the 60s inter-attempt wait
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+
+    const rejection = expect(promise).rejects.toThrow()
+    abortController.abort()
+    await rejection
+
+    // no timer advance was needed, and the abort did not trigger another poll
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
   it('should propagate a plain abort, not report pieceSyncStatus:failed, when the caller cancels during piece-sync polling', async () => {
     const provider = createPDPProvider('https://sp.example.com')
     const abortController = new AbortController()

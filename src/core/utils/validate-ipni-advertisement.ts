@@ -416,7 +416,7 @@ async function checkIpniIndexerForCid(
           maxAttempts,
           delayMs
         )
-        await new Promise((resolve) => setTimeout(resolve, delayMs))
+        await abortableDelay(delayMs, options?.signal, 'Check IPNI announce aborted')
         await check()
       } else {
         // Max attempts reached - validation failed
@@ -451,6 +451,32 @@ async function checkIpniIndexerForCid(
  * @param addr - A multiaddr string from an IPNI provider record
  * @returns The URI form, or the original string if conversion fails
  */
+/**
+ * Delay that rejects as soon as `signal` aborts, so an abort mid-wait does not
+ * ride out the remaining `ms`. Rejects with `abortMessage` so each retry loop
+ * reports the abort the same way whether it lands mid-wait or mid-attempt.
+ *
+ * Node's `timers/promises` is not an option here: this module ships in the
+ * browser bundle.
+ */
+function abortableDelay(ms: number, signal: AbortSignal | undefined, abortMessage: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted === true) {
+      reject(new Error(abortMessage, { cause: signal }))
+      return
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      reject(new Error(abortMessage, { cause: signal }))
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 function multiaddrToNormalizedUri(addr: string): string {
   try {
     return multiaddrToUri(multiaddr(addr))
@@ -861,6 +887,6 @@ async function waitForPieceSynced(
         `Piece "${pieceCid.toString()}" not synced on "${serviceURL}" after ${maxAttempts} attempt${maxAttempts === 1 ? '' : 's'}. Last observation: ${lastFailureReason}`
       )
     }
-    await new Promise((resolve) => setTimeout(resolve, delayMs))
+    await abortableDelay(delayMs, signal, 'Check piece sync status aborted')
   }
 }
