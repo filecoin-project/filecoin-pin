@@ -17,6 +17,9 @@ importers:
       '@clack/prompts':
         specifier: ^1.0.1
         version: 1.5.1
+      '@filecoin-project/squid-evm-funding':
+        specifier: ^0.3.1
+        version: 0.3.1(typescript@6.0.3)(zod@4.4.3)
       '@filoz/synapse-core':
         specifier: ^0.7.0
         version: 0.7.1(typescript@6.0.3)(viem@2.55.10(typescript@6.0.3)(zod@4.4.3))
@@ -641,6 +644,10 @@ packages:
 
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==}
+
+  '@filecoin-project/squid-evm-funding@0.3.1':
+    resolution: {integrity: sha512-MKipKkSruhTTNNIzQbXgkNUgP89Tx8Y+U2JYAs15xTKY7famHC/lv+WyHzG6PcFCvvRo9CguWPRX1iuOM8ffGw==}
+    engines: {node: '>=18'}
 
   '@filoz/synapse-core@0.7.1':
     resolution: {integrity: sha512-4vZZJbumv64ZKR+BjfhLJvP57ga/GhSHy/k2jIWuXInXGwM5qPmKvaCS7CkpzQwiSIXahO161DBNRLVH8SrVfQ==}
@@ -2797,6 +2804,15 @@ snapshots:
     dependencies:
       '@fastify/forwarded': 3.0.2
       ipaddr.js: 2.5.0
+
+  '@filecoin-project/squid-evm-funding@0.3.1(typescript@6.0.3)(zod@4.4.3)':
+    dependencies:
+      viem: 2.55.10(typescript@6.0.3)(zod@4.4.3)
+    transitivePeerDependencies:
+      - bufferutil
+      - typescript
+      - utf-8-validate
+      - zod
 
   '@filoz/synapse-core@0.7.1(typescript@6.0.3)(viem@2.55.10(typescript@6.0.3)(zod@4.4.3))':
     dependencies:

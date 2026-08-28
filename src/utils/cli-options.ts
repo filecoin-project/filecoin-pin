@@ -29,6 +29,19 @@ export function rpcUrlOption(description: string): Option {
   return new Option('--rpc-url <url>', description).env('RPC_URL')
 }
 
+/** Add the source token controls used only by interactive `payments fund`. */
+export function addFundingSourceOptions(command: Command): Command {
+  return command
+    .option('--from-chain <chain>', 'Source EVM chain')
+    .option('--from-token <token>', 'Squid source token symbol, address, or "native"')
+    .option('--max-source-amount <amount>', 'Maximum source-token amount to spend')
+    .option('--source-rpc-url <url>', 'Source-chain RPC endpoint')
+    .addHelpText(
+      'after',
+      '\nSquid funding requires Filecoin Mainnet, an interactive terminal, and owner private-key auth.\n'
+    )
+}
+
 /**
  * Add the signing-auth flags shared by every authenticated command:
  * `--private-key`, `--wallet-address`, `--session-key`.

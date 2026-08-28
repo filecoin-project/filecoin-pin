@@ -5,29 +5,34 @@
  */
 
 import { confirm, isCancel } from '@clack/prompts'
-import type { Synapse } from '@filoz/synapse-sdk'
+import { NATIVE_TOKEN_ADDRESS } from '@filecoin-project/squid-evm-funding'
+import { type Synapse, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import { parseUnits } from 'viem'
+import { formatUnits, parseUnits } from 'viem'
 import { CliFatal, CliIncomplete, isCliFatal, isCliIncomplete, setIncompleteExitCode } from '../common/cli-errors.js'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import { resolveIpfsIndexedMetadata } from '../core/metadata/index.js'
 import {
+  calculateFilecoinPayFundingPlan,
   checkUSDFCBalance,
   clampDepositToLimit,
   DEFAULT_LOCKUP_DAYS,
   depositUSDFC,
   executeFilecoinPayFunding,
+  getPaymentStatus,
+  MIN_FIL_FOR_GAS,
   planFilecoinPayFunding,
   toStorageRunwaySummary,
   withdrawUSDFC,
 } from '../core/payments/index.js'
-import { initializeSynapse } from '../core/synapse/index.js'
+import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
 import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import type { Spinner } from '../utils/cli-helpers.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
+import { acquirePaymentShortfalls, validateFundingSourceOptions } from './squid-funding.js'
 import type { AutoFundOptions, FundingAdjustmentResult, FundOptions } from './types.js'
 
 // Helper: confirm/warn or bail when target implies < lockup-days runway
@@ -245,12 +250,13 @@ export async function runFund(options: FundOptions): Promise<void> {
 
   spinner.start('Connecting...')
   try {
+    const sourceRequested = validateFundingSourceOptions(options)
+
     // Parse and validate authentication
     const authConfig = parseCLIAuth(options)
 
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)
-
     spinner.stop(`${pc.green('✓')} Connected`)
 
     const targetDays: number = hasDays ? Number(options.days) : 0
@@ -265,14 +271,62 @@ export async function runFund(options: FundOptions): Promise<void> {
       throw new Error(`Invalid --amount '${options.amount}'`)
     }
 
-    spinner.start('Calculating funding plan...')
-    const planResult = await planFilecoinPayFunding({
-      synapse,
+    const planOptions = {
       targetRunwayDays: hasDays ? targetDays : undefined,
       targetDeposit: hasAmount ? targetDeposit : undefined,
       mode: options.mode ?? 'exact',
       allowWithdraw: options.mode !== 'minimum',
-    })
+    } as const
+
+    spinner.start('Calculating funding plan...')
+    if (sourceRequested) {
+      const [status, accountSummary] = await Promise.all([
+        getPaymentStatus(synapse),
+        synapse.payments.accountSummary({}),
+      ])
+      const preview = calculateFilecoinPayFundingPlan({ status, accountSummary, ...planOptions })
+      const filShortfall =
+        preview.delta > 0n && status.filBalance < MIN_FIL_FOR_GAS ? MIN_FIL_FOR_GAS - status.filBalance : 0n
+      const requiredWalletUsdfc =
+        preview.delta > 0n ? preview.delta + preview.current.spendRatePerEpoch * TIME_CONSTANTS.EPOCHS_PER_HOUR : 0n
+      const usdfcShortfall =
+        requiredWalletUsdfc > status.walletUsdfcBalance ? requiredWalletUsdfc - status.walletUsdfcBalance : 0n
+      if (filShortfall > 0n || usdfcShortfall > 0n) {
+        if (!isInteractive()) throw new Error('Squid source acquisition requires an interactive terminal')
+        await acquirePaymentShortfalls({
+          synapse,
+          owner: getClientAddress(synapse),
+          filShortfall,
+          usdfcShortfall,
+          requiredWalletUsdfc,
+          options,
+          confirm: async (summary) => {
+            const spend = summary.quotes.reduce((total, quote) => total + quote.sourceAmount, 0n)
+            const nativeRouteFee = summary.quotes
+              .flatMap((quote) => quote.costs)
+              .filter(
+                (cost) =>
+                  cost.kind === 'fee' &&
+                  cost.token.chainId === summary.source.chainId &&
+                  cost.token.address?.toLowerCase() === NATIVE_TOKEN_ADDRESS
+              )
+              .reduce((total, cost) => total + cost.amount, 0n)
+            const targets = summary.quotes
+              .map(
+                (quote) =>
+                  `${formatUnits(quote.requirement.amount, 18)} ${quote.requirement.id === 'filecoin-fil' ? 'FIL' : 'USDFC'}`
+              )
+              .join(' and ')
+            const proceed = await confirm({
+              message: `Spend ${formatUnits(spend, summary.source.decimals)} ${summary.source.symbol} from ${summary.sourceChainName} via Squid to receive ${targets} on Filecoin (source-token limit: ${formatUnits(summary.maxSourceAmount, summary.source.decimals)} ${summary.source.symbol}; estimated Squid route fee: ${formatUnits(nativeRouteFee, summary.nativeCurrency.decimals)} ${summary.nativeCurrency.symbol}; transaction-gas limit: ${formatUnits(summary.maxNativeFee, summary.nativeCurrency.decimals)} ${summary.nativeCurrency.symbol}; final network fees may vary)?`,
+              initialValue: false,
+            })
+            if (isCancel(proceed) || !proceed) throw new CliIncomplete('Source acquisition cancelled by user')
+          },
+        })
+      }
+    }
+    const planResult = await planFilecoinPayFunding({ synapse, ...planOptions })
     const { plan } = planResult
     spinner.stop(`${pc.green('✓')} Funding plan prepared`)
 

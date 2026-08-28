@@ -205,6 +205,20 @@ filecoin-pin data-set <dataset-id>
 filecoin-pin add myfile.txt --network calibration
 ```
 
+### Fund from another EVM chain
+
+On Filecoin Mainnet, interactive `payments fund` can use [Squid](documentation/glossary.md#squid) when the owner wallet is short of FIL for gas or USDFC for the requested deposit. It supports Filecoin, Arbitrum, Ethereum, Base, Optimism, Polygon, Avalanche, and BNB Chain, and accepts `native`, a token address, or an unambiguous token symbol from Squid's current catalog.
+
+```bash
+filecoin-pin payments fund --days 30 \
+  --from-chain arbitrum \
+  --from-token USDC \
+  --max-source-amount 10 \
+  --source-rpc-url https://your-arbitrum-rpc.example
+```
+
+Filecoin Pin uses the public `filecoin-testing-94a4a25a-d40b-41cb-b148-e96098862` Squid integrator ID by default; `SQUID_INTEGRATOR_ID` can override it. The same private key must control the wallet on both chains. Filecoin Pin shows the planned source spend and asks for confirmation before signing. If the process is interrupted, the next attempt prints the path of a pending marker; verify both chains manually before deleting that file and retrying. Calibration, devnet, session keys, and non-interactive acquisition are not supported.
+
 For detailed guides, see:
 - **CLI**: [Complete CLI walkthrough](https://docs.filecoin.io/builder-cookbook/filecoin-pin/filecoin-pin-cli)
 - **GitHub Action**: [CI/CD integration guide](https://docs.filecoin.io/builder-cookbook/filecoin-pin/github-action)
@@ -274,6 +288,9 @@ NETWORK=mainnet                # Network to use: mainnet, calibration, or devnet
 RPC_URL=wss://...              # Filecoin RPC endpoint (overrides NETWORK if specified)
                                # Mainnet: wss://wss.node.glif.io/apigw/lotus/rpc/v1
                                # Calibration: wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1
+
+# Optional - interactive Mainnet funding through Squid
+SQUID_INTEGRATOR_ID=...        # Override the built-in public Squid integrator ID
 
 # Optional for Pinning Server Daemon
 ACCESS_TOKEN=...               # Bearer token required on all API requests except GET /
