@@ -48,11 +48,6 @@ const pieceStatusResponse = (synced: boolean) => ({
   json: vi.fn(async () => ({ synced })),
 })
 
-// curio before v1.28.6 reported `retrieved` and had no `synced` field
-const legacyPieceStatusResponse = () => ({
-  ok: true,
-  json: vi.fn(async () => ({ retrieved: true })),
-})
 
 describe('checkIpniIndexer', () => {
   const testCid = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
@@ -840,7 +835,7 @@ describe('waitForIndexingConfirmation', () => {
     expect(onProgress).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'ipniProviderResults:failed' }))
   })
 
-  it('should name the actual configured indexer in the mismatch message, not a hardcoded cid.contact', async () => {
+  it('should report the configured indexer on the mismatch, not a hardcoded cid.contact', async () => {
     const provider = createPDPProvider('https://sp.example.com')
     mockFetch.mockResolvedValueOnce(pieceStatusResponse(true)).mockResolvedValue(emptyProviderResponse())
 
@@ -849,7 +844,11 @@ describe('waitForIndexingConfirmation', () => {
       indexerMaxAttempts: 1,
       ipniIndexerUrl: 'https://custom-indexer.example.com',
     })
-    const expectPromise = expect(promise).rejects.toThrow('https://custom-indexer.example.com')
+    const expectPromise = expect(promise).rejects.toMatchObject({
+      name: 'IndexerMismatchError',
+      ipniIndexerUrl: 'https://custom-indexer.example.com',
+      pieceCid: testPieceCid.toString(),
+    })
 
     await vi.runAllTimersAsync()
     await expectPromise
@@ -885,7 +884,8 @@ describe('waitForIndexingConfirmation', () => {
 
   it('should fail immediately when the provider predates the synced field', async () => {
     const provider = createPDPProvider('https://sp.example.com')
-    mockFetch.mockResolvedValue(legacyPieceStatusResponse())
+    // curio before v1.28.6 has no `synced` field in its piece status
+    mockFetch.mockResolvedValue({ ok: true, json: vi.fn(async () => ({})) })
 
     const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
       expectedProviders: [provider],

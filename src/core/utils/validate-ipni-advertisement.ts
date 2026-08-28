@@ -527,9 +527,16 @@ function deriveExpectedUris(
 
 /** Thrown when Curio confirms a piece as synced but the final cid.contact cross-check still doesn't show it. */
 export class IndexerMismatchError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
+  /** Piece the provider reported as synced. */
+  readonly pieceCid: string
+  /** Indexer that was queried and disagreed. */
+  readonly ipniIndexerUrl: string
+
+  constructor(message: string, details: { pieceCid: string; ipniIndexerUrl: string }, options?: ErrorOptions) {
     super(message, options)
     this.name = 'IndexerMismatchError'
+    this.pieceCid = details.pieceCid
+    this.ipniIndexerUrl = details.ipniIndexerUrl
   }
 }
 
@@ -736,6 +743,7 @@ export async function waitForIndexingConfirmation(
 
     const mismatch = new IndexerMismatchError(
       `Curio reported piece "${pieceCid.toString()}" as synced, but the confirming ${indexerOptions.ipniIndexerUrl} check still failed: ${getErrorMessage(error)}`,
+      { pieceCid: pieceCid.toString(), ipniIndexerUrl: indexerOptions.ipniIndexerUrl },
       { cause: error }
     )
     options?.logger?.error({ error: mismatch }, mismatch.message)
@@ -793,14 +801,6 @@ function deriveServiceUrls(providers: PDPProvider[]): string[] {
   return Array.from(urls)
 }
 
-/** Provider is on a Curio that predates the `synced` field; retrying cannot help. */
-class PieceStatusUnsupportedError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'PieceStatusUnsupportedError'
-  }
-}
-
 async function fetchJson<T>(url: string, signal: AbortSignal | undefined, requestLabel: string): Promise<T> {
   const fetchOptions: RequestInit = { headers: { Accept: 'application/json' } }
   if (signal) {
@@ -846,6 +846,7 @@ async function waitForPieceSynced(
   const { delayMs, maxAttempts, providerIndex, providerCount, signal, options } = config
   let retryCount = 0
   let lastFailureReason: string | undefined
+  let unsupported = false
 
   while (true) {
     if (signal.aborted) {
@@ -870,9 +871,8 @@ async function waitForPieceSynced(
     try {
       const synced = await fetchPieceSynced(serviceURL, pieceCid, signal)
       if (synced === undefined) {
-        throw new PieceStatusUnsupportedError(
-          `Piece status on "${serviceURL}" has no \`synced\` field; provider needs Curio v1.28.6 or newer`
-        )
+        unsupported = true
+        break
       }
       if (synced) {
         try {
@@ -890,7 +890,7 @@ async function waitForPieceSynced(
       }
       lastFailureReason = 'Piece not yet synced'
     } catch (error) {
-      if (signal.aborted || error instanceof PieceStatusUnsupportedError) {
+      if (signal.aborted) {
         throw error
       }
       lastFailureReason = getErrorMessage(error)
@@ -903,5 +903,11 @@ async function waitForPieceSynced(
       )
     }
     await abortableDelay(delayMs, signal, 'Check piece sync status aborted')
+  }
+
+  if (unsupported) {
+    throw new Error(
+      `Piece status on "${serviceURL}" has no \`synced\` field; provider needs Curio v1.28.6 or newer`
+    )
   }
 }
