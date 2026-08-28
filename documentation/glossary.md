@@ -124,7 +124,7 @@ As a "trustless" protocol, retrieval of IPFS data using this mechanism provides 
 
 See https://docs.ipfs.tech/concepts/glossary/#ipni.
 
-IPNI is the content routing system that [Filecoin Pin](#filecoin-pin) relies upon for retrieval to work for [standard IPFS tooling](#standard-ipfs-tooling).  [Service Providers](#service-provider) announce their advertisement changes to IPNI indexer like [filecoinpin.contact](http://filecoinpin.contact) and cid.contact, and the advertised CIDs become discoverable for IPFS Standard tooling.
+IPNI is the content routing system that [Filecoin Pin](#filecoin-pin) relies upon for retrieval to work for [standard IPFS tooling](#standard-ipfs-tooling).  [Service Providers](#service-provider) announce their advertisement changes to IPNI indexers like cid.contact, and the advertised CIDs become discoverable for IPFS Standard tooling.
 
 ## Metadata
 
@@ -195,7 +195,7 @@ See [Retrieving Your Data](retrieval.md) for how to use each CID to fetch your c
 
 [IPNI](#ipni) advertisements include a `ContextID` that encodes the [Piece CID](#piece-cid). You can use this to reverse-map an IPFS CID back to the Piece it lives in.
 
-1. Look up the IPFS CID in an IPNI indexer, e.g. `https://cid.contact/cid/<ipfs-cid>` (or use [filecoinpin.contact](https://filecoinpin.contact) for data stored via Filecoin Pin).
+1. Look up the IPFS CID in an IPNI indexer, e.g. `https://cid.contact/cid/<ipfs-cid>`.
 2. Find the `ContextID` field in one of the provider records. It is base64-encoded.
 3. Decode the base64, drop the first byte (a version prefix), and treat the remaining bytes as a CID:
 

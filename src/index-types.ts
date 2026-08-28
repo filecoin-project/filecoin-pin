@@ -50,7 +50,12 @@ export type {
   UploadReadinessResult,
 } from './core/upload/index.js'
 export type { AnyProgressEvent, ProgressEvent, ProgressEventHandler, Warning } from './core/utils/types.js'
+// IndexerMismatchError is a runtime class, not a type; import it from 'filecoin-pin/core/utils'.
 export type {
+  CheckIpniIndexerOptions,
+  IndexingConfirmationProgressEvents,
   ValidateIPNIProgressEvents,
+  WaitForIndexingConfirmationOptions,
+  /** @deprecated Use {@link CheckIpniIndexerOptions}. */
   WaitForIpniProviderResultsOptions,
 } from './core/utils/validate-ipni-advertisement.js'

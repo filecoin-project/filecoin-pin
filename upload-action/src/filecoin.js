@@ -287,6 +287,34 @@ export async function uploadCarToFilecoin(synapse, carPath, ipfsRootCid, options
           )
           break
         }
+        case 'pieceSyncStatus:retryUpdate': {
+          const { serviceURL, providerIndex, providerCount, providerAttempt } = event.data
+          const prefix = providerCount > 1 ? `[${providerIndex}/${providerCount}] ` : ''
+          const suffix = providerCount > 1 ? ` on ${serviceURL}` : ''
+          console.log(`${prefix}Piece sync status check attempt #${providerAttempt}${suffix}...`)
+          break
+        }
+        case 'pieceSyncStatus:providerSynced': {
+          const { serviceURL, providerIndex, providerCount } = event.data
+          if (providerCount > 1) {
+            console.log(`✓ [${providerIndex}/${providerCount}] Advertisement confirmed indexed on ${serviceURL}`)
+          }
+          break
+        }
+        case 'pieceSyncStatus:complete': {
+          console.log('✓ Advertisement confirmed indexed')
+          break
+        }
+        case 'pieceSyncStatus:failed': {
+          console.log('Advertisement not confirmed indexed in time')
+          console.log(`Error: ${event.data.error.message}`)
+          break
+        }
+        case 'indexingConfirmation:mismatch': {
+          console.log('Warning: storage provider reported sync, but a direct indexer lookup still disagrees')
+          console.log(`Error: ${event.data.error.message}`)
+          break
+        }
         case 'ipniProviderResults:retryUpdate': {
           const attempt = event.data.attempt ?? (event.data.retryCount === 0 ? 1 : event.data.retryCount + 1)
           console.log(`IPNI provider results check attempt #${attempt}...`)

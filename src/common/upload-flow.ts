@@ -595,6 +595,22 @@ export async function performUpload(
     return `Checking for IPNI provider records (${overallPart}${cidPart})`
   }
 
+  function pieceSyncOpId(providerIndex: number): string {
+    return `piece-sync-${providerIndex}`
+  }
+
+  // Only shown when there's more than one provider — keeps the common single-provider
+  // case identical to the original single-op wording.
+  function providerPrefix(providerIndex: number, providerCount: number): string {
+    return providerCount > 1 ? `[${providerIndex}/${providerCount}] ` : ''
+  }
+
+  function discardPieceSyncOps(providerCount: number): void {
+    for (let i = 1; i <= providerCount; i++) {
+      flow.discardOperation(pieceSyncOpId(i))
+    }
+  }
+
   const network = getNetworkSlug(synapse.chain)
 
   const uploadResult = await executeUpload(synapse, carData, rootCid, {
@@ -684,6 +700,56 @@ export async function performUpload(
           break
         }
 
+        case 'pieceSyncStatus:retryUpdate': {
+          const { serviceURL, providerIndex, providerCount, providerAttempt, providerMaxAttempts } = event.data
+          const suffix = providerCount > 1 ? ` on ${serviceURL}` : ''
+          flow.addOperation(
+            pieceSyncOpId(providerIndex),
+            `${providerPrefix(providerIndex, providerCount)}Waiting for advertisement to be indexed${suffix} (attempt ${providerAttempt}/${providerMaxAttempts})`
+          )
+          break
+        }
+        case 'pieceSyncStatus:providerSynced': {
+          const { serviceURL, providerIndex, providerCount } = event.data
+          // Single-provider case: leave the op open — pieceSyncStatus:complete closes it below.
+          if (providerCount > 1) {
+            flow.completeOperation(
+              pieceSyncOpId(providerIndex),
+              `${providerPrefix(providerIndex, providerCount)}Advertisement confirmed indexed on ${serviceURL}`,
+              { type: 'success' }
+            )
+          }
+          break
+        }
+        case 'pieceSyncStatus:complete': {
+          if (event.data.providerCount > 1) {
+            discardPieceSyncOps(event.data.providerCount)
+            flow.printSection(
+              pc.green(`✓ Advertisement confirmed indexed on all ${event.data.providerCount} providers`),
+              []
+            )
+          } else {
+            flow.completeOperation(pieceSyncOpId(1), 'Advertisement confirmed indexed', { type: 'success' })
+          }
+          break
+        }
+        case 'pieceSyncStatus:failed': {
+          if (event.data.providerCount > 1) {
+            discardPieceSyncOps(event.data.providerCount)
+            flow.printSection(pc.yellow('⚠ Advertisement not confirmed indexed in time.'), [
+              pc.gray(event.data.error.message),
+            ])
+          } else {
+            flow.completeOperation(pieceSyncOpId(1), 'Advertisement not confirmed indexed in time.', {
+              type: 'warning',
+              details: {
+                title: 'Reason',
+                content: [pc.gray(event.data.error.message)],
+              },
+            })
+          }
+          break
+        }
         case 'ipniProviderResults:retryUpdate': {
           const attempt = event.data.attempt ?? (event.data.retryCount === 0 ? 1 : event.data.retryCount + 1)
           flow.addOperation(
@@ -717,6 +783,16 @@ export async function performUpload(
               content: [pc.gray(`IPNI provider records for this SP does not exist for the provided root CID`)],
             },
           })
+          break
+        }
+        case 'indexingConfirmation:mismatch': {
+          // The underlying ipniProviderResults:failed is suppressed for this call, so
+          // 'ipni' never gets completed on its own — discard it before reporting here.
+          flow.discardOperation('ipni')
+          flow.printSection(
+            pc.yellow('⚠ Storage provider reported sync, but a direct indexer lookup still disagrees'),
+            [pc.gray(event.data.error.message)]
+          )
           break
         }
         default: {

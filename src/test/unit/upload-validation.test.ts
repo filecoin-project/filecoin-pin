@@ -5,10 +5,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { APPLICATION_SOURCE } from '../../core/synapse/constants.js'
 import { executeUpload } from '../../core/upload/index.js'
 import { uploadToSynapse } from '../../core/upload/synapse.js'
+import { waitForIndexingConfirmation } from '../../core/utils/validate-ipni-advertisement.js'
 import { createLogger } from '../../logger.js'
 import { MockSynapse } from '../mocks/synapse-mocks.js'
 
 vi.mock('@filoz/synapse-sdk', async () => await import('../mocks/synapse-sdk.js'))
+vi.mock('../../core/utils/validate-ipni-advertisement.js', () => ({
+  waitForIndexingConfirmation: vi.fn().mockResolvedValue(true),
+}))
 
 const TEST_CID = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
 
@@ -173,6 +177,38 @@ describe('upload option validation', () => {
       })
 
       expect(uploadSpy).toHaveBeenCalledWith(data, expect.anything())
+    })
+  })
+
+  describe('indexing confirmation wiring', () => {
+    beforeEach(() => {
+      vi.mocked(waitForIndexingConfirmation).mockClear()
+    })
+
+    it('starts indexing confirmation with the rootCid and the pieceCid observed from `stored`', async () => {
+      const logger = createLogger({ logLevel: 'error' })
+      const mockSynapse = new MockSynapse()
+      await mockSynapse.createStorageContext()
+
+      await executeUpload(mockSynapse as any, new Uint8Array([1]), TEST_CID, { logger })
+
+      expect(waitForIndexingConfirmation).toHaveBeenCalledTimes(1)
+      const [calledRootCid, calledPieceCid] = vi.mocked(waitForIndexingConfirmation).mock.calls[0] ?? []
+      expect(calledRootCid).toBe(TEST_CID)
+      expect(typeof calledPieceCid).toBe('string')
+    })
+
+    it('does not start indexing confirmation when disabled', async () => {
+      const logger = createLogger({ logLevel: 'error' })
+      const mockSynapse = new MockSynapse()
+      await mockSynapse.createStorageContext()
+
+      await executeUpload(mockSynapse as any, new Uint8Array([1]), TEST_CID, {
+        logger,
+        ipniValidation: { enabled: false },
+      })
+
+      expect(waitForIndexingConfirmation).not.toHaveBeenCalled()
     })
   })
 

@@ -1,4 +1,4 @@
-import type { PDPProvider } from '@filoz/synapse-sdk'
+import type { PDPProvider, PieceCID } from '@filoz/synapse-sdk'
 import { multiaddr } from '@multiformats/multiaddr'
 import { multiaddrToUri } from '@multiformats/multiaddr-to-uri'
 import type { CID } from 'multiformats/cid'
@@ -38,6 +38,11 @@ interface ProviderResult {
   }
 }
 
+/** Response shape from Curio's `GET /pdp/piece/{pieceCid}/status`. Only `synced` is used. */
+interface PdpPieceStatusResponse {
+  synced?: boolean
+}
+
 export type ValidateIPNIProgressEvents =
   | ProgressEvent<
       'ipniProviderResults:retryUpdate',
@@ -55,7 +60,7 @@ export type ValidateIPNIProgressEvents =
   | ProgressEvent<'ipniProviderResults:complete', { result: true; retryCount: number }>
   | ProgressEvent<'ipniProviderResults:failed', { error: Error }>
 
-export interface WaitForIpniProviderResultsOptions {
+export interface CheckIpniIndexerOptions {
   /**
    * maximum number of attempts
    *
@@ -102,11 +107,12 @@ export interface WaitForIpniProviderResultsOptions {
   onProgress?: ProgressEventHandler<ValidateIPNIProgressEvents>
 
   /**
-   * IPNI indexer URL to query for provider records to confirm that advertisements were processed.
-   *
-   * @default 'https://filecoinpin.contact'
+   * IPNI indexer URL to query for provider records. Required — this function has no way
+   * to know whether it's safe to poll the given indexer patiently (e.g. cid.contact
+   * negative-caches misses for minutes, see content-routing-faq.md), so callers must
+   * decide explicitly rather than inherit a default that may not fit their situation.
    */
-  ipniIndexerUrl?: string | undefined
+  ipniIndexerUrl: string
 
   /**
    * Child blocks that must also be validated against expected providers.
@@ -121,22 +127,21 @@ export interface WaitForIpniProviderResultsOptions {
  * - The IPNI indexer(s) pulled the advertisement chain from the SP
  * - The IPNI indexer(s) updated their index
  * This doesn't check individual steps, but rather the end ProviderResults reponse from the IPNI indexer.
- * If the IPNI indexer ProviderResults have the expected providers, then the steps abomove must have completed.
+ * If the IPNI indexer ProviderResults have the expected providers, then the steps above must have completed.
  * This doesn't actually do any IPFS Mainnet retrieval checks of the ipfsRootCid.
  *
- * This should not be called until you receive confirmation from the SP that the piece has been parked, i.e. `onPieceAdded` in the `synapse.storage.upload` callbacks.
+ * Generic single-indexer primitive. `waitForIndexingConfirmation` below is the default
+ * post-upload check; this is exposed separately because it's also useful standalone
+ * (e.g. a one-off cross-check against a second indexer).
  *
  * @param ipfsRootCid - The IPFS root CID to check
  * @param options - Options for the check
  * @returns True if the IPNI announce succeeded, false otherwise
  */
-export async function waitForIpniProviderResults(
-  ipfsRootCid: CID,
-  options?: WaitForIpniProviderResultsOptions
-): Promise<boolean> {
+export async function checkIpniIndexer(ipfsRootCid: CID, options: CheckIpniIndexerOptions): Promise<boolean> {
   const delayMs = options?.delayMs ?? 5000
   const maxAttempts = options?.maxAttempts ?? 20
-  const ipniIndexerUrl = options?.ipniIndexerUrl ?? 'https://filecoinpin.contact'
+  const ipniIndexerUrl = options.ipniIndexerUrl
   const expectedProviders = options?.expectedProviders?.filter((provider) => provider != null) ?? []
   const { uriToServiceUrl, skippedProviderCount } = deriveExpectedUris(expectedProviders, options?.logger)
   const expectedUris = new Set(uriToServiceUrl.keys())
@@ -168,7 +173,7 @@ export async function waitForIpniProviderResults(
 
   try {
     for (const [index, cid] of cidsToValidate.entries()) {
-      await waitForIpniProviderResultsForCid(cid, {
+      await checkIpniIndexerForCid(cid, {
         delayMs,
         maxAttempts,
         ipniIndexerUrl,
@@ -205,7 +210,17 @@ export async function waitForIpniProviderResults(
   }
 }
 
-async function waitForIpniProviderResultsForCid(
+/** @deprecated Use {@link CheckIpniIndexerOptions}. */
+export type WaitForIpniProviderResultsOptions = CheckIpniIndexerOptions
+
+/**
+ * @deprecated Use {@link checkIpniIndexer} — same behavior, renamed because it's now one
+ * of two exports here rather than the sole post-upload check. `ipniIndexerUrl` is now
+ * required (previously defaulted to filecoinpin.contact, now retired): pass it explicitly.
+ */
+export const waitForIpniProviderResults = checkIpniIndexer
+
+async function checkIpniIndexerForCid(
   cid: CID,
   config: {
     delayMs: number
@@ -218,7 +233,7 @@ async function waitForIpniProviderResultsForCid(
     cidCount: number
     totalAttempts: number
     onRetryUpdate: (() => { retryCount: number; attempt: number }) | undefined
-    options: WaitForIpniProviderResultsOptions | undefined
+    options: CheckIpniIndexerOptions | undefined
   }
 ): Promise<boolean> {
   const {
@@ -474,5 +489,340 @@ function deriveExpectedUris(
   return {
     uriToServiceUrl,
     skippedProviderCount,
+  }
+}
+
+/** Thrown when Curio confirms a piece as synced but the final cid.contact cross-check still doesn't show it. */
+export class IndexerMismatchError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'IndexerMismatchError'
+  }
+}
+
+export type IndexingConfirmationProgressEvents =
+  | ValidateIPNIProgressEvents
+  | ProgressEvent<
+      'pieceSyncStatus:retryUpdate',
+      {
+        serviceURL: string
+        providerIndex: number
+        providerCount: number
+        providerAttempt: number
+        providerMaxAttempts: number
+      }
+    >
+  | ProgressEvent<
+      'pieceSyncStatus:providerSynced',
+      { serviceURL: string; providerIndex: number; providerCount: number }
+    >
+  | ProgressEvent<'pieceSyncStatus:complete', { providerCount: number }>
+  | ProgressEvent<'pieceSyncStatus:failed', { error: Error; providerCount: number }>
+  | ProgressEvent<'indexingConfirmation:mismatch', { error: IndexerMismatchError }>
+
+export interface WaitForIndexingConfirmationOptions {
+  /**
+   * Maximum poll attempts per provider against Curio's piece-status endpoint.
+   *
+   * @default: 20
+   */
+  maxAttempts?: number | undefined
+
+  /**
+   * Delay between poll attempts in milliseconds.
+   *
+   * @default: 5000
+   */
+  delayMs?: number | undefined
+
+  /**
+   * Maximum attempts for the final confirming indexer query. Kept small: once the
+   * indexer confirms the advertisement is indexed, the CID lookup should already
+   * reflect it, and cid.contact negative-caches misses for minutes, so this should
+   * not become a long poll.
+   *
+   * @default: 3
+   */
+  indexerMaxAttempts?: number | undefined
+
+  /**
+   * Delay between final confirming indexer query attempts in milliseconds.
+   *
+   * @default: 5000
+   */
+  indexerDelayMs?: number | undefined
+
+  /** @default: undefined */
+  signal?: AbortSignal | undefined
+
+  /** @default: undefined */
+  logger?: Logger | undefined
+
+  /**
+   * Providers the piece was stored with. Their `pdp.serviceURL` is polled for
+   * piece-status, and they're the expected provider set for the indexer cross-check.
+   *
+   * @default: []
+   */
+  expectedProviders?: PDPProvider[] | undefined
+
+  /** @default: undefined */
+  onProgress?: ProgressEventHandler<IndexingConfirmationProgressEvents>
+
+  /**
+   * Indexer used for the final confirming cross-check.
+   *
+   * @default 'https://cid.contact'
+   */
+  ipniIndexerUrl?: string | undefined
+
+  /** Child blocks that must also be present in the final confirming indexer cross-check. */
+  childBlocks?: CID[] | undefined
+}
+
+/**
+ * Confirm a piece is indexed and retrievable via standard IPFS/IPNI tooling.
+ *
+ * Two steps:
+ * 1. Poll each expected provider's `GET {serviceURL}/pdp/piece/{pieceCid}/status` until
+ *    it reports `synced: true`. Curio checks the indexer's own sync-status endpoint on
+ *    the caller's behalf here (curio#1450), so this is safe to poll patiently — Curio's
+ *    proxying doesn't have the negative-caching problem a direct CID lookup would.
+ * 2. Once every provider reports synced, run a short bounded confirming check against
+ *    `ipniIndexerUrl` (default cid.contact) via {@link checkIpniIndexer} — `synced` only
+ *    confirms the indexer processed *an* advertisement, not that a CID lookup returns the
+ *    expected provider/multiaddr, so this end-to-end check still has value.
+ *
+ * If step 2 still doesn't find the expected providers, this throws
+ * {@link IndexerMismatchError} and emits `indexingConfirmation:mismatch` — distinct from
+ * a step 1 timeout, since it signals Curio and the indexer disagree rather than "not
+ * indexed yet".
+ *
+ * This should not be called until you receive confirmation from the SP that the
+ * piece has been parked, i.e. `onPieceAdded` in the `synapse.storage.upload` callbacks.
+ *
+ * @param ipfsRootCid - The IPFS root CID to confirm
+ * @param pieceCid - The piece CID to poll piece-status for
+ * @param options - Options for the check
+ * @returns True if indexing was confirmed
+ */
+export async function waitForIndexingConfirmation(
+  ipfsRootCid: CID,
+  pieceCid: PieceCID | CID,
+  options?: WaitForIndexingConfirmationOptions
+): Promise<boolean> {
+  const delayMs = options?.delayMs ?? 5000
+  const maxAttempts = options?.maxAttempts ?? 20
+  const expectedProviders = options?.expectedProviders?.filter((provider) => provider != null) ?? []
+  const serviceUrls = deriveServiceUrls(expectedProviders)
+
+  if (serviceUrls.length === 0) {
+    // No provider serviceURLs to poll, so fall back to a direct lookup at the patient cadence.
+    options?.logger?.warn('No provider serviceURLs to poll piece-status for; falling back to a patient indexer check')
+    return await checkIpniIndexer(ipfsRootCid, buildIndexerOptions(options, expectedProviders, maxAttempts, delayMs))
+  }
+
+  const providerCount = serviceUrls.length
+  // Aborts sibling polls once one fails, instead of leaving them running in the background.
+  const pieceSyncController = new AbortController()
+  const pieceSyncSignal = options?.signal
+    ? AbortSignal.any([options.signal, pieceSyncController.signal])
+    : pieceSyncController.signal
+
+  try {
+    await Promise.all(
+      serviceUrls.map((serviceURL, index) =>
+        waitForPieceSynced(serviceURL, pieceCid, {
+          delayMs,
+          maxAttempts,
+          providerIndex: index + 1,
+          providerCount,
+          signal: pieceSyncSignal,
+          options,
+        })
+      )
+    )
+
+    try {
+      options?.onProgress?.({ type: 'pieceSyncStatus:complete', data: { providerCount } })
+    } catch (callbackError) {
+      options?.logger?.warn(
+        { error: callbackError },
+        'Error in consumer onProgress callback for pieceSyncStatus complete event'
+      )
+    }
+  } catch (error) {
+    options?.signal?.throwIfAborted()
+
+    try {
+      options?.onProgress?.({ type: 'pieceSyncStatus:failed', data: { error: error as Error, providerCount } })
+    } catch (callbackError) {
+      options?.logger?.warn(
+        { error: callbackError },
+        'Error in consumer onProgress callback for pieceSyncStatus failed event'
+      )
+    }
+    // No fallback: step 1 already patiently polled the indexer via Curio (ground truth).
+    throw error
+  } finally {
+    pieceSyncController.abort()
+  }
+
+  const indexerOptions = buildIndexerOptions(
+    options,
+    expectedProviders,
+    options?.indexerMaxAttempts ?? 3,
+    options?.indexerDelayMs ?? 5000,
+    true
+  )
+
+  try {
+    return await checkIpniIndexer(ipfsRootCid, indexerOptions)
+  } catch (error) {
+    options?.signal?.throwIfAborted()
+
+    const mismatch = new IndexerMismatchError(
+      `Curio reported piece "${pieceCid.toString()}" as synced, but the confirming cid.contact check still failed: ${getErrorMessage(error)}`,
+      { cause: error }
+    )
+    options?.logger?.error({ error: mismatch }, mismatch.message)
+    try {
+      options?.onProgress?.({ type: 'indexingConfirmation:mismatch', data: { error: mismatch } })
+    } catch (callbackError) {
+      options?.logger?.warn({ error: callbackError }, 'Error in consumer onProgress callback for mismatch event')
+    }
+    throw mismatch
+  }
+}
+
+function buildIndexerOptions(
+  options: WaitForIndexingConfirmationOptions | undefined,
+  expectedProviders: PDPProvider[],
+  maxAttempts: number,
+  delayMs: number,
+  // Suppresses the inner ipniProviderResults:failed when the caller reports the same
+  // failure itself with more context — see the mismatch branch below.
+  suppressFailedEvent = false
+): CheckIpniIndexerOptions {
+  const indexerOptions: CheckIpniIndexerOptions = {
+    maxAttempts,
+    delayMs,
+    // Safe to default here: by the time this is called, either every provider already
+    // confirmed synced, or there's nothing else safer to fall back to.
+    ipniIndexerUrl: options?.ipniIndexerUrl ?? 'https://cid.contact',
+    expectedProviders,
+    childBlocks: options?.childBlocks,
+    signal: options?.signal,
+    logger: options?.logger,
+  }
+  const onProgress = options?.onProgress
+  if (onProgress != null) {
+    indexerOptions.onProgress = suppressFailedEvent
+      ? (event) => {
+          if (event.type !== 'ipniProviderResults:failed') {
+            onProgress(event)
+          }
+        }
+      : onProgress
+  }
+  return indexerOptions
+}
+
+function deriveServiceUrls(providers: PDPProvider[]): string[] {
+  const urls = new Set<string>()
+  for (const provider of providers) {
+    const serviceURL = provider.pdp?.serviceURL
+    if (serviceURL) {
+      urls.add(serviceURL)
+    }
+  }
+  return Array.from(urls)
+}
+
+async function fetchJson<T>(url: string, signal: AbortSignal | undefined, requestLabel: string): Promise<T> {
+  const fetchOptions: RequestInit = { headers: { Accept: 'application/json' } }
+  if (signal) {
+    fetchOptions.signal = signal
+  }
+  const response = await fetch(url, fetchOptions)
+  if (!response.ok) {
+    throw new Error(`${requestLabel} to "${url}" failed with status ${response.status}`)
+  }
+  return (await response.json()) as T
+}
+
+async function fetchPieceSynced(serviceURL: string, pieceCid: PieceCID | CID, signal: AbortSignal | undefined) {
+  const url = `${serviceURL.replace(/\/+$/, '')}/pdp/piece/${encodeURIComponent(pieceCid.toString())}/status`
+  const body = await fetchJson<PdpPieceStatusResponse>(url, signal, 'Piece status request')
+  return body.synced === true
+}
+
+async function waitForPieceSynced(
+  serviceURL: string,
+  pieceCid: PieceCID | CID,
+  config: {
+    delayMs: number
+    maxAttempts: number
+    providerIndex: number
+    providerCount: number
+    signal: AbortSignal
+    options: WaitForIndexingConfirmationOptions | undefined
+  }
+): Promise<void> {
+  const { delayMs, maxAttempts, providerIndex, providerCount, signal, options } = config
+  let retryCount = 0
+  let lastFailureReason: string | undefined
+
+  while (true) {
+    if (signal.aborted) {
+      throw new Error('Check piece sync status aborted', { cause: signal })
+    }
+
+    try {
+      options?.onProgress?.({
+        type: 'pieceSyncStatus:retryUpdate',
+        data: {
+          serviceURL,
+          providerIndex,
+          providerCount,
+          providerAttempt: retryCount + 1,
+          providerMaxAttempts: maxAttempts,
+        },
+      })
+    } catch (error) {
+      options?.logger?.warn({ error }, 'Error in consumer onProgress callback for pieceSyncStatus retryUpdate event')
+    }
+
+    try {
+      const synced = await fetchPieceSynced(serviceURL, pieceCid, signal)
+      if (synced) {
+        try {
+          options?.onProgress?.({
+            type: 'pieceSyncStatus:providerSynced',
+            data: { serviceURL, providerIndex, providerCount },
+          })
+        } catch (error) {
+          options?.logger?.warn(
+            { error },
+            'Error in consumer onProgress callback for pieceSyncStatus providerSynced event'
+          )
+        }
+        return
+      }
+      lastFailureReason = 'Piece not yet synced'
+    } catch (error) {
+      if (signal.aborted) {
+        throw error
+      }
+      lastFailureReason = getErrorMessage(error)
+      options?.logger?.warn({ error, serviceURL }, `${lastFailureReason}. Retrying...`)
+    }
+
+    if (++retryCount >= maxAttempts) {
+      throw new Error(
+        `Piece "${pieceCid.toString()}" not synced on "${serviceURL}" after ${maxAttempts} attempt${maxAttempts === 1 ? '' : 's'}. Last observation: ${lastFailureReason}`
+      )
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs))
   }
 }
