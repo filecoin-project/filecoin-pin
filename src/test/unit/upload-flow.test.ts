@@ -271,6 +271,121 @@ describe('performUpload', () => {
     expect(spinner.message).toHaveBeenNthCalledWith(2, 'Uploading to Filecoin... 2.0 B/4.0 B (50%)')
     expect(spinner.message).toHaveBeenNthCalledWith(3, 'Uploading to Filecoin... 4.0 B/4.0 B (100%)')
   })
+
+  it('reports each provider on its own line when piece-sync polls multiple providers concurrently', async () => {
+    const spinner = { start: vi.fn(), message: vi.fn(), stop: vi.fn(), clear: vi.fn() }
+
+    mocks.executeUpload.mockImplementation(async (_synapse, _data, _rootCid, options) => {
+      options.onProgress?.({ type: 'stored', data: { providerId: 1n, pieceCid: 'bafkzcibtest123' } })
+      options.onProgress?.({
+        type: 'pieceSyncStatus:retryUpdate',
+        data: {
+          serviceURL: 'https://a.example.com',
+          providerIndex: 1,
+          providerCount: 2,
+          providerAttempt: 1,
+          providerMaxAttempts: 20,
+        },
+      })
+      options.onProgress?.({
+        type: 'pieceSyncStatus:retryUpdate',
+        data: {
+          serviceURL: 'https://b.example.com',
+          providerIndex: 2,
+          providerCount: 2,
+          providerAttempt: 1,
+          providerMaxAttempts: 20,
+        },
+      })
+      options.onProgress?.({
+        type: 'pieceSyncStatus:providerSynced',
+        data: { serviceURL: 'https://a.example.com', providerIndex: 1, providerCount: 2 },
+      })
+      options.onProgress?.({
+        type: 'pieceSyncStatus:providerSynced',
+        data: { serviceURL: 'https://b.example.com', providerIndex: 2, providerCount: 2 },
+      })
+      options.onProgress?.({ type: 'pieceSyncStatus:complete', data: { providerCount: 2 } })
+
+      return { ...sampleResult, requestedCopies: 2, network: 'calibration' }
+    })
+
+    await performUpload({ chain: { id: 314159, name: 'calibration' } } as any, new Uint8Array([1, 2, 3, 4]), TEST_CID, {
+      contextType: 'add',
+      fileSize: 4,
+      logger: createLogger({ logLevel: 'info' }),
+      spinner,
+    })
+
+    expect(spinner.stop).toHaveBeenCalledWith(
+      expect.stringContaining('[1/2] Advertisement confirmed indexed on https://a.example.com')
+    )
+    expect(spinner.stop).toHaveBeenCalledWith(
+      expect.stringContaining('[2/2] Advertisement confirmed indexed on https://b.example.com')
+    )
+
+    const { log } = await import('../../utils/cli-logger.js')
+    const lines = vi.mocked(log.line).mock.calls.map(([m]) => m as string)
+    expect(lines.some((l) => l.includes('confirmed indexed on all 2 providers'))).toBe(true)
+  })
+
+  it('does not leave a stuck spinner entry for a still-polling sibling when piece-sync fails overall', async () => {
+    const spinner = { start: vi.fn(), message: vi.fn(), stop: vi.fn(), clear: vi.fn() }
+
+    mocks.executeUpload.mockImplementation(async (_synapse, _data, _rootCid, options) => {
+      options.onProgress?.({ type: 'stored', data: { providerId: 1n, pieceCid: 'bafkzcibtest123' } })
+      options.onProgress?.({
+        type: 'pieceSyncStatus:retryUpdate',
+        data: {
+          serviceURL: 'https://a.example.com',
+          providerIndex: 1,
+          providerCount: 2,
+          providerAttempt: 1,
+          providerMaxAttempts: 20,
+        },
+      })
+      options.onProgress?.({
+        type: 'pieceSyncStatus:retryUpdate',
+        data: {
+          serviceURL: 'https://b.example.com',
+          providerIndex: 2,
+          providerCount: 2,
+          providerAttempt: 1,
+          providerMaxAttempts: 20,
+        },
+      })
+      // Provider 1 syncs; provider 2 never does, so the group fails overall.
+      options.onProgress?.({
+        type: 'pieceSyncStatus:providerSynced',
+        data: { serviceURL: 'https://a.example.com', providerIndex: 1, providerCount: 2 },
+      })
+      options.onProgress?.({
+        type: 'pieceSyncStatus:failed',
+        data: {
+          error: new Error('Piece "x" not synced on "https://b.example.com" after 20 attempts'),
+          providerCount: 2,
+        },
+      })
+
+      // Mirrors real executeUpload: an indexing-confirmation failure is caught internally
+      // and surfaces as ipniValidated: false, not a rejection.
+      return { ...sampleResult, requestedCopies: 1, network: 'calibration', ipniValidated: false }
+    })
+
+    await performUpload({ chain: { id: 314159, name: 'calibration' } } as any, new Uint8Array([1, 2, 3, 4]), TEST_CID, {
+      contextType: 'add',
+      fileSize: 4,
+      logger: createLogger({ logLevel: 'info' }),
+      spinner,
+    })
+
+    expect(spinner.stop).toHaveBeenCalledWith(
+      expect.stringContaining('[1/2] Advertisement confirmed indexed on https://a.example.com')
+    )
+    expect(spinner.stop).toHaveBeenCalledWith(expect.stringContaining('Advertisement not confirmed indexed in time.'))
+    // No leftover "piece-sync-2" completion — it was discarded, not individually reported as done.
+    expect(spinner.stop).not.toHaveBeenCalledWith(expect.stringContaining('[2/2] Advertisement confirmed indexed'))
+  })
 })
 
 describe('truncate', () => {

@@ -113,9 +113,9 @@ This is a function of the CAR size and the throughput between the client and the
 
 *What/why:*
 
-At some point after receiving the uploaded [CAR](glossary.md#car), an SP indexing task processes the CAR and creates a local mapping of CIDs to offsets within the CAR so it can serve IPFS style retrievals.  Following that, an SP [IPNI](glossary.md#ipni) tasks picks up the local index, makes and IPNI advertisement chain, and then announces the advertisement chain to IPNI indexers like filecoinpin.contact and cid.contact so they know to come and get the advertisement chain to build up their own index.
+At some point after receiving the uploaded [CAR](glossary.md#car), an SP indexing task processes the CAR and creates a local mapping of CIDs to offsets within the CAR so it can serve IPFS style retrievals.  Following that, an SP [IPNI](glossary.md#ipni) tasks picks up the local index, makes and IPNI advertisement chain, and then announces the advertisement chain to IPNI indexers like cid.contact so they know to come and get the advertisement chain to build up their own index.
 
-Filecoin Pin validates the IPNI advertisement process by polling `https://filecoinpin.contact/cid/$cid` (NOT cid.contact due to [negative caching issues discussed below](#how-long-does-an-ipni-indexer-cache-results)). 
+Filecoin Pin validates the IPNI advertisement process in two steps: first it polls the SP's `GET /pdp/piece/{pieceCid}/status` endpoint until it reports `synced: true`. (Behind the scenes, the SP checks the IPNI instance's own sync-status endpoint on Filecoin Pin's behalf.  This was added in [curio#1450](https://github.com/filecoin-project/curio/pull/1450)). Then, once synced, Filecoin Pin makes a single confirming query to `https://cid.contact/cid/$cid` to verify the expected provider actually shows up. Querying cid.contact directly before that confirmation is avoided due to [negative caching issues](content-routing-faq.md#how-long-does-an-ipni-indexer-cache-results).
 
 *Outputs:*
 

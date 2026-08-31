@@ -147,6 +147,15 @@ export class MultiOperationSpinner {
   }
 
   /**
+   * Drop a tracked operation without printing anything, for a caller reporting its
+   * outcome through a different channel. Leaves the spinner running/idle as-is.
+   * @param id - Operation identifier
+   */
+  discardOperation(id: string): void {
+    this.operations.delete(id)
+  }
+
+  /**
    * Complete an operation
    * @param id - Operation identifier
    * @param message - Completion message
