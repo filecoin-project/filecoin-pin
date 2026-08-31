@@ -56,5 +56,4 @@ export type {
   IndexingConfirmationProgressEvents,
   ValidateIPNIProgressEvents,
   WaitForIndexingConfirmationOptions,
-  /** @deprecated Use {@link CheckIpniIndexerOptions}. */
 } from './core/utils/validate-ipni-advertisement.js'
