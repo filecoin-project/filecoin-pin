@@ -118,7 +118,7 @@ vi.mock('../../core/payments/index.js', async () => {
   }
 })
 vi.mock('../../core/utils/validate-ipni-advertisement.js', () => ({
-  waitForIpniProviderResults: vi.fn().mockResolvedValue(true),
+  waitForIndexingConfirmation: vi.fn().mockResolvedValue(true),
 }))
 
 vi.mock('../../payments/setup.js', () => ({

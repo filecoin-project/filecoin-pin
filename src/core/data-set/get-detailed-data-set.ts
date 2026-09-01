@@ -47,7 +47,6 @@ export async function getDetailedDataSet(
     }
 
     const piecesResult = await getDataSetPieces(synapse, dataSetId, pdpDataSet.provider.pdp?.serviceURL ?? '', {
-      includeMetadata: true,
       logger,
     })
 

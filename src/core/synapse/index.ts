@@ -8,9 +8,9 @@
  * @module core/synapse
  */
 
-import { type Chain, calibration, mainnet, Synapse, type SynapseOptions } from '@filoz/synapse-sdk'
+import { calibration, type FilecoinChain, mainnet, Synapse, type SynapseOptions } from '@filoz/synapse-sdk'
 
-export { calibration, mainnet, type Chain }
+export { calibration, mainnet, type FilecoinChain }
 
 import type { SessionKey } from '@filoz/synapse-core/session-key'
 import {
@@ -52,7 +52,7 @@ export interface Config {
   /** Allow the pinning server to start without an access token, serving all requests unauthenticated. */
   allowNoAuth?: boolean
   rpcUrl: string
-  chain?: Chain
+  chain?: FilecoinChain
   databasePath: string
   carStoragePath: string
   logLevel: string
@@ -65,7 +65,7 @@ interface BaseSynapseConfig {
   /** RPC endpoint for the target Filecoin network. Defaults to mainnet chain transport. */
   rpcUrl?: string
   /** Target chain. Defaults to mainnet. */
-  chain?: Chain
+  chain?: FilecoinChain
   /** Enable CDN service for datasets */
   withCDN?: boolean
   /** Default metadata to apply when creating datasets */
@@ -191,7 +191,7 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
     assertSessionKeyPrivateKey(config.sessionKey)
   }
 
-  let chain: Chain
+  let chain: FilecoinChain
   let rpcUrl: string | undefined
   let transport: HttpTransport | WebSocketTransport | undefined
 

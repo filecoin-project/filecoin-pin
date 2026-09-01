@@ -70,7 +70,7 @@ describe('provider command', () => {
     vi.clearAllMocks()
 
     // Configure default mock behaviors
-    mockGetApprovedProviders.mockResolvedValue([1n, 2n])
+    mockGetApprovedProviders.mockResolvedValue({ items: [1n, 2n] })
     mockGetEndorsedProviderIds.mockResolvedValue([1n])
 
     mockGetProvider.mockImplementation(async ({ providerId }: any) => {
@@ -120,6 +120,19 @@ describe('provider command', () => {
   it('list command should list all approved providers when no arg is passed', async () => {
     await runProviderList({})
     expect(mockGetApprovedProviders).toHaveBeenCalled()
+    expect(mockGetProvider).toHaveBeenCalledWith({ providerId: 1n })
+    expect(mockGetProvider).toHaveBeenCalledWith({ providerId: 2n })
+  })
+
+  it('passes approved-provider cursors through unchanged until all pages are loaded', async () => {
+    mockGetApprovedProviders
+      .mockResolvedValueOnce({ items: [1n], nextCursor: 27n })
+      .mockResolvedValueOnce({ items: [2n] })
+
+    await runProviderList({})
+
+    expect(mockGetApprovedProviders).toHaveBeenNthCalledWith(1, mockSynapse.client, { cursor: 0n })
+    expect(mockGetApprovedProviders).toHaveBeenNthCalledWith(2, mockSynapse.client, { cursor: 27n })
     expect(mockGetProvider).toHaveBeenCalledWith({ providerId: 1n })
     expect(mockGetProvider).toHaveBeenCalledWith({ providerId: 2n })
   })

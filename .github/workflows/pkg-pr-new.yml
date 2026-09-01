@@ -1,0 +1,50 @@
+name: Pkg PR New
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+concurrency:
+  group: pkg-pr-new-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Fails fast instead of riding the default 6h limit.
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          run_install: false
+
+      - name: Use Node.js lts/*
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 'lts/*'
+          check-latest: true
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      # Publishes a preview of the `filecoin-pin` root package only.
+      # `upload-action` is private and excluded by not passing its path.
+      - name: Publish preview package
+        run: pnpm exec pkg-pr-new publish --pnpm

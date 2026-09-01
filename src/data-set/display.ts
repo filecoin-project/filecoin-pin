@@ -1,4 +1,3 @@
-import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import type { DataSetSummary, PieceInfo } from '../core/data-set/types.js'
 import { PieceStatus } from '../core/data-set/types.js'
@@ -55,8 +54,8 @@ function renderNetworkDetails(network: string, address: string): void {
   log.line('')
 }
 
-function activePieceCount(dataSet: Pick<DataSetSummary, 'activePieceCount'>): bigint {
-  return dataSet.activePieceCount ?? 0n
+function activePiecePresence(dataSet: Pick<DataSetSummary, 'hasActivePieces'>): string {
+  return dataSet.hasActivePieces ? 'yes' : 'no'
 }
 
 function centerCell(cell: string, width: number): string {
@@ -156,8 +155,8 @@ function renderPaymentDetails(dataSet: DataSetSummary, indentLevel: number = 0):
 /**
  * Render metadata key-value pairs with consistent indentation.
  */
-function renderMetadata(metadata: Record<string, string>, indentLevel: number = 1, title: string = 'Metadata'): void {
-  log.indent(pc.bold(title), indentLevel)
+function renderMetadata(metadata: Record<string, string>, indentLevel: number = 1): void {
+  log.indent(pc.bold('Metadata'), indentLevel)
   const entries = Object.entries(metadata)
   if (entries.length === 0) {
     log.indent(pc.gray('none'), indentLevel + 1)
@@ -172,7 +171,7 @@ function renderMetadata(metadata: Record<string, string>, indentLevel: number = 
 }
 
 /**
- * Render a single piece entry including CommP, root CID, size, and extra metadata.
+ * Render a single piece entry including PieceCID, size, and reconciled status.
  */
 function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
   const sizeDisplay = piece.size != null ? formatFileSize(piece.size) : pc.gray('unknown')
@@ -198,13 +197,12 @@ function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
   log.indent(pc.bold(`#${piece.pieceId} (${pieceStatusDisplay})`), baseIndentLevel)
   log.indent(`PieceCID: ${piece.pieceCid}`, baseIndentLevel + 1)
   log.indent(`Size: ${sizeDisplay}`, baseIndentLevel + 1)
-  const extraMetadataEntries = Object.entries(piece.metadata ?? {})
-  renderMetadata(Object.fromEntries(extraMetadataEntries), baseIndentLevel + 1)
+  log.line('')
 }
 
 function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
   log.indent(pc.bold('Pieces'), indentLevel)
-  log.indent(`Total: ${dataSet.activePieceCount}`, indentLevel + 1)
+  log.indent(`Has active pieces: ${activePiecePresence(dataSet)}`, indentLevel + 1)
 
   if (dataSet.pieces == null) {
     log.line('')
@@ -222,12 +220,8 @@ function renderPieces(dataSet: DataSetSummary, indentLevel: number = 0): void {
     return
   }
   const uniqueCommPs = new Set(dataSet.pieces.map((p) => p.pieceCid))
-  const uniqueRootCids = new Set(
-    dataSet.pieces.map((p) => p.rootIpfsCid ?? p.metadata?.[METADATA_KEYS.IPFS_ROOT_CID]).filter(Boolean)
-  )
   log.indent(`Total size: ${formatBytes(dataSet.totalSizeBytes)}`, indentLevel + 1)
   log.indent(`Unique PieceCIDs: ${uniqueCommPs.size}`, indentLevel + 1)
-  log.indent(`Unique IPFS Root CIDs: ${uniqueRootCids.size}`, indentLevel + 1)
   log.line('')
 
   for (const piece of dataSet.pieces) {
@@ -282,12 +276,12 @@ export function displayDataSetList(
 
   const ordered = [...dataSets].sort((a, b) => (a.dataSetId < b.dataSetId ? -1 : a.dataSetId > b.dataSetId ? 1 : 0))
   const tableRows = [
-    ['ID', 'Status', 'Provider ID', 'Pieces', 'CDN'],
+    ['ID', 'Status', 'Provider ID', 'Has Pieces', 'CDN'],
     ...ordered.map((dataSet) => [
       dataSet.dataSetId.toString(),
       plainStatusLabel(dataSet),
       dataSet.providerId.toString(),
-      activePieceCount(dataSet).toString(),
+      activePiecePresence(dataSet),
       dataSet.withCDN ? 'enabled' : 'disabled',
     ]),
   ]
@@ -296,10 +290,10 @@ export function displayDataSetList(
     log.line(line)
   }
 
-  const totalPieces = ordered.reduce((sum, dataSet) => sum + activePieceCount(dataSet), 0n)
+  const dataSetsWithPieces = ordered.filter((dataSet) => dataSet.hasActivePieces).length
 
   log.line('')
-  log.line(`${ordered.length} data sets, ${totalPieces} active pieces`)
+  log.line(`${ordered.length} data sets, ${dataSetsWithPieces} with active pieces`)
   log.line('Run `filecoin-pin data-set show <id>` for full details.')
   log.flush()
 }

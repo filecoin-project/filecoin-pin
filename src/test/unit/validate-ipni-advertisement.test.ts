@@ -1,48 +1,57 @@
 import type { PDPProvider } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { waitForIpniProviderResults } from '../../core/utils/validate-ipni-advertisement.js'
+import {
+  checkIpniIndexer,
+  IndexerMismatchError,
+  waitForIndexingConfirmation,
+} from '../../core/utils/validate-ipni-advertisement.js'
 
-describe('waitForIpniProviderResults', () => {
-  const testCid = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
-  const defaultIndexerUrl = 'https://filecoinpin.contact'
-  const mockFetch = vi.fn()
+const createPDPProvider = (serviceURL: string): PDPProvider =>
+  ({
+    id: 1234n,
+    serviceProvider: 'f01234',
+    name: 'Test Provider',
+    description: '',
+    isActive: true,
+    payee: '0x0000000000000000000000000000000000000000',
+    pdp: {
+      serviceURL,
+    },
+  }) as unknown as PDPProvider
 
-  const createPDPProvider = (serviceURL: string): PDPProvider =>
-    ({
-      id: 1234n,
-      serviceProvider: 'f01234',
-      name: 'Test Provider',
-      description: '',
-      isActive: true,
-      payee: '0x0000000000000000000000000000000000000000',
-      pdp: {
-        serviceURL,
+const successResponse = (multiaddrs: string[] = ['/dns/example.com/tcp/443/https']) => ({
+  ok: true,
+  json: vi.fn(async () => ({
+    MultihashResults: [
+      {
+        ProviderResults: multiaddrs.map((addr, index) => ({
+          Provider: {
+            ID: `12D3KooWProvider${index}`,
+            Addrs: [addr],
+          },
+        })),
       },
-    }) as unknown as PDPProvider
+    ],
+  })),
+})
 
-  const successResponse = (multiaddrs: string[] = ['/dns/example.com/tcp/443/https']) => ({
-    ok: true,
-    json: vi.fn(async () => ({
-      MultihashResults: [
-        {
-          ProviderResults: multiaddrs.map((addr, index) => ({
-            Provider: {
-              ID: `12D3KooWProvider${index}`,
-              Addrs: [addr],
-            },
-          })),
-        },
-      ],
-    })),
-  })
+const emptyProviderResponse = () => ({
+  ok: true,
+  json: vi.fn(async () => ({
+    MultihashResults: [],
+  })),
+})
 
-  const emptyProviderResponse = () => ({
-    ok: true,
-    json: vi.fn(async () => ({
-      MultihashResults: [],
-    })),
-  })
+const pieceStatusResponse = (synced: boolean) => ({
+  ok: true,
+  json: vi.fn(async () => ({ synced })),
+})
+
+describe('checkIpniIndexer', () => {
+  const testCid = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
+  const defaultIndexerUrl = 'https://cid.contact'
+  const mockFetch = vi.fn()
 
   beforeEach(() => {
     vi.stubGlobal('fetch', mockFetch)
@@ -60,7 +69,7 @@ describe('waitForIpniProviderResults', () => {
       mockFetch.mockResolvedValueOnce(successResponse())
       const onProgress = vi.fn()
 
-      const promise = waitForIpniProviderResults(testCid, { onProgress })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, onProgress })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -91,7 +100,7 @@ describe('waitForIpniProviderResults', () => {
         .mockResolvedValueOnce(successResponse())
 
       const onProgress = vi.fn()
-      const promise = waitForIpniProviderResults(testCid, { maxAttempts: 5, onProgress })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, maxAttempts: 5, onProgress })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -134,7 +143,7 @@ describe('waitForIpniProviderResults', () => {
       const expectedMultiaddr = '/dns/example.com/tcp/443/https'
       mockFetch.mockResolvedValueOnce(successResponse([expectedMultiaddr]))
 
-      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [provider] })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, expectedProviders: [provider] })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -149,7 +158,7 @@ describe('waitForIpniProviderResults', () => {
       // Curio now advertises /dns/host/https instead of /dns/host/tcp/443/https
       mockFetch.mockResolvedValueOnce(successResponse(['/dns/example.com/https']))
 
-      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [provider] })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, expectedProviders: [provider] })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -160,7 +169,7 @@ describe('waitForIpniProviderResults', () => {
       const provider = createPDPProvider('http://example.com')
       mockFetch.mockResolvedValueOnce(successResponse(['/dns/example.com/http']))
 
-      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [provider] })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, expectedProviders: [provider] })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -171,7 +180,7 @@ describe('waitForIpniProviderResults', () => {
       const provider = createPDPProvider('https://example.com/api/v1')
       mockFetch.mockResolvedValueOnce(successResponse(['/dns/example.com/tcp/443/https/http-path/api%2Fv1']))
 
-      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [provider] })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, expectedProviders: [provider] })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -182,7 +191,7 @@ describe('waitForIpniProviderResults', () => {
       const provider = createPDPProvider('https://example.com/api/v1')
       mockFetch.mockResolvedValueOnce(successResponse(['/dns/example.com/https/http-path/api%2Fv1']))
 
-      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [provider] })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, expectedProviders: [provider] })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -194,7 +203,7 @@ describe('waitForIpniProviderResults', () => {
       // multiaddrToUri strips trailing slashes, so both sides normalize to https://example.com/api/v1
       mockFetch.mockResolvedValueOnce(successResponse(['/dns/example.com/https/http-path/api%2Fv1']))
 
-      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [provider] })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, expectedProviders: [provider] })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -208,7 +217,10 @@ describe('waitForIpniProviderResults', () => {
 
       mockFetch.mockResolvedValueOnce(successResponse(expectedMultiaddrs))
 
-      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [providerA, providerB] })
+      const promise = checkIpniIndexer(testCid, {
+        ipniIndexerUrl: defaultIndexerUrl,
+        expectedProviders: [providerA, providerB],
+      })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -220,7 +232,11 @@ describe('waitForIpniProviderResults', () => {
       mockFetch.mockResolvedValueOnce(successResponse()).mockResolvedValueOnce(successResponse())
       const onProgress = vi.fn()
 
-      const promise = waitForIpniProviderResults(testCid, { childBlocks: [childCid], onProgress })
+      const promise = checkIpniIndexer(testCid, {
+        ipniIndexerUrl: defaultIndexerUrl,
+        childBlocks: [childCid],
+        onProgress,
+      })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -259,7 +275,12 @@ describe('waitForIpniProviderResults', () => {
       mockFetch.mockResolvedValueOnce(successResponse()).mockResolvedValueOnce({ ok: false })
       const onProgress = vi.fn()
 
-      const promise = waitForIpniProviderResults(testCid, { childBlocks: [childCid], maxAttempts: 1, onProgress })
+      const promise = checkIpniIndexer(testCid, {
+        ipniIndexerUrl: defaultIndexerUrl,
+        childBlocks: [childCid],
+        maxAttempts: 1,
+        onProgress,
+      })
       const expectPromise = expect(promise).rejects.toThrow(
         `IPFS CID "${childCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt`
       )
@@ -292,7 +313,7 @@ describe('waitForIpniProviderResults', () => {
     it('should reject after custom maxAttempts and emit a failed event', async () => {
       mockFetch.mockResolvedValue({ ok: false })
       const onProgress = vi.fn()
-      const promise = waitForIpniProviderResults(testCid, { maxAttempts: 3, onProgress })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, maxAttempts: 3, onProgress })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow(
         `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 3 attempts`
@@ -336,7 +357,7 @@ describe('waitForIpniProviderResults', () => {
     it('should reject immediately when maxAttempts is 1', async () => {
       mockFetch.mockResolvedValue({ ok: false })
 
-      const promise = waitForIpniProviderResults(testCid, { maxAttempts: 1 })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, maxAttempts: 1 })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow(
         `IPFS CID "${testCid.toString()}" does not have expected IPNI ProviderResults after 1 attempt`
@@ -350,7 +371,8 @@ describe('waitForIpniProviderResults', () => {
       const provider = createPDPProvider('https://expected.example.com')
       mockFetch.mockResolvedValueOnce(successResponse(['/dns/other.example.com/tcp/443/https']))
 
-      const promise = waitForIpniProviderResults(testCid, {
+      const promise = checkIpniIndexer(testCid, {
+        ipniIndexerUrl: defaultIndexerUrl,
         maxAttempts: 1,
         expectedProviders: [provider],
       })
@@ -367,7 +389,8 @@ describe('waitForIpniProviderResults', () => {
       const providerB = createPDPProvider('https://b.example.com')
       mockFetch.mockResolvedValueOnce(successResponse(['/dns/a.example.com/tcp/443/https']))
 
-      const promise = waitForIpniProviderResults(testCid, {
+      const promise = checkIpniIndexer(testCid, {
+        ipniIndexerUrl: defaultIndexerUrl,
         maxAttempts: 1,
         expectedProviders: [providerA, providerB],
       })
@@ -386,7 +409,8 @@ describe('waitForIpniProviderResults', () => {
         .mockResolvedValueOnce(successResponse(['/dns/other.example.com/tcp/443/https']))
         .mockResolvedValueOnce(successResponse([expectedMultiaddr]))
 
-      const promise = waitForIpniProviderResults(testCid, {
+      const promise = checkIpniIndexer(testCid, {
+        ipniIndexerUrl: defaultIndexerUrl,
         maxAttempts: 3,
         expectedProviders: [provider],
         delayMs: 1,
@@ -406,7 +430,8 @@ describe('waitForIpniProviderResults', () => {
         .mockResolvedValueOnce(emptyProviderResponse())
         .mockResolvedValueOnce(successResponse([expectedMultiaddr]))
 
-      const promise = waitForIpniProviderResults(testCid, {
+      const promise = checkIpniIndexer(testCid, {
+        ipniIndexerUrl: defaultIndexerUrl,
         maxAttempts: 3,
         expectedProviders: [provider],
         delayMs: 1,
@@ -425,7 +450,7 @@ describe('waitForIpniProviderResults', () => {
       const abortController = new AbortController()
       abortController.abort()
 
-      const promise = waitForIpniProviderResults(testCid, { signal: abortController.signal })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, signal: abortController.signal })
       // Attach rejection handler immediately
       const expectPromise = expect(promise).rejects.toThrow('Check IPNI announce aborted')
 
@@ -438,7 +463,11 @@ describe('waitForIpniProviderResults', () => {
       const abortController = new AbortController()
       mockFetch.mockResolvedValue({ ok: false })
 
-      const promise = waitForIpniProviderResults(testCid, { signal: abortController.signal, maxAttempts: 5 })
+      const promise = checkIpniIndexer(testCid, {
+        ipniIndexerUrl: defaultIndexerUrl,
+        signal: abortController.signal,
+        maxAttempts: 5,
+      })
 
       // Let first check complete
       await vi.advanceTimersByTimeAsync(0)
@@ -460,7 +489,7 @@ describe('waitForIpniProviderResults', () => {
       const abortController = new AbortController()
       mockFetch.mockResolvedValueOnce(successResponse())
 
-      const promise = waitForIpniProviderResults(testCid, { signal: abortController.signal })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, signal: abortController.signal })
       await vi.runAllTimersAsync()
       await promise
 
@@ -475,7 +504,7 @@ describe('waitForIpniProviderResults', () => {
     it('should retry when fetch throws before succeeding within maxAttempts', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network error')).mockResolvedValueOnce(successResponse())
 
-      const promise = waitForIpniProviderResults(testCid, { maxAttempts: 2, delayMs: 1 })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, maxAttempts: 2, delayMs: 1 })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -487,7 +516,7 @@ describe('waitForIpniProviderResults', () => {
       const v0Cid = CID.parse('QmNT6isqrhH6LZWg8NeXQYTD9wPjJo2BHHzyezpf9BdHbD')
       mockFetch.mockResolvedValueOnce(successResponse())
 
-      const promise = waitForIpniProviderResults(v0Cid, {})
+      const promise = checkIpniIndexer(v0Cid, { ipniIndexerUrl: defaultIndexerUrl })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -514,7 +543,7 @@ describe('waitForIpniProviderResults', () => {
         })),
       })
 
-      const promise = waitForIpniProviderResults(testCid, { maxAttempts: 1 })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, maxAttempts: 1 })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -535,7 +564,10 @@ describe('waitForIpniProviderResults', () => {
 
       mockFetch.mockResolvedValueOnce(successResponse())
 
-      const promise = waitForIpniProviderResults(testCid, { expectedProviders: [providerWithoutURL] })
+      const promise = checkIpniIndexer(testCid, {
+        ipniIndexerUrl: defaultIndexerUrl,
+        expectedProviders: [providerWithoutURL],
+      })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -550,7 +582,7 @@ describe('waitForIpniProviderResults', () => {
         }),
       })
 
-      const promise = waitForIpniProviderResults(testCid, { maxAttempts: 1 })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, maxAttempts: 1 })
       // Should preserve the specific "Failed to parse" message, not overwrite with generic message
       const expectPromise = expect(promise).rejects.toThrow('Failed to parse IPNI response body')
 
@@ -569,7 +601,8 @@ describe('waitForIpniProviderResults', () => {
         }),
       })
 
-      const promise = waitForIpniProviderResults(testCid, {
+      const promise = checkIpniIndexer(testCid, {
+        ipniIndexerUrl: defaultIndexerUrl,
         maxAttempts: 2,
         expectedProviders: [provider],
       })
@@ -595,7 +628,7 @@ describe('waitForIpniProviderResults', () => {
         })
         .mockResolvedValueOnce(emptyProviderResponse())
 
-      const promise = waitForIpniProviderResults(testCid, { maxAttempts: 2 })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: defaultIndexerUrl, maxAttempts: 2 })
 
       const expectPromise = expect(promise).rejects.toThrow(
         'Last observation: IPNI response did not include any provider results'
@@ -609,7 +642,7 @@ describe('waitForIpniProviderResults', () => {
       const customIndexerUrl = 'https://custom-indexer.example.com'
       mockFetch.mockResolvedValueOnce(successResponse())
 
-      const promise = waitForIpniProviderResults(testCid, { ipniIndexerUrl: customIndexerUrl })
+      const promise = checkIpniIndexer(testCid, { ipniIndexerUrl: customIndexerUrl })
       await vi.runAllTimersAsync()
       const result = await promise
 
@@ -618,5 +651,372 @@ describe('waitForIpniProviderResults', () => {
         headers: { Accept: 'application/json' },
       })
     })
+  })
+})
+
+describe('waitForIndexingConfirmation', () => {
+  const testCid = CID.parse('bafkreia5fn4rmshmb7cl7fufkpcw733b5anhuhydtqstnglpkzosqln5kq')
+  const testPieceCid = CID.parse('bafkreia7wx2ue2r5x2bwsxns2r4jtrsu7dzw2r3abjtw3obqckm3w2b2mu')
+  const mockFetch = vi.fn()
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch)
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    vi.useRealTimers()
+  })
+
+  it('should poll piece-status until synced, then confirm via the indexer', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    mockFetch
+      .mockResolvedValueOnce(pieceStatusResponse(false))
+      .mockResolvedValueOnce(pieceStatusResponse(true))
+      .mockResolvedValueOnce(successResponse(['/dns/sp.example.com/tcp/443/https']))
+    const onProgress = vi.fn()
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      onProgress,
+    })
+    await vi.runAllTimersAsync()
+    const result = await promise
+
+    expect(result).toBe(true)
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      1,
+      `https://sp.example.com/pdp/piece/${encodeURIComponent(testPieceCid.toString())}/status`,
+      { headers: { Accept: 'application/json' }, signal: expect.any(AbortSignal) }
+    )
+    expect(mockFetch).toHaveBeenNthCalledWith(3, `https://cid.contact/cid/${testCid}`, {
+      headers: { Accept: 'application/json' },
+    })
+
+    expect(onProgress).toHaveBeenCalledWith({
+      type: 'pieceSyncStatus:providerSynced',
+      data: { serviceURL: 'https://sp.example.com', providerIndex: 1, providerCount: 1 },
+    })
+    expect(onProgress).toHaveBeenCalledWith({
+      type: 'pieceSyncStatus:complete',
+      data: { providerCount: 1 },
+    })
+    expect(onProgress).toHaveBeenCalledWith({
+      type: 'ipniProviderResults:complete',
+      data: { result: true, retryCount: 0 },
+    })
+  })
+
+  it('should poll every expected provider concurrently before confirming', async () => {
+    const providerA = createPDPProvider('https://a.example.com')
+    const providerB = createPDPProvider('https://b.example.com')
+    mockFetch.mockImplementation(async (url: string) => {
+      if (url.includes('a.example.com')) return pieceStatusResponse(true)
+      if (url.includes('b.example.com')) return pieceStatusResponse(true)
+      return successResponse(['/dns/a.example.com/tcp/443/https', '/dns/b.example.com/tcp/443/https'])
+    })
+    const onProgress = vi.fn()
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [providerA, providerB],
+      onProgress,
+    })
+    await vi.runAllTimersAsync()
+    const result = await promise
+
+    expect(result).toBe(true)
+    expect(mockFetch).toHaveBeenCalledWith(
+      `https://a.example.com/pdp/piece/${encodeURIComponent(testPieceCid.toString())}/status`,
+      { headers: { Accept: 'application/json' }, signal: expect.any(AbortSignal) }
+    )
+    expect(mockFetch).toHaveBeenCalledWith(
+      `https://b.example.com/pdp/piece/${encodeURIComponent(testPieceCid.toString())}/status`,
+      { headers: { Accept: 'application/json' }, signal: expect.any(AbortSignal) }
+    )
+
+    expect(onProgress).toHaveBeenCalledWith({
+      type: 'pieceSyncStatus:providerSynced',
+      data: { serviceURL: 'https://a.example.com', providerIndex: 1, providerCount: 2 },
+    })
+    expect(onProgress).toHaveBeenCalledWith({
+      type: 'pieceSyncStatus:providerSynced',
+      data: { serviceURL: 'https://b.example.com', providerIndex: 2, providerCount: 2 },
+    })
+    expect(onProgress).toHaveBeenCalledWith({
+      type: 'pieceSyncStatus:complete',
+      data: { providerCount: 2 },
+    })
+  })
+
+  it('should reject with a plain error, and never touch the indexer, when a provider never reports synced', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    mockFetch.mockResolvedValue(pieceStatusResponse(false))
+    const onProgress = vi.fn()
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      maxAttempts: 2,
+      delayMs: 1,
+      onProgress,
+    })
+    const expectPromise = expect(promise).rejects.not.toBeInstanceOf(IndexerMismatchError)
+
+    await vi.runAllTimersAsync()
+    await expectPromise
+
+    expect(onProgress).toHaveBeenCalledWith({
+      type: 'pieceSyncStatus:failed',
+      data: { error: expect.any(Error), providerCount: 1 },
+    })
+    // No fallback: a plain piece-status timeout doesn't touch the indexer.
+    expect(mockFetch).not.toHaveBeenCalledWith(expect.stringContaining('cid.contact'), expect.anything())
+  })
+
+  it('should throw IndexerMismatchError when Curio confirms synced but the indexer still disagrees', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    mockFetch.mockResolvedValueOnce(pieceStatusResponse(true)).mockResolvedValue(emptyProviderResponse())
+    const onProgress = vi.fn()
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      indexerMaxAttempts: 1,
+      onProgress,
+    })
+    const expectPromise = expect(promise).rejects.toBeInstanceOf(IndexerMismatchError)
+
+    await vi.runAllTimersAsync()
+    await expectPromise
+
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ type: 'indexingConfirmation:mismatch' }))
+    // The underlying ipniProviderResults:failed is suppressed to avoid double-reporting.
+    expect(onProgress).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'ipniProviderResults:failed' }))
+  })
+
+  it('should propagate a plain error, not IndexerMismatchError, when the confirming query itself fails', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    mockFetch.mockResolvedValueOnce(pieceStatusResponse(true)).mockRejectedValue(new Error('network down'))
+    const onProgress = vi.fn()
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      indexerMaxAttempts: 1,
+      onProgress,
+    })
+    const expectPromise = expect(promise).rejects.not.toBeInstanceOf(IndexerMismatchError)
+
+    await vi.runAllTimersAsync()
+    await expectPromise
+
+    expect(onProgress).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'indexingConfirmation:mismatch' }))
+    // Nothing else reports this failure, so it must still reach the caller.
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ type: 'ipniProviderResults:failed' }))
+  })
+
+  it('should treat a 404 from the confirming query as a genuine mismatch, not a query failure', async () => {
+    // cid.contact returns 404 (not a 200 with an empty body) for a CID it hasn't indexed yet.
+    const provider = createPDPProvider('https://sp.example.com')
+    mockFetch.mockResolvedValueOnce(pieceStatusResponse(true)).mockResolvedValue({ ok: false, status: 404 })
+    const onProgress = vi.fn()
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      indexerMaxAttempts: 1,
+      onProgress,
+    })
+    const expectPromise = expect(promise).rejects.toBeInstanceOf(IndexerMismatchError)
+
+    await vi.runAllTimersAsync()
+    await expectPromise
+
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ type: 'indexingConfirmation:mismatch' }))
+    expect(onProgress).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'ipniProviderResults:failed' }))
+  })
+
+  it('should report the configured indexer on the mismatch, not a hardcoded cid.contact', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    mockFetch.mockResolvedValueOnce(pieceStatusResponse(true)).mockResolvedValue(emptyProviderResponse())
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      indexerMaxAttempts: 1,
+      ipniIndexerUrl: 'https://custom-indexer.example.com',
+    })
+    const expectPromise = expect(promise).rejects.toMatchObject({
+      name: 'IndexerMismatchError',
+      ipniIndexerUrl: 'https://custom-indexer.example.com',
+      pieceCid: testPieceCid.toString(),
+    })
+
+    await vi.runAllTimersAsync()
+    await expectPromise
+  })
+
+  it('should propagate a plain abort, not IndexerMismatchError, when the caller cancels during the final confirming check', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    const abortController = new AbortController()
+    mockFetch.mockImplementation(async (url: string) => {
+      if (url.includes('/piece/')) return pieceStatusResponse(true)
+      return { ok: false }
+    })
+    const onProgress = vi.fn()
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      indexerMaxAttempts: 5,
+      signal: abortController.signal,
+      onProgress,
+    })
+
+    // Let piece-status confirm and the first indexer check happen
+    await vi.advanceTimersByTimeAsync(0)
+    abortController.abort()
+
+    const expectPromise = expect(promise).rejects.not.toBeInstanceOf(IndexerMismatchError)
+    await vi.runAllTimersAsync()
+    await expectPromise
+    await expect(promise).rejects.toThrow('This operation was aborted')
+
+    expect(onProgress).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'indexingConfirmation:mismatch' }))
+  })
+
+  it('should fail immediately when the provider predates the synced field', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    // curio before v1.28.6 has no `synced` field in its piece status
+    mockFetch.mockResolvedValue({ ok: true, json: vi.fn(async () => ({})) })
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      maxAttempts: 20,
+      delayMs: 5000,
+    })
+    const rejection = expect(promise).rejects.toThrow('needs Curio v1.28.6 or newer')
+    await vi.runAllTimersAsync()
+    await rejection
+
+    // one poll, not 20, and the indexer is never queried
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('should stop the piece-sync wait on abort without riding out delayMs', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    const abortController = new AbortController()
+    mockFetch.mockResolvedValue(pieceStatusResponse(false))
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      maxAttempts: 20,
+      delayMs: 60_000,
+      signal: abortController.signal,
+    })
+
+    // first poll resolves, so we are now inside the 60s inter-attempt wait
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+
+    const rejection = expect(promise).rejects.toThrow()
+    abortController.abort()
+    await rejection
+
+    // no timer advance was needed, and the abort did not trigger another poll
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('should propagate a plain abort, not report pieceSyncStatus:failed, when the caller cancels during piece-sync polling', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    const abortController = new AbortController()
+    mockFetch.mockResolvedValue(pieceStatusResponse(false))
+    const onProgress = vi.fn()
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      maxAttempts: 20,
+      delayMs: 1000,
+      signal: abortController.signal,
+      onProgress,
+    })
+
+    await vi.advanceTimersByTimeAsync(0)
+    abortController.abort()
+
+    const expectPromise = expect(promise).rejects.toThrow('This operation was aborted')
+    await vi.runAllTimersAsync()
+    await expectPromise
+
+    expect(onProgress).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'pieceSyncStatus:failed' }))
+  })
+
+  it('should reject immediately, without a misleading retry log, when an in-flight piece-status fetch is aborted', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    const abortController = new AbortController()
+    mockFetch.mockImplementation((_url: string, init: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'))
+        })
+      })
+    })
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider],
+      maxAttempts: 20,
+      delayMs: 1000,
+      signal: abortController.signal,
+    })
+
+    await vi.advanceTimersByTimeAsync(0)
+    abortController.abort()
+
+    await expect(promise).rejects.toThrow('This operation was aborted')
+    // Only the one in-flight call — the abort short-circuits the catch instead of retrying.
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('should fail immediately, without querying the indexer, when there are no expected providers', async () => {
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {})
+
+    await expect(promise).rejects.toThrow(/requires expectedProviders/)
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('should reject rather than silently poll fewer providers when one is missing a serviceURL', async () => {
+    const provider = createPDPProvider('https://sp.example.com')
+    const providerWithoutURL = { ...provider, id: 999n, pdp: {} } as unknown as PDPProvider
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [provider, providerWithoutURL],
+    })
+
+    await expect(promise).rejects.toThrow(/missing a PDP serviceURL/)
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('should abort a sibling provider poll once another exhausts its attempts', async () => {
+    const providerA = createPDPProvider('https://a.example.com')
+    const providerB = createPDPProvider('https://b.example.com')
+    // B is slow enough that A exhausts and aborts it before B's next signal check.
+    mockFetch.mockImplementation(async (url: string) => {
+      if (url.includes('b.example.com')) {
+        return new Promise((resolve) => setTimeout(() => resolve(pieceStatusResponse(false)), 100_000))
+      }
+      return pieceStatusResponse(false)
+    })
+
+    const promise = waitForIndexingConfirmation(testCid, testPieceCid, {
+      expectedProviders: [providerA, providerB],
+      maxAttempts: 3,
+      delayMs: 10,
+    })
+    const expectPromise = expect(promise).rejects.toThrow()
+
+    await vi.runAllTimersAsync()
+    await expectPromise
+
+    const bCalls = mockFetch.mock.calls.filter((call: unknown[]) =>
+      (call[0] as string).includes('b.example.com')
+    ).length
+    // Without aborting siblings, B would keep polling up to its own maxAttempts (3).
+    expect(bCalls).toBe(1)
   })
 })

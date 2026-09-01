@@ -5,7 +5,7 @@
  * and preparing them for use with the Synapse SDK.
  */
 
-import type { Chain, Synapse } from '@filoz/synapse-sdk'
+import type { FilecoinChain, Synapse } from '@filoz/synapse-sdk'
 import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rpc-url.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
@@ -69,7 +69,7 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   // --network and --rpc-url are mutually exclusive at the Commander level. Set the chain hint
   // only when --network was chosen; otherwise leave it undefined and let initializeSynapse probe
   // the RPC endpoint. When neither is supplied, default to mainnet.
-  let chain: Chain | undefined
+  let chain: FilecoinChain | undefined
   if (isDevnet) {
     chain = resolveDevnetConfig().chain
   } else if (network) {
@@ -85,7 +85,7 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
     sessionKey?: string
     readOnly?: boolean
     rpcUrl?: string
-    chain?: Chain
+    chain?: FilecoinChain
   } = {}
 
   if (privateKey) config.privateKey = privateKey
