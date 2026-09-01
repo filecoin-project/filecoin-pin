@@ -5,7 +5,7 @@ import type { DataSetSummary } from './types.js'
 
 export type MetadataResolution =
   | { kind: 'no-match' }
-  | { kind: 'matched'; dataSetIds: bigint[] }
+  | { kind: 'matched'; dataSetIds: bigint[]; matchedDataSets: DataSetSummary[] }
   | { kind: 'too-many-matches'; matchedIds: bigint[]; matchedDataSets: DataSetSummary[]; expected: number }
   | { kind: 'too-few-matches'; matchedIds: bigint[]; expected: number }
 
@@ -82,5 +82,5 @@ export async function resolveDataSetIdsByMetadata(
     return { kind: 'too-few-matches', matchedIds, expected: options.expectedCopies }
   }
 
-  return { kind: 'matched', dataSetIds: matchedIds }
+  return { kind: 'matched', dataSetIds: matchedIds, matchedDataSets: matched }
 }

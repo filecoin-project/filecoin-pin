@@ -401,7 +401,7 @@ describe('pickDataSetsForReuse', () => {
     expect(picked).toEqual([104n, 107n])
   })
 
-  it('spreads across distinct providers before doubling up on one', () => {
+  it('picks at most one data set per provider', () => {
     const picked = pickDataSetsForReuse(
       [
         ds({ dataSetId: 101n, providerId: 1n, pieces: 9n }),
@@ -413,12 +413,12 @@ describe('pickDataSetsForReuse', () => {
     expect(picked).toEqual([101n, 103n])
   })
 
-  it('doubles up on a provider when there are not enough distinct ones', () => {
+  it('returns fewer than requested when the candidates share providers', () => {
     const picked = pickDataSetsForReuse(
       [ds({ dataSetId: 101n, providerId: 1n, pieces: 9n }), ds({ dataSetId: 102n, providerId: 1n, pieces: 8n })],
       2
     )
-    expect(picked).toEqual([101n, 102n])
+    expect(picked).toEqual([101n])
   })
 })
 
@@ -463,7 +463,7 @@ describe('resolveDefaultDataSetReuse', () => {
     expect(ids).toBeUndefined()
   })
 
-  it('picks the sets storing the most data when more match than requested', async () => {
+  it('picks the sets storing the most pieces when more match than requested', async () => {
     const synapse = makeSynapse([
       pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, activePieceCount: 1n }),
       pinSet({ pdpVerifierDataSetId: 2n, providerId: 2n, activePieceCount: 9n }),
@@ -475,6 +475,26 @@ describe('resolveDefaultDataSetReuse', () => {
 
   it('returns undefined when fewer sets match than requested copies', async () => {
     const synapse = makeSynapse([pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n })])
+    const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 2, withCDN: false, spinner, logger })
+    expect(ids).toBeUndefined()
+  })
+
+  it('returns undefined when more sets match than requested but they share providers', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, activePieceCount: 9n }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 1n, activePieceCount: 5n }),
+      pinSet({ pdpVerifierDataSetId: 3n, providerId: 2n, activePieceCount: 3n }),
+      pinSet({ pdpVerifierDataSetId: 4n, providerId: 2n, activePieceCount: 1n }),
+    ])
+    const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 3, withCDN: false, spinner, logger })
+    expect(ids).toBeUndefined()
+  })
+
+  it('returns undefined when an exact-count match shares a provider', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, activePieceCount: 9n }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 1n, activePieceCount: 5n }),
+    ])
     const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 2, withCDN: false, spinner, logger })
     expect(ids).toBeUndefined()
   })

@@ -48,7 +48,11 @@ describe('resolveDataSetIdsByMetadata', () => {
       { expectedCopies: 2 }
     )
 
-    expect(result).toEqual({ kind: 'matched', dataSetIds: [13260n, 13261n] })
+    expect(result).toEqual({
+      kind: 'matched',
+      dataSetIds: [13260n, 13261n],
+      matchedDataSets: expect.any(Array),
+    })
   })
 
   it('returns too-many-matches when more datasets match than expected', async () => {
@@ -106,7 +110,7 @@ describe('resolveDataSetIdsByMetadata', () => {
       { expectedCopies: 1 }
     )
 
-    expect(result).toEqual({ kind: 'matched', dataSetIds: [1n] })
+    expect(result).toEqual({ kind: 'matched', dataSetIds: [1n], matchedDataSets: expect.any(Array) })
   })
 
   it('skips non-live datasets even if metadata matches', async () => {
@@ -121,7 +125,7 @@ describe('resolveDataSetIdsByMetadata', () => {
       { expectedCopies: 1 }
     )
 
-    expect(result).toEqual({ kind: 'matched', dataSetIds: [2n] })
+    expect(result).toEqual({ kind: 'matched', dataSetIds: [2n], matchedDataSets: expect.any(Array) })
   })
 
   it('skips datasets scheduled for termination (pdpEndEpoch set)', async () => {
@@ -132,7 +136,7 @@ describe('resolveDataSetIdsByMetadata', () => {
 
     const result = await resolveDataSetIdsByMetadata(fakeSynapse, { source: 'filecoin-pin' }, { expectedCopies: 1 })
 
-    expect(result).toEqual({ kind: 'matched', dataSetIds: [2n] })
+    expect(result).toEqual({ kind: 'matched', dataSetIds: [2n], matchedDataSets: expect.any(Array) })
   })
 
   it('requireKeys matches on key presence regardless of value', async () => {
@@ -148,6 +152,6 @@ describe('resolveDataSetIdsByMetadata', () => {
       { expectedCopies: 2, requireKeys: ['withCDN'] }
     )
 
-    expect(result).toEqual({ kind: 'matched', dataSetIds: [2n, 3n] })
+    expect(result).toEqual({ kind: 'matched', dataSetIds: [2n, 3n], matchedDataSets: expect.any(Array) })
   })
 })

@@ -122,11 +122,13 @@ export async function promptDataSetSelection(
 }
 
 /**
- * Choose `count` data sets to reuse from a larger candidate pool.
+ * Choose up to `count` data sets to reuse, at most one per provider.
  *
- * Preference order: the data sets storing the most pieces first (ties broken by
- * lowest ID for determinism), spreading picks across distinct providers before
- * doubling up on one — copies on the same provider add no redundancy.
+ * Preference order: the data sets storing the most pieces first, ties broken by
+ * lowest ID for determinism. Copies on the same provider add no redundancy, so
+ * distinct providers are a hard constraint: when the candidates do not cover
+ * `count` providers, fewer than `count` IDs come back and the caller falls
+ * through to creating new data sets.
  */
 export function pickDataSetsForReuse(dataSets: DataSetSummary[], count: number): bigint[] {
   const sorted = [...dataSets].sort((a, b) => {
@@ -136,20 +138,16 @@ export function pickDataSetsForReuse(dataSets: DataSetSummary[], count: number):
     return a.dataSetId < b.dataSetId ? -1 : 1
   })
 
-  const picked: DataSetSummary[] = []
+  const picked: bigint[] = []
   const seenProviders = new Set<bigint>()
   for (const ds of sorted) {
     if (picked.length >= count) break
     if (seenProviders.has(ds.providerId)) continue
     seenProviders.add(ds.providerId)
-    picked.push(ds)
-  }
-  for (const ds of sorted) {
-    if (picked.length >= count) break
-    if (!picked.includes(ds)) picked.push(ds)
+    picked.push(ds.dataSetId)
   }
 
-  return picked.map((ds) => ds.dataSetId)
+  return picked
 }
 
 /**
@@ -161,12 +159,16 @@ export function pickDataSetsForReuse(dataSets: DataSetSummary[], count: number):
  * creates new ones instead). Any live, active filecoin-pin data set qualifies,
  * CDN-tagged ones included: `--egress-provider none` means "do not request or
  * create CDN", not "never add to a CDN data set". When FilBeam egress is
- * requested, only CDN-enabled data sets qualify. Piece-count ordering and
- * provider spreading apply only when more data sets match than requested;
- * an exact-count match is used as-is.
+ * requested, only CDN-enabled data sets qualify.
  *
- * Returns the data set IDs to upload to, or `undefined` when the SDK should
- * resolve or create data sets itself (no matches, or fewer than requested).
+ * Reuse requires one data set per distinct provider, so every copy lands on a
+ * different provider. Candidates are ranked by piece count and picked one per
+ * provider; when they do not cover `expectedCopies` providers, reuse is
+ * abandoned rather than stacking copies on one provider.
+ *
+ * Returns the data set IDs to upload to, or `undefined` when new data sets
+ * should be created instead (no matches, too few matches, or too few distinct
+ * providers among the matches).
  */
 export async function resolveDefaultDataSetReuse(
   synapse: Synapse,
@@ -174,35 +176,36 @@ export async function resolveDefaultDataSetReuse(
 ): Promise<bigint[] | undefined> {
   const { expectedCopies, withCDN, spinner, logger } = options
 
-  spinner.start('Checking for existing filecoin-pin data sets...')
+  spinner.start('Checking for existing data sets...')
   const resolution = await resolveDataSetIdsByMetadata(synapse, DEFAULT_DATA_SET_METADATA, {
     expectedCopies,
     logger,
     ...(withCDN && { requireKeys: [METADATA_KEYS.WITH_CDN] }),
   })
 
-  if (resolution.kind === 'matched') {
-    spinner.stop(`${pc.green('✓')} Reusing existing data sets ${resolution.dataSetIds.join(', ')}`)
-    return resolution.dataSetIds
-  }
-
-  if (resolution.kind === 'too-many-matches') {
-    const chosen = pickDataSetsForReuse(resolution.matchedDataSets, expectedCopies)
-    spinner.stop(
-      `${pc.green('✓')} Reusing existing data sets ${chosen.join(', ')} (${resolution.matchedIds.length} matched, picked the ${expectedCopies} storing the most data)`
-    )
-    return chosen
+  if (resolution.kind === 'no-match') {
+    spinner.stop(`${pc.gray('•')} No existing data sets to reuse; creating new ones`)
+    return undefined
   }
 
   if (resolution.kind === 'too-few-matches') {
     spinner.stop(
-      `${pc.gray('•')} Found ${resolution.matchedIds.length} existing data set(s) but need ${expectedCopies}; the SDK will resolve or create data sets`
+      `${pc.gray('•')} Only ${resolution.matchedIds.length} of ${expectedCopies} data sets available for reuse; creating new ones`
     )
     return undefined
   }
 
-  spinner.stop(`${pc.gray('•')} No existing filecoin-pin data sets found; the SDK will create new ones`)
-  return undefined
+  const candidates = resolution.matchedDataSets
+  const chosen = pickDataSetsForReuse(candidates, expectedCopies)
+
+  if (chosen.length < expectedCopies) {
+    spinner.stop(`${pc.gray('•')} Matching data sets share a provider; creating new ones`)
+    return undefined
+  }
+
+  const ranked = candidates.length > expectedCopies ? ` (${candidates.length} matched, picked by piece count)` : ''
+  spinner.stop(`${pc.green('✓')} Reusing existing data sets ${chosen.join(', ')}${ranked}`)
+  return chosen
 }
 
 export interface UploadFlowOptions {
