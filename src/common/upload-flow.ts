@@ -124,7 +124,7 @@ export async function promptDataSetSelection(
 /**
  * Choose up to `count` data sets to reuse, at most one per provider.
  *
- * Preference order: the data sets storing the most pieces first, ties broken by
+ * Preference order: data sets already holding pieces first, ties broken by
  * lowest ID for determinism. Copies on the same provider add no redundancy, so
  * distinct providers are a hard constraint: when the candidates do not cover
  * `count` providers, fewer than `count` IDs come back and the caller falls
@@ -132,8 +132,8 @@ export async function promptDataSetSelection(
  */
 export function pickDataSetsForReuse(dataSets: DataSetSummary[], count: number): bigint[] {
   const sorted = [...dataSets].sort((a, b) => {
-    if (a.activePieceCount !== b.activePieceCount) {
-      return a.activePieceCount > b.activePieceCount ? -1 : 1
+    if (a.hasActivePieces !== b.hasActivePieces) {
+      return a.hasActivePieces ? -1 : 1
     }
     return a.dataSetId < b.dataSetId ? -1 : 1
   })
@@ -162,9 +162,9 @@ export function pickDataSetsForReuse(dataSets: DataSetSummary[], count: number):
  * requested, only CDN-enabled data sets qualify.
  *
  * Reuse requires one data set per distinct provider, so every copy lands on a
- * different provider. Candidates are ranked by piece count and picked one per
- * provider; when they do not cover `expectedCopies` providers, reuse is
- * abandoned rather than stacking copies on one provider.
+ * different provider. Candidates already holding pieces are preferred and
+ * picked one per provider; when they do not cover `expectedCopies` providers,
+ * reuse is abandoned rather than stacking copies on one provider.
  *
  * Returns the data set IDs to upload to, or `undefined` when new data sets
  * should be created instead (no matches, too few matches, or too few distinct
@@ -203,7 +203,8 @@ export async function resolveDefaultDataSetReuse(
     return undefined
   }
 
-  const ranked = candidates.length > expectedCopies ? ` (${candidates.length} matched, picked by piece count)` : ''
+  const ranked =
+    candidates.length > expectedCopies ? ` (${candidates.length} matched, picked the oldest ones with pieces)` : ''
   spinner.stop(`${pc.green('✓')} Reusing existing data sets ${chosen.join(', ')}${ranked}`)
   return chosen
 }

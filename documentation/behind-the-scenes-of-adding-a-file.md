@@ -173,7 +173,7 @@ As a single transaction, this takes ~30 seconds to be confirmed onchain.
 
 In order to upload a [CAR](glossary.md#car), Filecoin Pin needs to identify the SP to upload to.  This strategy is followed (assuming no overrides are provided):
 
-1. If the chain has record of a [Data Set](glossary.md#data-set) created by the wallet with the Data Set [metadata key](glossary.md#metadata) `source` set to 'filecoin-pin', then that DataSet ID and corresponding SP are used.  If there are multiple, then the one storing the most data will be used.
+1. If the chain has record of a [Data Set](glossary.md#data-set) created by the wallet with the Data Set [metadata key](glossary.md#metadata) `source` set to 'filecoin-pin', then that DataSet ID and corresponding SP are used.  If there are multiple, then those already holding pieces are preferred, at most one per SP.
 2. If there is no existing Data Set, then a new Data Set is created using an approved [Service Provider](glossary.md#service-provider) from the [Service Provider Registry](glossary.md#service-provider-registry).
 
 *Outputs:*

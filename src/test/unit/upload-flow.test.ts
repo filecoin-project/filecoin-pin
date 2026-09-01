@@ -490,27 +490,27 @@ describe('buildOptionLabel', () => {
 })
 
 describe('pickDataSetsForReuse', () => {
-  const ds = (o: { dataSetId: bigint; providerId: bigint; pieces: bigint }) =>
-    ({ dataSetId: o.dataSetId, providerId: o.providerId, activePieceCount: o.pieces }) as any
+  const ds = (o: { dataSetId: bigint; providerId: bigint; hasPieces: boolean }) =>
+    ({ dataSetId: o.dataSetId, providerId: o.providerId, hasActivePieces: o.hasPieces }) as any
 
-  it('picks the data sets storing the most pieces', () => {
+  it('prefers data sets already holding pieces over empty ones', () => {
     const picked = pickDataSetsForReuse(
       [
-        ds({ dataSetId: 101n, providerId: 1n, pieces: 0n }),
-        ds({ dataSetId: 102n, providerId: 2n, pieces: 5n }),
-        ds({ dataSetId: 103n, providerId: 3n, pieces: 9n }),
+        ds({ dataSetId: 101n, providerId: 1n, hasPieces: false }),
+        ds({ dataSetId: 102n, providerId: 2n, hasPieces: true }),
+        ds({ dataSetId: 103n, providerId: 3n, hasPieces: true }),
       ],
       2
     )
-    expect(picked).toEqual([103n, 102n])
+    expect(picked).toEqual([102n, 103n])
   })
 
-  it('breaks piece-count ties by lowest data set ID', () => {
+  it('breaks ties by lowest data set ID', () => {
     const picked = pickDataSetsForReuse(
       [
-        ds({ dataSetId: 109n, providerId: 1n, pieces: 3n }),
-        ds({ dataSetId: 104n, providerId: 2n, pieces: 3n }),
-        ds({ dataSetId: 107n, providerId: 3n, pieces: 3n }),
+        ds({ dataSetId: 109n, providerId: 1n, hasPieces: true }),
+        ds({ dataSetId: 104n, providerId: 2n, hasPieces: true }),
+        ds({ dataSetId: 107n, providerId: 3n, hasPieces: true }),
       ],
       2
     )
@@ -520,9 +520,9 @@ describe('pickDataSetsForReuse', () => {
   it('picks at most one data set per provider', () => {
     const picked = pickDataSetsForReuse(
       [
-        ds({ dataSetId: 101n, providerId: 1n, pieces: 9n }),
-        ds({ dataSetId: 102n, providerId: 1n, pieces: 8n }),
-        ds({ dataSetId: 103n, providerId: 2n, pieces: 1n }),
+        ds({ dataSetId: 101n, providerId: 1n, hasPieces: true }),
+        ds({ dataSetId: 102n, providerId: 1n, hasPieces: true }),
+        ds({ dataSetId: 103n, providerId: 2n, hasPieces: true }),
       ],
       2
     )
@@ -531,7 +531,10 @@ describe('pickDataSetsForReuse', () => {
 
   it('returns fewer than requested when the candidates share providers', () => {
     const picked = pickDataSetsForReuse(
-      [ds({ dataSetId: 101n, providerId: 1n, pieces: 9n }), ds({ dataSetId: 102n, providerId: 1n, pieces: 8n })],
+      [
+        ds({ dataSetId: 101n, providerId: 1n, hasPieces: true }),
+        ds({ dataSetId: 102n, providerId: 1n, hasPieces: true }),
+      ],
       2
     )
     expect(picked).toEqual([101n])
@@ -550,7 +553,7 @@ const makeSynapse = (dataSets: any[]) =>
 const pinSet = (over: Record<string, unknown>) => ({
   isLive: true,
   pdpEndEpoch: 0n,
-  activePieceCount: 0n,
+  hasActivePieces: false,
   metadata: { withIPFSIndexing: '', source: 'filecoin-pin' },
   ...over,
 })
@@ -579,11 +582,11 @@ describe('resolveDefaultDataSetReuse', () => {
     expect(ids).toBeUndefined()
   })
 
-  it('picks the sets storing the most pieces when more match than requested', async () => {
+  it('picks the sets already holding pieces when more match than requested', async () => {
     const synapse = makeSynapse([
-      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, activePieceCount: 1n }),
-      pinSet({ pdpVerifierDataSetId: 2n, providerId: 2n, activePieceCount: 9n }),
-      pinSet({ pdpVerifierDataSetId: 3n, providerId: 3n, activePieceCount: 5n }),
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, hasActivePieces: false }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 2n, hasActivePieces: true }),
+      pinSet({ pdpVerifierDataSetId: 3n, providerId: 3n, hasActivePieces: true }),
     ])
     const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 2, withCDN: false, spinner, logger })
     expect(ids).toEqual([2n, 3n])
@@ -597,10 +600,10 @@ describe('resolveDefaultDataSetReuse', () => {
 
   it('returns undefined when more sets match than requested but they share providers', async () => {
     const synapse = makeSynapse([
-      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, activePieceCount: 9n }),
-      pinSet({ pdpVerifierDataSetId: 2n, providerId: 1n, activePieceCount: 5n }),
-      pinSet({ pdpVerifierDataSetId: 3n, providerId: 2n, activePieceCount: 3n }),
-      pinSet({ pdpVerifierDataSetId: 4n, providerId: 2n, activePieceCount: 1n }),
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, hasActivePieces: true }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 1n, hasActivePieces: true }),
+      pinSet({ pdpVerifierDataSetId: 3n, providerId: 2n, hasActivePieces: true }),
+      pinSet({ pdpVerifierDataSetId: 4n, providerId: 2n, hasActivePieces: true }),
     ])
     const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 3, withCDN: false, spinner, logger })
     expect(ids).toBeUndefined()
@@ -608,8 +611,8 @@ describe('resolveDefaultDataSetReuse', () => {
 
   it('returns undefined when an exact-count match shares a provider', async () => {
     const synapse = makeSynapse([
-      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, activePieceCount: 9n }),
-      pinSet({ pdpVerifierDataSetId: 2n, providerId: 1n, activePieceCount: 5n }),
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, hasActivePieces: true }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 1n, hasActivePieces: true }),
     ])
     const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 2, withCDN: false, spinner, logger })
     expect(ids).toBeUndefined()
@@ -633,7 +636,7 @@ describe('resolveUploadTargets', () => {
   const migrationSet = (id: bigint, providerId: bigint) => ({
     isLive: true,
     pdpEndEpoch: 0n,
-    activePieceCount: 0n,
+    hasActivePieces: false,
     pdpVerifierDataSetId: id,
     providerId,
     metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
