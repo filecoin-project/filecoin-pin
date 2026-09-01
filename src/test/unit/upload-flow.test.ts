@@ -45,6 +45,7 @@ import {
   pickDataSetsForReuse,
   promptDataSetSelection,
   resolveDefaultDataSetReuse,
+  resolveUploadTargets,
 } from '../../common/upload-flow.js'
 import { createLogger } from '../../logger.js'
 import { truncate } from '../../utils/format.js'
@@ -422,24 +423,24 @@ describe('pickDataSetsForReuse', () => {
   })
 })
 
+const spinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn(), clear: vi.fn() } as any
+const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as any
+
+const makeSynapse = (dataSets: any[]) =>
+  ({
+    client: { account: { address: '0x1234567890123456789012345678901234567890' } },
+    storage: { findDataSets: vi.fn().mockResolvedValue(dataSets) },
+  }) as any
+
+const pinSet = (over: Record<string, unknown>) => ({
+  isLive: true,
+  pdpEndEpoch: 0n,
+  activePieceCount: 0n,
+  metadata: { withIPFSIndexing: '', source: 'filecoin-pin' },
+  ...over,
+})
+
 describe('resolveDefaultDataSetReuse', () => {
-  const spinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn(), clear: vi.fn() } as any
-  const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as any
-
-  const makeSynapse = (dataSets: any[]) =>
-    ({
-      client: { account: { address: '0x1234567890123456789012345678901234567890' } },
-      storage: { findDataSets: vi.fn().mockResolvedValue(dataSets) },
-    }) as any
-
-  const pinSet = (over: Record<string, unknown>) => ({
-    isLive: true,
-    pdpEndEpoch: 0n,
-    activePieceCount: 0n,
-    metadata: { withIPFSIndexing: '', source: 'filecoin-pin' },
-    ...over,
-  })
-
   it('reuses live filecoin-pin data sets, including ones with extra metadata keys', async () => {
     const synapse = makeSynapse([
       pinSet({
@@ -510,5 +511,91 @@ describe('resolveDefaultDataSetReuse', () => {
     ])
     const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 1, withCDN: true, spinner, logger })
     expect(ids).toEqual([2n])
+  })
+})
+
+describe('resolveUploadTargets', () => {
+  const migrationSet = (id: bigint, providerId: bigint) => ({
+    isLive: true,
+    pdpEndEpoch: 0n,
+    activePieceCount: 0n,
+    pdpVerifierDataSetId: id,
+    providerId,
+    metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
+  })
+
+  const base = { withCDN: false, spinner, logger }
+
+  it('leaves explicit targeting alone and carries the metadata through', async () => {
+    const synapse = makeSynapse([])
+    const targets = await resolveUploadTargets(
+      synapse,
+      { dataSetIds: [5n] },
+      { ...base, dataSetMetadata: { purpose: 'erc8004' } }
+    )
+    expect(targets).toEqual({ dataSetMetadata: { purpose: 'erc8004' } })
+    expect(synapse.storage.findDataSets).not.toHaveBeenCalled()
+  })
+
+  it('falls back to default reuse when no metadata filter is given', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 2n }),
+    ])
+    const targets = await resolveUploadTargets(synapse, {}, { ...base, copies: 2 })
+    expect(targets).toEqual({ dataSetIds: [1n, 2n] })
+  })
+
+  it('resolves --data-set-metadata to data set IDs and drops the filter', async () => {
+    const synapse = makeSynapse([migrationSet(13260n, 2n), migrationSet(13261n, 4n)])
+    const targets = await resolveUploadTargets(
+      synapse,
+      {},
+      {
+        ...base,
+        copies: 2,
+        dataSetMetadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
+      }
+    )
+    expect(targets).toEqual({ dataSetIds: [13260n, 13261n] })
+  })
+
+  it('prompts when --data-set-metadata matches more data sets than copies requested', async () => {
+    const synapse = makeSynapse([migrationSet(1n, 1n), migrationSet(2n, 2n), migrationSet(3n, 3n)])
+    const { isInteractive } = await import('../../utils/cli-helpers.js')
+    vi.mocked(isInteractive).mockReturnValueOnce(true)
+    mocks.multiselect.mockResolvedValueOnce([2n, 3n])
+
+    const targets = await resolveUploadTargets(
+      synapse,
+      {},
+      {
+        ...base,
+        copies: 2,
+        dataSetMetadata: { source: 'storacha-migration' },
+      }
+    )
+    expect(targets).toEqual({ dataSetIds: [2n, 3n] })
+  })
+
+  it('throws when --data-set-metadata matches fewer data sets than copies requested', async () => {
+    const synapse = makeSynapse([migrationSet(1n, 1n)])
+    await expect(
+      resolveUploadTargets(synapse, {}, { ...base, copies: 2, dataSetMetadata: { source: 'storacha-migration' } })
+    ).rejects.toThrow(/matched only 1 data set.*expected 2/)
+  })
+
+  it('keeps the metadata filter when nothing matches, so a new data set carries it', async () => {
+    const synapse = makeSynapse([])
+    const targets = await resolveUploadTargets(
+      synapse,
+      {},
+      {
+        ...base,
+        copies: 2,
+        dataSetMetadata: { source: 'brand-new' },
+      }
+    )
+    expect(targets).toEqual({ dataSetMetadata: { source: 'brand-new' } })
   })
 })

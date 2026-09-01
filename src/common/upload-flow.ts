@@ -25,6 +25,7 @@ import {
 import { formatUSDFC } from '../core/utils/format.js'
 import { autoFund } from '../payments/fund.js'
 import type { AutoFundOptions } from '../payments/types.js'
+import type { ContextSelectionOptions } from '../utils/cli-auth.js'
 import type { Spinner } from '../utils/cli-helpers.js'
 import { cancel, formatFileSize, isInteractive } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -206,6 +207,73 @@ export async function resolveDefaultDataSetReuse(
   const ranked = candidates.length > expectedCopies ? ` (${candidates.length} matched, picked by piece count)` : ''
   spinner.stop(`${pc.green('✓')} Reusing existing data sets ${chosen.join(', ')}${ranked}`)
   return chosen
+}
+
+/**
+ * Decide which data sets an upload targets, before the SDK resolves a context.
+ *
+ * Three paths, in order:
+ * - Explicit `--data-set-id`/`--provider-id`: nothing to resolve, the metadata
+ *   passes through untouched.
+ * - `--data-set-metadata`: resolved locally, since the SDK's matching requires
+ *   exact equality and a partial filter cannot reach existing data sets through
+ *   it. Prompts when more data sets match than copies were requested, and
+ *   throws when too few do.
+ * - Neither: reuse existing filecoin-pin data sets via
+ *   {@link resolveDefaultDataSetReuse}.
+ *
+ * Returns the data set IDs to target (absent when the SDK should resolve or
+ * create them) and the metadata to carry forward. Resolved IDs supersede the
+ * metadata filter, so `dataSetMetadata` comes back undefined alongside them.
+ */
+export async function resolveUploadTargets(
+  synapse: Synapse,
+  contextSelection: ContextSelectionOptions,
+  options: {
+    dataSetMetadata?: Record<string, string>
+    copies?: number
+    withCDN: boolean
+    spinner: Spinner
+    logger: Logger
+  }
+): Promise<{ dataSetIds?: bigint[]; dataSetMetadata?: Record<string, string> }> {
+  const { dataSetMetadata, withCDN, spinner, logger } = options
+  const expectedCopies = options.copies ?? DEFAULT_COPIES
+
+  if (contextSelection.dataSetIds != null || contextSelection.providerIds != null) {
+    return { ...(dataSetMetadata != null && { dataSetMetadata }) }
+  }
+
+  if (dataSetMetadata == null) {
+    const reuseIds = await resolveDefaultDataSetReuse(synapse, { expectedCopies, withCDN, spinner, logger })
+    return { ...(reuseIds != null && { dataSetIds: reuseIds }) }
+  }
+
+  spinner.start('Resolving data sets from --data-set-metadata...')
+  const resolution = await resolveDataSetIdsByMetadata(synapse, dataSetMetadata, { expectedCopies, logger })
+
+  if (resolution.kind === 'matched') {
+    spinner.stop(`${pc.green('✓')} Matched existing data sets ${resolution.dataSetIds.join(', ')} via metadata filter`)
+    return { dataSetIds: resolution.dataSetIds }
+  }
+
+  if (resolution.kind === 'too-many-matches') {
+    const chosenIds = await promptDataSetSelection(resolution.matchedDataSets, resolution.expected, spinner)
+    return { dataSetIds: chosenIds }
+  }
+
+  if (resolution.kind === 'too-few-matches') {
+    spinner.stop(`${pc.red('✗')} --data-set-metadata matched too few data sets`)
+    throw new Error(
+      `--data-set-metadata matched only ${resolution.matchedIds.length} data set(s) (${resolution.matchedIds.join(', ')}) ` +
+        `but expected ${resolution.expected} (lower --copies, widen the filter, or pass --data-set-id).`
+    )
+  }
+
+  spinner.stop(
+    `${pc.gray('•')} No existing data sets matched --data-set-metadata; a new data set will be created with the requested metadata`
+  )
+  return { dataSetMetadata }
 }
 
 export interface UploadFlowOptions {
