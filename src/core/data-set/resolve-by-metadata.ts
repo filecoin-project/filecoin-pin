@@ -18,7 +18,7 @@ export interface ResolveByMetadataOptions {
    * Used for keys whose value varies across SDK versions (e.g. `withCDN`
    * is `''` when set by the SDK but `'true'` when set by hand).
    */
-  requireKeys?: string[]
+  requiredKeys?: string[]
 }
 
 /**
@@ -39,7 +39,7 @@ export async function resolveDataSetIdsByMetadata(
     return { kind: 'no-match' }
   }
 
-  const requireKeys = options.requireKeys ?? []
+  const requiredKeys = options.requiredKeys ?? []
 
   const matched = await listDataSets(synapse, {
     filter: (dataSet) => {
@@ -63,7 +63,7 @@ export async function resolveDataSetIdsByMetadata(
       if (!entries.every(([key, value]) => key in metadata && metadata[key] === value)) {
         return false
       }
-      return requireKeys.every((key) => key in metadata)
+      return requiredKeys.every((key) => key in metadata)
     },
     ...(options.logger != null && { logger: options.logger }),
   })

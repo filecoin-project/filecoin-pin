@@ -181,7 +181,7 @@ export async function resolveDefaultDataSetReuse(
   const resolution = await resolveDataSetIdsByMetadata(synapse, DEFAULT_DATA_SET_METADATA, {
     expectedCopies,
     logger,
-    ...(withCDN && { requireKeys: [METADATA_KEYS.WITH_CDN] }),
+    ...(withCDN && { requiredKeys: [METADATA_KEYS.WITH_CDN] }),
   })
 
   if (resolution.kind === 'no-match') {

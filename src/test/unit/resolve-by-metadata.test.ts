@@ -139,7 +139,7 @@ describe('resolveDataSetIdsByMetadata', () => {
     expect(result).toEqual({ kind: 'matched', dataSetIds: [2n], matchedDataSets: expect.any(Array) })
   })
 
-  it('requireKeys matches on key presence regardless of value', async () => {
+  it('requiredKeys matches on key presence regardless of value', async () => {
     withFixtures([
       dataSet(1n, { source: 'filecoin-pin' }),
       dataSet(2n, { source: 'filecoin-pin', withCDN: '' }),
@@ -149,7 +149,7 @@ describe('resolveDataSetIdsByMetadata', () => {
     const result = await resolveDataSetIdsByMetadata(
       fakeSynapse,
       { source: 'filecoin-pin' },
-      { expectedCopies: 2, requireKeys: ['withCDN'] }
+      { expectedCopies: 2, requiredKeys: ['withCDN'] }
     )
 
     expect(result).toEqual({ kind: 'matched', dataSetIds: [2n, 3n], matchedDataSets: expect.any(Array) })
