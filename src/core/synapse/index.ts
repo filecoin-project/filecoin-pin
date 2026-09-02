@@ -151,29 +151,21 @@ export function assertSessionKeyPrivateKey(value: string): asserts value is Hex 
 }
 
 /**
- * First line of the preflight error. Three shapes: nothing ever granted,
- * every needed grant lapsed (the session expired: renew it with `login`),
- * or a live key that lacks a scope.
+ * What the on-chain expirations say about a key that lacks a needed scope:
+ * nothing was ever granted, every grant lapsed (the session expired), or
+ * some grant is live but not the one this operation needs.
  */
-function describeProblem(
-  key: SessionKey<'Secp256k1'>,
-  ownerAddress: string,
-  scopeLabels: string,
-  networkName: string,
-  now: bigint
-): string {
+function classifyAuthorization(key: SessionKey<'Secp256k1'>, now: bigint): 'never' | 'expired' | 'missing' {
   const allExpirations = Object.values(key.expirations)
-  const neverAuthorized = allExpirations.length > 0 && allExpirations.every((expiry) => expiry === 0n)
-  if (neverAuthorized) {
-    return `Session key ${key.address} isn't authorized for account ${ownerAddress} on ${networkName} — never authorized, expired/revoked, or the key is for a different network (check --network).`
-  }
-  // No live grant at all, but at least one past grant: the session ran out.
-  if (allExpirations.every((expiry) => expiry <= now)) {
-    const latest = allExpirations.reduce((a, b) => (a > b ? a : b), 0n)
-    const date = new Date(Number(latest) * 1000).toISOString().slice(0, 10)
-    return `Session expired (key ${key.address}, grants lapsed ${date})\n  Renew it:  filecoin-pin login`
-  }
-  return `Session key ${key.address} lacks ${scopeLabels} for this operation on ${networkName}.`
+  if (allExpirations.length > 0 && allExpirations.every((expiry) => expiry === 0n)) return 'never'
+  if (allExpirations.every((expiry) => expiry <= now)) return 'expired'
+  return 'missing'
+}
+
+/** Latest expiry among the key's grants, as a date. */
+function latestExpiryDate(key: SessionKey<'Secp256k1'>): string {
+  const latest = Object.values(key.expirations).reduce((a, b) => (a > b ? a : b), 0n)
+  return new Date(Number(latest) * 1000).toISOString().slice(0, 10)
 }
 
 /**
@@ -198,6 +190,17 @@ function checkSessionKeyPermissions(
   const missing = required.filter((p) => !key.hasPermission(p))
   if (missing.length === 0) return
 
+  const now = BigInt(Math.floor(Date.now() / 1000))
+  const state = classifyAuthorization(key, now)
+  // The wall from PRD section 6: two lines, one remedy. Scope details and
+  // console links would only compete with "run login".
+  if (state === 'expired') {
+    throw new Error(
+      `Session expired (key ${key.address}, grants lapsed ${latestExpiryDate(key)})\n  Renew it:  filecoin-pin login`
+    )
+  }
+  const neverAuthorized = state === 'never'
+
   const scopeIds = missing.map(scopeIdOf)
   const scopeLabels = missing.map((p) => PermissionNames[p] ?? p).join(', ')
   const scopesArg = scopeIds.join(',')
@@ -205,7 +208,6 @@ function checkSessionKeyPermissions(
   // Per-scope detail preserves the expired-at vs never-granted distinction
   // the on-chain expirations carry — an expired grant points at renewal,
   // a never-granted scope points at a fresh authorization.
-  const now = BigInt(Math.floor(Date.now() / 1000))
   const scopeDetails = missing.map((p) => {
     const name = PermissionNames[p] ?? p
     const expiry = key.expirations[p] ?? 0n
@@ -215,7 +217,9 @@ function checkSessionKeyPermissions(
     return `  • ${name}: never granted`
   })
 
-  const problem = describeProblem(key, ownerAddress, scopeLabels, networkName, now)
+  const problem = neverAuthorized
+    ? `Session key ${key.address} isn't authorized for account ${ownerAddress} on ${networkName} — never authorized, expired/revoked, or the key is for a different network (check --network).`
+    : `Session key ${key.address} lacks ${scopeLabels} for this operation on ${networkName}.`
 
   const lines = [problem, ...scopeDetails, '']
   lines.push('Recommended — approve in the browser with the owner wallet:')
