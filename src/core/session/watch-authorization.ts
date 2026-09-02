@@ -206,7 +206,9 @@ async function pollOnce(options: WatchAuthorizationOptions, state: WatchState): 
   const grants = await readScopeGrants({ client, sessionAddress, registryAddress, permissions, owner: state.owner })
   // Without an event, a `none` read only means nothing has happened yet.
   state.last = grants.status === 'none' && !state.eventSeen ? { ...grants, status: 'timeout' } : grants
-  return grants.status === 'granted' || state.eventSeen
+  // After the event, a `none` read may be a lagging RPC node: keep polling
+  // and let the deadline report it.
+  return grants.status === 'granted' || (state.eventSeen && grants.status !== 'none')
 }
 
 /**
