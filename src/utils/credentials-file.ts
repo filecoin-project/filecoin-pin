@@ -19,6 +19,15 @@ import { parseEnv } from 'node:util'
 
 export const CREDENTIALS_FILE_FLAG = '--credentials-file'
 
+/** Plain reason for a failed read; the path is already in the message. */
+function describeReadError(error: unknown): string {
+  const code = (error as { code?: string }).code
+  if (code === 'ENOENT') return 'file not found'
+  if (code === 'EACCES' || code === 'EPERM') return 'permission denied'
+  if (code === 'EISDIR') return 'path is a directory'
+  return error instanceof Error ? error.message : String(error)
+}
+
 /**
  * Load a dotenv-style file at `path` into `env`, without overriding
  * variables already present in `env`.
@@ -31,8 +40,7 @@ export function loadCredentialsFile(path: string, env: NodeJS.ProcessEnv = proce
   try {
     contents = readFileSync(path, 'utf8')
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    throw new Error(`--credentials-file: could not read "${path}": ${reason}`)
+    throw new Error(`--credentials-file: could not read "${path}": ${describeReadError(error)}`)
   }
 
   const parsed = parseEnv(contents)
