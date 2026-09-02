@@ -18,7 +18,7 @@ import { log } from '../utils/cli-logger.js'
 import { formatCreateSessionKeyOutput } from './format.js'
 import { parseValidityDays } from './parse-validity-days.js'
 import { resolveNetwork } from './resolve-network.js'
-import { describeScopes, type ParsedScopes, parseScopes } from './scopes.js'
+import { describeScopes, parseScopesOption } from './scopes.js'
 import type { SessionCreateOptions } from './types.js'
 
 export async function runSessionCreate(options: SessionCreateOptions): Promise<CreateSessionKeyResult> {
@@ -43,16 +43,7 @@ export async function runSessionCreate(options: SessionCreateOptions): Promise<C
     throw error
   }
 
-  let scopes: ParsedScopes | undefined
-  if (options.scopes !== undefined) {
-    try {
-      scopes = parseScopes(options.scopes)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      cancel(message)
-      throw error
-    }
-  }
+  const scopes = parseScopesOption(options.scopes)
 
   const { chain, transport } = await resolveNetwork(options)
 

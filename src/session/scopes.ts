@@ -12,6 +12,7 @@ import {
   SchedulePieceRemovalsPermission,
 } from '@filoz/synapse-core/session-key'
 import { TerminateServicePermission } from '../core/session/index.js'
+import { cancel } from '../utils/cli-helpers.js'
 
 /**
  * Scope id -> FWSS permission typehash. Key order is canonical: it drives the
@@ -26,6 +27,8 @@ export const SCOPE_PERMISSIONS: Record<string, Permission> = {
 
 /** Canonical scope ids, in display order. */
 export const SCOPE_IDS: string[] = Object.keys(SCOPE_PERMISSIONS)
+
+const SCOPE_ID_BY_LOWERCASE: Record<string, string> = Object.fromEntries(SCOPE_IDS.map((id) => [id.toLowerCase(), id]))
 
 export interface ParsedScopes {
   /** Canonical scope ids that were selected, in {@link SCOPE_IDS} order. */
@@ -50,11 +53,9 @@ export function parseScopes(value: string): ParsedScopes {
     throw new Error(`--scopes needs at least one of: ${SCOPE_IDS.join(', ')}`)
   }
 
-  const canonicalByLower: Record<string, string> = Object.fromEntries(SCOPE_IDS.map((id) => [id.toLowerCase(), id]))
   const selected = new Set<string>()
   for (const token of tokens) {
-    const lower = token.toLowerCase()
-    const id = canonicalByLower[lower]
+    const id = SCOPE_ID_BY_LOWERCASE[token.toLowerCase()]
     if (id === undefined) {
       throw new Error(`Unknown scope "${token}". Valid scopes: ${SCOPE_IDS.join(', ')}.`)
     }
@@ -65,6 +66,21 @@ export function parseScopes(value: string): ParsedScopes {
   // Permission, avoiding the `Record[string]` -> `Permission | undefined` widening.
   const chosen = Object.entries(SCOPE_PERMISSIONS).filter(([id]) => selected.has(id))
   return { ids: chosen.map(([id]) => id), permissions: chosen.map(([, permission]) => permission) }
+}
+
+/**
+ * Parse an optional `--scopes` value for a CLI runner: `undefined` when the
+ * flag was not given, otherwise the parsed scopes. On a bad value it prints
+ * the cancellation and rethrows so the command wrapper exits 1.
+ */
+export function parseScopesOption(value: string | undefined): ParsedScopes | undefined {
+  if (value === undefined) return undefined
+  try {
+    return parseScopes(value)
+  } catch (error) {
+    cancel(error instanceof Error ? error.message : String(error))
+    throw error
+  }
 }
 
 /** Human-readable scope list for confirmations; `undefined` renders as "all". */
