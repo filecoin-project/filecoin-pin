@@ -10,18 +10,21 @@ import { version as packageVersion } from './core/utils/version.js'
 import { readTelemetryConfigFromEnv } from './read-telemetry-config-from-env.js'
 import { applyVerboseLogLevel } from './utils/cli-logger.js'
 import { credentialsFileOption } from './utils/cli-options.js'
+import { applySessionFileCredentials } from './utils/credential-source.js'
 import { applyCredentialsFileArg } from './utils/credentials-file.js'
 
-// Load --credentials-file (if present) into process.env before anything else reads
-// env vars, so it can supply e.g. SESSION_KEY/WALLET_ADDRESS or telemetry
-// opt-out vars. Values already present in the environment are never
-// overridden by the file.
+// Credential precedence: flags, then env vars, then --credentials-file, then
+// the session file `login` wrote. The credentials file loads into process.env
+// first and never overrides values already present; the session file loads
+// after it and only when no flag and no env var supplied a credential, so
+// Commander's flag-over-env precedence still holds for everything else.
 try {
   applyCredentialsFileArg()
 } catch (error) {
   console.error('Error:', error instanceof Error ? error.message : error)
   process.exit(1)
 }
+applySessionFileCredentials()
 
 // Apply CLI env vars to the telemetry library before any subcommand runs.
 configureTelemetry({ ...readTelemetryConfigFromEnv(), affordance: 'CLI' })
