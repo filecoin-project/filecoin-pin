@@ -283,6 +283,8 @@ Other arguments are possible for individual commands, use `--help` to find out m
 
 `filecoin-pin logout` deletes the saved session file. The on-chain grant expires on its own; the console can revoke it early.
 
+Every command resolves credentials in this order: explicit flags, then environment variables (`PRIVATE_KEY`, or `SESSION_KEY` and `WALLET_ADDRESS`), then the saved session file, and otherwise fails with `No credentials found` and a pointer to `login`. Whenever a session credential is used, the command prints a `Using session …` line naming the key, where it came from, and the owner. Expired grants fail with `Session expired`; rerun `login` to renew the same key.
+
 ### Session-Key Permissions
 
 In session-key mode, each command checks only the on-chain permissions it needs — a delegate does not need every storage-service permission to run a scoped subset of commands.

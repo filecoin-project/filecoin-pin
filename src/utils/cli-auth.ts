@@ -7,10 +7,15 @@
 
 import type { Permission } from '@filoz/synapse-core/session-key'
 import type { FilecoinChain, Synapse } from '@filoz/synapse-sdk'
+import pc from 'picocolors'
+import { privateKeyToAccount } from 'viem/accounts'
 import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rpc-url.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { initializeSynapse, isReadOnlyConfig, isSessionKeyConfig } from '../core/synapse/index.js'
 import { createLogger } from '../logger.js'
+import { shortAddress } from '../login/format.js'
+import { log } from './cli-logger.js'
+import { getSessionCredentialSource } from './credential-source.js'
 
 /**
  * Common CLI authentication options interface
@@ -99,7 +104,28 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   if (sessionKey) config.sessionKey = sessionKey
   if (rpcUrl) config.rpcUrl = rpcUrl
   if (chain) config.chain = chain
+  if (!privateKey && !viewAddress && walletAddress && sessionKey) {
+    printSessionInUse(sessionKey, walletAddress)
+  }
   return config as SynapseSetupConfig
+}
+
+/**
+ * One gray line naming the session credential a command runs with (PRD
+ * section 5): the session address, where it came from when auto-loaded,
+ * and the owner. Skipped when the key is malformed; initializeSynapse
+ * reports that with the right flag name.
+ */
+function printSessionInUse(sessionKey: string, walletAddress: string): void {
+  let sessionAddress: string
+  try {
+    sessionAddress = privateKeyToAccount(sessionKey as `0x${string}`).address
+  } catch {
+    return
+  }
+  const source = getSessionCredentialSource()
+  const from = source === undefined ? '' : ` (from ${source})`
+  log.line(pc.gray(`  Using session ${shortAddress(sessionAddress)}${from} · owner ${shortAddress(walletAddress)}`))
 }
 
 /**

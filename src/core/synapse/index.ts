@@ -151,6 +151,32 @@ export function assertSessionKeyPrivateKey(value: string): asserts value is Hex 
 }
 
 /**
+ * First line of the preflight error. Three shapes: nothing ever granted,
+ * every needed grant lapsed (the session expired: renew it with `login`),
+ * or a live key that lacks a scope.
+ */
+function describeProblem(
+  key: SessionKey<'Secp256k1'>,
+  ownerAddress: string,
+  scopeLabels: string,
+  networkName: string,
+  now: bigint
+): string {
+  const allExpirations = Object.values(key.expirations)
+  const neverAuthorized = allExpirations.length > 0 && allExpirations.every((expiry) => expiry === 0n)
+  if (neverAuthorized) {
+    return `Session key ${key.address} isn't authorized for account ${ownerAddress} on ${networkName} — never authorized, expired/revoked, or the key is for a different network (check --network).`
+  }
+  // No live grant at all, but at least one past grant: the session ran out.
+  if (allExpirations.every((expiry) => expiry <= now)) {
+    const latest = allExpirations.reduce((a, b) => (a > b ? a : b), 0n)
+    const date = new Date(Number(latest) * 1000).toISOString().slice(0, 10)
+    return `Session expired (key ${key.address}, grants lapsed ${date})\n  Renew it:  filecoin-pin login`
+  }
+  return `Session key ${key.address} lacks ${scopeLabels} for this operation on ${networkName}.`
+}
+
+/**
  * Preflight a session key against the permissions an operation needs.
  *
  * Two failure shapes, both console-first (spec: problem -> console
@@ -172,9 +198,6 @@ function checkSessionKeyPermissions(
   const missing = required.filter((p) => !key.hasPermission(p))
   if (missing.length === 0) return
 
-  const allExpirations = Object.values(key.expirations)
-  const neverAuthorized = allExpirations.length > 0 && allExpirations.every((expiry) => expiry === 0n)
-
   const scopeIds = missing.map(scopeIdOf)
   const scopeLabels = missing.map((p) => PermissionNames[p] ?? p).join(', ')
   const scopesArg = scopeIds.join(',')
@@ -192,9 +215,7 @@ function checkSessionKeyPermissions(
     return `  • ${name}: never granted`
   })
 
-  const problem = neverAuthorized
-    ? `Session key ${key.address} isn't authorized for account ${ownerAddress} on ${networkName} — never authorized, expired/revoked, or the key is for a different network (check --network).`
-    : `Session key ${key.address} lacks ${scopeLabels} for this operation on ${networkName}.`
+  const problem = describeProblem(key, ownerAddress, scopeLabels, networkName, now)
 
   const lines = [problem, ...scopeDetails, '']
   lines.push('Recommended — approve in the browser with the owner wallet:')
@@ -290,8 +311,9 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
       )
     }
     throw new Error(
-      'No authentication provided. Supply a private key (--private-key / PRIVATE_KEY), ' +
-        'wallet address (--wallet-address / WALLET_ADDRESS), or session key (--session-key / SESSION_KEY).'
+      'No credentials found.\n' +
+        '  Log in to your Filecoin account:  filecoin-pin login\n' +
+        '  (or supply --private-key / PRIVATE_KEY, or --wallet-address + --session-key / WALLET_ADDRESS + SESSION_KEY)'
     )
   }
 
