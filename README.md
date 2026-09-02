@@ -291,6 +291,7 @@ PRIVATE_KEY=0x...              # Ethereum private key with USDFC tokens
 # Optional - Network Configuration
 NETWORK=mainnet                # Network to use: mainnet, calibration, or devnet (default: mainnet)
 RPC_URL=wss://...              # Filecoin RPC endpoint (overrides NETWORK if specified)
+CONSOLE_URL=https://...        # Filecoin Cloud console base URL for remediation links (default: pay.filecoin.cloud)
                                # Mainnet: wss://wss.node.glif.io/apigw/lotus/rpc/v1
                                # Calibration: wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1
 

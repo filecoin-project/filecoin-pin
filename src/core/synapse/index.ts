@@ -14,7 +14,6 @@ export { calibration, mainnet, type FilecoinChain }
 
 import type { SessionKey } from '@filoz/synapse-core/session-key'
 import { fromSecp256k1, type Permission, PermissionNames } from '@filoz/synapse-core/session-key'
-import pc from 'picocolors'
 import type { Logger } from 'pino'
 import {
   type Account,
@@ -27,6 +26,7 @@ import {
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { buildAuthorizeUrl, resolveConsoleUrl } from '../session/console-url.js'
+import { scopeIdOf } from '../session/scopes.js'
 import { APPLICATION_SOURCE } from './constants.js'
 import { createTransport } from './create-transport.js'
 import { resolveChainFromRpc } from './resolve-chain-from-rpc.js'
@@ -175,14 +175,7 @@ function checkSessionKeyPermissions(
   const allExpirations = Object.values(key.expirations)
   const neverAuthorized = allExpirations.length > 0 && allExpirations.every((expiry) => expiry === 0n)
 
-  // Scope ids are the camelCase forms of the FWSS EIP-712 operation names
-  // (PermissionNames is PascalCase: CreateDataSet -> createDataSet). Derive
-  // them here rather than importing the CLI-layer session/scopes.ts into core.
-  const scopeIds = missing.map((p) => {
-    const name = PermissionNames[p]
-    if (name == null || name.length === 0) return p
-    return name.charAt(0).toLowerCase() + name.slice(1)
-  })
+  const scopeIds = missing.map(scopeIdOf)
   const scopeLabels = missing.map((p) => PermissionNames[p] ?? p).join(', ')
   const scopesArg = scopeIds.join(',')
 
@@ -207,11 +200,10 @@ function checkSessionKeyPermissions(
   const lines = [problem, ...scopeDetails, '']
   if (consoleUrl != null) {
     lines.push('Recommended — approve in the browser with the owner wallet:')
-    // pc.cyan+underline: conventional terminal hyperlink styling so the link
-    // stands out of the error wall; picocolors self-disables when not a TTY.
-    lines.push(`  ${pc.cyan(pc.underline(buildAuthorizeUrl(consoleUrl, key.address, scopeIds, chainId)))}`)
+    // Plain text: this is a library error, so no terminal styling here.
+    lines.push(`  ${buildAuthorizeUrl(consoleUrl, key.address, scopeIds, chainId)}`)
   } else {
-    lines.push('Authorize in the Filecoin Pay console (set CONSOLE_URL for a direct link).')
+    lines.push('Authorize in the Filecoin Cloud console (set CONSOLE_URL for a direct link).')
   }
   lines.push('')
   lines.push('The account owner can also use the CLI:')
