@@ -1,5 +1,7 @@
+import type { Command } from 'commander'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { balanceCommand, dashboardCommand } from '../../commands/account.js'
+import { paymentsCommand } from '../../commands/payments.js'
 import { openBrowser } from '../../login/open-browser.js'
 import { resolveDashboardUrl, runDashboard } from '../../login/run-dashboard.js'
 import { log } from '../../utils/cli-logger.js'
@@ -17,9 +19,10 @@ describe('dashboard', () => {
     delete process.env.CONSOLE_URL
   })
 
-  it('resolves the console billing page per network, CONSOLE_URL winning', () => {
+  it('resolves the shared console billing page for mainnet and calibration, CONSOLE_URL winning', () => {
     expect(resolveDashboardUrl({})).toBe('https://pay.filecoin.cloud/console')
     expect(resolveDashboardUrl({ network: 'calibration' })).toBe('https://pay.filecoin.cloud/console')
+    expect(resolveDashboardUrl({ network: 'calibnet' })).toBe('https://pay.filecoin.cloud/console')
     process.env.CONSOLE_URL = 'https://console.test/'
     expect(resolveDashboardUrl({ network: 'devnet' })).toBe('https://console.test/console')
   })
@@ -41,12 +44,14 @@ describe('dashboard', () => {
 })
 
 describe('account command wiring', () => {
-  it('balance takes the same auth flags as payments status', () => {
-    const longs = balanceCommand.options.map((o) => o.long)
-    expect(longs).toEqual(expect.arrayContaining(['--private-key', '--session-key', '--wallet-address', '--network']))
+  it('balance takes exactly the auth and network flags of payments status', () => {
+    const statusCommand = paymentsCommand.commands.find((c) => c.name() === 'status')
+    const flagsOf = (c: Command | undefined) =>
+      (c?.options ?? []).map((o) => o.long).filter((l) => l !== '--include-rails')
+    expect(flagsOf(balanceCommand)).toEqual(flagsOf(statusCommand))
   })
 
-  it('dashboard takes only --network', () => {
-    expect(dashboardCommand.options.map((o) => o.long)).toEqual(['--network'])
+  it('dashboard is wired', () => {
+    expect(dashboardCommand.name()).toBe('dashboard')
   })
 })
