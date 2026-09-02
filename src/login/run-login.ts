@@ -30,7 +30,11 @@ import {
   resolveConsoleUrl,
 } from '../core/session/console-url.js'
 import { generateSessionKeypair } from '../core/session/create-session-key.js'
-import { type WatchAuthorizationResult, watchAuthorization } from '../core/session/watch-authorization.js'
+import {
+  DEFAULT_WATCH_DEADLINE_MS,
+  type WatchAuthorizationResult,
+  watchAuthorization,
+} from '../core/session/watch-authorization.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { resolveNetwork } from '../session/resolve-network.js'
 import { parseScopes, SCOPE_IDS, SCOPE_PERMISSIONS } from '../session/scopes.js'
@@ -67,7 +71,11 @@ function loadOrCreateSession(fresh: boolean | undefined, path: string): { sessio
 /** Print the requested-versus-granted diff and the exit code for a shortfall. */
 function reportPartialGrant(requested: readonly Permission[], result: WatchAuthorizationResult): void {
   const granted = new Set(result.granted)
-  log.line(`${pc.yellow('⚠')} Authorized with fewer scopes than requested`)
+  log.line(
+    result.granted.length === 0
+      ? `${pc.yellow('⚠')} Authorized with none of the requested scopes`
+      : `${pc.yellow('⚠')} Authorized with fewer scopes than requested`
+  )
   log.line(`  Requested:  ${scopeList(requested)}`)
   log.line(
     `  Granted:    ${requested
@@ -139,14 +147,16 @@ export async function runLogin(options: LoginOptions): Promise<number> {
   const spinner = createSpinner()
   const waitLine = (remainingMs: number) =>
     `Waiting for on-chain authorization… ${formatCountdown(remainingMs)} remaining (Ctrl-C safe; rerun \`login\` to resume)`
-  if (!isTTY()) log.line(`  ${waitLine(watchDeadlineMs())}`)
-  spinner.start(waitLine(watchDeadlineMs()))
+  // Registered before the spinner starts: clack installs its own SIGINT
+  // handler in start(), and the first listener to call process.exit wins.
   const onSigint = () => {
     spinner.stop(`${pc.yellow('⚠')} Login paused. Your key is saved; rerun \`filecoin-pin login\` to resume.`)
     log.flush()
     process.exit(EXIT_CODE_INCOMPLETE)
   }
   process.once('SIGINT', onSigint)
+  if (!isTTY()) log.line(`  ${waitLine(DEFAULT_WATCH_DEADLINE_MS)}`)
+  spinner.start(waitLine(DEFAULT_WATCH_DEADLINE_MS))
   let result: WatchAuthorizationResult
   try {
     result = await watchAuthorization({
@@ -156,8 +166,9 @@ export async function runLogin(options: LoginOptions): Promise<number> {
       permissions,
       fromBlock,
       ...(session.walletAddress !== undefined ? { owner: session.walletAddress } : {}),
-      deadlineMs: watchDeadlineMs(),
-      onTick: (remainingMs) => spinner.message(waitLine(remainingMs)),
+      onProgress: (event) => {
+        if (event.type === 'watch:tick') spinner.message(waitLine(event.data.remainingMs))
+      },
     })
   } finally {
     process.off('SIGINT', onSigint)
@@ -180,13 +191,13 @@ export async function runLogin(options: LoginOptions): Promise<number> {
     reportPartialGrant(permissions, result)
   }
 
-  await reportReadiness(result.owner, chain, consoleUrl)
+  // Funding never blocks login: a failed readiness read is reported, not fatal.
+  try {
+    await reportReadiness(result.owner, chain, consoleUrl)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    log.line(`${pc.yellow('⚠')} Could not read account readiness: ${reason}. Run \`filecoin-pin balance\` to check.`)
+  }
   log.flush()
   return result.status === 'granted' ? 0 : EXIT_CODE_INCOMPLETE
-}
-
-/** Deadline for the wait; `FILECOIN_PIN_LOGIN_TIMEOUT_MS` shortens it in tests. */
-function watchDeadlineMs(): number {
-  const override = Number(process.env.FILECOIN_PIN_LOGIN_TIMEOUT_MS)
-  return Number.isFinite(override) && override > 0 ? override : 5 * 60 * 1000
 }

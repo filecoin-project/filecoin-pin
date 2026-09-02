@@ -36,7 +36,7 @@ export function formatReadinessLines(readiness: AccountReadiness, sessionAuthori
     sessionAuthorized ? `${OK} session key authorized` : `${NO} session key not authorized`,
     readiness.serviceApproved ? `${OK} storage service approved` : `${NO} storage service not approved yet`,
   ]
-  const deposit = `USDFC deposit — ${formatUSDFC(readiness.depositUsdfc)}`
+  const deposit = `USDFC deposit — ${formatUSDFC(readiness.depositUsdfc, 2)}`
   lines.push(readiness.depositUsdfc > 0n ? `${OK} ${deposit}` : `${NO} ${deposit}`)
   return lines.map((line) => `    ${line}`)
 }

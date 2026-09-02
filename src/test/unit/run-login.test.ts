@@ -19,7 +19,10 @@ const FUTURE = 1790380800n
 let dataDir: string
 
 vi.mock('../../config.js', () => ({ getDataDirectory: () => dataDir }))
-vi.mock('../../core/session/watch-authorization.js', () => ({ watchAuthorization: vi.fn() }))
+vi.mock('../../core/session/watch-authorization.js', () => ({
+  watchAuthorization: vi.fn(),
+  DEFAULT_WATCH_DEADLINE_MS: 300000,
+}))
 vi.mock('../../login/open-browser.js', () => ({ openBrowser: vi.fn(() => false) }))
 vi.mock('../../login/readiness.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../login/readiness.js')>()
@@ -39,11 +42,13 @@ vi.mock('viem', async (importOriginal) => {
 })
 vi.mock('viem/actions', () => ({ getBlockNumber: vi.fn(async () => 42n) }))
 
+/** Joined log lines with ANSI colour codes stripped, since CI forces colour on. */
 function output(): string {
   return vi
     .mocked(log.line)
     .mock.calls.map((call) => String(call[0]))
     .join('\n')
+    .replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g'), '')
 }
 
 describe('runLogin', () => {
@@ -92,10 +97,41 @@ describe('runLogin', () => {
       `https://console.test/console/session-keys?authorize=${saved?.sessionAddress.toLowerCase()}&scopes=createDataSet,addPieces&network=calibration`
     )
     expect(text).toContain('storage service not approved yet')
-    expect(text).toContain('USDFC deposit — 0.00')
+    expect(text).toMatch(/USDFC deposit — 0\.00(?!\d)/)
     expect(text).toContain('https://console.test/console?deposit=2&operator=fwss')
     expect(text).not.toMatch(/FWSS operator|operator approval/i)
     expect(vi.mocked(openBrowser)).toHaveBeenCalledOnce()
+  })
+
+  it('reports a grant of none of the requested scopes and exits 2', async () => {
+    vi.mocked(watchAuthorization).mockResolvedValue({
+      status: 'none',
+      owner: OWNER,
+      granted: [],
+      missing: [CreateDataSetPermission, AddPiecesPermission],
+    })
+
+    const code = await runLogin({})
+
+    expect(code).toBe(2)
+    expect(output()).toContain('Authorized with none of the requested scopes')
+    expect(readSessionFile(join(dataDir, 'session.env'))?.walletAddress).toBe(OWNER)
+  })
+
+  it('still exits 0 when the readiness read fails after a full grant', async () => {
+    vi.mocked(watchAuthorization).mockResolvedValue({
+      status: 'granted',
+      owner: OWNER,
+      expiry: FUTURE,
+      granted: [CreateDataSetPermission, AddPiecesPermission],
+      missing: [],
+    })
+    vi.mocked(checkAccountReadiness).mockRejectedValue(new Error('rpc down'))
+
+    const code = await runLogin({})
+
+    expect(code).toBe(0)
+    expect(output()).toContain('Could not read account readiness: rpc down')
   })
 
   it('resumes the saved key and passes the known owner to the watcher', async () => {
