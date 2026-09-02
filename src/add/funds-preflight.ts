@@ -26,12 +26,14 @@ const USDFC_WEI = 10n ** 18n
  * files under a directory. CAR framing adds a little on top; the estimate
  * is for the funds check, not the bill.
  */
-export async function estimateInputBytes(path: string, isDirectory: boolean): Promise<number> {
+export async function estimateInputBytes(path: string, isDirectory: boolean, includeHidden = false): Promise<number> {
   if (!isDirectory) return (await stat(path)).size
   const entries = await readdir(path, { recursive: true, withFileTypes: true })
   let total = 0
   for (const entry of entries) {
     if (!entry.isFile()) continue
+    // The packer skips dotfiles unless --include-hidden; count what it will pack.
+    if (!includeHidden && entry.name.startsWith('.')) continue
     total += (await stat(join(entry.parentPath, entry.name))).size
   }
   return total
@@ -41,6 +43,16 @@ export async function estimateInputBytes(path: string, isDirectory: boolean): Pr
 function suggestedDeposit(shortfall: bigint): number {
   if (shortfall <= 0n) return DEFAULT_SUGGESTED_DEPOSIT_USDFC
   return Number((shortfall + USDFC_WEI - 1n) / USDFC_WEI)
+}
+
+/** Run one read; on failure stop the spinner with a plain line naming the step, then rethrow. */
+async function readStep<T>(spinner: Spinner | undefined, what: string, read: () => Promise<T>): Promise<T> {
+  try {
+    return await read()
+  } catch (error) {
+    spinner?.stop(`${pc.red('✗')} Could not read the ${what}`)
+    throw error
+  }
 }
 
 /**
@@ -55,14 +67,23 @@ export async function assertUploadFunds(
   rerunCommand: string,
   spinner?: Spinner
 ): Promise<void> {
-  const [readiness, estimate, summary] = await Promise.all([
-    checkAccountReadiness(synapse),
-    estimateUploadCost(synapse, estimatedBytes, estimateOptions),
-    synapse.payments.accountSummary({}),
-  ])
+  // Sequential so a failing step is named in the spinner rather than
+  // surfacing as a raw SDK error under a stale "checking" line.
+  spinner?.message('Checking the storage service approval...')
+  const readiness = await readStep(spinner, 'account readiness', () => checkAccountReadiness(synapse))
+  spinner?.message('Estimating the upload cost...')
+  const estimate = await readStep(spinner, 'upload cost estimate', () =>
+    estimateUploadCost(synapse, estimatedBytes, estimateOptions)
+  )
+  const summary = await readStep(spinner, 'account balance', () => synapse.payments.accountSummary({}))
+  // The SDK's depositNeeded already nets available funds against lockups,
+  // fees, runway, and debt, so it decides; the line shows the two amounts.
+  const shortfall = estimate.costs.depositNeeded
   const funds: UploadFunds = {
     available: summary.availableFunds,
-    needed: estimate.costs.lockups.total + estimate.costs.fees.total,
+    needed:
+      shortfall > 0n ? summary.availableFunds + shortfall : estimate.costs.lockups.total + estimate.costs.fees.total,
+    covered: shortfall === 0n,
   }
   if (readiness.serviceApproved && estimate.costs.ready) return
 

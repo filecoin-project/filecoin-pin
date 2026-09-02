@@ -16,9 +16,9 @@ vi.mock('../../login/readiness.js', async (importOriginal) => {
 
 const USDFC = 10n ** 18n
 
-function fakeSynapse(availableFunds: bigint): Synapse {
+function fakeSynapse(availableFunds: bigint, chainId = 314): Synapse {
   return {
-    chain: { id: 314 },
+    chain: { id: chainId },
     payments: { accountSummary: vi.fn(async () => ({ availableFunds })) },
   } as unknown as Synapse
 }
@@ -43,11 +43,13 @@ describe('assertUploadFunds', () => {
     delete process.env.CONSOLE_URL
   })
 
+  // ANSI codes stripped: CI forces colour on.
   const output = () =>
     vi
       .mocked(log.line)
       .mock.calls.map((c) => String(c[0]))
       .join('\n')
+      .replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g'), '')
 
   it('returns quietly when the service is approved and the estimate is covered', async () => {
     vi.mocked(checkAccountReadiness).mockResolvedValue({ serviceApproved: true, depositUsdfc: 5n * USDFC })
@@ -77,6 +79,27 @@ describe('assertUploadFunds', () => {
     expect(text).not.toMatch(/FWSS operator|operator approval/i)
   })
 
+  it('names the failing step in the spinner when a read throws', async () => {
+    vi.mocked(checkAccountReadiness).mockResolvedValue({ serviceApproved: true, depositUsdfc: USDFC })
+    vi.mocked(estimateUploadCost).mockRejectedValue(new Error('no providers'))
+    const spinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn(), clear: vi.fn() }
+
+    await expect(assertUploadFunds(fakeSynapse(USDFC), 1024, {}, 'filecoin-pin add ./photos', spinner)).rejects.toThrow(
+      'no providers'
+    )
+    expect(spinner.stop).toHaveBeenCalledWith(expect.stringContaining('Could not read the upload cost estimate'))
+  })
+
+  it('points at the console without a link when no console is known for the chain', async () => {
+    delete process.env.CONSOLE_URL
+    vi.mocked(checkAccountReadiness).mockResolvedValue({ serviceApproved: false, depositUsdfc: 0n })
+    vi.mocked(estimateUploadCost).mockResolvedValue(costs(false, USDFC, 0n, USDFC) as never)
+
+    await expect(assertUploadFunds(fakeSynapse(0n, 31337), 1024, {}, 'filecoin-pin add ./photos')).rejects.toThrow()
+    expect(output()).toContain('Top up and approve the storage service in the Filecoin Cloud console')
+    expect(output()).not.toContain('operator=fwss')
+  })
+
   it('fails on a missing service approval even when funds cover the estimate', async () => {
     vi.mocked(checkAccountReadiness).mockResolvedValue({ serviceApproved: false, depositUsdfc: 5n * USDFC })
     vi.mocked(estimateUploadCost).mockResolvedValue(costs(true, USDFC, 0n, 0n) as never)
@@ -103,7 +126,9 @@ describe('estimateInputBytes', () => {
     writeFileSync(join(dir, 'a.txt'), 'abc')
     mkdirSync(join(dir, 'sub'))
     writeFileSync(join(dir, 'sub', 'b.txt'), 'defgh')
+    writeFileSync(join(dir, '.hidden'), 'zz')
     expect(await estimateInputBytes(dir, true)).toBe(8)
+    expect(await estimateInputBytes(dir, true, true)).toBe(10)
     expect(await estimateInputBytes(join(dir, 'a.txt'), false)).toBe(3)
   })
 })

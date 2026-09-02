@@ -65,6 +65,7 @@ vi.mock('../../common/upload-flow.js', () => ({
 
 vi.mock('../../core/synapse/index.js', () => ({
   getClientAddress: vi.fn(() => '0x1234567890123456789012345678901234567890'),
+  isSessionKeyMode: vi.fn(() => false),
   initializeSynapse: vi.fn().mockImplementation((config: any) => {
     // Validate auth config (mirrors validateAuthConfig in actual code)
     const hasStandardAuth = config.privateKey != null
@@ -86,6 +87,11 @@ vi.mock('../../core/synapse/index.js', () => ({
       },
     }
   }),
+}))
+
+vi.mock('../../add/funds-preflight.js', () => ({
+  assertUploadFunds: vi.fn(async () => undefined),
+  estimateInputBytes: vi.fn(async () => 1024),
 }))
 
 vi.mock('../../core/unixfs/index.js', () => ({
@@ -144,6 +150,31 @@ describe('Add Command', () => {
   })
 
   describe('runAdd command', () => {
+    it('runs the session-key funds preflight before packing, and packs nothing when it refuses', async () => {
+      const { isSessionKeyMode } = await import('../../core/synapse/index.js')
+      const { assertUploadFunds } = await import('../../add/funds-preflight.js')
+      const { createCarFromPath } = await import('../../core/unixfs/index.js')
+      vi.mocked(isSessionKeyMode).mockReturnValue(true)
+      const sessionAuth = {
+        filePath: testFile,
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        sessionKey: `0x${'11'.repeat(32)}`,
+        rpcUrl: 'wss://test.rpc.url',
+      }
+
+      await runAdd(sessionAuth)
+      expect(vi.mocked(assertUploadFunds)).toHaveBeenCalledOnce()
+      expect(vi.mocked(assertUploadFunds).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(createCarFromPath).mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER
+      )
+
+      vi.mocked(createCarFromPath).mockClear()
+      vi.mocked(assertUploadFunds).mockRejectedValueOnce(new Error("Account can't pay for this upload"))
+      await expect(runAdd(sessionAuth)).rejects.toThrow("Account can't pay")
+      expect(vi.mocked(createCarFromPath)).not.toHaveBeenCalled()
+      vi.mocked(isSessionKeyMode).mockReturnValue(false)
+    })
+
     it('should successfully add a file (no directory wrapper)', async () => {
       const result = (await runAdd({
         filePath: testFile,
