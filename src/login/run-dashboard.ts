@@ -30,8 +30,12 @@ export function resolveDashboardUrl(options: DashboardOptions): string {
 
 export function runDashboard(options: DashboardOptions): void {
   const url = resolveDashboardUrl(options)
-  log.line('  Opening the Filecoin Cloud console in your browser…')
   log.line(`  ${pc.cyan(pc.underline(url))}`)
+  // Only a terminal gets a browser; an agent or CI run gets the URL alone.
+  log.line(
+    openBrowser(url)
+      ? '  Opening the Filecoin Cloud console in your browser…'
+      : '  Open the Filecoin Cloud console at the URL above.'
+  )
   log.flush()
-  openBrowser(url)
 }
