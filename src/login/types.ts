@@ -1,4 +1,4 @@
-/** CLI option shapes for `login` and `logout`. */
+/** CLI option shape for `login`. */
 
 export interface LoginOptions {
   network?: string | undefined
@@ -8,5 +8,3 @@ export interface LoginOptions {
   /** Generate a new key even when a saved one exists. */
   fresh?: boolean | undefined
 }
-
-export type LogoutOptions = Record<string, never>

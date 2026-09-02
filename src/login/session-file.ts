@@ -10,7 +10,7 @@
  * supply credentials (see `src/utils/credential-source.ts`).
  */
 
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { parseEnv } from 'node:util'
 import type { Address, Hex } from 'viem'
@@ -84,11 +84,7 @@ export function writeSessionFile(session: SavedSession, path: string = getSessio
 
 /** Delete the session file. Returns whether a file was removed. */
 export function deleteSessionFile(path: string = getSessionFilePath()): boolean {
-  try {
-    readFileSync(path)
-  } catch {
-    return false
-  }
+  if (!existsSync(path)) return false
   rmSync(path, { force: true })
   return true
 }

@@ -39,7 +39,7 @@ describe('session file', () => {
     expect(readFileSync(path, 'utf8').match(/SESSION_KEY=/g)).toHaveLength(1)
   })
 
-  it('writes the file owner-readable only', () => {
+  it.skipIf(process.platform === 'win32')('writes the file owner-readable only', () => {
     writeSessionFile({ sessionKey: KEY, sessionAddress: SESSION }, path)
     expect(statSync(path).mode & 0o777).toBe(0o600)
   })
@@ -59,7 +59,7 @@ describe('session file', () => {
     expect(readSessionFile(path)?.sessionAddress).toBe(SESSION)
   })
 
-  it('tightens permissions when rewriting a permissive existing file', () => {
+  it.skipIf(process.platform === 'win32')('tightens permissions when rewriting a permissive existing file', () => {
     writeFileSync(path, 'stale\n')
     chmodSync(path, 0o644)
     writeSessionFile({ sessionKey: KEY, sessionAddress: SESSION }, path)
