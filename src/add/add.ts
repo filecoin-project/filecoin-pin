@@ -215,12 +215,14 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       withCDN,
     }
 
+    // The exact invocation, flags included, for the "Then re-run" hint.
+    const rerunCommand = `filecoin-pin ${process.argv.slice(2).join(' ')}`
     if (!options.dryRun && isSessionKeyMode(synapse)) {
       // A session key cannot deposit, so check the account can pay before
       // any packing happens and point at the console when it cannot.
       spinner.start('Checking the account can pay for this upload...')
       const estimatedBytes = await estimateInputBytes(options.filePath, isDirectory, options.includeHidden)
-      await assertUploadFunds(synapse, estimatedBytes, estimateOptions, `filecoin-pin add ${options.filePath}`, spinner)
+      await assertUploadFunds(synapse, estimatedBytes, estimateOptions, rerunCommand, spinner)
       spinner.stop(`${pc.green('✓')} Account can pay for this upload`)
     } else if (!options.autoFund && !options.dryRun) {
       // Check payment setup (may configure permissions if needed).
@@ -301,6 +303,11 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       }
 
       await performAutoFunding(synapse, carSize, spinner, autoFundOptions)
+    } else if (isSessionKeyMode(synapse)) {
+      // Same block and link as the preflight, now with the real CAR size.
+      spinner.start('Checking the account can pay for this upload...')
+      await assertUploadFunds(synapse, carSize, estimateOptions, rerunCommand, spinner)
+      spinner.stop(`${pc.green('✓')} Account can pay for this upload`)
     } else {
       spinner.start('Checking payment capacity...')
       await validatePaymentSetup(synapse, carSize, spinner)
