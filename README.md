@@ -183,6 +183,10 @@ npm install -g filecoin-pin
 
 ```bash
 # 0. Set up authentication (choose one):
+#    Log in:        filecoin-pin login
+#                   Generates a session key for this machine and opens the Filecoin
+#                   Cloud console, where you approve it with your wallet. Saved under
+#                   the data directory (see "Default Data Directories"); `logout` removes it.
 #    Private key:   export PRIVATE_KEY=0x...
 #                   (or pass --private-key <key> to each command)
 #    Session key:   export WALLET_ADDRESS=0x... SESSION_KEY=0x...
@@ -268,6 +272,16 @@ filecoin-pin add myfile.txt
 * `--credentials-file <path>`: Load credentials (e.g. `SESSION_KEY`, `WALLET_ADDRESS`) from a dotenv-style file before other options are resolved, e.g. a downloaded credentials file. Never overrides a variable already set in the environment.
 
 Other arguments are possible for individual commands, use `--help` to find out more.
+
+### Login
+
+`filecoin-pin login` pairs this machine with a wallet without exporting a private key. It generates a session key, saves it to `session.env` in the data directory before anything else happens, prints and opens a Filecoin Cloud console link, and waits up to five minutes for the wallet owner to approve the key there. It ends with a readiness scorecard for uploads (key authorized, storage service approved, USDFC deposited) and a pre-filled console link when funding is still needed.
+
+* `--scopes <ids>`: scopes to request (default: `createDataSet,addPieces`). See [Session-Key Permissions](#session-key-permissions) for what each command needs.
+* `--fresh`: generate a new key instead of resuming the saved one.
+* Exit codes: `0` when every requested scope was granted, `2` when the wait timed out or the owner granted fewer scopes (rerun `login` to resume with the same key), `1` on an error.
+
+`filecoin-pin logout` deletes the saved session file. The on-chain grant expires on its own; the console can revoke it early.
 
 ### Session-Key Permissions
 
