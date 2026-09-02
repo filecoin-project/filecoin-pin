@@ -16,12 +16,24 @@ import { getSessionFilePath, readSessionFile } from '../login/session-file.js'
 
 const AUTH_ENV_VARS = ['PRIVATE_KEY', 'SESSION_KEY', 'WALLET_ADDRESS', 'VIEW_ADDRESS'] as const
 const AUTH_FLAGS = ['--private-key', '--session-key', '--wallet-address', '--view-address'] as const
+/**
+ * Commands that never auto-load: `login`/`logout` manage the file, and the
+ * pinning server is a daemon that must not silently bind to an interactive,
+ * expiring session key.
+ */
+const SKIPPED_COMMANDS = ['login', 'logout', 'server'] as const
 
 let loadedFrom: string | undefined
 
 /** True when argv carries any auth flag, in `--flag value` or `--flag=value` form. */
 function hasAuthFlag(argv: readonly string[]): boolean {
   return argv.some((arg) => AUTH_FLAGS.some((flag) => arg === flag || arg.startsWith(`${flag}=`)))
+}
+
+/** True when the first non-option argument names a command that never auto-loads. */
+function isSkippedCommand(argv: readonly string[]): boolean {
+  const command = argv.slice(2).find((arg) => !arg.startsWith('-'))
+  return command !== undefined && (SKIPPED_COMMANDS as readonly string[]).includes(command)
 }
 
 function hasAuthEnv(env: NodeJS.ProcessEnv): boolean {
@@ -32,7 +44,8 @@ function hasAuthEnv(env: NodeJS.ProcessEnv): boolean {
  * Load `SESSION_KEY` and `WALLET_ADDRESS` from the session file into `env`
  * when nothing else supplied a credential. A file without an owner address
  * (login started but never authorized) is left alone, so the command hits
- * the no-credentials error and points at `login`.
+ * the no-credentials error and points at `login`. `login`, `logout`, and
+ * `server` never auto-load.
  *
  * @returns the file path when it was used, otherwise undefined
  */
@@ -41,7 +54,7 @@ export function applySessionFileCredentials(
   env: NodeJS.ProcessEnv = process.env,
   path: string = getSessionFilePath()
 ): string | undefined {
-  if (hasAuthFlag(argv) || hasAuthEnv(env)) return undefined
+  if (isSkippedCommand(argv) || hasAuthFlag(argv) || hasAuthEnv(env)) return undefined
   const session = readSessionFile(path)
   if (session?.walletAddress === undefined) return undefined
   env.SESSION_KEY = session.sessionKey

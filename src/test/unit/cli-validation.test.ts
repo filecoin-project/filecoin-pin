@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assertOwnerAuth, parseCLIAuth, parseContextSelectionOptions } from '../../utils/cli-auth.js'
+import { log } from '../../utils/cli-logger.js'
 
 describe('parseContextSelectionOptions empty-list regression', () => {
   const originalEnv = { ...process.env }
@@ -95,5 +96,38 @@ describe('assertOwnerAuth', () => {
   it('refuses a view-only address, which cannot sign', () => {
     const config = parseCLIAuth({ viewAddress: '0x0000000000000000000000000000000000000002' })
     expect(() => assertOwnerAuth(config, 'payments withdraw')).toThrow(/view-only address can't sign/)
+  })
+})
+
+describe('parseCLIAuth session line', () => {
+  const sessionOptions = {
+    walletAddress: '0xffd6000000000000000000000000000000000666E',
+    sessionKey: `0x${'11'.repeat(32)}`,
+  }
+
+  beforeEach(() => {
+    vi.spyOn(log, 'line').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  const lines = () =>
+    vi
+      .mocked(log.line)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n')
+
+  it('names the session and owner when a session credential is used', () => {
+    parseCLIAuth(sessionOptions)
+    expect(lines()).toMatch(/Using session 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4} · owner 0xffd6…666E/)
+    expect(lines()).not.toContain('(from ')
+  })
+
+  it('stays quiet for private-key and view-only auth', () => {
+    parseCLIAuth({ privateKey: `0x${'11'.repeat(32)}` })
+    parseCLIAuth({ viewAddress: '0x0000000000000000000000000000000000000002' })
+    expect(lines()).toBe('')
   })
 })

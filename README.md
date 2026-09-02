@@ -287,7 +287,7 @@ A grant lives on one chain, so the file records the network (`mainnet` or `calib
 
 `filecoin-pin logout` deletes the saved session file and prints the session address it removed. This is local only: the on-chain grant expires on its own, or revoke it early on the console's Session keys page or with `filecoin-pin session revoke <session-address>` and the wallet key.
 
-Every command resolves credentials in this order: explicit flags, then environment variables (`PRIVATE_KEY`, or `SESSION_KEY` and `WALLET_ADDRESS`), then the saved session file, and otherwise fails with `No credentials found` and a pointer to `login`. Whenever a session credential is used, the command prints a `Using session …` line naming the key, where it came from, and the owner. Expired grants fail with `Session expired`; rerun `login` to renew the same key.
+Every command resolves credentials in this order: explicit flags, then environment variables (`PRIVATE_KEY`, or `SESSION_KEY` and `WALLET_ADDRESS`), then the saved session file, and otherwise fails with `No credentials found` and a pointer to `login`. `login`, `logout`, and `server` never read the session file. Whenever a session credential is used, the command prints a `Using session …` line naming the key, where it came from, and the owner. Expired grants fail with `Session expired`; rerun `login` to renew the same key.
 
 ### Session-Key Permissions
 

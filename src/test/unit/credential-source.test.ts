@@ -50,8 +50,18 @@ describe('applySessionFileCredentials', () => {
       ['node', 'cli.js', 'add', '--session-key', '0xflag', '--wallet-address', '0xflag', 'f'],
       ['node', 'cli.js', 'add', '--view-address', '0xflag', 'f'],
     ]) {
+      for (const preset of [{}, { PRIVATE_KEY: '0xenv' }]) {
+        const env: NodeJS.ProcessEnv = { ...preset }
+        expect(applySessionFileCredentials(argv, env, path)).toBeUndefined()
+        expect(env).toEqual(preset)
+      }
+    }
+  })
+
+  it('never loads for login, logout, or server', () => {
+    for (const command of ['login', 'logout', 'server']) {
       const env: NodeJS.ProcessEnv = {}
-      expect(applySessionFileCredentials(argv, env, path)).toBeUndefined()
+      expect(applySessionFileCredentials(['node', 'cli.js', '--verbose', command], env, path)).toBeUndefined()
       expect(env).toEqual({})
     }
   })
