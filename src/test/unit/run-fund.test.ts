@@ -19,6 +19,7 @@ vi.mock('../../core/synapse/index.js', () => ({
 }))
 vi.mock('../../utils/cli-auth.js', () => ({
   parseCLIAuth: vi.fn(() => ({})),
+  assertOwnerAuth: vi.fn(),
   getCLILogger: vi.fn(() => ({})),
 }))
 vi.mock('../../utils/cli-helpers.js', () => ({

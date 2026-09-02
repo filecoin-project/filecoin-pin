@@ -278,6 +278,7 @@ In session-key mode, each command checks only the on-chain permissions it needs 
 | `rm` (`--piece` or `--all`) | `schedulePieceRemovals` |
 | `data-set terminate` | `terminateService` |
 | Pinning server (`filecoin-pinning-server`) | `createDataSet`, `addPieces`, `schedulePieceRemovals` |
+| `payments deposit`, `payments withdraw`, `payments fund`, `payments setup --auto` | Owner wallet only (session keys are refused) |
 
 If the session key is missing a required scope, the command fails up front with a console link to approve the missing scope with the owner wallet, plus the equivalent `filecoin-pin session authorize` / `filecoin-pin session create` commands for the account owner to run.
 

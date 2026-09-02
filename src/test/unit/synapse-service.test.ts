@@ -6,6 +6,7 @@ import {
   SchedulePieceRemovalsPermission,
   TerminateServicePermission,
 } from '@filoz/synapse-core/session-key'
+import { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -223,6 +224,7 @@ describe('synapse-service', () => {
       expect(error).not.toBeNull()
       expect(error?.message).toContain("isn't authorized for account 0x0000000000000000000000000000000000000002 on ")
       expect(error?.message).toContain('the key is for a different network (check --network)')
+      expect(error?.message).toContain('AddPieces: never granted')
     })
 
     it('should pass when the key holds exactly the required permissions', async () => {
@@ -240,6 +242,24 @@ describe('synapse-service', () => {
       }
 
       await expect(initializeSynapse(config, logger)).resolves.toBeDefined()
+      // The SDK's own gate defaults to all four permissions; the preflight
+      // result only holds if the same subset reaches Synapse.create.
+      expect(vi.mocked(Synapse.create)).toHaveBeenCalledWith(
+        expect.objectContaining({ requiredPermissions: [AddPiecesPermission, CreateDataSetPermission] })
+      )
+    })
+
+    it('should forward an empty permission list to Synapse.create when none are required', async () => {
+      mockSessionKeyOnce(() => false, {})
+
+      const config: SynapseSetupConfig = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      }
+
+      await initializeSynapse(config, logger)
+      expect(vi.mocked(Synapse.create)).toHaveBeenCalledWith(expect.objectContaining({ requiredPermissions: [] }))
     })
 
     it('should throw when no authentication is provided', async () => {

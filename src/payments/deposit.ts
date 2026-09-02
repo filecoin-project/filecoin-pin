@@ -19,7 +19,7 @@ import {
 import { initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
-import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
+import { assertOwnerAuth, type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 
@@ -46,6 +46,7 @@ export async function runDeposit(options: DepositOptions): Promise<void> {
   try {
     // Parse and validate authentication
     const authConfig = parseCLIAuth(options)
+    assertOwnerAuth(authConfig, 'payments deposit')
 
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)

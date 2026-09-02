@@ -120,7 +120,8 @@ function isPrivateKeyConfig(config: SynapseSetupConfig): config is PrivateKeyCon
   return 'privateKey' in config && config.privateKey != null
 }
 
-function isSessionKeyConfig(config: SynapseSetupConfig): config is SessionKeyConfig {
+/** True when the config authenticates with a session key (owner address + session private key). */
+export function isSessionKeyConfig(config: SynapseSetupConfig): config is SessionKeyConfig {
   return (
     'walletAddress' in config &&
     'sessionKey' in config &&
@@ -202,7 +203,7 @@ function checkSessionKeyPermissions(
     : `Session key ${key.address} lacks ${scopeLabels} for this operation on ${networkName}.`
 
   const consoleUrl = resolveConsoleUrl(chainId)
-  const lines = neverAuthorized ? [problem, ''] : [problem, ...scopeDetails, '']
+  const lines = [problem, ...scopeDetails, '']
   if (consoleUrl != null) {
     lines.push('Recommended — approve in the browser with the owner wallet:')
     // pc.cyan+underline: conventional terminal hyperlink styling so the link
