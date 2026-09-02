@@ -25,3 +25,12 @@ export type {
   RevokeSessionResult,
   SessionKeypair,
 } from './types.js'
+export {
+  DEFAULT_WATCH_DEADLINE_MS,
+  DEFAULT_WATCH_INTERVAL_MS,
+  readScopeGrants,
+  type ScopeGrants,
+  type WatchAuthorizationOptions,
+  type WatchAuthorizationResult,
+  watchAuthorization,
+} from './watch-authorization.js'
