@@ -17,6 +17,7 @@ import { describeLockupShortfall } from '../common/lockup-error.js'
 import {
   displayDryRunEstimate,
   displayUploadResults,
+  type EstimateUploadCostOptions,
   estimateUploadCost,
   performAutoFunding,
   performUpload,
@@ -26,7 +27,7 @@ import {
 import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
 import { normalizeMetadataConfig, withDerivedNameMetadata } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
-import { initializeSynapse } from '../core/synapse/index.js'
+import { initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
@@ -35,6 +36,7 @@ import { log } from '../utils/cli-logger.js'
 import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
 import { buildFilbeamUrl, chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
 import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
+import { assertUploadFunds, estimateInputBytes } from './funds-preflight.js'
 import type { AddDryRunResult, AddOptions, AddResult } from './types.js'
 
 /**
@@ -205,10 +207,25 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     }
     const effectiveDataSetMetadata = targets.dataSetMetadata
 
-    // Check payment setup (may configure permissions if needed).
-    // Skipped for --dry-run: this can submit an allowance-approval transaction,
-    // which a dry run must never do.
-    if (!options.autoFund && !options.dryRun) {
+    const estimateOptions: EstimateUploadCostOptions = {
+      ...(options.copies != null && { copies: options.copies }),
+      ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
+      ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
+      ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
+      withCDN,
+    }
+
+    if (!options.dryRun && isSessionKeyMode(synapse)) {
+      // A session key cannot deposit, so check the account can pay before
+      // any packing happens and point at the console when it cannot.
+      spinner.start('Checking the account can pay for this upload...')
+      const estimatedBytes = await estimateInputBytes(options.filePath, isDirectory)
+      await assertUploadFunds(synapse, estimatedBytes, estimateOptions, `filecoin-pin add ${options.filePath}`, spinner)
+      spinner.stop(`${pc.green('✓')} Account can pay for this upload`)
+    } else if (!options.autoFund && !options.dryRun) {
+      // Check payment setup (may configure permissions if needed).
+      // Skipped for --dry-run: this can submit an allowance-approval transaction,
+      // which a dry run must never do.
       spinner.start('Checking payment setup...')
       await validatePaymentSetup(synapse, 0, spinner, {
         suppressSuggestions: true,
@@ -242,13 +259,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
     if (options.dryRun) {
       spinner.start('Estimating upload cost...')
-      const estimate = await estimateUploadCost(synapse, carSize, {
-        ...(options.copies != null && { copies: options.copies }),
-        ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
-        ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
-        ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
-        withCDN,
-      })
+      const estimate = await estimateUploadCost(synapse, carSize, estimateOptions)
       spinner.stop(`${pc.green('✓')} Cost estimate ready`)
 
       const result: AddDryRunResult = {

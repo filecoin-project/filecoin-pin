@@ -283,6 +283,8 @@ Other arguments are possible for individual commands, use `--help` to find out m
 
 `filecoin-pin logout` deletes the saved session file. The on-chain grant expires on its own; the console can revoke it early.
 
+With a session key, `add` checks before packing anything that the storage service is approved and that available funds cover the upload's estimate, reserve included. If not, it prints the readiness lines and a pre-filled console funding link and exits 1; nothing is uploaded. Session keys cannot deposit, so there is no auto-fund on this path. Private-key auth keeps its existing checks and `--auto-fund`.
+
 Every command resolves credentials in this order: explicit flags, then environment variables (`PRIVATE_KEY`, or `SESSION_KEY` and `WALLET_ADDRESS`), then the saved session file, and otherwise fails with `No credentials found` and a pointer to `login`. `login`, `logout`, and `server` never read the session file. Whenever a session credential is used, the command prints a `Using session …` line naming the key, where it came from, and the owner. Expired grants fail with `Session expired`; rerun `login` to renew the same key.
 
 ### Session-Key Permissions

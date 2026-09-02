@@ -27,16 +27,35 @@ export async function checkAccountReadiness(synapse: Synapse): Promise<AccountRe
 const OK = pc.green('✓')
 const NO = pc.red('✗')
 
+/** Funds line for a specific upload: what is available against what the upload needs. */
+export interface UploadFunds {
+  /** USDFC available for new lockups, wei-scale. */
+  available: bigint
+  /** USDFC the upload needs, reserve included, wei-scale. */
+  needed: bigint
+}
+
 /**
  * The scorecard lines, indented for printing under a heading. The session
  * line is always the first; the caller says whether the key is authorized.
+ * With `funds`, the third line compares available funds to an upload's
+ * needs instead of showing the bare deposit.
  */
-export function formatReadinessLines(readiness: AccountReadiness, sessionAuthorized: boolean): string[] {
+export function formatReadinessLines(
+  readiness: AccountReadiness,
+  sessionAuthorized: boolean,
+  funds?: UploadFunds
+): string[] {
   const lines = [
     sessionAuthorized ? `${OK} session key authorized` : `${NO} session key not authorized`,
     readiness.serviceApproved ? `${OK} storage service approved` : `${NO} storage service not approved yet`,
   ]
-  const deposit = `USDFC deposit — ${formatUSDFC(readiness.depositUsdfc, 2)}`
-  lines.push(readiness.depositUsdfc > 0n ? `${OK} ${deposit}` : `${NO} ${deposit}`)
+  if (funds === undefined) {
+    const deposit = `USDFC deposit — ${formatUSDFC(readiness.depositUsdfc, 2)}`
+    lines.push(readiness.depositUsdfc > 0n ? `${OK} ${deposit}` : `${NO} ${deposit}`)
+  } else {
+    const detail = `available funds ${formatUSDFC(funds.available, 2)} USDFC — this upload needs ~${formatUSDFC(funds.needed, 2)} USDFC (incl. 30-day reserve)`
+    lines.push(funds.available >= funds.needed ? `${OK} ${detail}` : `${NO} ${detail}`)
+  }
   return lines.map((line) => `    ${line}`)
 }
