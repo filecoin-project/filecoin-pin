@@ -131,7 +131,8 @@ export function isSessionKeyConfig(config: SynapseSetupConfig): config is Sessio
   )
 }
 
-function isReadOnlyConfig(config: SynapseSetupConfig): config is ReadOnlyConfig {
+/** True when the config is a view-only wallet address (no signer). */
+export function isReadOnlyConfig(config: SynapseSetupConfig): config is ReadOnlyConfig {
   return 'readOnly' in config && (config as ReadOnlyConfig).readOnly === true && 'walletAddress' in config
 }
 /**

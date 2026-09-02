@@ -92,8 +92,8 @@ describe('assertOwnerAuth', () => {
     expect(() => assertOwnerAuth(config, 'payments deposit')).not.toThrow()
   })
 
-  it('accepts a view-only address (read path, no signing)', () => {
+  it('refuses a view-only address, which cannot sign', () => {
     const config = parseCLIAuth({ viewAddress: '0x0000000000000000000000000000000000000002' })
-    expect(() => assertOwnerAuth(config, 'payments deposit')).not.toThrow()
+    expect(() => assertOwnerAuth(config, 'payments withdraw')).toThrow(/view-only address can't sign/)
   })
 })
