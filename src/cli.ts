@@ -9,14 +9,14 @@ import { configureTelemetry, flushTelemetry } from './core/telemetry/index.js'
 import { version as packageVersion } from './core/utils/version.js'
 import { readTelemetryConfigFromEnv } from './read-telemetry-config-from-env.js'
 import { applyVerboseLogLevel } from './utils/cli-logger.js'
-import { applyEnvFileArg } from './utils/env-file.js'
+import { applyCredentialsFileArg } from './utils/credentials-file.js'
 
-// Load --env-file (if present) into process.env before anything else reads
+// Load --credentials-file (if present) into process.env before anything else reads
 // env vars, so it can supply e.g. SESSION_KEY/WALLET_ADDRESS or telemetry
 // opt-out vars. Values already present in the environment are never
 // overridden by the file.
 try {
-  applyEnvFileArg()
+  applyCredentialsFileArg()
 } catch (error) {
   console.error('Error:', error instanceof Error ? error.message : error)
   process.exit(1)
