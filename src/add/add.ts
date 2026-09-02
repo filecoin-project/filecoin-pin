@@ -219,7 +219,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       // A session key cannot deposit, so check the account can pay before
       // any packing happens and point at the console when it cannot.
       spinner.start('Checking the account can pay for this upload...')
-      const estimatedBytes = await estimateInputBytes(options.filePath, isDirectory)
+      const estimatedBytes = await estimateInputBytes(options.filePath, isDirectory, options.includeHidden)
       await assertUploadFunds(synapse, estimatedBytes, estimateOptions, `filecoin-pin add ${options.filePath}`, spinner)
       spinner.stop(`${pc.green('✓')} Account can pay for this upload`)
     } else if (!options.autoFund && !options.dryRun) {

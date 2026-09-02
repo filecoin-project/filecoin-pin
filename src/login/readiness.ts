@@ -33,6 +33,8 @@ export interface UploadFunds {
   available: bigint
   /** USDFC the upload needs, reserve included, wei-scale. */
   needed: bigint
+  /** Whether the account can pay, as judged by the SDK's own deposit check. */
+  covered: boolean
 }
 
 /**
@@ -55,7 +57,7 @@ export function formatReadinessLines(
     lines.push(readiness.depositUsdfc > 0n ? `${OK} ${deposit}` : `${NO} ${deposit}`)
   } else {
     const detail = `available funds ${formatUSDFC(funds.available, 2)} USDFC — this upload needs ~${formatUSDFC(funds.needed, 2)} USDFC (incl. 30-day reserve)`
-    lines.push(funds.available >= funds.needed ? `${OK} ${detail}` : `${NO} ${detail}`)
+    lines.push(funds.covered ? `${OK} ${detail}` : `${NO} ${detail}`)
   }
   return lines.map((line) => `    ${line}`)
 }
