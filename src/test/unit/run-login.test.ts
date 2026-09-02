@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
+import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loginCommand, logoutCommand } from '../../commands/login.js'
 import { watchAuthorization } from '../../core/session/watch-authorization.js'
@@ -99,7 +100,7 @@ describe('runLogin', () => {
 
   it('resumes the saved key and passes the known owner to the watcher', async () => {
     const key = `0x${'11'.repeat(32)}` as const
-    const session = '0x00000000000000000000000000000000000000bb'
+    const session = privateKeyToAccount(key).address
     writeSessionFile({ sessionKey: key, sessionAddress: session, walletAddress: OWNER }, join(dataDir, 'session.env'))
     vi.mocked(watchAuthorization).mockResolvedValue({ status: 'timeout', granted: [], missing: [] })
 

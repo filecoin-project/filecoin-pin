@@ -1,12 +1,13 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { formatCountdown, formatExpiryDate, shortAddress } from '../../login/format.js'
 import { deleteSessionFile, getSessionFilePath, readSessionFile, writeSessionFile } from '../../login/session-file.js'
 
 const KEY = `0x${'ab'.repeat(32)}` as const
-const SESSION = '0x00000000000000000000000000000000000000bb'
+const SESSION = privateKeyToAccount(KEY).address
 const OWNER = '0x00000000000000000000000000000000000000aa'
 
 describe('session file', () => {
@@ -45,9 +46,25 @@ describe('session file', () => {
 
   it('treats a missing or malformed file as no session', () => {
     expect(readSessionFile(path)).toBeUndefined()
-    writeSessionFile({ sessionKey: KEY, sessionAddress: SESSION }, path)
     writeFileSync(path, 'SESSION_KEY=not-a-key\n')
     expect(readSessionFile(path)).toBeUndefined()
+    writeFileSync(path, 'SESSION_KEY="unterminated\n=\n')
+    expect(readSessionFile(path)).toBeUndefined()
+    writeFileSync(path, `SESSION_KEY=0x${'0'.repeat(64)}\n`) // out of curve range
+    expect(readSessionFile(path)).toBeUndefined()
+  })
+
+  it('derives the session address from the key instead of trusting the file', () => {
+    writeFileSync(path, `SESSION_KEY=${KEY}\nSESSION_ADDRESS=0x00000000000000000000000000000000000000cc\n`)
+    expect(readSessionFile(path)?.sessionAddress).toBe(SESSION)
+  })
+
+  it('tightens permissions when rewriting a permissive existing file', () => {
+    writeFileSync(path, 'stale\n')
+    chmodSync(path, 0o644)
+    writeSessionFile({ sessionKey: KEY, sessionAddress: SESSION }, path)
+    expect(statSync(path).mode & 0o777).toBe(0o600)
+    expect(readSessionFile(path)?.sessionKey).toBe(KEY)
   })
 
   it('deleteSessionFile reports whether anything was removed', () => {
