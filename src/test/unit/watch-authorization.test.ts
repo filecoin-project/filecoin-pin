@@ -162,15 +162,17 @@ describe('watchAuthorization', () => {
     expect(vi.mocked(getExpirations)).toHaveBeenCalledWith(client, expect.objectContaining({ address: OWNER }))
   })
 
-  it('reports none, not timeout, when the owner acted but granted no requested scope', async () => {
+  it('reports none at the deadline, not timeout, when the owner acted but granted no requested scope', async () => {
     const { client } = fakeClient([[authorizationLog(OWNER, SESSION, [])]])
     vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: 0n, [AddPiecesPermission]: 0n })
 
-    const result = await watchAuthorization({ ...base, client, fromBlock: 1n, deadlineMs: 2000 })
+    const result = await watchAuthorization({ ...base, client, fromBlock: 1n, deadlineMs: 30 })
 
     expect(result.status).toBe('none')
     expect(result.owner?.toLowerCase()).toBe(OWNER)
     expect(result.missing).toEqual(base.permissions)
+    // Kept polling after the event rather than stopping on the first empty read.
+    expect(vi.mocked(getExpirations).mock.calls.length).toBeGreaterThan(1)
   })
 
   it('keeps polling through a transient RPC error and reports it as progress', async () => {
