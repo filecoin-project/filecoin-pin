@@ -158,6 +158,17 @@ describe('watchAuthorization', () => {
     expect(vi.mocked(getExpirations)).toHaveBeenCalledTimes(2)
   })
 
+  it('never replaces a supplied owner with one from an event, and does not scan logs', async () => {
+    const { client, calls } = fakeClient([[authorizationLog(OTHER_SESSION, SESSION, [])]])
+    vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
+
+    const result = await watchAuthorization({ ...base, client, owner: OWNER, fromBlock: 1n, deadlineMs: 2000 })
+
+    expect(result.owner).toBe(OWNER)
+    expect(calls).toEqual([])
+    expect(vi.mocked(getExpirations)).toHaveBeenCalledWith(client, expect.objectContaining({ address: OWNER }))
+  })
+
   it('with a known owner and no event, a pre-existing partial grant is reported at the deadline', async () => {
     const { client } = fakeClient([[]])
     vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: 0n })
