@@ -4,7 +4,7 @@
  */
 
 import pc from 'picocolors'
-import { NETWORK_CHAINS } from '../common/get-rpc-url.js'
+import { NETWORK_CHAINS, normalizeNetworkName } from '../common/get-rpc-url.js'
 import { buildConsoleUrl, resolveConsoleUrl } from '../core/session/console-url.js'
 import { log } from '../utils/cli-logger.js'
 import { openBrowser } from './open-browser.js'
@@ -13,9 +13,13 @@ export interface DashboardOptions {
   network?: string | undefined
 }
 
-/** Console URL for `--network`, defaulting to mainnet. Throws when no console is known for the network. */
+/**
+ * Console billing page for the selected network (default mainnet). One
+ * deployment serves mainnet and calibration, so both resolve to the same
+ * page; `CONSOLE_URL` overrides. Throws when no console is known.
+ */
 export function resolveDashboardUrl(options: DashboardOptions): string {
-  const network = (options.network ?? 'mainnet').toLowerCase().trim()
+  const network = normalizeNetworkName(options.network) ?? 'mainnet'
   const chain = NETWORK_CHAINS[network as keyof typeof NETWORK_CHAINS]
   const consoleUrl = chain === undefined ? process.env.CONSOLE_URL : resolveConsoleUrl(chain.id)
   if (consoleUrl === undefined) {

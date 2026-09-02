@@ -8,7 +8,6 @@ import { Command } from 'commander'
 import pc from 'picocolors'
 import { runDashboard } from '../login/run-dashboard.js'
 import { showPaymentStatus } from '../payments/status.js'
-import { log } from '../utils/cli-logger.js'
 import { addAuthOptions, addNetworkOptions } from '../utils/cli-options.js'
 
 // balance: alias of `payments status`, which already computes balances,
@@ -17,11 +16,10 @@ export const balanceCommand = new Command('balance')
   .description('Show wallet and Filecoin Cloud balances, reserve, available funds, storage, and runway')
   .action(async (options) => {
     try {
-      await showPaymentStatus(options)
-      log.line(pc.gray('Top up or manage billing:  filecoin-pin dashboard'))
-      log.flush()
+      await showPaymentStatus({ ...options, footer: pc.gray('Top up or manage billing:  filecoin-pin dashboard') })
     } catch {
-      process.exit(1)
+      // showPaymentStatus already printed the failure.
+      process.exitCode = 1
     }
   })
 addAuthOptions(balanceCommand)
