@@ -18,8 +18,20 @@
  * declined a scope in the console) are reported scope by scope.
  */
 
+import { sessionKeyRegistry } from '@filoz/synapse-core/abis'
 import { type Expirations, extractLoginEvent, getExpirations, type Permission } from '@filoz/synapse-core/session-key'
-import { type Address, type Chain, type Client, isAddressEqual, type Log, type Transport, toEventSelector } from 'viem'
+import {
+  type Address,
+  type Chain,
+  type Client,
+  getAbiItem,
+  isAddressEqual,
+  type Log,
+  type Transport,
+  toEventSelector,
+} from 'viem'
+import type { ProgressEventHandler } from '../utils/types.js'
+import type { WatchAuthorizationProgressEvents } from './types.js'
 
 /** Default poll deadline: about five minutes (PRD decision #11). */
 export const DEFAULT_WATCH_DEADLINE_MS = 5 * 60 * 1000
@@ -27,7 +39,7 @@ export const DEFAULT_WATCH_DEADLINE_MS = 5 * 60 * 1000
 export const DEFAULT_WATCH_INTERVAL_MS = 5000
 
 const AUTHORIZATIONS_UPDATED_TOPIC = toEventSelector(
-  'AuthorizationsUpdated(address indexed identity,address signer,uint256 expiry,bytes32[] permissions,string origin)'
+  getAbiItem({ abi: sessionKeyRegistry, name: 'AuthorizationsUpdated' })
 )
 
 export interface WatchAuthorizationOptions {
@@ -47,8 +59,8 @@ export interface WatchAuthorizationOptions {
   deadlineMs?: number
   /** Time between polls. Defaults to {@link DEFAULT_WATCH_INTERVAL_MS}. */
   pollIntervalMs?: number
-  /** Called before each poll with the time left, for a countdown. */
-  onTick?: (remainingMs: number) => void
+  /** Progress events: a tick before each poll, the owner once found, and per-poll RPC errors. */
+  onProgress?: ProgressEventHandler<WatchAuthorizationProgressEvents>
 }
 
 /** Per-scope state read from the registry. */
@@ -66,8 +78,12 @@ export interface ScopeGrants {
 }
 
 export interface WatchAuthorizationResult {
-  /** `granted` when every requested scope is live, `partial` when some are, `timeout` when none arrived in time. */
-  status: 'granted' | 'partial' | 'timeout'
+  /**
+   * `granted`: every requested scope is live. `partial`: some are. `none`:
+   * the owner acted but none of the requested scopes is live. `timeout`:
+   * the deadline passed without an authorization.
+   */
+  status: 'granted' | 'partial' | 'none' | 'timeout'
   /** Wallet owner that authorized the key. Absent on timeout when it was never learned. */
   owner?: Address
   /** Latest expiry (unix seconds) among the granted scopes. */
@@ -164,6 +180,9 @@ interface WatchState {
   owner: Address | undefined
   eventSeen: boolean
   last: WatchAuthorizationResult
+  /** Whether any poll completed without an RPC error. */
+  anySuccess: boolean
+  lastError: unknown
 }
 
 /**
@@ -179,18 +198,38 @@ async function pollOnce(options: WatchAuthorizationOptions, state: WatchState): 
     if (found !== undefined) {
       state.owner = found
       state.eventSeen = true
+      options.onProgress?.({ type: 'watch:ownerFound', data: { owner: found } })
     }
   }
   if (state.owner === undefined) return false
 
   const grants = await readScopeGrants({ client, sessionAddress, registryAddress, permissions, owner: state.owner })
-  state.last = { ...grants, status: grants.status === 'none' ? 'timeout' : grants.status }
+  // Without an event, a `none` read only means nothing has happened yet.
+  state.last = grants.status === 'none' && !state.eventSeen ? { ...grants, status: 'timeout' } : grants
   return grants.status === 'granted' || state.eventSeen
+}
+
+/**
+ * Run one poll, tolerating RPC errors: a single failed request must not end
+ * a five-minute wait after the owner already approved in the browser.
+ */
+async function pollTolerantly(options: WatchAuthorizationOptions, state: WatchState): Promise<boolean> {
+  try {
+    const done = await pollOnce(options, state)
+    state.anySuccess = true
+    return done
+  } catch (error) {
+    state.lastError = error
+    options.onProgress?.({ type: 'watch:error', data: { error } })
+    return false
+  }
 }
 
 /**
  * Poll until the session key is authorized or the deadline passes.
  *
+ * RPC errors on individual polls are reported through `onProgress` and the
+ * wait continues; the error is thrown only when no poll ever succeeded.
  * A complete grant ends the wait at once. A new `AuthorizationsUpdated`
  * event also ends it, with whatever the read shows, because the console
  * grants every approved scope in one transaction: a shortfall after the
@@ -208,13 +247,18 @@ export async function watchAuthorization(options: WatchAuthorizationOptions): Pr
     owner: options.owner,
     eventSeen: false,
     last: { status: 'timeout', granted: [], missing: [...options.permissions] },
+    anySuccess: false,
+    lastError: undefined,
   }
 
   for (;;) {
     const remainingMs = deadline - Date.now()
-    if (remainingMs <= 0) return state.last
-    options.onTick?.(remainingMs)
-    if (await pollOnce(options, state)) return state.last
+    if (remainingMs <= 0) break
+    options.onProgress?.({ type: 'watch:tick', data: { remainingMs } })
+    if (await pollTolerantly(options, state)) return state.last
     await sleep(Math.min(pollIntervalMs, Math.max(0, deadline - Date.now())))
   }
+  // Every poll failed: the RPC endpoint, not the owner, is the problem.
+  if (!state.anySuccess && state.lastError !== undefined) throw state.lastError
+  return state.last
 }
