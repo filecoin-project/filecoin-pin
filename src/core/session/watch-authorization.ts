@@ -41,7 +41,7 @@ export interface WatchAuthorizationOptions {
   permissions: readonly Permission[]
   /** Block to scan events from (the block `login` started at). Required when the owner is unknown. */
   fromBlock?: bigint
-  /** Wallet owner, when already known (renewal). Skips the event scan. */
+  /** Wallet owner, when already known (renewal). Skips the event scan; never replaced by one. */
   owner?: Address
   /** Give up after this long. Defaults to {@link DEFAULT_WATCH_DEADLINE_MS}. */
   deadlineMs?: number
@@ -167,13 +167,14 @@ interface WatchState {
 }
 
 /**
- * One poll: scan events for our signer when `fromBlock` is set and no event
- * has been seen yet, then read the scope expiries once the owner is known.
- * Returns true when the wait is over.
+ * One poll: while the owner is unknown, scan events for our signer; once
+ * the owner is known (supplied or discovered) read the scope expiries. A
+ * supplied owner is never replaced by an event. Returns true when the wait
+ * is over.
  */
 async function pollOnce(options: WatchAuthorizationOptions, state: WatchState): Promise<boolean> {
   const { client, sessionAddress, registryAddress, permissions, fromBlock } = options
-  if (fromBlock !== undefined && !state.eventSeen) {
+  if (state.owner === undefined && fromBlock !== undefined) {
     const found = await findOwnerInLogs(client, registryAddress, sessionAddress, fromBlock)
     if (found !== undefined) {
       state.owner = found
