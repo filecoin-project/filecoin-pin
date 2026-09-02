@@ -13,6 +13,7 @@ export {
   parseScopes,
   SCOPE_IDS,
   SCOPE_PERMISSIONS,
+  type ScopeId,
   scopeIdOf,
 } from './scopes.js'
 export type {

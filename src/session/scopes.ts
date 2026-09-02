@@ -7,7 +7,14 @@
 import { type ParsedScopes, parseScopes } from '../core/session/scopes.js'
 import { cancel } from '../utils/cli-helpers.js'
 
-export { describeScopes, type ParsedScopes, parseScopes, SCOPE_IDS, SCOPE_PERMISSIONS } from '../core/session/scopes.js'
+export {
+  describeScopes,
+  type ParsedScopes,
+  parseScopes,
+  SCOPE_IDS,
+  SCOPE_PERMISSIONS,
+  type ScopeId,
+} from '../core/session/scopes.js'
 
 /**
  * Parse an optional `--scopes` value for a CLI runner: `undefined` when the
