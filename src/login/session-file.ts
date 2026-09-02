@@ -77,8 +77,12 @@ export function writeSessionFile(session: SavedSession, path: string = getSessio
   if (session.walletAddress !== undefined) lines.push(`WALLET_ADDRESS=${session.walletAddress}`)
   mkdirSync(dirname(path), { recursive: true })
   const tmp = `${path}.${process.pid}.tmp`
-  writeFileSync(tmp, `${lines.join('\n')}\n`, { mode: 0o600 })
-  renameSync(tmp, path)
+  try {
+    writeFileSync(tmp, `${lines.join('\n')}\n`, { mode: 0o600 })
+    renameSync(tmp, path)
+  } finally {
+    rmSync(tmp, { force: true })
+  }
   chmodSync(path, 0o600)
 }
 

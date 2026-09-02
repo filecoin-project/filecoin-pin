@@ -6,6 +6,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loginCommand, logoutCommand } from '../../commands/login.js'
 import { watchAuthorization } from '../../core/session/watch-authorization.js'
+import { initializeSynapse } from '../../core/synapse/index.js'
 import { openBrowser } from '../../login/open-browser.js'
 import { checkAccountReadiness } from '../../login/readiness.js'
 import { runLogin } from '../../login/run-login.js'
@@ -101,6 +102,10 @@ describe('runLogin', () => {
     expect(text).toContain('https://console.test/console?deposit=2&operator=fwss')
     expect(text).not.toMatch(/FWSS operator|operator approval/i)
     expect(vi.mocked(openBrowser)).toHaveBeenCalledOnce()
+    // The readiness read uses the RPC the user selected, not the chain default.
+    expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
+      expect.objectContaining({ walletAddress: OWNER, readOnly: true, rpcUrl: 'http://rpc.test' })
+    )
   })
 
   it('reports a grant of none of the requested scopes and exits 2', async () => {

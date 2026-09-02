@@ -94,8 +94,8 @@ function reportPartialGrant(requested: readonly Permission[], result: WatchAutho
 }
 
 /** Print the readiness scorecard for `owner` and the funding link when something is missing. */
-async function reportReadiness(owner: Address, chain: Chain, consoleUrl: string): Promise<void> {
-  const synapse = await initializeSynapse({ walletAddress: owner, readOnly: true, chain })
+async function reportReadiness(owner: Address, chain: Chain, rpcUrl: string, consoleUrl: string): Promise<void> {
+  const synapse = await initializeSynapse({ walletAddress: owner, readOnly: true, chain, rpcUrl })
   const readiness = await checkAccountReadiness(synapse)
   log.line('')
   log.line('  Account readiness for uploads:')
@@ -115,7 +115,7 @@ async function reportReadiness(owner: Address, chain: Chain, consoleUrl: string)
  */
 export async function runLogin(options: LoginOptions): Promise<number> {
   const permissions = options.scopes !== undefined ? parseScopes(options.scopes).permissions : DEFAULT_LOGIN_PERMISSIONS
-  const { chain, transport } = await resolveNetwork(options)
+  const { chain, transport, rpcUrl } = await resolveNetwork(options)
   const registryAddress = chain.contracts.sessionKeyRegistry?.address
   if (registryAddress === undefined) {
     throw new Error(`No session key registry is configured for chain id ${chain.id}`)
@@ -193,7 +193,7 @@ export async function runLogin(options: LoginOptions): Promise<number> {
 
   // Funding never blocks login: a failed readiness read is reported, not fatal.
   try {
-    await reportReadiness(result.owner, chain, consoleUrl)
+    await reportReadiness(result.owner, chain, rpcUrl, consoleUrl)
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     log.line(`${pc.yellow('⚠')} Could not read account readiness: ${reason}. Run \`filecoin-pin balance\` to check.`)
