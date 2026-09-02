@@ -13,7 +13,7 @@ import {
   type Transport,
   toEventSelector,
 } from 'viem'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readScopeGrants, watchAuthorization } from '../../core/session/watch-authorization.js'
 
 // Keep the real event decoder and permission constants; only the multicall read is faked.
@@ -75,9 +75,23 @@ const base = {
   pollIntervalMs: 1,
 }
 
+/** Run the watcher under fake timers, draining every scheduled poll and the deadline. */
+async function watch(options: Parameters<typeof watchAuthorization>[0]) {
+  const pending = watchAuthorization(options)
+  // A rejection that lands while timers drain must not surface as unhandled.
+  pending.catch(() => undefined)
+  await vi.runAllTimersAsync()
+  return pending
+}
+
 describe('watchAuthorization', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     vi.mocked(getExpirations).mockReset()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('finds the owner from the matching event, then confirms every scope', async () => {
@@ -88,7 +102,7 @@ describe('watchAuthorization', () => {
     // First tick: no logs. Second tick: an unrelated signer, then ours.
     vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
 
-    const result = await watchAuthorization({ ...base, client, fromBlock: 42n, deadlineMs: 2000 })
+    const result = await watch({ ...base, client, fromBlock: 42n, deadlineMs: 2000 })
 
     expect(result.status).toBe('granted')
     expect(result.owner?.toLowerCase()).toBe(OWNER)
@@ -109,7 +123,7 @@ describe('watchAuthorization', () => {
     const { client } = fakeClient([[]])
     const ticks: number[] = []
 
-    const result = await watchAuthorization({
+    const result = await watch({
       ...base,
       client,
       fromBlock: 1n,
@@ -133,7 +147,7 @@ describe('watchAuthorization', () => {
       [SchedulePieceRemovalsPermission]: 0n,
     })
 
-    const result = await watchAuthorization({
+    const result = await watch({
       ...base,
       permissions: [CreateDataSetPermission, AddPiecesPermission, SchedulePieceRemovalsPermission],
       client,
@@ -153,7 +167,7 @@ describe('watchAuthorization', () => {
       .mockResolvedValueOnce({ [CreateDataSetPermission]: PAST, [AddPiecesPermission]: 0n })
       .mockResolvedValueOnce({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
 
-    const result = await watchAuthorization({ ...base, client, owner: OWNER, fromBlock: 1n, deadlineMs: 2000 })
+    const result = await watch({ ...base, client, owner: OWNER, fromBlock: 1n, deadlineMs: 2000 })
 
     expect(result.status).toBe('granted')
     expect(result.owner).toBe(OWNER)
@@ -166,7 +180,7 @@ describe('watchAuthorization', () => {
     const { client } = fakeClient([[authorizationLog(OWNER, SESSION, [])]])
     vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: 0n, [AddPiecesPermission]: 0n })
 
-    const result = await watchAuthorization({ ...base, client, fromBlock: 1n, deadlineMs: 30 })
+    const result = await watch({ ...base, client, fromBlock: 1n, deadlineMs: 30 })
 
     expect(result.status).toBe('none')
     expect(result.owner?.toLowerCase()).toBe(OWNER)
@@ -189,7 +203,7 @@ describe('watchAuthorization', () => {
     }
     vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
 
-    const result = await watchAuthorization({
+    const result = await watch({
       ...base,
       client,
       fromBlock: 1n,
@@ -209,14 +223,14 @@ describe('watchAuthorization', () => {
       throw new Error('502 bad gateway')
     }
 
-    await expect(watchAuthorization({ ...base, client, fromBlock: 1n, deadlineMs: 15 })).rejects.toThrow('502')
+    await expect(watch({ ...base, client, fromBlock: 1n, deadlineMs: 15 })).rejects.toThrow('502')
   })
 
   it('with a known owner and no event, a pre-existing partial grant is reported at the deadline', async () => {
     const { client } = fakeClient([[]])
     vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: 0n })
 
-    const result = await watchAuthorization({ ...base, client, owner: OWNER, fromBlock: 1n, deadlineMs: 15 })
+    const result = await watch({ ...base, client, owner: OWNER, fromBlock: 1n, deadlineMs: 15 })
 
     expect(result.status).toBe('partial')
     expect(result.granted).toEqual([CreateDataSetPermission])
@@ -225,7 +239,7 @@ describe('watchAuthorization', () => {
 
   it('rejects a call with neither owner nor fromBlock', async () => {
     const { client } = fakeClient([[]])
-    await expect(watchAuthorization({ ...base, client })).rejects.toThrow(/owner or fromBlock/)
+    await expect(watch({ ...base, client })).rejects.toThrow(/owner or fromBlock/)
   })
 })
 
