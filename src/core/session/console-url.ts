@@ -3,10 +3,15 @@
  * deep links. Session-key pairing/login work builds on these same helpers.
  */
 
-/** Console deployments by chain id; calibration lives under a path prefix. */
+/**
+ * Console deployments by chain id. One deployment serves both networks and
+ * the console switches network in-app, so mainnet and calibration share a
+ * base URL; the network travels in the `network` query parameter.
+ * `CONSOLE_URL` still overrides for local or preview consoles.
+ */
 export const DEFAULT_CONSOLE_URLS: Record<number, string> = {
   314: 'https://pay.filecoin.cloud',
-  314159: 'https://pay.filecoin.cloud/calibration',
+  314159: 'https://pay.filecoin.cloud',
 }
 
 /**
