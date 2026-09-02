@@ -11,6 +11,7 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runAdd, runAddFromCli } from '../../add/add.js'
 import type { AddDryRunResult, AddResult } from '../../add/types.js'
@@ -228,6 +229,7 @@ describe('Add Command', () => {
       expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
         expect.objectContaining({
           dataSetMetadata: { purpose: 'erc8004' },
+          requiredPermissions: [CreateDataSetPermission, AddPiecesPermission],
         }),
         expect.anything()
       )

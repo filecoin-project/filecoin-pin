@@ -165,7 +165,8 @@ describe('synapse-service', () => {
         expect(error?.message).toContain(
           'filecoin-pin session authorize 0x0000000000000000000000000000000000000001 --scopes addPieces'
         )
-        expect(error?.message).toContain('filecoin-pin session create --scopes addPieces')
+        expect(error?.message).not.toContain('filecoin-pin session create')
+        expect(error?.message).toContain('Then re-run this command.')
       } finally {
         if (previousConsoleUrl == null) {
           delete process.env.CONSOLE_URL
@@ -225,6 +226,7 @@ describe('synapse-service', () => {
       expect(error?.message).toContain("isn't authorized for account 0x0000000000000000000000000000000000000002 on ")
       expect(error?.message).toContain('the key is for a different network (check --network)')
       expect(error?.message).toContain('AddPieces: never granted')
+      expect(error?.message).toContain('filecoin-pin session create --scopes addPieces')
     })
 
     it('should pass when the key holds exactly the required permissions', async () => {

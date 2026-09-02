@@ -207,8 +207,12 @@ function checkSessionKeyPermissions(
   }
   lines.push('')
   lines.push('The account owner can also use the CLI:')
-  lines.push(`  filecoin-pin session authorize ${key.address} --scopes ${scopesArg}   (add scope to this key)`)
-  lines.push(`  filecoin-pin session create --scopes ${scopesArg}              (or mint a new scoped key)`)
+  lines.push(`  filecoin-pin session authorize ${key.address} --scopes ${scopesArg}   (adds to this key, no new key)`)
+  if (neverAuthorized) {
+    lines.push(`  filecoin-pin session create --scopes ${scopesArg}              (or mint a new scoped key)`)
+  }
+  lines.push('')
+  lines.push('Then re-run this command.')
 
   throw new Error(lines.join('\n'))
 }

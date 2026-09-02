@@ -34,18 +34,20 @@ describe('buildAuthorizeUrl', () => {
     // Lowercase is the contract: the console's strict isAddress silently
     // rejects mixed-case with a wrong EIP-55 checksum; lowercase always passes.
     expect(
-      buildAuthorizeUrl('https://pay.filecoin.cloud', '0xAbC0000000000000000000000000000000000001', [
-        'createDataSet',
-        'addPieces',
-      ])
+      buildAuthorizeUrl(
+        'https://pay.filecoin.cloud',
+        '0xAbC0000000000000000000000000000000000001',
+        ['createDataSet', 'addPieces'],
+        314
+      )
     ).toBe(
-      'https://pay.filecoin.cloud/console/session-keys?authorize=0xabc0000000000000000000000000000000000001&scopes=createDataSet,addPieces'
+      'https://pay.filecoin.cloud/console/session-keys?authorize=0xabc0000000000000000000000000000000000001&scopes=createDataSet,addPieces&network=mainnet'
     )
   })
 
   it('tolerates a trailing slash on the base URL', () => {
-    expect(buildAuthorizeUrl('http://localhost:3005/', '0xA', ['addPieces'])).toBe(
-      'http://localhost:3005/console/session-keys?authorize=0xa&scopes=addPieces'
+    expect(buildAuthorizeUrl('http://localhost:3005/', '0xA', ['addPieces'], 314)).toBe(
+      'http://localhost:3005/console/session-keys?authorize=0xa&scopes=addPieces&network=mainnet'
     )
   })
 })
@@ -58,8 +60,7 @@ describe('buildAuthorizeUrl network param', () => {
     expect(buildAuthorizeUrl('https://pay.filecoin.cloud', '0xA', ['addPieces'], 314)).toMatch(/&network=mainnet$/)
   })
 
-  it('omits the param for unknown or missing chain ids', () => {
+  it('omits the param for an unknown chain id', () => {
     expect(buildAuthorizeUrl('https://pay.filecoin.cloud', '0xA', ['addPieces'], 1)).not.toMatch(/network=/)
-    expect(buildAuthorizeUrl('https://pay.filecoin.cloud', '0xA', ['addPieces'])).not.toMatch(/network=/)
   })
 })

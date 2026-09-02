@@ -45,10 +45,10 @@ export function buildAuthorizeUrl(
   consoleUrl: string,
   sessionAddress: string,
   scopeIds: string[],
-  chainId?: number
+  chainId: number
 ): string {
   const base = consoleUrl.endsWith('/') ? consoleUrl.slice(0, -1) : consoleUrl
-  const network = chainId != null ? CONSOLE_NETWORK_SLUG[chainId] : undefined
+  const network = CONSOLE_NETWORK_SLUG[chainId]
   const networkParam = network ? `&network=${network}` : ''
   return `${base}/console/session-keys?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam}`
 }
