@@ -15,7 +15,9 @@ function openerFor(url: string): { command: string; args: string[] } {
     case 'darwin':
       return { command: 'open', args: [url] }
     case 'win32':
-      return { command: 'cmd', args: ['/c', 'start', '', url] }
+      // Not `cmd /c start`: cmd.exe reads `&` in the query string as a
+      // command separator. rundll32 gets the URL as one plain argument.
+      return { command: 'rundll32', args: ['url.dll,FileProtocolHandler', url] }
     default:
       return { command: 'xdg-open', args: [url] }
   }
