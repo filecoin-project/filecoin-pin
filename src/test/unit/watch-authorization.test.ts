@@ -114,7 +114,9 @@ describe('watchAuthorization', () => {
       client,
       fromBlock: 1n,
       deadlineMs: 20,
-      onTick: (ms) => ticks.push(ms),
+      onProgress: (event) => {
+        if (event.type === 'watch:tick') ticks.push(event.data.remainingMs)
+      },
     })
 
     expect(result).toEqual({ status: 'timeout', granted: [], missing: base.permissions })
@@ -145,28 +147,67 @@ describe('watchAuthorization', () => {
     expect(vi.mocked(getExpirations)).toHaveBeenCalledTimes(1)
   })
 
-  it('with a known owner, skips the event scan and polls the expiries until granted', async () => {
-    const { client, calls } = fakeClient([[]])
+  it('with a known owner, never scans logs and polls the expiries until granted', async () => {
+    const { client, calls } = fakeClient([[authorizationLog(OTHER_SESSION, SESSION, [])]])
     vi.mocked(getExpirations)
       .mockResolvedValueOnce({ [CreateDataSetPermission]: PAST, [AddPiecesPermission]: 0n })
       .mockResolvedValueOnce({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
 
-    const result = await watchAuthorization({ ...base, client, owner: OWNER, deadlineMs: 2000 })
-
-    expect(result.status).toBe('granted')
-    expect(calls).toEqual([])
-    expect(vi.mocked(getExpirations)).toHaveBeenCalledTimes(2)
-  })
-
-  it('never replaces a supplied owner with one from an event, and does not scan logs', async () => {
-    const { client, calls } = fakeClient([[authorizationLog(OTHER_SESSION, SESSION, [])]])
-    vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
-
     const result = await watchAuthorization({ ...base, client, owner: OWNER, fromBlock: 1n, deadlineMs: 2000 })
 
+    expect(result.status).toBe('granted')
     expect(result.owner).toBe(OWNER)
     expect(calls).toEqual([])
+    expect(vi.mocked(getExpirations)).toHaveBeenCalledTimes(2)
     expect(vi.mocked(getExpirations)).toHaveBeenCalledWith(client, expect.objectContaining({ address: OWNER }))
+  })
+
+  it('reports none, not timeout, when the owner acted but granted no requested scope', async () => {
+    const { client } = fakeClient([[authorizationLog(OWNER, SESSION, [])]])
+    vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: 0n, [AddPiecesPermission]: 0n })
+
+    const result = await watchAuthorization({ ...base, client, fromBlock: 1n, deadlineMs: 2000 })
+
+    expect(result.status).toBe('none')
+    expect(result.owner?.toLowerCase()).toBe(OWNER)
+    expect(result.missing).toEqual(base.permissions)
+  })
+
+  it('keeps polling through a transient RPC error and reports it as progress', async () => {
+    const errors: unknown[] = []
+    const { client } = fakeClient([[], [authorizationLog(OWNER, SESSION, [])]])
+    const original = client.request
+    let first = true
+    ;(client as { request: unknown }).request = async (args: unknown) => {
+      if (first) {
+        first = false
+        throw new Error('429 rate limited')
+      }
+      return (original as (a: unknown) => Promise<unknown>)(args)
+    }
+    vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
+
+    const result = await watchAuthorization({
+      ...base,
+      client,
+      fromBlock: 1n,
+      deadlineMs: 2000,
+      onProgress: (event) => {
+        if (event.type === 'watch:error') errors.push(event.data.error)
+      },
+    })
+
+    expect(result.status).toBe('granted')
+    expect(errors).toHaveLength(1)
+  })
+
+  it('throws the RPC error only when no poll ever succeeded', async () => {
+    const { client } = fakeClient([[]])
+    ;(client as { request: unknown }).request = async () => {
+      throw new Error('502 bad gateway')
+    }
+
+    await expect(watchAuthorization({ ...base, client, fromBlock: 1n, deadlineMs: 15 })).rejects.toThrow('502')
   })
 
   it('with a known owner and no event, a pre-existing partial grant is reported at the deadline', async () => {

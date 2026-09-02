@@ -24,6 +24,7 @@ export type {
   RevokeSessionProgressEvents,
   RevokeSessionResult,
   SessionKeypair,
+  WatchAuthorizationProgressEvents,
 } from './types.js'
 export {
   DEFAULT_WATCH_DEADLINE_MS,
