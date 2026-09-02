@@ -55,7 +55,7 @@ export async function runSessionRevoke(options: SessionRevokeOptions): Promise<R
     pc.gray(`Session address: ${sessionAddress}`),
     pc.gray(`Chain:           ${chain.name} (id ${chain.id})`),
     pc.gray(`Scopes:          ${describeScopes(scopes?.ids)}`),
-    pc.yellow('This revokes the Filecoin Pin FWSS permissions for this session address.'),
+    pc.yellow('This revokes the listed scopes for this session address.'),
   ])
   log.flush()
 
