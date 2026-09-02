@@ -9,7 +9,38 @@ import { parseUnits } from 'viem'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import { normalizeNetworkName } from '../common/get-rpc-url.js'
 import { USDFC_DECIMALS } from '../core/payments/constants.js'
+import type { AuthOptionSource, AuthOptionSources } from './cli-auth.js'
 import { log } from './cli-logger.js'
+
+/**
+ * Commander attribute names for the mutually exclusive auth flags whose
+ * provenance {@link parseCLIAuth} needs to resolve precedence.
+ */
+const AUTH_OPTION_NAMES = ['privateKey', 'walletAddress', 'sessionKey', 'viewAddress'] as const
+
+/**
+ * Read each auth flag's provenance from a Commander command, narrowed to the
+ * `cli` (explicit flag) vs `env` (environment variable) distinction that
+ * precedence resolution cares about. Other sources (`default`, `config`,
+ * `implied`, unset) are omitted so `parseCLIAuth` treats them as absent.
+ *
+ * None of the auth flags declare a Commander `.default()`, which matters:
+ * parseCLIAuth's `sourceOf` treats a present value with no recorded source as an
+ * explicit flag. If a default is ever added to an auth option, its value would
+ * arrive with source `'default'` (dropped here) and then be misread as explicit,
+ * so record it as `'env'`-tier (or lower) precedence at that point rather than
+ * omitting it.
+ */
+export function collectAuthOptionSources(command: Command): AuthOptionSources {
+  const sources: AuthOptionSources = {}
+  for (const name of AUTH_OPTION_NAMES) {
+    const source = command.getOptionValueSource(name)
+    if (source === 'cli' || source === 'env') {
+      sources[name] = source as AuthOptionSource
+    }
+  }
+  return sources
+}
 
 /**
  * Option factories for flags declared on more than one command. Each pairs a
@@ -84,6 +115,15 @@ export function addAuthOptions(command: Command): Command {
       'VIEW_ADDRESS'
     )
   )
+
+  // Capture each auth flag's provenance (explicit flag vs env var) before the
+  // action runs, and stash it on the parsed options as `optionSources`. This is
+  // the only point where Commander's per-option source is available, so it lets
+  // parseCLIAuth() resolve precedence (explicit flag beats env) without every
+  // command action or runner having to thread the Command through.
+  command.hook('preAction', (_thisCommand, actionCommand) => {
+    actionCommand.setOptionValue('optionSources', collectAuthOptionSources(actionCommand))
+  })
 
   return addNetworkOptions(command).addOption(
     rpcUrlOption('RPC endpoint')

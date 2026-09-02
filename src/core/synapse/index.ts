@@ -256,7 +256,7 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
     }
     throw new Error(
       'No authentication provided. Supply a private key (--private-key / PRIVATE_KEY), ' +
-        'wallet address (--wallet-address / WALLET_ADDRESS), or session key (--session-key / SESSION_KEY).'
+        'or a wallet address (--wallet-address / WALLET_ADDRESS) with a session key (--session-key / SESSION_KEY).'
     )
   }
 

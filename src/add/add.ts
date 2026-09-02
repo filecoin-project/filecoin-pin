@@ -175,7 +175,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     // Initialize Synapse SDK
     spinner.start('Initializing Synapse SDK...')
 
-    const config = parseCLIAuth(options)
+    const config = await parseCLIAuth(options)
     if (dataSetMetadata) {
       config.dataSetMetadata = dataSetMetadata
     }

@@ -55,7 +55,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
   spinner.start('Fetching current configuration...')
 
   try {
-    const authConfig = parseCLIAuth(options)
+    const authConfig = await parseCLIAuth(options)
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)
     const network = synapse.chain.name
