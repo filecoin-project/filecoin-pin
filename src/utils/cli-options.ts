@@ -9,6 +9,7 @@ import { parseUnits } from 'viem'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import { normalizeNetworkName } from '../common/get-rpc-url.js'
 import { USDFC_DECIMALS } from '../core/payments/constants.js'
+import { SCOPE_IDS } from '../core/session/scopes.js'
 import { log } from './cli-logger.js'
 
 /**
@@ -23,6 +24,14 @@ export function privateKeyOption(description: string): Option {
 
 export function sessionKeyOption(description: string): Option {
   return new Option('--session-key <key>', description).env('SESSION_KEY')
+}
+
+/**
+ * `--scopes <ids>` for the session commands: `description` says what the
+ * scopes are used for; the accepted ids are appended once here.
+ */
+export function scopesOption(description: string): Option {
+  return new Option('--scopes <ids>', `${description}. Any of: ${SCOPE_IDS.join(', ')}`)
 }
 
 export function rpcUrlOption(description: string): Option {

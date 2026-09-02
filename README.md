@@ -191,6 +191,10 @@ npm install -g filecoin-pin
 #                   `filecoin-pin session create` or `filecoin-pin session generate`
 #                   (or pass --wallet-address <addr> --session-key <private-key> to each command)
 #    Revoke later:  filecoin-pin session revoke <session-address>
+#    Scoped keys:   session create/authorize/revoke take --scopes <ids> to grant or
+#                   revoke a subset (default: all). Ids: createDataSet, addPieces,
+#                   schedulePieceRemovals, terminateService.
+#                   E.g. --scopes createDataSet,addPieces or --scopes schedulePieceRemovals.
 
 # 1. Configure payment permissions (one-time setup)
 filecoin-pin payments setup --auto
