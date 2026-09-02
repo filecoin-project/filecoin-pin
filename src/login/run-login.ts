@@ -18,7 +18,7 @@ import {
   type Permission,
   PermissionNames,
 } from '@filoz/synapse-core/session-key'
-import type { Chain } from '@filoz/synapse-sdk'
+import type { FilecoinChain } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { type Address, createPublicClient } from 'viem'
 import { getBlockNumber } from 'viem/actions'
@@ -94,7 +94,12 @@ function reportPartialGrant(requested: readonly Permission[], result: WatchAutho
 }
 
 /** Print the readiness scorecard for `owner` and the funding link when something is missing. */
-async function reportReadiness(owner: Address, chain: Chain, rpcUrl: string, consoleUrl: string): Promise<void> {
+async function reportReadiness(
+  owner: Address,
+  chain: FilecoinChain,
+  rpcUrl: string,
+  consoleUrl: string
+): Promise<void> {
   const synapse = await initializeSynapse({ walletAddress: owner, readOnly: true, chain, rpcUrl })
   const readiness = await checkAccountReadiness(synapse)
   log.line('')
