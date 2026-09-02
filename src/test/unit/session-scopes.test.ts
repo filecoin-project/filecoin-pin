@@ -39,16 +39,9 @@ describe('parseScopes', () => {
     ])
   })
 
-  it('accepts short aliases, normalizing to canonical ids', () => {
-    expect(parseScopes('add').ids).toEqual(['addPieces'])
-    expect(parseScopes('create').ids).toEqual(['createDataSet'])
-    expect(parseScopes('terminate').ids).toEqual(['terminateService'])
-    expect(parseScopes('remove').ids).toEqual(['schedulePieceRemovals'])
-    expect(parseScopes('delete').ids).toEqual(['schedulePieceRemovals'])
-  })
-
-  it('mixes aliases with canonical ids and is case-insensitive on aliases', () => {
-    expect(parseScopes('ADD,createDataSet,Remove').ids).toEqual(['createDataSet', 'addPieces', 'schedulePieceRemovals'])
+  it('rejects the former short aliases', () => {
+    expect(() => parseScopes('add')).toThrow(/Unknown scope "add"/)
+    expect(() => parseScopes('createDataSet,remove')).toThrow(/Unknown scope "remove"/)
   })
 
   it('rejects an unknown scope, naming it and the valid list', () => {

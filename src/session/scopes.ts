@@ -1,9 +1,8 @@
 /**
  * Session-key scopes available for FWSS, used by the `session` subcommands'
- * `--scopes` flag. Canonical ids are the camelCase forms of the FWSS EIP-712
- * operation names (CreateDataSet -> createDataSet); short aliases are typing
- * shortcuts. Parsing is case-insensitive and rejects unknown tokens with the
- * valid list.
+ * `--scopes` flag. Ids are the camelCase forms of the FWSS EIP-712 operation
+ * names (CreateDataSet -> createDataSet). Parsing is case-insensitive and
+ * rejects unknown tokens with the valid list.
  */
 
 import {
@@ -27,15 +26,6 @@ export const SCOPE_PERMISSIONS: Record<string, Permission> = {
 
 /** Canonical scope ids, in display order. */
 export const SCOPE_IDS: string[] = Object.keys(SCOPE_PERMISSIONS)
-
-/** Short aliases accepted on input, mapped to canonical ids. Output stays canonical. */
-export const SCOPE_ALIASES: Record<string, string> = {
-  create: 'createDataSet',
-  add: 'addPieces',
-  remove: 'schedulePieceRemovals',
-  delete: 'schedulePieceRemovals',
-  terminate: 'terminateService',
-}
 
 export interface ParsedScopes {
   /** Canonical scope ids that were selected, in {@link SCOPE_IDS} order. */
@@ -64,12 +54,9 @@ export function parseScopes(value: string): ParsedScopes {
   const selected = new Set<string>()
   for (const token of tokens) {
     const lower = token.toLowerCase()
-    const id = canonicalByLower[lower] ?? SCOPE_ALIASES[lower]
+    const id = canonicalByLower[lower]
     if (id === undefined) {
-      throw new Error(
-        `Unknown scope "${token}". Valid scopes: ${SCOPE_IDS.join(', ')} ` +
-          `(aliases: create, add, remove, delete, terminate).`
-      )
+      throw new Error(`Unknown scope "${token}". Valid scopes: ${SCOPE_IDS.join(', ')}.`)
     }
     selected.add(id)
   }
