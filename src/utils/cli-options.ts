@@ -9,7 +9,7 @@ import { parseUnits } from 'viem'
 import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import { normalizeNetworkName } from '../common/get-rpc-url.js'
 import { USDFC_DECIMALS } from '../core/payments/constants.js'
-import { SCOPE_IDS } from '../session/scopes.js'
+import { SCOPE_IDS } from '../core/session/scopes.js'
 import { log } from './cli-logger.js'
 
 /**

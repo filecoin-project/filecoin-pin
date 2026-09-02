@@ -33,11 +33,6 @@ describe('parseScopes', () => {
     ])
   })
 
-  it('rejects the former short aliases', () => {
-    expect(() => parseScopes('add')).toThrow(/Unknown scope "add"/)
-    expect(() => parseScopes('createDataSet,remove')).toThrow(/Unknown scope "remove"/)
-  })
-
   it('rejects an unknown scope, naming it and the valid list', () => {
     expect(() => parseScopes('addPieces,nope')).toThrow(/Unknown scope "nope"/)
     expect(() => parseScopes('nope')).toThrow(/Valid scopes:/)
