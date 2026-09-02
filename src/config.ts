@@ -13,6 +13,10 @@ function resolveChain(network: string | undefined, hasExplicitRpcUrl: boolean): 
   if (normalized === 'devnet' && !hasExplicitRpcUrl) return resolveDevnetConfig().chain
   return undefined
 }
+/** Per-user data directory: pinning-server state and the saved login session live here. */
+export function getDataDirectory(): string {
+  return envPaths('filecoin-pin', { suffix: '' }).data
+}
 
 /**
  * Create configuration from environment variables
@@ -26,7 +30,7 @@ function resolveChain(network: string | undefined, hasExplicitRpcUrl: boolean): 
  * - NETWORK: Filecoin network name (mainnet, calibration, devnet) — used if RPC_URL not set
  */
 export function createConfig(): Config {
-  const dataDir = envPaths('filecoin-pin', { suffix: '' }).data
+  const dataDir = getDataDirectory()
 
   // NETWORK and RPC_URL are mutually exclusive. The CLI enforces this via Commander, but library
   // consumers calling createConfig() bypass that check, so guard explicitly here as well.

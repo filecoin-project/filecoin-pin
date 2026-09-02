@@ -39,8 +39,29 @@ export function buildAuthorizeUrl(
   scopeIds: string[],
   chainId: number
 ): string {
-  const base = consoleUrl.endsWith('/') ? consoleUrl.slice(0, -1) : consoleUrl
+  const base = trimSlash(consoleUrl)
   const network = CONSOLE_NETWORK_SLUG[chainId]
   const networkParam = network ? `&network=${network}` : ''
   return `${base}/console/session-keys?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam}`
+}
+
+/** Deposit the CLI suggests when the account has no funds yet, in whole USDFC. */
+export const DEFAULT_SUGGESTED_DEPOSIT_USDFC = 2
+
+function trimSlash(consoleUrl: string): string {
+  return consoleUrl.endsWith('/') ? consoleUrl.slice(0, -1) : consoleUrl
+}
+
+/** The console home (billing) page. */
+export function buildConsoleUrl(consoleUrl: string): string {
+  return `${trimSlash(consoleUrl)}/console`
+}
+
+/**
+ * Funding deep link: the console pre-fills a deposit-and-approve dialog
+ * for the storage service with `deposit` whole USDFC, so topping up and
+ * approving the service is one wallet transaction.
+ */
+export function buildFundingUrl(consoleUrl: string, depositUsdfc: number): string {
+  return `${trimSlash(consoleUrl)}/console?deposit=${depositUsdfc}&operator=fwss`
 }
