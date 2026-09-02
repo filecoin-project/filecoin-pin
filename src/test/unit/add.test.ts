@@ -25,6 +25,11 @@ vi.mock('../../common/upload-flow.js', () => ({
   validatePaymentSetup: vi.fn(),
   performAutoFunding: vi.fn(),
   promptDataSetSelection: vi.fn().mockRejectedValue(new Error('not interactive')),
+  // Mirrors the real no-match path: an unmatched --data-set-metadata filter is
+  // carried forward so a newly created data set still gets it.
+  resolveUploadTargets: vi.fn(async (_synapse: any, _selection: any, opts: any) => ({
+    ...(opts?.dataSetMetadata != null && { dataSetMetadata: opts.dataSetMetadata }),
+  })),
   performUpload: vi.fn().mockResolvedValue({
     pieceCid: 'bafkzcibtest1234567890',
     size: 1024,
@@ -261,21 +266,9 @@ describe('Add Command', () => {
       )
     })
 
-    it('resolves --data-set-metadata to dataSetIds and drops metadata when subset matches', async () => {
-      mockFindDataSets.mockResolvedValueOnce([
-        {
-          pdpVerifierDataSetId: 13260n,
-          providerId: 2n,
-          isLive: true,
-          metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' },
-        },
-        {
-          pdpVerifierDataSetId: 13261n,
-          providerId: 4n,
-          isLive: true,
-          metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' },
-        },
-      ])
+    it('routes --data-set-metadata through resolveUploadTargets to performUpload', async () => {
+      const { resolveUploadTargets, performUpload } = await import('../../common/upload-flow.js')
+      vi.mocked(resolveUploadTargets).mockResolvedValueOnce({ dataSetIds: [13260n, 13261n] })
 
       await runAdd({
         filePath: testFile,
@@ -284,57 +277,58 @@ describe('Add Command', () => {
         dataSetMetadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
       })
 
-      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(resolveUploadTargets)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Object),
+        expect.objectContaining({ dataSetMetadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' } })
+      )
       expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
         expect.anything(),
-        expect.objectContaining({
-          dataSetIds: [13260n, 13261n],
-        })
+        expect.objectContaining({ dataSetIds: [13260n, 13261n] })
       )
       const lastCall = vi.mocked(performUpload).mock.calls.at(-1)
       expect(lastCall?.[3]).not.toHaveProperty('metadata')
     })
 
-    it('calls promptDataSetSelection when --data-set-metadata matches too many data sets', async () => {
-      mockFindDataSets.mockResolvedValueOnce([
-        { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
-        { pdpVerifierDataSetId: 2n, providerId: 2n, isLive: true, metadata: { source: 'storacha-migration' } },
-        { pdpVerifierDataSetId: 3n, providerId: 3n, isLive: true, metadata: { source: 'storacha-migration' } },
-        { pdpVerifierDataSetId: 4n, providerId: 4n, isLive: true, metadata: { source: 'storacha-migration' } },
-      ])
+    it('routes data set IDs from resolveUploadTargets to performUpload when no targeting is given', async () => {
+      const { resolveUploadTargets, performUpload } = await import('../../common/upload-flow.js')
+      vi.mocked(resolveUploadTargets).mockResolvedValueOnce({ dataSetIds: [7n, 9n] })
 
-      await expect(
-        runAdd({
-          filePath: testFile,
-          privateKey: 'test-private-key',
-          rpcUrl: 'wss://test.rpc.url',
-          dataSetMetadata: { source: 'storacha-migration' },
-        })
-      ).rejects.toThrow()
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+      })
 
-      const { promptDataSetSelection } = await import('../../common/upload-flow.js')
-      expect(vi.mocked(promptDataSetSelection)).toHaveBeenCalledWith(
-        expect.arrayContaining([expect.objectContaining({ dataSetId: 1n })]),
-        2,
-        expect.any(Object)
+      expect(vi.mocked(resolveUploadTargets)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Object),
+        expect.objectContaining({ withCDN: false })
+      )
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ dataSetIds: [7n, 9n], copies: 2 })
       )
     })
 
-    it('throws when --data-set-metadata matches too few data sets', async () => {
-      mockFindDataSets.mockResolvedValueOnce([
-        { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
-      ])
+    it('hands explicit --data-set-id targeting to resolveUploadTargets', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        dataSetIds: ['123'],
+      })
 
-      await expect(
-        runAdd({
-          filePath: testFile,
-          privateKey: 'test-private-key',
-          rpcUrl: 'wss://test.rpc.url',
-          dataSetMetadata: { source: 'storacha-migration' },
-        })
-      ).rejects.toThrow(/matched only 1 data set.*expected 2/)
+      const { resolveUploadTargets } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(resolveUploadTargets)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ dataSetIds: [123n] }),
+        expect.any(Object)
+      )
     })
 
     it('passes upload targeting options through to auto-funding', async () => {
@@ -541,12 +535,33 @@ describe('Add Command', () => {
   })
 
   describe('runAddFromCli egress glue', () => {
-    it('defaults to beam egress (withCDN: true) when --egress-provider is omitted', async () => {
+    it('defaults to no egress (withCDN unset) when --egress-provider is omitted', async () => {
       await runAddFromCli(testFile, { privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url' })
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      const calls = vi.mocked(initializeSynapse).mock.calls
+      const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+      expect(lastConfig.withCDN).toBeUndefined()
+    })
+
+    it('opts in (withCDN: true) when --egress-provider beam is passed', async () => {
+      await runAddFromCli(testFile, {
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        egressProvider: 'beam',
+      })
       const { initializeSynapse } = await import('../../core/synapse/index.js')
       expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
         expect.objectContaining({ withCDN: true }),
         expect.anything()
+      )
+
+      // Reuse is gated on the same flag: with beam requested, only CDN-enabled
+      // data sets qualify, so the egress request is never silently dropped.
+      const { resolveUploadTargets } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(resolveUploadTargets)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Object),
+        expect.objectContaining({ withCDN: true })
       )
     })
 

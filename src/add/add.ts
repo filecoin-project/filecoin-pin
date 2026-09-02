@@ -19,11 +19,10 @@ import {
   estimateUploadCost,
   performAutoFunding,
   performUpload,
-  promptDataSetSelection,
+  resolveUploadTargets,
   validatePaymentSetup,
 } from '../common/upload-flow.js'
 import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
-import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import { normalizeMetadataConfig, withDerivedNameMetadata } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { initializeSynapse } from '../core/synapse/index.js'
@@ -95,7 +94,7 @@ export async function runAddFromCli(path: string, options: Record<string, any>):
     } = options
     const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
 
-    const egressProvider = rawEgressProvider ?? 'beam'
+    const egressProvider = rawEgressProvider ?? 'none'
 
     addOptions = {
       ...addOptionsFromCli,
@@ -192,34 +191,17 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       printEgressNotice('beam')
     }
 
-    // Resolve partial --data-set-metadata locally; SDK metadata matching requires exact equality.
-    let effectiveDataSetMetadata = dataSetMetadata
-    if (dataSetMetadata != null && contextSelection.dataSetIds == null && contextSelection.providerIds == null) {
-      const expectedCopies = options.copies ?? DEFAULT_COPIES
-      spinner.start('Resolving data sets from --data-set-metadata...')
-      const resolution = await resolveDataSetIdsByMetadata(synapse, dataSetMetadata, { expectedCopies, logger })
-      if (resolution.kind === 'matched') {
-        contextSelection.dataSetIds = resolution.dataSetIds
-        effectiveDataSetMetadata = undefined
-        spinner.stop(
-          `${pc.green('✓')} Matched existing data sets ${resolution.dataSetIds.join(', ')} via metadata filter`
-        )
-      } else if (resolution.kind === 'too-many-matches') {
-        const chosenIds = await promptDataSetSelection(resolution.matchedDataSets, resolution.expected, spinner)
-        contextSelection.dataSetIds = chosenIds
-        effectiveDataSetMetadata = undefined
-      } else if (resolution.kind === 'too-few-matches') {
-        spinner.stop(`${pc.red('✗')} --data-set-metadata matched too few data sets`)
-        throw new Error(
-          `--data-set-metadata matched only ${resolution.matchedIds.length} data set(s) (${resolution.matchedIds.join(', ')}) ` +
-            `but expected ${resolution.expected} (lower --copies, widen the filter, or pass --data-set-id).`
-        )
-      } else {
-        spinner.stop(
-          `${pc.gray('•')} No existing data sets matched --data-set-metadata; SDK will create a new data set with the requested metadata`
-        )
-      }
+    const targets = await resolveUploadTargets(synapse, contextSelection, {
+      ...(dataSetMetadata != null && { dataSetMetadata }),
+      ...(options.copies != null && { copies: options.copies }),
+      withCDN,
+      spinner,
+      logger,
+    })
+    if (targets.dataSetIds != null) {
+      contextSelection.dataSetIds = targets.dataSetIds
     }
+    const effectiveDataSetMetadata = targets.dataSetMetadata
 
     // Check payment setup (may configure permissions if needed).
     // Skipped for --dry-run: this can submit an allowance-approval transaction,

@@ -22,7 +22,7 @@ See [action.yml](./action.yml) for complete input documentation including:
 
 **Outputs**: `ipfsRootCid`, `dataSetId`, `pieceCid`, `providerId`, `providerName`, `carPath`, `uploadStatus`
 
-> **Egress default differs from the CLI.** This action defaults `egressProvider` to `none`, whereas the `filecoin-pin` CLI defaults `--egress-provider` to `beam`. Set `egressProvider: beam` to route piece/CAR retrieval through the FilBeam CDN (egress is then drawn from the data set owner's lockup).
+> **Egress is off by default.** This action defaults `egressProvider` to `none`, matching the `filecoin-pin` CLI default. Set `egressProvider: beam` to route piece/CAR retrieval through the FilBeam CDN (egress is then drawn from the data set owner's lockup).
 
 > **Disabling telemetry.** Either set the `disableTelemetry: true` input, or set `FILECOIN_PIN_TELEMETRY_DISABLED=true` / `DO_NOT_TRACK=1` in the job's `env:` block. See the [Telemetry section of the root README](../README.md#telemetry) for more info.
 

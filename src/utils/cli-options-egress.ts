@@ -2,7 +2,7 @@
  * Egress-provider CLI option, FilBeam URL builder, and notice renderer.
  *
  * Owns:
- *   --egress-provider <beam|none>  (default: beam, env: EGRESS_PROVIDER)
+ *   --egress-provider <beam|none>  (default: none, env: EGRESS_PROVIDER)
  *   The non-interactive notice printed when beam is active
  */
 
@@ -15,14 +15,14 @@ export const EGRESS_PROVIDERS = ['beam', 'none'] as const
 export type EgressProvider = (typeof EGRESS_PROVIDERS)[number]
 
 /**
- * Attach the `--egress-provider` option to a Commander command. The `beam`
+ * Attach the `--egress-provider` option to a Commander command. The `none`
  * default is applied by the add/import CLI normalization, not via Commander.
  */
 export function addEgressOptions(command: Command): Command {
   command.addOption(
     new Option(
       '--egress-provider <provider>',
-      'Egress provider for piece retrieval: beam (default, FilBeam CDN; egress drawn from the owner lockup) or none.'
+      'Egress provider for piece retrieval: beam (FilBeam CDN; egress drawn from the owner lockup) or none (default).'
     )
       .choices(EGRESS_PROVIDERS as readonly string[])
       .env('EGRESS_PROVIDER')

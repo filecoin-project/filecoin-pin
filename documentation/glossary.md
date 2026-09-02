@@ -33,7 +33,7 @@ Curio is the software that [Filecoin Warm Storage Service](#filecoin-warm-storag
 
 Collections of stored data ([Pieces](#piece)) managed by [Filecoin Warm Storage Service](#filecoin-warm-storage-service). Each Data Set is tied to exactly one [Service Provider](#service-provider); all pieces in a Data Set are stored by the same SP. Each Data Set has [metadata](#metadata), Pieces, and an associated payment rail between [Filecoin Pay](#filecoin-pay) and the SP that handles ongoing storage payments.
 
-Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metadata) (`source='filecoin-pin'`). If multiple exist, it uses the one storing the most data.
+Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metadata) (`source='filecoin-pin'`). When more match than the number of copies requested, it prefers the ones already holding pieces and takes at most one per Service Provider. When the matches do not cover enough distinct providers, Filecoin Pin creates new Data Sets instead.
 
 ## FIL
 
@@ -41,11 +41,11 @@ FIL is Filecoin's native token.  While [Filecoin Onchain Cloud](#filecoin-onchai
 
 ## FilBeam egress
 
-This concerns the [/piece retrieval](#piece-retrieval) CDN provided by [FilBeam](https://github.com/filbeam). When `filecoin-pin add` or `filecoin-pin import` is run with `--egress-provider beam` (the default), uploaded pieces are retrievable via FilBeam at `https://{wallet-address}.{filbeam-domain}/{pieceCid}` (e.g., `https://0xabc....calibration.filbeam.io/bafk...` on the [Calibration Network](#calibration-network)).
+This concerns the [/piece retrieval](#piece-retrieval) CDN provided by [FilBeam](https://github.com/filbeam). When `filecoin-pin add` or `filecoin-pin import` is run with `--egress-provider beam` (the default is `none`), uploaded pieces are retrievable via FilBeam at `https://{wallet-address}.{filbeam-domain}/{pieceCid}` (e.g., `https://0xabc....calibration.filbeam.io/bafk...` on the [Calibration Network](#calibration-network)).
 
 **What it does today:** Serves [`/piece` Retrieval](#piece-retrieval) only — whole-CAR fetches keyed by [Piece CID](#piece-cid). It does **not** route [`/ipfs` Retrieval](#ipfs-retrieval); for those, use the IPFS retrieval URLs printed alongside the upload result.
 
-**Network support:** FilBeam URLs are only printed on networks with a FilBeam endpoint (mainnet and [Calibration](#calibration-network)). On networks without one (e.g. devnet), `--egress-provider beam` stays the default but no FilBeam URL is shown.
+**Network support:** FilBeam URLs are only printed on networks with a FilBeam endpoint (mainnet and [Calibration](#calibration-network)). On networks without one (e.g. devnet), passing `--egress-provider beam` is accepted but no FilBeam URL is shown.
 
 **Cost:** CDN egress is paid from funds the data set owner locks up for it — it is not billed to their wallet at data-set creation. Instead, lockup is consumed as retrievals happen. Anyone who knows the piece CID and wallet address can trigger a retrieval, which draws down that egress lockup.
 
@@ -53,7 +53,7 @@ This concerns the [/piece retrieval](#piece-retrieval) CDN provided by [FilBeam]
 
 **Future state:** FilBeam is working on routing IPFS-block retrievals through the same CDN ([filbeam/roadmap#85](https://github.com/filbeam/roadmap/issues/85)). [Data Sets](#data-set) uploaded with FilBeam enabled today will benefit automatically when that ships.
 
-**Opting out:** Pass `--egress-provider none` (or `EGRESS_PROVIDER=none`) to skip FilBeam routing entirely.
+**Opting in:** FilBeam routing is off by default. Pass `--egress-provider beam` (or `EGRESS_PROVIDER=beam`) to enable it.
 
 ## Filecoin Pay
 
