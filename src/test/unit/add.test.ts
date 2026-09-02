@@ -163,7 +163,8 @@ describe('Add Command', () => {
       }
 
       await runAdd(sessionAuth)
-      expect(vi.mocked(assertUploadFunds)).toHaveBeenCalledOnce()
+      // Once before packing on the estimate, once after on the real CAR size.
+      expect(vi.mocked(assertUploadFunds)).toHaveBeenCalledTimes(2)
       expect(vi.mocked(assertUploadFunds).mock.invocationCallOrder[0]).toBeLessThan(
         vi.mocked(createCarFromPath).mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER
       )
