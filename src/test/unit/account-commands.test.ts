@@ -21,16 +21,10 @@ describe('dashboard', () => {
     delete process.env.CONSOLE_URL
   })
 
-  it('resolves the shared console billing page for mainnet and calibration, CONSOLE_URL winning', () => {
-    expect(resolveDashboardUrl({})).toBe('https://pay.filecoin.cloud/console')
-    expect(resolveDashboardUrl({ network: 'calibration' })).toBe('https://pay.filecoin.cloud/console')
-    expect(resolveDashboardUrl({ network: 'calibnet' })).toBe('https://pay.filecoin.cloud/console')
+  it('resolves the shared console billing page, CONSOLE_URL winning', () => {
+    expect(resolveDashboardUrl()).toBe('https://pay.filecoin.cloud/console')
     process.env.CONSOLE_URL = 'https://console.test/'
-    expect(resolveDashboardUrl({ network: 'devnet' })).toBe('https://console.test/console')
-  })
-
-  it('fails for a network without a console', () => {
-    expect(() => resolveDashboardUrl({ network: 'devnet' })).toThrow(/No Filecoin Cloud console/)
+    expect(resolveDashboardUrl()).toBe('https://console.test/console')
   })
 
   it('prints the URL, and says it opened the browser only when it did', () => {
