@@ -90,16 +90,6 @@ describe('assertUploadFunds', () => {
     expect(spinner.stop).toHaveBeenCalledWith(expect.stringContaining('Could not read the upload cost estimate'))
   })
 
-  it('points at the console without a link when no console is known for the chain', async () => {
-    delete process.env.CONSOLE_URL
-    vi.mocked(checkAccountReadiness).mockResolvedValue({ serviceApproved: false, depositUsdfc: 0n })
-    vi.mocked(estimateUploadCost).mockResolvedValue(costs(false, USDFC, 0n, USDFC) as never)
-
-    await expect(assertUploadFunds(fakeSynapse(0n, 31337), 1024, {}, 'filecoin-pin add ./photos')).rejects.toThrow()
-    expect(output()).toContain('Top up and approve the storage service in the Filecoin Cloud console')
-    expect(output()).not.toContain('operator=fwss')
-  })
-
   it('fails on a missing service approval even when funds cover the estimate', async () => {
     vi.mocked(checkAccountReadiness).mockResolvedValue({ serviceApproved: false, depositUsdfc: 5n * USDFC })
     vi.mocked(estimateUploadCost).mockResolvedValue(costs(true, USDFC, 0n, 0n) as never)

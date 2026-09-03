@@ -87,17 +87,13 @@ export async function assertUploadFunds(
   }
   if (readiness.serviceApproved && estimate.costs.ready) return
 
-  const consoleUrl = resolveConsoleUrl(synapse.chain.id)
+  const consoleUrl = resolveConsoleUrl()
   const headline = `${pc.red('✗')} Account can't pay for this upload`
   if (spinner === undefined) log.line(headline)
   else spinner.stop(headline)
   for (const line of formatReadinessLines(readiness, true, funds)) log.line(line)
-  if (consoleUrl !== undefined) {
-    log.line('  Top up (amount pre-filled, one transaction):')
-    log.line(`  ${pc.cyan(pc.underline(buildFundingUrl(consoleUrl, suggestedDeposit(estimate.costs.depositNeeded))))}`)
-  } else {
-    log.line('  Top up and approve the storage service in the Filecoin Cloud console with the owner wallet.')
-  }
+  log.line('  Top up (amount pre-filled, one transaction):')
+  log.line(`  ${pc.cyan(pc.underline(buildFundingUrl(consoleUrl, suggestedDeposit(estimate.costs.depositNeeded))))}`)
   log.line(`  Then re-run:  ${rerunCommand}     check anytime: filecoin-pin balance`)
   log.flush()
   throw new CliFatal("Account can't pay for this upload")
