@@ -125,10 +125,7 @@ export async function runLogin(options: LoginOptions): Promise<number> {
   if (registryAddress === undefined) {
     throw new Error(`No session key registry is configured for chain id ${chain.id}`)
   }
-  const consoleUrl = resolveConsoleUrl(chain.id)
-  if (consoleUrl === undefined) {
-    throw new Error(`No Filecoin Cloud console is known for chain id ${chain.id}. Set CONSOLE_URL to use one.`)
-  }
+  const consoleUrl = resolveConsoleUrl()
 
   const path = getSessionFilePath()
   const { session, resumed } = loadOrCreateSession(options.fresh, path)
