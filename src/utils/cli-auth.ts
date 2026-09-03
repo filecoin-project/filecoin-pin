@@ -5,10 +5,11 @@
  * and preparing them for use with the Synapse SDK.
  */
 
+import type { Permission } from '@filoz/synapse-core/session-key'
 import type { FilecoinChain, Synapse } from '@filoz/synapse-sdk'
 import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rpc-url.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
-import { initializeSynapse } from '../core/synapse/index.js'
+import { initializeSynapse, isReadOnlyConfig, isSessionKeyConfig } from '../core/synapse/index.js'
 import { createLogger } from '../logger.js'
 
 /**
@@ -248,8 +249,35 @@ export function getCLILogger() {
   return createLogger({ logLevel: process.env.LOG_LEVEL })
 }
 
-export async function getCliSynapse(options: CLIAuthOptions): Promise<Synapse> {
+/**
+ * Refuse anything but the owner's own signer for commands that move funds.
+ * Deposits, withdrawals, and service approvals are signed by the account
+ * owner's wallet; a session key or a view-only address would pass
+ * initialization and fail mid-transaction instead.
+ *
+ * @param config - Parsed auth config
+ * @param commandName - Command shown in the error, e.g. `payments deposit`
+ */
+export function assertOwnerAuth(config: SynapseSetupConfig, commandName: string): void {
+  if (isSessionKeyConfig(config)) {
+    throw new Error(
+      `${commandName} needs the account owner's wallet; session keys can't move funds. ` +
+        'Rerun with --private-key / PRIVATE_KEY, or use the Filecoin Cloud console.'
+    )
+  }
+  if (isReadOnlyConfig(config)) {
+    throw new Error(
+      `${commandName} needs the account owner's wallet; a view-only address can't sign. ` +
+        'Rerun with --private-key / PRIVATE_KEY, or use the Filecoin Cloud console.'
+    )
+  }
+}
+
+export async function getCliSynapse(options: CLIAuthOptions, requiredPermissions?: Permission[]): Promise<Synapse> {
   const authConfig = parseCLIAuth(options)
+  if (requiredPermissions != null) {
+    authConfig.requiredPermissions = requiredPermissions
+  }
   const logger = getCLILogger()
   return initializeSynapse(authConfig, logger)
 }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { parseContextSelectionOptions } from '../../utils/cli-auth.js'
+import { assertOwnerAuth, parseCLIAuth, parseContextSelectionOptions } from '../../utils/cli-auth.js'
 
 describe('parseContextSelectionOptions empty-list regression', () => {
   const originalEnv = { ...process.env }
@@ -72,5 +72,28 @@ describe('parseContextSelectionOptions unified ID flags', () => {
 
   it('returns an empty selection when nothing is provided', () => {
     expect(parseContextSelectionOptions({})).toEqual({})
+  })
+})
+
+describe('assertOwnerAuth', () => {
+  const sessionOptions = {
+    walletAddress: '0x0000000000000000000000000000000000000002',
+    sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+  }
+
+  it('refuses a session key on owner-only commands, naming the command', () => {
+    expect(() => assertOwnerAuth(parseCLIAuth(sessionOptions), 'payments deposit')).toThrow(
+      /payments deposit needs the account owner's wallet/
+    )
+  })
+
+  it('accepts a private key', () => {
+    const config = parseCLIAuth({ privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001' })
+    expect(() => assertOwnerAuth(config, 'payments deposit')).not.toThrow()
+  })
+
+  it('refuses a view-only address, which cannot sign', () => {
+    const config = parseCLIAuth({ viewAddress: '0x0000000000000000000000000000000000000002' })
+    expect(() => assertOwnerAuth(config, 'payments withdraw')).toThrow(/view-only address can't sign/)
   })
 })

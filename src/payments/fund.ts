@@ -24,7 +24,7 @@ import {
 import { initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 import { formatRunwaySummary } from '../core/utils/index.js'
-import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
+import { assertOwnerAuth, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import type { Spinner } from '../utils/cli-helpers.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
@@ -247,6 +247,7 @@ export async function runFund(options: FundOptions): Promise<void> {
   try {
     // Parse and validate authentication
     const authConfig = parseCLIAuth(options)
+    assertOwnerAuth(authConfig, 'payments fund')
 
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)

@@ -1,3 +1,12 @@
+// Value import of the mocked module (vi.mock below replaces it at runtime).
+import {
+  AddPiecesPermission,
+  CreateDataSetPermission,
+  fromSecp256k1,
+  SchedulePieceRemovalsPermission,
+  TerminateServicePermission,
+} from '@filoz/synapse-core/session-key'
+import { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -96,6 +105,163 @@ describe('synapse-service', () => {
         expect.objectContaining({ event: 'synapse.init', mode: 'session-key' }),
         'Initializing Synapse (session key)'
       )
+    })
+
+    // Queue a one-shot session key whose only meaningful behaviour is hasPermission
+    // and expirations. initializeSynapse touches just syncExpirations/hasPermission/
+    // expirations/address, so the partial object is cast to the concrete (unexported)
+    // class the real fromSecp256k1 returns.
+    const mockSessionKeyOnce = (hasPermission: (p: string) => boolean, expirations: Record<string, bigint>) => {
+      vi.mocked(fromSecp256k1).mockImplementationOnce((() => ({
+        syncExpirations: vi.fn().mockResolvedValue(undefined),
+        expirations,
+        address: '0x0000000000000000000000000000000000000001',
+        hasPermission: vi.fn(hasPermission),
+      })) as unknown as typeof fromSecp256k1)
+    }
+
+    it('should not require any permission by default (read-only commands)', async () => {
+      mockSessionKeyOnce(() => false, {}) // key granted nothing; no requiredPermissions means nothing to check
+
+      const config: SynapseSetupConfig = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      }
+
+      await expect(initializeSynapse(config, logger)).resolves.toBeDefined()
+    })
+
+    it('should reject only the missing scope, with a console-first remediation message', async () => {
+      // Grant everything except AddPieces — a live grant exists, so this is case 3
+      // (missing scope), not case 2 (never authorized at all).
+      mockSessionKeyOnce((p) => p !== AddPiecesPermission, {
+        [CreateDataSetPermission]: 9999999999n,
+        [AddPiecesPermission]: 0n,
+        [SchedulePieceRemovalsPermission]: 9999999999n,
+        [TerminateServicePermission]: 9999999999n,
+      })
+
+      const previousConsoleUrl = process.env.CONSOLE_URL
+      process.env.CONSOLE_URL = 'https://pay.example.test'
+      try {
+        const config: SynapseSetupConfig = {
+          walletAddress: '0x0000000000000000000000000000000000000002',
+          sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+          rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+          requiredPermissions: [AddPiecesPermission],
+        }
+
+        const error = await initializeSynapse(config, logger).then(
+          () => null,
+          (e: unknown) => e as Error
+        )
+        expect(error).not.toBeNull()
+        expect(error?.message).toContain('lacks AddPieces for this operation on ')
+        expect(error?.message).not.toContain('TerminateService')
+        expect(error?.message).toContain(
+          'https://pay.example.test/console/session-keys?authorize=0x0000000000000000000000000000000000000001&scopes=addPieces'
+        )
+        expect(error?.message).toContain(
+          'filecoin-pin session authorize 0x0000000000000000000000000000000000000001 --scopes addPieces'
+        )
+        expect(error?.message).not.toContain('filecoin-pin session create')
+        expect(error?.message).toContain('Then re-run this command.')
+      } finally {
+        if (previousConsoleUrl == null) {
+          delete process.env.CONSOLE_URL
+        } else {
+          process.env.CONSOLE_URL = previousConsoleUrl
+        }
+      }
+    })
+
+    it('should say a previously granted scope expired, with its timestamp, rather than the generic wording', async () => {
+      // AddPieces WAS granted and lapsed (nonzero past expiry); another grant is
+      // still live, so this is the missing-scope shape, not never-authorized.
+      mockSessionKeyOnce((p) => p !== AddPiecesPermission, {
+        [CreateDataSetPermission]: 9999999999n,
+        [AddPiecesPermission]: 1000n, // 1970-01-01T00:16:40.000Z — unambiguously past
+        [SchedulePieceRemovalsPermission]: 9999999999n,
+        [TerminateServicePermission]: 9999999999n,
+      })
+
+      const config: SynapseSetupConfig = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+        requiredPermissions: [AddPiecesPermission],
+      }
+
+      const error = await initializeSynapse(config, logger).then(
+        () => null,
+        (e: unknown) => e as Error
+      )
+      expect(error).not.toBeNull()
+      expect(error?.message).toContain('lacks AddPieces for this operation on ')
+      expect(error?.message).toContain('AddPieces: expired at 1970-01-01T00:16:40.000Z')
+      expect(error?.message).not.toContain('never granted')
+    })
+
+    it("should use the 'never authorized, or expired/revoked' wording when the key holds no live grant", async () => {
+      mockSessionKeyOnce(() => false, {
+        [CreateDataSetPermission]: 0n,
+        [AddPiecesPermission]: 0n,
+        [SchedulePieceRemovalsPermission]: 0n,
+        [TerminateServicePermission]: 0n,
+      })
+
+      const config: SynapseSetupConfig = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+        requiredPermissions: [AddPiecesPermission],
+      }
+
+      const error = await initializeSynapse(config, logger).then(
+        () => null,
+        (e: unknown) => e as Error
+      )
+      expect(error).not.toBeNull()
+      expect(error?.message).toContain("isn't authorized for account 0x0000000000000000000000000000000000000002 on ")
+      expect(error?.message).toContain('the key is for a different network (check --network)')
+      expect(error?.message).toContain('AddPieces: never granted')
+      expect(error?.message).toContain('filecoin-pin session create --scopes addPieces')
+    })
+
+    it('should pass when the key holds exactly the required permissions', async () => {
+      const granted: Record<string, true> = { [AddPiecesPermission]: true, [CreateDataSetPermission]: true }
+      mockSessionKeyOnce((p) => granted[p] === true, {
+        [CreateDataSetPermission]: 9999999999n,
+        [AddPiecesPermission]: 9999999999n,
+      })
+
+      const config: SynapseSetupConfig = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+        requiredPermissions: [AddPiecesPermission, CreateDataSetPermission],
+      }
+
+      await expect(initializeSynapse(config, logger)).resolves.toBeDefined()
+      // The SDK's own gate defaults to all four permissions; the preflight
+      // result only holds if the same subset reaches Synapse.create.
+      expect(vi.mocked(Synapse.create)).toHaveBeenCalledWith(
+        expect.objectContaining({ requiredPermissions: [AddPiecesPermission, CreateDataSetPermission] })
+      )
+    })
+
+    it('should forward an empty permission list to Synapse.create when none are required', async () => {
+      mockSessionKeyOnce(() => false, {})
+
+      const config: SynapseSetupConfig = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+      }
+
+      await initializeSynapse(config, logger)
+      expect(vi.mocked(Synapse.create)).toHaveBeenCalledWith(expect.objectContaining({ requiredPermissions: [] }))
     })
 
     it('should throw when no authentication is provided', async () => {
