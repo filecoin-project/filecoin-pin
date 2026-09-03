@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: amannn/action-semantic-pull-request@v6
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -28,4 +28,15 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: wagoid/commitlint-github-action@v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: lts/*
+      # commitlint's documented CI setup, with exact versions so the check is
+      # reproducible. https://commitlint.js.org/guides/ci-setup.html
+      - name: Lint PR commits with commitlint
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          npx --yes -p @commitlint/cli@21.2.2 -p @commitlint/config-conventional@21.2.2 -- \
+            commitlint -x @commitlint/config-conventional --from "$BASE_SHA" --to "$HEAD_SHA" --verbose
