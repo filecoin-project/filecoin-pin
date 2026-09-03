@@ -4,23 +4,15 @@
  */
 
 /**
- * Console deployments by chain id. One deployment serves both networks and
- * the console switches network in-app, so mainnet and calibration share a
- * base URL; the network travels in the `network` query parameter.
- * `CONSOLE_URL` still overrides for local or preview consoles.
+ * One console deployment serves both networks and switches network in-app,
+ * so the network travels in the `network` query parameter rather than in
+ * the base URL. `CONSOLE_URL` overrides for local or preview consoles.
  */
-export const DEFAULT_CONSOLE_URLS: Record<number, string> = {
-  314: 'https://pay.filecoin.cloud',
-  314159: 'https://pay.filecoin.cloud',
-}
+export const DEFAULT_CONSOLE_URL = 'https://pay.filecoin.cloud'
 
-/**
- * Pick the console base URL: `CONSOLE_URL` wins, then the known deployment
- * for the chain. Returns `undefined` when neither resolves — the caller
- * falls back to a console-without-a-link message.
- */
-export function resolveConsoleUrl(chainId: number): string | undefined {
-  return process.env.CONSOLE_URL ?? DEFAULT_CONSOLE_URLS[chainId]
+/** Console base URL: `CONSOLE_URL` when set, otherwise the production deployment. */
+export function resolveConsoleUrl(): string {
+  return process.env.CONSOLE_URL ?? DEFAULT_CONSOLE_URL
 }
 
 /** Console network slug by chain id; the console validates and guards on it. */

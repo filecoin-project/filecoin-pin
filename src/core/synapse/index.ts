@@ -196,15 +196,10 @@ function checkSessionKeyPermissions(
     ? `Session key ${key.address} isn't authorized for account ${ownerAddress} on ${networkName} — never authorized, expired/revoked, or the key is for a different network (check --network).`
     : `Session key ${key.address} lacks ${scopeLabels} for this operation on ${networkName}.`
 
-  const consoleUrl = resolveConsoleUrl(chainId)
   const lines = [problem, ...scopeDetails, '']
-  if (consoleUrl != null) {
-    lines.push('Recommended — approve in the browser with the owner wallet:')
-    // Plain text: this is a library error, so no terminal styling here.
-    lines.push(`  ${buildAuthorizeUrl(consoleUrl, key.address, scopeIds, chainId)}`)
-  } else {
-    lines.push('Authorize in the Filecoin Cloud console (set CONSOLE_URL for a direct link).')
-  }
+  lines.push('Recommended — approve in the browser with the owner wallet:')
+  // Plain text: this is a library error, so no terminal styling here.
+  lines.push(`  ${buildAuthorizeUrl(resolveConsoleUrl(), key.address, scopeIds, chainId)}`)
   lines.push('')
   lines.push('The account owner can also use the CLI:')
   lines.push(`  filecoin-pin session authorize ${key.address} --scopes ${scopesArg}   (adds to this key, no new key)`)

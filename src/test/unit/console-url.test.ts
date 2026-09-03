@@ -12,20 +12,14 @@ afterEach(() => {
 })
 
 describe('resolveConsoleUrl', () => {
-  it('defaults to the production console on both networks', () => {
+  it('defaults to the production console', () => {
     delete process.env.CONSOLE_URL
-    expect(resolveConsoleUrl(314)).toBe('https://pay.filecoin.cloud')
-    expect(resolveConsoleUrl(314159)).toBe('https://pay.filecoin.cloud')
-  })
-
-  it('returns undefined for unknown chains', () => {
-    delete process.env.CONSOLE_URL
-    expect(resolveConsoleUrl(1)).toBeUndefined()
+    expect(resolveConsoleUrl()).toBe('https://pay.filecoin.cloud')
   })
 
   it('prefers CONSOLE_URL over the default', () => {
     process.env.CONSOLE_URL = 'http://localhost:3005'
-    expect(resolveConsoleUrl(314)).toBe('http://localhost:3005')
+    expect(resolveConsoleUrl()).toBe('http://localhost:3005')
   })
 })
 
