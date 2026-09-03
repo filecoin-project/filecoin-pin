@@ -295,10 +295,10 @@ DO_NOT_TRACK=1                              # Standard cross-tool opt-out
 
 ### Default Data Directories
 
-When `DATABASE_PATH` and `CAR_STORAGE_PATH` are not specified, data is stored in platform-specific locations:
-- **Linux**: `~/.local/share/filecoin-pin/`
+When `DATABASE_PATH` and `CAR_STORAGE_PATH` are not specified, data is stored in platform-specific locations (via [`env-paths`](https://github.com/sindresorhus/env-paths)):
+- **Linux**: `~/.local/share/filecoin-pin/` (or `$XDG_DATA_HOME/filecoin-pin/`)
 - **macOS**: `~/Library/Application Support/filecoin-pin/`
-- **Windows**: `%APPDATA%/filecoin-pin/`
+- **Windows**: `%LOCALAPPDATA%\filecoin-pin\Data\`
 
 ### Local Development with foc-devnet
 
