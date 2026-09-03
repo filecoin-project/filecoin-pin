@@ -1,6 +1,6 @@
-import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import type { FilecoinChain } from '@filoz/synapse-sdk'
+import envPaths from 'env-paths'
 import { getRpcUrl, NETWORK_CHAINS, normalizeNetworkName, resolveDevnetConfig } from './common/get-rpc-url.js'
 import type { Config } from './core/synapse/index.js'
 
@@ -12,29 +12,6 @@ function resolveChain(network: string | undefined, hasExplicitRpcUrl: boolean): 
   // overrode RPC_URL — they may just have a stale NETWORK=devnet and the file may not exist.
   if (normalized === 'devnet' && !hasExplicitRpcUrl) return resolveDevnetConfig().chain
   return undefined
-}
-
-function getDataDirectory(): string {
-  const home = homedir()
-  const plat = platform()
-
-  // Follow XDG Base Directory Specification on Linux
-  if (plat === 'linux') {
-    return process.env.XDG_DATA_HOME ?? join(home, '.local', 'share', 'filecoin-pin')
-  }
-
-  // macOS uses ~/Library/Application Support (same as config)
-  if (plat === 'darwin') {
-    return join(home, 'Library', 'Application Support', 'filecoin-pin')
-  }
-
-  // Windows uses %APPDATA%
-  if (plat === 'win32') {
-    return join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'filecoin-pin')
-  }
-
-  // Fallback for other platforms
-  return join(home, '.filecoin-pin')
 }
 
 /**
@@ -49,7 +26,7 @@ function getDataDirectory(): string {
  * - NETWORK: Filecoin network name (mainnet, calibration, devnet) — used if RPC_URL not set
  */
 export function createConfig(): Config {
-  const dataDir = getDataDirectory()
+  const dataDir = envPaths('filecoin-pin', { suffix: '' }).data
 
   // NETWORK and RPC_URL are mutually exclusive. The CLI enforces this via Commander, but library
   // consumers calling createConfig() bypass that check, so guard explicitly here as well.

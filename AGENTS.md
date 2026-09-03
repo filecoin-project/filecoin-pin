@@ -98,7 +98,7 @@ src/
 
 **Optional**: `NETWORK`, `RPC_URL`, `EGRESS_PROVIDER`, `FOC_DEVNET_BASEDIR`, `DEVNET_INFO_PATH`, `DEVNET_USER_INDEX`, `PORT`, `HOST`, `DATABASE_PATH`, `CAR_STORAGE_PATH`, `LOG_LEVEL`
 
-**Default data dirs for pinning server**: Linux `~/.local/share/filecoin-pin/`, macOS `~/Library/Application Support/filecoin-pin/`, Windows `%APPDATA%/filecoin-pin/`
+**Default data dirs for pinning server** (via `env-paths`): Linux `~/.local/share/filecoin-pin/`, macOS `~/Library/Application Support/filecoin-pin/`, Windows `%LOCALAPPDATA%\filecoin-pin\Data\`
 
 ## Git Policy
 
