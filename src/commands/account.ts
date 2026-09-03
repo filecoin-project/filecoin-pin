@@ -8,7 +8,7 @@ import { Command } from 'commander'
 import pc from 'picocolors'
 import { runDashboard } from '../login/run-dashboard.js'
 import { showPaymentStatus } from '../payments/status.js'
-import { addAuthOptions, addNetworkOptions } from '../utils/cli-options.js'
+import { addAuthOptions } from '../utils/cli-options.js'
 
 // balance: alias of `payments status`, which already computes balances,
 // reserve, available funds, storage footprint, and runway.
@@ -26,12 +26,11 @@ addAuthOptions(balanceCommand)
 
 export const dashboardCommand = new Command('dashboard')
   .description('Open the Filecoin Cloud console billing page in your browser')
-  .action((options) => {
+  .action(() => {
     try {
-      runDashboard(options)
+      runDashboard()
     } catch (error) {
       console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
       process.exitCode = 1
     }
   })
-addNetworkOptions(dashboardCommand)

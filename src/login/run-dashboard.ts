@@ -1,16 +1,12 @@
 /**
  * Action handler for `filecoin-pin dashboard`: print and open the Filecoin
- * Cloud console billing page for the selected network.
+ * Cloud console billing page.
  */
 
 import pc from 'picocolors'
 import { buildConsoleUrl, resolveConsoleUrl } from '../core/session/console-url.js'
 import { log } from '../utils/cli-logger.js'
 import { openBrowser } from './open-browser.js'
-
-export interface DashboardOptions {
-  network?: string | undefined
-}
 
 /**
  * Console billing page. One deployment serves mainnet and calibration, so
@@ -20,7 +16,7 @@ export function resolveDashboardUrl(): string {
   return buildConsoleUrl(resolveConsoleUrl())
 }
 
-export function runDashboard(_options: DashboardOptions): void {
+export function runDashboard(): void {
   const url = resolveDashboardUrl()
   log.line(`  ${pc.cyan(pc.underline(url))}`)
   // Only a terminal gets a browser; an agent or CI run gets the URL alone.
