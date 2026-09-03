@@ -11,6 +11,7 @@ import { normalizeNetworkName } from '../common/get-rpc-url.js'
 import { USDFC_DECIMALS } from '../core/payments/constants.js'
 import { SCOPE_IDS } from '../core/session/scopes.js'
 import { log } from './cli-logger.js'
+import { CREDENTIALS_FILE_FLAG } from './credentials-file.js'
 
 /**
  * Option factories for flags declared on more than one command. Each pairs a
@@ -34,6 +35,19 @@ export function scopesOption(description: string): Option {
   return new Option('--scopes <ids>', `${description}. Any of: ${SCOPE_IDS.join(', ')}`)
 }
 
+/**
+ * `--credentials-file <path>`: a dotenv-style file loaded into the
+ * environment before Commander resolves env-backed options (see
+ * `src/utils/credentials-file.ts`). Registered here so `--help` lists it
+ * and Commander accepts it; the value itself is consumed pre-parse.
+ */
+export function credentialsFileOption(): Option {
+  return new Option(
+    `${CREDENTIALS_FILE_FLAG} <path>`,
+    'Load credentials (e.g. SESSION_KEY, WALLET_ADDRESS) from a dotenv-style file before other options are resolved. Does not override variables already set in the environment.'
+  )
+}
+
 export function rpcUrlOption(description: string): Option {
   return new Option('--rpc-url <url>', description).env('RPC_URL')
 }
@@ -53,7 +67,12 @@ export function addSigningAuthOptions(command: Command): Command {
     .addOption(
       new Option('--wallet-address <address>', 'Owner wallet address for session key auth').env('WALLET_ADDRESS')
     )
-    .addOption(sessionKeyOption('Session key private key for session key auth (not the session address)'))
+    .addOption(
+      sessionKeyOption(
+        'Session key private key for session key auth (not the session address). Can be supplied via --credentials-file <path> (e.g. a downloaded credentials file).'
+      )
+    )
+    .addOption(credentialsFileOption())
 }
 
 /**
@@ -245,9 +264,9 @@ export function addContextSelectionOptions(command: Command): Command {
  * command.
  */
 export function addOwnerAuthOptions(command: Command): Command {
-  return addNetworkOptions(command.addOption(privateKeyOption('Owner private key for signing'))).addOption(
-    rpcUrlOption('RPC endpoint')
-  )
+  return addNetworkOptions(command.addOption(privateKeyOption('Owner private key for signing')))
+    .addOption(rpcUrlOption('RPC endpoint'))
+    .addOption(credentialsFileOption())
 }
 
 const ALLOWED_NETWORKS = ['mainnet', 'calibration', 'devnet']

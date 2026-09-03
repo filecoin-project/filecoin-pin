@@ -153,6 +153,19 @@ describe('auth and context option env bindings', () => {
     expect(envVarFor(serverCommand, '--allow-no-auth')).toBeUndefined()
   })
 
+  it('registers --credentials-file on every auth-taking command tree', () => {
+    // Pre-parse loads the file; Commander still has to know the flag or it
+    // rejects the command with "unknown option".
+    const hasFlag = (command: Command) => command.options.some((o) => o.long === '--credentials-file')
+    expect(hasFlag(serverCommand)).toBe(true)
+    expect(hasFlag(addAuthOptions(new Command()))).toBe(true)
+    for (const name of ['create', 'authorize', 'revoke']) {
+      const sub = sessionCommand.commands.find((c) => c.name() === name)
+      expect(sub, name).toBeDefined()
+      if (sub) expect(hasFlag(sub), name).toBe(true)
+    }
+  })
+
   it('binds session create --session-key to its env var', () => {
     const createCommand = sessionCommand.commands.find((c) => c.name() === 'create')
     expect(createCommand).toBeDefined()

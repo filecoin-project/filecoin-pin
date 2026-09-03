@@ -9,6 +9,19 @@ import { configureTelemetry, flushTelemetry } from './core/telemetry/index.js'
 import { version as packageVersion } from './core/utils/version.js'
 import { readTelemetryConfigFromEnv } from './read-telemetry-config-from-env.js'
 import { applyVerboseLogLevel } from './utils/cli-logger.js'
+import { credentialsFileOption } from './utils/cli-options.js'
+import { applyCredentialsFileArg } from './utils/credentials-file.js'
+
+// Load --credentials-file (if present) into process.env before anything else reads
+// env vars, so it can supply e.g. SESSION_KEY/WALLET_ADDRESS or telemetry
+// opt-out vars. Values already present in the environment are never
+// overridden by the file.
+try {
+  applyCredentialsFileArg()
+} catch (error) {
+  console.error('Error:', error instanceof Error ? error.message : error)
+  process.exit(1)
+}
 
 // Apply CLI env vars to the telemetry library before any subcommand runs.
 configureTelemetry({ ...readTelemetryConfigFromEnv(), affordance: 'CLI' })
@@ -69,6 +82,11 @@ const program = new Command()
   .description('IPFS Pinning Service with Filecoin storage')
   .optionsGroup('OPTIONS')
   .version(packageVersion)
+  // Registered at the root so the flag is accepted in any position:
+  // Commander propagates parent options to subcommands. The bound value is
+  // never read here; the pre-parse loader is the consumer. Subcommand
+  // registrations exist for per-command help visibility.
+  .addOption(credentialsFileOption())
   .option('-v, --verbose', 'enable debug-level logging (sets LOG_LEVEL=debug)')
   .option('--no-update-check', 'skip check for updates')
   .helpOption(true)
