@@ -99,7 +99,7 @@ describe('runLogin', () => {
     )
     expect(text).toContain('storage service not approved yet')
     expect(text).toMatch(/USDFC deposit — 0\.00(?!\d)/)
-    expect(text).toContain('https://console.test/console?deposit=2&operator=fwss')
+    expect(text).toContain('https://console.test/console?deposit=2&operator=fwss&network=calibration')
     expect(text).not.toMatch(/FWSS operator|operator approval/i)
     expect(vi.mocked(openBrowser)).toHaveBeenCalledOnce()
     // The readiness read uses the RPC the user selected, not the chain default.

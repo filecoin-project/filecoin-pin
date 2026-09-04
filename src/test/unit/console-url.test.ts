@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { buildAuthorizeUrl, resolveConsoleUrl } from '../../core/session/console-url.js'
+import { buildAuthorizeUrl, buildFundingUrl, resolveConsoleUrl } from '../../core/session/console-url.js'
 
 const previousConsoleUrl = process.env.CONSOLE_URL
 
@@ -56,5 +56,14 @@ describe('buildAuthorizeUrl network param', () => {
 
   it('omits the param for an unknown chain id', () => {
     expect(buildAuthorizeUrl('https://pay.filecoin.cloud', '0xA', ['addPieces'], 1)).not.toMatch(/network=/)
+  })
+})
+
+describe('buildFundingUrl', () => {
+  it('names the deposit, the storage service, and the network', () => {
+    expect(buildFundingUrl('https://pay.filecoin.cloud/', 2, 314159)).toBe(
+      'https://pay.filecoin.cloud/console?deposit=2&operator=fwss&network=calibration'
+    )
+    expect(buildFundingUrl('https://pay.filecoin.cloud', 5, 314)).toMatch(/&network=mainnet$/)
   })
 })
