@@ -1,4 +1,5 @@
 import type { Command } from 'commander'
+import { balanceCommand, dashboardCommand } from './account.js'
 import { addCommand } from './add.js'
 import { dataSetCommand } from './data-set.js'
 import { importCommand } from './import.js'
@@ -11,6 +12,8 @@ import { sessionCommand } from './session.js'
 
 export {
   addCommand,
+  balanceCommand,
+  dashboardCommand,
   dataSetCommand,
   importCommand,
   loginCommand,
@@ -29,7 +32,7 @@ interface CliCommandGroup {
 
 /** Every top-level CLI command, grouped and ordered for help output. */
 export const CLI_COMMAND_GROUPS: readonly CliCommandGroup[] = [
-  { heading: 'ACCOUNT', commands: [loginCommand, logoutCommand] },
+  { heading: 'ACCOUNT', commands: [loginCommand, logoutCommand, balanceCommand, dashboardCommand] },
   { heading: 'UPLOAD', commands: [addCommand, importCommand] },
   { heading: 'PAYMENTS', commands: [paymentsCommand] },
   { heading: 'MANAGEMENT', commands: [dataSetCommand, providerCommand, removeCommand] },

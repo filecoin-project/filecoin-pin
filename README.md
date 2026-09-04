@@ -285,6 +285,8 @@ Other arguments are possible for individual commands, use `--help` to find out m
 
 With a session key, `add` checks before packing anything that the storage service is approved and that available funds cover the upload's estimate, reserve included. If not, it prints the readiness lines and a pre-filled console funding link and exits 1; nothing is uploaded. The same check runs again on the packed size before upload. Session keys cannot deposit, so there is no auto-fund on this path. Private-key auth keeps its existing checks and `--auto-fund`.
 
+`filecoin-pin balance` is an alias of `payments status` (wallet balances, Filecoin Cloud balance with locked reserve and available funds, storage footprint, runway) that ends with a pointer to `dashboard`. `filecoin-pin dashboard` prints and opens the Filecoin Cloud console billing page (`CONSOLE_URL` overrides the default deployment).
+
 Every command resolves credentials in this order: explicit flags, then environment variables (`PRIVATE_KEY`, or `SESSION_KEY` and `WALLET_ADDRESS`), then the saved session file, and otherwise fails with `No credentials found` and a pointer to `login`. `login`, `logout`, and `server` never read the session file. Whenever a session credential is used, the command prints a `Using session …` line naming the key, where it came from, and the owner. Expired grants fail with `Session expired`; rerun `login` to renew the same key.
 
 ### Session-Key Permissions
