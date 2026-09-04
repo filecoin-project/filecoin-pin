@@ -3,7 +3,7 @@ import {
   calculateLifecycleReserveFunding,
   type getPriceList,
 } from '@filoz/synapse-core/warm-storage'
-import { calibration, TIME_CONSTANTS } from '@filoz/synapse-sdk'
+import { calibration, TIME_CONSTANTS, type UploadCosts } from '@filoz/synapse-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as paymentsIndex from '../../core/payments/index.js'
 import {
@@ -426,6 +426,44 @@ describe('planFilecoinPayFunding', () => {
 
     expect(plan.delta).toBeGreaterThan(0n)
     expect(plan.reasonCode).toBe('runway-with-piece')
+  })
+
+  it('plans from precomputed upload costs without a price list', () => {
+    const status = makeStatus({ filecoinPayBalance: 5_000_000_000_000_000_000n, wallet: 1_000_000_000_000_000_000n })
+    const accountSummary = makeSummary({
+      filecoinPayBalance: 5_000_000_000_000_000_000n,
+      lockupUsed: 100n,
+      rateUsed: 7n,
+    })
+    const uploadCosts = {
+      depositNeeded: 300_000_000_000_000_000n,
+      lockups: { rateDeltaPerEpoch: 11n, total: 250n },
+    } as UploadCosts
+
+    const plan = calculateFilecoinPayFundingPlan({
+      status,
+      accountSummary,
+      targetRunwayDays: 30,
+      pieceSizeBytes: 1024,
+      uploadCosts,
+      allowWithdraw: false,
+    })
+
+    expect(plan.delta).toBe(uploadCosts.depositNeeded)
+    expect(plan.targetDeposit).toBe(status.filecoinPayBalance + uploadCosts.depositNeeded)
+    expect(plan.projectedRateUsed).toBe(18n)
+    expect(plan.projectedLockupUsed).toBe(350n)
+    expect(plan.reasonCode).toBe('runway-with-piece')
+
+    const uploadOnly = calculateFilecoinPayFundingPlan({
+      status,
+      accountSummary,
+      targetRunwayDays: 0,
+      pieceSizeBytes: 1024,
+      uploadCosts,
+      allowWithdraw: false,
+    })
+    expect(uploadOnly.reasonCode).toBe('piece-upload')
   })
 
   it('adds lifecycle-reserve funding for new data sets in the shared funding plan', () => {
