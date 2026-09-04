@@ -6,6 +6,8 @@
  * @module core/data-set/list-data-sets
  */
 
+import { paginate } from '@filoz/synapse-core'
+import { getPdpDataSets } from '@filoz/synapse-core/warm-storage'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { DEFAULT_DATA_SET_METADATA } from '../synapse/constants.js'
 import { getClientAddress } from '../synapse/index.js'
@@ -13,6 +15,11 @@ import type { DataSetSummary, ListDataSetsOptions } from './types.js'
 
 /**
  * List all datasets for an address
+ *
+ * Fetches data set IDs page by page and enriches them in batches via
+ * `getPdpDataSets()`, rather than the one-RPC-call-per-data-set fan-out that
+ * `synapse.storage.findDataSets()` does internally. That fan-out times out
+ * for accounts with thousands of data sets (see filecoin-project/filecoin-pin#362).
  *
  * Example usage:
  * ```typescript
@@ -32,21 +39,32 @@ export async function listDataSets(synapse: Synapse, options?: ListDataSetsOptio
   const address = options?.address ?? getClientAddress(synapse)
   const filter = options?.filter
 
-  const dataSets = await synapse.storage.findDataSets({ address })
+  const dataSets: DataSetSummary[] = []
 
-  const filteredDataSets = filter ? dataSets.filter(filter) : dataSets
-
-  return filteredDataSets.map((ds) => {
+  const pages = paginate(({ cursor }) => getPdpDataSets(synapse.client, { address, cursor }))
+  for await (const pdpDataSet of pages) {
+    const { live, managed, cdn, ...rest } = pdpDataSet
     const createdWithFilecoinPin = Object.entries(DEFAULT_DATA_SET_METADATA).every(
-      ([key, value]) => ds.metadata[key] === value
+      ([key, value]) => pdpDataSet.metadata[key] === value
     )
 
     const summary: DataSetSummary = {
-      ...ds,
-      dataSetId: ds.pdpVerifierDataSetId,
-      provider: undefined,
+      ...rest,
+      pdpVerifierDataSetId: pdpDataSet.dataSetId,
+      isLive: live,
+      isManaged: managed,
+      withCDN: cdn,
+      // Match the terminated-data-set convention `synapse.storage.findDataSets()` used:
+      // pieces left over on a dead data set don't count as "active".
+      hasActivePieces: live && pdpDataSet.hasActivePieces,
+      provider: pdpDataSet.provider,
       createdWithFilecoinPin,
     }
-    return summary
-  })
+
+    if (filter == null || filter(summary)) {
+      dataSets.push(summary)
+    }
+  }
+
+  return dataSets
 }

@@ -22,11 +22,30 @@ const mocks = vi.hoisted(() => ({
   executeUpload: vi.fn(),
   multiselect: vi.fn(),
   isCancel: vi.fn().mockReturnValue(false),
+  getPdpDataSets: vi.fn(),
 }))
 
 vi.mock('@clack/prompts', () => ({
   multiselect: mocks.multiselect,
   isCancel: mocks.isCancel,
+}))
+
+vi.mock('@filoz/synapse-core', () => ({
+  paginate: async function* paginate(
+    getPage: (options: { cursor: bigint }) => Promise<{ items: unknown[]; nextCursor?: bigint }>
+  ) {
+    let cursor = 0n
+    while (true) {
+      const page = await getPage({ cursor })
+      yield* page.items
+      if (page.nextCursor == null) return
+      cursor = page.nextCursor
+    }
+  },
+}))
+
+vi.mock('@filoz/synapse-core/warm-storage', () => ({
+  getPdpDataSets: mocks.getPdpDataSets,
 }))
 
 vi.mock('../../core/upload/index.js', async () => {
@@ -544,11 +563,15 @@ describe('pickDataSetsForReuse', () => {
 const spinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn(), clear: vi.fn() } as any
 const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as any
 
-const makeSynapse = (dataSets: any[]) =>
-  ({
+const makeSynapse = (dataSets: any[]) => {
+  mocks.getPdpDataSets.mockClear()
+  mocks.getPdpDataSets.mockResolvedValue({
+    items: dataSets.map((ds) => ({ ...ds, dataSetId: ds.pdpVerifierDataSetId, live: ds.isLive })),
+  })
+  return {
     client: { account: { address: '0x1234567890123456789012345678901234567890' } },
-    storage: { findDataSets: vi.fn().mockResolvedValue(dataSets) },
-  }) as any
+  } as any
+}
 
 const pinSet = (over: Record<string, unknown>) => ({
   isLive: true,
@@ -652,7 +675,7 @@ describe('resolveUploadTargets', () => {
       { ...base, dataSetMetadata: { purpose: 'erc8004' } }
     )
     expect(targets).toEqual({ dataSetMetadata: { purpose: 'erc8004' } })
-    expect(synapse.storage.findDataSets).not.toHaveBeenCalled()
+    expect(mocks.getPdpDataSets).not.toHaveBeenCalled()
   })
 
   it('falls back to default reuse when no metadata filter is given', async () => {
