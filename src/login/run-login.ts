@@ -108,7 +108,7 @@ async function reportReadiness(
   if (!readiness.serviceApproved || readiness.depositUsdfc === 0n) {
     log.line('')
     log.line('  One step fixes both (deposit & approve is a single transaction):')
-    log.line(`  ${pc.cyan(pc.underline(buildFundingUrl(consoleUrl, DEFAULT_SUGGESTED_DEPOSIT_USDFC)))}`)
+    log.line(`  ${pc.cyan(pc.underline(buildFundingUrl(consoleUrl, DEFAULT_SUGGESTED_DEPOSIT_USDFC, chain.id)))}`)
   }
   log.line('')
   log.line(pc.gray('  check anytime: filecoin-pin balance · top up: filecoin-pin dashboard'))
