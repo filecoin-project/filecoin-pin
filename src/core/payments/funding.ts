@@ -129,6 +129,23 @@ export function formatFundingReason(reasonCode: FundingReasonCode, plan?: Fileco
 }
 
 /**
+ * SDK upload costs only express deposits (`depositNeeded` is clamped at 0n),
+ * so exact mode with withdrawals stays on the local signed-delta math.
+ */
+function canUsePrecomputedUploadCosts(options: {
+  pieceSizeBytes?: number | undefined
+  targetRunwayDays?: number | undefined
+  mode?: FundingMode | undefined
+  allowWithdraw?: boolean | undefined
+}): options is { pieceSizeBytes: number; targetRunwayDays: number } {
+  return (
+    options.pieceSizeBytes != null &&
+    options.targetRunwayDays != null &&
+    (options.mode === 'minimum' || options.allowWithdraw === false)
+  )
+}
+
+/**
  * Calculate a Filecoin Pay funding plan without making network calls.
  *
  * Pure calculation: caller supplies a fresh `PaymentStatus` and matching
@@ -161,8 +178,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     throw new Error('A funding target is required')
   }
 
-  const usePrecomputedUploadCosts =
-    pieceSizeBytes != null && targetRunwayDays != null && uploadCosts != null && (mode === 'minimum' || !allowWithdraw)
+  const usePrecomputedUploadCosts = uploadCosts != null && canUsePrecomputedUploadCosts(options)
 
   if (pieceSizeBytes != null && priceList == null && !usePrecomputedUploadCosts) {
     throw new Error('priceList is required when pieceSizeBytes is provided')
@@ -429,15 +445,10 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
   const [status, accountSummary] = await Promise.all([getPaymentStatus(synapse), synapse.payments.accountSummary({})])
 
   let uploadCosts: UploadCosts | undefined
-  if (
-    pieceSizeBytes != null &&
-    targetRunwayDays != null &&
-    contexts != null &&
-    (mode === 'minimum' || !allowWithdraw)
-  ) {
+  if (contexts != null && canUsePrecomputedUploadCosts(options)) {
     uploadCosts = await synapse.storage.calculateMultiContextCosts(contexts, {
-      pieceSizes: [BigInt(pieceSizeBytes)],
-      extraRunwayEpochs: BigInt(Math.floor(targetRunwayDays)) * TIME_CONSTANTS.EPOCHS_PER_DAY,
+      pieceSizes: [BigInt(options.pieceSizeBytes)],
+      extraRunwayEpochs: BigInt(Math.floor(options.targetRunwayDays)) * TIME_CONSTANTS.EPOCHS_PER_DAY,
     })
   }
 
