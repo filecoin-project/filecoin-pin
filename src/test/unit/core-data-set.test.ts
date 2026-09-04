@@ -218,6 +218,51 @@ describe('listDataSets', () => {
     expect(result[1]?.createdWithFilecoinPin).toBe(false)
     expect(result[2]?.createdWithFilecoinPin).toBe(false)
   })
+
+  it('reports hasActivePieces as false for a terminated data set even if pieces are still on chain', async () => {
+    state.datasets = [
+      {
+        pdpVerifierDataSetId: 1,
+        clientDataSetId: 100n,
+        providerId: 2,
+        metadata: {},
+        isManaged: true,
+        withCDN: false,
+        isLive: false,
+        hasActivePieces: true,
+        serviceProvider: '0xservice',
+        payer: '0xpayer',
+        payee: '0xpayee',
+      },
+    ]
+
+    const [result] = await listDataSets(mockSynapse as any)
+
+    expect(result?.hasActivePieces).toBe(false)
+  })
+
+  it('does not leak the raw PdpDataSet live/managed/cdn fields onto the summary', async () => {
+    state.datasets = [
+      {
+        pdpVerifierDataSetId: 1,
+        clientDataSetId: 100n,
+        providerId: 2,
+        metadata: {},
+        isManaged: true,
+        withCDN: false,
+        isLive: true,
+        serviceProvider: '0xservice',
+        payer: '0xpayer',
+        payee: '0xpayee',
+      },
+    ]
+
+    const [result] = await listDataSets(mockSynapse as any)
+
+    expect(result).not.toHaveProperty('live')
+    expect(result).not.toHaveProperty('managed')
+    expect(result).not.toHaveProperty('cdn')
+  })
 })
 
 describe('getDataSetPieces', () => {

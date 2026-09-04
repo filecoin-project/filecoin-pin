@@ -43,16 +43,20 @@ export async function listDataSets(synapse: Synapse, options?: ListDataSetsOptio
 
   const pages = paginate(({ cursor }) => getPdpDataSets(synapse.client, { address, cursor }))
   for await (const pdpDataSet of pages) {
+    const { live, managed, cdn, ...rest } = pdpDataSet
     const createdWithFilecoinPin = Object.entries(DEFAULT_DATA_SET_METADATA).every(
       ([key, value]) => pdpDataSet.metadata[key] === value
     )
 
     const summary: DataSetSummary = {
-      ...pdpDataSet,
+      ...rest,
       pdpVerifierDataSetId: pdpDataSet.dataSetId,
-      isLive: pdpDataSet.live,
-      isManaged: pdpDataSet.managed,
-      withCDN: pdpDataSet.cdn,
+      isLive: live,
+      isManaged: managed,
+      withCDN: cdn,
+      // Match the terminated-data-set convention `synapse.storage.findDataSets()` used:
+      // pieces left over on a dead data set don't count as "active".
+      hasActivePieces: live && pdpDataSet.hasActivePieces,
       provider: pdpDataSet.provider,
       createdWithFilecoinPin,
     }
