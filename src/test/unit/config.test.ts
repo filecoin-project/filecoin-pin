@@ -1,6 +1,6 @@
-import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { calibration, mainnet } from '@filoz/synapse-sdk'
+import envPaths from 'env-paths'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createConfig } from '../../config.js'
 
@@ -41,20 +41,7 @@ describe('Config', () => {
   it('should create default config', () => {
     const config = createConfig()
 
-    // Get expected data directory based on platform
-    const home = homedir()
-    const plat = platform()
-    let expectedDataDir: string
-
-    if (plat === 'linux') {
-      expectedDataDir = process.env.XDG_DATA_HOME ?? join(home, '.local', 'share', 'filecoin-pin')
-    } else if (plat === 'darwin') {
-      expectedDataDir = join(home, 'Library', 'Application Support', 'filecoin-pin')
-    } else if (plat === 'win32') {
-      expectedDataDir = join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'filecoin-pin')
-    } else {
-      expectedDataDir = join(home, '.filecoin-pin')
-    }
+    const expectedDataDir = envPaths('filecoin-pin', { suffix: '' }).data
 
     const expectedRpcUrl = mainnet.rpcUrls.default.webSocket?.[0] ?? mainnet.rpcUrls.default.http[0]
 

@@ -14,6 +14,7 @@ import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { ReadableStream } from 'node:stream/web'
+import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { CarWriter } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
@@ -406,6 +407,7 @@ describe('CAR Import', () => {
       expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
         expect.objectContaining({
           dataSetMetadata: { erc8004Files: '' },
+          requiredPermissions: [CreateDataSetPermission, AddPiecesPermission],
         }),
         expect.any(Object)
       )

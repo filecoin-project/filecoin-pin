@@ -13,14 +13,7 @@ import { calibration, type FilecoinChain, mainnet, Synapse, type SynapseOptions 
 export { calibration, mainnet, type FilecoinChain }
 
 import type { SessionKey } from '@filoz/synapse-core/session-key'
-import {
-  AddPiecesPermission,
-  CreateDataSetPermission,
-  DefaultFwssPermissions,
-  fromSecp256k1,
-  SchedulePieceRemovalsPermission,
-  TerminateServicePermission,
-} from '@filoz/synapse-core/session-key'
+import { fromSecp256k1, type Permission, PermissionNames } from '@filoz/synapse-core/session-key'
 import type { Logger } from 'pino'
 import {
   type Account,
@@ -32,6 +25,8 @@ import {
   type WebSocketTransport,
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
+import { buildAuthorizeUrl, resolveConsoleUrl } from '../session/console-url.js'
+import { scopeIdOf } from '../session/scopes.js'
 import { APPLICATION_SOURCE } from './constants.js'
 import { createTransport } from './create-transport.js'
 import { resolveChainFromRpc } from './resolve-chain-from-rpc.js'
@@ -70,6 +65,14 @@ interface BaseSynapseConfig {
   withCDN?: boolean
   /** Default metadata to apply when creating datasets */
   dataSetMetadata?: Record<string, string>
+  /**
+   * Session-key mode only: the permissions this command needs. Before doing
+   * any work, we check the session key's on-chain grants cover these. If one
+   * is missing, the command stops immediately with instructions for getting
+   * it granted (console link), rather than failing later mid-transaction.
+   * Leave unset for read-only commands — they need no permissions.
+   */
+  requiredPermissions?: Permission[]
 }
 
 /**
@@ -117,7 +120,8 @@ function isPrivateKeyConfig(config: SynapseSetupConfig): config is PrivateKeyCon
   return 'privateKey' in config && config.privateKey != null
 }
 
-function isSessionKeyConfig(config: SynapseSetupConfig): config is SessionKeyConfig {
+/** True when the config authenticates with a session key (owner address + session private key). */
+export function isSessionKeyConfig(config: SynapseSetupConfig): config is SessionKeyConfig {
   return (
     'walletAddress' in config &&
     'sessionKey' in config &&
@@ -127,17 +131,10 @@ function isSessionKeyConfig(config: SynapseSetupConfig): config is SessionKeyCon
   )
 }
 
-function isReadOnlyConfig(config: SynapseSetupConfig): config is ReadOnlyConfig {
+/** True when the config is a view-only wallet address (no signer). */
+export function isReadOnlyConfig(config: SynapseSetupConfig): config is ReadOnlyConfig {
   return 'readOnly' in config && (config as ReadOnlyConfig).readOnly === true && 'walletAddress' in config
 }
-
-const PERMISSION_NAMES: Record<string, string> = {
-  [CreateDataSetPermission]: 'CreateDataSet',
-  [TerminateServicePermission]: 'TerminateService',
-  [AddPiecesPermission]: 'AddPieces',
-  [SchedulePieceRemovalsPermission]: 'SchedulePieceRemovals',
-}
-
 /**
  * Reject malformed session key material before it reaches the SDK, whose own
  * error ("invalid private key, expected hex or 32 bytes") never names the flag.
@@ -153,28 +150,66 @@ export function assertSessionKeyPrivateKey(value: string): asserts value is Hex 
   )
 }
 
-function checkSessionKeyPermissions(key: SessionKey<'Secp256k1'>, ownerAddress: string): void {
-  const missing = DefaultFwssPermissions.filter((p) => !key.hasPermission(p))
+/**
+ * Preflight a session key against the permissions an operation needs.
+ *
+ * Two failure shapes, both console-first (spec: problem -> console
+ * recommended -> owner CLI). Never tells a delegate to run a root-key
+ * command as their own action.
+ *
+ *  - Not authorized at all: every on-chain expiration is 0 (never granted,
+ *    or fully expired/revoked — on-chain state can't tell those apart).
+ *  - Missing the required scope: some grant is live, but not the one this
+ *    operation needs.
+ */
+function checkSessionKeyPermissions(
+  key: SessionKey<'Secp256k1'>,
+  ownerAddress: string,
+  required: Permission[],
+  chainId: number,
+  networkName: string
+): void {
+  const missing = required.filter((p) => !key.hasPermission(p))
   if (missing.length === 0) return
 
+  const allExpirations = Object.values(key.expirations)
+  const neverAuthorized = allExpirations.length > 0 && allExpirations.every((expiry) => expiry === 0n)
+
+  const scopeIds = missing.map(scopeIdOf)
+  const scopeLabels = missing.map((p) => PermissionNames[p] ?? p).join(', ')
+  const scopesArg = scopeIds.join(',')
+
+  // Per-scope detail preserves the expired-at vs never-granted distinction
+  // the on-chain expirations carry — an expired grant points at renewal,
+  // a never-granted scope points at a fresh authorization.
   const now = BigInt(Math.floor(Date.now() / 1000))
-  const lines = missing.map((p) => {
-    const name = PERMISSION_NAMES[p] ?? p
+  const scopeDetails = missing.map((p) => {
+    const name = PermissionNames[p] ?? p
     const expiry = key.expirations[p] ?? 0n
-    if (expiry > 0n && expiry < now) {
+    if (expiry > 0n && expiry <= now) {
       return `  • ${name}: expired at ${new Date(Number(expiry) * 1000).toISOString()}`
     }
-    return `  • ${name}: never authorized`
+    return `  • ${name}: never granted`
   })
 
-  const footnotes = missing.map((p) => `  ${PERMISSION_NAMES[p] ?? p}: ${p}`)
+  const problem = neverAuthorized
+    ? `Session key ${key.address} isn't authorized for account ${ownerAddress} on ${networkName} — never authorized, expired/revoked, or the key is for a different network (check --network).`
+    : `Session key ${key.address} lacks ${scopeLabels} for this operation on ${networkName}.`
 
-  throw new Error(
-    `Session key ${key.address} is missing ${missing.length} required permission(s):\n` +
-      lines.join('\n') +
-      `\nAuthorize this session key from owner wallet ${ownerAddress}.\nPermission hashes:\n` +
-      footnotes.join('\n')
-  )
+  const lines = [problem, ...scopeDetails, '']
+  lines.push('Recommended — approve in the browser with the owner wallet:')
+  // Plain text: this is a library error, so no terminal styling here.
+  lines.push(`  ${buildAuthorizeUrl(resolveConsoleUrl(), key.address, scopeIds, chainId)}`)
+  lines.push('')
+  lines.push('The account owner can also use the CLI:')
+  lines.push(`  filecoin-pin session authorize ${key.address} --scopes ${scopesArg}   (adds to this key, no new key)`)
+  if (neverAuthorized) {
+    lines.push(`  filecoin-pin session create --scopes ${scopesArg}              (or mint a new scoped key)`)
+  }
+  lines.push('')
+  lines.push('Then re-run this command.')
+
+  throw new Error(lines.join('\n'))
 }
 
 /**
@@ -231,7 +266,7 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
       throw new Error(`Invalid --session-key / SESSION_KEY: ${reason}`, { cause: error })
     }
     await sessionKey.syncExpirations()
-    checkSessionKeyPermissions(sessionKey, walletAddress)
+    checkSessionKeyPermissions(sessionKey, walletAddress, config.requiredPermissions ?? [], chain.id, chain.name)
     logger?.info({ event: 'synapse.init', mode: 'session-key' }, 'Initializing Synapse (session key)')
   } else if (isPrivateKeyConfig(config)) {
     account = privateKeyToAccount(config.privateKey)
@@ -280,6 +315,10 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
   }
   if (sessionKey) {
     synapseOptions.sessionKey = sessionKey
+    // Match the SDK's own permission gate to this command's needs; without it
+    // Synapse.create defaults to requiring all FWSS permissions and re-rejects a
+    // subset key that our preflight already accepted.
+    synapseOptions.requiredPermissions = config.requiredPermissions ?? []
   }
   if (config.withCDN) {
     synapseOptions.withCDN = config.withCDN

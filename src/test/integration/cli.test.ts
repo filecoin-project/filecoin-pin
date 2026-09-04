@@ -1,4 +1,7 @@
 import { execSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('CLI entrypoint', () => {
@@ -98,5 +101,31 @@ describe('CLI entrypoint', () => {
     expect(revokeHelp).toContain('--private-key')
     expect(revokeHelp).toContain('--network')
     expect(revokeHelp).toContain('--rpc-url')
+  })
+
+  it('accepts --credentials-file before the subcommand', { timeout: 15000 }, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cli-credentials-'))
+    const file = join(dir, 'credentials.env')
+    try {
+      writeFileSync(file, 'SESSION_KEY=0xabc\n')
+
+      // Pre-fix, Commander rejected the flag before the subcommand and
+      // printed top-level help instead of the add help.
+      const out = execSync(`node dist/cli.js --credentials-file "${file}" add --help`, {
+        cwd: process.cwd(),
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      })
+      expect(out).toContain('Usage: filecoin-pin add')
+
+      // Pre-fix this exited 1 with "unknown option".
+      execSync(`node dist/cli.js --credentials-file "${file}"`, {
+        cwd: process.cwd(),
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

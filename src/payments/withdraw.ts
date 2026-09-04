@@ -8,7 +8,7 @@ import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { checkFILBalance, getPaymentStatus, validateGasRequirement, withdrawUSDFC } from '../core/payments/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
-import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
+import { assertOwnerAuth, type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 
@@ -38,6 +38,7 @@ export async function runWithdraw(options: WithdrawOptions): Promise<void> {
   try {
     // Parse and validate authentication
     const authConfig = parseCLIAuth(options)
+    assertOwnerAuth(authConfig, 'payments withdraw')
 
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)

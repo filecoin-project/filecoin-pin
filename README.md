@@ -190,6 +190,7 @@ npm install -g filecoin-pin
 #                   session key PRIVATE key (not the session address), as printed by
 #                   `filecoin-pin session create` or `filecoin-pin session generate`
 #                   (or pass --wallet-address <addr> --session-key <private-key> to each command)
+#                   Or load both from a downloaded file: filecoin-pin add --credentials-file <path>
 #    Revoke later:  filecoin-pin session revoke <session-address>
 #    Scoped keys:   session create/authorize/revoke take --scopes <ids> to grant or
 #                   revoke a subset (default: all). Ids: createDataSet, addPieces,
@@ -261,11 +262,27 @@ filecoin-pin add myfile.txt
 * `-v`, `--verbose`: Verbose output
 * `--private-key`: Ethereum-style (`0x`) private key (wallet and signer), funded with USDFC
 * `--wallet-address`: Session key mode: owner wallet address
-* `--session-key`: Session key mode: the session key's **private key** (printed as `SESSION_KEY` by `filecoin-pin session create` / `session generate`), not the session address
+* `--session-key`: Session key mode: the session key's **private key** (printed as `SESSION_KEY` by `filecoin-pin session create` / `session generate`), not the session address. Each command checks only the permissions it needs; see [Session-Key Permissions](#session-key-permissions) below.
 * `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `mainnet`). Mutually exclusive with `--rpc-url`.
 * `--rpc-url`: Filecoin RPC endpoint. Filecoin Pin probes its `eth_chainId` to derive the chain. Mutually exclusive with `--network`.
+* `--credentials-file <path>`: Load credentials (e.g. `SESSION_KEY`, `WALLET_ADDRESS`) from a dotenv-style file before other options are resolved, e.g. a downloaded credentials file. Never overrides a variable already set in the environment.
 
 Other arguments are possible for individual commands, use `--help` to find out more.
+
+### Session-Key Permissions
+
+In session-key mode, each command checks only the on-chain permissions it needs — a delegate does not need every storage-service permission to run a scoped subset of commands.
+
+| Command | Required scopes |
+| --- | --- |
+| Read commands (`payments status`, `data-set ls`, `provider ls`, `data-set show`, `data-set piece-status`, …) | None |
+| `add`, `import` | `createDataSet`, `addPieces` |
+| `rm` (`--piece` or `--all`) | `schedulePieceRemovals` |
+| `data-set terminate` | `terminateService` |
+| Pinning server (`filecoin-pinning-server`) | `createDataSet`, `addPieces`, `schedulePieceRemovals` |
+| `payments deposit`, `payments withdraw`, `payments fund`, `payments setup --auto` | Owner wallet only (session keys are refused) |
+
+If the session key is missing a required scope, the command fails up front with a console link to approve the missing scope with the owner wallet, plus the equivalent `filecoin-pin session authorize` / `filecoin-pin session create` commands for the account owner to run.
 
 ### Environment Variables
 
@@ -276,6 +293,7 @@ PRIVATE_KEY=0x...              # Ethereum private key with USDFC tokens
 # Optional - Network Configuration
 NETWORK=mainnet                # Network to use: mainnet, calibration, or devnet (default: mainnet)
 RPC_URL=wss://...              # Filecoin RPC endpoint (overrides NETWORK if specified)
+CONSOLE_URL=https://...        # Filecoin Cloud console base URL for remediation links (default: pay.filecoin.cloud)
                                # Mainnet: wss://wss.node.glif.io/apigw/lotus/rpc/v1
                                # Calibration: wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1
 
@@ -295,10 +313,10 @@ DO_NOT_TRACK=1                              # Standard cross-tool opt-out
 
 ### Default Data Directories
 
-When `DATABASE_PATH` and `CAR_STORAGE_PATH` are not specified, data is stored in platform-specific locations:
-- **Linux**: `~/.local/share/filecoin-pin/`
+When `DATABASE_PATH` and `CAR_STORAGE_PATH` are not specified, data is stored in platform-specific locations (via [`env-paths`](https://github.com/sindresorhus/env-paths)):
+- **Linux**: `~/.local/share/filecoin-pin/` (or `$XDG_DATA_HOME/filecoin-pin/`)
 - **macOS**: `~/Library/Application Support/filecoin-pin/`
-- **Windows**: `%APPDATA%/filecoin-pin/`
+- **Windows**: `%LOCALAPPDATA%\filecoin-pin\Data\`
 
 ### Local Development with foc-devnet
 

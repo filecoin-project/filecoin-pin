@@ -62,6 +62,9 @@ importers:
       datastore-core:
         specifier: ^11.0.4
         version: 11.0.4
+      env-paths:
+        specifier: 3.0.0
+        version: 3.0.0
       fastify:
         specifier: ^5.8.5
         version: 5.11.3
