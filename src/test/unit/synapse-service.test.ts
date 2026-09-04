@@ -203,6 +203,34 @@ describe('synapse-service', () => {
       expect(error?.message).not.toContain('never granted')
     })
 
+    it('should say the session expired, with the lapse date, when every needed grant has lapsed', async () => {
+      mockSessionKeyOnce(() => false, {
+        [CreateDataSetPermission]: 1000n,
+        [AddPiecesPermission]: 2000n, // 1970-01-01, unambiguously past
+        [SchedulePieceRemovalsPermission]: 0n,
+        [TerminateServicePermission]: 0n,
+      })
+
+      const config: SynapseSetupConfig = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+        requiredPermissions: [CreateDataSetPermission, AddPiecesPermission],
+      }
+
+      const error = await initializeSynapse(config, logger).then(
+        () => null,
+        (e: unknown) => e as Error
+      )
+      expect(error?.message).toContain(
+        'Session expired (key 0x0000000000000000000000000000000000000001, grants lapsed 1970-01-01)'
+      )
+      expect(error?.message).toContain('Renew it:  filecoin-pin login')
+      // One remedy only: no console link and no owner CLI hints on the expired wall.
+      expect(error?.message).not.toContain('console')
+      expect(error?.message).not.toContain('session authorize')
+    })
+
     it("should use the 'never authorized, or expired/revoked' wording when the key holds no live grant", async () => {
       mockSessionKeyOnce(() => false, {
         [CreateDataSetPermission]: 0n,
@@ -268,7 +296,7 @@ describe('synapse-service', () => {
       // AccountConfig with null account satisfies the type but triggers the no-auth branch
       const config = { rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1' } as any
 
-      await expect(initializeSynapse(config, logger)).rejects.toThrow('No authentication provided')
+      await expect(initializeSynapse(config, logger)).rejects.toThrow('No credentials found')
     })
 
     it('should throw when walletAddress is provided without sessionKey', async () => {

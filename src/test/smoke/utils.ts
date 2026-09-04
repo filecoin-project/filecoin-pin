@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -19,6 +21,11 @@ export interface CliRunResult {
 // before spawning so every test is hermetic regardless of where it runs.
 const STRIP_AUTH = ['PRIVATE_KEY', 'SESSION_KEY', 'WALLET_ADDRESS'] as const
 
+// A session file written by `filecoin-pin login` on the developer's machine
+// would be auto-loaded through the data directory, so every run gets an
+// empty one. Exported so a test can seed it.
+export const SMOKE_DATA_DIR = mkdtempSync(join(tmpdir(), 'filecoin-pin-smoke-'))
+
 export async function runCli(args: string[] = [], env: Record<string, string> = {}): Promise<CliRunResult> {
   return new Promise((resolve, reject) => {
     // Inherit the process env so the CLI can initialize correctly (HOME,
@@ -32,6 +39,9 @@ export async function runCli(args: string[] = [], env: Record<string, string> = 
     for (const key of STRIP_AUTH) {
       delete baseEnv[key]
     }
+    baseEnv.XDG_DATA_HOME = SMOKE_DATA_DIR
+    baseEnv.APPDATA = SMOKE_DATA_DIR
+    baseEnv.HOME = SMOKE_DATA_DIR
 
     const child = spawn('node', [CLI_PATH, '--no-update-check', ...args], {
       cwd: PROJECT_ROOT,

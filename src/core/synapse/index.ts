@@ -151,6 +151,24 @@ export function assertSessionKeyPrivateKey(value: string): asserts value is Hex 
 }
 
 /**
+ * What the on-chain expirations say about a key that lacks a needed scope:
+ * nothing was ever granted, every grant lapsed (the session expired), or
+ * some grant is live but not the one this operation needs.
+ */
+function classifyAuthorization(key: SessionKey<'Secp256k1'>, now: bigint): 'never' | 'expired' | 'missing' {
+  const allExpirations = Object.values(key.expirations)
+  if (allExpirations.length > 0 && allExpirations.every((expiry) => expiry === 0n)) return 'never'
+  if (allExpirations.every((expiry) => expiry <= now)) return 'expired'
+  return 'missing'
+}
+
+/** Latest expiry among the key's grants, as a date. */
+function latestExpiryDate(key: SessionKey<'Secp256k1'>): string {
+  const latest = Object.values(key.expirations).reduce((a, b) => (a > b ? a : b), 0n)
+  return new Date(Number(latest) * 1000).toISOString().slice(0, 10)
+}
+
+/**
  * Preflight a session key against the permissions an operation needs.
  *
  * Two failure shapes, both console-first (spec: problem -> console
@@ -172,8 +190,16 @@ function checkSessionKeyPermissions(
   const missing = required.filter((p) => !key.hasPermission(p))
   if (missing.length === 0) return
 
-  const allExpirations = Object.values(key.expirations)
-  const neverAuthorized = allExpirations.length > 0 && allExpirations.every((expiry) => expiry === 0n)
+  const now = BigInt(Math.floor(Date.now() / 1000))
+  const state = classifyAuthorization(key, now)
+  // The wall from PRD section 6: two lines, one remedy. Scope details and
+  // console links would only compete with "run login".
+  if (state === 'expired') {
+    throw new Error(
+      `Session expired (key ${key.address}, grants lapsed ${latestExpiryDate(key)})\n  Renew it:  filecoin-pin login`
+    )
+  }
+  const neverAuthorized = state === 'never'
 
   const scopeIds = missing.map(scopeIdOf)
   const scopeLabels = missing.map((p) => PermissionNames[p] ?? p).join(', ')
@@ -182,7 +208,6 @@ function checkSessionKeyPermissions(
   // Per-scope detail preserves the expired-at vs never-granted distinction
   // the on-chain expirations carry — an expired grant points at renewal,
   // a never-granted scope points at a fresh authorization.
-  const now = BigInt(Math.floor(Date.now() / 1000))
   const scopeDetails = missing.map((p) => {
     const name = PermissionNames[p] ?? p
     const expiry = key.expirations[p] ?? 0n
@@ -290,8 +315,9 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
       )
     }
     throw new Error(
-      'No authentication provided. Supply a private key (--private-key / PRIVATE_KEY), ' +
-        'wallet address (--wallet-address / WALLET_ADDRESS), or session key (--session-key / SESSION_KEY).'
+      'No credentials found.\n' +
+        '  Log in to your Filecoin account:  filecoin-pin login\n' +
+        '  (or supply --private-key / PRIVATE_KEY, or --wallet-address + --session-key / WALLET_ADDRESS + SESSION_KEY)'
     )
   }
 
