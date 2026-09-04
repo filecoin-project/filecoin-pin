@@ -13,7 +13,7 @@ const TEST_SERVICE_URL = 'https://provider.example.com'
 
 const {
   mockSynapse,
-  mockFindDataSets,
+  mockGetPdpDataSets,
   mockGetProviders,
   mockGetActivePiecesByCursor,
   mockGetScheduledRemovals,
@@ -36,7 +36,15 @@ const {
       | undefined,
   }
 
-  const mockFindDataSets = vi.fn(async () => state.datasets)
+  const mockGetPdpDataSets = vi.fn(async () => ({
+    items: state.datasets.map((ds) => ({
+      ...ds,
+      dataSetId: ds.pdpVerifierDataSetId,
+      live: ds.isLive,
+      managed: ds.isManaged,
+      cdn: ds.withCDN,
+    })),
+  }))
   const mockGetProviders = vi.fn(async ({ providerIds }: { providerIds: any[] }) => {
     return state.providers.filter((p) => providerIds.includes(p.id))
   })
@@ -74,12 +82,11 @@ const {
     client: { account: { address: '0xtest-address' as const } },
     chain: { id: 314159, name: 'calibration' },
     providers: { getProviders: mockGetProviders },
-    storage: { findDataSets: mockFindDataSets },
   }
 
   return {
     mockSynapse,
-    mockFindDataSets,
+    mockGetPdpDataSets,
     mockGetProviders,
     mockGetActivePiecesByCursor,
     mockGetScheduledRemovals,
@@ -95,6 +102,24 @@ vi.mock('@filoz/synapse-sdk', async () => {
     ...sharedMock,
   }
 })
+
+vi.mock('@filoz/synapse-core', () => ({
+  paginate: async function* paginate(
+    getPage: (options: { cursor: bigint }) => Promise<{ items: unknown[]; nextCursor?: bigint }>
+  ) {
+    let cursor = 0n
+    while (true) {
+      const page = await getPage({ cursor })
+      yield* page.items
+      if (page.nextCursor == null) return
+      cursor = page.nextCursor
+    }
+  },
+}))
+
+vi.mock('@filoz/synapse-core/warm-storage', () => ({
+  getPdpDataSets: mockGetPdpDataSets,
+}))
 
 vi.mock('@filoz/synapse-core/pdp-verifier', () => ({
   getActivePiecesByCursor: mockGetActivePiecesByCursor,
@@ -122,14 +147,14 @@ describe('listDataSets', () => {
     const result = await listDataSets(mockSynapse as any)
 
     expect(result).toEqual([])
-    expect(mockFindDataSets).toHaveBeenCalledWith({ address: '0xtest-address' })
+    expect(mockGetPdpDataSets).toHaveBeenCalledWith(expect.anything(), { address: '0xtest-address', cursor: 0n })
     expect(mockGetProviders).not.toHaveBeenCalled()
   })
 
   it('uses custom address when provided in options', async () => {
     await listDataSets(mockSynapse as any, { address: '0xcustom' })
 
-    expect(mockFindDataSets).toHaveBeenCalledWith({ address: '0xcustom' })
+    expect(mockGetPdpDataSets).toHaveBeenCalledWith(expect.anything(), { address: '0xcustom', cursor: 0n })
     expect(mockGetProviders).not.toHaveBeenCalled()
   })
 
