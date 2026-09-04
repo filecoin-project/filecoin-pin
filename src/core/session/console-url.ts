@@ -39,8 +39,34 @@ export function buildAuthorizeUrl(
   scopeIds: string[],
   chainId: number
 ): string {
-  const base = consoleUrl.endsWith('/') ? consoleUrl.slice(0, -1) : consoleUrl
+  const base = trimSlash(consoleUrl)
+  return `${base}/console/session-keys?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId)}`
+}
+
+/** `&network=<slug>` for a chain the console knows, empty otherwise: the console refuses a link it cannot place. */
+function networkParam(chainId: number): string {
   const network = CONSOLE_NETWORK_SLUG[chainId]
-  const networkParam = network ? `&network=${network}` : ''
-  return `${base}/console/session-keys?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam}`
+  return network ? `&network=${network}` : ''
+}
+
+/** Deposit the CLI suggests when the account has no funds yet, in whole USDFC. */
+export const DEFAULT_SUGGESTED_DEPOSIT_USDFC = 2
+
+function trimSlash(consoleUrl: string): string {
+  return consoleUrl.endsWith('/') ? consoleUrl.slice(0, -1) : consoleUrl
+}
+
+/** The console home (billing) page. */
+export function buildConsoleUrl(consoleUrl: string): string {
+  return `${trimSlash(consoleUrl)}/console`
+}
+
+/**
+ * Funding deep link: the console pre-fills a deposit-and-approve dialog
+ * for the storage service with `deposit` whole USDFC, so topping up and
+ * approving the service is one wallet transaction. Carries the network so
+ * the console refuses to prefill a deposit for a wallet on another chain.
+ */
+export function buildFundingUrl(consoleUrl: string, depositUsdfc: number, chainId: number): string {
+  return `${trimSlash(consoleUrl)}/console?deposit=${depositUsdfc}&operator=fwss${networkParam(chainId)}`
 }
