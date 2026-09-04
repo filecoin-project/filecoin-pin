@@ -93,7 +93,9 @@ export async function assertUploadFunds(
   else spinner.stop(headline)
   for (const line of formatReadinessLines(readiness, true, funds)) log.line(line)
   log.line('  Top up (amount pre-filled, one transaction):')
-  log.line(`  ${pc.cyan(pc.underline(buildFundingUrl(consoleUrl, suggestedDeposit(estimate.costs.depositNeeded))))}`)
+  log.line(
+    `  ${pc.cyan(pc.underline(buildFundingUrl(consoleUrl, suggestedDeposit(estimate.costs.depositNeeded), synapse.chain.id)))}`
+  )
   log.line(`  Then re-run:  ${rerunCommand}     check anytime: filecoin-pin balance`)
   log.flush()
   throw new CliFatal("Account can't pay for this upload")

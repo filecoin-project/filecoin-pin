@@ -74,7 +74,7 @@ describe('assertUploadFunds', () => {
     expect(text).toContain('✓ session key authorized')
     expect(text).toContain('✓ storage service approved')
     expect(text).toContain('✗ available funds 0.12 USDFC — this upload needs ~1.40 USDFC (incl. 30-day reserve)')
-    expect(text).toContain('https://console.test/console?deposit=2&operator=fwss')
+    expect(text).toContain('https://console.test/console?deposit=2&operator=fwss&network=mainnet')
     expect(text).toContain('Then re-run:  filecoin-pin add ./photos')
     expect(text).not.toMatch(/FWSS operator|operator approval/i)
   })
@@ -97,7 +97,7 @@ describe('assertUploadFunds', () => {
     await expect(assertUploadFunds(fakeSynapse(3n * USDFC), 1024, {}, 'filecoin-pin add ./photos')).rejects.toThrow()
     const text = output()
     expect(text).toContain('✗ storage service not approved yet')
-    expect(text).toContain('deposit=2&operator=fwss')
+    expect(text).toContain('deposit=2&operator=fwss&network=mainnet')
   })
 })
 
