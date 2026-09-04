@@ -1,0 +1,45 @@
+name: Conventional commits
+
+# release-please skips commits it cannot parse, so the change drops out of the
+# release notes with no error. Squash merges publish the PR title and rebase
+# merges publish each commit, so both are checked.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  pr-title:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  commits:
+    # A title or body edit does not change the commit range; a base change does.
+    if: github.event.action != 'edited' || github.event.changes.base != null
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: lts/*
+      # commitlint's documented CI setup, with exact versions so the check is
+      # reproducible. https://commitlint.js.org/guides/ci-setup.html
+      - name: Lint PR commits with commitlint
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          npx --yes -p @commitlint/cli@21.2.2 -p @commitlint/config-conventional@21.2.2 -- \
+            commitlint -x @commitlint/config-conventional --from "$BASE_SHA" --to "$HEAD_SHA" --verbose
