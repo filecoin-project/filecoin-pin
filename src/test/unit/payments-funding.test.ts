@@ -1,4 +1,8 @@
-import { calculateDepositNeeded, type getPriceList } from '@filoz/synapse-core/warm-storage'
+import {
+  calculateDepositNeeded,
+  calculateLifecycleReserveFunding,
+  type getPriceList,
+} from '@filoz/synapse-core/warm-storage'
 import { calibration, TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as paymentsIndex from '../../core/payments/index.js'
@@ -29,7 +33,7 @@ const LIFECYCLE_RESERVE_TARGET = 40_000_000_000_000_000n // 0.04 USDFC
 
 /**
  * Price list fixture mirroring the on-chain `getPriceList` shape. Values are
- * chosen so the relative funding assertions (create-data-set fee, CDN lockup,
+ * chosen so the relative funding assertions (lifecycle reserve, CDN lockup,
  * monthly minimum) line up with the GA cost model.
  */
 function makePriceList(): getPriceList.OutputType {
@@ -424,7 +428,7 @@ describe('planFilecoinPayFunding', () => {
     expect(plan.reasonCode).toBe('runway-with-piece')
   })
 
-  it('adds create-data-set fees for new data sets in the shared funding plan', () => {
+  it('adds lifecycle-reserve funding for new data sets in the shared funding plan', () => {
     const status = makeStatus({ filecoinPayBalance: 0n, wallet: 1_000_000_000_000_000_000n })
     const accountSummary = makeSummary({ filecoinPayBalance: 0n })
 
@@ -482,7 +486,7 @@ describe('planFilecoinPayFunding', () => {
       allowWithdraw: false,
     })
 
-    // Fixed CDN lockup (1 USDFC) per new data set, on top of the create-data-set fees.
+    // Fixed CDN lockup (1 USDFC) per new data set, on top of lifecycle-reserve funding.
     const expectedCdnLockup = 2n * 1_000_000_000_000_000_000n
     expect(cdnPlan.delta - noCdnPlan.delta).toBe(expectedCdnLockup)
     expect(cdnPlan.targetDeposit).toBe((noCdnPlan.targetDeposit ?? 0n) + expectedCdnLockup)
@@ -507,8 +511,8 @@ describe('planFilecoinPayFunding', () => {
     })
 
     const expected = calculateDepositNeeded({
-      dataSize: BigInt(pieceSizeBytes),
-      currentDataSetSize: 0n,
+      pieceSizes: [BigInt(pieceSizeBytes)],
+      dataSetLeafCount: 0n,
       priceList,
       isNewDataSet: true,
       withCDN: true,
@@ -780,11 +784,12 @@ describe('autoFund (modifiers)', () => {
 describe('computeAutoSetupTargetBalance', () => {
   const priceList = makePriceList()
   const copies = 2
+  const reserveFunding = calculateLifecycleReserveFunding({ priceList, isNewDataSet: true, pieceSizes: [1n] })
   const requiredAvailableFunds =
     BigInt(copies) *
       (priceList.lockups.cdnLockupAmount +
         priceList.lockups.cacheMissLockupAmount +
-        priceList.fees.createDataSetFee +
+        reserveFunding.total +
         priceList.rates.datasetFeePerMonth) +
     ONE_USDFC
 
@@ -827,7 +832,7 @@ describe('computeAutoSetupTargetBalance', () => {
   })
 
   it('matches the expected concrete amount for 2 copies at 0.06 USDFC/month', () => {
-    // Per data set: 1 USDFC CDN lockup + 0.1 USDFC create-data-set fee + 0.06 USDFC monthly = 1.16 USDFC.
+    // Per data set: 1 USDFC CDN lockup + 0.1 USDFC reserve replenishment + 0.06 USDFC monthly = 1.16 USDFC.
     // Two copies (2.32 USDFC) plus 1 USDFC runway = 3.32 USDFC.
     const result = computeAutoSetupTargetBalance({
       filecoinPayBalance: 0n,
