@@ -1,5 +1,6 @@
-import { calculateUploadFees, type getPriceList } from '@filoz/synapse-core/warm-storage'
-import { calibration, type Synapse } from '@filoz/synapse-sdk'
+import { calculateLifecycleReserveFunding, type getPriceList } from '@filoz/synapse-core/warm-storage'
+import { calibration, type Synapse, TIME_CONSTANTS, type UploadCosts } from '@filoz/synapse-sdk'
+import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import { USDFC_DECIMALS } from './constants.js'
 import {
   checkAndSetAllowances,
@@ -128,6 +129,23 @@ export function formatFundingReason(reasonCode: FundingReasonCode, plan?: Fileco
 }
 
 /**
+ * SDK upload costs only express deposits (`depositNeeded` is clamped at 0n),
+ * so exact mode with withdrawals stays on the local signed-delta math.
+ */
+function canUsePrecomputedUploadCosts(options: {
+  pieceSizeBytes?: number | undefined
+  targetRunwayDays?: number | undefined
+  mode?: FundingMode | undefined
+  allowWithdraw?: boolean | undefined
+}): options is { pieceSizeBytes: number; targetRunwayDays: number } {
+  return (
+    options.pieceSizeBytes != null &&
+    options.targetRunwayDays != null &&
+    (options.mode === 'minimum' || options.allowWithdraw === false)
+  )
+}
+
+/**
  * Calculate a Filecoin Pay funding plan without making network calls.
  *
  * Pure calculation: caller supplies a fresh `PaymentStatus` and matching
@@ -147,6 +165,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     priceList,
     newDataSetCount = 0,
     withCDN = false,
+    uploadCosts,
     mode = 'exact',
     allowWithdraw = true,
   } = options
@@ -159,7 +178,9 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     throw new Error('A funding target is required')
   }
 
-  if (pieceSizeBytes != null && priceList == null) {
+  const usePrecomputedUploadCosts = uploadCosts != null && canUsePrecomputedUploadCosts(options)
+
+  if (pieceSizeBytes != null && priceList == null && !usePrecomputedUploadCosts) {
     throw new Error('priceList is required when pieceSizeBytes is provided')
   }
 
@@ -178,39 +199,50 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
   if (targetRunwayDays != null) {
     targetType = 'runway-days'
     if (pieceSizeBytes != null) {
-      if (priceList == null) {
-        throw new Error('priceList is required when planning with pieceSizeBytes')
-      }
-      const adjustment = computeAdjustmentForExactDaysWithPiece(
-        accountSummary,
-        status.filecoinPayBalance,
-        targetRunwayDays,
-        pieceSizeBytes,
-        priceList
-      )
-      const uploadFees = calculateUploadFees({ priceList, isNewDataSet: true })
-      const perNewDataSetCosts =
-        uploadFees.total +
-        priceList.lockups.lifecycleReserveTarget +
-        (withCDN ? priceList.lockups.cdnLockupAmount + priceList.lockups.cacheMissLockupAmount : 0n)
-      const newDataSetCosts = BigInt(newDataSetCount) * perNewDataSetCosts
-      delta = adjustment.delta + newDataSetCosts
-      resolvedTargetDeposit = adjustment.targetDeposit + newDataSetCosts
-      projectedRateUsed = adjustment.newRateUsed
-      projectedLockupUsed = adjustment.newLockupUsed
+      if (usePrecomputedUploadCosts) {
+        delta = uploadCosts.depositNeeded
+        resolvedTargetDeposit = status.filecoinPayBalance + delta
+        projectedRateUsed = accountSummary.lockupRatePerEpoch + uploadCosts.lockups.rateDeltaPerEpoch
+        projectedLockupUsed = accountSummary.totalLockup + uploadCosts.lockups.total
+        reasonCode = delta > 0n ? (targetRunwayDays === 0 ? 'piece-upload' : 'runway-with-piece') : 'none'
+      } else {
+        if (priceList == null) {
+          throw new Error('priceList is required when planning with pieceSizeBytes')
+        }
+        const adjustment = computeAdjustmentForExactDaysWithPiece(
+          accountSummary,
+          status.filecoinPayBalance,
+          targetRunwayDays,
+          pieceSizeBytes,
+          priceList
+        )
+        const reserveFunding = calculateLifecycleReserveFunding({
+          priceList,
+          isNewDataSet: true,
+          pieceSizes: [BigInt(pieceSizeBytes)],
+        })
+        const perNewDataSetCosts =
+          reserveFunding.total +
+          (withCDN ? priceList.lockups.cdnLockupAmount + priceList.lockups.cacheMissLockupAmount : 0n)
+        const newDataSetCosts = BigInt(newDataSetCount) * perNewDataSetCosts
+        delta = adjustment.delta + newDataSetCosts
+        resolvedTargetDeposit = adjustment.targetDeposit + newDataSetCosts
+        projectedRateUsed = adjustment.newRateUsed
+        projectedLockupUsed = adjustment.newLockupUsed
 
-      // Determine reason: piece upload with or without runway
-      if (targetRunwayDays === 0) {
-        /**
-         * Special case: targetRunwayDays === 0 means "fund this upload only" (no runway target).
-         * Even with 0 days, onboarding a new piece can still require additional deposit to satisfy
-         * the piece's lockup requirement (and the small safety buffer). If delta <= 0, no adjustment needed.
-         */
-        reasonCode = delta > 0n ? 'piece-upload' : 'none'
-      } else if (delta > 0n) {
-        reasonCode = 'runway-with-piece'
-      } else if (delta < 0n) {
-        reasonCode = 'withdrawal-excess'
+        // Determine reason: piece upload with or without runway
+        if (targetRunwayDays === 0) {
+          /**
+           * Special case: targetRunwayDays === 0 means "fund this upload only" (no runway target).
+           * Even with 0 days, onboarding a new piece can still require additional deposit to satisfy
+           * the piece's lockup requirement (and the small safety buffer). If delta <= 0, no adjustment needed.
+           */
+          reasonCode = delta > 0n ? 'piece-upload' : 'none'
+        } else if (delta > 0n) {
+          reasonCode = 'runway-with-piece'
+        } else if (delta < 0n) {
+          reasonCode = 'withdrawal-excess'
+        }
       }
     } else {
       const adjustment = computeAdjustmentForExactDays(accountSummary, status.filecoinPayBalance, targetRunwayDays)
@@ -298,9 +330,9 @@ const ONE_USDFC = 10n ** BigInt(USDFC_DECIMALS)
  *
  * Setting up the first data sets needs some funds to be available, meaning free
  * rather than already locked by active rails. Per data set, that requirement is
- * the create-data-set fee, the minimum monthly (per-data-set) price, and the
- * fixed CDN + cache-miss lockups the default (FilCDN) upload path needs, plus
- * one USDFC of runway. All of these are sourced from the on-chain price list.
+ * lifecycle-reserve funding (which accounts for operation fees), the minimum
+ * monthly price, and the fixed CDN + cache-miss lockups, plus one USDFC of
+ * runway. All of these are sourced from the on-chain price list.
  *
  * `availableFunds` is what the account already has free (the SDK reports it net
  * of lockup and debt). The deposit only needs to make up the difference, so the
@@ -319,13 +351,13 @@ export function computeAutoSetupTargetBalance(params: {
     throw new Error('copies must be a non-negative integer')
   }
   const { rates, lockups } = params.priceList
-  const uploadFees = calculateUploadFees({ priceList: params.priceList, isNewDataSet: true })
+  const reserveFunding = calculateLifecycleReserveFunding({
+    priceList: params.priceList,
+    isNewDataSet: true,
+    pieceSizes: [1n],
+  })
   const perDataSet =
-    uploadFees.total +
-    rates.datasetFeePerMonth +
-    lockups.lifecycleReserveTarget +
-    lockups.cdnLockupAmount +
-    lockups.cacheMissLockupAmount
+    reserveFunding.total + rates.datasetFeePerMonth + lockups.cdnLockupAmount + lockups.cacheMissLockupAmount
   const requiredAvailableFunds = BigInt(params.copies) * perDataSet + ONE_USDFC
   const shortfall = requiredAvailableFunds > params.availableFunds ? requiredAvailableFunds - params.availableFunds : 0n
   return { requiredAvailableFunds, targetBalance: params.filecoinPayBalance + shortfall }
@@ -358,6 +390,8 @@ export interface PlanFilecoinPayFundingOptions {
   priceList?: getPriceList.OutputType | undefined
   newDataSetCount?: number | undefined
   withCDN?: boolean | undefined
+  /** Exact storage contexts the upload will target. Enables reserve-aware multi-copy costs. */
+  contexts?: StorageContext[] | undefined
   mode?: FundingMode | undefined
   allowWithdraw?: boolean | undefined
   ensureAllowances?: boolean | undefined
@@ -394,6 +428,7 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     priceList: priceListOpt,
     newDataSetCount = 0,
     withCDN = false,
+    contexts,
     mode = 'exact',
     allowWithdraw = true,
     ensureAllowances = false,
@@ -409,8 +444,16 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
 
   const [status, accountSummary] = await Promise.all([getPaymentStatus(synapse), synapse.payments.accountSummary({})])
 
+  let uploadCosts: UploadCosts | undefined
+  if (contexts != null && canUsePrecomputedUploadCosts(options)) {
+    uploadCosts = await synapse.storage.calculateMultiContextCosts(contexts, {
+      pieceSizes: [BigInt(options.pieceSizeBytes)],
+      extraRunwayEpochs: BigInt(Math.floor(options.targetRunwayDays)) * TIME_CONSTANTS.EPOCHS_PER_DAY,
+    })
+  }
+
   let priceList = priceListOpt
-  if (pieceSizeBytes != null && priceList == null) {
+  if (pieceSizeBytes != null && uploadCosts == null && priceList == null) {
     const storageInfo = await synapse.storage.getStorageInfo()
     priceList = storageInfo.pricing.priceList
   }
@@ -422,8 +465,9 @@ export async function planFilecoinPayFunding(options: PlanFilecoinPayFundingOpti
     targetDeposit,
     pieceSizeBytes,
     priceList,
-    newDataSetCount,
+    newDataSetCount: contexts?.filter((context) => context.dataSetId == null).length ?? newDataSetCount,
     withCDN,
+    uploadCosts,
     mode,
     allowWithdraw,
   })
