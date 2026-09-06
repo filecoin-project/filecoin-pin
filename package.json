@@ -135,6 +135,8 @@
     "@helia/unixfs": "^7.0.4",
     "@helia/utils": "^2.5.2",
     "@ipld/car": "^5.4.2",
+    "@ipld/dag-cbor": "^10.0.1",
+    "@ipld/dag-pb": "^4.1.7",
     "@libp2p/identify": "^4.1.2",
     "@libp2p/tcp": "^11.0.17",
     "@multiformats/multiaddr": "^13.0.1",
@@ -157,7 +159,6 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.5",
-    "@ipld/dag-cbor": "^10.0.1",
     "@types/node": "^26.1.1",
     "@types/semver": "^7.7.1",
     "@vitest/browser-playwright": "^4.0.18",
