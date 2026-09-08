@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { writeSessionFile } from '../../login/session-file.js'
 import { applySessionFileCredentials, wasSessionSkippedForViewAddress } from '../../utils/credential-source.js'
 
@@ -95,6 +95,16 @@ describe('applySessionFileCredentials', () => {
     expect(wasSessionSkippedForViewAddress()).toBe(true)
     applySessionFileCredentials(ARGV, { VIEW_ADDRESS: OWNER, PRIVATE_KEY: '0xenv' }, path)
     expect(wasSessionSkippedForViewAddress()).toBe(false)
+  })
+
+  it('warns when CI is set and the saved login was used', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    applySessionFileCredentials(ARGV, { CI: 'true' }, path)
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining('CI is set and credentials came from the saved login'))
+    errors.mockClear()
+    applySessionFileCredentials(ARGV, {}, path)
+    expect(errors).not.toHaveBeenCalled()
+    errors.mockRestore()
   })
 
   it('is a no-op without a file', () => {

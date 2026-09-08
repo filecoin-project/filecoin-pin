@@ -79,6 +79,13 @@ export function applySessionFileCredentials(
   }
   loadedFrom = path
   loadedNetwork = session.network
+  if (isSet(env, 'CI')) {
+    // A runner that reuses its home directory keeps this file between jobs, so
+    // every later job would upload as this owner. Said before any output.
+    console.error(
+      `Warning: CI is set and credentials came from the saved login at ${path}. Set PRIVATE_KEY, or SESSION_KEY and WALLET_ADDRESS, explicitly on CI so a stale login is never picked up.`
+    )
+  }
   return path
 }
 
