@@ -58,8 +58,8 @@ describe('applySessionFileCredentials', () => {
     }
   })
 
-  it('never loads for login, logout, or server', () => {
-    for (const command of ['login', 'logout', 'server']) {
+  it('never loads for login, logout, dashboard, or server', () => {
+    for (const command of ['login', 'logout', 'dashboard', 'server']) {
       const env: NodeJS.ProcessEnv = {}
       expect(applySessionFileCredentials(['node', 'cli.js', '--verbose', command], env, path)).toBeUndefined()
       expect(env).toEqual({})

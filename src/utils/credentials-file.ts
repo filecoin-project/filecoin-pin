@@ -28,9 +28,20 @@ function describeReadError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** The only variables a credentials file may set: anything else could steer the CLI, not authenticate it. */
+export const CREDENTIALS_FILE_VARS = [
+  'PRIVATE_KEY',
+  'SESSION_KEY',
+  'WALLET_ADDRESS',
+  'VIEW_ADDRESS',
+  'NETWORK',
+] as const
+
 /**
- * Load a dotenv-style file at `path` into `env`, without overriding
- * variables already present in `env`.
+ * Load the credential variables of a dotenv-style file at `path` into
+ * `env`, without overriding variables already present in `env`. Other
+ * variables are ignored and named on stderr: a file from the console or a
+ * teammate must not be able to point CONSOLE_URL or RPC_URL elsewhere.
  *
  * Throws with a clear, path-naming error if the file cannot be read
  * (e.g. it doesn't exist).
@@ -51,10 +62,20 @@ export function loadCredentialsFile(path: string, env: NodeJS.ProcessEnv = proce
         `(# comments and blank lines are ignored; "export KEY=VALUE" also works)`
     )
   }
+  const ignored: string[] = []
   for (const [key, value] of Object.entries(parsed)) {
+    if (!(CREDENTIALS_FILE_VARS as readonly string[]).includes(key)) {
+      ignored.push(key)
+      continue
+    }
     if (env[key] === undefined) {
       env[key] = value
     }
+  }
+  if (ignored.length > 0) {
+    console.error(
+      `--credentials-file: ignored ${ignored.join(', ')} (only ${CREDENTIALS_FILE_VARS.join(', ')} are read)`
+    )
   }
 }
 

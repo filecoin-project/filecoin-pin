@@ -18,11 +18,11 @@ const AUTH_ENV_VARS = ['PRIVATE_KEY', 'SESSION_KEY', 'WALLET_ADDRESS', 'VIEW_ADD
 const AUTH_FLAGS = ['--private-key', '--session-key', '--wallet-address', '--view-address'] as const
 const NETWORK_FLAGS = ['--network', '--rpc-url'] as const
 /**
- * Commands that never auto-load: `login`/`logout` manage the file, and the
- * pinning server is a daemon that must not silently bind to an interactive,
- * expiring session key.
+ * Commands that never auto-load: `login`/`logout` manage the file, `dashboard`
+ * needs no credential and opens a browser, and the pinning server is a daemon
+ * that must not silently bind to an interactive, expiring session key.
  */
-const SKIPPED_COMMANDS = ['login', 'logout', 'server'] as const
+const SKIPPED_COMMANDS = ['login', 'logout', 'dashboard', 'server'] as const
 
 let loadedFrom: string | undefined
 let loadedNetwork: string | undefined

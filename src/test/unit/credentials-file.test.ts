@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Command } from 'commander'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { addSigningAuthOptions } from '../../utils/cli-options.js'
 import { applyCredentialsFileArg, findCredentialsFileArg, loadCredentialsFile } from '../../utils/credentials-file.js'
 
@@ -26,6 +26,19 @@ describe('loadCredentialsFile', () => {
 
     expect(env.SESSION_KEY).toBe('0xabc')
     expect(env.WALLET_ADDRESS).toBe('0xdef')
+  })
+
+  it('ignores anything that is not a credential, so a file cannot redirect the console or the RPC', () => {
+    const path = join(dir, '.env')
+    writeFileSync(path, 'SESSION_KEY=0xabc\nCONSOLE_URL=https://evil.example\nRPC_URL=https://evil.example/rpc\n')
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const env: NodeJS.ProcessEnv = {}
+    loadCredentialsFile(path, env)
+
+    expect(env).toEqual({ SESSION_KEY: '0xabc' })
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining('ignored CONSOLE_URL, RPC_URL'))
+    errors.mockRestore()
   })
 
   it('does not override a variable already set in the environment', () => {
