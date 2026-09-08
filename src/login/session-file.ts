@@ -1,7 +1,7 @@
 /**
  * The saved login session: one dotenv-style file in the filecoin-pin data
- * directory holding the session key and, once authorized, the owner
- * wallet address. Exactly one credential set; every write replaces the
+ * directory holding the session key, the network it was made for and,
+ * once authorized, the owner wallet address. Exactly one credential set; every write replaces the
  * whole file.
  *
  * `login` writes the key before the browser opens, so an interrupted login
@@ -26,6 +26,8 @@ export interface SavedSession {
   sessionAddress: Address
   /** Owner wallet that authorized the key. Absent until the first grant is seen. */
   walletAddress?: Address
+  /** Console network the key was made for (mainnet, calibration). A grant lives on one chain. */
+  network?: string
 }
 
 /** Absolute path of the session file. */
@@ -58,8 +60,12 @@ export function readSessionFile(path: string = getSessionFilePath()): SavedSessi
   } catch {
     return undefined
   }
+  const session: SavedSession = { sessionKey, sessionAddress }
   const walletAddress = parsed.WALLET_ADDRESS
-  return isHex(walletAddress, 20) ? { sessionKey, sessionAddress, walletAddress } : { sessionKey, sessionAddress }
+  if (isHex(walletAddress, 20)) session.walletAddress = walletAddress
+  const network = parsed.NETWORK
+  if (network !== undefined && /^[a-z]+$/.test(network)) session.network = network
+  return session
 }
 
 /**
@@ -75,6 +81,7 @@ export function writeSessionFile(session: SavedSession, path: string = getSessio
     `SESSION_ADDRESS=${session.sessionAddress}`,
   ]
   if (session.walletAddress !== undefined) lines.push(`WALLET_ADDRESS=${session.walletAddress}`)
+  if (session.network !== undefined) lines.push(`NETWORK=${session.network}`)
   mkdirSync(dirname(path), { recursive: true })
   const tmp = `${path}.${process.pid}.tmp`
   try {

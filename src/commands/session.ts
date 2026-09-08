@@ -9,7 +9,9 @@ import { Command } from 'commander'
 import { runSessionAuthorize, runSessionCreate, runSessionGenerate, runSessionRevoke } from '../session/index.js'
 import { addOwnerAuthOptions, scopesOption, sessionKeyOption } from '../utils/cli-options.js'
 
-export const sessionCommand = new Command('session').description('Manage session keys for delegated upload access')
+export const sessionCommand = new Command('session').description(
+  'Owner-signed session key management (advanced; needs the wallet private key). On an interactive machine, use `login` instead'
+)
 
 // session create — single-party: owner generates (or reuses) a session key and
 // authorizes it on-chain.

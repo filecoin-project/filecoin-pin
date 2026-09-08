@@ -21,6 +21,11 @@ const CONSOLE_NETWORK_SLUG: Record<number, string> = {
   314159: 'calibration',
 }
 
+/** The console's name for a chain, or undefined when the console has no page for it (devnet, custom RPC). */
+export function consoleNetworkSlug(chainId: number): string | undefined {
+  return CONSOLE_NETWORK_SLUG[chainId]
+}
+
 /**
  * Build the console deep link that pre-fills the session address and the
  * scopes it needs on the session-keys authorization page. Carries the

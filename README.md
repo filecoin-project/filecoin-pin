@@ -191,15 +191,14 @@ npm install -g filecoin-pin
 #                   (or pass --private-key <key> to each command)
 #    Session key:   export WALLET_ADDRESS=0x... SESSION_KEY=0x...
 #                   WALLET_ADDRESS is the owner wallet address; SESSION_KEY is the
-#                   session key PRIVATE key (not the session address), as printed by
-#                   `filecoin-pin session create` or `filecoin-pin session generate`
+#                   session key PRIVATE key (not the session address), e.g. from a
+#                   file downloaded from the console's Session keys page
 #                   (or pass --wallet-address <addr> --session-key <private-key> to each command)
 #                   Or load both from a downloaded file: filecoin-pin add --credentials-file <path>
-#    Revoke later:  filecoin-pin session revoke <session-address>
-#    Scoped keys:   session create/authorize/revoke take --scopes <ids> to grant or
-#                   revoke a subset (default: all). Ids: createDataSet, addPieces,
+#    Advanced:      `filecoin-pin session create|authorize|revoke|generate` manage session
+#                   keys with the wallet private key (no browser). --scopes <ids> picks a
+#                   subset (default: all). Ids: createDataSet, addPieces,
 #                   schedulePieceRemovals, terminateService.
-#                   E.g. --scopes createDataSet,addPieces or --scopes schedulePieceRemovals.
 
 # 1. Configure payment permissions (one-time setup)
 filecoin-pin payments setup --auto
@@ -275,13 +274,18 @@ Other arguments are possible for individual commands, use `--help` to find out m
 
 ### Login
 
-`filecoin-pin login` pairs this machine with a wallet without exporting a private key. It generates a session key, saves it to `session.env` in the data directory before anything else happens, prints and opens a Filecoin Cloud console link, and waits up to five minutes for the wallet owner to approve the key there. It ends with a readiness scorecard for uploads (key authorized, storage service approved, USDFC deposited) and a pre-filled console link when funding is still needed.
+`filecoin-pin login` pairs this machine with a wallet without exporting a private key. It generates a session key, saves it to `session.env` in the data directory (owner-readable only) before anything else happens, prints a Filecoin Cloud console link on its own line, opens it in a browser on a terminal, and waits up to five minutes for the wallet owner to approve the key there. It ends with a readiness scorecard for uploads (key authorized, storage service approved, USDFC deposited) and a pre-filled console link when funding is still needed.
+
+A grant lives on one chain, so the file records the network (`mainnet` or `calibration`); resuming it under another `--network` is refused. `login` works only on those two networks, which are the ones the console serves. On devnet or a custom RPC, use `session create` with the wallet key. If `PRIVATE_KEY`, `SESSION_KEY`, or `VIEW_ADDRESS` is set in the shell, `login` warns that it will take precedence over the saved key.
 
 * `--scopes <ids>`: scopes to request (default: `createDataSet,addPieces`). See [Session-Key Permissions](#session-key-permissions) for what each command needs.
-* `--fresh`: generate a new key instead of resuming the saved one.
-* Exit codes: `0` when every requested scope was granted, `2` when the wait timed out or the owner granted fewer scopes (rerun `login` to resume with the same key), `1` on an error.
+* `--fresh`: generate a new key instead of resuming the saved one. A replaced key stays authorized on chain until it expires; revoke it on the console's Session keys page.
+* `--no-browser`: print the link only. `BROWSER=none` does the same for every command.
+* `--no-wait`: print the link, keep the key, and exit `2` without waiting. Rerun `login` after approving to check the grant.
+* `--timeout <seconds>`: how long to wait for the grant (default: 300).
+* Exit codes: `0` when the key can upload (every requested scope, or at least `createDataSet` and `addPieces`), `2` when the wait timed out, `--no-wait` skipped it, or the owner granted too few scopes (rerun `login` to resume with the same key), `1` on an error.
 
-`filecoin-pin logout` deletes the saved session file. The on-chain grant expires on its own; the console can revoke it early.
+`filecoin-pin logout` deletes the saved session file and prints the session address it removed. This is local only: the on-chain grant expires on its own, or revoke it early on the console's Session keys page or with `filecoin-pin session revoke <session-address>` and the wallet key.
 
 ### Session-Key Permissions
 

@@ -44,6 +44,13 @@ describe('session file', () => {
     expect(statSync(path).mode & 0o777).toBe(0o600)
   })
 
+  it('keeps the network the key was made for', () => {
+    writeSessionFile({ sessionKey: KEY, sessionAddress: SESSION, network: 'calibration' }, path)
+    expect(readSessionFile(path)?.network).toBe('calibration')
+    writeSessionFile({ sessionKey: KEY, sessionAddress: SESSION }, path)
+    expect(readSessionFile(path)?.network).toBeUndefined()
+  })
+
   it('treats a missing or malformed file as no session', () => {
     expect(readSessionFile(path)).toBeUndefined()
     writeFileSync(path, 'SESSION_KEY=not-a-key\n')

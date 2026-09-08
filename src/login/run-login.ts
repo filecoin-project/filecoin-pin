@@ -7,8 +7,9 @@
  * scopes and the account readiness scorecard. PRD section 6 is the spec
  * for every line printed here.
  *
- * Exit codes: 0 when every requested scope was granted, 2 when the wait
- * timed out or the owner granted fewer scopes (rerun resumes the same
+ * Exit codes: 0 when the key can upload (every requested scope, or at least
+ * createDataSet and addPieces), 2 when the wait timed out, `--no-wait`
+ * skipped it, or the owner granted too few scopes (rerun resumes the same
  * key), 1 on an error.
  */
 
@@ -26,6 +27,7 @@ import { EXIT_CODE_INCOMPLETE } from '../common/cli-errors.js'
 import {
   buildAuthorizeUrl,
   buildFundingUrl,
+  consoleNetworkSlug,
   DEFAULT_SUGGESTED_DEPOSIT_USDFC,
   resolveConsoleUrl,
 } from '../core/session/console-url.js'
@@ -58,14 +60,41 @@ function scopeList(permissions: readonly Permission[]): string {
   return permissions.map(scopeIdOf).join(', ')
 }
 
-/** Resume the saved key unless `--fresh`; otherwise generate and save a new one. */
-function loadOrCreateSession(fresh: boolean | undefined, path: string): { session: SavedSession; resumed: boolean } {
-  const saved = fresh ? undefined : readSessionFile(path)
-  if (saved !== undefined) return { session: saved, resumed: true }
+/** Credentials in the shell that would shadow the saved login for every later command. */
+const SHADOWING_ENV_VARS = ['PRIVATE_KEY', 'SESSION_KEY', 'VIEW_ADDRESS'] as const
+
+interface LoadedSession {
+  session: SavedSession
+  resumed: boolean
+  /** A previously authorized key that `--fresh` is replacing; it stays live on chain. */
+  replaced?: SavedSession
+}
+
+/**
+ * Resume the saved key unless `--fresh`; otherwise generate and save a new
+ * one for `network`. A saved key made for another network is refused: its
+ * grant lives on that chain, so resuming it here could never succeed.
+ */
+function loadOrCreateSession(fresh: boolean | undefined, network: string, path: string): LoadedSession {
+  const saved = readSessionFile(path)
+  if (saved !== undefined && !fresh) {
+    if (saved.network !== undefined && saved.network !== network) {
+      throw new Error(
+        `The saved login is for ${saved.network}, not ${network}. Pass --network ${saved.network} to resume it, or --fresh to replace it.`
+      )
+    }
+    return { session: saved.network === undefined ? { ...saved, network } : saved, resumed: true }
+  }
   const keypair = generateSessionKeypair()
-  const session: SavedSession = { sessionKey: keypair.privateKey, sessionAddress: keypair.address }
+  const session: SavedSession = { sessionKey: keypair.privateKey, sessionAddress: keypair.address, network }
   writeSessionFile(session, path)
-  return { session, resumed: false }
+  return saved?.walletAddress !== undefined ? { session, resumed: false, replaced: saved } : { session, resumed: false }
+}
+
+/** Exit 0 when the key can upload: everything asked for, or at least the two upload scopes. */
+function canUploadWith(requested: readonly Permission[], granted: readonly Permission[]): boolean {
+  const have = new Set(granted)
+  return requested.every((p) => have.has(p)) || (have.has(CreateDataSetPermission) && have.has(AddPiecesPermission))
 }
 
 /** Print the requested-versus-granted diff and the exit code for a shortfall. */
@@ -108,7 +137,7 @@ async function reportReadiness(
   if (!readiness.serviceApproved || readiness.depositUsdfc === 0n) {
     log.line('')
     log.line('  One step fixes both (deposit & approve is a single transaction):')
-    log.line(`  ${pc.cyan(pc.underline(buildFundingUrl(consoleUrl, DEFAULT_SUGGESTED_DEPOSIT_USDFC, chain.id)))}`)
+    log.line(buildFundingUrl(consoleUrl, DEFAULT_SUGGESTED_DEPOSIT_USDFC, chain.id))
   }
   log.line('')
   log.line(pc.gray('  check anytime: filecoin-pin balance · top up: filecoin-pin dashboard'))
@@ -125,13 +154,31 @@ export async function runLogin(options: LoginOptions): Promise<number> {
   if (registryAddress === undefined) {
     throw new Error(`No session key registry is configured for chain id ${chain.id}`)
   }
+  const network = consoleNetworkSlug(chain.id)
+  if (network === undefined) {
+    throw new Error(
+      `The Filecoin Cloud console has no pairing page for chain id ${chain.id}. login works on mainnet and calibration; on other networks use \`filecoin-pin session create\` with the wallet key.`
+    )
+  }
   const consoleUrl = resolveConsoleUrl()
 
   const path = getSessionFilePath()
-  const { session, resumed } = loadOrCreateSession(options.fresh, path)
+  const { session, resumed, replaced } = loadOrCreateSession(options.fresh, network, path)
   const short = shortAddress(session.sessionAddress)
-  log.line(`${pc.green('✓')} ${resumed ? 'Resuming session key' : 'Session key generated'}: ${short}`)
-  log.line(`${pc.green('✓')} Saved to ${path} (saved BEFORE the browser opens — safe to re-run)`)
+  log.line(`${pc.green('✓')} ${resumed ? 'Resuming session key' : 'Session key generated'}: ${short} (${network})`)
+  log.line(`${pc.green('✓')} Saved to ${path} (owner-readable only, saved BEFORE the browser opens — safe to re-run)`)
+  if (replaced !== undefined) {
+    log.line(
+      `${pc.yellow('⚠')} Replaced ${shortAddress(replaced.sessionAddress)}, which stays authorized on chain until it expires. Revoke it early on the console's Session keys page.`
+    )
+  }
+  for (const name of SHADOWING_ENV_VARS) {
+    if (process.env[name] !== undefined && process.env[name] !== '') {
+      log.line(
+        `${pc.yellow('⚠')} ${name} is set in this shell and takes precedence over the saved login. Unset it to use this session key.`
+      )
+    }
+  }
   const scopeNote = options.scopes === undefined ? ' (defaults — override with --scopes)' : ''
   log.line(`  Requesting scopes: ${scopeList(permissions)}${scopeNote}`)
   log.line('')
@@ -141,11 +188,21 @@ export async function runLogin(options: LoginOptions): Promise<number> {
   const scopeIds = permissions.map(scopeIdOf)
   const url = buildAuthorizeUrl(consoleUrl, session.sessionAddress, scopeIds, chain.id)
   log.line('  Approve this key with your wallet in the Filecoin Cloud console:')
-  log.line(`  ${pc.cyan(pc.underline(url))}`)
+  // The link on its own line, unstyled, so it copies and parses cleanly.
+  log.line(url)
   log.line('')
   log.flush()
-  openBrowser(url)
+  if (options.browser !== false) openBrowser(url)
 
+  if (options.wait === false) {
+    log.line(
+      `${pc.yellow('⚠')} Not waiting for the grant. Approve the key, then rerun \`filecoin-pin login\` to check it.`
+    )
+    log.flush()
+    return EXIT_CODE_INCOMPLETE
+  }
+
+  const deadlineMs = options.timeout !== undefined ? options.timeout * 1000 : DEFAULT_WATCH_DEADLINE_MS
   const spinner = createSpinner()
   const waitLine = (remainingMs: number) =>
     `Waiting for on-chain authorization… ${formatCountdown(remainingMs)} remaining (Ctrl-C safe; rerun \`login\` to resume)`
@@ -157,8 +214,8 @@ export async function runLogin(options: LoginOptions): Promise<number> {
     process.exit(EXIT_CODE_INCOMPLETE)
   }
   process.once('SIGINT', onSigint)
-  if (!isTTY()) log.line(`  ${waitLine(DEFAULT_WATCH_DEADLINE_MS)}`)
-  spinner.start(waitLine(DEFAULT_WATCH_DEADLINE_MS))
+  if (!isTTY()) log.line(`  ${waitLine(deadlineMs)}`)
+  spinner.start(waitLine(deadlineMs))
   let result: WatchAuthorizationResult
   try {
     result = await watchAuthorization({
@@ -167,6 +224,7 @@ export async function runLogin(options: LoginOptions): Promise<number> {
       registryAddress,
       permissions,
       fromBlock,
+      deadlineMs,
       ...(session.walletAddress !== undefined ? { owner: session.walletAddress } : {}),
       onProgress: (event) => {
         if (event.type === 'watch:tick') spinner.message(waitLine(event.data.remainingMs))
@@ -201,5 +259,5 @@ export async function runLogin(options: LoginOptions): Promise<number> {
     log.line(`${pc.yellow('⚠')} Could not read account readiness: ${reason}. Run \`filecoin-pin balance\` to check.`)
   }
   log.flush()
-  return result.status === 'granted' ? 0 : EXIT_CODE_INCOMPLETE
+  return canUploadWith(permissions, result.granted) ? 0 : EXIT_CODE_INCOMPLETE
 }

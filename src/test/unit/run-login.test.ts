@@ -11,6 +11,7 @@ import { openBrowser } from '../../login/open-browser.js'
 import { checkAccountReadiness } from '../../login/readiness.js'
 import { runLogin } from '../../login/run-login.js'
 import { readSessionFile, writeSessionFile } from '../../login/session-file.js'
+import { resolveNetwork } from '../../session/resolve-network.js'
 import { log } from '../../utils/cli-logger.js'
 
 const OWNER = '0x00000000000000000000000000000000000000aa'
@@ -169,7 +170,7 @@ describe('runLogin', () => {
     expect(vi.mocked(watchAuthorization)).toHaveBeenCalledWith(expect.not.objectContaining({ owner: OWNER }))
   })
 
-  it('reports a partial grant with the requested-versus-granted diff and exits 2', async () => {
+  it('reports a partial grant with the requested-versus-granted diff and exits 0 when uploads still work', async () => {
     vi.mocked(watchAuthorization).mockResolvedValue({
       status: 'partial',
       owner: OWNER,
@@ -180,7 +181,7 @@ describe('runLogin', () => {
 
     const code = await runLogin({ scopes: 'createDataSet,addPieces,schedulePieceRemovals' })
 
-    expect(code).toBe(2)
+    expect(code).toBe(0)
     const text = output()
     expect(text).toContain('Authorized with fewer scopes than requested')
     expect(text).toContain('Requested:  createDataSet, addPieces, schedulePieceRemovals')
@@ -192,12 +193,92 @@ describe('runLogin', () => {
     await expect(runLogin({ scopes: 'nope' })).rejects.toThrow(/Unknown scope "nope"/)
     expect(vi.mocked(watchAuthorization)).not.toHaveBeenCalled()
   })
+
+  it('records the network in the session file and refuses to resume a key made for another one', async () => {
+    vi.mocked(watchAuthorization).mockResolvedValue({ status: 'timeout', granted: [], missing: [] })
+    await runLogin({})
+    expect(readSessionFile(join(dataDir, 'session.env'))?.network).toBe('calibration')
+
+    vi.mocked(resolveNetwork).mockResolvedValueOnce({
+      chain: { id: 314, name: 'mainnet', contracts: { sessionKeyRegistry: { address: REGISTRY } } },
+      rpcUrl: 'http://rpc.test',
+      transport: () => ({ request: vi.fn() }),
+    } as never)
+    await expect(runLogin({})).rejects.toThrow(/saved login is for calibration, not mainnet/)
+    expect(vi.mocked(watchAuthorization)).toHaveBeenCalledOnce()
+  })
+
+  it('refuses a chain the console has no page for before saving anything', async () => {
+    vi.mocked(openBrowser).mockClear()
+    vi.mocked(resolveNetwork).mockResolvedValueOnce({
+      chain: { id: 31415926, name: 'devnet', contracts: { sessionKeyRegistry: { address: REGISTRY } } },
+      rpcUrl: 'http://rpc.test',
+      transport: () => ({ request: vi.fn() }),
+    } as never)
+
+    await expect(runLogin({})).rejects.toThrow(/no pairing page for chain id 31415926/)
+    expect(readSessionFile(join(dataDir, 'session.env'))).toBeUndefined()
+    expect(vi.mocked(openBrowser)).not.toHaveBeenCalled()
+  })
+
+  it('--no-wait saves the key, prints the bare link, and exits 2 without watching', async () => {
+    const code = await runLogin({ wait: false })
+
+    expect(code).toBe(2)
+    expect(vi.mocked(watchAuthorization)).not.toHaveBeenCalled()
+    const saved = readSessionFile(join(dataDir, 'session.env'))
+    expect(saved?.sessionAddress).toBeDefined()
+    const lines = vi.mocked(log.line).mock.calls.map((call) => String(call[0]))
+    expect(lines).toContain(
+      `https://console.test/console/session-keys?authorize=${saved?.sessionAddress.toLowerCase()}&scopes=createDataSet,addPieces&network=calibration`
+    )
+    expect(output()).toContain('rerun `filecoin-pin login` to check it')
+  })
+
+  it('--no-browser keeps the browser closed and --timeout shortens the wait', async () => {
+    vi.mocked(openBrowser).mockClear()
+    vi.mocked(watchAuthorization).mockResolvedValue({ status: 'timeout', granted: [], missing: [] })
+
+    await runLogin({ browser: false, timeout: 30 })
+
+    expect(vi.mocked(openBrowser)).not.toHaveBeenCalled()
+    expect(vi.mocked(watchAuthorization)).toHaveBeenCalledWith(expect.objectContaining({ deadlineMs: 30000 }))
+  })
+
+  it('warns when a shell credential will shadow the saved login and when --fresh orphans a live key', async () => {
+    const key = `0x${'11'.repeat(32)}` as const
+    writeSessionFile(
+      { sessionKey: key, sessionAddress: privateKeyToAccount(key).address, walletAddress: OWNER },
+      join(dataDir, 'session.env')
+    )
+    vi.mocked(watchAuthorization).mockResolvedValue({ status: 'timeout', granted: [], missing: [] })
+    process.env.SESSION_KEY = key
+    try {
+      await runLogin({ fresh: true })
+    } finally {
+      delete process.env.SESSION_KEY
+    }
+
+    const text = output()
+    expect(text).toContain('SESSION_KEY is set in this shell and takes precedence over the saved login')
+    expect(text).toContain('stays authorized on chain until it expires')
+  })
 })
 
 describe('login command wiring', () => {
   it('registers login with --scopes, --fresh, and network flags', () => {
     const longs = loginCommand.options.map((o) => o.long)
-    expect(longs).toEqual(expect.arrayContaining(['--scopes', '--fresh', '--network', '--rpc-url']))
+    expect(longs).toEqual(
+      expect.arrayContaining([
+        '--scopes',
+        '--fresh',
+        '--no-browser',
+        '--no-wait',
+        '--timeout',
+        '--network',
+        '--rpc-url',
+      ])
+    )
     expect(loginCommand.options.some((o) => o.long === '--private-key')).toBe(false)
   })
 

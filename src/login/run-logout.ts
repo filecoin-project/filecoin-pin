@@ -5,15 +5,23 @@
 
 import pc from 'picocolors'
 import { log } from '../utils/cli-logger.js'
-import { deleteSessionFile, getSessionFilePath } from './session-file.js'
+import { deleteSessionFile, getSessionFilePath, readSessionFile } from './session-file.js'
 
 export function runLogout(): void {
   const path = getSessionFilePath()
+  const session = readSessionFile(path)
   if (deleteSessionFile(path)) {
-    log.line(`${pc.green('✓')} Logged out: removed ${path}`)
+    const key = session ? ` ${session.sessionAddress}` : ''
+    log.line(`${pc.green('✓')} Logged out: removed${key} from ${path}`)
   } else {
     log.line(`${pc.gray('•')} Not logged in: no session file at ${path}`)
   }
-  log.line(pc.gray('  The on-chain grant lapses on its own; revoke it early in the Filecoin Cloud console.'))
+  if (session?.walletAddress !== undefined) {
+    log.line(`  The key stays authorized on chain for ${session.walletAddress} until it expires.`)
+    log.line(`  Revoke it early on the console's Session keys page, or with the wallet key:`)
+    log.line(`  filecoin-pin session revoke ${session.sessionAddress}`)
+  } else {
+    log.line(pc.gray('  This only forgets the key on this machine; an on-chain grant lapses on its own.'))
+  }
   log.flush()
 }

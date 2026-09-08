@@ -1,8 +1,8 @@
 /**
  * Open a URL in the user's default browser, best effort.
  *
- * Only attempted on an interactive terminal: an agent or a CI job gets the
- * printed URL and nothing else. Failures are swallowed because the URL is
+ * Only attempted on an interactive terminal, and never when `BROWSER=none`:
+ * an agent or a CI job gets the printed URL and nothing else. Failures are swallowed because the URL is
  * always printed first and the flow continues without the browser.
  */
 
@@ -25,7 +25,7 @@ function openerFor(url: string): { command: string; args: string[] } {
 
 /** Returns true when a browser launch was attempted. */
 export function openBrowser(url: string): boolean {
-  if (!isTTY()) return false
+  if (!isTTY() || process.env.BROWSER === 'none') return false
   const { command, args } = openerFor(url)
   try {
     const child = spawn(command, args, { detached: true, stdio: 'ignore' })
