@@ -135,8 +135,13 @@ export async function readScopeGrants(
     contractAddress: options.registryAddress,
   })
   const scopes = classifyScopes(options.permissions, expirations)
-  const status = scopes.missing.length === 0 ? 'granted' : scopes.granted.length === 0 ? 'none' : 'partial'
-  return { status, owner: options.owner, ...scopes }
+  return { status: grantStatus(scopes), owner: options.owner, ...scopes }
+}
+
+function grantStatus(scopes: Pick<ScopeGrants, 'granted' | 'missing'>): ScopeGrants['status'] {
+  if (scopes.missing.length === 0) return 'granted'
+  if (scopes.granted.length === 0) return 'none'
+  return 'partial'
 }
 
 /**
