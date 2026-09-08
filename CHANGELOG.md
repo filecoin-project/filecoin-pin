@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.0.1](https://github.com/filecoin-project/filecoin-pin/compare/v2.0.0...v2.0.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* upgrade synapse and migrate storage cost calculations ([#709](https://github.com/filecoin-project/filecoin-pin/issues/709)) ([d362096](https://github.com/filecoin-project/filecoin-pin/commit/d362096f264785ce78fbe1ad7cce17948c1ecf2b))
+
+
+### Chores
+
+* **deps-dev:** bump typedoc from 0.28.19 to 0.28.20 ([#672](https://github.com/filecoin-project/filecoin-pin/issues/672)) ([eb18a10](https://github.com/filecoin-project/filecoin-pin/commit/eb18a10ce4f76458fa56d7cccf383103d99204c7))
+* **deps:** bump actions/checkout from 7.0.0 to 7.0.1 ([#693](https://github.com/filecoin-project/filecoin-pin/issues/693)) ([49a1999](https://github.com/filecoin-project/filecoin-pin/commit/49a1999de277583fa28be1360a591b7e67cdbbbc))
+* **deps:** bump pnpm/action-setup from 6.0.9 to 6.0.10 ([#694](https://github.com/filecoin-project/filecoin-pin/issues/694)) ([a96b9d6](https://github.com/filecoin-project/filecoin-pin/commit/a96b9d621baab1b716b22c5de34b84801ea47497))
+* **deps:** bump pnpm/action-setup from 6.0.9 to 6.0.10 in /upload-action ([#696](https://github.com/filecoin-project/filecoin-pin/issues/696)) ([99b4085](https://github.com/filecoin-project/filecoin-pin/commit/99b4085d0dbb3c4c794783ec03c059cbfa8d194b))
+* **deps:** bump pnpm/action-setup in /upload-action ([99b4085](https://github.com/filecoin-project/filecoin-pin/commit/99b4085d0dbb3c4c794783ec03c059cbfa8d194b))
+* **deps:** bump viem from 2.55.10 to 2.55.19 ([#675](https://github.com/filecoin-project/filecoin-pin/issues/675)) ([7b1762a](https://github.com/filecoin-project/filecoin-pin/commit/7b1762abcec8c9d90f7b33431117d4013d8428f6))
+
 ## [2.0.0](https://github.com/filecoin-project/filecoin-pin/compare/v1.3.1...v2.0.0) (2026-09-03)
 
 This is the first release that doesn't break with [FWSS v1.4.0](https://github.com/FilOzone/filecoin-services/releases/tag/v1.4.0). A followup release will come soon that uses Synapse 2.0 and is fully compatible and updated for FWSS v1.4.0 (tracking issue)[https://github.com/filecoin-project/filecoin-pin/issues/685].
