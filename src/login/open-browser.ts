@@ -23,12 +23,24 @@ function openerFor(url: string): { command: string; args: string[] } {
   }
 }
 
+/** Credentials that must not ride along into the browser's environment. */
+const SECRET_ENV_VARS = ['PRIVATE_KEY', 'SESSION_KEY', 'WALLET_ADDRESS', 'VIEW_ADDRESS'] as const
+
+/** The current environment without any credential, for child processes. */
+export function environmentWithoutSecrets(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const copy = { ...env }
+  for (const name of SECRET_ENV_VARS) delete copy[name]
+  return copy
+}
+
 /** Returns true when a browser launch was attempted. */
 export function openBrowser(url: string): boolean {
   if (!isTTY() || process.env.BROWSER === 'none') return false
   const { command, args } = openerFor(url)
   try {
-    const child = spawn(command, args, { detached: true, stdio: 'ignore' })
+    // xdg-open and friends hand the environment to the browser; a session
+    // key auto-loaded into process.env must not travel with it.
+    const child = spawn(command, args, { detached: true, stdio: 'ignore', env: environmentWithoutSecrets() })
     child.on('error', () => undefined)
     child.unref()
     return true
