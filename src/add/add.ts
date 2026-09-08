@@ -36,7 +36,7 @@ import { log } from '../utils/cli-logger.js'
 import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
 import { buildFilbeamUrl, chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
 import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
-import { assertUploadFunds, estimateInputBytes } from './funds-preflight.js'
+import { assertUploadFunds, estimateInputBytes, rerunHint } from './funds-preflight.js'
 import type { AddDryRunResult, AddOptions, AddResult } from './types.js'
 
 /**
@@ -216,7 +216,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     }
 
     // The exact invocation, flags included, for the "Then re-run" hint.
-    const rerunCommand = `filecoin-pin ${process.argv.slice(2).join(' ')}`
+    const rerunCommand = rerunHint()
     if (!options.dryRun && isSessionKeyMode(synapse)) {
       // A session key cannot deposit, so check the account can pay before
       // any packing happens and point at the console when it cannot.

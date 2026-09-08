@@ -89,7 +89,8 @@ vi.mock('../../core/synapse/index.js', () => ({
   }),
 }))
 
-vi.mock('../../add/funds-preflight.js', () => ({
+vi.mock('../../add/funds-preflight.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../add/funds-preflight.js')>()),
   assertUploadFunds: vi.fn(async () => undefined),
   estimateInputBytes: vi.fn(async () => 1024),
 }))

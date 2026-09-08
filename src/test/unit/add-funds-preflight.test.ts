@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { assertUploadFunds, estimateInputBytes } from '../../add/funds-preflight.js'
+import { assertUploadFunds, estimateInputBytes, rerunHint } from '../../add/funds-preflight.js'
 import { estimateUploadCost } from '../../common/upload-flow.js'
 import { checkAccountReadiness } from '../../login/readiness.js'
 import { log } from '../../utils/cli-logger.js'
@@ -110,6 +110,16 @@ describe('estimateInputBytes', () => {
 
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('rebuilds the rerun command from argv with secret flag values redacted', () => {
+    expect(rerunHint(['node', 'cli', 'add', './photos', '--copies', '1'])).toBe('filecoin-pin add ./photos --copies 1')
+    expect(rerunHint(['node', 'cli', 'add', '--session-key', '0xsecret', './photos'])).toBe(
+      'filecoin-pin add --session-key <redacted> ./photos'
+    )
+    expect(rerunHint(['node', 'cli', 'add', '--private-key=0xsecret', './photos'])).toBe(
+      'filecoin-pin add --private-key <redacted> ./photos'
+    )
   })
 
   it('sums the files under a directory, recursively', async () => {

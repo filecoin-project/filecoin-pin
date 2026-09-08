@@ -13,6 +13,7 @@ import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
+import { assertUploadFunds, rerunHint } from '../add/funds-preflight.js'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
@@ -27,7 +28,7 @@ import {
 } from '../common/upload-flow.js'
 import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
-import { initializeSynapse } from '../core/synapse/index.js'
+import { initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
@@ -301,7 +302,25 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       return result
     }
 
-    if (options.autoFund) {
+    if (isSessionKeyMode(synapse)) {
+      // Same contract as `add`: a session key cannot deposit, so check the
+      // account can pay before uploading and point at the console when it cannot.
+      spinner.start('Checking the account can pay for this upload...')
+      await assertUploadFunds(
+        synapse,
+        fileStat.size,
+        {
+          ...(options.copies != null && { copies: options.copies }),
+          ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
+          ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
+          ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
+          withCDN,
+        },
+        rerunHint(),
+        spinner
+      )
+      spinner.stop(`${pc.green('✓')} Account can pay for this upload`)
+    } else if (options.autoFund) {
       const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {
         withCDN,
         ...(dataSetMetadata && { metadata: dataSetMetadata }),

@@ -39,6 +39,27 @@ export async function estimateInputBytes(path: string, isDirectory: boolean, inc
   return total
 }
 
+const SECRET_FLAGS = ['--session-key', '--private-key'] as const
+
+/**
+ * The command to run again after funding, rebuilt from argv with any secret
+ * flag value redacted: the hint lands in CI logs and agent transcripts.
+ */
+export function rerunHint(argv: readonly string[] = process.argv): string {
+  const words: string[] = []
+  for (let i = 2; i < argv.length; i++) {
+    const arg = argv[i] as string
+    const flag = SECRET_FLAGS.find((f) => arg === f || arg.startsWith(`${f}=`))
+    if (flag === undefined) {
+      words.push(arg)
+      continue
+    }
+    words.push(`${flag} <redacted>`)
+    if (arg === flag) i++
+  }
+  return `filecoin-pin ${words.join(' ')}`
+}
+
 /** Whole USDFC to pre-fill in the funding link: the shortfall rounded up, or the default when only approval is missing. */
 function suggestedDeposit(shortfall: bigint): number {
   if (shortfall <= 0n) return DEFAULT_SUGGESTED_DEPOSIT_USDFC
@@ -93,9 +114,8 @@ export async function assertUploadFunds(
   else spinner.stop(headline)
   for (const line of formatReadinessLines(readiness, true, funds)) log.line(line)
   log.line('  Top up (amount pre-filled, one transaction):')
-  log.line(
-    `  ${pc.cyan(pc.underline(buildFundingUrl(consoleUrl, suggestedDeposit(estimate.costs.depositNeeded), synapse.chain.id)))}`
-  )
+  // The link on its own line, unstyled, so it copies and parses cleanly.
+  log.line(buildFundingUrl(consoleUrl, suggestedDeposit(estimate.costs.depositNeeded), synapse.chain.id))
   log.line(`  Then re-run:  ${rerunCommand}     check anytime: filecoin-pin balance`)
   log.flush()
   throw new CliFatal("Account can't pay for this upload")
