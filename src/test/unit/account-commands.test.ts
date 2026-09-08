@@ -43,6 +43,14 @@ describe('dashboard', () => {
     runDashboard()
     expect(text()).toContain('Opening the Filecoin Cloud console in your browser')
   })
+
+  it('--no-browser prints the bare URL and never opens anything', () => {
+    vi.mocked(openBrowser).mockClear()
+    runDashboard({ browser: false })
+    const lines = vi.mocked(log.line).mock.calls.map((c) => String(c[0]))
+    expect(lines[0]).toBe('https://pay.filecoin.cloud/console')
+    expect(vi.mocked(openBrowser)).not.toHaveBeenCalled()
+  })
 })
 
 describe('balance', () => {
@@ -79,7 +87,8 @@ describe('account command wiring', () => {
     expect(flagsOf(balanceCommand)).toEqual(flagsOf(statusCommand))
   })
 
-  it('dashboard is wired', () => {
+  it('dashboard takes only --no-browser', () => {
     expect(dashboardCommand.name()).toBe('dashboard')
+    expect(dashboardCommand.options.map((o) => o.long)).toEqual(['--no-browser'])
   })
 })

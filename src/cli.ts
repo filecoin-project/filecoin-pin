@@ -101,8 +101,10 @@ const program = new Command()
     'after',
     () => `
 ${pc.bold('EXAMPLES')}
-  $ filecoin-pin payments setup --auto
+  $ filecoin-pin login                       # approve a session key for this machine in the console
   $ filecoin-pin add ./myfile.txt
+  $ filecoin-pin balance
+  $ filecoin-pin payments setup --auto        # with a wallet private key instead of login
   $ filecoin-pin import ./archive.car
   $ filecoin-pin dataset ls
 

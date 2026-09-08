@@ -13,7 +13,9 @@ import { addAuthOptions } from '../utils/cli-options.js'
 // balance: alias of `payments status`, which already computes balances,
 // reserve, available funds, storage footprint, and runway.
 export const balanceCommand = new Command('balance')
-  .description('Show wallet and Filecoin Cloud balances, reserve, available funds, storage, and runway')
+  .description(
+    'Show wallet and Filecoin Cloud balances, reserve, available funds, storage, and runway (the `payments status` report, plus a pointer to `dashboard`)'
+  )
   .action(async (options) => {
     try {
       await showPaymentStatus({ ...options, footer: pc.gray('Top up or manage billing:  filecoin-pin dashboard') })
@@ -26,9 +28,10 @@ addAuthOptions(balanceCommand)
 
 export const dashboardCommand = new Command('dashboard')
   .description('Open the Filecoin Cloud console billing page in your browser')
-  .action(() => {
+  .option('--no-browser', 'Print the console link without opening a browser')
+  .action((options) => {
     try {
-      runDashboard()
+      runDashboard(options)
     } catch (error) {
       console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
       process.exitCode = 1

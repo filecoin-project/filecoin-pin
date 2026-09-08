@@ -3,7 +3,6 @@
  * Cloud console billing page.
  */
 
-import pc from 'picocolors'
 import { buildConsoleUrl, resolveConsoleUrl } from '../core/session/console-url.js'
 import { log } from '../utils/cli-logger.js'
 import { openBrowser } from './open-browser.js'
@@ -16,12 +15,18 @@ export function resolveDashboardUrl(): string {
   return buildConsoleUrl(resolveConsoleUrl())
 }
 
-export function runDashboard(): void {
+export interface DashboardOptions {
+  /** False (`--no-browser`) prints the link without opening it. */
+  browser?: boolean | undefined
+}
+
+export function runDashboard(options: DashboardOptions = {}): void {
   const url = resolveDashboardUrl()
-  log.line(`  ${pc.cyan(pc.underline(url))}`)
-  // Only a terminal gets a browser; an agent or CI run gets the URL alone.
+  // The link on its own line, unstyled, so it copies and parses cleanly.
+  log.line(url)
+  // Only a terminal gets a browser; an agent, a CI run, or --no-browser gets the URL alone.
   log.line(
-    openBrowser(url)
+    options.browser !== false && openBrowser(url)
       ? '  Opening the Filecoin Cloud console in your browser…'
       : '  Open the Filecoin Cloud console at the URL above.'
   )
