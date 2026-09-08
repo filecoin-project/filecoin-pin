@@ -1,4 +1,5 @@
-import { getDataSetSizes } from '@filoz/synapse-core/pdp-verifier'
+import { getDataSetLeafCounts } from '@filoz/synapse-core/pdp-verifier'
+import { leafCountToRawSize } from '@filoz/synapse-core/utils'
 import type { Synapse } from '@filoz/synapse-sdk'
 import type { Logger } from 'pino'
 import { getClientAddress } from '../synapse/index.js'
@@ -25,21 +26,13 @@ export type ActualStorageProgressEvents = ProgressEvent<
   { dataSetsProcessed: number; dataSetCount: number; pieceCount: number; totalBytes: bigint }
 >
 
-const FR32_DATA_BYTES = 127n
-const FR32_EXPANDED_BYTES = 128n
-
-function unexpandDataSetSize(expandedLeafBytes: bigint): bigint {
-  return (expandedLeafBytes * FR32_DATA_BYTES) / FR32_EXPANDED_BYTES
-}
-
 /**
  * Calculate actual storage from all active data sets for an address
  *
- * This function queries aggregate on-chain data set sizes and sums the unexpanded
- * leaf-count approximation used for billing. `getDataSetSizes()` currently returns
- * FR32-expanded leaf bytes, so this converts 128 expanded bytes back to 127 raw
- * data bytes locally. The result naturally excludes OFFCHAIN_ORPHANED pieces
- * because those pieces were never written on-chain.
+ * This function queries aggregate on-chain data set leaf counts and converts each
+ * count to the raw-byte approximation used for billing. The result naturally
+ * excludes OFFCHAIN_ORPHANED pieces because those pieces were never written
+ * on-chain.
  *
  * The calculation respects abort signals - if aborted, it will return partial results
  * with a timedOut flag set to true.
@@ -116,11 +109,11 @@ export async function calculateActualStorage(
     const dataSetIds = dataSets.map((dataSet) => dataSet.dataSetId)
 
     try {
-      const expandedSizes = await getDataSetSizes(synapse.client, { dataSetIds })
+      const leafCounts = await getDataSetLeafCounts(synapse.client, { dataSetIds })
       signal?.throwIfAborted()
 
-      totalBytes = expandedSizes.reduce((sum, expandedSize) => sum + unexpandDataSetSize(expandedSize), 0n)
-      dataSetsProcessed = expandedSizes.length
+      totalBytes = [...leafCounts.values()].reduce((sum, leafCount) => sum + leafCountToRawSize(leafCount), 0n)
+      dataSetsProcessed = leafCounts.size
 
       onProgress?.({
         type: 'actual-storage:progress',
@@ -137,10 +130,10 @@ export async function calculateActualStorage(
       }
 
       const errorMessage = error instanceof Error ? error.message : String(error)
-      logger?.warn({ error: errorMessage, dataSetIds }, 'Failed to query data set sizes')
+      logger?.warn({ error: errorMessage, dataSetIds }, 'Failed to query data set leaf counts')
       warnings.push({
         code: 'DATA_SET_QUERY_FAILED',
-        message: 'Failed to query aggregate data set sizes',
+        message: 'Failed to query aggregate data set leaf counts',
         context: {
           dataSetIds: dataSetIds.map((id) => id.toString()),
           error: errorMessage,
