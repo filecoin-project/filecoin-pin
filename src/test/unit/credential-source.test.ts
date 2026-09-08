@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { writeSessionFile } from '../../login/session-file.js'
-import { applySessionFileCredentials } from '../../utils/credential-source.js'
+import { applySessionFileCredentials, wasSessionSkippedForViewAddress } from '../../utils/credential-source.js'
 
 const KEY = `0x${'ab'.repeat(32)}` as const
 const SESSION = '0x00000000000000000000000000000000000000bb'
@@ -71,6 +71,30 @@ describe('applySessionFileCredentials', () => {
     const env: NodeJS.ProcessEnv = {}
     expect(applySessionFileCredentials(ARGV, env, path)).toBeUndefined()
     expect(env).toEqual({})
+  })
+
+  it('exports the saved network unless a flag or the env already chose one', () => {
+    writeSessionFile({ sessionKey: KEY, sessionAddress: SESSION, walletAddress: OWNER, network: 'calibration' }, path)
+    const env: NodeJS.ProcessEnv = {}
+    applySessionFileCredentials(ARGV, env, path)
+    expect(env.NETWORK).toBe('calibration')
+
+    const preset: NodeJS.ProcessEnv = { NETWORK: 'mainnet' }
+    applySessionFileCredentials(ARGV, preset, path)
+    expect(preset.NETWORK).toBe('mainnet')
+
+    const flagged: NodeJS.ProcessEnv = {}
+    applySessionFileCredentials([...ARGV, '--network', 'mainnet'], flagged, path)
+    expect(flagged.NETWORK).toBeUndefined()
+    expect(flagged.SESSION_KEY).toBe(KEY)
+  })
+
+  it('records when only VIEW_ADDRESS kept a usable login out', () => {
+    const env: NodeJS.ProcessEnv = { VIEW_ADDRESS: OWNER }
+    expect(applySessionFileCredentials(ARGV, env, path)).toBeUndefined()
+    expect(wasSessionSkippedForViewAddress()).toBe(true)
+    applySessionFileCredentials(ARGV, { VIEW_ADDRESS: OWNER, PRIVATE_KEY: '0xenv' }, path)
+    expect(wasSessionSkippedForViewAddress()).toBe(false)
   })
 
   it('is a no-op without a file', () => {

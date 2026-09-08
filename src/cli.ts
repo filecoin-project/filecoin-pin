@@ -106,6 +106,11 @@ ${pc.bold('EXAMPLES')}
   $ filecoin-pin import ./archive.car
   $ filecoin-pin dataset ls
 
+${pc.bold('CREDENTIALS')}
+  Resolved in this order: flags, then PRIVATE_KEY or SESSION_KEY + WALLET_ADDRESS
+  in the environment, then --credentials-file, then the login session saved by
+  \`filecoin-pin login\`. VIEW_ADDRESS forces read-only mode and skips the saved login.
+
 ${pc.bold('EXIT CODES')}
   0  success
   1  error (the operation failed)

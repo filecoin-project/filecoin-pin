@@ -15,7 +15,11 @@ import { initializeSynapse, isReadOnlyConfig, isSessionKeyConfig } from '../core
 import { createLogger } from '../logger.js'
 import { shortAddress } from '../login/format.js'
 import { log } from './cli-logger.js'
-import { getSessionCredentialSource } from './credential-source.js'
+import {
+  getSessionCredentialNetwork,
+  getSessionCredentialSource,
+  wasSessionSkippedForViewAddress,
+} from './credential-source.js'
 
 /**
  * Where a resolved auth option value came from. Mirrors Commander's
@@ -217,6 +221,9 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
     case 'readOnly':
       if (nonEmpty(viewAddress)) config.walletAddress = viewAddress
       config.readOnly = true
+      if (wasSessionSkippedForViewAddress()) {
+        log.line(pc.gray('  Saved login ignored because VIEW_ADDRESS is set (read-only mode)'))
+      }
       break
     case 'sessionKey':
       // Both halves are present (that is what made this a competing candidate).
@@ -243,8 +250,8 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   }
   if (rpcUrl) config.rpcUrl = rpcUrl
   if (chain) config.chain = chain
-  if (!privateKey && !viewAddress && walletAddress && sessionKey) {
-    printSessionInUse(sessionKey, walletAddress)
+  if (mode === 'sessionKey' && nonEmpty(sessionKey) && nonEmpty(walletAddress)) {
+    printSessionInUse(sessionKey, walletAddress, network)
   }
   return config as SynapseSetupConfig
 }
@@ -252,10 +259,12 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
 /**
  * One gray line naming the session credential a command runs with (PRD
  * section 5): the session address, where it came from when auto-loaded,
- * and the owner. Skipped when the key is malformed; initializeSynapse
- * reports that with the right flag name.
+ * the owner, and the network the key was made for. Skipped when the key
+ * is malformed; initializeSynapse reports that with the right flag name.
+ * A saved login used on another network gets a warning: the grant cannot
+ * be there.
  */
-function printSessionInUse(sessionKey: string, walletAddress: string): void {
+function printSessionInUse(sessionKey: string, walletAddress: string, network: string | undefined): void {
   let sessionAddress: string
   try {
     sessionAddress = privateKeyToAccount(sessionKey as `0x${string}`).address
@@ -264,7 +273,16 @@ function printSessionInUse(sessionKey: string, walletAddress: string): void {
   }
   const source = getSessionCredentialSource()
   const from = source === undefined ? '' : ` (from ${source})`
-  log.line(pc.gray(`  Using session ${shortAddress(sessionAddress)}${from} · owner ${shortAddress(walletAddress)}`))
+  const saved = getSessionCredentialNetwork()
+  const on = saved === undefined ? '' : ` · ${saved}`
+  log.line(
+    pc.gray(`  Using session ${shortAddress(sessionAddress)}${from} · owner ${shortAddress(walletAddress)}${on}`)
+  )
+  if (saved !== undefined && network !== undefined && network !== saved) {
+    log.line(
+      `${pc.yellow('⚠')} The saved login is for ${saved}, but this command runs on ${network}. Pass --network ${saved}, or run \`filecoin-pin login --network ${network}\`.`
+    )
+  }
 }
 
 /**
