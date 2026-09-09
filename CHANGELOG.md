@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.2](https://github.com/filecoin-project/filecoin-pin/compare/v2.0.1...v2.0.2) (2026-09-09)
+
+
+### Bug Fixes
+
+* **auth:** explicit auth flags no longer lose to env vars ([#458](https://github.com/filecoin-project/filecoin-pin/issues/458)) ([eb24e89](https://github.com/filecoin-project/filecoin-pin/commit/eb24e89998d7ffb965b701a4ce0677a6d94e1998))
+
 ## [2.0.1](https://github.com/filecoin-project/filecoin-pin/compare/v2.0.0...v2.0.1) (2026-09-08)
 
 
