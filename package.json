@@ -131,7 +131,7 @@
     "@filoz/synapse-core": "^0.9.0",
     "@filoz/synapse-sdk": "^2.0.0",
     "@helia/block-brokers": "^5.1.3",
-    "@helia/interface": "^6.2.1",
+    "@helia/interface": "^7.1.1",
     "@helia/routers": "^5.1.1",
     "@helia/unixfs": "^7.0.4",
     "@helia/utils": "^2.5.2",
