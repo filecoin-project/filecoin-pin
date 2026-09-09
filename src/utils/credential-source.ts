@@ -1,7 +1,7 @@
 /**
  * Credential auto-load: the lowest-priority credential source.
  *
- * Resolution order for every command (PRD section 5): explicit flags, then
+ * Resolution order for every command: explicit flags, then
  * env vars (`PRIVATE_KEY`, or `SESSION_KEY` + `WALLET_ADDRESS`), then the
  * session file `login` wrote, then the error that points at `login`.
  *

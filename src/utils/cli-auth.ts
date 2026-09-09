@@ -257,8 +257,8 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
 }
 
 /**
- * One gray line naming the session credential a command runs with (PRD
- * section 5): the session address, where it came from when auto-loaded,
+ * One gray line naming the session credential a command runs with: the
+ * session address, where it came from when auto-loaded,
  * the owner, and the network the key was made for. Skipped when the key
  * is malformed; initializeSynapse reports that with the right flag name.
  * A saved login used on another network gets a warning: the grant cannot

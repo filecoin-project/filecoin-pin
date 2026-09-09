@@ -192,8 +192,8 @@ function checkSessionKeyPermissions(
 
   const now = BigInt(Math.floor(Date.now() / 1000))
   const state = classifyAuthorization(key, now)
-  // The wall from PRD section 6: two lines, one remedy. Scope details and
-  // console links would only compete with "run login".
+  // One remedy on purpose. A scope list or a console link here would
+  // compete with the only fix that works for an expired key: run login.
   if (state === 'expired') {
     throw new Error(
       `Session expired (key ${key.address}, grants lapsed ${latestExpiryDate(key)})\n  Renew it:  filecoin-pin login`
