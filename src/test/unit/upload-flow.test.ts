@@ -30,20 +30,6 @@ vi.mock('@clack/prompts', () => ({
   isCancel: mocks.isCancel,
 }))
 
-vi.mock('@filoz/synapse-core', () => ({
-  paginate: async function* paginate(
-    getPage: (options: { cursor: bigint }) => Promise<{ items: unknown[]; nextCursor?: bigint }>
-  ) {
-    let cursor = 0n
-    while (true) {
-      const page = await getPage({ cursor })
-      yield* page.items
-      if (page.nextCursor == null) return
-      cursor = page.nextCursor
-    }
-  },
-}))
-
 vi.mock('@filoz/synapse-core/warm-storage', () => ({
   getPdpDataSets: mocks.getPdpDataSets,
 }))
@@ -565,21 +551,24 @@ const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } 
 
 const makeSynapse = (dataSets: any[]) => {
   mocks.getPdpDataSets.mockClear()
-  mocks.getPdpDataSets.mockResolvedValue({
-    items: dataSets.map((ds) => ({ ...ds, dataSetId: ds.pdpVerifierDataSetId, live: ds.isLive })),
-  })
+  mocks.getPdpDataSets.mockResolvedValue({ items: dataSets })
   return {
     client: { account: { address: '0x1234567890123456789012345678901234567890' } },
   } as any
 }
 
-const pinSet = (over: Record<string, unknown>) => ({
-  isLive: true,
-  pdpEndEpoch: 0n,
-  hasActivePieces: false,
-  metadata: { withIPFSIndexing: '', source: 'filecoin-pin' },
-  ...over,
-})
+// Raw `PdpDataSet` field names, so the reuse filter is exercised against the shape
+// `listDataSets()` actually maps from rather than the already-mapped one.
+const pinSet = (over: Record<string, unknown>) => {
+  const { pdpVerifierDataSetId, isLive, ...rest } = {
+    isLive: true,
+    pdpEndEpoch: 0n,
+    hasActivePieces: false,
+    metadata: { withIPFSIndexing: '', source: 'filecoin-pin' },
+    ...over,
+  } as Record<string, unknown>
+  return { ...rest, dataSetId: pdpVerifierDataSetId, live: isLive }
+}
 
 describe('resolveDefaultDataSetReuse', () => {
   it('reuses live filecoin-pin data sets, including ones with extra metadata keys', async () => {
@@ -656,14 +645,12 @@ describe('resolveDefaultDataSetReuse', () => {
 })
 
 describe('resolveUploadTargets', () => {
-  const migrationSet = (id: bigint, providerId: bigint) => ({
-    isLive: true,
-    pdpEndEpoch: 0n,
-    hasActivePieces: false,
-    pdpVerifierDataSetId: id,
-    providerId,
-    metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
-  })
+  const migrationSet = (id: bigint, providerId: bigint) =>
+    pinSet({
+      pdpVerifierDataSetId: id,
+      providerId,
+      metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
+    })
 
   const base = { withCDN: false, spinner, logger }
 

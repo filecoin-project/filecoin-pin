@@ -177,20 +177,6 @@ vi.mock('@filoz/synapse-core/warm-storage', () => ({
   getPdpDataSets: mockGetPdpDataSets,
 }))
 
-vi.mock('@filoz/synapse-core', () => ({
-  paginate: async function* paginate(
-    getPage: (options: { cursor: bigint }) => Promise<{ items: unknown[]; nextCursor?: bigint }>
-  ) {
-    let cursor = 0n
-    while (true) {
-      const page = await getPage({ cursor })
-      yield* page.items
-      if (page.nextCursor == null) return
-      cursor = page.nextCursor
-    }
-  },
-}))
-
 vi.mock('@filoz/synapse-core/pdp-verifier', () => ({
   getActivePiecesByCursor: vi.fn(async () => ({
     items: state.pieceList.map((p) => ({ id: p.pieceId, cid: { toString: () => p.pieceCid } })),

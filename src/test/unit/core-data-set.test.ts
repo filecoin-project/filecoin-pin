@@ -4,12 +4,63 @@
  * Tests the reusable data-set functions that wrap synapse-sdk methods.
  */
 
+import type { PdpDataSet } from '@filoz/synapse-core/warm-storage'
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { DataSetSummary } from '../../core/data-set/index.js'
 import { getDataSetPieces, iterateDataSetPieces, listDataSets, type PieceInfo } from '../../core/data-set/index.js'
 
 const TEST_DATA_SET_ID = 123n
 const TEST_SERVICE_URL = 'https://provider.example.com'
+
+/**
+ * Build a `PdpDataSet` in the shape `getPdpDataSets()` actually returns, so the
+ * fixtures fail typecheck if that shape drifts.
+ */
+function pdpDataSet(overrides: Partial<PdpDataSet> = {}): PdpDataSet {
+  return {
+    dataSetId: 1n,
+    clientDataSetId: 100n,
+    providerId: 2n,
+    pdpRailId: 327n,
+    cacheMissRailId: 0n,
+    cdnRailId: 0n,
+    payer: '0xpayer',
+    payee: '0xpayee',
+    serviceProvider: '0xservice',
+    commissionBps: 100n,
+    pdpEndEpoch: 0n,
+    live: true,
+    managed: true,
+    cdn: false,
+    metadata: {},
+    provider: pdpProvider(),
+    hasActivePieces: false,
+    ...overrides,
+  }
+}
+
+function pdpProvider(): PdpDataSet['provider'] {
+  return {
+    id: 2n,
+    serviceProvider: '0xservice',
+    payee: '0xpayee',
+    name: 'Test Provider',
+    description: 'Test provider fixture',
+    isActive: true,
+    pdp: {
+      serviceURL: TEST_SERVICE_URL,
+      minPieceSizeInBytes: 1024n,
+      maxPieceSizeInBytes: 1n << 35n,
+      storagePricePerTibPerDay: 1n,
+      minProvingPeriodInEpochs: 30n,
+      location: 'test',
+      paymentTokenAddress: '0x0000000000000000000000000000000000000000',
+      ipniPiece: false,
+      ipniIpfs: false,
+    },
+  }
+}
 
 const {
   mockSynapse,
@@ -22,7 +73,7 @@ const {
   state,
 } = vi.hoisted(() => {
   const state = {
-    datasets: [] as any[],
+    datasets: [] as PdpDataSet[],
     providers: [] as any[],
     pieces: [] as Array<{ pieceId: bigint; pieceCid: { toString: () => string } }>,
     providerPieces: undefined as
@@ -36,15 +87,7 @@ const {
       | undefined,
   }
 
-  const mockGetPdpDataSets = vi.fn(async () => ({
-    items: state.datasets.map((ds) => ({
-      ...ds,
-      dataSetId: ds.pdpVerifierDataSetId,
-      live: ds.isLive,
-      managed: ds.isManaged,
-      cdn: ds.withCDN,
-    })),
-  }))
+  const mockGetPdpDataSets = vi.fn(async () => ({ items: state.datasets }))
   const mockGetProviders = vi.fn(async ({ providerIds }: { providerIds: any[] }) => {
     return state.providers.filter((p) => providerIds.includes(p.id))
   })
@@ -103,20 +146,6 @@ vi.mock('@filoz/synapse-sdk', async () => {
   }
 })
 
-vi.mock('@filoz/synapse-core', () => ({
-  paginate: async function* paginate(
-    getPage: (options: { cursor: bigint }) => Promise<{ items: unknown[]; nextCursor?: bigint }>
-  ) {
-    let cursor = 0n
-    while (true) {
-      const page = await getPage({ cursor })
-      yield* page.items
-      if (page.nextCursor == null) return
-      cursor = page.nextCursor
-    }
-  },
-}))
-
 vi.mock('@filoz/synapse-core/warm-storage', () => ({
   getPdpDataSets: mockGetPdpDataSets,
 }))
@@ -160,55 +189,32 @@ describe('listDataSets', () => {
 
   it('sets createdWithFilecoinPin to true when both WITH_IPFS_INDEXING and source=filecoin-pin metadata are present', async () => {
     state.datasets = [
-      {
-        pdpVerifierDataSetId: 1,
-        clientDataSetId: 100n,
-        providerId: 2,
+      pdpDataSet({
+        dataSetId: 1n,
         metadata: {
           [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
           [METADATA_KEYS.SOURCE]: 'filecoin-pin',
         },
-        currentPieceCount: 5,
-        isManaged: true,
-        withCDN: false,
-        isLive: true,
-        serviceProvider: '0xservice',
-        payer: '0xpayer',
-        payee: '0xpayee',
-      },
-      {
-        pdpVerifierDataSetId: 2,
+      }),
+      pdpDataSet({
+        dataSetId: 2n,
         clientDataSetId: 101n,
-        providerId: 2,
+        managed: false,
         metadata: {
           // Has WITH_IPFS_INDEXING but wrong source
           [METADATA_KEYS.WITH_IPFS_INDEXING]: '',
           [METADATA_KEYS.SOURCE]: 'other-tool',
         },
-        currentPieceCount: 3,
-        isManaged: false,
-        withCDN: false,
-        isLive: true,
-        serviceProvider: '0xservice',
-        payer: '0xpayer',
-        payee: '0xpayee',
-      },
-      {
-        pdpVerifierDataSetId: 3,
+      }),
+      pdpDataSet({
+        dataSetId: 3n,
         clientDataSetId: 102n,
-        providerId: 2,
+        managed: false,
         metadata: {
           // Has source but no WITH_IPFS_INDEXING
           [METADATA_KEYS.SOURCE]: 'filecoin-pin',
         },
-        currentPieceCount: 2,
-        isManaged: false,
-        withCDN: false,
-        isLive: true,
-        serviceProvider: '0xservice',
-        payer: '0xpayer',
-        payee: '0xpayee',
-      },
+      }),
     ]
 
     const result = await listDataSets(mockSynapse as any)
@@ -219,49 +225,70 @@ describe('listDataSets', () => {
     expect(result[2]?.createdWithFilecoinPin).toBe(false)
   })
 
-  it('reports hasActivePieces as false for a terminated data set even if pieces are still on chain', async () => {
-    state.datasets = [
-      {
-        pdpVerifierDataSetId: 1,
-        clientDataSetId: 100n,
-        providerId: 2,
-        metadata: {},
-        isManaged: true,
-        withCDN: false,
-        isLive: false,
-        hasActivePieces: true,
-        serviceProvider: '0xservice',
-        payer: '0xpayer',
-        payee: '0xpayee',
-      },
-    ]
+  // Defensive mapper check: FWSS removes non-live IDs from the client listing.
+  it('maps a non-live data set to hasActivePieces false even when the raw entry reports pieces', async () => {
+    state.datasets = [pdpDataSet({ live: false, hasActivePieces: true })]
 
     const [result] = await listDataSets(mockSynapse as any)
 
     expect(result?.hasActivePieces).toBe(false)
+    expect(result?.isLive).toBe(false)
   })
 
-  it('does not leak the raw PdpDataSet live/managed/cdn fields onto the summary', async () => {
+  it('passes the mapped summary to filter, not the raw PdpDataSet', async () => {
     state.datasets = [
-      {
-        pdpVerifierDataSetId: 1,
-        clientDataSetId: 100n,
-        providerId: 2,
-        metadata: {},
-        isManaged: true,
-        withCDN: false,
-        isLive: true,
-        serviceProvider: '0xservice',
-        payer: '0xpayer',
-        payee: '0xpayee',
-      },
+      pdpDataSet({
+        dataSetId: 7n,
+        metadata: { [METADATA_KEYS.WITH_IPFS_INDEXING]: '', [METADATA_KEYS.SOURCE]: 'filecoin-pin' },
+      }),
     ]
+    const seen: DataSetSummary[] = []
+
+    const result = await listDataSets(mockSynapse as any, {
+      filter: (dataSet) => {
+        seen.push(dataSet)
+        return dataSet.isLive && dataSet.createdWithFilecoinPin
+      },
+    })
+
+    expect(result).toHaveLength(1)
+    // `isLive` and `createdWithFilecoinPin` only exist after mapping; the raw entry
+    // carries `live` and no such flag, so a predicate reading them would see undefined.
+    expect(seen[0]?.isLive).toBe(true)
+    expect(seen[0]?.createdWithFilecoinPin).toBe(true)
+    expect(seen[0]).not.toHaveProperty('live')
+  })
+
+  it('logs the address and progress before rethrowing a page failure', async () => {
+    const failure = new Error('rpc exploded')
+    state.datasets = [pdpDataSet({ dataSetId: 1n }), pdpDataSet({ dataSetId: 2n })]
+    mockGetPdpDataSets
+      .mockImplementationOnce(async () => ({ items: state.datasets, nextCursor: 1n }))
+      .mockImplementationOnce(async () => {
+        throw failure
+      })
+    const logger = { error: vi.fn() }
+
+    await expect(listDataSets(mockSynapse as any, { logger: logger as any, filter: () => false })).rejects.toBe(failure)
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ address: '0xtest-address', dataSetsProcessed: 2, err: failure }),
+      expect.any(String)
+    )
+  })
+
+  it('renames the raw PdpDataSet live/managed/cdn fields instead of leaking them', async () => {
+    state.datasets = [pdpDataSet({ dataSetId: 42n, live: true, managed: true, cdn: true })]
 
     const [result] = await listDataSets(mockSynapse as any)
 
     expect(result).not.toHaveProperty('live')
     expect(result).not.toHaveProperty('managed')
     expect(result).not.toHaveProperty('cdn')
+    expect(result?.dataSetId).toBe(42n)
+    expect(result?.pdpVerifierDataSetId).toBe(42n)
+    expect(result?.isLive).toBe(true)
+    expect(result?.isManaged).toBe(true)
+    expect(result?.withCDN).toBe(true)
   })
 })
 
