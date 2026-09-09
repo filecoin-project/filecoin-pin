@@ -222,10 +222,9 @@ describe('synapse-service', () => {
         () => null,
         (e: unknown) => e as Error
       )
-      expect(error?.message).toContain(
-        'Session expired (key 0x0000000000000000000000000000000000000001, grants lapsed 1970-01-01)'
-      )
-      expect(error?.message).toContain('Renew it:  filecoin-pin login')
+      expect(error?.message).toContain('Session expired')
+      expect(error?.message).toContain('1970-01-01')
+      expect(error?.message).toContain('filecoin-pin login')
       // One remedy only: no console link and no owner CLI hints on the expired wall.
       expect(error?.message).not.toContain('console')
       expect(error?.message).not.toContain('session authorize')

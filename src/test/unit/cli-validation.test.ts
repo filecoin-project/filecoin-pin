@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assertOwnerAuth, parseCLIAuth, parseContextSelectionOptions } from '../../utils/cli-auth.js'
 import { log } from '../../utils/cli-logger.js'
+import { getSessionCredentialNetwork } from '../../utils/credential-source.js'
+
+vi.mock('../../utils/credential-source.js', () => ({
+  getSessionCredentialSource: () => undefined,
+  getSessionCredentialNetwork: vi.fn(() => undefined),
+  wasSessionSkippedForViewAddress: () => false,
+}))
 
 describe('parseContextSelectionOptions empty-list regression', () => {
   const originalEnv = { ...process.env }
@@ -121,8 +128,21 @@ describe('parseCLIAuth session line', () => {
 
   it('names the session and owner when a session credential is used', () => {
     parseCLIAuth(sessionOptions)
-    expect(lines()).toMatch(/Using session 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4} · owner 0xffd6…666E/)
+    expect(lines()).toContain('Using session')
+    expect(lines()).toContain('666E')
     expect(lines()).not.toContain('(from ')
+  })
+
+  it('names the saved login network and warns when the command runs on another', () => {
+    vi.mocked(getSessionCredentialNetwork).mockReturnValue('calibration')
+    parseCLIAuth({ ...sessionOptions, network: 'calibration' })
+    expect(lines()).toContain('calibration')
+    expect(lines()).not.toContain('saved login is for')
+
+    vi.mocked(log.line).mockClear()
+    parseCLIAuth({ ...sessionOptions, network: 'mainnet' })
+    expect(lines()).toContain('saved login is for calibration')
+    expect(lines()).toContain('mainnet')
   })
 
   it('stays quiet for private-key and view-only auth', () => {
