@@ -1,8 +1,8 @@
 /**
  * The saved login session: one dotenv-style file in the filecoin-pin data
  * directory holding the session key, the network it was made for and,
- * once authorized, the owner wallet address. Exactly one credential set; every write replaces the
- * whole file.
+ * once authorized, the owner wallet address. Exactly one credential set;
+ * every write replaces the whole file.
  *
  * `login` writes the key before the browser opens, so an interrupted login
  * resumes the same key. The owner address is added once the grant is seen
