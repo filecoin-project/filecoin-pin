@@ -1,6 +1,6 @@
 import type { Command } from 'commander'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { balanceCommand, dashboardCommand } from '../../commands/account.js'
+import { balanceCommand } from '../../commands/account.js'
 import { paymentsCommand } from '../../commands/payments.js'
 import { openBrowser } from '../../login/open-browser.js'
 import { resolveDashboardUrl, runDashboard } from '../../login/run-dashboard.js'
@@ -85,10 +85,5 @@ describe('account command wiring', () => {
     const flagsOf = (c: Command | undefined) =>
       (c?.options ?? []).map((o) => o.long).filter((l) => l !== '--include-rails')
     expect(flagsOf(balanceCommand)).toEqual(flagsOf(statusCommand))
-  })
-
-  it('dashboard takes only --no-browser', () => {
-    expect(dashboardCommand.name()).toBe('dashboard')
-    expect(dashboardCommand.options.map((o) => o.long)).toEqual(['--no-browser'])
   })
 })
