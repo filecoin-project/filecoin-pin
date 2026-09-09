@@ -1,7 +1,6 @@
 /**
- * Commander wiring for `balance` and `dashboard` (PRD section 5, appendix A
- * decision 17): a thin local balance command and a deep link to the
- * console for anything richer.
+ * Commander wiring for `balance` and `dashboard`: a thin local balance
+ * command and a deep link to the console for anything richer.
  */
 
 import { Command } from 'commander'
