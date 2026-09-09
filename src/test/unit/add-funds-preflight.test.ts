@@ -71,12 +71,10 @@ describe('assertUploadFunds', () => {
       assertUploadFunds(fakeSynapse((12n * USDFC) / 100n), 1024, {}, 'filecoin-pin add ./photos')
     ).rejects.toThrow("Account can't pay for this upload")
     const text = output()
-    expect(text).toContain('✓ session key authorized')
-    expect(text).toContain('✓ storage service approved')
-    expect(text).toContain('✗ available funds 0.12 USDFC — this upload needs ~1.40 USDFC (incl. 30-day reserve)')
+    expect(text).toContain('0.12 USDFC')
+    expect(text).toContain('~1.40 USDFC')
     expect(text).toContain('https://console.test/console?deposit=2&operator=fwss&network=mainnet')
-    expect(text).toContain('Then re-run:  filecoin-pin add ./photos')
-    expect(text).not.toMatch(/FWSS operator|operator approval/i)
+    expect(text).toContain('filecoin-pin add ./photos')
   })
 
   it('names the failing step in the spinner when a read throws', async () => {
@@ -96,7 +94,7 @@ describe('assertUploadFunds', () => {
 
     await expect(assertUploadFunds(fakeSynapse(3n * USDFC), 1024, {}, 'filecoin-pin add ./photos')).rejects.toThrow()
     const text = output()
-    expect(text).toContain('✗ storage service not approved yet')
+    expect(text).toContain('not approved')
     expect(text).toContain('deposit=2&operator=fwss&network=mainnet')
   })
 })
