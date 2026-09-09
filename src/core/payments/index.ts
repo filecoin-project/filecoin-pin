@@ -16,13 +16,12 @@
  */
 
 import { isFwssMaxApproved } from '@filoz/synapse-core/pay'
-import { DEFAULT_BUFFER_EPOCHS } from '@filoz/synapse-core/utils'
 import {
-  calculateAdditionalLockupRequired,
-  calculateBufferAmount,
-  calculateRunwayAmount,
-  getPriceList,
-} from '@filoz/synapse-core/warm-storage'
+  calculateBufferAmountFromState,
+  calculateRunwayAmountFromState,
+  DEFAULT_BUFFER_EPOCHS,
+} from '@filoz/synapse-core/utils'
+import { calculateAdditionalLockupRequired, getPriceList } from '@filoz/synapse-core/warm-storage'
 import { calibration, SIZE_CONSTANTS, type Synapse, TIME_CONSTANTS, TOKENS } from '@filoz/synapse-sdk'
 import { formatUnits, type Hash } from 'viem'
 import { getClientAddress, isSessionKeyMode } from '../synapse/index.js'
@@ -621,8 +620,8 @@ export function computeTopUpForDuration(
  * Target semantics: `days` = time until the next top-up is required at the
  * current spend rate (matches the "Top-up needed in" display metric).
  *
- * Returns a signed delta so callers can withdraw excess. Synapse SDK's
- * `calculateBufferAmount` would return 0n in the no-deposit branch, which
+ * Returns a signed delta so callers can withdraw excess. Synapse Core's
+ * `calculateBufferAmountFromState` would return 0n in the no-deposit branch, which
  * collapses the withdraw target onto bare lockup+runway. Forcing
  * `rawDepositNeeded > 0n` for the buffer call keeps the safety margin
  * symmetric across deposit and withdraw.
@@ -661,9 +660,9 @@ export function computeAdjustmentForExactDays(
   }
 
   const extraRunwayEpochs = BigInt(Math.floor(days)) * TIME_CONSTANTS.EPOCHS_PER_DAY
-  const runway = calculateRunwayAmount({ netRateAfterUpload: rateUsed, extraRunwayEpochs })
+  const runway = calculateRunwayAmountFromState({ netRateAfterUpload: rateUsed, extraRunwayEpochs })
   const rawDepositNeeded = runway + accountSummary.debt - accountSummary.availableFunds
-  const buffer = calculateBufferAmount({
+  const buffer = calculateBufferAmountFromState({
     rawDepositNeeded: rawDepositNeeded > 0n ? rawDepositNeeded : 1n,
     netRateAfterUpload: rateUsed,
     runwayInEpochs: accountSummary.runwayInEpochs,
@@ -701,10 +700,10 @@ export function computeAdjustmentForExactDeposit(
 /**
  * Compute adjustment to reach target net runway AFTER adding a new piece.
  *
- * New-data-set costs are excluded here (`isNewDataSet: false`) because
- * `calculateFilecoinPayFundingPlan` adds `newDataSetCount * createDataSetFee`
- * (and the fixed CDN lockup) separately to cover multi-context uploads. CDN
- * lockup is skipped here because filecoin-pin uploads use `noCDN` pricing.
+ * New-data-set costs are excluded here (`isNewDataSet: false`) because the
+ * fallback in `calculateFilecoinPayFundingPlan` adds lifecycle-reserve funding
+ * (and fixed CDN lockup) separately. Callers with resolved contexts use the
+ * SDK's reserve-aware multi-context calculation instead.
  *
  * @param accountSummary - SDK account summary (current rate + lockup + debt)
  * @param filecoinPayBalance - Current deposited balance
@@ -729,10 +728,9 @@ export function computeAdjustmentForExactDaysWithPiece(
     throw new Error('days must be non-negative')
   }
 
-  const paddedSizeBytes = padSizeToPDPLeaves(pieceSizeBytes)
   const lockup = calculateAdditionalLockupRequired({
-    dataSize: BigInt(paddedSizeBytes),
-    currentDataSetSize: 0n,
+    pieceSizes: [BigInt(pieceSizeBytes)],
+    dataSetLeafCount: 0n,
     priceList,
     isNewDataSet: false,
     withCDN: false,
@@ -753,9 +751,9 @@ export function computeAdjustmentForExactDaysWithPiece(
   }
 
   const extraRunwayEpochs = BigInt(Math.floor(days)) * TIME_CONSTANTS.EPOCHS_PER_DAY
-  const runway = calculateRunwayAmount({ netRateAfterUpload: newRateUsed, extraRunwayEpochs })
+  const runway = calculateRunwayAmountFromState({ netRateAfterUpload: newRateUsed, extraRunwayEpochs })
   const rawDepositNeeded = lockup.total + runway + accountSummary.debt - accountSummary.availableFunds
-  const buffer = calculateBufferAmount({
+  const buffer = calculateBufferAmountFromState({
     rawDepositNeeded: rawDepositNeeded > 0n ? rawDepositNeeded : 1n,
     netRateAfterUpload: newRateUsed,
     runwayInEpochs: accountSummary.runwayInEpochs,
@@ -864,8 +862,8 @@ export function calculatePieceUploadRequirements(
 } {
   const paddedSizeBytes = padSizeToPDPLeaves(pieceSizeBytes)
   const lockup = calculateAdditionalLockupRequired({
-    dataSize: BigInt(paddedSizeBytes),
-    currentDataSetSize: 0n,
+    pieceSizes: [BigInt(pieceSizeBytes)],
+    dataSetLeafCount: 0n,
     priceList,
     isNewDataSet: false,
     withCDN: false,

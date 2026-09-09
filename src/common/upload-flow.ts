@@ -627,7 +627,7 @@ export async function estimateUploadCost(
   })
 
   const newDataSetCount = contexts.filter((context) => context.dataSetId == null).length
-  const costs = await synapse.storage.calculateMultiContextCosts(contexts, { dataSize: BigInt(fileSize) })
+  const costs = await synapse.storage.calculateMultiContextCosts(contexts, { pieceSizes: [BigInt(fileSize)] })
 
   return { requestedCopies, newDataSetCount, costs }
 }

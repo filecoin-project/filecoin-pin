@@ -1,5 +1,6 @@
 import { createReadStream, promises as fs } from 'node:fs'
 import { Readable } from 'node:stream'
+import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { CarReader } from '@ipld/car'
 import {
   calculateFilecoinPayFundingPlan,
@@ -105,12 +106,14 @@ async function readCarRoots(filePath) {
  */
 export async function handlePayments(synapse, options, logger) {
   const { minStorageDays, filecoinPayBalanceLimit, pieceSizeBytes, withCDN, providerIds, dataSetIds } = options
+  if (pieceSizeBytes == null) {
+    throw new Error('pieceSizeBytes is required to calculate upload funding')
+  }
 
   console.log('Checking current Filecoin Pay account balance...')
-  const [rawStatus, accountSummary, storageInfo, contexts] = await Promise.all([
+  const [rawStatus, accountSummary, contexts] = await Promise.all([
     getPaymentStatus(synapse),
     synapse.payments.accountSummary({}),
-    synapse.storage.getStorageInfo(),
     synapse.storage.createContexts({
       ...(providerIds != null && providerIds.length > 0 ? { providerIds } : {}),
       ...(dataSetIds != null && dataSetIds.length > 0 ? { dataSetIds } : {}),
@@ -125,6 +128,10 @@ export async function handlePayments(synapse, options, logger) {
   console.log(`Wallet USDFC balance: ${initialWalletBalance} USDFC`)
 
   const newDataSetCount = contexts.filter((context) => context.dataSetId == null).length
+  const uploadCosts = await synapse.storage.calculateMultiContextCosts(contexts, {
+    pieceSizes: [BigInt(pieceSizeBytes)],
+    extraRunwayEpochs: BigInt(Math.floor(minStorageDays)) * TIME_CONSTANTS.EPOCHS_PER_DAY,
+  })
 
   // Calculate required funding using the comprehensive funding planner
   const fundingPlan = calculateFilecoinPayFundingPlan({
@@ -134,9 +141,9 @@ export async function handlePayments(synapse, options, logger) {
     allowWithdraw: false,
     targetRunwayDays: minStorageDays,
     pieceSizeBytes,
-    priceList: storageInfo.pricing.priceList,
     newDataSetCount,
     withCDN,
+    uploadCosts,
   })
 
   if (fundingPlan.delta > 0n) {
@@ -146,8 +153,8 @@ export async function handlePayments(synapse, options, logger) {
 
   if (newDataSetCount > 0) {
     const feeDescription = withCDN
-      ? 'create-data-set and add-piece fees, lifecycle reserve, and CDN lockup'
-      : 'create-data-set and add-piece fees and lifecycle reserve'
+      ? 'lifecycle-reserve funding (including operation fees) and CDN lockup'
+      : 'lifecycle-reserve funding (including operation fees)'
     console.log(
       `Additional funding for ${newDataSetCount} new data set${newDataSetCount === 1 ? '' : 's'} ` +
         `(${feeDescription}) is included in the planned top-up`

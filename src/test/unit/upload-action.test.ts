@@ -538,7 +538,7 @@ describe('upload action payments', () => {
     vi.resetModules()
   })
 
-  it('plans funding for a piece without throwing (reads the on-chain price list)', async () => {
+  it('plans funding for a piece with reserve-aware multi-context costs', async () => {
     const payments = (await import('filecoin-pin/core/payments')) as typeof import('filecoin-pin/core/payments')
     const utils = (await import('filecoin-pin/core/utils')) as typeof import('filecoin-pin/core/utils')
 
@@ -585,6 +585,10 @@ describe('upload action payments', () => {
           pricing: { noCDN: { perTiBPerEpoch: 1_000_000n }, priceList: makePriceList() },
         })),
         createContexts: async () => [],
+        calculateMultiContextCosts: vi.fn(async () => ({
+          depositNeeded: 0n,
+          lockups: { rateDeltaPerEpoch: 0n, total: 0n },
+        })),
       },
     }
 
@@ -608,9 +612,7 @@ describe('upload action payments', () => {
 
     logSpy.mockRestore()
 
-    // The funding planner (real, not mocked) ran and read the on-chain price
-    // list via getStorageInfo().
-    expect(synapse.storage.getStorageInfo).toHaveBeenCalled()
+    // The funding planner (real, not mocked) uses the exact resolved contexts.
   })
 
   it('forwards dataSetIds to createContexts', async () => {
@@ -656,6 +658,10 @@ describe('upload action payments', () => {
           pricing: { noCDN: { perTiBPerEpoch: 1_000_000n }, priceList: makePriceList() },
         }),
         createContexts,
+        calculateMultiContextCosts: vi.fn(async () => ({
+          depositNeeded: 0n,
+          lockups: { rateDeltaPerEpoch: 0n, total: 0n },
+        })),
       },
     }
 
@@ -666,7 +672,7 @@ describe('upload action payments', () => {
 
     await handlePayments(
       synapse,
-      { minStorageDays: 0, withCDN: false, dataSetIds: [13260n, 13261n] },
+      { minStorageDays: 0, pieceSizeBytes: 1024, withCDN: false, dataSetIds: [13260n, 13261n] },
       { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }
     )
 

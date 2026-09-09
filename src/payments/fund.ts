@@ -150,6 +150,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     ...(providerIds != null ? { providerIds } : {}),
     ...(dataSetIds != null ? { dataSetIds } : {}),
     metadata: resolvedMetadata,
+    withCDN: withCDN === true,
   })
   const newDataSetCount = contexts.filter((context) => context.dataSetId == null).length
 
@@ -159,6 +160,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
     pieceSizeBytes: fileSize,
     newDataSetCount,
     withCDN: withCDN === true,
+    contexts,
     ensureAllowances: true,
     allowWithdraw: false,
   })
