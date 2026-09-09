@@ -1,6 +1,5 @@
 /**
- * Funds preflight for `add` in session-key mode (PRD section 6, "add:
- * happy, then unfunded"; appendix A decision 21).
+ * Funds preflight for `add` and `import` in session-key mode.
  *
  * Runs before anything is packed or uploaded. A session key cannot deposit
  * (payment operations are owner-only), so instead of auto-funding it prints
