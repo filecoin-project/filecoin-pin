@@ -4,8 +4,9 @@
  * Generates (or resumes) a session key, saves it before anything else
  * happens, prints and opens the console link where the wallet owner
  * approves the key, waits for the grant on-chain, then prints the granted
- * scopes and the account readiness scorecard. PRD section 6 is the spec
- * for every line printed here.
+ * scopes and the account readiness scorecard. Every printed line is part
+ * of the interface: scripts read this output as well as people, so change
+ * wording together with the tests that pin it.
  *
  * Exit codes: 0 when the key can upload (every requested scope, or at least
  * createDataSet and addPieces), 2 when the wait timed out, `--no-wait`

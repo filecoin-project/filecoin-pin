@@ -2,8 +2,9 @@
  * Account readiness for uploads: the three-line scorecard `login` ends
  * with and `add` prints when it refuses an unfunded upload.
  *
- * Copy rule (PRD section 5): plain words only. The storage service is
- * "approved" or "not approved yet"; the deposit is a USDFC amount.
+ * Copy rule: plain words only. The storage service is "approved" or "not
+ * approved yet"; the deposit is a USDFC amount. No contract or operator
+ * vocabulary, since the reader may never have seen the console.
  */
 
 import type { Synapse } from '@filoz/synapse-sdk'
