@@ -22,11 +22,16 @@ const mocks = vi.hoisted(() => ({
   executeUpload: vi.fn(),
   multiselect: vi.fn(),
   isCancel: vi.fn().mockReturnValue(false),
+  getPdpDataSets: vi.fn(),
 }))
 
 vi.mock('@clack/prompts', () => ({
   multiselect: mocks.multiselect,
   isCancel: mocks.isCancel,
+}))
+
+vi.mock('@filoz/synapse-core/warm-storage', () => ({
+  getPdpDataSets: mocks.getPdpDataSets,
 }))
 
 vi.mock('../../core/upload/index.js', async () => {
@@ -544,19 +549,26 @@ describe('pickDataSetsForReuse', () => {
 const spinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn(), clear: vi.fn() } as any
 const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as any
 
-const makeSynapse = (dataSets: any[]) =>
-  ({
+const makeSynapse = (dataSets: any[]) => {
+  mocks.getPdpDataSets.mockClear()
+  mocks.getPdpDataSets.mockResolvedValue({ items: dataSets })
+  return {
     client: { account: { address: '0x1234567890123456789012345678901234567890' } },
-    storage: { findDataSets: vi.fn().mockResolvedValue(dataSets) },
-  }) as any
+  } as any
+}
 
-const pinSet = (over: Record<string, unknown>) => ({
-  isLive: true,
-  pdpEndEpoch: 0n,
-  hasActivePieces: false,
-  metadata: { withIPFSIndexing: '', source: 'filecoin-pin' },
-  ...over,
-})
+// Raw `PdpDataSet` field names, so the reuse filter is exercised against the shape
+// `listDataSets()` actually maps from rather than the already-mapped one.
+const pinSet = (over: Record<string, unknown>) => {
+  const { pdpVerifierDataSetId, isLive, ...rest } = {
+    isLive: true,
+    pdpEndEpoch: 0n,
+    hasActivePieces: false,
+    metadata: { withIPFSIndexing: '', source: 'filecoin-pin' },
+    ...over,
+  } as Record<string, unknown>
+  return { ...rest, dataSetId: pdpVerifierDataSetId, live: isLive }
+}
 
 describe('resolveDefaultDataSetReuse', () => {
   it('reuses live filecoin-pin data sets, including ones with extra metadata keys', async () => {
@@ -633,14 +645,12 @@ describe('resolveDefaultDataSetReuse', () => {
 })
 
 describe('resolveUploadTargets', () => {
-  const migrationSet = (id: bigint, providerId: bigint) => ({
-    isLive: true,
-    pdpEndEpoch: 0n,
-    hasActivePieces: false,
-    pdpVerifierDataSetId: id,
-    providerId,
-    metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
-  })
+  const migrationSet = (id: bigint, providerId: bigint) =>
+    pinSet({
+      pdpVerifierDataSetId: id,
+      providerId,
+      metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
+    })
 
   const base = { withCDN: false, spinner, logger }
 
@@ -652,7 +662,7 @@ describe('resolveUploadTargets', () => {
       { ...base, dataSetMetadata: { purpose: 'erc8004' } }
     )
     expect(targets).toEqual({ dataSetMetadata: { purpose: 'erc8004' } })
-    expect(synapse.storage.findDataSets).not.toHaveBeenCalled()
+    expect(mocks.getPdpDataSets).not.toHaveBeenCalled()
   })
 
   it('falls back to default reuse when no metadata filter is given', async () => {
