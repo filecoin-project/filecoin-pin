@@ -8,9 +8,11 @@
  * Two ways to detect the grant:
  *
  *  1. Owner unknown (first pairing): poll `eth_getLogs` for the registry's
- *     `AuthorizationsUpdated` events from the block login started at, and
- *     match the `signer` field to our key. One small, bounded query per
- *     tick. The matching event names the owner.
+ *     `AuthorizationsUpdated` events and match the `signer` field to our
+ *     key. The scan starts at the block login started at and moves forward
+ *     to the last block each answer covered, so a poll only re-reads the
+ *     blocks that arrived since the previous one. The matching event names
+ *     the owner.
  *  2. Owner known (renewal, or after the event was found): read the
  *     per-scope expiries directly. No events involved.
  *
@@ -149,12 +151,18 @@ function grantStatus(scopes: Pick<ScopeGrants, 'granted' | 'missing'>): ScopeGra
  * since `fromBlock`, returning the owner of the first event whose signer is
  * our session key. Mechanism 1.
  */
+interface LogScan {
+  owner?: Address
+  /** Highest block among the returned logs; the next scan can start there. */
+  lastBlock?: bigint
+}
+
 async function findOwnerInLogs(
   client: Client<Transport, Chain>,
   registryAddress: Address,
   sessionAddress: Address,
   fromBlock: bigint
-): Promise<Address | undefined> {
+): Promise<LogScan> {
   const logs = (await client.request({
     method: 'eth_getLogs',
     params: [
@@ -167,7 +175,13 @@ async function findOwnerInLogs(
     ],
   })) as Log[]
 
+  let lastBlock: bigint | undefined
   for (const log of logs) {
+    // Raw rows carry the block number as a hex string.
+    const blockNumber = log.blockNumber === null ? undefined : BigInt(log.blockNumber)
+    if (blockNumber !== undefined && (lastBlock === undefined || blockNumber > lastBlock)) {
+      lastBlock = blockNumber
+    }
     let event: ReturnType<typeof extractLoginEvent>
     try {
       event = extractLoginEvent([log])
@@ -175,14 +189,17 @@ async function findOwnerInLogs(
       continue
     }
     if (isAddressEqual(event.args.signer, sessionAddress)) {
-      return event.args.identity
+      const owner = event.args.identity
+      return lastBlock === undefined ? { owner } : { owner, lastBlock }
     }
   }
-  return undefined
+  return lastBlock === undefined ? {} : { lastBlock }
 }
 
 interface WatchState {
   owner: Address | undefined
+  /** Where the next event scan starts; advances to the last block a scan returned. */
+  scanFrom: bigint | undefined
   eventSeen: boolean
   last: WatchAuthorizationResult
   /** Whether any poll completed without an RPC error. */
@@ -197,13 +214,15 @@ interface WatchState {
  * is over.
  */
 async function pollOnce(options: WatchAuthorizationOptions, state: WatchState): Promise<boolean> {
-  const { client, sessionAddress, registryAddress, permissions, fromBlock } = options
-  if (state.owner === undefined && fromBlock !== undefined) {
-    const found = await findOwnerInLogs(client, registryAddress, sessionAddress, fromBlock)
-    if (found !== undefined) {
-      state.owner = found
+  const { client, sessionAddress, registryAddress, permissions } = options
+  if (state.owner === undefined && state.scanFrom !== undefined) {
+    const scan = await findOwnerInLogs(client, registryAddress, sessionAddress, state.scanFrom)
+    // Resume at the last block seen, not after it: the head tipset can still change.
+    if (scan.lastBlock !== undefined && scan.lastBlock > state.scanFrom) state.scanFrom = scan.lastBlock
+    if (scan.owner !== undefined) {
+      state.owner = scan.owner
       state.eventSeen = true
-      options.onProgress?.({ type: 'watch:ownerFound', data: { owner: found } })
+      options.onProgress?.({ type: 'watch:ownerFound', data: { owner: scan.owner } })
     }
   }
   if (state.owner === undefined) return false
@@ -252,6 +271,7 @@ export async function watchAuthorization(options: WatchAuthorizationOptions): Pr
   const deadline = Date.now() + deadlineMs
   const state: WatchState = {
     owner: options.owner,
+    scanFrom: options.fromBlock,
     eventSeen: false,
     last: { status: 'timeout', granted: [], missing: [...options.permissions] },
     anySuccess: false,

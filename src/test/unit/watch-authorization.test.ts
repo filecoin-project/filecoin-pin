@@ -119,6 +119,25 @@ describe('watchAuthorization', () => {
     )
   })
 
+  it('moves the scan forward to the last block each answer covered', async () => {
+    const unrelated = { ...authorizationLog(OWNER, OTHER_SESSION, []), blockNumber: '0x64' }
+    const { client, calls } = fakeClient([
+      [unrelated],
+      [],
+      [{ ...authorizationLog(OWNER, SESSION, []), blockNumber: '0x70' }],
+    ])
+    vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
+
+    const result = await watch({ ...base, client, fromBlock: 42n, deadlineMs: 2000 })
+
+    expect(result.status).toBe('granted')
+    const froms = calls
+      .filter((c) => (c as { method: string }).method === 'eth_getLogs')
+      .map((c) => (c as { params: [{ fromBlock: string }] }).params[0].fromBlock)
+    // Starts at 42; after a page ending at block 100 it resumes there; an empty page leaves it in place.
+    expect(froms).toEqual(['0x2a', '0x64', '0x64'])
+  })
+
   it('returns timeout, never having learned the owner, when no event arrives before the deadline', async () => {
     const { client } = fakeClient([[]])
     const ticks: number[] = []
