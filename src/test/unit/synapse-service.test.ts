@@ -205,8 +205,8 @@ describe('synapse-service', () => {
 
     it('should say the session expired, with the lapse date, when every needed grant has lapsed', async () => {
       mockSessionKeyOnce(() => false, {
-        [CreateDataSetPermission]: 1000n,
-        [AddPiecesPermission]: 2000n, // 1970-01-01, unambiguously past
+        [CreateDataSetPermission]: 1000n, // 1970-01-01
+        [AddPiecesPermission]: 86400n, // 1970-01-02: the later one must be the one reported
         [SchedulePieceRemovalsPermission]: 0n,
         [TerminateServicePermission]: 0n,
       })
@@ -223,7 +223,7 @@ describe('synapse-service', () => {
         (e: unknown) => e as Error
       )
       expect(error?.message).toContain('Session expired')
-      expect(error?.message).toContain('1970-01-01')
+      expect(error?.message).toContain('1970-01-02')
       expect(error?.message).toContain('filecoin-pin login')
       // One remedy only: no console link and no owner CLI hints on the expired wall.
       expect(error?.message).not.toContain('console')

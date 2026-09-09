@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assertOwnerAuth, parseCLIAuth, parseContextSelectionOptions } from '../../utils/cli-auth.js'
 import { log } from '../../utils/cli-logger.js'
-import { getSessionCredentialNetwork } from '../../utils/credential-source.js'
+import {
+  getSessionCredentialNetwork,
+  getSessionCredentialSource,
+  wasSessionSkippedForViewAddress,
+} from '../../utils/credential-source.js'
 
 vi.mock('../../utils/credential-source.js', () => ({
-  getSessionCredentialSource: () => undefined,
+  getSessionCredentialSource: vi.fn(() => undefined),
   getSessionCredentialNetwork: vi.fn(() => undefined),
-  wasSessionSkippedForViewAddress: () => false,
+  wasSessionSkippedForViewAddress: vi.fn(() => false),
 }))
 
 describe('parseContextSelectionOptions empty-list regression', () => {
@@ -108,7 +112,7 @@ describe('assertOwnerAuth', () => {
 
 describe('parseCLIAuth session line', () => {
   const sessionOptions = {
-    walletAddress: '0xffd6000000000000000000000000000000000666E',
+    walletAddress: '0xffd6000000000000000000000000000000000666',
     sessionKey: `0x${'11'.repeat(32)}`,
   }
 
@@ -118,6 +122,9 @@ describe('parseCLIAuth session line', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.mocked(getSessionCredentialSource).mockReset()
+    vi.mocked(getSessionCredentialNetwork).mockReset()
+    vi.mocked(wasSessionSkippedForViewAddress).mockReset()
   })
 
   const lines = () =>
@@ -129,25 +136,41 @@ describe('parseCLIAuth session line', () => {
   it('names the session and owner when a session credential is used', () => {
     parseCLIAuth(sessionOptions)
     expect(lines()).toContain('Using session')
-    expect(lines()).toContain('666E')
+    expect(lines()).toContain('0666')
     expect(lines()).not.toContain('(from ')
   })
 
-  it('names the saved login network and warns when the command runs on another', () => {
+  it('names the file the credentials came from when auto-loaded', () => {
+    vi.mocked(getSessionCredentialSource).mockReturnValue('/data/session.env')
+    parseCLIAuth(sessionOptions)
+    expect(lines()).toContain('(from /data/session.env)')
+  })
+
+  it('names the saved login network', () => {
     vi.mocked(getSessionCredentialNetwork).mockReturnValue('calibration')
     parseCLIAuth({ ...sessionOptions, network: 'calibration' })
     expect(lines()).toContain('calibration')
     expect(lines()).not.toContain('saved login is for')
+  })
 
-    vi.mocked(log.line).mockClear()
+  it('warns when the command runs on a network other than the saved login', () => {
+    vi.mocked(getSessionCredentialNetwork).mockReturnValue('calibration')
     parseCLIAuth({ ...sessionOptions, network: 'mainnet' })
     expect(lines()).toContain('saved login is for calibration')
     expect(lines()).toContain('mainnet')
   })
 
-  it('stays quiet for private-key and view-only auth', () => {
-    parseCLIAuth({ privateKey: `0x${'11'.repeat(32)}` })
+  it('says when VIEW_ADDRESS kept a saved login out', () => {
+    vi.mocked(wasSessionSkippedForViewAddress).mockReturnValue(true)
     parseCLIAuth({ viewAddress: '0x0000000000000000000000000000000000000002' })
+    expect(lines()).toContain('Saved login ignored')
+  })
+
+  it.each([
+    ['a private key', { privateKey: `0x${'11'.repeat(32)}` }],
+    ['a view-only address', { viewAddress: '0x0000000000000000000000000000000000000002' }],
+  ])('stays quiet for %s', (_label, options) => {
+    parseCLIAuth(options)
     expect(lines()).toBe('')
   })
 })

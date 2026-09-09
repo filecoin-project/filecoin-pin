@@ -55,19 +55,14 @@ export function loadCredentialsFile(path: string, env: NodeJS.ProcessEnv = proce
   }
 
   const parsed = parseEnv(contents)
-  if (Object.keys(parsed).length === 0) {
-    throw new Error(
-      `--credentials-file: no usable entries in "${path}". Expected dotenv-style lines like:\n` +
-        `  SESSION_KEY=0x<64 hex>\n  WALLET_ADDRESS=0x<40 hex>\n` +
-        `(# comments and blank lines are ignored; "export KEY=VALUE" also works)`
-    )
-  }
   const ignored: string[] = []
+  let usable = 0
   for (const [key, value] of Object.entries(parsed)) {
     if (!(CREDENTIALS_FILE_VARS as readonly string[]).includes(key)) {
       ignored.push(key)
       continue
     }
+    usable += 1
     if (env[key] === undefined) {
       env[key] = value
     }
@@ -75,6 +70,13 @@ export function loadCredentialsFile(path: string, env: NodeJS.ProcessEnv = proce
   if (ignored.length > 0) {
     console.error(
       `--credentials-file: ignored ${ignored.join(', ')} (only ${CREDENTIALS_FILE_VARS.join(', ')} are read)`
+    )
+  }
+  if (usable === 0) {
+    throw new Error(
+      `--credentials-file: no usable entries in "${path}". Expected dotenv-style lines like:\n` +
+        `  SESSION_KEY=0x<64 hex>\n  WALLET_ADDRESS=0x<40 hex>\n` +
+        `(# comments and blank lines are ignored; "export KEY=VALUE" also works)`
     )
   }
 }

@@ -41,6 +41,16 @@ describe('loadCredentialsFile', () => {
     errors.mockRestore()
   })
 
+  it('fails on a file that holds nothing but ignored keys, instead of loading nothing silently', () => {
+    const path = join(dir, '.env')
+    writeFileSync(path, 'CONSOLE_URL=https://evil.example\n')
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(() => loadCredentialsFile(path, {})).toThrow(/no usable entries/)
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining('ignored CONSOLE_URL'))
+    errors.mockRestore()
+  })
+
   it('does not override a variable already set in the environment', () => {
     const path = join(dir, '.env')
     writeFileSync(path, 'SESSION_KEY=from-file\n')
