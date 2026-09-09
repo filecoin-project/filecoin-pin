@@ -30,6 +30,8 @@ function pdpDataSet(overrides: Partial<PdpDataSet> = {}): PdpDataSet {
     serviceProvider: '0xservice',
     commissionBps: 100n,
     pdpEndEpoch: 0n,
+    pendingOneTimePayments: 0n,
+    lifecycleReserveBalance: 0n,
     live: true,
     managed: true,
     cdn: false,
