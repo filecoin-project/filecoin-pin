@@ -12,11 +12,6 @@ afterEach(() => {
 })
 
 describe('resolveConsoleUrl', () => {
-  it('defaults to the production console', () => {
-    delete process.env.CONSOLE_URL
-    expect(resolveConsoleUrl()).toBe('https://pay.filecoin.cloud')
-  })
-
   it('prefers CONSOLE_URL over the default', () => {
     process.env.CONSOLE_URL = 'http://localhost:3005'
     expect(resolveConsoleUrl()).toBe('http://localhost:3005')

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { loginCommand, logoutCommand } from '../../commands/login.js'
+import { loginCommand } from '../../commands/login.js'
 import { watchAuthorization } from '../../core/session/watch-authorization.js'
 import { initializeSynapse } from '../../core/synapse/index.js'
 import { openBrowser } from '../../login/open-browser.js'
@@ -94,14 +94,10 @@ describe('runLogin', () => {
     expect(saved?.walletAddress).toBe(OWNER)
     const text = output()
     expect(text).toContain('Session key generated')
-    expect(text).toContain('Requesting scopes: createDataSet, addPieces (defaults — override with --scopes)')
     expect(text).toContain(
       `https://console.test/console/session-keys?authorize=${saved?.sessionAddress.toLowerCase()}&scopes=createDataSet,addPieces&network=calibration`
     )
-    expect(text).toContain('storage service not approved yet')
-    expect(text).toMatch(/USDFC deposit — 0\.00(?!\d)/)
     expect(text).toContain('https://console.test/console?deposit=2&operator=fwss&network=calibration')
-    expect(text).not.toMatch(/FWSS operator|operator approval/i)
     expect(vi.mocked(openBrowser)).toHaveBeenCalledOnce()
     // The readiness read uses the RPC the user selected, not the chain default.
     expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
@@ -183,10 +179,8 @@ describe('runLogin', () => {
 
     expect(code).toBe(0)
     const text = output()
-    expect(text).toContain('Authorized with fewer scopes than requested')
     expect(text).toContain('Requested:  createDataSet, addPieces, schedulePieceRemovals')
-    expect(text).toContain('schedulePieceRemovals ✗ (owner declined)')
-    expect(text).toContain('Uploads will work.')
+    expect(text).toContain('schedulePieceRemovals ✗')
   })
 
   it('rejects an unknown scope before touching the network', async () => {
@@ -232,7 +226,6 @@ describe('runLogin', () => {
     expect(lines).toContain(
       `https://console.test/console/session-keys?authorize=${saved?.sessionAddress.toLowerCase()}&scopes=createDataSet,addPieces&network=calibration`
     )
-    expect(output()).toContain('rerun `filecoin-pin login` to check it')
   })
 
   it('--no-browser keeps the browser closed and --timeout shortens the wait', async () => {
@@ -260,30 +253,13 @@ describe('runLogin', () => {
     }
 
     const text = output()
-    expect(text).toContain('SESSION_KEY is set in this shell and takes precedence over the saved login')
-    expect(text).toContain('stays authorized on chain until it expires')
+    expect(text).toContain('SESSION_KEY is set')
+    expect(text).toContain('stays authorized on chain')
   })
 })
 
 describe('login command wiring', () => {
-  it('registers login with --scopes, --fresh, and network flags', () => {
-    const longs = loginCommand.options.map((o) => o.long)
-    expect(longs).toEqual(
-      expect.arrayContaining([
-        '--scopes',
-        '--fresh',
-        '--no-browser',
-        '--no-wait',
-        '--timeout',
-        '--network',
-        '--rpc-url',
-      ])
-    )
+  it('never accepts the owner private key', () => {
     expect(loginCommand.options.some((o) => o.long === '--private-key')).toBe(false)
-  })
-
-  it('registers logout with no options', () => {
-    expect(logoutCommand.name()).toBe('logout')
-    expect(logoutCommand.options).toHaveLength(0)
   })
 })

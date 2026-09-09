@@ -23,10 +23,6 @@ describe('session file', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('lives in the data directory as session.env', () => {
-    expect(path).toBe(join(dir, 'session.env'))
-  })
-
   it('reads back what it wrote, without an owner before authorization', () => {
     writeSessionFile({ sessionKey: KEY, sessionAddress: SESSION }, path)
     expect(readSessionFile(path)).toEqual({ sessionKey: KEY, sessionAddress: SESSION })

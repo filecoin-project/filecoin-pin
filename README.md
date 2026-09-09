@@ -274,7 +274,7 @@ Other arguments are possible for individual commands, use `--help` to find out m
 
 ### Login
 
-`filecoin-pin login` pairs this machine with a wallet without exporting a private key. It generates a session key, saves it to `session.env` in the data directory (owner-readable only) before anything else happens, prints a Filecoin Cloud console link on its own line, opens it in a browser on a terminal, and waits up to five minutes for the wallet owner to approve the key there. It ends with a readiness scorecard for uploads (key authorized, storage service approved, USDFC deposited) and a pre-filled console link when funding is still needed.
+`filecoin-pin login` pairs this machine with a wallet without exporting a private key. It generates a session key, saves it to `session.env` in the data directory (owner-readable only) before anything else happens, prints a Filecoin Cloud console link, opens it in a browser on a terminal, and waits up to five minutes for the wallet owner to approve the key there. It ends with a readiness scorecard for uploads (key authorized, storage service approved, USDFC deposited) and a pre-filled console link when funding is still needed.
 
 A grant lives on one chain, so the file records the network (`mainnet` or `calibration`); resuming it under another `--network` is refused. `login` works only on those two networks, which are the ones the console serves. On devnet or a custom RPC, use `session create` with the wallet key. If `PRIVATE_KEY`, `SESSION_KEY`, or `VIEW_ADDRESS` is set in the shell, `login` warns that it will take precedence over the saved key.
 
