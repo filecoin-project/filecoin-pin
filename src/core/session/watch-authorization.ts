@@ -35,7 +35,10 @@ import {
 import type { ProgressEventHandler } from '../utils/types.js'
 import type { WatchAuthorizationProgressEvents } from './types.js'
 
-/** Default poll deadline: about five minutes (PRD decision #11). */
+/**
+ * Default poll deadline. Long enough for the owner to open the link, find
+ * the wallet, and approve; `login` says how to resume when it runs out.
+ */
 export const DEFAULT_WATCH_DEADLINE_MS = 5 * 60 * 1000
 /** Default interval between registry polls. */
 export const DEFAULT_WATCH_INTERVAL_MS = 5000
