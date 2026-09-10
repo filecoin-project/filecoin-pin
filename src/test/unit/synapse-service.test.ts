@@ -225,7 +225,8 @@ describe('synapse-service', () => {
       expect(error?.message).toContain('Session expired')
       expect(error?.message).toContain('1970-01-02')
       expect(error?.message).toContain('filecoin-pin login')
-      // One remedy only: no console link and no owner CLI hints on the expired wall.
+      // An expired key is renewed by rerunning login, so that is the only remedy offered:
+      // the console link and the owner-side session commands belong to the never-authorized error.
       expect(error?.message).not.toContain('console')
       expect(error?.message).not.toContain('session authorize')
     })
