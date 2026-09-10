@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readSessionFile } from '../../login/session-file.js'
-import { applySessionFileCredentials, wasSessionSkippedForViewAddress } from '../../utils/credential-source.js'
+import {
+  applySessionFileCredentials,
+  getSessionCredentialNetwork,
+  getSessionCredentialSource,
+  wasSessionSkippedForViewAddress,
+} from '../../utils/credential-source.js'
 
 vi.mock('../../login/session-file.js', () => ({
   readSessionFile: vi.fn(),
@@ -24,6 +29,7 @@ function noSession() {
 
 describe('applySessionFileCredentials', () => {
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.mocked(readSessionFile).mockReset()
   })
 
@@ -32,6 +38,7 @@ describe('applySessionFileCredentials', () => {
     const env: NodeJS.ProcessEnv = {}
     expect(applySessionFileCredentials(ARGV, env, PATH)).toBe(PATH)
     expect(env).toEqual({ SESSION_KEY: KEY, WALLET_ADDRESS: OWNER })
+    expect(getSessionCredentialSource()).toBe(PATH)
   })
 
   it.each([
@@ -85,6 +92,7 @@ describe('applySessionFileCredentials', () => {
     const env: NodeJS.ProcessEnv = {}
     applySessionFileCredentials(ARGV, env, PATH)
     expect(env.NETWORK).toBe('calibration')
+    expect(getSessionCredentialNetwork()).toBe('calibration')
   })
 
   it.each([
@@ -112,12 +120,23 @@ describe('applySessionFileCredentials', () => {
     expect(wasSessionSkippedForViewAddress()).toBe(false)
   })
 
+  it('does not blame VIEW_ADDRESS when there is no session file', () => {
+    noSession()
+    applySessionFileCredentials(ARGV, { VIEW_ADDRESS: OWNER }, PATH)
+    expect(wasSessionSkippedForViewAddress()).toBe(false)
+  })
+
+  it('does not blame VIEW_ADDRESS when the session file has no owner yet', () => {
+    savedSession({ sessionKey: KEY, sessionAddress: SESSION })
+    applySessionFileCredentials(ARGV, { VIEW_ADDRESS: OWNER }, PATH)
+    expect(wasSessionSkippedForViewAddress()).toBe(false)
+  })
+
   it('warns when CI is set and the saved login was used', () => {
     savedSession()
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     applySessionFileCredentials(ARGV, { CI: 'true' }, PATH)
     expect(errors).toHaveBeenCalledWith(expect.stringContaining('CI is set and credentials came from the saved login'))
-    errors.mockRestore()
   })
 
   it('stays quiet outside CI', () => {
@@ -125,7 +144,6 @@ describe('applySessionFileCredentials', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     applySessionFileCredentials(ARGV, {}, PATH)
     expect(errors).not.toHaveBeenCalled()
-    errors.mockRestore()
   })
 
   it('is a no-op without a file', () => {

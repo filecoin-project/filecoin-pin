@@ -1,19 +1,23 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { buildAuthorizeUrl, buildFundingUrl, resolveConsoleUrl } from '../../core/session/console-url.js'
-
-const previousConsoleUrl = process.env.CONSOLE_URL
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  buildAuthorizeUrl,
+  buildFundingUrl,
+  DEFAULT_CONSOLE_URL,
+  resolveConsoleUrl,
+} from '../../core/session/console-url.js'
 
 afterEach(() => {
-  if (previousConsoleUrl == null) {
-    delete process.env.CONSOLE_URL
-  } else {
-    process.env.CONSOLE_URL = previousConsoleUrl
-  }
+  vi.unstubAllEnvs()
 })
 
 describe('resolveConsoleUrl', () => {
+  it('defaults to the production console', () => {
+    vi.stubEnv('CONSOLE_URL', undefined)
+    expect(resolveConsoleUrl()).toBe(DEFAULT_CONSOLE_URL)
+  })
+
   it('prefers CONSOLE_URL over the default', () => {
-    process.env.CONSOLE_URL = 'http://localhost:3005'
+    vi.stubEnv('CONSOLE_URL', 'http://localhost:3005')
     expect(resolveConsoleUrl()).toBe('http://localhost:3005')
   })
 })

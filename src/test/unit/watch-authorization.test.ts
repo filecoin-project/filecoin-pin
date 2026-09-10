@@ -14,6 +14,7 @@ import {
   toEventSelector,
 } from 'viem'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { WatchAuthorizationProgressEvents } from '../../core/session/types.js'
 import { readScopeGrants, watchAuthorization } from '../../core/session/watch-authorization.js'
 
 // Keep the real event decoder and permission constants; only the multicall read is faked.
@@ -23,10 +24,12 @@ vi.mock('@filoz/synapse-core/session-key', async (importOriginal) => {
 })
 
 const OWNER: Address = '0x00000000000000000000000000000000000000aa'
+const OTHER_OWNER: Address = '0x00000000000000000000000000000000000000ab'
 const SESSION: Address = '0x00000000000000000000000000000000000000bb'
 const OTHER_SESSION: Address = '0x00000000000000000000000000000000000000cc'
 const REGISTRY: Address = '0x00000000000000000000000000000000000000dd'
 const FUTURE = BigInt(Math.floor(Date.now() / 1000) + 86400)
+const LATER = FUTURE + 3600n
 const PAST = 1000n
 
 const TOPIC = toEventSelector('AuthorizationsUpdated(address,address,uint256,bytes32[],string)')
@@ -50,23 +53,56 @@ function authorizationLog(identity: Address, signer: Address, permissions: Hex[]
   }
 }
 
-function fakeClient(logsPerCall: Array<Record<string, unknown>[]>): {
+/** One eth_getLogs answer: the logs to return, or the error to throw. */
+type LogsAnswer = Record<string, unknown>[] | Error
+
+interface RpcCall {
+  method: string
+  params?: unknown
+}
+
+/**
+ * A client whose eth_getLogs answers follow `schedule` call by call; the last
+ * entry repeats once the schedule runs out. eth_blockNumber answers `head`.
+ */
+function fakeClient(
+  schedule: LogsAnswer[],
+  options: { head?: string } = {}
+): {
   client: Client<Transport, Chain>
-  calls: unknown[]
+  calls: RpcCall[]
 } {
-  const calls: unknown[] = []
+  const { head = '0x64' } = options
+  const calls: RpcCall[] = []
   let call = 0
   const client = {
-    request: vi.fn(async (args: { method: string; params: unknown }) => {
+    request: vi.fn(async (args: RpcCall) => {
       calls.push(args)
-      if (args.method === 'eth_blockNumber') return '0x64'
+      if (args.method === 'eth_blockNumber') return head
       if (args.method !== 'eth_getLogs') throw new Error(`unexpected ${args.method}`)
-      const logs = logsPerCall[Math.min(call, logsPerCall.length - 1)] ?? []
+      const answer = schedule[Math.min(call, schedule.length - 1)] ?? []
       call += 1
-      return logs
+      if (answer instanceof Error) throw answer
+      return answer
     }),
   } as unknown as Client<Transport, Chain>
   return { client, calls }
+}
+
+/** The fromBlock of every eth_getLogs call, in order. */
+function scanStarts(calls: RpcCall[]): string[] {
+  return calls
+    .filter((c): c is { method: string; params: [{ fromBlock: string }] } => c.method === 'eth_getLogs')
+    .map((c) => c.params[0].fromBlock)
+}
+
+/** Collect the data of every progress event of one type. */
+function progressOf<T extends WatchAuthorizationProgressEvents['type']>(type: T) {
+  const data: Extract<WatchAuthorizationProgressEvents, { type: T }>['data'][] = []
+  const onProgress = (event: WatchAuthorizationProgressEvents) => {
+    if (event.type === type) data.push(event.data as (typeof data)[number])
+  }
+  return { data, onProgress }
 }
 
 const base = {
@@ -96,20 +132,22 @@ describe('watchAuthorization', () => {
   })
 
   it('finds the owner from the matching event, then confirms every scope', async () => {
+    // First tick: no logs. Second tick: another owner's key, then ours.
     const { client, calls } = fakeClient([
       [],
-      [authorizationLog(OWNER, OTHER_SESSION, []), authorizationLog(OWNER, SESSION, [])],
+      [authorizationLog(OTHER_OWNER, OTHER_SESSION, []), authorizationLog(OWNER, SESSION, [])],
     ])
-    // First tick: no logs. Second tick: an unrelated signer, then ours.
-    vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
+    const owners = progressOf('watch:ownerFound')
+    vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: LATER })
 
-    const result = await watch({ ...base, client, fromBlock: 42n, deadlineMs: 2000 })
+    const result = await watch({ ...base, client, fromBlock: 42n, deadlineMs: 2000, onProgress: owners.onProgress })
 
     expect(result.status).toBe('granted')
     expect(result.owner?.toLowerCase()).toBe(OWNER)
-    expect(result.expiry).toBe(FUTURE)
+    expect(result.expiry).toBe(LATER)
     expect(result.granted).toEqual([CreateDataSetPermission, AddPiecesPermission])
     expect(result.missing).toEqual([])
+    expect(owners.data.map((d) => d.owner.toLowerCase())).toEqual([OWNER])
     expect(calls[0]).toMatchObject({
       method: 'eth_getLogs',
       params: [{ address: REGISTRY, fromBlock: '0x2a', toBlock: 'latest', topics: [TOPIC] }],
@@ -122,40 +160,53 @@ describe('watchAuthorization', () => {
 
   it('moves the scan forward to the last block each answer covered', async () => {
     const unrelated = { ...authorizationLog(OWNER, OTHER_SESSION, []), blockNumber: '0x64' }
-    const { client, calls } = fakeClient([
-      [unrelated],
-      [],
-      [{ ...authorizationLog(OWNER, SESSION, []), blockNumber: '0x70' }],
-    ])
+    const { client, calls } = fakeClient(
+      [[unrelated], [], [{ ...authorizationLog(OWNER, SESSION, []), blockNumber: '0x70' }]],
+      { head: '0x66' }
+    )
     vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
 
     const result = await watch({ ...base, client, fromBlock: 42n, deadlineMs: 2000 })
 
     expect(result.status).toBe('granted')
-    const froms = calls
-      .filter((c) => (c as { method: string }).method === 'eth_getLogs')
-      .map((c) => (c as { params: [{ fromBlock: string }] }).params[0].fromBlock)
-    // Starts at 42; after a page ending at block 100 it resumes there; an empty page leaves it in place.
-    expect(froms).toEqual(['0x2a', '0x64', '0x64'])
+    // Starts at 42; after a page ending at block 0x64 it resumes there; an empty page moves it to the head (0x66).
+    expect(scanStarts(calls)).toEqual(['0x2a', '0x64', '0x66'])
+  })
+
+  it('never moves the scan backwards when the head is behind the last block seen', async () => {
+    const ahead = { ...authorizationLog(OWNER, OTHER_SESSION, []), blockNumber: '0x70' }
+    const { client, calls } = fakeClient([[ahead], [], [authorizationLog(OWNER, SESSION, [])]], { head: '0x64' })
+    vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
+
+    const result = await watch({ ...base, client, fromBlock: 42n, deadlineMs: 2000 })
+
+    expect(result.status).toBe('granted')
+    // The empty page reads a head (0x64) below the last block seen (0x70); the scan stays at 0x70.
+    expect(scanStarts(calls)).toEqual(['0x2a', '0x70', '0x70'])
+  })
+
+  it('skips a log it cannot decode and still finds the matching one behind it', async () => {
+    const garbage = { ...authorizationLog(OWNER, SESSION, []), data: '0xdeadbeef' }
+    const { client } = fakeClient([[garbage, authorizationLog(OWNER, SESSION, [])]])
+    const errors = progressOf('watch:error')
+    vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
+
+    const result = await watch({ ...base, client, fromBlock: 1n, deadlineMs: 2000, onProgress: errors.onProgress })
+
+    expect(result.status).toBe('granted')
+    expect(result.owner?.toLowerCase()).toBe(OWNER)
+    expect(errors.data).toEqual([])
   })
 
   it('returns timeout, never having learned the owner, when no event arrives before the deadline', async () => {
     const { client } = fakeClient([[]])
-    const ticks: number[] = []
+    const ticks = progressOf('watch:tick')
 
-    const result = await watch({
-      ...base,
-      client,
-      fromBlock: 1n,
-      deadlineMs: 20,
-      onProgress: (event) => {
-        if (event.type === 'watch:tick') ticks.push(event.data.remainingMs)
-      },
-    })
+    const result = await watch({ ...base, client, fromBlock: 1n, deadlineMs: 20, onProgress: ticks.onProgress })
 
     expect(result).toEqual({ status: 'timeout', granted: [], missing: base.permissions })
-    expect(ticks.length).toBeGreaterThan(0)
-    expect(ticks[0]).toBeLessThanOrEqual(20)
+    expect(ticks.data.length).toBeGreaterThan(0)
+    expect(ticks.data[0]?.remainingMs).toBe(20)
     expect(vi.mocked(getExpirations)).not.toHaveBeenCalled()
   })
 
@@ -209,101 +260,71 @@ describe('watchAuthorization', () => {
     expect(vi.mocked(getExpirations).mock.calls.length).toBeGreaterThan(1)
   })
 
+  it('with a known owner and no event, reports timeout with the owner when no requested scope is live', async () => {
+    const { client } = fakeClient([[]])
+    vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: 0n, [AddPiecesPermission]: 0n })
+
+    const result = await watch({ ...base, client, owner: OWNER, fromBlock: 1n, deadlineMs: 15 })
+
+    expect(result).toEqual({ status: 'timeout', owner: OWNER, granted: [], missing: base.permissions })
+  })
+
   it('keeps polling through a transient RPC error and reports it as progress', async () => {
-    const errors: unknown[] = []
-    const { client } = fakeClient([[], [authorizationLog(OWNER, SESSION, [])]])
-    const original = client.request
-    let first = true
-    ;(client as { request: unknown }).request = async (args: unknown) => {
-      if (first) {
-        first = false
-        throw new Error('429 rate limited')
-      }
-      return (original as (a: unknown) => Promise<unknown>)(args)
-    }
+    const { client } = fakeClient([new Error('429 rate limited'), [authorizationLog(OWNER, SESSION, [])]])
+    const errors = progressOf('watch:error')
     vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
 
-    const result = await watch({
-      ...base,
-      client,
-      fromBlock: 1n,
-      deadlineMs: 2000,
-      onProgress: (event) => {
-        if (event.type === 'watch:error') errors.push(event.data.error)
-      },
-    })
+    const result = await watch({ ...base, client, fromBlock: 1n, deadlineMs: 2000, onProgress: errors.onProgress })
 
     expect(result.status).toBe('granted')
-    expect(errors).toHaveLength(1)
+    expect(errors.data).toHaveLength(1)
   })
 
   it('gives up after three failed polls in a row, well before the deadline', async () => {
-    let polls = 0
-    const { client } = fakeClient([[]])
-    ;(client as { request: unknown }).request = async () => {
-      polls += 1
-      throw new Error('502 bad gateway')
-    }
+    const { client, calls } = fakeClient([new Error('502 bad gateway')])
 
     await expect(watch({ ...base, client, fromBlock: 1n, deadlineMs: 2000 })).rejects.toThrow(
       'failed 3 polls in a row (502 bad gateway)'
     )
-    expect(polls).toBe(3)
+    expect(scanStarts(calls)).toHaveLength(3)
   })
 
   it('throws the RPC error at the deadline when every poll failed but fewer than three ran', async () => {
-    const { client } = fakeClient([[]])
-    ;(client as { request: unknown }).request = async () => {
-      throw new Error('502 bad gateway')
-    }
+    const { client, calls } = fakeClient([new Error('502 bad gateway')])
 
     await expect(watch({ ...base, client, fromBlock: 1n, deadlineMs: 2, pollIntervalMs: 5 })).rejects.toThrow(
       '502 bad gateway'
     )
+    expect(scanStarts(calls)).toHaveLength(1)
   })
 
   it('a successful poll between failures resets the count, so scattered failures never give up', async () => {
-    // fail, fail, ok (no event), fail, fail, ok (event): four failures, never three in a row.
-    const outcomes = ['fail', 'fail', 'ok', 'fail', 'fail', 'event']
-    const errors: unknown[] = []
-    const { client } = fakeClient([[]])
-    const original = client.request as (a: unknown) => Promise<unknown>
-    ;(client as { request: unknown }).request = async (args: { method: string }) => {
-      if (args.method !== 'eth_getLogs') return original(args)
-      const outcome = outcomes.shift() ?? 'event'
-      if (outcome === 'fail') throw new Error('503')
-      return outcome === 'event' ? [authorizationLog(OWNER, SESSION, [])] : []
-    }
+    // fail, fail, ok (no event), fail, fail, event: four failures, never three in a row.
+    const { client } = fakeClient([
+      new Error('503'),
+      new Error('503'),
+      [],
+      new Error('503'),
+      new Error('503'),
+      [authorizationLog(OWNER, SESSION, [])],
+    ])
+    const errors = progressOf('watch:error')
     vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
 
-    const result = await watch({
-      ...base,
-      client,
-      fromBlock: 1n,
-      deadlineMs: 2000,
-      onProgress: (event) => {
-        if (event.type === 'watch:error') errors.push(event.data.error)
-      },
-    })
+    const result = await watch({ ...base, client, fromBlock: 1n, deadlineMs: 2000, onProgress: errors.onProgress })
 
     expect(result.status).toBe('granted')
-    expect(errors).toHaveLength(4)
+    expect(errors.data).toHaveLength(4)
   })
 
   it('moves the scan to the head block when an answer is empty, instead of re-reading from the start', async () => {
-    const { client, calls } = fakeClient([[], [authorizationLog(OWNER, SESSION, [])]])
+    const { client, calls } = fakeClient([[], [authorizationLog(OWNER, SESSION, [])]], { head: '0x5a' })
     vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
 
     await watch({ ...base, client, fromBlock: 42n, deadlineMs: 2000 })
 
-    const fromBlocks = calls
-      .filter(
-        (c): c is { method: string; params: [{ fromBlock: string }] } =>
-          (c as { method: string }).method === 'eth_getLogs'
-      )
-      .map((c) => c.params[0].fromBlock)
-    // First scan from login's block (0x2a); the empty answer moves the next one to the head (0x64).
-    expect(fromBlocks).toEqual(['0x2a', '0x64'])
+    // First scan from login's block (0x2a); the empty answer moves the next one to the head (0x5a).
+    expect(scanStarts(calls)).toEqual(['0x2a', '0x5a'])
   })
 
   it('with a known owner and no event, a pre-existing partial grant is reported at the deadline', async () => {
@@ -315,6 +336,8 @@ describe('watchAuthorization', () => {
     expect(result.status).toBe('partial')
     expect(result.granted).toEqual([CreateDataSetPermission])
     expect(result.missing).toEqual([AddPiecesPermission])
+    // Kept polling to the deadline rather than stopping on the first partial read.
+    expect(vi.mocked(getExpirations).mock.calls.length).toBeGreaterThan(1)
   })
 
   it('rejects a call with neither owner nor fromBlock', async () => {

@@ -40,6 +40,7 @@ describe('synapse-service', () => {
 
   afterEach(() => {
     vi.clearAllMocks()
+    vi.useRealTimers()
   })
 
   describe('initializeSynapse', () => {
@@ -204,6 +205,8 @@ describe('synapse-service', () => {
     })
 
     it('should say the session expired, with the lapse date, when every needed grant has lapsed', async () => {
+      // Now equals the latest expiry exactly: a grant whose expiry is the current second is lapsed.
+      vi.useFakeTimers({ now: 86_400_000 })
       mockSessionKeyOnce(() => false, {
         [CreateDataSetPermission]: 1000n, // 1970-01-01
         [AddPiecesPermission]: 86400n, // 1970-01-02: the later one must be the one reported
