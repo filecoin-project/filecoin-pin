@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -25,6 +25,7 @@ const STRIP_AUTH = ['PRIVATE_KEY', 'SESSION_KEY', 'WALLET_ADDRESS'] as const
 // would be auto-loaded through the data directory, so every run gets an
 // empty one. Exported so a test can seed it.
 export const SMOKE_DATA_DIR = mkdtempSync(join(tmpdir(), 'filecoin-pin-smoke-'))
+process.on('exit', () => rmSync(SMOKE_DATA_DIR, { recursive: true, force: true }))
 
 export async function runCli(args: string[] = [], env: Record<string, string> = {}): Promise<CliRunResult> {
   return new Promise((resolve, reject) => {

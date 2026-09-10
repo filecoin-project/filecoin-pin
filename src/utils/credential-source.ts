@@ -62,6 +62,10 @@ export function applySessionFileCredentials(
   env: NodeJS.ProcessEnv = process.env,
   path: string = getSessionFilePath()
 ): string | undefined {
+  // One process may call this more than once (tests, programmatic use); start clean each time.
+  loadedFrom = undefined
+  loadedNetwork = undefined
+  skippedForViewAddress = false
   if (isSkippedCommand(argv) || hasFlag(argv, AUTH_FLAGS)) return undefined
   if (hasAuthEnv(env)) {
     // Only VIEW_ADDRESS set: a usable login exists but read-only mode wins. Remembered so the

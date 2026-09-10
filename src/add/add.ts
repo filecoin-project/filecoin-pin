@@ -294,7 +294,13 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       autoFundOptions.copies = contextSelection.dataSetIds.length
     }
 
-    if (options.autoFund) {
+    // Session mode wins over --auto-fund, as in import: a session key cannot deposit.
+    if (isSessionKeyMode(synapse)) {
+      // Same block and link as the preflight, now with the real CAR size.
+      spinner.start('Checking the account can pay for this upload...')
+      await assertUploadFunds(synapse, carSize, estimateOptions, rerunCommand, spinner)
+      spinner.stop(`${pc.green('✓')} Account can pay for this upload`)
+    } else if (options.autoFund) {
       if (options.minRunwayDays !== undefined) {
         autoFundOptions.minRunwayDays = options.minRunwayDays
       }
@@ -303,11 +309,6 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       }
 
       await performAutoFunding(synapse, carSize, spinner, autoFundOptions)
-    } else if (isSessionKeyMode(synapse)) {
-      // Same block and link as the preflight, now with the real CAR size.
-      spinner.start('Checking the account can pay for this upload...')
-      await assertUploadFunds(synapse, carSize, estimateOptions, rerunCommand, spinner)
-      spinner.stop(`${pc.green('✓')} Account can pay for this upload`)
     } else {
       spinner.start('Checking payment capacity...')
       await validatePaymentSetup(synapse, carSize, spinner)

@@ -157,7 +157,8 @@ export function assertSessionKeyPrivateKey(value: string): asserts value is Hex 
  */
 function classifyAuthorization(key: SessionKey<'Secp256k1'>, now: bigint): 'never' | 'expired' | 'missing' {
   const allExpirations = Object.values(key.expirations)
-  if (allExpirations.length > 0 && allExpirations.every((expiry) => expiry === 0n)) return 'never'
+  // No entries reads as never granted, not as lapsed in 1970.
+  if (allExpirations.every((expiry) => expiry === 0n)) return 'never'
   if (allExpirations.every((expiry) => expiry <= now)) return 'expired'
   return 'missing'
 }

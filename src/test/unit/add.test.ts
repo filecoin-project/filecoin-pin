@@ -178,6 +178,18 @@ describe('Add Command', () => {
       expect(vi.mocked(assertUploadFunds).mock.calls[1]?.[1]).toBe(TEST_CAR_CONTENT.length)
     })
 
+    it('with a session key, --auto-fund is not attempted: the funds check runs instead', async () => {
+      const { isSessionKeyMode } = await import('../../core/synapse/index.js')
+      const { assertUploadFunds } = await import('../../common/funds-preflight.js')
+      const { performAutoFunding } = await import('../../common/upload-flow.js')
+      vi.mocked(isSessionKeyMode).mockReturnValue(true)
+
+      await runAdd({ ...sessionAuth(), autoFund: true })
+
+      expect(vi.mocked(assertUploadFunds)).toHaveBeenCalledTimes(2)
+      expect(vi.mocked(performAutoFunding)).not.toHaveBeenCalled()
+    })
+
     it('with a session key, packs nothing when the funds check refuses', async () => {
       const { isSessionKeyMode } = await import('../../core/synapse/index.js')
       const { assertUploadFunds } = await import('../../common/funds-preflight.js')
