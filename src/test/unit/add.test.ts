@@ -89,8 +89,8 @@ vi.mock('../../core/synapse/index.js', () => ({
   }),
 }))
 
-vi.mock('../../add/funds-preflight.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../add/funds-preflight.js')>()),
+vi.mock('../../common/funds-preflight.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../common/funds-preflight.js')>()),
   assertUploadFunds: vi.fn(async () => undefined),
   estimateInputBytes: vi.fn(async () => 1024),
 }))
@@ -153,28 +153,39 @@ describe('Add Command', () => {
   })
 
   describe('runAdd command', () => {
-    it('runs the session-key funds preflight before packing, and packs nothing when it refuses', async () => {
+    const sessionAuth = () => ({
+      filePath: testFile,
+      walletAddress: '0x1234567890123456789012345678901234567890',
+      sessionKey: `0x${'11'.repeat(32)}`,
+      rpcUrl: 'wss://test.rpc.url',
+    })
+
+    it('with a session key, checks funds on the size estimate before packing and again on the CAR size', async () => {
       const { isSessionKeyMode } = await import('../../core/synapse/index.js')
-      const { assertUploadFunds } = await import('../../add/funds-preflight.js')
+      const { assertUploadFunds } = await import('../../common/funds-preflight.js')
       const { createCarFromPath } = await import('../../core/unixfs/index.js')
       vi.mocked(isSessionKeyMode).mockReturnValue(true)
-      const sessionAuth = {
-        filePath: testFile,
-        walletAddress: '0x1234567890123456789012345678901234567890',
-        sessionKey: `0x${'11'.repeat(32)}`,
-        rpcUrl: 'wss://test.rpc.url',
-      }
 
-      await runAdd(sessionAuth)
-      // Once before packing on the estimate, once after on the real CAR size.
-      expect(vi.mocked(assertUploadFunds)).toHaveBeenCalledTimes(2)
-      expect(vi.mocked(assertUploadFunds).mock.invocationCallOrder[0]).toBeLessThan(
-        vi.mocked(createCarFromPath).mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER
-      )
+      await runAdd(sessionAuth())
 
-      vi.mocked(createCarFromPath).mockClear()
+      expect(vi.mocked(createCarFromPath)).toHaveBeenCalledTimes(1)
+      const packedAt = vi.mocked(createCarFromPath).mock.invocationCallOrder[0]
+      const [beforePacking, afterPacking] = vi.mocked(assertUploadFunds).mock.invocationCallOrder
+      expect(beforePacking).toBeLessThan(packedAt as number)
+      expect(afterPacking).toBeGreaterThan(packedAt as number)
+      // 1024 is the stubbed estimate; the second call carries the packed CAR's size.
+      expect(vi.mocked(assertUploadFunds).mock.calls[0]?.[1]).toBe(1024)
+      expect(vi.mocked(assertUploadFunds).mock.calls[1]?.[1]).toBe(TEST_CAR_CONTENT.length)
+    })
+
+    it('with a session key, packs nothing when the funds check refuses', async () => {
+      const { isSessionKeyMode } = await import('../../core/synapse/index.js')
+      const { assertUploadFunds } = await import('../../common/funds-preflight.js')
+      const { createCarFromPath } = await import('../../core/unixfs/index.js')
+      vi.mocked(isSessionKeyMode).mockReturnValue(true)
       vi.mocked(assertUploadFunds).mockRejectedValueOnce(new Error("Account can't pay for this upload"))
-      await expect(runAdd(sessionAuth)).rejects.toThrow("Account can't pay")
+
+      await expect(runAdd(sessionAuth())).rejects.toThrow("Account can't pay")
       expect(vi.mocked(createCarFromPath)).not.toHaveBeenCalled()
     })
 

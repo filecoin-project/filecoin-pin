@@ -9,6 +9,7 @@
 
 import type { Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
+import { DEFAULT_LOCKUP_DAYS } from '../core/payments/constants.js'
 import { checkAllowances, getDepositedBalance } from '../core/payments/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
 
@@ -57,7 +58,7 @@ export function formatReadinessLines(
     const deposit = `USDFC deposit — ${formatUSDFC(readiness.depositUsdfc, 2)}`
     lines.push(readiness.depositUsdfc > 0n ? `${OK} ${deposit}` : `${NO} ${deposit}`)
   } else {
-    const detail = `available funds ${formatUSDFC(funds.available, 2)} USDFC — this upload needs ~${formatUSDFC(funds.needed, 2)} USDFC (incl. 30-day reserve)`
+    const detail = `available funds ${formatUSDFC(funds.available, 2)} USDFC — this upload needs ~${formatUSDFC(funds.needed, 2)} USDFC (incl. ${DEFAULT_LOCKUP_DAYS}-day reserve)`
     lines.push(funds.covered ? `${OK} ${detail}` : `${NO} ${detail}`)
   }
   return lines.map((line) => `    ${line}`)
