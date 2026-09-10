@@ -59,6 +59,7 @@ function fakeClient(logsPerCall: Array<Record<string, unknown>[]>): {
   const client = {
     request: vi.fn(async (args: { method: string; params: unknown }) => {
       calls.push(args)
+      if (args.method === 'eth_blockNumber') return '0x64'
       if (args.method !== 'eth_getLogs') throw new Error(`unexpected ${args.method}`)
       const logs = logsPerCall[Math.min(call, logsPerCall.length - 1)] ?? []
       call += 1
@@ -236,13 +237,73 @@ describe('watchAuthorization', () => {
     expect(errors).toHaveLength(1)
   })
 
-  it('throws the RPC error only when no poll ever succeeded', async () => {
+  it('gives up after three failed polls in a row, well before the deadline', async () => {
+    let polls = 0
+    const { client } = fakeClient([[]])
+    ;(client as { request: unknown }).request = async () => {
+      polls += 1
+      throw new Error('502 bad gateway')
+    }
+
+    await expect(watch({ ...base, client, fromBlock: 1n, deadlineMs: 2000 })).rejects.toThrow(
+      'failed 3 polls in a row (502 bad gateway)'
+    )
+    expect(polls).toBe(3)
+  })
+
+  it('throws the RPC error at the deadline when every poll failed but fewer than three ran', async () => {
     const { client } = fakeClient([[]])
     ;(client as { request: unknown }).request = async () => {
       throw new Error('502 bad gateway')
     }
 
-    await expect(watch({ ...base, client, fromBlock: 1n, deadlineMs: 15 })).rejects.toThrow('502')
+    await expect(watch({ ...base, client, fromBlock: 1n, deadlineMs: 2, pollIntervalMs: 5 })).rejects.toThrow(
+      '502 bad gateway'
+    )
+  })
+
+  it('a successful poll between failures resets the count, so scattered failures never give up', async () => {
+    // fail, fail, ok (no event), fail, fail, ok (event): four failures, never three in a row.
+    const outcomes = ['fail', 'fail', 'ok', 'fail', 'fail', 'event']
+    const errors: unknown[] = []
+    const { client } = fakeClient([[]])
+    const original = client.request as (a: unknown) => Promise<unknown>
+    ;(client as { request: unknown }).request = async (args: { method: string }) => {
+      if (args.method !== 'eth_getLogs') return original(args)
+      const outcome = outcomes.shift() ?? 'event'
+      if (outcome === 'fail') throw new Error('503')
+      return outcome === 'event' ? [authorizationLog(OWNER, SESSION, [])] : []
+    }
+    vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
+
+    const result = await watch({
+      ...base,
+      client,
+      fromBlock: 1n,
+      deadlineMs: 2000,
+      onProgress: (event) => {
+        if (event.type === 'watch:error') errors.push(event.data.error)
+      },
+    })
+
+    expect(result.status).toBe('granted')
+    expect(errors).toHaveLength(4)
+  })
+
+  it('moves the scan to the head block when an answer is empty, instead of re-reading from the start', async () => {
+    const { client, calls } = fakeClient([[], [authorizationLog(OWNER, SESSION, [])]])
+    vi.mocked(getExpirations).mockResolvedValue({ [CreateDataSetPermission]: FUTURE, [AddPiecesPermission]: FUTURE })
+
+    await watch({ ...base, client, fromBlock: 42n, deadlineMs: 2000 })
+
+    const fromBlocks = calls
+      .filter(
+        (c): c is { method: string; params: [{ fromBlock: string }] } =>
+          (c as { method: string }).method === 'eth_getLogs'
+      )
+      .map((c) => c.params[0].fromBlock)
+    // First scan from login's block (0x2a); the empty answer moves the next one to the head (0x64).
+    expect(fromBlocks).toEqual(['0x2a', '0x64'])
   })
 
   it('with a known owner and no event, a pre-existing partial grant is reported at the deadline', async () => {
