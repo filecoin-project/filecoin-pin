@@ -13,6 +13,7 @@
  */
 
 import { getSessionFilePath, readSessionFile } from '../login/session-file.js'
+import { CREDENTIALS_FILE_FLAG } from './credentials-file.js'
 
 const AUTH_ENV_VARS = ['PRIVATE_KEY', 'SESSION_KEY', 'WALLET_ADDRESS', 'VIEW_ADDRESS'] as const
 const AUTH_FLAGS = ['--private-key', '--session-key', '--wallet-address', '--view-address'] as const
@@ -33,9 +34,16 @@ function hasFlag(argv: readonly string[], flags: readonly string[]): boolean {
   return argv.some((arg) => flags.some((flag) => arg === flag || arg.startsWith(`${flag}=`)))
 }
 
+/** Global options that take their value as the next word, so that word is not the command. */
+const VALUED_GLOBAL_OPTIONS = [CREDENTIALS_FILE_FLAG] as const
+
 /** True when the first non-option argument names a command that never auto-loads. */
 function isSkippedCommand(argv: readonly string[]): boolean {
-  const command = argv.slice(2).find((arg) => !arg.startsWith('-'))
+  const words = argv.slice(2)
+  const index = words.findIndex(
+    (arg, i) => !arg.startsWith('-') && !(VALUED_GLOBAL_OPTIONS as readonly string[]).includes(words[i - 1] ?? '')
+  )
+  const command = words[index]
   return command !== undefined && (SKIPPED_COMMANDS as readonly string[]).includes(command)
 }
 
