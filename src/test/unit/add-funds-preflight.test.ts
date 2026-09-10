@@ -1,6 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { readdir, stat } from 'node:fs/promises'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assertUploadFunds, estimateInputBytes, rerunHint } from '../../add/funds-preflight.js'
@@ -8,6 +6,7 @@ import { estimateUploadCost } from '../../common/upload-flow.js'
 import { checkAccountReadiness } from '../../login/readiness.js'
 import { log } from '../../utils/cli-logger.js'
 
+vi.mock('node:fs/promises', () => ({ readdir: vi.fn(), stat: vi.fn() }))
 vi.mock('../../common/upload-flow.js', () => ({ estimateUploadCost: vi.fn() }))
 vi.mock('../../login/readiness.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../login/readiness.js')>()
@@ -99,17 +98,7 @@ describe('assertUploadFunds', () => {
   })
 })
 
-describe('estimateInputBytes', () => {
-  let dir: string
-
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'add-preflight-'))
-  })
-
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true })
-  })
-
+describe('rerunHint', () => {
   it('rebuilds the rerun command from argv with secret flag values redacted', () => {
     expect(rerunHint(['node', 'cli', 'add', './photos', '--copies', '1'])).toBe('filecoin-pin add ./photos --copies 1')
     expect(rerunHint(['node', 'cli', 'add', '--session-key', '0xsecret', './photos'])).toBe(
@@ -119,14 +108,40 @@ describe('estimateInputBytes', () => {
       'filecoin-pin add --private-key <redacted> ./photos'
     )
   })
+})
 
-  it('sums the files under a directory, recursively', async () => {
-    writeFileSync(join(dir, 'a.txt'), 'abc')
-    mkdirSync(join(dir, 'sub'))
-    writeFileSync(join(dir, 'sub', 'b.txt'), 'defgh')
-    writeFileSync(join(dir, '.hidden'), 'zz')
+describe('estimateInputBytes', () => {
+  // A directory holding a.txt (3 bytes), sub/b.txt (5 bytes) and a 2-byte dotfile.
+  const dir = '/photos'
+  const entry = (parentPath: string, name: string, isFile = true) => ({ name, parentPath, isFile: () => isFile })
+  const sizes: Record<string, number> = {
+    [`${dir}/a.txt`]: 3,
+    [`${dir}/sub/b.txt`]: 5,
+    [`${dir}/.hidden`]: 2,
+  }
+
+  beforeEach(() => {
+    vi.mocked(readdir).mockResolvedValue([
+      entry(dir, 'a.txt'),
+      entry(dir, 'sub', false),
+      entry(`${dir}/sub`, 'b.txt'),
+      entry(dir, '.hidden'),
+    ] as never)
+    vi.mocked(stat).mockImplementation(async (path) => ({ size: sizes[String(path)] ?? 0 }) as never)
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('sums the files under a directory, skipping dotfiles unless asked to include them', async () => {
     expect(await estimateInputBytes(dir, true)).toBe(8)
     expect(await estimateInputBytes(dir, true, true)).toBe(10)
-    expect(await estimateInputBytes(join(dir, 'a.txt'), false)).toBe(3)
+    expect(vi.mocked(readdir)).toHaveBeenCalledWith(dir, { recursive: true, withFileTypes: true })
+  })
+
+  it('is the file size for a single file', async () => {
+    expect(await estimateInputBytes(`${dir}/a.txt`, false)).toBe(3)
+    expect(vi.mocked(readdir)).not.toHaveBeenCalled()
   })
 })
