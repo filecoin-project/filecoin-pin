@@ -65,6 +65,14 @@ describe('applySessionFileCredentials', () => {
     expect(env).toEqual({})
   })
 
+  it('still sees the command when --credentials-file <path> comes first', () => {
+    savedSession()
+    const env: NodeJS.ProcessEnv = {}
+    const argv = ['node', 'cli.js', '--credentials-file', 'creds.env', 'server']
+    expect(applySessionFileCredentials(argv, env, PATH)).toBeUndefined()
+    expect(env).toEqual({})
+  })
+
   it('ignores a file whose login never completed (no owner yet)', () => {
     savedSession({ sessionKey: KEY, sessionAddress: SESSION })
     const env: NodeJS.ProcessEnv = {}
