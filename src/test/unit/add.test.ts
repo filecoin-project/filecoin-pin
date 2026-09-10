@@ -148,6 +148,8 @@ describe('Add Command', () => {
     // Clean up test directory
     await rm(testDir, { recursive: true, force: true })
     vi.clearAllMocks()
+    const { isSessionKeyMode } = await import('../../core/synapse/index.js')
+    vi.mocked(isSessionKeyMode).mockReturnValue(false)
   })
 
   describe('runAdd command', () => {
@@ -174,7 +176,6 @@ describe('Add Command', () => {
       vi.mocked(assertUploadFunds).mockRejectedValueOnce(new Error("Account can't pay for this upload"))
       await expect(runAdd(sessionAuth)).rejects.toThrow("Account can't pay")
       expect(vi.mocked(createCarFromPath)).not.toHaveBeenCalled()
-      vi.mocked(isSessionKeyMode).mockReturnValue(false)
     })
 
     it('should successfully add a file (no directory wrapper)', async () => {
