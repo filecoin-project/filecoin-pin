@@ -146,7 +146,9 @@ async function reportReadiness(
 
 /**
  * Run `login`. Returns the process exit code rather than calling
- * `process.exit`, so the command wrapper stays in charge of flushing.
+ * `process.exit`, so the command wrapper stays in charge of flushing. The
+ * one exception is Ctrl-C during the wait: its handler stops the spinner
+ * and exits 2 itself, because the process is going down either way.
  */
 export async function runLogin(options: LoginOptions): Promise<number> {
   const permissions = options.scopes !== undefined ? parseScopes(options.scopes).permissions : DEFAULT_LOGIN_PERMISSIONS
@@ -184,8 +186,6 @@ export async function runLogin(options: LoginOptions): Promise<number> {
   log.line(`  Requesting scopes: ${scopeList(permissions)}${scopeNote}`)
   log.line('')
 
-  const client = createPublicClient({ chain, transport })
-  const fromBlock = await getBlockNumber(client)
   const scopeIds = permissions.map(scopeIdOf)
   const url = buildAuthorizeUrl(consoleUrl, session.sessionAddress, scopeIds, chain.id)
   log.line('  Approve this key with your wallet in the Filecoin Cloud console:')
@@ -203,6 +203,9 @@ export async function runLogin(options: LoginOptions): Promise<number> {
     return EXIT_CODE_INCOMPLETE
   }
 
+  // The link is already on screen: an RPC that is down here costs the wait, not the pairing.
+  const client = createPublicClient({ chain, transport })
+  const fromBlock = await getBlockNumber(client)
   const deadlineMs = options.timeout !== undefined ? options.timeout * 1000 : DEFAULT_WATCH_DEADLINE_MS
   const spinner = createSpinner()
   const waitLine = (remainingMs: number) =>
@@ -231,6 +234,11 @@ export async function runLogin(options: LoginOptions): Promise<number> {
         if (event.type === 'watch:tick') spinner.message(waitLine(event.data.remainingMs))
       },
     })
+  } catch (error) {
+    spinner.stop(
+      `${pc.red('✗')} Could not watch for the authorization. Your key is saved; rerun \`filecoin-pin login\` to resume.`
+    )
+    throw error
   } finally {
     process.off('SIGINT', onSigint)
   }
