@@ -1,4 +1,5 @@
 import { readdir, stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assertUploadFunds, estimateInputBytes, rerunHint } from '../../add/funds-preflight.js'
@@ -114,10 +115,11 @@ describe('estimateInputBytes', () => {
   // A directory holding a.txt (3 bytes), sub/b.txt (5 bytes) and a 2-byte dotfile.
   const dir = '/photos'
   const entry = (parentPath: string, name: string, isFile = true) => ({ name, parentPath, isFile: () => isFile })
+  // Keyed with join() so the lookup matches the separator the code builds paths with on every OS.
   const sizes: Record<string, number> = {
-    [`${dir}/a.txt`]: 3,
-    [`${dir}/sub/b.txt`]: 5,
-    [`${dir}/.hidden`]: 2,
+    [join(dir, 'a.txt')]: 3,
+    [join(dir, 'sub', 'b.txt')]: 5,
+    [join(dir, '.hidden')]: 2,
   }
 
   beforeEach(() => {
@@ -141,7 +143,7 @@ describe('estimateInputBytes', () => {
   })
 
   it('is the file size for a single file', async () => {
-    expect(await estimateInputBytes(`${dir}/a.txt`, false)).toBe(3)
+    expect(await estimateInputBytes(join(dir, 'a.txt'), false)).toBe(3)
     expect(vi.mocked(readdir)).not.toHaveBeenCalled()
   })
 })
