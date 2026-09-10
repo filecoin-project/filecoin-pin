@@ -64,5 +64,10 @@ export const logoutCommand = new Command('logout')
     'Log out: delete the saved session key from this machine (local only; the on-chain grant stays until it expires)'
   )
   .action(() => {
-    runLogout()
+    try {
+      runLogout()
+    } catch (error) {
+      console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
+      process.exitCode = 1
+    }
   })
