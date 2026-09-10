@@ -100,14 +100,20 @@ describe('assertUploadFunds', () => {
 })
 
 describe('rerunHint', () => {
-  it('rebuilds the rerun command from argv with secret flag values redacted', () => {
-    expect(rerunHint(['node', 'cli', 'add', './photos', '--copies', '1'])).toBe('filecoin-pin add ./photos --copies 1')
-    expect(rerunHint(['node', 'cli', 'add', '--session-key', '0xsecret', './photos'])).toBe(
-      'filecoin-pin add --session-key <redacted> ./photos'
-    )
-    expect(rerunHint(['node', 'cli', 'add', '--private-key=0xsecret', './photos'])).toBe(
-      'filecoin-pin add --private-key <redacted> ./photos'
-    )
+  it.each([
+    ['no secret flag', ['add', './photos', '--copies', '1'], 'filecoin-pin add ./photos --copies 1'],
+    [
+      'a separate secret value',
+      ['add', '--session-key', '0xsecret', './photos'],
+      'filecoin-pin add --session-key <redacted> ./photos',
+    ],
+    [
+      'an inline secret value',
+      ['add', '--private-key=0xsecret', './photos'],
+      'filecoin-pin add --private-key <redacted> ./photos',
+    ],
+  ])('rebuilds the command from argv with %s', (_case, args, expected) => {
+    expect(rerunHint(['node', 'cli', ...args])).toBe(expected)
   })
 })
 
@@ -133,13 +139,16 @@ describe('estimateInputBytes', () => {
   })
 
   afterEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
-  it('sums the files under a directory, skipping dotfiles unless asked to include them', async () => {
+  it('sums the files under a directory recursively, skipping dotfiles', async () => {
     expect(await estimateInputBytes(dir, true)).toBe(8)
-    expect(await estimateInputBytes(dir, true, true)).toBe(10)
     expect(vi.mocked(readdir)).toHaveBeenCalledWith(dir, { recursive: true, withFileTypes: true })
+  })
+
+  it('counts dotfiles when asked to include hidden files', async () => {
+    expect(await estimateInputBytes(dir, true, true)).toBe(10)
   })
 
   it('is the file size for a single file', async () => {
