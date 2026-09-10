@@ -238,6 +238,21 @@ describe('runLogin', () => {
     expect(vi.mocked(watchAuthorization)).toHaveBeenCalledWith(expect.objectContaining({ deadlineMs: 30000 }))
   })
 
+  it('prints the link before touching the RPC, so a dead endpoint still pairs', async () => {
+    const { getBlockNumber } = await import('viem/actions')
+    vi.mocked(getBlockNumber).mockRejectedValueOnce(new Error('rpc down'))
+
+    await expect(runLogin({ network: 'calibration', browser: false })).rejects.toThrow('rpc down')
+    expect(output()).toContain('https://console.test/console/session-keys?authorize=')
+  })
+
+  it('stops the spinner with a resume hint when the watch itself fails', async () => {
+    vi.mocked(watchAuthorization).mockRejectedValueOnce(new Error('endpoint failed 3 polls in a row'))
+
+    await expect(runLogin({ network: 'calibration', browser: false })).rejects.toThrow('3 polls in a row')
+    expect(output()).toContain('Could not watch for the authorization')
+  })
+
   it('warns when a shell credential will shadow the saved login and when --fresh orphans a live key', async () => {
     const key = `0x${'11'.repeat(32)}` as const
     writeSessionFile(

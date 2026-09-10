@@ -42,6 +42,13 @@ import type { WatchAuthorizationProgressEvents } from './types.js'
 export const DEFAULT_WATCH_DEADLINE_MS = 5 * 60 * 1000
 /** Default interval between registry polls. */
 export const DEFAULT_WATCH_INTERVAL_MS = 5000
+/**
+ * Failed polls in a row before the wait gives up on the RPC endpoint. One
+ * failure is a blip and must not end a wait the owner may be about to
+ * finish; this many in a row means the endpoint is down, and the user
+ * should hear that now rather than at the deadline.
+ */
+export const MAX_CONSECUTIVE_POLL_FAILURES = 3
 
 const AUTHORIZATIONS_UPDATED_TOPIC = toEventSelector(
   getAbiItem({ abi: sessionKeyRegistry, name: 'AuthorizationsUpdated' })
@@ -207,6 +214,8 @@ interface WatchState {
   last: WatchAuthorizationResult
   /** Whether any poll completed without an RPC error. */
   anySuccess: boolean
+  /** Failed polls since the last successful one. */
+  consecutiveFailures: number
   lastError: unknown
 }
 
@@ -221,7 +230,10 @@ async function pollOnce(options: WatchAuthorizationOptions, state: WatchState): 
   if (state.owner === undefined && state.scanFrom !== undefined) {
     const scan = await findOwnerInLogs(client, registryAddress, sessionAddress, state.scanFrom)
     // Resume at the last block seen, not after it: the head tipset can still change.
-    if (scan.lastBlock !== undefined && scan.lastBlock > state.scanFrom) state.scanFrom = scan.lastBlock
+    // An empty answer names no block, so the head is read instead; otherwise every
+    // poll would re-scan from the block login started at.
+    const seenUpTo = scan.lastBlock ?? (await headBlock(client))
+    if (seenUpTo > state.scanFrom) state.scanFrom = seenUpTo
     if (scan.owner !== undefined) {
       state.owner = scan.owner
       state.eventSeen = true
@@ -238,6 +250,11 @@ async function pollOnce(options: WatchAuthorizationOptions, state: WatchState): 
   return grants.status === 'granted' || (state.eventSeen && grants.status !== 'none')
 }
 
+/** Current head block number. */
+async function headBlock(client: Client<Transport, Chain>): Promise<bigint> {
+  return BigInt((await client.request({ method: 'eth_blockNumber' })) as string)
+}
+
 /**
  * Run one poll, tolerating RPC errors: a single failed request must not end
  * a five-minute wait after the owner already approved in the browser.
@@ -246,19 +263,31 @@ async function pollTolerantly(options: WatchAuthorizationOptions, state: WatchSt
   try {
     const done = await pollOnce(options, state)
     state.anySuccess = true
+    state.consecutiveFailures = 0
     return done
   } catch (error) {
     state.lastError = error
+    state.consecutiveFailures += 1
     options.onProgress?.({ type: 'watch:error', data: { error } })
     return false
   }
+}
+
+/** The error `login` shows when the endpoint failed {@link MAX_CONSECUTIVE_POLL_FAILURES} polls in a row. */
+function endpointDownError(lastError: unknown): Error {
+  const reason = lastError instanceof Error ? lastError.message : String(lastError)
+  return new Error(
+    `The RPC endpoint failed ${MAX_CONSECUTIVE_POLL_FAILURES} polls in a row (${reason}). Your key is saved; rerun \`filecoin-pin login\` to resume.`,
+    { cause: lastError }
+  )
 }
 
 /**
  * Poll until the session key is authorized or the deadline passes.
  *
  * RPC errors on individual polls are reported through `onProgress` and the
- * wait continues; the error is thrown only when no poll ever succeeded.
+ * wait continues. The wait throws once {@link MAX_CONSECUTIVE_POLL_FAILURES}
+ * polls fail in a row, or at the deadline when no poll ever succeeded.
  * A complete grant ends the wait at once. A new `AuthorizationsUpdated`
  * event also ends it, with whatever the read shows, because the console
  * grants every approved scope in one transaction: a shortfall after the
@@ -278,6 +307,7 @@ export async function watchAuthorization(options: WatchAuthorizationOptions): Pr
     eventSeen: false,
     last: { status: 'timeout', granted: [], missing: [...options.permissions] },
     anySuccess: false,
+    consecutiveFailures: 0,
     lastError: undefined,
   }
 
@@ -286,6 +316,7 @@ export async function watchAuthorization(options: WatchAuthorizationOptions): Pr
     if (remainingMs <= 0) break
     options.onProgress?.({ type: 'watch:tick', data: { remainingMs } })
     if (await pollTolerantly(options, state)) return state.last
+    if (state.consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) throw endpointDownError(state.lastError)
     await sleep(Math.min(pollIntervalMs, Math.max(0, deadline - Date.now())))
   }
   // Every poll failed: the RPC endpoint, not the owner, is the problem.
