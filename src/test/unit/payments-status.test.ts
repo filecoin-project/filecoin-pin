@@ -165,4 +165,22 @@ describe('showPaymentStatus with zero wallet USDFC', () => {
     expect(lines.some((line) => line.includes('No USDFC in wallet'))).toBe(true)
     expect(lines.some((line) => line.includes('Bridge USDFC to Filecoin mainnet'))).toBe(true)
   })
+
+  it('prints the footer after the report when one is given', async () => {
+    mocks.accountSummary.mockResolvedValue(summary(parseEther('36.7')))
+
+    await showPaymentStatus({ footer: 'POINTER' })
+
+    expect(loggedLines()).toContain('POINTER')
+  })
+
+  it('prints no footer line when none is given', async () => {
+    mocks.accountSummary.mockResolvedValue(summary(parseEther('36.7')))
+
+    await showPaymentStatus({})
+
+    // A dropped guard would log the missing footer as the string "undefined".
+    expect(loggedLines()).not.toContain('POINTER')
+    expect(loggedLines()).not.toContain('undefined')
+  })
 })

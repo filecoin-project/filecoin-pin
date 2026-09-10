@@ -1,6 +1,6 @@
 import type { Command } from 'commander'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { balanceCommand } from '../../commands/account.js'
+import { balanceCommand, dashboardCommand } from '../../commands/account.js'
 import { paymentsCommand } from '../../commands/payments.js'
 import { openBrowser } from '../../login/open-browser.js'
 import { resolveDashboardUrl, runDashboard } from '../../login/run-dashboard.js'
@@ -12,43 +12,47 @@ vi.mock('../../payments/status.js', () => ({ showPaymentStatus: vi.fn() }))
 
 describe('dashboard', () => {
   beforeEach(() => {
+    vi.stubEnv('CONSOLE_URL', undefined)
     vi.spyOn(log, 'line').mockImplementation(() => undefined)
     vi.spyOn(log, 'flush').mockImplementation(() => undefined)
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
     vi.restoreAllMocks()
-    delete process.env.CONSOLE_URL
+    vi.clearAllMocks()
   })
 
-  it('resolves the shared console billing page, CONSOLE_URL winning', () => {
+  function loggedLines(): string[] {
+    return vi.mocked(log.line).mock.calls.map((c) => String(c[0]))
+  }
+
+  it('resolves the production console billing page when CONSOLE_URL is unset', () => {
     expect(resolveDashboardUrl()).toBe('https://pay.filecoin.cloud/console')
-    process.env.CONSOLE_URL = 'https://console.test/'
+  })
+
+  it('resolves the billing page under CONSOLE_URL when it is set', () => {
+    vi.stubEnv('CONSOLE_URL', 'https://console.test/')
     expect(resolveDashboardUrl()).toBe('https://console.test/console')
   })
 
-  it('prints the URL, and says it opened the browser only when it did', () => {
-    const text = () =>
-      vi
-        .mocked(log.line)
-        .mock.calls.map((c) => String(c[0]))
-        .join('\n')
+  it('prints the URL and the fallback line when no browser was launched', () => {
     runDashboard()
-    expect(text()).toContain('https://pay.filecoin.cloud/console')
-    expect(text()).toContain('Open the Filecoin Cloud console at the URL above.')
+    const text = loggedLines().join('\n')
+    expect(text).toContain('https://pay.filecoin.cloud/console')
+    expect(text).toContain('Open the Filecoin Cloud console at the URL above.')
     expect(vi.mocked(openBrowser)).toHaveBeenCalledWith('https://pay.filecoin.cloud/console')
-
-    vi.mocked(log.line).mockClear()
-    vi.mocked(openBrowser).mockReturnValueOnce(true)
-    runDashboard()
-    expect(text()).toContain('Opening the Filecoin Cloud console in your browser')
   })
 
-  it('--no-browser prints the bare URL and never opens anything', () => {
-    vi.mocked(openBrowser).mockClear()
-    runDashboard({ browser: false })
-    const lines = vi.mocked(log.line).mock.calls.map((c) => String(c[0]))
-    expect(lines[0]).toBe('https://pay.filecoin.cloud/console')
+  it('says it is opening the browser when the launch was attempted', () => {
+    vi.mocked(openBrowser).mockReturnValueOnce(true)
+    runDashboard()
+    expect(loggedLines().join('\n')).toContain('Opening the Filecoin Cloud console in your browser')
+  })
+
+  it('--no-browser prints the bare URL and never opens anything', async () => {
+    await dashboardCommand.parseAsync(['--no-browser'], { from: 'user' })
+    expect(loggedLines()[0]).toBe('https://pay.filecoin.cloud/console')
     expect(vi.mocked(openBrowser)).not.toHaveBeenCalled()
   })
 })
@@ -60,6 +64,7 @@ describe('balance', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.clearAllMocks()
     process.exitCode = 0
   })
 
