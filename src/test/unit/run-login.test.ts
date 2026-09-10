@@ -247,10 +247,12 @@ describe('runLogin', () => {
   })
 
   it('stops the spinner with a resume hint when the watch itself fails', async () => {
+    // Outside a TTY the spinner's stop line goes through log.message, not log.line.
+    const message = vi.spyOn(log, 'message').mockImplementation(() => undefined)
     vi.mocked(watchAuthorization).mockRejectedValueOnce(new Error('endpoint failed 3 polls in a row'))
 
     await expect(runLogin({ network: 'calibration', browser: false })).rejects.toThrow('3 polls in a row')
-    expect(output()).toContain('Could not watch for the authorization')
+    expect(message).toHaveBeenCalledWith(expect.stringContaining('Could not watch for the authorization'))
   })
 
   it('warns when a shell credential will shadow the saved login and when --fresh orphans a live key', async () => {
