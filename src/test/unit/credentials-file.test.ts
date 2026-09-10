@@ -14,6 +14,7 @@ describe('loadCredentialsFile', () => {
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -38,7 +39,16 @@ describe('loadCredentialsFile', () => {
 
     expect(env).toEqual({ SESSION_KEY: '0xabc' })
     expect(errors).toHaveBeenCalledWith(expect.stringContaining('ignored CONSOLE_URL, RPC_URL'))
-    errors.mockRestore()
+  })
+
+  it.each(['PRIVATE_KEY', 'VIEW_ADDRESS', 'NETWORK'])('reads %s from the file', (name) => {
+    const path = join(dir, '.env')
+    writeFileSync(path, `${name}=x\n`)
+
+    const env: NodeJS.ProcessEnv = {}
+    loadCredentialsFile(path, env)
+
+    expect(env).toEqual({ [name]: 'x' })
   })
 
   it('fails on a file that holds nothing but ignored keys, instead of loading nothing silently', () => {
@@ -48,7 +58,6 @@ describe('loadCredentialsFile', () => {
 
     expect(() => loadCredentialsFile(path, {})).toThrow(/no usable entries/)
     expect(errors).toHaveBeenCalledWith(expect.stringContaining('ignored CONSOLE_URL'))
-    errors.mockRestore()
   })
 
   it('does not override a variable already set in the environment', () => {

@@ -169,6 +169,7 @@ describe('parseCLIAuth session line', () => {
   it.each([
     ['a private key', { privateKey: `0x${'11'.repeat(32)}` }],
     ['a view-only address', { viewAddress: '0x0000000000000000000000000000000000000002' }],
+    ['a malformed session key', { ...sessionOptions, sessionKey: '0xnothex' }],
   ])('stays quiet for %s', (_label, options) => {
     parseCLIAuth(options)
     expect(lines()).toBe('')
