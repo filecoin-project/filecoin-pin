@@ -13,13 +13,14 @@ import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
-import { assertUploadFunds, rerunHint } from '../add/funds-preflight.js'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
+import { assertUploadFunds, rerunHint } from '../common/funds-preflight.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
 import {
   displayDryRunEstimate,
   displayUploadResults,
+  type EstimateUploadCostOptions,
   estimateUploadCost,
   performAutoFunding,
   performUpload,
@@ -275,16 +276,17 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       contextSelection.dataSetIds = targets.dataSetIds
     }
     const effectiveDataSetMetadata = targets.dataSetMetadata
+    const estimateOptions: EstimateUploadCostOptions = {
+      ...(options.copies != null && { copies: options.copies }),
+      ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
+      ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
+      ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
+      withCDN,
+    }
 
     if (options.dryRun) {
       spinner.start('Estimating upload cost...')
-      const estimate = await estimateUploadCost(synapse, fileStat.size, {
-        ...(options.copies != null && { copies: options.copies }),
-        ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
-        ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
-        ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
-        withCDN,
-      })
+      const estimate = await estimateUploadCost(synapse, fileStat.size, estimateOptions)
       spinner.stop(`${pc.green('✓')} Cost estimate ready`)
 
       const result: ImportDryRunResult = {
@@ -306,19 +308,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
       // Same contract as `add`: a session key cannot deposit, so check the
       // account can pay before uploading and point at the console when it cannot.
       spinner.start('Checking the account can pay for this upload...')
-      await assertUploadFunds(
-        synapse,
-        fileStat.size,
-        {
-          ...(options.copies != null && { copies: options.copies }),
-          ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
-          ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
-          ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
-          withCDN,
-        },
-        rerunHint(),
-        spinner
-      )
+      await assertUploadFunds(synapse, fileStat.size, estimateOptions, rerunHint(), spinner)
       spinner.stop(`${pc.green('✓')} Account can pay for this upload`)
     } else if (options.autoFund) {
       const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {

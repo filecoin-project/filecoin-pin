@@ -2,7 +2,7 @@ import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { assertUploadFunds, estimateInputBytes, rerunHint } from '../../add/funds-preflight.js'
+import { assertUploadFunds, estimateInputBytes, rerunHint } from '../../common/funds-preflight.js'
 import { estimateUploadCost } from '../../common/upload-flow.js'
 import { checkAccountReadiness } from '../../login/readiness.js'
 import { log } from '../../utils/cli-logger.js'
@@ -35,12 +35,14 @@ describe('assertUploadFunds', () => {
   beforeEach(() => {
     vi.spyOn(log, 'line').mockImplementation(() => undefined)
     vi.spyOn(log, 'flush').mockImplementation(() => undefined)
-    process.env.CONSOLE_URL = 'https://console.test'
+    vi.stubEnv('CONSOLE_URL', 'https://console.test')
   })
 
   afterEach(() => {
+    // restoreAllMocks leaves mockResolvedValue on module mocks in place; reset clears them too.
+    vi.resetAllMocks()
     vi.restoreAllMocks()
-    delete process.env.CONSOLE_URL
+    vi.unstubAllEnvs()
   })
 
   // ANSI codes stripped: CI forces colour on.
@@ -63,17 +65,19 @@ describe('assertUploadFunds', () => {
 
   it('prints the readiness lines and a pre-filled link, then fails, when funds fall short', async () => {
     vi.mocked(checkAccountReadiness).mockResolvedValue({ serviceApproved: true, depositUsdfc: USDFC / 8n })
+    // Lockups 1.40 + fees 0.05 differ from available 0.12 + shortfall 3.28, and 3.28 rounds
+    // up to 4, not the default 2: each branch of the funds line and the deposit is pinned.
     vi.mocked(estimateUploadCost).mockResolvedValue(
-      costs(false, (14n * USDFC) / 10n, 0n, (128n * USDFC) / 100n) as never
+      costs(false, (14n * USDFC) / 10n, (5n * USDFC) / 100n, (328n * USDFC) / 100n) as never
     )
 
     await expect(
       assertUploadFunds(fakeSynapse((12n * USDFC) / 100n), 1024, {}, 'filecoin-pin add ./photos')
     ).rejects.toThrow("Account can't pay for this upload")
     const text = output()
-    expect(text).toContain('0.12 USDFC')
-    expect(text).toContain('~1.40 USDFC')
-    expect(text).toContain('https://console.test/console?deposit=2&operator=fwss&network=mainnet')
+    expect(text).toContain('✗ available funds 0.12 USDFC')
+    expect(text).toContain('~3.40 USDFC')
+    expect(text).toContain('https://console.test/console?deposit=4&operator=fwss&network=mainnet')
     expect(text).toContain('filecoin-pin add ./photos')
   })
 
@@ -92,9 +96,12 @@ describe('assertUploadFunds', () => {
     vi.mocked(checkAccountReadiness).mockResolvedValue({ serviceApproved: false, depositUsdfc: 5n * USDFC })
     vi.mocked(estimateUploadCost).mockResolvedValue(costs(true, USDFC, 0n, 0n) as never)
 
-    await expect(assertUploadFunds(fakeSynapse(3n * USDFC), 1024, {}, 'filecoin-pin add ./photos')).rejects.toThrow()
+    await expect(assertUploadFunds(fakeSynapse(3n * USDFC), 1024, {}, 'filecoin-pin add ./photos')).rejects.toThrow(
+      "Account can't pay for this upload"
+    )
     const text = output()
     expect(text).toContain('not approved')
+    expect(text).toContain('✓ available funds')
     expect(text).toContain('deposit=2&operator=fwss&network=mainnet')
   })
 })
@@ -112,6 +119,12 @@ describe('rerunHint', () => {
       ['add', '--private-key=0xsecret', './photos'],
       'filecoin-pin add --private-key <redacted> ./photos',
     ],
+    ['a secret flag as the last word', ['add', '--session-key'], 'filecoin-pin add --session-key <redacted>'],
+    [
+      'an empty inline secret value',
+      ['add', '--session-key=', './photos'],
+      'filecoin-pin add --session-key <redacted> ./photos',
+    ],
   ])('rebuilds the command from argv with %s', (_case, args, expected) => {
     expect(rerunHint(['node', 'cli', ...args])).toBe(expected)
   })
@@ -126,6 +139,8 @@ describe('estimateInputBytes', () => {
     [join(dir, 'a.txt')]: 3,
     [join(dir, 'sub', 'b.txt')]: 5,
     [join(dir, '.hidden')]: 2,
+    // A directory has a size too; only isFile() keeps it out of the sum.
+    [join(dir, 'sub')]: 100,
   }
 
   beforeEach(() => {

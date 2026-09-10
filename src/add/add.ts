@@ -12,6 +12,7 @@ import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-cor
 import pc from 'picocolors'
 import pino from 'pino'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
+import { assertUploadFunds, estimateInputBytes, rerunHint } from '../common/funds-preflight.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
 import {
@@ -36,7 +37,6 @@ import { log } from '../utils/cli-logger.js'
 import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
 import { buildFilbeamUrl, chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
 import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
-import { assertUploadFunds, estimateInputBytes, rerunHint } from './funds-preflight.js'
 import type { AddDryRunResult, AddOptions, AddResult } from './types.js'
 
 /**

@@ -11,12 +11,12 @@ import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import { CliFatal } from '../common/cli-errors.js'
-import { type EstimateUploadCostOptions, estimateUploadCost } from '../common/upload-flow.js'
 import { buildFundingUrl, DEFAULT_SUGGESTED_DEPOSIT_USDFC, resolveConsoleUrl } from '../core/session/console-url.js'
 import { checkAccountReadiness, formatReadinessLines, type UploadFunds } from '../login/index.js'
 import type { Spinner } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
+import { CliFatal } from './cli-errors.js'
+import { type EstimateUploadCostOptions, estimateUploadCost } from './upload-flow.js'
 
 const USDFC_WEI = 10n ** 18n
 
@@ -95,6 +95,7 @@ export async function assertUploadFunds(
   const estimate = await readStep(spinner, 'upload cost estimate', () =>
     estimateUploadCost(synapse, estimatedBytes, estimateOptions)
   )
+  spinner?.message('Reading the account balance...')
   const summary = await readStep(spinner, 'account balance', () => synapse.payments.accountSummary({}))
   // The SDK's depositNeeded already nets available funds against lockups,
   // fees, runway, and debt, so it decides; the line shows the two amounts.
