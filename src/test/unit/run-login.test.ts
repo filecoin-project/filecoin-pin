@@ -166,7 +166,7 @@ describe('runLogin', () => {
     expect(vi.mocked(watchAuthorization)).toHaveBeenCalledWith(expect.not.objectContaining({ owner: OWNER }))
   })
 
-  it('reports a partial grant with the requested-versus-granted diff and exits 0 when uploads still work', async () => {
+  it('reports a partial grant with the requested-versus-granted diff and exits 2 even though uploads work', async () => {
     vi.mocked(watchAuthorization).mockResolvedValue({
       status: 'partial',
       owner: OWNER,
@@ -177,10 +177,11 @@ describe('runLogin', () => {
 
     const code = await runLogin({ scopes: 'createDataSet,addPieces,schedulePieceRemovals' })
 
-    expect(code).toBe(0)
+    expect(code).toBe(2)
     const text = output()
     expect(text).toContain('Requested:  createDataSet, addPieces, schedulePieceRemovals')
     expect(text).toContain('schedulePieceRemovals ✗')
+    expect(text).toContain('Uploads will work.')
   })
 
   it('rejects an unknown scope before touching the network', async () => {

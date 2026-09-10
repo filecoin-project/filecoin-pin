@@ -283,7 +283,7 @@ A grant lives on one chain, so the file records the network (`mainnet` or `calib
 * `--no-browser`: print the link only. `BROWSER=none` does the same for every command.
 * `--no-wait`: print the link, keep the key, and exit `2` without waiting. Rerun `login` after approving to check the grant.
 * `--timeout <seconds>`: how long to wait for the grant (default: 300).
-* Exit codes: `0` when the key can upload (every requested scope, or at least `createDataSet` and `addPieces`), `2` when the wait timed out, `--no-wait` skipped it, or the owner granted too few scopes (rerun `login` to resume with the same key), `1` on an error.
+* Exit codes: `0` when every requested scope was granted, `2` when the wait timed out, `--no-wait` skipped it, or the owner granted fewer scopes than requested (rerun `login` to resume with the same key, or `login --scopes` with only what you need), `1` on an error.
 
 `filecoin-pin logout` deletes the saved session file and prints the session address it removed. This is local only: the on-chain grant expires on its own, or revoke it early on the console's Session keys page or with `filecoin-pin session revoke <session-address>` and the wallet key.
 
