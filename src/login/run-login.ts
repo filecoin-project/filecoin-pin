@@ -92,10 +92,14 @@ function loadOrCreateSession(fresh: boolean | undefined, network: string, path: 
   return saved?.walletAddress !== undefined ? { session, resumed: false, replaced: saved } : { session, resumed: false }
 }
 
-/** Exit 0 when the key can upload: everything asked for, or at least the two upload scopes. */
-function canUploadWith(requested: readonly Permission[], granted: readonly Permission[]): boolean {
+/**
+ * Exit 0 only when every requested scope was granted. The caller asked for a
+ * set; a scope the owner declined is a shortfall for whatever that caller
+ * meant to run, so the exit code says so and the printed diff names it.
+ */
+function grantedEveryRequested(requested: readonly Permission[], granted: readonly Permission[]): boolean {
   const have = new Set(granted)
-  return requested.every((p) => have.has(p)) || (have.has(CreateDataSetPermission) && have.has(AddPiecesPermission))
+  return requested.every((p) => have.has(p))
 }
 
 /** Print the requested-versus-granted diff and the exit code for a shortfall. */
@@ -121,6 +125,7 @@ function reportPartialGrant(requested: readonly Permission[], result: WatchAutho
       ? `  Uploads will work. Commands needing ${missingIds} will fail until the owner grants them.`
       : `  Commands needing ${missingIds} will fail until the owner grants them.`
   )
+  log.line(`  Rerun \`filecoin-pin login\` to ask again, or \`login --scopes\` with only the scopes you need.`)
 }
 
 /** Print the readiness scorecard for `owner` and the funding link when something is missing. */
@@ -268,5 +273,5 @@ export async function runLogin(options: LoginOptions): Promise<number> {
     log.line(`${pc.yellow('⚠')} Could not read account readiness: ${reason}. Run \`filecoin-pin balance\` to check.`)
   }
   log.flush()
-  return canUploadWith(permissions, result.granted) ? 0 : EXIT_CODE_INCOMPLETE
+  return grantedEveryRequested(permissions, result.granted) ? 0 : EXIT_CODE_INCOMPLETE
 }

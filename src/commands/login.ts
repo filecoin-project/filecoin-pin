@@ -45,8 +45,8 @@ ${pc.bold('ENVIRONMENT')}
   NETWORK, RPC_URL  as --network and --rpc-url
 
 ${pc.bold('EXIT CODES')}
-  0  the key can upload (createDataSet and addPieces granted, or every requested scope)
-  2  no grant seen in time, --no-wait, or fewer scopes than needed (rerun login to resume)
+  0  every requested scope was granted
+  2  no grant seen in time, --no-wait, or fewer scopes than requested (rerun login to resume)
   1  error, including a network the console has no pairing page for`
   )
   .action(async (options) => {
