@@ -30,7 +30,7 @@ import { serverCommand } from '../../commands/server.js'
 import { writeSessionFile } from '../../login/session-file.js'
 import { type CLIAuthOptions, parseCLIAuth } from '../../utils/cli-auth.js'
 import { log } from '../../utils/cli-logger.js'
-import { addAuthOptions, credentialsFileOption } from '../../utils/cli-options.js'
+import { addAuthOptions, addAutoFundOptions, credentialsFileOption } from '../../utils/cli-options.js'
 import { applySessionFileCredentials, getSessionCredentialSource } from '../../utils/credential-source.js'
 import { applyCredentialsFile } from '../../utils/credentials-file.js'
 
@@ -79,7 +79,7 @@ async function run(args: string[]): Promise<ReturnType<typeof parseCLIAuth>> {
     .action((_file, options: CLIAuthOptions) => {
       resolved = parseCLIAuth(options)
     })
-  addAuthOptions(add)
+  addAutoFundOptions(addAuthOptions(add))
   program.addCommand(add)
   await program.parseAsync(['add', 'f', ...args], { from: 'user' })
   if (resolved === undefined) throw new Error('action did not run')
@@ -138,6 +138,13 @@ describe('credential precedence, end to end', () => {
     saveLogin()
     expect(await run(['--private-key', FLAG_KEY])).toMatchObject({ privateKey: FLAG_KEY })
     expect(getSessionCredentialSource()).toBeUndefined()
+  })
+
+  it('a file value still trips the conflicts Commander checked before the hook ran', async () => {
+    const file = writeCredentials([`VIEW_ADDRESS=${FILE_OWNER}`])
+    await expect(run(['--credentials-file', file, '--auto-fund'])).rejects.toThrow(
+      "option '--auto-fund' cannot be used with VIEW_ADDRESS from the credentials file"
+    )
   })
 
   it('VIEW_ADDRESS in the environment forces read-only and skips the saved login', async () => {
