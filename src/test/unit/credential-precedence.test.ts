@@ -24,6 +24,7 @@ vi.mock('../../login/session-file.js', async (importOriginal) => {
   return { ...actual, getSessionFilePath: () => state.sessionPath }
 })
 
+import { dashboardCommand } from '../../commands/account.js'
 import { loginCommand, logoutCommand } from '../../commands/login.js'
 import { serverCommand } from '../../commands/server.js'
 import { writeSessionFile } from '../../login/session-file.js'
@@ -190,6 +191,7 @@ describe('session loading is structural', () => {
   it.each([
     ['login', loginCommand],
     ['logout', logoutCommand],
+    ['dashboard', dashboardCommand],
     ['server', serverCommand],
   ])('never loads the saved login for the real %s command', async (_name, command) => {
     saveLogin()
