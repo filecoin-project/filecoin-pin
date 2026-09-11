@@ -7,8 +7,8 @@
  * Private-key auth keeps its existing checks and `--auto-fund` behavior.
  */
 
-import { readdir, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { opendir, stat } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import type { Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { buildFundingUrl, DEFAULT_SUGGESTED_DEPOSIT_USDFC, resolveConsoleUrl } from '../core/session/console-url.js'
@@ -24,21 +24,34 @@ const USDFC_WEI = 10n ** 18n
  * Bytes the upload will roughly carry: the file's size, or the sum of the
  * files under a directory. CAR framing adds a little on top; the estimate
  * is for the funds check, not the bill.
+ *
+ * Dot-named entries are skipped unless --include-hidden, directories
+ * included, to match what the packer's glob will select. As in the packer,
+ * a hidden root the user named explicitly still has its contents counted.
  */
 export async function estimateInputBytes(path: string, isDirectory: boolean, includeHidden = false): Promise<number> {
   if (!isDirectory) return (await stat(path)).size
-  const entries = await readdir(path, { recursive: true, withFileTypes: true })
+  return sumFileSizes(path, includeHidden || basename(path).startsWith('.'))
+}
+
+/**
+ * Streams one directory level at a time with `opendir()` rather than
+ * materialising a recursive `readdir()` listing, so a directory with
+ * millions of files costs one open handle per level, not one array.
+ */
+async function sumFileSizes(dir: string, includeHidden: boolean): Promise<number> {
   let total = 0
-  for (const entry of entries) {
-    if (!entry.isFile()) continue
-    // The packer skips dotfiles unless --include-hidden; count what it will pack.
+  for await (const entry of await opendir(dir)) {
     if (!includeHidden && entry.name.startsWith('.')) continue
-    total += (await stat(join(entry.parentPath, entry.name))).size
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) total += await sumFileSizes(path, includeHidden)
+    else if (entry.isFile()) total += (await stat(path)).size
   }
   return total
 }
 
-const SECRET_FLAGS = ['--session-key', '--private-key'] as const
+// --rpc-url is included: hosted endpoints often carry the API key in the URL.
+const SECRET_FLAGS = ['--session-key', '--private-key', '--rpc-url'] as const
 
 /**
  * The command to run again after funding, rebuilt from argv with any secret
