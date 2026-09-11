@@ -1,72 +1,97 @@
 /**
  * Credential auto-load: the lowest-priority credential source.
  *
- * Resolution order for every command: explicit flags, then
- * env vars (`PRIVATE_KEY`, or `SESSION_KEY` + `WALLET_ADDRESS`), then the
- * session file `login` wrote, then the error that points at `login`.
+ * Resolution order for every command: explicit flags, then env vars
+ * (`PRIVATE_KEY`, or `SESSION_KEY` + `WALLET_ADDRESS`), then
+ * `--credentials-file`, then the session file `login` wrote, then the error
+ * that points at `login`.
  *
- * This runs before Commander parses argv. Commander already makes flags win
- * over env vars, so the only job here is to load the session file into the
- * environment when no flag and no env var supplied a credential. Explicit
- * always beats implicit: a shell or CI that sets env vars is never
- * surprised by a stale laptop file.
+ * Both file sources load from a Commander `preAction` hook, after parsing.
+ * By then every flag and env-backed option is resolved, so "did the user
+ * choose a credential or a network" is one option lookup rather than a
+ * hand-rolled scan of argv and the environment, and each loaded value is
+ * recorded with its own source (`file`, `session`) so `parseCLIAuth` can
+ * rank it below the shell. Explicit always beats implicit: a shell or CI
+ * that sets env vars is never surprised by a stale laptop file.
  */
 
+import type { Command } from 'commander'
 import { getSessionFilePath, readSessionFile } from '../login/session-file.js'
-import { CREDENTIALS_FILE_FLAG } from './credentials-file.js'
 
-const AUTH_ENV_VARS = ['PRIVATE_KEY', 'SESSION_KEY', 'WALLET_ADDRESS', 'VIEW_ADDRESS'] as const
-const AUTH_FLAGS = ['--private-key', '--session-key', '--wallet-address', '--view-address'] as const
-const NETWORK_FLAGS = ['--network', '--rpc-url'] as const
-/**
- * Commands that never auto-load: `login`/`logout` manage the file, `dashboard`
- * needs no credential and opens a browser, and the pinning server is a daemon
- * that must not silently bind to an interactive, expiring session key.
- */
-const SKIPPED_COMMANDS = ['login', 'logout', 'dashboard', 'server'] as const
+/** Env var name and Commander attribute for every variable the file sources may supply. */
+const OPTION_FOR_ENV = {
+  PRIVATE_KEY: 'privateKey',
+  SESSION_KEY: 'sessionKey',
+  WALLET_ADDRESS: 'walletAddress',
+  VIEW_ADDRESS: 'viewAddress',
+  NETWORK: 'network',
+} as const
+
+export type LoadableEnvVar = keyof typeof OPTION_FOR_ENV
+
+const AUTH_ENV_VARS = [
+  'PRIVATE_KEY',
+  'SESSION_KEY',
+  'WALLET_ADDRESS',
+  'VIEW_ADDRESS',
+] as const satisfies LoadableEnvVar[]
 
 let loadedFrom: string | undefined
 let loadedNetwork: string | undefined
 let skippedForViewAddress = false
 
-/** True when argv carries any of `flags`, in `--flag value` or `--flag=value` form. */
-function hasFlag(argv: readonly string[], flags: readonly string[]): boolean {
-  return argv.some((arg) => flags.some((flag) => arg === flag || arg.startsWith(`${flag}=`)))
-}
-
-/** Global options that take their value as the next word, so that word is not the command. */
-const VALUED_GLOBAL_OPTIONS = [CREDENTIALS_FILE_FLAG] as const
-
-/** True when the first non-option argument names a command that never auto-loads. */
-function isSkippedCommand(argv: readonly string[]): boolean {
-  const words = argv.slice(2)
-  const index = words.findIndex(
-    (arg, i) => !arg.startsWith('-') && !(VALUED_GLOBAL_OPTIONS as readonly string[]).includes(words[i - 1] ?? '')
-  )
-  const command = words[index]
-  return command !== undefined && (SKIPPED_COMMANDS as readonly string[]).includes(command)
-}
-
 function isSet(env: NodeJS.ProcessEnv, name: string): boolean {
   return env[name] !== undefined && env[name] !== ''
 }
 
-function hasAuthEnv(env: NodeJS.ProcessEnv): boolean {
-  return AUTH_ENV_VARS.some((name) => isSet(env, name))
+/**
+ * True when a flag, an env var, or an earlier loader already supplied
+ * `name`. `NETWORK` counts as supplied when an RPC URL was chosen too, since
+ * the two are mutually exclusive.
+ */
+function isSupplied(command: Command, env: NodeJS.ProcessEnv, name: LoadableEnvVar): boolean {
+  if (name === 'NETWORK' && (command.getOptionValue('rpcUrl') !== undefined || isSet(env, 'RPC_URL'))) return true
+  return command.getOptionValue(OPTION_FOR_ENV[name]) !== undefined || isSet(env, name)
 }
 
 /**
- * Load `SESSION_KEY` and `WALLET_ADDRESS` from the session file into `env`
- * when nothing else supplied a credential, plus `NETWORK` when neither a
- * flag nor the env chose one, since the grant lives on the chain the key
- * was made for. A file without an owner address (login started but never
+ * Supply `name` from a file source unless something higher already did.
+ * The Commander option is set (with `source` as its provenance) only when
+ * the command declares it, exactly as Commander binds env vars; the env var
+ * is set for the code that reads `process.env` directly.
+ *
+ * @returns whether the value was used
+ */
+export function supplyCredential(
+  command: Command,
+  env: NodeJS.ProcessEnv,
+  name: LoadableEnvVar,
+  value: string,
+  source: 'file' | 'session'
+): boolean {
+  if (isSupplied(command, env, name)) return false
+  const attribute = OPTION_FOR_ENV[name]
+  if (command.options.some((option) => option.attributeName() === attribute)) {
+    command.setOptionValueWithSource(attribute, value, source)
+  }
+  env[name] = value
+  return true
+}
+
+/**
+ * Load `SESSION_KEY` and `WALLET_ADDRESS` from the session file when nothing
+ * else supplied a credential, plus `NETWORK` when neither a flag, the env,
+ * nor an RPC URL chose one, since the grant lives on the chain the key was
+ * made for. A file without an owner address (login started but never
  * authorized) is left alone, so the command hits the no-credentials error
- * and points at `login`. `login`, `logout`, and `server` never auto-load.
+ * and points at `login`. Runs from the `addAuthOptions` preAction hook, so
+ * commands without auth options (`login`, `logout`, `dashboard`, `server`)
+ * never auto-load.
  *
  * @returns the file path when it was used, otherwise undefined
  */
 export function applySessionFileCredentials(
-  argv: readonly string[] = process.argv,
+  command: Command,
   env: NodeJS.ProcessEnv = process.env,
   path: string = getSessionFilePath()
 ): string | undefined {
@@ -74,21 +99,22 @@ export function applySessionFileCredentials(
   loadedFrom = undefined
   loadedNetwork = undefined
   skippedForViewAddress = false
-  if (isSkippedCommand(argv) || hasFlag(argv, AUTH_FLAGS)) return undefined
-  if (hasAuthEnv(env)) {
+  const supplied = AUTH_ENV_VARS.filter((name) => isSupplied(command, env, name))
+  if (supplied.length > 0) {
     // Only VIEW_ADDRESS set: a usable login exists but read-only mode wins. Remembered so the
     // command can say why the saved login was not used.
-    const onlyViewAddress = isSet(env, 'VIEW_ADDRESS') && !AUTH_ENV_VARS.slice(0, 3).some((n) => isSet(env, n))
-    skippedForViewAddress = onlyViewAddress && readSessionFile(path)?.walletAddress !== undefined
+    const onlyViewAddress = supplied.length === 1 && supplied[0] === 'VIEW_ADDRESS'
+    skippedForViewAddress =
+      onlyViewAddress &&
+      command.getOptionValueSource('viewAddress') === 'env' &&
+      readSessionFile(path)?.walletAddress !== undefined
     return undefined
   }
   const session = readSessionFile(path)
   if (session?.walletAddress === undefined) return undefined
-  env.SESSION_KEY = session.sessionKey
-  env.WALLET_ADDRESS = session.walletAddress
-  if (session.network !== undefined && !isSet(env, 'NETWORK') && !hasFlag(argv, NETWORK_FLAGS)) {
-    env.NETWORK = session.network
-  }
+  supplyCredential(command, env, 'SESSION_KEY', session.sessionKey, 'session')
+  supplyCredential(command, env, 'WALLET_ADDRESS', session.walletAddress, 'session')
+  if (session.network !== undefined) supplyCredential(command, env, 'NETWORK', session.network, 'session')
   loadedFrom = path
   loadedNetwork = session.network
   if (isSet(env, 'CI')) {
