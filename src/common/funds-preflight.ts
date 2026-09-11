@@ -37,16 +37,19 @@ export async function estimateInputBytes(path: string, isDirectory: boolean, inc
 /**
  * Streams one directory level at a time with `opendir()` rather than
  * materialising a recursive `readdir()` listing, so a directory with
- * millions of files costs one open handle per level, not one array.
+ * millions of files costs one open handle, not one array. Subdirectories
+ * are walked after the handle closes, so depth never stacks handles.
  */
 async function sumFileSizes(dir: string, includeHidden: boolean): Promise<number> {
   let total = 0
+  const subdirectories: string[] = []
   for await (const entry of await opendir(dir)) {
     if (!includeHidden && entry.name.startsWith('.')) continue
     const path = join(dir, entry.name)
-    if (entry.isDirectory()) total += await sumFileSizes(path, includeHidden)
+    if (entry.isDirectory()) subdirectories.push(path)
     else if (entry.isFile()) total += (await stat(path)).size
   }
+  for (const subdirectory of subdirectories) total += await sumFileSizes(subdirectory, includeHidden)
   return total
 }
 
