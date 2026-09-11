@@ -10,21 +10,7 @@ import { version as packageVersion } from './core/utils/version.js'
 import { readTelemetryConfigFromEnv } from './read-telemetry-config-from-env.js'
 import { applyVerboseLogLevel } from './utils/cli-logger.js'
 import { credentialsFileOption } from './utils/cli-options.js'
-import { applySessionFileCredentials } from './utils/credential-source.js'
-import { applyCredentialsFileArg } from './utils/credentials-file.js'
-
-// Credential precedence: flags, then env vars, then --credentials-file, then
-// the session file `login` wrote. The credentials file loads into process.env
-// first and never overrides values already present; the session file loads
-// after it and only when no flag and no env var supplied a credential, so
-// Commander's flag-over-env precedence still holds for everything else.
-try {
-  applyCredentialsFileArg()
-} catch (error) {
-  console.error('Error:', error instanceof Error ? error.message : error)
-  process.exit(1)
-}
-applySessionFileCredentials()
+import { applyCredentialsFile } from './utils/credentials-file.js'
 
 // Apply CLI env vars to the telemetry library before any subcommand runs.
 configureTelemetry({ ...readTelemetryConfigFromEnv(), affordance: 'CLI' })
@@ -86,9 +72,9 @@ const program = new Command()
   .optionsGroup('OPTIONS')
   .version(packageVersion)
   // Registered at the root so the flag is accepted in any position:
-  // Commander propagates parent options to subcommands. The bound value is
-  // never read here; the pre-parse loader is the consumer. Subcommand
-  // registrations exist for per-command help visibility.
+  // Commander propagates parent options to subcommands. The preAction hook
+  // below is the consumer. Subcommand registrations exist for per-command
+  // help visibility.
   .addOption(credentialsFileOption())
   .option('-v, --verbose', 'enable debug-level logging (sets LOG_LEVEL=debug)')
   .option('--no-update-check', 'skip check for updates')
@@ -132,6 +118,15 @@ for (const { heading, commands } of CLI_COMMAND_GROUPS) {
 // Default action - show help if no command specified
 program.action(() => {
   program.help()
+})
+
+// Credential precedence: flags, then env vars, then --credentials-file, then
+// the session file `login` wrote. Flags and env vars are resolved by parsing;
+// this hook supplies the credentials file next, and the addAuthOptions hook
+// (root hooks run first) supplies the saved login last. A bad file surfaces
+// through parseAsync's catch below.
+program.hook('preAction', (_thisCommand, actionCommand) => {
+  applyCredentialsFile(actionCommand)
 })
 
 // Wire the global `-v/--verbose` flag to the log level before each action runs.

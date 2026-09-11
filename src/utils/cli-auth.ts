@@ -22,11 +22,26 @@ import {
 } from './credential-source.js'
 
 /**
- * Where a resolved auth option value came from. Mirrors Commander's
- * `getOptionValueSource()`, narrowed to the two sources we distinguish for
- * precedence: an explicit command-line flag versus an environment variable.
+ * Where a resolved auth option value came from, in precedence order: an
+ * explicit command-line flag, an environment variable, `--credentials-file`,
+ * or the saved login. The first two are Commander's own
+ * `getOptionValueSource()` values; the file sources are recorded by the
+ * preAction loaders (see credential-source.ts).
  */
-export type AuthOptionSource = 'cli' | 'env'
+export const AUTH_OPTION_SOURCES = ['cli', 'env', 'file', 'session'] as const
+export type AuthOptionSource = (typeof AUTH_OPTION_SOURCES)[number]
+
+const SOURCE_LABELS: Record<AuthOptionSource, string> = {
+  cli: 'the command line',
+  env: 'the environment',
+  file: 'the credentials file',
+  session: 'the saved login',
+}
+
+/** Precedence rank of a source: lower wins. */
+function rankOf(source: AuthOptionSource): number {
+  return AUTH_OPTION_SOURCES.indexOf(source)
+}
 
 /**
  * Per-option provenance for the mutually exclusive auth flags, keyed by the
@@ -80,10 +95,10 @@ export interface CLIAuthOptions {
 }
 
 /**
- * The mutually exclusive authentication modes, in precedence order. An explicit
- * flag always wins over an environment variable; when every supplied mode came
- * from the environment, the first one in this order wins and the rest are
- * reported as ignored (see {@link resolveAuthMode}).
+ * The mutually exclusive authentication modes, in precedence order. A mode
+ * from a higher-ranked source always wins; among modes from the same source,
+ * the first one in this order wins and the rest are reported as ignored (see
+ * {@link resolveAuthMode}).
  *
  * 1. `readOnly`   - `--view-address` / `VIEW_ADDRESS` (query only, never signs)
  * 2. `sessionKey` - `--wallet-address` + `--session-key` (delegated signer)
@@ -104,13 +119,16 @@ interface AuthModeCandidate {
 /**
  * Resolve which single auth mode to use from the modes that were supplied.
  *
- * Rules (see {@link AuthMode} for the mode list):
- * - An explicit command-line flag always beats an environment variable, so a
- *   flag disambiguates against any env-sourced mode.
+ * Rules (see {@link AuthMode} for the mode list and {@link AuthOptionSource}
+ * for the source order):
+ * - The mode from the highest-ranked source wins: a flag beats an env var,
+ *   which beats the credentials file, which beats the saved login. That is
+ *   how `PRIVATE_KEY` in the shell keeps beating a session key pair in a
+ *   `--credentials-file`.
  * - Two or more modes from explicit flags is a hard error (contradictory args).
- * - With no explicit flag, the highest-precedence env-sourced mode wins and a
- *   warning names the env vars that were ignored. A shell that exports both
- *   `PRIVATE_KEY` and session-key credentials keeps working, as it always has.
+ * - Otherwise canonical order breaks a tie within one source, and a warning
+ *   names every mode that lost. A shell that exports both `PRIVATE_KEY` and
+ *   session-key credentials keeps working, as it always has.
  * - Exactly one supplied mode wins; none supplied returns `undefined` (caller
  *   applies the devnet fallback or lets initializeSynapse report missing auth).
  *
@@ -125,16 +143,14 @@ function resolveAuthMode(candidates: AuthModeCandidate[]): AuthMode | undefined 
     const labels = explicit.map((c) => c.label).join(' and ')
     throw new Error(`Conflicting authentication options: ${labels}. Provide exactly one authentication mode.`)
   }
-  const [singleExplicit] = explicit
-  if (singleExplicit) return singleExplicit.mode
-
-  // No explicit flag: every remaining candidate is env-sourced. Canonical
-  // order breaks the tie, loudly, so a stale export never silently changes
-  // which key signs.
-  const [winner, ...ignored] = candidates
+  // Stable sort: source rank first, canonical order within a source, so a
+  // stale export never silently changes which key signs.
+  const [winner, ...ignored] = [...candidates].sort((a, b) => rankOf(a.source) - rankOf(b.source))
   if (winner && ignored.length > 0) {
     const ignoredLabels = ignored.map((c) => c.label).join(', ')
-    log.warn(`Using ${winner.label} from the environment; ignoring ${ignoredLabels}. Pass a flag to choose explicitly.`)
+    log.warn(
+      `Using ${winner.label} from ${SOURCE_LABELS[winner.source]}; ignoring ${ignoredLabels}. Pass a flag to choose explicitly.`
+    )
   }
   return winner?.mode
 }
@@ -171,7 +187,7 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   // A mode spanning several options takes the strongest source among them: a
   // single explicit flag makes the whole mode explicit.
   const strongest = (...srcs: Array<AuthOptionSource | undefined>): AuthOptionSource | undefined =>
-    srcs.includes('cli') ? 'cli' : srcs.includes('env') ? 'env' : undefined
+    srcs.filter((src): src is AuthOptionSource => src !== undefined).sort((a, b) => rankOf(a) - rankOf(b))[0]
 
   // Build the candidate list in canonical priority order (see AuthMode).
   const candidates: AuthModeCandidate[] = []
