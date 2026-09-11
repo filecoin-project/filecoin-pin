@@ -268,7 +268,7 @@ filecoin-pin add myfile.txt
 * `--session-key`: Session key mode: the session key's **private key** (printed as `SESSION_KEY` by `filecoin-pin session create` / `session generate`), not the session address. Each command checks only the permissions it needs; see [Session-Key Permissions](#session-key-permissions) below.
 * `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `mainnet`). Mutually exclusive with `--rpc-url`.
 * `--rpc-url`: Filecoin RPC endpoint. Filecoin Pin probes its `eth_chainId` to derive the chain. Mutually exclusive with `--network`.
-* `--credentials-file <path>`: Load credentials (e.g. `SESSION_KEY`, `WALLET_ADDRESS`) from a dotenv-style file before other options are resolved, e.g. a downloaded credentials file. Never overrides a variable already set in the environment.
+* `--credentials-file <path>`: Load credentials (e.g. `SESSION_KEY`, `WALLET_ADDRESS`) from a dotenv-style file, e.g. a downloaded credentials file. Flags and environment variables always win over the file, across auth modes too: `PRIVATE_KEY` in the shell beats a session key pair in the file.
 
 Other arguments are possible for individual commands, use `--help` to find out more.
 
@@ -286,6 +286,10 @@ A grant lives on one chain, so the file records the network (`mainnet` or `calib
 * Exit codes: `0` when every requested scope was granted, `2` when the wait timed out, `--no-wait` skipped it, or the owner granted fewer scopes than requested (rerun `login` to resume with the same key, or `login --scopes` with only what you need), `1` on an error.
 
 `filecoin-pin logout` deletes the saved session file and prints the session address it removed. This is local only: the on-chain grant expires on its own, or revoke it early on the console's Session keys page or with `filecoin-pin session revoke <session-address>` and the wallet key.
+
+Every command resolves credentials in this order: explicit flags, then environment variables (`PRIVATE_KEY`, or `SESSION_KEY` and `WALLET_ADDRESS`), then `--credentials-file`, then the saved session file, and otherwise fails with `No credentials found` and a pointer to `login`. `VIEW_ADDRESS` forces read-only mode and skips the saved login (the command says so). `login`, `logout`, and `server` never read the session file. When the saved login is used and neither `--network` nor `NETWORK` chose a network, the key's own network applies; using it under another network prints a warning. Whenever a session credential is used, the command prints a `Using session …` line naming the key, where it came from, the owner, and the network. Expired grants fail with `Session expired`; rerun `login` to renew the same key.
+
+CI and shared runners: set `PRIVATE_KEY` or `SESSION_KEY` and `WALLET_ADDRESS` explicitly, so a session file left in the runner's home directory is never picked up.
 
 ### Session-Key Permissions
 

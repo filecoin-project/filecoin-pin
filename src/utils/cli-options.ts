@@ -10,8 +10,9 @@ import { MIN_RUNWAY_DAYS } from '../common/constants.js'
 import { normalizeNetworkName } from '../common/get-rpc-url.js'
 import { USDFC_DECIMALS } from '../core/payments/constants.js'
 import { SCOPE_IDS } from '../core/session/scopes.js'
-import type { AuthOptionSource, AuthOptionSources } from './cli-auth.js'
+import { AUTH_OPTION_SOURCES, type AuthOptionSource, type AuthOptionSources } from './cli-auth.js'
 import { log } from './cli-logger.js'
+import { applySessionFileCredentials } from './credential-source.js'
 import { CREDENTIALS_FILE_FLAG } from './credentials-file.js'
 
 /**
@@ -22,9 +23,9 @@ const AUTH_OPTION_NAMES = ['privateKey', 'walletAddress', 'sessionKey', 'viewAdd
 
 /**
  * Read each auth flag's provenance from a Commander command, narrowed to the
- * `cli` (explicit flag) vs `env` (environment variable) distinction that
- * precedence resolution cares about. Other sources (`default`, `config`,
- * `implied`, unset) are omitted so `parseCLIAuth` treats them as absent.
+ * sources precedence resolution ranks: `cli`, `env`, and the `file` and
+ * `session` sources the preAction loaders record. Other sources (`default`,
+ * `config`, `implied`, unset) are omitted so `parseCLIAuth` treats them as absent.
  *
  * None of the auth flags declare a Commander `.default()`, which matters:
  * parseCLIAuth's `sourceOf` treats a present value with no recorded source as an
@@ -37,7 +38,7 @@ export function collectAuthOptionSources(command: Command): AuthOptionSources {
   const sources: AuthOptionSources = {}
   for (const name of AUTH_OPTION_NAMES) {
     const source = command.getOptionValueSource(name)
-    if (source === 'cli' || source === 'env') {
+    if ((AUTH_OPTION_SOURCES as readonly unknown[]).includes(source)) {
       sources[name] = source as AuthOptionSource
     }
   }
@@ -67,15 +68,15 @@ export function scopesOption(description: string): Option {
 }
 
 /**
- * `--credentials-file <path>`: a dotenv-style file loaded into the
- * environment before Commander resolves env-backed options (see
- * `src/utils/credentials-file.ts`). Registered here so `--help` lists it
- * and Commander accepts it; the value itself is consumed pre-parse.
+ * `--credentials-file <path>`: a dotenv-style file the root program's
+ * preAction hook loads after flags and env vars are resolved (see
+ * `src/utils/credentials-file.ts`). Registered on subcommands too so their
+ * `--help` lists it.
  */
 export function credentialsFileOption(): Option {
   return new Option(
     `${CREDENTIALS_FILE_FLAG} <path>`,
-    'Load credentials (e.g. SESSION_KEY, WALLET_ADDRESS) from a dotenv-style file before other options are resolved. Does not override variables already set in the environment.'
+    'Load credentials (e.g. SESSION_KEY, WALLET_ADDRESS) from a dotenv-style file. Flags and environment variables always win over the file.'
   )
 }
 
@@ -144,12 +145,14 @@ export function addAuthOptions(command: Command): Command {
     )
   )
 
-  // Capture each auth flag's provenance (explicit flag vs env var) before the
-  // action runs, and stash it on the parsed options as `optionSources`. This is
-  // the only point where Commander's per-option source is available, so it lets
-  // parseCLIAuth() resolve precedence (explicit flag beats env) without every
-  // command action or runner having to thread the Command through.
+  // Fill the lowest tier (the saved login) once flags, env vars, and the
+  // credentials file (the root program's hook, which runs first) have had
+  // their say, then capture each auth flag's provenance on the parsed options
+  // as `optionSources`. This is the only point where Commander's per-option
+  // source is available, so it lets parseCLIAuth() rank the sources without
+  // every command action or runner having to thread the Command through.
   command.hook('preAction', (_thisCommand, actionCommand) => {
+    applySessionFileCredentials(actionCommand)
     actionCommand.setOptionValue('optionSources', collectAuthOptionSources(actionCommand))
   })
 
