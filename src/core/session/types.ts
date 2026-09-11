@@ -35,6 +35,14 @@ export type RevokeSessionProgressEvents =
   | ProgressEvent<'revokeSession:submitted', { txHash: Hash; sessionAddress: Address }>
   | ProgressEvent<'revokeSession:confirmed', { txHash: Hash; blockNumber: bigint; sessionAddress: Address }>
 
+/**
+ * Progress events emitted while waiting for an on-chain authorization.
+ */
+export type WatchAuthorizationProgressEvents =
+  | ProgressEvent<'watch:tick', { remainingMs: number }>
+  | ProgressEvent<'watch:ownerFound', { owner: Address }>
+  | ProgressEvent<'watch:error', { error: unknown }>
+
 export interface SessionKeypair {
   privateKey: Hex
   address: Address
