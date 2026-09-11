@@ -15,7 +15,7 @@
  * that sets env vars is never surprised by a stale laptop file.
  */
 
-import type { Command } from 'commander'
+import type { Command, Option } from 'commander'
 import { getSessionFilePath, readSessionFile } from '../login/session-file.js'
 
 /** Env var name and Commander attribute for every variable the file sources may supply. */
@@ -54,11 +54,18 @@ function isSupplied(command: Command, env: NodeJS.ProcessEnv, name: LoadableEnvV
   return command.getOptionValue(OPTION_FOR_ENV[name]) !== undefined || isSet(env, name)
 }
 
+const SOURCE_LABELS = { file: 'the credentials file', session: 'the saved login' } as const
+
 /**
  * Supply `name` from a file source unless something higher already did.
  * The Commander option is set (with `source` as its provenance) only when
  * the command declares it, exactly as Commander binds env vars; the env var
  * is set for the code that reads `process.env` directly.
+ *
+ * Commander checks `.conflicts()` before preAction hooks run, so a value
+ * supplied here would slip past a conflict a flag or env var would have
+ * tripped (`--auto-fund` with VIEW_ADDRESS from a file). Re-check it here
+ * and fail the same way Commander would have.
  *
  * @returns whether the value was used
  */
@@ -71,7 +78,23 @@ export function supplyCredential(
 ): boolean {
   if (isSupplied(command, env, name)) return false
   const attribute = OPTION_FOR_ENV[name]
-  if (command.options.some((option) => option.attributeName() === attribute)) {
+  const declared = command.options.find((option) => option.attributeName() === attribute)
+  if (declared !== undefined) {
+    const chosen = (option: Option): boolean => {
+      const valueSource = command.getOptionValueSource(option.attributeName())
+      return valueSource !== undefined && valueSource !== 'default' && valueSource !== 'implied'
+    }
+    // `conflictsWith` is what `.conflicts()` records; Commander reads it the same way but does not type it.
+    const conflictsOf = (option: Option): string[] =>
+      (option as Option & { conflictsWith?: string[] }).conflictsWith ?? []
+    const conflict = command.options.find(
+      (option) =>
+        chosen(option) &&
+        (conflictsOf(option).includes(attribute) || conflictsOf(declared).includes(option.attributeName()))
+    )
+    if (conflict !== undefined) {
+      throw new Error(`option '${conflict.flags}' cannot be used with ${name} from ${SOURCE_LABELS[source]}`)
+    }
     command.setOptionValueWithSource(attribute, value, source)
   }
   env[name] = value
