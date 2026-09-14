@@ -128,6 +128,11 @@ vi.mock('../../payments/setup.js', () => ({
 }))
 const { mockFindDataSets } = vi.hoisted(() => ({ mockFindDataSets: vi.fn().mockResolvedValue([]) }))
 
+vi.mock('../../common/funds-preflight.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../common/funds-preflight.js')>()),
+  assertUploadFunds: vi.fn(async () => undefined),
+}))
+
 vi.mock('../../core/synapse/index.js', () => ({
   isSessionKeyMode: vi.fn(() => false),
   getClientAddress: vi.fn(() => '0x1234567890123456789012345678901234567890'),
@@ -328,6 +333,50 @@ describe('CAR Import', () => {
       }
 
       await expect(runCarImport(options)).rejects.toThrow()
+    })
+  })
+
+  describe('session-key funds preflight', () => {
+    const sessionAuth = (carPath: string): ImportOptions => ({
+      filePath: carPath,
+      walletAddress: '0x1234567890123456789012345678901234567890',
+      sessionKey: `0x${'11'.repeat(32)}`,
+      rpcUrl: 'wss://test.rpc.url',
+    })
+
+    afterEach(async () => {
+      const { isSessionKeyMode } = await import('../../core/synapse/index.js')
+      vi.mocked(isSessionKeyMode).mockReturnValue(false)
+    })
+
+    it('checks funds on the CAR size before uploading', async () => {
+      const carPath = join(testDir, 'session.car')
+      await createTestCarFile(carPath, [], [{ content: 'test content' }])
+      const { isSessionKeyMode } = await import('../../core/synapse/index.js')
+      const { assertUploadFunds } = await import('../../common/funds-preflight.js')
+      const { performUpload } = await import('../../common/upload-flow.js')
+      vi.mocked(isSessionKeyMode).mockReturnValue(true)
+
+      await runCarImport(sessionAuth(carPath))
+
+      expect(vi.mocked(assertUploadFunds)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(assertUploadFunds).mock.calls[0]?.[1]).toBe((await stat(carPath)).size)
+      expect(vi.mocked(assertUploadFunds).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(performUpload).mock.invocationCallOrder[0] as number
+      )
+    })
+
+    it('uploads nothing when the funds check refuses', async () => {
+      const carPath = join(testDir, 'session-refused.car')
+      await createTestCarFile(carPath, [], [{ content: 'test content' }])
+      const { isSessionKeyMode } = await import('../../core/synapse/index.js')
+      const { assertUploadFunds } = await import('../../common/funds-preflight.js')
+      const { performUpload } = await import('../../common/upload-flow.js')
+      vi.mocked(isSessionKeyMode).mockReturnValue(true)
+      vi.mocked(assertUploadFunds).mockRejectedValueOnce(new Error("Account can't pay for this upload"))
+
+      await expect(runCarImport(sessionAuth(carPath))).rejects.toThrow("Account can't pay")
+      expect(vi.mocked(performUpload)).not.toHaveBeenCalled()
     })
   })
 

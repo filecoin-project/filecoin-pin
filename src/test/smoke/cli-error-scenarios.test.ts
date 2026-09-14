@@ -77,7 +77,7 @@ describe('add', () => {
   it('no auth — valid path, PRIVATE_KEY absent', T, async () => {
     const result = await runCli(['add', 'package.json'])
     expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain('No authentication provided')
+    expect(result.combined).toContain('No credentials found')
   })
 })
 
@@ -123,7 +123,7 @@ describe('payments status', () => {
   it('no auth', T, async () => {
     const result = await runCli(['payments', 'status'])
     expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain('No authentication provided')
+    expect(result.combined).toContain('No credentials found')
   })
 })
 
@@ -173,7 +173,7 @@ describe('data-set show', () => {
   it('no auth', T, async () => {
     const result = await runCli(['data-set', 'show', '42'])
     expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain('No authentication provided')
+    expect(result.combined).toContain('No credentials found')
   })
 
   it('non-numeric dataSetId', T, async () => {
@@ -206,7 +206,7 @@ describe('data-set list', () => {
   it('no auth', T, async () => {
     const result = await runCli(['data-set', 'list'])
     expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain('No authentication provided')
+    expect(result.combined).toContain('No credentials found')
   })
 })
 
@@ -220,7 +220,7 @@ describe('data-set terminate', () => {
   it('no auth', T, async () => {
     const result = await runCli(['data-set', 'terminate', '42'])
     expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain('No authentication provided')
+    expect(result.combined).toContain('No credentials found')
   })
 
   it('non-numeric dataSetId is rejected', T, async () => {
@@ -240,7 +240,7 @@ describe('data-set piece-status', () => {
   it('no auth', T, async () => {
     const result = await runCli(['data-set', 'piece-status', '42'])
     expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain('No authentication provided')
+    expect(result.combined).toContain('No credentials found')
   })
 
   it('non-numeric dataSetId is rejected', T, async () => {

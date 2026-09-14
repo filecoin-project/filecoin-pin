@@ -7,10 +7,55 @@
 
 import type { Permission } from '@filoz/synapse-core/session-key'
 import type { FilecoinChain, Synapse } from '@filoz/synapse-sdk'
+import pc from 'picocolors'
+import { privateKeyToAccount } from 'viem/accounts'
 import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rpc-url.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { initializeSynapse, isReadOnlyConfig, isSessionKeyConfig } from '../core/synapse/index.js'
 import { createLogger } from '../logger.js'
+import { shortAddress } from '../login/format.js'
+import { log } from './cli-logger.js'
+import {
+  getSessionCredentialNetwork,
+  getSessionCredentialSource,
+  wasSessionSkippedForViewAddress,
+} from './credential-source.js'
+
+/**
+ * Where a resolved auth option value came from, in precedence order: an
+ * explicit command-line flag, an environment variable, `--credentials-file`,
+ * or the saved login. The first two are Commander's own
+ * `getOptionValueSource()` values; the file sources are recorded by the
+ * preAction loaders (see credential-source.ts).
+ */
+export const AUTH_OPTION_SOURCES = ['cli', 'env', 'file', 'session'] as const
+export type AuthOptionSource = (typeof AUTH_OPTION_SOURCES)[number]
+
+const SOURCE_LABELS: Record<AuthOptionSource, string> = {
+  cli: 'the command line',
+  env: 'the environment',
+  file: 'the credentials file',
+  session: 'the saved login',
+}
+
+/** Precedence rank of a source: lower wins. */
+function rankOf(source: AuthOptionSource): number {
+  return AUTH_OPTION_SOURCES.indexOf(source)
+}
+
+/**
+ * Per-option provenance for the mutually exclusive auth flags, keyed by the
+ * Commander attribute name. Populated by the `addAuthOptions` preAction hook
+ * (see `collectAuthOptionSources` in cli-options.ts) so `parseCLIAuth` can tell
+ * an explicit flag from an inherited env var. Absent for programmatic callers,
+ * which are treated as if every supplied value were an explicit flag.
+ */
+export interface AuthOptionSources {
+  privateKey?: AuthOptionSource
+  walletAddress?: AuthOptionSource
+  sessionKey?: AuthOptionSource
+  viewAddress?: AuthOptionSource
+}
 
 /**
  * Common CLI authentication options interface
@@ -25,6 +70,11 @@ export interface CLIAuthOptions {
   sessionKey?: string | undefined
   /** View-only wallet address (no signing) */
   viewAddress?: string | undefined
+  /**
+   * Provenance of the auth flags above, injected by the `addAuthOptions`
+   * preAction hook. Used only to resolve precedence; never forwarded to the SDK.
+   */
+  optionSources?: AuthOptionSources | undefined
   /** Filecoin network: mainnet or calibration */
   network?: string | undefined
   /** RPC endpoint URL (overrides network if specified) */
@@ -45,6 +95,67 @@ export interface CLIAuthOptions {
 }
 
 /**
+ * The mutually exclusive authentication modes, in precedence order. A mode
+ * from a higher-ranked source always wins; among modes from the same source,
+ * the first one in this order wins and the rest are reported as ignored (see
+ * {@link resolveAuthMode}).
+ *
+ * 1. `readOnly`   - `--view-address` / `VIEW_ADDRESS` (query only, never signs)
+ * 2. `sessionKey` - `--wallet-address` + `--session-key` (delegated signer)
+ * 3. `privateKey` - `--private-key` / `PRIVATE_KEY` (raw-key owner signer)
+ *
+ * Devnet auto-resolves the devnet user's private key, but only when none of the
+ * above is supplied, so it is a fallback rather than a competing mode.
+ */
+type AuthMode = 'readOnly' | 'sessionKey' | 'privateKey'
+
+interface AuthModeCandidate {
+  mode: AuthMode
+  source: AuthOptionSource
+  /** Human-readable flag/env pair for conflict messages. */
+  label: string
+}
+
+/**
+ * Resolve which single auth mode to use from the modes that were supplied.
+ *
+ * Rules (see {@link AuthMode} for the mode list and {@link AuthOptionSource}
+ * for the source order):
+ * - The mode from the highest-ranked source wins: a flag beats an env var,
+ *   which beats the credentials file, which beats the saved login. That is
+ *   how `PRIVATE_KEY` in the shell keeps beating a session key pair in a
+ *   `--credentials-file`.
+ * - Two or more modes from explicit flags is a hard error (contradictory args).
+ * - Otherwise canonical order breaks a tie within one source, and a warning
+ *   names every mode that lost. A shell that exports both `PRIVATE_KEY` and
+ *   session-key credentials keeps working, as it always has.
+ * - Exactly one supplied mode wins; none supplied returns `undefined` (caller
+ *   applies the devnet fallback or lets initializeSynapse report missing auth).
+ *
+ * Programmatic callers that don't provide `optionSources` have every supplied
+ * value treated as an explicit flag, so any two modes still conflict.
+ *
+ * @param candidates - Supplied modes in canonical precedence order
+ */
+function resolveAuthMode(candidates: AuthModeCandidate[]): AuthMode | undefined {
+  const explicit = candidates.filter((c) => c.source === 'cli')
+  if (explicit.length > 1) {
+    const labels = explicit.map((c) => c.label).join(' and ')
+    throw new Error(`Conflicting authentication options: ${labels}. Provide exactly one authentication mode.`)
+  }
+  // Stable sort: source rank first, canonical order within a source, so a
+  // stale export never silently changes which key signs.
+  const [winner, ...ignored] = [...candidates].sort((a, b) => rankOf(a.source) - rankOf(b.source))
+  if (winner && ignored.length > 0) {
+    const ignoredLabels = ignored.map((c) => c.label).join(', ')
+    log.warn(
+      `Using ${winner.label} from ${SOURCE_LABELS[winner.source]}; ignoring ${ignoredLabels}. Pass a flag to choose explicitly.`
+    )
+  }
+  return winner?.mode
+}
+
+/**
  * Parse CLI authentication options into SynapseSetupConfig
  *
  * This function handles reading from CLI options and environment variables,
@@ -60,12 +171,44 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
   const isDevnet = network === 'devnet'
   const hasRpcUrl = options.rpcUrl != null && options.rpcUrl !== ''
 
-  // For devnet, fall back to the devnet user's private key if none provided
-  const privateKey = options.privateKey || (isDevnet ? resolveDevnetConfig().privateKey : undefined)
+  // Env vars are bound to the Commander options via .env() (see cli-options.ts),
+  // so read everything from `options` rather than process.env here.
   const walletAddress = options.walletAddress
   const sessionKey = options.sessionKey
   const viewAddress = options.viewAddress
   const rpcUrl = getRpcUrl(options)
+
+  const sources = options.optionSources
+  const nonEmpty = (value?: string): value is string => value != null && value !== ''
+  // Effective source of one option: its Commander provenance when known,
+  // otherwise treat a supplied value as an explicit flag (programmatic callers).
+  const sourceOf = (name: keyof AuthOptionSources, value?: string): AuthOptionSource | undefined =>
+    nonEmpty(value) ? (sources?.[name] ?? 'cli') : undefined
+  // A mode spanning several options takes the strongest source among them: a
+  // single explicit flag makes the whole mode explicit.
+  const strongest = (...srcs: Array<AuthOptionSource | undefined>): AuthOptionSource | undefined =>
+    srcs.filter((src): src is AuthOptionSource => src !== undefined).sort((a, b) => rankOf(a) - rankOf(b))[0]
+
+  // Build the candidate list in canonical priority order (see AuthMode).
+  const candidates: AuthModeCandidate[] = []
+  const readOnlySource = sourceOf('viewAddress', viewAddress)
+  if (readOnlySource)
+    candidates.push({ mode: 'readOnly', source: readOnlySource, label: '--view-address/VIEW_ADDRESS' })
+  // Session-key mode competes for precedence only when BOTH halves are present.
+  // A lone --wallet-address or --session-key is a lowest-priority fallback
+  // (handled in the default branch), so it never outranks a complete mode like
+  // a private key.
+  const walletAddressSource = sourceOf('walletAddress', walletAddress)
+  const sessionKeySource = sourceOf('sessionKey', sessionKey)
+  const sessionSource =
+    walletAddressSource && sessionKeySource ? strongest(walletAddressSource, sessionKeySource) : undefined
+  if (sessionSource)
+    candidates.push({ mode: 'sessionKey', source: sessionSource, label: '--wallet-address/--session-key' })
+  const privateKeySource = sourceOf('privateKey', options.privateKey)
+  if (privateKeySource)
+    candidates.push({ mode: 'privateKey', source: privateKeySource, label: '--private-key/PRIVATE_KEY' })
+
+  const mode = resolveAuthMode(candidates)
 
   // --network and --rpc-url are mutually exclusive at the Commander level. Set the chain hint
   // only when --network was chosen; otherwise leave it undefined and let initializeSynapse probe
@@ -79,7 +222,8 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
     chain = NETWORK_CHAINS.mainnet
   }
 
-  // Build config incrementally; initializeSynapse() validates the final shape
+  // Build the config for the single resolved mode; initializeSynapse() validates
+  // the final shape.
   const config: {
     privateKey?: string
     walletAddress?: string
@@ -89,17 +233,72 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
     chain?: FilecoinChain
   } = {}
 
-  if (privateKey) config.privateKey = privateKey
-  if (viewAddress) {
-    config.walletAddress = viewAddress
-    config.readOnly = true
-  } else if (walletAddress) {
-    config.walletAddress = walletAddress
+  switch (mode) {
+    case 'readOnly':
+      if (nonEmpty(viewAddress)) config.walletAddress = viewAddress
+      config.readOnly = true
+      if (wasSessionSkippedForViewAddress()) {
+        log.line(pc.gray('  Saved login ignored because VIEW_ADDRESS is set (read-only mode)'))
+      }
+      break
+    case 'sessionKey':
+      // Both halves are present (that is what made this a competing candidate).
+      if (nonEmpty(walletAddress)) config.walletAddress = walletAddress
+      if (nonEmpty(sessionKey)) config.sessionKey = sessionKey
+      break
+    case 'privateKey':
+      if (nonEmpty(options.privateKey)) config.privateKey = options.privateKey
+      break
+    default: {
+      // No complete auth mode won. Fallbacks, in priority order: devnet
+      // auto-key, then a lone session-key half passed through so
+      // initializeSynapse can emit its targeted "requires both" error.
+      const devnetKey = isDevnet ? resolveDevnetConfig().privateKey : undefined
+      if (nonEmpty(devnetKey)) {
+        config.privateKey = devnetKey
+      } else if (nonEmpty(walletAddress)) {
+        config.walletAddress = walletAddress
+      } else if (nonEmpty(sessionKey)) {
+        config.sessionKey = sessionKey
+      }
+      break
+    }
   }
-  if (sessionKey) config.sessionKey = sessionKey
   if (rpcUrl) config.rpcUrl = rpcUrl
   if (chain) config.chain = chain
+  if (mode === 'sessionKey' && nonEmpty(sessionKey) && nonEmpty(walletAddress)) {
+    printSessionInUse(sessionKey, walletAddress, network)
+  }
   return config as SynapseSetupConfig
+}
+
+/**
+ * One gray line naming the session credential a command runs with: the
+ * session address, where it came from when auto-loaded,
+ * the owner, and the network the key was made for. Skipped when the key
+ * is malformed; initializeSynapse reports that with the right flag name.
+ * A saved login used on another network gets a warning: the grant cannot
+ * be there.
+ */
+function printSessionInUse(sessionKey: string, walletAddress: string, network: string | undefined): void {
+  let sessionAddress: string
+  try {
+    sessionAddress = privateKeyToAccount(sessionKey as `0x${string}`).address
+  } catch {
+    return
+  }
+  const source = getSessionCredentialSource()
+  const from = source === undefined ? '' : ` (from ${source})`
+  const saved = getSessionCredentialNetwork()
+  const on = saved === undefined ? '' : ` · ${saved}`
+  log.line(
+    pc.gray(`  Using session ${shortAddress(sessionAddress)}${from} · owner ${shortAddress(walletAddress)}${on}`)
+  )
+  if (saved !== undefined && network !== undefined && network !== saved) {
+    log.line(
+      `${pc.yellow('⚠')} The saved login is for ${saved}, but this command runs on ${network}. Pass --network ${saved}, or run \`filecoin-pin login --network ${network}\`.`
+    )
+  }
 }
 
 /**

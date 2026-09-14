@@ -1,24 +1,23 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { buildAuthorizeUrl, resolveConsoleUrl } from '../../core/session/console-url.js'
-
-const previousConsoleUrl = process.env.CONSOLE_URL
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  buildAuthorizeUrl,
+  buildFundingUrl,
+  DEFAULT_CONSOLE_URL,
+  resolveConsoleUrl,
+} from '../../core/session/console-url.js'
 
 afterEach(() => {
-  if (previousConsoleUrl == null) {
-    delete process.env.CONSOLE_URL
-  } else {
-    process.env.CONSOLE_URL = previousConsoleUrl
-  }
+  vi.unstubAllEnvs()
 })
 
 describe('resolveConsoleUrl', () => {
   it('defaults to the production console', () => {
-    delete process.env.CONSOLE_URL
-    expect(resolveConsoleUrl()).toBe('https://pay.filecoin.cloud')
+    vi.stubEnv('CONSOLE_URL', undefined)
+    expect(resolveConsoleUrl()).toBe(DEFAULT_CONSOLE_URL)
   })
 
   it('prefers CONSOLE_URL over the default', () => {
-    process.env.CONSOLE_URL = 'http://localhost:3005'
+    vi.stubEnv('CONSOLE_URL', 'http://localhost:3005')
     expect(resolveConsoleUrl()).toBe('http://localhost:3005')
   })
 })
@@ -56,5 +55,14 @@ describe('buildAuthorizeUrl network param', () => {
 
   it('omits the param for an unknown chain id', () => {
     expect(buildAuthorizeUrl('https://pay.filecoin.cloud', '0xA', ['addPieces'], 1)).not.toMatch(/network=/)
+  })
+})
+
+describe('buildFundingUrl', () => {
+  it('names the deposit, the storage service, and the network', () => {
+    expect(buildFundingUrl('https://pay.filecoin.cloud/', 2, 314159)).toBe(
+      'https://pay.filecoin.cloud/console?deposit=2&operator=fwss&network=calibration'
+    )
+    expect(buildFundingUrl('https://pay.filecoin.cloud', 5, 314)).toMatch(/&network=mainnet$/)
   })
 })

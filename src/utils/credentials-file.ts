@@ -9,13 +9,16 @@
  * Node validates its own `--env-file` before our code runs, so a bad path
  * produced a Node error instead of ours.
  *
- * Values from the file are applied to `process.env` only when the variable
- * is not already set, so a pre-existing environment variable always wins
- * over the file, and a `--flag` (which Commander resolves after this runs)
- * always wins over both.
+ * The file loads from a Commander `preAction` hook, after flags and env
+ * vars are resolved, and only supplies what they left unset. Each value is
+ * recorded with source `file`, so a `--flag` or an env var always wins over
+ * the file, across auth modes too: `PRIVATE_KEY` in the shell beats a
+ * session key pair in the file (see `resolveAuthMode` in cli-auth.ts).
  */
 import { readFileSync } from 'node:fs'
 import { parseEnv } from 'node:util'
+import type { Command } from 'commander'
+import { type LoadableEnvVar, supplyCredential } from './credential-source.js'
 
 export const CREDENTIALS_FILE_FLAG = '--credentials-file'
 
@@ -28,14 +31,24 @@ function describeReadError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** The only variables a credentials file may set: anything else could steer the CLI, not authenticate it. */
+export const CREDENTIALS_FILE_VARS = [
+  'PRIVATE_KEY',
+  'SESSION_KEY',
+  'WALLET_ADDRESS',
+  'VIEW_ADDRESS',
+  'NETWORK',
+] as const satisfies LoadableEnvVar[]
+
 /**
- * Load a dotenv-style file at `path` into `env`, without overriding
- * variables already present in `env`.
+ * Read the credential variables of the dotenv-style file at `path`. Other
+ * variables are ignored and named on stderr: a file from the console or a
+ * teammate must not be able to point CONSOLE_URL or RPC_URL elsewhere.
  *
  * Throws with a clear, path-naming error if the file cannot be read
- * (e.g. it doesn't exist).
+ * (e.g. it doesn't exist) or holds no usable entry.
  */
-export function loadCredentialsFile(path: string, env: NodeJS.ProcessEnv = process.env): void {
+export function readCredentialsFile(path: string): Partial<Record<LoadableEnvVar, string>> {
   let contents: string
   try {
     contents = readFileSync(path, 'utf8')
@@ -43,49 +56,39 @@ export function loadCredentialsFile(path: string, env: NodeJS.ProcessEnv = proce
     throw new Error(`--credentials-file: could not read "${path}": ${describeReadError(error)}`)
   }
 
-  const parsed = parseEnv(contents)
-  if (Object.keys(parsed).length === 0) {
+  const credentials: Partial<Record<LoadableEnvVar, string>> = {}
+  const ignored: string[] = []
+  for (const [key, value] of Object.entries(parseEnv(contents))) {
+    if (value !== undefined && (CREDENTIALS_FILE_VARS as readonly string[]).includes(key)) {
+      credentials[key as LoadableEnvVar] = value
+    } else {
+      ignored.push(key)
+    }
+  }
+  if (ignored.length > 0) {
+    console.error(
+      `--credentials-file: ignored ${ignored.join(', ')} (only ${CREDENTIALS_FILE_VARS.join(', ')} are read)`
+    )
+  }
+  if (Object.keys(credentials).length === 0) {
     throw new Error(
       `--credentials-file: no usable entries in "${path}". Expected dotenv-style lines like:\n` +
         `  SESSION_KEY=0x<64 hex>\n  WALLET_ADDRESS=0x<40 hex>\n` +
         `(# comments and blank lines are ignored; "export KEY=VALUE" also works)`
     )
   }
-  for (const [key, value] of Object.entries(parsed)) {
-    if (env[key] === undefined) {
-      env[key] = value
-    }
-  }
+  return credentials
 }
 
 /**
- * Scan `argv` for a position-independent `--credentials-file <path>` or
- * `--credentials-file=<path>` and return the path, or `undefined` if not present.
+ * preAction hook body: when `--credentials-file` was given (in any position,
+ * since the root program declares it), supply its variables at file
+ * precedence. No-op when the flag is absent.
  */
-export function findCredentialsFileArg(argv: string[]): string | undefined {
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]
-    if (arg === undefined) {
-      continue
-    }
-    if (arg === CREDENTIALS_FILE_FLAG) {
-      return argv[i + 1]
-    }
-    if (arg.startsWith(`${CREDENTIALS_FILE_FLAG}=`)) {
-      return arg.slice(CREDENTIALS_FILE_FLAG.length + 1)
-    }
-  }
-  return undefined
-}
-
-/**
- * Pre-parse step: if `--credentials-file <path>` (or `=<path>`) appears anywhere in
- * `argv`, load it into `env` before Commander resolves env-backed options.
- * No-op when the flag is absent. Must run before `program.parse(...)`.
- */
-export function applyCredentialsFileArg(argv: string[] = process.argv, env: NodeJS.ProcessEnv = process.env): void {
-  const path = findCredentialsFileArg(argv)
-  if (path !== undefined) {
-    loadCredentialsFile(path, env)
+export function applyCredentialsFile(actionCommand: Command, env: NodeJS.ProcessEnv = process.env): void {
+  const path = actionCommand.optsWithGlobals<{ credentialsFile?: string }>().credentialsFile
+  if (path === undefined) return
+  for (const [name, value] of Object.entries(readCredentialsFile(path))) {
+    supplyCredential(actionCommand, env, name as LoadableEnvVar, value, 'file')
   }
 }
