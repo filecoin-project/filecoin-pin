@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.1.0](https://github.com/filecoin-project/filecoin-pin/compare/v2.0.1...v2.1.0) (2026-09-14)
+
+
+### Features
+
+* **add:** funds preflight for session keys ([#702](https://github.com/filecoin-project/filecoin-pin/issues/702)) ([40389ae](https://github.com/filecoin-project/filecoin-pin/commit/40389ae50b6c5d3640cb5fb7ee3d6ff98c9bd8f5))
+* **cli:** add balance and dashboard commands ([#703](https://github.com/filecoin-project/filecoin-pin/issues/703)) ([c068a78](https://github.com/filecoin-project/filecoin-pin/commit/c068a7890b2e3c6ef22da7d48307a6b9dd988f25))
+* **cli:** add login and logout commands ([#700](https://github.com/filecoin-project/filecoin-pin/issues/700)) ([819dc6a](https://github.com/filecoin-project/filecoin-pin/commit/819dc6a5c59b0805260d2ce2a312dda0c78ed5b6))
+* **cli:** auto-load the login session and add the no-credentials error ([#701](https://github.com/filecoin-project/filecoin-pin/issues/701)) ([7e431c2](https://github.com/filecoin-project/filecoin-pin/commit/7e431c2be77584fb8e74c73b476300b7db13d30e))
+* **session:** add on-chain authorization watcher ([#699](https://github.com/filecoin-project/filecoin-pin/issues/699)) ([0663f7a](https://github.com/filecoin-project/filecoin-pin/commit/0663f7a1690345d98e38ce77b33ccacdb133a6b8))
+
+
+### Bug Fixes
+
+* **auth:** explicit auth flags no longer lose to env vars ([#458](https://github.com/filecoin-project/filecoin-pin/issues/458)) ([eb24e89](https://github.com/filecoin-project/filecoin-pin/commit/eb24e89998d7ffb965b701a4ce0677a6d94e1998))
+
+
+### Chores
+
+* **deps-dev:** bump vitest from 4.1.0 to 4.1.11 ([#718](https://github.com/filecoin-project/filecoin-pin/issues/718)) ([f225a37](https://github.com/filecoin-project/filecoin-pin/commit/f225a37da85c031a5dfe5d9d37bf31d060b12317))
+
 ## [2.0.1](https://github.com/filecoin-project/filecoin-pin/compare/v2.0.0...v2.0.1) (2026-09-08)
 
 
