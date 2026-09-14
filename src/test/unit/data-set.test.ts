@@ -566,6 +566,57 @@ describe('runTerminateDataSetCommand', () => {
     expect(process.exitCode).toBe(2)
   })
 
+  it('spends a session key grant through the provider, never the owner-only direct call', async () => {
+    mockTerminateService.mockResolvedValue({ dataSetId: 158n, endEpoch: 42n, confirmedTxHash: '0xprovider' })
+
+    await runTerminateDataSetCommand(158, {
+      walletAddress: '0xtest',
+      sessionKey: `0x${'ab'.repeat(32)}`,
+      rpcUrl: 'wss://sample',
+    })
+
+    expect(mockTerminateService).toHaveBeenCalledWith({ dataSetId: 158n })
+    // The provider returns confirmed, so this side never waits on a receipt.
+    expect(mockWaitForTransactionReceipt).not.toHaveBeenCalled()
+    expect(process.exitCode).toBe(0)
+  })
+
+  it('reports a provider termination that names no transaction', async () => {
+    mockTerminateService.mockResolvedValue({ dataSetId: 158n, endEpoch: 42n })
+
+    await runTerminateDataSetCommand(158, {
+      walletAddress: '0xtest',
+      sessionKey: `0x${'ab'.repeat(32)}`,
+      rpcUrl: 'wss://sample',
+    })
+
+    // Confirmed, with no hash appended and no "still pending" hedge.
+    expect(spinnerMock.stop).toHaveBeenCalledWith(expect.stringContaining('termination confirmed'))
+    expect(spinnerMock.stop).not.toHaveBeenCalledWith(expect.stringContaining('undefined'))
+    expect(process.exitCode).toBe(0)
+  })
+
+  it('names the owner wallet when the provider refuses a session key', async () => {
+    // What a provider that no longer holds the data set actually returns.
+    mockTerminateService.mockRejectedValue(new Error('Failed to request data set termination.'))
+
+    await expect(
+      runTerminateDataSetCommand(158, {
+        walletAddress: '0xtest',
+        sessionKey: `0x${'ab'.repeat(32)}`,
+        rpcUrl: 'wss://sample',
+      })
+    ).rejects.toThrow('--private-key')
+  })
+
+  it('leaves a private-key failure alone, since that path is already the owner wallet', async () => {
+    mockTerminateService.mockRejectedValue(new Error('reverted'))
+
+    await expect(runTerminateDataSetCommand(158, { privateKey: 'test-key', rpcUrl: 'wss://sample' })).rejects.toThrow(
+      /^reverted$/
+    )
+  })
+
   it('rejects termination for read-only accounts', async () => {
     await expect(
       runTerminateDataSetCommand(158, {
