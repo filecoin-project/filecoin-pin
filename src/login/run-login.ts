@@ -200,7 +200,21 @@ export async function runLogin(options: LoginOptions): Promise<number> {
   log.flush()
   if (options.browser !== false) openBrowser(url)
 
+  // The link is already on screen: an RPC that is down here costs the wait, not the pairing.
+  const client = createPublicClient({ chain, transport })
+
   if (options.wait === false) {
+    // This exit tells the owner to rerun `login`, and the grant is usually
+    // mined before they do, so it needs the same resume marker the wait
+    // records. Best effort: the pairing is done and an RPC that is down here
+    // must not undo it; a rerun without a marker starts at its own head.
+    if (session.fromBlock === undefined) {
+      try {
+        writeSessionFile({ ...session, fromBlock: await getBlockNumber(client) }, path)
+      } catch {
+        // A rerun will start at its own head; the pairing still stands.
+      }
+    }
     log.line(
       `${pc.yellow('⚠')} Not waiting for the grant. Approve the key, then rerun \`filecoin-pin login\` to check it.`
     )
@@ -208,9 +222,12 @@ export async function runLogin(options: LoginOptions): Promise<number> {
     return EXIT_CODE_INCOMPLETE
   }
 
-  // The link is already on screen: an RPC that is down here costs the wait, not the pairing.
-  const client = createPublicClient({ chain, transport })
-  const fromBlock = await getBlockNumber(client)
+  // A resumed wait scans from where the first one started, so a grant that
+  // landed while nothing was watching is still found. The owner authorizes
+  // once; a rerun that scanned from the current block would wait for a second
+  // event that never comes.
+  const fromBlock = session.fromBlock ?? (await getBlockNumber(client))
+  if (session.fromBlock === undefined) writeSessionFile({ ...session, fromBlock }, path)
   const deadlineMs = options.timeout !== undefined ? options.timeout * 1000 : DEFAULT_WATCH_DEADLINE_MS
   const spinner = createSpinner()
   const waitLine = (remainingMs: number) =>
@@ -256,7 +273,7 @@ export async function runLogin(options: LoginOptions): Promise<number> {
     return EXIT_CODE_INCOMPLETE
   }
 
-  writeSessionFile({ ...session, walletAddress: result.owner }, path)
+  writeSessionFile({ ...session, fromBlock, walletAddress: result.owner }, path)
   const expires = result.expiry !== undefined ? ` · expires ${formatExpiryDate(result.expiry)}` : ''
   if (result.status === 'granted') {
     spinner.stop(`${pc.green('✓')} Authorized! Granted: ${scopeList(result.granted)}${expires}`)

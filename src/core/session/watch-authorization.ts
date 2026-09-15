@@ -9,10 +9,9 @@
  *
  *  1. Owner unknown (first pairing): poll `eth_getLogs` for the registry's
  *     `AuthorizationsUpdated` events and match the `signer` field to our
- *     key. The scan starts at the block login started at and moves forward
- *     to the last block each answer covered, so a poll only re-reads the
- *     blocks that arrived since the previous one. The matching event names
- *     the owner.
+ *     key. Every poll scans the same window, from the block login started
+ *     at to the head it just read, so nothing has to be remembered between
+ *     polls. The matching event names the owner.
  *  2. Owner known (renewal, or after the event was found): read the
  *     per-scope expiries directly. No events involved.
  *
@@ -46,7 +45,8 @@ export const DEFAULT_WATCH_INTERVAL_MS = 5000
  * Failed polls in a row before the wait gives up on the RPC endpoint. One
  * failure is a blip and must not end a wait the owner may be about to
  * finish; this many in a row means the endpoint is down, and the user
- * should hear that now rather than at the deadline.
+ * should hear that now rather than at the deadline. A lagging node never
+ * counts (see {@link isNodeBehind}).
  */
 export const MAX_CONSECUTIVE_POLL_FAILURES = 3
 
@@ -63,7 +63,7 @@ export interface WatchAuthorizationOptions {
   registryAddress: Address
   /** Scopes the user asked for; each is confirmed individually. */
   permissions: readonly Permission[]
-  /** Block to scan events from (the block `login` started at). Required when the owner is unknown. */
+  /** Start of the window every scan reads (the block `login` started at). Required when the owner is unknown. */
   fromBlock?: bigint
   /** Wallet owner, when already known (renewal). Skips the event scan; never replaced by one. */
   owner?: Address
@@ -158,20 +158,19 @@ function grantStatus(scopes: Pick<ScopeGrants, 'granted' | 'missing'>): ScopeGra
 
 /**
  * One `eth_getLogs` query for `AuthorizationsUpdated` events on the registry
- * since `fromBlock`, returning the owner of the first event whose signer is
- * our session key. Mechanism 1.
+ * between `fromBlock` and `toBlock`, returning the owner of the first event
+ * whose signer is our session key. Mechanism 1.
  */
 interface LogScan {
   owner?: Address
-  /** Highest block among the returned logs; the next scan can start there. */
-  lastBlock?: bigint
 }
 
 async function findOwnerInLogs(
   client: Client<Transport, Chain>,
   registryAddress: Address,
   sessionAddress: Address,
-  fromBlock: bigint
+  fromBlock: bigint,
+  toBlock: bigint
 ): Promise<LogScan> {
   const logs = (await client.request({
     method: 'eth_getLogs',
@@ -179,19 +178,15 @@ async function findOwnerInLogs(
       {
         address: registryAddress,
         fromBlock: `0x${fromBlock.toString(16)}`,
-        toBlock: 'latest',
+        // Never `latest`: the default Filecoin RPC answers it ~100x slower than
+        // a numbered range, past viem's request timeout. See #720.
+        toBlock: `0x${toBlock.toString(16)}`,
         topics: [AUTHORIZATIONS_UPDATED_TOPIC],
       },
     ],
   })) as Log[]
 
-  let lastBlock: bigint | undefined
   for (const log of logs) {
-    // Raw rows carry the block number as a hex string.
-    const blockNumber = log.blockNumber === null ? undefined : BigInt(log.blockNumber)
-    if (blockNumber !== undefined && (lastBlock === undefined || blockNumber > lastBlock)) {
-      lastBlock = blockNumber
-    }
     let event: ReturnType<typeof extractLoginEvent>
     try {
       event = extractLoginEvent([log])
@@ -200,16 +195,14 @@ async function findOwnerInLogs(
     }
     if (isAddressEqual(event.args.signer, sessionAddress)) {
       const owner = event.args.identity
-      return lastBlock === undefined ? { owner } : { owner, lastBlock }
+      return { owner }
     }
   }
-  return lastBlock === undefined ? {} : { lastBlock }
+  return {}
 }
 
 interface WatchState {
   owner: Address | undefined
-  /** Where the next event scan starts; advances to the last block a scan returned. */
-  scanFrom: bigint | undefined
   eventSeen: boolean
   last: WatchAuthorizationResult
   /** Whether any poll completed without an RPC error. */
@@ -226,14 +219,17 @@ interface WatchState {
  * is over.
  */
 async function pollOnce(options: WatchAuthorizationOptions, state: WatchState): Promise<boolean> {
-  const { client, sessionAddress, registryAddress, permissions } = options
-  if (state.owner === undefined && state.scanFrom !== undefined) {
-    const scan = await findOwnerInLogs(client, registryAddress, sessionAddress, state.scanFrom)
-    // Resume at the last block seen, not after it: the head tipset can still change.
-    // An empty answer names no block, so the head is read instead; otherwise every
-    // poll would re-scan from the block login started at.
-    const seenUpTo = scan.lastBlock ?? (await headBlock(client))
-    if (seenUpTo > state.scanFrom) state.scanFrom = seenUpTo
+  const { client, sessionAddress, registryAddress, permissions, fromBlock } = options
+  if (state.owner === undefined && fromBlock !== undefined) {
+    const head = await headBlock(client)
+    // A load-balanced endpoint can answer from a node that has not reached the
+    // block the wait started at; [fromBlock, head] would be an inverted range,
+    // which the RPC rejects. Nothing is there yet either way, so wait.
+    if (head < fromBlock) return false
+    // The whole window every poll, never a moving cursor: it spans one wait and
+    // rereading it is cheap. A cursor would have to advance past a head some
+    // node may not have, and would skip a reorg below itself.
+    const scan = await findOwnerInLogs(client, registryAddress, sessionAddress, fromBlock, head)
     if (scan.owner !== undefined) {
       state.owner = scan.owner
       state.eventSeen = true
@@ -256,8 +252,24 @@ async function headBlock(client: Client<Transport, Chain>): Promise<bigint> {
 }
 
 /**
+ * The endpoint answered from a node that has not reached the block the head
+ * read just named. Lotus reports it as `tipset height in future`, seen from
+ * api.node.glif.io on 2026-09-14 for a `toBlock` 100 blocks past the head.
+ *
+ * The head read and the scan are two calls, so a load-balanced endpoint can
+ * serve the second from a node behind the first. That is one poll racing the
+ * pool, not an endpoint that is down, so it must not spend a strike: three of
+ * them in a row would otherwise end the wait for a grant that is on chain,
+ * which is the failure this whole module exists to avoid.
+ */
+function isNodeBehind(error: unknown): boolean {
+  return /tipset height in future/i.test(error instanceof Error ? error.message : String(error))
+}
+
+/**
  * Run one poll, tolerating RPC errors: a single failed request must not end
- * a five-minute wait after the owner already approved in the browser.
+ * a five-minute wait after the owner already approved in the browser, and a
+ * lagging node is not a failed request at all.
  */
 async function pollTolerantly(options: WatchAuthorizationOptions, state: WatchState): Promise<boolean> {
   try {
@@ -267,7 +279,17 @@ async function pollTolerantly(options: WatchAuthorizationOptions, state: WatchSt
     return done
   } catch (error) {
     state.lastError = error
-    state.consecutiveFailures += 1
+    if (isNodeBehind(error)) {
+      // The endpoint answered, just from a node that has not caught up. That is
+      // the same situation as the `head < fromBlock` skip, which counts as a
+      // completed poll, so this counts as one too: strikes clear, and a wait
+      // made only of these reports the timeout that names the saved key rather
+      // than throwing an RPC error at the deadline.
+      state.anySuccess = true
+      state.consecutiveFailures = 0
+    } else {
+      state.consecutiveFailures += 1
+    }
     options.onProgress?.({ type: 'watch:error', data: { error } })
     return false
   }
@@ -303,7 +325,6 @@ export async function watchAuthorization(options: WatchAuthorizationOptions): Pr
   const deadline = Date.now() + deadlineMs
   const state: WatchState = {
     owner: options.owner,
-    scanFrom: options.fromBlock,
     eventSeen: false,
     last: { status: 'timeout', granted: [], missing: [...options.permissions] },
     anySuccess: false,

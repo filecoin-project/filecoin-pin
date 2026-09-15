@@ -47,6 +47,21 @@ describe('session file', () => {
     expect(readSessionFile(path)?.network).toBeUndefined()
   })
 
+  it('keeps the block the wait started at', () => {
+    const path = join(dir, 'session.env')
+    writeSessionFile({ sessionKey: KEY, sessionAddress: SESSION, network: 'calibration', fromBlock: 6_370_000n }, path)
+
+    expect(readSessionFile(path)?.fromBlock).toBe(6_370_000n)
+  })
+
+  it('ignores a block that is not a plain number, rather than resuming from nonsense', () => {
+    const path = join(dir, 'session.env')
+    writeSessionFile({ sessionKey: KEY, sessionAddress: SESSION }, path)
+    writeFileSync(path, `${readFileSync(path, 'utf8')}FROM_BLOCK=0x1f\n`)
+
+    expect(readSessionFile(path)?.fromBlock).toBeUndefined()
+  })
+
   it('treats a missing or malformed file as no session', () => {
     expect(readSessionFile(path)).toBeUndefined()
     writeFileSync(path, 'SESSION_KEY=not-a-key\n')
