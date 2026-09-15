@@ -416,10 +416,10 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     log.spinnerSection('Termination Results', resultsContent)
 
     log.line('')
-    log.line(pc.bold(shouldWait ? 'Final Data Set Status:' : 'Updated Data Set Status (Pending):'))
+    log.line(pc.bold(confirmed ? 'Final Data Set Status:' : 'Updated Data Set Status (Pending):'))
     displayDataSets([dataSet], network, address)
 
-    outro(shouldWait ? 'Data set termination complete' : 'Termination transaction submitted')
+    outro(confirmed ? 'Data set termination complete' : 'Termination transaction submitted')
   } catch (error) {
     if (isCliFatal(error)) {
       spinner.stop()
