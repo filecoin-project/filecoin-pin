@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildAuthorizeUrl,
   buildFundingUrl,
+  buildRevokeUrl,
   DEFAULT_CONSOLE_URL,
   resolveConsoleUrl,
 } from '../../core/session/console-url.js'
@@ -64,5 +65,29 @@ describe('buildFundingUrl', () => {
       'https://pay.filecoin.cloud/console?deposit=2&operator=fwss&network=calibration'
     )
     expect(buildFundingUrl('https://pay.filecoin.cloud', 5, 314)).toMatch(/&network=mainnet$/)
+  })
+})
+
+describe('buildRevokeUrl', () => {
+  it('names the key and its network, lowercasing the address', () => {
+    expect(
+      buildRevokeUrl('https://pay.filecoin.cloud', '0xAbC0000000000000000000000000000000000001', 'calibration')
+    ).toBe(
+      'https://pay.filecoin.cloud/console/session-keys?revoke=0xabc0000000000000000000000000000000000001&network=calibration'
+    )
+  })
+
+  it('tolerates a trailing slash on the base URL', () => {
+    expect(buildRevokeUrl('http://localhost:3005/', '0xA', 'mainnet')).toBe(
+      'http://localhost:3005/console/session-keys?revoke=0xa&network=mainnet'
+    )
+  })
+
+  it.each([
+    ['devnet'],
+    ['nonsense'],
+    [undefined],
+  ])('refuses to build a link the console cannot place: %s', (network) => {
+    expect(buildRevokeUrl('https://pay.filecoin.cloud', '0xA', network)).toBeUndefined()
   })
 })
