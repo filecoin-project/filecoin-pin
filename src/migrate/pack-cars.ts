@@ -42,6 +42,9 @@ export const DEFAULT_PACK_TARGET_BYTES = 1000n * 1024n * 1024n
 /** The SDK's per-piece upload cap (1016 MiB). */
 export const MAX_UPLOAD_BYTES = SIZE_CONSTANTS.MAX_UPLOAD_SIZE
 
+/** The SDK's per-piece upload floor (127 bytes): a smaller piece is rejected at store time. */
+export const MIN_UPLOAD_BYTES = SIZE_CONSTANTS.MIN_UPLOAD_SIZE
+
 export interface PackPlanInput {
   /** Source CID. */
   cid: string
@@ -79,9 +82,9 @@ function compareMultihashBytes(a: CID, b: CID): number {
 export function planBins(
   pieces: PackPlanInput[],
   targetSizeBytes: number
-): { bins: PackedBin[]; solo: PackPlanInput[] } {
-  if (targetSizeBytes <= 0) {
-    throw new Error(`pack target size must be > 0 (got ${targetSizeBytes})`)
+): { bins: PackedBin[]; solo: PackPlanInput[]; deferred: PackPlanInput[] } {
+  if (targetSizeBytes < MIN_UPLOAD_BYTES) {
+    throw new Error(`pack target size must be at least ${MIN_UPLOAD_BYTES} bytes (got ${targetSizeBytes})`)
   }
   // Reject the CID collision up-front: the same source CID appearing twice in
   // the plan would collapse to one indexed entry on the provider side.
@@ -118,12 +121,26 @@ export function planBins(
       bins.push({ pieces: [piece], used: piece.rawSize })
     }
   }
+  // A bin under the upload floor cannot ship on its own. Fold it into any
+  // bin with room; when no other bin exists its members wait for company.
+  const deferred: PackPlanInput[] = []
+  for (const small of bins.filter((b) => b.used < MIN_UPLOAD_BYTES)) {
+    const host = bins.find((b) => b !== small && b.used >= MIN_UPLOAD_BYTES && b.used + small.used <= targetSizeBytes)
+    bins.splice(bins.indexOf(small), 1)
+    if (host == null) {
+      deferred.push(...small.pieces)
+      continue
+    }
+    host.pieces.push(...small.pieces)
+    host.used += small.used
+  }
   return {
     bins: bins.map((b) => ({
       memberCids: b.pieces.map((p) => p.cid).sort(compareCidBytes),
       totalRawSize: b.used,
     })),
     solo,
+    deferred,
   }
 }
 
@@ -281,6 +298,11 @@ export interface PackCarsOptions {
   onBytesStaged?: ((delta: number) => void) | undefined
   /** Byte-accounting hook fired as each member file is deleted post-record. */
   onMemberEvicted?: ((bytes: number) => void) | undefined
+  /**
+   * No more members will arrive. Members too small to ship on their own,
+   * which an earlier pass left waiting for company, fail now instead.
+   */
+  final?: boolean | undefined
 }
 
 export interface PackCarsSummary {
@@ -335,7 +357,21 @@ export async function runPackCars(
   const inputsForBuild: PackPlanInput[] = free
     .filter((p) => p.memberCarPath != null)
     .map((p) => ({ cid: p.cid, rawSize: p.rawSize ?? 0 }))
-  const { bins, solo } = planBins(inputsForBuild, target)
+  const { bins, solo, deferred } = planBins(inputsForBuild, target)
+  if (opts.final) {
+    for (const p of deferred) {
+      // Nothing else is coming to share a piece with them, and a piece under
+      // the floor is rejected at store time.
+      log.message(
+        `! ${p.cid} (${p.rawSize} bytes) is under the ${MIN_UPLOAD_BYTES}-byte upload floor and nothing is left to pack it with; not migrated`
+      )
+      db.recordPieceFailure(
+        p.cid,
+        `piece would be ${p.rawSize} bytes, under the ${MIN_UPLOAD_BYTES}-byte upload minimum; migrate it in a list with other CIDs`,
+        'other'
+      )
+    }
+  }
 
   // A member too big to share a bin still ships as its own single-member piece,
   // as long as it fits one uploadable piece. Anything over the per-piece cap
@@ -383,6 +419,15 @@ export async function runPackCars(
         throw new Error(
           `assembled piece ${built.pieceCid} is ${built.assembledBytes} bytes, over the ${MAX_UPLOAD_BYTES}-byte cap; ` +
             `lower --pack-target-size`
+        )
+      }
+      // Planning weighs member CAR sizes; the assembled CAR shares one header,
+      // so a bin of tiny members can land under the floor even when its
+      // weight did not.
+      if (built.assembledBytes < MIN_UPLOAD_BYTES) {
+        await unlink(built.filePath).catch(() => undefined)
+        throw new Error(
+          `assembled piece ${built.pieceCid} is ${built.assembledBytes} bytes, under the ${MIN_UPLOAD_BYTES}-byte upload minimum`
         )
       }
       // One transaction inserts the piece row alongside its members. A crash
