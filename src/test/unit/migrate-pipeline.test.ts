@@ -6,10 +6,10 @@ import type { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
-import { migrateIncomplete } from '../../migrate/migrate.js'
 import { describe, expect, it } from 'vitest'
 import { MigrationDB } from '../../migrate/db.js'
 import type { DirectUploadDeps, UploadContextLike } from '../../migrate/direct-upload.js'
+import { migrateIncomplete } from '../../migrate/migrate.js'
 import type { BinBuilder } from '../../migrate/pack-cars.js'
 import { type MigrateRunOptions, runMigrate } from '../../migrate/run-migrate.js'
 import type { stageMember } from '../../migrate/verify-car.js'
@@ -236,18 +236,21 @@ describe('runMigrate pipeline', () => {
     }
   })
 
-  it('rebuilds a staged piece whose CAR no longer matches its recorded hash', async () => {
+  it.each([
+    ['no longer matches its recorded hash', true],
+    ['is missing from disk', false],
+  ])('rebuilds a staged piece whose CAR %s', async (_label, carOnDisk) => {
     const cids = [{ cid: await cidFor('rebuild-me'), delayMs: 0 }]
     const h = await harness({ cids, budgetBytes: 100_000, packTargetBytes: 1000 })
     try {
       const first = await runMigrate(h.db, h.options, h.deps)
       expect(first.pieces.succeeded).toBe(1)
 
-      // Corrupt the run's outcome: pretend an uncommitted staged piece is on
-      // disk with bytes that no longer hash to what assembly recorded.
+      // Pretend an uncommitted staged piece was recorded whose file is now
+      // corrupt (bytes no longer hash to what assembly recorded) or gone.
       const subPieceCid = await cidFor('corrupt-bin')
       const carPath = join(h.options.carStore, `${subPieceCid}.car`)
-      await writeFile(carPath, new Uint8Array(64))
+      if (carOnDisk) await writeFile(carPath, new Uint8Array(64))
       const source = await cidFor('victim')
       h.db.addCids([source])
       h.db.recordPieceSuccess(source, {
@@ -282,7 +285,7 @@ describe('runMigrate pipeline', () => {
         }
       }
       const second = await runMigrate(h.db, { ...h.options, stageMemberFn: anyCidStager }, h.deps)
-      // The corrupt piece was deleted and its source CID re-downloaded into a
+      // The bad piece was deleted and its source CID re-downloaded into a
       // fresh piece; nothing is left pending.
       expect(h.db.subPieceByCid(subPieceCid)).toBeNull()
       expect(second.pieces.pending).toBe(0)

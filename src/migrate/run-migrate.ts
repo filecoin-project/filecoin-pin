@@ -20,7 +20,8 @@ import { readdir, stat, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { formatFileSize } from '../utils/cli-helpers.js'
-import type { MigrationDB } from './db.js'
+import { log } from '../utils/cli-logger.js'
+import type { MigrationDB, SubPieceRow } from './db.js'
 import {
   type DirectUploadDeps,
   type DirectUploadOptions,
@@ -29,7 +30,6 @@ import {
   runDirectUpload,
 } from './direct-upload.js'
 import { type BinBuilder, runPackCars } from './pack-cars.js'
-import { log } from '../utils/cli-logger.js'
 import { categoryOf, type StagedMember, stageMember, VerifyCarError, type VerifyCarOptions } from './verify-car.js'
 
 export interface MigrateRunOptions {
@@ -190,53 +190,54 @@ async function sweepStaging(db: MigrationDB, memberDir: string, carStore: string
   // recorded piece are redundant leftovers and are deleted below.
   staged += db.freeMemberBytes()
 
+  // A built piece whose CAR is missing or corrupt can only recover by
+  // re-downloading its source CIDs and rebuilding. The rebuild is refused
+  // while the piece has live upload state: an add_unconfirmed breadcrumb
+  // must reconcile against the chain first (deleting it could turn into a
+  // duplicate add), and a parked copy can still commit from the provider's
+  // bytes. Such a piece keeps its rows until a later run finds it
+  // rebuild-safe. Returns true when the piece was removed.
+  const rebuild = (sub: SubPieceRow, reason: string): boolean => {
+    let memberCids: string[]
+    try {
+      memberCids = db.deleteSubPieceForRebuild(sub.subPieceCid)
+    } catch (err) {
+      log.message(
+        `sweep: staged piece ${sub.subPieceCid} ${reason} but cannot rebuild yet: ` +
+          `${err instanceof Error ? err.message : String(err)}`
+      )
+      return false
+    }
+    log.message(`sweep: staged piece ${sub.subPieceCid} ${reason}; re-queueing its source CIDs for download`)
+    for (const memberCid of memberCids) {
+      db.resetPieceToPending(memberCid)
+    }
+    return true
+  }
+
   const evictable = new Set(db.carPathsEvictable())
   for (const sub of db.subPiecesByStatus('built')) {
     if (sub.carPath == null) continue
     referenced.add(sub.carPath)
     const fileStat = await stat(sub.carPath).catch(() => null)
-    if (fileStat == null) {
-      if (!evictable.has(sub.carPath)) {
-        log.message(`sweep: staged piece ${sub.subPieceCid} is missing its CAR file; its upload cannot be retried locally`)
-      }
-      continue
-    }
     if (evictable.has(sub.carPath)) {
       // Committed in a previous run but never unlinked.
-      await unlink(sub.carPath).catch(() => undefined)
+      if (fileStat != null) await unlink(sub.carPath).catch(() => undefined)
+      continue
+    }
+    if (fileStat == null) {
+      rebuild(sub, 'is missing its CAR file')
       continue
     }
     // An uncommitted piece must still hash to what assembly recorded; its
-    // members are gone, so a corrupt file's only recovery is re-downloading
-    // its source CIDs and rebuilding. The rebuild is refused while the piece
-    // has live upload state: an add_unconfirmed breadcrumb must reconcile
-    // against the chain first (deleting it could turn into a duplicate add),
-    // and a parked copy can still commit from the provider's bytes. Such a
-    // piece keeps its rows and its budget bytes until a later run finds it
-    // rebuild-safe.
+    // members are gone, so silent corruption would otherwise be uploaded.
     if (sub.assembledSha256 != null) {
       const actual = await sha256File(sub.carPath).catch(() => null)
       if (actual !== sub.assembledSha256) {
-        let memberCids: string[]
-        try {
-          memberCids = db.deleteSubPieceForRebuild(sub.subPieceCid)
-        } catch (err) {
-          log.message(
-            `sweep: staged piece ${sub.subPieceCid} does not match its recorded hash but cannot rebuild yet: ` +
-              `${err instanceof Error ? err.message : String(err)}`
-          )
-          staged += sub.assembledCarLength
+        if (rebuild(sub, 'does not match its recorded hash')) {
+          await unlink(sub.carPath).catch(() => undefined)
           continue
         }
-        log.message(
-          `sweep: staged piece ${sub.subPieceCid} does not match its recorded hash; ` +
-            `re-queueing its source CIDs for download`
-        )
-        await unlink(sub.carPath).catch(() => undefined)
-        for (const memberCid of memberCids) {
-          db.resetPieceToPending(memberCid)
-        }
-        continue
       }
     }
     staged += sub.assembledCarLength
