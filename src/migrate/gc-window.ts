@@ -84,16 +84,6 @@ export function lowerWindowOnGc(assumedWindowMs: number, collectedParkedAgeMs: n
 }
 
 /**
- * The upload rate below which one max-size piece cannot be parked and
- * confirmed inside the window: the flow cannot work at all under this and
- * the caller should retain locally and upload in a burst instead.
- */
-export function bandwidthFloorBytesPerSec(pieceSizeBytes: number, assumedWindowMs: number, marginMs: number): number {
-  const usableMs = Math.max(1, assumedWindowMs - marginMs)
-  return Math.ceil((pieceSizeBytes * 1000) / usableMs)
-}
-
-/**
  * Parse Curio's GC rejection out of a failed addPieces/commit error. Returns
  * the named sub-piece CID or null when the failure is something else. The
  * message conflates "not parked" with "wrong service", so the caller should

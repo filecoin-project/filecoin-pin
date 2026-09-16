@@ -8,14 +8,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { calculateActualStorage } from '../../core/data-set/calculate-actual-storage.js'
 import type { DataSetSummary } from '../../core/data-set/types.js'
 
-const { mockSynapse, mockGetDataSetSizes, defaultGetDataSetSizes, state } = vi.hoisted(() => {
+const { mockSynapse, mockGetDataSetLeafCounts, defaultGetDataSetLeafCounts, state } = vi.hoisted(() => {
   const state = {
-    expandedSizes: [] as bigint[],
+    leafCounts: new Map<bigint, bigint>(),
   }
 
-  const defaultGetDataSetSizes = async (_client: unknown, _options: { dataSetIds: bigint[] }) => state.expandedSizes
+  const defaultGetDataSetLeafCounts = async (_client: unknown, _options: { dataSetIds: bigint[] }) => state.leafCounts
 
-  const mockGetDataSetSizes = vi.fn(defaultGetDataSetSizes)
+  const mockGetDataSetLeafCounts = vi.fn(defaultGetDataSetLeafCounts)
 
   const mockSynapse = {
     client: {
@@ -27,14 +27,14 @@ const { mockSynapse, mockGetDataSetSizes, defaultGetDataSetSizes, state } = vi.h
 
   return {
     mockSynapse,
-    mockGetDataSetSizes,
-    defaultGetDataSetSizes,
+    mockGetDataSetLeafCounts,
+    defaultGetDataSetLeafCounts,
     state,
   }
 })
 
 vi.mock('@filoz/synapse-core/pdp-verifier', () => ({
-  getDataSetSizes: mockGetDataSetSizes,
+  getDataSetLeafCounts: mockGetDataSetLeafCounts,
 }))
 
 function dataSet(dataSetId: bigint, providerId = 1n): DataSetSummary {
@@ -49,21 +49,24 @@ function dataSet(dataSetId: bigint, providerId = 1n): DataSetSummary {
 describe('calculateActualStorage', () => {
   beforeEach(() => {
     vi.resetAllMocks()
-    state.expandedSizes = []
+    state.leafCounts = new Map()
 
-    mockGetDataSetSizes.mockImplementation(defaultGetDataSetSizes)
+    mockGetDataSetLeafCounts.mockImplementation(defaultGetDataSetLeafCounts)
   })
 
   describe('basic calculation', () => {
     it('calculates total storage from aggregate data set sizes', async () => {
       const dataSets = [dataSet(1n), dataSet(2n)]
 
-      state.expandedSizes = [128n, 256n]
+      state.leafCounts = new Map([
+        [1n, 4n],
+        [2n, 8n],
+      ])
 
       const result = await calculateActualStorage(mockSynapse as any, dataSets)
 
-      expect(mockGetDataSetSizes).toHaveBeenCalledTimes(1)
-      expect(mockGetDataSetSizes).toHaveBeenCalledWith(mockSynapse.client, { dataSetIds: [1n, 2n] })
+      expect(mockGetDataSetLeafCounts).toHaveBeenCalledTimes(1)
+      expect(mockGetDataSetLeafCounts).toHaveBeenCalledWith(mockSynapse.client, { dataSetIds: [1n, 2n] })
       expect(result.dataSetCount).toBe(2)
       expect(result.dataSetsProcessed).toBe(2)
       expect(result.totalBytes).toBe(381n)
@@ -75,7 +78,11 @@ describe('calculateActualStorage', () => {
     it('unexpands FR32 leaf bytes to the aggregate raw byte approximation', async () => {
       const dataSets = [dataSet(1n), dataSet(2n), dataSet(3n)]
 
-      state.expandedSizes = [32n, 128n, 1024n]
+      state.leafCounts = new Map([
+        [1n, 1n],
+        [2n, 4n],
+        [3n, 32n],
+      ])
 
       const result = await calculateActualStorage(mockSynapse as any, dataSets)
 
@@ -85,7 +92,7 @@ describe('calculateActualStorage', () => {
     it('handles empty data sets without querying chain', async () => {
       const result = await calculateActualStorage(mockSynapse as any, [])
 
-      expect(mockGetDataSetSizes).not.toHaveBeenCalled()
+      expect(mockGetDataSetLeafCounts).not.toHaveBeenCalled()
       expect(result.dataSetCount).toBe(0)
       expect(result.dataSetsProcessed).toBe(0)
       expect(result.totalBytes).toBe(0n)
@@ -96,7 +103,7 @@ describe('calculateActualStorage', () => {
     it('naturally excludes off-chain orphaned pieces because only on-chain data set sizes are queried', async () => {
       const dataSets = [dataSet(1n)]
 
-      state.expandedSizes = [128n]
+      state.leafCounts = new Map([[1n, 4n]])
 
       const result = await calculateActualStorage(mockSynapse as any, dataSets)
 
@@ -108,7 +115,10 @@ describe('calculateActualStorage', () => {
       const onProgress = vi.fn()
       const dataSets = [dataSet(1n), dataSet(2n)]
 
-      state.expandedSizes = [128n, 256n]
+      state.leafCounts = new Map([
+        [1n, 4n],
+        [2n, 8n],
+      ])
 
       await calculateActualStorage(mockSynapse as any, dataSets, { onProgress })
 
@@ -133,7 +143,7 @@ describe('calculateActualStorage', () => {
         signal: controller.signal,
       })
 
-      expect(mockGetDataSetSizes).not.toHaveBeenCalled()
+      expect(mockGetDataSetLeafCounts).not.toHaveBeenCalled()
       expect(result.timedOut).toBe(true)
       expect(result.dataSetsProcessed).toBe(0)
       expect(result.warnings.some((w) => w.code === 'CALCULATION_ABORTED')).toBe(true)
@@ -142,9 +152,9 @@ describe('calculateActualStorage', () => {
     it('returns an aborted result if the signal fires during the aggregate query', async () => {
       const controller = new AbortController()
 
-      mockGetDataSetSizes.mockImplementationOnce(async () => {
+      mockGetDataSetLeafCounts.mockImplementationOnce(async () => {
         controller.abort()
-        return [128n]
+        return new Map([[1n, 4n]])
       })
 
       const result = await calculateActualStorage(mockSynapse as any, [dataSet(1n)], {
@@ -162,7 +172,7 @@ describe('calculateActualStorage', () => {
     it('returns a warning when aggregate data set size query fails', async () => {
       const dataSets = [dataSet(1n), dataSet(2n, 2n)]
 
-      mockGetDataSetSizes.mockRejectedValueOnce(new Error('Dataset query failed'))
+      mockGetDataSetLeafCounts.mockRejectedValueOnce(new Error('Dataset query failed'))
 
       const result = await calculateActualStorage(mockSynapse as any, dataSets)
 

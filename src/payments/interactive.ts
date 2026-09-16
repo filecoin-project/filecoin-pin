@@ -24,7 +24,7 @@ import {
 } from '../core/payments/index.js'
 import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
-import { parseCLIAuth } from '../utils/cli-auth.js'
+import { assertOwnerAuth, parseCLIAuth } from '../utils/cli-auth.js'
 import { createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { isTTY, log } from '../utils/cli-logger.js'
 import { displayAccountInfo, displayDepositWarning, displayPricing } from './setup.js'
@@ -51,7 +51,16 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     // Get private key
     let privateKey = options.privateKey
 
-    if (!privateKey) {
+    // Only prompt for a private key when no signing auth mode was supplied. A
+    // complete session key cannot run setup (it moves funds), so rather than
+    // prompting for a second signer let it reach assertOwnerAuth below, which
+    // refuses it with the targeted error. A view address (read-only) and a lone
+    // session-key half cannot run setup either, but they do not suppress the
+    // prompt: the prompted key becomes the explicit signer and wins.
+    const nonEmpty = (value?: string): boolean => value != null && value !== ''
+    const hasSigningAuth = nonEmpty(options.walletAddress) && nonEmpty(options.sessionKey)
+
+    if (!privateKey && !hasSigningAuth) {
       const input = await password({
         message: 'Enter your private key',
         validate: (value) => {
@@ -85,6 +94,7 @@ export async function runInteractiveSetup(options: PaymentSetupOptions): Promise
     s.start('Initializing connection...')
 
     const config = parseCLIAuth({ ...options, privateKey })
+    assertOwnerAuth(config, 'payments setup')
     const synapse = await initializeSynapse(config)
     const network = synapse.chain.name
     const address = getClientAddress(synapse)

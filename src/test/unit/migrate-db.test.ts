@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MigrationDB } from '../../migrate/db.js'
-import { parseSize } from '../../utils/cli-helpers.js'
+import { parsePositiveInt, parseSize } from '../../utils/cli-helpers.js'
 
 const CID_A = 'bafkreialpha'
 const CID_B = 'bafkreibravo'
@@ -84,6 +84,52 @@ describe('MigrationDB resume transitions', () => {
     expect(db.uploadsByStatus(PRIMARY, 'parked')).toHaveLength(0)
   })
 
+  it('does not re-park an add_unconfirmed upload: the unresolved tx keeps its hash', () => {
+    const db = openDb()
+    stageOne(db, CID_A, SUB_1)
+    db.recordUploadParked(SUB_1, SECONDARY, 'secondary', '1')
+    db.markUploadsAddUnconfirmed([SUB_1], SECONDARY)
+    db.markUploadTxSubmitted([SUB_1], SECONDARY, '0x02')
+
+    db.recordUploadParked(SUB_1, SECONDARY, 'secondary', '1')
+
+    const unconfirmed = db.uploadsByStatus(SECONDARY, 'add_unconfirmed')
+    expect(unconfirmed).toHaveLength(1)
+    expect(unconfirmed[0]?.txHash).toBe('0x02')
+    expect(db.uploadsByStatus(SECONDARY, 'parked')).toHaveLength(0)
+  })
+
+  it('does not demote a committed or add_unconfirmed upload to failed', () => {
+    const db = openDb()
+    stageOne(db, CID_A, SUB_1)
+    db.recordUploadParked(SUB_1, PRIMARY, 'primary', '1')
+    db.markUploadCommitted(SUB_1, PRIMARY, { dataSetId: '1', pieceId: '1', txHash: '0x01' })
+    db.recordUploadParked(SUB_1, SECONDARY, 'secondary', '1')
+    db.markUploadsAddUnconfirmed([SUB_1], SECONDARY)
+
+    db.markUploadFailed(SUB_1, PRIMARY, 'primary', 'transient pull error')
+    db.markUploadFailed(SUB_1, SECONDARY, 'secondary', 'transient pull error')
+
+    expect(db.uploadsByStatus(PRIMARY, 'committed')).toHaveLength(1)
+    expect(db.uploadsByStatus(SECONDARY, 'add_unconfirmed')).toHaveLength(1)
+    expect(db.uploadsByStatus(PRIMARY, 'failed')).toHaveLength(0)
+    expect(db.uploadsByStatus(SECONDARY, 'failed')).toHaveLength(0)
+  })
+
+  it('enforces the sub_piece_members foreign keys', () => {
+    const db = openDb()
+    expect(() =>
+      db.recordBuiltSubPiece({
+        subPieceCid: SUB_1,
+        assembledCarLength: 1,
+        targetSizeBytes: 1000,
+        carPath: `/tmp/${SUB_1}.car`,
+        assembledSha256: 'bb'.repeat(32),
+        members: [{ cid: 'bafkreinotregistered', rawSize: 1, sha256: null }],
+      })
+    ).toThrow(/FOREIGN KEY/)
+  })
+
   it('rejects packing the same member into a second sub-piece', () => {
     const db = openDb()
     stageOne(db, CID_A, SUB_1)
@@ -109,18 +155,36 @@ describe('MigrationDB resume transitions', () => {
           { cid: CID_A, rawSize: 100, sha256: 'aa'.repeat(32) },
         ],
       })
-    ).toThrow()
+    ).toThrow(/UNIQUE/)
     // The failed transaction must not half-commit: CID_B stays packable.
     expect(db.subPiecesByStatus('built')).toHaveLength(1)
     expect(db.donePiecesFreeForPacking().map((p) => p.cid)).toEqual([CID_B])
   })
 })
 
-describe('parseSize decimal aliases', () => {
+describe('parseSize', () => {
   it('treats kb/mb/gb/tb as their binary equivalents', () => {
     expect(parseSize('32GB')).toBe(32n * 1024n ** 3n)
     expect(parseSize('32GiB')).toBe(32n * 1024n ** 3n)
     expect(parseSize('1mb')).toBe(1024n ** 2n)
     expect(parseSize('2tb')).toBe(2n * 1024n ** 4n)
+    expect(parseSize('4096')).toBe(4096n)
+  })
+
+  it.each(['', '1XB', '-1', '1.5GiB', 'GiB'])('rejects %j', (input) => {
+    expect(() => parseSize(input)).toThrow(/size/)
+  })
+})
+
+describe('parsePositiveInt', () => {
+  it.each([
+    ['8', 8],
+    [' 8 ', 8],
+  ])('parses %j', (input, expected) => {
+    expect(parsePositiveInt(input, '--n')).toBe(expected)
+  })
+
+  it.each([undefined, '', '0', '-3', '01', '2.5', 'abc', '1e3'])('rejects %j', (input) => {
+    expect(() => parsePositiveInt(input, '--n')).toThrow(/--n/)
   })
 })

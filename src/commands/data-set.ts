@@ -74,7 +74,7 @@ addAuthOptions(dataSetTerminateCommand)
 export const dataSetPieceStatusCommand = new Command('piece-status')
   .description("Show the reconciled status of a data set's pieces")
   .argument('<dataSetId>', 'Data set ID to inspect')
-  .argument('[pieceCid]', 'Optional PieceCID (or IPFS root CID) to filter to a single piece')
+  .argument('[pieceCid]', 'Optional PieceCID to filter to a single piece')
   .action(async (dataSetId: string, pieceCid: string | undefined, options) => {
     try {
       await runDataSetPieceStatusCommand(parseStrictId(dataSetId), pieceCid, { ...options })
