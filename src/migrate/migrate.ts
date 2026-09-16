@@ -32,7 +32,7 @@ import { chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-eg
 import { DEFAULT_GATEWAYS } from './car-url.js'
 import { MigrationDB } from './db.js'
 import { DEFAULT_ASSUMED_WINDOW_MS } from './gc-window.js'
-import { DEFAULT_PACK_TARGET_BYTES, MAX_UPLOAD_BYTES } from './pack-cars.js'
+import { DEFAULT_PACK_TARGET_BYTES, MAX_UPLOAD_BYTES, MIN_UPLOAD_BYTES } from './pack-cars.js'
 import { type MigrateSummary, runMigrate } from './run-migrate.js'
 import { parseCidList } from './util.js'
 
@@ -71,6 +71,9 @@ export function normalizeMigrateOptions(options: Record<string, unknown>): Norma
   const packTargetBytes = Number(parseSize(String(options.packTargetSize ?? DEFAULT_PACK_TARGET_BYTES.toString())))
   if (packTargetBytes > MAX_UPLOAD_BYTES) {
     throw new Error(`--pack-target-size ${packTargetBytes} exceeds the per-piece upload cap ${MAX_UPLOAD_BYTES}`)
+  }
+  if (packTargetBytes < MIN_UPLOAD_BYTES) {
+    throw new Error(`--pack-target-size ${packTargetBytes} is under the per-piece upload minimum ${MIN_UPLOAD_BYTES}`)
   }
   const concurrency = parsePositiveInt(String(options.concurrency ?? '8'), '--concurrency')
   const assumedWindowMinutes =
@@ -207,16 +210,17 @@ export async function runMigrateFromCli(
       printEgressNotice('beam')
     }
 
-    // The total upload size is unknown until CIDs download, so only the
-    // minimum payment setup is checked here; per-batch capacity failures
-    // come out of the commit path with the payments hints.
+    // The total upload size is unknown until CIDs download, so the check
+    // here is "can the account pay for one packed piece"; per-batch capacity
+    // failures come out of the commit path with the payments hints. (A zero
+    // size is rejected by the SDK's lockup math, so it cannot be the probe.)
     if (isSessionKeyMode(synapse)) {
       // A session key cannot deposit, so check the account can pay before
       // any download happens and point at the console when it cannot.
       spinner.start('Checking the account can pay for this migration...')
       await assertUploadFunds(
         synapse,
-        0,
+        packTargetBytes,
         {
           copies,
           ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
@@ -230,7 +234,7 @@ export async function runMigrateFromCli(
       spinner.stop(`${pc.green('✓')} Account can pay for this migration`)
     } else {
       spinner.start('Checking payment setup...')
-      await validatePaymentSetup(synapse, 0, spinner)
+      await validatePaymentSetup(synapse, packTargetBytes, spinner)
     }
 
     // State is scoped per network AND owner, rows and staging files alike:
@@ -320,6 +324,9 @@ function printSummary(summary: MigrateSummary): void {
   if (summary.unpacked.length > 0) {
     cliLog.line(pc.yellow(`Downloaded but not yet packed (re-run to retry): ${summary.unpacked.join(', ')}`))
   }
+  if (summary.unstored.length > 0) {
+    cliLog.line(pc.yellow(`Packed but not stored on the primary (re-run to retry): ${summary.unstored.join(', ')}`))
+  }
   cliLog.flush()
 }
 
@@ -331,6 +338,7 @@ export function migrateIncomplete(summary: MigrateSummary): boolean {
     summary.pieces.oversized > 0 ||
     summary.overCap.length > 0 ||
     summary.unpacked.length > 0 ||
+    summary.unstored.length > 0 ||
     summary.providers.some((p) => p.failed > 0 || p.collected > 0 || p.addUnconfirmed > 0)
   )
 }
