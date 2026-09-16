@@ -846,7 +846,9 @@ export function calculateRequiredAllowances(pieceSizeBytes: number, pricePerTiBP
  * Calculate piece upload deposit requirements
  *
  * @param status - Current payment status
- * @param pieceSizeBytes - Size of the piece (CAR, File, etc.) file in bytes
+ * @param pieceSizeBytes - Size of the piece (CAR, File, etc.) file in bytes.
+ *   Zero means "no piece yet" (the minimum setup check): nothing is locked up
+ *   and the deposit only has to be non-negative.
  * @param priceList - Current price list from the WarmStorage view contract
  * @returns Piece upload deposit requirements
  */
@@ -861,13 +863,18 @@ export function calculatePieceUploadRequirements(
   canUpload: boolean
 } {
   const paddedSizeBytes = padSizeToPDPLeaves(pieceSizeBytes)
-  const lockup = calculateAdditionalLockupRequired({
-    pieceSizes: [BigInt(pieceSizeBytes)],
-    dataSetLeafCount: 0n,
-    priceList,
-    isNewDataSet: false,
-    withCDN: false,
-  })
+  // The SDK rejects a zero piece size, and rightly so: a zero piece is
+  // nothing and locks up nothing.
+  const lockup =
+    pieceSizeBytes > 0
+      ? calculateAdditionalLockupRequired({
+          pieceSizes: [BigInt(pieceSizeBytes)],
+          dataSetLeafCount: 0n,
+          priceList,
+          isNewDataSet: false,
+          withCDN: false,
+        })
+      : { rateDeltaPerEpoch: 0n, streamingLockup: 0n }
   const required: StorageAllowances = {
     rateAllowance: lockup.rateDeltaPerEpoch,
     // Adding a piece to an existing data set only locks up the streaming rate
