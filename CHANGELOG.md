@@ -1,5 +1,31 @@
 # Changelog
 
+## [2.1.0](https://github.com/filecoin-project/filecoin-pin/compare/v2.0.1...v2.1.0) (2026-09-16)
+
+
+### Features
+
+* **add:** funds preflight for session keys ([#702](https://github.com/filecoin-project/filecoin-pin/issues/702)) ([40389ae](https://github.com/filecoin-project/filecoin-pin/commit/40389ae50b6c5d3640cb5fb7ee3d6ff98c9bd8f5))
+* **cli:** add balance and dashboard commands ([#703](https://github.com/filecoin-project/filecoin-pin/issues/703)) ([c068a78](https://github.com/filecoin-project/filecoin-pin/commit/c068a7890b2e3c6ef22da7d48307a6b9dd988f25))
+* **cli:** add login and logout commands ([#700](https://github.com/filecoin-project/filecoin-pin/issues/700)) ([819dc6a](https://github.com/filecoin-project/filecoin-pin/commit/819dc6a5c59b0805260d2ce2a312dda0c78ed5b6))
+* **cli:** auto-load the login session and add the no-credentials error ([#701](https://github.com/filecoin-project/filecoin-pin/issues/701)) ([7e431c2](https://github.com/filecoin-project/filecoin-pin/commit/7e431c2be77584fb8e74c73b476300b7db13d30e))
+* **logout:** deep link to revoke the key ([#726](https://github.com/filecoin-project/filecoin-pin/issues/726)) ([b81ff57](https://github.com/filecoin-project/filecoin-pin/commit/b81ff573f0b33fd5c6a27e53c4b2a3d438b873e1))
+* **session:** add on-chain authorization watcher ([#699](https://github.com/filecoin-project/filecoin-pin/issues/699)) ([0663f7a](https://github.com/filecoin-project/filecoin-pin/commit/0663f7a1690345d98e38ce77b33ccacdb133a6b8))
+
+
+### Bug Fixes
+
+* **auth:** explicit auth flags no longer lose to env vars ([#458](https://github.com/filecoin-project/filecoin-pin/issues/458)) ([eb24e89](https://github.com/filecoin-project/filecoin-pin/commit/eb24e89998d7ffb965b701a4ce0677a6d94e1998))
+* **data-set:** terminate with the session key ([#725](https://github.com/filecoin-project/filecoin-pin/issues/725)) ([a6b407a](https://github.com/filecoin-project/filecoin-pin/commit/a6b407a748dcfa016c57d4d02f092ac05f327e28))
+* **login:** scan to a named head, never latest ([#724](https://github.com/filecoin-project/filecoin-pin/issues/724)) ([9f2d10e](https://github.com/filecoin-project/filecoin-pin/commit/9f2d10e3af3f796418e7729a984234f3f21e1d16)), closes [#720](https://github.com/filecoin-project/filecoin-pin/issues/720)
+
+
+### Chores
+
+* **deps-dev:** bump tsx from 4.23.1 to 4.23.13 ([#713](https://github.com/filecoin-project/filecoin-pin/issues/713)) ([c0f2ce6](https://github.com/filecoin-project/filecoin-pin/commit/c0f2ce69b40276390fb5ca5b4e558a7d0b3963b9))
+* **deps-dev:** bump vitest from 4.1.0 to 4.1.11 ([#718](https://github.com/filecoin-project/filecoin-pin/issues/718)) ([f225a37](https://github.com/filecoin-project/filecoin-pin/commit/f225a37da85c031a5dfe5d9d37bf31d060b12317))
+* **deps:** bump fastify from 5.11.3 to 5.12.1 ([#704](https://github.com/filecoin-project/filecoin-pin/issues/704)) ([c4f414a](https://github.com/filecoin-project/filecoin-pin/commit/c4f414aa95ce3edbd8851fd2c9138b8d7aff6b9c))
+
 ## [2.0.1](https://github.com/filecoin-project/filecoin-pin/compare/v2.0.0...v2.0.1) (2026-09-08)
 
 
