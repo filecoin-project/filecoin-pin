@@ -24,7 +24,7 @@ import {
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { getClientAddress, initializeSynapse } from '../core/synapse/index.js'
 import { formatUSDFC } from '../core/utils/format.js'
-import { getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
+import { assertOwnerAuth, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 import { displayAccountInfo, displayDepositWarning } from './setup.js'
@@ -60,6 +60,7 @@ export async function runAutoSetup(options: PaymentSetupOptions): Promise<void> 
   try {
     // Parse and validate authentication
     const authConfig = parseCLIAuth(options)
+    assertOwnerAuth(authConfig, 'payments setup --auto')
 
     const logger = getCLILogger()
     const synapse = await initializeSynapse(authConfig, logger)

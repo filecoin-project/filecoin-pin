@@ -34,7 +34,7 @@ vi.mock('@filoz/synapse-sdk', () => {
     },
     METADATA_KEYS: {
       WITH_IPFS_INDEXING: 'withIPFSIndexing',
-      IPFS_ROOT_CID: 'ipfsRootCid',
+      IPFS_ROOT_CID: 'ipfsRootCID',
     },
     calibration: {
       id: 314159,

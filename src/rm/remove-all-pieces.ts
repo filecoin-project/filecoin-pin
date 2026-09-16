@@ -9,6 +9,7 @@
  * - Return aggregated results (or throw on failure)
  */
 import { confirm, isCancel } from '@clack/prompts'
+import { SchedulePieceRemovalsPermission } from '@filoz/synapse-core/session-key'
 import pc from 'picocolors'
 import pino from 'pino'
 import { setIncompleteExitCode } from '../common/cli-errors.js'
@@ -62,6 +63,7 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
     spinner.start('Initializing Synapse SDK...')
 
     const authConfig = parseCLIAuth(options)
+    authConfig.requiredPermissions = [SchedulePieceRemovalsPermission]
     const synapse = await initializeSynapse(authConfig, logger)
     const network = synapse.chain.name
 

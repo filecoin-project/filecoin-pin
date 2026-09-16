@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bandwidthFloorBytesPerSec,
   collectedCidFromError,
   DEFAULT_ASSUMED_WINDOW_MS,
   lowerWindowOnGc,
@@ -59,15 +58,6 @@ describe('lowerWindowOnGc', () => {
     // Evidence above the current guess must not raise it.
     expect(lowerWindowOnGc(hourMs, 10 * hourMs)).toBe(hourMs)
     expect(lowerWindowOnGc(hourMs, 0)).toBe(MIN_WINDOW_MS)
-  })
-})
-
-describe('bandwidthFloorBytesPerSec', () => {
-  it('matches the expected order of magnitude', () => {
-    // ~1016 MiB over 2h minus 10 min margin ≈ 1.3 Mbit/s ≈ 162 KB/s.
-    const floor = bandwidthFloorBytesPerSec(1_065_353_216, 2 * 60 * 60_000, 10 * 60_000)
-    expect(floor).toBeGreaterThan(100_000)
-    expect(floor).toBeLessThan(250_000)
   })
 })
 

@@ -33,36 +33,28 @@ function categoryForStatus(status: number): FailureCategory {
   return 'other'
 }
 
-function categoryForFetchError(err: unknown): FailureCategory {
-  // node:fetch wraps transport errors in a TypeError whose `cause` carries the
-  // node:net / dns / undici code. The signal-aborted case surfaces as a
-  // DOMException with name='AbortError'. Walk the chain rather than grep the
-  // message string.
+const TIMEOUT_NAMES = new Set(['AbortError', 'TimeoutError'])
+const TIMEOUT_CODES = new Set([
+  'ETIMEDOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+])
+
+/**
+ * Timeout vs network, by walking the error's `cause` chain: node:fetch wraps
+ * transport errors in a TypeError whose `cause` carries the net/dns/undici
+ * code, and an aborted signal is a DOMException named AbortError. Anything
+ * unrecognized is a network failure.
+ */
+export function categoryForFetchError(err: unknown): FailureCategory {
   const seen = new Set<unknown>()
-  let cur: unknown = err
-  while (cur != null && !seen.has(cur)) {
+  for (let cur = err; cur != null && !seen.has(cur); cur = (cur as { cause?: unknown }).cause) {
     seen.add(cur)
-    const name = (cur as { name?: string }).name
-    if (name === 'AbortError' || name === 'TimeoutError') return 'source_gateway_timeout'
-    const code = (cur as { code?: string }).code
-    if (
-      code === 'ETIMEDOUT' ||
-      code === 'UND_ERR_CONNECT_TIMEOUT' ||
-      code === 'UND_ERR_HEADERS_TIMEOUT' ||
-      code === 'UND_ERR_BODY_TIMEOUT'
-    )
+    const { name, code } = cur as { name?: string; code?: string }
+    if ((name != null && TIMEOUT_NAMES.has(name)) || (code != null && TIMEOUT_CODES.has(code))) {
       return 'source_gateway_timeout'
-    if (
-      code === 'ECONNREFUSED' ||
-      code === 'ECONNRESET' ||
-      code === 'EHOSTUNREACH' ||
-      code === 'ENETUNREACH' ||
-      code === 'ENOTFOUND' ||
-      code === 'EAI_AGAIN' ||
-      code === 'UND_ERR_SOCKET'
-    )
-      return 'source_gateway_network'
-    cur = (cur as { cause?: unknown }).cause
+    }
   }
   return 'source_gateway_network'
 }
