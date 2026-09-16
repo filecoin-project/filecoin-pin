@@ -1,3 +1,4 @@
+import { SchedulePieceRemovalsPermission } from '@filoz/synapse-core/session-key'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runRmPiece } from '../../rm/remove-piece.js'
 import type { RmPieceOptions } from '../../rm/types.js'
@@ -113,7 +114,11 @@ describe('runRmPiece', () => {
     expect(process.exitCode).toBe(0)
 
     expect(mockInitializeSynapse).toHaveBeenCalledWith(
-      expect.objectContaining({ privateKey: '0xabc', rpcUrl: 'wss://rpc' }),
+      expect.objectContaining({
+        privateKey: '0xabc',
+        rpcUrl: 'wss://rpc',
+        requiredPermissions: [SchedulePieceRemovalsPermission],
+      }),
       expect.anything()
     )
     expect(mockRemovePiece).toHaveBeenCalledWith(

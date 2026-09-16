@@ -117,6 +117,8 @@ export class MigrationDB {
     // surfaces SQLITE_BUSY as `disk I/O error`.
     this.#db.exec('PRAGMA busy_timeout = 5000')
     this.#db.exec('PRAGMA journal_mode = WAL')
+    // Foreign keys are enforced: node:sqlite opens with
+    // enableForeignKeyConstraints = true (covered by a test).
     this.#migrate()
   }
 
@@ -569,7 +571,13 @@ export class MigrationDB {
     return rows.map((r) => String((r as { sub_piece_cid: string }).sub_piece_cid))
   }
 
-  /** Record a successful store(): the provider holds the bytes, GC clock starts. */
+  /**
+   * Record a successful store(): the provider holds the bytes, GC clock starts.
+   * A `committed` row is on chain and an `add_unconfirmed` row has a commit
+   * whose outcome is unknown; overwriting either would let the next flush
+   * add the piece a second time, so both are left alone (only
+   * `revertUploadsToParked` may return an unconfirmed row to the queue).
+   */
   recordUploadParked(subPieceCid: string, providerId: string, role: UploadRole, dataSetId: string | null): void {
     const now = new Date().toISOString()
     this.#db
@@ -581,7 +589,7 @@ export class MigrationDB {
            status = 'parked', parked_at = excluded.parked_at,
            tx_hash = NULL, piece_id = NULL, committed_at = NULL, error = NULL,
            updated_at = excluded.updated_at
-         WHERE uploads.status != 'committed'`
+         WHERE uploads.status NOT IN ('committed', 'add_unconfirmed')`
       )
       .run(this.scope, subPieceCid, providerId, role, dataSetId, now, now)
   }
@@ -666,6 +674,8 @@ export class MigrationDB {
   /**
    * Upsert, not update: a secondary whose pull fails has no uploads row yet,
    * so the failure record is the first thing written for that (piece, provider).
+   * Same guard as `recordUploadParked`: a transfer error must not discard a
+   * committed or unresolved on-chain state, or the retry would re-add it.
    */
   markUploadFailed(subPieceCid: string, providerId: string, role: UploadRole, error: string): void {
     const now = new Date().toISOString()
@@ -674,9 +684,18 @@ export class MigrationDB {
         `INSERT INTO uploads (scope, sub_piece_cid, provider_id, role, status, parked_at, error, updated_at)
          VALUES (?, ?, ?, ?, 'failed', ?, ?, ?)
          ON CONFLICT (scope, sub_piece_cid, provider_id) DO UPDATE SET
-           status = 'failed', error = excluded.error, updated_at = excluded.updated_at`
+           status = 'failed', error = excluded.error, updated_at = excluded.updated_at
+         WHERE uploads.status NOT IN ('committed', 'add_unconfirmed')`
       )
       .run(this.scope, subPieceCid, providerId, role, now, error, now)
+  }
+
+  /** Status of one (sub-piece, provider) upload row, or null when none exists. */
+  uploadStatus(subPieceCid: string, providerId: string): UploadStatus | null {
+    const row = this.#db
+      .prepare(`SELECT status FROM uploads WHERE scope = ? AND sub_piece_cid = ? AND provider_id = ?`)
+      .get(this.scope, subPieceCid, providerId) as { status: UploadStatus } | undefined
+    return row?.status ?? null
   }
 
   uploadsByStatus(providerId: string, status: UploadStatus): UploadRow[] {

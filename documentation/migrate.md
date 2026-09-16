@@ -2,6 +2,8 @@
 
 `filecoin-pin migrate <cid-list-file>` moves a list of IPFS CIDs onto [Filecoin Onchain Cloud](glossary.md#filecoin-onchain-cloud). You give it a text file with one [CID](glossary.md#cid) per line; it downloads each one from a trustless gateway, packs them into large [pieces](glossary.md#piece), uploads those pieces to [storage providers](glossary.md#storage-provider), and commits them on chain in batches. Every step is recorded in a local sqlite database, so a killed or crashed run resumes where it left off.
 
+A migrate piece is an aggregate: one multi-root [CAR](glossary.md#car) file whose blocks are the concatenated blocks of many source CIDs, each downloaded as its own [member CAR](glossary.md#member-car). The piece is what gets a [Piece CID](glossary.md#piece-cid), gets uploaded, and gets committed; the member CARs exist only on local disk while the piece is being assembled. In `migrate.db` the members are the `pieces` table (one row per source CID) and the aggregates are the `sub_pieces` table (one row per uploaded piece).
+
 This page explains the pipeline and the guarantees behind it. For flags and defaults, run `filecoin-pin migrate --help`.
 
 ## Why not just run `add` in a loop
