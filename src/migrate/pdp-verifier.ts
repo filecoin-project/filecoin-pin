@@ -33,11 +33,12 @@ export interface AddPiecesEvent {
  * would silently truncate.
  */
 export async function dataSetPieceId(synapse: Synapse, dataSetId: string, pieceCid: string): Promise<string | null> {
-  const ids = await findPieceIdsByCid(synapse.client as never, {
+  const page = await findPieceIdsByCid(synapse.client as never, {
     dataSetId: BigInt(dataSetId),
     pieceCid: pieceCidFrom(pieceCid),
+    limit: 1n,
   })
-  const first = ids[0]
+  const first = page.items[0]
   return first == null ? null : String(first)
 }
 
