@@ -863,18 +863,18 @@ export function calculatePieceUploadRequirements(
   canUpload: boolean
 } {
   const paddedSizeBytes = padSizeToPDPLeaves(pieceSizeBytes)
-  // The SDK rejects a zero piece size, and rightly so: a zero piece is
-  // nothing and locks up nothing.
+  // Exactly 0 is the "no piece yet" sentinel and locks up nothing. Anything
+  // else, negative or NaN included, still goes through the SDK's validation.
   const lockup =
-    pieceSizeBytes > 0
-      ? calculateAdditionalLockupRequired({
+    pieceSizeBytes === 0
+      ? { rateDeltaPerEpoch: 0n, streamingLockup: 0n }
+      : calculateAdditionalLockupRequired({
           pieceSizes: [BigInt(pieceSizeBytes)],
           dataSetLeafCount: 0n,
           priceList,
           isNewDataSet: false,
           withCDN: false,
         })
-      : { rateDeltaPerEpoch: 0n, streamingLockup: 0n }
   const required: StorageAllowances = {
     rateAllowance: lockup.rateDeltaPerEpoch,
     // Adding a piece to an existing data set only locks up the streaming rate

@@ -279,6 +279,10 @@ describe('calculatePieceUploadRequirements', () => {
     expect(res.canUpload).toBe(true)
   })
 
+  it.each([-1, Number.NaN])('rejects %s instead of treating it as the zero sentinel', (size) => {
+    expect(() => calculatePieceUploadRequirements(status, size, makePriceList())).toThrow()
+  })
+
   it('a real piece needs a deposit when the balance is empty', () => {
     const res = calculatePieceUploadRequirements(status, 1024 * 1024, makePriceList())
 
