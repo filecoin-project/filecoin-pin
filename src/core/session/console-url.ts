@@ -48,6 +48,28 @@ export function buildAuthorizeUrl(
   return `${base}/console/session-keys?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId)}`
 }
 
+/** Console network slugs, for placing a link the session file recorded by name. */
+const CONSOLE_NETWORKS = new Set(Object.values(CONSOLE_NETWORK_SLUG))
+
+/**
+ * Revoke deep link: the console opens its revoke dialog on this key, so the
+ * owner does not have to find it in the list. `logout` prints it for the key
+ * it just dropped locally.
+ *
+ * Returns undefined for a network the console has no page for (devnet, a
+ * custom RPC) or a session file that never recorded one: the console refuses
+ * a revoke link it cannot place, so the caller prints the plain page instead.
+ */
+export function buildRevokeUrl(
+  consoleUrl: string,
+  sessionAddress: string,
+  network: string | undefined
+): string | undefined {
+  if (network === undefined || !CONSOLE_NETWORKS.has(network)) return undefined
+  // Lowercased for the same reason as buildAuthorizeUrl: strict isAddress.
+  return `${trimSlash(consoleUrl)}/console/session-keys?revoke=${sessionAddress.toLowerCase()}&network=${network}`
+}
+
 /** `&network=<slug>` for a chain the console knows, empty otherwise: the console refuses a link it cannot place. */
 function networkParam(chainId: number): string {
   const network = CONSOLE_NETWORK_SLUG[chainId]
