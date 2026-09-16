@@ -29,8 +29,8 @@ import { hasher } from '@filoz/synapse-core/piece'
 import { SIZE_CONSTANTS } from '@filoz/synapse-sdk'
 import { CarBlockIterator, CarWriter } from '@ipld/car'
 import { CID } from 'multiformats/cid'
-import type { MigrationDB, PieceRow } from './db.js'
 import { log } from '../utils/cli-logger.js'
+import type { MigrationDB, PieceRow } from './db.js'
 
 /**
  * Default target raw size for one assembled piece. 1016 MiB is the SDK's
@@ -57,42 +57,29 @@ export interface PackedBin {
 }
 
 /**
- * Compare two CID strings by multihash bytes. CIDv0 (`Qm...`) and CIDv1
- * (`baf...`) of the same DAG produce wildly different lexicographic
- * orderings on the string form, and even parsed CID bytes differ (v0 is the
- * bare multihash); comparing multihashes collapses the alias so a single
- * canonical ordering exists regardless of which form the source CID was
- * registered as.
+ * Order two CID strings by multihash bytes. CIDv0 (`Qm...`) and CIDv1
+ * (`baf...`) of the same DAG sort far apart as strings; comparing the
+ * multihash collapses the alias so the order is the same whichever form the
+ * source CID was registered as.
  */
-export function compareCidBytes(a: string, b: string): number {
+function compareCidBytes(a: string, b: string): number {
   return compareMultihashBytes(CID.parse(a), CID.parse(b))
 }
 
-/** Order two CIDs by multihash bytes; v0 and v1 of the same block compare equal. */
 function compareMultihashBytes(a: CID, b: CID): number {
-  const ba = a.multihash.bytes
-  const bb = b.multihash.bytes
-  const len = Math.min(ba.length, bb.length)
-  for (let i = 0; i < len; i += 1) {
-    const xa = ba[i] ?? 0
-    const xb = bb[i] ?? 0
-    if (xa !== xb) {
-      return xa - xb
-    }
-  }
-  return ba.length - bb.length
+  return Buffer.compare(a.multihash.bytes, b.multihash.bytes)
 }
 
 /**
  * Largest-first bin pack under `targetSizeBytes` (raw bytes). Pieces above
- * the target on their own are returned in the `oversized` list so the caller
+ * the target on their own are returned in the `solo` list so the caller
  * can ship each as a single-member bin (or refuse it past the upload cap).
  * Within each bin the members are emitted in canonical sort order.
  */
 export function planBins(
   pieces: PackPlanInput[],
   targetSizeBytes: number
-): { bins: PackedBin[]; oversized: PackPlanInput[] } {
+): { bins: PackedBin[]; solo: PackPlanInput[] } {
   if (targetSizeBytes <= 0) {
     throw new Error(`pack target size must be > 0 (got ${targetSizeBytes})`)
   }
@@ -106,10 +93,10 @@ export function planBins(
     seen.add(p.cid)
   }
 
-  const oversized: PackPlanInput[] = []
+  const solo: PackPlanInput[] = []
   const fits = pieces.filter((p) => {
     if (p.rawSize > targetSizeBytes) {
-      oversized.push(p)
+      solo.push(p)
       return false
     }
     return true
@@ -136,7 +123,7 @@ export function planBins(
       memberCids: b.pieces.map((p) => p.cid).sort(compareCidBytes),
       totalRawSize: b.used,
     })),
-    oversized,
+    solo,
   }
 }
 
@@ -163,7 +150,7 @@ export interface WritableStreamWithLength {
  * section in the parser.
  */
 export async function assembleMultiRootCar(
-  members: Array<{ cid: string; open(): ReadableStream<Uint8Array> }>,
+  members: Array<{ cid: string; open(): AsyncIterable<Uint8Array> }>,
   sink: WritableStreamWithLength
 ): Promise<{ pieceCid: string; assembledBytes: number; sha256: string; roots: string[] }> {
   const roots = members.map((m) => CID.parse(m.cid))
@@ -184,7 +171,7 @@ export async function assembleMultiRootCar(
   try {
     for (const member of members) {
       const expected = CID.parse(member.cid)
-      const reader = await CarBlockIterator.fromIterable(toAsyncIterable(member.open()))
+      const reader = await CarBlockIterator.fromIterable(member.open())
       const memberRoots = await reader.getRoots()
       // Multihash comparison: a member registered as CIDv0 may sit in a CAR
       // whose gateway declared the equivalent CIDv1 root.
@@ -217,12 +204,6 @@ export async function assembleMultiRootCar(
     assembledBytes,
     sha256: sha.digest('hex'),
     roots: roots.map((r) => r.toString()),
-  }
-}
-
-async function* toAsyncIterable(body: ReadableStream<Uint8Array>): AsyncIterable<Uint8Array> {
-  for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
-    yield chunk
   }
 }
 
@@ -354,14 +335,14 @@ export async function runPackCars(
   const inputsForBuild: PackPlanInput[] = free
     .filter((p) => p.memberCarPath != null)
     .map((p) => ({ cid: p.cid, rawSize: p.rawSize ?? 0 }))
-  const { bins, oversized } = planBins(inputsForBuild, target)
+  const { bins, solo } = planBins(inputsForBuild, target)
 
-  // An oversized-for-bin member still ships as its own single-member piece,
+  // A member too big to share a bin still ships as its own single-member piece,
   // as long as it fits one uploadable piece. Anything over the per-piece cap
   // genuinely cannot migrate on this path: mark it terminal and reclaim its
   // staged bytes, or it would sit in the free pool consuming budget forever.
   const overCap: string[] = []
-  for (const p of oversized) {
+  for (const p of solo) {
     if (p.rawSize > MAX_UPLOAD_BYTES) {
       log.message(`! ${p.cid} (${p.rawSize} bytes) exceeds the ${MAX_UPLOAD_BYTES}-byte upload cap; not migrated`)
       overCap.push(p.cid)
@@ -444,7 +425,9 @@ export async function runPackCars(
       if (builtPath != null) await unlink(builtPath).catch(() => undefined)
       if (binWritten > 0) opts.onBytesStaged?.(-binWritten)
       summary.failedMemberCids.push(...bin.memberCids)
-      log.message(`  ! piece build failed (${bin.memberCids.length} member(s): ${bin.memberCids.join(', ')}): ${message}`)
+      log.message(
+        `  ! piece build failed (${bin.memberCids.length} member(s): ${bin.memberCids.join(', ')}): ${message}`
+      )
       summary.failed += 1
     }
   }
@@ -465,7 +448,7 @@ async function buildOneBin(
     }
     return {
       cid,
-      open: () => webStreamFromFile(memberPath),
+      open: () => createReadStream(memberPath),
     }
   })
 
@@ -487,9 +470,4 @@ async function buildOneBin(
     await unlink(tmpPath).catch(() => undefined)
     throw err
   }
-}
-
-function webStreamFromFile(filePath: string): ReadableStream<Uint8Array> {
-  const from = (ReadableStream as unknown as { from(it: AsyncIterable<Uint8Array>): ReadableStream<Uint8Array> }).from
-  return from(createReadStream(filePath) as unknown as AsyncIterable<Uint8Array>)
 }
