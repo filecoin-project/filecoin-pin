@@ -17,9 +17,13 @@ export function runLogout(): void {
   } else {
     log.line(`${pc.gray('•')} Not logged in: no session file at ${path}`)
   }
-  if (session?.walletAddress !== undefined) {
+  if (session !== undefined) {
+    // No wallet saved does not mean never authorized: `login --no-wait` exits
+    // before the grant, and the owner may have approved since.
     log.line(
-      `  The key stays authorized on chain for ${session.walletAddress} until it expires, unless it was revoked.`
+      session.walletAddress === undefined
+        ? '  If you approved this key, it stays authorized on chain until it expires, unless it was revoked.'
+        : `  The key stays authorized on chain for ${session.walletAddress} until it expires, unless it was revoked.`
     )
     // A link the console can place opens its revoke dialog on this key; one it
     // cannot place (devnet, a custom RPC, a file with no network) would be
@@ -30,8 +34,6 @@ export function runLogout(): void {
     // The link on its own line, unstyled, so it copies and parses cleanly.
     log.line(revokeUrl ?? `${buildConsoleUrl(consoleUrl)}/session-keys`)
     log.line(`  or with the wallet key:  filecoin-pin session revoke ${session.sessionAddress}`)
-  } else {
-    log.line(pc.gray('  This only forgets the key on this machine; an on-chain grant lapses on its own.'))
   }
   log.flush()
 }

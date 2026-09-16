@@ -69,7 +69,7 @@ describe('runLogout', () => {
     expect(lines().join('\n')).not.toContain('revoke=')
   })
 
-  it('says the key was only forgotten locally when it was never authorized', () => {
+  it('still prints the revoke link when no wallet was saved, since --no-wait exits before the grant', () => {
     vi.mocked(readSessionFile).mockReturnValue({
       sessionKey: '0xsecret',
       sessionAddress: SESSION,
@@ -81,8 +81,10 @@ describe('runLogout', () => {
 
     const text = lines().join('\n')
     expect(text).toContain(`Logged out: removed ${SESSION} from /data/session.env`)
-    expect(text).toContain('only forgets the key on this machine')
-    expect(text).not.toContain('session-keys')
+    expect(text).toContain('If you approved this key')
+    expect(lines()).toContain(
+      `https://console.test/console/session-keys?revoke=${SESSION.toLowerCase()}&network=calibration`
+    )
   })
 
   it('says it was not logged in when there is no session file', () => {
