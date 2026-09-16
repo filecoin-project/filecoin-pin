@@ -20,8 +20,10 @@ import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-au
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
 
-interface StatusOptions extends CLIAuthOptions {
+export interface StatusOptions extends CLIAuthOptions {
   includeRails?: boolean
+  /** Extra line printed inside the report, before the closing bar. `balance` uses it for the dashboard pointer. */
+  footer?: string
 }
 
 const EPOCHS_14_DAYS = TIME_CONSTANTS.EPOCHS_PER_DAY * 14n
@@ -172,6 +174,11 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       const paymentRailsData = await fetchPaymentRailsData(synapse)
       spinner.stop(pc.bold('Payment Rails'))
       displayPaymentRailsSummary(paymentRailsData)
+      log.flush()
+    }
+
+    if (options.footer !== undefined) {
+      log.line(options.footer)
       log.flush()
     }
 

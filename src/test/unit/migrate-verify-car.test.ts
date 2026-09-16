@@ -9,6 +9,7 @@ import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { describe, expect, it } from 'vitest'
+import { GatewayError } from '../../migrate/gateway.js'
 import { stageMember, verifyCarStream } from '../../migrate/verify-car.js'
 
 // The download stage's whole safety story: every block hash-verified, the
@@ -237,6 +238,54 @@ describe('stageMember', () => {
         body: streamOf(car),
       }))
       expect(staged.cid).toBe(v0.toString())
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('falls through to the next gateway and reports which one served the CAR', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'fp-stage-fallback-'))
+    try {
+      const { root, leaf } = await linkedDag()
+      const car = await buildCar(root.cid, [root, leaf])
+      const asked: string[] = []
+
+      const staged = await stageMember(root.cid.toString(), ['fake://down', 'fake://up'], dir, {}, async (gateway) => {
+        asked.push(gateway)
+        if (gateway === 'fake://down') {
+          throw new GatewayError('HTTP 503', { status: 503, category: 'source_gateway_5xx' })
+        }
+        return { url: `${gateway}/ipfs/x`, body: streamOf(car) }
+      })
+
+      expect(asked).toEqual(['fake://down', 'fake://up'])
+      expect(staged.gateway).toBe('fake://up')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('reports the first specific category when every gateway fails', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'fp-stage-allfail-'))
+    try {
+      const err = await stageMember(
+        'bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy',
+        ['fake://a', 'fake://b'],
+        dir,
+        {},
+        async (gateway) => {
+          throw new GatewayError(`${gateway} down`, {
+            category: gateway === 'fake://a' ? 'other' : 'source_gateway_429',
+          })
+        }
+      ).then(
+        () => 'resolved',
+        (e: Error) => e
+      )
+
+      expect(err).toMatchObject({ name: 'VerifyCarError', category: 'source_gateway_429' })
+      expect(String((err as Error).message)).toContain('fake://a down')
+      expect(String((err as Error).message)).toContain('fake://b down')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
