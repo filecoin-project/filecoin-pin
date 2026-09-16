@@ -47,18 +47,27 @@ describe('normalizeMigrateOptions', () => {
 })
 
 describe('resolveMigratePaths', () => {
-  it('defaults the DB, member, and piece staging under <dataDir>/migrate', () => {
-    const paths = resolveMigratePaths('/data/filecoin-pin')
-    expect(paths.migrateDir).toBe(join('/data/filecoin-pin', 'migrate'))
+  const scope = { network: 'calibration', owner: '0xABC' }
+
+  it('keeps one DB per data dir and stages files per network and owner', () => {
+    const paths = resolveMigratePaths('/data/filecoin-pin', scope)
     expect(paths.dbPath).toBe(join('/data/filecoin-pin', 'migrate', 'migrate.db'))
-    expect(paths.memberDir).toBe(join('/data/filecoin-pin', 'migrate', 'members'))
-    expect(paths.carStore).toBe(join('/data/filecoin-pin', 'migrate', 'cars'))
+    expect(paths.stagingDir).toBe(join('/data/filecoin-pin', 'migrate', 'calibration', '0xabc'))
+    expect(paths.memberDir).toBe(join(paths.stagingDir, 'members'))
+    expect(paths.carStore).toBe(join(paths.stagingDir, 'cars'))
+  })
+
+  it('gives two owners on one network disjoint staging dirs', () => {
+    const a = resolveMigratePaths('/data', scope)
+    const b = resolveMigratePaths('/data', { ...scope, owner: '0xDEF' })
+    expect(a.dbPath).toBe(b.dbPath)
+    expect(a.stagingDir).not.toBe(b.stagingDir)
   })
 
   it('lets --db override the database path but keeps the staging dirs', () => {
-    const paths = resolveMigratePaths('/data/filecoin-pin', '/elsewhere/migrate.db')
+    const paths = resolveMigratePaths('/data/filecoin-pin', scope, '/elsewhere/migrate.db')
     expect(paths.dbPath).toBe('/elsewhere/migrate.db')
-    expect(paths.carStore).toBe(join('/data/filecoin-pin', 'migrate', 'cars'))
+    expect(paths.carStore).toBe(join('/data/filecoin-pin', 'migrate', 'calibration', '0xabc', 'cars'))
   })
 })
 

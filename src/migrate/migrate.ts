@@ -103,20 +103,25 @@ export function normalizeMigrateOptions(options: Record<string, unknown>): Norma
 
 /**
  * Resolve the migrate state paths under the platform data directory:
- * `<dataDir>/migrate/migrate.db` (unless `--db` overrides it),
- * `<dataDir>/migrate/members` for verified member CARs, and
- * `<dataDir>/migrate/cars` for assembled pieces.
+ * `<dataDir>/migrate/migrate.db` (unless `--db` overrides it), and per
+ * network and owner, `<dataDir>/migrate/<network>/<owner>/members` for
+ * verified member CARs and `.../cars` for assembled pieces. The DB scopes
+ * rows by network and owner; the directories follow, or a run for one wallet
+ * would sweep away files another wallet's run is still using.
  */
 export function resolveMigratePaths(
   dataDir: string,
+  scope: { network: string; owner: string },
   dbFlag?: string
-): { migrateDir: string; dbPath: string; memberDir: string; carStore: string } {
+): { migrateDir: string; dbPath: string; stagingDir: string; memberDir: string; carStore: string } {
   const migrateDir = join(dataDir, 'migrate')
+  const stagingDir = join(migrateDir, scope.network, scope.owner.toLowerCase())
   return {
     migrateDir,
     dbPath: dbFlag ?? join(migrateDir, 'migrate.db'),
-    memberDir: join(migrateDir, 'members'),
-    carStore: join(migrateDir, 'cars'),
+    stagingDir,
+    memberDir: join(stagingDir, 'members'),
+    carStore: join(stagingDir, 'cars'),
   }
 }
 
@@ -204,18 +209,19 @@ export async function runMigrateFromCli(
     spinner.start('Checking payment setup...')
     await validatePaymentSetup(synapse, 0, spinner)
 
-    const { migrateDir, dbPath, memberDir, carStore } = resolveMigratePaths(
+    // State is scoped per network AND owner, rows and staging files alike:
+    // two wallets on one machine must not resume or sweep each other's work.
+    const owner = getClientAddress(synapse).toLowerCase()
+    const { dbPath, stagingDir, memberDir, carStore } = resolveMigratePaths(
       getDataDirectory(),
+      { network: networkSlug, owner },
       options.db as string | undefined
     )
     await mkdir(memberDir, { recursive: true })
     await mkdir(carStore, { recursive: true })
-    const budgetBytes = await resolveStagingBudget(migrateDir, maxStagedBytes)
+    const budgetBytes = await resolveStagingBudget(stagingDir, maxStagedBytes)
 
-    // Scope state per network AND owner: two wallets on one machine must not
-    // resume each other's rows.
-    const scope = `${networkSlug}:${getClientAddress(synapse).toLowerCase()}`
-    const db = new MigrationDB(dbPath, scope)
+    const db = new MigrationDB(dbPath, `${networkSlug}:${owner}`)
     try {
       db.addCids(cids)
       cliLog.line(`Registered ${cids.length} CID(s) from ${cidListFile} (state: ${db.path})`)
