@@ -13,6 +13,13 @@ export const importCommand = new Command('import')
   .description('Upload an existing CAR file to Filecoin')
   .argument('<file>', 'Path to the CAR file to import')
   .option('--copies <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
+  .addHelpText(
+    'after',
+    `
+Session-key mode: checks the storage service is approved and
+the account can pay for this upload. If not, exits 1 with a pre-filled console
+funding link; nothing is uploaded. Session keys cannot deposit.`
+  )
   .action(async (file: string, options) => {
     try {
       const result = await runCarImportFromCli(file, options)

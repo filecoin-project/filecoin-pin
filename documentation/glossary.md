@@ -33,7 +33,7 @@ Curio is the software that [Filecoin Warm Storage Service](#filecoin-warm-storag
 
 Collections of stored data ([Pieces](#piece)) managed by [Filecoin Warm Storage Service](#filecoin-warm-storage-service). Each Data Set is tied to exactly one [Service Provider](#service-provider); all pieces in a Data Set are stored by the same SP. Each Data Set has [metadata](#metadata), Pieces, and an associated payment rail between [Filecoin Pay](#filecoin-pay) and the SP that handles ongoing storage payments.
 
-Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metadata) (`source='filecoin-pin'`). If multiple exist, it uses the one storing the most data.
+Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metadata) (`source='filecoin-pin'`). When more match than the number of copies requested, it prefers the ones already holding pieces and takes at most one per Service Provider. When the matches do not cover enough distinct providers, Filecoin Pin creates new Data Sets instead.
 
 ## FIL
 
@@ -41,11 +41,11 @@ FIL is Filecoin's native token.  While [Filecoin Onchain Cloud](#filecoin-onchai
 
 ## FilBeam egress
 
-This concerns the [/piece retrieval](#piece-retrieval) CDN provided by [FilBeam](https://github.com/filbeam). When `filecoin-pin add` or `filecoin-pin import` is run with `--egress-provider beam` (the default), uploaded pieces are retrievable via FilBeam at `https://{wallet-address}.{filbeam-domain}/{pieceCid}` (e.g., `https://0xabc....calibration.filbeam.io/bafk...` on the [Calibration Network](#calibration-network)).
+This concerns the [/piece retrieval](#piece-retrieval) CDN provided by [FilBeam](https://github.com/filbeam). When `filecoin-pin add` or `filecoin-pin import` is run with `--egress-provider beam` (the default is `none`), uploaded pieces are retrievable via FilBeam at `https://{wallet-address}.{filbeam-domain}/{pieceCid}` (e.g., `https://0xabc....calibration.filbeam.io/bafk...` on the [Calibration Network](#calibration-network)).
 
 **What it does today:** Serves [`/piece` Retrieval](#piece-retrieval) only — whole-CAR fetches keyed by [Piece CID](#piece-cid). It does **not** route [`/ipfs` Retrieval](#ipfs-retrieval); for those, use the IPFS retrieval URLs printed alongside the upload result.
 
-**Network support:** FilBeam URLs are only printed on networks with a FilBeam endpoint (mainnet and [Calibration](#calibration-network)). On networks without one (e.g. devnet), `--egress-provider beam` stays the default but no FilBeam URL is shown.
+**Network support:** FilBeam URLs are only printed on networks with a FilBeam endpoint (mainnet and [Calibration](#calibration-network)). On networks without one (e.g. devnet), passing `--egress-provider beam` is accepted but no FilBeam URL is shown.
 
 **Cost:** CDN egress is paid from funds the data set owner locks up for it — it is not billed to their wallet at data-set creation. Instead, lockup is consumed as retrievals happen. Anyone who knows the piece CID and wallet address can trigger a retrieval, which draws down that egress lockup.
 
@@ -53,7 +53,7 @@ This concerns the [/piece retrieval](#piece-retrieval) CDN provided by [FilBeam]
 
 **Future state:** FilBeam is working on routing IPFS-block retrievals through the same CDN ([filbeam/roadmap#85](https://github.com/filbeam/roadmap/issues/85)). [Data Sets](#data-set) uploaded with FilBeam enabled today will benefit automatically when that ships.
 
-**Opting out:** Pass `--egress-provider none` (or `EGRESS_PROVIDER=none`) to skip FilBeam routing entirely.
+**Opting in:** FilBeam routing is off by default. Pass `--egress-provider beam` (or `EGRESS_PROVIDER=beam`) to enable it.
 
 ## Filecoin Pay
 
@@ -128,18 +128,20 @@ As a "trustless" protocol, retrieval of IPFS data using this mechanism provides 
 
 See https://docs.ipfs.tech/concepts/glossary/#ipni.
 
-IPNI is the content routing system that [Filecoin Pin](#filecoin-pin) relies upon for retrieval to work for [standard IPFS tooling](#standard-ipfs-tooling).  [Service Providers](#service-provider) announce their advertisement changes to IPNI indexer like [filecoinpin.contact](http://filecoinpin.contact) and cid.contact, and the advertised CIDs become discoverable for IPFS Standard tooling.
+IPNI is the content routing system that [Filecoin Pin](#filecoin-pin) relies upon for retrieval to work for [standard IPFS tooling](#standard-ipfs-tooling).  [Service Providers](#service-provider) announce their advertisement changes to IPNI indexers like cid.contact, and the advertised CIDs become discoverable for IPFS Standard tooling.
 
 ## Metadata
 
-Key-value pairs stored on-chain, either scoped to [Data Sets](#data-set) or [Pieces](#piece). [Filecoin Pin](#filecoin-pin) uses specific metadata keys:
+Key-value pairs supplied when creating [Data Sets](#data-set) or adding [Pieces](#piece). [Filecoin Pin](#filecoin-pin) uses specific metadata keys:
 
 Key | Purpose | Scope
 --- | --- | ---
 `source` | Set to 'filecoin-pin' to identify data created by this tool | Data Set
 `withIPFSIndexing` | Set to empty string to signal the [SP](#service-provider) to index and advertise the data to [IPNI](#ipni) | Data Set
-`ipfsRootCid` | Stored on each Piece to link the [Piece CID](#piece-cid) back to the [IPFS Root CID](#ipfs-root-cid).  While this is a convention that Filecoin Pin follows, there is nothing onchain enforcing a correct link between `ipfsRootCid` and `pieceCid`. | Piece
+`ipfsRootCID` | Submitted with each Piece to link the [Piece CID](#piece-cid) back to the [IPFS Root CID](#ipfs-root-cid). While this is a convention that Filecoin Pin follows, there is nothing onchain enforcing a correct link between `ipfsRootCID` and `pieceCid`. | Piece
 `name` | Original basename of the source path (file or directory). Auto-derived during `add` so the human-readable label survives even though the [UnixFS profile](#unixfs-v1-2025-profile) does not wrap single files in a parent directory. User-supplied piece metadata wins over the auto-derived value; an explicit empty string is treated as an opt-out. Consumers that need to know whether the source was a file or a directory inspect the [IPFS Root CID](#ipfs-root-cid) (codec + UnixFS `Data.Type`), matching the IPFS Pinning Service `name` convention. | Piece
+
+Data Set metadata is stored and remains queryable on-chain. Piece metadata (`ipfsRootCID`, `name`, and user-supplied `--metadata`) is signed and emitted in the Filecoin Warm Storage Service's `PieceAdded` event, but is not retained for later contract queries. Filecoin Pin therefore writes piece metadata during uploads but does not read or display it. `filecoin-pin data-set show` still displays Data Set metadata, while `filecoin-pin data-set piece-status` displays piece ID, PieceCID, size, and reconciled status.
 
 ## Member CAR
 
@@ -193,13 +195,12 @@ Because the two hashing schemes are structurally different, there is **no crypto
 
 ### How the link is established
 
-[Filecoin Pin](#filecoin-pin) bridges this gap by recording the IPFS Root CID as signed on-chain [Metadata](#metadata) (`ipfsRootCid`) on each [Piece](#piece). The client signs this metadata at upload time, so the mapping is attested by the uploader, not computed from proof. This means:
+[Filecoin Pin](#filecoin-pin) submits the IPFS Root CID as signed Piece [Metadata](#metadata) (`ipfsRootCID`) during upload. The mapping is attested by the uploader, not computed from proof. Filecoin Warm Storage Service emits the metadata in its `PieceAdded` event but does not retain it for later contract queries. This means:
 
-- **On-chain metadata** is the primary source of truth for the mapping. Anyone can look up a Piece's metadata and find the `ipfsRootCid` the uploader declared.
+- **Event indexers**, including subgraphs such as PDP Explorer, can recover the uploader-declared `ipfsRootCID` from `PieceAdded`. Filecoin Pin does not currently perform this lookup.
 - **[IPNI](#ipni)** provides a reverse lookup path: IPNI indexes IPFS CIDs and each advertisement's ContextID encodes the Piece CID, so you can go from an IPFS CID to a Piece CID via the indexer. This is trust-based: you trust the [Service Provider](#service-provider) to have created the advertisement correctly. See [How to go from IPFS CID to Piece CID using IPNI](#how-to-go-from-ipfs-cid-to-piece-cid-using-ipni) for a worked example.
-- **Subgraphs** (e.g., PDP Explorer) can also surface the `ipfsRootCid` metadata for a given Piece, independently of the SP.
 
-All of these paths are **trust-based, not trustless**. The on-chain metadata is as reliable as the client that signed it; the IPNI path trusts the SP's advertisement; the subgraph path trusts the indexer. For end-to-end verification, retrieve the data via [`/piece` retrieval](#piece-retrieval), decode the CAR, and confirm that the DAG root matches the declared IPFS Root CID.
+Both paths are **trust-based, not trustless**. Event metadata attests only what the client declared, event lookups trust the indexer, and IPNI lookups trust the SP and indexer. For end-to-end verification, retrieve the data via [`/piece` retrieval](#piece-retrieval), decode the CAR, and confirm that the DAG root matches the declared IPFS Root CID.
 
 See [Retrieving Your Data](retrieval.md) for how to use each CID to fetch your content.
 
@@ -207,7 +208,7 @@ See [Retrieving Your Data](retrieval.md) for how to use each CID to fetch your c
 
 [IPNI](#ipni) advertisements include a `ContextID` that encodes the [Piece CID](#piece-cid). You can use this to reverse-map an IPFS CID back to the Piece it lives in.
 
-1. Look up the IPFS CID in an IPNI indexer, e.g. `https://cid.contact/cid/<ipfs-cid>` (or use [filecoinpin.contact](https://filecoinpin.contact) for data stored via Filecoin Pin).
+1. Look up the IPFS CID in an IPNI indexer, e.g. `https://cid.contact/cid/<ipfs-cid>`.
 2. Find the `ContextID` field in one of the provider records. It is base64-encoded.
 3. Decode the base64, drop the first byte (a version prefix), and treat the remaining bytes as a CID:
 
@@ -219,7 +220,7 @@ const pieceCid = CID.decode(Buffer.from(contextId, 'base64').slice(1))
 // baga6ea4seaqglrzq3oucbywv2cqcxrjgm76uacacvaifyt5n7a2m5diipchq6ji
 ```
 
-This gives you the Piece CID that the [Service Provider](#service-provider) advertised for that content. From there you can look up the Piece's on-chain [Metadata](#metadata) to confirm the `ipfsRootCid`, or retrieve the data via [`/piece` retrieval](#piece-retrieval).
+This gives you the Piece CID that the [Service Provider](#service-provider) advertised for that content. From there, use an event indexer to recover the emitted `ipfsRootCID`, or retrieve the data via [`/piece` retrieval](#piece-retrieval) and verify the CAR's DAG root directly.
 
 Note that this mapping is **trust-based**: you are trusting the SP to have created the IPNI advertisement correctly, and the indexer to have recorded it faithfully.
 
@@ -250,10 +251,6 @@ Session keys require specific permissions (such as CREATE_DATA_SET and ADD_PIECE
 Note that the filecoin-pin CLI's `--session-key` flag (and `SESSION_KEY` environment variable) expect the session key's **private key** — the `SESSION_KEY` value printed by `filecoin-pin session create` or `filecoin-pin session generate` — not the session address. The (public) session address is only used when authorizing or revoking: `filecoin-pin session authorize <session-address>` and `filecoin-pin session revoke <session-address>`.
 
 
-
-## Staging Budget
-
-The byte budget the `migrate` command grants its staging directory (free space at startup, capped by `--max-staged-bytes`). Everything staged counts against it: [Member CARs](#member-car), in-flight downloads, assembling pieces, and packed pieces not yet committed. A full budget blocks downloads until commits evict pieces, so a disk smaller than the migration cycles instead of failing. See [How migrate works](migrate.md).
 
 ## Standard IPFS Tooling
 

@@ -20,6 +20,10 @@ export const addCommand = new Command('add')
   .addHelpText(
     'after',
     `
+Session-key mode: before packing, checks the storage service is approved and
+the account can pay for this upload. If not, exits 1 with a pre-filled console
+funding link; nothing is uploaded. Session keys cannot deposit.
+
 Retrieving your content after an add:
   IPFS Root CID  view in a browser, or fetch from any IPFS gateway
   Piece CID      download the stored CAR directly from the provider
