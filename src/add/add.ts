@@ -8,25 +8,27 @@
 import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { Readable } from 'node:stream'
+import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import pc from 'picocolors'
 import pino from 'pino'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
+import { assertUploadFunds, estimateInputBytes, rerunHint } from '../common/funds-preflight.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
 import {
   displayDryRunEstimate,
   displayUploadResults,
+  type EstimateUploadCostOptions,
   estimateUploadCost,
   performAutoFunding,
   performUpload,
-  promptDataSetSelection,
+  resolveUploadTargets,
   validatePaymentSetup,
 } from '../common/upload-flow.js'
 import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
-import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import { normalizeMetadataConfig, withDerivedNameMetadata } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
-import { initializeSynapse } from '../core/synapse/index.js'
+import { initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
@@ -95,7 +97,7 @@ export async function runAddFromCli(path: string, options: Record<string, any>):
     } = options
     const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
 
-    const egressProvider = rawEgressProvider ?? 'beam'
+    const egressProvider = rawEgressProvider ?? 'none'
 
     addOptions = {
       ...addOptionsFromCli,
@@ -181,6 +183,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       config.dataSetMetadata = dataSetMetadata
     }
     if (withCDN) config.withCDN = true
+    config.requiredPermissions = [CreateDataSetPermission, AddPiecesPermission]
 
     const synapse = await initializeSynapse(config, logger)
     const networkSlug = getNetworkSlug(synapse.chain)
@@ -192,39 +195,39 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       printEgressNotice('beam')
     }
 
-    // Resolve partial --data-set-metadata locally; SDK metadata matching requires exact equality.
-    let effectiveDataSetMetadata = dataSetMetadata
-    if (dataSetMetadata != null && contextSelection.dataSetIds == null && contextSelection.providerIds == null) {
-      const expectedCopies = options.copies ?? DEFAULT_COPIES
-      spinner.start('Resolving data sets from --data-set-metadata...')
-      const resolution = await resolveDataSetIdsByMetadata(synapse, dataSetMetadata, { expectedCopies, logger })
-      if (resolution.kind === 'matched') {
-        contextSelection.dataSetIds = resolution.dataSetIds
-        effectiveDataSetMetadata = undefined
-        spinner.stop(
-          `${pc.green('✓')} Matched existing data sets ${resolution.dataSetIds.join(', ')} via metadata filter`
-        )
-      } else if (resolution.kind === 'too-many-matches') {
-        const chosenIds = await promptDataSetSelection(resolution.matchedDataSets, resolution.expected, spinner)
-        contextSelection.dataSetIds = chosenIds
-        effectiveDataSetMetadata = undefined
-      } else if (resolution.kind === 'too-few-matches') {
-        spinner.stop(`${pc.red('✗')} --data-set-metadata matched too few data sets`)
-        throw new Error(
-          `--data-set-metadata matched only ${resolution.matchedIds.length} data set(s) (${resolution.matchedIds.join(', ')}) ` +
-            `but expected ${resolution.expected} (lower --copies, widen the filter, or pass --data-set-id).`
-        )
-      } else {
-        spinner.stop(
-          `${pc.gray('•')} No existing data sets matched --data-set-metadata; SDK will create a new data set with the requested metadata`
-        )
-      }
+    const targets = await resolveUploadTargets(synapse, contextSelection, {
+      ...(dataSetMetadata != null && { dataSetMetadata }),
+      ...(options.copies != null && { copies: options.copies }),
+      withCDN,
+      spinner,
+      logger,
+    })
+    if (targets.dataSetIds != null) {
+      contextSelection.dataSetIds = targets.dataSetIds
+    }
+    const effectiveDataSetMetadata = targets.dataSetMetadata
+
+    const estimateOptions: EstimateUploadCostOptions = {
+      ...(options.copies != null && { copies: options.copies }),
+      ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
+      ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
+      ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
+      withCDN,
     }
 
-    // Check payment setup (may configure permissions if needed).
-    // Skipped for --dry-run: this can submit an allowance-approval transaction,
-    // which a dry run must never do.
-    if (!options.autoFund && !options.dryRun) {
+    // The exact invocation, flags included, for the "Then re-run" hint.
+    const rerunCommand = rerunHint()
+    if (!options.dryRun && isSessionKeyMode(synapse)) {
+      // A session key cannot deposit, so check the account can pay before
+      // any packing happens and point at the console when it cannot.
+      spinner.start('Checking the account can pay for this upload...')
+      const estimatedBytes = await estimateInputBytes(options.filePath, isDirectory, options.includeHidden)
+      await assertUploadFunds(synapse, estimatedBytes, estimateOptions, rerunCommand, spinner)
+      spinner.stop(`${pc.green('✓')} Account can pay for this upload`)
+    } else if (!options.autoFund && !options.dryRun) {
+      // Check payment setup (may configure permissions if needed).
+      // Skipped for --dry-run: this can submit an allowance-approval transaction,
+      // which a dry run must never do.
       spinner.start('Checking payment setup...')
       await validatePaymentSetup(synapse, 0, spinner, {
         suppressSuggestions: true,
@@ -258,13 +261,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
     if (options.dryRun) {
       spinner.start('Estimating upload cost...')
-      const estimate = await estimateUploadCost(synapse, carSize, {
-        ...(options.copies != null && { copies: options.copies }),
-        ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
-        ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
-        ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
-        withCDN,
-      })
+      const estimate = await estimateUploadCost(synapse, carSize, estimateOptions)
       spinner.stop(`${pc.green('✓')} Cost estimate ready`)
 
       const result: AddDryRunResult = {
@@ -297,7 +294,13 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       autoFundOptions.copies = contextSelection.dataSetIds.length
     }
 
-    if (options.autoFund) {
+    // Session mode wins over --auto-fund, as in import: a session key cannot deposit.
+    if (isSessionKeyMode(synapse)) {
+      // Same block and link as the preflight, now with the real CAR size.
+      spinner.start('Checking the account can pay for this upload...')
+      await assertUploadFunds(synapse, carSize, estimateOptions, rerunCommand, spinner)
+      spinner.stop(`${pc.green('✓')} Account can pay for this upload`)
+    } else if (options.autoFund) {
       if (options.minRunwayDays !== undefined) {
         autoFundOptions.minRunwayDays = options.minRunwayDays
       }

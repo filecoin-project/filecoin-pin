@@ -9,6 +9,8 @@ import { configureTelemetry, flushTelemetry } from './core/telemetry/index.js'
 import { version as packageVersion } from './core/utils/version.js'
 import { readTelemetryConfigFromEnv } from './read-telemetry-config-from-env.js'
 import { applyVerboseLogLevel } from './utils/cli-logger.js'
+import { credentialsFileOption } from './utils/cli-options.js'
+import { applyCredentialsFile } from './utils/credentials-file.js'
 
 // Apply CLI env vars to the telemetry library before any subcommand runs.
 configureTelemetry({ ...readTelemetryConfigFromEnv(), affordance: 'CLI' })
@@ -69,6 +71,11 @@ const program = new Command()
   .description('IPFS Pinning Service with Filecoin storage')
   .optionsGroup('OPTIONS')
   .version(packageVersion)
+  // Registered at the root so the flag is accepted in any position:
+  // Commander propagates parent options to subcommands. The preAction hook
+  // below is the consumer. Subcommand registrations exist for per-command
+  // help visibility.
+  .addOption(credentialsFileOption())
   .option('-v, --verbose', 'enable debug-level logging (sets LOG_LEVEL=debug)')
   .option('--no-update-check', 'skip check for updates')
   .helpOption(true)
@@ -80,10 +87,17 @@ const program = new Command()
     'after',
     () => `
 ${pc.bold('EXAMPLES')}
-  $ filecoin-pin payments setup --auto
+  $ filecoin-pin login                       # approve a session key for this machine in the console
   $ filecoin-pin add ./myfile.txt
+  $ filecoin-pin balance
+  $ filecoin-pin payments setup --auto        # with a wallet private key instead of login
   $ filecoin-pin import ./archive.car
   $ filecoin-pin dataset ls
+
+${pc.bold('CREDENTIALS')}
+  Resolved in this order: flags, then PRIVATE_KEY or SESSION_KEY + WALLET_ADDRESS
+  in the environment, then --credentials-file, then the login session saved by
+  \`filecoin-pin login\`. VIEW_ADDRESS forces read-only mode and skips the saved login.
 
 ${pc.bold('EXIT CODES')}
   0  success
@@ -106,6 +120,15 @@ for (const { heading, commands } of CLI_COMMAND_GROUPS) {
 // Default action - show help if no command specified
 program.action(() => {
   program.help()
+})
+
+// Credential precedence: flags, then env vars, then --credentials-file, then
+// the session file `login` wrote. Flags and env vars are resolved by parsing;
+// this hook supplies the credentials file next, and the addAuthOptions hook
+// (root hooks run first) supplies the saved login last. A bad file surfaces
+// through parseAsync's catch below.
+program.hook('preAction', (_thisCommand, actionCommand) => {
+  applyCredentialsFile(actionCommand)
 })
 
 // Wire the global `-v/--verbose` flag to the log level before each action runs.

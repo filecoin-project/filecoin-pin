@@ -1,5 +1,6 @@
 import type { operatorApprovals } from '@filoz/synapse-core/pay'
 import type { getPriceList } from '@filoz/synapse-core/warm-storage'
+import type { UploadCosts } from '@filoz/synapse-sdk'
 
 /**
  * Service approval status from the Payments contract.
@@ -150,6 +151,8 @@ export interface FilecoinPayFundingPlanOptions {
   priceList?: getPriceList.OutputType | undefined
   newDataSetCount?: number | undefined
   withCDN?: boolean | undefined
+  /** Reserve-aware upload costs precomputed for the exact storage contexts. */
+  uploadCosts?: UploadCosts | undefined
   mode?: FundingMode | undefined
   allowWithdraw?: boolean | undefined
 }

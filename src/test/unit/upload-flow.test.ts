@@ -42,7 +42,10 @@ import {
   differentiatingKeys,
   displayUploadResults,
   performUpload,
+  pickDataSetsForReuse,
   promptDataSetSelection,
+  resolveDefaultDataSetReuse,
+  resolveUploadTargets,
 } from '../../common/upload-flow.js'
 import { createLogger } from '../../logger.js'
 import { truncate } from '../../utils/format.js'
@@ -77,9 +80,9 @@ describe('promptDataSetSelection', () => {
   })
 
   const dataSets = [
-    { dataSetId: 1n, activePieceCount: 2n, metadata: { source: 'a' } },
-    { dataSetId: 2n, activePieceCount: 3n, metadata: { source: 'b' } },
-    { dataSetId: 3n, activePieceCount: 1n, metadata: { source: 'c' } },
+    { dataSetId: 1n, hasActivePieces: true, metadata: { source: 'a' } },
+    { dataSetId: 2n, hasActivePieces: true, metadata: { source: 'b' } },
+    { dataSetId: 3n, hasActivePieces: true, metadata: { source: 'c' } },
   ] as any[]
 
   it('throws with the hard error message when not in a TTY', async () => {
@@ -271,6 +274,121 @@ describe('performUpload', () => {
     expect(spinner.message).toHaveBeenNthCalledWith(2, 'Uploading to Filecoin... 2.0 B/4.0 B (50%)')
     expect(spinner.message).toHaveBeenNthCalledWith(3, 'Uploading to Filecoin... 4.0 B/4.0 B (100%)')
   })
+
+  it('reports each provider on its own line when piece-sync polls multiple providers concurrently', async () => {
+    const spinner = { start: vi.fn(), message: vi.fn(), stop: vi.fn(), clear: vi.fn() }
+
+    mocks.executeUpload.mockImplementation(async (_synapse, _data, _rootCid, options) => {
+      options.onProgress?.({ type: 'stored', data: { providerId: 1n, pieceCid: 'bafkzcibtest123' } })
+      options.onProgress?.({
+        type: 'pieceSyncStatus:retryUpdate',
+        data: {
+          serviceURL: 'https://a.example.com',
+          providerIndex: 1,
+          providerCount: 2,
+          providerAttempt: 1,
+          providerMaxAttempts: 20,
+        },
+      })
+      options.onProgress?.({
+        type: 'pieceSyncStatus:retryUpdate',
+        data: {
+          serviceURL: 'https://b.example.com',
+          providerIndex: 2,
+          providerCount: 2,
+          providerAttempt: 1,
+          providerMaxAttempts: 20,
+        },
+      })
+      options.onProgress?.({
+        type: 'pieceSyncStatus:providerSynced',
+        data: { serviceURL: 'https://a.example.com', providerIndex: 1, providerCount: 2 },
+      })
+      options.onProgress?.({
+        type: 'pieceSyncStatus:providerSynced',
+        data: { serviceURL: 'https://b.example.com', providerIndex: 2, providerCount: 2 },
+      })
+      options.onProgress?.({ type: 'pieceSyncStatus:complete', data: { providerCount: 2 } })
+
+      return { ...sampleResult, requestedCopies: 2, network: 'calibration' }
+    })
+
+    await performUpload({ chain: { id: 314159, name: 'calibration' } } as any, new Uint8Array([1, 2, 3, 4]), TEST_CID, {
+      contextType: 'add',
+      fileSize: 4,
+      logger: createLogger({ logLevel: 'info' }),
+      spinner,
+    })
+
+    expect(spinner.stop).toHaveBeenCalledWith(
+      expect.stringContaining('[1/2] Advertisement confirmed indexed on https://a.example.com')
+    )
+    expect(spinner.stop).toHaveBeenCalledWith(
+      expect.stringContaining('[2/2] Advertisement confirmed indexed on https://b.example.com')
+    )
+
+    const { log } = await import('../../utils/cli-logger.js')
+    const lines = vi.mocked(log.line).mock.calls.map(([m]) => m as string)
+    expect(lines.some((l) => l.includes('confirmed indexed on all 2 providers'))).toBe(true)
+  })
+
+  it('does not leave a stuck spinner entry for a still-polling sibling when piece-sync fails overall', async () => {
+    const spinner = { start: vi.fn(), message: vi.fn(), stop: vi.fn(), clear: vi.fn() }
+
+    mocks.executeUpload.mockImplementation(async (_synapse, _data, _rootCid, options) => {
+      options.onProgress?.({ type: 'stored', data: { providerId: 1n, pieceCid: 'bafkzcibtest123' } })
+      options.onProgress?.({
+        type: 'pieceSyncStatus:retryUpdate',
+        data: {
+          serviceURL: 'https://a.example.com',
+          providerIndex: 1,
+          providerCount: 2,
+          providerAttempt: 1,
+          providerMaxAttempts: 20,
+        },
+      })
+      options.onProgress?.({
+        type: 'pieceSyncStatus:retryUpdate',
+        data: {
+          serviceURL: 'https://b.example.com',
+          providerIndex: 2,
+          providerCount: 2,
+          providerAttempt: 1,
+          providerMaxAttempts: 20,
+        },
+      })
+      // Provider 1 syncs; provider 2 never does, so the group fails overall.
+      options.onProgress?.({
+        type: 'pieceSyncStatus:providerSynced',
+        data: { serviceURL: 'https://a.example.com', providerIndex: 1, providerCount: 2 },
+      })
+      options.onProgress?.({
+        type: 'pieceSyncStatus:failed',
+        data: {
+          error: new Error('Piece "x" not synced on "https://b.example.com" after 20 attempts'),
+          providerCount: 2,
+        },
+      })
+
+      // Mirrors real executeUpload: an indexing-confirmation failure is caught internally
+      // and surfaces as ipniValidated: false, not a rejection.
+      return { ...sampleResult, requestedCopies: 1, network: 'calibration', ipniValidated: false }
+    })
+
+    await performUpload({ chain: { id: 314159, name: 'calibration' } } as any, new Uint8Array([1, 2, 3, 4]), TEST_CID, {
+      contextType: 'add',
+      fileSize: 4,
+      logger: createLogger({ logLevel: 'info' }),
+      spinner,
+    })
+
+    expect(spinner.stop).toHaveBeenCalledWith(
+      expect.stringContaining('[1/2] Advertisement confirmed indexed on https://a.example.com')
+    )
+    expect(spinner.stop).toHaveBeenCalledWith(expect.stringContaining('Advertisement not confirmed indexed in time.'))
+    // No leftover "piece-sync-2" completion — it was discarded, not individually reported as done.
+    expect(spinner.stop).not.toHaveBeenCalledWith(expect.stringContaining('[2/2] Advertisement confirmed indexed'))
+  })
 })
 
 describe('truncate', () => {
@@ -307,24 +425,24 @@ describe('differentiatingKeys', () => {
 
   it('falls back to all keys when all datasets have uniform metadata values', () => {
     const datasets = [
-      { dataSetId: 1n, activePieceCount: 0n, metadata: { env: 'prod', region: 'us-east' } },
-      { dataSetId: 2n, activePieceCount: 0n, metadata: { env: 'prod', region: 'us-east' } },
+      { dataSetId: 1n, hasActivePieces: false, metadata: { env: 'prod', region: 'us-east' } },
+      { dataSetId: 2n, hasActivePieces: false, metadata: { env: 'prod', region: 'us-east' } },
     ] as any[]
     expect(differentiatingKeys(datasets)).toEqual(expect.arrayContaining(['env', 'region']))
   })
 
   it('returns only the keys whose values differ across datasets', () => {
     const datasets = [
-      { dataSetId: 1n, activePieceCount: 0n, metadata: { source: 'alpha', env: 'prod' } },
-      { dataSetId: 2n, activePieceCount: 0n, metadata: { source: 'beta', env: 'prod' } },
+      { dataSetId: 1n, hasActivePieces: false, metadata: { source: 'alpha', env: 'prod' } },
+      { dataSetId: 2n, hasActivePieces: false, metadata: { source: 'beta', env: 'prod' } },
     ] as any[]
     expect(differentiatingKeys(datasets)).toEqual(['source'])
   })
 
   it('collects keys that appear on any dataset, not just all of them', () => {
     const datasets = [
-      { dataSetId: 1n, activePieceCount: 0n, metadata: { source: 'a' } },
-      { dataSetId: 2n, activePieceCount: 0n, metadata: { source: 'a', region: 'us' } },
+      { dataSetId: 1n, hasActivePieces: false, metadata: { source: 'a' } },
+      { dataSetId: 2n, hasActivePieces: false, metadata: { source: 'a', region: 'us' } },
     ] as any[]
     // 'region' only exists on one dataset — undefined vs 'us' differs, so it's included
     expect(differentiatingKeys(datasets)).toContain('region')
@@ -332,32 +450,32 @@ describe('differentiatingKeys', () => {
 })
 
 describe('buildOptionLabel', () => {
-  it('shows dataset ID and piece count with no metadata keys', () => {
-    const ds = { dataSetId: 5n, activePieceCount: 0n, metadata: {} } as any
-    expect(buildOptionLabel(ds, [])).toBe('#5  (0 pieces)')
+  it('shows an empty dataset label with no metadata keys', () => {
+    const ds = { dataSetId: 5n, hasActivePieces: false, metadata: {} } as any
+    expect(buildOptionLabel(ds, [])).toBe('#5  (empty)')
   })
 
-  it('uses singular "piece" when activePieceCount is 1', () => {
-    const ds = { dataSetId: 5n, activePieceCount: 1n, metadata: {} } as any
-    expect(buildOptionLabel(ds, [])).toBe('#5  (1 piece)')
+  it('shows when a dataset has active pieces', () => {
+    const ds = { dataSetId: 5n, hasActivePieces: true, metadata: {} } as any
+    expect(buildOptionLabel(ds, [])).toBe('#5  (has pieces)')
   })
 
   it('shows key=value pairs for the provided keys', () => {
-    const ds = { dataSetId: 1n, activePieceCount: 2n, metadata: { source: 'alpha' } } as any
+    const ds = { dataSetId: 1n, hasActivePieces: true, metadata: { source: 'alpha' } } as any
     const label = buildOptionLabel(ds, ['source'])
     expect(label).toContain('source=alpha')
-    expect(label).toContain('(2 pieces)')
+    expect(label).toContain('(has pieces)')
   })
 
   it('shows just the key name when the metadata value is an empty string', () => {
-    const ds = { dataSetId: 1n, activePieceCount: 0n, metadata: { source: '' } } as any
+    const ds = { dataSetId: 1n, hasActivePieces: false, metadata: { source: '' } } as any
     const label = buildOptionLabel(ds, ['source'])
     expect(label).toContain('source')
     expect(label).not.toContain('source=')
   })
 
   it('caps visible pairs at 3 and appends an overflow suffix for the rest', () => {
-    const ds = { dataSetId: 1n, activePieceCount: 0n, metadata: { a: '1', b: '2', c: '3', d: '4' } } as any
+    const ds = { dataSetId: 1n, hasActivePieces: false, metadata: { a: '1', b: '2', c: '3', d: '4' } } as any
     const label = buildOptionLabel(ds, ['a', 'b', 'c', 'd'])
     expect(label).toContain('(+1 more)')
     expect(label).toContain('a=1')
@@ -365,8 +483,237 @@ describe('buildOptionLabel', () => {
   })
 
   it('truncates metadata values longer than 20 characters', () => {
-    const ds = { dataSetId: 1n, activePieceCount: 0n, metadata: { v: 'abcdefghijklmnopqrstuvwxyz' } } as any
+    const ds = { dataSetId: 1n, hasActivePieces: false, metadata: { v: 'abcdefghijklmnopqrstuvwxyz' } } as any
     const label = buildOptionLabel(ds, ['v'])
     expect(label).toContain('v=abcdefghijklm…uvwxyz')
+  })
+})
+
+describe('pickDataSetsForReuse', () => {
+  const ds = (o: { dataSetId: bigint; providerId: bigint; hasPieces: boolean }) =>
+    ({ dataSetId: o.dataSetId, providerId: o.providerId, hasActivePieces: o.hasPieces }) as any
+
+  it('prefers data sets already holding pieces over empty ones', () => {
+    const picked = pickDataSetsForReuse(
+      [
+        ds({ dataSetId: 101n, providerId: 1n, hasPieces: false }),
+        ds({ dataSetId: 102n, providerId: 2n, hasPieces: true }),
+        ds({ dataSetId: 103n, providerId: 3n, hasPieces: true }),
+      ],
+      2
+    )
+    expect(picked).toEqual([102n, 103n])
+  })
+
+  it('breaks ties by lowest data set ID', () => {
+    const picked = pickDataSetsForReuse(
+      [
+        ds({ dataSetId: 109n, providerId: 1n, hasPieces: true }),
+        ds({ dataSetId: 104n, providerId: 2n, hasPieces: true }),
+        ds({ dataSetId: 107n, providerId: 3n, hasPieces: true }),
+      ],
+      2
+    )
+    expect(picked).toEqual([104n, 107n])
+  })
+
+  it('picks at most one data set per provider', () => {
+    const picked = pickDataSetsForReuse(
+      [
+        ds({ dataSetId: 101n, providerId: 1n, hasPieces: true }),
+        ds({ dataSetId: 102n, providerId: 1n, hasPieces: true }),
+        ds({ dataSetId: 103n, providerId: 2n, hasPieces: true }),
+      ],
+      2
+    )
+    expect(picked).toEqual([101n, 103n])
+  })
+
+  it('returns fewer than requested when the candidates share providers', () => {
+    const picked = pickDataSetsForReuse(
+      [
+        ds({ dataSetId: 101n, providerId: 1n, hasPieces: true }),
+        ds({ dataSetId: 102n, providerId: 1n, hasPieces: true }),
+      ],
+      2
+    )
+    expect(picked).toEqual([101n])
+  })
+})
+
+const spinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn(), clear: vi.fn() } as any
+const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as any
+
+const makeSynapse = (dataSets: any[]) =>
+  ({
+    client: { account: { address: '0x1234567890123456789012345678901234567890' } },
+    storage: { findDataSets: vi.fn().mockResolvedValue(dataSets) },
+  }) as any
+
+const pinSet = (over: Record<string, unknown>) => ({
+  isLive: true,
+  pdpEndEpoch: 0n,
+  hasActivePieces: false,
+  metadata: { withIPFSIndexing: '', source: 'filecoin-pin' },
+  ...over,
+})
+
+describe('resolveDefaultDataSetReuse', () => {
+  it('reuses live filecoin-pin data sets, including ones with extra metadata keys', async () => {
+    const synapse = makeSynapse([
+      pinSet({
+        pdpVerifierDataSetId: 1n,
+        providerId: 1n,
+        metadata: { withIPFSIndexing: '', source: 'filecoin-pin', withCDN: '' },
+      }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 2n }),
+    ])
+    const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 2, withCDN: false, spinner, logger })
+    expect(ids).toEqual([1n, 2n])
+  })
+
+  it('ignores data sets from other sources, dead ones, and terminating ones', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, metadata: { withIPFSIndexing: '', source: 'other-tool' } }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 2n, isLive: false }),
+      pinSet({ pdpVerifierDataSetId: 3n, providerId: 3n, pdpEndEpoch: 100n }),
+    ])
+    const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 2, withCDN: false, spinner, logger })
+    expect(ids).toBeUndefined()
+  })
+
+  it('picks the sets already holding pieces when more match than requested', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, hasActivePieces: false }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 2n, hasActivePieces: true }),
+      pinSet({ pdpVerifierDataSetId: 3n, providerId: 3n, hasActivePieces: true }),
+    ])
+    const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 2, withCDN: false, spinner, logger })
+    expect(ids).toEqual([2n, 3n])
+  })
+
+  it('returns undefined when fewer sets match than requested copies', async () => {
+    const synapse = makeSynapse([pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n })])
+    const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 2, withCDN: false, spinner, logger })
+    expect(ids).toBeUndefined()
+  })
+
+  it('returns undefined when more sets match than requested but they share providers', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, hasActivePieces: true }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 1n, hasActivePieces: true }),
+      pinSet({ pdpVerifierDataSetId: 3n, providerId: 2n, hasActivePieces: true }),
+      pinSet({ pdpVerifierDataSetId: 4n, providerId: 2n, hasActivePieces: true }),
+    ])
+    const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 3, withCDN: false, spinner, logger })
+    expect(ids).toBeUndefined()
+  })
+
+  it('returns undefined when an exact-count match shares a provider', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, hasActivePieces: true }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 1n, hasActivePieces: true }),
+    ])
+    const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 2, withCDN: false, spinner, logger })
+    expect(ids).toBeUndefined()
+  })
+
+  it('only reuses CDN-enabled data sets when FilBeam egress is requested', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n }),
+      pinSet({
+        pdpVerifierDataSetId: 2n,
+        providerId: 2n,
+        metadata: { withIPFSIndexing: '', source: 'filecoin-pin', withCDN: 'true' },
+      }),
+    ])
+    const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 1, withCDN: true, spinner, logger })
+    expect(ids).toEqual([2n])
+  })
+})
+
+describe('resolveUploadTargets', () => {
+  const migrationSet = (id: bigint, providerId: bigint) => ({
+    isLive: true,
+    pdpEndEpoch: 0n,
+    hasActivePieces: false,
+    pdpVerifierDataSetId: id,
+    providerId,
+    metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
+  })
+
+  const base = { withCDN: false, spinner, logger }
+
+  it('leaves explicit targeting alone and carries the metadata through', async () => {
+    const synapse = makeSynapse([])
+    const targets = await resolveUploadTargets(
+      synapse,
+      { dataSetIds: [5n] },
+      { ...base, dataSetMetadata: { purpose: 'erc8004' } }
+    )
+    expect(targets).toEqual({ dataSetMetadata: { purpose: 'erc8004' } })
+    expect(synapse.storage.findDataSets).not.toHaveBeenCalled()
+  })
+
+  it('falls back to default reuse when no metadata filter is given', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 2n }),
+    ])
+    const targets = await resolveUploadTargets(synapse, {}, { ...base, copies: 2 })
+    expect(targets).toEqual({ dataSetIds: [1n, 2n] })
+  })
+
+  it('resolves --data-set-metadata to data set IDs and drops the filter', async () => {
+    const synapse = makeSynapse([migrationSet(13260n, 2n), migrationSet(13261n, 4n)])
+    const targets = await resolveUploadTargets(
+      synapse,
+      {},
+      {
+        ...base,
+        copies: 2,
+        dataSetMetadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
+      }
+    )
+    expect(targets).toEqual({ dataSetIds: [13260n, 13261n] })
+  })
+
+  it('prompts when --data-set-metadata matches more data sets than copies requested', async () => {
+    const synapse = makeSynapse([migrationSet(1n, 1n), migrationSet(2n, 2n), migrationSet(3n, 3n)])
+    const { isInteractive } = await import('../../utils/cli-helpers.js')
+    vi.mocked(isInteractive).mockReturnValueOnce(true)
+    mocks.multiselect.mockResolvedValueOnce([2n, 3n])
+
+    const targets = await resolveUploadTargets(
+      synapse,
+      {},
+      {
+        ...base,
+        copies: 2,
+        dataSetMetadata: { source: 'storacha-migration' },
+      }
+    )
+    expect(targets).toEqual({ dataSetIds: [2n, 3n] })
+  })
+
+  it('throws when --data-set-metadata matches fewer data sets than copies requested', async () => {
+    const synapse = makeSynapse([migrationSet(1n, 1n)])
+    await expect(
+      resolveUploadTargets(synapse, {}, { ...base, copies: 2, dataSetMetadata: { source: 'storacha-migration' } })
+    ).rejects.toThrow(/matched only 1 data set.*expected 2/)
+  })
+
+  it('keeps the metadata filter when nothing matches, so a new data set carries it', async () => {
+    const synapse = makeSynapse([])
+    const targets = await resolveUploadTargets(
+      synapse,
+      {},
+      {
+        ...base,
+        copies: 2,
+        dataSetMetadata: { source: 'brand-new' },
+      }
+    )
+    expect(targets).toEqual({ dataSetMetadata: { source: 'brand-new' } })
   })
 })

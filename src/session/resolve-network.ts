@@ -1,5 +1,5 @@
 /**
- * Resolve a {@link Chain}, RPC URL, and viem {@link Transport} from common CLI
+ * Resolve a {@link FilecoinChain}, RPC URL, and viem {@link Transport} from common CLI
  * options shared by all session subcommands.
  *
  * When only `--rpc-url` / `RPC_URL` is supplied, the chain is derived by
@@ -10,7 +10,7 @@
 import type { Transport } from 'viem'
 import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rpc-url.js'
 import { createTransport } from '../core/synapse/create-transport.js'
-import type { Chain } from '../core/synapse/index.js'
+import type { FilecoinChain } from '../core/synapse/index.js'
 import { resolveChainFromRpc } from '../core/synapse/resolve-chain-from-rpc.js'
 
 export interface NetworkCliOptions {
@@ -19,7 +19,7 @@ export interface NetworkCliOptions {
 }
 
 export interface ResolvedNetwork {
-  chain: Chain
+  chain: FilecoinChain
   rpcUrl: string
   transport: Transport
 }

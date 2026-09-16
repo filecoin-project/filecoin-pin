@@ -1,3 +1,4 @@
+import { paginate } from '@filoz/synapse-core'
 import { getEndorsedProviderIds } from '@filoz/synapse-core/endorsements'
 import { getApprovedProviderIds } from '@filoz/synapse-core/warm-storage'
 import pc from 'picocolors'
@@ -31,7 +32,7 @@ export async function runProviderList(options: ProviderListOptions): Promise<voi
       providers = providersOrNull.filter((p) => p !== null)
       spinner.stop(`Found ${providers.length} endorsed providers:`)
     } else {
-      const approvedIds = await getApprovedProviderIds(synapse.client)
+      const approvedIds = await getAllApprovedProviderIds(synapse.client)
       spinner.message(`Fetching details for ${approvedIds.length} approved providers...`)
       const providersOrNull = await Promise.all(
         approvedIds.map((id: bigint) => synapse.providers.getProvider({ providerId: id }))
@@ -94,7 +95,7 @@ export async function runProviderShow(providerIdOrAddr: string, options: Provide
     spinner.message('Checking endorsement and approval status...')
     const [endorsedIds, approvedIds] = await Promise.all([
       getEndorsedProviderIds(synapse.client),
-      getApprovedProviderIds(synapse.client),
+      getAllApprovedProviderIds(synapse.client),
     ])
     const providerId = BigInt(id)
     const isEndorsed = endorsedIds.includes(providerId)
@@ -149,7 +150,7 @@ export async function runProviderPing(
         const active = await synapse.providers.getAllActiveProviders()
         providersToPing.push(...active)
       } else {
-        const approvedIds = await getApprovedProviderIds(synapse.client)
+        const approvedIds = await getAllApprovedProviderIds(synapse.client)
         const providers = await Promise.all(
           approvedIds.map((id: bigint) => synapse.providers.getProvider({ providerId: id }))
         )
@@ -303,4 +304,12 @@ function ensurePublicAuth(options: any) {
   if (!hasAuth) {
     options.viewAddress = '0x0000000000000000000000000000000000000000'
   }
+}
+
+async function getAllApprovedProviderIds(client: Parameters<typeof getApprovedProviderIds>[0]): Promise<bigint[]> {
+  const providerIds: bigint[] = []
+  for await (const providerId of paginate(({ cursor }) => getApprovedProviderIds(client, { cursor }))) {
+    providerIds.push(providerId)
+  }
+  return providerIds
 }
