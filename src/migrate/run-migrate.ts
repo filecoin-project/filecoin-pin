@@ -364,12 +364,13 @@ export async function runMigrate(
   // rejection cannot take the process down.
   let packChain: Promise<void> = Promise.resolve()
   let packError: unknown = null
-  const packNow = (): Promise<void> => {
+  const packNow = (final = false): Promise<void> => {
     packChain = packChain
       .then(async () => {
         const packed = await runPackCars(
           db,
           {
+            final,
             targetSizeBytes: opts.packTargetBytes,
             carStore: opts.carStore,
             onBytesStaged: (delta) => {
@@ -480,7 +481,7 @@ export async function runMigrate(
       }
       await Promise.all(Array.from({ length: Math.min(opts.concurrency, pending.length) }, () => worker()))
       // The remainder below one pack target still ships, in smaller bins.
-      await packNow()
+      await packNow(true)
       if (packError != null) throw packError
     } finally {
       drained = true

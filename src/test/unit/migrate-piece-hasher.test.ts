@@ -11,6 +11,7 @@ import { MigrationDB } from '../../migrate/db.js'
 import {
   assembleMultiRootCar,
   MAX_UPLOAD_BYTES,
+  MIN_UPLOAD_BYTES,
   planBins,
   runPackCars,
   type WritableStreamWithLength,
@@ -178,24 +179,50 @@ describe('runPackCars oversized handling', () => {
 })
 
 describe('planBins', () => {
+  const A = 'bafkzcibewpkqwewyhz3yxutlxbpt2nkb6si5qilg4qqtzzij32uw7ammsc73a4wkgi'
+  const B = 'bafkzcibf3ck4uais4fgennh4hbfx5z3i6hue4xgq2cdeamtus4hjbsrjs5lf2azbxmsa'
+  const C = 'bafkzcibccmbbyafx5e5lzyqq2upjo5j4ziulp6phikah6p7ujgv2cmqrkxcqepq'
+
   it('rejects duplicate source CIDs', () => {
     expect(() =>
       planBins(
         [
-          { cid: 'bafkzcibewpkqwewyhz3yxutlxbpt2nkb6si5qilg4qqtzzij32uw7ammsc73a4wkgi', rawSize: 1 },
-          { cid: 'bafkzcibewpkqwewyhz3yxutlxbpt2nkb6si5qilg4qqtzzij32uw7ammsc73a4wkgi', rawSize: 1 },
+          { cid: A, rawSize: 1 },
+          { cid: A, rawSize: 1 },
         ],
-        10
+        1000
       )
     ).toThrow(/duplicate source CID/)
   })
 
+  it('rejects a target under the upload floor', () => {
+    expect(() => planBins([], MIN_UPLOAD_BYTES - 1)).toThrow(/at least 127/)
+  })
+
   it('returns pieces above the target as solo pieces', () => {
-    const small = { cid: 'bafkzcibewpkqwewyhz3yxutlxbpt2nkb6si5qilg4qqtzzij32uw7ammsc73a4wkgi', rawSize: 4 }
-    const big = { cid: 'bafkzcibf3ck4uais4fgennh4hbfx5z3i6hue4xgq2cdeamtus4hjbsrjs5lf2azbxmsa', rawSize: 100 }
-    const { bins, solo } = planBins([small, big], 10)
+    const small = { cid: A, rawSize: 400 }
+    const big = { cid: B, rawSize: 5000 }
+    const { bins, solo, deferred } = planBins([small, big], 1000)
     expect(bins).toHaveLength(1)
     expect(bins[0]?.memberCids).toEqual([small.cid])
     expect(solo).toEqual([big])
+    expect(deferred).toEqual([])
+  })
+
+  it('folds a bin under the upload floor into another bin with room', () => {
+    const tiny = { cid: C, rawSize: 100 }
+    const full = { cid: A, rawSize: 950 }
+    const roomy = { cid: B, rawSize: 600 }
+    const { bins, deferred } = planBins([tiny, full, roomy], 1000)
+    expect(deferred).toEqual([])
+    expect(bins.map((b) => b.totalRawSize).sort()).toEqual([700, 950])
+    expect(bins.find((b) => b.totalRawSize === 700)?.memberCids).toEqual([C, B].sort())
+  })
+
+  it('defers a bin under the upload floor when no other bin can take it', () => {
+    const tiny = { cid: C, rawSize: 100 }
+    const { bins, deferred } = planBins([tiny], 1000)
+    expect(bins).toEqual([])
+    expect(deferred).toEqual([tiny])
   })
 })
