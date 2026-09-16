@@ -539,10 +539,7 @@ describe('runTerminateDataSetCommand', () => {
 
   it('terminates a dataset and waits for confirmation', async () => {
     state.pieceList = [{ pieceId: 0n, pieceCid: 'bafkpiece0' }]
-    const updatedDataSet = { ...terminatableDataSet, isLive: false, pdpEndEpoch: 5000n }
-    mockGetPdpDataSet
-      .mockResolvedValueOnce(toPdpDataSet(terminatableDataSet, provider))
-      .mockResolvedValueOnce(toPdpDataSet(updatedDataSet, provider))
+    mockTerminateService.mockResolvedValue({ txHash: '0xtxhash123', dataSetId: 158n, endEpoch: 5000n })
 
     await runTerminateDataSetCommand(158, {
       privateKey: 'test-key',
@@ -552,7 +549,13 @@ describe('runTerminateDataSetCommand', () => {
 
     expect(mockTerminateService).toHaveBeenCalledWith({ dataSetId: 158n, skipProvider: true })
     expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith({ hash: '0xtxhash123' })
-    expect(displayDataSetsMock).toHaveBeenCalledTimes(2)
+    // The final status comes from the termination's own end epoch, not a second chain read.
+    expect(mockGetPdpDataSet).toHaveBeenCalledTimes(1)
+    expect(displayDataSetsMock).toHaveBeenLastCalledWith(
+      [expect.objectContaining({ isLive: false, pdpEndEpoch: 5000n })],
+      expect.anything(),
+      expect.anything()
+    )
     expect(displayDataSetListMock).not.toHaveBeenCalled()
   })
 

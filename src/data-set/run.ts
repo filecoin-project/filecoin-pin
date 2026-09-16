@@ -215,7 +215,7 @@ async function submitTermination(
   synapse: Synapse,
   dataSetId: number,
   viaProvider: boolean
-): Promise<{ txHash?: Hex; alreadyConfirmed: boolean }> {
+): Promise<{ txHash?: Hex; endEpoch: bigint; alreadyConfirmed: boolean }> {
   let result: Awaited<ReturnType<typeof synapse.storage.terminateService>>
   try {
     result = await synapse.storage.terminateService({
@@ -238,7 +238,7 @@ async function submitTermination(
   if (txHash == null && !viaProvider) {
     throw new Error('Termination did not return a transaction hash')
   }
-  return { ...(txHash == null ? {} : { txHash }), alreadyConfirmed: viaProvider }
+  return { ...(txHash == null ? {} : { txHash }), endEpoch: result.endEpoch, alreadyConfirmed: viaProvider }
 }
 
 export async function runTerminateDataSetCommand(dataSetId: number, options: DataSetCommandOptions): Promise<void> {
@@ -358,7 +358,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
 
     spinner.start('Submitting termination transaction...')
 
-    const { txHash, alreadyConfirmed } = await submitTermination(synapse, dataSetId, viaProvider)
+    const { txHash, endEpoch, alreadyConfirmed } = await submitTermination(synapse, dataSetId, viaProvider)
     const confirmed = alreadyConfirmed || shouldWait === true
 
     if (shouldWait && !viaProvider && txHash != null) {
@@ -382,15 +382,9 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     }
 
     if (confirmed) {
-      spinner.message('Transaction confirmed, fetching final status...')
-      try {
-        dataSet = await getDetailedDataSet(synapse, BigInt(dataSetId), { includePieces: false })
-      } catch {
-        dataSet = {
-          ...dataSet,
-          isLive: false,
-        }
-      }
+      // The end epoch comes from the termination itself (the receipt's event, or
+      // the provider's status), so no chain read that a lagging node could answer stale.
+      dataSet = { ...dataSet, isLive: false, pdpEndEpoch: endEpoch }
       spinner.stop(`${pc.green('*')} Data set termination confirmed${txHash == null ? '' : `: ${txHash}`}`)
     } else {
       spinner.stop(`Transaction submitted: ${txHash}`)
