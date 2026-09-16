@@ -26,6 +26,7 @@ import { findPiece } from '@filoz/synapse-core/sp'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import { formatFileSize } from '../utils/cli-helpers.js'
+import { log } from '../utils/cli-logger.js'
 import type { MigrationDB } from './db.js'
 import {
   collectedCidFromError,
@@ -37,7 +38,6 @@ import {
 } from './gc-window.js'
 import { formatDuration, Timer } from './metrics.js'
 import { type AddPiecesEvent, dataSetPieceId, fetchAddPiecesEvent, txLanded } from './pdp-verifier.js'
-import { log } from '../utils/cli-logger.js'
 
 export interface DirectUploadOptions {
   /** Initialized Synapse instance (auth, chain, and transport already resolved). */
@@ -411,7 +411,9 @@ export async function runDirectUpload(
         .map((u) => ({ ctx, u }))
     )
     if (needsRetry.length === 0 && missingSecondaries.length === 0) break
-    log.message(`retrying ${needsRetry.length + missingSecondaries.length} piece(s) that did not land (attempt ${attempt + 1})`)
+    log.message(
+      `retrying ${needsRetry.length + missingSecondaries.length} piece(s) that did not land (attempt ${attempt + 1})`
+    )
     for (const { ctx, subPieceCid } of missingSecondaries) {
       await pullToSecondary(db, primary, ctx, subPieceCid)
     }
@@ -450,7 +452,7 @@ export async function runDirectUpload(
       return {
         providerId: ctx.providerId,
         role: i === 0 ? ('primary' as const) : ('secondary' as const),
-        dataSetId: latestDataSetId(db, ctx),
+        dataSetId: committed.at(-1)?.dataSetId ?? ctx.dataSetId,
         committed: committed.length,
         collected: db.uploadsByStatus(ctx.providerId, 'collected').length,
         failed: db.uploadsByStatus(ctx.providerId, 'failed').length,
@@ -530,7 +532,9 @@ async function reconcileUnconfirmed(
       const pieceId = await deps.dataSetPieceId(synapse, dataSetId, u.subPieceCid)
       if (pieceId != null) {
         db.markUploadCommitted(u.subPieceCid, ctx.providerId, { dataSetId, pieceId, txHash: null })
-        log.message(`resume: ${u.subPieceCid} found on chain in data set ${dataSetId} (piece ${pieceId}); marked committed`)
+        log.message(
+          `resume: ${u.subPieceCid} found on chain in data set ${dataSetId} (piece ${pieceId}); marked committed`
+        )
         continue
       }
       // Absent on chain. A transaction the provider broadcast just before
@@ -605,13 +609,22 @@ async function reconcileUnconfirmed(
   }
 }
 
-/** Have one secondary pull a freshly parked piece from the primary. */
+/**
+ * Have one secondary pull a freshly parked piece from the primary. A
+ * secondary that already holds the piece (parked), or whose commit is on
+ * chain or unresolved, is left alone: pulling again would at best waste a
+ * transfer and at worst overwrite the row a later flush must not re-add.
+ */
 async function pullToSecondary(
   db: MigrationDB,
   primary: UploadContextLike,
   secondary: UploadContextLike,
   subPieceCid: string
 ): Promise<void> {
+  const current = db.uploadStatus(subPieceCid, secondary.providerId)
+  if (current === 'parked' || current === 'add_unconfirmed' || current === 'committed') {
+    return
+  }
   try {
     // Curio authenticates the pull with the same EIP-712 authorization used
     // for commit: a pull without it is rejected.
@@ -632,10 +645,4 @@ async function pullToSecondary(
     db.markUploadFailed(subPieceCid, secondary.providerId, 'secondary', (err as Error).message)
     log.message(`warn: secondary ${secondary.providerId} pull error for ${subPieceCid}: ${(err as Error).message}`)
   }
-}
-
-function latestDataSetId(db: MigrationDB, ctx: UploadContextLike): string | null {
-  const committed = db.uploadsByStatus(ctx.providerId, 'committed')
-  const last = committed[committed.length - 1]
-  return last != null ? last.dataSetId : ctx.dataSetId
 }

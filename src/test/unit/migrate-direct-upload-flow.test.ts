@@ -256,6 +256,51 @@ describe('runDirectUpload', () => {
     }
   })
 
+  it('re-storing a collected primary leaves a committed secondary alone', async () => {
+    const { dir, db } = await dbAt('du-secondary-committed')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      db.recordUploadParked(P1, 'p1', 'primary', '7')
+      db.markUploadCollected(P1, 'p1')
+      db.recordUploadParked(P1, 'p2', 'secondary', '7')
+      db.markUploadCommitted(P1, 'p2', { dataSetId: '7', pieceId: '3', txHash: '0xold' })
+      const { deps, calls } = fakeDeps({ pullFails: true })
+
+      await runDirectUpload(db, OPTS, deps)
+
+      expect(calls.pull).toBe(0)
+      expect(calls.commit.get('p2')).toBeUndefined()
+      expect(db.uploadsByStatus('p2', 'committed').map((u) => u.txHash)).toEqual(['0xold'])
+      expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(1)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('re-storing a collected primary leaves an unresolved secondary commit alone', async () => {
+    const { dir, db } = await dbAt('du-secondary-unconfirmed')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      db.recordUploadParked(P1, 'p1', 'primary', '7')
+      db.markUploadCollected(P1, 'p1')
+      db.recordUploadParked(P1, 'p2', 'secondary', '7')
+      db.markUploadsAddUnconfirmed([P1], 'p2')
+      db.markUploadTxSubmitted([P1], 'p2', '0xpending')
+      const { deps, calls } = fakeDeps()
+
+      await runDirectUpload(db, OPTS, deps)
+
+      expect(calls.pull).toBe(0)
+      expect(calls.commit.get('p2')).toBeUndefined()
+      expect(db.uploadsByStatus('p2', 'add_unconfirmed').map((u) => u.txHash)).toEqual(['0xpending'])
+      expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(1)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('a landed-but-unconfirmed tx is never re-queued: no blind re-add', async () => {
     const { dir, db } = await dbAt('du-landed')
     try {
@@ -297,8 +342,7 @@ describe('runDirectUpload', () => {
       // event lookup.
       const second = fakeDeps({
         txLanded: () => true,
-        addPiecesEvent: (dataSetId) =>
-          dataSetId === '7' ? { dataSetId: 7n, pieceIds: [42n], pieceCids: [P1] } : null,
+        addPiecesEvent: (dataSetId) => (dataSetId === '7' ? { dataSetId: 7n, pieceIds: [42n], pieceCids: [P1] } : null),
       })
       await runDirectUpload(db, OPTS, second.deps)
       const committed = db.uploadsByStatus('p1', 'committed')
@@ -397,8 +441,7 @@ describe('runDirectUpload', () => {
 
       const { deps } = fakeDeps({
         txLanded: () => true,
-        addPiecesEvent: (dataSetId) =>
-          dataSetId == null ? { dataSetId: 9n, pieceIds: [5n], pieceCids: [P1] } : null,
+        addPiecesEvent: (dataSetId) => (dataSetId == null ? { dataSetId: 9n, pieceIds: [5n], pieceCids: [P1] } : null),
       })
       await runDirectUpload(db, OPTS, deps)
 
