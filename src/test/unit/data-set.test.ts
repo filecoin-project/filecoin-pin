@@ -1,3 +1,4 @@
+import { TerminateServiceError } from '@filoz/synapse-core/errors'
 import { METADATA_KEYS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { WaitForTransactionReceiptTimeoutError } from 'viem'
@@ -620,7 +621,7 @@ describe('runTerminateDataSetCommand', () => {
 
   it('names the owner wallet when the provider refuses a session key', async () => {
     // What a provider that no longer holds the data set actually returns.
-    mockTerminateService.mockRejectedValue(new Error('Failed to request data set termination.'))
+    mockTerminateService.mockRejectedValue(new TerminateServiceError('Data set not found'))
 
     await expect(
       runTerminateDataSetCommand(158, {
@@ -629,6 +630,34 @@ describe('runTerminateDataSetCommand', () => {
         rpcUrl: 'wss://sample',
       })
     ).rejects.toThrow('--private-key')
+  })
+
+  it('names the owner wallet for a lockup shortfall, which the SDK reports as advice to skip the provider', async () => {
+    mockTerminateService.mockRejectedValue(
+      new Error(
+        'Synapse terminateService failed: Account cannot settle its lockup in full; terminate on-chain (skipProvider: true)'
+      )
+    )
+
+    await expect(
+      runTerminateDataSetCommand(158, {
+        walletAddress: '0xtest',
+        sessionKey: `0x${'ab'.repeat(32)}`,
+        rpcUrl: 'wss://sample',
+      })
+    ).rejects.toThrow('--private-key')
+  })
+
+  it('keeps a network error as it is: the owner wallet is not the answer to a timeout', async () => {
+    mockTerminateService.mockRejectedValue(new Error('fetch failed'))
+
+    await expect(
+      runTerminateDataSetCommand(158, {
+        walletAddress: '0xtest',
+        sessionKey: `0x${'ab'.repeat(32)}`,
+        rpcUrl: 'wss://sample',
+      })
+    ).rejects.toThrow(/^fetch failed$/)
   })
 
   it('leaves a private-key failure alone, since that path is already the owner wallet', async () => {

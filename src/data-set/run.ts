@@ -1,4 +1,5 @@
 import { confirm, isCancel } from '@clack/prompts'
+import { TerminateServiceError, TerminateServiceNotSupportedError } from '@filoz/synapse-core/errors'
 import { TerminateServicePermission } from '@filoz/synapse-core/session-key'
 import type { EnhancedDataSetInfo, Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
@@ -223,7 +224,7 @@ async function submitTermination(
       ...(viaProvider ? {} : { skipProvider: true }),
     })
   } catch (error) {
-    if (!viaProvider) throw error
+    if (!viaProvider || !needsOwnerWallet(error)) throw error
     // `login` mints the session key without gas, so the provider submits for
     // it and a provider that refuses leaves no way through. The SDK answers a
     // shortfall with `skipProvider: true` and a provider rejection with
@@ -239,6 +240,15 @@ async function submitTermination(
     throw new Error('Termination did not return a transaction hash')
   }
   return { ...(txHash == null ? {} : { txHash }), endEpoch: result.endEpoch, alreadyConfirmed: viaProvider }
+}
+
+/**
+ * A provider refusal or a lockup shortfall, which a session key cannot get
+ * past. A timeout or a network error is not: retrying the same way may work.
+ */
+function needsOwnerWallet(error: unknown): boolean {
+  if (TerminateServiceError.is(error) || TerminateServiceNotSupportedError.is(error)) return true
+  return error instanceof Error && error.message.includes('skipProvider: true')
 }
 
 export async function runTerminateDataSetCommand(dataSetId: number, options: DataSetCommandOptions): Promise<void> {
