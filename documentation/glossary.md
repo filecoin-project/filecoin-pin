@@ -252,10 +252,6 @@ Note that the filecoin-pin CLI's `--session-key` flag (and `SESSION_KEY` environ
 
 
 
-## Staging Budget
-
-The byte budget the `migrate` command grants its staging directory (free space at startup, capped by `--max-staged-bytes`). Everything staged counts against it: [Member CARs](#member-car), in-flight downloads, assembling pieces, and packed pieces not yet committed. A full budget blocks downloads until commits evict pieces, so a disk smaller than the migration cycles instead of failing. See [How migrate works](migrate.md).
-
 ## Standard IPFS Tooling
 
 This is shorthand way of referring to all the tooling the traditional IPFS ecosystem has built up for finding and retrieving content on [IPFS Mainnet](https://docs.ipfs.tech/concepts/glossary/#mainnet).  This includes tools like Kubo, Helia, and HTTP gateways.  A goal of filecoin-pin is to make sure data stored with it is retrievable with standard IPFS tooling without any special configuration.
