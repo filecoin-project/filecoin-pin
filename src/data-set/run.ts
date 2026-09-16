@@ -1,7 +1,9 @@
 import { confirm, isCancel } from '@clack/prompts'
+import { TerminateServiceError, TerminateServiceNotSupportedError } from '@filoz/synapse-core/errors'
 import { TerminateServicePermission } from '@filoz/synapse-core/session-key'
 import type { EnhancedDataSetInfo, Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
+import type { Hex } from 'viem'
 import { WaitForTransactionReceiptTimeoutError } from 'viem'
 import { CliFatal, isCliFatal, setIncompleteExitCode } from '../common/cli-errors.js'
 import { type DataSetSummary, getDetailedDataSet, listDataSets } from '../core/data-set/index.js'
@@ -204,6 +206,51 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
   }
 }
 
+/**
+ * Submit the termination and report what came back. The direct path always
+ * names its transaction; the provider reports the hash it submitted, returns
+ * only once the termination is confirmed, and an older one may name no hash
+ * at all.
+ */
+async function submitTermination(
+  synapse: Synapse,
+  dataSetId: number,
+  viaProvider: boolean
+): Promise<{ txHash?: Hex; endEpoch: bigint; alreadyConfirmed: boolean }> {
+  let result: Awaited<ReturnType<typeof synapse.storage.terminateService>>
+  try {
+    result = await synapse.storage.terminateService({
+      dataSetId: BigInt(dataSetId),
+      ...(viaProvider ? {} : { skipProvider: true }),
+    })
+  } catch (error) {
+    if (!viaProvider || !needsOwnerWallet(error)) throw error
+    // `login` mints the session key without gas, so the provider submits for
+    // it and a provider that refuses leaves no way through. The SDK answers a
+    // shortfall with `skipProvider: true` and a provider rejection with
+    // nothing at all; both need the owner wallet, so name it.
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(
+      `${reason}\n  A session key can only terminate through the provider. Retry with the owner wallet:  filecoin-pin data-set terminate ${dataSetId} --private-key <key>`,
+      { cause: error }
+    )
+  }
+  const txHash = result.confirmedTxHash ?? result.txHash
+  if (txHash == null && !viaProvider) {
+    throw new Error('Termination did not return a transaction hash')
+  }
+  return { ...(txHash == null ? {} : { txHash }), endEpoch: result.endEpoch, alreadyConfirmed: viaProvider }
+}
+
+/**
+ * A provider refusal or a lockup shortfall, which a session key cannot get
+ * past. A timeout or a network error is not: retrying the same way may work.
+ */
+function needsOwnerWallet(error: unknown): boolean {
+  if (TerminateServiceError.is(error) || TerminateServiceNotSupportedError.is(error)) return true
+  return error instanceof Error && error.message.includes('skipProvider: true')
+}
+
 export async function runTerminateDataSetCommand(dataSetId: number, options: DataSetCommandOptions): Promise<void> {
   if (Number.isNaN(dataSetId) || dataSetId <= 0) {
     intro(pc.bold('Terminate Filecoin Onchain Cloud Data Set'))
@@ -222,6 +269,12 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     const synapse = await getCliSynapse(options, [TerminateServicePermission])
     const network = synapse.chain.name
     const address = getClientAddress(synapse)
+
+    // `skipProvider` submits the on-chain call from `synapse.client`, the owner
+    // wallet, and a session key holds no key for that address. A session key
+    // spends its TerminateService grant through the provider instead: the CLI
+    // signs the request, the provider submits the transaction and confirms it.
+    const viaProvider = synapse.sessionClient != null
 
     // Read-only mode (bare address, no session key) cannot sign transactions
     if (typeof synapse.client.account === 'string' && synapse.sessionClient == null) {
@@ -302,7 +355,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
         return
       }
 
-      if (shouldWait === undefined) {
+      if (shouldWait === undefined && !viaProvider) {
         const waitConfirm = await confirm({
           message: 'Wait for the termination transaction to be fully confirmed?',
           initialValue: true,
@@ -315,15 +368,10 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
 
     spinner.start('Submitting termination transaction...')
 
-    // Direct (client-submitted) termination preserves the existing confirmation
-    // UX: `skipProvider` keeps the old `terminateDataSet` behaviour where the
-    // owner wallet submits the on-chain transaction and always gets a tx hash.
-    const { txHash } = await synapse.storage.terminateService({ dataSetId: BigInt(dataSetId), skipProvider: true })
-    if (txHash == null) {
-      throw new Error('Termination did not return a transaction hash')
-    }
+    const { txHash, endEpoch, alreadyConfirmed } = await submitTermination(synapse, dataSetId, viaProvider)
+    const confirmed = alreadyConfirmed || shouldWait === true
 
-    if (shouldWait) {
+    if (shouldWait && !viaProvider && txHash != null) {
       spinner.message(`Waiting for confirmation: ${txHash}...`)
       let receipt: Awaited<ReturnType<typeof synapse.client.waitForTransactionReceipt>>
       try {
@@ -341,19 +389,13 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
       if (receipt.status !== 'success') {
         throw new Error(`Termination transaction reverted: ${txHash}`)
       }
-      spinner.message('Transaction confirmed, fetching final status...')
-      try {
-        dataSet = await getDetailedDataSet(synapse, BigInt(dataSetId), { includePieces: false })
-      } catch {
-        dataSet = {
-          ...dataSet,
-          isLive: false,
-        }
-      }
     }
 
-    if (shouldWait) {
-      spinner.stop(`${pc.green('*')} Data set termination confirmed: ${txHash}`)
+    if (confirmed) {
+      // The end epoch comes from the termination itself (the receipt's event, or
+      // the provider's status), so no chain read that a lagging node could answer stale.
+      dataSet = { ...dataSet, isLive: false, pdpEndEpoch: endEpoch }
+      spinner.stop(`${pc.green('*')} Data set termination confirmed${txHash == null ? '' : `: ${txHash}`}`)
     } else {
       spinner.stop(`Transaction submitted: ${txHash}`)
       log.line('')
@@ -364,7 +406,7 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
 
     log.line('')
     const resultsContent = [
-      pc.gray(`Transaction Hash: ${txHash}`),
+      ...(txHash == null ? [] : [pc.gray(`Transaction Hash: ${txHash}`)]),
       pc.gray(`Network: ${network}`),
       pc.gray(`Data Set ID: ${dataSetId}`),
       pc.gray(`PDP Rail ID: ${dataSet.pdpRailId}`),
@@ -378,10 +420,10 @@ export async function runTerminateDataSetCommand(dataSetId: number, options: Dat
     log.spinnerSection('Termination Results', resultsContent)
 
     log.line('')
-    log.line(pc.bold(shouldWait ? 'Final Data Set Status:' : 'Updated Data Set Status (Pending):'))
+    log.line(pc.bold(confirmed ? 'Final Data Set Status:' : 'Updated Data Set Status (Pending):'))
     displayDataSets([dataSet], network, address)
 
-    outro(shouldWait ? 'Data set termination complete' : 'Termination transaction submitted')
+    outro(confirmed ? 'Data set termination complete' : 'Termination transaction submitted')
   } catch (error) {
     if (isCliFatal(error)) {
       spinner.stop()
