@@ -1,10 +1,10 @@
-import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
-import type { Chain } from '@filoz/synapse-sdk'
+import type { FilecoinChain } from '@filoz/synapse-sdk'
+import envPaths from 'env-paths'
 import { getRpcUrl, NETWORK_CHAINS, normalizeNetworkName, resolveDevnetConfig } from './common/get-rpc-url.js'
 import type { Config } from './core/synapse/index.js'
 
-function resolveChain(network: string | undefined, hasExplicitRpcUrl: boolean): Chain | undefined {
+function resolveChain(network: string | undefined, hasExplicitRpcUrl: boolean): FilecoinChain | undefined {
   const normalized = normalizeNetworkName(network)
   if (!normalized) return undefined
   if (normalized === 'mainnet' || normalized === 'calibration') return NETWORK_CHAINS[normalized]
@@ -13,28 +13,9 @@ function resolveChain(network: string | undefined, hasExplicitRpcUrl: boolean): 
   if (normalized === 'devnet' && !hasExplicitRpcUrl) return resolveDevnetConfig().chain
   return undefined
 }
-
-function getDataDirectory(): string {
-  const home = homedir()
-  const plat = platform()
-
-  // Follow XDG Base Directory Specification on Linux
-  if (plat === 'linux') {
-    return process.env.XDG_DATA_HOME ?? join(home, '.local', 'share', 'filecoin-pin')
-  }
-
-  // macOS uses ~/Library/Application Support (same as config)
-  if (plat === 'darwin') {
-    return join(home, 'Library', 'Application Support', 'filecoin-pin')
-  }
-
-  // Windows uses %APPDATA%
-  if (plat === 'win32') {
-    return join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'filecoin-pin')
-  }
-
-  // Fallback for other platforms
-  return join(home, '.filecoin-pin')
+/** Per-user data directory: pinning-server state and the saved login session live here. */
+export function getDataDirectory(): string {
+  return envPaths('filecoin-pin', { suffix: '' }).data
 }
 
 /**

@@ -1,4 +1,4 @@
-import { type Chain, calibration } from '@filoz/synapse-sdk'
+import { calibration, type FilecoinChain } from '@filoz/synapse-sdk'
 import type { Account, Client, Transport } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { describe, expect, it, vi } from 'vitest'
@@ -25,12 +25,12 @@ vi.mock('@filoz/synapse-core/session-key', async () => {
 const TEST_KEY = '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 const SESSION_ADDRESS = '0xF2222d4C6e3aa4ae572Fa686FC9C15eAA0Fb7bcD'
 
-function makeClient(): Client<Transport, Chain, Account> {
+function makeClient(): Client<Transport, FilecoinChain, Account> {
   const account = privateKeyToAccount(TEST_KEY)
   // Cast: the unit test only exercises code paths that read `account` and
   // `chain` off the client; the underlying transport is mocked at the
   // synapse-core layer.
-  return { account, chain: calibration } as unknown as Client<Transport, Chain, Account>
+  return { account, chain: calibration } as unknown as Client<Transport, FilecoinChain, Account>
 }
 
 describe('authorizeSessionAddress', () => {

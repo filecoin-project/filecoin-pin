@@ -183,14 +183,22 @@ npm install -g filecoin-pin
 
 ```bash
 # 0. Set up authentication (choose one):
+#    Log in:        filecoin-pin login
+#                   Generates a session key for this machine and opens the Filecoin
+#                   Cloud console, where you approve it with your wallet. Saved under
+#                   the data directory (see "Default Data Directories"); `logout` removes it.
 #    Private key:   export PRIVATE_KEY=0x...
 #                   (or pass --private-key <key> to each command)
 #    Session key:   export WALLET_ADDRESS=0x... SESSION_KEY=0x...
 #                   WALLET_ADDRESS is the owner wallet address; SESSION_KEY is the
-#                   session key PRIVATE key (not the session address), as printed by
-#                   `filecoin-pin session create` or `filecoin-pin session generate`
+#                   session key PRIVATE key (not the session address), e.g. from a
+#                   file downloaded from the console's Session keys page
 #                   (or pass --wallet-address <addr> --session-key <private-key> to each command)
-#    Revoke later:  filecoin-pin session revoke <session-address>
+#                   Or load both from a downloaded file: filecoin-pin add --credentials-file <path>
+#    Advanced:      `filecoin-pin session create|authorize|revoke|generate` manage session
+#                   keys with the wallet private key (no browser). --scopes <ids> picks a
+#                   subset (default: all). Ids: createDataSet, addPieces,
+#                   schedulePieceRemovals, terminateService.
 
 # 1. Configure payment permissions (one-time setup)
 filecoin-pin payments setup --auto
@@ -257,11 +265,50 @@ filecoin-pin add myfile.txt
 * `-v`, `--verbose`: Verbose output
 * `--private-key`: Ethereum-style (`0x`) private key (wallet and signer), funded with USDFC
 * `--wallet-address`: Session key mode: owner wallet address
-* `--session-key`: Session key mode: the session key's **private key** (printed as `SESSION_KEY` by `filecoin-pin session create` / `session generate`), not the session address
+* `--session-key`: Session key mode: the session key's **private key** (printed as `SESSION_KEY` by `filecoin-pin session create` / `session generate`), not the session address. Each command checks only the permissions it needs; see [Session-Key Permissions](#session-key-permissions) below.
 * `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `mainnet`). Mutually exclusive with `--rpc-url`.
 * `--rpc-url`: Filecoin RPC endpoint. Filecoin Pin probes its `eth_chainId` to derive the chain. Mutually exclusive with `--network`.
+* `--credentials-file <path>`: Load credentials (e.g. `SESSION_KEY`, `WALLET_ADDRESS`) from a dotenv-style file, e.g. a downloaded credentials file. Flags and environment variables always win over the file, across auth modes too: `PRIVATE_KEY` in the shell beats a session key pair in the file.
 
 Other arguments are possible for individual commands, use `--help` to find out more.
+
+### Login
+
+`filecoin-pin login` pairs this machine with a wallet without exporting a private key. It generates a session key, saves it to `session.env` in the data directory (owner-readable only) before anything else happens, prints a Filecoin Cloud console link, opens it in a browser on a terminal, and waits up to five minutes for the wallet owner to approve the key there. It ends with a readiness scorecard for uploads (key authorized, storage service approved, USDFC deposited) and a pre-filled console link when funding is still needed.
+
+A grant lives on one chain, so the file records the network (`mainnet` or `calibration`); resuming it under another `--network` is refused. `login` works only on those two networks, which are the ones the console serves. On devnet or a custom RPC, use `session create` with the wallet key. If `PRIVATE_KEY`, `SESSION_KEY`, or `VIEW_ADDRESS` is set in the shell, `login` warns that it will take precedence over the saved key.
+
+* `--scopes <ids>`: scopes to request (default: `createDataSet,addPieces`). See [Session-Key Permissions](#session-key-permissions) for what each command needs.
+* `--fresh`: generate a new key instead of resuming the saved one. A replaced key stays authorized on chain until it expires; revoke it on the console's Session keys page.
+* `--no-browser`: print the link only. `BROWSER=none` does the same for every command.
+* `--no-wait`: print the link, keep the key, and exit `2` without waiting. Rerun `login` after approving to check the grant.
+* `--timeout <seconds>`: how long to wait for the grant (default: 300).
+* Exit codes: `0` when every requested scope was granted, `2` when the wait timed out, `--no-wait` skipped it, or the owner granted fewer scopes than requested (rerun `login` to resume with the same key, or `login --scopes` with only what you need), `1` on an error.
+
+`filecoin-pin logout` deletes the saved session file and prints the session address it removed. This is local only: the on-chain grant expires on its own, or revoke it early on the console's Session keys page or with `filecoin-pin session revoke <session-address>` and the wallet key.
+
+With a session key, `add` checks before packing anything (and `import` before uploading) that the storage service is approved and that available funds cover the upload's estimate, reserve included. If not, it prints the readiness lines, a pre-filled console funding link on its own line, and the command to rerun with any secret flag redacted, then exits 1; nothing is uploaded. The same check runs again on the packed size before upload. Session keys cannot deposit, so there is no auto-fund on this path. Private-key auth keeps its existing checks and `--auto-fund`.
+
+`filecoin-pin balance` is an alias of `payments status` (wallet balances, Filecoin Cloud balance with locked reserve and available funds, storage footprint, runway) with a pointer to `dashboard` at the end of the report. `filecoin-pin dashboard` prints the Filecoin Cloud console billing page on its own line and opens it on a terminal (`--no-browser` or `BROWSER=none` to only print it; `CONSOLE_URL` overrides the default deployment).
+
+Every command resolves credentials in this order: explicit flags, then environment variables (`PRIVATE_KEY`, or `SESSION_KEY` and `WALLET_ADDRESS`), then `--credentials-file`, then the saved session file, and otherwise fails with `No credentials found` and a pointer to `login`. `VIEW_ADDRESS` forces read-only mode and skips the saved login (the command says so). `login`, `logout`, `dashboard`, and `server` never read the session file. When the saved login is used and neither `--network` nor `NETWORK` chose a network, the key's own network applies; using it under another network prints a warning. Whenever a session credential is used, the command prints a `Using session …` line naming the key, where it came from, the owner, and the network. Expired grants fail with `Session expired`; rerun `login` to renew the same key.
+
+CI and shared runners: set `PRIVATE_KEY` or `SESSION_KEY` and `WALLET_ADDRESS` explicitly, so a session file left in the runner's home directory is never picked up.
+
+### Session-Key Permissions
+
+In session-key mode, each command checks only the on-chain permissions it needs — a delegate does not need every storage-service permission to run a scoped subset of commands.
+
+| Command | Required scopes |
+| --- | --- |
+| Read commands (`payments status`, `data-set ls`, `provider ls`, `data-set show`, `data-set piece-status`, …) | None |
+| `add`, `import` | `createDataSet`, `addPieces` |
+| `rm` (`--piece` or `--all`) | `schedulePieceRemovals` |
+| `data-set terminate` | `terminateService` |
+| Pinning server (`filecoin-pinning-server`) | `createDataSet`, `addPieces`, `schedulePieceRemovals` |
+| `payments deposit`, `payments withdraw`, `payments fund`, `payments setup --auto` | Owner wallet only (session keys are refused) |
+
+If the session key is missing a required scope, the command fails up front with a console link to approve the missing scope with the owner wallet, plus the equivalent `filecoin-pin session authorize` / `filecoin-pin session create` commands for the account owner to run.
 
 ### Environment Variables
 
@@ -272,6 +319,7 @@ PRIVATE_KEY=0x...              # Ethereum private key with USDFC tokens
 # Optional - Network Configuration
 NETWORK=mainnet                # Network to use: mainnet, calibration, or devnet (default: mainnet)
 RPC_URL=wss://...              # Filecoin RPC endpoint (overrides NETWORK if specified)
+CONSOLE_URL=https://...        # Filecoin Cloud console base URL for remediation links (default: pay.filecoin.cloud)
                                # Mainnet: wss://wss.node.glif.io/apigw/lotus/rpc/v1
                                # Calibration: wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1
 
@@ -291,10 +339,10 @@ DO_NOT_TRACK=1                              # Standard cross-tool opt-out
 
 ### Default Data Directories
 
-When `DATABASE_PATH` and `CAR_STORAGE_PATH` are not specified, data is stored in platform-specific locations:
-- **Linux**: `~/.local/share/filecoin-pin/`
+When `DATABASE_PATH` and `CAR_STORAGE_PATH` are not specified, data is stored in platform-specific locations (via [`env-paths`](https://github.com/sindresorhus/env-paths)):
+- **Linux**: `~/.local/share/filecoin-pin/` (or `$XDG_DATA_HOME/filecoin-pin/`)
 - **macOS**: `~/Library/Application Support/filecoin-pin/`
-- **Windows**: `%APPDATA%/filecoin-pin/`
+- **Windows**: `%LOCALAPPDATA%\filecoin-pin\Data\`
 
 ### Local Development with foc-devnet
 

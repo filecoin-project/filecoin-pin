@@ -1,5 +1,92 @@
 # Changelog
 
+## [2.1.0](https://github.com/filecoin-project/filecoin-pin/compare/v2.0.1...v2.1.0) (2026-09-16)
+
+
+### Features
+
+* **add:** funds preflight for session keys ([#702](https://github.com/filecoin-project/filecoin-pin/issues/702)) ([40389ae](https://github.com/filecoin-project/filecoin-pin/commit/40389ae50b6c5d3640cb5fb7ee3d6ff98c9bd8f5))
+* **cli:** add balance and dashboard commands ([#703](https://github.com/filecoin-project/filecoin-pin/issues/703)) ([c068a78](https://github.com/filecoin-project/filecoin-pin/commit/c068a7890b2e3c6ef22da7d48307a6b9dd988f25))
+* **cli:** add login and logout commands ([#700](https://github.com/filecoin-project/filecoin-pin/issues/700)) ([819dc6a](https://github.com/filecoin-project/filecoin-pin/commit/819dc6a5c59b0805260d2ce2a312dda0c78ed5b6))
+* **cli:** auto-load the login session and add the no-credentials error ([#701](https://github.com/filecoin-project/filecoin-pin/issues/701)) ([7e431c2](https://github.com/filecoin-project/filecoin-pin/commit/7e431c2be77584fb8e74c73b476300b7db13d30e))
+* **logout:** deep link to revoke the key ([#726](https://github.com/filecoin-project/filecoin-pin/issues/726)) ([b81ff57](https://github.com/filecoin-project/filecoin-pin/commit/b81ff573f0b33fd5c6a27e53c4b2a3d438b873e1))
+* **session:** add on-chain authorization watcher ([#699](https://github.com/filecoin-project/filecoin-pin/issues/699)) ([0663f7a](https://github.com/filecoin-project/filecoin-pin/commit/0663f7a1690345d98e38ce77b33ccacdb133a6b8))
+
+
+### Bug Fixes
+
+* **auth:** explicit auth flags no longer lose to env vars ([#458](https://github.com/filecoin-project/filecoin-pin/issues/458)) ([eb24e89](https://github.com/filecoin-project/filecoin-pin/commit/eb24e89998d7ffb965b701a4ce0677a6d94e1998))
+* **data-set:** terminate with the session key ([#725](https://github.com/filecoin-project/filecoin-pin/issues/725)) ([a6b407a](https://github.com/filecoin-project/filecoin-pin/commit/a6b407a748dcfa016c57d4d02f092ac05f327e28))
+* **login:** scan to a named head, never latest ([#724](https://github.com/filecoin-project/filecoin-pin/issues/724)) ([9f2d10e](https://github.com/filecoin-project/filecoin-pin/commit/9f2d10e3af3f796418e7729a984234f3f21e1d16)), closes [#720](https://github.com/filecoin-project/filecoin-pin/issues/720)
+
+
+### Chores
+
+* **deps-dev:** bump tsx from 4.23.1 to 4.23.13 ([#713](https://github.com/filecoin-project/filecoin-pin/issues/713)) ([c0f2ce6](https://github.com/filecoin-project/filecoin-pin/commit/c0f2ce69b40276390fb5ca5b4e558a7d0b3963b9))
+* **deps-dev:** bump vitest from 4.1.0 to 4.1.11 ([#718](https://github.com/filecoin-project/filecoin-pin/issues/718)) ([f225a37](https://github.com/filecoin-project/filecoin-pin/commit/f225a37da85c031a5dfe5d9d37bf31d060b12317))
+* **deps:** bump fastify from 5.11.3 to 5.12.1 ([#704](https://github.com/filecoin-project/filecoin-pin/issues/704)) ([c4f414a](https://github.com/filecoin-project/filecoin-pin/commit/c4f414aa95ce3edbd8851fd2c9138b8d7aff6b9c))
+
+## [2.0.1](https://github.com/filecoin-project/filecoin-pin/compare/v2.0.0...v2.0.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* upgrade synapse and migrate storage cost calculations ([#709](https://github.com/filecoin-project/filecoin-pin/issues/709)) ([d362096](https://github.com/filecoin-project/filecoin-pin/commit/d362096f264785ce78fbe1ad7cce17948c1ecf2b))
+
+
+### Chores
+
+* **deps-dev:** bump typedoc from 0.28.19 to 0.28.20 ([#672](https://github.com/filecoin-project/filecoin-pin/issues/672)) ([eb18a10](https://github.com/filecoin-project/filecoin-pin/commit/eb18a10ce4f76458fa56d7cccf383103d99204c7))
+* **deps:** bump actions/checkout from 7.0.0 to 7.0.1 ([#693](https://github.com/filecoin-project/filecoin-pin/issues/693)) ([49a1999](https://github.com/filecoin-project/filecoin-pin/commit/49a1999de277583fa28be1360a591b7e67cdbbbc))
+* **deps:** bump pnpm/action-setup from 6.0.9 to 6.0.10 ([#694](https://github.com/filecoin-project/filecoin-pin/issues/694)) ([a96b9d6](https://github.com/filecoin-project/filecoin-pin/commit/a96b9d621baab1b716b22c5de34b84801ea47497))
+* **deps:** bump pnpm/action-setup from 6.0.9 to 6.0.10 in /upload-action ([#696](https://github.com/filecoin-project/filecoin-pin/issues/696)) ([99b4085](https://github.com/filecoin-project/filecoin-pin/commit/99b4085d0dbb3c4c794783ec03c059cbfa8d194b))
+* **deps:** bump pnpm/action-setup in /upload-action ([99b4085](https://github.com/filecoin-project/filecoin-pin/commit/99b4085d0dbb3c4c794783ec03c059cbfa8d194b))
+* **deps:** bump viem from 2.55.10 to 2.55.19 ([#675](https://github.com/filecoin-project/filecoin-pin/issues/675)) ([7b1762a](https://github.com/filecoin-project/filecoin-pin/commit/7b1762abcec8c9d90f7b33431117d4013d8428f6))
+
+## [2.0.0](https://github.com/filecoin-project/filecoin-pin/compare/v1.3.1...v2.0.0) (2026-09-03)
+
+This is the first release that doesn't break with [FWSS v1.4.0](https://github.com/FilOzone/filecoin-services/releases/tag/v1.4.0). A followup release will come soon that uses Synapse 2.0 and is fully compatible and updated for FWSS v1.4.0 (tracking issue)[https://github.com/filecoin-project/filecoin-pin/issues/685].
+
+### ⚠ BREAKING CHANGES
+
+* stop exposing piece metadata ([#683](https://github.com/filecoin-project/filecoin-pin/issues/683))
+* confirm indexing via Curio piece-status ([#689](https://github.com/filecoin-project/filecoin-pin/issues/689))
+* default egress to none and reuse existing data sets ([#658](https://github.com/filecoin-project/filecoin-pin/issues/658))
+* **deps:** update synapse-sdk to 1.2.1 and core to 0.8.1 ([#686](https://github.com/filecoin-project/filecoin-pin/issues/686))
+* **config:** use env-paths for data dirs ([#705](https://github.com/filecoin-project/filecoin-pin/issues/705))
+
+### Features
+
+* **cli:** add --credentials-file to load dotenv-style credentials ([#671](https://github.com/filecoin-project/filecoin-pin/issues/671)) ([31a6d82](https://github.com/filecoin-project/filecoin-pin/commit/31a6d821ddc1d004bc8edb7218bf8bd98617f9f8))
+* confirm indexing via Curio piece-status ([#689](https://github.com/filecoin-project/filecoin-pin/issues/689)) ([0933c5f](https://github.com/filecoin-project/filecoin-pin/commit/0933c5f3b585095878946ef2dabe261ffcf38670))
+* default egress to none and reuse existing data sets ([#658](https://github.com/filecoin-project/filecoin-pin/issues/658)) ([77eaf63](https://github.com/filecoin-project/filecoin-pin/commit/77eaf63828f7ff6c264ea8a24c566e41c7cf04b9))
+* **session:** --scopes flag on create/authorize/revoke ([#670](https://github.com/filecoin-project/filecoin-pin/issues/670)) ([2e9cb54](https://github.com/filecoin-project/filecoin-pin/commit/2e9cb54a333028c87a503b01f5f782149c8a8649))
+* **session:** per-command scope gating with console-first remediation ([#687](https://github.com/filecoin-project/filecoin-pin/issues/687)) ([24058ab](https://github.com/filecoin-project/filecoin-pin/commit/24058aba70243ee4cd89ac87b505b2351efd9174))
+* stop exposing piece metadata ([#683](https://github.com/filecoin-project/filecoin-pin/issues/683)) ([17127f8](https://github.com/filecoin-project/filecoin-pin/commit/17127f84d75e286646c9c01bedd02ffb4969464c))
+
+### Chores
+
+* **deps:** update synapse-sdk to 1.2.1 and core to 0.8.1 ([#686](https://github.com/filecoin-project/filecoin-pin/issues/686)) ([3e3e7d7](https://github.com/filecoin-project/filecoin-pin/commit/3e3e7d7ab543d2503751155a60c79d0c854f5702))
+* **config:** use env-paths for data dirs ([#705](https://github.com/filecoin-project/filecoin-pin/issues/705)) ([b5778fd](https://github.com/filecoin-project/filecoin-pin/commit/b5778fdae3a8ee98cf558f470dc0b14b57b99832))
+* add pkg-pr-new workflow for package preview publishing ([#678](https://github.com/filecoin-project/filecoin-pin/issues/678)) ([949aac1](https://github.com/filecoin-project/filecoin-pin/commit/949aac10a253ea85d276d7fa8d9713f823fc350d))
+* **deps:** bump @filoz/synapse-sdk from 1.1.0 to 1.1.1 ([#659](https://github.com/filecoin-project/filecoin-pin/issues/659)) ([f6a2184](https://github.com/filecoin-project/filecoin-pin/commit/f6a21848bdf4b2a8349f940cf47028fd42038399))
+* **deps:** bump @libp2p/identify from 4.1.8 to 4.1.12 ([#660](https://github.com/filecoin-project/filecoin-pin/issues/660)) ([02a8714](https://github.com/filecoin-project/filecoin-pin/commit/02a87148539528a33563f593ab2a1a91a2d706ed))
+* **deps:** bump actions/setup-node from 6 to 7 ([#695](https://github.com/filecoin-project/filecoin-pin/issues/695)) ([a957b46](https://github.com/filecoin-project/filecoin-pin/commit/a957b46e1f9d4c6541971c76c05cedbe11b6cd42))
+* **deps:** bump fastify from 5.8.5 to 5.11.3 ([#662](https://github.com/filecoin-project/filecoin-pin/issues/662)) ([5e5d5d1](https://github.com/filecoin-project/filecoin-pin/commit/5e5d5d1a6e46240f890e31f411e337d34526c728))
+* **deps:** bump libp2p from 3.3.4 to 3.3.8 ([#661](https://github.com/filecoin-project/filecoin-pin/issues/661)) ([a4ce512](https://github.com/filecoin-project/filecoin-pin/commit/a4ce51266ad50245e61e49fe5b0acc5550d06f7e))
+
+## [1.3.1](https://github.com/filecoin-project/filecoin-pin/compare/v1.3.0...v1.3.1) (2026-08-21)
+
+
+### Chores
+
+* **deps:** bump @filoz/synapse-core from 0.7.0 to 0.7.1 ([#644](https://github.com/filecoin-project/filecoin-pin/issues/644)) ([27b65c4](https://github.com/filecoin-project/filecoin-pin/commit/27b65c4d7314fb8539d2d5fcee06a2ab03fa4d21))
+* **deps:** bump @libp2p/tcp from 11.0.23 to 11.0.25 ([#643](https://github.com/filecoin-project/filecoin-pin/issues/643)) ([d7ed22f](https://github.com/filecoin-project/filecoin-pin/commit/d7ed22f38250d604e1afc8149902c93c4cad965b))
+* **deps:** bump @libp2p/tcp from 11.0.25 to 11.0.26 ([#649](https://github.com/filecoin-project/filecoin-pin/issues/649)) ([e02b324](https://github.com/filecoin-project/filecoin-pin/commit/e02b324ca85194836e4b692e35ed7b460bcf8927))
+* **deps:** bump it-to-buffer from 4.0.12 to 5.0.0 ([#647](https://github.com/filecoin-project/filecoin-pin/issues/647)) ([0c977d0](https://github.com/filecoin-project/filecoin-pin/commit/0c977d01f44426b875f9cfca5d19da3afb198797))
+* **deps:** bump p-queue from 9.1.2 to 9.3.3 ([#642](https://github.com/filecoin-project/filecoin-pin/issues/642)) ([0cc20bf](https://github.com/filecoin-project/filecoin-pin/commit/0cc20bfd7bde05f1bd1ee71533482e6b7a48bdde))
+* **deps:** bump viem from 2.48.4 to 2.55.10 ([#645](https://github.com/filecoin-project/filecoin-pin/issues/645)) ([eca5f54](https://github.com/filecoin-project/filecoin-pin/commit/eca5f546780993916c7c0c0af043011e21fa1e9f))
+
 ## [1.3.0](https://github.com/filecoin-project/filecoin-pin/compare/v1.2.0...v1.3.0) (2026-08-03)
 
 
