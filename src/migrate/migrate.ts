@@ -6,14 +6,16 @@
 
 import { mkdir, readFile, statfs } from 'node:fs/promises'
 import { join } from 'node:path'
+import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
+import { assertUploadFunds, rerunHint } from '../common/funds-preflight.js'
 import { validatePaymentSetup } from '../common/upload-flow.js'
 import { getDataDirectory } from '../config.js'
 import { DEFAULT_COPIES, IPFS_INDEXED_METADATA } from '../core/synapse/constants.js'
-import { APPLICATION_SOURCE, getClientAddress, initializeSynapse } from '../core/synapse/index.js'
+import { APPLICATION_SOURCE, getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import {
@@ -195,6 +197,8 @@ export async function runMigrateFromCli(
     const config = parseCLIAuth(options)
     config.dataSetMetadata = { ...MIGRATE_DATA_SET_METADATA }
     if (withCDN) config.withCDN = true
+    // Same permissions as add/import: migrate creates data sets and adds pieces.
+    config.requiredPermissions = [CreateDataSetPermission, AddPiecesPermission]
     const synapse = await initializeSynapse(config, logger)
     const networkSlug = getNetworkSlug(synapse.chain)
     spinner.stop(`${pc.green('✓')} Connected to ${pc.bold(synapse.chain.name)}`)
@@ -203,11 +207,31 @@ export async function runMigrateFromCli(
       printEgressNotice('beam')
     }
 
-    // The total upload size is unknown until CIDs download, so validate the
-    // minimum payment setup here; per-batch capacity failures surface from
-    // the commit path with the payments hints.
-    spinner.start('Checking payment setup...')
-    await validatePaymentSetup(synapse, 0, spinner)
+    // The total upload size is unknown until CIDs download, so only the
+    // minimum payment setup is checked here; per-batch capacity failures
+    // come out of the commit path with the payments hints.
+    if (isSessionKeyMode(synapse)) {
+      // A session key cannot deposit, so check the account can pay before
+      // any download happens and point at the console when it cannot.
+      spinner.start('Checking the account can pay for this migration...')
+      await assertUploadFunds(
+        synapse,
+        0,
+        {
+          copies,
+          ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
+          ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
+          ...(contextSelection.dataSetIds == null && { metadata: { ...MIGRATE_DATA_SET_METADATA } }),
+          withCDN,
+        },
+        rerunHint(),
+        spinner
+      )
+      spinner.stop(`${pc.green('✓')} Account can pay for this migration`)
+    } else {
+      spinner.start('Checking payment setup...')
+      await validatePaymentSetup(synapse, 0, spinner)
+    }
 
     // State is scoped per network AND owner, rows and staging files alike:
     // two wallets on one machine must not resume or sweep each other's work.
