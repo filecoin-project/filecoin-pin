@@ -7,7 +7,7 @@ export type ProgressEvent<T extends string = string, D = undefined> = D extends 
 export type ProgressEventHandler<E extends AnyProgressEvent = AnyProgressEvent> = (event: E) => void
 
 export interface Warning {
-  /** Machine-readable warning code (e.g., 'METADATA_FETCH_FAILED') */
+  /** Machine-readable warning code (e.g., 'PROVIDER_PIECES_UNAVAILABLE') */
   code: string
   /** Human-readable warning message */
   message: string
