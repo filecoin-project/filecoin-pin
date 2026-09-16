@@ -1,10 +1,20 @@
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { calculate, hasher } from '@filoz/synapse-core/piece'
 import { CarWriter } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { describe, expect, it } from 'vitest'
-import { assembleMultiRootCar, planBins, type WritableStreamWithLength } from '../../migrate/pack-cars.js'
+import { MigrationDB } from '../../migrate/db.js'
+import {
+  assembleMultiRootCar,
+  MAX_UPLOAD_BYTES,
+  planBins,
+  runPackCars,
+  type WritableStreamWithLength,
+} from '../../migrate/pack-cars.js'
 
 // The migrate runner computes piece commitments locally (streaming, chunked
 // writes) and the SDK recomputes them at store() time over the same bytes.
@@ -12,16 +22,13 @@ import { assembleMultiRootCar, planBins, type WritableStreamWithLength } from '.
 // upload with a commP mismatch.
 
 describe('local piece hasher equals the SDK calculation', () => {
-  it('agrees across fr32 padding edges', async () => {
-    // 0/1: degenerate; 64/65 and 127/128: fr32 254-bit padding boundaries;
-    // 1 MiB + 3: multi-chunk write paths; the rest: a mid-size payload.
-    const sizes = [0, 1, 64, 65, 127, 128, 1024, 1048579]
-    for (const size of sizes) {
-      const data = new Uint8Array(size).map((_, i) => (i * 7) % 251)
-      const streamed = hasher().write(data).finalize().toString()
-      const sdk = (await calculate(data)).toString()
-      expect(streamed, `hashers diverged at ${size} bytes`).toBe(sdk)
-    }
+  // 0/1: degenerate; 64/65 and 127/128: fr32 254-bit padding boundaries;
+  // 1 MiB + 3: multi-chunk write paths; the rest: a mid-size payload.
+  it.each([0, 1, 64, 65, 127, 128, 1024, 1048579])('agrees at %i bytes', async (size) => {
+    const data = new Uint8Array(size).map((_, i) => (i * 7) % 251)
+    const streamed = hasher().write(data).finalize().toString()
+    const sdk = (await calculate(data)).toString()
+    expect(streamed).toBe(sdk)
   })
 
   it('is chunk-size independent', async () => {
@@ -132,12 +139,6 @@ describe('assembleMultiRootCar', () => {
 
 describe('runPackCars oversized handling', () => {
   it('marks an over-cap CID terminal and reclaims its staged bytes', async () => {
-    const { mkdtemp, rm, writeFile, readFile } = await import('node:fs/promises')
-    const { tmpdir } = await import('node:os')
-    const { join } = await import('node:path')
-    const { MigrationDB } = await import('../../migrate/db.js')
-    const { MAX_UPLOAD_BYTES, runPackCars } = await import('../../migrate/pack-cars.js')
-
     const dir = await mkdtemp(join(tmpdir(), 'fp-overcap-'))
     const db = new MigrationDB(join(dir, 'migrate.db'), 'calibration:0xabc')
     try {
@@ -168,7 +169,7 @@ describe('runPackCars oversized handling', () => {
       expect(db.pendingCids()).toEqual([])
       expect(db.freeMemberBytes()).toBe(0)
       expect(freed).toEqual([MAX_UPLOAD_BYTES + 1])
-      await expect(readFile(memberCarPath)).rejects.toThrow()
+      await expect(readFile(memberCarPath)).rejects.toMatchObject({ code: 'ENOENT' })
     } finally {
       db.close()
       await rm(dir, { recursive: true, force: true })
@@ -189,12 +190,12 @@ describe('planBins', () => {
     ).toThrow(/duplicate source CID/)
   })
 
-  it('returns pieces above the target as oversized', () => {
+  it('returns pieces above the target as solo pieces', () => {
     const small = { cid: 'bafkzcibewpkqwewyhz3yxutlxbpt2nkb6si5qilg4qqtzzij32uw7ammsc73a4wkgi', rawSize: 4 }
     const big = { cid: 'bafkzcibf3ck4uais4fgennh4hbfx5z3i6hue4xgq2cdeamtus4hjbsrjs5lf2azbxmsa', rawSize: 100 }
-    const { bins, oversized } = planBins([small, big], 10)
+    const { bins, solo } = planBins([small, big], 10)
     expect(bins).toHaveLength(1)
     expect(bins[0]?.memberCids).toEqual([small.cid])
-    expect(oversized).toEqual([big])
+    expect(solo).toEqual([big])
   })
 })
