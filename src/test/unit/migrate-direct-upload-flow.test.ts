@@ -8,6 +8,7 @@ import {
   type DirectUploadDeps,
   type DirectUploadOptions,
   runDirectUpload,
+  UNCONFIRMED_REQUEUE_AFTER_MS,
   type UploadContextLike,
 } from '../../migrate/direct-upload.js'
 
@@ -546,7 +547,7 @@ describe('runDirectUpload', () => {
     }
   })
 
-  it('leaves a hashless add_unconfirmed row alone when no data set is known', async () => {
+  it('holds a fresh hashless add_unconfirmed row when no data set is known', async () => {
     const { dir, db } = await dbAt('du-hashless-unknown')
     try {
       seedBuilt(db, P1, join(dir, 'a.car'))
@@ -559,6 +560,27 @@ describe('runDirectUpload', () => {
       expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(1)
       expect(calls.commit.get('p1') ?? 0).toBe(0)
       expect(summary.providers[0]?.addUnconfirmed).toBe(1)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('re-parks a hashless add_unconfirmed row with no data set once it has aged out', async () => {
+    const { dir, db } = await dbAt('du-hashless-unknown-aged')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      db.recordUploadParked(P1, 'p1', 'primary', null)
+      db.markUploadsAddUnconfirmed([P1], 'p1')
+
+      // Still no data set on the provider an hour later: the create-and-add
+      // transaction never landed, so the piece is safe to commit again.
+      const { deps, calls } = fakeDeps({ nowOffsetMs: UNCONFIRMED_REQUEUE_AFTER_MS + 1 })
+      await runDirectUpload(db, OPTS, deps)
+
+      expect(calls.commit.get('p1')).toBe(1)
+      expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(1)
+      expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(0)
     } finally {
       db.close()
       await rm(dir, { recursive: true, force: true })

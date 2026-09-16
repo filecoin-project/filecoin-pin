@@ -539,25 +539,20 @@ async function reconcileUnconfirmed(
   for (const u of db.uploadsByStatus(ctx.providerId, 'add_unconfirmed')) {
     if (u.txHash == null) {
       // The crash landed between the transaction broadcast and the hash
-      // callback, so no receipt can be checked. The data set itself is the
-      // witness: a piece present on chain is committed; an absent one did
-      // not land. Without a known data set neither can be told apart, so the
-      // row stays unresolved and the run exits incomplete.
+      // callback, so no receipt can be checked. The data set is the witness:
+      // a piece present on chain is committed. No data set at all means the
+      // first commit (createDataSetAndAddPieces, one transaction) has not
+      // confirmed; a later run finds it by metadata if it lands.
       const dataSetId = u.dataSetId ?? ctx.dataSetId
-      if (dataSetId == null) {
-        log.message(
-          `resume: ${u.subPieceCid} has an unconfirmed addPieces with no transaction hash and no known data set ` +
-            `on provider ${ctx.providerId}; left add_unconfirmed for manual resolution`
-        )
-        continue
-      }
-      const pieceId = await deps.dataSetPieceId(synapse, dataSetId, u.subPieceCid)
-      if (pieceId != null) {
-        db.markUploadCommitted(u.subPieceCid, ctx.providerId, { dataSetId, pieceId, txHash: null })
-        log.message(
-          `resume: ${u.subPieceCid} found on chain in data set ${dataSetId} (piece ${pieceId}); marked committed`
-        )
-        continue
+      if (dataSetId != null) {
+        const pieceId = await deps.dataSetPieceId(synapse, dataSetId, u.subPieceCid)
+        if (pieceId != null) {
+          db.markUploadCommitted(u.subPieceCid, ctx.providerId, { dataSetId, pieceId, txHash: null })
+          log.message(
+            `resume: ${u.subPieceCid} found on chain in data set ${dataSetId} (piece ${pieceId}); marked committed`
+          )
+          continue
+        }
       }
       // Absent on chain. A transaction the provider broadcast just before
       // the crash could still land, and re-queueing while it can would add
@@ -567,9 +562,10 @@ async function reconcileUnconfirmed(
       // resolves them one way or the other.
       const ageMs = deps.now() - Date.parse(u.updatedAt)
       if (ageMs < UNCONFIRMED_REQUEUE_AFTER_MS) {
+        const where = dataSetId == null ? 'no data set exists yet' : `it is absent from data set ${dataSetId}`
         log.message(
-          `resume: ${u.subPieceCid} has an unconfirmed addPieces with no transaction hash and is absent from ` +
-            `data set ${dataSetId}; too recent to rule out an in-flight transaction, left add_unconfirmed ` +
+          `resume: ${u.subPieceCid} has an unconfirmed addPieces with no transaction hash and ${where} ` +
+            `on provider ${ctx.providerId}; too recent to rule out an in-flight transaction, left add_unconfirmed ` +
             `(re-run after ${formatDuration(UNCONFIRMED_REQUEUE_AFTER_MS - ageMs)})`
         )
         continue
