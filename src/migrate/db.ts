@@ -690,6 +690,14 @@ export class MigrationDB {
       .run(this.scope, subPieceCid, providerId, role, now, error, now)
   }
 
+  /** Status of one (sub-piece, provider) upload row, or null when none exists. */
+  uploadStatus(subPieceCid: string, providerId: string): UploadStatus | null {
+    const row = this.#db
+      .prepare(`SELECT status FROM uploads WHERE scope = ? AND sub_piece_cid = ? AND provider_id = ?`)
+      .get(this.scope, subPieceCid, providerId) as { status: UploadStatus } | undefined
+    return row?.status ?? null
+  }
+
   uploadsByStatus(providerId: string, status: UploadStatus): UploadRow[] {
     const rows = this.#db
       .prepare(
