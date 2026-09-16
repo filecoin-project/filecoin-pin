@@ -1,4 +1,4 @@
-import type { Chain, PDPProvider, Synapse } from '@filoz/synapse-sdk'
+import type { FilecoinChain, PDPProvider, PieceCID, Synapse } from '@filoz/synapse-sdk'
 import { calibration, mainnet } from '@filoz/synapse-sdk'
 import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import type { CID } from 'multiformats/cid'
@@ -19,9 +19,9 @@ import { isSessionKeyMode } from '../synapse/index.js'
 import { recordUploadResult } from '../telemetry/index.js'
 import type { ProgressEvent, ProgressEventHandler } from '../utils/types.js'
 import {
-  type ValidateIPNIProgressEvents,
-  type WaitForIpniProviderResultsOptions,
-  waitForIpniProviderResults,
+  type IndexingConfirmationProgressEvents,
+  type WaitForIndexingConfirmationOptions,
+  waitForIndexingConfirmation,
 } from '../utils/validate-ipni-advertisement.js'
 import {
   type SynapseUploadData,
@@ -37,7 +37,7 @@ export { getDownloadURL, getServiceURL, uploadToSynapse } from './synapse.js'
  * Derive a URL-safe network slug from the chain definition.
  * Falls back to the chain name for unknown chains.
  */
-export function getNetworkSlug(chain: Chain): string {
+export function getNetworkSlug(chain: FilecoinChain): string {
   switch (chain.id) {
     case mainnet.id:
       return 'mainnet'
@@ -232,7 +232,7 @@ export interface UploadExecutionOptions {
   /** Optional identifier to help correlate logs. */
   contextId?: string
   /** Optional umbrella onProgress receiving child progress events. */
-  onProgress?: ProgressEventHandler<(UploadProgressEvents | ValidateIPNIProgressEvents) & {}>
+  onProgress?: ProgressEventHandler<(UploadProgressEvents | IndexingConfirmationProgressEvents) & {}>
   /** Optional metadata to associate with the upload (per-piece). */
   pieceMetadata?: Record<string, string>
   /**
@@ -250,7 +250,7 @@ export interface UploadExecutionOptions {
      * @default: true
      */
     enabled?: boolean
-  } & Omit<WaitForIpniProviderResultsOptions, 'onProgress'>
+  } & Omit<WaitForIndexingConfirmationOptions, 'onProgress'>
 
   /** Number of storage copies to create (default determined by SDK). */
   copies?: number
@@ -306,7 +306,8 @@ export interface UploadExecutionResult extends SynapseUploadResult {
   /** Active network derived from the Synapse instance. */
   network: string
   /**
-   * True if the IPFS Root CID was observed on filecoinpin.contact (IPNI).
+   * True if the IPNI indexer confirmed the piece's advertisement(s) as indexed and
+   * the IPFS Root CID was confirmed present on the indexer.
    *
    * You should block any displaying, or attempting to access, of IPFS
    * download URLs unless the IPNI validation is successful.
@@ -349,19 +350,29 @@ export async function executeUpload(
     )
   }
 
-  // Collect providers from `providerSelected` events for IPNI validation
-  const selectedProviders: PDPProvider[] = []
+  // pieceCid is identical across providers for the same upload, so any `stored` event works.
+  // contexts carry their provider directly — no providerSelected event fires for them.
+  const selectedProviders: PDPProvider[] = options.contexts?.map((context) => context.provider) ?? []
+  let pieceCidForValidation: PieceCID | undefined
   let ipniValidationPromise: Promise<boolean> | undefined
 
-  const emitProgress: ProgressEventHandler<UploadProgressEvents | ValidateIPNIProgressEvents> = (event) => {
+  const emitProgress: ProgressEventHandler<UploadProgressEvents | IndexingConfirmationProgressEvents> = (event) => {
     switch (event.type) {
       case 'providerSelected': {
         selectedProviders.push(event.data.provider)
         break
       }
+      case 'stored': {
+        pieceCidForValidation ??= event.data.pieceCid
+        break
+      }
       case 'piecesAdded': {
-        // Begin IPNI validation on the first piecesAdded event
+        // Begin indexing confirmation on the first piecesAdded event
         if (options.ipniValidation?.enabled !== false && ipniValidationPromise == null) {
+          if (pieceCidForValidation == null) {
+            logger.warn('piecesAdded fired before stored; skipping indexing confirmation (no pieceCid to poll)')
+            break
+          }
           const {
             enabled: _enabled,
             expectedProviders,
@@ -369,7 +380,7 @@ export async function executeUpload(
             ...restOptions
           } = options.ipniValidation ?? {}
 
-          const validationOptions: WaitForIpniProviderResultsOptions = {
+          const validationOptions: WaitForIndexingConfirmationOptions = {
             ...restOptions,
             logger,
             signal: ipniSignal ?? options.signal,
@@ -379,18 +390,20 @@ export async function executeUpload(
             validationOptions.onProgress = options.onProgress
           }
 
-          // Use providers collected from selection events for IPNI validation
+          // Use providers collected from selection events for indexing confirmation
           if (expectedProviders != null) {
             validationOptions.expectedProviders = expectedProviders
           } else if (selectedProviders.length > 0) {
             validationOptions.expectedProviders = selectedProviders
           }
 
-          ipniValidationPromise = waitForIpniProviderResults(rootCid, validationOptions).catch((error) => {
-            validationOptions.signal?.throwIfAborted()
-            logger.warn({ error }, 'IPNI provider results check was rejected')
-            return false
-          })
+          ipniValidationPromise = waitForIndexingConfirmation(rootCid, pieceCidForValidation, validationOptions).catch(
+            (error) => {
+              validationOptions.signal?.throwIfAborted()
+              logger.warn({ error }, 'Indexing confirmation check was rejected')
+              return false
+            }
+          )
         }
         break
       }
@@ -447,7 +460,7 @@ export async function executeUpload(
       ipniValidated = await ipniValidationPromise
     } catch (error) {
       options.signal?.throwIfAborted()
-      logger.error({ error }, 'Could not validate IPNI provider records')
+      logger.error({ error }, 'Could not confirm indexing')
       ipniValidated = false
     }
   }

@@ -30,9 +30,9 @@ import { CID } from 'multiformats/cid'
 import * as json from 'multiformats/codecs/json'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256, sha512 } from 'multiformats/hashes/sha2'
+import { log } from '../utils/cli-logger.js'
 import type { FailureCategory } from './db.js'
 import { fetchCar, GatewayError } from './gateway.js'
-import { log } from '../utils/cli-logger.js'
 
 /**
  * Error thrown by the verify path, carrying a failure category alongside the
@@ -80,23 +80,15 @@ function blockKey(cid: CID): string {
   return base64.encode(cid.multihash.bytes)
 }
 
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}
-
 async function digestMatches(cid: CID, bytes: Uint8Array): Promise<boolean> {
   const code = cid.multihash.code
-  if (code === IDENTITY_MULTIHASH_CODE) return bytesEqual(bytes, cid.multihash.digest)
+  if (code === IDENTITY_MULTIHASH_CODE) return Buffer.compare(bytes, cid.multihash.digest) === 0
   const h = HASHERS[code]
   if (h == null) {
     throw new VerifyCarError(`no hasher for multihash code 0x${code.toString(16)}; cannot verify block ${cid}`, 'other')
   }
   const { digest } = await h.digest(bytes)
-  return bytesEqual(digest, cid.multihash.digest)
+  return Buffer.compare(digest, cid.multihash.digest) === 0
 }
 
 function linksOf(cid: CID, bytes: Uint8Array): CID[] {
@@ -174,6 +166,17 @@ export async function verifyCarStream(
   let blockCount = 0
 
   const reader = await CarBlockIterator.fromIterable(tap())
+  // The header is parsed by now. Reject a response for the wrong DAG before
+  // spending bandwidth on its blocks; roots compare by multihash because the
+  // trustless-gateway spec lets a CIDv0 request be answered with the CIDv1
+  // root, and the codec check in the walk below rejects a relabeled root.
+  const roots = await reader.getRoots()
+  if (opts.expectedRoot != null && !roots.some((r) => blockKey(r) === blockKey(opts.expectedRoot as CID))) {
+    throw new VerifyCarError(
+      `CAR root mismatch: expected ${opts.expectedRoot.toString()}, CAR declares [${roots.map((r) => r.toString()).join(', ')}]`,
+      'car_root_mismatch'
+    )
+  }
   for await (const block of reader) {
     const cid = block.cid
     if (!(await digestMatches(cid, block.bytes))) {
@@ -182,7 +185,6 @@ export async function verifyCarStream(
     links.set(blockKey(cid), { code: cid.code, links: linksOf(cid, block.bytes) })
     blockCount++
   }
-  const roots = await reader.getRoots()
   await sink.end()
 
   // Completeness: every link reachable from the root must be present. A
@@ -315,15 +317,6 @@ export async function stageMember(
       // The completeness walk must start from the CID the caller asked for,
       // not whatever root the response happens to declare first.
       const verified = await verifyCarStream(body, sink, { ...opts, expectedRoot: expected })
-      // Roots compare by multihash: the trustless-gateway spec permits
-      // answering a CIDv0 request with the equivalent CIDv1 root, and the
-      // walk's codec check above already rejects a relabeled root.
-      if (!verified.roots.some((r) => blockKey(r) === blockKey(expected))) {
-        throw new VerifyCarError(
-          `CAR root mismatch: expected ${cid}, CAR declares [${verified.roots.map((r) => r.toString()).join(', ')}]`,
-          'car_root_mismatch'
-        )
-      }
       await rename(tmpPath, finalPath)
       log.message(`  ok ${cid} (${verified.rawSize} bytes, ${verified.blockCount} block(s) verified) via ${gateway}`)
       return {

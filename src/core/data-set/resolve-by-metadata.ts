@@ -5,13 +5,20 @@ import type { DataSetSummary } from './types.js'
 
 export type MetadataResolution =
   | { kind: 'no-match' }
-  | { kind: 'matched'; dataSetIds: bigint[] }
+  | { kind: 'matched'; dataSetIds: bigint[]; matchedDataSets: DataSetSummary[] }
   | { kind: 'too-many-matches'; matchedIds: bigint[]; matchedDataSets: DataSetSummary[]; expected: number }
   | { kind: 'too-few-matches'; matchedIds: bigint[]; expected: number }
 
 export interface ResolveByMetadataOptions {
   expectedCopies: number
   logger?: Logger
+  /**
+   * Metadata keys that must be present on the dataset, with any value.
+   * Complements `requestedMetadata`, which matches exact key/value pairs.
+   * Used for keys whose value varies across SDK versions (e.g. `withCDN`
+   * is `''` when set by the SDK but `'true'` when set by hand).
+   */
+  requiredKeys?: string[]
 }
 
 /**
@@ -32,9 +39,15 @@ export async function resolveDataSetIdsByMetadata(
     return { kind: 'no-match' }
   }
 
+  const requiredKeys = options.requiredKeys ?? []
+
   const matched = await listDataSets(synapse, {
     filter: (dataSet) => {
       if (!dataSet.isLive) {
+        return false
+      }
+      // Exclude datasets scheduled for termination; uploads must target active ones.
+      if ((dataSet.pdpEndEpoch ?? 0n) !== 0n) {
         return false
       }
       const metadata = dataSet.metadata
@@ -47,7 +60,10 @@ export async function resolveDataSetIdsByMetadata(
        * carry `someKey` at all, which violates the "requested keys are a subset
        * of dataset metadata" rule.
        */
-      return entries.every(([key, value]) => key in metadata && metadata[key] === value)
+      if (!entries.every(([key, value]) => key in metadata && metadata[key] === value)) {
+        return false
+      }
+      return requiredKeys.every((key) => key in metadata)
     },
     ...(options.logger != null && { logger: options.logger }),
   })
@@ -66,5 +82,5 @@ export async function resolveDataSetIdsByMetadata(
     return { kind: 'too-few-matches', matchedIds, expected: options.expectedCopies }
   }
 
-  return { kind: 'matched', dataSetIds: matchedIds }
+  return { kind: 'matched', dataSetIds: matchedIds, matchedDataSets: matched }
 }

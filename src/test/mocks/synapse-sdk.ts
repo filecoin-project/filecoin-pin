@@ -43,7 +43,7 @@ export const mainnet = {
 export const METADATA_KEYS = {
   WITH_CDN: 'withCDN',
   WITH_IPFS_INDEXING: 'withIPFSIndexing',
-  IPFS_ROOT_CID: 'ipfsRootCid',
+  IPFS_ROOT_CID: 'ipfsRootCID',
   SOURCE: 'source',
 }
 

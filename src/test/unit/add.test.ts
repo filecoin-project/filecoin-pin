@@ -11,6 +11,7 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runAdd, runAddFromCli } from '../../add/add.js'
 import type { AddDryRunResult, AddResult } from '../../add/types.js'
@@ -25,6 +26,11 @@ vi.mock('../../common/upload-flow.js', () => ({
   validatePaymentSetup: vi.fn(),
   performAutoFunding: vi.fn(),
   promptDataSetSelection: vi.fn().mockRejectedValue(new Error('not interactive')),
+  // Mirrors the real no-match path: an unmatched --data-set-metadata filter is
+  // carried forward so a newly created data set still gets it.
+  resolveUploadTargets: vi.fn(async (_synapse: any, _selection: any, opts: any) => ({
+    ...(opts?.dataSetMetadata != null && { dataSetMetadata: opts.dataSetMetadata }),
+  })),
   performUpload: vi.fn().mockResolvedValue({
     pieceCid: 'bafkzcibtest1234567890',
     size: 1024,
@@ -59,6 +65,7 @@ vi.mock('../../common/upload-flow.js', () => ({
 
 vi.mock('../../core/synapse/index.js', () => ({
   getClientAddress: vi.fn(() => '0x1234567890123456789012345678901234567890'),
+  isSessionKeyMode: vi.fn(() => false),
   initializeSynapse: vi.fn().mockImplementation((config: any) => {
     // Validate auth config (mirrors validateAuthConfig in actual code)
     const hasStandardAuth = config.privateKey != null
@@ -80,6 +87,12 @@ vi.mock('../../core/synapse/index.js', () => ({
       },
     }
   }),
+}))
+
+vi.mock('../../common/funds-preflight.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../common/funds-preflight.js')>()),
+  assertUploadFunds: vi.fn(async () => undefined),
+  estimateInputBytes: vi.fn(async () => 1024),
 }))
 
 vi.mock('../../core/unixfs/index.js', () => ({
@@ -135,9 +148,59 @@ describe('Add Command', () => {
     // Clean up test directory
     await rm(testDir, { recursive: true, force: true })
     vi.clearAllMocks()
+    const { isSessionKeyMode } = await import('../../core/synapse/index.js')
+    vi.mocked(isSessionKeyMode).mockReturnValue(false)
   })
 
   describe('runAdd command', () => {
+    const sessionAuth = () => ({
+      filePath: testFile,
+      walletAddress: '0x1234567890123456789012345678901234567890',
+      sessionKey: `0x${'11'.repeat(32)}`,
+      rpcUrl: 'wss://test.rpc.url',
+    })
+
+    it('with a session key, checks funds on the size estimate before packing and again on the CAR size', async () => {
+      const { isSessionKeyMode } = await import('../../core/synapse/index.js')
+      const { assertUploadFunds } = await import('../../common/funds-preflight.js')
+      const { createCarFromPath } = await import('../../core/unixfs/index.js')
+      vi.mocked(isSessionKeyMode).mockReturnValue(true)
+
+      await runAdd(sessionAuth())
+
+      expect(vi.mocked(createCarFromPath)).toHaveBeenCalledTimes(1)
+      const packedAt = vi.mocked(createCarFromPath).mock.invocationCallOrder[0]
+      const [beforePacking, afterPacking] = vi.mocked(assertUploadFunds).mock.invocationCallOrder
+      expect(beforePacking).toBeLessThan(packedAt as number)
+      expect(afterPacking).toBeGreaterThan(packedAt as number)
+      // 1024 is the stubbed estimate; the second call carries the packed CAR's size.
+      expect(vi.mocked(assertUploadFunds).mock.calls[0]?.[1]).toBe(1024)
+      expect(vi.mocked(assertUploadFunds).mock.calls[1]?.[1]).toBe(TEST_CAR_CONTENT.length)
+    })
+
+    it('with a session key, --auto-fund is not attempted: the funds check runs instead', async () => {
+      const { isSessionKeyMode } = await import('../../core/synapse/index.js')
+      const { assertUploadFunds } = await import('../../common/funds-preflight.js')
+      const { performAutoFunding } = await import('../../common/upload-flow.js')
+      vi.mocked(isSessionKeyMode).mockReturnValue(true)
+
+      await runAdd({ ...sessionAuth(), autoFund: true })
+
+      expect(vi.mocked(assertUploadFunds)).toHaveBeenCalledTimes(2)
+      expect(vi.mocked(performAutoFunding)).not.toHaveBeenCalled()
+    })
+
+    it('with a session key, packs nothing when the funds check refuses', async () => {
+      const { isSessionKeyMode } = await import('../../core/synapse/index.js')
+      const { assertUploadFunds } = await import('../../common/funds-preflight.js')
+      const { createCarFromPath } = await import('../../core/unixfs/index.js')
+      vi.mocked(isSessionKeyMode).mockReturnValue(true)
+      vi.mocked(assertUploadFunds).mockRejectedValueOnce(new Error("Account can't pay for this upload"))
+
+      await expect(runAdd(sessionAuth())).rejects.toThrow("Account can't pay")
+      expect(vi.mocked(createCarFromPath)).not.toHaveBeenCalled()
+    })
+
     it('should successfully add a file (no directory wrapper)', async () => {
       const result = (await runAdd({
         filePath: testFile,
@@ -223,6 +286,7 @@ describe('Add Command', () => {
       expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
         expect.objectContaining({
           dataSetMetadata: { purpose: 'erc8004' },
+          requiredPermissions: [CreateDataSetPermission, AddPiecesPermission],
         }),
         expect.anything()
       )
@@ -261,21 +325,9 @@ describe('Add Command', () => {
       )
     })
 
-    it('resolves --data-set-metadata to dataSetIds and drops metadata when subset matches', async () => {
-      mockFindDataSets.mockResolvedValueOnce([
-        {
-          pdpVerifierDataSetId: 13260n,
-          providerId: 2n,
-          isLive: true,
-          metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' },
-        },
-        {
-          pdpVerifierDataSetId: 13261n,
-          providerId: 4n,
-          isLive: true,
-          metadata: { source: 'storacha-migration', 'space-did': 'did:key:abc', withIPFSIndexing: '' },
-        },
-      ])
+    it('routes --data-set-metadata through resolveUploadTargets to performUpload', async () => {
+      const { resolveUploadTargets, performUpload } = await import('../../common/upload-flow.js')
+      vi.mocked(resolveUploadTargets).mockResolvedValueOnce({ dataSetIds: [13260n, 13261n] })
 
       await runAdd({
         filePath: testFile,
@@ -284,57 +336,58 @@ describe('Add Command', () => {
         dataSetMetadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' },
       })
 
-      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(resolveUploadTargets)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Object),
+        expect.objectContaining({ dataSetMetadata: { source: 'storacha-migration', 'space-did': 'did:key:abc' } })
+      )
       expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
         expect.anything(),
-        expect.objectContaining({
-          dataSetIds: [13260n, 13261n],
-        })
+        expect.objectContaining({ dataSetIds: [13260n, 13261n] })
       )
       const lastCall = vi.mocked(performUpload).mock.calls.at(-1)
       expect(lastCall?.[3]).not.toHaveProperty('metadata')
     })
 
-    it('calls promptDataSetSelection when --data-set-metadata matches too many data sets', async () => {
-      mockFindDataSets.mockResolvedValueOnce([
-        { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
-        { pdpVerifierDataSetId: 2n, providerId: 2n, isLive: true, metadata: { source: 'storacha-migration' } },
-        { pdpVerifierDataSetId: 3n, providerId: 3n, isLive: true, metadata: { source: 'storacha-migration' } },
-        { pdpVerifierDataSetId: 4n, providerId: 4n, isLive: true, metadata: { source: 'storacha-migration' } },
-      ])
+    it('routes data set IDs from resolveUploadTargets to performUpload when no targeting is given', async () => {
+      const { resolveUploadTargets, performUpload } = await import('../../common/upload-flow.js')
+      vi.mocked(resolveUploadTargets).mockResolvedValueOnce({ dataSetIds: [7n, 9n] })
 
-      await expect(
-        runAdd({
-          filePath: testFile,
-          privateKey: 'test-private-key',
-          rpcUrl: 'wss://test.rpc.url',
-          dataSetMetadata: { source: 'storacha-migration' },
-        })
-      ).rejects.toThrow()
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+      })
 
-      const { promptDataSetSelection } = await import('../../common/upload-flow.js')
-      expect(vi.mocked(promptDataSetSelection)).toHaveBeenCalledWith(
-        expect.arrayContaining([expect.objectContaining({ dataSetId: 1n })]),
-        2,
-        expect.any(Object)
+      expect(vi.mocked(resolveUploadTargets)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Object),
+        expect.objectContaining({ withCDN: false })
+      )
+      expect(vi.mocked(performUpload)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ dataSetIds: [7n, 9n], copies: 2 })
       )
     })
 
-    it('throws when --data-set-metadata matches too few data sets', async () => {
-      mockFindDataSets.mockResolvedValueOnce([
-        { pdpVerifierDataSetId: 1n, providerId: 1n, isLive: true, metadata: { source: 'storacha-migration' } },
-      ])
+    it('hands explicit --data-set-id targeting to resolveUploadTargets', async () => {
+      await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        dataSetIds: ['123'],
+      })
 
-      await expect(
-        runAdd({
-          filePath: testFile,
-          privateKey: 'test-private-key',
-          rpcUrl: 'wss://test.rpc.url',
-          dataSetMetadata: { source: 'storacha-migration' },
-        })
-      ).rejects.toThrow(/matched only 1 data set.*expected 2/)
+      const { resolveUploadTargets } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(resolveUploadTargets)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ dataSetIds: [123n] }),
+        expect.any(Object)
+      )
     })
 
     it('passes upload targeting options through to auto-funding', async () => {
@@ -541,12 +594,33 @@ describe('Add Command', () => {
   })
 
   describe('runAddFromCli egress glue', () => {
-    it('defaults to beam egress (withCDN: true) when --egress-provider is omitted', async () => {
+    it('defaults to no egress (withCDN unset) when --egress-provider is omitted', async () => {
       await runAddFromCli(testFile, { privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url' })
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      const calls = vi.mocked(initializeSynapse).mock.calls
+      const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
+      expect(lastConfig.withCDN).toBeUndefined()
+    })
+
+    it('opts in (withCDN: true) when --egress-provider beam is passed', async () => {
+      await runAddFromCli(testFile, {
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+        egressProvider: 'beam',
+      })
       const { initializeSynapse } = await import('../../core/synapse/index.js')
       expect(vi.mocked(initializeSynapse)).toHaveBeenCalledWith(
         expect.objectContaining({ withCDN: true }),
         expect.anything()
+      )
+
+      // Reuse is gated on the same flag: with beam requested, only CDN-enabled
+      // data sets qualify, so the egress request is never silently dropped.
+      const { resolveUploadTargets } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(resolveUploadTargets)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Object),
+        expect.objectContaining({ withCDN: true })
       )
     })
 
