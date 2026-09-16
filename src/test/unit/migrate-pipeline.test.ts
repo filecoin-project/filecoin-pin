@@ -25,10 +25,9 @@ async function cidFor(text: string): Promise<string> {
   return CID.createV1(raw.code, digest).toString()
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-
 interface HarnessOptions {
-  cids: Array<{ cid: string; delayMs: number; rawSize?: number }>
+  /** `afterFirstStore` holds that CID's download until the first store() lands. */
+  cids: Array<{ cid: string; rawSize?: number; afterFirstStore?: boolean }>
   budgetBytes: number
   packTargetBytes: number
   /** CIDs the stager must never be asked for (already staged on disk). */
@@ -44,12 +43,16 @@ async function harness(config: HarnessOptions) {
   const db = new MigrationDB(join(dir, 'migrate.db'), 'calibration:0xabc')
   db.addCids(config.cids.map((c) => c.cid))
   const events: string[] = []
+  let storeLanded: () => void = () => undefined
+  const firstStore = new Promise<void>((resolve) => {
+    storeLanded = resolve
+  })
 
   const stageMemberFn: typeof stageMember = async (cid, _gateways, dirForMembers, opts) => {
     const entry = config.cids.find((c) => c.cid === cid)
     if (entry == null) throw new Error(`unexpected cid ${cid}`)
     if (config.forbiddenFetches?.includes(cid)) throw new Error(`must not re-download ${cid}`)
-    await sleep(entry.delayMs)
+    if (entry.afterFirstStore) await firstStore
     const rawSize = entry.rawSize ?? 600
     // Byte accounting drives the budget gate; report the size like the real
     // stager does, then land a stand-in member file.
@@ -83,6 +86,7 @@ async function harness(config: HarnessOptions) {
     dataSetId: '7',
     async store(_data, opts) {
       events.push(`store:${String(opts.pieceCid)}`)
+      storeLanded()
       return { pieceCid: opts.pieceCid, size: 600 }
     },
     async presignForCommit() {
@@ -135,9 +139,9 @@ async function harness(config: HarnessOptions) {
 describe('runMigrate pipeline', () => {
   it('uploads packed pieces while later CIDs still download', async () => {
     const cids = [
-      { cid: await cidFor('a'), delayMs: 0 },
-      { cid: await cidFor('b'), delayMs: 0 },
-      { cid: await cidFor('c'), delayMs: 400 },
+      { cid: await cidFor('a') },
+      { cid: await cidFor('b') },
+      { cid: await cidFor('c'), afterFirstStore: true },
     ]
     const h = await harness({ cids, budgetBytes: 100_000, packTargetBytes: 1000 })
     try {
@@ -146,8 +150,8 @@ describe('runMigrate pipeline', () => {
       const firstStore = h.events.findIndex((e) => e.startsWith('store:'))
       const lastFetch = h.events.lastIndexOf(`fetch:${cids[2]?.cid}`)
       expect(firstStore).toBeGreaterThanOrEqual(0)
-      // The slow third CID must still have been downloading when the first
-      // packed piece hit the provider: the point of the pipeline.
+      // The third CID could not finish downloading until the first packed
+      // piece hit the provider: the two stages overlapped.
       expect(firstStore).toBeLessThan(lastFetch)
 
       expect(summary.pieces).toEqual({ total: 3, succeeded: 3, failed: 0, pending: 0, oversized: 0 })
@@ -161,7 +165,7 @@ describe('runMigrate pipeline', () => {
   })
 
   it('reports downloaded CIDs whose packing failed, so the run cannot exit 0', async () => {
-    const cids = [{ cid: await cidFor('a'), delayMs: 0 }]
+    const cids = [{ cid: await cidFor('a') }]
     const h = await harness({ cids, budgetBytes: 100_000, packTargetBytes: 1000 })
     try {
       const summary = await runMigrate(
@@ -187,9 +191,7 @@ describe('runMigrate pipeline', () => {
   })
 
   it('cycles a budget smaller than the migration instead of wedging', async () => {
-    const cids = await Promise.all(
-      ['a', 'b', 'c', 'd', 'e', 'f'].map(async (t) => ({ cid: await cidFor(t), delayMs: 0 }))
-    )
+    const cids = await Promise.all(['a', 'b', 'c', 'd', 'e', 'f'].map(async (t) => ({ cid: await cidFor(t) })))
     // 2x the pack target is the minimum viable budget; the whole migration is
     // 3600 bytes, so completion proves eviction returns budget to the
     // download gate.
@@ -211,10 +213,7 @@ describe('runMigrate pipeline', () => {
   }, 15_000)
 
   it('a resumed run after full completion re-downloads nothing', async () => {
-    const cids = [
-      { cid: await cidFor('a'), delayMs: 0 },
-      { cid: await cidFor('b'), delayMs: 0 },
-    ]
+    const cids = [{ cid: await cidFor('a') }, { cid: await cidFor('b') }]
     const h = await harness({ cids, budgetBytes: 100_000, packTargetBytes: 1000 })
     try {
       const first = await runMigrate(h.db, h.options, h.deps)
@@ -240,7 +239,7 @@ describe('runMigrate pipeline', () => {
     ['no longer matches its recorded hash', true],
     ['is missing from disk', false],
   ])('rebuilds a staged piece whose CAR %s', async (_label, carOnDisk) => {
-    const cids = [{ cid: await cidFor('rebuild-me'), delayMs: 0 }]
+    const cids = [{ cid: await cidFor('rebuild-me') }]
     const h = await harness({ cids, budgetBytes: 100_000, packTargetBytes: 1000 })
     try {
       const first = await runMigrate(h.db, h.options, h.deps)
@@ -300,10 +299,7 @@ describe('runMigrate pipeline', () => {
     const staged = await cidFor('already-staged')
     const fresh = await cidFor('fresh')
     const h = await harness({
-      cids: [
-        { cid: staged, delayMs: 0 },
-        { cid: fresh, delayMs: 0 },
-      ],
+      cids: [{ cid: staged }, { cid: fresh }],
       budgetBytes: 100_000,
       packTargetBytes: 1000,
       forbiddenFetches: [staged],
