@@ -28,6 +28,13 @@ export interface SavedSession {
   walletAddress?: Address
   /** Console network the key was made for (mainnet, calibration). A grant lives on one chain. */
   network?: string
+  /**
+   * Block the wait first watched from. A resumed login scans from here, so a
+   * grant that landed while the CLI was not watching is still found; without
+   * it a rerun would scan from the current block and never see the event that
+   * names the owner.
+   */
+  fromBlock?: bigint
 }
 
 /** Absolute path of the session file. */
@@ -65,6 +72,8 @@ export function readSessionFile(path: string = getSessionFilePath()): SavedSessi
   if (isHex(walletAddress, 20)) session.walletAddress = walletAddress
   const network = parsed.NETWORK
   if (network !== undefined && /^[a-z]+$/.test(network)) session.network = network
+  const fromBlock = parsed.FROM_BLOCK
+  if (fromBlock !== undefined && /^\d+$/.test(fromBlock)) session.fromBlock = BigInt(fromBlock)
   return session
 }
 
@@ -82,6 +91,7 @@ export function writeSessionFile(session: SavedSession, path: string = getSessio
   ]
   if (session.walletAddress !== undefined) lines.push(`WALLET_ADDRESS=${session.walletAddress}`)
   if (session.network !== undefined) lines.push(`NETWORK=${session.network}`)
+  if (session.fromBlock !== undefined) lines.push(`FROM_BLOCK=${session.fromBlock}`)
   mkdirSync(dirname(path), { recursive: true })
   const tmp = `${path}.${process.pid}.tmp`
   try {

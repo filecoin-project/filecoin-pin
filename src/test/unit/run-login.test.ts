@@ -126,6 +126,50 @@ describe('runLogin', () => {
     expect(vi.mocked(watchAuthorization)).toHaveBeenCalledOnce()
   })
 
+  it('records the block for --no-wait too, which also tells the owner to rerun', async () => {
+    const code = await runLogin({ wait: false })
+
+    expect(code).toBe(2)
+    expect(vi.mocked(watchAuthorization)).not.toHaveBeenCalled()
+    // The grant is usually mined before the owner reruns; without this the
+    // rerun scans from its own head and never sees the event.
+    expect(readSessionFile(sessionPath())?.fromBlock).toBe(42n)
+  })
+
+  it('still pairs when the block read fails on the --no-wait path', async () => {
+    vi.mocked(getBlockNumber).mockRejectedValue(new Error('rpc down'))
+
+    const code = await runLogin({ wait: false })
+
+    expect(code).toBe(2)
+    expect(output()).toContain('Not waiting for the grant')
+  })
+
+  it('records the block the wait started at even when the wait times out', async () => {
+    // The timeout is the case that matters: the rerun this prints is the one
+    // that has to resume, and without the block it would scan from the head.
+    vi.mocked(watchAuthorization).mockResolvedValue(TIMED_OUT)
+
+    const code = await runLogin({})
+
+    expect(code).toBe(2)
+    expect(readSessionFile(sessionPath())?.fromBlock).toBe(42n)
+  })
+
+  it('resumes the scan from the recorded block instead of the current one', async () => {
+    const sessionAddress = privateKeyToAccount(KEY).address
+    writeSessionFile({ sessionKey: KEY, sessionAddress, network: 'calibration', fromBlock: 7n }, sessionPath())
+    vi.mocked(getBlockNumber).mockResolvedValue(9_000n)
+    vi.mocked(watchAuthorization).mockResolvedValue(FULL_GRANT)
+
+    await runLogin({})
+
+    // The owner authorizes once. Scanning from 9000 would wait for a second
+    // event that never comes, which is what left a timed-out login stuck.
+    expect(vi.mocked(watchAuthorization).mock.calls[0]?.[0].fromBlock).toBe(7n)
+    expect(readSessionFile(sessionPath())?.fromBlock).toBe(7n)
+  })
+
   it('prints the lowercase authorize link and opens it in the browser', async () => {
     vi.mocked(watchAuthorization).mockResolvedValue(FULL_GRANT)
 
