@@ -475,6 +475,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       requestedCopies,
       copies: uploadResult.copies,
       failedAttempts: uploadResult.failedAttempts,
+      ipni: uploadResult.ipni,
+      ...(uploadResult.shareUrl != null && { shareUrl: uploadResult.shareUrl }),
     }
 
     // The upload has succeeded, so a share that cannot be made only warns: get-share-link can retry it.

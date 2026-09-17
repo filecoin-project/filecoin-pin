@@ -1,5 +1,5 @@
-import type { CopyResult, FailedAttempt } from '@filoz/synapse-sdk'
-import type { UploadDryRunResult } from '../common/upload-flow.js'
+import type { FailedAttempt } from '@filoz/synapse-sdk'
+import type { IpniObservation, UploadCopyResult, UploadDryRunResult } from '../common/upload-flow.js'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 import type { CLIAutoFundOptions } from '../utils/cli-options.js'
 import type { EgressProvider } from '../utils/cli-options-egress.js'
@@ -27,8 +27,10 @@ export interface ImportResult {
   pieceCid: string
   size: number
   requestedCopies: number
-  copies: CopyResult[]
+  copies: UploadCopyResult[]
   failedAttempts: FailedAttempt[]
+  shareUrl?: string
+  ipni: IpniObservation
 }
 
 export type ImportDryRunResult = UploadDryRunResult
