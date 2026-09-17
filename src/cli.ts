@@ -4,6 +4,7 @@ import { Command, type Help } from 'commander'
 import pc from 'picocolors'
 
 import { CLI_COMMAND_GROUPS } from './commands/index.js'
+import { applyJsonMode } from './common/command-envelope.js'
 import { checkForUpdate, printUpdateBanner, type UpdateCheckStatus } from './common/version-check.js'
 import { configureTelemetry, flushTelemetry } from './core/telemetry/index.js'
 import { version as packageVersion } from './core/utils/version.js'
@@ -77,6 +78,7 @@ const program = new Command()
   // help visibility.
   .addOption(credentialsFileOption())
   .option('-v, --verbose', 'enable debug-level logging (sets LOG_LEVEL=debug)')
+  .option('--json', 'write a machine-readable JSON envelope to stdout')
   .option('--no-update-check', 'skip check for updates')
   .helpOption(true)
   .configureHelp({
@@ -134,6 +136,11 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 // Wire the global `-v/--verbose` flag to the log level before each action runs.
 program.hook('preAction', () => {
   applyVerboseLogLevel(program.optsWithGlobals<{ verbose?: boolean }>().verbose)
+})
+
+// Wire the global `--json` flag so `isInteractive()` and later emitters share one owner.
+program.hook('preAction', () => {
+  applyJsonMode(program.optsWithGlobals<{ json?: boolean }>().json)
 })
 
 let updateCheckResult: UpdateCheckStatus | null = null
