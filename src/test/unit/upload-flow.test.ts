@@ -389,6 +389,126 @@ describe('performUpload', () => {
     // No leftover "piece-sync-2" completion — it was discarded, not individually reported as done.
     expect(spinner.stop).not.toHaveBeenCalledWith(expect.stringContaining('[2/2] Advertisement confirmed indexed'))
   })
+
+  it('attaches shareUrl, copy tx hashes, and IPNI found when indexing confirms', async () => {
+    mocks.executeUpload.mockImplementation(async (_synapse, _data, _rootCid, options) => {
+      options.onProgress?.({
+        type: 'piecesAdded',
+        data: { txHash: '0xabc', providerId: 1n },
+      })
+      options.onProgress?.({
+        type: 'ipniProviderResults:complete',
+        data: { result: true },
+      })
+      return {
+        pieceCid: 'bafkzcibtest123',
+        size: 4,
+        requestedCopies: 1,
+        complete: true,
+        copies: [
+          {
+            providerId: 1n,
+            dataSetId: 123n,
+            pieceId: 456n,
+            role: 'primary',
+            retrievalUrl: 'https://provider.example/piece/test',
+            isNewDataSet: false,
+          },
+        ],
+        failedAttempts: [],
+        network: 'calibration',
+        ipniValidated: true,
+      }
+    })
+
+    const result = await performUpload(
+      { chain: { id: 314159, name: 'calibration' } } as any,
+      new Uint8Array([1, 2, 3, 4]),
+      TEST_CID,
+      {
+        contextType: 'add',
+        fileSize: 4,
+        logger: createLogger({ logLevel: 'info' }),
+      }
+    )
+
+    expect(result.ipni).toBe('found')
+    expect(result.shareUrl).toBe(`https://inbrowser.link/ipfs/${TEST_CID}`)
+    expect(result.copies[0]?.txHash).toBe('0xabc')
+  })
+
+  it('records IPNI pending and omits shareUrl when indexing is not confirmed', async () => {
+    mocks.executeUpload.mockImplementation(async () => ({
+      pieceCid: 'bafkzcibtest123',
+      size: 4,
+      requestedCopies: 1,
+      complete: true,
+      copies: [
+        {
+          providerId: 1n,
+          dataSetId: 123n,
+          pieceId: 456n,
+          role: 'primary',
+          retrievalUrl: 'https://provider.example/piece/test',
+          isNewDataSet: false,
+        },
+      ],
+      failedAttempts: [],
+      network: 'calibration',
+      ipniValidated: false,
+    }))
+
+    const result = await performUpload(
+      { chain: { id: 314159, name: 'calibration' } } as any,
+      new Uint8Array([1, 2, 3, 4]),
+      TEST_CID,
+      {
+        contextType: 'add',
+        fileSize: 4,
+        logger: createLogger({ logLevel: 'info' }),
+      }
+    )
+
+    expect(result.ipni).toBe('pending')
+    expect(result.shareUrl).toBeUndefined()
+  })
+
+  it('records IPNI skipped when verification is disabled', async () => {
+    mocks.executeUpload.mockImplementation(async () => ({
+      pieceCid: 'bafkzcibtest123',
+      size: 4,
+      requestedCopies: 1,
+      complete: true,
+      copies: [
+        {
+          providerId: 1n,
+          dataSetId: 123n,
+          pieceId: 456n,
+          role: 'primary',
+          retrievalUrl: 'https://provider.example/piece/test',
+          isNewDataSet: false,
+        },
+      ],
+      failedAttempts: [],
+      network: 'calibration',
+      ipniValidated: false,
+    }))
+
+    const result = await performUpload(
+      { chain: { id: 314159, name: 'calibration' } } as any,
+      new Uint8Array([1, 2, 3, 4]),
+      TEST_CID,
+      {
+        contextType: 'add',
+        fileSize: 4,
+        logger: createLogger({ logLevel: 'info' }),
+        skipIpniVerification: true,
+      }
+    )
+
+    expect(result.ipni).toBe('skipped')
+    expect(result.shareUrl).toBeUndefined()
+  })
 })
 
 describe('truncate', () => {
