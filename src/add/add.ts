@@ -15,7 +15,7 @@ import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-cor
 import { SIZE_CONSTANTS } from '@filoz/synapse-core/utils'
 import type { Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import pino, { type Logger } from 'pino'
+import pino, { destination, type Logger } from 'pino'
 import type { Hex } from 'viem'
 import { CliFatal, EXIT_CODE_INCOMPLETE, isCliFatal, isCliIncomplete } from '../common/cli-errors.js'
 import { ENCRYPTED_FILE_NAME, encryptPath } from '../common/encryption.js'
@@ -174,9 +174,12 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
   })
 
   // Initialize logger (silent for CLI output)
-  const logger = pino({
-    level: process.env.LOG_LEVEL || 'silent',
-  })
+  const logger = pino(
+    {
+      level: process.env.LOG_LEVEL || 'silent',
+    },
+    destination(2)
+  )
 
   // Map the public egress provider to the SDK's withCDN boolean (internal only).
   const withCDN = options.egressProvider === 'beam'
