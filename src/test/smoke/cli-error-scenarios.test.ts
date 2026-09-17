@@ -74,6 +74,13 @@ describe('add', () => {
     expect(result.combined).toContain('Path not found: non-existent-file.txt')
   })
 
+  it('--verbose keeps pino diagnostics off stdout', T, async () => {
+    const result = await runCli(['--verbose', 'add', 'non-existent-file.txt'])
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).not.toMatch(/"level":/)
+    expect(result.stderr).toMatch(/"event":"add.failed"/)
+  })
+
   it('no auth — valid path, PRIVATE_KEY absent', T, async () => {
     const result = await runCli(['add', 'package.json'])
     expect(result.exitCode).toBe(1)
@@ -96,6 +103,13 @@ describe('import', () => {
     const result = await runCli(['import', 'non-existent-archive.car'])
     expect(result.exitCode).toBe(1)
     expect(result.combined).toContain('File not found: non-existent-archive.car')
+  })
+
+  it('--verbose keeps pino diagnostics off stdout', T, async () => {
+    const result = await runCli(['--verbose', 'import', 'non-existent-archive.car'])
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).not.toMatch(/"level":/)
+    expect(result.stderr).toMatch(/"event":"import.failed"/)
   })
 })
 

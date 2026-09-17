@@ -12,7 +12,7 @@ import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-cor
 import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
-import pino from 'pino'
+import pino, { destination } from 'pino'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { assertUploadFunds, rerunHint } from '../common/funds-preflight.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
@@ -203,9 +203,12 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
   })
 
   // Initialize logger (silent for CLI output)
-  const logger = pino({
-    level: process.env.LOG_LEVEL || 'silent',
-  })
+  const logger = pino(
+    {
+      level: process.env.LOG_LEVEL || 'silent',
+    },
+    destination(2)
+  )
 
   // Map the public egress provider to the SDK's withCDN boolean (internal only).
   const withCDN = options.egressProvider === 'beam'

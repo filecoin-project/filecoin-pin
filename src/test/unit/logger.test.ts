@@ -1,5 +1,11 @@
+import pino from 'pino'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createLogger } from '../../logger.js'
+
+function destinationFd(logger: pino.Logger): number | undefined {
+  const stream = (logger as unknown as Record<symbol, { fd?: number }>)[pino.symbols.streamSym]
+  return stream?.fd
+}
 
 describe('Logger', () => {
   const originalLogLevel = process.env.LOG_LEVEL
@@ -27,5 +33,10 @@ describe('Logger', () => {
     const logger = createLogger({ logLevel: 'debug' })
 
     expect(logger.level).toBe('debug')
+  })
+
+  it('sends diagnostics to stderr so stdout stays free of log lines', () => {
+    const logger = createLogger({ logLevel: 'info' })
+    expect(destinationFd(logger)).toBe(2)
   })
 })
