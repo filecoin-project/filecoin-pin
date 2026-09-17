@@ -63,11 +63,13 @@ const revokeCommand = new Command('revoke')
 addOwnerAuthOptions(revokeCommand)
 sessionCommand.addCommand(revokeCommand)
 
-// session generate — local-only keypair generation (consumer side of the
-// two-party flow). No chain interaction.
-const generateCommand = new Command('generate')
-  .description('Generate a session keypair locally (no chain interaction; consumer side of the two-party flow)')
-  .action(() => {
+// session generate — deprecated. `login` now produces the same keypair.
+// Hidden from help; remove in the next major.
+const generateCommand = new Command('generate').description('Deprecated; use `filecoin-pin login`').action(() => {
+  try {
     runSessionGenerate()
-  })
-sessionCommand.addCommand(generateCommand)
+  } catch {
+    process.exit(1)
+  }
+})
+sessionCommand.addCommand(generateCommand, { hidden: true })
