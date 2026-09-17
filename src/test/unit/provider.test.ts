@@ -54,6 +54,7 @@ vi.mock('../../utils/cli-logger.js', () => ({
     line: vi.fn(),
     info: vi.fn(),
     error: vi.fn(),
+    flush: vi.fn(),
   },
 }))
 
