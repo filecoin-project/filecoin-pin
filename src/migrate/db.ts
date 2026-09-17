@@ -522,7 +522,15 @@ export class MigrationDB {
 
   // ---- direct-upload state (uploads / provider_windows) ----
 
-  /** Built, file-backed sub-pieces with no live upload row for this provider. */
+  /**
+   * Built, file-backed sub-pieces with no upload row for this provider that
+   * is live (parked, add_unconfirmed, committed) or terminal (failed). A
+   * failed primary is a commP mismatch and storing the same bytes again
+   * would fail the same way; failed secondaries are retried by the
+   * direct-upload retry pass, not by re-entering this queue. Collected rows
+   * do come back: the provider dropped the bytes and the CAR must be stored
+   * again.
+   */
   subPiecesNeedingUpload(providerId: string): SubPieceRow[] {
     const rows = this.#db
       .prepare(
