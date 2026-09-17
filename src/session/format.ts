@@ -2,12 +2,7 @@
  * Display helpers for session-key CLI output.
  */
 
-import type {
-  AuthorizeSessionResult,
-  CreateSessionKeyResult,
-  RevokeSessionResult,
-  SessionKeypair,
-} from '../core/session/index.js'
+import type { AuthorizeSessionResult, CreateSessionKeyResult, RevokeSessionResult } from '../core/session/index.js'
 
 function formatExpiry(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toISOString().replace('T', ' ').split('.')[0] ?? ''
@@ -83,23 +78,5 @@ REGISTRY=${result.registryAddress}
 TX_HASH=${result.txHash}
 BLOCK=${result.blockNumber}
 REVOKED_PERMISSIONS=${result.permissions.length}
-`.trim()
-}
-
-/**
- * Output for `session generate`. Local-only; no on-chain action.
- */
-export function formatSessionKeypairOutput(keypair: SessionKeypair): string {
-  return `
-==========================================
-Session keypair generated locally
-==========================================
-Keep SESSION_KEY secret. Share ONLY SESSION_ADDRESS with the wallet owner so
-they can authorize it via: filecoin-pin session authorize ${keypair.address}
-
-Save to your .env file:
-------------------------------------------
-SESSION_KEY=${keypair.privateKey}
-SESSION_ADDRESS=${keypair.address}
 `.trim()
 }
