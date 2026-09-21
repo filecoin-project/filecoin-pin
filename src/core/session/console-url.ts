@@ -18,22 +18,16 @@ export function resolveConsoleUrl(): string {
 }
 
 /**
- * `<sep>utm_source=filecoin-pin&utm_medium=<affordance>&utm_campaign=<flow>[&utm_content=<driver>]`,
- * or empty when telemetry is disabled. `sep` is `?` for a bare path, `&` for
- * a query string that already exists. Plausible on the console keeps `utm_*`
- * on the landing pageview and drops every other query param, so this is the
- * whole telemetry contract: which affordance (CLI, GitHub Action, Library,
- * pin.filecoin.cloud), which flow, and who is driving when the host set it
- * (an agent name, `human`, `automation`). Same opt-out as the upload
- * metrics. The console clears its own action params after acting and
- * leaves these alone.
+ * Append `utm_source/medium/campaign[/content]` so the console's analytics
+ * can attribute the visit (affordance, flow, human vs which agent). Returns
+ * `url` unchanged when telemetry is disabled.
  */
-function utmParams(campaign: 'login' | 'fund' | 'revoke' | 'dashboard', sep: '?' | '&' = '&'): string {
+function withUtm(url: string, campaign: 'login' | 'fund' | 'revoke' | 'dashboard'): string {
   const { disabled, affordance, driver } = telemetryConfig()
-  if (disabled) return ''
+  if (disabled) return url
   const medium = affordance.toLowerCase().replace(/ /g, '-')
   const content = driver === undefined ? '' : `&utm_content=${encodeURIComponent(driver)}`
-  return `${sep}utm_source=filecoin-pin&utm_medium=${medium}&utm_campaign=${campaign}${content}`
+  return `${url}${url.includes('?') ? '&' : '?'}utm_source=filecoin-pin&utm_medium=${medium}&utm_campaign=${campaign}${content}`
 }
 
 /** Console network slug by chain id; the console validates and guards on it. */
@@ -66,7 +60,10 @@ export function buildAuthorizeUrl(
   chainId: number
 ): string {
   const base = trimSlash(consoleUrl)
-  return `${base}/console/session-keys?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId)}${utmParams('login')}`
+  return withUtm(
+    `${base}/console/session-keys?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId)}`,
+    'login'
+  )
 }
 
 /** Console network slugs, for placing a link the session file recorded by name. */
@@ -88,7 +85,10 @@ export function buildRevokeUrl(
 ): string | undefined {
   if (network === undefined || !CONSOLE_NETWORKS.has(network)) return undefined
   // Lowercased for the same reason as buildAuthorizeUrl: strict isAddress.
-  return `${trimSlash(consoleUrl)}/console/session-keys?revoke=${sessionAddress.toLowerCase()}&network=${network}${utmParams('revoke')}`
+  return withUtm(
+    `${trimSlash(consoleUrl)}/console/session-keys?revoke=${sessionAddress.toLowerCase()}&network=${network}`,
+    'revoke'
+  )
 }
 
 /** `&network=<slug>` for a chain the console knows, empty otherwise: the console refuses a link it cannot place. */
@@ -106,7 +106,7 @@ function trimSlash(consoleUrl: string): string {
 
 /** The console home (billing) page. */
 export function buildConsoleUrl(consoleUrl: string): string {
-  return `${trimSlash(consoleUrl)}/console${utmParams('dashboard', '?')}`
+  return withUtm(`${trimSlash(consoleUrl)}/console`, 'dashboard')
 }
 
 /**
@@ -116,5 +116,8 @@ export function buildConsoleUrl(consoleUrl: string): string {
  * the console refuses to prefill a deposit for a wallet on another chain.
  */
 export function buildFundingUrl(consoleUrl: string, depositUsdfc: number, chainId: number): string {
-  return `${trimSlash(consoleUrl)}/console?deposit=${depositUsdfc}&operator=fwss${networkParam(chainId)}${utmParams('fund')}`
+  return withUtm(
+    `${trimSlash(consoleUrl)}/console?deposit=${depositUsdfc}&operator=fwss${networkParam(chainId)}`,
+    'fund'
+  )
 }
