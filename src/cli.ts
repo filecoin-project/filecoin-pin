@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 import './instrument.js'
+import { determineAgent } from '@vercel/detect-agent'
 import { Command, type Help } from 'commander'
 import pc from 'picocolors'
 
 import { CLI_COMMAND_GROUPS } from './commands/index.js'
 import { checkForUpdate, printUpdateBanner, type UpdateCheckStatus } from './common/version-check.js'
+import { setConsoleAttribution } from './core/session/console-url.js'
 import { configureTelemetry, flushTelemetry } from './core/telemetry/index.js'
 import { version as packageVersion } from './core/utils/version.js'
 import { readTelemetryConfigFromEnv } from './read-telemetry-config-from-env.js'
-import { applyVerboseLogLevel } from './utils/cli-logger.js'
+import { applyVerboseLogLevel, isTTY } from './utils/cli-logger.js'
 import { credentialsFileOption } from './utils/cli-options.js'
 import { applyCredentialsFile } from './utils/credentials-file.js'
 
@@ -135,6 +137,20 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 program.hook('preAction', () => {
   applyVerboseLogLevel(program.optsWithGlobals<{ verbose?: boolean }>().verbose)
 })
+
+// Tag console links (login, fund, revoke, dashboard) with who is driving the
+// CLI, so the console's analytics can split human from agent traffic. Honors
+// the same opt-out as the upload metrics: no tag when telemetry is disabled.
+program.hook('preAction', async () => {
+  if (readTelemetryConfigFromEnv().disabled === true) return
+  setConsoleAttribution(await whoIsDriving())
+})
+
+async function whoIsDriving(): Promise<string> {
+  const { isAgent, agent } = await determineAgent()
+  if (isAgent) return agent.name
+  return isTTY() ? 'human' : 'automation'
+}
 
 let updateCheckResult: UpdateCheckStatus | null = null
 

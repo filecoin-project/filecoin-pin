@@ -1,14 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildAuthorizeUrl,
+  buildConsoleUrl,
   buildFundingUrl,
   buildRevokeUrl,
   DEFAULT_CONSOLE_URL,
   resolveConsoleUrl,
+  setConsoleAttribution,
 } from '../../core/session/console-url.js'
 
 afterEach(() => {
   vi.unstubAllEnvs()
+  setConsoleAttribution(undefined)
 })
 
 describe('resolveConsoleUrl', () => {
@@ -89,5 +92,34 @@ describe('buildRevokeUrl', () => {
     [undefined],
   ])('refuses to build a link the console cannot place: %s', (network) => {
     expect(buildRevokeUrl('https://pay.filecoin.cloud', '0xA', network)).toBeUndefined()
+  })
+})
+
+describe('console attribution', () => {
+  it('adds no utm params until the host sets who is driving', () => {
+    expect(buildConsoleUrl('https://pay.filecoin.cloud')).toBe('https://pay.filecoin.cloud/console')
+    expect(buildFundingUrl('https://pay.filecoin.cloud', 2, 314)).not.toContain('utm_')
+  })
+
+  it('tags every console link with source, medium, the flow, and who is driving', () => {
+    setConsoleAttribution('claude')
+    const utm = 'utm_source=filecoin-pin&utm_medium=cli'
+    expect(buildConsoleUrl('https://pay.filecoin.cloud')).toBe(
+      `https://pay.filecoin.cloud/console?${utm}&utm_campaign=dashboard&utm_content=claude`
+    )
+    expect(buildFundingUrl('https://pay.filecoin.cloud', 2, 314)).toBe(
+      `https://pay.filecoin.cloud/console?deposit=2&operator=fwss&network=mainnet&${utm}&utm_campaign=fund&utm_content=claude`
+    )
+    expect(buildAuthorizeUrl('https://pay.filecoin.cloud', '0xA', ['upload'], 314)).toMatch(
+      new RegExp(`&network=mainnet&${utm}&utm_campaign=login&utm_content=claude$`)
+    )
+    expect(buildRevokeUrl('https://pay.filecoin.cloud', '0xA', 'mainnet')).toMatch(
+      new RegExp(`&network=mainnet&${utm}&utm_campaign=revoke&utm_content=claude$`)
+    )
+  })
+
+  it('url-encodes an attribution value the host did not sanitise', () => {
+    setConsoleAttribution('my agent&x')
+    expect(buildConsoleUrl('https://pay.filecoin.cloud')).toMatch(/utm_content=my%20agent%26x$/)
   })
 })

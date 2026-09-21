@@ -74,3 +74,18 @@ Note that this computation doesn't directly answer "what proportion of golden-pa
 | Metric | Relevant Events | When Emitted | Gauge Value | Additional Info | Source of truth |
 |---|---|---|---|---|---|
 | <a id="uploadCopyBytes"></a>`uploadCopyBytes` | [`uploadCopyResolved`](#uploadCopyResolved) | Once per copy in the upload result, paired with [`uploadCopyStatus`](#uploadCopyStatus). | Piece size in bytes (`UploadResult.size`). All copies of one upload share the same size — the value identifies the upload that produced the outcome. | Emitted alongside the corresponding [`uploadCopyStatus`](#uploadCopyStatus) counter in the same POST, sharing its tag set so the two metrics can be joined at query time. For example, you can filter `status=failure.commit` and aggregate `uploadCopyBytes` to see the size distribution of commit-step failures (`avg`, `p99`, `sum` by `spId`, etc.). | [`src/core/telemetry/index.ts`](../src/core/telemetry/index.ts) |
+
+## Console Link Attribution
+
+The CLI tags the Filecoin Cloud console links it prints (`login`, funding top-up, `logout` revoke, `dashboard`) with standard UTM query params so the console's web analytics can attribute visits back to the CLI and split human from agent traffic. Nothing is sent from the CLI itself; the params only travel in the URL the user (or their agent) opens.
+
+| Param | Value |
+|---|---|
+| `utm_source` | `filecoin-pin` |
+| `utm_medium` | `cli` |
+| `utm_campaign` | Which flow printed the link: `login`, `fund`, `revoke`, `dashboard` |
+| `utm_content` | Who is driving: an agent name from [`@vercel/detect-agent`](https://www.npmjs.com/package/@vercel/detect-agent) (`claude`, `cursor`, `codex`, `gemini`, …, or whatever `AI_AGENT` names), `human` for an interactive terminal, `automation` for a non-TTY the detector does not recognise (CI, a pipe) |
+
+The same opt-out as the metrics above applies: with `FILECOIN_PIN_TELEMETRY_DISABLED=true` or `DO_NOT_TRACK=1` the links carry no `utm_*` params. Library consumers get untagged links unless they call `setConsoleAttribution()` from `core/session/console-url`.
+
+Source of truth: [`src/core/session/console-url.ts`](../src/core/session/console-url.ts), wired in [`src/cli.ts`](../src/cli.ts).
