@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildAuthorizeUrl,
   buildConsoleUrl,
@@ -6,12 +6,11 @@ import {
   buildRevokeUrl,
   DEFAULT_CONSOLE_URL,
   resolveConsoleUrl,
-  setConsoleAttribution,
 } from '../../core/session/console-url.js'
+import { configureTelemetry } from '../../core/telemetry/index.js'
 
 afterEach(() => {
   vi.unstubAllEnvs()
-  setConsoleAttribution(undefined)
 })
 
 describe('resolveConsoleUrl', () => {
@@ -96,30 +95,43 @@ describe('buildRevokeUrl', () => {
 })
 
 describe('console attribution', () => {
-  it('adds no utm params until the host sets who is driving', () => {
-    expect(buildConsoleUrl('https://pay.filecoin.cloud')).toBe('https://pay.filecoin.cloud/console')
-    expect(buildFundingUrl('https://pay.filecoin.cloud', 2, 314)).not.toContain('utm_')
+  beforeEach(() => {
+    configureTelemetry({ disabled: false })
   })
 
-  it('tags every console link with source, medium, the flow, and who is driving', () => {
-    setConsoleAttribution('claude')
-    const utm = 'utm_source=filecoin-pin&utm_medium=cli'
+  it('tags links by default with the source, the affordance, and the flow', () => {
     expect(buildConsoleUrl('https://pay.filecoin.cloud')).toBe(
-      `https://pay.filecoin.cloud/console?${utm}&utm_campaign=dashboard&utm_content=claude`
+      'https://pay.filecoin.cloud/console?utm_source=filecoin-pin&utm_medium=library&utm_campaign=dashboard'
     )
     expect(buildFundingUrl('https://pay.filecoin.cloud', 2, 314)).toBe(
-      `https://pay.filecoin.cloud/console?deposit=2&operator=fwss&network=mainnet&${utm}&utm_campaign=fund&utm_content=claude`
+      'https://pay.filecoin.cloud/console?deposit=2&operator=fwss&network=mainnet&utm_source=filecoin-pin&utm_medium=library&utm_campaign=fund'
     )
+  })
+
+  it('adds who is driving when the host set it, on every flow', () => {
+    configureTelemetry({ affordance: 'CLI', driver: 'claude' })
+    const utm = 'utm_source=filecoin-pin&utm_medium=cli'
     expect(buildAuthorizeUrl('https://pay.filecoin.cloud', '0xA', ['upload'], 314)).toMatch(
       new RegExp(`&network=mainnet&${utm}&utm_campaign=login&utm_content=claude$`)
     )
     expect(buildRevokeUrl('https://pay.filecoin.cloud', '0xA', 'mainnet')).toMatch(
       new RegExp(`&network=mainnet&${utm}&utm_campaign=revoke&utm_content=claude$`)
     )
+    expect(buildConsoleUrl('https://pay.filecoin.cloud')).toBe(
+      `https://pay.filecoin.cloud/console?${utm}&utm_campaign=dashboard&utm_content=claude`
+    )
   })
 
-  it('url-encodes an attribution value the host did not sanitise', () => {
-    setConsoleAttribution('my agent&x')
-    expect(buildConsoleUrl('https://pay.filecoin.cloud')).toMatch(/utm_content=my%20agent%26x$/)
+  it('slugs a multi-word affordance and url-encodes the driver', () => {
+    configureTelemetry({ affordance: 'GitHub Action', driver: 'my agent&x' })
+    expect(buildConsoleUrl('https://pay.filecoin.cloud')).toMatch(
+      /\?utm_source=filecoin-pin&utm_medium=github-action&utm_campaign=dashboard&utm_content=my%20agent%26x$/
+    )
+  })
+
+  it('drops every utm param when telemetry is disabled', () => {
+    configureTelemetry({ disabled: true, driver: 'claude' })
+    expect(buildConsoleUrl('https://pay.filecoin.cloud')).toBe('https://pay.filecoin.cloud/console')
+    expect(buildFundingUrl('https://pay.filecoin.cloud', 2, 314)).not.toContain('utm_')
   })
 })

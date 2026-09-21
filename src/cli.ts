@@ -6,7 +6,6 @@ import pc from 'picocolors'
 
 import { CLI_COMMAND_GROUPS } from './commands/index.js'
 import { checkForUpdate, printUpdateBanner, type UpdateCheckStatus } from './common/version-check.js'
-import { setConsoleAttribution } from './core/session/console-url.js'
 import { configureTelemetry, flushTelemetry } from './core/telemetry/index.js'
 import { version as packageVersion } from './core/utils/version.js'
 import { readTelemetryConfigFromEnv } from './read-telemetry-config-from-env.js'
@@ -139,11 +138,9 @@ program.hook('preAction', () => {
 })
 
 // Tag console links (login, fund, revoke, dashboard) with who is driving the
-// CLI, so the console's analytics can split human from agent traffic. Honors
-// the same opt-out as the upload metrics: no tag when telemetry is disabled.
+// CLI, so the console's analytics can split human from agent traffic.
 program.hook('preAction', async () => {
-  if (readTelemetryConfigFromEnv().disabled === true) return
-  setConsoleAttribution(await whoIsDriving())
+  configureTelemetry({ driver: await whoIsDriving() })
 })
 
 async function whoIsDriving(): Promise<string> {

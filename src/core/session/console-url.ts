@@ -3,6 +3,8 @@
  * deep links. Session-key pairing/login work builds on these same helpers.
  */
 
+import { telemetryConfig } from '../telemetry/index.js'
+
 /**
  * One console deployment serves both networks and switches network in-app,
  * so the network travels in the `network` query parameter rather than in
@@ -16,36 +18,22 @@ export function resolveConsoleUrl(): string {
 }
 
 /**
- * Who is behind the terminal, for the console's analytics: an agent name
- * from `@vercel/detect-agent` (`claude`, `cursor`, `codex`, …), `human` for
- * an interactive terminal, or `automation` for a non-TTY the detector does
- * not recognise (CI, a pipe). Unset in library use: attribution is a CLI
- * concern, and a link with no `utm_*` params is what the console saw before.
+ * `<sep>utm_source=filecoin-pin&utm_medium=<affordance>&utm_campaign=<flow>[&utm_content=<driver>]`,
+ * or empty when telemetry is disabled. `sep` is `?` for a bare path, `&` for
+ * a query string that already exists. Plausible on the console keeps `utm_*`
+ * on the landing pageview and drops every other query param, so this is the
+ * whole telemetry contract: which affordance (CLI, GitHub Action, Library,
+ * pin.filecoin.cloud), which flow, and who is driving when the host set it
+ * (an agent name, `human`, `automation`). Same opt-out as the upload
+ * metrics. The console clears its own action params after acting and
+ * leaves these alone.
  */
-let consoleAttribution: string | undefined
-
-/** Set once at CLI startup; every console link built afterwards carries it. */
-export function setConsoleAttribution(content: string | undefined): void {
-  consoleAttribution = content
-}
-
-/**
- * `utm_source=filecoin-pin&utm_medium=cli&utm_campaign=<flow>&utm_content=<who>`
- * (no leading separator), or empty when no attribution is set. Plausible on
- * the console keeps `utm_*` on the landing pageview and drops every other
- * query param, so this is the whole telemetry contract: which CLI, which
- * flow, human or which agent. The console clears its own action params
- * after acting and leaves these alone.
- */
-function utmParams(campaign: 'login' | 'fund' | 'revoke' | 'dashboard'): string {
-  if (consoleAttribution === undefined) return ''
-  return `utm_source=filecoin-pin&utm_medium=cli&utm_campaign=${campaign}&utm_content=${encodeURIComponent(consoleAttribution)}`
-}
-
-/** `&<utm>` appended to a query string that already exists, empty when there is nothing to append. */
-function andUtm(campaign: Parameters<typeof utmParams>[0]): string {
-  const utm = utmParams(campaign)
-  return utm === '' ? '' : `&${utm}`
+function utmParams(campaign: 'login' | 'fund' | 'revoke' | 'dashboard', sep: '?' | '&' = '&'): string {
+  const { disabled, affordance, driver } = telemetryConfig()
+  if (disabled) return ''
+  const medium = affordance.toLowerCase().replace(/ /g, '-')
+  const content = driver === undefined ? '' : `&utm_content=${encodeURIComponent(driver)}`
+  return `${sep}utm_source=filecoin-pin&utm_medium=${medium}&utm_campaign=${campaign}${content}`
 }
 
 /** Console network slug by chain id; the console validates and guards on it. */
@@ -78,7 +66,7 @@ export function buildAuthorizeUrl(
   chainId: number
 ): string {
   const base = trimSlash(consoleUrl)
-  return `${base}/console/session-keys?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId)}${andUtm('login')}`
+  return `${base}/console/session-keys?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId)}${utmParams('login')}`
 }
 
 /** Console network slugs, for placing a link the session file recorded by name. */
@@ -100,7 +88,7 @@ export function buildRevokeUrl(
 ): string | undefined {
   if (network === undefined || !CONSOLE_NETWORKS.has(network)) return undefined
   // Lowercased for the same reason as buildAuthorizeUrl: strict isAddress.
-  return `${trimSlash(consoleUrl)}/console/session-keys?revoke=${sessionAddress.toLowerCase()}&network=${network}${andUtm('revoke')}`
+  return `${trimSlash(consoleUrl)}/console/session-keys?revoke=${sessionAddress.toLowerCase()}&network=${network}${utmParams('revoke')}`
 }
 
 /** `&network=<slug>` for a chain the console knows, empty otherwise: the console refuses a link it cannot place. */
@@ -118,8 +106,7 @@ function trimSlash(consoleUrl: string): string {
 
 /** The console home (billing) page. */
 export function buildConsoleUrl(consoleUrl: string): string {
-  const utm = utmParams('dashboard')
-  return `${trimSlash(consoleUrl)}/console${utm === '' ? '' : `?${utm}`}`
+  return `${trimSlash(consoleUrl)}/console${utmParams('dashboard', '?')}`
 }
 
 /**
@@ -129,5 +116,5 @@ export function buildConsoleUrl(consoleUrl: string): string {
  * the console refuses to prefill a deposit for a wallet on another chain.
  */
 export function buildFundingUrl(consoleUrl: string, depositUsdfc: number, chainId: number): string {
-  return `${trimSlash(consoleUrl)}/console?deposit=${depositUsdfc}&operator=fwss${networkParam(chainId)}${andUtm('fund')}`
+  return `${trimSlash(consoleUrl)}/console?deposit=${depositUsdfc}&operator=fwss${networkParam(chainId)}${utmParams('fund')}`
 }
