@@ -13,7 +13,5 @@ beforeEach(() => {
   delete process.env.WALLET_ADDRESS
   delete process.env.SESSION_KEY
   delete process.env.PRIVATE_KEY
-  // No metrics from tests, and no utm tail on console links so exact-URL
-  // asserts stay readable. console-url.test.ts re-enables it for its own block.
   configureTelemetry({ disabled: true, affordance: 'Library', driver: undefined })
 })
