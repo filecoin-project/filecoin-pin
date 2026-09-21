@@ -74,21 +74,15 @@ const CONSOLE_NETWORKS = new Set(Object.values(CONSOLE_NETWORK_SLUG))
  * owner does not have to find it in the list. `logout` prints it for the key
  * it just dropped locally.
  *
- * Returns undefined for a network the console has no page for (devnet, a
- * custom RPC) or a session file that never recorded one: the console refuses
- * a revoke link it cannot place, so the caller prints the plain page instead.
+ * Falls back to the plain Session keys page for a network the console has no
+ * page for (devnet, a custom RPC) or a session file that never recorded one:
+ * the console refuses a revoke link it cannot place.
  */
-export function buildRevokeUrl(
-  consoleUrl: string,
-  sessionAddress: string,
-  network: string | undefined
-): string | undefined {
-  if (network === undefined || !CONSOLE_NETWORKS.has(network)) return undefined
+export function buildRevokeUrl(consoleUrl: string, sessionAddress: string, network: string | undefined): string {
+  const page = `${trimSlash(consoleUrl)}/console/session-keys`
+  if (network === undefined || !CONSOLE_NETWORKS.has(network)) return withUtm(page, 'revoke')
   // Lowercased for the same reason as buildAuthorizeUrl: strict isAddress.
-  return withUtm(
-    `${trimSlash(consoleUrl)}/console/session-keys?revoke=${sessionAddress.toLowerCase()}&network=${network}`,
-    'revoke'
-  )
+  return withUtm(`${page}?revoke=${sessionAddress.toLowerCase()}&network=${network}`, 'revoke')
 }
 
 /** `&network=<slug>` for a chain the console knows, empty otherwise: the console refuses a link it cannot place. */

@@ -89,8 +89,10 @@ describe('buildRevokeUrl', () => {
     ['devnet'],
     ['nonsense'],
     [undefined],
-  ])('refuses to build a link the console cannot place: %s', (network) => {
-    expect(buildRevokeUrl('https://pay.filecoin.cloud', '0xA', network)).toBeUndefined()
+  ])('falls back to the plain page for a link the console cannot place: %s', (network) => {
+    expect(buildRevokeUrl('https://pay.filecoin.cloud', '0xA', network)).toBe(
+      'https://pay.filecoin.cloud/console/session-keys'
+    )
   })
 })
 
@@ -116,6 +118,9 @@ describe('console attribution', () => {
     )
     expect(buildRevokeUrl('https://pay.filecoin.cloud', '0xA', 'mainnet')).toMatch(
       new RegExp(`&network=mainnet&${utm}&utm_campaign=revoke&utm_content=claude$`)
+    )
+    expect(buildRevokeUrl('https://pay.filecoin.cloud', '0xA', 'devnet')).toBe(
+      `https://pay.filecoin.cloud/console/session-keys?${utm}&utm_campaign=revoke&utm_content=claude`
     )
     expect(buildConsoleUrl('https://pay.filecoin.cloud')).toBe(
       `https://pay.filecoin.cloud/console?${utm}&utm_campaign=dashboard&utm_content=claude`
