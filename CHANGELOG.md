@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/filecoin-project/filecoin-pin/compare/v2.1.0...v2.1.1) (2026-09-16)
+
+
+### Bug Fixes
+
+* **payments:** accept a zero piece in setup check ([#728](https://github.com/filecoin-project/filecoin-pin/issues/728)) ([6bbbd0b](https://github.com/filecoin-project/filecoin-pin/commit/6bbbd0b8575c51d60033b44ae1e0304059bfbeed))
+
 ## [2.1.0](https://github.com/filecoin-project/filecoin-pin/compare/v2.0.1...v2.1.0) (2026-09-16)
 
 

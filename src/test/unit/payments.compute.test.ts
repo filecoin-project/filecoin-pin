@@ -3,10 +3,12 @@ import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import { describe, expect, it } from 'vitest'
 import {
   type AccountSummary,
+  calculatePieceUploadRequirements,
   computeAdjustmentForExactDays,
   computeAdjustmentForExactDaysWithPiece,
   computeAdjustmentForExactDeposit,
   computeTopUpForDuration,
+  type PaymentStatus,
   toStorageRunwaySummary,
 } from '../../core/payments/index.js'
 
@@ -247,6 +249,46 @@ describe('computeAdjustmentForExactDaysWithPiece', () => {
 
     expect(res.targetDeposit).toBeGreaterThanOrEqual(res.newLockupUsed)
     expect(res.targetDeposit).toBeGreaterThan(runwayCost)
+  })
+})
+
+describe('calculatePieceUploadRequirements', () => {
+  const status: PaymentStatus = {
+    network: 'calibration',
+    chainId: 314159,
+    address: '0xabc',
+    filBalance: 0n,
+    walletUsdfcBalance: 0n,
+    filecoinPayBalance: 0n,
+    currentAllowances: {
+      rateAllowance: 0n,
+      lockupAllowance: 0n,
+      rateUsage: 0n,
+      lockupUsage: 0n,
+      maxLockupPeriod: 0n,
+      isApproved: false,
+    },
+  }
+
+  it('a zero-byte piece (the minimum setup check) locks up nothing and passes (issue #719)', () => {
+    const res = calculatePieceUploadRequirements(status, 0, makePriceList())
+
+    expect(res.required).toEqual({ rateAllowance: 0n, lockupAllowance: 0n, storageCapacityTiB: 0 })
+    expect(res.totalDepositNeeded).toBe(0n)
+    expect(res.insufficientDeposit).toBe(0n)
+    expect(res.canUpload).toBe(true)
+  })
+
+  it.each([-1, Number.NaN])('rejects %s instead of treating it as the zero sentinel', (size) => {
+    expect(() => calculatePieceUploadRequirements(status, size, makePriceList())).toThrow()
+  })
+
+  it('a real piece needs a deposit when the balance is empty', () => {
+    const res = calculatePieceUploadRequirements(status, 1024 * 1024, makePriceList())
+
+    expect(res.required.lockupAllowance).toBeGreaterThan(0n)
+    expect(res.insufficientDeposit).toBe(res.totalDepositNeeded)
+    expect(res.canUpload).toBe(false)
   })
 })
 

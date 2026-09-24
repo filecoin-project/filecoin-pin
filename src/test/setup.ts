@@ -5,6 +5,7 @@
  * from local development environment variables.
  */
 import { beforeEach } from 'vitest'
+import { configureTelemetry } from '../core/telemetry/index.js'
 
 // Clear authentication-related environment variables that might interfere with tests
 // Tests should explicitly set these values when needed
@@ -12,4 +13,5 @@ beforeEach(() => {
   delete process.env.WALLET_ADDRESS
   delete process.env.SESSION_KEY
   delete process.env.PRIVATE_KEY
+  configureTelemetry({ disabled: true, affordance: 'Library', driver: undefined })
 })
