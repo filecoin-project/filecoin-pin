@@ -74,3 +74,18 @@ Note that this computation doesn't directly answer "what proportion of golden-pa
 | Metric | Relevant Events | When Emitted | Gauge Value | Additional Info | Source of truth |
 |---|---|---|---|---|---|
 | <a id="uploadCopyBytes"></a>`uploadCopyBytes` | [`uploadCopyResolved`](#uploadCopyResolved) | Once per copy in the upload result, paired with [`uploadCopyStatus`](#uploadCopyStatus). | Piece size in bytes (`UploadResult.size`). All copies of one upload share the same size — the value identifies the upload that produced the outcome. | Emitted alongside the corresponding [`uploadCopyStatus`](#uploadCopyStatus) counter in the same POST, sharing its tag set so the two metrics can be joined at query time. For example, you can filter `status=failure.commit` and aggregate `uploadCopyBytes` to see the size distribution of commit-step failures (`avg`, `p99`, `sum` by `spId`, etc.). | [`src/core/telemetry/index.ts`](../src/core/telemetry/index.ts) |
+
+## Console Link Attribution
+
+Every Filecoin Cloud console link the library builds (`login` authorize, funding top-up, `logout` revoke, `dashboard`) carries standard UTM query params so the console's web analytics can attribute visits back to the affordance that printed them and split human from agent traffic. Nothing is sent from the host; the params only travel in the URL the user (or their agent) opens.
+
+| Param | Value |
+|---|---|
+| `utm_source` | `filecoin-pin` |
+| `utm_medium` | The [`affordance`](#tag-affordance) tag, slugged: `cli`, `github-action`, `library`, `pin.filecoin.cloud` |
+| `utm_campaign` | Which flow printed the link: `login`, `fund`, `revoke`, `dashboard` |
+| `utm_content` | Who is driving, when the host set `driver` via `configureTelemetry`. The CLI sets it from [`@vercel/detect-agent`](https://www.npmjs.com/package/@vercel/detect-agent): an agent name (`claude`, `cursor`, `codex`, `gemini`, etc, or whatever `AI_AGENT` names), `human` for an interactive terminal, `automation` for a non-TTY the detector does not recognise (CI, a pipe). Omitted when unset |
+
+Same opt-out as the metrics above: `configureTelemetry({ disabled: true })`, or for the CLI `FILECOIN_PIN_TELEMETRY_DISABLED=true` / `DO_NOT_TRACK=1`, drops every `utm_*` param.
+
+Source of truth: [`src/core/session/console-url.ts`](../src/core/session/console-url.ts); the CLI sets `driver` in [`src/cli.ts`](../src/cli.ts).

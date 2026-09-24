@@ -3,6 +3,8 @@
  * deep links. Session-key pairing/login work builds on these same helpers.
  */
 
+import { telemetryConfig } from '../telemetry/index.js'
+
 /**
  * One console deployment serves both networks and switches network in-app,
  * so the network travels in the `network` query parameter rather than in
@@ -13,6 +15,19 @@ export const DEFAULT_CONSOLE_URL = 'https://pay.filecoin.cloud'
 /** Console base URL: `CONSOLE_URL` when set, otherwise the production deployment. */
 export function resolveConsoleUrl(): string {
   return process.env.CONSOLE_URL ?? DEFAULT_CONSOLE_URL
+}
+
+/**
+ * Append `utm_source/medium/campaign[/content]` so the console's analytics
+ * can attribute the visit (affordance, flow, human vs which agent). Returns
+ * `url` unchanged when telemetry is disabled.
+ */
+function withUtm(url: string, campaign: 'login' | 'fund' | 'revoke' | 'dashboard'): string {
+  const { disabled, affordance, driver } = telemetryConfig()
+  if (disabled) return url
+  const medium = affordance.toLowerCase().replace(/ /g, '-')
+  const content = driver === undefined ? '' : `&utm_content=${encodeURIComponent(driver)}`
+  return `${url}${url.includes('?') ? '&' : '?'}utm_source=filecoin-pin&utm_medium=${medium}&utm_campaign=${campaign}${content}`
 }
 
 /** Console network slug by chain id; the console validates and guards on it. */
@@ -45,7 +60,10 @@ export function buildAuthorizeUrl(
   chainId: number
 ): string {
   const base = trimSlash(consoleUrl)
-  return `${base}/console/session-keys?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId)}`
+  return withUtm(
+    `${base}/console/session-keys?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId)}`,
+    'login'
+  )
 }
 
 /** Console network slugs, for placing a link the session file recorded by name. */
@@ -56,18 +74,15 @@ const CONSOLE_NETWORKS = new Set(Object.values(CONSOLE_NETWORK_SLUG))
  * owner does not have to find it in the list. `logout` prints it for the key
  * it just dropped locally.
  *
- * Returns undefined for a network the console has no page for (devnet, a
- * custom RPC) or a session file that never recorded one: the console refuses
- * a revoke link it cannot place, so the caller prints the plain page instead.
+ * Falls back to the plain Session keys page for a network the console has no
+ * page for (devnet, a custom RPC) or a session file that never recorded one:
+ * the console refuses a revoke link it cannot place.
  */
-export function buildRevokeUrl(
-  consoleUrl: string,
-  sessionAddress: string,
-  network: string | undefined
-): string | undefined {
-  if (network === undefined || !CONSOLE_NETWORKS.has(network)) return undefined
+export function buildRevokeUrl(consoleUrl: string, sessionAddress: string, network: string | undefined): string {
+  const page = `${trimSlash(consoleUrl)}/console/session-keys`
+  if (network === undefined || !CONSOLE_NETWORKS.has(network)) return withUtm(page, 'revoke')
   // Lowercased for the same reason as buildAuthorizeUrl: strict isAddress.
-  return `${trimSlash(consoleUrl)}/console/session-keys?revoke=${sessionAddress.toLowerCase()}&network=${network}`
+  return withUtm(`${page}?revoke=${sessionAddress.toLowerCase()}&network=${network}`, 'revoke')
 }
 
 /** `&network=<slug>` for a chain the console knows, empty otherwise: the console refuses a link it cannot place. */
@@ -85,7 +100,7 @@ function trimSlash(consoleUrl: string): string {
 
 /** The console home (billing) page. */
 export function buildConsoleUrl(consoleUrl: string): string {
-  return `${trimSlash(consoleUrl)}/console`
+  return withUtm(`${trimSlash(consoleUrl)}/console`, 'dashboard')
 }
 
 /**
@@ -95,5 +110,8 @@ export function buildConsoleUrl(consoleUrl: string): string {
  * the console refuses to prefill a deposit for a wallet on another chain.
  */
 export function buildFundingUrl(consoleUrl: string, depositUsdfc: number, chainId: number): string {
-  return `${trimSlash(consoleUrl)}/console?deposit=${depositUsdfc}&operator=fwss${networkParam(chainId)}`
+  return withUtm(
+    `${trimSlash(consoleUrl)}/console?deposit=${depositUsdfc}&operator=fwss${networkParam(chainId)}`,
+    'fund'
+  )
 }
