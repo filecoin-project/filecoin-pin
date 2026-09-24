@@ -8,6 +8,7 @@ import {
   type DirectUploadDeps,
   type DirectUploadOptions,
   runDirectUpload,
+  UNCONFIRMED_REQUEUE_AFTER_MS,
   type UploadContextLike,
 } from '../../migrate/direct-upload.js'
 
@@ -59,6 +60,8 @@ interface FakeBehavior {
   pullFails?: boolean
   /** Store answers a different commitment than requested (commP mismatch). */
   storeReturns?: (pieceCid: string) => string
+  /** Throw from store() on the numbered call (1-based) for that piece; null means succeed. */
+  storeThrows?: (pieceCid: string, call: number) => Error | null
   /** Receipt answers for add_unconfirmed reconciliation. Default: not landed. */
   txLanded?: (txHash: string) => boolean
   /** PiecesAdded event answers for landed-tx resolution. Default: none found. */
@@ -84,6 +87,9 @@ function fakeDeps(b: FakeBehavior = {}) {
     async store(_data, options) {
       const requested = String(options.pieceCid)
       calls.store.push(`${providerId}:${requested}`)
+      const nth = calls.store.filter((c) => c === `${providerId}:${requested}`).length
+      const boom = b.storeThrows?.(requested, nth)
+      if (boom != null) throw boom
       const answered = b.storeReturns ? b.storeReturns(requested) : requested
       return { pieceCid: answered, size: 1024 }
     },
@@ -301,6 +307,49 @@ describe('runDirectUpload', () => {
     }
   })
 
+  it('a store that fails once is retried after the other pieces and still commits', async () => {
+    const { dir, db } = await dbAt('du-store-retry')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      seedBuilt(db, P2, join(dir, 'b.car'))
+      const { deps, calls } = fakeDeps({
+        storeThrows: (pieceCid, call) => (pieceCid === P1 && call === 1 ? new Error('socket hang up') : null),
+      })
+
+      const summary = await runDirectUpload(db, { ...OPTS, copies: 1 }, deps)
+
+      // P2 was not held up by P1's failure, and P1 landed on the retry.
+      expect(calls.store).toEqual([`p1:${P1}`, `p1:${P2}`, `p1:${P1}`])
+      expect(
+        db
+          .uploadsByStatus('p1', 'committed')
+          .map((u) => u.subPieceCid)
+          .sort()
+      ).toEqual([P1, P2].sort())
+      expect(summary.unstored).toEqual([])
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('a store that keeps failing is reported as unstored, not thrown', async () => {
+    const { dir, db } = await dbAt('du-store-dead')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      const { deps } = fakeDeps({ storeThrows: () => new Error('provider down') })
+
+      const summary = await runDirectUpload(db, { ...OPTS, copies: 1 }, deps)
+
+      expect(summary.unstored).toEqual([P1])
+      expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(0)
+      expect(db.uploadsByStatus('p1', 'failed')).toHaveLength(0)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('a landed-but-unconfirmed tx is never re-queued: no blind re-add', async () => {
     const { dir, db } = await dbAt('du-landed')
     try {
@@ -498,7 +547,7 @@ describe('runDirectUpload', () => {
     }
   })
 
-  it('leaves a hashless add_unconfirmed row alone when no data set is known', async () => {
+  it('holds a fresh hashless add_unconfirmed row when no data set is known', async () => {
     const { dir, db } = await dbAt('du-hashless-unknown')
     try {
       seedBuilt(db, P1, join(dir, 'a.car'))
@@ -511,6 +560,27 @@ describe('runDirectUpload', () => {
       expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(1)
       expect(calls.commit.get('p1') ?? 0).toBe(0)
       expect(summary.providers[0]?.addUnconfirmed).toBe(1)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('re-parks a hashless add_unconfirmed row with no data set once it has aged out', async () => {
+    const { dir, db } = await dbAt('du-hashless-unknown-aged')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      db.recordUploadParked(P1, 'p1', 'primary', null)
+      db.markUploadsAddUnconfirmed([P1], 'p1')
+
+      // Still no data set on the provider an hour later: the create-and-add
+      // transaction never landed, so the piece is safe to commit again.
+      const { deps, calls } = fakeDeps({ nowOffsetMs: UNCONFIRMED_REQUEUE_AFTER_MS + 1 })
+      await runDirectUpload(db, OPTS, deps)
+
+      expect(calls.commit.get('p1')).toBe(1)
+      expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(1)
+      expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(0)
     } finally {
       db.close()
       await rm(dir, { recursive: true, force: true })
