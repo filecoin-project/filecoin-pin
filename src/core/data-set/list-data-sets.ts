@@ -21,8 +21,9 @@ import type { DataSetSummary, ListDataSetsOptions } from './types.js'
  * `synapse.storage.findDataSets()` does internally. That fan-out times out
  * for accounts with thousands of data sets (see filecoin-project/filecoin-pin#362).
  *
- * Reads latest state rather than a block snapshot, so a data set deleted mid-listing
- * can be omitted.
+ * Reads latest state rather than a block snapshot. If a data set is deleted
+ * after its ID is listed but before enrichment, the enrichment multicall
+ * uses `allowFailure: false`, so the entire listing throws.
  *
  * Example usage:
  * ```typescript
