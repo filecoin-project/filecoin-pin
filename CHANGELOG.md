@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.2.0](https://github.com/filecoin-project/filecoin-pin/compare/v2.1.1...v2.2.0) (2026-09-25)
+
+
+### Features
+
+* **cli:** tag console links with utm params for human vs agent attribution ([#746](https://github.com/filecoin-project/filecoin-pin/issues/746)) ([6d7550a](https://github.com/filecoin-project/filecoin-pin/commit/6d7550afc7f65f2fadb6ae67e131b3174277e938))
+
+
+### Bug Fixes
+
+* **data-set:** paginate listDataSets to avoid RPC timeouts on large accounts ([#708](https://github.com/filecoin-project/filecoin-pin/issues/708)) ([913f418](https://github.com/filecoin-project/filecoin-pin/commit/913f418c49a4b1083f38e4fd595f35448e35f5ae))
+
 ## [2.1.1](https://github.com/filecoin-project/filecoin-pin/compare/v2.1.0...v2.1.1) (2026-09-16)
 
 
