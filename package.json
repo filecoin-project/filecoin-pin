@@ -1,6 +1,6 @@
 {
   "name": "filecoin-pin",
-  "version": "2.0.1",
+  "version": "2.1.1",
   "description": "Bridge IPFS content to Filecoin Onchain Cloud using familiar tools",
   "type": "module",
   "packageManager": "pnpm@10.32.1",
@@ -141,6 +141,7 @@
     "@multiformats/multiaddr": "^13.0.1",
     "@multiformats/multiaddr-to-uri": "^12.0.0",
     "@sentry/node": "^10.49.0",
+    "@vercel/detect-agent": "^1.2.5",
     "commander": "^15.0.0",
     "datastore-core": "^11.0.4",
     "env-paths": "3.0.0",
