@@ -42,6 +42,7 @@ describe('global CLI behaviour', () => {
     expect(result.combined).toContain('data-set')
     expect(result.combined).toContain('provider')
     expect(result.combined).toContain('session')
+    expect(result.combined).toContain('--json')
   })
 
   it('--version exits 0 and prints a semver string', T, async () => {
