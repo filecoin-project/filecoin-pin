@@ -10,6 +10,7 @@ import { type CopyResult, type FailedAttempt, METADATA_KEYS, type Synapse, type 
 import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
+import type { Hash } from 'viem'
 import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import type { DataSetSummary } from '../core/data-set/types.js'
 import { resolveIpfsIndexedMetadata } from '../core/metadata/index.js'
@@ -334,8 +335,17 @@ export interface UploadFlowOptions {
   skipIpniVerification?: boolean
 }
 
-export interface UploadFlowResult extends SynapseUploadResult {
+export type IpniObservation = 'found' | 'pending' | 'skipped'
+
+export interface UploadCopyResult extends CopyResult {
+  txHash?: Hash
+}
+
+export interface UploadFlowResult extends Omit<SynapseUploadResult, 'copies'> {
   network: string
+  copies: UploadCopyResult[]
+  shareUrl?: string
+  ipni: IpniObservation
 }
 
 /**
@@ -768,6 +778,7 @@ export async function performUpload(
   }
 
   const network = getNetworkSlug(synapse.chain)
+  const txByProvider = new Map<bigint, Hash>()
 
   const uploadResult = await executeUpload(synapse, carData, rootCid, {
     logger,
@@ -822,6 +833,9 @@ export async function performUpload(
         }
         case 'piecesAdded': {
           const role = getRole(event.data.providerId)
+          if (event.data.txHash) {
+            txByProvider.set(event.data.providerId, event.data.txHash)
+          }
 
           const commitId = `commit-${event.data.providerId}`
           flow.addOperation(commitId, `${roleLabel(role)} Adding piece to Data Set...`)
@@ -958,7 +972,21 @@ export async function performUpload(
     },
   })
 
-  return uploadResult
+  const ipni: IpniObservation = options.skipIpniVerification
+    ? 'skipped'
+    : uploadResult.ipniValidated
+      ? 'found'
+      : 'pending'
+
+  return {
+    ...uploadResult,
+    copies: uploadResult.copies.map((copy) => {
+      const txHash = txByProvider.get(copy.providerId)
+      return txHash == null ? copy : { ...copy, txHash }
+    }),
+    ipni,
+    ...(ipni === 'found' ? { shareUrl: `https://inbrowser.link/ipfs/${rootCid}` } : {}),
+  }
 }
 
 /**

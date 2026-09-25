@@ -336,6 +336,109 @@ describe('CAR Import', () => {
     })
   })
 
+  describe('result fields for JSON output', () => {
+    it('retains shareUrl, copy tx hashes, and IPNI found on full success', async () => {
+      const carPath = join(testDir, 'success.car')
+      const cid = await createCarWithRoot(carPath)
+      const { performUpload } = await import('../../common/upload-flow.js')
+      const shareUrl = `https://inbrowser.link/ipfs/${cid}`
+      vi.mocked(performUpload).mockResolvedValueOnce({
+        pieceCid: 'bafkzcibtest1234567890',
+        size: 1024,
+        requestedCopies: 1,
+        complete: true,
+        copies: [
+          {
+            providerId: 1n,
+            dataSetId: 123n,
+            pieceId: 789n,
+            role: 'primary',
+            retrievalUrl: 'http://test.provider/pdp/piece/bafkzcibtest1234567890',
+            isNewDataSet: false,
+            txHash: '0xabc',
+          },
+        ],
+        failedAttempts: [],
+        network: 'calibration',
+        shareUrl,
+        ipni: 'found',
+      })
+
+      const result = (await runCarImport({ filePath: carPath, privateKey: testPrivateKey })) as ImportResult
+
+      expect(result.shareUrl).toBe(shareUrl)
+      expect(result.ipni).toBe('found')
+      expect(result.copies[0]?.txHash).toBe('0xabc')
+    })
+
+    it('retains the successful copy txHash when one copy fails', async () => {
+      const carPath = join(testDir, 'partial.car')
+      const cid = await createCarWithRoot(carPath)
+      const { performUpload } = await import('../../common/upload-flow.js')
+      vi.mocked(performUpload).mockResolvedValueOnce({
+        pieceCid: 'bafkzcibtest1234567890',
+        size: 1024,
+        requestedCopies: 2,
+        complete: false,
+        copies: [
+          {
+            providerId: 1n,
+            dataSetId: 123n,
+            pieceId: 789n,
+            role: 'primary',
+            retrievalUrl: 'http://test.provider/pdp/piece/bafkzcibtest1234567890',
+            isNewDataSet: false,
+            txHash: '0xabc',
+          },
+        ],
+        failedAttempts: [{ providerId: 2n, role: 'secondary', error: 'pull failed', explicit: false }],
+        network: 'calibration',
+        shareUrl: `https://inbrowser.link/ipfs/${cid}`,
+        ipni: 'found',
+      })
+
+      const result = (await runCarImport({ filePath: carPath, privateKey: testPrivateKey })) as ImportResult
+
+      expect(result.copies).toHaveLength(1)
+      expect(result.copies[0]?.txHash).toBe('0xabc')
+      expect(result.failedAttempts).toHaveLength(1)
+      expect(result.shareUrl).toBe(`https://inbrowser.link/ipfs/${cid}`)
+      expect(result.ipni).toBe('found')
+    })
+
+    it('omits shareUrl and records IPNI pending when indexing is not confirmed', async () => {
+      const carPath = join(testDir, 'pending.car')
+      await createCarWithRoot(carPath)
+      const { performUpload } = await import('../../common/upload-flow.js')
+      vi.mocked(performUpload).mockResolvedValueOnce({
+        pieceCid: 'bafkzcibtest1234567890',
+        size: 1024,
+        requestedCopies: 1,
+        complete: true,
+        copies: [
+          {
+            providerId: 1n,
+            dataSetId: 123n,
+            pieceId: 789n,
+            role: 'primary',
+            retrievalUrl: 'http://test.provider/pdp/piece/bafkzcibtest1234567890',
+            isNewDataSet: false,
+            txHash: '0xabc',
+          },
+        ],
+        failedAttempts: [],
+        network: 'calibration',
+        ipni: 'pending',
+      })
+
+      const result = (await runCarImport({ filePath: carPath, privateKey: testPrivateKey })) as ImportResult
+
+      expect(result.shareUrl).toBeUndefined()
+      expect(result.ipni).toBe('pending')
+      expect(result.copies[0]?.txHash).toBe('0xabc')
+    })
+  })
+
   describe('session-key funds preflight', () => {
     const sessionAuth = (carPath: string): ImportOptions => ({
       filePath: carPath,
