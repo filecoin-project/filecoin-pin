@@ -9,6 +9,7 @@ import { TIME_CONSTANTS } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { calculateActualStorage, listDataSets } from '../core/data-set/index.js'
 import {
+  checkAllowances,
   checkFILBalance,
   checkUSDFCBalance,
   getUsdfcAcquisitionHelpMessage,
@@ -29,9 +30,17 @@ export interface StatusOptions extends CLIAuthOptions {
 const EPOCHS_14_DAYS = TIME_CONSTANTS.EPOCHS_PER_DAY * 14n
 const EPOCH_DURATION_MS = TIME_CONSTANTS.EPOCH_DURATION * 1000
 
-export function deriveAccountStatus(runwayInEpochs: bigint, debt: bigint): 'HEALTHY' | 'WARNING' | 'DEFICIT' {
+/**
+ * Debt or zero runway is DEFICIT regardless of approval; short runway or an
+ * unapproved storage service is WARNING; otherwise HEALTHY.
+ */
+export function deriveAccountStatus(
+  runwayInEpochs: bigint,
+  debt: bigint,
+  serviceApproved: boolean
+): 'HEALTHY' | 'WARNING' | 'DEFICIT' {
   if (runwayInEpochs === 0n || debt > 0n) return 'DEFICIT'
-  if (runwayInEpochs <= EPOCHS_14_DAYS) return 'WARNING'
+  if (runwayInEpochs <= EPOCHS_14_DAYS || !serviceApproved) return 'WARNING'
   return 'HEALTHY'
 }
 
@@ -63,10 +72,14 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     const network = synapse.chain.name
     const address = getClientAddress(synapse)
 
-    const [filStatus, walletUsdfcBalance, accountSummary] = await Promise.all([
+    const [filStatus, walletUsdfcBalance, accountSummary, allowances] = await Promise.all([
       checkFILBalance(synapse),
       checkUSDFCBalance(synapse),
       synapse.payments.accountSummary({}),
+      checkAllowances(synapse).catch((error: unknown) => {
+        const reason = error instanceof Error ? error.message : String(error)
+        throw new Error(`Could not read the storage service approval: ${reason}`, { cause: error })
+      }),
     ])
 
     spinner.stop(`${pc.green('✓')} Configuration loaded`)
@@ -82,7 +95,8 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
       totalFixedLockup,
     } = accountSummary
 
-    const accountStatus = deriveAccountStatus(runwayInEpochs, debt)
+    const serviceApproved = !allowances.needsUpdate
+    const accountStatus = deriveAccountStatus(runwayInEpochs, debt, serviceApproved)
     const statusColor = accountStatus === 'HEALTHY' ? pc.green : accountStatus === 'WARNING' ? pc.yellow : pc.red
     const fundedUntilStr = formatFundedUntil(runwayInEpochs, lockupRatePerEpoch)
     const burnRatePerMonth = lockupRatePerEpoch * TIME_CONSTANTS.EPOCHS_PER_DAY * TIME_CONSTANTS.DAYS_PER_MONTH
@@ -116,6 +130,8 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
     log.line('')
 
     log.line(pc.bold('Account'))
+    log.indent(`${'Storage service'.padEnd(LBL)} ${serviceApproved ? 'approved' : pc.yellow('not approved yet')}`)
+    if (!serviceApproved) log.indent(pc.yellow('⚠ Approve it in the console:  filecoin-pin dashboard'))
     log.indent(`${'Total deposited'.padEnd(LBL)} ${formatUSDFC(funds)} USDFC`)
     log.indent(`${'Available to withdraw'.padEnd(LBL)} ${formatUSDFC(availableFunds)} USDFC`)
     log.indent(`${'Burn rate'.padEnd(LBL)} ${formatUSDFC(burnRatePerMonth)} USDFC / month`)
