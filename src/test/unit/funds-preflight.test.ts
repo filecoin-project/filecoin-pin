@@ -103,7 +103,7 @@ describe('assertUploadFunds', () => {
     expect(text).toContain('not approved')
     expect(text).toContain('✓ available funds')
     expect(text).toContain('Approve the storage service in the console:')
-    expect(text).toContain('https://console.test/console\n')
+    expect(text).toContain('https://console.test/console?operator=fwss&network=mainnet\n')
     expect(text).not.toContain('deposit=')
   })
 
