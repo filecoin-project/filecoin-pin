@@ -118,10 +118,13 @@ export function buildFundingUrl(consoleUrl: string, depositUsdfc: number, chainI
 
 /**
  * Approval link for an account that has funds but has not approved the
- * storage service: the console home, where the owner adds the service
- * without a deposit. The funding link cannot carry this case, since the
- * console only prefills it with a deposit amount.
+ * storage service: the funding link without a deposit, which the console
+ * opens as an approval alone. Carries the network for the same reason as
+ * the funding link, and falls back to the console home for a chain the
+ * console has no page for, since it refuses the link without a network.
  */
-export function buildApproveUrl(consoleUrl: string): string {
-  return withUtm(`${trimSlash(consoleUrl)}/console`, 'fund')
+export function buildApproveUrl(consoleUrl: string, chainId: number): string {
+  const page = `${trimSlash(consoleUrl)}/console`
+  const network = consoleNetworkSlug(chainId)
+  return withUtm(network === undefined ? page : `${page}?operator=fwss&network=${network}`, 'fund')
 }

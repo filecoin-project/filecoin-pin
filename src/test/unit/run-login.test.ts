@@ -203,7 +203,9 @@ describe('runLogin', () => {
     await runLogin({})
 
     const text = output()
-    expect(text).toContain('Approve the storage service in the console:\nhttps://console.test/console\n')
+    expect(text).toContain(
+      'Approve the storage service in the console:\nhttps://console.test/console?operator=fwss&network=calibration\n'
+    )
     expect(text).not.toContain('One step fixes both')
     expect(text).not.toContain('deposit=')
   })
