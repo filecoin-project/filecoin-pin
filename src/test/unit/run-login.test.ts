@@ -189,7 +189,34 @@ describe('runLogin', () => {
 
     const text = output()
     expect(text).toContain('storage service not approved yet')
+    expect(text).toContain('One step fixes both')
     expect(text).toContain(FUNDING_LINK)
+  })
+
+  it('prints the approval link without a deposit when only the approval is missing', async () => {
+    vi.mocked(watchAuthorization).mockResolvedValue(FULL_GRANT)
+    vi.mocked(checkAccountReadiness).mockResolvedValue({
+      serviceApproved: false,
+      depositUsdfc: 3_000_000_000_000_000_000n,
+    })
+
+    await runLogin({})
+
+    const text = output()
+    expect(text).toContain('Approve the storage service in the console:\nhttps://console.test/console\n')
+    expect(text).not.toContain('One step fixes both')
+    expect(text).not.toContain('deposit=')
+  })
+
+  it('prints the funding link without the combined copy when only the deposit is missing', async () => {
+    vi.mocked(watchAuthorization).mockResolvedValue(FULL_GRANT)
+    vi.mocked(checkAccountReadiness).mockResolvedValue({ serviceApproved: true, depositUsdfc: 0n })
+
+    await runLogin({})
+
+    const text = output()
+    expect(text).toContain(`Deposit USDFC (amount pre-filled):\n${FUNDING_LINK}`)
+    expect(text).not.toContain('One step fixes both')
   })
 
   it('prints the approved scorecard and no funding link when the account is funded', async () => {
