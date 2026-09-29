@@ -19,7 +19,7 @@ const {
   spinnerMock,
   cancelMock,
   outroMock,
-  mockFindDataSets,
+  mockGetPdpDataSets,
   mockGetProvider,
   mockGetPdpDataSet,
   mockTerminateService,
@@ -42,7 +42,7 @@ const {
     message: vi.fn(),
     clear: vi.fn(),
   }
-  const mockFindDataSets = vi.fn()
+  const mockGetPdpDataSets = vi.fn()
   const mockGetProvider = vi.fn()
   const mockGetPdpDataSet = vi.fn()
   const mockTerminateService = vi.fn()
@@ -102,7 +102,6 @@ const {
       },
       sessionClient: hasSessionKeyAuth ? {} : undefined,
       storage: {
-        findDataSets: mockFindDataSets,
         createContext: mockCreateContext,
         terminateService: mockTerminateService,
       },
@@ -119,7 +118,7 @@ const {
     cancelMock,
     outroMock,
     spinnerMock,
-    mockFindDataSets,
+    mockGetPdpDataSets,
     mockGetProvider,
     mockGetPdpDataSet,
     mockTerminateService,
@@ -181,6 +180,7 @@ vi.mock('@filoz/synapse-sdk', async () => {
 
 vi.mock('@filoz/synapse-core/warm-storage', () => ({
   getPdpDataSet: mockGetPdpDataSet,
+  getPdpDataSets: mockGetPdpDataSets,
 }))
 
 vi.mock('@filoz/synapse-core/pdp-verifier', () => ({
@@ -247,6 +247,10 @@ function toPdpDataSet(summary: EnhancedDataSetFixture, providerFixture: Record<s
   }
 }
 
+function toPdpDataSetsPage(dataSets: EnhancedDataSetFixture[], providerFixture: Record<string, unknown>) {
+  return { items: dataSets.map((ds) => toPdpDataSet(ds, providerFixture)) }
+}
+
 describe('runDataSetCommand', () => {
   const summaryDataSet = {
     pdpVerifierDataSetId: 158n,
@@ -287,7 +291,7 @@ describe('runDataSetCommand', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     state.pieceList = []
-    mockFindDataSets.mockResolvedValue([summaryDataSet])
+    mockGetPdpDataSets.mockResolvedValue(toPdpDataSetsPage([summaryDataSet], provider))
     mockGetProvider.mockResolvedValue(provider)
     mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(summaryDataSet, provider))
   })
@@ -348,7 +352,7 @@ describe('runDataSetCommand', () => {
         'space-did': 'did:key:z6Mk',
       },
     }
-    mockFindDataSets.mockResolvedValueOnce([migrationDataSet])
+    mockGetPdpDataSets.mockResolvedValueOnce(toPdpDataSetsPage([migrationDataSet], provider))
 
     await runDataSetListCommand({
       privateKey: 'test-key',
@@ -375,7 +379,7 @@ describe('runDataSetCommand', () => {
   })
 
   it('uses neutral empty message when --all is set and no datasets exist', async () => {
-    mockFindDataSets.mockResolvedValueOnce([])
+    mockGetPdpDataSets.mockResolvedValueOnce({ items: [] })
 
     await runDataSetListCommand({
       privateKey: 'test-key',
@@ -397,7 +401,7 @@ describe('runDataSetCommand', () => {
         source: 'storacha-migration',
       },
     }
-    mockFindDataSets.mockResolvedValueOnce([migrationDataSet])
+    mockGetPdpDataSets.mockResolvedValueOnce(toPdpDataSetsPage([migrationDataSet], provider))
 
     await runDataSetListCommand({
       privateKey: 'test-key',
@@ -439,7 +443,26 @@ describe('runDataSetCommand', () => {
     })
 
     expect(mockGetPdpDataSet).toHaveBeenCalledWith(expect.anything(), { dataSetId: 158n })
-    expect(mockFindDataSets).not.toHaveBeenCalled()
+    expect(mockGetPdpDataSets).not.toHaveBeenCalled()
+  })
+
+  it('assembles datasets across multiple pages instead of fetching them all in one unbatched call', async () => {
+    const secondPageDataSet = { ...summaryDataSet, pdpVerifierDataSetId: 999n }
+    mockGetPdpDataSets
+      .mockResolvedValueOnce({ items: [toPdpDataSet(summaryDataSet, provider)], nextCursor: 200n })
+      .mockResolvedValueOnce({ items: [toPdpDataSet(secondPageDataSet, provider)] })
+
+    await runDataSetListCommand({
+      privateKey: 'test-key',
+      rpcUrl: 'wss://sample',
+      all: true,
+    })
+
+    expect(mockGetPdpDataSets).toHaveBeenCalledTimes(2)
+    expect(mockGetPdpDataSets).toHaveBeenNthCalledWith(1, expect.anything(), { address: '0xtest', cursor: 0n })
+    expect(mockGetPdpDataSets).toHaveBeenNthCalledWith(2, expect.anything(), { address: '0xtest', cursor: 200n })
+    const [dataSets] = displayDataSetListMock.mock.calls[0] as [DataSetSummary[]]
+    expect(dataSets.map((ds) => ds.dataSetId)).toEqual([158n, 999n])
   })
 
   it('exits when no private key is provided', async () => {
@@ -498,7 +521,6 @@ describe('runTerminateDataSetCommand', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     state.pieceList = []
-    mockFindDataSets.mockResolvedValue([terminatableDataSet])
     mockGetProvider.mockResolvedValue(provider)
     mockGetPdpDataSet.mockResolvedValue(toPdpDataSet(terminatableDataSet, provider))
     mockTerminateService.mockResolvedValue({ txHash: '0xtxhash123', dataSetId: 158n, endEpoch: 0n })

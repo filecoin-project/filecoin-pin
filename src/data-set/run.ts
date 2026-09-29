@@ -1,7 +1,7 @@
 import { confirm, isCancel } from '@clack/prompts'
 import { TerminateServiceError, TerminateServiceNotSupportedError } from '@filoz/synapse-core/errors'
 import { TerminateServicePermission } from '@filoz/synapse-core/session-key'
-import type { EnhancedDataSetInfo, Synapse } from '@filoz/synapse-sdk'
+import type { Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import type { Hex } from 'viem'
 import { WaitForTransactionReceiptTimeoutError } from 'viem'
@@ -143,10 +143,9 @@ export async function runDataSetListCommand(options: DataSetListCommandOptions):
   try {
     const providerIds = parseProviderIdSelection(options)
     const metadataEntries = options.dataSetMetadata ? Object.entries(options.dataSetMetadata) : []
-    let filter: ((dataSet: EnhancedDataSetInfo) => boolean) | undefined
+    let filter: ((dataSet: DataSetSummary) => boolean) | undefined
 
     if (providerIds.length > 0 || metadataEntries.length > 0) {
-      // TODO: synapse is supposed to be able to filter on dataset metadata, but synapse.storage.findDataSets doesn't accept metadata? How do we filter..
       filter = (dataSet) => {
         if (providerIds.length > 0 && !providerIds.includes(dataSet.providerId)) {
           return false

@@ -109,15 +109,13 @@ export interface ListDataSetsOptions {
   logger?: Logger | undefined
 
   /**
-   * Filter function to apply to the data sets before additional processing
+   * Filter function applied to each dataset after it has been mapped to a
+   * `DataSetSummary`.
    *
-   * Note: The filter receives raw EnhancedDataSetInfo objects from the SDK
-   * (with pdpVerifierDataSetId field) before transformation to DataSetSummary
-   *
-   * @param dataSet - Raw dataset from SDK storage.findDataSets()
+   * @param dataSet - Mapped dataset summary
    * @returns true to include the dataset, false to exclude it
    */
-  filter?: undefined | ((dataSet: EnhancedDataSetInfo) => boolean)
+  filter?: undefined | ((dataSet: DataSetSummary) => boolean)
 }
 
 /**
