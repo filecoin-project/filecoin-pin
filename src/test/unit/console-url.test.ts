@@ -103,10 +103,10 @@ describe('console attribution', () => {
 
   it('tags links by default with the source, the affordance, and the flow', () => {
     expect(buildConsoleUrl('https://pay.filecoin.cloud')).toBe(
-      'https://pay.filecoin.cloud/console?utm_source=filecoin-pin&utm_medium=library&utm_campaign=dashboard'
+      'https://pay.filecoin.cloud/console?utm_source=filecoin-pin&utm_medium=library&utm_term=dashboard'
     )
     expect(buildFundingUrl('https://pay.filecoin.cloud', 2, 314)).toBe(
-      'https://pay.filecoin.cloud/console?deposit=2&operator=fwss&network=mainnet&utm_source=filecoin-pin&utm_medium=library&utm_campaign=fund'
+      'https://pay.filecoin.cloud/console?deposit=2&operator=fwss&network=mainnet&utm_source=filecoin-pin&utm_medium=library&utm_term=fund'
     )
   })
 
@@ -114,23 +114,23 @@ describe('console attribution', () => {
     configureTelemetry({ affordance: 'CLI', driver: 'claude' })
     const utm = 'utm_source=filecoin-pin&utm_medium=cli'
     expect(buildAuthorizeUrl('https://pay.filecoin.cloud', '0xA', ['upload'], 314)).toMatch(
-      new RegExp(`&network=mainnet&${utm}&utm_campaign=login&utm_content=claude$`)
+      new RegExp(`&network=mainnet&${utm}&utm_term=login&utm_content=claude$`)
     )
     expect(buildRevokeUrl('https://pay.filecoin.cloud', '0xA', 'mainnet')).toMatch(
-      new RegExp(`&network=mainnet&${utm}&utm_campaign=revoke&utm_content=claude$`)
+      new RegExp(`&network=mainnet&${utm}&utm_term=revoke&utm_content=claude$`)
     )
     expect(buildRevokeUrl('https://pay.filecoin.cloud', '0xA', 'devnet')).toBe(
-      `https://pay.filecoin.cloud/console/session-keys?${utm}&utm_campaign=revoke&utm_content=claude`
+      `https://pay.filecoin.cloud/console/session-keys?${utm}&utm_term=revoke&utm_content=claude`
     )
     expect(buildConsoleUrl('https://pay.filecoin.cloud')).toBe(
-      `https://pay.filecoin.cloud/console?${utm}&utm_campaign=dashboard&utm_content=claude`
+      `https://pay.filecoin.cloud/console?${utm}&utm_term=dashboard&utm_content=claude`
     )
   })
 
   it('slugs a multi-word affordance and url-encodes the driver', () => {
     configureTelemetry({ affordance: 'GitHub Action', driver: 'my agent&x' })
     expect(buildConsoleUrl('https://pay.filecoin.cloud')).toMatch(
-      /\?utm_source=filecoin-pin&utm_medium=github-action&utm_campaign=dashboard&utm_content=my%20agent%26x$/
+      /\?utm_source=filecoin-pin&utm_medium=github-action&utm_term=dashboard&utm_content=my%20agent%26x$/
     )
   })
 
