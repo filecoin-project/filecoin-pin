@@ -66,8 +66,8 @@ importers:
         specifier: ^11.0.4
         version: 11.0.4
       env-paths:
-        specifier: 3.0.0
-        version: 3.0.0
+        specifier: 4.0.0
+        version: 4.0.0
       fastify:
         specifier: ^5.8.5
         version: 5.12.1
@@ -1412,6 +1412,10 @@ packages:
     resolution: {integrity: sha512-dtJUTepzMW3Lm/NPxRf3wP4642UWhjL2sQxc+ym2YMj1m/H2zDNQOlezafzkHwn6sMstjHTwG6iQQsctDW/b1A==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
+  env-paths@4.0.0:
+    resolution: {integrity: sha512-pxP8eL2SwwaTRi/KHYwLYXinDs7gL3jxFcBYmEdYfZmZXbaVDvdppd0XBU8qVz03rDfKZMXg1omHCbsJjZrMsw==}
+    engines: {node: '>=20'}
+
   es-module-lexer@2.3.2:
     resolution: {integrity: sha512-poHGpORABojJJucnV9KbOavETW8lBVnphkW77ER5/BQ5Fz7oXSoCNek7IH3vR5nRjdsEz926ibFYX8KtLQmdyw==}
 
@@ -1620,6 +1624,10 @@ packages:
   is-regexp@3.1.0:
     resolution: {integrity: sha512-rbku49cWloU5bSMI+zaRaXdQHXnthP6DZ/vLnfdSKyL4zUzuWnomtOEiZZOd+ioQ+avFo/qau3KPTc7Fjy1uPA==}
     engines: {node: '>=12'}
+
+  is-safe-filename@0.1.1:
+    resolution: {integrity: sha512-4SrR7AdnY11LHfDKTZY1u6Ga3RuxZdl3YKWWShO5iyuG5h8QS4GD2tOb04peBJ5I7pXbR+CGBNEhTcwK+FzN3g==}
+    engines: {node: '>=20'}
 
   iso-base@4.4.0:
     resolution: {integrity: sha512-W4BJbRDBi66wcBFJ23ZlGnFOZ874CIut4y9PlsScMSYu7ckCX+MWNAaEoE0efTSYDoVEn1qy0FDVSjE8q0ieHw==}
@@ -3918,6 +3926,10 @@ snapshots:
 
   env-paths@3.0.0: {}
 
+  env-paths@4.0.0:
+    dependencies:
+      is-safe-filename: 0.1.1
+
   es-module-lexer@2.3.2: {}
 
   esbuild@0.27.4:
@@ -4221,6 +4233,8 @@ snapshots:
   is-number@7.0.0: {}
 
   is-regexp@3.1.0: {}
+
+  is-safe-filename@0.1.1: {}
 
   iso-base@4.4.0:
     dependencies:
