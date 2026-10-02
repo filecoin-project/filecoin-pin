@@ -8,6 +8,7 @@ import {
   outro as clackOutro,
   spinner as clackSpinner,
 } from '@clack/prompts'
+import { isJsonMode } from '../common/command-envelope.js'
 import { isTTY, log } from './cli-logger.js'
 
 /**
@@ -139,5 +140,8 @@ function formatFileSizeBigInt(bytes: bigint): string {
  * CI/CD environments are not interactive.
  */
 export function isInteractive(): boolean {
+  if (isJsonMode()) {
+    return false
+  }
   return isTTY() && process.stdin.isTTY === true && process.env.CI !== 'true' && process.env.GITHUB_ACTIONS !== 'true'
 }
