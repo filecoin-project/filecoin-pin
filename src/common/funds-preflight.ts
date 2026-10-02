@@ -3,7 +3,8 @@
  *
  * Runs before anything is packed or uploaded. A session key cannot deposit
  * (payment operations are owner-only), so instead of auto-funding it prints
- * the readiness lines and a pre-filled console funding link, then exits 1.
+ * the readiness lines and a console link, then exits 1: the pre-filled
+ * funding link, or the approval link when funds already cover the upload.
  * Private-key auth keeps its existing checks and `--auto-fund` behavior.
  */
 
@@ -11,7 +12,12 @@ import { opendir, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import { buildFundingUrl, DEFAULT_SUGGESTED_DEPOSIT_USDFC, resolveConsoleUrl } from '../core/session/console-url.js'
+import {
+  buildApproveUrl,
+  buildFundingUrl,
+  DEFAULT_SUGGESTED_DEPOSIT_USDFC,
+  resolveConsoleUrl,
+} from '../core/session/console-url.js'
 import { checkAccountReadiness, formatReadinessLines, type UploadFunds } from '../login/index.js'
 import type { Spinner } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -75,7 +81,7 @@ export function rerunHint(argv: readonly string[] = process.argv): string {
   return `filecoin-pin ${words.join(' ')}`
 }
 
-/** Whole USDFC to pre-fill in the funding link: the shortfall rounded up, or the default when only approval is missing. */
+/** Whole USDFC to pre-fill in the funding link: the shortfall rounded up, or the default when the estimate reports no shortfall. */
 function suggestedDeposit(shortfall: bigint): number {
   if (shortfall <= 0n) return DEFAULT_SUGGESTED_DEPOSIT_USDFC
   return Number((shortfall + USDFC_WEI - 1n) / USDFC_WEI)
@@ -129,9 +135,14 @@ export async function assertUploadFunds(
   if (spinner === undefined) log.line(headline)
   else spinner.stop(headline)
   for (const line of formatReadinessLines(readiness, true, funds)) log.line(line)
-  log.line('  Top up (amount pre-filled, one transaction):')
   // The link on its own line, unstyled, so it copies and parses cleanly.
-  log.line(buildFundingUrl(consoleUrl, suggestedDeposit(estimate.costs.depositNeeded), synapse.chain.id))
+  if (!readiness.serviceApproved && funds.covered) {
+    log.line('  Approve the storage service in the console:')
+    log.line(buildApproveUrl(consoleUrl))
+  } else {
+    log.line('  Top up (amount pre-filled, one transaction):')
+    log.line(buildFundingUrl(consoleUrl, suggestedDeposit(estimate.costs.depositNeeded), synapse.chain.id))
+  }
   log.line(`  Then re-run:  ${rerunCommand}     check anytime: filecoin-pin balance`)
   log.flush()
   throw new CliFatal("Account can't pay for this upload")

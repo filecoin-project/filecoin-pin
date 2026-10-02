@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  buildApproveUrl,
   buildAuthorizeUrl,
   buildConsoleUrl,
   buildFundingUrl,
@@ -70,6 +71,12 @@ describe('buildFundingUrl', () => {
   })
 })
 
+describe('buildApproveUrl', () => {
+  it('points at the console home, where the service is added without a deposit', () => {
+    expect(buildApproveUrl('https://pay.filecoin.cloud/')).toBe('https://pay.filecoin.cloud/console')
+  })
+})
+
 describe('buildRevokeUrl', () => {
   it('names the key and its network, lowercasing the address', () => {
     expect(
@@ -107,6 +114,9 @@ describe('console attribution', () => {
     )
     expect(buildFundingUrl('https://pay.filecoin.cloud', 2, 314)).toBe(
       'https://pay.filecoin.cloud/console?deposit=2&operator=fwss&network=mainnet&utm_source=filecoin-pin&utm_medium=library&utm_campaign=fund'
+    )
+    expect(buildApproveUrl('https://pay.filecoin.cloud')).toBe(
+      'https://pay.filecoin.cloud/console?utm_source=filecoin-pin&utm_medium=library&utm_campaign=fund'
     )
   })
 
