@@ -144,7 +144,7 @@
     "@vercel/detect-agent": "^1.2.5",
     "commander": "^15.0.0",
     "datastore-core": "^11.0.4",
-    "env-paths": "3.0.0",
+    "env-paths": "4.0.0",
     "fastify": "^5.8.5",
     "interface-blockstore": "^7.0.1",
     "interface-store": "^8.0.0",
