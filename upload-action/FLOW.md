@@ -55,7 +55,7 @@ The helper supports both environment-variable fallback (`INPUT_<NAME>`) and the 
 
 - Context is passed directly from build phase to upload phase as a plain object. Build and upload occur in the same job, so no intermediate storage is needed.
 - `writeOutputs()` exposes CID, dataset, provider, CAR path, and status. Fork-blocked and dry-run modes still surface the CAR information to aid reviewers.
-- `writeSummary()` appends a markdown summary detailing payment status, provider links (via `pdp.vxb.ai/<network>`), and CAR size.
+- `writeSummary()` appends a markdown summary detailing payment status, provider links (via `pdp.filecoin.cloud/<network>`), and CAR size.
 - `commentOnPR()` reuses existing bot comments when possible and uses the default workflow token.
 
 ## Error Handling

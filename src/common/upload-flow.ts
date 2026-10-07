@@ -1000,7 +1000,9 @@ export function displayUploadResults(
     log.indent(`Piece Size: ${formatFileSize(result.size)}`)
   }
   if (networkSlug !== 'devnet') {
-    log.indent(`Explorer: ${pc.gray(`https://pdp.vxb.ai/${encodeURIComponent(networkSlug)}/piece/${result.pieceCid}`)}`)
+    log.indent(
+      `Explorer: ${pc.gray(`https://pdp.filecoin.cloud/${encodeURIComponent(networkSlug)}/piece/${result.pieceCid}`)}`
+    )
   }
   log.line('')
 
