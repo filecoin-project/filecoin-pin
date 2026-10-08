@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   accountSummary: vi.fn(),
   cancel: vi.fn(),
+  checkAllowances: vi.fn(),
   checkFILBalance: vi.fn(),
   checkUSDFCBalance: vi.fn(),
   log: { line: vi.fn(), indent: vi.fn(), flush: vi.fn() },
@@ -33,6 +34,7 @@ vi.mock('../../utils/cli-logger.js', () => ({
 }))
 vi.mock('../../core/payments/index.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../core/payments/index.js')>()),
+  checkAllowances: mocks.checkAllowances,
   checkFILBalance: mocks.checkFILBalance,
   checkUSDFCBalance: mocks.checkUSDFCBalance,
 }))
@@ -47,27 +49,35 @@ const EPOCHS_14_DAYS = TIME_CONSTANTS.EPOCHS_PER_DAY * 14n
 
 describe('deriveAccountStatus', () => {
   it('returns DEFICIT when runway is 0', () => {
-    expect(deriveAccountStatus(0n, 0n)).toBe('DEFICIT')
+    expect(deriveAccountStatus(0n, 0n, true)).toBe('DEFICIT')
   })
 
   it('returns DEFICIT when debt is positive', () => {
-    expect(deriveAccountStatus(0n, 1n)).toBe('DEFICIT')
+    expect(deriveAccountStatus(0n, 1n, true)).toBe('DEFICIT')
   })
 
   it('returns WARNING at exactly 14 days runway', () => {
-    expect(deriveAccountStatus(EPOCHS_14_DAYS, 0n)).toBe('WARNING')
+    expect(deriveAccountStatus(EPOCHS_14_DAYS, 0n, true)).toBe('WARNING')
   })
 
   it('returns WARNING below 14 days runway', () => {
-    expect(deriveAccountStatus(EPOCHS_14_DAYS - 1n, 0n)).toBe('WARNING')
+    expect(deriveAccountStatus(EPOCHS_14_DAYS - 1n, 0n, true)).toBe('WARNING')
   })
 
   it('returns HEALTHY above 14 days runway', () => {
-    expect(deriveAccountStatus(EPOCHS_14_DAYS + 1n, 0n)).toBe('HEALTHY')
+    expect(deriveAccountStatus(EPOCHS_14_DAYS + 1n, 0n, true)).toBe('HEALTHY')
   })
 
   it('returns HEALTHY for very long runway', () => {
-    expect(deriveAccountStatus(TIME_CONSTANTS.EPOCHS_PER_DAY * 365n, 0n)).toBe('HEALTHY')
+    expect(deriveAccountStatus(TIME_CONSTANTS.EPOCHS_PER_DAY * 365n, 0n, true)).toBe('HEALTHY')
+  })
+
+  it('returns WARNING while the storage service is not approved, even with a long runway', () => {
+    expect(deriveAccountStatus(TIME_CONSTANTS.EPOCHS_PER_DAY * 365n, 0n, false)).toBe('WARNING')
+  })
+
+  it('returns DEFICIT over WARNING when debt and a not approved storage service coincide', () => {
+    expect(deriveAccountStatus(TIME_CONSTANTS.EPOCHS_PER_DAY * 365n, 1n, false)).toBe('DEFICIT')
   })
 })
 
@@ -117,7 +127,7 @@ describe('formatFundedUntil', () => {
   })
 })
 
-describe('showPaymentStatus with zero wallet USDFC', () => {
+describe('showPaymentStatus', () => {
   function summary(funds: bigint) {
     return {
       runwayInEpochs: TIME_CONSTANTS.EPOCHS_PER_DAY * 365n,
@@ -143,6 +153,7 @@ describe('showPaymentStatus with zero wallet USDFC', () => {
       hasSufficientGas: true,
     })
     mocks.checkUSDFCBalance.mockResolvedValue(0n)
+    mocks.checkAllowances.mockResolvedValue({ needsUpdate: false })
   })
 
   it('completes without cancelling when all USDFC is held as deposits', async () => {
@@ -182,5 +193,36 @@ describe('showPaymentStatus with zero wallet USDFC', () => {
     // A dropped guard would log the missing footer as the string "undefined".
     expect(loggedLines()).not.toContain('POINTER')
     expect(loggedLines()).not.toContain('undefined')
+  })
+
+  it('reports the storage service approval and stays HEALTHY when it is in place', async () => {
+    mocks.accountSummary.mockResolvedValue(summary(parseEther('36.7')))
+    mocks.checkAllowances.mockResolvedValue({ needsUpdate: false })
+
+    await showPaymentStatus({})
+
+    const lines = loggedLines()
+    expect(lines.some((line) => /^Storage service +approved$/.test(line))).toBe(true)
+    expect(lines.some((line) => line.includes('HEALTHY'))).toBe(true)
+  })
+
+  it('reports WARNING and points to the console when the storage service is not approved', async () => {
+    mocks.accountSummary.mockResolvedValue(summary(parseEther('36.7')))
+    mocks.checkAllowances.mockResolvedValue({ needsUpdate: true })
+
+    await showPaymentStatus({})
+
+    const lines = loggedLines()
+    expect(lines.some((line) => line.includes('Storage service') && line.includes('not approved yet'))).toBe(true)
+    expect(lines.some((line) => line.includes('Approve it in the console:  filecoin-pin dashboard'))).toBe(true)
+    expect(lines.some((line) => line.includes('WARNING'))).toBe(true)
+    expect(lines.some((line) => line.includes('HEALTHY'))).toBe(false)
+  })
+
+  it('names the storage service approval read when it fails', async () => {
+    mocks.accountSummary.mockResolvedValue(summary(parseEther('36.7')))
+    mocks.checkAllowances.mockRejectedValue(new Error('rpc down'))
+
+    await expect(showPaymentStatus({})).rejects.toThrow('Could not read the storage service approval: rpc down')
   })
 })
