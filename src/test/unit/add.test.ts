@@ -235,6 +235,113 @@ describe('Add Command', () => {
       expect(uploadOptions?.fileSize).toBe(TEST_CAR_CONTENT.length)
     })
 
+    it('retains shareUrl, copy tx hashes, and IPNI found on full success', async () => {
+      const { performUpload } = await import('../../common/upload-flow.js')
+      const shareUrl = `https://inbrowser.link/ipfs/${TEST_FILE_CID}`
+      vi.mocked(performUpload).mockResolvedValueOnce({
+        pieceCid: TEST_PIECE_CID,
+        size: 1024,
+        requestedCopies: 1,
+        complete: true,
+        copies: [
+          {
+            providerId: 1n,
+            dataSetId: 123n,
+            pieceId: 789n,
+            role: 'primary',
+            retrievalUrl: 'http://test.provider/pdp/piece/bafkzcibtest1234567890',
+            isNewDataSet: false,
+            txHash: '0xabc',
+          },
+        ],
+        failedAttempts: [],
+        network: 'calibration',
+        shareUrl,
+        ipni: 'found',
+      })
+
+      const result = (await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+      })) as AddResult
+
+      expect(result.shareUrl).toBe(shareUrl)
+      expect(result.ipni).toBe('found')
+      expect(result.copies[0]?.txHash).toBe('0xabc')
+    })
+
+    it('retains the successful copy txHash when one copy fails', async () => {
+      const { performUpload } = await import('../../common/upload-flow.js')
+      vi.mocked(performUpload).mockResolvedValueOnce({
+        pieceCid: TEST_PIECE_CID,
+        size: 1024,
+        requestedCopies: 2,
+        complete: false,
+        copies: [
+          {
+            providerId: 1n,
+            dataSetId: 123n,
+            pieceId: 789n,
+            role: 'primary',
+            retrievalUrl: 'http://test.provider/pdp/piece/bafkzcibtest1234567890',
+            isNewDataSet: false,
+            txHash: '0xabc',
+          },
+        ],
+        failedAttempts: [{ providerId: 2n, role: 'secondary', error: 'pull failed', explicit: false }],
+        network: 'calibration',
+        shareUrl: `https://inbrowser.link/ipfs/${TEST_FILE_CID}`,
+        ipni: 'found',
+      })
+
+      const result = (await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+      })) as AddResult
+
+      expect(result.copies).toHaveLength(1)
+      expect(result.copies[0]?.txHash).toBe('0xabc')
+      expect(result.failedAttempts).toHaveLength(1)
+      expect(result.shareUrl).toBe(`https://inbrowser.link/ipfs/${TEST_FILE_CID}`)
+      expect(result.ipni).toBe('found')
+    })
+
+    it('omits shareUrl and records IPNI pending when indexing is not confirmed', async () => {
+      const { performUpload } = await import('../../common/upload-flow.js')
+      vi.mocked(performUpload).mockResolvedValueOnce({
+        pieceCid: TEST_PIECE_CID,
+        size: 1024,
+        requestedCopies: 1,
+        complete: true,
+        copies: [
+          {
+            providerId: 1n,
+            dataSetId: 123n,
+            pieceId: 789n,
+            role: 'primary',
+            retrievalUrl: 'http://test.provider/pdp/piece/bafkzcibtest1234567890',
+            isNewDataSet: false,
+            txHash: '0xabc',
+          },
+        ],
+        failedAttempts: [],
+        network: 'calibration',
+        ipni: 'pending',
+      })
+
+      const result = (await runAdd({
+        filePath: testFile,
+        privateKey: 'test-private-key',
+        rpcUrl: 'wss://test.rpc.url',
+      })) as AddResult
+
+      expect(result.shareUrl).toBeUndefined()
+      expect(result.ipni).toBe('pending')
+      expect(result.copies[0]?.txHash).toBe('0xabc')
+    })
+
     it('routes the source basename into piece metadata under "name"', async () => {
       await runAdd({
         filePath: testFile,
