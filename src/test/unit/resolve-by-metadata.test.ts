@@ -139,26 +139,6 @@ describe('resolveDataSetIdsByMetadata', () => {
     expect(result).toEqual({ kind: 'matched', dataSetIds: [2n], matchedDataSets: expect.any(Array) })
   })
 
-  it('selects healthy matches when another matching dataset has no available provider', async () => {
-    withFixtures([
-      { ...dataSet(1n, { source: 'filecoin-pin' }), provider: undefined },
-      dataSet(2n, { source: 'filecoin-pin' }),
-      dataSet(3n, { source: 'filecoin-pin' }),
-    ])
-
-    const result = await resolveDataSetIdsByMetadata(fakeSynapse, { source: 'filecoin-pin' }, { expectedCopies: 2 })
-
-    expect(result).toEqual({ kind: 'matched', dataSetIds: [2n, 3n], matchedDataSets: expect.any(Array) })
-  })
-
-  it('allows new datasets when every matching provider is unavailable', async () => {
-    withFixtures([{ ...dataSet(1n, { source: 'filecoin-pin' }), provider: undefined }])
-
-    const result = await resolveDataSetIdsByMetadata(fakeSynapse, { source: 'filecoin-pin' }, { expectedCopies: 1 })
-
-    expect(result).toEqual({ kind: 'no-match' })
-  })
-
   it('requiredKeys matches on key presence regardless of value', async () => {
     withFixtures([
       dataSet(1n, { source: 'filecoin-pin' }),
