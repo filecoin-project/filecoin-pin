@@ -102,7 +102,22 @@ describe('assertUploadFunds', () => {
     const text = output()
     expect(text).toContain('not approved')
     expect(text).toContain('✓ available funds')
-    expect(text).toContain('deposit=2&operator=fwss&network=mainnet')
+    expect(text).toContain('Approve the storage service in the console:')
+    expect(text).toContain('https://console.test/console\n')
+    expect(text).not.toContain('deposit=')
+  })
+
+  it('pre-fills the shortfall when both the approval and the funds are missing', async () => {
+    vi.mocked(checkAccountReadiness).mockResolvedValue({ serviceApproved: false, depositUsdfc: 0n })
+    vi.mocked(estimateUploadCost).mockResolvedValue(costs(false, USDFC, 0n, 3n * USDFC) as never)
+
+    await expect(assertUploadFunds(fakeSynapse(0n), 1024, {}, 'filecoin-pin add ./photos')).rejects.toThrow(
+      "Account can't pay for this upload"
+    )
+    const text = output()
+    expect(text).toContain('Top up (amount pre-filled, one transaction):')
+    expect(text).toContain('https://console.test/console?deposit=3&operator=fwss&network=mainnet')
+    expect(text).not.toContain('Approve the storage service')
   })
 })
 

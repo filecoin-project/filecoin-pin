@@ -115,3 +115,13 @@ export function buildFundingUrl(consoleUrl: string, depositUsdfc: number, chainI
     'fund'
   )
 }
+
+/**
+ * Approval link for an account that has funds but has not approved the
+ * storage service: the console home, where the owner adds the service
+ * without a deposit. The funding link cannot carry this case, since the
+ * console only prefills it with a deposit amount.
+ */
+export function buildApproveUrl(consoleUrl: string): string {
+  return withUtm(`${trimSlash(consoleUrl)}/console`, 'fund')
+}

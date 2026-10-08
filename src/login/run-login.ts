@@ -26,6 +26,7 @@ import { type Address, createPublicClient } from 'viem'
 import { getBlockNumber } from 'viem/actions'
 import { EXIT_CODE_INCOMPLETE } from '../common/cli-errors.js'
 import {
+  buildApproveUrl,
   buildAuthorizeUrl,
   buildFundingUrl,
   consoleNetworkSlug,
@@ -140,10 +141,21 @@ async function reportReadiness(
   log.line('')
   log.line('  Account readiness for uploads:')
   for (const line of formatReadinessLines(readiness, true)) log.line(line)
-  if (!readiness.serviceApproved || readiness.depositUsdfc === 0n) {
+  const needsApproval = !readiness.serviceApproved
+  const needsDeposit = readiness.depositUsdfc === 0n
+  if (needsApproval || needsDeposit) {
     log.line('')
-    log.line('  One step fixes both (deposit & approve is a single transaction):')
-    log.line(buildFundingUrl(consoleUrl, DEFAULT_SUGGESTED_DEPOSIT_USDFC, chain.id))
+    if (needsDeposit) {
+      log.line(
+        needsApproval
+          ? '  One step fixes both (deposit & approve is a single transaction):'
+          : '  Deposit USDFC (amount pre-filled):'
+      )
+      log.line(buildFundingUrl(consoleUrl, DEFAULT_SUGGESTED_DEPOSIT_USDFC, chain.id))
+    } else {
+      log.line('  Approve the storage service in the console:')
+      log.line(buildApproveUrl(consoleUrl))
+    }
   }
   log.line('')
   log.line(pc.gray('  check anytime: filecoin-pin balance · top up: filecoin-pin dashboard'))
