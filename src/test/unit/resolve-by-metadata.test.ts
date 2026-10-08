@@ -10,7 +10,7 @@ vi.mock('../../core/data-set/list-data-sets.js', () => ({
 const fakeSynapse = {} as any
 
 function dataSet(id: bigint, metadata: Record<string, string>, isLive = true): any {
-  return { dataSetId: id, isLive, metadata }
+  return { dataSetId: id, isLive, metadata, provider: { id } }
 }
 
 /**

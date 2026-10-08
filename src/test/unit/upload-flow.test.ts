@@ -564,6 +564,7 @@ const pinSet = (over: Record<string, unknown>) => {
     isLive: true,
     pdpEndEpoch: 0n,
     hasActivePieces: false,
+    provider: { id: over.providerId },
     metadata: { withIPFSIndexing: '', source: 'filecoin-pin' },
     ...over,
   } as Record<string, unknown>
@@ -571,6 +572,18 @@ const pinSet = (over: Record<string, unknown>) => {
 }
 
 describe('resolveDefaultDataSetReuse', () => {
+  it('reuses healthy providers when an older matching data set has no PDP product', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n, provider: null, hasActivePieces: true }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 2n }),
+      pinSet({ pdpVerifierDataSetId: 3n, providerId: 3n }),
+    ])
+
+    const ids = await resolveDefaultDataSetReuse(synapse, { expectedCopies: 2, withCDN: false, spinner, logger })
+
+    expect(ids).toEqual([2n, 3n])
+  })
+
   it('reuses live filecoin-pin data sets, including ones with extra metadata keys', async () => {
     const synapse = makeSynapse([
       pinSet({
