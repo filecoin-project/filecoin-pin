@@ -38,7 +38,7 @@ export async function getDetailedDataSet(
       isLive: pdpDataSet.live,
       isManaged: pdpDataSet.managed,
       withCDN: pdpDataSet.cdn,
-      provider: pdpDataSet.provider,
+      provider: pdpDataSet.provider ?? undefined,
       createdWithFilecoinPin,
     }
 
@@ -46,7 +46,7 @@ export async function getDetailedDataSet(
       return result
     }
 
-    const piecesResult = await getDataSetPieces(synapse, dataSetId, pdpDataSet.provider.pdp?.serviceURL ?? '', {
+    const piecesResult = await getDataSetPieces(synapse, dataSetId, pdpDataSet.provider?.pdp?.serviceURL ?? '', {
       logger,
     })
 
