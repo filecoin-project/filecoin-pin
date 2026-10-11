@@ -64,7 +64,7 @@ export async function listDataSets(synapse: Synapse, options?: ListDataSetsOptio
         withCDN: cdn,
         // Preserve findDataSets()'s semantics: pieces on a dead data set aren't active.
         hasActivePieces: live && pdpDataSet.hasActivePieces,
-        provider: pdpDataSet.provider,
+        provider: pdpDataSet.provider ?? undefined,
         createdWithFilecoinPin,
       }
 

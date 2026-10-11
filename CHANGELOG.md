@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.2.0](https://github.com/filecoin-project/filecoin-pin/compare/v2.1.1...v2.2.0) (2026-10-08)
+
+
+### Features
+
+* **cli:** tag console links with utm params for human vs agent attribution ([#746](https://github.com/filecoin-project/filecoin-pin/issues/746)) ([6d7550a](https://github.com/filecoin-project/filecoin-pin/commit/6d7550afc7f65f2fadb6ae67e131b3174277e938))
+
+
+### Bug Fixes
+
+* **cli:** pdp explorer link ([#766](https://github.com/filecoin-project/filecoin-pin/issues/766)) ([27fc264](https://github.com/filecoin-project/filecoin-pin/commit/27fc264d1fd08b60decf4618488944495e761f7e))
+* **data-set:** paginate listDataSets to avoid RPC timeouts on large accounts ([#708](https://github.com/filecoin-project/filecoin-pin/issues/708)) ([913f418](https://github.com/filecoin-project/filecoin-pin/commit/913f418c49a4b1083f38e4fd595f35448e35f5ae))
+* **deps:** upgrade synapse-core to 0.10.0 ([#767](https://github.com/filecoin-project/filecoin-pin/issues/767)) ([aedfcb5](https://github.com/filecoin-project/filecoin-pin/commit/aedfcb5b10f4aedba34d2c3bf455dddc02661f2f))
+
+
+### Chores
+
+* **deps-dev:** bump @types/node from 26.1.1 to 26.6.2 ([#748](https://github.com/filecoin-project/filecoin-pin/issues/748)) ([0b4dcd4](https://github.com/filecoin-project/filecoin-pin/commit/0b4dcd4ffd8c67bb5564d56713a18f80e5c61e17))
+* **deps:** bump env-paths from 3.0.0 to 4.0.0 ([#749](https://github.com/filecoin-project/filecoin-pin/issues/749)) ([4f43b3f](https://github.com/filecoin-project/filecoin-pin/commit/4f43b3f4c7ba672bbfe3c96cd4a5c611bcda539b))
+* **deps:** bump pnpm/action-setup from 6.0.10 to 6.1.0 ([#760](https://github.com/filecoin-project/filecoin-pin/issues/760)) ([0dc6dc2](https://github.com/filecoin-project/filecoin-pin/commit/0dc6dc2c00a35e47b52ec992a3209327982379f0))
+* **deps:** bump pnpm/action-setup from 6.0.10 to 6.1.0 in /upload-action ([#761](https://github.com/filecoin-project/filecoin-pin/issues/761)) ([9bc4bb0](https://github.com/filecoin-project/filecoin-pin/commit/9bc4bb0cd2634b11022906b1043b511c4bb827d0))
+* **deps:** bump pnpm/action-setup in /upload-action ([9bc4bb0](https://github.com/filecoin-project/filecoin-pin/commit/9bc4bb0cd2634b11022906b1043b511c4bb827d0))
+
 ## [2.1.1](https://github.com/filecoin-project/filecoin-pin/compare/v2.1.0...v2.1.1) (2026-09-16)
 
 
