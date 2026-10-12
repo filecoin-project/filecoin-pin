@@ -18,11 +18,11 @@ importers:
         specifier: ^1.0.1
         version: 1.5.1
       '@filoz/synapse-core':
-        specifier: ^0.9.0
-        version: 0.9.0(typescript@6.0.3)(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
+        specifier: ^0.10.0
+        version: 0.10.0(typescript@6.0.3)(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
       '@filoz/synapse-sdk':
-        specifier: ^2.0.0
-        version: 2.0.0(typescript@6.0.3)(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
+        specifier: ^2.0.2
+        version: 2.0.2(typescript@6.0.3)(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
       '@helia/block-brokers':
         specifier: ^5.1.3
         version: 5.2.4
@@ -648,13 +648,13 @@ packages:
   '@fastify/proxy-addr@5.1.1':
     resolution: {integrity: sha512-zv07Y9GEuDsJPegZoDFd4SDWaZOW8N2pa0GSrYmKpId/tjt1Hgo3BjZBVjdVpfVrHaA+Qv5jawtS2O50J5xM9g==}
 
-  '@filoz/synapse-core@0.9.0':
-    resolution: {integrity: sha512-qJ99yLG8h7Z8MffUhB1oXp6NUePY+xPJvX68n7L8VWNm8Lh/Y3YrbzQtym3cqMAwGJnT4UnyvSirw96k5CcOkA==}
+  '@filoz/synapse-core@0.10.0':
+    resolution: {integrity: sha512-i1mN0YbjMUtNrkg0VxgiOoHoJ5ytBvrtMcbAWK/IDzmOZUC879pkEUPpgQPkBrBeJi+0YfkKuRc560fkju3jbQ==}
     peerDependencies:
       viem: 2.x
 
-  '@filoz/synapse-sdk@2.0.0':
-    resolution: {integrity: sha512-ECzn7I9msSSe1BejEULHPnN+Ws7mw7A+kRgeE0icj+nXIamxt2X1wumT6mcgyqrgZwWoFaTYJhlVbqPQ0hY4OQ==}
+  '@filoz/synapse-sdk@2.0.2':
+    resolution: {integrity: sha512-PiYybc4FHq/YWHouZKiS9otp3e32agE2u0C26L04uPklfYMdVeagJV38LlppxDkSTmymHrxJ292i6kGZe9hG4A==}
     peerDependencies:
       viem: 2.x
 
@@ -2849,7 +2849,7 @@ snapshots:
       '@fastify/forwarded': 3.0.2
       ipaddr.js: 2.5.0
 
-  '@filoz/synapse-core@0.9.0(typescript@6.0.3)(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))':
+  '@filoz/synapse-core@0.10.0(typescript@6.0.3)(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))':
     dependencies:
       dnum: 2.17.0
       iso-web: 3.1.2
@@ -2863,9 +2863,9 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@filoz/synapse-sdk@2.0.0(typescript@6.0.3)(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))':
+  '@filoz/synapse-sdk@2.0.2(typescript@6.0.3)(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))':
     dependencies:
-      '@filoz/synapse-core': 0.9.0(typescript@6.0.3)(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
+      '@filoz/synapse-core': 0.10.0(typescript@6.0.3)(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
       multiformats: 14.0.5
       viem: 2.55.19(typescript@6.0.3)(zod@4.4.3)
     transitivePeerDependencies:
