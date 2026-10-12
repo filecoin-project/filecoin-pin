@@ -83,7 +83,7 @@ Every Filecoin Cloud console link the library builds (`login` authorize, funding
 |---|---|
 | `utm_source` | `filecoin-pin` |
 | `utm_medium` | The [`affordance`](#tag-affordance) tag, slugged: `cli`, `github-action`, `library`, `pin.filecoin.cloud` |
-| `utm_campaign` | Which flow printed the link: `login`, `fund`, `revoke`, `dashboard` |
+| `utm_term` | Which flow printed the link: `login`, `fund`, `revoke`, `dashboard`. `utm_campaign` is not set; it is reserved for marketing campaign names |
 | `utm_content` | Who is driving, when the host set `driver` via `configureTelemetry`. The CLI sets it from [`@vercel/detect-agent`](https://www.npmjs.com/package/@vercel/detect-agent): an agent name (`claude`, `cursor`, `codex`, `gemini`, etc, or whatever `AI_AGENT` names), `human` for an interactive terminal, `automation` for a non-TTY the detector does not recognise (CI, a pipe). Omitted when unset |
 
 Same opt-out as the metrics above: `configureTelemetry({ disabled: true })`, or for the CLI `FILECOIN_PIN_TELEMETRY_DISABLED=true` / `DO_NOT_TRACK=1`, drops every `utm_*` param.
