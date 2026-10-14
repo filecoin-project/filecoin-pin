@@ -14,7 +14,11 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { isCancel, password as promptPassword } from '@clack/prompts'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
+import { CarWriter } from '@ipld/car'
 import * as fee from 'filecoin-encryption-envelope'
+import { CID } from 'multiformats/cid'
+import * as raw from 'multiformats/codecs/raw'
+import { sha256 } from 'multiformats/hashes/sha2'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runAdd, runAddFromCli } from '../../add/add.js'
 import { derivePasswordKey } from '../../add/encrypt.js'
@@ -779,6 +783,24 @@ describe('Add Command', () => {
         /FILECOIN_PIN_PASSWORD.*--password-file/
       )
       expect(packed).toBeUndefined()
+    })
+
+    it('encrypts a CAR file instead of redirecting it to import', async () => {
+      const cid = CID.create(1, raw.code, await sha256.digest(new Uint8Array([1])))
+      const { writer, out } = CarWriter.create([cid])
+      const chunks: Uint8Array[] = []
+      const drain = (async () => {
+        for await (const chunk of out) chunks.push(chunk)
+      })()
+      await writer.close()
+      await drain
+      const car = Buffer.concat(chunks)
+      const carFile = join(testDir, 'archive.car')
+      await writeFile(carFile, car)
+
+      await runAdd({ ...auth, filePath: carFile, encrypt: true })
+
+      expect((await decrypt(packedFile().bytes, PASSWORD)).plaintext.equals(car)).toBe(true)
     })
 
     it('rejects directories', async () => {

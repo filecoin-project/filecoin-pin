@@ -169,8 +169,9 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     }
     const password = options.encrypt ? await resolvePassword(options.passwordFile) : undefined
 
-    // Fail fast on CAR-of-CAR before auth/payment checks run.
-    if (!isDirectory) {
+    // Fail fast on CAR-of-CAR before auth/payment checks run. Encrypted input
+    // becomes opaque envelope bytes, so a CAR file is valid input for --encrypt.
+    if (!isDirectory && !options.encrypt) {
       const sniff = createReadStream(options.filePath)
       try {
         if (await isCar(sniff)) {
