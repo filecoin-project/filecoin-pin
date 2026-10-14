@@ -35,6 +35,16 @@ Collections of stored data ([Pieces](#piece)) managed by [Filecoin Warm Storage 
 
 Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metadata) (`source='filecoin-pin'`). When more match than the number of copies requested, it prefers the ones already holding pieces and takes at most one per Service Provider. When the matches do not cover enough distinct providers, Filecoin Pin creates new Data Sets instead.
 
+## Encrypted Upload
+
+A file uploaded with `filecoin-pin add --encrypt`. Before packing, the file is wrapped in a [Filecoin Encryption Envelope](https://github.com/filecoin-project/FIPs/discussions/1253) (FEE) whose content key is derived from a password with PBKDF2-SHA256. The password comes from `--password-file`, `FILECOIN_PIN_PASSWORD`, or an interactive prompt. The envelope is packed as `encrypted.fee`, so the `name` [Metadata](#metadata) does not reveal the original filename. Directories are not supported.
+
+The envelope's authenticated `appMetadata` records how to derive the key again from the password:
+
+```json
+{ "kdf": "pbkdf2-sha256", "iterations": 600000, "salt": "<base64 of 16 random bytes>" }
+```
+
 ## FIL
 
 FIL is Filecoin's native token.  While [Filecoin Onchain Cloud](#filecoin-onchain-cloud) storage is currently denominated in [USDFC](#usdfc), gas for transactions on the Filecoin blockchain (e.g., adding a [Piece](#piece)) need to be paid for using FIL. Most transactions in the data onboarding flow for Filecoin Onchain Cloud are submitted by storage providers so client typically have minimal need to interact directly with FIL.

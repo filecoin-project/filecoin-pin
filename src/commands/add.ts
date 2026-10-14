@@ -1,4 +1,4 @@
-import { Command } from 'commander'
+import { Command, Option } from 'commander'
 import { runAddFromCli } from '../add/add.js'
 import { EXIT_CODE_INCOMPLETE, isCliIncomplete } from '../common/cli-errors.js'
 import {
@@ -22,7 +22,9 @@ export const addCommand = new Command('add')
     '--encrypt',
     'Encrypt the file with a password before upload (single files only). The password comes from --password-file, FILECOIN_PIN_PASSWORD, or a prompt.'
   )
-  .option('--password-file <path>', 'Read the --encrypt password from this file')
+  .addOption(
+    new Option('--password-file <path>', 'Read the --encrypt password from this file').implies({ encrypt: true })
+  )
   .addHelpText(
     'after',
     `

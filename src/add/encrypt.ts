@@ -21,20 +21,11 @@ import * as fee from '@filoz/filecoin-encryption-envelope'
 import { CliIncomplete } from '../common/cli-errors.js'
 import { isInteractive } from '../utils/cli-helpers.js'
 
-const PASSWORD_ENV_VAR = 'FILECOIN_PIN_PASSWORD'
-
 /** Basename of the envelope that gets packed, so the original filename never reaches piece metadata. */
 export const ENCRYPTED_FILE_NAME = 'encrypted.fee'
 
 const PBKDF2_ITERATIONS = 600_000
 const SALT_BYTES = 16
-
-type PasswordKdfMetadata = {
-  kdf: 'pbkdf2-sha256'
-  iterations: number
-  /** Base64-encoded salt */
-  salt: string
-}
 
 export async function derivePasswordKey(
   password: string,
@@ -63,7 +54,7 @@ export async function encryptFileWithPassword(
 ): Promise<void> {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES))
   const cek = await derivePasswordKey(password, salt, PBKDF2_ITERATIONS)
-  const appMetadata: PasswordKdfMetadata = {
+  const appMetadata = {
     kdf: 'pbkdf2-sha256',
     iterations: PBKDF2_ITERATIONS,
     salt: Buffer.from(salt).toString('base64'),
@@ -75,7 +66,7 @@ export async function encryptFileWithPassword(
 }
 
 /**
- * Resolve the password from `--password-file`, then {@link PASSWORD_ENV_VAR},
+ * Resolve the password from `--password-file`, then FILECOIN_PIN_PASSWORD,
  * then an interactive prompt. The password is never accepted as an argument.
  */
 export async function resolvePassword(passwordFile?: string): Promise<string> {
@@ -88,13 +79,13 @@ export async function resolvePassword(passwordFile?: string): Promise<string> {
     return fromFile
   }
 
-  const fromEnv = process.env[PASSWORD_ENV_VAR]
+  const fromEnv = process.env.FILECOIN_PIN_PASSWORD
   if (fromEnv) {
     return fromEnv
   }
 
   if (!isInteractive()) {
-    throw new Error(`--encrypt needs a password: set ${PASSWORD_ENV_VAR} or pass --password-file <path>`)
+    throw new Error(`--encrypt needs a password: set FILECOIN_PIN_PASSWORD or pass --password-file <path>`)
   }
 
   const entered = await promptPassword({
@@ -103,14 +94,6 @@ export async function resolvePassword(passwordFile?: string): Promise<string> {
   })
   if (isCancel(entered)) {
     throw new CliIncomplete('Password entry cancelled')
-  }
-  // There is no recovery for a mistyped password, so confirm it.
-  const confirmed = await promptPassword({ message: 'Confirm password' })
-  if (isCancel(confirmed)) {
-    throw new CliIncomplete('Password entry cancelled')
-  }
-  if (confirmed !== entered) {
-    throw new Error('Passwords do not match')
   }
   return entered
 }
