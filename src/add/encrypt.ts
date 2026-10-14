@@ -1,7 +1,7 @@
 /**
  * Password-based encryption for `add --encrypt`.
  *
- * The file is wrapped in a Filecoin Encryption Envelope (FEE, FIP-1253) whose
+ * The file is wrapped in a Filecoin Encryption Envelope (FEE, draft FRC filecoin-project/FIPs#1294) whose
  * content-encryption key is derived from the password with PBKDF2-SHA256. The
  * KDF parameters ride in the envelope's authenticated `appMetadata` so a
  * decryptor holding only the password can derive the key again:
@@ -15,9 +15,7 @@ import { createReadStream, createWriteStream } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { Readable, Writable } from 'node:stream'
 import { isCancel, password as promptPassword } from '@clack/prompts'
-// TODO: package.json links a local build of this package; switch to the npm release
-// once FilOzone/synapse-sdk#1015 publishes it.
-import * as fee from '@filoz/filecoin-encryption-envelope'
+import * as fee from 'filecoin-encryption-envelope'
 import { CliIncomplete } from '../common/cli-errors.js'
 import { isInteractive } from '../utils/cli-helpers.js'
 

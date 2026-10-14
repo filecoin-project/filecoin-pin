@@ -17,9 +17,6 @@ importers:
       '@clack/prompts':
         specifier: ^1.0.1
         version: 1.5.1
-      '@filoz/filecoin-encryption-envelope':
-        specifier: link:/private/tmp/claude-501/-Users-sgtpooki-code-work-filoz-filecoin-project-filecoin-pin/cd4ea61b-6abb-414b-952e-88099c98f53d/scratchpad/fee
-        version: link:../../../../../../../private/tmp/claude-501/-Users-sgtpooki-code-work-filoz-filecoin-project-filecoin-pin/cd4ea61b-6abb-414b-952e-88099c98f53d/scratchpad/fee
       '@filoz/synapse-core':
         specifier: ^0.10.0
         version: 0.10.0(typescript@6.0.3)(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
@@ -74,6 +71,9 @@ importers:
       fastify:
         specifier: ^5.8.5
         version: 5.12.1
+      filecoin-encryption-envelope:
+        specifier: ^0.1.0
+        version: 0.1.0
       interface-blockstore:
         specifier: ^7.0.1
         version: 7.0.1
@@ -1332,6 +1332,10 @@ packages:
     resolution: {integrity: sha512-Ci8+V1OMFtqea8EXicsATqV+3kEqCGXCicM+5MEzpKTxqy58WMzhJUjtUqAjfWpKPZ0wpG8F+u5mC8Xy/0Zevg==}
     hasBin: true
 
+  cborg@6.1.2:
+    resolution: {integrity: sha512-hQfFh6FuuCDoycN68FtUpjtQx5kCtxOLA8msbpJZxjtxaMqxgHl+4GNwO+0YexH/lHmVzhhAKa0ua+vtmTRoVw==}
+    hasBin: true
+
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
     engines: {node: '>=18'}
@@ -1501,6 +1505,9 @@ packages:
     peerDependenciesMeta:
       picomatch:
         optional: true
+
+  filecoin-encryption-envelope@0.1.0:
+    resolution: {integrity: sha512-KxfTn1/e3HUaPJJ+LkipqkztQMopNeeWvi45gI7IbaAFdjcrI8vlvPYwrGf5RU1ElMniETFyRBS/NNjs5ZIsuQ==}
 
   fill-range@7.1.1:
     resolution: {integrity: sha512-YsGpe3WHLK8ZYi4tWDg2Jy3ebRz2rXowDxnld4bkQB00cc/1Zw9AWnC0i9ztDJitivtQvaI9KaLyKrc+hBW0yg==}
@@ -3840,6 +3847,8 @@ snapshots:
 
   cborg@6.1.1: {}
 
+  cborg@6.1.2: {}
+
   chai@6.2.2: {}
 
   cjs-module-lexer@2.2.0: {}
@@ -4076,6 +4085,11 @@ snapshots:
   fdir@6.5.0(picomatch@4.0.7):
     optionalDependencies:
       picomatch: 4.0.7
+
+  filecoin-encryption-envelope@0.1.0:
+    dependencies:
+      cborg: 6.1.2
+      zod: 4.4.3
 
   fill-range@7.1.1:
     dependencies:

@@ -37,7 +37,7 @@ Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metad
 
 ## Encrypted Upload
 
-A file uploaded with `filecoin-pin add --encrypt`. Before packing, the file is wrapped in a [Filecoin Encryption Envelope](https://github.com/filecoin-project/FIPs/discussions/1253) (FEE) whose content key is derived from a password with PBKDF2-SHA256. The password comes from `--password-file`, `FILECOIN_PIN_PASSWORD`, or an interactive prompt. The envelope is packed as `encrypted.fee`, so the `name` [Metadata](#metadata) does not reveal the original filename. Directories are not supported.
+A file uploaded with `filecoin-pin add --encrypt`. Before packing, the file is wrapped in a [Filecoin Encryption Envelope](https://github.com/filecoin-project/FIPs/pull/1294) (FEE) whose content key is derived from a password with PBKDF2-SHA256. The password comes from `--password-file`, `FILECOIN_PIN_PASSWORD`, or an interactive prompt. The envelope is packed as `encrypted.fee`, so the `name` [Metadata](#metadata) does not reveal the original filename. Directories are not supported.
 
 The envelope's authenticated `appMetadata` records how to derive the key again from the password:
 
