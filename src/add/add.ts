@@ -6,12 +6,14 @@
  */
 
 import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { mkdtemp, rm, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import pc from 'picocolors'
 import pino from 'pino'
-import { CliFatal, isCliFatal } from '../common/cli-errors.js'
+import { CliFatal, isCliFatal, isCliIncomplete } from '../common/cli-errors.js'
 import { assertUploadFunds, estimateInputBytes, rerunHint } from '../common/funds-preflight.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
@@ -37,6 +39,7 @@ import { log } from '../utils/cli-logger.js'
 import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
 import { buildFilbeamUrl, chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
 import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
+import { ENCRYPTED_FILE_NAME, encryptFileWithPassword, resolvePassword } from './encrypt.js'
 import type { AddDryRunResult, AddOptions, AddResult } from './types.js'
 
 /**
@@ -141,6 +144,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
   const withCDN = options.egressProvider === 'beam'
 
   let tempCarPath: string | undefined
+  let encryptDir: string | undefined
 
   try {
     // Validate path exists and is readable
@@ -160,8 +164,13 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     const sizeDisplay = isDirectory ? '' : ` (${formatFileSize(pathStat.size)})`
     spinner.stop(`${pc.green('✓')} ${pathType} validated${sizeDisplay}`)
 
-    // Fail fast on CAR-of-CAR before auth/payment checks run.
-    if (!isDirectory) {
+    if (options.encrypt && isDirectory) {
+      throw new Error('--encrypt supports single files only, not directories')
+    }
+    const password = options.encrypt ? await resolvePassword(options.passwordFile) : undefined
+
+    // Fail fast on CAR-of-CAR before auth/payment checks run. An encrypted CAR is opaque bytes, so it is allowed.
+    if (!isDirectory && !options.encrypt) {
       const sniff = createReadStream(options.filePath)
       try {
         if (await isCar(sniff)) {
@@ -234,11 +243,20 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       })
     }
 
+    let packPath = options.filePath
+    if (password != null) {
+      spinner.start('Encrypting file...')
+      encryptDir = await mkdtemp(join(tmpdir(), 'filecoin-pin-encrypt-'))
+      packPath = join(encryptDir, ENCRYPTED_FILE_NAME)
+      await encryptFileWithPassword(options.filePath, pathStat.size, packPath, password)
+      spinner.stop(`${pc.green('✓')} File encrypted`)
+    }
+
     // Create CAR from file or directory
     const packingMsg = isDirectory ? 'Packing directory for IPFS...' : 'Packing file for IPFS...'
     spinner.start(packingMsg)
 
-    const { carPath, rootCid, name } = await createCarFromPath(options.filePath, {
+    const { carPath, rootCid, name } = await createCarFromPath(packPath, {
       logger,
       spinner,
       isDirectory,
@@ -359,6 +377,11 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     const egress = filbeamUrl != null ? { filbeamUrl } : undefined
 
     displayUploadResults(result, 'Add', network, networkSlug, egress)
+    if (options.encrypt) {
+      log.line('')
+      log.line(pc.yellow('Content is encrypted: the password is required to read it.'))
+      log.flush()
+    }
 
     if (uploadResult.copies.length < requestedCopies) {
       log.line('')
@@ -381,6 +404,11 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
     return result
   } catch (error) {
+    if (isCliIncomplete(error)) {
+      spinner.stop()
+      cancel(error.message)
+      throw error
+    }
     if (isCliFatal(error)) {
       spinner.stop()
       logger.error({ event: 'add.failed', error }, 'Add failed')
@@ -417,5 +445,9 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
     cancel(carInput ? 'Add cancelled' : 'Add failed')
     throw new CliFatal(message, { cause: error instanceof Error ? error : undefined })
+  } finally {
+    if (encryptDir) {
+      await rm(encryptDir, { recursive: true, force: true })
+    }
   }
 }

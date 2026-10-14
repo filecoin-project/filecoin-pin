@@ -9,11 +9,15 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { password as promptPassword } from '@clack/prompts'
+import * as fee from '@filoz/filecoin-encryption-envelope'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runAdd, runAddFromCli } from '../../add/add.js'
+import { derivePasswordKey } from '../../add/encrypt.js'
 import type { AddDryRunResult, AddResult } from '../../add/types.js'
 
 const { mockCarPath, mockFindDataSets } = vi.hoisted(() => ({
@@ -113,7 +117,13 @@ vi.mock('../../core/unixfs/index.js', () => ({
   cleanupTempCar: vi.fn(),
 }))
 
+vi.mock('@clack/prompts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@clack/prompts')>()),
+  password: vi.fn(),
+}))
+
 vi.mock('../../utils/cli-helpers.js', () => ({
+  isInteractive: vi.fn(() => false),
   intro: vi.fn(),
   outro: vi.fn(),
   cancel: vi.fn(),
@@ -634,6 +644,172 @@ describe('Add Command', () => {
       const calls = vi.mocked(initializeSynapse).mock.calls
       const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
       expect(lastConfig.withCDN).toBeUndefined()
+    })
+  })
+
+  describe('--encrypt', () => {
+    const PASSWORD = 'correct horse battery staple'
+    const auth = { privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url' }
+
+    let packed: { path: string; bytes: Buffer } | undefined
+
+    beforeEach(async () => {
+      packed = undefined
+      const { createCarFromPath } = await import('../../core/unixfs/index.js')
+      const original = vi.mocked(createCarFromPath).getMockImplementation()
+      vi.mocked(createCarFromPath).mockImplementation(async (path, options) => {
+        packed = { path, bytes: await readFile(path) }
+        return (original as typeof createCarFromPath)(path, options)
+      })
+      process.env.FILECOIN_PIN_PASSWORD = PASSWORD
+    })
+
+    afterEach(() => {
+      delete process.env.FILECOIN_PIN_PASSWORD
+    })
+
+    async function decrypt(bytes: Uint8Array, password: string): Promise<Buffer> {
+      const decrypted = new Blob([new Uint8Array(bytes)]).stream().pipeThrough(
+        fee.decrypt(async (info) => {
+          const { salt, iterations } = info.appMetadata as { salt: string; iterations: number }
+          return derivePasswordKey(password, Buffer.from(salt, 'base64'), iterations)
+        })
+      )
+      return Buffer.from(await new Response(decrypted).arrayBuffer())
+    }
+
+    async function readAppMetadata(bytes: Uint8Array) {
+      const info = await fee.parse({
+        size: bytes.length,
+        openRange: async (o, l) => new Blob([new Uint8Array(bytes.subarray(o, o + l))]).stream(),
+      })
+      return info.appMetadata
+    }
+
+    it('uploads an envelope that decrypts back to the file with the password', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      expect(packed).toBeDefined()
+      expect(packed?.bytes.equals(testContent)).toBe(false)
+      expect((await decrypt(packed?.bytes as Buffer, PASSWORD)).equals(testContent)).toBe(true)
+    })
+
+    it('fails to decrypt with the wrong password', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      await expect(decrypt(packed?.bytes as Buffer, 'wrong password')).rejects.toBeInstanceOf(
+        fee.errors.AuthenticationError
+      )
+    })
+
+    it('records exactly the kdf parameters in appMetadata', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const appMetadata = await readAppMetadata(packed?.bytes as Buffer)
+      expect(appMetadata).toEqual({ kdf: 'pbkdf2-sha256', iterations: 600_000, salt: expect.any(String) })
+      expect(Buffer.from((appMetadata as { salt: string }).salt, 'base64')).toHaveLength(16)
+    })
+
+    it('uses a neutral name so the original filename is not stored', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      expect(basename(packed?.path as string)).toBe('encrypted.fee')
+      const { performUpload } = await import('../../common/upload-flow.js')
+      const pieceMetadata = vi.mocked(performUpload).mock.calls[0]?.[3]?.pieceMetadata
+      expect(pieceMetadata).toEqual({ name: 'encrypted.fee' })
+    })
+
+    it('removes the temporary envelope after a successful upload', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      expect(existsSync(packed?.path as string)).toBe(false)
+    })
+
+    it('removes the temporary envelope when the upload fails', async () => {
+      const { performUpload } = await import('../../common/upload-flow.js')
+      vi.mocked(performUpload).mockRejectedValueOnce(new Error('provider down'))
+
+      await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow('provider down')
+      expect(existsSync(packed?.path as string)).toBe(false)
+    })
+
+    it('reads the password from --password-file before the environment', async () => {
+      const passwordFile = join(testDir, 'password.txt')
+      await writeFile(passwordFile, 'from file\n')
+
+      await runAdd({ ...auth, filePath: testFile, encrypt: true, passwordFile })
+
+      expect((await decrypt(packed?.bytes as Buffer, 'from file')).equals(testContent)).toBe(true)
+    })
+
+    it('prompts for the password when interactive and none is configured', async () => {
+      delete process.env.FILECOIN_PIN_PASSWORD
+      const { isInteractive } = await import('../../utils/cli-helpers.js')
+      vi.mocked(isInteractive).mockReturnValue(true)
+      vi.mocked(promptPassword).mockResolvedValue('typed in')
+
+      try {
+        await runAdd({ ...auth, filePath: testFile, encrypt: true })
+      } finally {
+        vi.mocked(isInteractive).mockReturnValue(false)
+      }
+
+      expect((await decrypt(packed?.bytes as Buffer, 'typed in')).equals(testContent)).toBe(true)
+    })
+
+    it('fails with an actionable error when non-interactive and no password is configured', async () => {
+      delete process.env.FILECOIN_PIN_PASSWORD
+
+      await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow(
+        /FILECOIN_PIN_PASSWORD.*--password-file/
+      )
+      expect(packed).toBeUndefined()
+    })
+
+    it('rejects directories', async () => {
+      await expect(runAdd({ ...auth, filePath: testDir, encrypt: true })).rejects.toThrow(/single files/)
+      expect(packed).toBeUndefined()
+    })
+
+    it('never writes the password to output', async () => {
+      const writes: string[] = []
+      const capture = (chunk: unknown) => {
+        writes.push(String(chunk))
+        return true
+      }
+      const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(capture)
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(capture)
+      try {
+        await runAdd({ ...auth, filePath: testFile, encrypt: true })
+      } finally {
+        stdout.mockRestore()
+        stderr.mockRestore()
+      }
+
+      const helpers = await import('../../utils/cli-helpers.js')
+      const uploadFlow = await import('../../common/upload-flow.js')
+      const mockCalls = [
+        ...vi.mocked(helpers.intro).mock.calls,
+        ...vi.mocked(helpers.outro).mock.calls,
+        ...vi.mocked(helpers.cancel).mock.calls,
+        ...vi.mocked(uploadFlow.displayUploadResults).mock.calls,
+      ]
+      const spinnerCalls = vi
+        .mocked(helpers.createSpinner)
+        .mock.results.flatMap((r: any) => Object.values(r.value).flatMap((fn: any) => fn.mock.calls))
+      const everything = JSON.stringify([writes, mockCalls, spinnerCalls], (_k, v) =>
+        typeof v === 'bigint' ? String(v) : v
+      )
+      expect(everything).toContain('encrypted')
+      expect(everything).not.toContain(PASSWORD)
+    })
+
+    it('has no option that takes the password on the command line', async () => {
+      const { addCommand } = await import('../../commands/add.js')
+      const flags = addCommand.options.map((o) => o.long)
+      expect(flags).toContain('--encrypt')
+      expect(flags).toContain('--password-file')
+      expect(flags).not.toContain('--password')
     })
   })
 })

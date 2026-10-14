@@ -128,6 +128,7 @@
     "@chainsafe/libp2p-noise": "^17.0.0",
     "@chainsafe/libp2p-yamux": "^8.0.1",
     "@clack/prompts": "^1.0.1",
+    "@filoz/filecoin-encryption-envelope": "link:/private/tmp/claude-501/-Users-sgtpooki-code-work-filoz-filecoin-project-filecoin-pin/cd4ea61b-6abb-414b-952e-88099c98f53d/scratchpad/fee",
     "@filoz/synapse-core": "^0.10.0",
     "@filoz/synapse-sdk": "^2.0.2",
     "@helia/block-brokers": "^5.1.3",

@@ -17,6 +17,9 @@ importers:
       '@clack/prompts':
         specifier: ^1.0.1
         version: 1.5.1
+      '@filoz/filecoin-encryption-envelope':
+        specifier: link:/private/tmp/claude-501/-Users-sgtpooki-code-work-filoz-filecoin-project-filecoin-pin/cd4ea61b-6abb-414b-952e-88099c98f53d/scratchpad/fee
+        version: link:../../../../../../../private/tmp/claude-501/-Users-sgtpooki-code-work-filoz-filecoin-project-filecoin-pin/cd4ea61b-6abb-414b-952e-88099c98f53d/scratchpad/fee
       '@filoz/synapse-core':
         specifier: ^0.10.0
         version: 0.10.0(typescript@6.0.3)(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
