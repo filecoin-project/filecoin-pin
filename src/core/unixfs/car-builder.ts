@@ -17,6 +17,7 @@ import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { CARWritingBlockstore, carInputError, isCar } from '../car/index.js'
 import { importerOptions } from './importer-options.js'
+import { assertUnixFsSizeEncodable } from './uint64-guard.js'
 
 // Spinner type for progress reporting
 export type Spinner = {
@@ -131,6 +132,8 @@ async function createCarFromSingleFile(filePath: string, options: CreateCarOptio
   const { logger } = options
   const name = basename(filePath)
 
+  assertUnixFsSizeEncodable((await stat(filePath)).size, filePath)
+
   // Refuse to wrap an existing CAR in a new UnixFS DAG. Sniff a fresh stream
   // and discard it; the upload pipeline below opens its own.
   const sniff = createReadStream(filePath)
@@ -193,6 +196,9 @@ async function createCarFromDirectory(dirPath: string, options: CreateCarOptions
     // Add all entries using addAll
     const entries = []
     for await (const entry of fs.addAll(trackProgress(candidates), importerOptions)) {
+      if (entry.unixfs?.type === 'file') {
+        assertUnixFsSizeEncodable(entry.size, entry.path)
+      }
       logger?.debug({ path: entry.path || '(root)', cid: entry.cid.toString() }, 'Entry added to CAR')
       entries.push(entry)
     }

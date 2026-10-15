@@ -82,6 +82,9 @@ importers:
       interface-store:
         specifier: ^8.0.0
         version: 8.0.0
+      ipfs-unixfs:
+        specifier: 12.0.2
+        version: 12.0.2
       it-to-buffer:
         specifier: ^5.0.0
         version: 5.0.0
@@ -128,9 +131,6 @@ importers:
       blockstore-core:
         specifier: ^7.0.1
         version: 7.0.1
-      ipfs-unixfs:
-        specifier: 12.0.2
-        version: 12.0.2
       pkg-pr-new:
         specifier: ^0.0.88
         version: 0.0.88
