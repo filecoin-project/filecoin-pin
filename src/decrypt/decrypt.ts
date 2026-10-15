@@ -2,8 +2,10 @@
  * Decrypt an envelope uploaded with `filecoin-pin add --encrypt` into a new directory.
  */
 
+import { existsSync, readdirSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import pc from 'picocolors'
-import { CliFatal, isCliIncomplete } from '../common/cli-errors.js'
+import { CliFatal, EXIT_CODE_INCOMPLETE, isCliIncomplete } from '../common/cli-errors.js'
 import { decryptToDirectory, resolvePassword } from '../common/encryption.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 
@@ -14,9 +16,24 @@ export async function runDecrypt(
 ): Promise<void> {
   intro(pc.bold('Filecoin Pin Decrypt'))
   const spinner = createSpinner()
+  // Ctrl-C: clack's spinner exits the process on SIGINT before any `finally` runs, which would
+  // leave partial plaintext behind. Registered before the spinner starts so it runs first and
+  // removes what decrypt created: the directory itself when it is ours, otherwise its entries.
+  const createdDir = !existsSync(outputDir)
+  const onSigint = (): void => {
+    if (createdDir) {
+      rmSync(outputDir, { recursive: true, force: true })
+    } else {
+      for (const entry of readdirSync(outputDir)) {
+        rmSync(join(outputDir, entry), { recursive: true, force: true })
+      }
+    }
+    process.exit(EXIT_CODE_INCOMPLETE)
+  }
 
   try {
     const password = await resolvePassword(options.passwordFile)
+    process.once('SIGINT', onSigint)
     spinner.start('Decrypting...')
     const { files, dirs } = await decryptToDirectory(inputPath, outputDir, password)
     const what = files === 1 && dirs === 0 ? '1 file' : `${files} file${files === 1 ? '' : 's'}`
@@ -32,5 +49,7 @@ export async function runDecrypt(
     spinner.stop(`${pc.red('✗')} Decrypt failed: ${message}`)
     cancel('Decrypt failed')
     throw new CliFatal(message, { cause: error instanceof Error ? error : undefined })
+  } finally {
+    process.off('SIGINT', onSigint)
   }
 }

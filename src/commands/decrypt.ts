@@ -4,7 +4,7 @@ import { runDecrypt } from '../decrypt/decrypt.js'
 
 export const decryptCommand = new Command('decrypt')
   .description('Decrypt an upload made with `add --encrypt` into a new directory')
-  .argument('<file>', 'Encrypted file, downloaded from its IPFS Root CID')
+  .argument('<file>', 'Encrypted file downloaded from its IPFS Root CID: the bare envelope or the CAR a gateway serves')
   .argument('<output-dir>', 'Directory to write the decrypted file or directory into (created, or must be empty)')
   .option('--password-file <path>', 'Read the password from this file; otherwise FILECOIN_PIN_PASSWORD or a prompt')
   .addHelpText(

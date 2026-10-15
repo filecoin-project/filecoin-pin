@@ -5,9 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as fee from 'filecoin-encryption-envelope'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CliIncomplete } from '../../common/cli-errors.js'
+import { CliIncomplete, EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
 import { encryptPathWithPassword } from '../../common/encryption.js'
 import { CAR_CONTENT_TYPE } from '../../common/unixfs-car-layout.js'
+import { createCarFromPath } from '../../core/unixfs/index.js'
 import { runDecrypt } from '../../decrypt/decrypt.js'
 
 vi.mock('../../utils/cli-helpers.js', () => ({
@@ -130,6 +131,86 @@ describe('runDecrypt', () => {
       'not encrypted by `filecoin-pin add --encrypt`'
     )
     expect(existsSync(outputDir)).toBe(false)
+  })
+
+  it('accepts the outer CAR a gateway serves for the upload', async () => {
+    const { carPath } = await createCarFromPath(encryptedPath, {})
+    const carInput = join(dir, 'download.car')
+    await rm(carInput, { force: true })
+    await (await import('node:fs/promises')).rename(carPath, carInput)
+
+    await runDecrypt(carInput, outputDir, {})
+
+    expect((await readFile(join(outputDir, 'report.pdf'))).equals(plaintext)).toBe(true)
+  })
+
+  it('reports a flipped ciphertext byte as a wrong password or modified file', async () => {
+    const bytes = await readFile(encryptedPath)
+    const i = Math.floor(bytes.length / 2)
+    bytes[i] = (bytes[i] ?? 0) ^ 0x01
+    await writeFile(encryptedPath, bytes)
+
+    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toThrow(/wrong password, or the file was modified/i)
+    expect(existsSync(outputDir)).toBe(false)
+  })
+
+  it('reports a truncated envelope as an incomplete download', async () => {
+    const bytes = await readFile(encryptedPath)
+    await writeFile(encryptedPath, bytes.subarray(0, bytes.length - 100))
+
+    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toThrow(/incomplete/)
+    expect(existsSync(outputDir)).toBe(false)
+  })
+
+  it.each([
+    ['a salt that is not 16 bytes', { kdf: 'pbkdf2-sha256', iterations: 600_000, salt: 'AAAA' }],
+    ['a non-canonical salt', { kdf: 'pbkdf2-sha256', iterations: 600_000, salt: 'AAAAAAAAAAAAAAAAAAAAAB==' }],
+    ['zero iterations', { kdf: 'pbkdf2-sha256', iterations: 0, salt: 'AAAAAAAAAAAAAAAAAAAAAA==' }],
+    ['negative iterations', { kdf: 'pbkdf2-sha256', iterations: -1, salt: 'AAAAAAAAAAAAAAAAAAAAAA==' }],
+  ])('rejects an envelope with %s', async (_case, appMetadata) => {
+    const cek = crypto.getRandomValues(new Uint8Array(fee.constants.KEY_SIZE))
+    const foreign = new Blob([new Uint8Array(plaintext)])
+      .stream()
+      .pipeThrough(fee.encrypt({ cek, contentType: CAR_CONTENT_TYPE, appMetadata }))
+    await writeFile(encryptedPath, Buffer.from(await new Response(foreign).arrayBuffer()))
+
+    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toThrow(
+      'not encrypted by `filecoin-pin add --encrypt`'
+    )
+  })
+
+  it('decrypts the checked-in golden envelope', async () => {
+    const golden = new URL('../fixtures/encrypted-golden/report.fee', import.meta.url).pathname
+    process.env.FILECOIN_PIN_PASSWORD = 'golden password 2026-10-15'
+
+    await runDecrypt(golden, outputDir, {})
+
+    expect(await readFile(join(outputDir, 'report', 'hello.txt'), 'utf8')).toBe('hello, filecoin\n')
+    expect(await readFile(join(outputDir, 'report', 'notes', 'a.md'), 'utf8')).toBe('# a\n')
+    expect(await readFile(join(outputDir, 'report', 'empty.bin'), 'utf8')).toBe('')
+  })
+
+  it('removes what it wrote on Ctrl-C, keeps a pre-existing directory, and exits as incomplete', async () => {
+    // Simulate the real process: clack's handler exits, ours runs first because it was registered first.
+    const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new CliIncomplete('exit')
+    })
+    await mkdir(outputDir)
+    await writeFile(join(outputDir, 'partial.bin'), 'half-written plaintext')
+    const { createSpinner } = await import('../../utils/cli-helpers.js')
+    vi.mocked(createSpinner).mockReturnValueOnce({
+      start: vi.fn(() => process.emit('SIGINT')),
+      stop: vi.fn(),
+      message: vi.fn(),
+      clear: vi.fn(),
+    } as never)
+
+    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toBeInstanceOf(CliIncomplete)
+
+    expect(exit).toHaveBeenCalledWith(EXIT_CODE_INCOMPLETE)
+    expect(existsSync(join(outputDir, 'partial.bin'))).toBe(false)
+    expect(existsSync(outputDir)).toBe(true)
+    expect(process.listenerCount('SIGINT')).toBe(0)
   })
 
   it('rejects a file that is not an envelope', async () => {
