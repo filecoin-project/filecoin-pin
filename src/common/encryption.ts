@@ -16,7 +16,8 @@
  */
 
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdir, readFile, rm } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm } from 'node:fs/promises'
+import { join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { isCancel, password as promptPassword } from '@clack/prompts'
 import * as fee from 'filecoin-encryption-envelope'
@@ -82,12 +83,31 @@ const NOT_OURS = 'This file was not encrypted by `filecoin-pin add --encrypt`'
 
 /**
  * Write the files inside an envelope made by {@link encryptPathWithPassword} under
- * `outDir`, which must not exist yet. Nothing is left there on failure.
+ * `outDir`, which is created (owner-only) or must be empty, like `git clone`. On
+ * failure everything written is removed; a pre-existing directory itself is kept.
  */
 export async function decryptToDirectory(inputPath: string, outDir: string, password: string): Promise<UnpackResult> {
-  await mkdir(outDir, { mode: 0o700 }).catch((error) => {
-    throw error?.code === 'EEXIST' ? new Error(`Output directory already exists: ${outDir}`) : error
-  })
+  let created = false
+  try {
+    await mkdir(outDir, { mode: 0o700 })
+    created = true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+      throw error
+    }
+    if ((await readdir(outDir)).length > 0) {
+      throw new Error(`Output directory is not empty: ${outDir}`)
+    }
+  }
+  const cleanup = async (): Promise<void> => {
+    if (created) {
+      await rm(outDir, { recursive: true, force: true })
+      return
+    }
+    for (const entry of await readdir(outDir)) {
+      await rm(join(outDir, entry), { recursive: true, force: true })
+    }
+  }
   const source = Readable.toWeb(createReadStream(inputPath, { highWaterMark: 1 << 20 })) as ReadableStream<Uint8Array>
   try {
     const plaintext = source.pipeThrough(
@@ -109,7 +129,7 @@ export async function decryptToDirectory(inputPath: string, outDir: string, pass
     )
     return await unpackCar(plaintext, outDir)
   } catch (error) {
-    await rm(outDir, { recursive: true, force: true })
+    await cleanup()
     if (error instanceof fee.errors.AuthenticationError) {
       throw new Error('Wrong password, or the file was modified', { cause: error })
     }

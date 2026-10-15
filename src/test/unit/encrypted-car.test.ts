@@ -143,12 +143,14 @@ describe('encrypted CAR payload', () => {
     expect(existsSync(outDir)).toBe(false)
   })
 
-  it('refuses an existing output directory', async () => {
+  it('refuses a non-empty output directory', async () => {
     await writeFile(input, 'x')
     await encryptPathWithPassword(input, envelope, PASSWORD)
     await mkdir(outDir)
+    await writeFile(join(outDir, 'keep.txt'), 'keep me')
 
-    await expect(decryptToDirectory(envelope, outDir, PASSWORD)).rejects.toThrow(/already exists/)
+    await expect(decryptToDirectory(envelope, outDir, PASSWORD)).rejects.toThrow(/not empty/)
+    expect(await readFile(join(outDir, 'keep.txt'), 'utf8')).toBe('keep me')
   })
 
   it('rejects an envelope whose content type is not the CAR profile', async () => {
