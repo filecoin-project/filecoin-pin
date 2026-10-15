@@ -14,6 +14,7 @@ import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-cor
 import pc from 'picocolors'
 import pino from 'pino'
 import { CliFatal, isCliFatal, isCliIncomplete } from '../common/cli-errors.js'
+import { ENCRYPTED_FILE_NAME, encryptPathWithPassword, resolvePassword } from '../common/encryption.js'
 import { assertUploadFunds, estimateInputBytes, rerunHint } from '../common/funds-preflight.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
@@ -39,7 +40,6 @@ import { log } from '../utils/cli-logger.js'
 import { validateAndNormalizeAutoFundOptions } from '../utils/cli-options.js'
 import { buildFilbeamUrl, chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
 import { resolveMetadataOptions } from '../utils/cli-options-metadata.js'
-import { ENCRYPTED_FILE_NAME, encryptFileWithPassword, resolvePassword } from './encrypt.js'
 import type { AddDryRunResult, AddOptions, AddResult } from './types.js'
 
 /**
@@ -164,13 +164,10 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     const sizeDisplay = isDirectory ? '' : ` (${formatFileSize(pathStat.size)})`
     spinner.stop(`${pc.green('✓')} ${pathType} validated${sizeDisplay}`)
 
-    if (options.encrypt && isDirectory) {
-      throw new Error('--encrypt supports single files only, not directories')
-    }
     const password = options.encrypt ? await resolvePassword(options.passwordFile) : undefined
 
-    // Fail fast on CAR-of-CAR before auth/payment checks run. Encrypted input
-    // becomes opaque envelope bytes, so a CAR file is valid input for --encrypt.
+    // Fail fast on CAR-of-CAR before auth/payment checks run. Encrypted input is
+    // packed as a file inside the payload, so a CAR file is valid input for --encrypt.
     if (!isDirectory && !options.encrypt) {
       const sniff = createReadStream(options.filePath)
       try {
@@ -246,21 +243,26 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
     let packPath = options.filePath
     if (password != null) {
-      spinner.start('Encrypting file...')
+      spinner.start(`Encrypting ${pathType.toLowerCase()}...`)
       encryptDir = await mkdtemp(join(tmpdir(), 'filecoin-pin-encrypt-'))
       packPath = join(encryptDir, ENCRYPTED_FILE_NAME)
-      await encryptFileWithPassword(options.filePath, pathStat.size, packPath, password)
-      spinner.stop(`${pc.green('✓')} File encrypted`)
+      const { plan } = await encryptPathWithPassword(options.filePath, packPath, password, {
+        ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }),
+      })
+      const skipped = plan.walk.skippedSymlinks.length
+      spinner.stop(
+        `${pc.green('✓')} ${pathType} encrypted${skipped > 0 ? ` (${skipped} symlink${skipped === 1 ? '' : 's'} skipped)` : ''}`
+      )
     }
 
-    // Create CAR from file or directory
-    const packingMsg = isDirectory ? 'Packing directory for IPFS...' : 'Packing file for IPFS...'
+    // Create CAR from file or directory. An envelope is always packed as a single file.
+    const packingMsg = isDirectory && password == null ? 'Packing directory for IPFS...' : 'Packing file for IPFS...'
     spinner.start(packingMsg)
 
     const { carPath, rootCid, name } = await createCarFromPath(packPath, {
       logger,
       spinner,
-      isDirectory,
+      isDirectory: isDirectory && password == null,
       ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }),
     })
     tempCarPath = carPath

@@ -20,7 +20,7 @@ export const addCommand = new Command('add')
   .option('--copies <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
   .option(
     '--encrypt',
-    'Encrypt the file with a password before upload (single files only). The password comes from --password-file, FILECOIN_PIN_PASSWORD, or a prompt.'
+    'Encrypt the file or directory with a password before upload. The password comes from --password-file, FILECOIN_PIN_PASSWORD, or a prompt.'
   )
   .addOption(
     new Option('--password-file <path>', 'Read the --encrypt password from this file').implies({ encrypt: true })

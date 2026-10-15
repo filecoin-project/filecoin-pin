@@ -41,6 +41,9 @@ importers:
       '@ipld/car':
         specifier: ^5.4.2
         version: 5.4.6
+      '@ipld/dag-pb':
+        specifier: 4.1.7
+        version: 4.1.7
       '@libp2p/identify':
         specifier: ^4.1.2
         version: 4.1.12
@@ -80,6 +83,12 @@ importers:
       interface-store:
         specifier: ^8.0.0
         version: 8.0.0
+      ipfs-unixfs:
+        specifier: 12.0.2
+        version: 12.0.2
+      ipfs-unixfs-importer:
+        specifier: 16.1.5
+        version: 16.1.5
       it-to-buffer:
         specifier: ^5.0.0
         version: 5.0.0
@@ -3053,7 +3062,7 @@ snapshots:
 
   '@ipld/dag-pb@4.1.7':
     dependencies:
-      multiformats: 14.0.4
+      multiformats: 14.0.5
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

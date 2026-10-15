@@ -10,7 +10,8 @@
 
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { isCancel, password as promptPassword } from '@clack/prompts'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
@@ -21,9 +22,9 @@ import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runAdd, runAddFromCli } from '../../add/add.js'
-import { derivePasswordKey } from '../../add/encrypt.js'
 import type { AddDryRunResult, AddResult } from '../../add/types.js'
 import { CliIncomplete } from '../../common/cli-errors.js'
+import { decryptToDirectory } from '../../common/encryption.js'
 
 const { mockCarPath, mockFindDataSets } = vi.hoisted(() => ({
   mockCarPath: 'test-add-files/mock.car',
@@ -674,36 +675,48 @@ describe('Add Command', () => {
       process.env.FILECOIN_PIN_PASSWORD = PASSWORD
     })
 
-    afterEach(() => {
+    const scratch: string[] = []
+    afterEach(async () => {
       delete process.env.FILECOIN_PIN_PASSWORD
       vi.restoreAllMocks()
+      for (const dir of scratch.splice(0)) await rm(dir, { recursive: true, force: true })
     })
 
+    // Decrypt the packed envelope the way `filecoin-pin decrypt` does and return the single child it restores.
     async function decrypt(bytes: Uint8Array, password: string) {
-      let appMetadata: unknown
-      const decrypted = new Blob([new Uint8Array(bytes)]).stream().pipeThrough(
-        fee.decrypt(async (info) => {
-          appMetadata = info.appMetadata
-          const { salt, iterations } = info.appMetadata as { salt: string; iterations: number }
-          return derivePasswordKey(password, Buffer.from(salt, 'base64'), iterations)
-        })
-      )
-      const plaintext = Buffer.from(await new Response(decrypted).arrayBuffer())
-      return { plaintext, appMetadata }
+      const { appMetadata, contentType } = await fee.parse(new Uint8Array(bytes))
+      const dir = await mkdtemp(join(tmpdir(), 'filecoin-pin-add-test-'))
+      scratch.push(dir)
+      const envelope = join(dir, 'encrypted.fee')
+      await writeFile(envelope, bytes)
+      const outDir = join(dir, 'out')
+      await decryptToDirectory(envelope, outDir, password)
+      const [name] = await readdir(outDir)
+      if (name == null) throw new Error('nothing was restored')
+      const restored = join(outDir, name)
+      return {
+        appMetadata,
+        contentType,
+        name,
+        restored,
+        plaintext: await readFile(restored).catch(() => Buffer.alloc(0)),
+      }
     }
 
-    it('uploads an envelope that decrypts back to the file with the password', async () => {
+    it('uploads an envelope that decrypts back to the file, by name, with the password', async () => {
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
-      const { plaintext } = await decrypt(packedFile().bytes, PASSWORD)
-      expect(packedFile().bytes.equals(testContent)).toBe(false)
+      const { plaintext, name, contentType } = await decrypt(packedFile().bytes, PASSWORD)
+      expect(packedFile().bytes.includes(testContent.subarray(0, 64))).toBe(false)
+      expect(name).toBe('test.bin')
       expect(plaintext.equals(testContent)).toBe(true)
+      expect(contentType).toBe('application/vnd.ipld.car')
     })
 
     it('fails to decrypt with the wrong password', async () => {
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
-      await expect(decrypt(packedFile().bytes, 'wrong password')).rejects.toBeInstanceOf(fee.errors.AuthenticationError)
+      await expect(decrypt(packedFile().bytes, 'wrong password')).rejects.toThrow(/wrong password/i)
     })
 
     it('records exactly the kdf parameters in appMetadata', async () => {
@@ -803,9 +816,17 @@ describe('Add Command', () => {
       expect((await decrypt(packedFile().bytes, PASSWORD)).plaintext.equals(car)).toBe(true)
     })
 
-    it('rejects directories', async () => {
-      await expect(runAdd({ ...auth, filePath: testDir, encrypt: true })).rejects.toThrow(/single files/)
-      expect(packed).toBeUndefined()
+    it('encrypts a directory and restores it with its name and contents', async () => {
+      await mkdir(join(testDir, 'nested'), { recursive: true })
+      await writeFile(join(testDir, 'nested', 'note.txt'), 'hello')
+
+      await runAdd({ ...auth, filePath: testDir, encrypt: true })
+
+      const { name, restored } = await decrypt(packedFile().bytes, PASSWORD)
+      expect(name).toBe(basename(testDir))
+      expect((await readFile(join(restored, 'test.bin'))).equals(testContent)).toBe(true)
+      expect(await readFile(join(restored, 'nested', 'note.txt'), 'utf8')).toBe('hello')
+      expect(basename(packedFile().path)).toBe('encrypted.fee')
     })
 
     it('never writes the password to output', async () => {
