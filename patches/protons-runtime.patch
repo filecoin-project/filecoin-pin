@@ -1,0 +1,18 @@
+diff --git a/dist/src/utils/longbits.js b/dist/src/utils/longbits.js
+index d8a898e76ff83f0a2ab6b4af454ee4d24e9fe544..76f82e9014f052898d62b6732c755e212e417467 100644
+--- a/dist/src/utils/longbits.js
++++ b/dist/src/utils/longbits.js
+@@ -19,11 +19,11 @@ export class LongBits {
+         /**
+          * Low bits
+          */
+-        this.lo = lo | 0;
++        this.lo = lo >>> 0;
+         /**
+          * High bits
+          */
+-        this.hi = hi | 0;
++        this.hi = hi >>> 0;
+     }
+     /**
+      * Converts this long bits to a possibly unsafe JavaScript number

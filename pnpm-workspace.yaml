@@ -8,3 +8,5 @@ onlyBuiltDependencies:
   - esbuild
   - node-datachannel
   - playwright
+patchedDependencies:
+  protons-runtime: patches/protons-runtime.patch
