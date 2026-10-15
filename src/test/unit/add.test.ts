@@ -9,7 +9,7 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import fs, { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -23,7 +23,7 @@ import { sha256 } from 'multiformats/hashes/sha2'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runAdd, runAddFromCli } from '../../add/add.js'
 import type { AddDryRunResult, AddResult } from '../../add/types.js'
-import { CliIncomplete } from '../../common/cli-errors.js'
+import { CliIncomplete, EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
 import { decryptToDirectory } from '../../common/encryption.js'
 
 const { mockCarPath, mockFindDataSets } = vi.hoisted(() => ({
@@ -829,19 +829,51 @@ describe('Add Command', () => {
       expect(basename(packedFile().path)).toBe('encrypted.fee')
     })
 
-    it('never writes the password to output', async () => {
+    it('never writes the password or the plaintext filename to output or debug logs', async () => {
       const writes: string[] = []
       const capture = (chunk: unknown) => writes.push(String(chunk)) > 0
       vi.spyOn(process.stdout, 'write').mockImplementation(capture)
       vi.spyOn(process.stderr, 'write').mockImplementation(capture)
+      // pino writes straight to the fd through sonic-boom, so capture fd 1 and 2 at the fs layer too
+      const fsCapture = (...args: unknown[]) => {
+        const data = args[1]
+        writes.push(Array.isArray(data) ? data.map(String).join('') : String(data))
+        const cb = args.at(-1)
+        if (typeof cb === 'function') cb(null, 0)
+        return 0
+      }
+      for (const name of ['write', 'writeSync', 'writev', 'writevSync'] as const) {
+        const original = fs[name] as (...args: unknown[]) => unknown
+        vi.spyOn(fs, name).mockImplementation(((...args: unknown[]) =>
+          args[0] === 1 || args[0] === 2 ? fsCapture(...args) : original(...args)) as never)
+      }
+      vi.stubEnv('LOG_LEVEL', 'debug')
       const { createSpinner } = await import('../../utils/cli-helpers.js')
 
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
+      // sonic-boom flushes asynchronously
+      await new Promise((resolve) => setTimeout(resolve, 100))
 
       const spinner = vi.mocked(createSpinner).mock.results[0]?.value
       const output = JSON.stringify([writes, spinner.start.mock.calls, spinner.stop.mock.calls])
       expect(output).toContain('encrypted')
       expect(output).not.toContain(PASSWORD)
+      expect(output).not.toContain(basename(testFile))
+    })
+
+    it('removes the envelope on Ctrl-C and exits as incomplete', async () => {
+      const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+      const { performUpload } = await import('../../common/upload-flow.js')
+      vi.mocked(performUpload).mockImplementationOnce(async () => {
+        process.emit('SIGINT')
+        throw new Error('interrupted')
+      })
+
+      await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow('interrupted')
+
+      expect(exit).toHaveBeenCalledWith(EXIT_CODE_INCOMPLETE)
+      expect(existsSync(packedFile().path)).toBe(false)
+      expect(process.listeners('SIGINT')).not.toContain(expect.any(Function))
     })
 
     it('has no option that takes the password on the command line', async () => {
