@@ -154,7 +154,7 @@ async function reportReadiness(
       log.line(buildFundingUrl(consoleUrl, DEFAULT_SUGGESTED_DEPOSIT_USDFC, chain.id))
     } else {
       log.line('  Approve the storage service in the console:')
-      log.line(buildApproveUrl(consoleUrl))
+      log.line(buildApproveUrl(consoleUrl, chain.id))
     }
   }
   log.line('')

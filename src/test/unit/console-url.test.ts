@@ -72,8 +72,11 @@ describe('buildFundingUrl', () => {
 })
 
 describe('buildApproveUrl', () => {
-  it('points at the console home, where the service is added without a deposit', () => {
-    expect(buildApproveUrl('https://pay.filecoin.cloud/')).toBe('https://pay.filecoin.cloud/console')
+  it('names the storage service and the network, with no deposit', () => {
+    expect(buildApproveUrl('https://pay.filecoin.cloud/', 314159)).toBe(
+      'https://pay.filecoin.cloud/console?operator=fwss&network=calibration'
+    )
+    expect(buildApproveUrl('https://pay.filecoin.cloud', 314)).toMatch(/&network=mainnet$/)
   })
 })
 
@@ -115,8 +118,8 @@ describe('console attribution', () => {
     expect(buildFundingUrl('https://pay.filecoin.cloud', 2, 314)).toBe(
       'https://pay.filecoin.cloud/console?deposit=2&operator=fwss&network=mainnet&utm_source=filecoin-pin&utm_medium=library&utm_term=fund'
     )
-    expect(buildApproveUrl('https://pay.filecoin.cloud')).toBe(
-      'https://pay.filecoin.cloud/console?utm_source=filecoin-pin&utm_medium=library&utm_campaign=fund'
+    expect(buildApproveUrl('https://pay.filecoin.cloud', 314)).toBe(
+      'https://pay.filecoin.cloud/console?operator=fwss&network=mainnet&utm_source=filecoin-pin&utm_medium=library&utm_term=fund'
     )
   })
 

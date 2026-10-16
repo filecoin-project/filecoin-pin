@@ -138,7 +138,7 @@ export async function assertUploadFunds(
   // The link on its own line, unstyled, so it copies and parses cleanly.
   if (!readiness.serviceApproved && funds.covered) {
     log.line('  Approve the storage service in the console:')
-    log.line(buildApproveUrl(consoleUrl))
+    log.line(buildApproveUrl(consoleUrl, synapse.chain.id))
   } else {
     log.line('  Top up (amount pre-filled, one transaction):')
     log.line(buildFundingUrl(consoleUrl, suggestedDeposit(estimate.costs.depositNeeded), synapse.chain.id))
