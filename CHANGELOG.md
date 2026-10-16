@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/filecoin-project/filecoin-pin/compare/v2.2.1...v2.3.0) (2026-10-16)
+
+
+### Features
+
+* add migrate state store and CLI parsers ([#653](https://github.com/filecoin-project/filecoin-pin/issues/653)) ([e36ddef](https://github.com/filecoin-project/filecoin-pin/commit/e36ddef6f29d6670c034f6f13b71c503424d6d10))
+
 ## [2.2.1](https://github.com/filecoin-project/filecoin-pin/compare/v2.2.0...v2.2.1) (2026-10-12)
 
 
