@@ -1,15 +1,16 @@
 // Bundle the CLI entry into a single file so a published install runs the exact dependency
 // tree this repo tests, pnpm patches included. Library exports (dist/core/*, index) stay unbundled.
+import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 
 // Bundle from the compiled module (version already stamped) into the bin entry; `tsc` keeps
 // emitting dist/cli.js as a plain module, so the two never overwrite each other.
-const entry = new URL('../dist/cli.js', import.meta.url)
-const out = new URL('../dist/filecoin-pin.js', import.meta.url)
+const entry = fileURLToPath(new URL('../dist/cli.js', import.meta.url))
+const out = fileURLToPath(new URL('../dist/filecoin-pin.js', import.meta.url))
 
 const result = await build({
-  entryPoints: [entry.pathname],
-  outfile: out.pathname,
+  entryPoints: [entry],
+  outfile: out,
   bundle: true,
   platform: 'node',
   format: 'esm',
