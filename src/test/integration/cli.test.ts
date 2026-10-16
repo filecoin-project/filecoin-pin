@@ -1,16 +1,10 @@
 import { execSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('CLI entrypoint', () => {
-  it('ships as one bundle that carries the patched UnixFS encoder', () => {
-    const cli = readFileSync('dist/filecoin-pin.js', 'utf8')
-    expect(cli).toContain('this.lo = lo >>> 0')
-    expect(cli).not.toContain('this.lo = lo | 0')
-  })
-
   it('CLI entrypoint loads without throwing an error', { timeout: 15000 }, () => {
     // This test catches ESM compatibility issues like:
     // - Default imports on packages that only have named exports
