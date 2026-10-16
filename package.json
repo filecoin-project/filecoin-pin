@@ -80,7 +80,7 @@
     }
   },
   "bin": {
-    "filecoin-pin": "dist/cli.js"
+    "filecoin-pin": "dist/filecoin-pin.js"
   },
   "files": [
     "dist/**/*.js",
@@ -92,9 +92,9 @@
     "LICENSE.md"
   ],
   "scripts": {
-    "build": "tsc && node scripts/write-version.mjs",
+    "build": "tsc && node scripts/write-version.mjs && node scripts/bundle-cli.mjs",
     "dev": "tsx watch src/cli.ts server",
-    "start": "node dist/cli.js server",
+    "start": "node dist/filecoin-pin.js server",
     "test": "pnpm run lint && pnpm run typecheck && vitest run",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
@@ -166,6 +166,7 @@
     "@vitest/browser-playwright": "^4.1.11",
     "@vitest/coverage-v8": "^4.1.11",
     "blockstore-core": "^7.0.1",
+    "esbuild": "0.28.2",
     "pkg-pr-new": "^0.0.88",
     "playwright": "1.60.0",
     "tsx": "~4.23.1",
