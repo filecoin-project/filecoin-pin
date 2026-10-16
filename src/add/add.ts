@@ -10,7 +10,7 @@ import { stat } from 'node:fs/promises'
 import { Readable } from 'node:stream'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import pc from 'picocolors'
-import pino from 'pino'
+import pino, { destination } from 'pino'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { assertUploadFunds, estimateInputBytes, rerunHint } from '../common/funds-preflight.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
@@ -133,9 +133,12 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
   })
 
   // Initialize logger (silent for CLI output)
-  const logger = pino({
-    level: process.env.LOG_LEVEL || 'silent',
-  })
+  const logger = pino(
+    {
+      level: process.env.LOG_LEVEL || 'silent',
+    },
+    destination(2)
+  )
 
   // Map the public egress provider to the SDK's withCDN boolean (internal only).
   const withCDN = options.egressProvider === 'beam'
