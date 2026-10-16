@@ -15,7 +15,7 @@ describe('CLI entrypoint', () => {
     // SyntaxError: The requested module '@sentry/node' does not provide
     // an export named 'default'
     expect(() => {
-      execSync('node dist/cli.js --help', {
+      execSync('node dist/filecoin-pin.js --help', {
         cwd: process.cwd(),
         encoding: 'utf-8',
         stdio: 'pipe',
@@ -24,7 +24,7 @@ describe('CLI entrypoint', () => {
   })
 
   it('groups commands and provides a user-facing quick start in --help', { timeout: 15000 }, () => {
-    const out = execSync('node dist/cli.js --help', {
+    const out = execSync('node dist/filecoin-pin.js --help', {
       cwd: process.cwd(),
       encoding: 'utf-8',
       stdio: 'pipe',
@@ -65,7 +65,7 @@ describe('CLI entrypoint', () => {
   })
 
   it('add command exposes --egress-provider in --help', { timeout: 15000 }, () => {
-    const out = execSync('node dist/cli.js add --help', {
+    const out = execSync('node dist/filecoin-pin.js add --help', {
       cwd: process.cwd(),
       encoding: 'utf-8',
       stdio: 'pipe',
@@ -76,7 +76,7 @@ describe('CLI entrypoint', () => {
   })
 
   it('import command exposes --egress-provider in --help', { timeout: 15000 }, () => {
-    const out = execSync('node dist/cli.js import --help', {
+    const out = execSync('node dist/filecoin-pin.js import --help', {
       cwd: process.cwd(),
       encoding: 'utf-8',
       stdio: 'pipe',
@@ -85,14 +85,14 @@ describe('CLI entrypoint', () => {
   })
 
   it('session revoke command is visible and exposes owner network options', { timeout: 15000 }, () => {
-    const sessionHelp = execSync('node dist/cli.js session --help', {
+    const sessionHelp = execSync('node dist/filecoin-pin.js session --help', {
       cwd: process.cwd(),
       encoding: 'utf-8',
       stdio: 'pipe',
     })
     expect(sessionHelp).toContain('revoke')
 
-    const revokeHelp = execSync('node dist/cli.js session revoke --help', {
+    const revokeHelp = execSync('node dist/filecoin-pin.js session revoke --help', {
       cwd: process.cwd(),
       encoding: 'utf-8',
       stdio: 'pipe',
@@ -111,7 +111,7 @@ describe('CLI entrypoint', () => {
 
       // Pre-fix, Commander rejected the flag before the subcommand and
       // printed top-level help instead of the add help.
-      const out = execSync(`node dist/cli.js --credentials-file "${file}" add --help`, {
+      const out = execSync(`node dist/filecoin-pin.js --credentials-file "${file}" add --help`, {
         cwd: process.cwd(),
         encoding: 'utf-8',
         stdio: 'pipe',
@@ -119,7 +119,7 @@ describe('CLI entrypoint', () => {
       expect(out).toContain('Usage: filecoin-pin add')
 
       // Pre-fix this exited 1 with "unknown option".
-      execSync(`node dist/cli.js --credentials-file "${file}"`, {
+      execSync(`node dist/filecoin-pin.js --credentials-file "${file}"`, {
         cwd: process.cwd(),
         encoding: 'utf-8',
         stdio: 'pipe',
