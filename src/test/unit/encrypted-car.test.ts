@@ -49,8 +49,10 @@ describe('encrypted CAR payload', () => {
 
     expect(result).toEqual({ files: 1, dirs: 0, bytes: content.length })
     expect((await readFile(join(outDir, 'input'))).equals(content)).toBe(true)
-    expect((await stat(outDir)).mode & 0o777).toBe(0o700)
-    expect((await stat(join(outDir, 'input'))).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') {
+      expect((await stat(outDir)).mode & 0o777).toBe(0o700)
+      expect((await stat(join(outDir, 'input'))).mode & 0o777).toBe(0o600)
+    }
   })
 
   it('round-trips a directory: nesting, empty file, empty dir, long Unicode name; symlinks skipped', async () => {
