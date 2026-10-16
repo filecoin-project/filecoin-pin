@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import * as fee from 'filecoin-encryption-envelope'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CliIncomplete, EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
@@ -180,7 +181,7 @@ describe('runDecrypt', () => {
   })
 
   it('decrypts the checked-in golden envelope', async () => {
-    const golden = new URL('../fixtures/encrypted-golden/report.fee', import.meta.url).pathname
+    const golden = fileURLToPath(new URL('../fixtures/encrypted-golden/report.fee', import.meta.url))
     process.env.FILECOIN_PIN_PASSWORD = 'golden password 2026-10-15'
 
     await runDecrypt(golden, outputDir, {})
