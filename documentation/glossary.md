@@ -35,6 +35,18 @@ Collections of stored data ([Pieces](#piece)) managed by [Filecoin Warm Storage 
 
 Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metadata) (`source='filecoin-pin'`). When more match than the number of copies requested, it prefers the ones already holding pieces and takes at most one per Service Provider. When the matches do not cover enough distinct providers, Filecoin Pin creates new Data Sets instead.
 
+## Encrypted Upload
+
+A file or directory uploaded with `filecoin-pin add --encrypt`. The input is packed as a UnixFS CAR (the same [unixfs-v1-2025](#unixfs-v1-2025-profile) DAG an unencrypted `add` would build, under an anonymous wrapping directory holding the input's own name) and that CAR is wrapped in a [Filecoin Encryption Envelope](https://github.com/filecoin-project/FIPs/pull/1294) (FEE) whose content key is derived from a password with PBKDF2-SHA256. The password comes from `--password-file`, `FILECOIN_PIN_PASSWORD`, or an interactive prompt. The envelope is packed as `encrypted.fee`, so the `name` [Metadata](#metadata) does not reveal the original filename; names, sizes and the plaintext [CIDs](#cid) exist only inside the ciphertext. Symlinks are skipped; hidden entries follow the same `--include-hidden` rule as an unencrypted `add`.
+
+Blocks inside the CAR are written metadata-first: every dag-pb node (breadth-first from the root), then every raw leaf in file order, each CID once. A reader that knows the root can therefore list the tree before the first data byte and map any file offset to a byte range of the envelope without an index, which is what lets `decrypt` run in one pass and a viewer seek inside a video by HTTP Range.
+
+The envelope's public `content_type` is `application/vnd.ipld.car`; decryptors reject any other. Its authenticated `appMetadata` records how to derive the key again from the password:
+
+```json
+{ "kdf": "pbkdf2-sha256", "iterations": 600000, "salt": "<base64 of 16 random bytes>" }
+```
+
 ## FIL
 
 FIL is Filecoin's native token.  While [Filecoin Onchain Cloud](#filecoin-onchain-cloud) storage is currently denominated in [USDFC](#usdfc), gas for transactions on the Filecoin blockchain (e.g., adding a [Piece](#piece)) need to be paid for using FIL. Most transactions in the data onboarding flow for Filecoin Onchain Cloud are submitted by storage providers so client typically have minimal need to interact directly with FIL.

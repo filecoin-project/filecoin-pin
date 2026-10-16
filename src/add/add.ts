@@ -5,13 +5,16 @@
  * It encodes content as UnixFS, creates CAR files, and uploads to Filecoin.
  */
 
-import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { createReadStream, rmSync } from 'node:fs'
+import { mkdtemp, rm, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import pc from 'picocolors'
 import pino from 'pino'
-import { CliFatal, isCliFatal } from '../common/cli-errors.js'
+import { CliFatal, EXIT_CODE_INCOMPLETE, isCliFatal, isCliIncomplete } from '../common/cli-errors.js'
+import { ENCRYPTED_FILE_NAME, encryptPathWithPassword, resolvePassword } from '../common/encryption.js'
 import { assertUploadFunds, estimateInputBytes, rerunHint } from '../common/funds-preflight.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
@@ -141,6 +144,16 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
   const withCDN = options.egressProvider === 'beam'
 
   let tempCarPath: string | undefined
+  let encryptDir: string | undefined
+  // Ctrl-C: clack's spinner installs its own SIGINT handler in start() and the first listener to
+  // call process.exit wins, so this one is registered before the spinner restarts and removes the
+  // envelope directory synchronously. Registered once the directory exists.
+  const onSigint = (): void => {
+    if (encryptDir != null) {
+      rmSync(encryptDir, { recursive: true, force: true })
+    }
+    process.exit(EXIT_CODE_INCOMPLETE)
+  }
 
   try {
     // Validate path exists and is readable
@@ -160,8 +173,11 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     const sizeDisplay = isDirectory ? '' : ` (${formatFileSize(pathStat.size)})`
     spinner.stop(`${pc.green('✓')} ${pathType} validated${sizeDisplay}`)
 
-    // Fail fast on CAR-of-CAR before auth/payment checks run.
-    if (!isDirectory) {
+    const password = options.encrypt ? await resolvePassword(options.passwordFile) : undefined
+
+    // Fail fast on CAR-of-CAR before auth/payment checks run. Encrypted input is
+    // packed as a file inside the payload, so a CAR file is valid input for --encrypt.
+    if (!isDirectory && !options.encrypt) {
       const sniff = createReadStream(options.filePath)
       try {
         if (await isCar(sniff)) {
@@ -234,14 +250,29 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       })
     }
 
-    // Create CAR from file or directory
-    const packingMsg = isDirectory ? 'Packing directory for IPFS...' : 'Packing file for IPFS...'
+    let packPath = options.filePath
+    if (password != null) {
+      encryptDir = await mkdtemp(join(tmpdir(), 'filecoin-pin-encrypt-'))
+      process.once('SIGINT', onSigint)
+      spinner.start(`Encrypting ${pathType.toLowerCase()}...`)
+      packPath = join(encryptDir, ENCRYPTED_FILE_NAME)
+      const { plan } = await encryptPathWithPassword(options.filePath, packPath, password, {
+        ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }),
+      })
+      const skipped = plan.walk.skippedSymlinks.length
+      spinner.stop(
+        `${pc.green('✓')} ${pathType} encrypted${skipped > 0 ? ` (${skipped} symlink${skipped === 1 ? '' : 's'} skipped)` : ''}`
+      )
+    }
+
+    // Create CAR from file or directory. An envelope is always packed as a single file.
+    const packingMsg = isDirectory && password == null ? 'Packing directory for IPFS...' : 'Packing file for IPFS...'
     spinner.start(packingMsg)
 
-    const { carPath, rootCid, name } = await createCarFromPath(options.filePath, {
+    const { carPath, rootCid, name } = await createCarFromPath(packPath, {
       logger,
       spinner,
-      isDirectory,
+      isDirectory: isDirectory && password == null,
       ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }),
     })
     tempCarPath = carPath
@@ -358,7 +389,20 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     const filbeamUrl = buildFilbeamUrl(synapse, uploadResult.pieceCid, withCDN)
     const egress = filbeamUrl != null ? { filbeamUrl } : undefined
 
-    displayUploadResults(result, 'Add', network, networkSlug, egress)
+    // The plaintext path stays out of the printed summary (CI logs, shared terminals); the
+    // returned result keeps it for programmatic callers.
+    displayUploadResults(
+      options.encrypt ? { ...result, filePath: ENCRYPTED_FILE_NAME } : result,
+      'Add',
+      network,
+      networkSlug,
+      egress
+    )
+    if (options.encrypt) {
+      log.line('')
+      log.line(pc.yellow('Content is encrypted: the password is required to read it.'))
+      log.flush()
+    }
 
     if (uploadResult.copies.length < requestedCopies) {
       log.line('')
@@ -381,6 +425,11 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
     return result
   } catch (error) {
+    if (isCliIncomplete(error)) {
+      spinner.stop()
+      cancel(error.message)
+      throw error
+    }
     if (isCliFatal(error)) {
       spinner.stop()
       logger.error({ event: 'add.failed', error }, 'Add failed')
@@ -417,5 +466,10 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
     cancel(carInput ? 'Add cancelled' : 'Add failed')
     throw new CliFatal(message, { cause: error instanceof Error ? error : undefined })
+  } finally {
+    process.off('SIGINT', onSigint)
+    if (encryptDir) {
+      await rm(encryptDir, { recursive: true, force: true })
+    }
   }
 }

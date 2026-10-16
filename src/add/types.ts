@@ -20,6 +20,10 @@ export interface AddOptions extends CLIAuthOptions, CLIAutoFundOptions {
   egressProvider?: EgressProvider
   /** Estimate upload cost and exit before any upload or deposit transaction */
   dryRun?: boolean
+  /** Encrypt the file or directory with a password before upload */
+  encrypt?: boolean
+  /** File holding the password for `encrypt`; otherwise FILECOIN_PIN_PASSWORD or a prompt */
+  passwordFile?: string
 }
 
 export interface AddResult {
