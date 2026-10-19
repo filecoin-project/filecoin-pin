@@ -46,6 +46,10 @@ export async function resolveDataSetIdsByMetadata(
       if (!dataSet.isLive) {
         return false
       }
+      // Removed PDP products remain listable, but cannot accept new uploads.
+      if (dataSet.provider == null) {
+        return false
+      }
       // Exclude datasets scheduled for termination; uploads must target active ones.
       if ((dataSet.pdpEndEpoch ?? 0n) !== 0n) {
         return false
