@@ -17,10 +17,11 @@
  * owns the clock and the DB.
  */
 
-import { SIZE_CONSTANTS } from '@filoz/synapse-sdk'
-
 /** FWSS `addPieces` batch cap, from the SDK. */
-export const MAX_ADD_PIECES_BATCH = SIZE_CONSTANTS.MAX_ADD_PIECES_BATCH_SIZE
+// ponytail: synapse-core 0.10 replaced the fixed 40-piece cap with a 64 KiB calldata
+// limiter (SIZE_CONSTANTS.MAX_ADD_PIECES_MESSAGE_SIZE). 40 is the largest batch seen on
+// mainnet and always fits; switch to the limiter when batches need to grow.
+export const MAX_ADD_PIECES_BATCH = 40
 
 /**
  * Starting guess for a provider's GC window. Half of Curio's ~2h default:
