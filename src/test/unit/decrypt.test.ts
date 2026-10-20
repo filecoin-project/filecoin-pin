@@ -4,12 +4,15 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { keyspaceKeys, writeTarget } from '@filoz/keysmith'
 import { CarIndexedReader } from '@ipld/car'
 import * as fee from 'filecoin-encryption-envelope'
 import { CID } from 'multiformats/cid'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { privateKeyToAccount } from 'viem/accounts'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CliIncomplete, EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
-import { decryptToDirectory, encryptPathWithPassword, unixfsFileBytes } from '../../common/encryption.js'
+import { decryptToDirectory, encryptPath, unixfsFileBytes } from '../../common/encryption.js'
+import { newPieceKey, ownerKeyResolver, type PieceKey } from '../../common/group-key.js'
 import { CAR_CONTENT_TYPE } from '../../common/unixfs-car-layout.js'
 import { createCarFromPath } from '../../core/unixfs/index.js'
 import { runDecrypt } from '../../decrypt/decrypt.js'
@@ -22,13 +25,11 @@ vi.mock('../../utils/cli-helpers.js', () => ({
   createSpinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn(), clear: vi.fn() })),
 }))
 
-vi.mock('@clack/prompts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@clack/prompts')>()),
-  isCancel: vi.fn(() => false),
-  password: vi.fn(),
-}))
-
-const PASSWORD = 'correct horse battery staple'
+// The well-known Anvil development keys #0 and #1, as in Keysmith's pinned vectors.
+const OWNER_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
+const STRANGER_KEY = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d'
+const OWNER = privateKeyToAccount(OWNER_KEY)
+const asOwner = { privateKey: OWNER_KEY }
 
 async function drain(leaves: AsyncIterable<Uint8Array>): Promise<number> {
   let n = 0
@@ -42,6 +43,16 @@ describe('runDecrypt', () => {
   let encryptedPath: string
   let outputDir: string
   const plaintext = randomBytes(64 * 1024)
+  let pieceKey: () => PieceKey
+
+  beforeAll(async () => {
+    const { kk, descriptor } = await keyspaceKeys(OWNER, {
+      owner: OWNER.address,
+      keyspace: '0x00112233445566778899aabbccddeeff',
+    })
+    const target = writeTarget(descriptor, kk)
+    pieceKey = () => newPieceKey(target)
+  })
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'filecoin-pin-decrypt-test-'))
@@ -49,18 +60,16 @@ describe('runDecrypt', () => {
     encryptedPath = join(dir, 'encrypted.fee')
     outputDir = join(dir, 'decrypted')
     await writeFile(plainPath, plaintext)
-    await encryptPathWithPassword(plainPath, encryptedPath, PASSWORD)
-    process.env.FILECOIN_PIN_PASSWORD = PASSWORD
+    await encryptPath(plainPath, encryptedPath, pieceKey())
   })
 
   afterEach(async () => {
-    delete process.env.FILECOIN_PIN_PASSWORD
     vi.restoreAllMocks()
     await rm(dir, { recursive: true, force: true })
   })
 
-  it('restores the file under its original name when given the upload password', async () => {
-    await runDecrypt(encryptedPath, outputDir, {})
+  it('restores the file under its original name for the owner wallet', async () => {
+    await runDecrypt(encryptedPath, outputDir, asOwner)
 
     expect((await readFile(join(outputDir, 'report.pdf'))).equals(plaintext)).toBe(true)
   })
@@ -70,41 +79,45 @@ describe('runDecrypt', () => {
     await mkdir(join(source, 'raw'), { recursive: true })
     await writeFile(join(source, 'a.jpg'), 'a')
     await writeFile(join(source, 'raw', 'b.jpg'), 'b')
-    await encryptPathWithPassword(source, encryptedPath, PASSWORD)
+    await encryptPath(source, encryptedPath, pieceKey())
 
-    await runDecrypt(encryptedPath, outputDir, {})
+    await runDecrypt(encryptedPath, outputDir, asOwner)
 
     expect(await readFile(join(outputDir, 'photos', 'a.jpg'), 'utf8')).toBe('a')
     expect(await readFile(join(outputDir, 'photos', 'raw', 'b.jpg'), 'utf8')).toBe('b')
   })
 
   it.skipIf(process.platform === 'win32')('creates the output readable by its owner only', async () => {
-    await runDecrypt(encryptedPath, outputDir, {})
+    await runDecrypt(encryptedPath, outputDir, asOwner)
 
     expect((await stat(outputDir)).mode & 0o777).toBe(0o700)
     expect((await stat(join(outputDir, 'report.pdf'))).mode & 0o777).toBe(0o600)
   })
 
-  it('fails on a wrong password and leaves no output behind', async () => {
-    process.env.FILECOIN_PIN_PASSWORD = 'wrong password'
+  it('fails for another wallet and leaves no output behind', async () => {
+    await expect(runDecrypt(encryptedPath, outputDir, { privateKey: STRANGER_KEY })).rejects.toThrow(/belongs to/)
+    expect(existsSync(outputDir)).toBe(false)
+  })
 
-    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toThrow(/wrong password/i)
+  it('refuses to run with a session key', async () => {
+    const session = { walletAddress: OWNER.address, sessionKey: STRANGER_KEY }
+
+    await expect(runDecrypt(encryptedPath, outputDir, session)).rejects.toThrow(/PRIVATE_KEY/)
     expect(existsSync(outputDir)).toBe(false)
   })
 
   it('decrypts into an existing empty directory', async () => {
     await mkdir(outputDir, { mode: 0o755 })
 
-    await runDecrypt(encryptedPath, outputDir, {})
+    await runDecrypt(encryptedPath, outputDir, asOwner)
 
     expect((await readFile(join(outputDir, 'report.pdf'))).equals(plaintext)).toBe(true)
   })
 
   it('keeps a pre-existing empty directory on failure', async () => {
     await mkdir(outputDir, { mode: 0o755 })
-    process.env.FILECOIN_PIN_PASSWORD = 'wrong password'
 
-    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toThrow(/wrong password/i)
+    await expect(runDecrypt(encryptedPath, outputDir, { privateKey: STRANGER_KEY })).rejects.toThrow(/belongs to/)
 
     expect(existsSync(outputDir)).toBe(true)
     expect(await readdir(outputDir)).toEqual([])
@@ -114,34 +127,37 @@ describe('runDecrypt', () => {
     await mkdir(outputDir)
     await writeFile(join(outputDir, 'keep.txt'), 'keep me')
 
-    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toThrow(/not empty/)
+    await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toThrow(/not empty/)
     expect(await readFile(join(outputDir, 'keep.txt'), 'utf8')).toBe('keep me')
   })
 
   it.each([
-    ['no appMetadata', undefined],
-    ['another kdf', { kdf: 'argon2id', iterations: 3, salt: 'AAAAAAAAAAAAAAAAAAAAAA==' }],
-    ['an unreasonable iteration count', { kdf: 'pbkdf2-sha256', iterations: 1e12, salt: 'AAAAAAAAAAAAAAAAAAAAAA==' }],
-  ])('rejects an envelope with %s', async (_case, appMetadata) => {
-    const cek = crypto.getRandomValues(new Uint8Array(fee.constants.KEY_SIZE))
+    ['no appMetadata', () => undefined],
+    ['password-era metadata', () => ({ kdf: 'pbkdf2-sha256', iterations: 600_000, salt: 'AAAAAAAAAAAAAAAAAAAAAA==' })],
+    ['another label version', () => ({ ...pieceKey().appMetadata, 'foc/v': 2 })],
+    ['a malformed salt', () => ({ ...pieceKey().appMetadata, 'foc/salt': 'not hex' })],
+    ['a malformed keyspace', () => ({ ...pieceKey().appMetadata, 'foc/ks': '0x1234' })],
+  ])('rejects an envelope with %s', async (_case, labels) => {
+    const appMetadata = labels()
     const foreign = new Blob([new Uint8Array(plaintext)])
       .stream()
-      .pipeThrough(fee.encrypt({ cek, contentType: CAR_CONTENT_TYPE, ...(appMetadata && { appMetadata }) }))
+      .pipeThrough(
+        fee.encrypt({ cek: pieceKey().cek, contentType: CAR_CONTENT_TYPE, ...(appMetadata && { appMetadata }) })
+      )
     await writeFile(encryptedPath, Buffer.from(await new Response(foreign).arrayBuffer()))
 
-    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toThrow(
+    await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toThrow(
       'not encrypted by `filecoin-pin add --encrypt`'
     )
     expect(existsSync(outputDir)).toBe(false)
   })
 
   it('rejects an envelope whose payload is not the CAR profile', async () => {
-    const cek = crypto.getRandomValues(new Uint8Array(fee.constants.KEY_SIZE))
-    const appMetadata = { kdf: 'pbkdf2-sha256', iterations: 600_000, salt: 'AAAAAAAAAAAAAAAAAAAAAA==' }
+    const { cek, appMetadata } = pieceKey()
     const rawPayload = new Blob([new Uint8Array(plaintext)]).stream().pipeThrough(fee.encrypt({ cek, appMetadata }))
     await writeFile(encryptedPath, Buffer.from(await new Response(rawPayload).arrayBuffer()))
 
-    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toThrow(
+    await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toThrow(
       'not encrypted by `filecoin-pin add --encrypt`'
     )
     expect(existsSync(outputDir)).toBe(false)
@@ -153,18 +169,18 @@ describe('runDecrypt', () => {
     await rm(carInput, { force: true })
     await (await import('node:fs/promises')).rename(carPath, carInput)
 
-    await runDecrypt(carInput, outputDir, {})
+    await runDecrypt(carInput, outputDir, asOwner)
 
     expect((await readFile(join(outputDir, 'report.pdf'))).equals(plaintext)).toBe(true)
   })
 
-  it('reports a flipped ciphertext byte as a wrong password or modified file', async () => {
+  it('reports a flipped ciphertext byte as a wrong key or modified file', async () => {
     const bytes = await readFile(encryptedPath)
     const i = Math.floor(bytes.length / 2)
     bytes[i] = (bytes[i] ?? 0) ^ 0x01
     await writeFile(encryptedPath, bytes)
 
-    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toThrow(/wrong password, or the file was modified/i)
+    await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toThrow(/wrong key, or the file was modified/i)
     expect(existsSync(outputDir)).toBe(false)
   })
 
@@ -172,32 +188,16 @@ describe('runDecrypt', () => {
     const bytes = await readFile(encryptedPath)
     await writeFile(encryptedPath, bytes.subarray(0, bytes.length - 100))
 
-    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toThrow(/incomplete/)
+    await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toThrow(/incomplete/)
     expect(existsSync(outputDir)).toBe(false)
   })
 
-  it.each([
-    ['a salt that is not 16 bytes', { kdf: 'pbkdf2-sha256', iterations: 600_000, salt: 'AAAA' }],
-    ['a non-canonical salt', { kdf: 'pbkdf2-sha256', iterations: 600_000, salt: 'AAAAAAAAAAAAAAAAAAAAAB==' }],
-    ['zero iterations', { kdf: 'pbkdf2-sha256', iterations: 0, salt: 'AAAAAAAAAAAAAAAAAAAAAA==' }],
-    ['negative iterations', { kdf: 'pbkdf2-sha256', iterations: -1, salt: 'AAAAAAAAAAAAAAAAAAAAAA==' }],
-  ])('rejects an envelope with %s', async (_case, appMetadata) => {
-    const cek = crypto.getRandomValues(new Uint8Array(fee.constants.KEY_SIZE))
-    const foreign = new Blob([new Uint8Array(plaintext)])
-      .stream()
-      .pipeThrough(fee.encrypt({ cek, contentType: CAR_CONTENT_TYPE, appMetadata }))
-    await writeFile(encryptedPath, Buffer.from(await new Response(foreign).arrayBuffer()))
-
-    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toThrow(
-      'not encrypted by `filecoin-pin add --encrypt`'
-    )
-  })
-
-  it('decrypts the checked-in golden envelope', async () => {
+  it('decrypts the checked-in golden envelope with the Anvil owner key', async () => {
+    // Encrypted once on 2026-10-20 under keyspace 0x00112233445566778899aabbccddeeff with
+    // salt 0x000102030405060708090a0b0c0d0e0f, from Keysmith's pinned vectors.
     const golden = fileURLToPath(new URL('../fixtures/encrypted-golden/report.fee', import.meta.url))
-    process.env.FILECOIN_PIN_PASSWORD = 'golden password 2026-10-15'
 
-    await runDecrypt(golden, outputDir, {})
+    await runDecrypt(golden, outputDir, asOwner)
 
     expect(await readFile(join(outputDir, 'report', 'hello.txt'), 'utf8')).toBe('hello, filecoin\n')
     expect(await readFile(join(outputDir, 'report', 'notes', 'a.md'), 'utf8')).toBe('# a\n')
@@ -222,7 +222,7 @@ describe('runDecrypt', () => {
       clear: vi.fn(),
     } as never)
 
-    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toBeInstanceOf(CliIncomplete)
+    await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toBeInstanceOf(CliIncomplete)
 
     expect(exit).toHaveBeenCalledWith(EXIT_CODE_INCOMPLETE)
     expect(existsSync(join(outputDir, 'partial.bin'))).toBe(false)
@@ -244,7 +244,7 @@ describe('runDecrypt', () => {
       clear: vi.fn(),
     } as never)
 
-    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toThrow(/not empty/)
+    await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toThrow(/not empty/)
 
     expect(exit).not.toHaveBeenCalled()
     expect(await readFile(join(outputDir, 'keep.txt'), 'utf8')).toBe('keep me')
@@ -254,22 +254,23 @@ describe('runDecrypt', () => {
   it('reports an output path that is a file', async () => {
     await writeFile(outputDir, 'a file')
 
-    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toThrow(/exists and is not a directory/)
+    await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toThrow(/exists and is not a directory/)
     expect(await readFile(outputDir, 'utf8')).toBe('a file')
   })
 
   it('reports a missing input before creating the output directory', async () => {
-    await expect(runDecrypt(join(dir, 'missing.fee'), outputDir, {})).rejects.toThrow(/Input file not found/)
+    await expect(runDecrypt(join(dir, 'missing.fee'), outputDir, asOwner)).rejects.toThrow(/Input file not found/)
     expect(existsSync(outputDir)).toBe(false)
   })
 
   it('decrypts the checked-in multi-chunk golden envelope and pins its inner root', async () => {
-    // 1.1 MB of (i * 7919 + (i >> 8)) & 0xff, encrypted once on 2026-10-19. The root and the
-    // sha256 are pinned from that run: a change to chunking, the wrapper or appMetadata must
-    // show up here, not get regenerated.
+    // 1.1 MB of (i * 7919 + (i >> 8)) & 0xff, encrypted once on 2026-10-20 under the vector
+    // keyspace with salt 0x101112131415161718191a1b1c1d1e1f. The root and the sha256 are
+    // pinned from that run: a change to chunking, the wrapper or the labels must show up
+    // here, not get regenerated.
     const golden = fileURLToPath(new URL('../fixtures/encrypted-golden/big.fee', import.meta.url))
 
-    const result = await decryptToDirectory(golden, outputDir, 'golden password 2026-10-19')
+    const result = await decryptToDirectory(golden, outputDir, ownerKeyResolver(OWNER))
 
     expect(result).toEqual({
       files: 1,
@@ -286,7 +287,7 @@ describe('runDecrypt', () => {
   it('reads the outer CAR one leaf at a time instead of ahead of the consumer', async () => {
     // 1.5 MiB splits into two UnixFS leaves, so a prefetching walker would read both.
     await writeFile(plainPath, randomBytes(1.5 * 1024 * 1024))
-    await encryptPathWithPassword(plainPath, encryptedPath, PASSWORD)
+    await encryptPath(plainPath, encryptedPath, pieceKey())
     const { carPath } = await createCarFromPath(encryptedPath, {})
     const reader = await CarIndexedReader.fromFile(carPath)
     let reads = 0
@@ -314,13 +315,15 @@ describe('runDecrypt', () => {
     await (await import('node:fs/promises')).copyFile(encryptedPath, join(wrapped, 'encrypted.fee'))
     const { carPath } = await createCarFromPath(wrapped, {})
 
-    await expect(runDecrypt(carPath, outputDir, {})).rejects.toThrow('not encrypted by `filecoin-pin add --encrypt`')
+    await expect(runDecrypt(carPath, outputDir, asOwner)).rejects.toThrow(
+      'not encrypted by `filecoin-pin add --encrypt`'
+    )
     expect(existsSync(outputDir)).toBe(false)
   })
 
   it('rejects a link to a block the CAR does not carry', async () => {
     await writeFile(plainPath, randomBytes(1.5 * 1024 * 1024))
-    await encryptPathWithPassword(plainPath, encryptedPath, PASSWORD)
+    await encryptPath(plainPath, encryptedPath, pieceKey())
     const { carPath } = await createCarFromPath(encryptedPath, {})
     const reader = await CarIndexedReader.fromFile(carPath)
     const [root] = await reader.getRoots()
@@ -338,23 +341,21 @@ describe('runDecrypt', () => {
   })
 
   it('reports an input path that is a directory', async () => {
-    await expect(runDecrypt(dir, outputDir, {})).rejects.toThrow(/Input path is a directory/)
+    await expect(runDecrypt(dir, outputDir, asOwner)).rejects.toThrow(/Input path is a directory/)
     expect(existsSync(outputDir)).toBe(false)
   })
 
   it('rejects a file that is not an envelope', async () => {
-    await expect(runDecrypt(plainPath, outputDir, {})).rejects.toThrow('not encrypted by `filecoin-pin add --encrypt`')
+    await expect(runDecrypt(plainPath, outputDir, asOwner)).rejects.toThrow(
+      'not encrypted by `filecoin-pin add --encrypt`'
+    )
     expect(existsSync(outputDir)).toBe(false)
   })
 
-  it('treats a cancelled password prompt as incomplete', async () => {
-    delete process.env.FILECOIN_PIN_PASSWORD
-    const { isInteractive } = await import('../../utils/cli-helpers.js')
-    const { isCancel } = await import('@clack/prompts')
-    vi.mocked(isInteractive).mockReturnValueOnce(true)
-    vi.mocked(isCancel).mockReturnValueOnce(true)
-
-    await expect(runDecrypt(encryptedPath, outputDir, {})).rejects.toBeInstanceOf(CliIncomplete)
-    expect(existsSync(outputDir)).toBe(false)
+  it('has no option that takes a password or a key on the command line', async () => {
+    const { decryptCommand } = await import('../../commands/decrypt.js')
+    const flags = decryptCommand.options.map((o) => o.long)
+    expect(flags).toContain('--private-key')
+    expect(flags).not.toContain('--password-file')
   })
 })

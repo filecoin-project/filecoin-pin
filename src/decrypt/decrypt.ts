@@ -4,14 +4,12 @@
 
 import pc from 'picocolors'
 import { CliFatal, EXIT_CODE_INCOMPLETE, isCliIncomplete } from '../common/cli-errors.js'
-import { checkDecryptPaths, decryptToDirectory, removeDecryptOutput, resolvePassword } from '../common/encryption.js'
+import { checkDecryptPaths, decryptToDirectory, removeDecryptOutput } from '../common/encryption.js'
+import { ownerKeyResolver, ownerSignerFromAuth } from '../common/group-key.js'
+import type { CLIAuthOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 
-export async function runDecrypt(
-  inputPath: string,
-  outputDir: string,
-  options: { passwordFile?: string }
-): Promise<void> {
+export async function runDecrypt(inputPath: string, outputDir: string, options: CLIAuthOptions): Promise<void> {
   intro(pc.bold('Filecoin Pin Decrypt'))
   const spinner = createSpinner()
   // Ctrl-C: clack's spinner exits the process on SIGINT before any `finally` runs, which would
@@ -24,10 +22,11 @@ export async function runDecrypt(
   try {
     // Before the handler is armed: it must never remove entries decrypt would have refused to touch.
     outExists = (await checkDecryptPaths(inputPath, outputDir)).outExists
-    const password = await resolvePassword(options.passwordFile)
+    // The owner wallet signs offline for the keyspace the envelope names; no RPC is opened.
+    const signer = ownerSignerFromAuth(options)
     process.once('SIGINT', onSigint)
     spinner.start('Decrypting...')
-    const { files, dirs } = await decryptToDirectory(inputPath, outputDir, password)
+    const { files, dirs } = await decryptToDirectory(inputPath, outputDir, ownerKeyResolver(signer))
     const what = files === 1 && dirs === 0 ? '1 file' : `${files} file${files === 1 ? '' : 's'}`
     spinner.stop(`${pc.green('✓')} Decrypted ${what} to ${outputDir}`)
     outro('Decrypt complete')
