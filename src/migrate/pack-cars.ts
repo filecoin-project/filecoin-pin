@@ -33,13 +33,13 @@ import { log } from '../utils/cli-logger.js'
 import type { MigrationDB, PieceRow } from './db.js'
 
 /**
- * Default target raw size for one assembled piece. 1016 MiB is the SDK's
- * per-piece cap; 1000 MiB leaves headroom for the multi-root CAR header and
+ * Default target raw size for one assembled piece. 1000 MiB sits under the 1016 MiB cap
+ * of synapse-core 0.10.0 and leaves headroom for the multi-root CAR header and
  * framing the bin-packing weight ignores.
  */
 export const DEFAULT_PACK_TARGET_BYTES = 1000n * 1024n * 1024n
 
-/** The SDK's per-piece upload cap (1016 MiB). */
+/** The SDK's per-piece upload cap: 1016 MiB in synapse-core 0.10.0, 64 GiB padded from 0.10.1. */
 export const MAX_UPLOAD_BYTES = SIZE_CONSTANTS.MAX_UPLOAD_SIZE
 
 /** The SDK's per-piece upload floor (127 bytes): a smaller piece is rejected at store time. */

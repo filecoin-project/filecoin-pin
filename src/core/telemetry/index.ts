@@ -30,6 +30,12 @@ const DEFAULT_AFFORDANCE: Affordance = 'Library'
 export interface TelemetryConfiguration {
   disabled: boolean
   affordance: Affordance
+  /**
+   * Who is driving the host, for console link attribution: an agent name
+   * (`claude`, `cursor`, `codex`), `human`, or `automation`. Undefined when
+   * the host has not determined it; the link then carries no `utm_content`.
+   */
+  driver?: string | undefined
 }
 
 interface MetricPoint {
@@ -71,6 +77,11 @@ export function configureTelemetry(overrides: Partial<TelemetryConfiguration>): 
     )
   }
   config = { ...config, ...overrides }
+}
+
+/** The current configuration, for other modules that tag by it (console links). */
+export function telemetryConfig(): Readonly<TelemetryConfiguration> {
+  return config
 }
 
 /**
