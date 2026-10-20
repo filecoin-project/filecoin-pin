@@ -14,9 +14,16 @@ import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-cor
 import pc from 'picocolors'
 import pino from 'pino'
 import { CliFatal, EXIT_CODE_INCOMPLETE, isCliFatal, isCliIncomplete } from '../common/cli-errors.js'
-import { ENCRYPTED_FILE_NAME, encryptPathWithPassword, resolvePassword } from '../common/encryption.js'
+import { ENCRYPTED_FILE_NAME, encryptPath } from '../common/encryption.js'
 import { assertUploadFunds, estimateInputBytes, rerunHint } from '../common/funds-preflight.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
+import {
+  newPieceKey,
+  OWNER_WALLET_REQUIRED,
+  type OwnerKeyspace,
+  ownerKeyspace,
+  ownerSigner,
+} from '../common/keyspace.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
 import {
   displayDryRunEstimate,
@@ -173,8 +180,6 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     const sizeDisplay = isDirectory ? '' : ` (${formatFileSize(pathStat.size)})`
     spinner.stop(`${pc.green('✓')} ${pathType} validated${sizeDisplay}`)
 
-    const password = options.encrypt ? await resolvePassword(options.passwordFile) : undefined
-
     // Fail fast on CAR-of-CAR before auth/payment checks run. Encrypted input is
     // packed as a file inside the payload, so a CAR file is valid input for --encrypt.
     if (!isDirectory && !options.encrypt) {
@@ -211,8 +216,22 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       printEgressNotice('beam')
     }
 
+    // The owner wallet signs for its keyspace before any data set is chosen: encrypted
+    // uploads land in data sets tagged with that keyspace, and a session key cannot sign.
+    let keyspace: OwnerKeyspace | undefined
+    if (options.encrypt) {
+      const signer = ownerSigner(synapse)
+      if (signer == null) {
+        throw new CliFatal(OWNER_WALLET_REQUIRED)
+      }
+      spinner.start('Deriving the encryption key from the owner wallet...')
+      keyspace = await ownerKeyspace(synapse, signer, logger)
+      spinner.stop(`${pc.green('✓')} Encryption key derived`)
+    }
+
     const targets = await resolveUploadTargets(synapse, contextSelection, {
       ...(dataSetMetadata != null && { dataSetMetadata }),
+      ...(keyspace != null && { requiredMetadata: keyspace.dataSetMetadata }),
       ...(options.copies != null && { copies: options.copies }),
       withCDN,
       spinner,
@@ -251,12 +270,12 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     }
 
     let packPath = options.filePath
-    if (password != null) {
+    if (keyspace != null) {
       encryptDir = await mkdtemp(join(tmpdir(), 'filecoin-pin-encrypt-'))
       process.once('SIGINT', onSigint)
       spinner.start(`Encrypting ${pathType.toLowerCase()}...`)
       packPath = join(encryptDir, ENCRYPTED_FILE_NAME)
-      const { plan } = await encryptPathWithPassword(options.filePath, packPath, password, {
+      const { plan } = await encryptPath(options.filePath, packPath, newPieceKey(keyspace.target), {
         ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }),
       })
       const skipped = plan.walk.skippedSymlinks.length
@@ -266,13 +285,13 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     }
 
     // Create CAR from file or directory. An envelope is always packed as a single file.
-    const packingMsg = isDirectory && password == null ? 'Packing directory for IPFS...' : 'Packing file for IPFS...'
+    const packingMsg = isDirectory && keyspace == null ? 'Packing directory for IPFS...' : 'Packing file for IPFS...'
     spinner.start(packingMsg)
 
     const { carPath, rootCid, name } = await createCarFromPath(packPath, {
       logger,
       spinner,
-      isDirectory: isDirectory && password == null,
+      isDirectory: isDirectory && keyspace == null,
       ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }),
     })
     tempCarPath = carPath
@@ -400,7 +419,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     )
     if (options.encrypt) {
       log.line('')
-      log.line(pc.yellow('Content is encrypted: the password is required to read it.'))
+      log.line(pc.yellow('Content is encrypted: only the owner wallet can read it.'))
       log.flush()
     }
 

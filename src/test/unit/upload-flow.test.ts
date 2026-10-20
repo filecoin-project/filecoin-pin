@@ -740,3 +740,46 @@ describe('resolveUploadTargets', () => {
     expect(targets).toEqual({ dataSetMetadata: { source: 'brand-new' } })
   })
 })
+
+describe('resolveUploadTargets with requiredMetadata', () => {
+  const base = { withCDN: false, spinner, logger }
+  const keyspace = { 'foc/ks': '0x00112233445566778899aabbccddeeff', 'foc/kc': 'v1.6982807649650e311e4c69af4ac90417' }
+  const keyspaceSet = (id: bigint, providerId: bigint) =>
+    pinSet({
+      pdpVerifierDataSetId: id,
+      providerId,
+      metadata: { withIPFSIndexing: '', source: 'filecoin-pin', ...keyspace },
+    })
+
+  it('reuses only the filecoin-pin data sets that carry the required metadata', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n }),
+      keyspaceSet(2n, 2n),
+      keyspaceSet(3n, 3n),
+    ])
+    const targets = await resolveUploadTargets(synapse, {}, { ...base, copies: 2, requiredMetadata: keyspace })
+    expect(targets).toEqual({ dataSetIds: [2n, 3n] })
+  })
+
+  it('creates new data sets with the required metadata when none carry it yet', async () => {
+    const synapse = makeSynapse([pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n })])
+    const targets = await resolveUploadTargets(synapse, {}, { ...base, copies: 2, requiredMetadata: keyspace })
+    expect(targets).toEqual({ dataSetMetadata: keyspace })
+  })
+
+  it('creates new data sets when too few carry the required metadata', async () => {
+    const synapse = makeSynapse([keyspaceSet(2n, 2n)])
+    const targets = await resolveUploadTargets(synapse, {}, { ...base, copies: 2, requiredMetadata: keyspace })
+    expect(targets).toEqual({ dataSetMetadata: keyspace })
+  })
+
+  it('adds the required metadata to a --data-set-metadata filter', async () => {
+    const synapse = makeSynapse([])
+    const targets = await resolveUploadTargets(
+      synapse,
+      {},
+      { ...base, copies: 2, dataSetMetadata: { purpose: 'erc8004' }, requiredMetadata: keyspace }
+    )
+    expect(targets).toEqual({ dataSetMetadata: { purpose: 'erc8004', ...keyspace } })
+  })
+})

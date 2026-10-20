@@ -37,15 +37,19 @@ Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metad
 
 ## Encrypted Upload
 
-A file or directory uploaded with `filecoin-pin add --encrypt`. The input is packed as a UnixFS CAR (the same [unixfs-v1-2025](#unixfs-v1-2025-profile) DAG an unencrypted `add` would build, under an anonymous wrapping directory holding the input's own name) and that CAR is wrapped in a [Filecoin Encryption Envelope](https://github.com/filecoin-project/FIPs/pull/1294) (FEE) whose content key is derived from a password with PBKDF2-SHA256. The password comes from `--password-file`, `FILECOIN_PIN_PASSWORD`, or an interactive prompt. The envelope is packed as `encrypted.fee`, so the `name` [Metadata](#metadata) does not reveal the original filename; names, sizes and the plaintext [CIDs](#cid) exist only inside the ciphertext. Symlinks are skipped; hidden entries follow the same `--include-hidden` rule as an unencrypted `add`.
+A file or directory uploaded with `filecoin-pin add --encrypt`. The input is packed as a UnixFS CAR (the same [unixfs-v1-2025](#unixfs-v1-2025-profile) DAG an unencrypted `add` would build, under an anonymous wrapping directory holding the input's own name) and that CAR is wrapped in a [Filecoin Encryption Envelope](https://github.com/filecoin-project/FIPs/pull/1294) (FEE). The content key comes from [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983): the owner wallet (`PRIVATE_KEY`) signs once for its [Keyspace](#keyspace), and every upload gets its own key derived from that signature and a fresh random salt. Nothing is stored; the same wallet derives the key again to read the upload back. The envelope is packed as `encrypted.fee`, so the `name` [Metadata](#metadata) does not reveal the original filename; names, sizes and the plaintext [CIDs](#cid) exist only inside the ciphertext. Symlinks are skipped; hidden entries follow the same `--include-hidden` rule as an unencrypted `add`.
 
 Blocks inside the CAR are written metadata-first: every dag-pb node (breadth-first from the root), then every raw leaf in file order, each CID once. A reader that knows the root can therefore list the tree before the first data byte and map any file offset to a byte range of the envelope without an index, which is what lets `decrypt` run in one pass and a viewer seek inside a video by HTTP Range.
 
-The envelope's public `content_type` is `application/vnd.ipld.car`; decryptors reject any other. Its authenticated `appMetadata` records how to derive the key again from the password:
+The envelope's public `content_type` is `application/vnd.ipld.car`; decryptors reject any other. Its authenticated `appMetadata` is exactly what Keysmith's `pieceMetadata` emits, which is all a reader needs to derive the key again:
 
 ```json
-{ "kdf": "pbkdf2-sha256", "iterations": 600000, "salt": "<base64 of 16 random bytes>" }
+{ "foc/v": 1, "foc/own": "<owner wallet, lowercase>", "foc/ks": "<keyspace id>", "foc/salt": "<16 random bytes, hex>" }
 ```
+
+## Keyspace
+
+The root of a [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) key derivation tree: a random 16-byte id chosen at write time, bound to the owner wallet by one EIP-712 signature. Filecoin Pin uses one keyspace per wallet and records it on every [Data Set](#data-set) an [Encrypted Upload](#encrypted-upload) writes to, as `foc/ks` (the id) and `foc/kc` (a public commitment to the key, checked before the keyspace is reused). Encrypted uploads therefore land in their own data sets. The keyspace id is public; no key material goes on chain.
 
 ## FIL
 

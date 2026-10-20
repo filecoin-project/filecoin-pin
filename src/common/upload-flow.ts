@@ -172,16 +172,27 @@ export function pickDataSetsForReuse(dataSets: DataSetSummary[], count: number):
  */
 export async function resolveDefaultDataSetReuse(
   synapse: Synapse,
-  options: { expectedCopies: number; withCDN: boolean; spinner: Spinner; logger: Logger }
+  options: {
+    expectedCopies: number
+    withCDN: boolean
+    spinner: Spinner
+    logger: Logger
+    /** Extra metadata a reusable data set must carry, with these exact values. */
+    metadata?: Record<string, string>
+  }
 ): Promise<bigint[] | undefined> {
   const { expectedCopies, withCDN, spinner, logger } = options
 
   spinner.start('Checking for existing data sets...')
-  const resolution = await resolveDataSetIdsByMetadata(synapse, DEFAULT_DATA_SET_METADATA, {
-    expectedCopies,
-    logger,
-    ...(withCDN && { requiredKeys: [METADATA_KEYS.WITH_CDN] }),
-  })
+  const resolution = await resolveDataSetIdsByMetadata(
+    synapse,
+    { ...DEFAULT_DATA_SET_METADATA, ...options.metadata },
+    {
+      expectedCopies,
+      logger,
+      ...(withCDN && { requiredKeys: [METADATA_KEYS.WITH_CDN] }),
+    }
+  )
 
   if (resolution.kind === 'no-match') {
     spinner.stop(`${pc.gray('•')} No existing data sets to reuse; creating new ones`)
@@ -235,20 +246,35 @@ export async function resolveUploadTargets(
     withCDN: boolean
     spinner: Spinner
     logger: Logger
+    /**
+     * Metadata every target data set must carry (for example the keyspace of an
+     * encrypted upload). Narrows the default reuse and is written to any data set
+     * created, without turning on the strict `--data-set-metadata` matching.
+     */
+    requiredMetadata?: Record<string, string>
   }
 ): Promise<{ dataSetIds?: bigint[]; dataSetMetadata?: Record<string, string> }> {
-  const { dataSetMetadata, withCDN, spinner, logger } = options
+  const { withCDN, spinner, logger, requiredMetadata } = options
   const expectedCopies = options.copies ?? DEFAULT_COPIES
 
   if (contextSelection.dataSetIds != null || contextSelection.providerIds != null) {
-    return { ...(dataSetMetadata != null && { dataSetMetadata }) }
+    const carried = { ...options.dataSetMetadata, ...requiredMetadata }
+    return { ...(Object.keys(carried).length > 0 && { dataSetMetadata: carried }) }
   }
 
-  if (dataSetMetadata == null) {
-    const reuseIds = await resolveDefaultDataSetReuse(synapse, { expectedCopies, withCDN, spinner, logger })
-    return { ...(reuseIds != null && { dataSetIds: reuseIds }) }
+  if (options.dataSetMetadata == null) {
+    const reuseIds = await resolveDefaultDataSetReuse(synapse, {
+      expectedCopies,
+      withCDN,
+      spinner,
+      logger,
+      ...(requiredMetadata != null && { metadata: requiredMetadata }),
+    })
+    if (reuseIds != null) return { dataSetIds: reuseIds }
+    return { ...(requiredMetadata != null && { dataSetMetadata: requiredMetadata }) }
   }
 
+  const dataSetMetadata = { ...options.dataSetMetadata, ...requiredMetadata }
   spinner.start('Resolving data sets from --data-set-metadata...')
   const resolution = await resolveDataSetIdsByMetadata(synapse, dataSetMetadata, { expectedCopies, logger })
 

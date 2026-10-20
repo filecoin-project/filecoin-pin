@@ -3,18 +3,23 @@ import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { keyspaceKeys, writeTarget } from '@filoz/keysmith'
 import { CarBlockIterator, CarWriter } from '@ipld/car'
 import * as dagPb from '@ipld/dag-pb'
 import * as fee from 'filecoin-encryption-envelope'
 import { UnixFS } from 'ipfs-unixfs'
 import { CID } from 'multiformats/cid'
 import { sha256 } from 'multiformats/hashes/sha2'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { decryptToDirectory, derivePasswordKey, encryptPathWithPassword } from '../../common/encryption.js'
+import { privateKeyToAccount } from 'viem/accounts'
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { decryptToDirectory, encryptPath } from '../../common/encryption.js'
+import { newPieceKey, ownerKeyResolver, type PieceKey } from '../../common/keyspace.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, decodeVarint, RAW_CODEC } from '../../common/unixfs-car-layout.js'
 import { emitCarPayload, planCarPayload } from '../../common/unixfs-car-payload.js'
 
-const PASSWORD = 'correct horse battery staple'
+// Anvil development keys #0 and #1, as in Keysmith's pinned vectors.
+const OWNER = privateKeyToAccount('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80')
+const STRANGER = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d')
 const MiB = 1024 * 1024
 
 async function collect(gen: AsyncIterable<Uint8Array>): Promise<Buffer> {
@@ -28,6 +33,17 @@ describe('encrypted CAR payload', () => {
   let input: string
   let envelope: string
   let outDir: string
+  let pieceKey: () => PieceKey
+  const asOwner = () => ownerKeyResolver(OWNER)
+
+  beforeAll(async () => {
+    const { kk, descriptor } = await keyspaceKeys(OWNER, {
+      owner: OWNER.address,
+      keyspace: '0x00112233445566778899aabbccddeeff',
+    })
+    const target = writeTarget(descriptor, kk)
+    pieceKey = () => newPieceKey(target)
+  })
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'filecoin-pin-unixfs-car-'))
@@ -44,8 +60,8 @@ describe('encrypted CAR payload', () => {
     const content = randomBytes(2.5 * MiB)
     await writeFile(input, content)
 
-    await encryptPathWithPassword(input, envelope, PASSWORD)
-    const result = await decryptToDirectory(envelope, outDir, PASSWORD)
+    await encryptPath(input, envelope, pieceKey())
+    const result = await decryptToDirectory(envelope, outDir, asOwner())
 
     expect(result).toEqual({ files: 1, dirs: 0, bytes: content.length })
     expect((await readFile(join(outDir, 'input'))).equals(content)).toBe(true)
@@ -66,8 +82,8 @@ describe('encrypted CAR payload', () => {
     await writeFile(join(input, 'docs', 'empty.txt'), '')
     await symlink('/etc/passwd', join(input, 'docs', 'evil'))
 
-    const { plan } = await encryptPathWithPassword(input, envelope, PASSWORD)
-    const result = await decryptToDirectory(envelope, outDir, PASSWORD)
+    const { plan } = await encryptPath(input, envelope, pieceKey())
+    const result = await decryptToDirectory(envelope, outDir, asOwner())
 
     expect(plan.walk.skippedSymlinks).toEqual(['input/docs/evil'])
     expect(result.files).toBe(4)
@@ -100,8 +116,8 @@ describe('encrypted CAR payload', () => {
     expect(plan.layout.leaves).toHaveLength(2)
     expect(plan.layout.leaves[0]?.targets.map((t) => t.fileOffset)).toEqual([0, 2 * MiB, 3 * MiB])
 
-    await encryptPathWithPassword(input, envelope, PASSWORD)
-    await decryptToDirectory(envelope, outDir, PASSWORD)
+    await encryptPath(input, envelope, pieceKey())
+    await decryptToDirectory(envelope, outDir, asOwner())
     expect((await readFile(join(outDir, 'input'))).equals(content)).toBe(true)
   })
 
@@ -137,30 +153,52 @@ describe('encrypted CAR payload', () => {
     await expect(collect(emitCarPayload(plan))).rejects.toThrow(/changed during encryption/)
   })
 
-  it('rejects the wrong password and leaves nothing behind', async () => {
+  it('rejects another wallet and leaves nothing behind', async () => {
     await writeFile(input, randomBytes(MiB))
-    await encryptPathWithPassword(input, envelope, PASSWORD)
+    await encryptPath(input, envelope, pieceKey())
 
-    await expect(decryptToDirectory(envelope, outDir, 'wrong password')).rejects.toThrow(/wrong password/i)
+    await expect(decryptToDirectory(envelope, outDir, ownerKeyResolver(STRANGER))).rejects.toThrow(/belongs to/)
+    expect(existsSync(outDir)).toBe(false)
+  })
+
+  it('reports a modified file as such and leaves nothing behind', async () => {
+    await writeFile(input, randomBytes(MiB))
+    await encryptPath(input, envelope, pieceKey())
+    const bytes = await readFile(envelope)
+    bytes[bytes.length - 1] = (bytes[bytes.length - 1] ?? 0) ^ 0x01
+    await writeFile(envelope, bytes)
+
+    await expect(decryptToDirectory(envelope, outDir, asOwner())).rejects.toThrow(/modified/)
+    expect(existsSync(outDir)).toBe(false)
+  })
+
+  it('reports an envelope without Keysmith labels as not ours', async () => {
+    const { cek } = pieceKey()
+    const foreign = new Blob([randomBytes(1024)])
+      .stream()
+      .pipeThrough(fee.encrypt({ cek, appMetadata: { kdf: 'pbkdf2-sha256' }, contentType: CAR_CONTENT_TYPE }))
+    await writeFile(envelope, Buffer.from(await new Response(foreign).arrayBuffer()))
+
+    await expect(decryptToDirectory(envelope, outDir, asOwner())).rejects.toThrow(
+      'not encrypted by `filecoin-pin add --encrypt`'
+    )
     expect(existsSync(outDir)).toBe(false)
   })
 
   it('refuses an existing output directory', async () => {
     await writeFile(input, 'x')
-    await encryptPathWithPassword(input, envelope, PASSWORD)
+    await encryptPath(input, envelope, pieceKey())
     await mkdir(outDir)
 
-    await expect(decryptToDirectory(envelope, outDir, PASSWORD)).rejects.toThrow(/already exists/)
+    await expect(decryptToDirectory(envelope, outDir, asOwner())).rejects.toThrow(/already exists/)
   })
 
   it('rejects an envelope whose content type is not the CAR profile', async () => {
-    const salt = crypto.getRandomValues(new Uint8Array(16))
-    const cek = await derivePasswordKey(PASSWORD, salt, 600_000)
-    const appMetadata = { kdf: 'pbkdf2-sha256', iterations: 600_000, salt: Buffer.from(salt).toString('base64') }
+    const { cek, appMetadata } = pieceKey()
     const rawEnvelope = new Blob([randomBytes(1024)]).stream().pipeThrough(fee.encrypt({ cek, appMetadata }))
     await writeFile(envelope, Buffer.from(await new Response(rawEnvelope).arrayBuffer()))
 
-    await expect(decryptToDirectory(envelope, outDir, PASSWORD)).rejects.toThrow(
+    await expect(decryptToDirectory(envelope, outDir, asOwner())).rejects.toThrow(
       'not encrypted by `filecoin-pin add --encrypt`'
     )
     expect(existsSync(outDir)).toBe(false)
@@ -180,15 +218,13 @@ describe('encrypted CAR payload', () => {
     await writer.put({ cid: leaf, bytes: leafBytes })
     await writer.close()
     const car = await drain
-    const salt = crypto.getRandomValues(new Uint8Array(16))
-    const cek = await derivePasswordKey(PASSWORD, salt, 600_000)
-    const appMetadata = { kdf: 'pbkdf2-sha256', iterations: 600_000, salt: Buffer.from(salt).toString('base64') }
+    const { cek, appMetadata } = pieceKey()
     const hostile = new Blob([new Uint8Array(car)])
       .stream()
       .pipeThrough(fee.encrypt({ cek, appMetadata, contentType: CAR_CONTENT_TYPE }))
     await writeFile(envelope, Buffer.from(await new Response(hostile).arrayBuffer()))
 
-    await expect(decryptToDirectory(envelope, outDir, PASSWORD)).rejects.toThrow(/unsafe entry name/)
+    await expect(decryptToDirectory(envelope, outDir, asOwner())).rejects.toThrow(/unsafe entry name/)
     expect(existsSync(outDir)).toBe(false)
     expect(existsSync(join(dir, 'escape'))).toBe(false)
   })

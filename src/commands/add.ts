@@ -1,4 +1,4 @@
-import { Command, Option } from 'commander'
+import { Command } from 'commander'
 import { runAddFromCli } from '../add/add.js'
 import { EXIT_CODE_INCOMPLETE, isCliIncomplete } from '../common/cli-errors.js'
 import {
@@ -20,10 +20,7 @@ export const addCommand = new Command('add')
   .option('--copies <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
   .option(
     '--encrypt',
-    'Encrypt the file or directory with a password before upload. The password comes from --password-file, FILECOIN_PIN_PASSWORD, or a prompt.'
-  )
-  .addOption(
-    new Option('--password-file <path>', 'Read the --encrypt password from this file').implies({ encrypt: true })
+    'Encrypt the file or directory before upload. The key is derived from the owner wallet (PRIVATE_KEY); only that wallet can read it back.'
   )
   .addHelpText(
     'after',
