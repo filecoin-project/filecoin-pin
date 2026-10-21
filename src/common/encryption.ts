@@ -14,7 +14,7 @@
 
 import { createReadStream, createWriteStream, readdirSync, rmSync } from 'node:fs'
 import { mkdir, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { CarIndexedReader } from '@ipld/car'
 import * as dagPb from '@ipld/dag-pb'
@@ -95,7 +95,10 @@ async function openEnvelope(
     const stream = Readable.toWeb(createReadStream(inputPath)) as ReadableStream<Uint8Array>
     return { stream, close: () => Promise.resolve() }
   }
-  const reader = await CarIndexedReader.fromFile(inputPath)
+  // Indexing reads every block, so a partial download fails here with a parser error.
+  const reader = await CarIndexedReader.fromFile(inputPath).catch((error) => {
+    throw new Error(TRUNCATED, { cause: error })
+  })
   const [root] = await reader.getRoots()
   if (root == null) {
     await reader.close()
@@ -116,9 +119,13 @@ export async function* unixfsFileBytes(
   blocks: { get(cid: CID): Promise<{ bytes: Uint8Array } | undefined> },
   cid: CID
 ): AsyncGenerator<Uint8Array> {
-  const block = await blocks.get(cid)
+  // The index is built from block lengths, so a cut block only fails when its bytes are read.
+  const block = await blocks.get(cid).catch((error) => {
+    throw new Error(TRUNCATED, { cause: error })
+  })
   if (block == null) {
-    throw new Error(`block ${cid} is missing from the CAR`)
+    // A gateway CAR carries every block of the file, so a missing one means it was cut short.
+    throw new Error(TRUNCATED)
   }
   if (cid.code === RAW_CODEC) {
     yield block.bytes
@@ -161,6 +168,9 @@ export async function checkDecryptPaths(inputPath: string, outDir: string): Prom
   }
   const out = await exists(outDir)
   if (out == null) {
+    if ((await exists(dirname(outDir))) == null) {
+      throw new Error(`Parent directory not found: ${dirname(outDir)}`)
+    }
     return { outExists: false }
   }
   if (!out.isDirectory()) {

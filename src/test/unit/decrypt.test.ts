@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, writeFileSync } from 'node:fs'
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -67,6 +67,14 @@ describe('runDecrypt', () => {
     vi.restoreAllMocks()
     await rm(dir, { recursive: true, force: true })
   })
+
+  // The CAR a gateway serves for `path`, moved into the test directory so nothing stays in $TMPDIR.
+  async function outerCar(path: string): Promise<string> {
+    const { carPath } = await createCarFromPath(path, {})
+    const carInput = join(dir, 'download.car')
+    await rename(carPath, carInput)
+    return carInput
+  }
 
   it('restores the file under its original name for the owner wallet', async () => {
     await runDecrypt(encryptedPath, outputDir, asOwner)
@@ -164,10 +172,7 @@ describe('runDecrypt', () => {
   })
 
   it('accepts the outer CAR a gateway serves for the upload', async () => {
-    const { carPath } = await createCarFromPath(encryptedPath, {})
-    const carInput = join(dir, 'download.car')
-    await rm(carInput, { force: true })
-    await (await import('node:fs/promises')).rename(carPath, carInput)
+    const carInput = await outerCar(encryptedPath)
 
     await runDecrypt(carInput, outputDir, asOwner)
 
@@ -190,6 +195,25 @@ describe('runDecrypt', () => {
 
     await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toThrow(/incomplete/)
     expect(existsSync(outputDir)).toBe(false)
+  })
+
+  it.each([
+    ['a few bytes short', 50],
+    ['cut in half', 32 * 1024],
+  ])('reports an outer CAR %s as an incomplete download', async (_case, missing) => {
+    const carInput = await outerCar(encryptedPath)
+    const bytes = await readFile(carInput)
+    await writeFile(carInput, bytes.subarray(0, bytes.length - missing))
+
+    await expect(runDecrypt(carInput, outputDir, asOwner)).rejects.toThrow(/incomplete/)
+    expect(existsSync(outputDir)).toBe(false)
+  })
+
+  it('reports a missing parent of the output directory', async () => {
+    const nested = join(dir, 'missing', 'out')
+
+    await expect(runDecrypt(encryptedPath, nested, asOwner)).rejects.toThrow(/Parent directory not found/)
+    expect(existsSync(join(dir, 'missing'))).toBe(false)
   })
 
   it('decrypts the checked-in golden envelope with the Anvil owner key', async () => {
@@ -288,8 +312,7 @@ describe('runDecrypt', () => {
     // 1.5 MiB splits into two UnixFS leaves, so a prefetching walker would read both.
     await writeFile(plainPath, randomBytes(1.5 * 1024 * 1024))
     await encryptPath(plainPath, encryptedPath, pieceKey())
-    const { carPath } = await createCarFromPath(encryptedPath, {})
-    const reader = await CarIndexedReader.fromFile(carPath)
+    const reader = await CarIndexedReader.fromFile(await outerCar(encryptedPath))
     let reads = 0
     const counting = {
       get: async (cid: CID) => {
@@ -312,10 +335,10 @@ describe('runDecrypt', () => {
   it('rejects an outer CAR whose root is a directory', async () => {
     const wrapped = join(dir, 'wrapped')
     await mkdir(wrapped)
-    await (await import('node:fs/promises')).copyFile(encryptedPath, join(wrapped, 'encrypted.fee'))
-    const { carPath } = await createCarFromPath(wrapped, {})
+    await copyFile(encryptedPath, join(wrapped, 'encrypted.fee'))
+    const carInput = await outerCar(wrapped)
 
-    await expect(runDecrypt(carPath, outputDir, asOwner)).rejects.toThrow(
+    await expect(runDecrypt(carInput, outputDir, asOwner)).rejects.toThrow(
       'not encrypted by `filecoin-pin add --encrypt`'
     )
     expect(existsSync(outputDir)).toBe(false)
@@ -324,12 +347,11 @@ describe('runDecrypt', () => {
   it('rejects a link to a block the CAR does not carry', async () => {
     await writeFile(plainPath, randomBytes(1.5 * 1024 * 1024))
     await encryptPath(plainPath, encryptedPath, pieceKey())
-    const { carPath } = await createCarFromPath(encryptedPath, {})
-    const reader = await CarIndexedReader.fromFile(carPath)
+    const reader = await CarIndexedReader.fromFile(await outerCar(encryptedPath))
     const [root] = await reader.getRoots()
     const rootOnly = { get: async (cid: CID) => (cid.equals(root as CID) ? reader.get(cid) : undefined) }
 
-    await expect(drain(unixfsFileBytes(rootOnly, root as CID))).rejects.toThrow(/missing from the CAR/)
+    await expect(drain(unixfsFileBytes(rootOnly, root as CID))).rejects.toThrow(/incomplete/)
     await reader.close()
   })
 
