@@ -18,16 +18,17 @@ export function resolveConsoleUrl(): string {
 }
 
 /**
- * Append `utm_source/medium/campaign[/content]` so the console's analytics
+ * Append `utm_source/medium/term[/content]` so the console's analytics
  * can attribute the visit (affordance, flow, human vs which agent). Returns
- * `url` unchanged when telemetry is disabled.
+ * `url` unchanged when telemetry is disabled. `utm_campaign` is left for
+ * marketing campaign names.
  */
-function withUtm(url: string, campaign: 'login' | 'fund' | 'revoke' | 'dashboard'): string {
+function withUtm(url: string, flow: 'login' | 'fund' | 'revoke' | 'dashboard'): string {
   const { disabled, affordance, driver } = telemetryConfig()
   if (disabled) return url
   const medium = affordance.toLowerCase().replace(/ /g, '-')
   const content = driver === undefined ? '' : `&utm_content=${encodeURIComponent(driver)}`
-  return `${url}${url.includes('?') ? '&' : '?'}utm_source=filecoin-pin&utm_medium=${medium}&utm_campaign=${campaign}${content}`
+  return `${url}${url.includes('?') ? '&' : '?'}utm_source=filecoin-pin&utm_medium=${medium}&utm_term=${flow}${content}`
 }
 
 /** Console network slug by chain id; the console validates and guards on it. */
