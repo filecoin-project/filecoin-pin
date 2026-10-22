@@ -29,8 +29,9 @@ import {
   defaultDirectUploadDeps,
   runDirectUpload,
 } from './direct-upload.js'
+import { failureCategoryOf, StagingError } from './gateway.js'
 import { type BinBuilder, runPackCars } from './pack-cars.js'
-import { categoryOf, type StagedMember, stageMember, VerifyCarError, type VerifyCarOptions } from './verify-car.js'
+import { type StagedMember, stageMember, type VerifyCarOptions } from './verify-car.js'
 
 export interface MigrateRunOptions {
   synapse: Synapse
@@ -426,7 +427,7 @@ export async function runMigrate(
                 budget.add(delta)
                 written += delta
                 if (budget.used > budget.hardCap) {
-                  throw new VerifyCarError(
+                  throw new StagingError(
                     `staging budget exhausted while downloading ${cid}; retrying once space frees`,
                     'staging_budget'
                   )
@@ -440,7 +441,7 @@ export async function runMigrate(
             } catch (err) {
               // The temp file is gone either way; return its bytes.
               budget.free(written)
-              if (categoryOf(err) === 'staging_budget') {
+              if (failureCategoryOf(err) === 'staging_budget') {
                 // A member whose own bytes overran the hard cap can never
                 // fit no matter how much eviction frees; retrying would spin
                 // on the same download forever.
@@ -456,7 +457,7 @@ export async function runMigrate(
                 continue
               }
               const message = err instanceof Error ? err.message : String(err)
-              db.recordPieceFailure(cid, message, categoryOf(err))
+              db.recordPieceFailure(cid, message, failureCategoryOf(err))
               break
             } finally {
               inFlightDownloads--
