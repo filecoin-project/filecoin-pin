@@ -76,6 +76,16 @@ export async function encryptPath(
 
 const NOT_OURS = 'This file was not encrypted by `filecoin-pin add --encrypt`'
 const TRUNCATED = 'The file is incomplete (the download was probably interrupted); fetch it again'
+const MALFORMED =
+  'The decrypted upload is malformed or unsafe to unpack (for example an entry name that escapes the output directory)'
+
+/** A decrypt failure whose message names nothing from inside the envelope. */
+class DecryptError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'DecryptError'
+  }
+}
 
 /**
  * The envelope bytes of a downloaded upload. A gateway's `/ipfs/<cid>?format=car` hands out the
@@ -97,12 +107,12 @@ async function openEnvelope(
   }
   // Indexing reads every block, so a partial download fails here with a parser error.
   const reader = await CarIndexedReader.fromFile(inputPath).catch((error) => {
-    throw new Error(TRUNCATED, { cause: error })
+    throw new DecryptError(TRUNCATED, { cause: error })
   })
   const [root] = await reader.getRoots()
   if (root == null) {
     await reader.close()
-    throw new Error(NOT_OURS)
+    throw new DecryptError(NOT_OURS)
   }
   return {
     stream: Readable.toWeb(Readable.from(unixfsFileBytes(reader, root))) as ReadableStream<Uint8Array>,
@@ -121,23 +131,29 @@ export async function* unixfsFileBytes(
 ): AsyncGenerator<Uint8Array> {
   // The index is built from block lengths, so a cut block only fails when its bytes are read.
   const block = await blocks.get(cid).catch((error) => {
-    throw new Error(TRUNCATED, { cause: error })
+    throw new DecryptError(TRUNCATED, { cause: error })
   })
   if (block == null) {
     // A gateway CAR carries every block of the file, so a missing one means it was cut short.
-    throw new Error(TRUNCATED)
+    throw new DecryptError(TRUNCATED)
   }
   if (cid.code === RAW_CODEC) {
     yield block.bytes
     return
   }
   if (cid.code !== DAG_PB_CODEC) {
-    throw new Error(NOT_OURS)
+    throw new DecryptError(NOT_OURS)
   }
-  const node = dagPb.decode(block.bytes)
-  const unixfs = node.Data == null ? undefined : UnixFS.unmarshal(node.Data)
+  let node: dagPb.PBNode
+  let unixfs: UnixFS | undefined
+  try {
+    node = dagPb.decode(block.bytes)
+    unixfs = node.Data == null ? undefined : UnixFS.unmarshal(node.Data)
+  } catch (error) {
+    throw new DecryptError(NOT_OURS, { cause: error })
+  }
   if (unixfs == null || (unixfs.type !== 'file' && unixfs.type !== 'raw')) {
-    throw new Error(NOT_OURS)
+    throw new DecryptError(NOT_OURS)
   }
   if (unixfs.data != null && unixfs.data.length > 0) {
     yield unixfs.data
@@ -198,7 +214,8 @@ export function removeDecryptOutput(outDir: string, created: boolean): void {
  * which is created (owner-only) or must be empty, like `git clone`. `resolveKey`
  * is called with the envelope's labels and returns the piece key (see
  * `ownerKeyResolver`). On failure everything written is removed; a pre-existing
- * directory itself is kept.
+ * directory itself is kept. Errors raised past the path checks never carry a name or
+ * CID from inside the envelope.
  */
 export async function decryptToDirectory(
   inputPath: string,
@@ -224,18 +241,24 @@ export async function decryptToDirectory(
   } catch (error) {
     removeDecryptOutput(outDir, !outExists)
     if (error instanceof fee.errors.AuthenticationError) {
-      throw new Error('Wrong key, or the file was modified', { cause: error })
+      throw new DecryptError('Wrong key, or the file was modified', { cause: error })
     }
     if (error instanceof fee.errors.InvalidCiphertextLengthError) {
-      throw new Error(TRUNCATED, { cause: error })
+      throw new DecryptError(TRUNCATED, { cause: error })
     }
     if (error instanceof fee.errors.KeyResolutionError && error.cause instanceof NotOwnerError) {
-      throw new Error(error.cause.message, { cause: error })
+      throw new DecryptError(error.cause.message, { cause: error })
     }
     if (error instanceof fee.errors.KeyResolutionError || error instanceof fee.errors.MalformedEnvelopeError) {
-      throw new Error(NOT_OURS, { cause: error })
+      throw new DecryptError(NOT_OURS, { cause: error })
     }
-    throw error
+    if (error instanceof DecryptError || error instanceof fee.errors.EnvelopeError) {
+      throw error
+    }
+    // Anything else came from unpacking the plaintext, so its message may hold an entry name
+    // or a CID from inside the envelope: keep only the errno code (ENOSPC, EACCES, ...).
+    const code = (error as NodeJS.ErrnoException | null)?.code
+    throw new DecryptError(typeof code === 'string' ? `Decryption failed: ${code}` : MALFORMED, { cause: error })
   } finally {
     await envelope?.close()
   }

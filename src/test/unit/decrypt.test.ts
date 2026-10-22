@@ -366,6 +366,13 @@ describe('runDecrypt', () => {
     await expect(drain(unixfsFileBytes(source, cbor))).rejects.toThrow('not encrypted by `filecoin-pin add --encrypt`')
   })
 
+  it('reports an outer CAR whose root block does not decode as not ours', async () => {
+    const root = CID.parse('bafybeifi5o5cikl37er2zmvmbwgcsoh5df7q2q4soo6iwvlit7nstujohm')
+    const source = { get: async () => ({ bytes: new Uint8Array([0xff, 0xff, 0xff]) }) }
+
+    await expect(drain(unixfsFileBytes(source, root))).rejects.toThrow('not encrypted by `filecoin-pin add --encrypt`')
+  })
+
   it('reports an input path that is a directory', async () => {
     await expect(runDecrypt(dir, outputDir, asOwner)).rejects.toThrow(/Input path is a directory/)
     expect(existsSync(outputDir)).toBe(false)
