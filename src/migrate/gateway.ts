@@ -44,14 +44,17 @@ const TIMEOUT_CODES = new Set([
   'UND_ERR_BODY_TIMEOUT',
 ])
 
-type Causal = { name?: string; code?: string; message?: string; cause?: unknown }
+type Causal = { name?: string; code?: string; message?: string; cause?: unknown; errors?: unknown[] }
 
-/** The error and its `cause` chain, outermost first; stops on a cycle. */
-function* causes(err: unknown): Generator<Causal> {
-  const seen = new Set<unknown>()
+/**
+ * The error, its `cause` chain, and the members of any AggregateError (dual-stack
+ * connects fail that way), outermost first; stops on a cycle.
+ */
+function* causes(err: unknown, seen = new Set<unknown>()): Generator<Causal> {
   for (let cur = err; cur != null && !seen.has(cur); cur = (cur as Causal).cause) {
     seen.add(cur)
     yield cur as Causal
+    for (const member of (cur as Causal).errors ?? []) yield* causes(member, seen)
   }
 }
 
@@ -75,7 +78,7 @@ export function rootCause(err: unknown): string {
   for (const cur of causes(err)) last = cur
   if (typeof last !== 'object' || last == null) return String(last)
   const { code, message } = last as Causal
-  return code ?? message ?? String(last)
+  return code || message || String(last)
 }
 
 function discardBody(res: Response): void {
