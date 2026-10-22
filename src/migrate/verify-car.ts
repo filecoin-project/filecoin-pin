@@ -56,9 +56,13 @@ const CODECS: Record<number, { code: number; decode(bytes: Uint8Array): unknown 
   [json.code]: json,
 }
 
-/** Exact key: the multihash bytes, so CIDv0/v1 forms of a block collapse. */
+/**
+ * Codec plus multihash bytes: CIDv0 and CIDv1 forms of a block collapse
+ * (v0 is always dag-pb), while the same bytes under two codecs stay apart,
+ * because their links were decoded differently.
+ */
 function blockKey(cid: CID): string {
-  return base64.encode(cid.multihash.bytes)
+  return `${cid.code}:${base64.encode(cid.multihash.bytes)}`
 }
 
 async function digestMatches(cid: CID, bytes: Uint8Array): Promise<boolean> {
@@ -77,7 +81,15 @@ function linksOf(cid: CID, bytes: Uint8Array): CID[] {
   if (codec == null) {
     throw new StagingError(`no codec for 0x${cid.code.toString(16)} in block ${cid}`, 'unsupported_block')
   }
-  const block = createUnsafe({ cid, bytes, codec }) as BlockView
+  let block: BlockView
+  try {
+    block = createUnsafe({ cid, bytes, codec }) as BlockView
+  } catch (err) {
+    // The bytes are hash-verified, so this is the content, not the gateway.
+    throw new StagingError(`block ${cid} does not decode as codec 0x${cid.code.toString(16)}`, 'unsupported_block', {
+      cause: err,
+    })
+  }
   return Array.from(block.links(), ([, linked]) => linked as CID)
 }
 
@@ -97,7 +109,8 @@ export interface VerifyCarOptions {
    * Called with each chunk's byte length before the chunk is hashed or
    * written. Throwing drops that chunk and aborts the verification with that
    * error: the disk-budget gate uses this to cut off a download that would
-   * overrun the staging budget.
+   * overrun the staging budget. `stageMember` refunds a failed attempt's
+   * bytes with one negative call before trying the next gateway.
    */
   onBytes?: ((delta: number) => void) | undefined
 }
@@ -110,10 +123,9 @@ interface CarSink {
 /**
  * Stream a CAR through the piece hasher, a sha256 tap, block verification,
  * and the sink in one pass, then walk the DAG from `root` and reject any
- * reachable link the CAR does not contain. `root` is matched against the
- * declared roots by multihash, because the trustless-gateway spec lets a
- * CIDv0 request be answered with the CIDv1 root; the codec check in the walk
- * rejects a relabeled root.
+ * reachable link the CAR does not contain. Blocks are keyed by codec and
+ * multihash, so a CIDv0 request matches its CIDv1 (dag-pb) root while a block
+ * relabeled under another codec counts as missing.
  */
 export async function verifyCarStream(
   body: ReadableStream<Uint8Array>,
@@ -157,12 +169,11 @@ export async function verifyCarStream(
   }
 
   /**
-   * Present blocks and their outgoing links, keyed by multihash bytes. The
-   * codec the CAR entry declared is kept alongside: links were decoded with
-   * it, so a walk that reaches the same multihash under a different codec
-   * must not trust them (see the codec check below).
+   * Present blocks and their outgoing links. The key carries the codec, so a
+   * gateway relabeling the root bytes as `raw` (no links) cannot satisfy a
+   * dag-cbor link and pass the walk on a truncated DAG.
    */
-  const present = new Map<string, { code: number; links: CID[] }>()
+  const present = new Map<string, CID[]>()
   let blockCount = 0
 
   // The decoder pulls the tap but never returns it, so a failure anywhere
@@ -170,6 +181,10 @@ export async function verifyCarStream(
   const chunks = tap()
   try {
     const reader = await CarBlockIterator.fromIterable(chunks)
+    // A CARv2 wrapper would leave its trailing index unread and un-hashed.
+    if (reader.version !== 1) {
+      throw new StagingError(`gateway served CARv${reader.version}; only CARv1 is accepted`, 'other')
+    }
     // The header is parsed by now. Reject a response for the wrong DAG before
     // spending bandwidth on its blocks.
     const rootKey = blockKey(root)
@@ -185,13 +200,13 @@ export async function verifyCarStream(
       if (!(await digestMatches(cid, block.bytes))) {
         throw new StagingError(`block ${cid.toString()} does not match its multihash`, 'car_block_mismatch')
       }
-      present.set(blockKey(cid), { code: cid.code, links: linksOf(cid, block.bytes) })
+      present.set(blockKey(cid), linksOf(cid, block.bytes))
       blockCount++
     }
   } catch (err) {
     if (tapError != null) throw tapError
     if (err instanceof StagingError) throw err
-    // The decoder ran out of bytes mid-block: a response cut off by the gateway.
+    // The CAR decoder ran out of bytes mid-block: a response cut off by the gateway.
     throw new StagingError(`CAR decode failed: ${rootCause(err)}`, 'car_incomplete', { cause: err })
   } finally {
     await (chunks as AsyncGenerator<Uint8Array>).return(undefined)
@@ -210,28 +225,17 @@ export async function verifyCarStream(
     if (cid.multihash.code === identity.code) {
       // Identity blocks carry their bytes in the digest and are not written
       // to the CAR; their links still count toward completeness.
-      stack.push(...linksOf(cid, cid.multihash.digest))
+      for (const link of linksOf(cid, cid.multihash.digest)) stack.push(link)
       continue
     }
-    const entry = present.get(key)
-    if (entry == null) {
+    const links = present.get(key)
+    if (links == null) {
       throw new StagingError(
         `CAR is incomplete: block ${cid.toString()} is reachable from the root but missing`,
         'car_incomplete'
       )
     }
-    // A block that arrived under a different codec than the walk reached it
-    // by had its links decoded with the wrong decoder. Accepting it would
-    // let a gateway relabel the root bytes as `raw` (no links) and pass the
-    // completeness walk on a truncated DAG.
-    if (entry.code !== cid.code) {
-      throw new StagingError(
-        `block ${cid.toString()} arrived with codec 0x${entry.code.toString(16)} but is referenced ` +
-          `with codec 0x${cid.code.toString(16)}`,
-        'car_block_mismatch'
-      )
-    }
-    stack.push(...entry.links)
+    for (const link of links) stack.push(link)
   }
 
   return { pieceCid: pieceHasher.finalize().toString(), rawSize, sha256: sha.digest('hex'), blockCount }
@@ -245,12 +249,15 @@ export interface FileSink extends CarSink {
 /** File-backed sink for `verifyCarStream`. A write error fails the next write or `end()`. */
 export function createFileSink(filePath: string): FileSink {
   const stream = createWriteStream(filePath)
+  stream.on('error', () => undefined) // surfaced through `done` and `stream.errored`, never thrown twice
   const done = finished(stream)
-  done.catch(() => undefined) // observed by end(); a failure before then is not an unhandled rejection
+  done.catch(() => undefined) // observed by write() and end(); not an unhandled rejection before then
   return {
     async write(chunk) {
-      // `once` rejects on 'error', so a disk failure under backpressure cannot hang here.
-      if (!stream.write(chunk)) await once(stream, 'drain')
+      // An open or flush error destroys the stream silently; a later write would then
+      // return false with no 'drain' or second 'error' to come, so check and race `done`.
+      if (stream.errored != null) throw stream.errored
+      if (!stream.write(chunk)) await Promise.race([once(stream, 'drain'), done])
     },
     async end() {
       stream.end()
@@ -260,7 +267,7 @@ export function createFileSink(filePath: string): FileSink {
       // The open is async: unlinking before it completes would leave a fresh empty file behind.
       if (stream.closed) return
       stream.destroy()
-      await once(stream, 'close')
+      await new Promise<void>((resolve) => stream.once('close', resolve))
     },
   }
 }
@@ -309,10 +316,15 @@ export async function stageMember(
 
   for (const gateway of gateways) {
     let sink: FileSink | null = null
+    let attemptBytes = 0
+    const onBytes = (delta: number): void => {
+      attemptBytes += delta
+      opts.onBytes?.(delta)
+    }
     try {
       const { url, body } = await fetcher(gateway, cid)
       sink = createFileSink(tmpPath)
-      const verified = await verifyCarStream(body, root, sink, opts)
+      const verified = await verifyCarStream(body, root, sink, { onBytes })
       await rename(tmpPath, finalPath)
       return {
         cid,
@@ -328,6 +340,8 @@ export async function stageMember(
       await unlink(tmpPath).catch((e: NodeJS.ErrnoException) => {
         if (e.code !== 'ENOENT') log.warn(`could not remove ${tmpPath}: ${e.code ?? e.message}`)
       })
+      // The temp file is gone, so its bytes leave the caller's budget too.
+      if (attemptBytes > 0) opts.onBytes?.(-attemptBytes)
       if (!(err instanceof StagingError) || LOCAL_CATEGORIES.has(err.category)) throw err
       attempts.push({ gateway, error: err })
       log.warn(`${cid} via ${gateway} failed: ${err.message}`)

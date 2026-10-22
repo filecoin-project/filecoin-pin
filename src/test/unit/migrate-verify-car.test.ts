@@ -39,12 +39,17 @@ async function buildCar(roots: CID[], blocks: Array<{ cid: CID; bytes: Uint8Arra
   return bytes
 }
 
-/** Small fixed chunks so block framing crosses chunk boundaries. */
+/** Small fixed chunks, one per event-loop turn, so framing crosses chunk boundaries like a socket. */
 function streamOf(bytes: Uint8Array, chunkSize = 7): ReadableStream<Uint8Array> {
-  const chunks: Uint8Array[] = []
-  for (let i = 0; i < bytes.length; i += chunkSize) chunks.push(bytes.subarray(i, i + chunkSize))
-  const from = (ReadableStream as unknown as { from(it: Iterable<Uint8Array>): ReadableStream<Uint8Array> }).from
-  return from(chunks)
+  let offset = 0
+  return new ReadableStream({
+    async pull(controller) {
+      await new Promise((resolve) => setImmediate(resolve))
+      if (offset >= bytes.length) return controller.close()
+      controller.enqueue(bytes.subarray(offset, offset + chunkSize))
+      offset += chunkSize
+    },
+  })
 }
 
 /** A stream whose first read fails like a reset socket. */
@@ -164,6 +169,58 @@ describe('verifyCarStream', () => {
     })
   })
 
+  it('walks a multihash reached under two codecs separately', async () => {
+    // The same bytes linked as raw and as dag-cbor. Popping the raw link
+    // first must not mark the dag-cbor view visited, or its children are
+    // never checked and a truncated CAR passes.
+    const leaf = await rawBlock(9)
+    const midBytes = dagCbor.encode({ child: leaf.cid })
+    const midDigest = await sha256.digest(midBytes)
+    const midCbor = CID.createV1(dagCbor.code, midDigest)
+    const midRaw = CID.createV1(raw.code, midDigest)
+    // dfs pops the last link first: `a` (dag-cbor) is pushed first, `z` (raw) popped first.
+    const root = await cborBlock({ a: midCbor, z: midRaw })
+    const car = await buildCar([root.cid], [root, { cid: midCbor, bytes: midBytes }, { cid: midRaw, bytes: midBytes }])
+
+    await expect(verifyCarStream(streamOf(car), root.cid, memorySink().sink)).rejects.toMatchObject({
+      category: 'car_incomplete',
+    })
+  })
+
+  it('rejects a CARv2 response', async () => {
+    const leaf = await rawBlock(7)
+    const v1 = await buildCar([leaf.cid], [leaf])
+    // CARv2 pragma + header (no index) wrapping the v1 payload.
+    const pragma = new Uint8Array([0x0a, 0xa1, 0x67, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x02])
+    const header = new Uint8Array(40)
+    const view = new DataView(header.buffer)
+    view.setBigUint64(16, BigInt(pragma.length + 40), true) // dataOffset
+    view.setBigUint64(24, BigInt(v1.length), true) // dataSize
+    const car = toBuffer([pragma, header, v1])
+
+    await expect(verifyCarStream(streamOf(car), leaf.cid, memorySink().sink)).rejects.toMatchObject({
+      name: 'StagingError',
+      message: expect.stringMatching(/CARv2/),
+    })
+  })
+
+  it('treats a verified block that does not decode as unsupported, not as a gateway fault', async () => {
+    const bytes = new Uint8Array([0xff, 0xff, 0xff]) // not CBOR
+    const cid = CID.createV1(dagCbor.code, await sha256.digest(bytes))
+    const car = await buildCar([cid], [{ cid, bytes }])
+
+    await expect(verifyCarStream(streamOf(car), cid, memorySink().sink)).rejects.toMatchObject({
+      category: 'unsupported_block',
+    })
+
+    const inline = CID.createV1(dagCbor.code, identity.digest(bytes))
+    const root = await cborBlock({ via: inline })
+    const rootCar = await buildCar([root.cid], [root])
+    await expect(verifyCarStream(streamOf(rootCar), root.cid, memorySink().sink)).rejects.toMatchObject({
+      category: 'unsupported_block',
+    })
+  })
+
   it('refuses blocks it cannot verify or decode as unsupported', async () => {
     const bytes = new Uint8Array([1, 2, 3])
     const digest = await sha256.digest(bytes)
@@ -278,14 +335,15 @@ describe('stageMember', () => {
   it('rejects a truncated DAG whose root block is relabeled with a linkless codec', async () => {
     // Attack shape: the dag-cbor root's bytes served under a `raw` CID with
     // the same multihash, children omitted. Raw has no links, so a
-    // multihash-only completeness walk would accept the truncated DAG.
+    // multihash-only completeness walk would accept the truncated DAG; keyed
+    // by codec, the dag-cbor root is simply missing.
     const { root } = await linkedDag()
     const relabeled = { cid: CID.createV1(raw.code, root.cid.multihash), bytes: root.bytes }
     const car = await buildCar([root.cid], [relabeled])
 
     await expect(stageMember(root.cid.toString(), ['fake://gw'], dir, {}, serve(car))).rejects.toMatchObject({
-      category: 'car_block_mismatch',
-      message: expect.stringMatching(/codec/),
+      category: 'car_incomplete',
+      message: expect.stringMatching(/missing/),
     })
   })
 
@@ -314,6 +372,26 @@ describe('stageMember', () => {
 
     expect(asked).toEqual(['fake://down', 'fake://up'])
     expect(staged.gateway).toBe('fake://up')
+  })
+
+  it('refunds the bytes of a failed attempt before trying the next gateway', async () => {
+    const { root, leaf } = await linkedDag()
+    const car = await buildCar([root.cid], [root, leaf])
+    let counted = 0
+
+    const staged = await stageMember(
+      root.cid.toString(),
+      ['fake://truncating', 'fake://good'],
+      dir,
+      { onBytes: (n) => (counted += n) },
+      async (gateway) => ({
+        url: `${gateway}/x`,
+        body: streamOf(gateway === 'fake://truncating' ? car.subarray(0, car.length - 5) : car),
+      })
+    )
+
+    expect(staged.gateway).toBe('fake://good')
+    expect(counted).toBe(car.length)
   })
 
   it('reports the first specific category when every gateway fails', async () => {
@@ -365,6 +443,22 @@ describe('stageMember', () => {
     await expect(
       stageMember(leaf.cid.toString(), ['fake://gw'], join(dir, 'missing'), {}, serve(car))
     ).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('fails rather than hangs when the file cannot be opened and writes keep coming', async () => {
+    const { createFileSink } = await import('../../migrate/verify-car.js')
+    const sink = createFileSink(join(dir, 'missing', 'x.car'))
+    const chunk = new Uint8Array(64)
+    const writes = (async () => {
+      // The open fails asynchronously; later writes must surface it, not wait for `drain` forever.
+      for (let i = 0; i < 64; i++) {
+        await new Promise((resolve) => setImmediate(resolve))
+        await sink.write(chunk)
+      }
+      await sink.end()
+    })()
+    await expect(writes).rejects.toMatchObject({ code: 'ENOENT' })
+    await sink.destroy()
   })
 
   it('overwrites a temp file left by a crashed run', async () => {

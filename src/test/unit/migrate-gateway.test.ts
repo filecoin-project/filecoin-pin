@@ -123,6 +123,19 @@ describe('categoryForFetchError', () => {
       'source_gateway_timeout',
     ],
     ['connection refused', Object.assign(new Error('x'), { code: 'ECONNREFUSED' }), 'source_gateway_network'],
+    [
+      'dual-stack AggregateError with a timeout inside',
+      new TypeError('fetch failed', {
+        cause: new AggregateError(
+          [
+            Object.assign(new Error('v6'), { code: 'ENETUNREACH' }),
+            Object.assign(new Error('v4'), { code: 'ETIMEDOUT' }),
+          ],
+          ''
+        ),
+      }),
+      'source_gateway_timeout',
+    ],
     ['unknown error', new Error('whatever'), 'source_gateway_network'],
     ['non-error value', 'string', 'source_gateway_network'],
   ])('%s -> %s', (_label, err, category) => {
@@ -146,6 +159,11 @@ describe('rootCause', () => {
     ],
     ['the innermost message without a code', new Error('outer', { cause: new Error('inner') }), 'inner'],
     ['a bare error', new Error('alone'), 'alone'],
+    [
+      'the first sub-error of an empty-message AggregateError',
+      new AggregateError([Object.assign(new Error('v6'), { code: 'ENETUNREACH' })], ''),
+      'ENETUNREACH',
+    ],
     ['a non-error', 42, '42'],
   ])('reports %s', (_label, err, expected) => {
     expect(rootCause(err)).toBe(expected)
