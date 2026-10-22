@@ -21,10 +21,10 @@ import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import {
   newPieceKey,
   OWNER_WALLET_REQUIRED,
-  type OwnerKeyspace,
-  ownerKeyspace,
+  type OwnerGroupKey,
+  ownerGroupKey,
   ownerSigner,
-} from '../common/keyspace.js'
+} from '../common/group-key.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
 import {
   displayDryRunEstimate,
@@ -220,23 +220,23 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       printEgressNotice('beam')
     }
 
-    // The owner wallet signs for its keyspace before any data set is chosen: encrypted
-    // uploads land in data sets tagged with that keyspace, and a session key cannot sign.
-    let keyspace: OwnerKeyspace | undefined
+    // The owner wallet signs for its group key before any data set is chosen: encrypted
+    // uploads land in data sets tagged with that group key, and a session key cannot sign.
+    let groupKey: OwnerGroupKey | undefined
     if (options.encrypt) {
       const signer = ownerSigner(synapse)
       if (signer == null) {
         throw new CliFatal(OWNER_WALLET_REQUIRED)
       }
       spinner.start('Deriving the encryption key from the owner wallet...')
-      keyspace = await ownerKeyspace(synapse, signer, logger)
+      groupKey = await ownerGroupKey(synapse, signer, logger)
       spinner.stop(`${pc.green('✓')} Encryption key derived`)
     }
 
     // An encrypted upload requires its IPFS mode explicitly too, so explicit and
     // metadata-filtered targets are checked against it like reused ones.
     const requiredMetadata =
-      keyspace == null ? undefined : { ...keyspace.dataSetMetadata, ...(ipfsIndexing && IPFS_INDEXED_METADATA) }
+      groupKey == null ? undefined : { ...groupKey.dataSetMetadata, ...(ipfsIndexing && IPFS_INDEXED_METADATA) }
     const targets = await resolveUploadTargets(synapse, contextSelection, {
       ...(dataSetMetadata != null && { dataSetMetadata }),
       ...(requiredMetadata != null && { requiredMetadata }),
@@ -280,7 +280,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     }
 
     let packPath = options.filePath
-    if (keyspace != null) {
+    if (groupKey != null) {
       // Handlers first, then the directory: mkdtempSync creates it (0700, so the envelope and
       // outer CAR stay private) and assigns it within one tick, so no signal falls in between.
       for (const signal of cleanupSignals) process.once(signal, onSignal)
@@ -290,7 +290,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       const { plan } = await encryptPath(
         options.filePath,
         packPath,
-        newPieceKey(keyspace.target),
+        newPieceKey(groupKey.target),
         { ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }) },
         SIZE_CONSTANTS.MAX_UPLOAD_SIZE
       )
@@ -301,13 +301,13 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     }
 
     // Create CAR from file or directory. An envelope is always packed as a single file.
-    const packingMsg = isDirectory && keyspace == null ? 'Packing directory for IPFS...' : 'Packing file for IPFS...'
+    const packingMsg = isDirectory && groupKey == null ? 'Packing directory for IPFS...' : 'Packing file for IPFS...'
     spinner.start(packingMsg)
 
     const { carPath, rootCid, name } = await createCarFromPath(packPath, {
       logger,
       spinner,
-      isDirectory: isDirectory && keyspace == null,
+      isDirectory: isDirectory && groupKey == null,
       ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }),
       ...(encryptDir != null && { tempDir: encryptDir }),
     })

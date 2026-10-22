@@ -37,21 +37,25 @@ Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metad
 
 ## Encrypted Upload
 
-A file or directory uploaded with `filecoin-pin add --encrypt`. The input is packed as a UnixFS CAR (the same [unixfs-v1-2025](#unixfs-v1-2025-profile) DAG an unencrypted `add` would build, under an anonymous wrapping directory holding the input's own name) and that CAR is wrapped in a [Filecoin Encryption Envelope](https://github.com/filecoin-project/FIPs/pull/1294) (FEE). The content key comes from [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983): the owner wallet (`PRIVATE_KEY`) signs once for its [Keyspace](#keyspace), and every upload gets its own key derived from that signature and a fresh random salt. Nothing is stored; the same wallet derives the key again to read the upload back. The envelope is packed as `encrypted.fee`, so the `name` [Metadata](#metadata) does not reveal the original filename; names, sizes and the plaintext [CIDs](#cid) exist only inside the ciphertext. Symlinks are skipped; hidden entries follow the same `--include-hidden` rule as an unencrypted `add`.
+A file or directory uploaded with `filecoin-pin add --encrypt`. The input is packed as a UnixFS CAR (the same [unixfs-v1-2025](#unixfs-v1-2025-profile) DAG an unencrypted `add` would build, under an anonymous wrapping directory holding the input's own name) and that CAR is wrapped in a [Filecoin Encryption Envelope](https://github.com/filecoin-project/FIPs/pull/1294) (FEE). The content key comes from [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983): the owner wallet (`PRIVATE_KEY`) signs once for its [Group Key](#group-key), and every upload gets its own key derived from that signature and a fresh random salt. Nothing is stored; the same wallet derives the key again to read the upload back. The envelope is packed as `encrypted.fee`, so the `name` [Metadata](#metadata) does not reveal the original filename; names, sizes and the plaintext [CIDs](#cid) exist only inside the ciphertext. Symlinks are skipped; hidden entries follow the same `--include-hidden` rule as an unencrypted `add`.
 
 Blocks inside the CAR are written metadata-first: every dag-pb node (breadth-first from the root), then every raw leaf in file order, each CID once. A reader that knows the root can therefore list the tree before the first data byte and map any file offset to a byte range of the envelope without an index, which is what lets `decrypt` run in one pass and a viewer seek inside a video by HTTP Range.
 
 The envelope's public `content_type` is `application/vnd.ipld.car`; decryptors reject any other. Its authenticated `appMetadata` is exactly what Keysmith's `pieceMetadata` emits, which is all a reader needs to derive the key again:
 
 ```json
-{ "foc/v": 1, "foc/own": "<owner wallet, lowercase>", "foc/ks": "<keyspace id>", "foc/salt": "<16 random bytes, hex>" }
+{ "foc/v": 1, "foc/own": "<owner wallet, lowercase>", "foc/ks": "<group key id>", "foc/salt": "<16 random bytes, hex>" }
 ```
 
-## Keyspace
+## Group Key
 
-The root of a [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) key derivation tree: a random 16-byte id chosen at write time, bound to the owner wallet by one EIP-712 signature. Filecoin Pin records it on every [Data Set](#data-set) an [Encrypted Upload](#encrypted-upload) writes to, as `foc/ks` (the id) and `foc/kc` (a public commitment to the key, checked before the keyspace is reused), next to `foc/enc: "1"`, which marks the data set as encrypted and versions its rules. One keyspace usually spans multiple datasets: one per copy, plus any separate dataset the user wants to keep under the same keyspace. The keyspace id is public; no key material goes on chain.
+What [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) calls a *keyspace*: the root of a key derivation tree, named by a random 16-byte id chosen at write time and bound to the owner wallet by one EIP-712 signature. Filecoin Pin records it on every [Data Set](#data-set) an [Encrypted Upload](#encrypted-upload) writes to, as `foc/ks` (the id) and `foc/kc` (a public commitment to the key, checked before the group key is reused), next to `foc/enc: "1"`, which marks the data set as encrypted and versions its rules. The metadata keys keep Keysmith's names. One group key usually spans multiple data sets: one per copy, plus any separate data set the user wants under the same group key (for example for `--no-ipfs` uploads). The group key id is public; no key material goes on chain.
 
-An owner wallet can end up with several keyspaces. `add --encrypt` groups the wallet's live data sets by `foc/ks`, skips any group whose data sets disagree on `foc/kc` or are not `foc/enc: "1"`, and uses the group holding the oldest data set (lowest id). All copies of an upload go to that keyspace; a copy without a suitable data set gets a new one with the same `foc/ks` and `foc/kc`. A new keyspace is created only when no valid group exists, and it exists on chain from its first upload. Nothing is stored locally.
+An owner wallet can end up with several group keys. `add --encrypt` sorts the wallet's live data sets by `foc/ks`, skips any group key whose data sets disagree on `foc/kc` or are not `foc/enc: "1"`, and uses the group key holding the oldest data set (lowest id). All copies of an upload go to that group key; a copy without a suitable data set gets a new one with the same `foc/ks` and `foc/kc`. A new group key is created only when no valid one exists, and it exists on chain from its first upload. Nothing is stored locally.
+
+## Group
+
+What [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) calls a *scope*: a named part of a [Group Key](#group-key) with its own derived key, so access can be granted to some uploads without the whole group key. An upload in a group carries it in the envelope as `foc/scope` (Keysmith's label). `add --encrypt` does not put uploads in groups yet; every upload is under the group key itself. Not to be confused with session-key permission scopes (`login --scopes`).
 
 ## FIL
 

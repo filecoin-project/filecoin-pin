@@ -25,7 +25,7 @@ import { runAdd, runAddFromCli } from '../../add/add.js'
 import type { AddDryRunResult, AddResult } from '../../add/types.js'
 import { EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
 import { decryptToDirectory } from '../../common/encryption.js'
-import { ownerKeyResolver } from '../../common/keyspace.js'
+import { ownerKeyResolver } from '../../common/group-key.js'
 
 // Lets a test shrink the SDK's upload cap without big files; every other test sees the real one.
 const uploadCap = vi.hoisted(() => ({ max: undefined as number | undefined }))
@@ -692,7 +692,7 @@ describe('Add Command', () => {
     // The well-known Anvil development keys #0 and #1, as in Keysmith's pinned vectors.
     const OWNER = privateKeyToAccount('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80')
     const STRANGER = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d')
-    const VECTOR_KEYSPACE = '0x00112233445566778899aabbccddeeff'
+    const VECTOR_GROUP_KEY = '0x00112233445566778899aabbccddeeff'
     const VECTOR_COMMITMENT = 'v1.6982807649650e311e4c69af4ac90417'
     const auth = { privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url' }
 
@@ -712,7 +712,7 @@ describe('Add Command', () => {
         packed = { path, bytes: await readFile(path) }
         return original(path, options)
       })
-      // The owner wallet signs for the keyspace, so the client account must be a real signer.
+      // The owner wallet signs for the group key, so the client account must be a real signer.
       const { initializeSynapse } = await import('../../core/synapse/index.js')
       baseInit = vi.mocked(initializeSynapse).getMockImplementation() as typeof baseInit
       vi.mocked(initializeSynapse).mockImplementation(async (config: any, logger: any) => {
@@ -778,7 +778,7 @@ describe('Add Command', () => {
       })
     })
 
-    it('tags the data sets it writes to with foc/enc, the keyspace id and commitment', async () => {
+    it('tags the data sets it writes to with foc/enc, the group key id and commitment', async () => {
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { resolveUploadTargets } = await import('../../common/upload-flow.js')
@@ -794,67 +794,67 @@ describe('Add Command', () => {
       })
     })
 
-    const keyspaceSet = (dataSetId: bigint, metadata: Record<string, string>) => ({
+    const groupKeySet = (dataSetId: bigint, metadata: Record<string, string>) => ({
       dataSetId,
       isLive: true,
-      metadata: { 'foc/enc': '1', 'foc/ks': VECTOR_KEYSPACE, 'foc/kc': VECTOR_COMMITMENT, ...metadata },
+      metadata: { 'foc/enc': '1', 'foc/ks': VECTOR_GROUP_KEY, 'foc/kc': VECTOR_COMMITMENT, ...metadata },
     })
-    const OTHER_KEYSPACE = `0x${'ab'.repeat(16)}`
+    const OTHER_GROUP_KEY = `0x${'ab'.repeat(16)}`
 
-    it('reuses the keyspace an existing data set records, after checking its commitment', async () => {
-      mockListDataSets.mockResolvedValue([keyspaceSet(7n, {})])
+    it('reuses the group key an existing data set records, after checking its commitment', async () => {
+      mockListDataSets.mockResolvedValue([groupKeySet(7n, {})])
 
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-      expect(appMetadata?.['foc/ks']).toBe(VECTOR_KEYSPACE)
+      expect(appMetadata?.['foc/ks']).toBe(VECTOR_GROUP_KEY)
       const { resolveUploadTargets } = await import('../../common/upload-flow.js')
       expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]).toMatchObject({
-        requiredMetadata: { 'foc/ks': VECTOR_KEYSPACE, 'foc/kc': VECTOR_COMMITMENT },
+        requiredMetadata: { 'foc/ks': VECTOR_GROUP_KEY, 'foc/kc': VECTOR_COMMITMENT },
       })
     })
 
     it('stops when the recorded commitment does not match this wallet', async () => {
-      mockListDataSets.mockResolvedValue([keyspaceSet(7n, { 'foc/kc': `v1.${'0'.repeat(32)}` })])
+      mockListDataSets.mockResolvedValue([groupKeySet(7n, { 'foc/kc': `v1.${'0'.repeat(32)}` })])
 
       await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow(/commitment/)
       expect(packed).toBeUndefined()
     })
 
-    it('with two keyspaces, uses the one holding the oldest data set', async () => {
+    it('with two group keys, uses the one holding the oldest data set', async () => {
       mockListDataSets.mockResolvedValue([
-        keyspaceSet(9n, { 'foc/ks': OTHER_KEYSPACE, 'foc/kc': `v1.${'0'.repeat(32)}` }),
-        keyspaceSet(12n, {}),
-        keyspaceSet(3n, {}),
+        groupKeySet(9n, { 'foc/ks': OTHER_GROUP_KEY, 'foc/kc': `v1.${'0'.repeat(32)}` }),
+        groupKeySet(12n, {}),
+        groupKeySet(3n, {}),
       ])
 
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-      expect(appMetadata?.['foc/ks']).toBe(VECTOR_KEYSPACE)
+      expect(appMetadata?.['foc/ks']).toBe(VECTOR_GROUP_KEY)
     })
 
-    it('skips a keyspace whose data sets disagree on foc/kc, and uses the next oldest', async () => {
+    it('skips a group key whose data sets disagree on foc/kc, and uses the next oldest', async () => {
       mockListDataSets.mockResolvedValue([
-        keyspaceSet(2n, { 'foc/ks': OTHER_KEYSPACE }),
-        keyspaceSet(4n, { 'foc/ks': OTHER_KEYSPACE, 'foc/kc': `v1.${'0'.repeat(32)}` }),
-        keyspaceSet(8n, {}),
+        groupKeySet(2n, { 'foc/ks': OTHER_GROUP_KEY }),
+        groupKeySet(4n, { 'foc/ks': OTHER_GROUP_KEY, 'foc/kc': `v1.${'0'.repeat(32)}` }),
+        groupKeySet(8n, {}),
       ])
 
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-      expect(appMetadata?.['foc/ks']).toBe(VECTOR_KEYSPACE)
+      expect(appMetadata?.['foc/ks']).toBe(VECTOR_GROUP_KEY)
     })
 
-    it('creates a new keyspace when the only one recorded is not foc/enc "1"', async () => {
-      mockListDataSets.mockResolvedValue([keyspaceSet(7n, { 'foc/enc': '2' })])
+    it('creates a new group key when the only one recorded is not foc/enc "1"', async () => {
+      mockListDataSets.mockResolvedValue([groupKeySet(7n, { 'foc/enc': '2' })])
 
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
       expect(appMetadata?.['foc/ks']).toMatch(/^0x[0-9a-f]{32}$/)
-      expect(appMetadata?.['foc/ks']).not.toBe(VECTOR_KEYSPACE)
+      expect(appMetadata?.['foc/ks']).not.toBe(VECTOR_GROUP_KEY)
     })
 
     it('with --no-ipfs, targets data sets without withIPFSIndexing and skips the IPNI wait', async () => {
@@ -999,12 +999,12 @@ describe('Add Command', () => {
       expect(existsSync(join(restored, '.hidden'))).toBe(false)
     })
 
-    it('ignores a data set that is no longer live when choosing the keyspace', async () => {
+    it('ignores a data set that is no longer live when choosing the group key', async () => {
       const fixtures = [
         {
           dataSetId: 1n,
           isLive: false,
-          metadata: { ...keyspaceSet(1n, {}).metadata, 'foc/kc': `v1.${'0'.repeat(32)}` },
+          metadata: { ...groupKeySet(1n, {}).metadata, 'foc/kc': `v1.${'0'.repeat(32)}` },
         },
       ]
       mockListDataSets.mockImplementation(async (_synapse: unknown, opts?: { filter?: (d: any) => boolean }) =>
@@ -1014,7 +1014,7 @@ describe('Add Command', () => {
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-      expect(appMetadata?.['foc/ks']).not.toBe(VECTOR_KEYSPACE)
+      expect(appMetadata?.['foc/ks']).not.toBe(VECTOR_GROUP_KEY)
     })
 
     it('has no option that takes a password or a key on the command line', async () => {

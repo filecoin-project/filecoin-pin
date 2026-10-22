@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, truncate, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { keyspaceKeys, writeTarget } from '@filoz/keysmith'
+import { keyspaceKeys as deriveGroupKey, writeTarget } from '@filoz/keysmith'
 import { CarBlockIterator, CarWriter } from '@ipld/car'
 import * as dagPb from '@ipld/dag-pb'
 import * as fee from 'filecoin-encryption-envelope'
@@ -13,7 +13,7 @@ import { sha256 } from 'multiformats/hashes/sha2'
 import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { decryptToDirectory, encryptPath } from '../../common/encryption.js'
-import { newPieceKey, ownerKeyResolver, type PieceKey } from '../../common/keyspace.js'
+import { newPieceKey, ownerKeyResolver, type PieceKey } from '../../common/group-key.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, decodeVarint, RAW_CODEC } from '../../common/unixfs-car-layout.js'
 import { EncryptInputError, emitCarPayload, planCarPayload } from '../../common/unixfs-car-payload.js'
 import { insideDir } from '../../common/unixfs-car-unpack.js'
@@ -39,7 +39,7 @@ describe('encrypted CAR payload', () => {
   const asOwner = () => ownerKeyResolver(OWNER)
 
   beforeAll(async () => {
-    const { kk, descriptor } = await keyspaceKeys(OWNER, {
+    const { kk, descriptor } = await deriveGroupKey(OWNER, {
       owner: OWNER.address,
       keyspace: '0x00112233445566778899aabbccddeeff',
     })

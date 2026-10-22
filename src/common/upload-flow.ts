@@ -32,7 +32,7 @@ import { log } from '../utils/cli-logger.js'
 import { truncate } from '../utils/format.js'
 import { createSpinnerFlow } from '../utils/multi-operation-spinner.js'
 import { CliFatal } from './cli-errors.js'
-import { ENCRYPTED_DATA_SET_KEYS } from './keyspace.js'
+import { ENCRYPTED_DATA_SET_KEYS } from './group-key.js'
 
 /**
  * Find the metadata keys whose values differ across the candidate set.
@@ -244,7 +244,7 @@ export function uploadExcludedKeys(options: { encrypted: boolean; ipfsIndexing: 
 /**
  * Check that explicitly chosen data sets carry `required` and none of
  * `excludedKeys`, so `--data-set-id` cannot put an encrypted upload in a plain
- * or foreign-keyspace data set, or a `--no-ipfs` upload in an indexed one.
+ * or foreign-group-key data set, or a `--no-ipfs` upload in an indexed one.
  */
 async function assertExplicitDataSets(
   synapse: Synapse,
@@ -301,7 +301,7 @@ export async function resolveUploadTargets(
     spinner: Spinner
     logger: Logger
     /**
-     * Metadata every target data set must carry (for example the keyspace of an
+     * Metadata every target data set must carry (for example the group key of an
      * encrypted upload). Narrows the default reuse and is written to any data set
      * created, without turning on the strict `--data-set-metadata` matching.
      * Its presence marks the upload as encrypted.

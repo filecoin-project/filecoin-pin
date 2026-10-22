@@ -4,8 +4,8 @@
  * The input (a file or a directory) is packed as a metadata-first UnixFS CAR under an
  * anonymous wrapping directory (see `unixfs-car-layout.ts`) and that CAR is wrapped in a
  * Filecoin Encryption Envelope (FEE, draft FRC filecoin-project/FIPs#1294). The key and
- * the envelope's authenticated `appMetadata` come from Keysmith (see `keyspace.ts`): the
- * labels name the owner, the keyspace and the piece salt, which is all a reader needs to
+ * the envelope's authenticated `appMetadata` come from Keysmith (see `group-key.ts`): the
+ * labels name the owner, the group key and the piece salt, which is all a reader needs to
  * derive the key again from the owner wallet. The public `content_type` is
  * `application/vnd.ipld.car`.
  *
@@ -16,7 +16,7 @@ import { createReadStream, createWriteStream } from 'node:fs'
 import { mkdir, rm } from 'node:fs/promises'
 import { Readable, Writable } from 'node:stream'
 import * as fee from 'filecoin-encryption-envelope'
-import { NotOwnerError, type PieceKey } from './keyspace.js'
+import { NotOwnerError, type PieceKey } from './group-key.js'
 import { CAR_CONTENT_TYPE } from './unixfs-car-layout.js'
 import {
   type CarPayloadPlan,
