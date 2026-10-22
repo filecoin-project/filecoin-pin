@@ -12,19 +12,21 @@ import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 export async function runDecrypt(inputPath: string, outputDir: string, options: CLIAuthOptions): Promise<void> {
   intro(pc.bold('Filecoin Pin Decrypt'))
   const spinner = createSpinner()
-  // Ctrl-C: clack's spinner exits the process on SIGINT before any `finally` runs, which would
-  // leave partial plaintext behind. Registered before the spinner starts so it runs first.
+  // Ctrl-C, kill and a closed terminal: clack's spinner exits the process on SIGINT before any
+  // `finally` runs, which would leave partial plaintext behind. Registered before the spinner
+  // starts so they run first.
   let outExists = false
-  const onSigint = (): void => {
+  const onSignal = (): void => {
     removeDecryptOutput(outputDir, !outExists)
     process.exit(EXIT_CODE_INCOMPLETE)
   }
+  const cleanupSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
   try {
     // Before the handler is armed: it must never remove entries decrypt would have refused to touch.
     outExists = (await checkDecryptPaths(inputPath, outputDir)).outExists
     // The owner wallet signs offline for the group key the envelope names; no RPC is opened.
     const signer = ownerSignerFromAuth(options)
-    process.once('SIGINT', onSigint)
+    for (const signal of cleanupSignals) process.once(signal, onSignal)
     spinner.start('Decrypting...')
     const { files, dirs } = await decryptToDirectory(inputPath, outputDir, ownerKeyResolver(signer))
     const what = files === 1 && dirs === 0 ? '1 file' : `${files} file${files === 1 ? '' : 's'}`
@@ -41,6 +43,6 @@ export async function runDecrypt(inputPath: string, outputDir: string, options: 
     cancel('Decrypt failed')
     throw new CliFatal(message, { cause: error instanceof Error ? error : undefined })
   } finally {
-    process.off('SIGINT', onSigint)
+    for (const signal of cleanupSignals) process.off(signal, onSignal)
   }
 }

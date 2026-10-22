@@ -228,7 +228,11 @@ describe('runDecrypt', () => {
     expect(await readFile(join(outputDir, 'report', 'empty.bin'), 'utf8')).toBe('')
   })
 
-  it('removes what it wrote on Ctrl-C, keeps a pre-existing directory, and exits as incomplete', async () => {
+  it.each([
+    'SIGINT',
+    'SIGTERM',
+    'SIGHUP',
+  ] as const)('removes what it wrote on %s, keeps a pre-existing directory, and exits as incomplete', async (signal) => {
     // Simulate the real process: clack's handler exits, ours runs first because it was registered first.
     const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
       throw new CliIncomplete('exit')
@@ -239,7 +243,7 @@ describe('runDecrypt', () => {
       // Decrypt has written half a file by the time the signal lands.
       start: vi.fn(() => {
         writeFileSync(join(outputDir, 'partial.bin'), 'half-written plaintext')
-        process.emit('SIGINT')
+        process.emit(signal)
       }),
       stop: vi.fn(),
       message: vi.fn(),
@@ -251,7 +255,7 @@ describe('runDecrypt', () => {
     expect(exit).toHaveBeenCalledWith(EXIT_CODE_INCOMPLETE)
     expect(existsSync(join(outputDir, 'partial.bin'))).toBe(false)
     expect(existsSync(outputDir)).toBe(true)
-    expect(process.listenerCount('SIGINT')).toBe(0)
+    for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP']) expect(process.listenerCount(name)).toBe(0)
   })
 
   it('refuses a non-empty output directory before arming the Ctrl-C handler', async () => {
