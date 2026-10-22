@@ -974,6 +974,15 @@ describe('Add Command', () => {
       expect(vi.mocked(performUpload)).not.toHaveBeenCalled()
     })
 
+    it('says the encrypted envelope, not the input, was packed', async () => {
+      await runAdd({ ...auth, filePath: testDir, encrypt: true })
+
+      const { createSpinner } = await import('../../utils/cli-helpers.js')
+      const stops = vi.mocked(createSpinner).mock.results[0]?.value.stop.mock.calls.flat()
+      expect(stops).toContainEqual(expect.stringContaining('Encrypted envelope packed with root CID: '))
+      expect(stops).not.toContainEqual(expect.stringContaining('Directory packed'))
+    })
+
     it('builds the outer CAR inside the private temp dir', async () => {
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
