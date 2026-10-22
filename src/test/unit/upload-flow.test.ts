@@ -224,6 +224,28 @@ describe('performUpload', () => {
     expect(spinner.stop).toHaveBeenCalledWith(expect.stringContaining('Stored on provider 1'))
   })
 
+  it('passes ipfsIndexing down to executeUpload', async () => {
+    mocks.executeUpload.mockResolvedValueOnce({
+      pieceCid: 'bafkzcibtest123',
+      size: 4,
+      copies: [],
+      failedAttempts: [],
+      network: 'calibration',
+    })
+    const spinner = { start: vi.fn(), message: vi.fn(), stop: vi.fn(), clear: vi.fn() }
+
+    await performUpload({ chain: { id: 314159, name: 'calibration' } } as any, new Uint8Array([1]), TEST_CID, {
+      contextType: 'add',
+      fileSize: 1,
+      logger: createLogger({ logLevel: 'info' }),
+      spinner,
+      skipIpniVerification: true,
+      ipfsIndexing: false,
+    })
+
+    expect(mocks.executeUpload.mock.calls.at(-1)?.[3]).toMatchObject({ ipfsIndexing: false })
+  })
+
   it('deduplicates spinner updates for unchanged and clamped upload percentages', async () => {
     const spinner = {
       start: vi.fn(),
@@ -667,14 +689,20 @@ describe('resolveUploadTargets', () => {
 
   const base = { withCDN: false, spinner, logger }
 
-  it('leaves explicit targeting alone and carries the metadata through', async () => {
-    const synapse = makeSynapse([])
+  it('uses an explicit plain data set as given and carries the metadata through', async () => {
+    const synapse = makeSynapse([pinSet({ pdpVerifierDataSetId: 5n, providerId: 1n })])
     const targets = await resolveUploadTargets(
       synapse,
       { dataSetIds: [5n] },
       { ...base, dataSetMetadata: { purpose: 'erc8004' } }
     )
     expect(targets).toEqual({ dataSetMetadata: { purpose: 'erc8004' } })
+  })
+
+  it('does not resolve anything for explicit --provider-id', async () => {
+    const synapse = makeSynapse([])
+    const targets = await resolveUploadTargets(synapse, { providerIds: [5n] }, base)
+    expect(targets).toEqual({})
     expect(mocks.getPdpDataSets).not.toHaveBeenCalled()
   })
 
@@ -743,12 +771,16 @@ describe('resolveUploadTargets', () => {
 
 describe('resolveUploadTargets with requiredMetadata', () => {
   const base = { withCDN: false, spinner, logger }
-  const keyspace = { 'foc/ks': '0x00112233445566778899aabbccddeeff', 'foc/kc': 'v1.6982807649650e311e4c69af4ac90417' }
-  const keyspaceSet = (id: bigint, providerId: bigint) =>
+  const keyspace = {
+    'foc/enc': '1',
+    'foc/ks': '0x00112233445566778899aabbccddeeff',
+    'foc/kc': 'v1.6982807649650e311e4c69af4ac90417',
+  }
+  const keyspaceSet = (id: bigint, providerId: bigint, extra: Record<string, string> = { withIPFSIndexing: '' }) =>
     pinSet({
       pdpVerifierDataSetId: id,
       providerId,
-      metadata: { withIPFSIndexing: '', source: 'filecoin-pin', ...keyspace },
+      metadata: { source: 'filecoin-pin', ...extra, ...keyspace },
     })
 
   it('reuses only the filecoin-pin data sets that carry the required metadata', async () => {
@@ -761,13 +793,26 @@ describe('resolveUploadTargets with requiredMetadata', () => {
     expect(targets).toEqual({ dataSetIds: [2n, 3n] })
   })
 
+  it('does not reuse a data set of another keyspace', async () => {
+    const synapse = makeSynapse([
+      keyspaceSet(2n, 2n),
+      pinSet({
+        pdpVerifierDataSetId: 3n,
+        providerId: 3n,
+        metadata: { withIPFSIndexing: '', source: 'filecoin-pin', ...keyspace, 'foc/ks': `0x${'ff'.repeat(16)}` },
+      }),
+    ])
+    const targets = await resolveUploadTargets(synapse, {}, { ...base, copies: 2, requiredMetadata: keyspace })
+    expect(targets).toEqual({ dataSetMetadata: keyspace })
+  })
+
   it('creates new data sets with the required metadata when none carry it yet', async () => {
     const synapse = makeSynapse([pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n })])
     const targets = await resolveUploadTargets(synapse, {}, { ...base, copies: 2, requiredMetadata: keyspace })
     expect(targets).toEqual({ dataSetMetadata: keyspace })
   })
 
-  it('creates new data sets when too few carry the required metadata', async () => {
+  it('creates the missing copy with the same foc/enc, foc/ks and foc/kc when too few carry them', async () => {
     const synapse = makeSynapse([keyspaceSet(2n, 2n)])
     const targets = await resolveUploadTargets(synapse, {}, { ...base, copies: 2, requiredMetadata: keyspace })
     expect(targets).toEqual({ dataSetMetadata: keyspace })
@@ -781,5 +826,136 @@ describe('resolveUploadTargets with requiredMetadata', () => {
       { ...base, copies: 2, dataSetMetadata: { purpose: 'erc8004' }, requiredMetadata: keyspace }
     )
     expect(targets).toEqual({ dataSetMetadata: { purpose: 'erc8004', ...keyspace } })
+  })
+
+  it('with --no-ipfs, reuses only keyspace data sets without withIPFSIndexing, and creates them in the same keyspace', async () => {
+    const indexedOnly = makeSynapse([keyspaceSet(2n, 2n), keyspaceSet(3n, 3n)])
+    expect(
+      await resolveUploadTargets(
+        indexedOnly,
+        {},
+        { ...base, copies: 2, ipfsIndexing: false, requiredMetadata: keyspace }
+      )
+    ).toEqual({ dataSetMetadata: keyspace })
+
+    const mixed = makeSynapse([keyspaceSet(2n, 2n), keyspaceSet(4n, 4n, {}), keyspaceSet(5n, 5n, {})])
+    expect(
+      await resolveUploadTargets(mixed, {}, { ...base, copies: 2, ipfsIndexing: false, requiredMetadata: keyspace })
+    ).toEqual({ dataSetIds: [4n, 5n] })
+  })
+
+  it('refuses an explicit --data-set-id that is not encrypted or is in another keyspace', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n }),
+      pinSet({
+        pdpVerifierDataSetId: 2n,
+        providerId: 2n,
+        metadata: { withIPFSIndexing: '', source: 'filecoin-pin', ...keyspace, 'foc/ks': `0x${'ff'.repeat(16)}` },
+      }),
+      keyspaceSet(3n, 3n),
+    ])
+    const required = { ...keyspace, withIPFSIndexing: '' }
+    await expect(
+      resolveUploadTargets(synapse, { dataSetIds: [1n] }, { ...base, requiredMetadata: required })
+    ).rejects.toThrow(/Data set 1 cannot take this upload: its foc\/enc is missing/)
+    await expect(
+      resolveUploadTargets(synapse, { dataSetIds: [2n] }, { ...base, requiredMetadata: required })
+    ).rejects.toThrow(/Data set 2 cannot take this upload: its foc\/ks/)
+    await expect(
+      resolveUploadTargets(synapse, { dataSetIds: [3n] }, { ...base, requiredMetadata: required })
+    ).resolves.toEqual({ dataSetMetadata: required })
+  })
+
+  it('refuses an explicit indexed --data-set-id for an encrypted --no-ipfs upload', async () => {
+    const synapse = makeSynapse([keyspaceSet(3n, 3n)])
+    await expect(
+      resolveUploadTargets(synapse, { dataSetIds: [3n] }, { ...base, ipfsIndexing: false, requiredMetadata: keyspace })
+    ).rejects.toThrow(/Data set 3 cannot take this upload: it carries withIPFSIndexing/)
+  })
+})
+
+describe('resolveUploadTargets for plain uploads', () => {
+  const base = { withCDN: false, spinner, logger }
+  const encrypted = { 'foc/enc': '1', 'foc/ks': `0x${'11'.repeat(16)}`, 'foc/kc': `v1.${'22'.repeat(16)}` }
+
+  it.each(Object.keys(encrypted))('never reuses a data set carrying %s', async (key) => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n }),
+      pinSet({
+        pdpVerifierDataSetId: 2n,
+        providerId: 2n,
+        metadata: { withIPFSIndexing: '', source: 'filecoin-pin', [key]: encrypted[key as keyof typeof encrypted] },
+      }),
+      pinSet({ pdpVerifierDataSetId: 3n, providerId: 3n }),
+    ])
+    expect(await resolveUploadTargets(synapse, {}, { ...base, copies: 2 })).toEqual({ dataSetIds: [1n, 3n] })
+  })
+
+  it('creates new data sets rather than reuse encrypted ones', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n }),
+      pinSet({
+        pdpVerifierDataSetId: 2n,
+        providerId: 2n,
+        metadata: { withIPFSIndexing: '', source: 'filecoin-pin', ...encrypted },
+      }),
+    ])
+    expect(await resolveUploadTargets(synapse, {}, { ...base, copies: 2 })).toEqual({})
+  })
+
+  it('keeps encrypted data sets out of a --data-set-metadata match', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n }),
+      pinSet({
+        pdpVerifierDataSetId: 2n,
+        providerId: 2n,
+        metadata: { withIPFSIndexing: '', source: 'filecoin-pin', ...encrypted },
+      }),
+    ])
+    const targets = await resolveUploadTargets(
+      synapse,
+      {},
+      { ...base, copies: 1, dataSetMetadata: { source: 'filecoin-pin' } }
+    )
+    expect(targets).toEqual({ dataSetIds: [1n] })
+  })
+
+  it('keeps --no-ipfs and IPFS-indexed data sets apart in both directions', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n }),
+      pinSet({ pdpVerifierDataSetId: 2n, providerId: 2n, metadata: { source: 'filecoin-pin' } }),
+    ])
+    expect(await resolveUploadTargets(synapse, {}, { ...base, copies: 1 })).toEqual({ dataSetIds: [1n] })
+    expect(await resolveUploadTargets(synapse, {}, { ...base, copies: 1, ipfsIndexing: false })).toEqual({
+      dataSetIds: [2n],
+    })
+    expect(
+      await resolveUploadTargets(
+        synapse,
+        {},
+        { ...base, copies: 1, ipfsIndexing: false, dataSetMetadata: { source: 'filecoin-pin' } }
+      )
+    ).toEqual({ dataSetIds: [2n] })
+  })
+
+  it('refuses an explicit --data-set-id that points at an encrypted data set', async () => {
+    const synapse = makeSynapse([
+      pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n }),
+      pinSet({
+        pdpVerifierDataSetId: 2n,
+        providerId: 2n,
+        metadata: { withIPFSIndexing: '', source: 'filecoin-pin', ...encrypted },
+      }),
+    ])
+    await expect(resolveUploadTargets(synapse, { dataSetIds: [1n, 2n] }, base)).rejects.toThrow(
+      /Data set 2 cannot take this upload: it carries foc\/ks/
+    )
+  })
+
+  it('refuses an explicit indexed --data-set-id with --no-ipfs', async () => {
+    const synapse = makeSynapse([pinSet({ pdpVerifierDataSetId: 1n, providerId: 1n })])
+    await expect(resolveUploadTargets(synapse, { dataSetIds: [1n] }, { ...base, ipfsIndexing: false })).rejects.toThrow(
+      /Data set 1 cannot take this upload: it carries withIPFSIndexing/
+    )
   })
 })

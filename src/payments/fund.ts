@@ -143,7 +143,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
 
   spinner?.message('Checking wallet readiness...')
 
-  const resolvedMetadata = resolveIpfsIndexedMetadata(metadata, dataSetIds)
+  const resolvedMetadata = resolveIpfsIndexedMetadata(metadata, dataSetIds, options.ipfsIndexing)
 
   const contexts = await synapse.storage.createContexts({
     ...(copies != null ? { copies } : {}),

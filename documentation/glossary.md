@@ -49,7 +49,9 @@ The envelope's public `content_type` is `application/vnd.ipld.car`; decryptors r
 
 ## Keyspace
 
-The root of a [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) key derivation tree: a random 16-byte id chosen at write time, bound to the owner wallet by one EIP-712 signature. Filecoin Pin uses one keyspace per wallet and records it on every [Data Set](#data-set) an [Encrypted Upload](#encrypted-upload) writes to, as `foc/ks` (the id) and `foc/kc` (a public commitment to the key, checked before the keyspace is reused). Encrypted uploads therefore land in their own data sets. The keyspace id is public; no key material goes on chain.
+The root of a [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) key derivation tree: a random 16-byte id chosen at write time, bound to the owner wallet by one EIP-712 signature. Filecoin Pin records it on every [Data Set](#data-set) an [Encrypted Upload](#encrypted-upload) writes to, as `foc/ks` (the id) and `foc/kc` (a public commitment to the key, checked before the keyspace is reused), next to `foc/enc: "1"`, which marks the data set as encrypted and versions its rules. One keyspace usually spans multiple datasets: one per copy, plus any separate dataset the user wants to keep under the same keyspace. The keyspace id is public; no key material goes on chain.
+
+An owner wallet can end up with several keyspaces. `add --encrypt` groups the wallet's live data sets by `foc/ks`, skips any group whose data sets disagree on `foc/kc` or are not `foc/enc: "1"`, and uses the group holding the oldest data set (lowest id). All copies of an upload go to that keyspace; a copy without a suitable data set gets a new one with the same `foc/ks` and `foc/kc`. A new keyspace is created only when no valid group exists, and it exists on chain from its first upload. Nothing is stored locally.
 
 ## FIL
 

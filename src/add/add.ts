@@ -5,12 +5,13 @@
  * It encodes content as UnixFS, creates CAR files, and uploads to Filecoin.
  */
 
-import { createReadStream, rmSync } from 'node:fs'
-import { mkdtemp, rm, stat } from 'node:fs/promises'
+import { createReadStream, mkdtempSync, rmSync } from 'node:fs'
+import { rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
+import { SIZE_CONSTANTS } from '@filoz/synapse-core/utils'
 import pc from 'picocolors'
 import pino from 'pino'
 import { CliFatal, EXIT_CODE_INCOMPLETE, isCliFatal, isCliIncomplete } from '../common/cli-errors.js'
@@ -36,7 +37,7 @@ import {
   validatePaymentSetup,
 } from '../common/upload-flow.js'
 import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
-import { normalizeMetadataConfig, withDerivedNameMetadata } from '../core/metadata/index.js'
+import { IPFS_INDEXED_METADATA, normalizeMetadataConfig, withDerivedNameMetadata } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
@@ -149,18 +150,21 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
   // Map the public egress provider to the SDK's withCDN boolean (internal only).
   const withCDN = options.egressProvider === 'beam'
+  const ipfsIndexing = options.ipfs !== false
 
   let tempCarPath: string | undefined
   let encryptDir: string | undefined
-  // Ctrl-C: clack's spinner installs its own SIGINT handler in start() and the first listener to
-  // call process.exit wins, so this one is registered before the spinner restarts and removes the
-  // envelope directory synchronously. Registered once the directory exists.
-  const onSigint = (): void => {
+  // Ctrl-C, kill and a closed terminal: clack's spinner installs its own SIGINT handler in start()
+  // and the first listener to call process.exit wins, so these are registered before the spinner
+  // restarts. They remove the private temp directory (envelope and outer CAR) synchronously,
+  // if it exists yet.
+  const onSignal = (): void => {
     if (encryptDir != null) {
       rmSync(encryptDir, { recursive: true, force: true })
     }
     process.exit(EXIT_CODE_INCOMPLETE)
   }
+  const cleanupSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
 
   try {
     // Validate path exists and is readable
@@ -229,11 +233,16 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       spinner.stop(`${pc.green('✓')} Encryption key derived`)
     }
 
+    // An encrypted upload requires its IPFS mode explicitly too, so explicit and
+    // metadata-filtered targets are checked against it like reused ones.
+    const requiredMetadata =
+      keyspace == null ? undefined : { ...keyspace.dataSetMetadata, ...(ipfsIndexing && IPFS_INDEXED_METADATA) }
     const targets = await resolveUploadTargets(synapse, contextSelection, {
       ...(dataSetMetadata != null && { dataSetMetadata }),
-      ...(keyspace != null && { requiredMetadata: keyspace.dataSetMetadata }),
+      ...(requiredMetadata != null && { requiredMetadata }),
       ...(options.copies != null && { copies: options.copies }),
       withCDN,
+      ipfsIndexing,
       spinner,
       logger,
     })
@@ -248,6 +257,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
       ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
       withCDN,
+      ipfsIndexing,
     }
 
     // The exact invocation, flags included, for the "Then re-run" hint.
@@ -271,13 +281,19 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
     let packPath = options.filePath
     if (keyspace != null) {
-      encryptDir = await mkdtemp(join(tmpdir(), 'filecoin-pin-encrypt-'))
-      process.once('SIGINT', onSigint)
+      // Handlers first, then the directory: mkdtempSync creates it (0700, so the envelope and
+      // outer CAR stay private) and assigns it within one tick, so no signal falls in between.
+      for (const signal of cleanupSignals) process.once(signal, onSignal)
+      encryptDir = mkdtempSync(join(tmpdir(), 'filecoin-pin-encrypt-'))
       spinner.start(`Encrypting ${pathType.toLowerCase()}...`)
       packPath = join(encryptDir, ENCRYPTED_FILE_NAME)
-      const { plan } = await encryptPath(options.filePath, packPath, newPieceKey(keyspace.target), {
-        ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }),
-      })
+      const { plan } = await encryptPath(
+        options.filePath,
+        packPath,
+        newPieceKey(keyspace.target),
+        { ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }) },
+        SIZE_CONSTANTS.MAX_UPLOAD_SIZE
+      )
       const skipped = plan.walk.skippedSymlinks.length
       spinner.stop(
         `${pc.green('✓')} ${pathType} encrypted${skipped > 0 ? ` (${skipped} symlink${skipped === 1 ? '' : 's'} skipped)` : ''}`
@@ -293,6 +309,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       spinner,
       isDirectory: isDirectory && keyspace == null,
       ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }),
+      ...(encryptDir != null && { tempDir: encryptDir }),
     })
     tempCarPath = carPath
 
@@ -332,7 +349,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
     const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {
       withCDN,
-      ...(dataSetMetadata && { metadata: dataSetMetadata }),
+      ipfsIndexing,
+      ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
       ...(options.copies != null && { copies: options.copies }),
     }
     if (contextSelection.providerIds) {
@@ -364,8 +382,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       await validatePaymentSetup(synapse, carSize, spinner)
     }
 
-    // Auto-skip IPNI on devnet (no IPNI infrastructure available)
-    const skipIpniVerification = options.skipIpniVerification || synapse.chain.id === DEVNET_CHAIN_ID
+    // Auto-skip IPNI on devnet (no IPNI infrastructure available) and when nothing is announced (--no-ipfs)
+    const skipIpniVerification = options.skipIpniVerification || !ipfsIndexing || synapse.chain.id === DEVNET_CHAIN_ID
 
     const uploadOptions: Parameters<typeof performUpload>[3] = {
       contextType: 'add',
@@ -373,6 +391,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       logger,
       spinner,
       skipIpniVerification,
+      ipfsIndexing,
       ...(pieceMetadata && { pieceMetadata }),
       ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
       ...(options.copies != null && { copies: options.copies }),
@@ -486,7 +505,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     cancel(carInput ? 'Add cancelled' : 'Add failed')
     throw new CliFatal(message, { cause: error instanceof Error ? error : undefined })
   } finally {
-    process.off('SIGINT', onSigint)
+    for (const signal of cleanupSignals) process.off(signal, onSignal)
     if (encryptDir) {
       await rm(encryptDir, { recursive: true, force: true })
     }

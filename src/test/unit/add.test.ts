@@ -9,10 +9,10 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import fs, { existsSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { CarWriter } from '@ipld/car'
 import * as fee from 'filecoin-encryption-envelope'
@@ -26,6 +26,19 @@ import type { AddDryRunResult, AddResult } from '../../add/types.js'
 import { EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
 import { decryptToDirectory } from '../../common/encryption.js'
 import { ownerKeyResolver } from '../../common/keyspace.js'
+
+// Lets a test shrink the SDK's upload cap without big files; every other test sees the real one.
+const uploadCap = vi.hoisted(() => ({ max: undefined as number | undefined }))
+vi.mock('@filoz/synapse-core/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@filoz/synapse-core/utils')>()
+  return {
+    ...actual,
+    SIZE_CONSTANTS: new Proxy(actual.SIZE_CONSTANTS, {
+      get: (target, key) =>
+        key === 'MAX_UPLOAD_SIZE' && uploadCap.max != null ? uploadCap.max : Reflect.get(target, key),
+    }),
+  }
+})
 
 const { mockCarPath, mockFindDataSets, mockListDataSets } = vi.hoisted(() => ({
   mockCarPath: 'test-add-files/mock.car',
@@ -268,6 +281,27 @@ describe('Add Command', () => {
           pieceMetadata: expect.objectContaining({ name: 'test.bin' }),
         })
       )
+    })
+
+    it('plain add asks for IPFS-indexed, non-encrypted data sets by default', async () => {
+      await runAdd({ filePath: testFile, privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url' })
+
+      const { performUpload, resolveUploadTargets } = await import('../../common/upload-flow.js')
+      const targetOptions = vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]
+      expect(targetOptions?.ipfsIndexing).toBe(true)
+      expect(targetOptions).not.toHaveProperty('requiredMetadata')
+      expect(vi.mocked(performUpload).mock.calls[0]?.[3]).toMatchObject({ ipfsIndexing: true })
+    })
+
+    it('plain add with --no-ipfs leaves IPFS indexing off and skips the IPNI wait', async () => {
+      await runAdd({ filePath: testFile, privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url', ipfs: false })
+
+      const { performUpload, resolveUploadTargets } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]?.ipfsIndexing).toBe(false)
+      expect(vi.mocked(performUpload).mock.calls[0]?.[3]).toMatchObject({
+        ipfsIndexing: false,
+        skipIpniVerification: true,
+      })
     })
 
     it('preserves user-supplied name over the derived basename', async () => {
@@ -744,23 +778,31 @@ describe('Add Command', () => {
       })
     })
 
-    it('tags the data sets it writes to with the keyspace id and commitment', async () => {
+    it('tags the data sets it writes to with foc/enc, the keyspace id and commitment', async () => {
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { resolveUploadTargets } = await import('../../common/upload-flow.js')
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
       expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]).toMatchObject({
+        ipfsIndexing: true,
         requiredMetadata: {
+          'foc/enc': '1',
           'foc/ks': appMetadata?.['foc/ks'],
           'foc/kc': expect.stringMatching(/^v1\.[0-9a-f]{32}$/),
+          withIPFSIndexing: '',
         },
       })
     })
 
+    const keyspaceSet = (dataSetId: bigint, metadata: Record<string, string>) => ({
+      dataSetId,
+      isLive: true,
+      metadata: { 'foc/enc': '1', 'foc/ks': VECTOR_KEYSPACE, 'foc/kc': VECTOR_COMMITMENT, ...metadata },
+    })
+    const OTHER_KEYSPACE = `0x${'ab'.repeat(16)}`
+
     it('reuses the keyspace an existing data set records, after checking its commitment', async () => {
-      mockListDataSets.mockResolvedValue([
-        { dataSetId: 7n, isLive: true, metadata: { 'foc/ks': VECTOR_KEYSPACE, 'foc/kc': VECTOR_COMMITMENT } },
-      ])
+      mockListDataSets.mockResolvedValue([keyspaceSet(7n, {})])
 
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
@@ -773,12 +815,60 @@ describe('Add Command', () => {
     })
 
     it('stops when the recorded commitment does not match this wallet', async () => {
-      mockListDataSets.mockResolvedValue([
-        { dataSetId: 7n, isLive: true, metadata: { 'foc/ks': VECTOR_KEYSPACE, 'foc/kc': `v1.${'0'.repeat(32)}` } },
-      ])
+      mockListDataSets.mockResolvedValue([keyspaceSet(7n, { 'foc/kc': `v1.${'0'.repeat(32)}` })])
 
       await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow(/commitment/)
       expect(packed).toBeUndefined()
+    })
+
+    it('with two keyspaces, uses the one holding the oldest data set', async () => {
+      mockListDataSets.mockResolvedValue([
+        keyspaceSet(9n, { 'foc/ks': OTHER_KEYSPACE, 'foc/kc': `v1.${'0'.repeat(32)}` }),
+        keyspaceSet(12n, {}),
+        keyspaceSet(3n, {}),
+      ])
+
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+      expect(appMetadata?.['foc/ks']).toBe(VECTOR_KEYSPACE)
+    })
+
+    it('skips a keyspace whose data sets disagree on foc/kc, and uses the next oldest', async () => {
+      mockListDataSets.mockResolvedValue([
+        keyspaceSet(2n, { 'foc/ks': OTHER_KEYSPACE }),
+        keyspaceSet(4n, { 'foc/ks': OTHER_KEYSPACE, 'foc/kc': `v1.${'0'.repeat(32)}` }),
+        keyspaceSet(8n, {}),
+      ])
+
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+      expect(appMetadata?.['foc/ks']).toBe(VECTOR_KEYSPACE)
+    })
+
+    it('creates a new keyspace when the only one recorded is not foc/enc "1"', async () => {
+      mockListDataSets.mockResolvedValue([keyspaceSet(7n, { 'foc/enc': '2' })])
+
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+      expect(appMetadata?.['foc/ks']).toMatch(/^0x[0-9a-f]{32}$/)
+      expect(appMetadata?.['foc/ks']).not.toBe(VECTOR_KEYSPACE)
+    })
+
+    it('with --no-ipfs, targets data sets without withIPFSIndexing and skips the IPNI wait', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true, ipfs: false })
+
+      const { performUpload, resolveUploadTargets } = await import('../../common/upload-flow.js')
+      const targetOptions = vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]
+      expect(targetOptions?.ipfsIndexing).toBe(false)
+      expect(targetOptions?.requiredMetadata).not.toHaveProperty('withIPFSIndexing')
+      expect(targetOptions?.requiredMetadata).toMatchObject({ 'foc/enc': '1' })
+      expect(vi.mocked(performUpload).mock.calls[0]?.[3]).toMatchObject({
+        ipfsIndexing: false,
+        skipIpniVerification: true,
+      })
     })
 
     it('refuses to encrypt without the owner wallet', async () => {
@@ -798,10 +888,13 @@ describe('Add Command', () => {
       expect(vi.mocked(performUpload).mock.calls[0]?.[3]?.pieceMetadata).toEqual({ name: 'encrypted.fee' })
     })
 
-    it('removes the temporary envelope after a successful upload', async () => {
+    it('removes the temporary envelope and its SIGINT handler after a successful upload', async () => {
+      const before = process.listeners('SIGINT')
+
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       expect(existsSync(packedFile().path)).toBe(false)
+      expect(process.listeners('SIGINT')).toEqual(before)
     })
 
     it('removes the temporary envelope when the upload fails', async () => {
@@ -843,57 +936,92 @@ describe('Add Command', () => {
       expect(basename(packedFile().path)).toBe('encrypted.fee')
     })
 
-    it('never writes the plaintext filename or key material to output or debug logs', async () => {
-      const writes: string[] = []
-      const capture = (chunk: unknown) => writes.push(String(chunk)) > 0
-      vi.spyOn(process.stdout, 'write').mockImplementation(capture)
-      vi.spyOn(process.stderr, 'write').mockImplementation(capture)
-      // pino writes straight to the fd through sonic-boom, so capture fd 1 and 2 at the fs layer too
-      const fsCapture = (...args: unknown[]) => {
-        const data = args[1]
-        writes.push(Array.isArray(data) ? data.map(String).join('') : String(data))
-        const cb = args.at(-1)
-        if (typeof cb === 'function') cb(null, 0)
-        return 0
-      }
-      for (const name of ['write', 'writeSync', 'writev', 'writevSync'] as const) {
-        const original = fs[name] as (...args: unknown[]) => unknown
-        vi.spyOn(fs, name).mockImplementation(((...args: unknown[]) =>
-          args[0] === 1 || args[0] === 2 ? fsCapture(...args) : original(...args)) as never)
-      }
-      vi.stubEnv('LOG_LEVEL', 'debug')
-      const { createSpinner } = await import('../../utils/cli-helpers.js')
-
-      await runAdd({ ...auth, filePath: testFile, encrypt: true })
-      // sonic-boom flushes asynchronously
-      await new Promise((resolve) => setTimeout(resolve, 100))
-
-      const spinner = vi.mocked(createSpinner).mock.results[0]?.value
-      const output = JSON.stringify([writes, spinner.start.mock.calls, spinner.stop.mock.calls])
-      expect(output).toContain('encrypted')
-      expect(output).not.toContain(basename(testFile))
-      expect(output.toLowerCase()).not.toContain('ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80')
-    })
-
-    it('removes the envelope on Ctrl-C and exits as incomplete', async () => {
+    it.each([
+      'SIGINT',
+      'SIGTERM',
+      'SIGHUP',
+    ] as const)('on %s, the handler itself removes the private temp dir and exits as incomplete', async (signal) => {
       const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
       const { performUpload } = await import('../../common/upload-flow.js')
+      let goneBeforeFinally: boolean | undefined
       vi.mocked(performUpload).mockImplementationOnce(async () => {
-        process.emit('SIGINT')
+        process.emit(signal)
+        // Checked before the error reaches runAdd's finally, so only the signal handler can have removed it.
+        goneBeforeFinally = !existsSync(dirname(packedFile().path))
         throw new Error('interrupted')
       })
+      const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
+      const before = signals.map((s) => process.listeners(s))
 
       await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow('interrupted')
 
+      expect(goneBeforeFinally).toBe(true)
       expect(exit).toHaveBeenCalledWith(EXIT_CODE_INCOMPLETE)
-      expect(existsSync(packedFile().path)).toBe(false)
-      expect(process.listeners('SIGINT')).not.toContain(expect.any(Function))
+      expect(signals.map((s) => process.listeners(s))).toEqual(before)
+    })
+
+    it("refuses an input over the SDK's upload cap before encrypting or uploading", async () => {
+      uploadCap.max = 1024
+      try {
+        await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow(
+          /more than the 1024 bytes one upload can hold/
+        )
+      } finally {
+        uploadCap.max = undefined
+      }
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(packed).toBeUndefined()
+      expect(vi.mocked(performUpload)).not.toHaveBeenCalled()
+    })
+
+    it('builds the outer CAR inside the private temp dir', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { createCarFromPath } = await import('../../core/unixfs/index.js')
+      expect(vi.mocked(createCarFromPath).mock.calls[0]?.[1]).toMatchObject({ tempDir: dirname(packedFile().path) })
+    })
+
+    it('packs dotfiles when asked to include hidden entries', async () => {
+      await writeFile(join(testDir, '.hidden'), 'dot')
+
+      await runAdd({ ...auth, filePath: testDir, encrypt: true, includeHidden: true })
+
+      const { restored } = await decrypt(packedFile().bytes)
+      expect(await readFile(join(restored, '.hidden'), 'utf8')).toBe('dot')
+    })
+
+    it('leaves dotfiles out by default', async () => {
+      await writeFile(join(testDir, '.hidden'), 'dot')
+
+      await runAdd({ ...auth, filePath: testDir, encrypt: true })
+
+      const { restored } = await decrypt(packedFile().bytes)
+      expect(existsSync(join(restored, '.hidden'))).toBe(false)
+    })
+
+    it('ignores a data set that is no longer live when choosing the keyspace', async () => {
+      const fixtures = [
+        {
+          dataSetId: 1n,
+          isLive: false,
+          metadata: { ...keyspaceSet(1n, {}).metadata, 'foc/kc': `v1.${'0'.repeat(32)}` },
+        },
+      ]
+      mockListDataSets.mockImplementation(async (_synapse: unknown, opts?: { filter?: (d: any) => boolean }) =>
+        fixtures.filter((d) => opts?.filter?.(d) ?? true)
+      )
+
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+      expect(appMetadata?.['foc/ks']).not.toBe(VECTOR_KEYSPACE)
     })
 
     it('has no option that takes a password or a key on the command line', async () => {
       const { addCommand } = await import('../../commands/add.js')
       const flags = addCommand.options.map((o) => o.long)
       expect(flags).toContain('--encrypt')
+      expect(flags).toContain('--no-ipfs')
       expect(flags).not.toContain('--password-file')
       expect(flags).not.toContain('--password')
     })

@@ -22,6 +22,10 @@ export const addCommand = new Command('add')
     '--encrypt',
     'Encrypt the file or directory before upload. The key is derived from the owner wallet (PRIVATE_KEY); only that wallet can read it back.'
   )
+  .option(
+    '--no-ipfs',
+    'Do not index the upload in IPFS: use data sets without IPFS indexing (no IPNI announcement) and skip the IPNI wait'
+  )
   .addHelpText(
     'after',
     `
