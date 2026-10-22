@@ -1,15 +1,19 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { calculate } from '@filoz/synapse-core/piece'
 import { CarWriter } from '@ipld/car'
 import * as dagCbor from '@ipld/dag-cbor'
 import * as dagPb from '@ipld/dag-pb'
+import toBuffer from 'it-to-buffer'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
+import * as Digest from 'multiformats/hashes/digest'
+import { identity } from 'multiformats/hashes/identity'
 import { sha256 } from 'multiformats/hashes/sha2'
-import { describe, expect, it } from 'vitest'
-import { GatewayError } from '../../migrate/gateway.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { StagingError } from '../../migrate/gateway.js'
 import { stageMember, verifyCarStream } from '../../migrate/verify-car.js'
 
 // The download stage's whole safety story: every block hash-verified, the
@@ -27,28 +31,29 @@ async function cborBlock(value: unknown): Promise<{ cid: CID; bytes: Uint8Array 
   return { cid: CID.createV1(dagCbor.code, await sha256.digest(bytes)), bytes }
 }
 
-async function buildCar(root: CID, blocks: Array<{ cid: CID; bytes: Uint8Array }>): Promise<Uint8Array> {
-  const { writer, out } = CarWriter.create([root])
-  const chunks: Uint8Array[] = []
-  const drained = (async () => {
-    for await (const chunk of out) chunks.push(chunk)
-  })()
+async function buildCar(roots: CID[], blocks: Array<{ cid: CID; bytes: Uint8Array }>): Promise<Uint8Array> {
+  const { writer, out } = CarWriter.create(roots)
+  const bytes = toBuffer(out)
   for (const block of blocks) await writer.put(block)
   await writer.close()
-  await drained
-  const total = chunks.reduce((sum, c) => sum + c.length, 0)
-  const outBytes = new Uint8Array(total)
-  let offset = 0
-  for (const c of chunks) {
-    outBytes.set(c, offset)
-    offset += c.length
-  }
-  return outBytes
+  return bytes
 }
 
-function streamOf(bytes: Uint8Array): ReadableStream<Uint8Array> {
+/** Small fixed chunks so block framing crosses chunk boundaries. */
+function streamOf(bytes: Uint8Array, chunkSize = 7): ReadableStream<Uint8Array> {
+  const chunks: Uint8Array[] = []
+  for (let i = 0; i < bytes.length; i += chunkSize) chunks.push(bytes.subarray(i, i + chunkSize))
   const from = (ReadableStream as unknown as { from(it: Iterable<Uint8Array>): ReadableStream<Uint8Array> }).from
-  return from([bytes])
+  return from(chunks)
+}
+
+/** A stream whose first read fails like a reset socket. */
+function brokenStream(err: Error): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    pull(controller) {
+      controller.error(err)
+    },
+  })
 }
 
 function memorySink() {
@@ -62,16 +67,7 @@ function memorySink() {
         // in-memory sink; nothing to flush
       },
     },
-    bytes: () => {
-      const total = chunks.reduce((sum, c) => sum + c.length, 0)
-      const out = new Uint8Array(total)
-      let offset = 0
-      for (const c of chunks) {
-        out.set(c, offset)
-        offset += c.length
-      }
-      return out
-    },
+    bytes: () => toBuffer(chunks),
   }
 }
 
@@ -82,212 +78,303 @@ async function linkedDag() {
   return { root, leaf }
 }
 
+const sha256Hex = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
+
 describe('verifyCarStream', () => {
   it('accepts a complete CAR and computes the same commitment as the SDK', async () => {
     const { root, leaf } = await linkedDag()
-    const car = await buildCar(root.cid, [root, leaf])
+    const car = await buildCar([root.cid], [root, leaf])
     const { sink, bytes } = memorySink()
+    let seen = 0
 
-    const verified = await verifyCarStream(streamOf(car), sink)
+    const verified = await verifyCarStream(streamOf(car), root.cid, sink, { onBytes: (n) => (seen += n) })
 
     expect(verified.rawSize).toBe(car.length)
+    expect(seen).toBe(car.length)
     expect(verified.blockCount).toBe(2)
     expect(bytes()).toEqual(car)
     expect(verified.pieceCid).toBe((await calculate(car)).toString())
+    expect(verified.sha256).toBe(sha256Hex(car))
   })
 
-  it('rejects a CAR missing a reachable block (truncated response)', async () => {
-    const { root, leaf } = await linkedDag()
-    // The root parses cleanly, declares its link, and the leaf never arrives:
-    // the shape of a response that ended early at a block boundary.
-    const truncated = await buildCar(root.cid, [root])
-    void leaf
-    const { sink } = memorySink()
+  it('rejects a CAR missing a reachable block (truncated at a block boundary)', async () => {
+    const { root } = await linkedDag()
+    const truncated = await buildCar([root.cid], [root])
 
-    await expect(verifyCarStream(streamOf(truncated), sink)).rejects.toThrow(/incomplete/)
+    await expect(verifyCarStream(streamOf(truncated), root.cid, memorySink().sink)).rejects.toMatchObject({
+      name: 'StagingError',
+      category: 'car_incomplete',
+    })
+  })
+
+  it('rejects a CAR truncated inside a block', async () => {
+    const { root, leaf } = await linkedDag()
+    const car = await buildCar([root.cid], [root, leaf])
+
+    await expect(
+      verifyCarStream(streamOf(car.subarray(0, car.length - 5)), root.cid, memorySink().sink)
+    ).rejects.toMatchObject({ name: 'StagingError', category: 'car_incomplete' })
   })
 
   it('rejects a block whose bytes do not match its CID', async () => {
     const leaf = await rawBlock(7, 128)
     const corrupted = leaf.bytes.slice()
     corrupted[0] = (corrupted[0] ?? 0) ^ 0xff
-    const car = await buildCar(leaf.cid, [{ cid: leaf.cid, bytes: corrupted }])
-    const { sink } = memorySink()
+    const car = await buildCar([leaf.cid], [{ cid: leaf.cid, bytes: corrupted }])
 
-    await expect(verifyCarStream(streamOf(car), sink)).rejects.toThrow(/does not match its multihash/)
+    await expect(verifyCarStream(streamOf(car), leaf.cid, memorySink().sink)).rejects.toMatchObject({
+      name: 'StagingError',
+      category: 'car_block_mismatch',
+    })
+  })
+
+  it('rejects a CAR that does not declare the requested root', async () => {
+    const { root, leaf } = await linkedDag()
+    const car = await buildCar([root.cid], [root, leaf])
+
+    await expect(verifyCarStream(streamOf(car), leaf.cid, memorySink().sink)).rejects.toMatchObject({
+      name: 'StagingError',
+      category: 'car_root_mismatch',
+    })
+  })
+
+  it('rejects a CAR that declares no roots', async () => {
+    const leaf = await rawBlock(7)
+    const car = await buildCar([], [leaf])
+
+    await expect(verifyCarStream(streamOf(car), leaf.cid, memorySink().sink)).rejects.toMatchObject({
+      category: 'car_root_mismatch',
+    })
+  })
+
+  it('walks the links of an identity-CID block that is not in the CAR', async () => {
+    const leaf = await rawBlock(5)
+    const inlineBytes = dagCbor.encode({ child: leaf.cid })
+    const inline = CID.createV1(dagCbor.code, identity.digest(inlineBytes))
+    const root = await cborBlock({ via: inline })
+
+    const complete = await buildCar([root.cid], [root, leaf])
+    await expect(verifyCarStream(streamOf(complete), root.cid, memorySink().sink)).resolves.toMatchObject({
+      blockCount: 2,
+    })
+
+    const missingLeaf = await buildCar([root.cid], [root])
+    await expect(verifyCarStream(streamOf(missingLeaf), root.cid, memorySink().sink)).rejects.toMatchObject({
+      category: 'car_incomplete',
+    })
+  })
+
+  it('refuses blocks it cannot verify or decode as unsupported', async () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    const digest = await sha256.digest(bytes)
+    const unknownCodec = CID.createV1(0x300000, digest)
+    const unknownHash = CID.createV1(raw.code, Digest.create(0x1e, digest.digest))
+
+    for (const cid of [unknownCodec, unknownHash]) {
+      const car = await buildCar([cid], [{ cid, bytes }])
+      await expect(verifyCarStream(streamOf(car), cid, memorySink().sink)).rejects.toMatchObject({
+        category: 'unsupported_block',
+      })
+    }
   })
 
   it('aborts when the byte callback throws (the staging-budget cutoff)', async () => {
     const leaf = await rawBlock(7, 128)
-    const car = await buildCar(leaf.cid, [leaf])
-    const { sink } = memorySink()
+    const car = await buildCar([leaf.cid], [leaf])
+    const cutoff = new StagingError('budget exhausted', 'staging_budget')
 
-    await expect(
-      verifyCarStream(streamOf(car), sink, {
-        onBytes: () => {
-          throw new Error('budget exhausted')
-        },
-      })
-    ).rejects.toThrow(/budget exhausted/)
+    const err = await verifyCarStream(streamOf(car), leaf.cid, memorySink().sink, {
+      onBytes: () => {
+        throw cutoff
+      },
+    }).catch((e: unknown) => e)
+
+    expect(err).toBe(cutoff)
+  })
+
+  it('categorizes a stream that fails mid-body as a gateway network failure', async () => {
+    const leaf = await rawBlock(7)
+    const body = brokenStream(Object.assign(new TypeError('terminated'), { code: 'ECONNRESET' }))
+
+    await expect(verifyCarStream(body, leaf.cid, memorySink().sink)).rejects.toMatchObject({
+      name: 'StagingError',
+      category: 'source_gateway_network',
+    })
+  })
+
+  it('releases the body on every failure path', async () => {
+    const { root, leaf } = await linkedDag()
+    const cases = [
+      { car: await buildCar([root.cid], [root]), root: root.cid }, // incomplete
+      { car: await buildCar([root.cid], [root, leaf]), root: leaf.cid }, // root mismatch
+    ]
+    for (const { car, root: requested } of cases) {
+      const body = streamOf(car)
+      await expect(verifyCarStream(body, requested, memorySink().sink)).rejects.toThrow()
+      expect(body.locked).toBe(false)
+    }
   })
 })
 
 describe('stageMember', () => {
+  let dir: string
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'fp-stage-'))
+  })
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  const serve = (car: Uint8Array) => async (gateway: string, requested: string) => ({
+    url: `${gateway}/ipfs/${requested}`,
+    body: streamOf(car),
+  })
+
   it('lands a verified member atomically and reports its commitment', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'fp-stage-'))
-    try {
-      const { root, leaf } = await linkedDag()
-      const car = await buildCar(root.cid, [root, leaf])
-      const cid = root.cid.toString()
+    const { root, leaf } = await linkedDag()
+    const car = await buildCar([root.cid], [root, leaf])
+    const cid = root.cid.toString()
 
-      const staged = await stageMember(cid, ['fake://gw'], dir, {}, async (gateway, requested) => ({
-        url: `${gateway}/ipfs/${requested}`,
-        body: streamOf(car),
-      }))
+    const staged = await stageMember(cid, ['fake://gw'], dir, {}, serve(car))
 
-      expect(staged.memberCarPath).toBe(join(dir, `${cid}.car`))
-      expect(await readFile(staged.memberCarPath)).toEqual(Buffer.from(car))
-      expect(staged.rawSize).toBe(car.length)
-      expect(staged.pieceCid).toBe((await calculate(car)).toString())
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
+    expect(staged).toMatchObject({
+      cid,
+      gateway: 'fake://gw',
+      url: `fake://gw/ipfs/${cid}`,
+      memberCarPath: join(dir, `${cid}.car`),
+      memberSha256: sha256Hex(car),
+      rawSize: car.length,
+      pieceCid: (await calculate(car)).toString(),
+    })
+    expect(await readFile(staged.memberCarPath)).toEqual(Buffer.from(car))
+    expect(await readdir(dir)).toEqual([`${cid}.car`])
   })
 
   it('rejects a CAR whose requested root is incomplete even when another declared root is complete', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'fp-stage-decoy-'))
-    try {
-      // Decoy: a complete single-block DAG declared as the first root. The
-      // requested DAG's root block is present but its leaf is not.
-      const decoy = await rawBlock(11, 64)
-      const { root: requestedRoot } = await linkedDag()
-      const requested = requestedRoot.cid.toString()
-      const { writer, out } = CarWriter.create([decoy.cid, requestedRoot.cid])
-      const chunks: Uint8Array[] = []
-      const drained = (async () => {
-        for await (const chunk of out) chunks.push(chunk)
-      })()
-      await writer.put(decoy)
-      await writer.put(requestedRoot)
-      await writer.close()
-      await drained
-      const total = chunks.reduce((sum, c) => sum + c.length, 0)
-      const car = new Uint8Array(total)
-      let offset = 0
-      for (const c of chunks) {
-        car.set(c, offset)
-        offset += c.length
-      }
+    // Decoy: a complete single-block DAG declared as the first root. The
+    // requested DAG's root block is present but its leaf is not.
+    const decoy = await rawBlock(11, 64)
+    const { root } = await linkedDag()
+    const car = await buildCar([decoy.cid, root.cid], [decoy, root])
 
-      await expect(
-        stageMember(requested, ['fake://gw'], dir, {}, async () => ({ url: 'fake://gw/x', body: streamOf(car) }))
-      ).rejects.toThrow(/incomplete/)
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
+    await expect(stageMember(root.cid.toString(), ['fake://gw'], dir, {}, serve(car))).rejects.toMatchObject({
+      category: 'car_incomplete',
+    })
   })
 
   it('rejects a CAR whose root is not the requested CID and leaves no file behind', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'fp-stage-root-'))
-    try {
-      const { root, leaf } = await linkedDag()
-      const car = await buildCar(root.cid, [root, leaf])
-      const other = (await rawBlock(3)).cid.toString()
+    const { root, leaf } = await linkedDag()
+    const car = await buildCar([root.cid], [root, leaf])
+    const other = (await rawBlock(3)).cid.toString()
+    const body = streamOf(car)
 
-      await expect(
-        stageMember(other, ['fake://gw'], dir, {}, async () => ({ url: 'fake://gw/x', body: streamOf(car) }))
-      ).rejects.toThrow(/all gateways failed/)
-      await expect(readFile(join(dir, `${other}.car`))).rejects.toThrow()
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
+    await expect(
+      stageMember(other, ['fake://gw'], dir, {}, async () => ({ url: 'fake://gw/x', body }))
+    ).rejects.toMatchObject({ category: 'car_root_mismatch', message: expect.stringMatching(/all gateways failed/) })
+    expect(await readdir(dir)).toEqual([])
+    expect(body.locked).toBe(false)
   })
 
   it('rejects a truncated DAG whose root block is relabeled with a linkless codec', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'fp-stage-relabel-'))
-    try {
-      // Attack shape: the dag-cbor root's bytes served under a `raw` CID with
-      // the same multihash, children omitted. Raw has no links, so a
-      // multihash-only completeness walk would accept the truncated DAG.
-      const { root } = await linkedDag()
-      const relabeled = { cid: CID.createV1(raw.code, root.cid.multihash), bytes: root.bytes }
-      const car = await buildCar(root.cid, [relabeled])
+    // Attack shape: the dag-cbor root's bytes served under a `raw` CID with
+    // the same multihash, children omitted. Raw has no links, so a
+    // multihash-only completeness walk would accept the truncated DAG.
+    const { root } = await linkedDag()
+    const relabeled = { cid: CID.createV1(raw.code, root.cid.multihash), bytes: root.bytes }
+    const car = await buildCar([root.cid], [relabeled])
 
-      await expect(
-        stageMember(root.cid.toString(), ['fake://gw'], dir, {}, async () => ({
-          url: 'fake://gw/x',
-          body: streamOf(car),
-        }))
-      ).rejects.toThrow(/codec/)
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
+    await expect(stageMember(root.cid.toString(), ['fake://gw'], dir, {}, serve(car))).rejects.toMatchObject({
+      category: 'car_block_mismatch',
+      message: expect.stringMatching(/codec/),
+    })
   })
 
   it('accepts the equivalent CIDv1 root for a CIDv0 request', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'fp-stage-v0v1-'))
-    try {
-      const data = dagPb.encode({ Links: [] })
-      const digest = await sha256.digest(data)
-      const v0 = CID.createV0(digest)
-      const v1 = CID.createV1(dagPb.code, digest)
-      const car = await buildCar(v1, [{ cid: v1, bytes: data }])
+    const data = dagPb.encode({ Links: [] })
+    const digest = await sha256.digest(data)
+    const v0 = CID.createV0(digest)
+    const v1 = CID.createV1(dagPb.code, digest)
+    const car = await buildCar([v1], [{ cid: v1, bytes: data }])
 
-      const staged = await stageMember(v0.toString(), ['fake://gw'], dir, {}, async () => ({
-        url: 'fake://gw/x',
-        body: streamOf(car),
-      }))
-      expect(staged.cid).toBe(v0.toString())
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
+    await expect(stageMember(v0.toString(), ['fake://gw'], dir, {}, serve(car))).resolves.toMatchObject({
+      rawSize: car.length,
+    })
   })
 
   it('falls through to the next gateway and reports which one served the CAR', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'fp-stage-fallback-'))
-    try {
-      const { root, leaf } = await linkedDag()
-      const car = await buildCar(root.cid, [root, leaf])
-      const asked: string[] = []
+    const { root, leaf } = await linkedDag()
+    const car = await buildCar([root.cid], [root, leaf])
+    const asked: string[] = []
 
-      const staged = await stageMember(root.cid.toString(), ['fake://down', 'fake://up'], dir, {}, async (gateway) => {
-        asked.push(gateway)
-        if (gateway === 'fake://down') {
-          throw new GatewayError('HTTP 503', { status: 503, category: 'source_gateway_5xx' })
-        }
-        return { url: `${gateway}/ipfs/x`, body: streamOf(car) }
-      })
+    const staged = await stageMember(root.cid.toString(), ['fake://down', 'fake://up'], dir, {}, async (gateway) => {
+      asked.push(gateway)
+      if (gateway === 'fake://down') throw new StagingError('HTTP 503', 'source_gateway_5xx')
+      return { url: `${gateway}/ipfs/x`, body: streamOf(car) }
+    })
 
-      expect(asked).toEqual(['fake://down', 'fake://up'])
-      expect(staged.gateway).toBe('fake://up')
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
+    expect(asked).toEqual(['fake://down', 'fake://up'])
+    expect(staged.gateway).toBe('fake://up')
   })
 
   it('reports the first specific category when every gateway fails', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'fp-stage-allfail-'))
-    try {
-      const err = await stageMember(
-        'bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy',
-        ['fake://a', 'fake://b'],
-        dir,
-        {},
-        async (gateway) => {
-          throw new GatewayError(`${gateway} down`, {
-            category: gateway === 'fake://a' ? 'other' : 'source_gateway_429',
-          })
-        }
-      ).then(
-        () => 'resolved',
-        (e: Error) => e
-      )
+    const err = await stageMember(
+      'bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy',
+      ['fake://a', 'fake://b'],
+      dir,
+      {},
+      async (gateway) => {
+        throw new StagingError(`${gateway} down`, gateway === 'fake://a' ? 'other' : 'source_gateway_429')
+      }
+    ).catch((e: Error) => e)
 
-      expect(err).toMatchObject({ name: 'VerifyCarError', category: 'source_gateway_429' })
-      expect(String((err as Error).message)).toContain('fake://a down')
-      expect(String((err as Error).message)).toContain('fake://b down')
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
+    expect(err).toMatchObject({ name: 'StagingError', category: 'source_gateway_429' })
+    expect((err as Error).message).toContain('fake://a down')
+    expect((err as Error).message).toContain('fake://b down')
+  })
+
+  it.each([
+    ['a staging-budget cutoff', new StagingError('budget', 'staging_budget')],
+    ['an unsupported block', new StagingError('no codec', 'unsupported_block')],
+    ['a local error', Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' })],
+  ])('rethrows %s at once instead of trying other gateways', async (_label, failure) => {
+    const leaf = await rawBlock(7, 128)
+    const car = await buildCar([leaf.cid], [leaf])
+    const fetcher = vi.fn(serve(car))
+
+    const err = await stageMember(
+      leaf.cid.toString(),
+      ['fake://a', 'fake://b'],
+      dir,
+      {
+        onBytes: () => {
+          throw failure
+        },
+      },
+      fetcher
+    ).catch((e: unknown) => e)
+
+    expect(err).toBe(failure)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(await readdir(dir)).toEqual([])
+  })
+
+  it('fails rather than hangs when the member directory cannot be written', async () => {
+    const leaf = await rawBlock(7, 4096)
+    const car = await buildCar([leaf.cid], [leaf])
+
+    await expect(
+      stageMember(leaf.cid.toString(), ['fake://gw'], join(dir, 'missing'), {}, serve(car))
+    ).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('overwrites a temp file left by a crashed run', async () => {
+    const { root, leaf } = await linkedDag()
+    const car = await buildCar([root.cid], [root, leaf])
+    const cid = root.cid.toString()
+    await import('node:fs/promises').then((fs) => fs.writeFile(join(dir, `${cid}.car.tmp`), 'garbage'))
+
+    await stageMember(cid, ['fake://gw'], dir, {}, serve(car))
+
+    expect(await readdir(dir)).toEqual([`${cid}.car`])
   })
 })
