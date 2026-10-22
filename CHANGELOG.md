@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.1](https://github.com/filecoin-project/filecoin-pin/compare/v2.2.0...v2.2.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* **cli:** move console link flow from utm_campaign to utm_term ([#758](https://github.com/filecoin-project/filecoin-pin/issues/758)) ([6f6dae1](https://github.com/filecoin-project/filecoin-pin/commit/6f6dae1cb6e87532647e8b6f43cab1670d0b1864))
+
 ## [2.2.0](https://github.com/filecoin-project/filecoin-pin/compare/v2.1.1...v2.2.0) (2026-10-08)
 
 
