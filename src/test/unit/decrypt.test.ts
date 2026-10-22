@@ -194,6 +194,20 @@ describe('runDecrypt', () => {
     expect((await readFile(join(outputDir, 'report.pdf'))).equals(plaintext)).toBe(true)
   })
 
+  it('restores a directory upload from the outer CAR a gateway serves', async () => {
+    const source = join(dir, 'photos')
+    await mkdir(join(source, 'raw'), { recursive: true })
+    const big = randomBytes(1.5 * 1024 * 1024)
+    await writeFile(join(source, 'raw', 'b.jpg'), big)
+    await writeFile(join(source, 'a.jpg'), 'a')
+    await encryptPath(source, encryptedPath, pieceKey())
+
+    await runDecrypt(await outerCar(encryptedPath), outputDir, asOwner)
+
+    expect(await readFile(join(outputDir, 'photos', 'a.jpg'), 'utf8')).toBe('a')
+    expect((await readFile(join(outputDir, 'photos', 'raw', 'b.jpg'))).equals(big)).toBe(true)
+  })
+
   it('reports a flipped ciphertext byte as a wrong key or modified file', async () => {
     const bytes = await readFile(encryptedPath)
     const i = Math.floor(bytes.length / 2)
