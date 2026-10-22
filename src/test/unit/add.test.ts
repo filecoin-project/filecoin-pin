@@ -8,9 +8,10 @@
  * - Integrate with Synapse upload flow
  */
 
+import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
@@ -982,6 +983,21 @@ describe('Add Command', () => {
       expect(stops).toContainEqual(expect.stringContaining('Encrypted envelope packed with root CID: '))
       expect(stops).not.toContainEqual(expect.stringContaining('Directory packed'))
     })
+
+    it.skipIf(process.platform === 'win32')(
+      'counts skipped symlinks and special files without naming them',
+      async () => {
+        await symlink(testFile, join(testDir, 'link-name'))
+        execFileSync('mkfifo', [join(testDir, 'pipe-name')])
+
+        await runAdd({ ...auth, filePath: testDir, encrypt: true })
+
+        const { createSpinner } = await import('../../utils/cli-helpers.js')
+        const stops: string[] = vi.mocked(createSpinner).mock.results[0]?.value.stop.mock.calls.flat()
+        expect(stops).toContainEqual(expect.stringContaining('Directory encrypted (1 symlink, 1 special file skipped)'))
+        expect(stops.join('\n')).not.toMatch(/link-name|pipe-name/)
+      }
+    )
 
     it('builds the outer CAR inside the private temp dir', async () => {
       await runAdd({ ...auth, filePath: testFile, encrypt: true })

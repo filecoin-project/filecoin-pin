@@ -75,6 +75,8 @@ export interface InputWalk {
   dirs: string[]
   /** Symlinks found under the input, which are not packed. */
   skippedSymlinks: string[]
+  /** FIFOs, sockets and devices found under the input, which are not packed. */
+  skippedSpecial: string[]
 }
 
 export interface WalkOptions {
@@ -82,15 +84,19 @@ export interface WalkOptions {
   includeHidden?: boolean
 }
 
-/** List the input's files and directories. Symlinks are reported and skipped, never followed. */
+/**
+ * List the input's files and directories. Symlinks are reported and skipped, never followed;
+ * FIFOs, sockets and devices are reported and skipped too.
+ */
 export async function walkInput(inputPath: string, { includeHidden = false }: WalkOptions = {}): Promise<InputWalk> {
   const name = basename(inputPath)
   const hidden = includeHidden || name.startsWith('.')
   const files: InputFile[] = []
   const dirs: string[] = []
   const skippedSymlinks: string[] = []
+  const skippedSpecial: string[] = []
   // 1-based position of the next entry, in walk order, for error messages.
-  const nextEntry = (): number => dirs.length + files.length + skippedSymlinks.length + 1
+  const nextEntry = (): number => dirs.length + files.length + skippedSymlinks.length + skippedSpecial.length + 1
   const checkName = (entryName: string): void => {
     // `\` is a path separator on Windows, so such a name could not be restored safely there.
     if (entryName.includes('\\')) {
@@ -106,7 +112,7 @@ export async function walkInput(inputPath: string, { includeHidden = false }: Wa
   checkName(name)
   if (root.isFile()) {
     files.push({ rel: name, abs: inputPath, size: Number(root.size), mtimeNs: root.mtimeNs, entry: 1 })
-    return { name, isDirectory: false, files, dirs, skippedSymlinks }
+    return { name, isDirectory: false, files, dirs, skippedSymlinks, skippedSpecial }
   }
   const visit = async (abs: string, rel: string): Promise<void> => {
     const entry = nextEntry()
@@ -131,11 +137,13 @@ export async function walkInput(inputPath: string, { includeHidden = false }: Wa
         await visit(childAbs, childRel)
       } else if (st.isFile()) {
         files.push({ rel: childRel, abs: childAbs, size: Number(st.size), mtimeNs: st.mtimeNs, entry: childEntry })
+      } else {
+        skippedSpecial.push(childRel)
       }
     }
   }
   await visit(inputPath, name)
-  return { name, isDirectory: true, files, dirs, skippedSymlinks }
+  return { name, isDirectory: true, files, dirs, skippedSymlinks, skippedSpecial }
 }
 
 /** Raw-leaf importer that hashes with `crypto.subtle.digest`, so `blockWriteConcurrency` chunks hash at once. */

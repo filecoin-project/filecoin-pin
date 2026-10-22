@@ -82,6 +82,16 @@ async function validatePath(path: string): Promise<{
   }
 }
 
+/** ` (2 symlinks, 1 special file skipped)`, or empty when nothing was skipped. Counts only, no names. */
+function describeSkipped(walk: { skippedSymlinks: string[]; skippedSpecial: string[] }): string {
+  const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`
+  const parts = [
+    ...(walk.skippedSymlinks.length > 0 ? [plural(walk.skippedSymlinks.length, 'symlink')] : []),
+    ...(walk.skippedSpecial.length > 0 ? [plural(walk.skippedSpecial.length, 'special file')] : []),
+  ]
+  return parts.length > 0 ? ` (${parts.join(', ')} skipped)` : ''
+}
+
 /**
  * Normalize Commander options and run the add flow.
  *
@@ -294,10 +304,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
         { ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }) },
         SIZE_CONSTANTS.MAX_UPLOAD_SIZE
       )
-      const skipped = plan.walk.skippedSymlinks.length
-      spinner.stop(
-        `${pc.green('✓')} ${pathType} encrypted${skipped > 0 ? ` (${skipped} symlink${skipped === 1 ? '' : 's'} skipped)` : ''}`
-      )
+      spinner.stop(`${pc.green('✓')} ${pathType} encrypted${describeSkipped(plan.walk)}`)
     }
 
     // Create CAR from file or directory. An envelope is always packed as a single file.

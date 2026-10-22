@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, truncate, writeFile } from 'node:fs/promises'
@@ -95,6 +96,19 @@ describe('encrypted CAR payload', () => {
     expect(await readFile(join(outDir, 'input', 'docs', 'empty.txt'), 'utf8')).toBe('')
     expect((await stat(join(outDir, 'input', 'empty-dir'))).isDirectory()).toBe(true)
     expect(existsSync(join(outDir, 'input', 'docs', 'evil'))).toBe(false)
+  })
+
+  it.skipIf(process.platform === 'win32')('reports and skips a FIFO instead of reading it', async () => {
+    await mkdir(input)
+    await writeFile(join(input, 'a.txt'), 'a')
+    execFileSync('mkfifo', [join(input, 'pipe')])
+
+    const { plan } = await encryptPath(input, envelope, pieceKey())
+    await decryptToDirectory(envelope, outDir, asOwner())
+
+    expect(plan.walk.skippedSpecial).toEqual(['input/pipe'])
+    expect(plan.walk.files.map((f) => f.rel)).toEqual(['input/a.txt'])
+    expect(existsSync(join(outDir, 'input', 'pipe'))).toBe(false)
   })
 
   it('skips hidden entries unless asked, like add', async () => {
