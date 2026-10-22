@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, writeFileSync } from 'node:fs'
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -102,9 +103,23 @@ describe('runDecrypt', () => {
     expect((await stat(join(outputDir, 'report.pdf'))).mode & 0o777).toBe(0o600)
   })
 
-  it('fails for another wallet and leaves no output behind', async () => {
-    await expect(runDecrypt(encryptedPath, outputDir, { privateKey: STRANGER_KEY })).rejects.toThrow(/belongs to/)
+  it('fails for another wallet, naming both addresses, and leaves no output behind', async () => {
+    const stranger = privateKeyToAccount(STRANGER_KEY).address
+    const both = new RegExp(`belongs to ${OWNER.address}.*PRIVATE_KEY is ${stranger}`, 'i')
+
+    await expect(runDecrypt(encryptedPath, outputDir, { privateKey: STRANGER_KEY })).rejects.toThrow(both)
     expect(existsSync(outputDir)).toBe(false)
+  })
+
+  it('opens no network connection', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const connect = vi.spyOn(Socket.prototype, 'connect')
+
+    await runDecrypt(encryptedPath, outputDir, asOwner)
+
+    expect((await readFile(join(outputDir, 'report.pdf'))).equals(plaintext)).toBe(true)
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(connect).not.toHaveBeenCalled()
   })
 
   it('refuses to run with a session key', async () => {
