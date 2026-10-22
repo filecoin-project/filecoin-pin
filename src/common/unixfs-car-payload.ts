@@ -9,6 +9,9 @@
  *
  * A file that changes between the passes would produce leaves that no longer match their
  * CIDs, so the size and mtime of every input file are checked before pass 1 and after pass 2.
+ *
+ * Errors about the input are {@link EncryptInputError}s, which name an entry by its position
+ * (`entry #N`, in walk order), never by its path: they reach terminals, CI logs and pino.
  */
 
 import { createReadStream } from 'node:fs'
@@ -33,12 +36,35 @@ const SHA256_CODE = 0x12
 /** Chunks hashed at once in pass 1; WebCrypto digests run on the libuv threadpool, so this is real parallelism. */
 const HASH_CONCURRENCY = 8
 
+/** An input problem, described without the entry's path or name. */
+export class EncryptInputError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'EncryptInputError'
+  }
+}
+
+/** The error's `code` (EACCES, ENOENT, ...) or its class name: never its message, which may hold a path. */
+export function errorCode(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code
+  if (typeof code === 'string') return code
+  return error instanceof Error ? error.name : 'unknown error'
+}
+
+const unreadable = (entry: number, error: unknown): EncryptInputError =>
+  new EncryptInputError(`Cannot read an input entry (entry #${entry}): ${errorCode(error)}`)
+
+const changed = (entry: number): EncryptInputError =>
+  new EncryptInputError(`Input changed during encryption (entry #${entry}); re-run`)
+
 export interface InputFile {
   /** Path inside the wrapper, `basename(input)/...`. */
   rel: string
   abs: string
   size: number
   mtimeNs: bigint
+  /** 1-based position in walk order, the only way errors refer to this file. */
+  entry: number
 }
 
 export interface InputWalk {
@@ -60,32 +86,51 @@ export interface WalkOptions {
 export async function walkInput(inputPath: string, { includeHidden = false }: WalkOptions = {}): Promise<InputWalk> {
   const name = basename(inputPath)
   const hidden = includeHidden || name.startsWith('.')
-  const root = await lstat(inputPath, { bigint: true })
-  if (root.isSymbolicLink()) {
-    throw new Error(`${inputPath} is a symlink`)
-  }
   const files: InputFile[] = []
   const dirs: string[] = []
   const skippedSymlinks: string[] = []
+  // 1-based position of the next entry, in walk order, for error messages.
+  const nextEntry = (): number => dirs.length + files.length + skippedSymlinks.length + 1
+  const checkName = (entryName: string): void => {
+    // `\` is a path separator on Windows, so such a name could not be restored safely there.
+    if (entryName.includes('\\')) {
+      throw new EncryptInputError(`Entry #${nextEntry()} has a name containing "\\", which cannot be restored safely`)
+    }
+  }
+  const root = await lstat(inputPath, { bigint: true }).catch((error: unknown) => {
+    throw unreadable(1, error)
+  })
+  if (root.isSymbolicLink()) {
+    throw new EncryptInputError('The input is a symlink; pass the path it points to')
+  }
+  checkName(name)
   if (root.isFile()) {
-    files.push({ rel: name, abs: inputPath, size: Number(root.size), mtimeNs: root.mtimeNs })
+    files.push({ rel: name, abs: inputPath, size: Number(root.size), mtimeNs: root.mtimeNs, entry: 1 })
     return { name, isDirectory: false, files, dirs, skippedSymlinks }
   }
   const visit = async (abs: string, rel: string): Promise<void> => {
+    const entry = nextEntry()
     dirs.push(rel)
-    for (const entryName of (await readdir(abs)).sort()) {
+    const names = await readdir(abs).catch((error: unknown) => {
+      throw unreadable(entry, error)
+    })
+    for (const entryName of names.sort()) {
       if (!hidden && entryName.startsWith('.')) {
         continue
       }
+      checkName(entryName)
       const childAbs = join(abs, entryName)
       const childRel = `${rel}/${entryName}`
-      const st = await lstat(childAbs, { bigint: true })
+      const childEntry = nextEntry()
+      const st = await lstat(childAbs, { bigint: true }).catch((error: unknown) => {
+        throw unreadable(childEntry, error)
+      })
       if (st.isSymbolicLink()) {
         skippedSymlinks.push(childRel)
       } else if (st.isDirectory()) {
         await visit(childAbs, childRel)
       } else if (st.isFile()) {
-        files.push({ rel: childRel, abs: childAbs, size: Number(st.size), mtimeNs: st.mtimeNs })
+        files.push({ rel: childRel, abs: childAbs, size: Number(st.size), mtimeNs: st.mtimeNs, entry: childEntry })
       }
     }
   }
@@ -111,6 +156,15 @@ const parallelHashImporter: BufferImporter = (file, blockstore) =>
     }
   })()
 
+/** A file's bytes for the importer, with read errors reported by position only. */
+async function* readEntry(abs: string, entry: number): AsyncGenerator<Uint8Array> {
+  try {
+    yield* createReadStream(abs, { highWaterMark: 1 << 20 }) as AsyncIterable<Uint8Array>
+  } catch (error) {
+    throw unreadable(entry, error)
+  }
+}
+
 export interface CarPayloadPlan {
   walk: InputWalk
   root: CID
@@ -120,9 +174,22 @@ export interface CarPayloadPlan {
   contentLength: number
 }
 
-/** Pass 1: compute the DAG and its byte layout. */
-export async function planCarPayload(inputPath: string, walkOptions: WalkOptions = {}): Promise<CarPayloadPlan> {
+/**
+ * Pass 1: compute the DAG and its byte layout. `maxBytes` fails fast, before any hashing,
+ * when the files alone exceed it (the CAR is always larger than its files).
+ */
+export async function planCarPayload(
+  inputPath: string,
+  walkOptions: WalkOptions = {},
+  maxBytes = Number.POSITIVE_INFINITY
+): Promise<CarPayloadPlan> {
   const walk = await walkInput(inputPath, walkOptions)
+  const inputBytes = walk.files.reduce((sum, file) => sum + file.size, 0)
+  if (inputBytes > maxBytes) {
+    throw new EncryptInputError(
+      `The input is ${inputBytes} bytes, more than the ${maxBytes} bytes one upload can hold; split it into smaller uploads`
+    )
+  }
   const nodes = new Map<string, MetadataNode>()
   // The importer's multiformats is a different major than ours; re-decode CIDs at the boundary.
   const blockstore: WritableStorage = {
@@ -142,7 +209,7 @@ export async function planCarPayload(inputPath: string, walkOptions: WalkOptions
       yield { path: dir }
     }
     for (const file of walk.files) {
-      yield { path: file.rel, content: createReadStream(file.abs, { highWaterMark: 1 << 20 }) }
+      yield { path: file.rel, content: readEntry(file.abs, file.entry) }
     }
   }
   const options: ImporterOptions = {
@@ -158,13 +225,24 @@ export async function planCarPayload(inputPath: string, walkOptions: WalkOptions
   if (root == null) {
     throw new Error('importer produced no root')
   }
-  const lay = layout(root, nodes)
+  let lay: CarLayout
+  try {
+    lay = layout(root, nodes)
+  } catch {
+    // layout's messages name paths; the walk has already rejected every name it could.
+    throw new EncryptInputError('The input cannot be packed as an encrypted upload')
+  }
+  if (lay.total > maxBytes) {
+    throw new EncryptInputError(
+      `The packed input is ${lay.total} bytes, more than the ${maxBytes} bytes one upload can hold; split it into smaller uploads`
+    )
+  }
   return { walk, root, nodes, layout: lay, contentLength: lay.total }
 }
 
 /** Pass 2: the CAR bytes, in layout order. */
 export async function* emitCarPayload(plan: CarPayloadPlan): AsyncGenerator<Uint8Array> {
-  const absByRel = new Map(plan.walk.files.map((f) => [f.rel, f.abs]))
+  const byRel = new Map(plan.walk.files.map((f) => [f.rel, f]))
   yield plan.layout.header
   for (const { cid } of plan.layout.metadata) {
     const node = plan.nodes.get(cid.toString())
@@ -179,18 +257,25 @@ export async function* emitCarPayload(plan: CarPayloadPlan): AsyncGenerator<Uint
   try {
     for (const leaf of plan.layout.leaves) {
       const target = leaf.targets[0]
-      const abs = target == null ? undefined : absByRel.get(target.path)
-      if (target == null || abs == null) {
-        throw new Error(`leaf ${leaf.cid} has no source file`)
+      const source = target == null ? undefined : byRel.get(target.path)
+      if (target == null || source == null) {
+        throw new EncryptInputError('The input cannot be packed as an encrypted upload')
       }
+      const { abs, entry } = source
       if (current?.abs !== abs) {
         await current?.fd.close()
-        current = { abs, fd: await open(abs, 'r') }
+        current = undefined
+        const fd = await open(abs, 'r').catch((error: unknown) => {
+          throw unreadable(entry, error)
+        })
+        current = { abs, fd }
       }
       const buf = new Uint8Array(leaf.len)
-      const { bytesRead } = await current.fd.read(buf, 0, leaf.len, target.fileOffset)
+      const { bytesRead } = await current.fd.read(buf, 0, leaf.len, target.fileOffset).catch((error: unknown) => {
+        throw unreadable(entry, error)
+      })
       if (bytesRead !== leaf.len) {
-        throw new Error(`${abs} changed during encryption`)
+        throw changed(entry)
       }
       yield encodeVarint(leaf.cid.bytes.length + leaf.len)
       yield leaf.cid.bytes
@@ -200,9 +285,11 @@ export async function* emitCarPayload(plan: CarPayloadPlan): AsyncGenerator<Uint
     await current?.fd.close()
   }
   for (const file of plan.walk.files) {
-    const st = await stat(file.abs, { bigint: true })
+    const st = await stat(file.abs, { bigint: true }).catch(() => {
+      throw changed(file.entry)
+    })
     if (Number(st.size) !== file.size || st.mtimeNs !== file.mtimeNs) {
-      throw new Error(`${file.abs} changed during encryption`)
+      throw changed(file.entry)
     }
   }
 }

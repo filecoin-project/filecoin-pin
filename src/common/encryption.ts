@@ -18,7 +18,14 @@ import { Readable, Writable } from 'node:stream'
 import * as fee from 'filecoin-encryption-envelope'
 import { NotOwnerError, type PieceKey } from './keyspace.js'
 import { CAR_CONTENT_TYPE } from './unixfs-car-layout.js'
-import { type CarPayloadPlan, emitCarPayload, planCarPayload, type WalkOptions } from './unixfs-car-payload.js'
+import {
+  type CarPayloadPlan,
+  EncryptInputError,
+  emitCarPayload,
+  errorCode,
+  planCarPayload,
+  type WalkOptions,
+} from './unixfs-car-payload.js'
 import { type UnpackResult, unpackCar } from './unixfs-car-unpack.js'
 
 /** Basename of the envelope that gets packed, so the original filename never reaches piece metadata. */
@@ -31,25 +38,34 @@ export interface EncryptResult {
 /**
  * Pack `inputPath` (file or directory) as a CAR and stream it through FEE chunked
  * encryption into `outputPath` under `key`. No plaintext is written to disk.
+ *
+ * Every error is an {@link EncryptInputError} or a bare `Encryption failed: <code>`, so
+ * no plaintext path or name reaches the caller's output or logs. `maxBytes` rejects an
+ * input that cannot fit one upload before it is hashed.
  */
 export async function encryptPath(
   inputPath: string,
   outputPath: string,
   key: PieceKey,
-  walkOptions: WalkOptions = {}
+  walkOptions: WalkOptions = {},
+  maxBytes?: number
 ): Promise<EncryptResult> {
-  const plan = await planCarPayload(inputPath, walkOptions)
-  await (Readable.toWeb(Readable.from(emitCarPayload(plan))) as ReadableStream<Uint8Array>)
-    .pipeThrough(
-      fee.encrypt({
-        cek: key.cek,
-        contentLength: plan.contentLength,
-        contentType: CAR_CONTENT_TYPE,
-        appMetadata: key.appMetadata,
-      })
-    )
-    .pipeTo(Writable.toWeb(createWriteStream(outputPath, { mode: 0o600 })))
-  return { plan }
+  try {
+    const plan = await planCarPayload(inputPath, walkOptions, maxBytes)
+    await (Readable.toWeb(Readable.from(emitCarPayload(plan))) as ReadableStream<Uint8Array>)
+      .pipeThrough(
+        fee.encrypt({
+          cek: key.cek,
+          contentLength: plan.contentLength,
+          contentType: CAR_CONTENT_TYPE,
+          appMetadata: key.appMetadata,
+        })
+      )
+      .pipeTo(Writable.toWeb(createWriteStream(outputPath, { mode: 0o600 })))
+    return { plan }
+  } catch (error) {
+    throw error instanceof EncryptInputError ? error : new Error(`Encryption failed: ${errorCode(error)}`)
+  }
 }
 
 const NOT_OURS = 'This file was not encrypted by `filecoin-pin add --encrypt`'

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, truncate, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { keyspaceKeys, writeTarget } from '@filoz/keysmith'
@@ -15,7 +15,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { decryptToDirectory, encryptPath } from '../../common/encryption.js'
 import { newPieceKey, ownerKeyResolver, type PieceKey } from '../../common/keyspace.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, decodeVarint, RAW_CODEC } from '../../common/unixfs-car-layout.js'
-import { emitCarPayload, planCarPayload } from '../../common/unixfs-car-payload.js'
+import { EncryptInputError, emitCarPayload, planCarPayload } from '../../common/unixfs-car-payload.js'
+import { insideDir } from '../../common/unixfs-car-unpack.js'
+import { createCarFromPath } from '../../core/unixfs/car-builder.js'
 
 // Anvil development keys #0 and #1, as in Keysmith's pinned vectors.
 const OWNER = privateKeyToAccount('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80')
@@ -145,12 +147,160 @@ describe('encrypted CAR payload', () => {
     }
   })
 
-  it('fails if a file changes between the two passes', async () => {
+  it('fails if a file changes between the two passes, naming it only by position', async () => {
     await writeFile(input, randomBytes(MiB))
     const plan = await planCarPayload(input)
     await writeFile(input, randomBytes(MiB))
 
-    await expect(collect(emitCarPayload(plan))).rejects.toThrow(/changed during encryption/)
+    const error = await collect(emitCarPayload(plan)).catch((e: Error) => e)
+    expect(error).toBeInstanceOf(EncryptInputError)
+    expect((error as Error).message).toBe('Input changed during encryption (entry #1); re-run')
+  })
+
+  it('stops at a short read in pass 2 instead of emitting the rest', async () => {
+    await writeFile(input, randomBytes(3 * MiB))
+    const plan = await planCarPayload(input)
+    const beforeLeaves = 1 + 3 * plan.layout.metadata.length
+    let yielded = 0
+    const consume = async () => {
+      for await (const _ of emitCarPayload(plan)) {
+        yielded++
+        // Header and every dag-pb section are out: shrink the file before the first leaf is read.
+        if (yielded === beforeLeaves) await truncate(input, 0)
+      }
+    }
+
+    await expect(consume()).rejects.toThrow('Input changed during encryption (entry #1); re-run')
+    expect(yielded).toBe(beforeLeaves)
+  })
+
+  it('names unreadable and unrestorable entries only by position', async () => {
+    await mkdir(input)
+    await writeFile(join(input, 'secret-a.txt'), 'a')
+    await writeFile(join(input, 'secret\\b.txt'), 'b')
+
+    const error = await encryptPath(input, envelope, pieceKey()).catch((e: Error) => e)
+    expect((error as Error).message).toBe('Entry #3 has a name containing "\\", which cannot be restored safely')
+    expect((error as Error).message).not.toContain('secret')
+  })
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'reports an unreadable file by position and error code only',
+    async () => {
+      await mkdir(input)
+      await writeFile(join(input, 'secret.txt'), 'a')
+      await chmod(join(input, 'secret.txt'), 0)
+
+      const error = await encryptPath(input, envelope, pieceKey()).catch((e: Error) => e)
+      expect((error as Error).message).toBe('Cannot read an input entry (entry #2): EACCES')
+    }
+  )
+
+  it('reports any other failure by error code only', async () => {
+    await writeFile(input, 'x')
+    const missing = join(dir, 'missing-dir', 'encrypted.fee')
+
+    await expect(encryptPath(input, missing, pieceKey())).rejects.toThrow(/^Encryption failed: ENOENT$/)
+  })
+
+  it('refuses an input whose files fit the cap but whose packed CAR does not', async () => {
+    await writeFile(input, randomBytes(2048))
+    // Exactly the file size: passes the files check (so it is `>`, not `>=`), fails the CAR check.
+    const error = await encryptPath(input, envelope, pieceKey(), {}, 2048).catch((e: Error) => e)
+    expect((error as Error).message).toMatch(/^The packed input is \d+ bytes, more than the 2048 bytes/)
+  })
+
+  it('accepts an input whose packed CAR is exactly the cap', async () => {
+    await writeFile(input, randomBytes(2048))
+    const { contentLength } = await planCarPayload(input)
+
+    await expect(encryptPath(input, envelope, pieceKey(), {}, contentLength)).resolves.toBeDefined()
+  })
+
+  it('refuses an input larger than the upload cap before hashing it', async () => {
+    await writeFile(input, randomBytes(2048))
+    await expect(encryptPath(input, envelope, pieceKey(), {}, 1024)).rejects.toThrow(
+      'The input is 2048 bytes, more than the 1024 bytes one upload can hold; split it into smaller uploads'
+    )
+    expect(existsSync(envelope)).toBe(false)
+  })
+
+  it('uses a fresh salt and nonce on every encryption of the same input', async () => {
+    await writeFile(input, randomBytes(4096))
+    const second = join(dir, 'second.fee')
+    await encryptPath(input, envelope, pieceKey())
+    await encryptPath(input, second, pieceKey())
+
+    const [a, b] = [await readFile(envelope), await readFile(second)]
+    const [infoA, infoB] = [await fee.parse(new Uint8Array(a)), await fee.parse(new Uint8Array(b))]
+    expect(infoA.appMetadata?.['foc/salt']).not.toBe(infoB.appMetadata?.['foc/salt'])
+    if (infoA.scheme !== 'chunked' || infoB.scheme !== 'chunked') throw new Error('expected the chunked scheme')
+    expect(a.subarray(infoA.params.headerLength).equals(b.subarray(infoB.params.headerLength))).toBe(false)
+  })
+
+  it('records the inner CAR length as plaintextLength and writes the envelope owner-only', async () => {
+    await writeFile(input, randomBytes(1.5 * MiB))
+    const { plan } = await encryptPath(input, envelope, pieceKey())
+
+    const info = await fee.parse(new Uint8Array(await readFile(envelope)))
+    if (info.scheme !== 'chunked') throw new Error('expected the chunked scheme')
+    expect(info.params.plaintextLength).toBe(plan.contentLength)
+    expect(plan.contentLength).toBe((await collect(emitCarPayload(plan))).length)
+    if (process.platform !== 'win32') {
+      expect((await stat(envelope)).mode & 0o777).toBe(0o600)
+    }
+  })
+
+  it('rejects a corrupted leaf inside a valid envelope and leaves nothing behind', async () => {
+    await writeFile(input, randomBytes(2.5 * MiB))
+    const plan = await planCarPayload(input)
+    const car = new Uint8Array(await collect(emitCarPayload(plan)))
+    const leaf = plan.layout.leaves[1]
+    if (leaf == null) throw new Error('no second leaf')
+    car[leaf.dataOffset] = (car[leaf.dataOffset] ?? 0) ^ 0xff
+    const { cek, appMetadata } = pieceKey()
+    const sealed = new Blob([car])
+      .stream()
+      .pipeThrough(fee.encrypt({ cek, appMetadata, contentType: CAR_CONTENT_TYPE }))
+    await writeFile(envelope, Buffer.from(await new Response(sealed).arrayBuffer()))
+
+    await expect(decryptToDirectory(envelope, outDir, asOwner())).rejects.toThrow(/does not match its CID/)
+    expect(existsSync(outDir)).toBe(false)
+  })
+
+  // ponytail: empty files with ~145-char names; ~1370 of them cross the 256 KiB HAMT threshold, so
+  // 1300 stays a plain directory and 1450 shards. Asserting the type on both sides pins the threshold
+  // itself, which a parity check alone cannot: both sides share the importer options.
+  const manyEmptyFiles = (count: number) => async (path: string) => {
+    await mkdir(path)
+    for (let i = 0; i < count; i++) await writeFile(join(path, `${String(i).padStart(4, '0')}-${'n'.repeat(140)}`), '')
+  }
+  it.each([
+    ['a file', 'file', async (path: string) => writeFile(path, randomBytes(1.5 * MiB))],
+    [
+      'a directory',
+      'directory',
+      async (path: string) => {
+        await mkdir(join(path, 'sub'), { recursive: true })
+        await writeFile(join(path, 'sub', 'x'), 'x')
+        await writeFile(join(path, 'y'), randomBytes(1024))
+      },
+    ],
+    ['a large directory just under the HAMT threshold', 'directory', manyEmptyFiles(1300)],
+    ['a directory just over the HAMT threshold', 'hamt-sharded-directory', manyEmptyFiles(1450)],
+  ])('wraps %s under the same CID an unencrypted add builds', async (_kind, type, build) => {
+    await build(input)
+    const plan = await planCarPayload(input)
+    const wrapper = plan.nodes.get(plan.root.toString())
+    if (wrapper == null) throw new Error('no wrapper node')
+    const entry = dagPb.decode(wrapper.bytes).Links[0]?.Hash
+
+    const { carPath, rootCid } = await createCarFromPath(input)
+    await rm(carPath, { force: true })
+    expect(entry?.toString()).toBe(rootCid.toString())
+    const node = plan.nodes.get(rootCid.toString())
+    const data = node == null ? undefined : dagPb.decode(node.bytes).Data
+    expect(data == null ? undefined : UnixFS.unmarshal(data).type).toBe(type)
   })
 
   it('rejects another wallet and leaves nothing behind', async () => {
@@ -204,12 +354,15 @@ describe('encrypted CAR payload', () => {
     expect(existsSync(outDir)).toBe(false)
   })
 
-  it('rejects a payload whose directory entry could escape the output directory', async () => {
+  it.each([
+    '../escape',
+    '..\\..\\escape',
+  ])('rejects a payload whose directory entry %s could escape the output directory', async (name) => {
     const leafBytes = new Uint8Array([1, 2, 3])
     const leaf = CID.createV1(RAW_CODEC, await sha256.digest(leafBytes))
     const dirNode = dagPb.encode({
       Data: new UnixFS({ type: 'directory' }).marshal(),
-      Links: [{ Name: '../escape', Hash: leaf, Tsize: leafBytes.length }],
+      Links: [{ Name: name, Hash: leaf, Tsize: leafBytes.length }],
     })
     const root = CID.createV1(DAG_PB_CODEC, await sha256.digest(dirNode))
     const { writer, out } = CarWriter.create([root])
@@ -227,5 +380,21 @@ describe('encrypted CAR payload', () => {
     await expect(decryptToDirectory(envelope, outDir, asOwner())).rejects.toThrow(/unsafe entry name/)
     expect(existsSync(outDir)).toBe(false)
     expect(existsSync(join(dir, 'escape'))).toBe(false)
+  })
+
+  it('never resolves a path outside the output directory', () => {
+    expect(insideDir(outDir, 'a/b.txt')).toBe(join(outDir, 'a', 'b.txt'))
+    expect(() => insideDir(outDir, '../escape')).toThrow(/outside the output directory/)
+    expect(() => insideDir(outDir, 'a/../../escape')).toThrow(/outside the output directory/)
+    expect(() => insideDir(outDir, '/etc/passwd')).toThrow(/outside the output directory/)
+  })
+
+  it('chunks files into 1 MiB raw leaves (unixfs-v1-2025), so the format stays readable', async () => {
+    await writeFile(input, randomBytes(2.5 * MiB))
+
+    const plan = await planCarPayload(input)
+
+    expect(plan.layout.leaves.map((leaf) => leaf.len)).toEqual([MiB, MiB, 0.5 * MiB])
+    expect(plan.layout.leaves.every((leaf) => leaf.cid.code === RAW_CODEC)).toBe(true)
   })
 })
