@@ -118,9 +118,14 @@ interface DecodedNode {
   unixfs: UnixFS | undefined
 }
 
-/** A link name that could escape or alias a path when the tree is written to disk. */
+/**
+ * A link name that could escape or alias a path when the tree is written to disk.
+ * `\` is a separator on Windows, so `..\x` would escape there.
+ */
 function isUnsafeName(name: string): boolean {
-  return name === '' || name === '.' || name === '..' || name.includes('/') || name.includes('\0')
+  return (
+    name === '' || name === '.' || name === '..' || name.includes('/') || name.includes('\\') || name.includes('\0')
+  )
 }
 
 /**

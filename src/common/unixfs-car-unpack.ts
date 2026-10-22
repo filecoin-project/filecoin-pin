@@ -6,11 +6,12 @@
  * references it as it streams past. Memory is bounded by the metadata plus one leaf.
  *
  * Output is owner-only (directories 0700, files 0600, exclusive create). Names that could
- * escape the output directory are rejected by `layout` before anything is written.
+ * escape the output directory are rejected by `layout` before anything is written, and
+ * every path is checked to resolve inside `outDir` before it is created or opened.
  */
 
 import { mkdir, open } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, resolve, sep } from 'node:path'
 import { CarBlockIterator } from '@ipld/car'
 import {
   type CarLayout,
@@ -32,6 +33,16 @@ export interface UnpackResult {
 }
 
 type FileHandle = Awaited<ReturnType<typeof open>>
+
+/** `outDir/path`, refusing any path that resolves outside `outDir`. */
+export function insideDir(outDir: string, path: string): string {
+  const base = resolve(outDir)
+  const target = resolve(base, path)
+  if (target !== base && !target.startsWith(base + sep)) {
+    throw new Error(`entry ${JSON.stringify(path)} would be written outside the output directory`)
+  }
+  return target
+}
 
 export async function unpackCar(source: ReadableStream<Uint8Array>, outDir: string): Promise<UnpackResult> {
   const blocks = await CarBlockIterator.fromIterable(source)
@@ -61,31 +72,49 @@ export async function unpackCar(source: ReadableStream<Uint8Array>, outDir: stri
         handles.delete(oldest[0])
       }
     }
-    const handle = await open(join(outDir, path), 'r+')
+    const handle = await open(insideDir(outDir, path), 'r+')
     handles.set(path, handle)
     return handle
   }
 
+  // Checks never reject: the first failure is recorded here and thrown by the loop, so no
+  // rejection goes unhandled even when the loop stops early on another error.
   const pending = new Set<Promise<void>>()
+  let corrupt: Error | undefined
+  const throwIfCorrupt = (): void => {
+    if (corrupt != null) {
+      throw corrupt
+    }
+  }
   const verify = (leaf: LeafPlacement, bytes: Uint8Array): void => {
-    const check = crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>).then((digest) => {
-      if (Buffer.compare(Buffer.from(digest), Buffer.from(leaf.cid.multihash.digest)) !== 0) {
-        throw new Error(`block ${leaf.cid} does not match its CID`)
-      }
-    })
+    const check: Promise<void> = crypto.subtle
+      .digest('SHA-256', bytes as Uint8Array<ArrayBuffer>)
+      .then(
+        (digest) => {
+          if (Buffer.compare(Buffer.from(digest), Buffer.from(leaf.cid.multihash.digest)) !== 0) {
+            corrupt ??= new Error(`block ${leaf.cid} does not match its CID`)
+          }
+        },
+        (error: unknown) => {
+          corrupt ??= error instanceof Error ? error : new Error(String(error))
+        }
+      )
+      .then(() => {
+        pending.delete(check)
+      })
     pending.add(check)
-    check.finally(() => pending.delete(check))
   }
 
   // Called once the first raw leaf arrives: the tree is complete, create every directory and file.
   const startData = async (): Promise<void> => {
     lay = layout(root, nodes)
     for (const dir of lay.dirs) {
-      await mkdir(join(outDir, dir), { recursive: true, mode: 0o700 })
+      await mkdir(insideDir(outDir, dir), { recursive: true, mode: 0o700 })
     }
     for (const path of lay.files.keys()) {
-      await mkdir(dirname(join(outDir, path)), { recursive: true, mode: 0o700 })
-      await (await open(join(outDir, path), 'wx', 0o600)).close()
+      const target = insideDir(outDir, path)
+      await mkdir(dirname(target), { recursive: true, mode: 0o700 })
+      await (await open(target, 'wx', 0o600)).close()
     }
     result.files = lay.files.size
     result.dirs = lay.dirs.length
@@ -115,9 +144,11 @@ export async function unpackCar(source: ReadableStream<Uint8Array>, outDir: stri
       if (bytes.length !== leaf.len) {
         throw new Error(`leaf ${cid} is ${bytes.length} bytes, expected ${leaf.len}`)
       }
+      throwIfCorrupt()
       verify(leaf, bytes)
       if (pending.size >= VERIFY_CONCURRENCY) {
         await Promise.race(pending)
+        throwIfCorrupt()
       }
       for (const target of leaf.targets) {
         const handle = await handleFor(target.path)
@@ -133,7 +164,10 @@ export async function unpackCar(source: ReadableStream<Uint8Array>, outDir: stri
       throw new Error(`truncated payload: ${next} of ${expected.length} blocks`)
     }
     await Promise.all(pending)
+    throwIfCorrupt()
   } finally {
+    // Let in-flight checks settle before the caller removes the output directory.
+    await Promise.all(pending)
     for (const handle of handles.values()) {
       await handle.close()
     }
