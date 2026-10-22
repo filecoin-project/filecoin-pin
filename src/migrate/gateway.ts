@@ -5,35 +5,38 @@
  * (`?format=car&dag-scope=all`). The response is untrusted: `verify-car.ts`
  * hash-checks every block and walks the DAG for completeness before the
  * bytes count as migrated.
+ *
+ * No deadline is set here: undici's header and body timeouts (300 s each)
+ * bound a stalled gateway and surface as `source_gateway_timeout`.
  */
 
 import { buildCarUrl, CAR_ACCEPT } from './car-url.js'
 import type { FailureCategory } from './db.js'
 
-/**
- * Error subclass thrown by `fetchCar` so callers can categorize failures by
- * kind instead of pattern-matching the error message.
- */
-export class GatewayError extends Error {
-  status?: number
-  category: FailureCategory
-  constructor(message: string, opts: { status?: number | undefined; category: FailureCategory }) {
-    super(message)
-    this.name = 'GatewayError'
-    if (opts.status != null) {
-      this.status = opts.status
-    }
-    this.category = opts.category
+/** A staging failure (fetch or verify) carrying the resume store's category. */
+export class StagingError extends Error {
+  readonly category: FailureCategory
+  constructor(message: string, category: FailureCategory, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'StagingError'
+    this.category = category
   }
+}
+
+/** The category to record for a thrown error; anything not ours is `other`. */
+export function failureCategoryOf(err: unknown): FailureCategory {
+  return err instanceof StagingError ? err.category : 'other'
 }
 
 function categoryForStatus(status: number): FailureCategory {
   if (status === 429) return 'source_gateway_429'
+  if (status === 404 || status === 410) return 'source_not_found'
   if (status >= 500 && status < 600) return 'source_gateway_5xx'
   return 'other'
 }
 
-const TIMEOUT_NAMES = new Set(['AbortError', 'TimeoutError'])
+// AbortError is a cancel, not a timeout; only AbortSignal.timeout yields TimeoutError.
+const TIMEOUT_NAMES = new Set(['TimeoutError'])
 const TIMEOUT_CODES = new Set([
   'ETIMEDOUT',
   'UND_ERR_CONNECT_TIMEOUT',
@@ -41,17 +44,24 @@ const TIMEOUT_CODES = new Set([
   'UND_ERR_BODY_TIMEOUT',
 ])
 
+type Causal = { name?: string; code?: string; message?: string; cause?: unknown }
+
+/** The error and its `cause` chain, outermost first; stops on a cycle. */
+function* causes(err: unknown): Generator<Causal> {
+  const seen = new Set<unknown>()
+  for (let cur = err; cur != null && !seen.has(cur); cur = (cur as Causal).cause) {
+    seen.add(cur)
+    yield cur as Causal
+  }
+}
+
 /**
- * Timeout vs network, by walking the error's `cause` chain: node:fetch wraps
- * transport errors in a TypeError whose `cause` carries the net/dns/undici
- * code, and an aborted signal is a DOMException named AbortError. Anything
- * unrecognized is a network failure.
+ * Timeout vs network: node's fetch wraps transport errors in a TypeError whose
+ * `cause` carries the net/dns/undici code. Anything unrecognized is a network
+ * failure.
  */
 export function categoryForFetchError(err: unknown): FailureCategory {
-  const seen = new Set<unknown>()
-  for (let cur = err; cur != null && !seen.has(cur); cur = (cur as { cause?: unknown }).cause) {
-    seen.add(cur)
-    const { name, code } = cur as { name?: string; code?: string }
+  for (const { name, code } of causes(err)) {
     if ((name != null && TIMEOUT_NAMES.has(name)) || (code != null && TIMEOUT_CODES.has(code))) {
       return 'source_gateway_timeout'
     }
@@ -59,48 +69,53 @@ export function categoryForFetchError(err: unknown): FailureCategory {
   return 'source_gateway_network'
 }
 
+/** The innermost cause's code or message: the outer error usually says only "fetch failed". */
+export function rootCause(err: unknown): string {
+  let last: unknown = err
+  for (const cur of causes(err)) last = cur
+  if (typeof last !== 'object' || last == null) return String(last)
+  const { code, message } = last as Causal
+  return code ?? message ?? String(last)
+}
+
+function discardBody(res: Response): void {
+  void res.body?.cancel().catch(() => undefined)
+}
+
 /** Fetch a CID as a CAR stream. Throws on non-2xx or a non-CAR content-type. */
 export async function fetchCar(
   gateway: string,
-  cid: string,
-  signal?: AbortSignal
+  cid: string
 ): Promise<{ url: string; body: ReadableStream<Uint8Array> }> {
   const url = buildCarUrl(gateway, cid)
   let res: Response
   try {
-    res = await fetch(url, { headers: { accept: CAR_ACCEPT }, signal: signal ?? null })
+    res = await fetch(url, { headers: { accept: CAR_ACCEPT } })
   } catch (err) {
-    throw new GatewayError(
-      `gateway ${gateway} fetch failed for ${cid}: ${err instanceof Error ? err.message : String(err)}`,
-      { category: categoryForFetchError(err) }
+    throw new StagingError(
+      `gateway ${gateway} fetch failed for ${cid}: ${rootCause(err)}`,
+      categoryForFetchError(err),
+      {
+        cause: err,
+      }
     )
   }
   if (!res.ok) {
-    res.body?.cancel().catch(() => {
-      // the stream may already be closed; either way it is released
-    })
-    throw new GatewayError(`gateway ${gateway} returned HTTP ${res.status} for ${cid}`, {
-      status: res.status,
-      category: categoryForStatus(res.status),
-    })
+    discardBody(res)
+    throw new StagingError(`gateway ${gateway} returned HTTP ${res.status} for ${cid}`, categoryForStatus(res.status))
   }
   const contentType = res.headers.get('content-type') ?? ''
-  if (!contentType.includes('application/vnd.ipld.car')) {
+  if (!contentType.includes(CAR_ACCEPT)) {
     // A file-mode gateway ignores ?format=car and returns the reassembled
     // file. That is unusable for CID preservation, so reject it loudly.
-    res.body?.cancel().catch(() => {
-      // release the unusable body
-    })
-    throw new GatewayError(
+    discardBody(res)
+    throw new StagingError(
       `gateway ${gateway} is not trustless: got content-type "${contentType}" instead of a CAR for ${cid}`,
-      { status: res.status, category: 'other' }
+      'other'
     )
   }
   if (res.body == null) {
-    throw new GatewayError(`gateway ${gateway} returned an empty body for ${cid}`, {
-      status: res.status,
-      category: 'other',
-    })
+    throw new StagingError(`gateway ${gateway} returned an empty body for ${cid}`, 'other')
   }
   return { url, body: res.body }
 }
