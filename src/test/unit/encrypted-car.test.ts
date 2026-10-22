@@ -174,7 +174,8 @@ describe('encrypted CAR payload', () => {
     expect(yielded).toBe(beforeLeaves)
   })
 
-  it('names unreadable and unrestorable entries only by position', async () => {
+  // Windows treats `\` as a separator, so the name can't be created there.
+  it.skipIf(process.platform === 'win32')('names unreadable and unrestorable entries only by position', async () => {
     await mkdir(input)
     await writeFile(join(input, 'secret-a.txt'), 'a')
     await writeFile(join(input, 'secret\\b.txt'), 'b')
