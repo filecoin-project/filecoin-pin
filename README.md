@@ -296,6 +296,24 @@ Every command resolves credentials in this order: explicit flags, then environme
 
 CI and shared runners: set `PRIVATE_KEY` or `SESSION_KEY` and `WALLET_ADDRESS` explicitly, so a session file left in the runner's home directory is never picked up.
 
+### Encrypted Uploads
+
+`filecoin-pin add <path> --encrypt` encrypts a file or directory on this machine before anything is uploaded. Only ciphertext leaves the machine.
+
+* **Who can read it:** the encrypted bytes are public and retrievable like any other upload; only the owner wallet can decrypt them. `--encrypt` needs that wallet (`PRIVATE_KEY` or `--private-key`). With a session key it stops before uploading.
+* **What stays private:** the input is packed as a UnixFS CAR and that CAR is wrapped in a [Filecoin Encryption Envelope](documentation/glossary.md#encrypted-upload). File names, sizes and the plaintext CIDs exist only inside the ciphertext. The piece is named `encrypted.fee` unless you pass `--metadata name=...`, and the Root CID printed after the upload is the encrypted CAR's. Errors name a bad input entry by its position, not its path.
+* **Keys:** the wallet signs once for a [Group Key](documentation/glossary.md#group-key), and each upload gets its own key from that signature and a fresh salt. Nothing is stored locally; the group key is recorded on chain in the metadata of the data sets the upload goes to.
+* **Data sets:** encrypted uploads go to their own data sets, tagged with the group key and `foc/enc`. A plain `add` never reuses them, and `--data-set-id` pointing at the wrong kind of data set is refused.
+* **Limits:** symlinks and special files (FIFOs, sockets, devices) are skipped and counted in the output; hidden entries follow `--include-hidden`. One upload holds about 1 GiB; a larger input is refused before it is encrypted.
+
+`--no-ipfs` (with or without `--encrypt`) uploads to data sets without IPFS indexing: the provider does not announce the content to IPNI, so it is not findable by IPFS Root CID through IPFS gateways, and `add` skips the IPNI wait. The piece can still be downloaded by its Piece CID. `--no-ipfs` and IPFS-indexed uploads never share a data set.
+
+```bash
+export PRIVATE_KEY=0x...
+filecoin-pin add ./reports --encrypt
+filecoin-pin add ./reports --encrypt --no-ipfs
+```
+
 ### Session-Key Permissions
 
 In session-key mode, each command checks only the on-chain permissions it needs — a delegate does not need every storage-service permission to run a scoped subset of commands.
