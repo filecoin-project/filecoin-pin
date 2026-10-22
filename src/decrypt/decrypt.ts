@@ -22,7 +22,7 @@ export async function runDecrypt(inputPath: string, outputDir: string, options: 
   try {
     // Before the handler is armed: it must never remove entries decrypt would have refused to touch.
     outExists = (await checkDecryptPaths(inputPath, outputDir)).outExists
-    // The owner wallet signs offline for the keyspace the envelope names; no RPC is opened.
+    // The owner wallet signs offline for the group key the envelope names; no RPC is opened.
     const signer = ownerSignerFromAuth(options)
     process.once('SIGINT', onSigint)
     spinner.start('Decrypting...')

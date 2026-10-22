@@ -4,7 +4,7 @@ import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFil
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { keyspaceKeys, writeTarget } from '@filoz/keysmith'
+import { keyspaceKeys as deriveGroupKey, writeTarget } from '@filoz/keysmith'
 import { CarIndexedReader } from '@ipld/car'
 import * as fee from 'filecoin-encryption-envelope'
 import { CID } from 'multiformats/cid'
@@ -46,7 +46,7 @@ describe('runDecrypt', () => {
   let pieceKey: () => PieceKey
 
   beforeAll(async () => {
-    const { kk, descriptor } = await keyspaceKeys(OWNER, {
+    const { kk, descriptor } = await deriveGroupKey(OWNER, {
       owner: OWNER.address,
       keyspace: '0x00112233445566778899aabbccddeeff',
     })
@@ -144,7 +144,7 @@ describe('runDecrypt', () => {
     ['password-era metadata', () => ({ kdf: 'pbkdf2-sha256', iterations: 600_000, salt: 'AAAAAAAAAAAAAAAAAAAAAA==' })],
     ['another label version', () => ({ ...pieceKey().appMetadata, 'foc/v': 2 })],
     ['a malformed salt', () => ({ ...pieceKey().appMetadata, 'foc/salt': 'not hex' })],
-    ['a malformed keyspace', () => ({ ...pieceKey().appMetadata, 'foc/ks': '0x1234' })],
+    ['a malformed group key id', () => ({ ...pieceKey().appMetadata, 'foc/ks': '0x1234' })],
   ])('rejects an envelope with %s', async (_case, labels) => {
     const appMetadata = labels()
     const foreign = new Blob([new Uint8Array(plaintext)])
@@ -217,7 +217,7 @@ describe('runDecrypt', () => {
   })
 
   it('decrypts the checked-in golden envelope with the Anvil owner key', async () => {
-    // Encrypted once on 2026-10-20 under keyspace 0x00112233445566778899aabbccddeeff with
+    // Encrypted once on 2026-10-20 under group key 0x00112233445566778899aabbccddeeff with
     // salt 0x000102030405060708090a0b0c0d0e0f, from Keysmith's pinned vectors.
     const golden = fileURLToPath(new URL('../fixtures/encrypted-golden/report.fee', import.meta.url))
 
@@ -289,7 +289,7 @@ describe('runDecrypt', () => {
 
   it('decrypts the checked-in multi-chunk golden envelope and pins its inner root', async () => {
     // 1.1 MB of (i * 7919 + (i >> 8)) & 0xff, encrypted once on 2026-10-20 under the vector
-    // keyspace with salt 0x101112131415161718191a1b1c1d1e1f. The root and the sha256 are
+    // group key with salt 0x101112131415161718191a1b1c1d1e1f. The root and the sha256 are
     // pinned from that run: a change to chunking, the wrapper or the labels must show up
     // here, not get regenerated.
     const golden = fileURLToPath(new URL('../fixtures/encrypted-golden/big.fee', import.meta.url))
