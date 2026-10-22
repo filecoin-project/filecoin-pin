@@ -314,6 +314,12 @@ filecoin-pin add ./reports --encrypt
 filecoin-pin add ./reports --encrypt --no-ipfs
 ```
 
+`filecoin-pin decrypt <file> <output-dir>` reads an encrypted upload back. `<file>` is the download by its IPFS Root CID: the bare `encrypted.fee` or the CAR a gateway serves for `?format=car` (see [retrieval](documentation/retrieval.md)). The key is derived offline from the owner wallet (`PRIVATE_KEY` or `--private-key`); no network connection is made, and a session key is refused. The upload is restored under its original name inside `<output-dir>`, which is created owner-only or must be empty; files are written `0600` and never overwritten. Another wallet's upload fails naming both addresses, a modified file fails authentication, and a cut download is reported as incomplete. Entry names that could escape `<output-dir>` and symlink entries are refused. On any failure, Ctrl-C, kill or a closed terminal, everything decrypt wrote is removed. Errors never print names from inside the envelope.
+
+```bash
+PRIVATE_KEY=0x... filecoin-pin decrypt encrypted.fee ./restored
+```
+
 ### Session-Key Permissions
 
 In session-key mode, each command checks only the on-chain permissions it needs — a delegate does not need every storage-service permission to run a scoped subset of commands.
