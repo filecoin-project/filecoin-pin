@@ -6,24 +6,14 @@ import {
   type CommandCode,
   type CommandEnvelope,
   ENVELOPE_SCHEMA_VERSION,
+  EXIT_CODE_BY_CODE,
   emit,
   exitCodeFor,
   isJsonMode,
 } from '../../common/command-envelope.js'
 import { isInteractive } from '../../utils/cli-helpers.js'
 
-const CODES: CommandCode[] = [
-  'OK',
-  'INVALID_ARGUMENT',
-  'AUTH_REQUIRED',
-  'AUTHORIZATION_INCOMPLETE',
-  'INSUFFICIENT_FUNDS',
-  'INTERACTION_REQUIRED',
-  'PARTIAL_FAILURE',
-  'CANCELLED',
-  'RPC_UNAVAILABLE',
-  'INTERNAL_ERROR',
-]
+const CODES = Object.keys(EXIT_CODE_BY_CODE) as CommandCode[]
 
 const OPEN_URL: CommandAction = {
   type: 'open_url',

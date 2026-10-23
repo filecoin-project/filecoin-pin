@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import './instrument.js'
 import { determineAgent } from '@vercel/detect-agent'
-import { Command, type Help } from 'commander'
+import { Command, type Help, Option } from 'commander'
 import pc from 'picocolors'
 
 import { CLI_COMMAND_GROUPS } from './commands/index.js'
@@ -79,7 +79,7 @@ const program = new Command()
   // help visibility.
   .addOption(credentialsFileOption())
   .option('-v, --verbose', 'enable debug-level logging (sets LOG_LEVEL=debug)')
-  .option('--json', 'write a machine-readable JSON envelope to stdout')
+  .addOption(new Option('--json', 'write a machine-readable JSON envelope to stdout').hideHelp())
   .option('--no-update-check', 'skip check for updates')
   .helpOption(true)
   .configureHelp({
