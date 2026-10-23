@@ -21,7 +21,7 @@ import { join } from 'node:path'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
-import type { MigrationDB, SubPieceRow } from './db.js'
+import type { FailureCategory, MigrationDB, SubPieceRow } from './db.js'
 import {
   type DirectUploadDeps,
   type DirectUploadOptions,
@@ -65,6 +65,8 @@ export interface MigrateSummary extends DirectUploadSummary {
   pieces: { total: number; succeeded: number; failed: number; pending: number; oversized: number }
   /** Source CIDs skipped because they exceed the per-piece upload cap. */
   overCap: string[]
+  /** Source CIDs whose download or verification failed, with the recorded reason. */
+  failures: Array<{ cid: string; error: string; category: FailureCategory }>
   /**
    * Downloaded CIDs left outside any recorded piece when the run ended
    * (packing failed or the pipeline stopped early). On disk, not on chain:
@@ -558,6 +560,7 @@ export async function runMigrate(
       oversized: counts.oversized,
     },
     overCap: db.oversizedCids(),
+    failures: db.failures(),
     // Anything still `done` outside a recorded piece never shipped: pack
     // failures leave members in exactly this state, and the documented exit
     // contract says such a run must not exit 0.

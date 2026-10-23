@@ -198,6 +198,30 @@ describe('runMigrate pipeline', () => {
     }
   }, 10_000)
 
+  it('names each failed CID with its error in the summary', async () => {
+    const cids = [{ cid: await cidFor('ok') }, { cid: 'notacid' }]
+    const h = await harness({ cids, budgetBytes: 100_000, packTargetBytes: 1000 })
+    try {
+      const summary = await runMigrate(
+        h.db,
+        {
+          ...h.options,
+          stageMemberFn: async (cid, ...rest) => {
+            if (cid === 'notacid') throw new Error('not a valid CID: nope')
+            return (h.options.stageMemberFn as NonNullable<typeof h.options.stageMemberFn>)(cid, ...rest)
+          },
+        },
+        h.deps
+      )
+
+      expect(summary.pieces.failed).toBe(1)
+      expect(summary.failures).toEqual([{ cid: 'notacid', error: 'not a valid CID: nope', category: 'other' }])
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  })
+
   it('names CIDs marked oversized by an earlier run in the summary', async () => {
     const cids = [{ cid: await cidFor('big') }]
     const h = await harness({ cids, budgetBytes: 100_000, packTargetBytes: 1000 })

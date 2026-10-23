@@ -6,7 +6,7 @@ import { EGRESS_PROVIDERS } from '../utils/cli-options-egress.js'
 export const migrateCommand = new Command('migrate')
   .description('Migrate IPFS content to Filecoin from a list of CIDs, packing them into batched pieces')
   .argument('<cid-list-file>', 'Path to a file with one CID per line (# comments and blank lines ignored)')
-  .option('--gateway <url>', 'Trustless gateway to fetch CARs from; repeatable', collect)
+  .requiredOption('--gateway <url>', 'Trustless gateway to fetch CARs from; repeatable, tried in order', collect)
   .option('--pack-target-size <size>', 'Target raw size for one packed piece, e.g. 1000MiB (default: 1000MiB)')
   .option('--concurrency <n>', 'CID download concurrency (default: 8)')
   .option(

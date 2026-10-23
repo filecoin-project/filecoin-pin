@@ -308,7 +308,12 @@ export async function stageMember(
   opts: VerifyCarOptions = {},
   fetcher: CarFetcher = fetchCar
 ): Promise<StagedMember> {
-  const root = CID.parse(cid)
+  let root: CID
+  try {
+    root = CID.parse(cid)
+  } catch (err) {
+    throw new StagingError(`not a valid CID: ${rootCause(err)}`, 'other', { cause: err })
+  }
   const finalPath = join(memberDir, `${cid}.car`)
   // Fixed name: createWriteStream truncates, so a retry overwrites a crash orphan.
   const tmpPath = join(memberDir, `${cid}.car.tmp`)

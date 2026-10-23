@@ -29,7 +29,6 @@ import {
 } from '../utils/cli-helpers.js'
 import { log as cliLog } from '../utils/cli-logger.js'
 import { chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
-import { DEFAULT_GATEWAYS } from './car-url.js'
 import { MigrationDB } from './db.js'
 import { DEFAULT_ASSUMED_WINDOW_MS } from './gc-window.js'
 import { DEFAULT_PACK_TARGET_BYTES, MAX_UPLOAD_BYTES, MIN_UPLOAD_BYTES } from './pack-cars.js'
@@ -80,8 +79,10 @@ export function normalizeMigrateOptions(options: Record<string, unknown>): Norma
       ? DEFAULT_ASSUMED_WINDOW_MS / 60_000
       : parsePositiveInt(String(options.assumedWindowMinutes), '--assumed-window-minutes')
   const copies = options.copies == null ? DEFAULT_COPIES : parsePositiveInt(String(options.copies), '--copies')
-  const gateways =
-    Array.isArray(options.gateway) && options.gateway.length > 0 ? (options.gateway as string[]) : DEFAULT_GATEWAYS
+  const gateways = Array.isArray(options.gateway) ? (options.gateway as string[]) : []
+  if (gateways.length === 0) {
+    throw new Error('--gateway is required: the trustless gateway that serves these CIDs (repeatable, tried in order)')
+  }
   // Bulk archival should not pay CDN lockup by default; `--egress-provider
   // beam` opts in. Only the explicit flag can set this: the migrate command
   // registers its option without env binding, so an EGRESS_PROVIDER exported
@@ -307,6 +308,9 @@ function printSummary(summary: MigrateSummary): void {
         `${prov.committed} committed, ${prov.collected} collected, ${prov.failed} failed, ` +
         `${prov.addUnconfirmed} unconfirmed`
     )
+  }
+  for (const f of summary.failures) {
+    cliLog.line(pc.yellow(`Failed (re-run to retry): ${f.cid}: ${f.error}`))
   }
   if (summary.overCap.length > 0) {
     cliLog.line(pc.yellow(`Over the per-piece cap (cannot migrate on this path): ${summary.overCap.join(', ')}`))
