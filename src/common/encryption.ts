@@ -12,12 +12,18 @@
  * Nothing about the plaintext (names, sizes, the root CID) is in the public header.
  */
 
-import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdir, rm } from 'node:fs/promises'
+import { createReadStream, createWriteStream, readdirSync, rmSync } from 'node:fs'
+import { mkdir, stat } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
+import { CarIndexedReader } from '@ipld/car'
+import * as dagPb from '@ipld/dag-pb'
 import * as fee from 'filecoin-encryption-envelope'
+import { UnixFS } from 'ipfs-unixfs'
+import { CID } from 'multiformats/cid'
+import { isCar } from '../core/car/index.js'
 import { NotOwnerError, type PieceKey } from './group-key.js'
-import { CAR_CONTENT_TYPE } from './unixfs-car-layout.js'
+import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC } from './unixfs-car-layout.js'
 import {
   type CarPayloadPlan,
   EncryptInputError,
@@ -69,23 +75,161 @@ export async function encryptPath(
 }
 
 const NOT_OURS = 'This file was not encrypted by `filecoin-pin add --encrypt`'
+const TRUNCATED = 'The file is incomplete (the download was probably interrupted); fetch it again'
+const MALFORMED =
+  'The decrypted upload is malformed or unsafe to unpack (for example an entry name that escapes the output directory)'
+
+/** A decrypt failure whose message names nothing from inside the envelope. */
+class DecryptError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'DecryptError'
+  }
+}
+
+/**
+ * The envelope bytes of a downloaded upload. A gateway's `/ipfs/<cid>?format=car` hands out the
+ * outer CAR (a UnixFS file holding the envelope); a bare envelope is accepted as well.
+ */
+async function openEnvelope(
+  inputPath: string
+): Promise<{ stream: ReadableStream<Uint8Array>; close: () => Promise<void> }> {
+  const sniff = createReadStream(inputPath)
+  let car: boolean
+  try {
+    car = await isCar(sniff)
+  } finally {
+    sniff.destroy()
+  }
+  if (!car) {
+    const stream = Readable.toWeb(createReadStream(inputPath)) as ReadableStream<Uint8Array>
+    return { stream, close: () => Promise.resolve() }
+  }
+  // Indexing reads every block, so a partial download fails here with a parser error.
+  const reader = await CarIndexedReader.fromFile(inputPath).catch((error) => {
+    throw new DecryptError(TRUNCATED, { cause: error })
+  })
+  const [root] = await reader.getRoots()
+  if (root == null) {
+    await reader.close()
+    throw new DecryptError(NOT_OURS)
+  }
+  return {
+    stream: Readable.toWeb(Readable.from(unixfsFileBytes(reader, root))) as ReadableStream<Uint8Array>,
+    close: () => reader.close(),
+  }
+}
+
+/**
+ * The bytes of the UnixFS file at `cid`, one leaf per pull. Reading leaves on demand keeps
+ * memory at a block or two however large the file is; a reader that runs ahead of the
+ * decryptor would queue the whole ciphertext.
+ */
+export async function* unixfsFileBytes(
+  blocks: { get(cid: CID): Promise<{ bytes: Uint8Array } | undefined> },
+  cid: CID
+): AsyncGenerator<Uint8Array> {
+  // The index is built from block lengths, so a cut block only fails when its bytes are read.
+  const block = await blocks.get(cid).catch((error) => {
+    throw new DecryptError(TRUNCATED, { cause: error })
+  })
+  if (block == null) {
+    // A gateway CAR carries every block of the file, so a missing one means it was cut short.
+    throw new DecryptError(TRUNCATED)
+  }
+  if (cid.code === RAW_CODEC) {
+    yield block.bytes
+    return
+  }
+  if (cid.code !== DAG_PB_CODEC) {
+    throw new DecryptError(NOT_OURS)
+  }
+  let node: dagPb.PBNode
+  let unixfs: UnixFS | undefined
+  try {
+    node = dagPb.decode(block.bytes)
+    unixfs = node.Data == null ? undefined : UnixFS.unmarshal(node.Data)
+  } catch (error) {
+    throw new DecryptError(NOT_OURS, { cause: error })
+  }
+  if (unixfs == null || (unixfs.type !== 'file' && unixfs.type !== 'raw')) {
+    throw new DecryptError(NOT_OURS)
+  }
+  if (unixfs.data != null && unixfs.data.length > 0) {
+    yield unixfs.data
+  }
+  for (const link of node.Links) {
+    // dag-pb's multiformats is a different major than the reader's; cross by bytes.
+    yield* unixfsFileBytes(blocks, CID.decode(link.Hash.bytes))
+  }
+}
+
+const exists = (path: string): Promise<Awaited<ReturnType<typeof stat>> | undefined> =>
+  stat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return undefined
+    throw error
+  })
+
+/**
+ * Check both paths before anything is created or armed: the input must be a file, and the
+ * output must be absent, or an empty directory. Returns whether the output exists.
+ */
+export async function checkDecryptPaths(inputPath: string, outDir: string): Promise<{ outExists: boolean }> {
+  const input = await exists(inputPath)
+  if (input == null) {
+    throw new Error(`Input file not found: ${inputPath}`)
+  }
+  if (input.isDirectory()) {
+    throw new Error(`Input path is a directory: ${inputPath}`)
+  }
+  const out = await exists(outDir)
+  if (out == null) {
+    if ((await exists(dirname(outDir))) == null) {
+      throw new Error(`Parent directory not found: ${dirname(outDir)}`)
+    }
+    return { outExists: false }
+  }
+  if (!out.isDirectory()) {
+    throw new Error(`Output path exists and is not a directory: ${outDir}`)
+  }
+  if (readdirSync(outDir).length > 0) {
+    throw new Error(`Output directory is not empty: ${outDir}`)
+  }
+  return { outExists: true }
+}
+
+/** Remove what decrypt wrote: the directory when it created it, otherwise its entries. Sync so a signal handler can call it. */
+export function removeDecryptOutput(outDir: string, created: boolean): void {
+  if (created) {
+    rmSync(outDir, { recursive: true, force: true })
+    return
+  }
+  for (const entry of readdirSync(outDir)) {
+    rmSync(join(outDir, entry), { recursive: true, force: true })
+  }
+}
 
 /**
  * Write the files inside an envelope made by {@link encryptPath} under `outDir`,
- * which must not exist yet. `resolveKey` is called with the envelope's labels and
- * returns the piece key (see `ownerKeyResolver`). Nothing is left there on failure.
+ * which is created (owner-only) or must be empty, like `git clone`. `resolveKey`
+ * is called with the envelope's labels and returns the piece key (see
+ * `ownerKeyResolver`). On failure everything written is removed; a pre-existing
+ * directory itself is kept. Errors raised past the path checks never carry a name or
+ * CID from inside the envelope.
  */
 export async function decryptToDirectory(
   inputPath: string,
   outDir: string,
   resolveKey: fee.KeyResolver
 ): Promise<UnpackResult> {
-  await mkdir(outDir, { mode: 0o700 }).catch((error) => {
-    throw error?.code === 'EEXIST' ? new Error(`Output directory already exists: ${outDir}`) : error
-  })
-  const source = Readable.toWeb(createReadStream(inputPath, { highWaterMark: 1 << 20 })) as ReadableStream<Uint8Array>
+  const { outExists } = await checkDecryptPaths(inputPath, outDir)
+  if (!outExists) {
+    await mkdir(outDir, { mode: 0o700 })
+  }
+  let envelope: Awaited<ReturnType<typeof openEnvelope>> | undefined
   try {
-    const plaintext = source.pipeThrough(
+    envelope = await openEnvelope(inputPath)
+    const plaintext = envelope.stream.pipeThrough(
       fee.decrypt((info) => {
         if (info.contentType !== CAR_CONTENT_TYPE) {
           throw new Error(`unexpected content type ${String(info.contentType)}`)
@@ -95,16 +239,27 @@ export async function decryptToDirectory(
     )
     return await unpackCar(plaintext, outDir)
   } catch (error) {
-    await rm(outDir, { recursive: true, force: true })
+    removeDecryptOutput(outDir, !outExists)
     if (error instanceof fee.errors.AuthenticationError) {
-      throw new Error('Wrong key, or the file was modified', { cause: error })
+      throw new DecryptError('Wrong key, or the file was modified', { cause: error })
+    }
+    if (error instanceof fee.errors.InvalidCiphertextLengthError) {
+      throw new DecryptError(TRUNCATED, { cause: error })
     }
     if (error instanceof fee.errors.KeyResolutionError && error.cause instanceof NotOwnerError) {
-      throw new Error(error.cause.message, { cause: error })
+      throw new DecryptError(error.cause.message, { cause: error })
     }
     if (error instanceof fee.errors.KeyResolutionError || error instanceof fee.errors.MalformedEnvelopeError) {
-      throw new Error(NOT_OURS, { cause: error })
+      throw new DecryptError(NOT_OURS, { cause: error })
     }
-    throw error
+    if (error instanceof DecryptError || error instanceof fee.errors.EnvelopeError) {
+      throw error
+    }
+    // Anything else came from unpacking the plaintext, so its message may hold an entry name
+    // or a CID from inside the envelope: keep only the errno code (ENOSPC, EACCES, ...).
+    const code = (error as NodeJS.ErrnoException | null)?.code
+    throw new DecryptError(typeof code === 'string' ? `Decryption failed: ${code}` : MALFORMED, { cause: error })
+  } finally {
+    await envelope?.close()
   }
 }

@@ -66,7 +66,7 @@ describe('encrypted CAR payload', () => {
     await encryptPath(input, envelope, pieceKey())
     const result = await decryptToDirectory(envelope, outDir, asOwner())
 
-    expect(result).toEqual({ files: 1, dirs: 0, bytes: content.length })
+    expect(result).toMatchObject({ files: 1, dirs: 0, bytes: content.length })
     expect((await readFile(join(outDir, 'input'))).equals(content)).toBe(true)
     if (process.platform !== 'win32') {
       expect((await stat(outDir)).mode & 0o777).toBe(0o700)
@@ -279,7 +279,12 @@ describe('encrypted CAR payload', () => {
       .pipeThrough(fee.encrypt({ cek, appMetadata, contentType: CAR_CONTENT_TYPE }))
     await writeFile(envelope, Buffer.from(await new Response(sealed).arrayBuffer()))
 
-    await expect(decryptToDirectory(envelope, outDir, asOwner())).rejects.toThrow(/does not match its CID/)
+    const error = await decryptToDirectory(envelope, outDir, asOwner()).catch((e: Error) => e)
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toMatch(/malformed or unsafe to unpack/)
+    // The leaf's CID is a hash of plaintext: it stays out of the message.
+    expect((error as Error).message).not.toContain(leaf.cid.toString())
+    expect((error as Error).cause).toHaveProperty('message', expect.stringMatching(/does not match its CID/))
     expect(existsSync(outDir)).toBe(false)
   })
 
@@ -350,12 +355,14 @@ describe('encrypted CAR payload', () => {
     expect(existsSync(outDir)).toBe(false)
   })
 
-  it('refuses an existing output directory', async () => {
+  it('refuses a non-empty output directory', async () => {
     await writeFile(input, 'x')
     await encryptPath(input, envelope, pieceKey())
     await mkdir(outDir)
+    await writeFile(join(outDir, 'keep.txt'), 'keep me')
 
-    await expect(decryptToDirectory(envelope, outDir, asOwner())).rejects.toThrow(/already exists/)
+    await expect(decryptToDirectory(envelope, outDir, asOwner())).rejects.toThrow(/not empty/)
+    expect(await readFile(join(outDir, 'keep.txt'), 'utf8')).toBe('keep me')
   })
 
   it('rejects an envelope whose content type is not the CAR profile', async () => {
@@ -369,32 +376,61 @@ describe('encrypted CAR payload', () => {
     expect(existsSync(outDir)).toBe(false)
   })
 
+  /** Seal a hand-made plaintext CAR (`root` first, then `rest`) as a valid envelope for the owner. */
+  async function sealHandMade(root: { cid: CID; bytes: Uint8Array }, rest: { cid: CID; bytes: Uint8Array }[]) {
+    const { writer, out } = CarWriter.create([root.cid])
+    const drain = collect(out)
+    for (const block of [root, ...rest]) await writer.put(block)
+    await writer.close()
+    const car = await drain
+    const { cek, appMetadata } = pieceKey()
+    const sealed = new Blob([new Uint8Array(car)])
+      .stream()
+      .pipeThrough(fee.encrypt({ cek, appMetadata, contentType: CAR_CONTENT_TYPE }))
+    await writeFile(envelope, Buffer.from(await new Response(sealed).arrayBuffer()))
+  }
+
+  async function dagPbBlock(node: dagPb.PBNode): Promise<{ cid: CID; bytes: Uint8Array }> {
+    const bytes = dagPb.encode(node)
+    return { cid: CID.createV1(DAG_PB_CODEC, await sha256.digest(bytes)), bytes }
+  }
+
   it.each([
     '../escape',
     '..\\..\\escape',
   ])('rejects a payload whose directory entry %s could escape the output directory', async (name) => {
     const leafBytes = new Uint8Array([1, 2, 3])
     const leaf = CID.createV1(RAW_CODEC, await sha256.digest(leafBytes))
-    const dirNode = dagPb.encode({
+    const root = await dagPbBlock({
       Data: new UnixFS({ type: 'directory' }).marshal(),
       Links: [{ Name: name, Hash: leaf, Tsize: leafBytes.length }],
     })
-    const root = CID.createV1(DAG_PB_CODEC, await sha256.digest(dirNode))
-    const { writer, out } = CarWriter.create([root])
-    const drain = collect(out)
-    await writer.put({ cid: root, bytes: dirNode })
-    await writer.put({ cid: leaf, bytes: leafBytes })
-    await writer.close()
-    const car = await drain
-    const { cek, appMetadata } = pieceKey()
-    const hostile = new Blob([new Uint8Array(car)])
-      .stream()
-      .pipeThrough(fee.encrypt({ cek, appMetadata, contentType: CAR_CONTENT_TYPE }))
-    await writeFile(envelope, Buffer.from(await new Response(hostile).arrayBuffer()))
+    await sealHandMade(root, [{ cid: leaf, bytes: leafBytes }])
 
-    await expect(decryptToDirectory(envelope, outDir, asOwner())).rejects.toThrow(/unsafe entry name/)
+    const error = await decryptToDirectory(envelope, outDir, asOwner()).catch((e: Error) => e)
+    expect((error as Error).message).toMatch(/malformed or unsafe to unpack/)
+    expect((error as Error).message).not.toContain(name)
+    expect((error as Error).cause).toHaveProperty('message', expect.stringMatching(/unsafe entry name/))
     expect(existsSync(outDir)).toBe(false)
     expect(existsSync(join(dir, 'escape'))).toBe(false)
+  })
+
+  it('rejects a symlink entry without naming it or creating the link', async () => {
+    const link = await dagPbBlock({
+      Data: new UnixFS({ type: 'symlink', data: new TextEncoder().encode('/etc/passwd') }).marshal(),
+      Links: [],
+    })
+    const root = await dagPbBlock({
+      Data: new UnixFS({ type: 'directory' }).marshal(),
+      Links: [{ Name: 'secret-link-name', Hash: link.cid, Tsize: link.bytes.length }],
+    })
+    await sealHandMade(root, [link])
+
+    const error = await decryptToDirectory(envelope, outDir, asOwner()).catch((e: Error) => e)
+    expect((error as Error).message).toMatch(/malformed or unsafe to unpack/)
+    expect((error as Error).message).not.toContain('secret-link-name')
+    expect((error as Error).cause).toHaveProperty('message', expect.stringMatching(/symlink entries/))
+    expect(existsSync(outDir)).toBe(false)
   })
 
   it('never resolves a path outside the output directory', () => {

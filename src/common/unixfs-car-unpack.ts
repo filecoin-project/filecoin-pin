@@ -30,6 +30,8 @@ export interface UnpackResult {
   files: number
   dirs: number
   bytes: number
+  /** The plaintext CAR's root, so a fixture can pin the packed layout. */
+  root: string
 }
 
 type FileHandle = Awaited<ReturnType<typeof open>>
@@ -56,7 +58,7 @@ export async function unpackCar(source: ReadableStream<Uint8Array>, outDir: stri
   let lay: CarLayout | undefined
   let expected: LeafPlacement[] = []
   let next = 0
-  const result: UnpackResult = { files: 0, dirs: 0, bytes: 0 }
+  const result: UnpackResult = { files: 0, dirs: 0, bytes: 0, root: root.toString() }
 
   // ponytail: bounded open-file cache, oldest closed first; leaves arrive grouped per file so churn is low
   const handles = new Map<string, FileHandle>()

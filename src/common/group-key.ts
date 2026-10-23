@@ -28,13 +28,29 @@ import type { Synapse } from '@filoz/synapse-sdk'
 import type { KeyResolver } from 'filecoin-encryption-envelope'
 import type { Logger } from 'pino'
 import { type Address, concat, type Hex, isAddress, keccak256, slice, toHex } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
 import { type DataSetSummary, listDataSets } from '../core/data-set/index.js'
+import { type CLIAuthOptions, parseCLIAuth } from '../utils/cli-auth.js'
 
 /** A wallet that can sign for a group key (Keysmith's `KeyspaceKey` message): the owner's own key, never a session key. */
 export type OwnerSigner = TypedDataSigner & { address: Address }
 
 export const OWNER_WALLET_REQUIRED =
   'Encrypted uploads need the owner wallet: set PRIVATE_KEY. Session keys will get access through the console in a later release.'
+
+/**
+ * The owner wallet from the CLI auth options (`--private-key` / `PRIVATE_KEY`), for
+ * commands that sign offline and never open an RPC connection.
+ *
+ * @throws If the credentials are a session key, view-only, or absent.
+ */
+export function ownerSignerFromAuth(options: CLIAuthOptions): OwnerSigner {
+  const config = parseCLIAuth(options)
+  if (!('privateKey' in config) || config.privateKey == null) {
+    throw new Error(OWNER_WALLET_REQUIRED)
+  }
+  return privateKeyToAccount(config.privateKey)
+}
 
 /** The signing wallet behind a Synapse client; undefined for a session key or a read-only client. */
 export function ownerSigner(synapse: Synapse): OwnerSigner | undefined {
