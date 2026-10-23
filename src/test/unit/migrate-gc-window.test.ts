@@ -72,3 +72,13 @@ describe('collectedCidFromError', () => {
     expect(collectedCidFromError('insufficient funds')).toBeNull()
   })
 })
+
+describe('window floor', () => {
+  it('keeps the floor above the margin floor so a floored window still batches', () => {
+    expect(MIN_WINDOW_MS).toBeGreaterThan(MIN_MARGIN_MS)
+  })
+
+  it('never raises a window the operator set below the floor', () => {
+    expect(lowerWindowOnGc(60_000, 10 * 60_000)).toBe(60_000)
+  })
+})
