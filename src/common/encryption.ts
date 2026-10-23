@@ -183,6 +183,11 @@ export async function checkDecryptPaths(inputPath: string, outDir: string): Prom
   if (input.isDirectory()) {
     throw new Error(`Input path is a directory: ${inputPath}`)
   }
+  return checkOutputDir(outDir)
+}
+
+/** The output must be absent (with an existing parent), or an empty directory. Returns whether it exists. */
+export async function checkOutputDir(outDir: string): Promise<{ outExists: boolean }> {
   const out = await exists(outDir)
   if (out == null) {
     if ((await exists(dirname(outDir))) == null) {

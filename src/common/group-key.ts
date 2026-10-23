@@ -213,9 +213,14 @@ export function newPieceKey(target: WriteTarget): PieceKey {
   }
 }
 
+/** The envelope's owner and group key (both public header labels), and the wallet that is not that owner, if any. */
 export class NotOwnerError extends Error {
-  constructor(owner: string, wallet: string) {
-    super(`This upload belongs to ${owner}; the wallet in PRIVATE_KEY is ${wallet}`)
+  constructor(owner: string, groupKeyId: string, wallet: string | undefined) {
+    super(
+      wallet == null
+        ? `This upload belongs to ${owner} under group key ${groupKeyId}; set PRIVATE_KEY to that wallet to decrypt it (session keys can't decrypt yet)`
+        : `This upload belongs to ${owner} under group key ${groupKeyId}; the wallet in PRIVATE_KEY is ${wallet}`
+    )
     this.name = 'NotOwnerError'
   }
 }
@@ -224,19 +229,23 @@ export class NotOwnerError extends Error {
  * A FEE key resolver for the owner wallet: signs for the group key the envelope
  * names and derives the piece key from its labels. Signs twice, since there is
  * no data set commitment to check against offline.
+ *
+ * `signer` may be a getter, called only once an envelope needs a key, so callers that
+ * may never meet one (`get` on plain content) need no credentials. A getter returning
+ * undefined fails with a {@link NotOwnerError} naming the envelope's group key.
  */
-export function ownerKeyResolver(signer: OwnerSigner): KeyResolver {
+export function ownerKeyResolver(signer: OwnerSigner | (() => OwnerSigner | undefined)): KeyResolver {
   return async ({ appMetadata }) => {
     const groupKeyId = appMetadata?.['foc/ks']
     if (appMetadata?.['foc/v'] !== 1 || typeof groupKeyId !== 'string') {
       throw new Error('not a Keysmith envelope')
     }
     const owner = appMetadata['foc/own']
-    const wallet = signer.address.toLowerCase()
-    if (typeof owner !== 'string' || owner.toLowerCase() !== wallet) {
-      throw new NotOwnerError(String(owner), wallet)
+    const wallet = typeof signer === 'function' ? signer() : signer
+    if (wallet == null || typeof owner !== 'string' || owner.toLowerCase() !== wallet.address.toLowerCase()) {
+      throw new NotOwnerError(String(owner), groupKeyId, wallet?.address.toLowerCase())
     }
-    const { kk } = await deriveGroupKey(signer, { owner: signer.address, keyspace: groupKeyId as Hex })
+    const { kk } = await deriveGroupKey(wallet, { owner: wallet.address, keyspace: groupKeyId as Hex })
     return keyForEnvelope(kk, appMetadata)
   }
 }
