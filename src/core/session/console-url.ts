@@ -116,3 +116,12 @@ export function buildFundingUrl(consoleUrl: string, depositUsdfc: number, chainI
     'fund'
   )
 }
+
+/**
+ * Approval link for an account that has funds but has not approved the
+ * storage service: the funding link without a deposit, so the console opens
+ * the add-service dialog for the storage service with nothing to deposit.
+ */
+export function buildApproveUrl(consoleUrl: string, chainId: number): string {
+  return withUtm(`${trimSlash(consoleUrl)}/console?operator=fwss${networkParam(chainId)}`, 'fund')
+}
