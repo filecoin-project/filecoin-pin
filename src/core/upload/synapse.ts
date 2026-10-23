@@ -331,10 +331,7 @@ export async function uploadToSynapse(
   }
 
   // Pass through context selection options
-  if (options.contexts != null) {
-    // Contexts carry their own provider/dataset bindings; no other targeting needed
-    uploadOptions.contexts = options.contexts
-  } else {
+  if (options.contexts == null) {
     if (options.copies != null) {
       uploadOptions.copies = options.copies
     }
@@ -347,6 +344,9 @@ export async function uploadToSynapse(
     if (options.excludeProviderIds != null) {
       uploadOptions.excludeProviderIds = options.excludeProviderIds
     }
+  } else {
+    // Contexts carry their own provider/dataset bindings; no other targeting needed
+    uploadOptions.contexts = options.contexts
   }
   if (options.signal != null) {
     uploadOptions.signal = options.signal

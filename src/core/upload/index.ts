@@ -426,10 +426,7 @@ export async function executeUpload(
   if (options.signal != null) {
     uploadOptions.signal = options.signal
   }
-  if (options.contexts != null) {
-    // Contexts carry their own provider/dataset bindings; no other targeting needed
-    uploadOptions.contexts = options.contexts
-  } else {
+  if (options.contexts == null) {
     if (options.copies != null) {
       uploadOptions.copies = options.copies
     }
@@ -442,6 +439,9 @@ export async function executeUpload(
     if (options.excludeProviderIds != null) {
       uploadOptions.excludeProviderIds = options.excludeProviderIds
     }
+  } else {
+    // Contexts carry their own provider/dataset bindings; no other targeting needed
+    uploadOptions.contexts = options.contexts
   }
   if (options.metadata != null) {
     uploadOptions.metadata = options.metadata
