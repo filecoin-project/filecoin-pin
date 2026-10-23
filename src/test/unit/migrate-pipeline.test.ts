@@ -50,9 +50,14 @@ async function harness(config: HarnessOptions) {
     storeLanded = resolve
   })
 
+  const attempts = new Map<string, number>()
   const stageMemberFn: typeof stageMember = async (cid, _gateways, dirForMembers, opts) => {
     const entry = config.cids.find((c) => c.cid === cid)
     if (entry == null) throw new Error(`unexpected cid ${cid}`)
+    // A retry loop spins on microtasks and would starve the test timeout; fail it instead.
+    const attempt = (attempts.get(cid) ?? 0) + 1
+    attempts.set(cid, attempt)
+    if (attempt > 10) throw new Error(`re-download loop on ${cid}`)
     if (config.forbiddenFetches?.includes(cid)) throw new Error(`must not re-download ${cid}`)
     if (entry.afterFirstStore) await firstStore
     const rawSize = entry.rawSize ?? 600
@@ -285,6 +290,42 @@ describe('runMigrate pipeline', () => {
       await rm(h.dir, { recursive: true, force: true })
     }
   }, 15_000)
+
+  it('waits for space instead of re-downloading a member that overran the budget', async () => {
+    // a fits the budget alone but not on top of b's 500 staged bytes (b
+    // downloads first). a must wait for b to ship and free space, not restart.
+    const cids = [
+      { cid: await cidFor('a'), rawSize: 2800 },
+      { cid: await cidFor('b'), rawSize: 500 },
+    ]
+    const h = await harness({ cids, budgetBytes: 4000, packTargetBytes: 1000 })
+    try {
+      const summary = await runMigrate(h.db, h.options, h.deps)
+
+      expect(summary.pieces).toEqual({ total: 2, succeeded: 2, failed: 0, pending: 0, oversized: 0 })
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  }, 10_000)
+
+  it('stops instead of hanging when the only free member is too small to pack', async () => {
+    // b downloads first and is under the upload floor, so a non-final pack
+    // builds nothing and frees nothing; a cannot fit until b is gone.
+    const cids = [
+      { cid: await cidFor('a'), rawSize: 2950 },
+      { cid: await cidFor('b'), rawSize: 100 },
+    ]
+    const h = await harness({ cids, budgetBytes: 4000, packTargetBytes: 1000 })
+    try {
+      const summary = await runMigrate(h.db, h.options, h.deps)
+
+      expect(summary.pieces).toEqual({ total: 2, succeeded: 0, failed: 1, pending: 1, oversized: 0 })
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  }, 10_000)
 
   it('a resumed run after full completion re-downloads nothing', async () => {
     const cids = [{ cid: await cidFor('a') }, { cid: await cidFor('b') }]

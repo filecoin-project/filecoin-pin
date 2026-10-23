@@ -149,6 +149,15 @@ class StagingBudget {
     }
     if (this.#failedWith != null) throw this.#failedWith
   }
+
+  /** Park until something frees space, regardless of the start gate. */
+  async waitForFree(onParked: () => void): Promise<void> {
+    if (this.#failedWith != null) throw this.#failedWith
+    await new Promise<void>((resolve, reject) => {
+      this.#waiters.push({ resolve, reject })
+      onParked()
+    })
+  }
 }
 
 /**
@@ -357,6 +366,8 @@ export async function runMigrate(
   // finishes incomplete and resumable instead of hanging.
   let stuck = false
   let inFlightDownloads = 0
+  // Free-member bytes when a pack last built nothing; repacking the same members would loop.
+  let idlePackFree = -1
   const checkStuck = (): void => {
     if (stuck || primaryProviderId == null) return
     if (!uploaderParked || budget.waiting === 0) return
@@ -368,7 +379,8 @@ export async function runMigrate(
       notifyUploader()
       return
     }
-    if (db.freeMemberBytes() > 0) {
+    const free = db.freeMemberBytes()
+    if (free > 0 && free !== idlePackFree) {
       void packNow()
       return
     }
@@ -409,6 +421,10 @@ export async function runMigrate(
             if (sub.carPath != null && !binBytes.has(sub.carPath)) binBytes.set(sub.carPath, sub.assembledCarLength)
           }
           notifyUploader()
+        } else if (!final) {
+          // Nothing shipped (members under the upload floor, or a failed bin) and nothing woke.
+          idlePackFree = db.freeMemberBytes()
+          checkStuck()
         }
       })
       .catch((err) => {
@@ -433,8 +449,11 @@ export async function runMigrate(
           if (cid == null) continue
           // Retry the same CID until it stages, fails terminally, or the
           // pipeline is declared stuck.
+          let overran = false
           for (;;) {
             try {
+              // The same bytes would overrun again until something frees space.
+              if (overran) await budget.waitForFree(checkStuck)
               await budget.waitToStart(checkStuck)
             } catch (err) {
               if (err instanceof PipelineStuckError) return
@@ -473,6 +492,7 @@ export async function runMigrate(
                   )
                   break
                 }
+                overran = true
                 continue
               }
               const message = err instanceof Error ? err.message : String(err)
