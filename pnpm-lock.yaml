@@ -18,8 +18,8 @@ importers:
         specifier: ^1.0.1
         version: 1.5.1
       '@filoz/keysmith':
-        specifier: https://pkg.pr.new/FilOzone/synapse-sdk/@filoz/keysmith@17b2b18b
-        version: https://pkg.pr.new/FilOzone/synapse-sdk/@filoz/keysmith@17b2b18b(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
+        specifier: ^0.1.0
+        version: 0.1.0(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
       '@filoz/synapse-core':
         specifier: ^0.10.0
         version: 0.10.0(typescript@6.0.3)(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
@@ -666,9 +666,8 @@ packages:
   '@fastify/proxy-addr@5.1.2':
     resolution: {integrity: sha512-uqB4QsgVoro0XDC+DIftIMGXHdBPn+lK6Ek3xXAIxPMCJfqxnbtyEoMCm2KPUVOuIosd7Cyw9HawEqMFM/UA+g==}
 
-  '@filoz/keysmith@https://pkg.pr.new/FilOzone/synapse-sdk/@filoz/keysmith@17b2b18b':
-    resolution: {integrity: sha512-0Tpymeezd8m3vqaXoPojaKhkk/wTKeMpV5B8FsGYQBshVqDDZuxxVnkci4XpvT3mbkVLU5nMyVkzJSJXcs0Q8g==, tarball: https://pkg.pr.new/FilOzone/synapse-sdk/@filoz/keysmith@17b2b18b}
-    version: 0.0.1
+  '@filoz/keysmith@0.1.0':
+    resolution: {integrity: sha512-rHtKdR9YDZzto9hWGrJXyBI6NvEj8LsWWgFz7fAnLBgSf4rDJv7fyi232flbC3ICiuPz3IqNo8+avQtHb8ycfw==}
     peerDependencies:
       viem: 2.x
 
@@ -2895,7 +2894,7 @@ snapshots:
       '@fastify/forwarded': 3.1.1
       ipaddr.js: 2.5.0
 
-  '@filoz/keysmith@https://pkg.pr.new/FilOzone/synapse-sdk/@filoz/keysmith@17b2b18b(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))':
+  '@filoz/keysmith@0.1.0(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))':
     dependencies:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
