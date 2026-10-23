@@ -22,7 +22,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream } from 'node:fs'
+import { createReadStream } from 'node:fs'
 import { mkdir, rename, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { hasher } from '@filoz/synapse-core/piece'
@@ -31,6 +31,7 @@ import { CarBlockIterator, CarWriter } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import { log } from '../utils/cli-logger.js'
 import type { MigrationDB, PieceRow } from './db.js'
+import { createFileSink } from './verify-car.js'
 
 /**
  * Default target raw size for one assembled piece. 1000 MiB sits under the 1016 MiB cap
@@ -70,6 +71,13 @@ function compareMultihashBytes(a: CID, b: CID): number {
   return Buffer.compare(a.multihash.bytes, b.multihash.bytes)
 }
 
+/** Delete a file; a file already gone counts as deleted. */
+const unlinkGone = (filePath: string): Promise<boolean> =>
+  unlink(filePath).then(
+    () => true,
+    (err: NodeJS.ErrnoException) => err.code === 'ENOENT'
+  )
+
 /**
  * Largest-first bin pack under `targetSizeBytes` (raw bytes). Pieces above
  * the target on their own are returned in the `solo` list so the caller
@@ -84,13 +92,16 @@ export function planBins(
     throw new Error(`pack target size must be > 0 (got ${targetSizeBytes})`)
   }
   // Reject the CID collision up-front: the same source CID appearing twice in
-  // the plan would collapse to one indexed entry on the provider side.
+  // the plan would collapse to one indexed entry on the provider side. Keyed
+  // by codec and multihash so CIDv0/v1 and multibase aliases collide too.
   const seen = new Set<string>()
   for (const p of pieces) {
-    if (seen.has(p.cid)) {
+    const cid = CID.parse(p.cid)
+    const key = `${cid.code}:${Buffer.from(cid.multihash.bytes).toString('base64')}`
+    if (seen.has(key)) {
       throw new Error(`duplicate source CID in pack plan: ${p.cid}`)
     }
-    seen.add(p.cid)
+    seen.add(key)
   }
 
   const solo: PackPlanInput[] = []
@@ -159,44 +170,53 @@ export async function assembleMultiRootCar(
   const sha = createHash('sha256')
   let assembledBytes = 0
 
+  // The drain keeps consuming `out` after a sink failure (discarding chunks):
+  // the writer's close() only settles once its output is drained, so stopping
+  // here would hang the assembly on a disk-full error.
+  let sinkError: unknown
   const drained = (async () => {
     for await (const chunk of out) {
-      pieceHasher.write(chunk)
-      sha.update(chunk)
-      assembledBytes += chunk.length
-      await sink.write(chunk)
+      if (sinkError != null) continue
+      try {
+        pieceHasher.write(chunk)
+        sha.update(chunk)
+        assembledBytes += chunk.length
+        await sink.write(chunk)
+      } catch (err) {
+        sinkError = err
+      }
     }
   })()
 
   try {
     for (const member of members) {
       const expected = CID.parse(member.cid)
-      const reader = await CarBlockIterator.fromIterable(member.open())
-      const memberRoots = await reader.getRoots()
-      // Multihash comparison: a member registered as CIDv0 may sit in a CAR
-      // whose gateway declared the equivalent CIDv1 root.
-      if (!memberRoots.some((r) => compareMultihashBytes(r, expected) === 0)) {
-        throw new Error(
-          `member ${member.cid}: CAR root mismatch (declares [${memberRoots.map((r) => r.toString()).join(', ')}])`
-        )
-      }
-      for await (const block of reader) {
-        // Raced against the drain loop: if the sink dies (disk full), the
-        // `out` channel stops being consumed and this put would otherwise
-        // park forever with the failure unobserved.
-        await Promise.race([writer.put(block), drained])
+      // Held so it can be returned: the CAR decoder never returns its source,
+      // which would leak the member file's descriptor on an early exit.
+      const source = member.open()[Symbol.asyncIterator]()
+      try {
+        const reader = await CarBlockIterator.fromIterable({ [Symbol.asyncIterator]: () => source })
+        const memberRoots = await reader.getRoots()
+        // Multihash comparison: a member registered as CIDv0 may sit in a CAR
+        // whose gateway declared the equivalent CIDv1 root.
+        if (!memberRoots.some((r) => compareMultihashBytes(r, expected) === 0)) {
+          throw new Error(
+            `member ${member.cid}: CAR root mismatch (declares [${memberRoots.map((r) => r.toString()).join(', ')}])`
+          )
+        }
+        for await (const block of reader) {
+          await writer.put(block)
+          if (sinkError != null) throw sinkError
+        }
+      } finally {
+        await source.return?.()
       }
     }
-  } catch (err) {
-    // Release the writer, the drain loop, and the sink's file descriptor
-    // before surfacing the member error; their own failures are secondary.
-    await writer.close().catch(() => undefined)
-    await drained.catch(() => undefined)
-    await sink.end().catch(() => undefined)
-    throw err
+  } finally {
+    await writer.close()
+    await drained
   }
-  await writer.close()
-  await drained
+  if (sinkError != null) throw sinkError
   await sink.end()
 
   return {
@@ -204,71 +224,6 @@ export async function assembleMultiRootCar(
     assembledBytes,
     sha256: sha.digest('hex'),
     roots: roots.map((r) => r.toString()),
-  }
-}
-
-/**
- * Stream-write sink backed by a file under the staging directory. A write or
- * open failure unlinks the partial file and surfaces the original error.
- */
-export function createCarStoreSink(filePath: string, onBytes?: (delta: number) => void): WritableStreamWithLength {
-  const stream = createWriteStream(filePath)
-  let firstError: Error | null = null
-  let cleanupDone = false
-  const unlinkPartial = async () => {
-    if (cleanupDone) return
-    cleanupDone = true
-    await unlink(filePath).catch(() => undefined)
-  }
-  stream.on('error', (err) => {
-    if (firstError == null) firstError = err
-    void unlinkPartial()
-  })
-  return {
-    write(chunk) {
-      if (firstError != null) return Promise.reject(firstError)
-      onBytes?.(chunk.length)
-      return new Promise<void>((resolve, reject) => {
-        if (firstError != null) {
-          reject(firstError)
-          return
-        }
-        const onError = (err: Error) => reject(err)
-        stream.once('error', onError)
-        const cleanup = () => stream.off('error', onError)
-        // A buffered write resolves immediately; a flush failure lands in
-        // `firstError` and fails the next write or end(). Only backpressure
-        // defers (to `drain`): waiting out each flush would serialize
-        // assembly on disk latency.
-        const ok = stream.write(chunk, (err) => {
-          if (err) {
-            cleanup()
-            reject(err)
-          }
-        })
-        if (ok) {
-          cleanup()
-          resolve()
-        } else {
-          stream.once('drain', () => {
-            cleanup()
-            resolve()
-          })
-        }
-      })
-    },
-    async end() {
-      if (firstError != null) {
-        await unlinkPartial()
-        throw firstError
-      }
-      await new Promise<void>((resolve, reject) => {
-        stream.end((err?: Error | null) => (err ? reject(err) : resolve()))
-      }).catch(async (err) => {
-        await unlinkPartial()
-        throw err
-      })
-    },
   }
 }
 
@@ -348,13 +303,7 @@ export async function runPackCars(
       overCap.push(p.cid)
       db.markOversized([p.cid])
       const memberPath = memberPaths.get(p.cid)
-      if (memberPath != null) {
-        const gone = await unlink(memberPath).then(
-          () => true,
-          () => false
-        )
-        if (gone) opts.onMemberEvicted?.(p.rawSize)
-      }
+      if (memberPath != null && (await unlinkGone(memberPath))) opts.onMemberEvicted?.(p.rawSize)
       continue
     }
     bins.push({ memberCids: [p.cid], totalRawSize: p.rawSize })
@@ -407,12 +356,8 @@ export async function runPackCars(
       // deletion keeps occupying real disk and must keep counting.
       for (const cid of bin.memberCids) {
         const memberPath = memberPaths.get(cid)
-        if (memberPath != null) {
-          const gone = await unlink(memberPath).then(
-            () => true,
-            (err: NodeJS.ErrnoException) => err.code === 'ENOENT'
-          )
-          if (gone) opts.onMemberEvicted?.(piecesByCid.get(cid)?.rawSize ?? 0)
+        if (memberPath != null && (await unlinkGone(memberPath))) {
+          opts.onMemberEvicted?.(piecesByCid.get(cid)?.rawSize ?? 0)
         }
       }
       log.message(`  + piece ${built.pieceCid} (${built.assembledBytes} bytes, ${bin.memberCids.length} member(s))`)
@@ -452,9 +397,15 @@ async function buildOneBin(
     }
   })
 
-  const tmpName = `pack-${process.pid}-${Date.now()}.car`
-  const tmpPath = path.join(carStore, tmpName)
-  const sink = createCarStoreSink(tmpPath, onBytes)
+  const tmpPath = path.join(carStore, `pack-${process.pid}-${Date.now()}.car`)
+  const file = createFileSink(tmpPath)
+  const sink: WritableStreamWithLength = {
+    write: async (chunk) => {
+      onBytes?.(chunk.length)
+      await file.write(chunk)
+    },
+    end: () => file.end(),
+  }
   try {
     const result = await assembleMultiRootCar(members, sink)
     const finalPath = path.join(carStore, `${result.pieceCid}.car`)
@@ -467,6 +418,7 @@ async function buildOneBin(
       filePath: finalPath,
     }
   } catch (err) {
+    await file.destroy()
     await unlink(tmpPath).catch(() => undefined)
     throw err
   }
