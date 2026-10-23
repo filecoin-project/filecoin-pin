@@ -33,17 +33,21 @@ const T = { timeout: 30_000 } as const
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('global CLI behaviour', () => {
-  it('--help exits 0 and lists core commands', T, async () => {
-    const result = await runCli(['--help'])
-    expect(result.exitCode).toBe(0)
-    expect(result.combined).toContain('add')
-    expect(result.combined).toContain('import')
-    expect(result.combined).toContain('payments')
-    expect(result.combined).toContain('data-set')
-    expect(result.combined).toContain('provider')
-    expect(result.combined).toContain('session')
-    expect(result.combined).toContain('--json')
-  })
+  it.each([{ args: ['--help'] }, { args: ['--json', '--help'] }, { args: ['--json'] }])(
+    '$args exits 0 and lists core commands without advertising JSON mode',
+    T,
+    async ({ args }) => {
+      const result = await runCli(args)
+      expect(result.exitCode).toBe(0)
+      expect(result.combined).toContain('add')
+      expect(result.combined).toContain('import')
+      expect(result.combined).toContain('payments')
+      expect(result.combined).toContain('data-set')
+      expect(result.combined).toContain('provider')
+      expect(result.combined).toContain('session')
+      expect(result.combined).not.toContain('--json')
+    }
+  )
 
   it('--version exits 0 and prints a semver string', T, async () => {
     const result = await runCli(['--version'])

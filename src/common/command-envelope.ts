@@ -2,20 +2,7 @@ import { once } from 'node:events'
 
 export const ENVELOPE_SCHEMA_VERSION = 1
 
-export const COMMAND_CODES = [
-  'OK',
-  'INVALID_ARGUMENT',
-  'AUTH_REQUIRED',
-  'AUTHORIZATION_INCOMPLETE',
-  'INSUFFICIENT_FUNDS',
-  'INTERACTION_REQUIRED',
-  'PARTIAL_FAILURE',
-  'CANCELLED',
-  'RPC_UNAVAILABLE',
-  'INTERNAL_ERROR',
-] as const
-
-export type CommandCode = (typeof COMMAND_CODES)[number]
+export type CommandCode = keyof typeof EXIT_CODE_BY_CODE
 
 export type CommandAction =
   | {
@@ -44,7 +31,7 @@ export interface CommandEnvelope<T = unknown> {
   actions: CommandAction[]
 }
 
-const EXIT_CODE_BY_CODE: Record<CommandCode, 0 | 1 | 2> = {
+export const EXIT_CODE_BY_CODE = {
   OK: 0,
   AUTHORIZATION_INCOMPLETE: 2,
   CANCELLED: 2,
@@ -55,7 +42,7 @@ const EXIT_CODE_BY_CODE: Record<CommandCode, 0 | 1 | 2> = {
   PARTIAL_FAILURE: 1,
   RPC_UNAVAILABLE: 1,
   INTERNAL_ERROR: 1,
-}
+} as const satisfies Record<string, 0 | 1 | 2>
 
 let jsonMode = false
 
