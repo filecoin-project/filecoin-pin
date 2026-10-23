@@ -153,6 +153,7 @@
     "interface-blockstore": "^7.0.1",
     "interface-store": "^8.0.0",
     "ipfs-unixfs": "12.0.2",
+    "ipfs-unixfs-exporter": "15.0.4",
     "ipfs-unixfs-importer": "16.1.5",
     "it-to-buffer": "^5.0.0",
     "libp2p": "^3.2.2",
