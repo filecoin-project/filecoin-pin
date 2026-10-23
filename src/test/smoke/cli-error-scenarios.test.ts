@@ -318,6 +318,28 @@ describe('rm', () => {
     expect(result.exitCode).toBe(1)
     expect(result.combined).toContain('At least one --data-set-id is required')
   })
+
+  it.each([
+    { target: 'single-piece', args: ['--piece', 'bafkreiabc1234567890abcdef'], event: 'rm.failed' },
+    { target: 'all-pieces', args: ['--all'], event: 'rm-all.failed' },
+  ])('--verbose keeps $target diagnostics off stdout', T, async ({ args, event }) => {
+    // Invalid session keys are rejected before the RPC chain probe.
+    const result = await runCli([
+      '--verbose',
+      'rm',
+      ...args,
+      '--data-set-id',
+      '1',
+      '--wallet-address',
+      '0x1111111111111111111111111111111111111111',
+      '--session-key',
+      'not-a-private-key',
+    ])
+    expect(result.exitCode).toBe(1)
+    expect(result.combined).toContain('Invalid --session-key / SESSION_KEY')
+    expect(result.stdout).not.toMatch(/"level":/)
+    expect(result.stderr).toContain(`"event":"${event}"`)
+  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════

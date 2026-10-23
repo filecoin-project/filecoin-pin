@@ -15,7 +15,7 @@ import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-cor
 import { SIZE_CONSTANTS } from '@filoz/synapse-core/utils'
 import type { Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import pino, { destination, type Logger } from 'pino'
+import type { Logger } from 'pino'
 import type { Hex } from 'viem'
 import { CliFatal, EXIT_CODE_INCOMPLETE, isCliFatal, isCliIncomplete } from '../common/cli-errors.js'
 import { ENCRYPTED_FILE_NAME, encryptPath } from '../common/encryption.js'
@@ -52,6 +52,7 @@ import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
+import { createLogger } from '../logger.js'
 import { NO_IPFS_SHARE, printShare, shareReminder, shareSender } from '../share/get-share-link.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
@@ -174,12 +175,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
   })
 
   // Initialize logger (silent for CLI output)
-  const logger = pino(
-    {
-      level: process.env.LOG_LEVEL || 'silent',
-    },
-    destination(2)
-  )
+  const logger = createLogger({ logLevel: process.env.LOG_LEVEL || 'silent' })
 
   // Map the public egress provider to the SDK's withCDN boolean (internal only).
   const withCDN = options.egressProvider === 'beam'

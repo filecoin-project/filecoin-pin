@@ -12,7 +12,6 @@ import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-cor
 import { CarReader } from '@ipld/car'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
-import pino, { destination } from 'pino'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { assertUploadFunds, rerunHint } from '../common/funds-preflight.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
@@ -31,6 +30,7 @@ import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
+import { createLogger } from '../logger.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -203,12 +203,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
   })
 
   // Initialize logger (silent for CLI output)
-  const logger = pino(
-    {
-      level: process.env.LOG_LEVEL || 'silent',
-    },
-    destination(2)
-  )
+  const logger = createLogger({ logLevel: process.env.LOG_LEVEL || 'silent' })
 
   // Map the public egress provider to the SDK's withCDN boolean (internal only).
   const withCDN = options.egressProvider === 'beam'
