@@ -17,7 +17,7 @@ export const migrateCommand = new Command('migrate')
     '--assumed-window-minutes <n>',
     'Starting guess for the provider GC window; commits flush before it expires (default: 60)'
   )
-  .option('--copies <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
+  .option('--copies <n>', 'Number of storage copies to create (default: 2)')
   .option('--db <file>', 'Migrate state database path (default: migrate.db in the filecoin-pin data directory)')
   .action(async (cidListFile: string, options) => {
     try {

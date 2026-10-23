@@ -16,7 +16,7 @@
 
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { readdir, stat, unlink } from 'node:fs/promises'
+import { readdir, stat, statfs, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { formatFileSize } from '../utils/cli-helpers.js'
@@ -44,8 +44,10 @@ export interface MigrateRunOptions {
   packTargetBytes: number
   /** Download concurrency. */
   concurrency: number
-  /** Staging byte budget; must be at least 2x the pack target. */
-  budgetBytes: number
+  /** Directory whose free space bounds the staging budget. */
+  stagingDir: string
+  /** Explicit staging cap; null means 80% of free space plus what is already staged. */
+  maxStagedBytes: number | null
   copies?: number | undefined
   providerIds?: bigint[] | undefined
   dataSetIds?: bigint[] | undefined
@@ -259,18 +261,22 @@ async function sweepStaging(db: MigrationDB, memberDir: string, carStore: string
   return staged
 }
 
+/**
+ * Staging budget: 80% of free disk plus the bytes already staged (free space
+ * excludes them, so counting them again would shrink the budget on every
+ * resume), capped by `--max-staged-bytes`.
+ */
+export function stagingBudget(freeBytes: number, stagedBytes: number, maxStagedBytes: number | null): number {
+  const fromDisk = Math.floor((freeBytes + stagedBytes) * 0.8)
+  return maxStagedBytes == null ? fromDisk : Math.min(fromDisk, maxStagedBytes)
+}
+
 /** Run the full migrate flow over the CIDs already registered in `db`. */
 export async function runMigrate(
   db: MigrationDB,
   opts: MigrateRunOptions,
   deps: DirectUploadDeps = defaultDirectUploadDeps
 ): Promise<MigrateSummary> {
-  if (opts.budgetBytes < 2 * opts.packTargetBytes) {
-    throw new Error(
-      `staging budget ${formatFileSize(opts.budgetBytes)} is too small to assemble one ` +
-        `${formatFileSize(opts.packTargetBytes)} piece; free disk space or lower --pack-target-size`
-    )
-  }
   const stage = opts.stageMemberFn ?? stageMember
 
   // Resolve the storage contexts once; the upload loop reuses them (and a
@@ -288,8 +294,17 @@ export async function runMigrate(
   const cachedDeps: DirectUploadDeps = { ...deps, setup: async () => ({ contexts }) }
   const primaryProviderId = contexts[0]?.providerId
 
-  const budget = new StagingBudget(opts.budgetBytes, opts.packTargetBytes)
-  budget.used = await sweepStaging(db, opts.memberDir, opts.carStore)
+  const staged = await sweepStaging(db, opts.memberDir, opts.carStore)
+  const fs = await statfs(opts.stagingDir)
+  const total = stagingBudget(Number(fs.bavail) * Number(fs.bsize), staged, opts.maxStagedBytes)
+  if (total < 2 * opts.packTargetBytes) {
+    throw new Error(
+      `staging budget ${formatFileSize(total)} is too small to assemble one ` +
+        `${formatFileSize(opts.packTargetBytes)} piece; free disk space or lower --pack-target-size`
+    )
+  }
+  const budget = new StagingBudget(total, opts.packTargetBytes)
+  budget.used = staged
   log.message(
     `staging budget ${formatFileSize(budget.total)} (${formatFileSize(budget.used)} already staged from a previous run)`
   )
@@ -299,8 +314,6 @@ export async function runMigrate(
   for (const sub of db.subPiecesByStatus('built')) {
     if (sub.carPath != null) binBytes.set(sub.carPath, sub.assembledCarLength)
   }
-
-  const overCap: string[] = []
 
   // The uploader parks here between pieces; wake it when the packer builds
   // something and drain it when the producer finishes.
@@ -313,14 +326,19 @@ export async function runMigrate(
     uploaderParked = false
     for (const wake of waiters) wake()
   }
-  const waitForMore = async (): Promise<boolean> => {
+  // Pieces the uploader set aside after a failed store; they are retried after
+  // the drain, so neither the wake check nor the stuck check may count them.
+  let uploaderSkipping: ReadonlySet<string> = new Set()
+  const uploadable = (): boolean =>
+    primaryProviderId != null &&
+    db.subPiecesNeedingUpload(primaryProviderId).some((s) => !uploaderSkipping.has(s.subPieceCid))
+  const waitForMore = async (skipping: ReadonlySet<string>): Promise<boolean> => {
     if (drained) return false
+    uploaderSkipping = skipping
     // A pack can record new pieces between the uploader's empty poll and this
     // call (its notification would find nobody parked and vanish); re-check
     // in the same synchronous block that parks.
-    if (primaryProviderId != null && db.subPiecesNeedingUpload(primaryProviderId).length > 0) {
-      return true
-    }
+    if (uploadable()) return true
     await new Promise<void>((resolve) => {
       uploaderParked = true
       wakeUploader.push(resolve)
@@ -341,7 +359,7 @@ export async function runMigrate(
     if (stuck || primaryProviderId == null) return
     if (!uploaderParked || budget.waiting === 0) return
     if (
-      db.subPiecesNeedingUpload(primaryProviderId).length > 0 ||
+      uploadable() ||
       db.parkedUploads(primaryProviderId).length > 0 ||
       db.uploadsByStatus(primaryProviderId, 'collected').length > 0
     ) {
@@ -384,7 +402,6 @@ export async function runMigrate(
           },
           opts.buildBin
         )
-        overCap.push(...packed.overCap)
         if (packed.built > 0) {
           for (const sub of db.subPiecesByStatus('built')) {
             if (sub.carPath != null && !binBytes.has(sub.carPath)) binBytes.set(sub.carPath, sub.assembledCarLength)
@@ -540,7 +557,7 @@ export async function runMigrate(
       pending: counts.pending,
       oversized: counts.oversized,
     },
-    overCap,
+    overCap: db.oversizedCids(),
     // Anything still `done` outside a recorded piece never shipped: pack
     // failures leave members in exactly this state, and the documented exit
     // contract says such a run must not exit 0.

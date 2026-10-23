@@ -132,12 +132,17 @@ export function planBins(
       bins.push({ pieces: [piece], used: piece.rawSize })
     }
   }
-  // A bin under the upload floor cannot ship on its own. Fold it into any
-  // bin with room; when no other bin exists its members wait for company.
+  // A bin under the upload floor cannot ship on its own. Fold it into the
+  // smallest other bin that stays under the per-piece cap: first-fit already
+  // filled every earlier bin past the target, so the target cannot be the
+  // bound here. With no other bin its members wait for company.
   const deferred: PackPlanInput[] = []
-  for (const small of bins.filter((b) => b.used < MIN_UPLOAD_BYTES)) {
-    const host = bins.find((b) => b !== small && b.used >= MIN_UPLOAD_BYTES && b.used + small.used <= targetSizeBytes)
+  for (;;) {
+    const byUsed = [...bins].sort((a, b) => a.used - b.used)
+    const small = byUsed.find((b) => b.used < MIN_UPLOAD_BYTES)
+    if (small == null) break
     bins.splice(bins.indexOf(small), 1)
+    const host = byUsed.find((b) => b !== small && b.used + small.used <= MAX_UPLOAD_BYTES)
     if (host == null) {
       deferred.push(...small.pieces)
       continue
@@ -325,6 +330,8 @@ export async function runPackCars(
         `piece would be ${p.rawSize} bytes, under the ${MIN_UPLOAD_BYTES}-byte upload minimum; migrate it in a list with other CIDs`,
         'other'
       )
+      const memberPath = memberPaths.get(p.cid)
+      if (memberPath != null && (await unlinkGone(memberPath))) opts.onMemberEvicted?.(p.rawSize)
     }
   }
 

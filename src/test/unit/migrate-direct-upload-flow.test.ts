@@ -310,6 +310,22 @@ describe('runDirectUpload', () => {
     }
   })
 
+  it('a primary store that only lands on the last retry still fans out to the secondary', async () => {
+    const { dir, db } = await dbAt('du-late-store')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      // Main loop plus retry attempts 1 and 2 fail; attempt 3 succeeds.
+      const { deps } = fakeDeps({ storeThrows: (cid, nth) => (cid === P1 && nth <= 3 ? new Error('down') : null) })
+      await runDirectUpload(db, OPTS, deps)
+
+      expect(db.uploadStatus(P1, 'p1')).toBe('committed')
+      expect(db.uploadStatus(P1, 'p2')).toBe('committed')
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('re-storing a collected primary leaves a committed secondary alone', async () => {
     const { dir, db } = await dbAt('du-secondary-committed')
     try {

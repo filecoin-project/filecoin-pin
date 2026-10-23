@@ -301,6 +301,42 @@ describe('runPackCars', () => {
   })
 })
 
+describe('runPackCars final pass', () => {
+  it('fails a deferred sub-floor member, deletes its file and refunds its bytes', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'fp-deferred-'))
+    const db = new MigrationDB(join(dir, 'migrate.db'), 'calibration:0xabc')
+    try {
+      const cid = 'bafkzcibccmbbyafx5e5lzyqq2upjo5j4ziulp6phikah6p7ujgv2cmqrkxcqepq'
+      const memberCarPath = join(dir, 'tiny.car')
+      await writeFile(memberCarPath, new Uint8Array(50))
+      db.addCids([cid])
+      db.recordPieceSuccess(cid, {
+        pieceCid: cid,
+        rawSize: 50,
+        gateway: 'g',
+        url: 'u',
+        memberCarPath,
+        memberSha256: 's',
+      })
+      const freed: number[] = []
+
+      await runPackCars(db, {
+        final: true,
+        targetSizeBytes: 1000,
+        carStore: join(dir, 'cars'),
+        onMemberEvicted: (b) => freed.push(b),
+      })
+
+      expect(db.counts().failed).toBe(1)
+      expect(freed).toEqual([50])
+      await expect(readFile(memberCarPath)).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('planBins', () => {
   const A = 'bafkzcibewpkqwewyhz3yxutlxbpt2nkb6si5qilg4qqtzzij32uw7ammsc73a4wkgi'
   const B = 'bafkzcibf3ck4uais4fgennh4hbfx5z3i6hue4xgq2cdeamtus4hjbsrjs5lf2azbxmsa'
@@ -355,6 +391,23 @@ describe('planBins', () => {
     expect(deferred).toEqual([])
     expect(bins.map((b) => b.totalRawSize).sort()).toEqual([700, 950])
     expect(bins.find((b) => b.totalRawSize === 700)?.memberCids).toEqual([C, B].sort())
+  })
+
+  it('folds a sub-floor leftover into a bin first-fit already filled to the target', () => {
+    // 600 + 400 fill the target exactly, so first-fit opens a new bin for the
+    // 100-byte piece. The target is not the bound for folding, the upload cap
+    // is: the leftover rides along instead of waiting forever.
+    const { bins, deferred } = planBins(
+      [
+        { cid: A, rawSize: 600 },
+        { cid: B, rawSize: 400 },
+        { cid: C, rawSize: 100 },
+      ],
+      1000
+    )
+    expect(deferred).toEqual([])
+    expect(bins).toHaveLength(1)
+    expect(bins[0]?.memberCids).toEqual([A, B, C].sort())
   })
 
   it('defers a bin under the upload floor when no other bin can take it', () => {

@@ -11,7 +11,7 @@ import { MigrationDB } from '../../migrate/db.js'
 import type { DirectUploadDeps, UploadContextLike } from '../../migrate/direct-upload.js'
 import { migrateIncomplete } from '../../migrate/migrate.js'
 import type { BinBuilder } from '../../migrate/pack-cars.js'
-import { type MigrateRunOptions, runMigrate } from '../../migrate/run-migrate.js'
+import { type MigrateRunOptions, runMigrate, stagingBudget } from '../../migrate/run-migrate.js'
 import type { stageMember } from '../../migrate/verify-car.js'
 
 // Exercises the budget-clocked pipeline end to end with fake network edges:
@@ -32,6 +32,8 @@ interface HarnessOptions {
   packTargetBytes: number
   /** CIDs the stager must never be asked for (already staged on disk). */
   forbiddenFetches?: string[]
+  /** The first store() on the provider fails like a dropped connection. */
+  storeFailsOnce?: boolean
 }
 
 async function harness(config: HarnessOptions) {
@@ -87,6 +89,9 @@ async function harness(config: HarnessOptions) {
     async store(_data, opts) {
       events.push(`store:${String(opts.pieceCid)}`)
       storeLanded()
+      if (config.storeFailsOnce && events.filter((e) => e.startsWith('store:')).length === 1) {
+        throw new Error('provider down')
+      }
       return { pieceCid: opts.pieceCid, size: 600 }
     },
     async presignForCommit() {
@@ -127,7 +132,8 @@ async function harness(config: HarnessOptions) {
     carStore,
     packTargetBytes: config.packTargetBytes,
     concurrency: 4,
-    budgetBytes: config.budgetBytes,
+    stagingDir: dir,
+    maxStagedBytes: config.budgetBytes,
     copies: 1,
     stageMemberFn,
     buildBin,
@@ -135,6 +141,16 @@ async function harness(config: HarnessOptions) {
 
   return { db, dir, events, options, deps }
 }
+
+describe('stagingBudget', () => {
+  it('counts already-staged bytes as part of the disk budget, since free space excludes them', () => {
+    expect(stagingBudget(100, 50, null)).toBe(120)
+  })
+
+  it('caps at the explicit limit', () => {
+    expect(stagingBudget(100, 50, 100)).toBe(100)
+  })
+})
 
 describe('runMigrate pipeline', () => {
   it('uploads packed pieces while later CIDs still download', async () => {
@@ -158,6 +174,40 @@ describe('runMigrate pipeline', () => {
       expect(summary.unpacked).toEqual([])
       expect(h.db.uploadsByStatus('p1', 'committed').length).toBeGreaterThan(0)
       expect(h.db.subPiecesNeedingUpload('p1')).toHaveLength(0)
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  })
+
+  it('waits for the packer instead of spinning when every built piece failed to store', async () => {
+    // The first piece's store fails and is deferred; the second CID is still
+    // downloading. The uploader must park until the packer delivers more, not
+    // poll the deferred piece on the microtask queue and starve the download.
+    const cids = [{ cid: await cidFor('a') }, { cid: await cidFor('b'), afterFirstStore: true }]
+    const h = await harness({ cids, budgetBytes: 100_000, packTargetBytes: 600, storeFailsOnce: true })
+    try {
+      const summary = await runMigrate(h.db, h.options, h.deps)
+
+      expect(summary.pieces.succeeded).toBe(2)
+      expect(h.db.subPiecesNeedingUpload('p1')).toHaveLength(0)
+      expect(h.events.filter((e) => e.startsWith('store:'))).toHaveLength(3)
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  }, 10_000)
+
+  it('names CIDs marked oversized by an earlier run in the summary', async () => {
+    const cids = [{ cid: await cidFor('big') }]
+    const h = await harness({ cids, budgetBytes: 100_000, packTargetBytes: 1000 })
+    try {
+      h.db.markOversized([cids[0]?.cid ?? ''])
+      const summary = await runMigrate(h.db, h.options, h.deps)
+
+      expect(summary.pieces.oversized).toBe(1)
+      expect(summary.overCap).toEqual([cids[0]?.cid])
+      expect(migrateIncomplete(summary)).toBe(true)
     } finally {
       h.db.close()
       await rm(h.dir, { recursive: true, force: true })

@@ -4,7 +4,7 @@
  * around `runMigrate`.
  */
 
-import { mkdir, readFile, statfs } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { CID } from 'multiformats/cid'
@@ -48,7 +48,6 @@ export const MIGRATE_DATA_SET_METADATA = {
 } as const
 
 /** Fraction of the staging filesystem's free space the budget may claim. */
-const BUDGET_FREE_SPACE_FRACTION = 0.8
 
 /** Migrate options after CLI-flag normalization and validation. */
 export interface NormalizedMigrateOptions {
@@ -158,14 +157,6 @@ export function dedupeCids(cids: string[]): { unique: string[]; duplicates: stri
   return { unique, duplicates }
 }
 
-/** Staging budget from free disk space, capped by `--max-staged-bytes`. */
-export async function resolveStagingBudget(stagingDir: string, maxStagedBytes: number | null): Promise<number> {
-  const fs = await statfs(stagingDir)
-  const free = Number(fs.bavail) * Number(fs.bsize)
-  const fromDisk = Math.floor(free * BUDGET_FREE_SPACE_FRACTION)
-  return maxStagedBytes == null ? fromDisk : Math.min(fromDisk, maxStagedBytes)
-}
-
 /**
  * Normalize Commander options and run the migrate flow.
  *
@@ -247,8 +238,6 @@ export async function runMigrateFromCli(
     )
     await mkdir(memberDir, { recursive: true })
     await mkdir(carStore, { recursive: true })
-    const budgetBytes = await resolveStagingBudget(stagingDir, maxStagedBytes)
-
     const db = new MigrationDB(dbPath, `${networkSlug}:${owner}`)
     try {
       db.addCids(cids)
@@ -262,7 +251,8 @@ export async function runMigrateFromCli(
         carStore,
         packTargetBytes,
         concurrency,
-        budgetBytes,
+        stagingDir,
+        maxStagedBytes,
         copies,
         providerIds: contextSelection.providerIds,
         dataSetIds: contextSelection.dataSetIds,
@@ -274,7 +264,7 @@ export async function runMigrateFromCli(
       printSummary(summary)
 
       if (migrateIncomplete(summary)) {
-        outro('Migrate finished with unmigrated CIDs; re-run to retry')
+        outro('Migrate finished with unmigrated CIDs; see the summary above')
       } else {
         outro('Migrate completed successfully')
       }

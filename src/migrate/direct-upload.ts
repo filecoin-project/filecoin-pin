@@ -59,7 +59,7 @@ export interface DirectUploadOptions {
    * true when new sub-pieces may have appeared (re-poll), false when the
    * source is drained. Absent means the source was fully staged up-front.
    */
-  waitForMore?: (() => Promise<boolean>) | undefined
+  waitForMore?: ((skipping: ReadonlySet<string>) => Promise<boolean>) | undefined
   /**
    * Pipeline hook: when it returns true while the upload queue is empty,
    * parked pieces are flushed immediately instead of waiting for a full
@@ -361,7 +361,8 @@ export async function runDirectUpload(
         // batch for the GC-window timer.
         await maybeFlush(true)
       }
-      if (opts.waitForMore != null && (await opts.waitForMore())) {
+      // Pieces deferred after a failed store are not "more": waiting on them would spin.
+      if (opts.waitForMore != null && (await opts.waitForMore(storeDeferred))) {
         continue
       }
       break
@@ -455,6 +456,9 @@ export async function runDirectUpload(
         const stored = await storeCar(ctx, deps, sub.carPath, sub.subPieceCid)
         storedBytes += stored.size
         db.recordUploadParked(sub.subPieceCid, ctx.providerId, role, ctx.dataSetId)
+        // Same fanout as the main loop, or a store that only lands on the last
+        // attempt leaves the secondaries without a copy.
+        for (const secondary of secondaries) await pullToSecondary(db, primary, secondary, sub.subPieceCid)
       } catch (err) {
         if (err instanceof CommPMismatchError) {
           db.markUploadFailed(sub.subPieceCid, ctx.providerId, role, err.message)
