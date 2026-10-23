@@ -104,7 +104,7 @@ export async function promptDataSetSelection(
     return { value: ds.dataSetId, label }
   })
 
-  const exact = `exactly ${expectedCopies} data set${expectedCopies !== 1 ? 's' : ''}`
+  const exact = `exactly ${expectedCopies} data set${expectedCopies === 1 ? '' : 's'}`
   let message = `Select ${exact}:`
 
   while (true) {
@@ -369,11 +369,11 @@ export async function performAutoFunding(
     const fundOptions: AutoFundOptions = {
       synapse,
       fileSize,
-      ...(options?.copies != null ? { copies: options.copies } : {}),
-      ...(options?.providerIds != null ? { providerIds: options.providerIds } : {}),
-      ...(options?.dataSetIds != null ? { dataSetIds: options.dataSetIds } : {}),
-      ...(options?.metadata != null ? { metadata: options.metadata } : {}),
-      ...(options?.withCDN != null ? { withCDN: options.withCDN } : {}),
+      ...(options?.copies == null ? {} : { copies: options.copies }),
+      ...(options?.providerIds == null ? {} : { providerIds: options.providerIds }),
+      ...(options?.dataSetIds == null ? {} : { dataSetIds: options.dataSetIds }),
+      ...(options?.metadata == null ? {} : { metadata: options.metadata }),
+      ...(options?.withCDN == null ? {} : { withCDN: options.withCDN }),
     }
     if (spinner !== undefined) {
       fundOptions.spinner = spinner
@@ -658,7 +658,7 @@ export function displayDryRunEstimate(
     existingDataSetCount > 0 && `${existingDataSetCount} existing`,
   ].filter((part): part is string => Boolean(part))
   const dataSetSuffix =
-    dataSetParts.length > 0 ? ` (${dataSetParts.join(', ')} data set${requestedCopies !== 1 ? 's' : ''})` : ''
+    dataSetParts.length > 0 ? ` (${dataSetParts.join(', ')} data set${requestedCopies === 1 ? '' : 's'})` : ''
   log.indent(`Requested: ${requestedCopies}${dataSetSuffix}`)
   log.line('')
 

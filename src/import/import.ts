@@ -382,7 +382,7 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     }
 
     const filbeamUrl = buildFilbeamUrl(synapse, uploadResult.pieceCid, withCDN)
-    const egress = filbeamUrl != null ? { filbeamUrl } : undefined
+    const egress = filbeamUrl == null ? undefined : { filbeamUrl }
 
     displayUploadResults(result, 'Import', network, networkSlug, egress)
 
@@ -414,15 +414,15 @@ export async function runCarImport(options: ImportOptions): Promise<ImportResult
     }
     const msg = error instanceof Error ? error.message : 'Unknown error'
     const lockup = describeLockupShortfall(error)
-    if (lockup != null) {
+    if (lockup == null) {
+      spinner.stop(`${pc.red('✗')} Import failed: ${msg}`)
+    } else {
       spinner.stop(`${pc.red('✗')} Import failed: ${lockup.headline}`)
       log.line('')
       for (const hint of lockup.hints) {
         log.line(`  ${pc.cyan(hint)}`)
       }
       log.flush()
-    } else {
-      spinner.stop(`${pc.red('✗')} Import failed: ${msg}`)
     }
     logger.error({ event: 'import.failed', error }, 'Import failed')
 

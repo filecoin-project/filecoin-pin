@@ -356,7 +356,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     }
 
     const filbeamUrl = buildFilbeamUrl(synapse, uploadResult.pieceCid, withCDN)
-    const egress = filbeamUrl != null ? { filbeamUrl } : undefined
+    const egress = filbeamUrl == null ? undefined : { filbeamUrl }
 
     displayUploadResults(result, 'Add', network, networkSlug, egress)
 
@@ -393,20 +393,20 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     const carInput = error instanceof Error && (error as { code?: string }).code === INPUT_IS_CAR
     const message = error instanceof Error ? error.message : 'Unknown error'
     const lockup = describeLockupShortfall(error)
-    if (lockup != null) {
-      spinner.stop(`${pc.red('✗')} Add failed: ${lockup.headline}`)
-      log.line('')
-      for (const hint of lockup.hints) {
-        log.line(`  ${pc.cyan(hint)}`)
-      }
-      log.flush()
-    } else {
+    if (lockup == null) {
       spinner.stop(`${pc.red('✗')} ${carInput ? message : `Add failed: ${message}`}`)
       if (carInput) {
         log.line('')
         log.line(pc.cyan(`  filecoin-pin import ${options.filePath}`))
         log.flush()
       }
+    } else {
+      spinner.stop(`${pc.red('✗')} Add failed: ${lockup.headline}`)
+      log.line('')
+      for (const hint of lockup.hints) {
+        log.line(`  ${pc.cyan(hint)}`)
+      }
+      log.flush()
     }
     logger.error({ event: 'add.failed', error }, 'Add failed')
 

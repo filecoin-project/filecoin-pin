@@ -393,7 +393,7 @@ async function registerCustomPinRoutes(
     ) => {
       try {
         const { cid, name, status, limit } = request.query
-        const limitNum = limit != null ? parseInt(limit, 10) : undefined
+        const limitNum = limit == null ? undefined : parseInt(limit, 10)
         const listQuery: Parameters<typeof pinStore.list>[1] = {}
         if (cid != null) listQuery.cid = cid
         if (name != null) listQuery.name = name

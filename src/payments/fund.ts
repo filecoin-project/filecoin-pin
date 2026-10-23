@@ -146,9 +146,9 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
   const resolvedMetadata = resolveIpfsIndexedMetadata(metadata, dataSetIds)
 
   const contexts = await synapse.storage.createContexts({
-    ...(copies != null ? { copies } : {}),
-    ...(providerIds != null ? { providerIds } : {}),
-    ...(dataSetIds != null ? { dataSetIds } : {}),
+    ...(copies == null ? {} : { copies }),
+    ...(providerIds == null ? {} : { providerIds }),
+    ...(dataSetIds == null ? {} : { dataSetIds }),
     metadata: resolvedMetadata,
     withCDN: withCDN === true,
   })
@@ -200,7 +200,7 @@ export async function autoFund(options: AutoFundOptions): Promise<FundingAdjustm
   if (clamp.reason === 'clamped' && clamp.message != null) {
     warnings.push(clamp.message)
   }
-  const adjustedPlan = clamp.deposit !== plan.delta ? { ...plan, delta: clamp.deposit } : plan
+  const adjustedPlan = clamp.deposit === plan.delta ? plan : { ...plan, delta: clamp.deposit }
 
   if (status.walletUsdfcBalance < adjustedPlan.delta) {
     throw new Error(
@@ -263,7 +263,7 @@ export async function runFund(options: FundOptions): Promise<void> {
 
     let targetDeposit: bigint = 0n
     try {
-      targetDeposit = options.amount != null ? parseUnits(String(options.amount), 18) : 0n
+      targetDeposit = options.amount == null ? 0n : parseUnits(String(options.amount), 18)
     } catch {
       throw new Error(`Invalid --amount '${options.amount}'`)
     }
