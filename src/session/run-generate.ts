@@ -1,19 +1,15 @@
 /**
  * Action handler for `filecoin-pin session generate`.
  *
- * Local-only flow: produces a fresh session keypair on the consumer's machine
- * and prints SESSION_KEY (secret) plus SESSION_ADDRESS (public). Owner-side
- * authorization happens via `session authorize <address>`.
+ * Deprecated: `login` now generates and saves the same keypair. Hidden from
+ * help; prints a redirect and exits 1. Remove in the next major.
  */
 
-import type { SessionKeypair } from '../core/session/index.js'
-import { generateSessionKeypair } from '../core/session/index.js'
+import { CliFatal } from '../common/cli-errors.js'
 import { log } from '../utils/cli-logger.js'
-import { formatSessionKeypairOutput } from './format.js'
 
-export function runSessionGenerate(): SessionKeypair {
-  const keypair = generateSessionKeypair()
-  log.line(formatSessionKeypairOutput(keypair))
+export function runSessionGenerate(): never {
+  log.line('use `filecoin-pin login`')
   log.flush()
-  return keypair
+  throw new CliFatal('use `filecoin-pin login`')
 }
