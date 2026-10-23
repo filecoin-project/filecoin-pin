@@ -73,6 +73,8 @@ interface FakeBehavior {
   dataSetPieceId?: (dataSetId: string, pieceCid: string) => string | null
   /** Pre-resolved data set id for every context. Default null (created lazily). */
   ctxDataSetId?: string
+  /** Curio's gas bumper landed the commit under a different hash. */
+  confirmedTxHash?: (txHash: string) => string
   /** Offset added to the fake clock, for aging add_unconfirmed breadcrumbs. */
   nowOffsetMs?: number
 }
@@ -111,10 +113,13 @@ function fakeDeps(b: FakeBehavior = {}) {
         options.onSubmitted?.(`0xtx-${providerId}-${n}`)
         throw new Error(f.message)
       }
+      const txHash = `0xtx-${providerId}-${n}`
       return {
-        txHash: `0xtx-${providerId}-${n}`,
+        txHash,
+        ...(b.confirmedTxHash ? { confirmedTxHash: b.confirmedTxHash(txHash) } : {}),
         pieceIds: options.pieces.map((_, i) => BigInt(i)),
-        dataSetId: 7n,
+        // A context that learned its data set keeps committing into it.
+        dataSetId: this.dataSetId == null ? 7n : BigInt(this.dataSetId),
       }
     },
     getPieceUrl: (pieceCid) => `fake://${providerId}/piece/${String(pieceCid)}`,
@@ -256,6 +261,49 @@ describe('runDirectUpload', () => {
       const defaultMs = 60 * 60_000
       expect(db.providerWindowMs('p1', defaultMs)).toBeLessThan(defaultMs)
       expect(db.providerWindowMs('p2', defaultMs)).toBe(defaultMs)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('a GC re-verify that throws leaves the unprobed pieces parked, not add_unconfirmed', async () => {
+    const { dir, db } = await dbAt('du-gc-throw')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      seedBuilt(db, P2, join(dir, 'b.car'))
+      const { deps } = fakeDeps({
+        failCommit: {
+          providerId: 'p1',
+          call: 1,
+          message: `Failed to process request: subPiece CID ${P1} not found or does not belong to service svc`,
+        },
+        present: (cid) => {
+          if (cid === P2) throw new Error('probe timeout')
+          return true
+        },
+      })
+      await expect(runDirectUpload(db, OPTS, deps)).rejects.toThrow(/probe timeout/)
+
+      // The rejection was pre-chain, so nothing is unconfirmed: the named
+      // piece is collected and the one the probe never reached is parked.
+      expect(db.uploadStatus(P1, 'p1')).toBe('collected')
+      expect(db.uploadStatus(P2, 'p1')).toBe('parked')
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('records the confirmed transaction hash when the provider bumped gas', async () => {
+    const { dir, db } = await dbAt('du-bumped')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      const { deps } = fakeDeps({ confirmedTxHash: (txHash) => `${txHash}-bumped` })
+      const summary = await runDirectUpload(db, OPTS, deps)
+
+      expect(db.uploadsByStatus('p1', 'committed')[0]?.txHash).toBe('0xtx-p1-1-bumped')
+      expect(summary.providers[0]?.txHashes).toEqual(['0xtx-p1-1-bumped'])
     } finally {
       db.close()
       await rm(dir, { recursive: true, force: true })
@@ -488,6 +536,10 @@ describe('runDirectUpload', () => {
       db.markUploadsAddUnconfirmed([P1], 'p1')
       db.markUploadTxSubmitted([P1], 'p1', '0xfirst')
 
+      // A second piece still to upload in the same run must land in the
+      // recovered data set, not create another one.
+      seedBuilt(db, P2, join(dir, 'b.car'))
+
       const { deps } = fakeDeps({
         txLanded: () => true,
         addPiecesEvent: (dataSetId) => (dataSetId == null ? { dataSetId: 9n, pieceIds: [5n], pieceCids: [P1] } : null),
@@ -495,9 +547,12 @@ describe('runDirectUpload', () => {
       await runDirectUpload(db, OPTS, deps)
 
       const committed = db.uploadsByStatus('p1', 'committed')
-      expect(committed).toHaveLength(1)
-      expect(committed[0]?.dataSetId).toBe('9')
-      expect(committed[0]?.pieceId).toBe('5')
+      expect(committed.map((u) => [u.subPieceCid, u.dataSetId, u.pieceId]).sort()).toEqual(
+        [
+          [P1, '9', '5'],
+          [P2, '9', '0'],
+        ].sort()
+      )
     } finally {
       db.close()
       await rm(dir, { recursive: true, force: true })

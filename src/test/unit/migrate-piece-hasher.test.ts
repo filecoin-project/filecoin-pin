@@ -3,10 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { calculate, hasher } from '@filoz/synapse-core/piece'
 import { CarWriter } from '@ipld/car'
+import * as dagPb from '@ipld/dag-pb'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MigrationDB } from '../../migrate/db.js'
 import {
   assembleMultiRootCar,
@@ -114,6 +115,51 @@ describe('assembleMultiRootCar', () => {
     )
   })
 
+  it('settles with the sink error when the sink fails mid-assembly', async () => {
+    // A disk-full write must reject the assembly, not leave it waiting on a
+    // writer whose output nobody drains any more.
+    const members = [await memberCar(3), await memberCar(5)]
+    const enospc = Object.assign(new Error('no space'), { code: 'ENOSPC' })
+    const sink: WritableStreamWithLength = {
+      write: vi.fn(async () => {
+        throw enospc
+      }),
+      end: async () => undefined,
+    }
+    await expect(assembleMultiRootCar(members, sink)).rejects.toBe(enospc)
+  })
+
+  it('releases every member source it opened, on success and on failure', async () => {
+    const opened: Array<{ returned: boolean }> = []
+    const tracked = async (seed: number) => {
+      const car = await memberCar(seed)
+      return {
+        cid: car.cid,
+        open: () => {
+          const state = { returned: false }
+          opened.push(state)
+          const it = car.open()[Symbol.asyncIterator]()
+          return {
+            [Symbol.asyncIterator]: () => ({
+              next: () => it.next(),
+              return: async () => {
+                state.returned = true
+                return { done: true as const, value: undefined }
+              },
+            }),
+          }
+        },
+      }
+    }
+    const good = await tracked(3)
+    const bad = { cid: (await memberCar(5)).cid, open: (await tracked(7)).open }
+
+    await assembleMultiRootCar([good], memorySink().sink)
+    await expect(assembleMultiRootCar([good, bad], memorySink().sink)).rejects.toThrow(/CAR root mismatch/)
+    expect(opened).toHaveLength(3)
+    expect(opened.every((o) => o.returned)).toBe(true)
+  })
+
   it('assembles a member containing an empty block', async () => {
     // An empty file is a zero-byte raw block. Its CAR section still has a
     // positive length (the CID bytes), so it is not the zero-length-section
@@ -178,10 +224,102 @@ describe('runPackCars oversized handling', () => {
   })
 })
 
+describe('runPackCars', () => {
+  it('assembles a bin from member files, records it, deletes the members and refunds their bytes', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'fp-pack-'))
+    const db = new MigrationDB(join(dir, 'migrate.db'), 'calibration:0xabc')
+    try {
+      const members = [await memberCar(3), await memberCar(5)]
+      const sizes: number[] = []
+      for (const m of members) {
+        const chunks: Uint8Array[] = []
+        for await (const c of m.open()) chunks.push(c)
+        const bytes = Buffer.concat(chunks)
+        sizes.push(bytes.length)
+        await writeFile(join(dir, `${m.cid}.car`), bytes)
+        db.addCids([m.cid])
+        db.recordPieceSuccess(m.cid, {
+          pieceCid: m.cid,
+          rawSize: bytes.length,
+          gateway: 'g',
+          url: 'fake://gw/x',
+          memberCarPath: join(dir, `${m.cid}.car`),
+          memberSha256: 'sha',
+        })
+      }
+      const freed: number[] = []
+      let staged = 0
+
+      const summary = await runPackCars(db, {
+        targetSizeBytes: 10_000,
+        carStore: join(dir, 'cars'),
+        onBytesStaged: (d) => (staged += d),
+        onMemberEvicted: (b) => freed.push(b),
+      })
+
+      expect(summary).toMatchObject({ bins: 1, built: 1, failed: 0 })
+      expect(freed.sort()).toEqual(sizes.sort())
+      expect(db.freeMemberBytes()).toBe(0)
+      const [piece] = await import('node:fs/promises').then((fs) => fs.readdir(join(dir, 'cars')))
+      expect(piece).toMatch(/^bafkzcib.*\.car$/)
+      const bytes = await readFile(join(dir, 'cars', piece ?? ''))
+      expect(staged).toBe(bytes.length)
+      expect((await calculate(bytes)).toString()).toBe(piece?.replace(/\.car$/, ''))
+      for (const m of members)
+        await expect(readFile(join(dir, `${m.cid}.car`))).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refunds an over-cap member whose file is already gone', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'fp-overcap-gone-'))
+    const db = new MigrationDB(join(dir, 'migrate.db'), 'calibration:0xabc')
+    try {
+      const cid = 'bafkzcibf3ck4uais4fgennh4hbfx5z3i6hue4xgq2cdeamtus4hjbsrjs5lf2azbxmsa'
+      db.addCids([cid])
+      db.recordPieceSuccess(cid, {
+        pieceCid: cid,
+        rawSize: MAX_UPLOAD_BYTES + 1,
+        gateway: 'g',
+        url: 'fake://gw/x',
+        memberCarPath: join(dir, 'missing.car'),
+        memberSha256: 'sha',
+      })
+      const freed: number[] = []
+      await runPackCars(db, {
+        targetSizeBytes: 1000,
+        carStore: join(dir, 'cars'),
+        onMemberEvicted: (b) => freed.push(b),
+      })
+      expect(freed).toEqual([MAX_UPLOAD_BYTES + 1])
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('planBins', () => {
   const A = 'bafkzcibewpkqwewyhz3yxutlxbpt2nkb6si5qilg4qqtzzij32uw7ammsc73a4wkgi'
   const B = 'bafkzcibf3ck4uais4fgennh4hbfx5z3i6hue4xgq2cdeamtus4hjbsrjs5lf2azbxmsa'
   const C = 'bafkzcibccmbbyafx5e5lzyqq2upjo5j4ziulp6phikah6p7ujgv2cmqrkxcqepq'
+
+  it('rejects the same DAG registered as CIDv0 and CIDv1', async () => {
+    const digest = await sha256.digest(dagPb.encode({ Links: [] }))
+    const v0 = CID.createV0(digest).toString()
+    const v1 = CID.createV1(dagPb.code, digest).toString()
+    expect(() =>
+      planBins(
+        [
+          { cid: v0, rawSize: 1 },
+          { cid: v1, rawSize: 1 },
+        ],
+        1000
+      )
+    ).toThrow(/duplicate source CID/)
+  })
 
   it('rejects duplicate source CIDs', () => {
     expect(() =>

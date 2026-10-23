@@ -8,15 +8,16 @@ import { pdp as PDP_ABI } from '@filoz/synapse-core/abis'
 import { findPieceIdsByCid } from '@filoz/synapse-core/pdp-verifier'
 import { from as pieceCidFrom } from '@filoz/synapse-core/piece'
 import type { Synapse } from '@filoz/synapse-sdk'
-import { type Hash, type Hex, parseEventLogs, TransactionReceiptNotFoundError } from 'viem'
+import { CID } from 'multiformats/cid'
+import { concat, type Hash, type Hex, hexToBytes, parseEventLogs, TransactionReceiptNotFoundError } from 'viem'
 
 /**
- * The on-chain PiecesAdded event parsed from an AddPieces tx receipt.
- * PDPVerifier emits one event per AddPieces call carrying parallel arrays of
- * pieceIds + pieceCids (event `PiecesAdded(uint256 indexed setId, uint256[]
- * pieceIds, struct Cids.Cid[] pieceCids)`); `dataSetId` is the event's own
- * setId, so a caller that lost track of its data set can recover it from
- * the receipt.
+ * The on-chain PiecesAddedV2 event parsed from an AddPieces tx receipt.
+ * PDPVerifier emits one per AddPieces call: `PiecesAddedV2(uint256 indexed
+ * setId, uint256 firstPieceId, struct Cids.PackedCid[] pieceCids)`, piece ids
+ * consecutive from `firstPieceId`. (The legacy `PiecesAdded` is still declared
+ * but no longer emitted.) `dataSetId` is the event's own setId, so a caller
+ * that lost track of its data set can recover it from the receipt.
  */
 export interface AddPiecesEvent {
   dataSetId: bigint
@@ -60,7 +61,19 @@ export async function txLanded(synapse: Synapse, txHash: string): Promise<boolea
 }
 
 /**
- * Fetch and parse the PiecesAdded event out of an AddPieces tx receipt.
+ * A `Cids.PackedCid`: the CID bytes before the 32-byte digest, right-aligned
+ * in `header` (leading zero bytes are padding, a CID never starts with 0x00),
+ * followed by the digest in `root`.
+ */
+function unpackCid(packed: { header: Hex; root: Hex }): string {
+  const header = hexToBytes(packed.header)
+  let start = 0
+  while (start < header.length && header[start] === 0) start++
+  return CID.decode(concat([header.subarray(start), hexToBytes(packed.root)])).toString()
+}
+
+/**
+ * Fetch and parse the PiecesAddedV2 event out of an AddPieces tx receipt.
  * When `dataSetId` is known it must match the event's setId; when null (a
  * crash before the first commit of a new data set recorded one) any
  * PDPVerifier-emitted event in the receipt matches and its setId is
@@ -77,7 +90,7 @@ export async function fetchAddPiecesEvent(
   const receipt = await synapse.client.waitForTransactionReceipt({ hash: txHash as Hash })
   const events = parseEventLogs({
     abi: PDP_ABI,
-    eventName: 'PiecesAdded',
+    eventName: 'PiecesAddedV2',
     logs: receipt.logs,
   })
   const target = dataSetId == null ? null : BigInt(dataSetId)
@@ -85,11 +98,10 @@ export async function fetchAddPiecesEvent(
     (ev) => ev.address.toLowerCase() === pdpAddress.toLowerCase() && (target == null || ev.args.setId === target)
   )
   if (match == null) return null
-  const pieceCids = match.args.pieceCids.map((p: { data: Hex }) => pieceCidFrom(p.data).toString())
   return {
     dataSetId: match.args.setId,
     blockNumber: receipt.blockNumber,
-    pieceIds: [...match.args.pieceIds],
-    pieceCids,
+    pieceIds: match.args.pieceCids.map((_, i) => match.args.firstPieceId + BigInt(i)),
+    pieceCids: match.args.pieceCids.map(unpackCid),
   }
 }
