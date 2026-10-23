@@ -59,7 +59,7 @@ export interface DirectUploadOptions {
    * true when new sub-pieces may have appeared (re-poll), false when the
    * source is drained. Absent means the source was fully staged up-front.
    */
-  waitForMore?: (() => Promise<boolean>) | undefined
+  waitForMore?: ((skipping: ReadonlySet<string>) => Promise<boolean>) | undefined
   /**
    * Pipeline hook: when it returns true while the upload queue is empty,
    * parked pieces are flushed immediately instead of waiting for a full
@@ -204,6 +204,8 @@ export interface DirectUploadSummary {
   }>
   storedBytes: number
   evictedCars: number
+  /** Built pieces that never reached the primary provider; the run is incomplete. */
+  unstored: string[]
 }
 
 export async function runDirectUpload(
@@ -344,8 +346,13 @@ export async function runDirectUpload(
   // A piece the provider disagreed with (commP mismatch) is recorded as a
   // failed upload and drops out of this query, so it cannot re-store in a
   // loop.
+  // Pieces whose store() failed for a reason other than a commP mismatch
+  // (provider down, socket reset) are skipped for the rest of the main loop
+  // and stored again in the retry pass below; aborting the run on the first
+  // one would let every other parked piece age toward the GC window.
+  const storeDeferred = new Set<string>()
   for (;;) {
-    const pending = db.subPiecesNeedingUpload(primary.providerId)
+    const pending = db.subPiecesNeedingUpload(primary.providerId).filter((s) => !storeDeferred.has(s.subPieceCid))
     const next = pending[0]
     if (next == null) {
       if (opts.forceFlush?.() === true) {
@@ -354,7 +361,8 @@ export async function runDirectUpload(
         // batch for the GC-window timer.
         await maybeFlush(true)
       }
-      if (opts.waitForMore != null && (await opts.waitForMore())) {
+      // Pieces deferred after a failed store are not "more": waiting on them would spin.
+      if (opts.waitForMore != null && (await opts.waitForMore(storeDeferred))) {
         continue
       }
       break
@@ -375,7 +383,12 @@ export async function runDirectUpload(
         log.message(`error: ${err.message}`)
         continue
       }
-      throw err
+      storeDeferred.add(next.subPieceCid)
+      log.message(
+        `error: store of ${next.subPieceCid} on provider ${primary.providerId} failed, will retry after the ` +
+          `remaining pieces: ${(err as Error).message}`
+      )
+      continue
     }
     storedBytes += stored.size
     db.recordUploadParked(next.subPieceCid, primary.providerId, 'primary', primary.dataSetId)
@@ -411,36 +424,48 @@ export async function runDirectUpload(
     const needsRetry = contexts.flatMap((ctx, i) =>
       ['collected' as const, ...(i > 0 ? ['failed' as const] : [])]
         .flatMap((status) => db.uploadsByStatus(ctx.providerId, status))
-        .map((u) => ({ ctx, u }))
+        .map((u) => ({ ctx, subPieceCid: u.subPieceCid, role: u.role }))
     )
-    if (needsRetry.length === 0 && missingSecondaries.length === 0) break
+    // Built pieces with no live primary row and no retry row above: store()
+    // failed earlier in this run, or a crash landed between the build and
+    // the first store. (A collected primary is already in needsRetry.)
+    const queued = new Set(needsRetry.filter((r) => r.ctx === primary).map((r) => r.subPieceCid))
+    const unstored = db
+      .subPiecesNeedingUpload(primary.providerId)
+      .filter((s) => !queued.has(s.subPieceCid))
+      .map((s) => ({ ctx: primary, subPieceCid: s.subPieceCid, role: 'primary' as const }))
+    const retries = [...needsRetry, ...unstored]
+    if (retries.length === 0 && missingSecondaries.length === 0) break
     log.message(
-      `retrying ${needsRetry.length + missingSecondaries.length} piece(s) that did not land (attempt ${attempt + 1})`
+      `retrying ${retries.length + missingSecondaries.length} piece(s) that did not land (attempt ${attempt + 1})`
     )
     for (const { ctx, subPieceCid } of missingSecondaries) {
       await pullToSecondary(db, primary, ctx, subPieceCid)
     }
-    for (const { ctx, u } of needsRetry) {
-      if (u.role === 'secondary') {
-        await pullToSecondary(db, primary, ctx, u.subPieceCid)
+    for (const { ctx, subPieceCid, role } of retries) {
+      if (role === 'secondary') {
+        await pullToSecondary(db, primary, ctx, subPieceCid)
         continue
       }
-      const sub = db.subPieceByCid(u.subPieceCid)
+      const sub = db.subPieceByCid(subPieceCid)
       if (sub?.carPath == null) {
-        log.message(`error: collected ${u.subPieceCid} has no local CAR; cannot re-store`)
+        log.message(`error: ${subPieceCid} has no local CAR; cannot store it`)
         continue
       }
       try {
         const stored = await storeCar(ctx, deps, sub.carPath, sub.subPieceCid)
         storedBytes += stored.size
-        db.recordUploadParked(sub.subPieceCid, ctx.providerId, u.role, ctx.dataSetId)
+        db.recordUploadParked(sub.subPieceCid, ctx.providerId, role, ctx.dataSetId)
+        // Same fanout as the main loop, or a store that only lands on the last
+        // attempt leaves the secondaries without a copy.
+        for (const secondary of secondaries) await pullToSecondary(db, primary, secondary, sub.subPieceCid)
       } catch (err) {
         if (err instanceof CommPMismatchError) {
-          db.markUploadFailed(sub.subPieceCid, ctx.providerId, u.role, err.message)
-          log.message(`error: ${err.message}`)
-          continue
+          db.markUploadFailed(sub.subPieceCid, ctx.providerId, role, err.message)
         }
-        throw err
+        log.message(
+          `error: store of ${sub.subPieceCid} on provider ${ctx.providerId} failed: ${(err as Error).message}`
+        )
       }
     }
     await maybeFlush(true)
@@ -467,6 +492,7 @@ export async function runDirectUpload(
     }),
     storedBytes,
     evictedCars: evictedPaths.size,
+    unstored: db.subPiecesNeedingUpload(primary.providerId).map((s) => s.subPieceCid),
   }
   log.message(`direct upload finished in ${formatDuration(runTimer.stop())}: ${formatFileSize(storedBytes)} stored`)
   return summary
@@ -520,26 +546,21 @@ async function reconcileUnconfirmed(
   for (const u of db.uploadsByStatus(ctx.providerId, 'add_unconfirmed')) {
     if (u.txHash == null) {
       // The crash landed between the transaction broadcast and the hash
-      // callback, so no receipt can be checked. The data set itself is the
-      // witness: a piece present on chain is committed; an absent one did
-      // not land. Without a known data set neither can be told apart, so the
-      // row stays unresolved and the run exits incomplete.
+      // callback, so no receipt can be checked. The data set is the witness:
+      // a piece present on chain is committed. No data set at all means the
+      // first commit (createDataSetAndAddPieces, one transaction) has not
+      // confirmed; a later run finds it by metadata if it lands.
       const dataSetId = u.dataSetId ?? ctx.dataSetId
-      if (dataSetId == null) {
-        log.message(
-          `resume: ${u.subPieceCid} has an unconfirmed addPieces with no transaction hash and no known data set ` +
-            `on provider ${ctx.providerId}; left add_unconfirmed for manual resolution`
-        )
-        continue
-      }
-      const pieceId = await deps.dataSetPieceId(synapse, dataSetId, u.subPieceCid)
-      if (pieceId != null) {
-        db.markUploadCommitted(u.subPieceCid, ctx.providerId, { dataSetId, pieceId, txHash: null })
-        ctx.dataSetId ??= dataSetId
-        log.message(
-          `resume: ${u.subPieceCid} found on chain in data set ${dataSetId} (piece ${pieceId}); marked committed`
-        )
-        continue
+      if (dataSetId != null) {
+        const pieceId = await deps.dataSetPieceId(synapse, dataSetId, u.subPieceCid)
+        if (pieceId != null) {
+          db.markUploadCommitted(u.subPieceCid, ctx.providerId, { dataSetId, pieceId, txHash: null })
+          ctx.dataSetId ??= dataSetId
+          log.message(
+            `resume: ${u.subPieceCid} found on chain in data set ${dataSetId} (piece ${pieceId}); marked committed`
+          )
+          continue
+        }
       }
       // Absent on chain. A transaction the provider broadcast just before
       // the crash could still land, and re-queueing while it can would add
@@ -549,9 +570,10 @@ async function reconcileUnconfirmed(
       // resolves them one way or the other.
       const ageMs = deps.now() - Date.parse(u.updatedAt)
       if (ageMs < UNCONFIRMED_REQUEUE_AFTER_MS) {
+        const where = dataSetId == null ? 'no data set exists yet' : `it is absent from data set ${dataSetId}`
         log.message(
-          `resume: ${u.subPieceCid} has an unconfirmed addPieces with no transaction hash and is absent from ` +
-            `data set ${dataSetId}; too recent to rule out an in-flight transaction, left add_unconfirmed ` +
+          `resume: ${u.subPieceCid} has an unconfirmed addPieces with no transaction hash and ${where} ` +
+            `on provider ${ctx.providerId}; too recent to rule out an in-flight transaction, left add_unconfirmed ` +
             `(re-run after ${formatDuration(UNCONFIRMED_REQUEUE_AFTER_MS - ageMs)})`
         )
         continue
