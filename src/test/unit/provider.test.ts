@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runProviderList, runProviderPing, runProviderShow } from '../../provider/run.js'
 import * as cliAuthModule from '../../utils/cli-auth.js'
+import { log } from '../../utils/cli-logger.js'
 
 // Fix hoisting issue: define mocks in hoisted block
 const {
@@ -36,18 +37,21 @@ vi.mock('../../utils/cli-auth.js', () => ({
   getCliSynapse: vi.fn(),
 }))
 
-vi.mock('../../utils/cli-helpers.js', () => ({
-  createSpinner: vi.fn().mockImplementation(() => ({
-    start: vi.fn(),
-    stop: vi.fn(),
-    message: vi.fn(),
-    clear: vi.fn(),
-  })),
-  intro: vi.fn(),
-  outro: vi.fn(),
-  cancel: vi.fn(),
-  formatFileSize: vi.fn(),
-}))
+vi.mock('../../utils/cli-helpers.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../utils/cli-helpers.js')>()
+  return {
+    ...actual,
+    createSpinner: vi.fn().mockImplementation(() => ({
+      start: vi.fn(),
+      stop: vi.fn(),
+      message: vi.fn(),
+      clear: vi.fn(),
+    })),
+    intro: vi.fn(),
+    outro: vi.fn(),
+    cancel: vi.fn(),
+  }
+})
 
 vi.mock('../../utils/cli-logger.js', () => ({
   log: {
@@ -66,6 +70,10 @@ vi.mock('@filoz/synapse-core/endorsements', () => ({
   getEndorsedProviderIds: mockGetEndorsedProviderIds,
 }))
 
+function lines(): string[] {
+  return vi.mocked(log.line).mock.calls.map(([line]) => String(line))
+}
+
 describe('provider command', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -80,7 +88,15 @@ describe('provider command', () => {
           id: 1n,
           name: 'Provider 1',
           serviceProvider: '0x123',
-          pdp: { serviceURL: 'http://p1.com/pdp' },
+          description: 'A test provider',
+          pdp: {
+            serviceURL: 'http://p1.com/pdp',
+            location: 'US-East',
+            minPieceSizeInBytes: 1024,
+            maxPieceSizeInBytes: 1024 * 1024,
+            storagePricePerTibPerDay: 10n ** 18n,
+            minProvingPeriodInEpochs: 2880,
+          },
         }
       if (providerId === 2n)
         return {
@@ -118,11 +134,22 @@ describe('provider command', () => {
     }) as any)
   })
 
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('list command should list all approved providers when no arg is passed', async () => {
     await runProviderList({})
     expect(mockGetApprovedProviders).toHaveBeenCalled()
     expect(mockGetProvider).toHaveBeenCalledWith({ providerId: 1n })
     expect(mockGetProvider).toHaveBeenCalledWith({ providerId: 2n })
+    expect(lines()).toEqual([
+      'ID     Name                  Address                                     Location         Service URL                        ',
+      '-----------------------------------------------------------------------------------------------------------------------------',
+      '1      Provider 1            0x123                                       US-East          http://p1.com/pdp                  ',
+      '2      Provider 2            0x456                                       -                http://p2.com/pdp                  ',
+    ])
+    expect(log.flush).toHaveBeenCalled()
   })
 
   it('passes approved-provider cursors through unchanged until all pages are loaded', async () => {
@@ -143,9 +170,29 @@ describe('provider command', () => {
     expect(mockGetProvider).toHaveBeenCalledWith({ providerId: 1n })
     expect(mockGetEndorsedProviderIds).toHaveBeenCalled()
     expect(mockGetApprovedProviders).toHaveBeenCalled()
+    expect(lines()).toEqual([
+      'Provider: Provider 1 (ID: 1)',
+      '  Address: 0x123',
+      '  Endorsed: yes',
+      '  Approved: yes',
+      '  Description: A test provider',
+      '  PDP Service: http://p1.com/pdp',
+      '  Location: US-East',
+      '  Min Piece Size: 1.0 KiB',
+      '  Max Piece Size: 1.0 MiB',
+      '  Storage Price: 1.0000 USDFC/TiB/Day',
+      '  Min Proving Period: 2880 epochs',
+    ])
+    expect(log.flush).toHaveBeenCalled()
   })
 
   it('ping command should ping all approved providers when no arg is passed', async () => {
+    let now = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => {
+      const value = now
+      now += 42
+      return value
+    })
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 } as any)
     await runProviderPing(undefined, {})
     expect(mockGetApprovedProviders).toHaveBeenCalled()
@@ -154,6 +201,25 @@ describe('provider command', () => {
       expect.stringContaining('/pdp/ping'),
       expect.objectContaining({ method: 'GET' })
     )
+    expect(lines()).toEqual([
+      '✔ [ID:1]   Provider 1: OK (42ms) -> http://p1.com/pdp/pdp/ping',
+      '✔ [ID:2]   Provider 2: OK (42ms) -> http://p2.com/pdp/pdp/ping',
+    ])
+    expect(log.flush).toHaveBeenCalled()
+  })
+
+  it('ping writes the no-URL warning through the CLI logger', async () => {
+    mockGetApprovedProviders.mockResolvedValue({ items: [1n] })
+    mockGetProvider.mockResolvedValue({
+      id: 1n,
+      name: 'Bare',
+      serviceProvider: '0xabc',
+    })
+
+    await runProviderPing(undefined, {})
+
+    expect(lines()).toEqual(['⚠ Bare [0xabc]: No PDP Service URL'])
+    expect(log.flush).toHaveBeenCalled()
   })
 
   it('ping command should ping specific provider when arg is passed', async () => {
