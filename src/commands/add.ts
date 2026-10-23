@@ -1,5 +1,6 @@
 import { Command } from 'commander'
 import { runAddFromCli } from '../add/add.js'
+import { EXIT_CODE_INCOMPLETE, isCliIncomplete } from '../common/cli-errors.js'
 import {
   addAuthOptions,
   addAutoFundOptions,
@@ -17,6 +18,14 @@ export const addCommand = new Command('add')
     'Include hidden entries (dotfiles) when packing a directory. Ignored when the target directory itself starts with `.` — its descendants are always traversed in that case.'
   )
   .option('--copies <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
+  .option(
+    '--encrypt',
+    'Encrypt the file or directory before upload. The key is derived from the owner wallet (PRIVATE_KEY); only that wallet can read it back.'
+  )
+  .option(
+    '--no-ipfs',
+    'Do not index the upload in IPFS: use data sets without IPFS indexing (no IPNI announcement) and skip the IPNI wait'
+  )
   .addHelpText(
     'after',
     `
@@ -37,8 +46,8 @@ addCommand.action(async (path: string, options: any) => {
     if (result.copies.length < result.requestedCopies) {
       process.exitCode = 1
     }
-  } catch {
-    process.exit(1)
+  } catch (error) {
+    process.exit(isCliIncomplete(error) ? EXIT_CODE_INCOMPLETE : 1)
   }
 })
 

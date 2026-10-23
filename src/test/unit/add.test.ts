@@ -8,17 +8,48 @@
  * - Integrate with Synapse upload flow
  */
 
+import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { existsSync } from 'node:fs'
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { basename, dirname, join } from 'node:path'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
+import { CarWriter } from '@ipld/car'
+import * as fee from 'filecoin-encryption-envelope'
+import { CID } from 'multiformats/cid'
+import * as raw from 'multiformats/codecs/raw'
+import { sha256 } from 'multiformats/hashes/sha2'
+import { encodePacked, keccak256, slice } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runAdd, runAddFromCli } from '../../add/add.js'
 import type { AddDryRunResult, AddResult } from '../../add/types.js'
+import { EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
+import { decryptToDirectory } from '../../common/encryption.js'
+import { defaultGroupKeyId, ownerKeyResolver } from '../../common/group-key.js'
 
-const { mockCarPath, mockFindDataSets } = vi.hoisted(() => ({
+// Lets a test shrink the SDK's upload cap without big files; every other test sees the real one.
+const uploadCap = vi.hoisted(() => ({ max: undefined as number | undefined }))
+vi.mock('@filoz/synapse-core/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@filoz/synapse-core/utils')>()
+  return {
+    ...actual,
+    SIZE_CONSTANTS: new Proxy(actual.SIZE_CONSTANTS, {
+      get: (target, key) =>
+        key === 'MAX_UPLOAD_SIZE' && uploadCap.max != null ? uploadCap.max : Reflect.get(target, key),
+    }),
+  }
+})
+
+const { mockCarPath, mockFindDataSets, mockListDataSets } = vi.hoisted(() => ({
   mockCarPath: 'test-add-files/mock.car',
   mockFindDataSets: vi.fn().mockResolvedValue([]),
+  mockListDataSets: vi.fn().mockResolvedValue([]),
+}))
+
+vi.mock('../../core/data-set/list-data-sets.js', () => ({
+  listDataSets: mockListDataSets,
 }))
 
 // Mock the external dependencies at module level
@@ -114,6 +145,7 @@ vi.mock('../../core/unixfs/index.js', () => ({
 }))
 
 vi.mock('../../utils/cli-helpers.js', () => ({
+  isInteractive: vi.fn(() => false),
   intro: vi.fn(),
   outro: vi.fn(),
   cancel: vi.fn(),
@@ -251,6 +283,27 @@ describe('Add Command', () => {
           pieceMetadata: expect.objectContaining({ name: 'test.bin' }),
         })
       )
+    })
+
+    it('plain add asks for IPFS-indexed, non-encrypted data sets by default', async () => {
+      await runAdd({ filePath: testFile, privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url' })
+
+      const { performUpload, resolveUploadTargets } = await import('../../common/upload-flow.js')
+      const targetOptions = vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]
+      expect(targetOptions?.ipfsIndexing).toBe(true)
+      expect(targetOptions).not.toHaveProperty('requiredMetadata')
+      expect(vi.mocked(performUpload).mock.calls[0]?.[3]).toMatchObject({ ipfsIndexing: true })
+    })
+
+    it('plain add with --no-ipfs leaves IPFS indexing off and skips the IPNI wait', async () => {
+      await runAdd({ filePath: testFile, privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url', ipfs: false })
+
+      const { performUpload, resolveUploadTargets } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]?.ipfsIndexing).toBe(false)
+      expect(vi.mocked(performUpload).mock.calls[0]?.[3]).toMatchObject({
+        ipfsIndexing: false,
+        skipIpniVerification: true,
+      })
     })
 
     it('preserves user-supplied name over the derived basename', async () => {
@@ -634,6 +687,418 @@ describe('Add Command', () => {
       const calls = vi.mocked(initializeSynapse).mock.calls
       const lastConfig = calls[calls.length - 1]?.[0] as { withCDN?: boolean }
       expect(lastConfig.withCDN).toBeUndefined()
+    })
+  })
+
+  describe('--encrypt', () => {
+    // The well-known Anvil development keys #0 and #1, as in Keysmith's pinned vectors.
+    const OWNER = privateKeyToAccount('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80')
+    const STRANGER = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d')
+    const VECTOR_GROUP_KEY = '0x00112233445566778899aabbccddeeff'
+    const VECTOR_COMMITMENT = 'v1.6982807649650e311e4c69af4ac90417'
+    // defaultGroupKeyId(OWNER), cross-checked with @noble/hashes keccak_256 and `cast keccak`.
+    const OWNER_DEFAULT_GROUP_KEY = '0x02ca08cf7e0222c8432adc159232b7eb'
+    const auth = { privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url' }
+
+    let packed: { path: string; bytes: Buffer } | undefined
+    const packedFile = () => {
+      if (packed == null) throw new Error('nothing was packed')
+      return packed
+    }
+
+    let baseInit: (...args: any[]) => any
+    beforeEach(async () => {
+      packed = undefined
+      mockListDataSets.mockResolvedValue([])
+      const { createCarFromPath } = await import('../../core/unixfs/index.js')
+      const original = vi.mocked(createCarFromPath).getMockImplementation() as typeof createCarFromPath
+      vi.mocked(createCarFromPath).mockImplementationOnce(async (path, options) => {
+        packed = { path, bytes: await readFile(path) }
+        return original(path, options)
+      })
+      // The owner wallet signs for the group key, so the client account must be a real signer.
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      baseInit = vi.mocked(initializeSynapse).getMockImplementation() as typeof baseInit
+      vi.mocked(initializeSynapse).mockImplementation(async (config: any, logger: any) => {
+        const synapse = await baseInit(config, logger)
+        return { ...synapse, client: { account: OWNER } }
+      })
+    })
+
+    const scratch: string[] = []
+    afterEach(async () => {
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      vi.mocked(initializeSynapse).mockImplementation(baseInit)
+      vi.restoreAllMocks()
+      for (const dir of scratch.splice(0)) await rm(dir, { recursive: true, force: true })
+    })
+
+    // Decrypt the packed envelope the way `filecoin-pin decrypt` does and return the single child it restores.
+    async function decrypt(bytes: Uint8Array, account = OWNER) {
+      const { appMetadata, contentType } = await fee.parse(new Uint8Array(bytes))
+      const dir = await mkdtemp(join(tmpdir(), 'filecoin-pin-add-test-'))
+      scratch.push(dir)
+      const envelope = join(dir, 'encrypted.fee')
+      await writeFile(envelope, bytes)
+      const outDir = join(dir, 'out')
+      await decryptToDirectory(envelope, outDir, ownerKeyResolver(account))
+      const [name] = await readdir(outDir)
+      if (name == null) throw new Error('nothing was restored')
+      const restored = join(outDir, name)
+      return {
+        appMetadata,
+        contentType,
+        name,
+        restored,
+        plaintext: await readFile(restored).catch(() => Buffer.alloc(0)),
+      }
+    }
+
+    it('uploads an envelope the owner wallet decrypts back to the file, by name', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { plaintext, name, contentType } = await decrypt(packedFile().bytes)
+      expect(packedFile().bytes.includes(testContent.subarray(0, 64))).toBe(false)
+      expect(name).toBe('test.bin')
+      expect(plaintext.equals(testContent)).toBe(true)
+      expect(contentType).toBe('application/vnd.ipld.car')
+    })
+
+    it('cannot be read with another wallet', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      await expect(decrypt(packedFile().bytes, STRANGER)).rejects.toThrow(/belongs to/)
+    })
+
+    it('records exactly the Keysmith labels in appMetadata', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { appMetadata } = await decrypt(packedFile().bytes)
+      expect({ ...appMetadata }).toEqual({
+        'foc/v': 1,
+        'foc/own': OWNER.address.toLowerCase(),
+        'foc/ks': expect.stringMatching(/^0x[0-9a-f]{32}$/),
+        'foc/salt': expect.stringMatching(/^0x[0-9a-f]{32}$/),
+      })
+    })
+
+    it('tags the data sets it writes to with foc/enc, the group key id and commitment', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { resolveUploadTargets } = await import('../../common/upload-flow.js')
+      const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+      expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]).toMatchObject({
+        ipfsIndexing: true,
+        requiredMetadata: {
+          'foc/enc': '1',
+          'foc/ks': appMetadata?.['foc/ks'],
+          'foc/kc': expect.stringMatching(/^v1\.[0-9a-f]{32}$/),
+          withIPFSIndexing: '',
+        },
+      })
+    })
+
+    const groupKeySet = (dataSetId: bigint, metadata: Record<string, string>) => ({
+      dataSetId,
+      isLive: true,
+      metadata: { 'foc/enc': '1', 'foc/ks': VECTOR_GROUP_KEY, 'foc/kc': VECTOR_COMMITMENT, ...metadata },
+    })
+    const OTHER_GROUP_KEY = `0x${'ab'.repeat(16)}`
+
+    it('reuses the group key an existing data set records, after checking its commitment', async () => {
+      mockListDataSets.mockResolvedValue([groupKeySet(7n, {})])
+
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+      expect(appMetadata?.['foc/ks']).toBe(VECTOR_GROUP_KEY)
+      const { resolveUploadTargets } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]).toMatchObject({
+        requiredMetadata: { 'foc/ks': VECTOR_GROUP_KEY, 'foc/kc': VECTOR_COMMITMENT },
+      })
+    })
+
+    it('stops when the recorded commitment does not match this wallet', async () => {
+      mockListDataSets.mockResolvedValue([groupKeySet(7n, { 'foc/kc': `v1.${'0'.repeat(32)}` })])
+
+      await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow(/commitment/)
+      expect(packed).toBeUndefined()
+    })
+
+    it('with two group keys, uses the one holding the oldest data set', async () => {
+      mockListDataSets.mockResolvedValue([
+        groupKeySet(9n, { 'foc/ks': OTHER_GROUP_KEY, 'foc/kc': `v1.${'0'.repeat(32)}` }),
+        groupKeySet(12n, {}),
+        groupKeySet(3n, {}),
+      ])
+
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+      expect(appMetadata?.['foc/ks']).toBe(VECTOR_GROUP_KEY)
+    })
+
+    it('skips a group key whose data sets disagree on foc/kc, and uses the next oldest', async () => {
+      mockListDataSets.mockResolvedValue([
+        groupKeySet(2n, { 'foc/ks': OTHER_GROUP_KEY }),
+        groupKeySet(4n, { 'foc/ks': OTHER_GROUP_KEY, 'foc/kc': `v1.${'0'.repeat(32)}` }),
+        groupKeySet(8n, {}),
+      ])
+
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+      expect(appMetadata?.['foc/ks']).toBe(VECTOR_GROUP_KEY)
+    })
+
+    it('uses the default group key when the only one recorded is not foc/enc "1"', async () => {
+      mockListDataSets.mockResolvedValue([groupKeySet(7n, { 'foc/enc': '2' })])
+
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+      expect(appMetadata?.['foc/ks']).toBe(OWNER_DEFAULT_GROUP_KEY)
+    })
+
+    it('with no group key on chain, writes under the default group key id derived from the owner', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+      expect(appMetadata?.['foc/ks']).toBe(OWNER_DEFAULT_GROUP_KEY)
+      const { resolveUploadTargets } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]).toMatchObject({
+        requiredMetadata: { 'foc/enc': '1', 'foc/ks': OWNER_DEFAULT_GROUP_KEY },
+      })
+    })
+
+    it('stops when the default group key is on chain but its data sets disagree on foc/kc', async () => {
+      mockListDataSets.mockResolvedValue([
+        groupKeySet(2n, { 'foc/ks': OWNER_DEFAULT_GROUP_KEY }),
+        groupKeySet(4n, { 'foc/ks': OWNER_DEFAULT_GROUP_KEY, 'foc/kc': `v1.${'0'.repeat(32)}` }),
+      ])
+
+      await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow(
+        /default group key 0x02ca08cf7e0222c8432adc159232b7eb .*data sets 2, 4/
+      )
+      expect(packed).toBeUndefined()
+    })
+
+    describe('defaultGroupKeyId', () => {
+      it('matches the pinned vector for Anvil #0', () => {
+        expect(OWNER.address).toBe('0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266')
+        expect(defaultGroupKeyId(OWNER.address)).toBe(OWNER_DEFAULT_GROUP_KEY)
+        // Same formula through a different encoding path: abi.encodePacked(string, address).
+        const packedPreimage = encodePacked(['string', 'address'], ['filecoin/default-group-key', OWNER.address])
+        expect(slice(keccak256(packedPreimage), 0, 16)).toBe(OWNER_DEFAULT_GROUP_KEY)
+      })
+
+      it('is the same for the same owner, in any letter case', () => {
+        expect(defaultGroupKeyId(OWNER.address)).toBe(defaultGroupKeyId(OWNER.address))
+        expect(defaultGroupKeyId(OWNER.address.toLowerCase() as `0x${string}`)).toBe(OWNER_DEFAULT_GROUP_KEY)
+        expect(defaultGroupKeyId(`0x${OWNER.address.slice(2).toUpperCase()}`)).toBe(OWNER_DEFAULT_GROUP_KEY)
+      })
+
+      it('differs between owners', () => {
+        expect(defaultGroupKeyId(STRANGER.address)).toMatch(/^0x[0-9a-f]{32}$/)
+        expect(defaultGroupKeyId(STRANGER.address)).not.toBe(OWNER_DEFAULT_GROUP_KEY)
+      })
+
+      it('rejects a value that is not an address', () => {
+        expect(() => defaultGroupKeyId('0x1234')).toThrow(/Not an address/)
+      })
+    })
+
+    it('with --no-ipfs, targets data sets without withIPFSIndexing and skips the IPNI wait', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true, ipfs: false })
+
+      const { performUpload, resolveUploadTargets } = await import('../../common/upload-flow.js')
+      const targetOptions = vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]
+      expect(targetOptions?.ipfsIndexing).toBe(false)
+      expect(targetOptions?.requiredMetadata).not.toHaveProperty('withIPFSIndexing')
+      expect(targetOptions?.requiredMetadata).toMatchObject({ 'foc/enc': '1' })
+      expect(vi.mocked(performUpload).mock.calls[0]?.[3]).toMatchObject({
+        ipfsIndexing: false,
+        skipIpniVerification: true,
+      })
+    })
+
+    it('refuses to encrypt without the owner wallet', async () => {
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      vi.mocked(initializeSynapse).mockImplementation(baseInit)
+      const session = { walletAddress: OWNER.address, sessionKey: STRANGER.address, rpcUrl: 'wss://test.rpc.url' }
+
+      await expect(runAdd({ ...session, filePath: testFile, encrypt: true })).rejects.toThrow(/PRIVATE_KEY/)
+      expect(packed).toBeUndefined()
+    })
+
+    it('uses a neutral name so the original filename is not stored', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(basename(packedFile().path)).toBe('encrypted.fee')
+      expect(vi.mocked(performUpload).mock.calls[0]?.[3]?.pieceMetadata).toEqual({ name: 'encrypted.fee' })
+    })
+
+    it('removes the temporary envelope and its SIGINT handler after a successful upload', async () => {
+      const before = process.listeners('SIGINT')
+
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      expect(existsSync(packedFile().path)).toBe(false)
+      expect(process.listeners('SIGINT')).toEqual(before)
+    })
+
+    it('removes the temporary envelope when the upload fails', async () => {
+      const { performUpload } = await import('../../common/upload-flow.js')
+      vi.mocked(performUpload).mockRejectedValueOnce(new Error('provider down'))
+
+      await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow('provider down')
+      expect(existsSync(packedFile().path)).toBe(false)
+    })
+
+    it('encrypts a CAR file instead of redirecting it to import', async () => {
+      const cid = CID.create(1, raw.code, await sha256.digest(new Uint8Array([1])))
+      const { writer, out } = CarWriter.create([cid])
+      const chunks: Uint8Array[] = []
+      const drain = (async () => {
+        for await (const chunk of out) chunks.push(chunk)
+      })()
+      await writer.close()
+      await drain
+      const car = Buffer.concat(chunks)
+      const carFile = join(testDir, 'archive.car')
+      await writeFile(carFile, car)
+
+      await runAdd({ ...auth, filePath: carFile, encrypt: true })
+
+      expect((await decrypt(packedFile().bytes)).plaintext.equals(car)).toBe(true)
+    })
+
+    it('encrypts a directory and restores it with its name and contents', async () => {
+      await mkdir(join(testDir, 'nested'), { recursive: true })
+      await writeFile(join(testDir, 'nested', 'note.txt'), 'hello')
+
+      await runAdd({ ...auth, filePath: testDir, encrypt: true })
+
+      const { name, restored } = await decrypt(packedFile().bytes)
+      expect(name).toBe(basename(testDir))
+      expect((await readFile(join(restored, 'test.bin'))).equals(testContent)).toBe(true)
+      expect(await readFile(join(restored, 'nested', 'note.txt'), 'utf8')).toBe('hello')
+      expect(basename(packedFile().path)).toBe('encrypted.fee')
+    })
+
+    it.each([
+      'SIGINT',
+      'SIGTERM',
+      'SIGHUP',
+    ] as const)('on %s, the handler itself removes the private temp dir and exits as incomplete', async (signal) => {
+      const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+      const { performUpload } = await import('../../common/upload-flow.js')
+      let goneBeforeFinally: boolean | undefined
+      vi.mocked(performUpload).mockImplementationOnce(async () => {
+        process.emit(signal)
+        // Checked before the error reaches runAdd's finally, so only the signal handler can have removed it.
+        goneBeforeFinally = !existsSync(dirname(packedFile().path))
+        throw new Error('interrupted')
+      })
+      const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
+      const before = signals.map((s) => process.listeners(s))
+
+      await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow('interrupted')
+
+      expect(goneBeforeFinally).toBe(true)
+      expect(exit).toHaveBeenCalledWith(EXIT_CODE_INCOMPLETE)
+      expect(signals.map((s) => process.listeners(s))).toEqual(before)
+    })
+
+    it("refuses an input over the SDK's upload cap before encrypting or uploading", async () => {
+      uploadCap.max = 1024
+      try {
+        await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow(
+          /more than the 1024 bytes one upload can hold/
+        )
+      } finally {
+        uploadCap.max = undefined
+      }
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(packed).toBeUndefined()
+      expect(vi.mocked(performUpload)).not.toHaveBeenCalled()
+    })
+
+    it('says the encrypted envelope, not the input, was packed', async () => {
+      await runAdd({ ...auth, filePath: testDir, encrypt: true })
+
+      const { createSpinner } = await import('../../utils/cli-helpers.js')
+      const stops = vi.mocked(createSpinner).mock.results[0]?.value.stop.mock.calls.flat()
+      expect(stops).toContainEqual(expect.stringContaining('Encrypted envelope packed with root CID: '))
+      expect(stops).not.toContainEqual(expect.stringContaining('Directory packed'))
+    })
+
+    it.skipIf(process.platform === 'win32')(
+      'counts skipped symlinks and special files without naming them',
+      async () => {
+        await symlink(testFile, join(testDir, 'link-name'))
+        execFileSync('mkfifo', [join(testDir, 'pipe-name')])
+
+        await runAdd({ ...auth, filePath: testDir, encrypt: true })
+
+        const { createSpinner } = await import('../../utils/cli-helpers.js')
+        const stops: string[] = vi.mocked(createSpinner).mock.results[0]?.value.stop.mock.calls.flat()
+        expect(stops).toContainEqual(expect.stringContaining('Directory encrypted (1 symlink, 1 special file skipped)'))
+        expect(stops.join('\n')).not.toMatch(/link-name|pipe-name/)
+      }
+    )
+
+    it('builds the outer CAR inside the private temp dir', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { createCarFromPath } = await import('../../core/unixfs/index.js')
+      expect(vi.mocked(createCarFromPath).mock.calls[0]?.[1]).toMatchObject({ tempDir: dirname(packedFile().path) })
+    })
+
+    it('packs dotfiles when asked to include hidden entries', async () => {
+      await writeFile(join(testDir, '.hidden'), 'dot')
+
+      await runAdd({ ...auth, filePath: testDir, encrypt: true, includeHidden: true })
+
+      const { restored } = await decrypt(packedFile().bytes)
+      expect(await readFile(join(restored, '.hidden'), 'utf8')).toBe('dot')
+    })
+
+    it('leaves dotfiles out by default', async () => {
+      await writeFile(join(testDir, '.hidden'), 'dot')
+
+      await runAdd({ ...auth, filePath: testDir, encrypt: true })
+
+      const { restored } = await decrypt(packedFile().bytes)
+      expect(existsSync(join(restored, '.hidden'))).toBe(false)
+    })
+
+    it('ignores a data set that is no longer live when choosing the group key', async () => {
+      const fixtures = [
+        {
+          dataSetId: 1n,
+          isLive: false,
+          metadata: { ...groupKeySet(1n, {}).metadata, 'foc/kc': `v1.${'0'.repeat(32)}` },
+        },
+      ]
+      mockListDataSets.mockImplementation(async (_synapse: unknown, opts?: { filter?: (d: any) => boolean }) =>
+        fixtures.filter((d) => opts?.filter?.(d) ?? true)
+      )
+
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+      expect(appMetadata?.['foc/ks']).toBe(OWNER_DEFAULT_GROUP_KEY)
+    })
+
+    it('has no option that takes a password or a key on the command line', async () => {
+      const { addCommand } = await import('../../commands/add.js')
+      const flags = addCommand.options.map((o) => o.long)
+      expect(flags).toContain('--encrypt')
+      expect(flags).toContain('--no-ipfs')
+      expect(flags).not.toContain('--password-file')
+      expect(flags).not.toContain('--password')
     })
   })
 })
