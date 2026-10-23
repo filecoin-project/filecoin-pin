@@ -20,13 +20,14 @@ import * as fee from 'filecoin-encryption-envelope'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
+import { encodePacked, keccak256, slice } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runAdd, runAddFromCli } from '../../add/add.js'
 import type { AddDryRunResult, AddResult } from '../../add/types.js'
 import { EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
 import { decryptToDirectory } from '../../common/encryption.js'
-import { ownerKeyResolver } from '../../common/group-key.js'
+import { defaultGroupKeyId, ownerKeyResolver } from '../../common/group-key.js'
 
 // Lets a test shrink the SDK's upload cap without big files; every other test sees the real one.
 const uploadCap = vi.hoisted(() => ({ max: undefined as number | undefined }))
@@ -695,6 +696,8 @@ describe('Add Command', () => {
     const STRANGER = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d')
     const VECTOR_GROUP_KEY = '0x00112233445566778899aabbccddeeff'
     const VECTOR_COMMITMENT = 'v1.6982807649650e311e4c69af4ac90417'
+    // defaultGroupKeyId(OWNER), cross-checked with @noble/hashes keccak_256 and `cast keccak`.
+    const OWNER_DEFAULT_GROUP_KEY = '0x02ca08cf7e0222c8432adc159232b7eb'
     const auth = { privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url' }
 
     let packed: { path: string; bytes: Buffer } | undefined
@@ -848,14 +851,61 @@ describe('Add Command', () => {
       expect(appMetadata?.['foc/ks']).toBe(VECTOR_GROUP_KEY)
     })
 
-    it('creates a new group key when the only one recorded is not foc/enc "1"', async () => {
+    it('uses the default group key when the only one recorded is not foc/enc "1"', async () => {
       mockListDataSets.mockResolvedValue([groupKeySet(7n, { 'foc/enc': '2' })])
 
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-      expect(appMetadata?.['foc/ks']).toMatch(/^0x[0-9a-f]{32}$/)
-      expect(appMetadata?.['foc/ks']).not.toBe(VECTOR_GROUP_KEY)
+      expect(appMetadata?.['foc/ks']).toBe(OWNER_DEFAULT_GROUP_KEY)
+    })
+
+    it('with no group key on chain, writes under the default group key id derived from the owner', async () => {
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+      expect(appMetadata?.['foc/ks']).toBe(OWNER_DEFAULT_GROUP_KEY)
+      const { resolveUploadTargets } = await import('../../common/upload-flow.js')
+      expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]).toMatchObject({
+        requiredMetadata: { 'foc/enc': '1', 'foc/ks': OWNER_DEFAULT_GROUP_KEY },
+      })
+    })
+
+    it('stops when the default group key is on chain but its data sets disagree on foc/kc', async () => {
+      mockListDataSets.mockResolvedValue([
+        groupKeySet(2n, { 'foc/ks': OWNER_DEFAULT_GROUP_KEY }),
+        groupKeySet(4n, { 'foc/ks': OWNER_DEFAULT_GROUP_KEY, 'foc/kc': `v1.${'0'.repeat(32)}` }),
+      ])
+
+      await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow(
+        /default group key 0x02ca08cf7e0222c8432adc159232b7eb .*data sets 2, 4/
+      )
+      expect(packed).toBeUndefined()
+    })
+
+    describe('defaultGroupKeyId', () => {
+      it('matches the pinned vector for Anvil #0', () => {
+        expect(OWNER.address).toBe('0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266')
+        expect(defaultGroupKeyId(OWNER.address)).toBe(OWNER_DEFAULT_GROUP_KEY)
+        // Same formula through a different encoding path: abi.encodePacked(string, address).
+        const packedPreimage = encodePacked(['string', 'address'], ['filecoin/default-group-key', OWNER.address])
+        expect(slice(keccak256(packedPreimage), 0, 16)).toBe(OWNER_DEFAULT_GROUP_KEY)
+      })
+
+      it('is the same for the same owner, in any letter case', () => {
+        expect(defaultGroupKeyId(OWNER.address)).toBe(defaultGroupKeyId(OWNER.address))
+        expect(defaultGroupKeyId(OWNER.address.toLowerCase() as `0x${string}`)).toBe(OWNER_DEFAULT_GROUP_KEY)
+        expect(defaultGroupKeyId(`0x${OWNER.address.slice(2).toUpperCase()}`)).toBe(OWNER_DEFAULT_GROUP_KEY)
+      })
+
+      it('differs between owners', () => {
+        expect(defaultGroupKeyId(STRANGER.address)).toMatch(/^0x[0-9a-f]{32}$/)
+        expect(defaultGroupKeyId(STRANGER.address)).not.toBe(OWNER_DEFAULT_GROUP_KEY)
+      })
+
+      it('rejects a value that is not an address', () => {
+        expect(() => defaultGroupKeyId('0x1234')).toThrow(/Not an address/)
+      })
     })
 
     it('with --no-ipfs, targets data sets without withIPFSIndexing and skips the IPNI wait', async () => {
@@ -1039,7 +1089,7 @@ describe('Add Command', () => {
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-      expect(appMetadata?.['foc/ks']).not.toBe(VECTOR_GROUP_KEY)
+      expect(appMetadata?.['foc/ks']).toBe(OWNER_DEFAULT_GROUP_KEY)
     })
 
     it('has no option that takes a password or a key on the command line', async () => {
