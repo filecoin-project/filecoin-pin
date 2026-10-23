@@ -442,6 +442,61 @@ describe('performUpload', () => {
     expect(result.copies[0]?.txHash).toBe('0xabc')
   })
 
+  it('matches tx hashes by provider when a copy fails after piecesAdded', async () => {
+    const successfulCopy = {
+      providerId: 1n,
+      dataSetId: 123n,
+      pieceId: 456n,
+      role: 'primary',
+      retrievalUrl: 'https://provider.example/piece/test',
+      isNewDataSet: false,
+    }
+    const failedAttempt = {
+      providerId: 2n,
+      role: 'secondary',
+      error: 'piece confirmation failed',
+      explicit: false,
+    }
+
+    mocks.executeUpload.mockImplementation(async (_synapse, _data, _rootCid, options) => {
+      options.onProgress?.({
+        type: 'piecesAdded',
+        data: { txHash: '0xdef', providerId: 2n },
+      })
+      options.onProgress?.({
+        type: 'piecesAdded',
+        data: { txHash: '0xabc', providerId: 1n },
+      })
+      return {
+        pieceCid: 'bafkzcibtest123',
+        size: 4,
+        requestedCopies: 2,
+        complete: false,
+        copies: [successfulCopy],
+        failedAttempts: [failedAttempt],
+        network: 'calibration',
+        ipniValidated: true,
+      }
+    })
+
+    const result = await performUpload(
+      { chain: { id: 314159, name: 'calibration' } } as any,
+      new Uint8Array([1, 2, 3, 4]),
+      TEST_CID,
+      {
+        contextType: 'add',
+        fileSize: 4,
+        copies: 2,
+        logger: createLogger({ logLevel: 'info' }),
+      }
+    )
+
+    expect(result.complete).toBe(false)
+    expect(result.requestedCopies).toBe(2)
+    expect(result.copies).toEqual([{ ...successfulCopy, txHash: '0xabc' }])
+    expect(result.failedAttempts).toEqual([failedAttempt])
+  })
+
   it('records IPNI pending and omits shareUrl when indexing is not confirmed', async () => {
     mocks.executeUpload.mockImplementation(async () => ({
       pieceCid: 'bafkzcibtest123',

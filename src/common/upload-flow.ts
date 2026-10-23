@@ -778,6 +778,7 @@ export async function performUpload(
   }
 
   const network = getNetworkSlug(synapse.chain)
+  const shareUrl = `https://inbrowser.link/ipfs/${rootCid}`
   const txByProvider = new Map<bigint, Hash>()
 
   const uploadResult = await executeUpload(synapse, carData, rootCid, {
@@ -940,7 +941,7 @@ export async function performUpload(
             type: 'success',
             details: {
               title: 'IPFS Retrieval URLs',
-              content: [pc.gray(`View in a browser: https://inbrowser.link/ipfs/${rootCid}`)],
+              content: [pc.gray(`View in a browser: ${shareUrl}`)],
             },
           })
           break
@@ -972,11 +973,14 @@ export async function performUpload(
     },
   })
 
-  const ipni: IpniObservation = options.skipIpniVerification
-    ? 'skipped'
-    : uploadResult.ipniValidated
-      ? 'found'
-      : 'pending'
+  let ipni: IpniObservation
+  if (options.skipIpniVerification) {
+    ipni = 'skipped'
+  } else if (uploadResult.ipniValidated) {
+    ipni = 'found'
+  } else {
+    ipni = 'pending'
+  }
 
   return {
     ...uploadResult,
@@ -985,7 +989,7 @@ export async function performUpload(
       return txHash == null ? copy : { ...copy, txHash }
     }),
     ipni,
-    ...(ipni === 'found' ? { shareUrl: `https://inbrowser.link/ipfs/${rootCid}` } : {}),
+    ...(ipni === 'found' ? { shareUrl } : {}),
   }
 }
 
