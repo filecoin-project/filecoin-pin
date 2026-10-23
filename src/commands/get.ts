@@ -5,9 +5,9 @@ import type { CLIAuthOptions } from '../utils/cli-auth.js'
 import { addAuthOptions } from '../utils/cli-options.js'
 
 export const getCommand = new Command('get')
-  .description('Fetch an upload by its IPFS root CID into a new directory, decrypting it if encrypted.')
+  .description('Fetch an upload by its IPFS root CID into a directory, decrypting it if encrypted.')
   .argument('<cid>', 'IPFS Root CID of the upload (for an encrypted upload, its Encrypted root CID)')
-  .argument('[output-dir]', 'Directory to write into (created, or must be empty; default: ./<cid>)')
+  .argument('[output-dir]', 'Directory to save into (created if missing; may hold other files; default: .)')
   .addHelpText(
     'after',
     `
@@ -16,9 +16,10 @@ WALLET_ADDRESS or VIEW_ADDRESS), the providers of that address's own data sets. 
 is verified against the CID before anything is written; a bad download is discarded and the
 next provider is tried.
 
-A plain file is written as <output-dir>/<cid>; a directory's contents go under <output-dir>.
-An encrypted upload is decrypted with the owner wallet (PRIVATE_KEY) and restored under its
-original name. Plain content needs no credentials.`
+A plain file or folder is saved as <output-dir>/<cid> (its DAG holds no name). An encrypted
+upload is decrypted with the owner wallet (PRIVATE_KEY) and restored under its original name.
+Nothing in <output-dir> is overwritten: a taken name is numbered like a browser download
+(<cid> -> "<cid> (1)", report.pdf -> "report (1).pdf"). Plain content needs no credentials.`
   )
 
 addAuthOptions(getCommand)

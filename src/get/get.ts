@@ -1,5 +1,5 @@
 /**
- * Fetch an upload by its IPFS root CID into a new directory, decrypting it when it was
+ * Fetch an upload by its IPFS root CID into a directory, decrypting it when it was
  * uploaded with `add --encrypt`.
  */
 
@@ -42,13 +42,16 @@ async function ownProviders(auth: SynapseSetupConfig, address: Address, logger: 
 export async function runGet(cidArg: string, outputDir: string | undefined, options: CLIAuthOptions): Promise<void> {
   intro(pc.bold('Filecoin Pin Get'))
   const spinner = createSpinner()
-  let outDir = outputDir ?? cidArg
+  const outDir = outputDir ?? '.'
   let outExists = false
   let tempDir: string | undefined
+  // The entry get claimed in `outDir`; set synchronously by the claim, so it is known before
+  // anything is written into it.
+  let claimed: string | undefined
   // Ctrl-C, kill and a closed terminal: clack's spinner exits the process on SIGINT before any
   // `finally` runs. Registered before the spinner starts so they run first.
   const onSignal = (): void => {
-    removeDecryptOutput(outDir, !outExists)
+    removeDecryptOutput(outDir, !outExists, claimed)
     if (tempDir != null) rmSync(tempDir, { recursive: true, force: true })
     process.exit(EXIT_CODE_INCOMPLETE)
   }
@@ -60,8 +63,7 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
     } catch {
       throw new Error(`Not an IPFS root CID: ${cidArg}`)
     }
-    outDir = outputDir ?? cid.toString()
-    // Before the handler is armed: it must never remove entries get would have refused to touch.
+    // Before the handler is armed, so it knows whether `outDir` is ours to remove.
     outExists = (await checkOutputDir(outDir)).outExists
     const auth = parseCLIAuth(options)
     const logger = getCLILogger()
@@ -75,12 +77,19 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
     spinner.start('Finding providers and downloading...')
     const findProviders = [() => ipniProviderUrls(cid, { logger })]
     if (address != null) findProviders.push(() => ownProviders(auth, address, logger))
-    const result = await getToDirectory(cid, outDir, findProviders, ownerKeyResolver(signer), { tempDir, logger })
+    const onClaim = (path: string): void => {
+      claimed = path
+    }
+    const result = await getToDirectory(cid, outDir, findProviders, ownerKeyResolver(signer), {
+      tempDir,
+      logger,
+      onClaim,
+    })
     const what = `${result.files} file${result.files === 1 ? '' : 's'}`
     spinner.stop(
-      `${pc.green('✓')} Verified every block from ${result.provider}; ${result.encrypted ? 'decrypted' : 'wrote'} ${what} to ${outDir}`
+      `${pc.green('✓')} Verified every block from ${result.provider}; ${result.encrypted ? 'decrypted' : 'wrote'} ${what}`
     )
-    outro('Get complete')
+    outro(`Saved to ${result.path}`)
   } catch (error) {
     if (isCliIncomplete(error)) {
       spinner.stop()

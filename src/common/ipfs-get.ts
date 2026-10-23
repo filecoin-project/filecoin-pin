@@ -1,5 +1,5 @@
 /**
- * `get`: fetch an upload by its IPFS root CID and write the original into a new directory,
+ * `get`: fetch an upload by its IPFS root CID and save the original into a directory,
  * decrypted when it is an `add --encrypt` envelope, unchanged otherwise.
  *
  * The CAR is downloaded and verified first (see `ipfs-car-fetch.ts`), so everything below
@@ -17,6 +17,7 @@ import * as fee from 'filecoin-encryption-envelope'
 import { UnixFS } from 'ipfs-unixfs'
 import { exporter, type UnixFSEntry } from 'ipfs-unixfs-exporter'
 import type { CID } from 'multiformats/cid'
+import { claimEntry } from './claim-output.js'
 import { checkOutputDir, decryptToDirectory, removeDecryptOutput, unixfsFileBytes } from './encryption.js'
 import { type FetchOptions, fetchVerifiedCar, NotUnixfsError } from './ipfs-car-fetch.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, isUnsafeName, RAW_CODEC } from './unixfs-car-layout.js'
@@ -31,6 +32,8 @@ export interface GetResult {
   encrypted: boolean
   files: number
   dirs: number
+  /** The saved entry: `<outDir>/<name>`, or a numbered variant when the name was taken. */
+  path: string
   /** Base URL of the provider whose CAR was used. */
   provider: string
 }
@@ -39,6 +42,8 @@ export interface GetOptions extends FetchOptions {
   /** A private, empty directory owned by the caller for the downloaded CAR. */
   tempDir: string
   concurrency?: number
+  /** Called with the entry's path as soon as it is claimed, before any content is written. */
+  onClaim?: (path: string) => void
 }
 
 /** A verified CAR that still lacks a block: only reachable if the file changed after verification. */
@@ -52,11 +57,12 @@ class IncompleteCarError extends Error {
 type BlockReader = { get(cid: CID): Promise<{ bytes: Uint8Array } | undefined> }
 
 /**
- * Fetch `cid` from the first provider that serves a verified CAR and write it
- * under `outDir` (created owner-only, or must be empty). An encrypted upload is decrypted
- * with `resolveKey`, which is not called for plain content. A plain file is written as
- * `<outDir>/<cid>` (its name is not in its DAG); a directory's contents go under `outDir`.
- * On failure everything written is removed.
+ * Fetch `cid` from the first provider that serves a verified CAR and save it as one entry
+ * in `outDir`, which may hold anything and is created owner-only when missing. An encrypted
+ * upload is decrypted with `resolveKey`, which is not called for plain content, and keeps its
+ * original name. A plain file or folder is named `<cid>`, since its DAG holds no root name. A
+ * taken name is numbered like a browser download (see `claim-output.ts`). On failure only
+ * that entry is removed.
  *
  * `findProviders` each list candidate provider URLs; they start together once the paths
  * are checked, and fetching starts as each one returns.
@@ -81,10 +87,10 @@ export async function getToDirectory(
   )
   const kind = await detect(carPath, cid)
   if (kind === 'encrypted') {
-    const { files, dirs } = await decryptToDirectory(carPath, outDir, resolveKey)
-    return { encrypted: true, files, dirs, provider }
+    const { files, dirs, path } = await decryptToDirectory(carPath, outDir, resolveKey, options.onClaim)
+    return { encrypted: true, files, dirs, path, provider }
   }
-  return { encrypted: false, ...(await extractUnixfs(carPath, cid, outDir)), provider }
+  return { encrypted: false, ...(await extractUnixfs(carPath, cid, outDir, options.onClaim)), provider }
 }
 
 /** What a verified CAR holds: an `add --encrypt` envelope, a plain file, or a plain directory. */
@@ -138,16 +144,17 @@ async function* readWindows(
 }
 
 /**
- * Write the plain UnixFS DAG at `root` from a verified CAR under `outDir`: a file as
- * `<outDir>/<root>`, a directory's contents directly under `outDir`. Directories 0700,
- * files 0600 created exclusively. Unsafe entry names, symlinks and other non-file
- * entries fail the whole extraction, and everything written is removed.
+ * Write the plain UnixFS DAG at `root` from a verified CAR into `outDir` as a file or folder
+ * named `<root>` (numbered when taken), claimed before anything is written; `onClaim` gets its
+ * path. Directories 0700, files 0600 created exclusively. Unsafe entry names, symlinks and
+ * other non-file entries fail the whole extraction, and the claimed entry is removed.
  */
 export async function extractUnixfs(
   carPath: string,
   root: CID,
-  outDir: string
-): Promise<{ files: number; dirs: number }> {
+  outDir: string,
+  onClaim?: (path: string) => void
+): Promise<{ files: number; dirs: number; path: string }> {
   const { outExists } = await checkOutputDir(outDir)
   if (!outExists) await mkdir(outDir, { mode: 0o700 })
   const reader = await CarIndexedReader.fromFile(carPath)
@@ -163,8 +170,10 @@ export async function extractUnixfs(
     },
   }
   const counts = { files: 0, dirs: 0 }
+  let claimed: string | undefined
 
-  const writeFile = async (entry: UnixFSEntry, path: string): Promise<void> => {
+  // `flags` is `wx` for a new file, `r+` for the claimed one.
+  const writeFile = async (entry: UnixFSEntry, path: string, target: string, flags: string): Promise<void> => {
     let content: AsyncIterable<Uint8Array>
     if (entry.type === 'file') {
       const type = entry.unixfs.type
@@ -175,11 +184,15 @@ export async function extractUnixfs(
     } else {
       throw new NotUnixfsError(`entry ${path} is ${entry.type}`)
     }
-    await pipeline(Readable.from(content), createWriteStream(insideDir(outDir, path), { flags: 'wx', mode: 0o600 }))
+    await pipeline(Readable.from(content), createWriteStream(target, { flags, mode: 0o600 }))
     counts.files++
   }
 
-  const writeDirectory = async (entry: UnixFSEntry & { type: 'directory' }, path: string): Promise<void> => {
+  const writeDirectory = async (
+    entry: UnixFSEntry & { type: 'directory' },
+    base: string,
+    path: string
+  ): Promise<void> => {
     for await (const child of entry.entries()) {
       if (isUnsafeName(child.name)) {
         throw new Error(`entry ${JSON.stringify(child.name)} is unsafe to write`)
@@ -187,11 +200,11 @@ export async function extractUnixfs(
       const childPath = path === '' ? child.name : `${path}/${child.name}`
       const node = await exporter(child.cid.toString(), blockstore)
       if (node.type === 'directory') {
-        await mkdir(insideDir(outDir, childPath), { mode: 0o700 })
+        await mkdir(insideDir(base, childPath), { mode: 0o700 })
         counts.dirs++
-        await writeDirectory(node, childPath)
+        await writeDirectory(node, base, childPath)
       } else {
-        await writeFile(node, childPath)
+        await writeFile(node, childPath, insideDir(base, childPath), 'wx')
       }
     }
   }
@@ -199,11 +212,13 @@ export async function extractUnixfs(
   try {
     // A string, since our multiformats CID class is not the exporter's.
     const entry = await exporter(root.toString(), blockstore)
-    if (entry.type === 'directory') await writeDirectory(entry, '')
-    else await writeFile(entry, root.toString())
-    return counts
+    claimed = claimEntry(outDir, root.toString(), entry.type === 'directory' ? 'folder' : 'file')
+    onClaim?.(claimed)
+    if (entry.type === 'directory') await writeDirectory(entry, claimed, '')
+    else await writeFile(entry, root.toString(), claimed, 'r+')
+    return { ...counts, path: claimed }
   } catch (error) {
-    removeDecryptOutput(outDir, !outExists)
+    removeDecryptOutput(outDir, !outExists, claimed)
     throw error
   } finally {
     await reader.close()

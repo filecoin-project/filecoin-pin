@@ -23,6 +23,20 @@ import { getToDirectory } from '../../common/ipfs-get.js'
 import { createCarFromPath } from '../../core/unixfs/index.js'
 import { runGet } from '../../get/get.js'
 
+// Lets a test act right after get claims its entry, before anything is written into it.
+const claimHook = vi.hoisted(() => ({ after: undefined as undefined | ((path: string) => void) }))
+vi.mock('../../common/claim-output.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../common/claim-output.js')>()
+  return {
+    ...actual,
+    claimEntry: (...args: Parameters<typeof actual.claimEntry>): string => {
+      const path = actual.claimEntry(...args)
+      claimHook.after?.(path)
+      return path
+    },
+  }
+})
+
 vi.mock('../../utils/cli-helpers.js', () => ({
   isInteractive: vi.fn(() => false),
   intro: vi.fn(),
@@ -157,6 +171,7 @@ describe('get', () => {
   })
 
   afterEach(async () => {
+    claimHook.after = undefined
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     await rm(dir, { recursive: true, force: true })
@@ -244,7 +259,7 @@ describe('get', () => {
       expect(await readFile(join(outDir, upload.root.toString()), 'utf8')).toBe('tiny')
     })
 
-    it("writes a plain folder's contents under <out>", async () => {
+    it('writes a plain folder as <out>/<cid>', async () => {
       const source = join(dir, 'site')
       await mkdir(join(source, 'css', 'empty'), { recursive: true })
       const big = randomBytes(1.5 * MiB)
@@ -254,10 +269,13 @@ describe('get', () => {
 
       const result = await get(upload.root, fakeNetwork({ [GOOD]: serve(upload.car) }), [GOOD])
 
-      expect(result).toMatchObject({ encrypted: false, files: 2, dirs: 2 })
-      expect(await readFile(join(outDir, 'index.html'), 'utf8')).toBe('<h1>hi</h1>')
-      expect((await readFile(join(outDir, 'css', 'big.bin'))).equals(big)).toBe(true)
-      expect((await stat(join(outDir, 'css', 'empty'))).isDirectory()).toBe(true)
+      const saved = join(outDir, upload.root.toString())
+      expect(result).toMatchObject({ encrypted: false, files: 2, dirs: 2, path: saved })
+      expect(await readdir(outDir)).toEqual([upload.root.toString()])
+      expect(await readFile(join(saved, 'index.html'), 'utf8')).toBe('<h1>hi</h1>')
+      expect((await readFile(join(saved, 'css', 'big.bin'))).equals(big)).toBe(true)
+      expect((await stat(join(saved, 'css', 'empty'))).isDirectory()).toBe(true)
+      if (process.platform !== 'win32') expect((await stat(saved)).mode & 0o777).toBe(0o700)
     })
 
     it('writes a HAMT-sharded plain folder', async () => {
@@ -271,8 +289,79 @@ describe('get', () => {
 
       await get(upload.root, fakeNetwork({ [GOOD]: serve(upload.car) }), [GOOD])
 
-      expect((await readdir(outDir)).sort()).toEqual(names)
-      expect(await readFile(join(outDir, names[777] ?? ''), 'utf8')).toBe('0777')
+      const saved = join(outDir, upload.root.toString())
+      expect((await readdir(saved)).sort()).toEqual(names)
+      expect(await readFile(join(saved, names[777] ?? ''), 'utf8')).toBe('0777')
+    })
+  })
+
+  describe('output directory', () => {
+    it('saves into a non-empty directory, leaving what is there untouched', async () => {
+      await writeFile(join(dir, 'tiny.txt'), 'tiny')
+      const upload = await plainUpload(join(dir, 'tiny.txt'))
+      await mkdir(join(outDir, 'old'), { recursive: true })
+      await writeFile(join(outDir, 'keep.txt'), 'keep me')
+
+      await get(upload.root, fakeNetwork({ [GOOD]: serve(upload.car) }), [GOOD])
+
+      expect(await readFile(join(outDir, upload.root.toString()), 'utf8')).toBe('tiny')
+      expect(await readFile(join(outDir, 'keep.txt'), 'utf8')).toBe('keep me')
+      expect((await readdir(outDir)).sort()).toEqual([upload.root.toString(), 'keep.txt', 'old'].sort())
+    })
+
+    it('numbers a plain file when <cid> is taken: <cid> (1), then <cid> (2)', async () => {
+      await writeFile(join(dir, 'tiny.txt'), 'tiny')
+      const upload = await plainUpload(join(dir, 'tiny.txt'))
+      const cid = upload.root.toString()
+      await mkdir(outDir)
+      await writeFile(join(outDir, cid), 'older copy')
+
+      const first = await get(upload.root, fakeNetwork({ [GOOD]: serve(upload.car) }), [GOOD])
+      // Each run gets a fresh temp dir; this one is reused, so drop the first download.
+      await rm(join(tempDir, 'download.car'))
+      const second = await get(upload.root, fakeNetwork({ [GOOD]: serve(upload.car) }), [GOOD])
+
+      expect(first.path).toBe(join(outDir, `${cid} (1)`))
+      expect(second.path).toBe(join(outDir, `${cid} (2)`))
+      expect(await readFile(join(outDir, cid), 'utf8')).toBe('older copy')
+      expect(await readFile(join(outDir, `${cid} (1)`), 'utf8')).toBe('tiny')
+    })
+
+    it('numbers an encrypted file under its original name', async () => {
+      await writeFile(join(dir, 'report.pdf'), 'new report')
+      const upload = await encryptedUpload(join(dir, 'report.pdf'))
+      await mkdir(outDir)
+      await writeFile(join(outDir, 'report.pdf'), 'older report')
+
+      const result = await get(upload.root, fakeNetwork({ [GOOD]: serve(upload.car) }), [GOOD])
+
+      expect(result.path).toBe(join(outDir, 'report (1).pdf'))
+      expect(await readFile(join(outDir, 'report (1).pdf'), 'utf8')).toBe('new report')
+      expect(await readFile(join(outDir, 'report.pdf'), 'utf8')).toBe('older report')
+    })
+
+    it('on failure removes only the claimed entry, leaving pre-existing files', async () => {
+      const file = await block(0x55, new TextEncoder().encode('a'))
+      const link = await block(0x70, pbNode(new UnixFS({ type: 'symlink', data: new TextEncoder().encode('/etc') })))
+      const root = await block(
+        0x70,
+        pbNode(new UnixFS({ type: 'directory' }), [
+          { Name: 'a.txt', Hash: file.cid, Tsize: 1 },
+          { Name: 'evil', Hash: link.cid, Tsize: link.bytes.length },
+        ] as never)
+      )
+      await mkdir(outDir)
+      await writeFile(join(outDir, 'keep.txt'), 'keep me')
+      await mkdir(join(outDir, root.cid.toString()))
+      const claims: string[] = []
+      claimHook.after = (path) => claims.push(path)
+      const network = fakeNetwork({ [GOOD]: serve(await encodeCar(root.cid, [root, file, link])) })
+
+      await expect(get(root.cid, network, [GOOD])).rejects.toBeInstanceOf(NotUnixfsError)
+
+      expect(claims).toEqual([join(outDir, `${root.cid} (1)`)])
+      expect((await readdir(outDir)).sort()).toEqual([root.cid.toString(), 'keep.txt'])
+      expect(await readdir(join(outDir, root.cid.toString()))).toEqual([])
     })
   })
 
@@ -553,6 +642,54 @@ describe('get', () => {
 
       expect(initializeSynapse).not.toHaveBeenCalled()
       expect(await readFile(join(outDir, upload.root.toString()), 'utf8')).toBe('tiny')
+    })
+
+    it('saves into the current directory by default and prints the final path', async () => {
+      await writeFile(join(dir, 'tiny.txt'), 'tiny')
+      const upload = await plainUpload(join(dir, 'tiny.txt'))
+      const cid = upload.root.toString()
+      vi.stubGlobal('fetch', fakeNetwork({ [GOOD]: serve(upload.car) }, ['/dns/good.example/https']).fetch)
+      await mkdir(outDir)
+      await writeFile(join(outDir, cid), 'older copy')
+      const { outro } = await import('../../utils/cli-helpers.js')
+      const cwd = process.cwd()
+      process.chdir(outDir)
+      try {
+        await runGet(cid, undefined, {})
+      } finally {
+        process.chdir(cwd)
+      }
+
+      expect(await readFile(join(outDir, `${cid} (1)`), 'utf8')).toBe('tiny')
+      expect(await readFile(join(outDir, cid), 'utf8')).toBe('older copy')
+      expect(outro).toHaveBeenLastCalledWith(`Saved to ${cid} (1)`)
+    })
+
+    it('on a signal after the claim removes only the claimed entry', async () => {
+      const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
+        throw new CliIncomplete('exit')
+      })
+      const content = randomBytes(2.5 * MiB)
+      await writeFile(join(dir, 'plain.bin'), content)
+      const upload = await plainUpload(join(dir, 'plain.bin'))
+      vi.stubGlobal('fetch', fakeNetwork({ [GOOD]: serve(upload.car) }, ['/dns/good.example/https']).fetch)
+      await mkdir(outDir)
+      await writeFile(join(outDir, 'keep.txt'), 'keep me')
+      // A real signal is delivered between event-loop turns: the earliest is right after the claim.
+      claimHook.after = () =>
+        setImmediate(() => {
+          try {
+            process.emit('SIGTERM')
+          } catch {
+            // The mocked exit threw; the real one never returns.
+          }
+        })
+
+      // The real exit never returns; with it mocked the run carries on, so its outcome is moot.
+      await runGet(upload.root.toString(), outDir, {}).catch(() => undefined)
+
+      expect(exit).toHaveBeenCalledWith(EXIT_CODE_INCOMPLETE)
+      expect(await readdir(outDir)).toEqual(['keep.txt'])
     })
 
     it("adds the providers of the address's live, IPFS-indexed data sets with pieces, read-only", async () => {

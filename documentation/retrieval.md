@@ -23,7 +23,7 @@ https://inbrowser.link/ipfs/<root-cid>
 filecoin-pin get <root-cid> [output-dir]
 ```
 
-Finds the providers through [IPNI](glossary.md#ipni) (and your own [Data Sets](glossary.md#data-set) when an address is set), downloads the CAR from the first that answers, verifies every block against the CID, and writes the file or folder. An [Encrypted Upload](glossary.md#encrypted-upload) is decrypted with the owner wallet. See the [README](../README.md#get).
+Finds the providers through [IPNI](glossary.md#ipni) (and your own [Data Sets](glossary.md#data-set) when an address is set), downloads the CAR from the first that answers, verifies every block against the CID, and saves the file or folder into `[output-dir]` (default: the current directory) as `<root-cid>`, numbered `<root-cid> (1)` if that name is taken. An [Encrypted Upload](glossary.md#encrypted-upload) is decrypted with the owner wallet. See the [README](../README.md#get).
 
 ## Fetch via a public gateway
 

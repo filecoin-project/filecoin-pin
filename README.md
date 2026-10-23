@@ -328,16 +328,16 @@ PRIVATE_KEY=0x... filecoin-pin decrypt encrypted.fee ./restored
 
 ### Get
 
-`filecoin-pin get <cid> [output-dir]` fetches an upload by its [IPFS Root CID](documentation/glossary.md#ipfs-root-cid) and writes the original into `<output-dir>` (default `./<cid>`), which is created owner-only or must be empty. An [Encrypted Upload](documentation/glossary.md#encrypted-upload) is decrypted with the owner wallet (`PRIVATE_KEY`) and restored under its original name, as `decrypt` does; plain content is written unchanged and needs no credentials. A plain file is written as `<output-dir>/<cid>`, since a file's name is not stored in its DAG; a folder's contents are written under `<output-dir>`.
+`filecoin-pin get <cid> [output-dir]` fetches an upload by its [IPFS Root CID](documentation/glossary.md#ipfs-root-cid) and saves the original as one entry in `<output-dir>` (default: the current directory), which may already hold other files and is created owner-only when missing. An [Encrypted Upload](documentation/glossary.md#encrypted-upload) is decrypted with the owner wallet (`PRIVATE_KEY`) and restored under its original name, as `decrypt` does; plain content is written unchanged and needs no credentials. A plain file or folder is saved as `<output-dir>/<cid>`, since its DAG holds no root name. Nothing is overwritten: a taken name is numbered like a browser download (`<cid> (1)`, `report (1).pdf`; see [Encrypted Uploads](#encrypted-uploads) for the rule), and the final path is printed on success.
 
 * **Finding providers:** one [IPNI](documentation/glossary.md#ipni) lookup on cid.contact and, when an address is known (`PRIVATE_KEY`, `WALLET_ADDRESS` or `VIEW_ADDRESS`), the providers of that address's live, IPFS-indexed data sets, in parallel. Any provider is accepted, since every block is verified.
 * **Downloading:** the CAR is requested from up to 4 providers at a time (`/ipfs/<cid>?format=car&dag-scope=all`, depth-first, no duplicate blocks); the first to answer wins and the other requests are cancelled. It goes to a private temp file.
 * **Verifying:** the CAR must be rooted at `<cid>` and hold exactly the DAG's blocks in depth-first order, each hashing to its CID. A tampered, reordered, extra or missing block discards the download and the next provider is tried.
-* **Limits:** a root that is not a UnixFS file or directory fails and writes nothing; symlinks and entry names that could escape `<output-dir>` are refused. Uploads made with `--no-ipfs` can't be fetched by root CID. On any failure, Ctrl-C, kill or a closed terminal, everything `get` wrote is removed.
+* **Limits:** a root that is not a UnixFS file or directory fails and writes nothing; symlinks and entry names that could escape `<output-dir>` are refused. Uploads made with `--no-ipfs` can't be fetched by root CID. On any failure, Ctrl-C, kill or a closed terminal, only the entry `get` created is removed (and `<output-dir>` if `get` created it and it is left empty).
 
 ```bash
-filecoin-pin get bafybei... ./site
-PRIVATE_KEY=0x... filecoin-pin get bafybei... ./restored
+filecoin-pin get bafybei...                         # saves ./bafybei...
+PRIVATE_KEY=0x... filecoin-pin get bafybei... ~/Downloads
 ```
 
 ### Session-Key Permissions
