@@ -16,7 +16,6 @@ import {
   COMMITMENT_KEY as GROUP_KEY_COMMITMENT_KEY,
   KEYSPACE_ID_KEY as GROUP_KEY_ID_KEY,
   keyForEnvelope,
-  newKeyspace as newGroupKeyId,
   newSalt,
   type PieceMetadata,
   pieceKey,
@@ -28,7 +27,7 @@ import {
 import type { Synapse } from '@filoz/synapse-sdk'
 import type { KeyResolver } from 'filecoin-encryption-envelope'
 import type { Logger } from 'pino'
-import type { Address, Hex } from 'viem'
+import { type Address, concat, type Hex, isAddress, keccak256, slice, toHex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { type DataSetSummary, listDataSets } from '../core/data-set/index.js'
 import { type CLIAuthOptions, parseCLIAuth } from '../utils/cli-auth.js'
@@ -82,11 +81,24 @@ export interface OwnerGroupKey {
 }
 
 /**
+ * The id of an owner's first group key, so every client that sets one up before
+ * any upload picks the same id:
+ * `keccak256(utf8("filecoin/default-group-key") ‖ owner as 20 raw bytes)[0:16]`,
+ * as 0x-prefixed lowercase hex. The owner address is case-insensitive.
+ */
+export function defaultGroupKeyId(owner: Address): Hex {
+  if (!isAddress(owner, { strict: false })) throw new Error(`Not an address: ${owner}`)
+  return slice(keccak256(concat([toHex('filecoin/default-group-key'), owner])), 0, 16)
+}
+
+/**
  * The group key this wallet encrypts under: the oldest valid one its data sets
- * record (see {@link oldestValidGroupKey}), else a new one. Every copy of an
- * upload lands in data sets of this one group key.
+ * record (see {@link oldestValidGroupKey}), else the owner's default one (see
+ * {@link defaultGroupKeyId}). Every copy of an upload lands in data sets of this
+ * one group key.
  *
- * @throws If the recorded commitment does not match this wallet's key.
+ * @throws If the recorded commitment does not match this wallet's key, or if the
+ * default group key is already on chain but invalid.
  */
 export async function ownerGroupKey(synapse: Synapse, signer: OwnerSigner, logger?: Logger): Promise<OwnerGroupKey> {
   const tagged = await listDataSets(synapse, {
@@ -94,7 +106,16 @@ export async function ownerGroupKey(synapse: Synapse, signer: OwnerSigner, logge
     ...(logger != null && { logger }),
   })
   const recorded = oldestValidGroupKey(tagged, logger)
-  const groupKeyId = recorded?.groupKeyId ?? newGroupKeyId()
+  const groupKeyId = recorded?.groupKeyId ?? defaultGroupKeyId(signer.address)
+  if (recorded == null) {
+    // The default id is on chain but its group was skipped: writing into it would grow an invalid group.
+    const invalid = tagged.filter((dataSet) => dataSet.metadata?.[GROUP_KEY_ID_KEY]?.toLowerCase() === groupKeyId)
+    if (invalid.length > 0) {
+      throw new Error(
+        `The default group key ${groupKeyId} is already used by data sets ${invalid.map((d) => d.dataSetId).join(', ')}, which disagree on foc/kc or are not foc/enc "1"`
+      )
+    }
+  }
   const keys = await deriveGroupKey(
     signer,
     { owner: signer.address, keyspace: groupKeyId },
