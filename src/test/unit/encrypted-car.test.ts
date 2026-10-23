@@ -355,14 +355,17 @@ describe('encrypted CAR payload', () => {
     expect(existsSync(outDir)).toBe(false)
   })
 
-  it('refuses a non-empty output directory', async () => {
+  it('restores beside existing entries, numbering a taken name', async () => {
     await writeFile(input, 'x')
     await encryptPath(input, envelope, pieceKey())
     await mkdir(outDir)
-    await writeFile(join(outDir, 'keep.txt'), 'keep me')
+    await writeFile(join(outDir, 'input'), 'keep me')
 
-    await expect(decryptToDirectory(envelope, outDir, asOwner())).rejects.toThrow(/not empty/)
-    expect(await readFile(join(outDir, 'keep.txt'), 'utf8')).toBe('keep me')
+    const result = await decryptToDirectory(envelope, outDir, asOwner())
+
+    expect(result.path).toBe(join(outDir, 'input (1)'))
+    expect(await readFile(join(outDir, 'input (1)'), 'utf8')).toBe('x')
+    expect(await readFile(join(outDir, 'input'), 'utf8')).toBe('keep me')
   })
 
   it('rejects an envelope whose content type is not the CAR profile', async () => {

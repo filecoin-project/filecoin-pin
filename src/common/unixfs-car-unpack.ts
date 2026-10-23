@@ -1,9 +1,13 @@
 /**
- * Write the files of a metadata-first UnixFS CAR to a directory in a single streaming pass.
+ * Write the entry of a metadata-first UnixFS CAR into a directory in a single streaming pass.
  *
  * The dag-pb nodes arrive first, so the whole tree (names, sizes, which leaf goes where) is
  * known before the first data byte; every leaf is then written to each file position that
  * references it as it streams past. Memory is bounded by the metadata plus one leaf.
+ *
+ * The wrapper holds exactly one entry (the uploaded file or folder). Its name is claimed in
+ * `outDir` with {@link claimEntry} before any content is written, so an existing entry is
+ * never touched and a clash gets a numbered name; everything else in `outDir` is left alone.
  *
  * Output is owner-only (directories 0700, files 0600, exclusive create). Names that could
  * escape the output directory are rejected by `layout` before anything is written, and
@@ -11,8 +15,9 @@
  */
 
 import { mkdir, open } from 'node:fs/promises'
-import { dirname, resolve, sep } from 'node:path'
+import { basename, dirname, resolve, sep } from 'node:path'
 import { CarBlockIterator } from '@ipld/car'
+import { claimEntry } from './claim-output.js'
 import {
   type CarLayout,
   DAG_PB_CODEC,
@@ -32,6 +37,8 @@ export interface UnpackResult {
   bytes: number
   /** The plaintext CAR's root, so a fixture can pin the packed layout. */
   root: string
+  /** The claimed entry: `outDir/<name>`, or a numbered variant when the name was taken. */
+  path: string
 }
 
 type FileHandle = Awaited<ReturnType<typeof open>>
@@ -46,7 +53,15 @@ export function insideDir(outDir: string, path: string): string {
   return target
 }
 
-export async function unpackCar(source: ReadableStream<Uint8Array>, outDir: string): Promise<UnpackResult> {
+/**
+ * `onClaim` is called synchronously with the claimed path, before anything is written into it,
+ * so a signal handler can remove it.
+ */
+export async function unpackCar(
+  source: ReadableStream<Uint8Array>,
+  outDir: string,
+  onClaim?: (path: string) => void
+): Promise<UnpackResult> {
   const blocks = await CarBlockIterator.fromIterable(source)
   const roots = await blocks.getRoots()
   const root = roots[0]
@@ -58,7 +73,11 @@ export async function unpackCar(source: ReadableStream<Uint8Array>, outDir: stri
   let lay: CarLayout | undefined
   let expected: LeafPlacement[] = []
   let next = 0
-  const result: UnpackResult = { files: 0, dirs: 0, bytes: 0, root: root.toString() }
+  const result: UnpackResult = { files: 0, dirs: 0, bytes: 0, root: root.toString(), path: '' }
+  // Maps a wrapper-relative path onto the claimed entry; set once the entry is claimed.
+  let top = ''
+  let claimed = ''
+  const target = (path: string): string => insideDir(outDir, claimed + path.slice(top.length))
 
   // ponytail: bounded open-file cache, oldest closed first; leaves arrive grouped per file so churn is low
   const handles = new Map<string, FileHandle>()
@@ -74,7 +93,7 @@ export async function unpackCar(source: ReadableStream<Uint8Array>, outDir: stri
         handles.delete(oldest[0])
       }
     }
-    const handle = await open(insideDir(outDir, path), 'r+')
+    const handle = await open(target(path), 'r+')
     handles.set(path, handle)
     return handle
   }
@@ -107,16 +126,34 @@ export async function unpackCar(source: ReadableStream<Uint8Array>, outDir: stri
     pending.add(check)
   }
 
-  // Called once the first raw leaf arrives: the tree is complete, create every directory and file.
+  // Called once the first raw leaf arrives: the tree is complete, claim the entry and create
+  // every directory and file under it.
   const startData = async (): Promise<void> => {
-    lay = layout(root, nodes)
+    const tree = layout(root, nodes)
+    const entries = new Set([...tree.dirs, ...tree.files.keys()].map((path) => path.split('/')[0]))
+    const [only] = entries
+    if (entries.size !== 1 || only == null) {
+      throw new Error(`expected exactly one entry in the wrapper, got ${entries.size}`)
+    }
+    top = only
+    const kind = tree.files.has(top) ? 'file' : 'folder'
+    // Check containment before the claim creates anything.
+    insideDir(outDir, top)
+    result.path = claimEntry(outDir, top, kind)
+    claimed = basename(result.path)
+    onClaim?.(result.path)
+    lay = tree
     for (const dir of lay.dirs) {
-      await mkdir(insideDir(outDir, dir), { recursive: true, mode: 0o700 })
+      await mkdir(target(dir), { recursive: true, mode: 0o700 })
     }
     for (const path of lay.files.keys()) {
-      const target = insideDir(outDir, path)
-      await mkdir(dirname(target), { recursive: true, mode: 0o700 })
-      await (await open(target, 'wx', 0o600)).close()
+      if (path === top) {
+        // The claim created it.
+        continue
+      }
+      const file = target(path)
+      await mkdir(dirname(file), { recursive: true, mode: 0o700 })
+      await (await open(file, 'wx', 0o600)).close()
     }
     result.files = lay.files.size
     result.dirs = lay.dirs.length

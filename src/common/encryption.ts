@@ -12,9 +12,9 @@
  * Nothing about the plaintext (names, sizes, the root CID) is in the public header.
  */
 
-import { createReadStream, createWriteStream, readdirSync, rmSync } from 'node:fs'
+import { createReadStream, createWriteStream, rmdirSync, rmSync } from 'node:fs'
 import { mkdir, stat } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { CarIndexedReader } from '@ipld/car'
 import * as dagPb from '@ipld/dag-pb'
@@ -22,6 +22,7 @@ import * as fee from 'filecoin-encryption-envelope'
 import { UnixFS } from 'ipfs-unixfs'
 import { CID } from 'multiformats/cid'
 import { isCar } from '../core/car/index.js'
+import { NoFreeNameError } from './claim-output.js'
 import { NotOwnerError, type PieceKey } from './group-key.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC } from './unixfs-car-layout.js'
 import {
@@ -172,7 +173,8 @@ const exists = (path: string): Promise<Awaited<ReturnType<typeof stat>> | undefi
 
 /**
  * Check both paths before anything is created or armed: the input must be a file, and the
- * output must be absent, or an empty directory. Returns whether the output exists.
+ * output must be a directory (any contents) or absent with an existing parent. Returns
+ * whether the output exists.
  */
 export async function checkDecryptPaths(inputPath: string, outDir: string): Promise<{ outExists: boolean }> {
   const input = await exists(inputPath)
@@ -192,40 +194,47 @@ export async function checkDecryptPaths(inputPath: string, outDir: string): Prom
   if (!out.isDirectory()) {
     throw new Error(`Output path exists and is not a directory: ${outDir}`)
   }
-  if (readdirSync(outDir).length > 0) {
-    throw new Error(`Output directory is not empty: ${outDir}`)
-  }
   return { outExists: true }
 }
 
-/** Remove what decrypt wrote: the directory when it created it, otherwise its entries. Sync so a signal handler can call it. */
-export function removeDecryptOutput(outDir: string, created: boolean): void {
-  if (created) {
-    rmSync(outDir, { recursive: true, force: true })
-    return
+/**
+ * Remove what this run wrote: the claimed entry, and `outDir` when this run created it and
+ * nothing else is in it. Nothing else in `outDir` is touched. Sync so a signal handler can call it.
+ */
+export function removeDecryptOutput(outDir: string, created: boolean, claimed: string | undefined): void {
+  if (claimed != null) {
+    rmSync(claimed, { recursive: true, force: true })
   }
-  for (const entry of readdirSync(outDir)) {
-    rmSync(join(outDir, entry), { recursive: true, force: true })
+  if (created) {
+    try {
+      rmdirSync(outDir)
+    } catch {
+      // Not empty (someone else wrote there) or already gone: keep it.
+    }
   }
 }
 
 /**
- * Write the files inside an envelope made by {@link encryptPath} under `outDir`,
- * which is created (owner-only) or must be empty, like `git clone`. `resolveKey`
- * is called with the envelope's labels and returns the piece key (see
- * `ownerKeyResolver`). On failure everything written is removed; a pre-existing
- * directory itself is kept. Errors raised past the path checks never carry a name or
- * CID from inside the envelope.
+ * Restore the file or folder inside an envelope made by {@link encryptPath} into `outDir`
+ * under its original name, numbered like a browser download when the name is taken (see
+ * `claim-output.ts`). `outDir` may hold anything; it is created owner-only when missing.
+ * `resolveKey` is called with the envelope's labels and returns the piece key (see
+ * `ownerKeyResolver`). `onClaim` gets the entry's path as soon as it is claimed, before any
+ * content is written. On failure only the claimed entry is removed (and `outDir` when this
+ * run created it and it is left empty). Errors raised past the path checks never carry a
+ * name or CID from inside the envelope.
  */
 export async function decryptToDirectory(
   inputPath: string,
   outDir: string,
-  resolveKey: fee.KeyResolver
+  resolveKey: fee.KeyResolver,
+  onClaim?: (path: string) => void
 ): Promise<UnpackResult> {
   const { outExists } = await checkDecryptPaths(inputPath, outDir)
   if (!outExists) {
     await mkdir(outDir, { mode: 0o700 })
   }
+  let claimed: string | undefined
   let envelope: Awaited<ReturnType<typeof openEnvelope>> | undefined
   try {
     envelope = await openEnvelope(inputPath)
@@ -237,9 +246,12 @@ export async function decryptToDirectory(
         return resolveKey(info)
       })
     )
-    return await unpackCar(plaintext, outDir)
+    return await unpackCar(plaintext, outDir, (path) => {
+      claimed = path
+      onClaim?.(path)
+    })
   } catch (error) {
-    removeDecryptOutput(outDir, !outExists)
+    removeDecryptOutput(outDir, !outExists, claimed)
     if (error instanceof fee.errors.AuthenticationError) {
       throw new DecryptError('Wrong key, or the file was modified', { cause: error })
     }
@@ -252,7 +264,11 @@ export async function decryptToDirectory(
     if (error instanceof fee.errors.KeyResolutionError || error instanceof fee.errors.MalformedEnvelopeError) {
       throw new DecryptError(NOT_OURS, { cause: error })
     }
-    if (error instanceof DecryptError || error instanceof fee.errors.EnvelopeError) {
+    if (
+      error instanceof DecryptError ||
+      error instanceof NoFreeNameError ||
+      error instanceof fee.errors.EnvelopeError
+    ) {
       throw error
     }
     // Anything else came from unpacking the plaintext, so its message may hold an entry name

@@ -1,5 +1,5 @@
 /**
- * Decrypt an envelope uploaded with `filecoin-pin add --encrypt` into a new directory.
+ * Decrypt an envelope uploaded with `filecoin-pin add --encrypt` into a directory.
  */
 
 import pc from 'picocolors'
@@ -16,22 +16,26 @@ export async function runDecrypt(inputPath: string, outputDir: string, options: 
   // `finally` runs, which would leave partial plaintext behind. Registered before the spinner
   // starts so they run first.
   let outExists = false
+  // The entry decrypt claimed in `outputDir`; set synchronously by the claim, so it is known
+  // before anything is written into it.
+  let claimed: string | undefined
   const onSignal = (): void => {
-    removeDecryptOutput(outputDir, !outExists)
+    removeDecryptOutput(outputDir, !outExists, claimed)
     process.exit(EXIT_CODE_INCOMPLETE)
   }
   const cleanupSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
   try {
-    // Before the handler is armed: it must never remove entries decrypt would have refused to touch.
+    // Before the handler is armed, so it knows whether `outputDir` is ours to remove.
     outExists = (await checkDecryptPaths(inputPath, outputDir)).outExists
     // The owner wallet signs offline for the group key the envelope names; no RPC is opened.
     const signer = ownerSignerFromAuth(options)
     for (const signal of cleanupSignals) process.once(signal, onSignal)
     spinner.start('Decrypting...')
-    const { files, dirs } = await decryptToDirectory(inputPath, outputDir, ownerKeyResolver(signer))
-    const what = files === 1 && dirs === 0 ? '1 file' : `${files} file${files === 1 ? '' : 's'}`
-    spinner.stop(`${pc.green('✓')} Decrypted ${what} to ${outputDir}`)
-    outro('Decrypt complete')
+    const { files, path } = await decryptToDirectory(inputPath, outputDir, ownerKeyResolver(signer), (entry) => {
+      claimed = entry
+    })
+    spinner.stop(`${pc.green('✓')} Decrypted ${files} file${files === 1 ? '' : 's'}`)
+    outro(`Saved to ${path}`)
   } catch (error) {
     if (isCliIncomplete(error)) {
       spinner.stop()

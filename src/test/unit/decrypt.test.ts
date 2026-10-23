@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { existsSync, writeFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { Socket } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -12,11 +12,25 @@ import { CID } from 'multiformats/cid'
 import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CliIncomplete, EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
-import { decryptToDirectory, encryptPath, unixfsFileBytes } from '../../common/encryption.js'
+import { decryptToDirectory, encryptPath, removeDecryptOutput, unixfsFileBytes } from '../../common/encryption.js'
 import { newPieceKey, ownerKeyResolver, type PieceKey } from '../../common/group-key.js'
 import { CAR_CONTENT_TYPE } from '../../common/unixfs-car-layout.js'
 import { createCarFromPath } from '../../core/unixfs/index.js'
 import { runDecrypt } from '../../decrypt/decrypt.js'
+
+// Lets a test act right after decrypt claims its entry, before anything is written into it.
+const claimHook = vi.hoisted(() => ({ after: undefined as undefined | ((path: string) => void) }))
+vi.mock('../../common/claim-output.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../common/claim-output.js')>()
+  return {
+    ...actual,
+    claimEntry: (...args: Parameters<typeof actual.claimEntry>): string => {
+      const path = actual.claimEntry(...args)
+      claimHook.after?.(path)
+      return path
+    },
+  }
+})
 
 vi.mock('../../utils/cli-helpers.js', () => ({
   isInteractive: vi.fn(() => false),
@@ -65,6 +79,7 @@ describe('runDecrypt', () => {
   })
 
   afterEach(async () => {
+    claimHook.after = undefined
     vi.restoreAllMocks()
     await rm(dir, { recursive: true, force: true })
   })
@@ -146,12 +161,66 @@ describe('runDecrypt', () => {
     expect(await readdir(outputDir)).toEqual([])
   })
 
-  it('refuses a non-empty output directory', async () => {
-    await mkdir(outputDir)
+  it('decrypts into a non-empty directory, leaving what is there untouched', async () => {
+    await mkdir(join(outputDir, 'notes'), { recursive: true })
     await writeFile(join(outputDir, 'keep.txt'), 'keep me')
+    await writeFile(join(outputDir, 'notes', 'a.md'), '# a')
 
-    await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toThrow(/not empty/)
+    await runDecrypt(encryptedPath, outputDir, asOwner)
+
+    expect((await readFile(join(outputDir, 'report.pdf'))).equals(plaintext)).toBe(true)
     expect(await readFile(join(outputDir, 'keep.txt'), 'utf8')).toBe('keep me')
+    expect(await readFile(join(outputDir, 'notes', 'a.md'), 'utf8')).toBe('# a')
+    expect((await readdir(outputDir)).sort()).toEqual(['keep.txt', 'notes', 'report.pdf'])
+  })
+
+  it('numbers the file like a browser when its name is taken, and prints where it went', async () => {
+    const { outro } = await import('../../utils/cli-helpers.js')
+    await mkdir(outputDir)
+    await writeFile(join(outputDir, 'report.pdf'), 'older report')
+
+    await runDecrypt(encryptedPath, outputDir, asOwner)
+    await runDecrypt(encryptedPath, outputDir, asOwner)
+
+    expect(await readFile(join(outputDir, 'report.pdf'), 'utf8')).toBe('older report')
+    expect((await readFile(join(outputDir, 'report (1).pdf'))).equals(plaintext)).toBe(true)
+    expect((await readFile(join(outputDir, 'report (2).pdf'))).equals(plaintext)).toBe(true)
+    expect(outro).toHaveBeenLastCalledWith(`Saved to ${join(outputDir, 'report (2).pdf')}`)
+  })
+
+  it('numbers a folder upload when the folder name is taken', async () => {
+    const source = join(dir, 'photos')
+    await mkdir(source)
+    await writeFile(join(source, 'a.jpg'), 'new a')
+    await encryptPath(source, encryptedPath, pieceKey())
+    await mkdir(join(outputDir, 'photos'), { recursive: true })
+    await writeFile(join(outputDir, 'photos', 'a.jpg'), 'old a')
+
+    await runDecrypt(encryptedPath, outputDir, asOwner)
+
+    expect(await readFile(join(outputDir, 'photos', 'a.jpg'), 'utf8')).toBe('old a')
+    expect(await readFile(join(outputDir, 'photos (1)', 'a.jpg'), 'utf8')).toBe('new a')
+  })
+
+  it('removes only the claimed entry when decryption fails after the claim', async () => {
+    // Several envelope chunks, so the claim happens on the first and the flipped byte fails a later one.
+    await writeFile(plainPath, randomBytes(1.5 * 1024 * 1024))
+    await encryptPath(plainPath, encryptedPath, pieceKey())
+    const bytes = await readFile(encryptedPath)
+    const i = bytes.length - 1000
+    bytes[i] = (bytes[i] ?? 0) ^ 0x01
+    await writeFile(encryptedPath, bytes)
+    await mkdir(outputDir)
+    await writeFile(join(outputDir, 'report.pdf'), 'older report')
+    await writeFile(join(outputDir, 'keep.txt'), 'keep me')
+    const claims: string[] = []
+    claimHook.after = (path) => claims.push(path)
+
+    await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toThrow(/wrong key, or the file was modified/i)
+
+    expect(claims).toEqual([join(outputDir, 'report (1).pdf')])
+    expect((await readdir(outputDir)).sort()).toEqual(['keep.txt', 'report.pdf'])
+    expect(await readFile(join(outputDir, 'report.pdf'), 'utf8')).toBe('older report')
   })
 
   it.each([
@@ -261,38 +330,68 @@ describe('runDecrypt', () => {
     'SIGINT',
     'SIGTERM',
     'SIGHUP',
-  ] as const)('removes what it wrote on %s, keeps a pre-existing directory, and exits as incomplete', async (signal) => {
+  ] as const)('on %s removes only the claimed entry and exits as incomplete', async (signal) => {
     // Simulate the real process: clack's handler exits, ours runs first because it was registered first.
     const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
       throw new CliIncomplete('exit')
     })
     await mkdir(outputDir)
-    const { createSpinner } = await import('../../utils/cli-helpers.js')
-    vi.mocked(createSpinner).mockReturnValueOnce({
-      // Decrypt has written half a file by the time the signal lands.
-      start: vi.fn(() => {
-        writeFileSync(join(outputDir, 'partial.bin'), 'half-written plaintext')
-        process.emit(signal)
-      }),
-      stop: vi.fn(),
-      message: vi.fn(),
-      clear: vi.fn(),
-    } as never)
+    await writeFile(join(outputDir, 'report.pdf'), 'older report')
+    await writeFile(join(outputDir, 'keep.txt'), 'keep me')
+    // A real signal is delivered between event-loop turns, so the earliest it can land is the
+    // first turn after the claim: before any content is written into the claimed file.
+    claimHook.after = () =>
+      setImmediate(() => {
+        try {
+          process.emit(signal)
+        } catch {
+          // The mocked exit threw; the real one never returns.
+        }
+      })
 
-    await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toBeInstanceOf(CliIncomplete)
+    // The real exit never returns; with it mocked the run carries on, so its outcome is moot.
+    await runDecrypt(encryptedPath, outputDir, asOwner).catch(() => undefined)
 
     expect(exit).toHaveBeenCalledWith(EXIT_CODE_INCOMPLETE)
-    expect(existsSync(join(outputDir, 'partial.bin'))).toBe(false)
-    expect(existsSync(outputDir)).toBe(true)
+    expect((await readdir(outputDir)).sort()).toEqual(['keep.txt', 'report.pdf'])
+    expect(await readFile(join(outputDir, 'report.pdf'), 'utf8')).toBe('older report')
     for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP']) expect(process.listenerCount(name)).toBe(0)
   })
 
-  it('refuses a non-empty output directory before arming the Ctrl-C handler', async () => {
+  it('on a signal also removes the output directory it created, once empty', async () => {
     const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
       throw new CliIncomplete('exit')
     })
-    await mkdir(outputDir)
-    await writeFile(join(outputDir, 'keep.txt'), 'keep me')
+    claimHook.after = () =>
+      setImmediate(() => {
+        try {
+          process.emit('SIGTERM')
+        } catch {
+          // The mocked exit threw; the real one never returns.
+        }
+      })
+
+    // The real exit never returns; with it mocked the run carries on, so its outcome is moot.
+    await runDecrypt(encryptedPath, outputDir, asOwner).catch(() => undefined)
+
+    expect(exit).toHaveBeenCalledWith(EXIT_CODE_INCOMPLETE)
+    expect(existsSync(outputDir)).toBe(false)
+  })
+
+  it('keeps an output directory it created once something else was written into it', async () => {
+    await mkdir(join(outputDir, 'report.pdf'), { recursive: true })
+    await writeFile(join(outputDir, 'other.txt'), 'another writer')
+
+    removeDecryptOutput(outputDir, true, join(outputDir, 'report.pdf'))
+
+    expect(await readdir(outputDir)).toEqual(['other.txt'])
+  })
+
+  it('refuses an output path that is a file before arming the Ctrl-C handler', async () => {
+    const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new CliIncomplete('exit')
+    })
+    await writeFile(outputDir, 'a file')
     const { createSpinner } = await import('../../utils/cli-helpers.js')
     vi.mocked(createSpinner).mockReturnValueOnce({
       start: vi.fn(() => process.emit('SIGINT')),
@@ -301,10 +400,10 @@ describe('runDecrypt', () => {
       clear: vi.fn(),
     } as never)
 
-    await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toThrow(/not empty/)
+    await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toThrow(/exists and is not a directory/)
 
     expect(exit).not.toHaveBeenCalled()
-    expect(await readFile(join(outputDir, 'keep.txt'), 'utf8')).toBe('keep me')
+    expect(await readFile(outputDir, 'utf8')).toBe('a file')
     expect(process.listenerCount('SIGINT')).toBe(0)
   })
 
@@ -334,6 +433,7 @@ describe('runDecrypt', () => {
       dirs: 0,
       bytes: 1_100_000,
       root: 'bafybeifi5o5cikl37er2zmvmbwgcsoh5df7q2q4soo6iwvlit7nstujohm',
+      path: join(outputDir, 'big.bin'),
     })
     const sha256 = createHash('sha256')
       .update(await readFile(join(outputDir, 'big.bin')))
