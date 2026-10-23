@@ -5,7 +5,7 @@ import type { CLIAuthOptions } from '../utils/cli-auth.js'
 import { addAuthOptions } from '../utils/cli-options.js'
 
 export const getCommand = new Command('get')
-  .description('Fetch an upload by its IPFS Root CID into a new directory, decrypting it if it is encrypted')
+  .description('Fetch an upload by its IPFS root CID into a new directory, decrypting it if encrypted.')
   .argument('<cid>', 'IPFS Root CID of the upload (for an encrypted upload, its Encrypted root CID)')
   .argument('[output-dir]', 'Directory to write into (created, or must be empty; default: ./<cid>)')
   .addHelpText(

@@ -17,6 +17,14 @@ https://inbrowser.link/ipfs/<root-cid>
 
 [inbrowser.link](https://inbrowser.link/) is a verifiable Service Worker Gateway. It fetches the raw blocks and verifies them against the CID inside your browser, using Helia's [`verified-fetch`](https://www.npmjs.com/package/@helia/verified-fetch), before rendering. The public `dweb.link` and `ipfs.io` gateways now [redirect browser navigations here](https://ipshipyard.com/blog/2026-ipfs-gateways-redirect-inbrowser-link/), so this is the link to share.
 
+## Fetch with `filecoin-pin get`
+
+```
+filecoin-pin get <root-cid> [output-dir]
+```
+
+Finds the providers through [IPNI](glossary.md#ipni) (and your own [Data Sets](glossary.md#data-set) when an address is set), downloads the CAR from the first that answers, verifies every block against the CID, and writes the file or folder. An [Encrypted Upload](glossary.md#encrypted-upload) is decrypted with the owner wallet. See the [README](../README.md#get).
+
 ## Fetch via a public gateway
 
 ```
