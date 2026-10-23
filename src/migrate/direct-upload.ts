@@ -99,6 +99,8 @@ export interface UploadContextLike {
     onSubmitted?: (txHash: string) => void
   }): Promise<{
     txHash: string
+    /** Set when the provider's gas bumper landed the commit under a replacement hash. */
+    confirmedTxHash?: string | undefined
     pieceIds: bigint[]
     dataSetId: bigint
   }>
@@ -227,9 +229,10 @@ export async function runDirectUpload(
   const windowFor = (ctx: UploadContextLike): number =>
     db.providerWindowMs(ctx.providerId, opts.assumedWindowMs ?? DEFAULT_ASSUMED_WINDOW_MS)
 
-  const flush = async (ctx: UploadContextLike, reason: string): Promise<void> => {
+  /** Returns false when the batch was left add_unconfirmed, so the caller stops flushing this provider. */
+  const flush = async (ctx: UploadContextLike, reason: string): Promise<boolean> => {
     const batch = db.parkedUploads(ctx.providerId).slice(0, MAX_ADD_PIECES_BATCH)
-    if (batch.length === 0) return
+    if (batch.length === 0) return false
     flushCounts.set(ctx.providerId, (flushCounts.get(ctx.providerId) ?? 0) + 1)
     const cids = batch.map((b) => b.subPieceCid)
     log.message(`flush [${reason}] provider ${ctx.providerId}: committing ${batch.length} piece(s)`)
@@ -247,7 +250,7 @@ export async function runDirectUpload(
         db.markUploadCommitted(b.subPieceCid, ctx.providerId, {
           dataSetId: String(result.dataSetId),
           pieceId: String(result.pieceIds[i] ?? ''),
-          txHash: result.txHash,
+          txHash: result.confirmedTxHash ?? result.txHash,
         })
       })
       // A context created without a data set learns its id at the first
@@ -255,6 +258,7 @@ export async function runDirectUpload(
       // set id on the row instead of depending on context re-resolution.
       ctx.dataSetId = String(result.dataSetId)
       log.message(`committed ${batch.length} piece(s) on provider ${ctx.providerId} (data set ${result.dataSetId})`)
+      return true
     } catch (err) {
       const message = (err as Error).message ?? String(err)
       const gcCid = collectedCidFromError(message)
@@ -262,7 +266,7 @@ export async function runDirectUpload(
         // Not a GC rejection: leave the batch in add_unconfirmed for the
         // resume reconciliation: a blind retry could double-add on chain.
         log.message(`error: commit failed on provider ${ctx.providerId} (batch left add_unconfirmed): ${message}`)
-        return
+        return false
       }
       // Curio rejected the batch because a parked piece is gone. The batch is
       // atomic and pre-chain, so nothing landed. Lower the window from the
@@ -280,15 +284,15 @@ export async function runDirectUpload(
             `window lowered to ${formatDuration(lowered)}`
         )
       }
+      // Nothing landed, so the whole batch is parked again before probing:
+      // a probe that throws must not strand the rest in add_unconfirmed.
+      db.revertUploadsToParked(cids, ctx.providerId)
       for (const b of batch) {
-        const present = b.subPieceCid !== gcCid && (await ctx.hasPiece(CID.parse(b.subPieceCid)))
-        if (present) {
-          db.revertUploadsToParked([b.subPieceCid], ctx.providerId)
-        } else {
-          db.markUploadCollected(b.subPieceCid, ctx.providerId)
-          log.message(`collected: ${b.subPieceCid} on provider ${ctx.providerId} (will re-store)`)
-        }
+        if (b.subPieceCid !== gcCid && (await ctx.hasPiece(CID.parse(b.subPieceCid)))) continue
+        db.markUploadCollected(b.subPieceCid, ctx.providerId)
+        log.message(`collected: ${b.subPieceCid} on provider ${ctx.providerId} (will re-store)`)
       }
+      return true
     }
   }
 
@@ -320,8 +324,7 @@ export async function runDirectUpload(
           drained,
         })
         if (reason == null) break
-        await flush(ctx, reason)
-        if (db.parkedUploads(ctx.providerId).length === parked.length) break // no progress; avoid spinning
+        if (!(await flush(ctx, reason))) break // batch left add_unconfirmed; do not pile more onto this provider
       }
     }
     await evictCommitted()
@@ -532,6 +535,7 @@ async function reconcileUnconfirmed(
       const pieceId = await deps.dataSetPieceId(synapse, dataSetId, u.subPieceCid)
       if (pieceId != null) {
         db.markUploadCommitted(u.subPieceCid, ctx.providerId, { dataSetId, pieceId, txHash: null })
+        ctx.dataSetId ??= dataSetId
         log.message(
           `resume: ${u.subPieceCid} found on chain in data set ${dataSetId} (piece ${pieceId}); marked committed`
         )
@@ -572,6 +576,8 @@ async function reconcileUnconfirmed(
             pieceId: String(event.pieceIds[pieceIndex] ?? ''),
             txHash: u.txHash,
           })
+          // Later parks in this run carry the recovered set id on their rows.
+          ctx.dataSetId ??= dataSetId
           log.message(
             `resume: ${u.subPieceCid} confirmed on chain via PiecesAdded (tx ${u.txHash}, ` +
               `data set ${dataSetId}); marked committed`
