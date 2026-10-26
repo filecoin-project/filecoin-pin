@@ -40,11 +40,10 @@ export const loginCommand = new Command('login')
 ${pc.bold('EXAMPLES')}
   $ filecoin-pin login
   $ filecoin-pin login --network calibration
-  $ filecoin-pin login --scopes createDataSet,addPieces,schedulePieceRemovals
-  $ filecoin-pin login --no-browser --no-wait     # print the link, approve later, rerun to check
   $ filecoin-pin login --scopes createDataSet,addPieces,encrypt   # also get a group key Grant
-  $ filecoin-pin login --grant fgr1_…             # finish: import the Grant the console showed
-  $ pbpaste | filecoin-pin login --grant -        # the same, reading the Grant from stdin
+  $ filecoin-pin login --no-browser --no-wait                     # print the link, approve later, rerun to check
+  $ filecoin-pin login --grant fgr1_…                             # finish: import the Grant the console showed
+  $ pbpaste | filecoin-pin login --grant -                        # the same, reading the Grant from stdin
 
 ${pc.bold('FILES')}
   The session key is saved to session.env in the data directory before the
