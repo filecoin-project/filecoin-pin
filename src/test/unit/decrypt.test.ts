@@ -17,6 +17,7 @@ import { newPieceKey, ownerKeyResolver, type PieceKey } from '../../common/group
 import { CAR_CONTENT_TYPE } from '../../common/unixfs-car-layout.js'
 import { createCarFromPath } from '../../core/unixfs/index.js'
 import { runDecrypt } from '../../decrypt/decrypt.js'
+import { makeGrant, SESSION_KEY } from '../fixtures/group-key-grants.js'
 
 // Lets a test act right after decrypt claims its entry, before anything is written into it.
 const claimHook = vi.hoisted(() => ({ after: undefined as undefined | ((path: string) => void) }))
@@ -45,6 +46,7 @@ const OWNER_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f
 const STRANGER_KEY = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d'
 const OWNER = privateKeyToAccount(OWNER_KEY)
 const asOwner = { privateKey: OWNER_KEY }
+const VECTOR_GROUP_KEY = '0x00112233445566778899aabbccddeeff'
 
 async function drain(leaves: AsyncIterable<Uint8Array>): Promise<number> {
   let n = 0
@@ -63,7 +65,7 @@ describe('runDecrypt', () => {
   beforeAll(async () => {
     const { kk, descriptor } = await deriveGroupKey(OWNER, {
       owner: OWNER.address,
-      keyspace: '0x00112233445566778899aabbccddeeff',
+      keyspace: VECTOR_GROUP_KEY,
     })
     const target = writeTarget(descriptor, kk)
     pieceKey = () => newPieceKey(target)
@@ -137,11 +139,53 @@ describe('runDecrypt', () => {
     expect(connect).not.toHaveBeenCalled()
   })
 
-  it('refuses to run with a session key', async () => {
+  it('refuses a session key without a Grant, naming the login to run', async () => {
+    vi.stubEnv('GROUP_KEY_GRANT', '')
     const session = { walletAddress: OWNER.address, sessionKey: STRANGER_KEY }
 
-    await expect(runDecrypt(encryptedPath, outputDir, session)).rejects.toThrow(/PRIVATE_KEY/)
+    await expect(runDecrypt(encryptedPath, outputDir, session)).rejects.toThrow(
+      /no group key Grant\. Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt`/
+    )
     expect(existsSync(outputDir)).toBe(false)
+  })
+
+  describe('with a session key and its Grant', () => {
+    const session = { walletAddress: OWNER.address, sessionKey: SESSION_KEY, network: 'calibration' }
+    const useGrant = async (groupKey: `0x${string}` = VECTOR_GROUP_KEY) => {
+      vi.stubEnv('GROUP_KEY_GRANT', await makeGrant({ groupKey }))
+      vi.stubEnv('GROUP_KEY_ID', groupKey)
+    }
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
+    it("restores the owner's upload offline", async () => {
+      await useGrant()
+      const connect = vi.spyOn(Socket.prototype, 'connect')
+
+      await runDecrypt(encryptedPath, outputDir, session)
+
+      expect((await readFile(join(outputDir, 'report.pdf'))).equals(plaintext)).toBe(true)
+      expect(connect).not.toHaveBeenCalled()
+    })
+
+    it('fails for an upload under another group key, naming both', async () => {
+      const other = `0x${'ab'.repeat(16)}` as const
+      await useGrant(other)
+
+      await expect(runDecrypt(encryptedPath, outputDir, session)).rejects.toThrow(
+        new RegExp(`group key ${VECTOR_GROUP_KEY}; this session's Grant is for group key ${other}`)
+      )
+      expect(existsSync(outputDir)).toBe(false)
+    })
+
+    it('ignores a Grant for another network, with the login to run', async () => {
+      await useGrant()
+
+      await expect(runDecrypt(encryptedPath, outputDir, { ...session, network: 'mainnet' })).rejects.toThrow(
+        /saved Grant was ignored: .*another network.*filecoin-pin login --scopes/
+      )
+    })
   })
 
   it('keeps a pre-existing empty directory on failure', async () => {

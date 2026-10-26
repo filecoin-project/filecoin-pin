@@ -36,6 +36,7 @@ import { type GetOptions, getToDirectory, NotEnoughSpaceError } from '../../comm
 import { CAR_CONTENT_TYPE, encodeVarint, isUnsafeName } from '../../common/unixfs-car-layout.js'
 import { createCarFromPath } from '../../core/unixfs/index.js'
 import { runGet } from '../../get/get.js'
+import { makeGrant, SESSION_KEY } from '../fixtures/group-key-grants.js'
 
 // Lets a test act right after get claims its entry, before anything is written into it.
 const claimHook = vi.hoisted(() => ({ after: undefined as undefined | ((path: string) => void) }))
@@ -818,6 +819,34 @@ describe('get', () => {
       const tried = network.calls.filter((c) => c.url.includes('/ipfs/')).map((c) => new URL(c.url).origin)
       expect(tried).toEqual(['https://own.example'])
       expect(await readFile(join(outDir, upload.root.toString()), 'utf8')).toBe('tiny')
+    })
+
+    it("with a session key, opens the owner's encrypted upload with the session's Grant", async () => {
+      await writeFile(join(dir, 'report.pdf'), 'quarterly numbers')
+      const upload = await encryptedUpload(join(dir, 'report.pdf'))
+      vi.stubGlobal('fetch', fakeNetwork({ [GOOD]: serve(upload.car) }, ['/dns/good.example/https']).fetch)
+      vi.stubEnv('GROUP_KEY_GRANT', await makeGrant({ groupKey: GROUP_KEY }))
+      vi.stubEnv('GROUP_KEY_ID', GROUP_KEY)
+
+      await runGet(upload.root.toString(), outDir, {
+        walletAddress: OWNER.address,
+        sessionKey: SESSION_KEY,
+        network: 'calibration',
+      })
+
+      expect(await readFile(join(outDir, 'report.pdf'), 'utf8')).toBe('quarterly numbers')
+    })
+
+    it('with a session key and no Grant, fails with the login to run and writes nothing', async () => {
+      await writeFile(join(dir, 'report.pdf'), 'quarterly numbers')
+      const upload = await encryptedUpload(join(dir, 'report.pdf'))
+      vi.stubGlobal('fetch', fakeNetwork({ [GOOD]: serve(upload.car) }, ['/dns/good.example/https']).fetch)
+      vi.stubEnv('GROUP_KEY_GRANT', '')
+
+      await expect(
+        runGet(upload.root.toString(), outDir, { walletAddress: OWNER.address, sessionKey: SESSION_KEY })
+      ).rejects.toThrow(/no group key Grant\. Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt`/)
+      expect(existsSync(join(outDir, 'report.pdf'))).toBe(false)
     })
 
     it.each([

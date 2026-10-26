@@ -28,29 +28,15 @@ import type { Synapse } from '@filoz/synapse-sdk'
 import type { KeyResolver } from 'filecoin-encryption-envelope'
 import type { Logger } from 'pino'
 import { type Address, concat, type Hex, isAddress, keccak256, slice, toHex } from 'viem'
-import { privateKeyToAccount } from 'viem/accounts'
 import { type DataSetSummary, listDataSets } from '../core/data-set/index.js'
-import { type CLIAuthOptions, parseCLIAuth } from '../utils/cli-auth.js'
 
 /** A wallet that can sign for a group key (Keysmith's `KeyspaceKey` message): the owner's own key, never a session key. */
 export type OwnerSigner = TypedDataSigner & { address: Address }
 
-export const OWNER_WALLET_REQUIRED =
-  'Encrypted uploads need the owner wallet: set PRIVATE_KEY. Session keys will get access through the console in a later release.'
+/** The `login` command that gives a session key a group key Grant. */
+export const GRANT_LOGIN_COMMAND = 'filecoin-pin login --scopes createDataSet,addPieces,encrypt'
 
-/**
- * The owner wallet from the CLI auth options (`--private-key` / `PRIVATE_KEY`), for
- * commands that sign offline and never open an RPC connection.
- *
- * @throws If the credentials are a session key, view-only, or absent.
- */
-export function ownerSignerFromAuth(options: CLIAuthOptions): OwnerSigner {
-  const config = parseCLIAuth(options)
-  if (!('privateKey' in config) || config.privateKey == null) {
-    throw new Error(OWNER_WALLET_REQUIRED)
-  }
-  return privateKeyToAccount(config.privateKey)
-}
+export const OWNER_WALLET_REQUIRED = `Encrypted uploads need the owner wallet (set PRIVATE_KEY) or a session key with a group key Grant (run \`${GRANT_LOGIN_COMMAND}\`).`
 
 /** The signing wallet behind a Synapse client; undefined for a session key or a read-only client. */
 export function ownerSigner(synapse: Synapse): OwnerSigner | undefined {
@@ -213,15 +199,23 @@ export function newPieceKey(target: WriteTarget): PieceKey {
   }
 }
 
-/** The envelope's owner and group key (both public header labels), and the wallet that is not that owner, if any. */
-export class NotOwnerError extends Error {
-  constructor(owner: string, groupKeyId: string, wallet: string | undefined) {
+/** The credentials hold no key for an envelope. Its message is safe to print as is. */
+export class KeyAccessError extends Error {
+  override name = 'KeyAccessError'
+}
+
+/**
+ * The envelope's owner and group key (both public header labels), and what the
+ * credentials hold instead (`held`), if anything.
+ */
+export class NotOwnerError extends KeyAccessError {
+  override name = 'NotOwnerError'
+  constructor(owner: string, groupKeyId: string, held: string | undefined) {
     super(
-      wallet == null
-        ? `This upload belongs to ${owner} under group key ${groupKeyId}; set PRIVATE_KEY to that wallet to decrypt it (session keys can't decrypt yet)`
-        : `This upload belongs to ${owner} under group key ${groupKeyId}; the wallet in PRIVATE_KEY is ${wallet}`
+      held == null
+        ? `This upload belongs to ${owner} under group key ${groupKeyId}; set PRIVATE_KEY to that wallet, or use a session key with a Grant for that group key (\`${GRANT_LOGIN_COMMAND}\`)`
+        : `This upload belongs to ${owner} under group key ${groupKeyId}; ${held}`
     )
-    this.name = 'NotOwnerError'
   }
 }
 
@@ -243,7 +237,11 @@ export function ownerKeyResolver(signer: OwnerSigner | (() => OwnerSigner | unde
     const owner = appMetadata['foc/own']
     const wallet = typeof signer === 'function' ? signer() : signer
     if (wallet == null || typeof owner !== 'string' || owner.toLowerCase() !== wallet.address.toLowerCase()) {
-      throw new NotOwnerError(String(owner), groupKeyId, wallet?.address.toLowerCase())
+      throw new NotOwnerError(
+        String(owner),
+        groupKeyId,
+        wallet == null ? undefined : `the wallet in PRIVATE_KEY is ${wallet.address.toLowerCase()}`
+      )
     }
     const { kk } = await deriveGroupKey(wallet, { owner: wallet.address, keyspace: groupKeyId as Hex })
     return keyForEnvelope(kk, appMetadata)

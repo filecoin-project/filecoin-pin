@@ -22,7 +22,7 @@ import * as fee from 'filecoin-encryption-envelope'
 import { UnixFS } from 'ipfs-unixfs'
 import { CID } from 'multiformats/cid'
 import { isCar } from '../core/car/index.js'
-import { NotOwnerError, type PieceKey } from './group-key.js'
+import { KeyAccessError, type PieceKey } from './group-key.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC } from './unixfs-car-layout.js'
 import {
   type CarPayloadPlan,
@@ -281,7 +281,7 @@ export async function decryptToDirectory(
     if (error instanceof fee.errors.InvalidCiphertextLengthError) {
       throw new DecryptError(TRUNCATED, { cause: error })
     }
-    if (error instanceof fee.errors.KeyResolutionError && error.cause instanceof NotOwnerError) {
+    if (error instanceof fee.errors.KeyResolutionError && error.cause instanceof KeyAccessError) {
       throw new DecryptError(error.cause.message, { cause: error })
     }
     if (error instanceof fee.errors.KeyResolutionError || error instanceof fee.errors.MalformedEnvelopeError) {
