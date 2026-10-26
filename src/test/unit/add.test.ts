@@ -1043,6 +1043,16 @@ describe('Add Command', () => {
         expect(packed).toBeUndefined()
       })
 
+      it("ignores a mixed-case copy of the Grant's group key id that disagrees on foc/kc", async () => {
+        const lookalike = `0x${GRANT_GROUP_KEY.slice(2).toUpperCase()}`
+        onChain([groupKeySet(6n, { 'foc/ks': lookalike, 'foc/kc': `v1.${'0'.repeat(32)}` })])
+
+        await runAdd({ ...session, filePath: testFile, encrypt: true })
+
+        const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+        expect(appMetadata?.['foc/ks']).toBe(GRANT_GROUP_KEY)
+      })
+
       it('without a Grant, fails before packing or uploading, with the login to run', async () => {
         vi.stubEnv('GROUP_KEY_GRANT', '')
 

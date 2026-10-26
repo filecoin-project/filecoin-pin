@@ -251,8 +251,8 @@ export async function loadGroupKeyGrant(
  */
 export async function grantGroupKey(synapse: Synapse, opened: OpenedGrant, logger?: Logger): Promise<OwnerGroupKey> {
   const members = await listDataSets(synapse, {
-    filter: (dataSet) =>
-      dataSet.isLive && dataSet.metadata?.[GROUP_KEY_ID_KEY]?.toLowerCase() === opened.groupKeyId.toLowerCase(),
+    // Exact match, as in oldestValidGroupKey: a non-canonical lookalike id is another group, ignored.
+    filter: (dataSet) => dataSet.isLive && dataSet.metadata?.[GROUP_KEY_ID_KEY] === opened.groupKeyId,
     ...(logger != null && { logger }),
   })
   const disagreeing = members.filter(
