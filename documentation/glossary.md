@@ -49,7 +49,7 @@ The envelope's public `content_type` is `application/vnd.ipld.car`; decryptors r
 
 ## Group Key
 
-What [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) calls a *keyspace*: the root of a key derivation tree, named by a 16-byte id and bound to the owner wallet by one EIP-712 signature. Filecoin Pin records it on every [Data Set](#data-set) an [Encrypted Upload](#encrypted-upload) writes to, as `foc/ks` (the id) and `foc/kc` (a public commitment to the key, checked before the group key is reused), next to `foc/enc: "1"`, which marks the data set as encrypted and versions its rules. The metadata keys keep Keysmith's names. One group key usually spans multiple data sets: one per copy, plus any separate data set the user wants under the same group key. The group key id is public; no key material goes on chain.
+What [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) calls a *keyspace*: the root of a key derivation tree, named by a 16-byte id and bound to the owner wallet by one EIP-712 signature. Filecoin Pin records it on every [Data Set](#data-set) an [Encrypted Upload](#encrypted-upload) writes to, as `foc/ks` (the id) and `foc/kc` (a public commitment to the key, checked before the group key is reused), next to `foc/enc: "1"`, which marks the data set as encrypted and versions its rules. The metadata keys keep Keysmith's names. One group key usually spans multiple data sets: one per copy, plus any separate data set the user wants under the same group key. The group key id is public; no key material goes on chain. A [Session Key](#session-key) gets a group key through a [Grant](#grant).
 
 An owner wallet can end up with several group keys. `add --encrypt` sorts the wallet's live data sets by `foc/ks`, skips any group key whose data sets disagree on `foc/kc` or are not `foc/enc: "1"`, and uses the group key holding the oldest data set (lowest id). All copies of an upload go to that group key; a copy without a suitable data set gets a new one with the same `foc/ks` and `foc/kc`. A group key is created only when no valid one exists, and it exists on chain from its first upload. Nothing is stored locally.
 
@@ -58,6 +58,14 @@ That first group key's id is derived from the owner address, so every client tha
 ## Group
 
 What [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) calls a *scope*: a named part of a [Group Key](#group-key) with its own derived key, so access can be granted to some uploads without the whole group key. An upload in a group carries it in the envelope as `foc/scope` (Keysmith's label). `add --encrypt` does not put uploads in groups yet; every upload is under the group key itself. Not to be confused with session-key permission scopes (`login --scopes`).
+
+## Grant
+
+A group key Grant: what lets a [Session Key](#session-key) read and write a [Group Key](#group-key) without the owner wallet. `filecoin-pin login --scopes createDataSet,addPieces,encrypt` asks the Filecoin Cloud console (`CONSOLE_URL`, default https://pay.filecoin.cloud) for one. The console has the owner wallet sign a [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) root claim for the whole group key (bearer: the session key; expiry: the session key's authorization expiry; the network's chain id) and wraps the group key to the session key's public key. Its text form is `fgr1_` followed by the base64url (unpadded) Keysmith delivery; whitespace is ignored, since consoles wrap long lines.
+
+The CLI checks a Grant when it is imported and every time it is used: Keysmith checks the signatures, the expiry, that the session key is the bearer, and the key against the commitment the owner signed; the CLI checks the owner, the network, and the group key. It is saved as `GROUP_KEY_ID` and `GROUP_KEY_GRANT` next to the session key; the key it opens is never stored. A session key with a Grant uploads with `add --encrypt` into the group key's [Data Sets](#data-set) (tagging new ones with the `foc/kc` the owner signed) and reads uploads under that group key with `get` and `decrypt`.
+
+A Grant cannot be revoked: it gives the session key permanent read access to the whole group key, including future uploads. Session keys cannot pass it on. Not to be confused with the on-chain authorization of the session key's scopes, which `login` also calls a grant.
 
 ## FIL
 
