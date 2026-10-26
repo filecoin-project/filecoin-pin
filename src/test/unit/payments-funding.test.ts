@@ -114,14 +114,9 @@ function makeStatus(params: {
 function makeSummary(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; rateUsed?: bigint }): AccountSummary {
   const totalLockup = params.lockupUsed ?? 0n
   const lockupRatePerEpoch = params.rateUsed ?? 0n
-  const runwayInEpochs =
-    lockupRatePerEpoch === 0n
-      ? 0n
-      : params.filecoinPayBalance > totalLockup
-        ? (params.filecoinPayBalance - totalLockup) / lockupRatePerEpoch
-        : 0n
-  const grossCoverageInEpochs = lockupRatePerEpoch === 0n ? 0n : params.filecoinPayBalance / lockupRatePerEpoch
   const availableFunds = params.filecoinPayBalance > totalLockup ? params.filecoinPayBalance - totalLockup : 0n
+  const runwayInEpochs = lockupRatePerEpoch === 0n ? 0n : availableFunds / lockupRatePerEpoch
+  const grossCoverageInEpochs = lockupRatePerEpoch === 0n ? 0n : params.filecoinPayBalance / lockupRatePerEpoch
   return {
     funds: params.filecoinPayBalance,
     availableFunds,
@@ -425,6 +420,7 @@ describe('planFilecoinPayFunding', () => {
     })
 
     expect(plan.delta).toBeGreaterThan(0n)
+    expect(plan.action).toBe('deposit')
     expect(plan.reasonCode).toBe('runway-with-piece')
   })
 
@@ -464,6 +460,16 @@ describe('planFilecoinPayFunding', () => {
       allowWithdraw: false,
     })
     expect(uploadOnly.reasonCode).toBe('piece-upload')
+
+    const noDeposit = calculateFilecoinPayFundingPlan({
+      status,
+      accountSummary,
+      targetRunwayDays: 30,
+      pieceSizeBytes: 1024,
+      uploadCosts: { ...uploadCosts, depositNeeded: 0n },
+      allowWithdraw: false,
+    })
+    expect(noDeposit.reasonCode).toBe('none')
   })
 
   it('adds lifecycle-reserve funding for new data sets in the shared funding plan', () => {

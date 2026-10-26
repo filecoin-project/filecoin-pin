@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { type DataSetSummary, type PieceInfo, PieceStatus } from '../../core/data-set/types.js'
-import { displayDataSetList, displayPieceStatuses } from '../../data-set/display.js'
+import { displayDataSetList, displayDataSets, displayPieceStatuses } from '../../data-set/display.js'
 
 const { logMock } = vi.hoisted(() => ({
   logMock: {
@@ -87,6 +87,19 @@ describe('displayDataSetList', () => {
     const output = lines()
     expect(output.some((line) => /^1\s+inactive\s+10\s+yes\s+disabled$/.test(line.trim()))).toBe(true)
     expect(output.some((line) => /^2\s+terminated\s+10\s+yes\s+disabled$/.test(line.trim()))).toBe(true)
+  })
+})
+
+describe('displayDataSets', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders data sets sorted by data set ID', () => {
+    displayDataSets([row({ dataSetId: 3n }), row({ dataSetId: 1n })], 'calibration', '0xtest')
+
+    const headers = lines().filter((line) => /#\d+/.test(line))
+    expect(headers.map((line) => line.match(/#(\d+)/)?.[1])).toEqual(['1', '3'])
   })
 })
 
