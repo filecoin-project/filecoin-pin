@@ -95,6 +95,12 @@ describe('openGroupKeyGrant', () => {
     await rejects(`${GOLDEN_GRANT.slice(0, 50)}*${GOLDEN_GRANT.slice(51)}`, /incomplete or corrupted/)
   })
 
+  it('refuses padded and standard-alphabet base64: the text form is unpadded base64url', async () => {
+    const body = GOLDEN_GRANT.slice(GRANT_PREFIX.length)
+    await rejects(`${GOLDEN_GRANT}==`, /incomplete or corrupted/)
+    await rejects(`${GRANT_PREFIX}${body.replaceAll('-', '+').replaceAll('_', '/')}`, /incomplete or corrupted/)
+  })
+
   it('refuses a tampered Grant: the signature no longer verifies', async () => {
     const { chain, grant } = decodeDelivery(new Uint8Array(Buffer.from(GOLDEN_GRANT.slice(5), 'base64url')))
     const tampered = grantText(encodeDelivery({ ...chain, expires: chain.expires - 1 }, grant))
@@ -181,7 +187,7 @@ describe('loadGroupKeyGrant', () => {
     const env = { GROUP_KEY_GRANT: GOLDEN_GRANT, GROUP_KEY_ID: GROUP_KEY }
 
     await expect(loadGroupKeyGrant(session, 314, env)).rejects.toThrow(
-      /The saved Grant was ignored: .*another network.* Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt`/
+      /The Grant from the environment was ignored: .*another network.* Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt`/
     )
   })
 })
@@ -228,5 +234,14 @@ describe('grantKeyResolver', () => {
     await resolver(labels() as never)
 
     expect(loads).toBe(1)
+  })
+
+  it('names the source of a Grant that fails to load', async () => {
+    const env = { GROUP_KEY_GRANT: GOLDEN_GRANT, GROUP_KEY_ID: GROUP_KEY }
+    const session = { sessionKey: SESSION_KEY, walletAddress: OWNER.address }
+
+    await expect(loadGroupKeyGrant(session, 314, env, 'the saved login')).rejects.toThrow(
+      /The Grant from the saved login was ignored/
+    )
   })
 })

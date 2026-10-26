@@ -4,6 +4,7 @@ import { readSessionFile } from '../../login/session-file.js'
 import { addAuthOptions } from '../../utils/cli-options.js'
 import {
   applySessionFileCredentials,
+  getGrantCredentialSource,
   getSessionCredentialNetwork,
   getSessionCredentialSource,
   wasSessionSkippedForViewAddress,
@@ -97,11 +98,40 @@ describe('applySessionFileCredentials', () => {
     })
   })
 
-  it('lets a Grant in the environment beat the saved one', () => {
+  it('takes the Grant with the saved session key, ignoring a stale one in the environment and saying so', () => {
     savedSession(WITH_GRANT)
+    const notice = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const env: NodeJS.ProcessEnv = { GROUP_KEY_GRANT: 'fgr1_env', GROUP_KEY_ID: '0xenv' }
+
     applySessionFileCredentials(parsed(), env, PATH)
-    expect(env).toMatchObject({ SESSION_KEY: KEY, GROUP_KEY_GRANT: 'fgr1_env', GROUP_KEY_ID: '0xenv' })
+
+    expect(env).toMatchObject({ SESSION_KEY: KEY, GROUP_KEY_GRANT: 'fgr1_saved', GROUP_KEY_ID: WITH_GRANT.groupKeyId })
+    expect(notice).toHaveBeenCalledExactlyOnceWith(
+      'Ignoring GROUP_KEY_ID and GROUP_KEY_GRANT from the environment: the session key comes from the saved login, so its Grant does too.'
+    )
+    expect(getGrantCredentialSource()).toBe('the saved login')
+  })
+
+  it('clears an environment Grant when the saved login has none', () => {
+    savedSession()
+    const notice = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const env: NodeJS.ProcessEnv = { GROUP_KEY_GRANT: 'fgr1_env', GROUP_KEY_ID: '0xenv' }
+
+    applySessionFileCredentials(parsed(), env, PATH)
+
+    expect(env).not.toHaveProperty('GROUP_KEY_GRANT')
+    expect(env).not.toHaveProperty('GROUP_KEY_ID')
+    expect(notice).toHaveBeenCalledOnce()
+  })
+
+  it('stays quiet when the environment holds the same Grant as the saved login', () => {
+    savedSession(WITH_GRANT)
+    const notice = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const env: NodeJS.ProcessEnv = { GROUP_KEY_GRANT: 'fgr1_saved', GROUP_KEY_ID: WITH_GRANT.groupKeyId }
+
+    applySessionFileCredentials(parsed(), env, PATH)
+
+    expect(notice).not.toHaveBeenCalled()
   })
 
   it('leaves the saved Grant out when the environment supplies the session key', () => {

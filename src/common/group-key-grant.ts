@@ -2,8 +2,9 @@
  * Group key Grants: how a session key gets the owner's group key without the owner wallet.
  *
  * The owner approves the session key in the Filecoin Cloud console, which signs a Keysmith
- * root claim for the whole group key (`node: 'keyspace'`, bearer = the session key, expiring
- * with the session key's authorization), wraps the group key to the session key's public key,
+ * root claim for the whole group key (`node: 'keyspace'`, bearer = the session key; by the
+ * console's convention it expires with the session key's authorization), wraps the group key
+ * to the session key's public key,
  * and shows the result as one line of text: `fgr1_` + base64url (no padding) of Keysmith's
  * `encodeDelivery(chain, grant)`. The CLI stores that text, never the key it opens.
  *
@@ -29,6 +30,7 @@ import type { Address, Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { listDataSets } from '../core/data-set/index.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
+import { getGrantCredentialSource } from '../utils/credential-source.js'
 import {
   ENCRYPTION_VERSION,
   ENCRYPTION_VERSION_KEY,
@@ -217,14 +219,16 @@ export interface SessionCredentials {
 
 /**
  * Open the Grant the credential sources supplied (`GROUP_KEY_GRANT` and `GROUP_KEY_ID`, from
- * the environment, `--credentials-file` or the saved login).
+ * the environment, `--credentials-file` or the saved login). `source` names where it came
+ * from in the error.
  *
  * @throws GrantError saying the Grant is missing or why it is ignored, with the login to run.
  */
 export async function loadGroupKeyGrant(
   session: SessionCredentials,
   chainId: number | undefined,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  source: string = getGrantCredentialSource() ?? 'the environment'
 ): Promise<OpenedGrant> {
   const text = env.GROUP_KEY_GRANT
   const groupKeyId = env.GROUP_KEY_ID
@@ -239,7 +243,7 @@ export async function loadGroupKeyGrant(
   } catch (error) {
     if (!(error instanceof GrantError)) throw error
     throw new GrantError(
-      `The saved Grant was ignored: ${error.message} Run \`${GRANT_LOGIN_COMMAND}\` to get a new one.`
+      `The Grant from ${source} was ignored: ${error.message} Run \`${GRANT_LOGIN_COMMAND}\` to get a new one.`
     )
   }
 }

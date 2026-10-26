@@ -1068,7 +1068,7 @@ describe('Add Command', () => {
         vi.stubEnv('GROUP_KEY_GRANT', await makeGrant({ sessionKey: STRANGER_KEY_HEX }))
 
         await expect(runAdd({ ...session, filePath: testFile, encrypt: true })).rejects.toThrow(
-          /saved Grant was ignored: .*another session key/
+          /Grant from the environment was ignored: .*another session key/
         )
         const { performUpload } = await import('../../common/upload-flow.js')
         expect(packed).toBeUndefined()

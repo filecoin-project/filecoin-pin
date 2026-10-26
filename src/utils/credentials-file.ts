@@ -18,7 +18,12 @@
 import { readFileSync } from 'node:fs'
 import { parseEnv } from 'node:util'
 import type { Command } from 'commander'
-import { type LoadableEnvVar, supplyCredential } from './credential-source.js'
+import {
+  bindGrantToSessionKey,
+  type LoadableEnvVar,
+  resetGrantCredentialSource,
+  supplyCredential,
+} from './credential-source.js'
 
 export const CREDENTIALS_FILE_FLAG = '--credentials-file'
 
@@ -88,9 +93,18 @@ export function readCredentialsFile(path: string): Partial<Record<LoadableEnvVar
  * precedence. No-op when the flag is absent.
  */
 export function applyCredentialsFile(actionCommand: Command, env: NodeJS.ProcessEnv = process.env): void {
+  resetGrantCredentialSource()
   const path = actionCommand.optsWithGlobals<{ credentialsFile?: string }>().credentialsFile
   if (path === undefined) return
-  for (const [name, value] of Object.entries(readCredentialsFile(path))) {
-    supplyCredential(actionCommand, env, name as LoadableEnvVar, value, 'file')
+  const { GROUP_KEY_ID: groupKeyId, GROUP_KEY_GRANT: groupKeyGrant, ...rest } = readCredentialsFile(path)
+  let sessionKeyFromFile = false
+  for (const [name, value] of Object.entries(rest)) {
+    const used = supplyCredential(actionCommand, env, name as LoadableEnvVar, value, 'file')
+    if (name === 'SESSION_KEY') sessionKeyFromFile = used
+  }
+  // The Grant goes with the session key: from this file only when its SESSION_KEY is used.
+  if (sessionKeyFromFile) bindGrantToSessionKey(env, { groupKeyId, groupKeyGrant }, 'file')
+  else if (groupKeyGrant !== undefined) {
+    console.error('--credentials-file: ignored GROUP_KEY_ID and GROUP_KEY_GRANT: the session key comes from elsewhere')
   }
 }

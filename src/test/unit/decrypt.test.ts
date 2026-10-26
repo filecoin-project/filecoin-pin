@@ -179,11 +179,23 @@ describe('runDecrypt', () => {
       expect(existsSync(outputDir)).toBe(false)
     })
 
+    it('offline with only --rpc-url, skips the network check: the chain is unknown without a connection', async () => {
+      vi.stubEnv('GROUP_KEY_GRANT', await makeGrant({ groupKey: VECTOR_GROUP_KEY, chainId: 314 }))
+      vi.stubEnv('GROUP_KEY_ID', VECTOR_GROUP_KEY)
+      const connect = vi.spyOn(Socket.prototype, 'connect')
+      const { network: _, ...withoutNetwork } = session
+
+      await runDecrypt(encryptedPath, outputDir, { ...withoutNetwork, rpcUrl: 'http://127.0.0.1:1/rpc' })
+
+      expect((await readFile(join(outputDir, 'report.pdf'))).equals(plaintext)).toBe(true)
+      expect(connect).not.toHaveBeenCalled()
+    })
+
     it('ignores a Grant for another network, with the login to run', async () => {
       await useGrant()
 
       await expect(runDecrypt(encryptedPath, outputDir, { ...session, network: 'mainnet' })).rejects.toThrow(
-        /saved Grant was ignored: .*another network.*filecoin-pin login --scopes/
+        /Grant from the environment was ignored: .*another network.*filecoin-pin login --scopes/
       )
     })
   })

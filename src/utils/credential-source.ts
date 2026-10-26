@@ -42,6 +42,7 @@ const AUTH_ENV_VARS = [
 let loadedFrom: string | undefined
 let loadedNetwork: string | undefined
 let skippedForViewAddress = false
+let grantSource: string | undefined
 
 function isSet(env: NodeJS.ProcessEnv, name: string): boolean {
   return env[name] !== undefined && env[name] !== ''
@@ -128,6 +129,7 @@ export function applySessionFileCredentials(
   skippedForViewAddress = false
   const supplied = AUTH_ENV_VARS.filter((name) => isSupplied(command, env, name))
   if (supplied.length > 0) {
+    // The saved login is not used; the Grant's source stays as the credentials file left it.
     // Only VIEW_ADDRESS set: a usable login exists but read-only mode wins. Remembered so the
     // command can say why the saved login was not used.
     const onlyViewAddress = supplied.length === 1 && supplied[0] === 'VIEW_ADDRESS'
@@ -137,15 +139,13 @@ export function applySessionFileCredentials(
       readSessionFile(path)?.walletAddress !== undefined
     return undefined
   }
+  grantSource = undefined
   const session = readSessionFile(path)
   if (session?.walletAddress === undefined) return undefined
   supplyCredential(command, env, 'SESSION_KEY', session.sessionKey, 'session')
   supplyCredential(command, env, 'WALLET_ADDRESS', session.walletAddress, 'session')
   if (session.network !== undefined) supplyCredential(command, env, 'NETWORK', session.network, 'session')
-  if (session.groupKeyId !== undefined && session.groupKeyGrant !== undefined) {
-    supplyCredential(command, env, 'GROUP_KEY_ID', session.groupKeyId, 'session')
-    supplyCredential(command, env, 'GROUP_KEY_GRANT', session.groupKeyGrant, 'session')
-  }
+  bindGrantToSessionKey(env, session, 'session')
   loadedFrom = path
   loadedNetwork = session.network
   if (isSet(env, 'CI')) {
@@ -156,6 +156,46 @@ export function applySessionFileCredentials(
     )
   }
   return path
+}
+
+const GRANT_VARS = ['GROUP_KEY_ID', 'GROUP_KEY_GRANT'] as const
+
+/**
+ * Take the Grant pair from the source the session key came from, replacing (or clearing) any
+ * pair in the environment, with a one-line notice when it does. A Grant opens only with the
+ * key it was wrapped to, so a Grant from one source with a session key from another is a
+ * stale mix: an exported Grant must not shadow the saved login's.
+ */
+export function bindGrantToSessionKey(
+  env: NodeJS.ProcessEnv,
+  pair: { groupKeyId?: string | undefined; groupKeyGrant?: string | undefined },
+  source: 'file' | 'session'
+): void {
+  const label = SOURCE_LABELS[source]
+  const complete = pair.groupKeyId !== undefined && pair.groupKeyGrant !== undefined
+  const values = { GROUP_KEY_ID: pair.groupKeyId, GROUP_KEY_GRANT: pair.groupKeyGrant }
+  const replaced = GRANT_VARS.filter((name) => isSet(env, name) && (!complete || env[name] !== values[name]))
+  if (replaced.length > 0) {
+    console.error(
+      `Ignoring ${replaced.join(' and ')} from the environment: the session key comes from ${label}, so its Grant does too.`
+    )
+  }
+  for (const name of GRANT_VARS) {
+    const value = values[name]
+    if (complete && value !== undefined) env[name] = value
+    else delete env[name]
+  }
+  grantSource = label
+}
+
+/** Where the Grant pair in the environment came from, when a file source set it. */
+export function getGrantCredentialSource(): string | undefined {
+  return grantSource
+}
+
+/** Start a command's credential loading afresh (the credentials file runs first). */
+export function resetGrantCredentialSource(): void {
+  grantSource = undefined
 }
 
 /** Path of the session file the running command's credentials came from, if any. */
