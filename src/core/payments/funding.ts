@@ -128,16 +128,16 @@ export function formatFundingReason(reasonCode: FundingReasonCode, plan?: Fileco
   }
 }
 
-/**
- * SDK upload costs only express deposits (`depositNeeded` is clamped at 0n),
- * so exact mode with withdrawals stays on the local signed-delta math.
- */
 function fundingAction(delta: bigint): FilecoinPayFundingPlan['action'] {
   if (delta > 0n) return 'deposit'
   if (delta < 0n) return 'withdraw'
   return 'none'
 }
 
+/**
+ * SDK upload costs only express deposits (`depositNeeded` is clamped at 0n),
+ * so exact mode with withdrawals stays on the local signed-delta math.
+ */
 function canUsePrecomputedUploadCosts(options: {
   pieceSizeBytes?: number | undefined
   targetRunwayDays?: number | undefined
