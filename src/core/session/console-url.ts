@@ -43,12 +43,15 @@ export function consoleNetworkSlug(chainId: number): string | undefined {
 }
 
 /**
- * Build the console deep link that pre-fills the session address and the
- * scopes it needs on the session-keys authorization page. Carries the
- * network the failure happened on so the console can refuse to prefill
- * when the connected wallet is on a different chain — without it, a
- * calibration remediation link approved by a mainnet-connected wallet
+ * Build the console setup link that pre-fills the session address and the
+ * scopes it needs. Carries the network the request is for so the console can
+ * refuse to prefill when the connected wallet is on a different chain —
+ * without it, a calibration link approved by a mainnet-connected wallet
  * silently grants the scopes on mainnet.
+ *
+ * `keyAgreement` (`login --scopes …,encrypt`) adds `pubkey` and `pubkeysig`:
+ * the console then also issues a group key Grant wrapped to `pubkey`, once it
+ * has checked `pubkeysig` recovers to the session address.
  *
  * The address is lowercased: the console validates it with viem's strict
  * `isAddress`, which accepts all-lowercase or a correct EIP-55 checksum but
@@ -58,13 +61,17 @@ export function buildAuthorizeUrl(
   consoleUrl: string,
   sessionAddress: string,
   scopeIds: string[],
-  chainId: number
+  chainId: number,
+  keyAgreement?: { pubkey: string; pubkeysig: string }
 ): string {
-  const base = trimSlash(consoleUrl)
-  return withUtm(
-    `${base}/console/session-keys?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId)}`,
-    'login'
-  )
+  const network = CONSOLE_NETWORK_SLUG[chainId]
+  const params = [
+    ...(network ? [`network=${network}`] : []),
+    `authorize=${sessionAddress.toLowerCase()}`,
+    `scopes=${scopeIds.join(',')}`,
+    ...(keyAgreement ? [`pubkey=${keyAgreement.pubkey}`, `pubkeysig=${keyAgreement.pubkeysig}`] : []),
+  ]
+  return withUtm(`${trimSlash(consoleUrl)}/console/setup?${params.join('&')}`, 'login')
 }
 
 /** Console network slugs, for placing a link the session file recorded by name. */

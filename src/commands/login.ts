@@ -3,8 +3,9 @@
  *
  * `login` pairs this machine with a wallet through the Filecoin Cloud
  * console: it generates a scoped session key, the owner approves it in the
- * browser, and the CLI waits for the grant on-chain. `logout` forgets the
- * saved key.
+ * browser, and the CLI waits for the grant on-chain. With `encrypt` in
+ * `--scopes` it also takes the group key Grant the console issues. `logout`
+ * forgets the saved key and its Grant.
  */
 
 import { Command, InvalidArgumentError } from 'commander'
@@ -20,7 +21,15 @@ function parseTimeoutSeconds(value: string): number {
 
 export const loginCommand = new Command('login')
   .description('Log in to your Filecoin account: approve a session key for this machine in the Filecoin Cloud console')
-  .addOption(scopesOption('Comma-separated scopes to request (default: createDataSet,addPieces)'))
+  .addOption(
+    scopesOption(
+      'Comma-separated scopes to request (default: createDataSet,addPieces). Add encrypt to also get a group key Grant for encrypted uploads'
+    )
+  )
+  .option(
+    '--grant <grant>',
+    'Import the group key Grant (fgr1_…) the console showed for the saved session key; - reads it from stdin'
+  )
   .option('--fresh', 'Generate a new session key instead of resuming the saved one')
   .option('--no-browser', 'Print the console link without opening a browser')
   .option('--no-wait', 'Print the console link and exit 2 instead of waiting for the grant; rerun login to check')
@@ -33,11 +42,22 @@ ${pc.bold('EXAMPLES')}
   $ filecoin-pin login --network calibration
   $ filecoin-pin login --scopes createDataSet,addPieces,schedulePieceRemovals
   $ filecoin-pin login --no-browser --no-wait     # print the link, approve later, rerun to check
+  $ filecoin-pin login --scopes createDataSet,addPieces,encrypt   # also get a group key Grant
+  $ filecoin-pin login --grant fgr1_…             # finish: import the Grant the console showed
+  $ pbpaste | filecoin-pin login --grant -        # the same, reading the Grant from stdin
 
 ${pc.bold('FILES')}
   The session key is saved to session.env in the data directory before the
   browser opens (owner-readable only), so an interrupted login resumes the
-  same key. \`filecoin-pin logout\` deletes it.
+  same key. A group key Grant is saved there too, as GROUP_KEY_ID and
+  GROUP_KEY_GRANT. \`filecoin-pin logout\` deletes the file.
+
+${pc.bold('GROUP KEY GRANTS')}
+  With encrypt, the console also wraps your group key to this session key.
+  On a terminal, login asks you to paste the Grant; otherwise (and with
+  --no-wait) it prints the resume command and never blocks. The Grant gives
+  this key permanent read access to the whole group key, including future
+  uploads: expiry and revoking the key do not take it back.
 
 ${pc.bold('ENVIRONMENT')}
   CONSOLE_URL   Filecoin Cloud console base URL (default: https://pay.filecoin.cloud)
@@ -45,8 +65,9 @@ ${pc.bold('ENVIRONMENT')}
   NETWORK, RPC_URL  as --network and --rpc-url
 
 ${pc.bold('EXIT CODES')}
-  0  every requested scope was granted
-  2  no grant seen in time, --no-wait, or fewer scopes than requested (rerun login to resume)
+  0  every requested scope was granted (and the Grant saved, with encrypt)
+  2  no grant seen in time, --no-wait, fewer scopes than requested, or the Grant
+     is still to come (rerun login, or login --grant, to resume)
   1  error, including a network the console has no pairing page for`
   )
   .action(async (options) => {
