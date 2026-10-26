@@ -7,7 +7,7 @@
  */
 
 import { createWriteStream } from 'node:fs'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, statfs } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -16,10 +16,23 @@ import * as dagPb from '@ipld/dag-pb'
 import * as fee from 'filecoin-encryption-envelope'
 import { UnixFS } from 'ipfs-unixfs'
 import { exporter, type UnixFSEntry } from 'ipfs-unixfs-exporter'
-import type { CID } from 'multiformats/cid'
+import { CID } from 'multiformats/cid'
 import { claimEntry } from './claim-output.js'
-import { checkOutputDir, decryptToDirectory, removeDecryptOutput, unixfsFileBytes } from './encryption.js'
-import { type FetchOptions, fetchVerifiedCar, NotUnixfsError } from './ipfs-car-fetch.js'
+import {
+  anyCidVersion,
+  checkOutputDir,
+  decryptToDirectory,
+  removeDecryptOutput,
+  unixfsFileBytes,
+} from './encryption.js'
+import {
+  type FetchOptions,
+  fetchVerifiedCar,
+  isSupportedHash,
+  NotUnixfsError,
+  type ProviderSource,
+  UnsupportedHashError,
+} from './ipfs-car-fetch.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, isUnsafeName, RAW_CODEC } from './unixfs-car-layout.js'
 import { insideDir } from './unixfs-car-unpack.js'
 
@@ -27,6 +40,11 @@ import { insideDir } from './unixfs-car-unpack.js'
 const READ_WINDOW = 8 * 1024 * 1024
 /** The FEE header (about 260 bytes) always fits in the first leaf. */
 const HEADER_PROBE_BYTES = 1024 * 1024
+/**
+ * Entries a plain folder may hold, counting every place a shared sub-tree is linked from: with
+ * `dups=n` a small CAR can link one folder many times over.
+ */
+export const MAX_ENTRIES = 1_000_000
 
 export interface GetResult {
   encrypted: boolean
@@ -41,7 +59,6 @@ export interface GetResult {
 export interface GetOptions extends FetchOptions {
   /** A private, empty directory owned by the caller for the downloaded CAR. */
   tempDir: string
-  concurrency?: number
   /** Called with the entry's path as soon as it is claimed, before any content is written. */
   onClaim?: (path: string) => void
 }
@@ -54,7 +71,13 @@ class IncompleteCarError extends Error {
   }
 }
 
-type BlockReader = { get(cid: CID): Promise<{ bytes: Uint8Array } | undefined> }
+/** The plain content does not fit: refused before anything is written. */
+export class NotEnoughSpaceError extends Error {
+  constructor(needed: bigint, free: bigint, outDir: string) {
+    super(`The content needs ${needed} bytes but only ${free} bytes are free in ${outDir}`)
+    this.name = 'NotEnoughSpaceError'
+  }
+}
 
 /**
  * Fetch `cid` from the first provider that serves a verified CAR and save it as one entry
@@ -64,27 +87,23 @@ type BlockReader = { get(cid: CID): Promise<{ bytes: Uint8Array } | undefined> }
  * taken name is numbered like a browser download (see `claim-output.ts`). On failure only
  * that entry is removed.
  *
- * `findProviders` each list candidate provider URLs; they start together once the paths
- * are checked, and fetching starts as each one returns.
+ * `sources` each list candidate provider URLs; they start together once the paths are
+ * checked, and fetching starts as each one returns.
  */
 export async function getToDirectory(
   cid: CID,
   outDir: string,
-  findProviders: Array<() => Promise<string[]>>,
+  sources: ProviderSource[],
   resolveKey: fee.KeyResolver,
   options: GetOptions
 ): Promise<GetResult> {
   if (cid.code !== RAW_CODEC && cid.code !== DAG_PB_CODEC) {
     throw new NotUnixfsError(`the root has codec 0x${cid.code.toString(16)}`)
   }
+  if (!isSupportedHash(cid)) throw new UnsupportedHashError(cid)
   await checkOutputDir(outDir)
   const carPath = join(options.tempDir, 'download.car')
-  const { provider } = await fetchVerifiedCar(
-    cid,
-    findProviders.map((find) => find()),
-    carPath,
-    options
-  )
+  const { provider } = await fetchVerifiedCar(cid, sources, carPath, options)
   const kind = await detect(carPath, cid)
   if (kind === 'encrypted') {
     const { files, dirs, path } = await decryptToDirectory(carPath, outDir, resolveKey, options.onClaim)
@@ -95,7 +114,8 @@ export async function getToDirectory(
 
 /** What a verified CAR holds: an `add --encrypt` envelope, a plain file, or a plain directory. */
 export async function detect(carPath: string, root: CID): Promise<'encrypted' | 'file' | 'directory'> {
-  const reader = await CarIndexedReader.fromFile(carPath)
+  const car = await CarIndexedReader.fromFile(carPath)
+  const reader = anyCidVersion(car)
   try {
     const block = await reader.get(root)
     if (block == null) throw new IncompleteCarError()
@@ -113,12 +133,12 @@ export async function detect(carPath: string, root: CID): Promise<'encrypted' | 
     }
     return (await isEnvelope(reader, root)) ? 'encrypted' : 'file'
   } finally {
-    await reader.close()
+    await car.close()
   }
 }
 
 /** Whether the file at `root` opens with a FEE header for a CAR, as `add --encrypt` writes. */
-async function isEnvelope(reader: BlockReader, root: CID): Promise<boolean> {
+async function isEnvelope(reader: ReturnType<typeof anyCidVersion>, root: CID): Promise<boolean> {
   const head: Uint8Array[] = []
   let length = 0
   for await (const chunk of unixfsFileBytes(reader, root)) {
@@ -143,11 +163,25 @@ async function* readWindows(
   }
 }
 
+/** Fail once `source` yields more than `limit` bytes: a file never outgrows its declared size. */
+async function* capped(source: AsyncIterable<Uint8Array>, limit: bigint): AsyncGenerator<Uint8Array> {
+  let total = 0n
+  for await (const chunk of source) {
+    total += BigInt(chunk.length)
+    if (total > limit) throw new Error('a file holds more bytes than its UnixFS size declares')
+    yield chunk
+  }
+}
+
 /**
  * Write the plain UnixFS DAG at `root` from a verified CAR into `outDir` as a file or folder
  * named `<root>` (numbered when taken), claimed before anything is written; `onClaim` gets its
  * path. Directories 0700, files 0600 created exclusively. Unsafe entry names, symlinks and
  * other non-file entries fail the whole extraction, and the claimed entry is removed.
+ *
+ * The declared size of the whole tree (every file's UnixFS size, counted wherever it is linked)
+ * is checked against the free space in `outDir` before the claim, so a small CAR that links one
+ * leaf many times cannot fill the disk; each file is also stopped at its declared size.
  */
 export async function extractUnixfs(
   carPath: string,
@@ -157,14 +191,12 @@ export async function extractUnixfs(
 ): Promise<{ files: number; dirs: number; path: string }> {
   const { outExists } = await checkOutputDir(outDir)
   if (!outExists) await mkdir(outDir, { mode: 0o700 })
-  const reader = await CarIndexedReader.fromFile(carPath)
+  const car = await CarIndexedReader.fromFile(carPath)
+  const reader = anyCidVersion(car)
   const blockstore = {
-    async *get(cid: CID): AsyncGenerator<Uint8Array> {
-      if (cid.multihash.code === 0x00) {
-        yield cid.multihash.digest
-        return
-      }
-      const block = await reader.get(cid)
+    async *get(cid: { bytes: Uint8Array }): AsyncGenerator<Uint8Array> {
+      // The exporter's CID class is not ours; cross by bytes.
+      const block = await reader.get(CID.decode(cid.bytes))
       if (block == null) throw new IncompleteCarError()
       yield block.bytes
     },
@@ -178,9 +210,9 @@ export async function extractUnixfs(
     if (entry.type === 'file') {
       const type = entry.unixfs.type
       if (type !== 'file' && type !== 'raw') throw new NotUnixfsError(`entry ${path} is a UnixFS ${type}`)
-      content = readWindows(entry, Number(entry.unixfs.fileSize()))
+      content = capped(readWindows(entry, Number(entry.unixfs.fileSize())), entry.unixfs.fileSize())
     } else if (entry.type === 'raw' || entry.type === 'identity') {
-      content = entry.content()
+      content = capped(entry.content(), entry.size)
     } else {
       throw new NotUnixfsError(`entry ${path} is ${entry.type}`)
     }
@@ -209,9 +241,27 @@ export async function extractUnixfs(
     }
   }
 
+  // Every file's declared size, wherever it is linked; content checks come later, while writing.
+  let entries = 0
+  const declaredSize = async (entry: UnixFSEntry): Promise<bigint> => {
+    if (++entries > MAX_ENTRIES) throw new Error(`the folder holds more than ${MAX_ENTRIES} entries`)
+    if (entry.type === 'file') return entry.unixfs.fileSize()
+    if (entry.type === 'raw' || entry.type === 'identity') return entry.size
+    if (entry.type !== 'directory') return 0n
+    let total = 0n
+    for await (const child of entry.entries()) {
+      total += await declaredSize(await exporter(child.cid.toString(), blockstore))
+    }
+    return total
+  }
+
   try {
     // A string, since our multiformats CID class is not the exporter's.
     const entry = await exporter(root.toString(), blockstore)
+    const needed = await declaredSize(entry)
+    const { bavail, bsize } = await statfs(outDir)
+    const free = BigInt(bavail) * BigInt(bsize)
+    if (needed > free) throw new NotEnoughSpaceError(needed, free, outDir)
     claimed = claimEntry(outDir, root.toString(), entry.type === 'directory' ? 'folder' : 'file')
     onClaim?.(claimed)
     if (entry.type === 'directory') await writeDirectory(entry, claimed, '')
@@ -221,6 +271,6 @@ export async function extractUnixfs(
     removeDecryptOutput(outDir, !outExists, claimed)
     throw error
   } finally {
-    await reader.close()
+    await car.close()
   }
 }

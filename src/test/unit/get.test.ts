@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, writeFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,7 +7,9 @@ import { Writable } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { keyspaceKeys as deriveGroupKey, writeTarget } from '@filoz/keysmith'
 import { CarIndexedReader, CarWriter } from '@ipld/car'
+import * as dagCbor from '@ipld/dag-cbor'
 import * as dagPb from '@ipld/dag-pb'
+import * as fee from 'filecoin-encryption-envelope'
 import { UnixFS } from 'ipfs-unixfs'
 import { CID } from 'multiformats/cid'
 import * as Digest from 'multiformats/hashes/digest'
@@ -18,8 +20,20 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { CliIncomplete, EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
 import { decryptToDirectory, encryptPath } from '../../common/encryption.js'
 import { newPieceKey, ownerKeyResolver, type PieceKey } from '../../common/group-key.js'
-import { FETCH_CONCURRENCY, NoProviderError, NotUnixfsError } from '../../common/ipfs-car-fetch.js'
-import { getToDirectory } from '../../common/ipfs-get.js'
+import {
+  BODY_IDLE_TIMEOUT_MS,
+  DISCOVERY_TIMEOUT_MS,
+  FETCH_CONCURRENCY,
+  FetchFailedError,
+  ipniProviderUrls,
+  NoProviderError,
+  NotUnixfsError,
+  type ProviderSource,
+  RESPONSE_TIMEOUT_MS,
+  UnsupportedHashError,
+} from '../../common/ipfs-car-fetch.js'
+import { type GetOptions, getToDirectory, NotEnoughSpaceError } from '../../common/ipfs-get.js'
+import { CAR_CONTENT_TYPE, encodeVarint, isUnsafeName } from '../../common/unixfs-car-layout.js'
 import { createCarFromPath } from '../../core/unixfs/index.js'
 import { runGet } from '../../get/get.js'
 
@@ -35,6 +49,11 @@ vi.mock('../../common/claim-output.js', async (importOriginal) => {
       return path
     },
   }
+})
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, statfs: vi.fn(actual.statfs) }
 })
 
 vi.mock('../../utils/cli-helpers.js', () => ({
@@ -123,13 +142,17 @@ interface Call {
 
 type Handler = (signal: AbortSignal | undefined) => Promise<Response>
 
-/** A fetch that answers IPNI with `ipni` multiaddrs and `<base>/ipfs/...` from `providers`; everything else 404s. */
-function fakeNetwork(providers: Record<string, Handler>, ipni: string[] = []) {
+/**
+ * A fetch that answers IPNI with `ipni` multiaddrs (or a handler) and `<base>/ipfs/...` from
+ * `providers`; everything else 404s.
+ */
+function fakeNetwork(providers: Record<string, Handler>, ipni: string[] | Handler = []) {
   const calls: Call[] = []
   const fetchFn = vi.fn(async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = String(input)
     calls.push({ url, signal: init?.signal ?? undefined })
     if (url.startsWith('https://cid.contact/cid/')) {
+      if (typeof ipni === 'function') return ipni(init?.signal ?? undefined)
       if (ipni.length === 0) return new Response('not found', { status: 404 })
       return Response.json({ MultihashResults: [{ ProviderResults: [{ Provider: { ID: 'peer', Addrs: ipni } }] }] })
     }
@@ -142,14 +165,56 @@ function fakeNetwork(providers: Record<string, Handler>, ipni: string[] = []) {
   return { fetch: fetchFn as unknown as typeof fetch, calls, fetched }
 }
 
+const CAR_HEADERS = { 'content-type': `${CAR_CONTENT_TYPE}; version=1; order=dfs; dups=n` }
+
 const serve =
   (bytes: Uint8Array, delayMs = 0): Handler =>
   async (signal) => {
     if (delayMs > 0) await sleep(delayMs, undefined, signal == null ? {} : { signal })
-    return new Response(new Uint8Array(bytes), { status: 200 })
+    return new Response(new Uint8Array(bytes), { status: 200, headers: CAR_HEADERS })
   }
 
-const only = (...urls: string[]) => [() => Promise.resolve(urls)]
+/** Never answers; rejects once the request is aborted. */
+const hang: Handler = (signal) =>
+  new Promise((_resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason)))
+
+/** Hangs on the first request (until it is aborted), then serves `bytes`: the provider that loses the first race. */
+function secondTime(bytes: Uint8Array): Handler {
+  let calls = 0
+  return (signal) => (++calls === 1 ? hang(signal) : serve(bytes)(signal))
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve = (): void => undefined
+  const promise = new Promise<void>((r) => {
+    resolve = r
+  })
+  return { promise, resolve }
+}
+
+const only = (...urls: string[]): ProviderSource[] => [{ name: 'Test', find: async () => urls }]
+
+/** A logger whose lines land in `lines`. */
+function captureLogs(lines: string[]) {
+  return pino(
+    { level: 'trace' },
+    new Writable({
+      write(chunk, _encoding, callback) {
+        lines.push(String(chunk))
+        callback()
+      },
+    })
+  )
+}
+
+/** Every message and cause in an error chain, for checking what a caller could print. */
+function errorChain(error: unknown): string {
+  const parts: string[] = []
+  for (let e: unknown = error; e != null; e = (e as { cause?: unknown }).cause) {
+    parts.push(e instanceof Error ? `${e.name}: ${e.message}` : String(e))
+  }
+  return parts.join(' <- ')
+}
 
 describe('get', () => {
   let dir: string
@@ -171,6 +236,8 @@ describe('get', () => {
   })
 
   afterEach(async () => {
+    vi.useRealTimers()
+    vi.unstubAllEnvs()
     claimHook.after = undefined
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
@@ -198,8 +265,9 @@ describe('get', () => {
     root: CID,
     network: ReturnType<typeof fakeNetwork>,
     urls: string[],
-    resolver = ownerKeyResolver(OWNER)
-  ) => getToDirectory(root, outDir, only(...urls), resolver, { tempDir, fetch: network.fetch })
+    resolver = ownerKeyResolver(OWNER),
+    options: Partial<GetOptions> = {}
+  ) => getToDirectory(root, outDir, only(...urls), resolver, { tempDir, fetch: network.fetch, ...options })
 
   describe('round trips', () => {
     it('decrypts an encrypted file whose envelope spans several leaves', async () => {
@@ -396,6 +464,13 @@ describe('get', () => {
       ],
       ['an extra block', async (u) => encodeCar(u.root, [...u.blocks, await block(0x55, randomBytes(64))])],
       [
+        'a duplicated block',
+        (u) => {
+          const [root, a, b, c] = u.blocks as [Block, Block, Block, Block]
+          return encodeCar(u.root, [root, a, a, b, c])
+        },
+      ],
+      [
         'an unrelated block in place of a needed one',
         async (u) => encodeCar(u.root, [...u.blocks.slice(0, -1), await block(0x55, randomBytes(64))]),
       ],
@@ -411,12 +486,17 @@ describe('get', () => {
     ]
 
     it.each(corruptions)('discards %s and uses the next provider', async (_case, corrupt) => {
-      const network = fakeNetwork({ [BAD]: serve(await corrupt(upload)), [GOOD]: serve(upload.car, 50) })
+      // GOOD answers only once BAD's CAR has been rejected and the race runs again.
+      const network = fakeNetwork({ [BAD]: serve(await corrupt(upload)), [GOOD]: secondTime(upload.car) })
+      const logs: string[] = []
 
-      const result = await get(upload.root, network, [BAD, GOOD])
+      const result = await get(upload.root, network, [BAD, GOOD], undefined, { logger: captureLogs(logs) })
 
       expect(result.provider).toBe(GOOD)
       expect(network.fetched(BAD)).toHaveLength(1)
+      expect(network.fetched(GOOD)).toHaveLength(2)
+      const discarded = logs.map((line) => JSON.parse(line)).filter((l) => l.msg === 'Discarded a provider response')
+      expect(discarded.map((l) => l.provider)).toEqual([BAD])
       expect((await readFile(join(outDir, upload.root.toString()))).equals(content)).toBe(true)
       expect(await readdir(tempDir)).toEqual(['download.car'])
     })
@@ -424,7 +504,9 @@ describe('get', () => {
     it.each(corruptions)('fails with %s from the only provider and leaves nothing behind', async (_case, corrupt) => {
       const network = fakeNetwork({ [BAD]: serve(await corrupt(upload)) })
 
-      await expect(get(upload.root, network, [BAD])).rejects.toBeInstanceOf(NoProviderError)
+      await expect(get(upload.root, network, [BAD])).rejects.toThrow(
+        new RegExp(`^1 provider sent invalid data for ${upload.root}: `)
+      )
 
       expect(existsSync(outDir)).toBe(false)
       expect(await readdir(tempDir)).toEqual([])
@@ -434,12 +516,24 @@ describe('get', () => {
       const leaf = upload.blocks[1] as Block
       const blake = CID.create(1, 0x55, Digest.create(0xb220, leaf.cid.multihash.digest))
       const root = await block(0x70, pbNode(new UnixFS({ type: 'file' }), [{ Hash: blake, Tsize: 1 } as never]))
-      const network = fakeNetwork({
-        [BAD]: serve(await encodeCar(root.cid, [root, { cid: blake, bytes: leaf.bytes }])),
-      })
+      const car = await encodeCar(root.cid, [root, { cid: blake, bytes: leaf.bytes }])
+      const network = fakeNetwork({ [BAD]: serve(car), [GOOD]: serve(car) })
 
-      await expect(get(root.cid, network, [BAD])).rejects.toBeInstanceOf(NoProviderError)
-      expect(network.fetched(BAD)).toHaveLength(1)
+      const failure = get(root.cid, network, [BAD, GOOD], undefined, { concurrency: 1 })
+
+      await expect(failure).rejects.toBeInstanceOf(UnsupportedHashError)
+      await expect(failure).rejects.toThrow(`${blake} uses hash 0xb220; only sha2-256 and identity are supported`)
+      // No provider can do better, so none is asked after the first.
+      expect(network.fetched(GOOD)).toHaveLength(0)
+      expect(existsSync(outDir)).toBe(false)
+    })
+
+    it('refuses a requested CID with another hash before any request', async () => {
+      const blake = CID.create(1, 0x55, Digest.create(0xb220, new Uint8Array(32)))
+      const network = fakeNetwork({ [GOOD]: serve(new Uint8Array()) })
+
+      await expect(get(blake, network, [GOOD])).rejects.toBeInstanceOf(UnsupportedHashError)
+      expect(network.calls).toHaveLength(0)
     })
   })
 
@@ -453,8 +547,6 @@ describe('get', () => {
 
     it('takes the first 200 and aborts every other request', async () => {
       const losers = ['https://slow.example', 'https://hang.example']
-      const hang: Handler = (signal) =>
-        new Promise((_resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason)))
       const network = fakeNetwork({
         [GOOD]: serve(upload.car, 20),
         [losers[0] as string]: serve(upload.car, 5_000),
@@ -493,15 +585,14 @@ describe('get', () => {
     it('merges IPNI and own providers, de-duplicated, keeping only HTTP addresses', async () => {
       const ipni = ['/dns/sp1.example/tcp/443/https', '/dns/sp2.example/https', '/ip4/1.2.3.4/tcp/4001']
       const network = fakeNetwork({}, ipni)
-      const { ipniProviderUrls } = await import('../../common/ipfs-car-fetch.js')
 
       await expect(
         getToDirectory(
           upload.root,
           outDir,
           [
-            () => ipniProviderUrls(upload.root, { fetch: network.fetch }),
-            () => Promise.resolve(['https://sp1.example/', 'https://sp3.example']),
+            { name: 'IPNI', find: (signal) => ipniProviderUrls(upload.root, { fetch: network.fetch, signal }) },
+            { name: 'Data set', find: async () => ['https://sp1.example/', 'https://sp3.example'] },
           ],
           ownerKeyResolver(OWNER),
           { tempDir, fetch: network.fetch }
@@ -516,7 +607,9 @@ describe('get', () => {
     it('fails clearly when no provider serves the CID', async () => {
       const network = fakeNetwork({})
 
-      await expect(get(upload.root, network, [])).rejects.toThrow(`No provider serves ${upload.root} over IPFS`)
+      await expect(get(upload.root, network, [GOOD])).rejects.toThrow(
+        `No provider serves ${upload.root} over IPFS. If it was uploaded in the last few minutes, try again in about 20 minutes`
+      )
       expect(existsSync(outDir)).toBe(false)
     })
 
@@ -526,7 +619,10 @@ describe('get', () => {
       const result = await getToDirectory(
         upload.root,
         outDir,
-        [() => Promise.reject(new Error('rpc down')), () => Promise.resolve([GOOD])],
+        [
+          { name: 'Data set', find: () => Promise.reject(new Error('rpc down')) },
+          { name: 'Test', find: async () => [GOOD] },
+        ],
         ownerKeyResolver(OWNER),
         { tempDir, fetch: network.fetch }
       )
@@ -545,11 +641,15 @@ describe('get', () => {
       expect(existsSync(outDir)).toBe(false)
     })
 
-    it('fails on a dag-pb root without UnixFS data and writes nothing', async () => {
+    it('fails on a dag-pb root without UnixFS data, writes nothing and asks no other provider', async () => {
       const root = await block(0x70, dagPb.encode({ Links: [] }))
-      const network = fakeNetwork({ [GOOD]: serve(await encodeCar(root.cid, [root])) })
+      const car = await encodeCar(root.cid, [root])
+      const network = fakeNetwork({ [BAD]: serve(car), [GOOD]: serve(car) })
 
-      await expect(get(root.cid, network, [GOOD])).rejects.toBeInstanceOf(NotUnixfsError)
+      await expect(get(root.cid, network, [BAD, GOOD], undefined, { concurrency: 1 })).rejects.toBeInstanceOf(
+        NotUnixfsError
+      )
+      expect(network.fetched(GOOD)).toHaveLength(0)
       expect(existsSync(outDir)).toBe(false)
     })
 
@@ -622,13 +722,7 @@ describe('get', () => {
     beforeEach(async () => {
       logs = []
       const { getCLILogger } = await import('../../utils/cli-auth.js')
-      const sink = new Writable({
-        write(chunk, _encoding, callback) {
-          logs.push(String(chunk))
-          callback()
-        },
-      })
-      vi.mocked(getCLILogger).mockReturnValue(pino({ level: 'trace' }, sink) as never)
+      vi.mocked(getCLILogger).mockReturnValue(captureLogs(logs) as never)
     })
 
     it('asks IPNI only, with no credentials, and writes plain content', async () => {
@@ -756,7 +850,7 @@ describe('get', () => {
             process.emit(signal)
           },
         })
-        return new Response(body, { status: 200 })
+        return new Response(body, { status: 200, headers: CAR_HEADERS })
       }
       const { cid: root } = await block(0x55, randomBytes(64))
       vi.stubGlobal('fetch', fakeNetwork({ [GOOD]: stalling }, ['/dns/good.example/https']).fetch)
@@ -781,7 +875,7 @@ describe('get', () => {
       const { car } = upload
       const tampered = new Uint8Array(car)
       tampered[tampered.length - 10] = (tampered[tampered.length - 10] ?? 0) ^ 0xff
-      const network = fakeNetwork({ [BAD]: serve(tampered), [GOOD]: serve(car, 50) }, [
+      const network = fakeNetwork({ [BAD]: serve(tampered), [GOOD]: secondTime(car) }, [
         '/dns/bad.example/https',
         '/dns/good.example/https',
       ])
@@ -817,6 +911,492 @@ describe('get', () => {
       ])
       expect(printed).toContain(upload.root.toString())
       expect(printed).not.toContain(plaintextRoot)
+    })
+  })
+
+  describe('timeouts', () => {
+    let upload: { root: CID; blocks: Block[]; car: Uint8Array }
+
+    beforeEach(async () => {
+      await writeFile(join(dir, 'tiny.txt'), 'tiny')
+      upload = await plainUpload(join(dir, 'tiny.txt'))
+    })
+
+    /** `handler`, resolving `started` when it is first called. */
+    const noting = (started: { resolve: () => void }, handler: Handler): Handler => {
+      return (signal) => {
+        started.resolve()
+        return handler(signal)
+      }
+    }
+
+    it(`gives up on a provider that sends no headers within ${RESPONSE_TIMEOUT_MS / 1000} s`, async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      const started = deferred()
+      const network = fakeNetwork({ [BAD]: noting(started, hang) })
+      let settled = false
+      const failure = get(upload.root, network, [BAD]).finally(() => {
+        settled = true
+      })
+      failure.catch(() => undefined)
+      await started.promise
+
+      await vi.advanceTimersByTimeAsync(RESPONSE_TIMEOUT_MS - 1)
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+
+      await expect(failure).rejects.toThrow(
+        `Could not download ${upload.root} from 1 provider: no response in ${RESPONSE_TIMEOUT_MS / 1000} s`
+      )
+      expect(network.fetched(BAD)[0]?.signal?.aborted).toBe(true)
+    })
+
+    it('tries the next provider once the first sends no headers in time', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      const started = deferred()
+      const network = fakeNetwork({ [BAD]: noting(started, hang), [GOOD]: serve(upload.car) })
+      const result = get(upload.root, network, [BAD, GOOD], undefined, { concurrency: 1 })
+      await started.promise
+      expect(network.fetched(GOOD)).toHaveLength(0)
+
+      await vi.advanceTimersByTimeAsync(RESPONSE_TIMEOUT_MS)
+
+      expect((await result).provider).toBe(GOOD)
+    })
+
+    /** A 200 whose body sends the first `head` bytes of `car`, then nothing, ever. */
+    const stalls = (car: Uint8Array, head: number, stalled: { resolve: () => void }): Handler => {
+      return async () => {
+        let sent = false
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (!sent) {
+              sent = true
+              controller.enqueue(car.slice(0, head))
+              return
+            }
+            stalled.resolve()
+            return new Promise<void>(() => undefined)
+          },
+        })
+        return new Response(body, { status: 200, headers: CAR_HEADERS })
+      }
+    }
+
+    it(`drops a body that stalls for ${BODY_IDLE_TIMEOUT_MS / 1000} s and uses the next provider`, async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      const stalled = deferred()
+      const network = fakeNetwork({ [BAD]: stalls(upload.car, 20, stalled), [GOOD]: serve(upload.car) })
+      const result = get(upload.root, network, [BAD, GOOD], undefined, { concurrency: 1 })
+      await stalled.promise
+
+      await vi.advanceTimersByTimeAsync(BODY_IDLE_TIMEOUT_MS)
+
+      expect((await result).provider).toBe(GOOD)
+      expect(network.fetched(BAD)[0]?.signal?.aborted).toBe(true)
+      expect(await readdir(tempDir)).toEqual(['download.car'])
+    })
+
+    it('reports the stall when no other provider is left', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      const stalled = deferred()
+      const network = fakeNetwork({ [BAD]: stalls(upload.car, 20, stalled) })
+      const failure = get(upload.root, network, [BAD])
+      failure.catch(() => undefined)
+      await stalled.promise
+
+      await vi.advanceTimersByTimeAsync(BODY_IDLE_TIMEOUT_MS)
+
+      await expect(failure).rejects.toThrow(`no data for ${BODY_IDLE_TIMEOUT_MS / 1000} s`)
+      expect(await readdir(tempDir)).toEqual([])
+    })
+
+    it('stops waiting for a source that ignores its abort signal', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      const started = deferred()
+      const deaf: ProviderSource = {
+        name: 'Data set',
+        find: () => {
+          started.resolve()
+          return new Promise<string[]>(() => undefined)
+        },
+      }
+      const failure = getToDirectory(upload.root, outDir, [deaf], ownerKeyResolver(OWNER), {
+        tempDir,
+        fetch: fakeNetwork({}).fetch,
+      })
+      failure.catch(() => undefined)
+      await started.promise
+
+      await vi.advanceTimersByTimeAsync(DISCOVERY_TIMEOUT_MS)
+
+      await expect(failure).rejects.toThrow(`Data set lookup failed: timed out after ${DISCOVERY_TIMEOUT_MS / 1000} s`)
+    })
+
+    it('ends with a discovery error when IPNI never answers and no address is set', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      const started = deferred()
+      vi.stubGlobal('fetch', fakeNetwork({}, noting(started, hang)).fetch)
+      const failure = runGet(upload.root.toString(), outDir, {})
+      failure.catch(() => undefined)
+      await started.promise
+
+      await vi.advanceTimersByTimeAsync(DISCOVERY_TIMEOUT_MS)
+
+      await expect(failure).rejects.toThrow(
+        `Could not look up providers for ${upload.root}: IPNI lookup failed: timed out after ${DISCOVERY_TIMEOUT_MS / 1000} s`
+      )
+    })
+  })
+
+  describe('responses', () => {
+    let upload: { root: CID; blocks: Block[]; car: Uint8Array }
+
+    beforeEach(async () => {
+      await writeFile(join(dir, 'tiny.txt'), 'tiny')
+      upload = await plainUpload(join(dir, 'tiny.txt'))
+    })
+
+    it.each([206, 204])('does not accept HTTP %i', async (status) => {
+      const body = status === 204 ? null : new Uint8Array(upload.car)
+      const network = fakeNetwork({ [BAD]: async () => new Response(body, { status, headers: CAR_HEADERS }) })
+
+      await expect(get(upload.root, network, [BAD])).rejects.toThrow(`from 1 provider: HTTP ${status}`)
+      expect(existsSync(outDir)).toBe(false)
+    })
+
+    it('does not accept a response that is not a CAR', async () => {
+      const network = fakeNetwork({
+        [BAD]: async () => new Response(new Uint8Array(upload.car), { headers: { 'content-type': 'text/html' } }),
+      })
+
+      await expect(get(upload.root, network, [BAD])).rejects.toThrow('content type text/html, not a CAR')
+    })
+
+    it('fetches an origin listed by two sources at once only once', async () => {
+      const network = fakeNetwork({ [GOOD]: serve(upload.car) })
+      const sources: ProviderSource[] = [
+        { name: 'IPNI', find: async () => [GOOD] },
+        { name: 'Data set', find: async () => [`${GOOD}/`] },
+      ]
+
+      await getToDirectory(upload.root, outDir, sources, ownerKeyResolver(OWNER), { tempDir, fetch: network.fetch })
+
+      expect(network.fetched(GOOD)).toHaveLength(1)
+    })
+
+    it('says which lookup failed, without URLs', async () => {
+      const network = fakeNetwork({}, async () => new Response('busy', { status: 503 }))
+      const sources: ProviderSource[] = [
+        { name: 'IPNI', find: (signal) => ipniProviderUrls(upload.root, { fetch: network.fetch, signal }) },
+        {
+          name: 'Data set',
+          find: () => Promise.reject(new Error('request to https://rpc.example/v1/SECRET-API-KEY failed')),
+        },
+      ]
+
+      const failure = getToDirectory(upload.root, outDir, sources, ownerKeyResolver(OWNER), {
+        tempDir,
+        fetch: network.fetch,
+      })
+
+      const message = String(await failure.catch((e: unknown) => (e as Error).message))
+      expect(message.startsWith(`Could not look up providers for ${upload.root}: `)).toBe(true)
+      expect(message).toContain('IPNI lookup failed: HTTP 503')
+      expect(message).toContain('Data set lookup failed: request to <url> failed')
+      expect(message).not.toContain('SECRET')
+      await expect(failure).rejects.toBeInstanceOf(FetchFailedError)
+    })
+
+    it('counts the providers that sent invalid data', async () => {
+      const tampered = new Uint8Array(upload.car)
+      tampered[tampered.length - 1] = (tampered[tampered.length - 1] ?? 0) ^ 0xff
+      const network = fakeNetwork({ [BAD]: serve(tampered), [GOOD]: serve(tampered) })
+
+      await expect(get(upload.root, network, [BAD, GOOD])).rejects.toThrow(
+        new RegExp(`^2 providers sent invalid data for ${upload.root}: block \\S+ does not match its CID$`)
+      )
+    })
+
+    it('treats an FEE envelope for something other than a CAR as a plain file', async () => {
+      const { cek, appMetadata } = pieceKey()
+      const sealed = new Blob([new TextEncoder().encode('not a CAR inside')])
+        .stream()
+        .pipeThrough(fee.encrypt({ cek, contentType: 'text/plain', appMetadata }))
+      const envelope = Buffer.from(await new Response(sealed).arrayBuffer())
+      await writeFile(join(dir, 'other.fee'), envelope)
+      const other = await plainUpload(join(dir, 'other.fee'))
+      const resolver = vi.fn(ownerKeyResolver(OWNER))
+
+      const result = await get(other.root, fakeNetwork({ [GOOD]: serve(other.car) }), [GOOD], resolver)
+
+      expect(result).toMatchObject({ encrypted: false, path: join(outDir, other.root.toString()) })
+      expect((await readFile(result.path)).equals(envelope)).toBe(true)
+      expect(resolver).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('CID forms', () => {
+    let content: Buffer
+    let upload: { root: CID; blocks: Block[]; car: Uint8Array }
+
+    beforeEach(async () => {
+      content = randomBytes(1.5 * MiB)
+      await writeFile(join(dir, 'plain.bin'), content)
+      upload = await plainUpload(join(dir, 'plain.bin'))
+      expect(upload.root.code).toBe(0x70)
+    })
+
+    it('fetches a CIDv1 request from a CAR keyed by CIDv0', async () => {
+      const v0 = upload.root.toV0()
+      const [root, ...leaves] = upload.blocks as [Block, ...Block[]]
+      const car = await encodeCar(v0, [{ cid: v0, bytes: root.bytes }, ...leaves])
+
+      const result = await get(upload.root, fakeNetwork({ [GOOD]: serve(car) }), [GOOD])
+
+      expect((await readFile(result.path)).equals(content)).toBe(true)
+    })
+
+    it('fetches a CIDv0 request from a CAR keyed by CIDv1', async () => {
+      const v0 = upload.root.toV0()
+
+      const result = await get(v0, fakeNetwork({ [GOOD]: serve(upload.car) }), [GOOD])
+
+      expect(result.path).toBe(join(outDir, v0.toString()))
+      expect((await readFile(result.path)).equals(content)).toBe(true)
+    })
+
+    describe('an identity dag-pb node with links', () => {
+      let leaf: Block
+      let root: Block
+
+      beforeEach(async () => {
+        leaf = await block(0x55, new TextEncoder().encode('inline parent, linked leaf'))
+        const fileNode = pbNode(new UnixFS({ type: 'file', blockSizes: [BigInt(leaf.bytes.length)] }), [
+          { Hash: leaf.cid, Tsize: leaf.bytes.length },
+        ] as never)
+        const inline = CID.create(1, 0x70, Digest.create(0x00, fileNode))
+        root = await block(
+          0x70,
+          pbNode(new UnixFS({ type: 'directory' }), [{ Name: 'f.txt', Hash: inline, Tsize: fileNode.length }] as never)
+        )
+      })
+
+      it('verifies the leaf a gateway sends for it', async () => {
+        const network = fakeNetwork({ [GOOD]: serve(await encodeCar(root.cid, [root, leaf])) })
+
+        const result = await get(root.cid, network, [GOOD])
+
+        expect(await readFile(join(result.path, 'f.txt'), 'utf8')).toBe('inline parent, linked leaf')
+      })
+
+      it('treats a missing leaf as an incomplete download and tries the next provider', async () => {
+        const network = fakeNetwork({
+          [BAD]: serve(await encodeCar(root.cid, [root])),
+          [GOOD]: secondTime(await encodeCar(root.cid, [root, leaf])),
+        })
+
+        const result = await get(root.cid, network, [BAD, GOOD])
+
+        expect(result.provider).toBe(GOOD)
+        expect(network.fetched(BAD)).toHaveLength(1)
+      })
+    })
+  })
+
+  describe('size limits', () => {
+    let upload: { root: CID; blocks: Block[]; car: Uint8Array }
+
+    beforeEach(async () => {
+      await writeFile(join(dir, 'plain.bin'), randomBytes(1.5 * MiB))
+      upload = await plainUpload(join(dir, 'plain.bin'))
+    })
+
+    it('refuses a declared Content-Length over the cap before reading the body', async () => {
+      const pulled = vi.fn()
+      const network = fakeNetwork({
+        [BAD]: async () =>
+          new Response(new ReadableStream({ pull: pulled }), {
+            headers: { ...CAR_HEADERS, 'content-length': String(upload.car.length) },
+          }),
+      })
+
+      await expect(get(upload.root, network, [BAD], undefined, { maxCarBytes: 1000 })).rejects.toThrow(
+        `the CAR is ${upload.car.length} bytes, more than 1000`
+      )
+      expect(existsSync(outDir)).toBe(false)
+    })
+
+    it('stops a body that grows past the cap', async () => {
+      const network = fakeNetwork({ [BAD]: serve(upload.car) })
+
+      await expect(get(upload.root, network, [BAD], undefined, { maxCarBytes: 1000 })).rejects.toThrow(
+        'the CAR is larger than 1000 bytes'
+      )
+      expect(await readdir(tempDir)).toEqual([])
+    })
+
+    it('refuses a section longer than the block limit before reading it', async () => {
+      const header = dagCbor.encode({ version: 1, roots: [upload.root] })
+      const forged = Buffer.concat([encodeVarint(header.length), header, encodeVarint(3 * MiB), randomBytes(64)])
+
+      await expect(get(upload.root, fakeNetwork({ [BAD]: serve(forged) }), [BAD])).rejects.toThrow(
+        `a CAR section is ${3 * MiB} bytes, more than the ${2 * MiB}-byte block limit`
+      )
+    })
+
+    it('refuses a CARv2', async () => {
+      const header = dagCbor.encode({ version: 2 })
+      const v2 = Buffer.concat([encodeVarint(header.length), header, randomBytes(40)])
+
+      await expect(get(upload.root, fakeNetwork({ [BAD]: serve(v2) }), [BAD])).rejects.toThrow(
+        'CAR version 2; only CARv1 is accepted'
+      )
+    })
+
+    it('refuses plain content larger than the free space, writing nothing', async () => {
+      const { statfs } = await import('node:fs/promises')
+      vi.mocked(statfs).mockResolvedValueOnce({ bavail: 1, bsize: 4096 } as never)
+
+      const failure = get(upload.root, fakeNetwork({ [GOOD]: serve(upload.car) }), [GOOD])
+
+      await expect(failure).rejects.toBeInstanceOf(NotEnoughSpaceError)
+      await expect(failure).rejects.toThrow(`needs ${1.5 * MiB} bytes but only 4096 bytes are free in ${outDir}`)
+      expect(existsSync(outDir)).toBe(false)
+    })
+
+    it('counts a leaf as often as it is linked', async () => {
+      const leaf = upload.blocks[1] as Block
+      const size = BigInt(leaf.bytes.length)
+      const links = Array.from({ length: 1000 }, () => ({ Hash: leaf.cid, Tsize: leaf.bytes.length }))
+      const bomb = await block(
+        0x70,
+        pbNode(new UnixFS({ type: 'file', blockSizes: links.map(() => size) }), links as never)
+      )
+      const { statfs } = await import('node:fs/promises')
+      vi.mocked(statfs).mockResolvedValueOnce({ bavail: 10 * MiB, bsize: 1 } as never)
+
+      const failure = get(bomb.cid, fakeNetwork({ [GOOD]: serve(await encodeCar(bomb.cid, [bomb, leaf])) }), [GOOD])
+
+      await expect(failure).rejects.toThrow(`needs ${1000n * size} bytes but only ${10 * MiB} bytes are free`)
+      expect(existsSync(outDir)).toBe(false)
+    })
+  })
+
+  describe('isUnsafeName', () => {
+    it.each([
+      'CON',
+      'con.txt',
+      'nul',
+      'COM1.log',
+      'LPT9',
+      'a:b',
+      'what?',
+      'a*b',
+      'x<y',
+      'x>y',
+      'say"hi"',
+      'pipe|d',
+      'tab\there',
+      'dot.',
+      'space ',
+    ])('refuses %j on Windows', (name) => {
+      expect(isUnsafeName(name, 'win32')).toBe(true)
+    })
+
+    it.each(['CON', 'a:b', 'dot.', 'space '])('keeps %j elsewhere', (name) => {
+      expect(isUnsafeName(name, 'linux')).toBe(false)
+      expect(isUnsafeName(name, 'darwin')).toBe(false)
+    })
+
+    it.each(['console.txt', 'COM10', 'report.pdf', '.env'])('keeps %j on Windows', (name) => {
+      expect(isUnsafeName(name, 'win32')).toBe(false)
+    })
+
+    it.each(['', '.', '..', 'a/b', 'a\\b', 'a\0b'])('refuses %j everywhere', (name) => {
+      expect(isUnsafeName(name, 'linux')).toBe(true)
+      expect(isUnsafeName(name, 'win32')).toBe(true)
+    })
+  })
+
+  describe('runGet cleanup', () => {
+    let osTmp: string
+
+    beforeEach(async () => {
+      osTmp = join(dir, 'os-tmp')
+      await mkdir(osTmp)
+      vi.stubEnv('TMPDIR', osTmp)
+      vi.stubEnv('TEMP', osTmp)
+      vi.stubEnv('TMP', osTmp)
+      const { getCLILogger } = await import('../../utils/cli-auth.js')
+      vi.mocked(getCLILogger).mockReturnValue(captureLogs([]) as never)
+    })
+
+    it('leaves the temp dir empty after a success and after a failure', async () => {
+      await writeFile(join(dir, 'tiny.txt'), 'tiny')
+      const upload = await plainUpload(join(dir, 'tiny.txt'))
+      vi.stubGlobal('fetch', fakeNetwork({ [GOOD]: serve(upload.car) }, ['/dns/good.example/https']).fetch)
+
+      await runGet(upload.root.toString(), outDir, {})
+      expect(await readdir(osTmp)).toEqual([])
+
+      vi.stubGlobal('fetch', fakeNetwork({}).fetch)
+      await expect(runGet(upload.root.toString(), outDir, {})).rejects.toThrow(/No provider serves/)
+      expect(await readdir(osTmp)).toEqual([])
+    })
+
+    it('keeps an output dir it created once another writer put something in it', async () => {
+      const file = await block(0x55, new TextEncoder().encode('a'))
+      const link = await block(0x70, pbNode(new UnixFS({ type: 'symlink', data: new TextEncoder().encode('/etc') })))
+      const root = await block(
+        0x70,
+        pbNode(new UnixFS({ type: 'directory' }), [
+          { Name: 'a.txt', Hash: file.cid, Tsize: 1 },
+          { Name: 'evil', Hash: link.cid, Tsize: link.bytes.length },
+        ] as never)
+      )
+      const car = await encodeCar(root.cid, [root, file, link])
+      vi.stubGlobal('fetch', fakeNetwork({ [GOOD]: serve(car) }, ['/dns/good.example/https']).fetch)
+      claimHook.after = () => writeFileSync(join(outDir, 'theirs.txt'), 'not ours')
+
+      await expect(runGet(root.cid.toString(), outDir, {})).rejects.toThrow(/symlink/)
+
+      expect(await readdir(outDir)).toEqual(['theirs.txt'])
+    })
+
+    it('never surfaces an entry name from inside a failing envelope', async () => {
+      // A plaintext CAR whose folder `secret-inner-name` holds an entry named `..`: unpacking
+      // refuses it with an error naming the folder.
+      const leaf = await block(0x55, new TextEncoder().encode('x'))
+      const inner = await block(
+        0x70,
+        pbNode(new UnixFS({ type: 'directory' }), [{ Name: '..', Hash: leaf.cid, Tsize: 1 }] as never)
+      )
+      const wrapper = await block(
+        0x70,
+        pbNode(new UnixFS({ type: 'directory' }), [
+          { Name: 'secret-inner-name', Hash: inner.cid, Tsize: inner.bytes.length },
+        ] as never)
+      )
+      const plaintext = await encodeCar(wrapper.cid, [wrapper, inner, leaf])
+      const { cek, appMetadata } = pieceKey()
+      const sealed = new Blob([new Uint8Array(plaintext)])
+        .stream()
+        .pipeThrough(fee.encrypt({ cek, contentType: CAR_CONTENT_TYPE, appMetadata }))
+      await writeFile(join(dir, 'crafted.fee'), Buffer.from(await new Response(sealed).arrayBuffer()))
+      const upload = await plainUpload(join(dir, 'crafted.fee'))
+      vi.stubGlobal('fetch', fakeNetwork({ [GOOD]: serve(upload.car) }, ['/dns/good.example/https']).fetch)
+      const helpers = await import('../../utils/cli-helpers.js')
+
+      const error = await runGet(upload.root.toString(), outDir, { privateKey: OWNER_KEY }).catch((e: unknown) => e)
+
+      expect(errorChain(error)).toContain('malformed or unsafe to unpack')
+      const printed = JSON.stringify([
+        errorChain(error),
+        vi.mocked(helpers.cancel).mock.calls,
+        vi.mocked(helpers.createSpinner).mock.results.map((r) => (r.value as { stop: { mock: unknown } }).stop.mock),
+      ])
+      expect(printed).not.toContain('secret-inner-name')
     })
   })
 })

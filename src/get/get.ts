@@ -15,7 +15,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { CliFatal, EXIT_CODE_INCOMPLETE, isCliIncomplete } from '../common/cli-errors.js'
 import { checkOutputDir, removeDecryptOutput } from '../common/encryption.js'
 import { type OwnerSigner, ownerKeyResolver } from '../common/group-key.js'
-import { ipniProviderUrls, ownProviderUrls } from '../common/ipfs-car-fetch.js'
+import { ipniProviderUrls, ownProviderUrls, type ProviderSource } from '../common/ipfs-car-fetch.js'
 import { getToDirectory } from '../common/ipfs-get.js'
 import { initializeSynapse, type SynapseSetupConfig } from '../core/synapse/index.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
@@ -51,8 +51,13 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
   // Ctrl-C, kill and a closed terminal: clack's spinner exits the process on SIGINT before any
   // `finally` runs. Registered before the spinner starts so they run first.
   const onSignal = (): void => {
-    removeDecryptOutput(outDir, !outExists, claimed)
-    if (tempDir != null) rmSync(tempDir, { recursive: true, force: true })
+    // A cleanup error (a locked file on Windows) must never keep the process from exiting.
+    try {
+      removeDecryptOutput(outDir, !outExists, claimed)
+    } catch {
+      // Exit anyway; the next run reports what is left.
+    }
+    removeTemp(tempDir)
     process.exit(EXIT_CODE_INCOMPLETE)
   }
   const cleanupSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
@@ -75,12 +80,13 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
     tempDir = await mkdtemp(join(tmpdir(), 'filecoin-pin-get-'))
     for (const signal of cleanupSignals) process.once(signal, onSignal)
     spinner.start('Finding providers and downloading...')
-    const findProviders = [() => ipniProviderUrls(cid, { logger })]
-    if (address != null) findProviders.push(() => ownProviders(auth, address, logger))
+    const sources: ProviderSource[] = [{ name: 'IPNI', find: (signal) => ipniProviderUrls(cid, { signal }) }]
+    // initializeSynapse and listDataSets take no signal; the source deadline still ends the wait.
+    if (address != null) sources.push({ name: 'Data set', find: () => ownProviders(auth, address, logger) })
     const onClaim = (path: string): void => {
       claimed = path
     }
-    const result = await getToDirectory(cid, outDir, findProviders, ownerKeyResolver(signer), {
+    const result = await getToDirectory(cid, outDir, sources, ownerKeyResolver(signer), {
       tempDir,
       logger,
       onClaim,
@@ -99,9 +105,20 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
     const message = error instanceof Error ? error.message : String(error)
     spinner.stop(`${pc.red('✗')} Get failed: ${message}`)
     cancel('Get failed')
-    throw new CliFatal(message, { cause: error instanceof Error ? error : undefined })
+    // No `cause`: a decrypt error's original may name entries inside the envelope.
+    throw new CliFatal(message)
   } finally {
     for (const signal of cleanupSignals) process.off(signal, onSignal)
-    if (tempDir != null) rmSync(tempDir, { recursive: true, force: true })
+    removeTemp(tempDir)
+  }
+}
+
+/** Best effort: a temp file left behind must not turn a finished get into a failure. */
+function removeTemp(tempDir: string | undefined): void {
+  if (tempDir == null) return
+  try {
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 3 })
+  } catch {
+    // Left in the OS temp dir, which the OS cleans.
   }
 }

@@ -83,14 +83,30 @@ interface DecodedNode {
   unixfs: UnixFS | undefined
 }
 
+/** Characters Windows refuses in a file name: `<>:"|?*` and the control characters. */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point
+const WINDOWS_FORBIDDEN = /[<>:"|?*\x00-\x1f]/
+/** Device names Windows reserves in any directory, with or without an extension. */
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
+
 /**
  * A link name that could escape or alias a path when the tree is written to disk.
- * `\` is a separator on Windows, so `..\x` would escape there.
+ * `\` is a separator on Windows, so `..\x` would escape there. On Windows also the names it
+ * cannot create or silently changes: forbidden characters, a trailing dot or space, and
+ * reserved device names (`CON`, `nul.txt`, ...). Elsewhere those are ordinary names and kept.
  */
-export function isUnsafeName(name: string): boolean {
-  return (
-    name === '' || name === '.' || name === '..' || name.includes('/') || name.includes('\\') || name.includes('\0')
-  )
+export function isUnsafeName(name: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (
+    name === '' ||
+    name === '.' ||
+    name === '..' ||
+    name.includes('/') ||
+    name.includes('\\') ||
+    name.includes('\0')
+  ) {
+    return true
+  }
+  return platform === 'win32' && (WINDOWS_FORBIDDEN.test(name) || /[. ]$/.test(name) || WINDOWS_RESERVED.test(name))
 }
 
 /**
