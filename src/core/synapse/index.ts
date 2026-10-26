@@ -197,7 +197,7 @@ function checkSessionKeyPermissions(
   // compete with the only fix that works for an expired key: run login.
   if (state === 'expired') {
     throw new Error(
-      `Session expired (key ${key.address}, grants lapsed ${latestExpiryDate(key)})\n  Renew it:  filecoin-pin login`
+      `Session expired (key ${key.address}, grants lapsed ${latestExpiryDate(key)})\n  Renew it:  filecoin-pin login${grantRenewalHint()}`
     )
   }
   const neverAuthorized = state === 'never'
@@ -235,7 +235,17 @@ function checkSessionKeyPermissions(
   lines.push('')
   lines.push('Then re-run this command.')
 
-  throw new Error(lines.join('\n'))
+  throw new Error(`${lines.join('\n')}${grantRenewalHint()}`)
+}
+
+/**
+ * With a group key Grant in use, re-authorizing the key does not renew the Grant: it keeps
+ * the expiry it was issued with. Empty without one.
+ */
+function grantRenewalHint(): string {
+  const grant = process.env.GROUP_KEY_GRANT
+  if (grant == null || grant === '') return ''
+  return '\nA group key Grant is in use for this key: re-authorizing extends the session key, but the Grant keeps its old expiry. Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt` to get a new Grant.'
 }
 
 /**

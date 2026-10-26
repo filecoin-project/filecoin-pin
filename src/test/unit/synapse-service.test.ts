@@ -234,6 +234,41 @@ describe('synapse-service', () => {
       expect(error?.message).not.toContain('session authorize')
     })
 
+    it.each([
+      ['expired', 1000n],
+      ['never authorized', 0n],
+    ])('with a Grant in use, says a %s key needs a new Grant too, and not otherwise', async (_case, expiry) => {
+      const config: SynapseSetupConfig = {
+        walletAddress: '0x0000000000000000000000000000000000000002',
+        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
+        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
+        requiredPermissions: [AddPiecesPermission],
+      }
+      const expirations = {
+        [CreateDataSetPermission]: expiry,
+        [AddPiecesPermission]: expiry,
+        [SchedulePieceRemovalsPermission]: 0n,
+        [TerminateServicePermission]: 0n,
+      }
+      const failure = async () => {
+        mockSessionKeyOnce(() => false, expirations)
+        return initializeSynapse(config, logger).then(
+          () => '',
+          (e: unknown) => (e as Error).message
+        )
+      }
+      const hint = /Grant keeps its old expiry\. Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt`/
+
+      vi.stubEnv('GROUP_KEY_GRANT', '')
+      expect(await failure()).not.toMatch(hint)
+      vi.stubEnv('GROUP_KEY_GRANT', 'fgr1_saved')
+      try {
+        expect(await failure()).toMatch(hint)
+      } finally {
+        vi.unstubAllEnvs()
+      }
+    })
+
     it("should use the 'never authorized, or expired/revoked' wording when the key holds no live grant", async () => {
       mockSessionKeyOnce(() => false, {
         [CreateDataSetPermission]: 0n,
