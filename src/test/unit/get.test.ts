@@ -836,7 +836,8 @@ describe('get', () => {
         throw new CliIncomplete('exit')
       })
       await mkdir(fakeTmp)
-      vi.stubEnv('TMPDIR', fakeTmp)
+      // os.tmpdir() reads TMPDIR on POSIX and TEMP/TMP on Windows.
+      for (const name of ['TMPDIR', 'TEMP', 'TMP']) vi.stubEnv(name, fakeTmp)
       const stalling: Handler = async () => {
         let sent = false
         const body = new ReadableStream<Uint8Array>({
@@ -1325,7 +1326,8 @@ describe('get', () => {
     beforeEach(async () => {
       osTmp = join(dir, 'os-tmp')
       await mkdir(osTmp)
-      vi.stubEnv('TMPDIR', osTmp)
+      // os.tmpdir() reads TMPDIR on POSIX and TEMP/TMP on Windows.
+      for (const name of ['TMPDIR', 'TEMP', 'TMP']) vi.stubEnv(name, osTmp)
       vi.stubEnv('TEMP', osTmp)
       vi.stubEnv('TMP', osTmp)
       const { getCLILogger } = await import('../../utils/cli-auth.js')
