@@ -3,7 +3,6 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { claimEntry, NoFreeNameError, numberedName } from '../../common/claim-output.js'
@@ -81,7 +80,8 @@ describe('claimEntry', () => {
   })
 
   it('never hands the same name to two processes claiming at once', async () => {
-    const module = fileURLToPath(new URL('../../common/claim-output.ts', import.meta.url))
+    // A file:// URL, not a path: on Windows an absolute path is not a valid import specifier.
+    const module = new URL('../../common/claim-output.ts', import.meta.url).href
     const script = `import { claimEntry } from ${JSON.stringify(module)}
 for (let i = 0; i < 100; i++) console.log(claimEntry(process.argv[1], 'report.pdf', 'file'))`
     const claimers = Array.from({ length: 4 }, () =>
