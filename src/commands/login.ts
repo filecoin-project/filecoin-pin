@@ -3,7 +3,7 @@
  *
  * `login` pairs this machine with a wallet through the Filecoin Cloud
  * console: it generates a scoped session key, the owner approves it in the
- * browser, and the CLI waits for the grant on-chain. With `encrypt` in
+ * browser, and the CLI waits for the authorization on-chain. With `encrypt` in
  * `--scopes` it also takes the group key Grant the console issues. `logout`
  * forgets the saved key and its Grant.
  */
@@ -32,8 +32,11 @@ export const loginCommand = new Command('login')
   )
   .option('--fresh', 'Generate a new session key instead of resuming the saved one')
   .option('--no-browser', 'Print the console link without opening a browser')
-  .option('--no-wait', 'Print the console link and exit 2 instead of waiting for the grant; rerun login to check')
-  .option('--timeout <seconds>', 'How long to wait for the grant (default: 300)', parseTimeoutSeconds)
+  .option(
+    '--no-wait',
+    'Print the console link and exit 2 instead of waiting for the authorization; rerun login to check'
+  )
+  .option('--timeout <seconds>', 'How long to wait for the authorization (default: 300)', parseTimeoutSeconds)
   .addHelpText(
     'after',
     `
@@ -54,7 +57,9 @@ ${pc.bold('FILES')}
 ${pc.bold('GROUP KEY GRANTS')}
   With encrypt, the console also wraps your group key to this session key.
   On a terminal, login asks you to paste the Grant; otherwise (and with
-  --no-wait) it prints the resume command and never blocks. The Grant gives
+  --no-wait) it prints the resume command and never blocks. A --grant given
+  before the key is authorized is not imported with --no-wait: rerun it after
+  approving. The Grant gives
   this key permanent read access to the whole group key, including future
   uploads: expiry and revoking the key do not take it back.
 
@@ -65,7 +70,7 @@ ${pc.bold('ENVIRONMENT')}
 
 ${pc.bold('EXIT CODES')}
   0  every requested scope was granted (and the Grant saved, with encrypt)
-  2  no grant seen in time, --no-wait, fewer scopes than requested, or the Grant
+  2  no authorization seen in time, --no-wait, fewer scopes than requested, or the Grant
      is still to come (rerun login, or login --grant, to resume)
   1  error, including a network the console has no pairing page for`
   )
