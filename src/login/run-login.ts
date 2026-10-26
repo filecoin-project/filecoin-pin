@@ -74,7 +74,7 @@ function scopeList(permissions: readonly Permission[]): string {
 }
 
 /** Credentials in the shell that would shadow the saved login for every later command. */
-const SHADOWING_ENV_VARS = ['PRIVATE_KEY', 'SESSION_KEY', 'VIEW_ADDRESS'] as const
+const SHADOWING_ENV_VARS = ['PRIVATE_KEY', 'SESSION_KEY', 'VIEW_ADDRESS', 'GROUP_KEY_GRANT'] as const
 
 /** `--scopes` token that asks the console for a group key Grant. Not an on-chain permission. */
 const ENCRYPT_SCOPE = 'encrypt'
@@ -388,12 +388,6 @@ export async function runLogin(
         `${pc.yellow('⚠')} ${name} is set in this shell and takes precedence over the saved login. Unset it to use this session key.`
       )
     }
-  }
-  // Not shadowing: a Grant goes with its session key's source (see bindGrantToSessionKey).
-  if (process.env.GROUP_KEY_GRANT !== undefined && process.env.GROUP_KEY_GRANT !== '') {
-    log.line(
-      `${pc.yellow('⚠')} GROUP_KEY_GRANT is set in this shell; it is ignored while the saved login's session key is used.`
-    )
   }
   const scopeNote = options.scopes === undefined ? ' (defaults — override with --scopes)' : ''
   const grantNote = wantGrant ? ` + ${ENCRYPT_SCOPE} (group key Grant)` : ''

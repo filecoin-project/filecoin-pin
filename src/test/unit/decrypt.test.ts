@@ -195,7 +195,7 @@ describe('runDecrypt', () => {
       await useGrant()
 
       await expect(runDecrypt(encryptedPath, outputDir, { ...session, network: 'mainnet' })).rejects.toThrow(
-        /Grant from the environment was ignored: .*another network.*filecoin-pin login --scopes/
+        /Grant in GROUP_KEY_GRANT was ignored: .*another network.*filecoin-pin login --scopes/
       )
     })
   })

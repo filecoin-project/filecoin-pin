@@ -234,34 +234,6 @@ describe('synapse-service', () => {
       expect(error?.message).not.toContain('session authorize')
     })
 
-    it.each([
-      ['expired', 1000n],
-      ['never authorized', 0n],
-    ])("appends the caller's authorization hint to a %s key's error, and nothing without one", async (_case, expiry) => {
-      const config: SynapseSetupConfig = {
-        walletAddress: '0x0000000000000000000000000000000000000002',
-        sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
-        rpcUrl: 'wss://wss.calibration.node.glif.io/apigw/lotus/rpc/v1',
-        requiredPermissions: [AddPiecesPermission],
-      }
-      const expirations = {
-        [CreateDataSetPermission]: expiry,
-        [AddPiecesPermission]: expiry,
-        [SchedulePieceRemovalsPermission]: 0n,
-        [TerminateServicePermission]: 0n,
-      }
-      const failure = async (extra: Partial<SynapseSetupConfig>) => {
-        mockSessionKeyOnce(() => false, expirations)
-        return initializeSynapse({ ...config, ...extra } as SynapseSetupConfig, logger).then(
-          () => '',
-          (e: unknown) => (e as Error).message
-        )
-      }
-
-      expect(await failure({})).not.toContain('Caller hint')
-      expect(await failure({ authorizationHint: 'Caller hint: do this too.' })).toMatch(/\nCaller hint: do this too\.$/)
-    })
-
     it("should use the 'never authorized, or expired/revoked' wording when the key holds no live grant", async () => {
       mockSessionKeyOnce(() => false, {
         [CreateDataSetPermission]: 0n,

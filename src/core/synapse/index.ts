@@ -73,11 +73,6 @@ interface BaseSynapseConfig {
    * Leave unset for read-only commands — they need no permissions.
    */
   requiredPermissions?: Permission[]
-  /**
-   * Session-key mode only: a line the caller adds to the error when the key is expired or
-   * lacks a required permission, for remedies only the caller knows about.
-   */
-  authorizationHint?: string
 }
 
 /**
@@ -191,8 +186,7 @@ function checkSessionKeyPermissions(
   ownerAddress: string,
   required: Permission[],
   chainId: number,
-  networkName: string,
-  hint: string | undefined
+  networkName: string
 ): void {
   const missing = required.filter((p) => !key.hasPermission(p))
   if (missing.length === 0) return
@@ -203,7 +197,7 @@ function checkSessionKeyPermissions(
   // compete with the only fix that works for an expired key: run login.
   if (state === 'expired') {
     throw new Error(
-      `Session expired (key ${key.address}, grants lapsed ${latestExpiryDate(key)})\n  Renew it:  filecoin-pin login${hintLine(hint)}`
+      `Session expired (key ${key.address}, grants lapsed ${latestExpiryDate(key)})\n  Renew it:  filecoin-pin login`
     )
   }
   const neverAuthorized = state === 'never'
@@ -241,12 +235,7 @@ function checkSessionKeyPermissions(
   lines.push('')
   lines.push('Then re-run this command.')
 
-  throw new Error(`${lines.join('\n')}${hintLine(hint)}`)
-}
-
-/** The caller's {@link BaseSynapseConfig.authorizationHint} as a final line, or nothing. */
-function hintLine(hint: string | undefined): string {
-  return hint == null || hint === '' ? '' : `\n${hint}`
+  throw new Error(lines.join('\n'))
 }
 
 /**
@@ -303,14 +292,7 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
       throw new Error(`Invalid --session-key / SESSION_KEY: ${reason}`, { cause: error })
     }
     await sessionKey.syncExpirations()
-    checkSessionKeyPermissions(
-      sessionKey,
-      walletAddress,
-      config.requiredPermissions ?? [],
-      chain.id,
-      chain.name,
-      config.authorizationHint
-    )
+    checkSessionKeyPermissions(sessionKey, walletAddress, config.requiredPermissions ?? [], chain.id, chain.name)
     logger?.info({ event: 'synapse.init', mode: 'session-key' }, 'Initializing Synapse (session key)')
   } else if (isPrivateKeyConfig(config)) {
     account = privateKeyToAccount(config.privateKey)

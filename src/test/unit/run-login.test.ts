@@ -491,25 +491,6 @@ describe('runLogin', () => {
       expect(readSessionFile(sessionPath())).not.toHaveProperty('groupKeyGrant')
     })
 
-    it('on a terminal, saves a Grant pasted over several lines', async () => {
-      savedKey()
-      vi.mocked(watchAuthorization).mockResolvedValue(GRANT_AUTHORIZED)
-      const grant = await makeGrant()
-
-      const code = await runLogin(
-        { scopes: ENCRYPT },
-        terminal(grant.slice(0, 200), grant.slice(200, 400), grant.slice(400))
-      )
-
-      expect(code).toBe(0)
-      expect(readSessionFile(sessionPath())).toMatchObject({
-        walletAddress: GRANT_OWNER.address,
-        groupKeyId: GROUP_KEY,
-        groupKeyGrant: grant,
-      })
-      expect(output()).toContain(`Grant saved for group key ${GROUP_KEY}`)
-    })
-
     it('on a terminal, explains a wrong paste and asks again', async () => {
       savedKey()
       vi.mocked(watchAuthorization).mockResolvedValue(GRANT_AUTHORIZED)
@@ -521,7 +502,7 @@ describe('runLogin', () => {
       expect(prompts.filter((p) => p.includes('Paste the Grant'))).toHaveLength(2)
     })
 
-    it('on a terminal, a paste with foreign characters is refused at once, not taken as incomplete', async () => {
+    it('on a terminal, a paste with foreign characters is refused and asked again', async () => {
       savedKey()
       vi.mocked(watchAuthorization).mockResolvedValue(GRANT_AUTHORIZED)
       const grant = await makeGrant()
@@ -531,7 +512,6 @@ describe('runLogin', () => {
       expect(code).toBe(0)
       const text = prompts.join('')
       expect(text).toContain('This is not a Grant: it contains characters a Grant never has')
-      expect(text).not.toContain('still incomplete')
     })
 
     it('on a terminal, an empty line skips the Grant with the resume command', async () => {
@@ -695,7 +675,7 @@ describe('runLogin', () => {
       expect(output()).toContain('filecoin-pin login --grant <grant>')
     })
 
-    it('on a terminal, a new fgr1_ line replaces an unfinished paste, after saying it was incomplete', async () => {
+    it('on a terminal, a cut-short paste is refused and asked again', async () => {
       savedKey()
       vi.mocked(watchAuthorization).mockResolvedValue(GRANT_AUTHORIZED)
       const grant = await makeGrant()
@@ -703,7 +683,7 @@ describe('runLogin', () => {
       const code = await runLogin({ scopes: ENCRYPT }, terminal(grant.slice(0, 200), grant))
 
       expect(code).toBe(0)
-      expect(prompts.join('')).toContain('still incomplete: keep pasting, or press Enter to start over')
+      expect(prompts.join('')).toContain('The Grant is incomplete or corrupted; copy it again from the console.')
       expect(readSessionFile(sessionPath())?.groupKeyGrant).toBe(grant)
     })
 
@@ -715,15 +695,12 @@ describe('runLogin', () => {
       expect(vi.mocked(resolveNetwork)).not.toHaveBeenCalled()
     })
 
-    it('says an exported GROUP_KEY_GRANT is ignored while the saved login is used, not that it wins', async () => {
+    it('warns that an exported GROUP_KEY_GRANT takes precedence over the saved one', async () => {
       vi.stubEnv('GROUP_KEY_GRANT', 'fgr1_env')
 
       await runLogin({ wait: false }, silentStdin(false))
 
-      expect(output()).toContain(
-        "⚠ GROUP_KEY_GRANT is set in this shell; it is ignored while the saved login's session key is used."
-      )
-      expect(output()).not.toContain('GROUP_KEY_GRANT is set in this shell and takes precedence')
+      expect(output()).toContain('⚠ GROUP_KEY_GRANT is set in this shell and takes precedence over the saved login.')
     })
 
     it('a new Grant replaces the saved one', async () => {

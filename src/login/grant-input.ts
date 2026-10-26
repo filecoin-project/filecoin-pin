@@ -6,7 +6,7 @@
  */
 
 import { createInterface } from 'node:readline'
-import { GRANT_PREFIX, GrantError, normalizeGrantText, type OpenedGrant } from '../common/group-key-grant.js'
+import { GrantError, type OpenedGrant } from '../common/group-key-grant.js'
 
 /** A Grant is about 520 characters; anything this large on stdin is not one. */
 export const MAX_GRANT_INPUT_BYTES = 16 * 1024
@@ -36,8 +36,7 @@ export async function readGrantArgument(
 
 /**
  * Ask for the Grant until one opens, or until the owner enters an empty line, presses
- * Ctrl-C or closes stdin to skip. A Grant the terminal split over several lines is joined:
- * an incomplete one waits for the next line, and a line starting with `fgr1_` starts over.
+ * Ctrl-C or closes stdin to skip. Each line is one whole Grant.
  *
  * @returns the opened Grant, or undefined when skipped
  */
@@ -53,30 +52,15 @@ export async function promptForGrant(
   const ask = (): void => {
     output.write('  Paste the Grant (or press Enter to skip): ')
   }
-  let text = ''
   ask()
   try {
     for await (const line of readline) {
-      const piece = normalizeGrantText(line)
-      if (piece === '') {
-        if (text === '') return undefined
-        output.write('  ✗ The Grant is incomplete; copy it again from the console.\n')
-        text = ''
-        ask()
-        continue
-      }
-      // A fresh paste over an unfinished one replaces it.
-      text = piece.startsWith(GRANT_PREFIX) ? piece : text + piece
+      if (line.trim() === '') return undefined
       try {
-        return await open(text)
+        return await open(line)
       } catch (error) {
         if (!(error instanceof GrantError)) throw error
-        if (error.incomplete) {
-          output.write('  … still incomplete: keep pasting, or press Enter to start over\n')
-          continue
-        }
         output.write(`  ✗ ${error.message}\n`)
-        text = ''
         ask()
       }
     }

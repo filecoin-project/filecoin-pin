@@ -88,10 +88,9 @@ describe('openGroupKeyGrant', () => {
 
     expect(error).toBeInstanceOf(GrantError)
     expect((error as GrantError).message).toMatch(/incomplete or corrupted; copy it again/)
-    expect((error as GrantError).incomplete).toBe(true)
   })
 
-  it('says text with characters outside base64url is not a Grant, and not that it is incomplete', async () => {
+  it('says text with characters outside base64url is not a Grant', async () => {
     const error = await openGroupKeyGrant(`${GOLDEN_GRANT.slice(0, 50)}*${GOLDEN_GRANT.slice(51)}`, expected).catch(
       (e: unknown) => e
     )
@@ -99,13 +98,6 @@ describe('openGroupKeyGrant', () => {
     expect((error as GrantError).message).toBe(
       'This is not a Grant: it contains characters a Grant never has. Copy it again from the console.'
     )
-    expect((error as GrantError).incomplete).toBe(false)
-  })
-
-  it('takes a bare prefix as an incomplete paste', async () => {
-    const error = await openGroupKeyGrant(GRANT_PREFIX, expected).catch((e: unknown) => e)
-
-    expect((error as GrantError).incomplete).toBe(true)
   })
 
   it('refuses padded and standard-alphabet base64: the text form is unpadded base64url', async () => {
@@ -200,7 +192,7 @@ describe('loadGroupKeyGrant', () => {
     const env = { GROUP_KEY_GRANT: GOLDEN_GRANT, GROUP_KEY_ID: GROUP_KEY }
 
     await expect(loadGroupKeyGrant(session, 314, env)).rejects.toThrow(
-      /The Grant from the environment was ignored: .*another network.* Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt`/
+      /The Grant in GROUP_KEY_GRANT was ignored: .*another network.* Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt`/
     )
   })
 })
@@ -249,14 +241,5 @@ describe('grantKeyResolver', () => {
     expect(loaded).toHaveLength(1)
     expect(pieceKey.some((byte) => byte !== 0)).toBe(true)
     expect(loaded[0]?.key.every((byte) => byte === 0)).toBe(true)
-  })
-
-  it('names the source of a Grant that fails to load', async () => {
-    const env = { GROUP_KEY_GRANT: GOLDEN_GRANT, GROUP_KEY_ID: GROUP_KEY }
-    const session = { sessionKey: SESSION_KEY, walletAddress: OWNER.address }
-
-    await expect(loadGroupKeyGrant(session, 314, env, 'the saved login')).rejects.toThrow(
-      /The Grant from the saved login was ignored/
-    )
   })
 })

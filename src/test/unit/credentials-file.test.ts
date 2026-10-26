@@ -14,7 +14,6 @@ describe('readCredentialsFile', () => {
   })
 
   afterEach(() => {
-    vi.restoreAllMocks()
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -72,7 +71,6 @@ describe('applyCredentialsFile', () => {
   })
 
   afterEach(() => {
-    vi.restoreAllMocks()
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -135,35 +133,12 @@ describe('applyCredentialsFile', () => {
     expect(env.SESSION_KEY).toBeUndefined()
   })
 
-  it('supplies the group key Grant with the session key it was wrapped to', async () => {
+  it('supplies the group key Grant from the file', async () => {
     const path = join(dir, '.env')
     writeFileSync(path, 'SESSION_KEY=0xabc\nGROUP_KEY_ID=0xfile\nGROUP_KEY_GRANT=fgr1_file\n')
-    const notice = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-
-    const fromFile: NodeJS.ProcessEnv = {}
-    await parse(['add', '--credentials-file', path], fromFile)
-    expect(fromFile).toMatchObject({ SESSION_KEY: '0xabc', GROUP_KEY_ID: '0xfile', GROUP_KEY_GRANT: 'fgr1_file' })
-    expect(notice).not.toHaveBeenCalled()
-
-    // The file's session key is used, so a Grant in the shell is a stale mix: the file's wins.
-    const shell: NodeJS.ProcessEnv = { GROUP_KEY_GRANT: 'fgr1_env' }
-    await parse(['add', '--credentials-file', path], shell)
-    expect(shell).toMatchObject({ GROUP_KEY_ID: '0xfile', GROUP_KEY_GRANT: 'fgr1_file' })
-    expect(notice).toHaveBeenCalledWith(
-      'Ignoring GROUP_KEY_GRANT from the environment: the session key comes from the credentials file, so its Grant does too.'
-    )
-  })
-
-  it("ignores the file's Grant when the session key comes from the environment", async () => {
-    const path = join(dir, '.env')
-    writeFileSync(path, 'SESSION_KEY=0xabc\nGROUP_KEY_ID=0xfile\nGROUP_KEY_GRANT=fgr1_file\n')
-    const notice = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-
-    const env: NodeJS.ProcessEnv = { SESSION_KEY: '0xenv' }
+    const env: NodeJS.ProcessEnv = {}
     await parse(['add', '--credentials-file', path], env)
-
-    expect(env).toEqual({ SESSION_KEY: '0xenv' })
-    expect(notice).toHaveBeenCalledWith(expect.stringContaining('ignored GROUP_KEY_ID and GROUP_KEY_GRANT'))
+    expect(env).toMatchObject({ SESSION_KEY: '0xabc', GROUP_KEY_ID: '0xfile', GROUP_KEY_GRANT: 'fgr1_file' })
   })
 
   it('surfaces a missing file through the parse, naming the path', async () => {

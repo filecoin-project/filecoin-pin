@@ -30,7 +30,6 @@ import type { Address, Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { listDataSets } from '../core/data-set/index.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
-import { getGrantCredentialSource } from '../utils/credential-source.js'
 import {
   ENCRYPTION_VERSION,
   ENCRYPTION_VERSION_KEY,
@@ -53,12 +52,6 @@ const KEY_AGREEMENT_MESSAGE = 'Keysmith key agreement key: '
 /** A Grant that failed a check. The message says why and is safe to print. */
 export class GrantError extends KeyAccessError {
   override name = 'GrantError'
-  /** The text is a Grant cut short, or garbled: more pasted lines may complete it. */
-  readonly incomplete: boolean
-  constructor(message: string, options: { incomplete?: boolean } = {}) {
-    super(message)
-    this.incomplete = options.incomplete ?? false
-  }
 }
 
 /** What an opened Grant gives a session key. The key never leaves the process. */
@@ -128,7 +121,6 @@ function grantBytes(text: string): Uint8Array {
     throw new GrantError(`This is not a Grant: a Grant starts with ${GRANT_PREFIX}.`)
   }
   const body = text.slice(GRANT_PREFIX.length)
-  // Nothing yet after the prefix may still be a wrapped paste; a foreign character never will.
   if (body === '') throw incomplete()
   if (!/^[A-Za-z0-9_-]+$/.test(body)) {
     throw new GrantError(
@@ -139,7 +131,7 @@ function grantBytes(text: string): Uint8Array {
 }
 
 const incomplete = (): GrantError =>
-  new GrantError('The Grant is incomplete or corrupted; copy it again from the console.', { incomplete: true })
+  new GrantError('The Grant is incomplete or corrupted; copy it again from the console.')
 
 /**
  * Decode a Grant's text without verifying it: the prefix, the base64url and the CBOR.
@@ -238,16 +230,14 @@ export interface SessionCredentials {
 
 /**
  * Open the Grant the credential sources supplied (`GROUP_KEY_GRANT` and `GROUP_KEY_ID`, from
- * the environment, `--credentials-file` or the saved login). `source` names where it came
- * from in the error.
+ * the environment, `--credentials-file` or the saved login).
  *
  * @throws GrantError saying the Grant is missing or why it is ignored, with the login to run.
  */
 export async function loadGroupKeyGrant(
   session: SessionCredentials,
   chainId: number | undefined,
-  env: NodeJS.ProcessEnv = process.env,
-  source: string = getGrantCredentialSource() ?? 'the environment'
+  env: NodeJS.ProcessEnv = process.env
 ): Promise<OpenedGrant> {
   const text = env.GROUP_KEY_GRANT
   const groupKeyId = env.GROUP_KEY_ID
@@ -262,7 +252,7 @@ export async function loadGroupKeyGrant(
   } catch (error) {
     if (!(error instanceof GrantError)) throw error
     throw new GrantError(
-      `The Grant from ${source} was ignored: ${error.message} Run \`${GRANT_LOGIN_COMMAND}\` to get a new one.`
+      `The Grant in GROUP_KEY_GRANT was ignored: ${error.message} Run \`${GRANT_LOGIN_COMMAND}\` to get a new one (unset GROUP_KEY_GRANT if it is exported in this shell).`
     )
   }
 }
