@@ -3,6 +3,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Synapse } from '@filoz/synapse-sdk'
+import { CarWriter } from '@ipld/car'
+import toBuffer from 'it-to-buffer'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
@@ -12,7 +14,7 @@ import type { DirectUploadDeps, UploadContextLike } from '../../migrate/direct-u
 import { migrateIncomplete } from '../../migrate/migrate.js'
 import type { BinBuilder } from '../../migrate/pack-cars.js'
 import { type MigrateRunOptions, runMigrate, stagingBudget } from '../../migrate/run-migrate.js'
-import type { stageMember } from '../../migrate/verify-car.js'
+import { stageMember } from '../../migrate/verify-car.js'
 
 // Exercises the budget-clocked pipeline end to end with fake network edges:
 // downloads overlap uploads, a small budget cycles instead of wedging, and a
@@ -303,6 +305,35 @@ describe('runMigrate pipeline', () => {
       const summary = await runMigrate(h.db, h.options, h.deps)
 
       expect(summary.pieces).toEqual({ total: 2, succeeded: 2, failed: 0, pending: 0, oversized: 0 })
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  }, 10_000)
+
+  it('fails a member bigger than the download ceiling instead of waiting on it', async () => {
+    // hardCap is 4000 - 1000; the real stager refunds the overrun bytes before rethrowing.
+    const bytes = new Uint8Array(3500)
+    const cid = CID.createV1(raw.code, await sha256.digest(bytes))
+    const { writer, out } = CarWriter.create([cid])
+    const carP = toBuffer(out)
+    await writer.put({ cid, bytes })
+    await writer.close()
+    const car = await carP
+    const h = await harness({ cids: [{ cid: cid.toString() }], budgetBytes: 4000, packTargetBytes: 1000 })
+    try {
+      const summary = await runMigrate(
+        h.db,
+        {
+          ...h.options,
+          stageMemberFn: (c, gateways, dir, opts) =>
+            stageMember(c, gateways, dir, opts, async () => ({ url: 'fake://gw', body: new Blob([car]).stream() })),
+        },
+        h.deps
+      )
+
+      expect(summary.failures).toHaveLength(1)
+      expect(summary.failures[0]?.error).toContain('raise --max-staged-bytes')
     } finally {
       h.db.close()
       await rm(h.dir, { recursive: true, force: true })

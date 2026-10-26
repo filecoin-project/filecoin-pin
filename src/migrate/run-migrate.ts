@@ -460,10 +460,13 @@ export async function runMigrate(
               throw err
             }
             let written = 0
+            // The stager refunds `written` to 0 before rethrowing; keep the peak for the ceiling check.
+            let peak = 0
             const verifyOpts: VerifyCarOptions = {
               onBytes: (delta) => {
                 budget.add(delta)
                 written += delta
+                peak = Math.max(peak, written)
                 if (budget.used > budget.hardCap) {
                   throw new StagingError(
                     `staging budget exhausted while downloading ${cid}; retrying once space frees`,
@@ -483,7 +486,7 @@ export async function runMigrate(
                 // A member whose own bytes overran the hard cap can never
                 // fit no matter how much eviction frees; retrying would spin
                 // on the same download forever.
-                if (written > budget.hardCap) {
+                if (peak > budget.hardCap) {
                   db.recordPieceFailure(
                     cid,
                     `member CAR exceeds the staging budget's ${formatFileSize(budget.hardCap)} download ceiling; ` +
