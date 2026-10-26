@@ -20,6 +20,7 @@ import * as fee from 'filecoin-encryption-envelope'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
+import type { Logger } from 'pino'
 import { encodePacked, keccak256, slice } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -27,7 +28,8 @@ import { runAdd, runAddFromCli } from '../../add/add.js'
 import type { AddDryRunResult, AddResult } from '../../add/types.js'
 import { EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
 import { decryptToDirectory } from '../../common/encryption.js'
-import { defaultGroupKeyId, ownerKeyResolver } from '../../common/group-key.js'
+import { defaultGroupKeyId, oldestValidGroupKey, ownerKeyResolver } from '../../common/group-key.js'
+import type { DataSetSummary } from '../../core/data-set/index.js'
 
 // Lets a test shrink the SDK's upload cap without big files; every other test sees the real one.
 const uploadCap = vi.hoisted(() => ({ max: undefined as number | undefined }))
@@ -881,6 +883,66 @@ describe('Add Command', () => {
         /default group key 0x02ca08cf7e0222c8432adc159232b7eb .*data sets 2, 4/
       )
       expect(packed).toBeUndefined()
+    })
+
+    it('skips a malformed oldest group key id instead of failing in Keysmith', async () => {
+      mockListDataSets.mockResolvedValue([groupKeySet(1n, { 'foc/ks': '0xnot-a-group-key' }), groupKeySet(8n, {})])
+
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+      expect(appMetadata?.['foc/ks']).toBe(VECTOR_GROUP_KEY)
+    })
+
+    it('does not treat a mixed-case lookalike of the default group key as the default', async () => {
+      const lookalike = `0x${OWNER_DEFAULT_GROUP_KEY.slice(2).toUpperCase()}`
+      mockListDataSets.mockResolvedValue([
+        groupKeySet(2n, { 'foc/ks': lookalike }),
+        groupKeySet(4n, { 'foc/ks': lookalike, 'foc/kc': `v1.${'0'.repeat(32)}` }),
+      ])
+
+      await runAdd({ ...auth, filePath: testFile, encrypt: true })
+
+      const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+      expect(appMetadata?.['foc/ks']).toBe(OWNER_DEFAULT_GROUP_KEY)
+    })
+
+    describe('oldestValidGroupKey', () => {
+      const summaries = (...sets: ReturnType<typeof groupKeySet>[]) => sets as unknown as DataSetSummary[]
+      const OTHER_COMMITMENT = `v1.${'0'.repeat(32)}`
+
+      it('returns the canonical group key holding the oldest data set', () => {
+        const dataSets = summaries(groupKeySet(5n, { 'foc/ks': OTHER_GROUP_KEY }), groupKeySet(3n, {}))
+        expect(oldestValidGroupKey(dataSets)).toEqual({ groupKeyId: VECTOR_GROUP_KEY, commitment: VECTOR_COMMITMENT })
+      })
+
+      it('skips a mixed-case id rather than merging it with its lowercase form', () => {
+        const dataSets = summaries(
+          groupKeySet(1n, { 'foc/ks': OTHER_GROUP_KEY.toUpperCase().replace('0X', '0x'), 'foc/kc': OTHER_COMMITMENT }),
+          groupKeySet(5n, { 'foc/ks': OTHER_GROUP_KEY })
+        )
+        expect(oldestValidGroupKey(dataSets)).toEqual({ groupKeyId: OTHER_GROUP_KEY, commitment: VECTOR_COMMITMENT })
+      })
+
+      it.each([
+        ['too short', '0xabcd'],
+        ['too long', `0x${'ab'.repeat(17)}`],
+        ['not hex', `0x${'zz'.repeat(16)}`],
+        ['missing 0x', 'ab'.repeat(16)],
+        ['uppercase 0X', `0X${'ab'.repeat(16)}`],
+      ])('skips and logs a %s id when it holds the oldest data set', (_label, groupKeyId) => {
+        const warn = vi.fn()
+        const dataSets = summaries(groupKeySet(1n, { 'foc/ks': groupKeyId }), groupKeySet(9n, {}))
+
+        expect(oldestValidGroupKey(dataSets, { warn } as unknown as Logger)).toEqual({
+          groupKeyId: VECTOR_GROUP_KEY,
+          commitment: VECTOR_COMMITMENT,
+        })
+        expect(warn).toHaveBeenCalledWith(
+          { event: 'group-key.skipped', groupKeyId, dataSetIds: ['1'] },
+          expect.stringMatching(/not 0x and 32 lowercase hex/)
+        )
+      })
     })
 
     describe('defaultGroupKeyId', () => {
