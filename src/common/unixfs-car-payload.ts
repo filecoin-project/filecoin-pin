@@ -8,7 +8,8 @@
  *   pass 2  every leaf is re-read at its known offset and emitted in layout order
  *
  * A file that changes between the passes would produce leaves that no longer match their
- * CIDs, so the size and mtime of every input file are checked before pass 1 and after pass 2.
+ * CIDs, so pass 2 hashes every leaf again before emitting it, and checks the size and mtime
+ * of every input file after the last leaf (cheap, and catches growth past the last leaf).
  *
  * Errors about the input are {@link EncryptInputError}s, which name an entry by its position
  * (`entry #N`, in walk order), never by its path: they reach terminals, CI logs and pino.
@@ -19,6 +20,7 @@ import { lstat, open, readdir, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { BufferImporter, ImportCandidate, ImporterOptions, WritableStorage } from 'ipfs-unixfs-importer'
 import { importer } from 'ipfs-unixfs-importer'
+import { equals } from 'multiformats/bytes'
 import { CID } from 'multiformats/cid'
 import * as Digest from 'multiformats/hashes/digest'
 import { importerOptions } from '../core/unixfs/importer-options.js'
@@ -283,6 +285,12 @@ export async function* emitCarPayload(plan: CarPayloadPlan): AsyncGenerator<Uint
         throw unreadable(entry, error)
       })
       if (bytesRead !== leaf.len) {
+        throw changed(entry)
+      }
+      // Size and mtime miss a same-size rewrite with its mtime restored (`touch -r`, `cp -p`).
+      // Every leaf comes from parallelHashImporter, so it is sha2-256, never identity.
+      const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buf))
+      if (leaf.cid.multihash.code !== SHA256_CODE || !equals(digest, leaf.cid.multihash.digest)) {
         throw changed(entry)
       }
       yield encodeVarint(leaf.cid.bytes.length + leaf.len)

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, truncate, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, truncate, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { keyspaceKeys as deriveGroupKey, writeTarget } from '@filoz/keysmith'
@@ -169,6 +169,30 @@ describe('encrypted CAR payload', () => {
     const error = await collect(emitCarPayload(plan)).catch((e: Error) => e)
     expect(error).toBeInstanceOf(EncryptInputError)
     expect((error as Error).message).toBe('Input changed during encryption (entry #1); re-run')
+  })
+
+  it('fails on a same-size rewrite with its mtime restored, before emitting the changed leaf', async () => {
+    await writeFile(input, randomBytes(3 * MiB))
+    // Whole seconds, so restoring them is exact to the nanosecond and size + mtime see no change.
+    const stamp = 1_700_000_000
+    await utimes(input, stamp, stamp)
+    const plan = await planCarPayload(input)
+    const beforeLeaves = 1 + 3 * plan.layout.metadata.length
+    let yielded = 0
+    const consume = async () => {
+      for await (const _ of emitCarPayload(plan)) {
+        yielded++
+        if (yielded === beforeLeaves) {
+          await writeFile(input, randomBytes(3 * MiB))
+          await utimes(input, stamp, stamp)
+        }
+      }
+    }
+
+    const error = await consume().catch((e: Error) => e)
+    expect(error).toBeInstanceOf(EncryptInputError)
+    expect((error as Error).message).toBe('Input changed during encryption (entry #1); re-run')
+    expect(yielded).toBe(beforeLeaves)
   })
 
   it('stops at a short read in pass 2 instead of emitting the rest', async () => {
