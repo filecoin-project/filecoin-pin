@@ -12,8 +12,10 @@ import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { SIZE_CONSTANTS } from '@filoz/synapse-core/utils'
+import type { Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import pino from 'pino'
+import pino, { type Logger } from 'pino'
+import type { Hex } from 'viem'
 import { CliFatal, EXIT_CODE_INCOMPLETE, isCliFatal, isCliIncomplete } from '../common/cli-errors.js'
 import { ENCRYPTED_FILE_NAME, encryptPath } from '../common/encryption.js'
 import { assertUploadFunds, estimateInputBytes, rerunHint } from '../common/funds-preflight.js'
@@ -25,6 +27,7 @@ import {
   ownerGroupKey,
   ownerSigner,
 } from '../common/group-key.js'
+import { grantGroupKey, loadGroupKeyGrant } from '../common/group-key-grant.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
 import {
   displayDryRunEstimate,
@@ -39,7 +42,7 @@ import {
 import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
 import { IPFS_INDEXED_METADATA, normalizeMetadataConfig, withDerivedNameMetadata } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
-import { initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
+import { getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
@@ -90,6 +93,15 @@ function describeSkipped(walk: { skippedSymlinks: string[]; skippedSpecial: stri
     ...(walk.skippedSpecial.length > 0 ? [plural(walk.skippedSpecial.length, 'special file')] : []),
   ]
   return parts.length > 0 ? ` (${parts.join(', ')} skipped)` : ''
+}
+
+/**
+ * The group key a session key writes under, from its Grant. A missing or invalid Grant
+ * throws before anything is packed or uploaded: never fall back to plaintext.
+ */
+async function sessionGroupKey(synapse: Synapse, sessionKey: string, logger: Logger): Promise<OwnerGroupKey> {
+  const session = { sessionKey: sessionKey as Hex, walletAddress: getClientAddress(synapse) }
+  return grantGroupKey(synapse, await loadGroupKeyGrant(session, synapse.chain.id), logger)
 }
 
 /**
@@ -230,17 +242,23 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       printEgressNotice('beam')
     }
 
-    // The owner wallet signs for its group key before any data set is chosen: encrypted
-    // uploads land in data sets tagged with that group key, and a session key cannot sign.
+    // The group key is settled before any data set is chosen: encrypted uploads land in data
+    // sets tagged with it. The owner wallet signs for it; a session key opens its Grant instead.
     let groupKey: OwnerGroupKey | undefined
     if (options.encrypt) {
       const signer = ownerSigner(synapse)
-      if (signer == null) {
-        throw new CliFatal(OWNER_WALLET_REQUIRED)
+      if (signer != null) {
+        spinner.start('Deriving the encryption key from the owner wallet...')
+        groupKey = await ownerGroupKey(synapse, signer, logger)
+        spinner.stop(`${pc.green('✓')} Encryption key derived`)
+      } else if ('sessionKey' in config && config.sessionKey != null) {
+        spinner.start("Opening this session key's group key Grant...")
+        groupKey = await sessionGroupKey(synapse, config.sessionKey, logger)
+        spinner.stop(`${pc.green('✓')} Group key Grant opened`)
+      } else {
+        // A plain Error, so the catch below prints it (a CliFatal is taken as already shown).
+        throw new Error(OWNER_WALLET_REQUIRED)
       }
-      spinner.start('Deriving the encryption key from the owner wallet...')
-      groupKey = await ownerGroupKey(synapse, signer, logger)
-      spinner.stop(`${pc.green('✓')} Encryption key derived`)
     }
 
     // An encrypted upload requires its IPFS mode explicitly too, so explicit and

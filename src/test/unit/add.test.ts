@@ -30,6 +30,7 @@ import { EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
 import { decryptToDirectory } from '../../common/encryption.js'
 import { defaultGroupKeyId, oldestValidGroupKey, ownerKeyResolver } from '../../common/group-key.js'
 import type { DataSetSummary } from '../../core/data-set/index.js'
+import { groupKeyCommitment, makeGrant, SESSION_KEY } from '../fixtures/group-key-grants.js'
 
 // Lets a test shrink the SDK's upload cap without big files; every other test sees the real one.
 const uploadCap = vi.hoisted(() => ({ max: undefined as number | undefined }))
@@ -700,6 +701,8 @@ describe('Add Command', () => {
     const VECTOR_COMMITMENT = 'v1.6982807649650e311e4c69af4ac90417'
     // defaultGroupKeyId(OWNER), cross-checked with @noble/hashes keccak_256 and `cast keccak`.
     const OWNER_DEFAULT_GROUP_KEY = '0x02ca08cf7e0222c8432adc159232b7eb'
+    const GRANT_GROUP_KEY = OWNER_DEFAULT_GROUP_KEY
+    const STRANGER_KEY_HEX = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d'
     const auth = { privateKey: 'test-private-key', rpcUrl: 'wss://test.rpc.url' }
 
     let packed: { path: string; bytes: Buffer } | undefined
@@ -969,13 +972,98 @@ describe('Add Command', () => {
       })
     })
 
-    it('refuses to encrypt without the owner wallet', async () => {
-      const { initializeSynapse } = await import('../../core/synapse/index.js')
-      vi.mocked(initializeSynapse).mockImplementation(baseInit)
-      const session = { walletAddress: OWNER.address, sessionKey: STRANGER.address, rpcUrl: 'wss://test.rpc.url' }
+    describe('with a session key', () => {
+      const session = { walletAddress: OWNER.address, sessionKey: SESSION_KEY, rpcUrl: 'wss://test.rpc.url' }
+      /** The owner's data sets, filtered as the real listDataSets does. */
+      const onChain = (dataSets: ReturnType<typeof groupKeySet>[]) =>
+        mockListDataSets.mockImplementation(async (_synapse: unknown, options?: { filter?: (d: any) => boolean }) =>
+          dataSets.filter((dataSet) => options?.filter?.(dataSet) ?? true)
+        )
 
-      await expect(runAdd({ ...session, filePath: testFile, encrypt: true })).rejects.toThrow(/PRIVATE_KEY/)
-      expect(packed).toBeUndefined()
+      beforeEach(async () => {
+        // Session mode: the client account is the owner's bare address, which cannot sign.
+        const { initializeSynapse, getClientAddress } = await import('../../core/synapse/index.js')
+        vi.mocked(initializeSynapse).mockImplementation(async (config: any, logger: any) => ({
+          ...(await baseInit(config, logger)),
+          client: { account: OWNER.address },
+        }))
+        vi.mocked(getClientAddress).mockReturnValue(OWNER.address)
+        vi.stubEnv('GROUP_KEY_GRANT', await makeGrant())
+        vi.stubEnv('GROUP_KEY_ID', GRANT_GROUP_KEY)
+      })
+
+      afterEach(async () => {
+        vi.unstubAllEnvs()
+        const { getClientAddress } = await import('../../core/synapse/index.js')
+        vi.mocked(getClientAddress).mockReturnValue('0x1234567890123456789012345678901234567890')
+      })
+
+      it('encrypts under the Grant, and the owner wallet decrypts the upload', async () => {
+        await runAdd({ ...session, filePath: testFile, encrypt: true })
+
+        const { plaintext, appMetadata } = await decrypt(packedFile().bytes)
+        expect(plaintext.equals(testContent)).toBe(true)
+        expect(appMetadata).toMatchObject({ 'foc/own': OWNER.address.toLowerCase(), 'foc/ks': GRANT_GROUP_KEY })
+      })
+
+      it("tags new data sets with the Grant's group key and its foc/kc in metadata form", async () => {
+        await runAdd({ ...session, filePath: testFile, encrypt: true })
+
+        const { resolveUploadTargets } = await import('../../common/upload-flow.js')
+        expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]?.requiredMetadata).toEqual({
+          'foc/enc': '1',
+          'foc/ks': GRANT_GROUP_KEY,
+          // The claim carries 0x<32 hex>; data sets record v1.<32 hex>, as owner mode does.
+          'foc/kc': await groupKeyCommitment(),
+          withIPFSIndexing: '',
+        })
+      })
+
+      it("reuses only the Grant's group key, and only when its data sets agree with the Grant", async () => {
+        onChain([
+          groupKeySet(3n, { 'foc/ks': OTHER_GROUP_KEY }),
+          groupKeySet(5n, { 'foc/ks': GRANT_GROUP_KEY, 'foc/kc': await groupKeyCommitment() }),
+        ])
+
+        await runAdd({ ...session, filePath: testFile, encrypt: true })
+
+        const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+        expect(appMetadata?.['foc/ks']).toBe(GRANT_GROUP_KEY)
+      })
+
+      it("stops before packing when the group key's data sets disagree with the Grant on foc/kc", async () => {
+        onChain([
+          groupKeySet(5n, { 'foc/ks': GRANT_GROUP_KEY, 'foc/kc': await groupKeyCommitment() }),
+          groupKeySet(6n, { 'foc/ks': GRANT_GROUP_KEY, 'foc/kc': `v1.${'0'.repeat(32)}` }),
+        ])
+
+        await expect(runAdd({ ...session, filePath: testFile, encrypt: true })).rejects.toThrow(
+          /data sets 6, which disagree with the Grant on foc\/kc/
+        )
+        expect(packed).toBeUndefined()
+      })
+
+      it('without a Grant, fails before packing or uploading, with the login to run', async () => {
+        vi.stubEnv('GROUP_KEY_GRANT', '')
+
+        await expect(runAdd({ ...session, filePath: testFile, encrypt: true })).rejects.toThrow(
+          /no group key Grant\. Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt`/
+        )
+        const { performUpload } = await import('../../common/upload-flow.js')
+        expect(packed).toBeUndefined()
+        expect(vi.mocked(performUpload)).not.toHaveBeenCalled()
+      })
+
+      it('with a Grant that fails a check, fails before packing or uploading', async () => {
+        vi.stubEnv('GROUP_KEY_GRANT', await makeGrant({ sessionKey: STRANGER_KEY_HEX }))
+
+        await expect(runAdd({ ...session, filePath: testFile, encrypt: true })).rejects.toThrow(
+          /saved Grant was ignored: .*another session key/
+        )
+        const { performUpload } = await import('../../common/upload-flow.js')
+        expect(packed).toBeUndefined()
+        expect(vi.mocked(performUpload)).not.toHaveBeenCalled()
+      })
     })
 
     it('uses a neutral name so the original filename is not stored', async () => {
