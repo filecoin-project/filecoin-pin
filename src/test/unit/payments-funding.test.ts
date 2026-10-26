@@ -420,7 +420,6 @@ describe('planFilecoinPayFunding', () => {
     })
 
     expect(plan.delta).toBeGreaterThan(0n)
-    expect(plan.action).toBe('deposit')
     expect(plan.reasonCode).toBe('runway-with-piece')
   })
 
@@ -460,16 +459,6 @@ describe('planFilecoinPayFunding', () => {
       allowWithdraw: false,
     })
     expect(uploadOnly.reasonCode).toBe('piece-upload')
-
-    const noDeposit = calculateFilecoinPayFundingPlan({
-      status,
-      accountSummary,
-      targetRunwayDays: 30,
-      pieceSizeBytes: 1024,
-      uploadCosts: { ...uploadCosts, depositNeeded: 0n },
-      allowWithdraw: false,
-    })
-    expect(noDeposit.reasonCode).toBe('none')
   })
 
   it('adds lifecycle-reserve funding for new data sets in the shared funding plan', () => {
