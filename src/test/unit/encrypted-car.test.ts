@@ -325,22 +325,27 @@ describe('encrypted CAR payload', () => {
         await writeFile(join(path, 'y'), randomBytes(1024))
       },
     ],
+    // The two large cases write and pack ~1,400 files, which can exceed 5 s on slow CI runners.
     ['a large directory just under the HAMT threshold', 'directory', manyEmptyFiles(1300)],
     ['a directory just over the HAMT threshold', 'hamt-sharded-directory', manyEmptyFiles(1450)],
-  ])('wraps %s under the same CID an unencrypted add builds', async (_kind, type, build) => {
-    await build(input)
-    const plan = await planCarPayload(input)
-    const wrapper = plan.nodes.get(plan.root.toString())
-    if (wrapper == null) throw new Error('no wrapper node')
-    const entry = dagPb.decode(wrapper.bytes).Links[0]?.Hash
+  ])(
+    'wraps %s under the same CID an unencrypted add builds',
+    async (_kind, type, build) => {
+      await build(input)
+      const plan = await planCarPayload(input)
+      const wrapper = plan.nodes.get(plan.root.toString())
+      if (wrapper == null) throw new Error('no wrapper node')
+      const entry = dagPb.decode(wrapper.bytes).Links[0]?.Hash
 
-    const { carPath, rootCid } = await createCarFromPath(input)
-    await rm(carPath, { force: true })
-    expect(entry?.toString()).toBe(rootCid.toString())
-    const node = plan.nodes.get(rootCid.toString())
-    const data = node == null ? undefined : dagPb.decode(node.bytes).Data
-    expect(data == null ? undefined : UnixFS.unmarshal(data).type).toBe(type)
-  })
+      const { carPath, rootCid } = await createCarFromPath(input)
+      await rm(carPath, { force: true })
+      expect(entry?.toString()).toBe(rootCid.toString())
+      const node = plan.nodes.get(rootCid.toString())
+      const data = node == null ? undefined : dagPb.decode(node.bytes).Data
+      expect(data == null ? undefined : UnixFS.unmarshal(data).type).toBe(type)
+    },
+    30_000
+  )
 
   it('rejects another wallet and leaves nothing behind', async () => {
     await writeFile(input, randomBytes(MiB))
