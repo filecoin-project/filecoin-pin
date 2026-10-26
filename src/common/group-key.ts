@@ -240,7 +240,9 @@ export function ownerKeyResolver(signer: OwnerSigner | (() => OwnerSigner | unde
       throw new NotOwnerError(
         String(owner),
         groupKeyId,
-        wallet == null ? undefined : `the wallet in PRIVATE_KEY is ${wallet.address.toLowerCase()}`
+        wallet == null
+          ? undefined
+          : `the owner wallet in use (PRIVATE_KEY or --private-key) is ${wallet.address.toLowerCase()}`
       )
     }
     const { kk } = await deriveGroupKey(wallet, { owner: wallet.address, keyspace: groupKeyId as Hex })

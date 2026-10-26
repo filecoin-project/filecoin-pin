@@ -91,14 +91,27 @@ describe('openGroupKeyGrant', () => {
     expect((error as GrantError).incomplete).toBe(true)
   })
 
-  it('says a Grant with characters outside base64url is corrupted', async () => {
-    await rejects(`${GOLDEN_GRANT.slice(0, 50)}*${GOLDEN_GRANT.slice(51)}`, /incomplete or corrupted/)
+  it('says text with characters outside base64url is not a Grant, and not that it is incomplete', async () => {
+    const error = await openGroupKeyGrant(`${GOLDEN_GRANT.slice(0, 50)}*${GOLDEN_GRANT.slice(51)}`, expected).catch(
+      (e: unknown) => e
+    )
+
+    expect((error as GrantError).message).toBe(
+      'This is not a Grant: it contains characters a Grant never has. Copy it again from the console.'
+    )
+    expect((error as GrantError).incomplete).toBe(false)
+  })
+
+  it('takes a bare prefix as an incomplete paste', async () => {
+    const error = await openGroupKeyGrant(GRANT_PREFIX, expected).catch((e: unknown) => e)
+
+    expect((error as GrantError).incomplete).toBe(true)
   })
 
   it('refuses padded and standard-alphabet base64: the text form is unpadded base64url', async () => {
     const body = GOLDEN_GRANT.slice(GRANT_PREFIX.length)
-    await rejects(`${GOLDEN_GRANT}==`, /incomplete or corrupted/)
-    await rejects(`${GRANT_PREFIX}${body.replaceAll('-', '+').replaceAll('_', '/')}`, /incomplete or corrupted/)
+    await rejects(`${GOLDEN_GRANT}==`, /characters a Grant never has/)
+    await rejects(`${GRANT_PREFIX}${body.replaceAll('-', '+').replaceAll('_', '/')}`, /characters a Grant never has/)
   })
 
   it('refuses a tampered Grant: the signature no longer verifies', async () => {

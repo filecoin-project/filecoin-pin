@@ -521,6 +521,19 @@ describe('runLogin', () => {
       expect(prompts.filter((p) => p.includes('Paste the Grant'))).toHaveLength(2)
     })
 
+    it('on a terminal, a paste with foreign characters is refused at once, not taken as incomplete', async () => {
+      savedKey()
+      vi.mocked(watchAuthorization).mockResolvedValue(GRANT_AUTHORIZED)
+      const grant = await makeGrant()
+
+      const code = await runLogin({ scopes: ENCRYPT }, terminal(`${grant.slice(0, 100)}+${grant.slice(101)}`, grant))
+
+      expect(code).toBe(0)
+      const text = prompts.join('')
+      expect(text).toContain('This is not a Grant: it contains characters a Grant never has')
+      expect(text).not.toContain('still incomplete')
+    })
+
     it('on a terminal, an empty line skips the Grant with the resume command', async () => {
       savedKey()
       vi.mocked(watchAuthorization).mockResolvedValue(GRANT_AUTHORIZED)

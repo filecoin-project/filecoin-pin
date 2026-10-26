@@ -122,7 +122,7 @@ describe('runDecrypt', () => {
 
   it('fails for another wallet, naming both addresses, and leaves no output behind', async () => {
     const stranger = privateKeyToAccount(STRANGER_KEY).address
-    const both = new RegExp(`belongs to ${OWNER.address}.*PRIVATE_KEY is ${stranger}`, 'i')
+    const both = new RegExp(`belongs to ${OWNER.address}.*\\(PRIVATE_KEY or --private-key\\) is ${stranger}`, 'i')
 
     await expect(runDecrypt(encryptedPath, outputDir, { privateKey: STRANGER_KEY })).rejects.toThrow(both)
     expect(existsSync(outputDir)).toBe(false)

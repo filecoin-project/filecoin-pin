@@ -709,7 +709,10 @@ describe('get', () => {
       const stranger = privateKeyToAccount(STRANGER_KEY)
 
       await expect(get(upload.root, network, [GOOD], ownerKeyResolver(stranger))).rejects.toThrow(
-        new RegExp(`group key ${GROUP_KEY}; the wallet in PRIVATE_KEY is ${stranger.address}`, 'i')
+        new RegExp(
+          `group key ${GROUP_KEY}; the owner wallet in use \\(PRIVATE_KEY or --private-key\\) is ${stranger.address}`,
+          'i'
+        )
       )
       expect(existsSync(outDir)).toBe(false)
     })

@@ -129,6 +129,19 @@ vi.mock('../../common/funds-preflight.js', async (importOriginal) => ({
   estimateInputBytes: vi.fn(async () => 1024),
 }))
 
+// The group key a session upload derived, so a test can check it was zeroed.
+const grantKeys = vi.hoisted(() => ({ last: undefined as undefined | { target: { key: Uint8Array } } }))
+vi.mock('../../common/group-key-grant.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../common/group-key-grant.js')>()
+  return {
+    ...actual,
+    grantGroupKey: async (...args: Parameters<typeof actual.grantGroupKey>) => {
+      grantKeys.last = await actual.grantGroupKey(...args)
+      return grantKeys.last
+    },
+  }
+})
+
 vi.mock('../../core/unixfs/index.js', () => ({
   createCarFromPath: vi.fn((filePath: string, options: any) => {
     const isDirectory = options?.isDirectory === true
@@ -1051,6 +1064,19 @@ describe('Add Command', () => {
 
         const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
         expect(appMetadata?.['foc/ks']).toBe(GRANT_GROUP_KEY)
+      })
+
+      it('zeroes the group key when the upload fails before encrypting', async () => {
+        const { resolveUploadTargets } = await import('../../common/upload-flow.js')
+        vi.mocked(resolveUploadTargets).mockRejectedValueOnce(new Error('provider down'))
+        grantKeys.last = undefined
+
+        await expect(runAdd({ ...session, filePath: testFile, encrypt: true })).rejects.toThrow('provider down')
+
+        expect(packed).toBeUndefined()
+        // Read through a function: TypeScript would narrow the property to the undefined set above.
+        const derived = (): { target: { key: Uint8Array } } | undefined => grantKeys.last
+        expect(derived()?.target.key.every((byte) => byte === 0)).toBe(true)
       })
 
       it('without a Grant, fails before packing or uploading, with the login to run', async () => {

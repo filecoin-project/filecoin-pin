@@ -187,6 +187,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     process.exit(EXIT_CODE_INCOMPLETE)
   }
   const cleanupSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
+  // Declared here so the finally below zeroes its key on every exit path.
+  let groupKey: OwnerGroupKey | undefined
 
   try {
     // Validate path exists and is readable
@@ -244,7 +246,6 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
     // The group key is settled before any data set is chosen: encrypted uploads land in data
     // sets tagged with it. The owner wallet signs for it; a session key opens its Grant instead.
-    let groupKey: OwnerGroupKey | undefined
     if (options.encrypt) {
       const signer = ownerSigner(synapse)
       if (signer != null) {
@@ -534,6 +535,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     cancel(carInput ? 'Add cancelled' : 'Add failed')
     throw new CliFatal(message, { cause: error instanceof Error ? error : undefined })
   } finally {
+    groupKey?.target.key.fill(0)
     for (const signal of cleanupSignals) process.off(signal, onSignal)
     if (encryptDir) {
       await rm(encryptDir, { recursive: true, force: true })

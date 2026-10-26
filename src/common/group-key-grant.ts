@@ -128,7 +128,13 @@ function grantBytes(text: string): Uint8Array {
     throw new GrantError(`This is not a Grant: a Grant starts with ${GRANT_PREFIX}.`)
   }
   const body = text.slice(GRANT_PREFIX.length)
-  if (!/^[A-Za-z0-9_-]+$/.test(body)) throw incomplete()
+  // Nothing yet after the prefix may still be a wrapped paste; a foreign character never will.
+  if (body === '') throw incomplete()
+  if (!/^[A-Za-z0-9_-]+$/.test(body)) {
+    throw new GrantError(
+      'This is not a Grant: it contains characters a Grant never has. Copy it again from the console.'
+    )
+  }
   return new Uint8Array(Buffer.from(body, 'base64url'))
 }
 
