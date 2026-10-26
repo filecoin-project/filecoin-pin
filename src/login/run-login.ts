@@ -74,7 +74,7 @@ function scopeList(permissions: readonly Permission[]): string {
 }
 
 /** Credentials in the shell that would shadow the saved login for every later command. */
-const SHADOWING_ENV_VARS = ['PRIVATE_KEY', 'SESSION_KEY', 'VIEW_ADDRESS', 'GROUP_KEY_GRANT'] as const
+const SHADOWING_ENV_VARS = ['PRIVATE_KEY', 'SESSION_KEY', 'VIEW_ADDRESS'] as const
 
 /** `--scopes` token that asks the console for a group key Grant. Not an on-chain permission. */
 const ENCRYPT_SCOPE = 'encrypt'
@@ -323,15 +323,21 @@ export async function runLogin(
       '--grant imports a Grant for the saved session key; a --fresh key has none yet. Run `login --fresh` first, then approve the new key and take its Grant.'
     )
   }
+  const path = getSessionFilePath()
+  const saved = options.grant === undefined ? undefined : readSessionFile(path)
+  if (options.grant !== undefined && saved === undefined) {
+    // Refused before anything is written: a new key could never match the Grant.
+    throw new Error(
+      'No saved session to import a Grant for. Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt` first.'
+    )
+  }
   // Read and decoded first, so a wrong paste fails now rather than after the wait.
   const grantText = options.grant === undefined ? undefined : await readGrantArgument(options.grant, io.stdin)
   if (grantText !== undefined) decodeGrantText(grantText)
   // `--grant` asks for the Grant step whether or not `--scopes` names encrypt.
   const wantGrant = encrypt || grantText !== undefined
-  const path = getSessionFilePath()
   let networkOptions: LoginOptions = options
   if (grantText !== undefined) {
-    const saved = readSessionFile(path)
     if (saved?.walletAddress !== undefined) {
       // Offline: the owner is known and the Grant names its network, so no RPC is needed.
       return importGrant({ ...saved, walletAddress: saved.walletAddress }, grantText, options, path)
@@ -382,6 +388,12 @@ export async function runLogin(
         `${pc.yellow('⚠')} ${name} is set in this shell and takes precedence over the saved login. Unset it to use this session key.`
       )
     }
+  }
+  // Not shadowing: a Grant goes with its session key's source (see bindGrantToSessionKey).
+  if (process.env.GROUP_KEY_GRANT !== undefined && process.env.GROUP_KEY_GRANT !== '') {
+    log.line(
+      `${pc.yellow('⚠')} GROUP_KEY_GRANT is set in this shell; it is ignored while the saved login's session key is used.`
+    )
   }
   const scopeNote = options.scopes === undefined ? ' (defaults — override with --scopes)' : ''
   const grantNote = wantGrant ? ` + ${ENCRYPT_SCOPE} (group key Grant)` : ''

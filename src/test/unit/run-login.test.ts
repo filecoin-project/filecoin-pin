@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough, Writable } from 'node:stream'
@@ -692,6 +692,25 @@ describe('runLogin', () => {
       expect(code).toBe(0)
       expect(prompts.join('')).toContain('still incomplete: keep pasting, or press Enter to start over')
       expect(readSessionFile(sessionPath())?.groupKeyGrant).toBe(grant)
+    })
+
+    it('login --grant with no saved session fails and writes nothing', async () => {
+      await expect(runLogin({ grant: await makeGrant() }, silentStdin(false))).rejects.toThrow(
+        'No saved session to import a Grant for. Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt` first.'
+      )
+      expect(existsSync(sessionPath())).toBe(false)
+      expect(vi.mocked(resolveNetwork)).not.toHaveBeenCalled()
+    })
+
+    it('says an exported GROUP_KEY_GRANT is ignored while the saved login is used, not that it wins', async () => {
+      vi.stubEnv('GROUP_KEY_GRANT', 'fgr1_env')
+
+      await runLogin({ wait: false }, silentStdin(false))
+
+      expect(output()).toContain(
+        "⚠ GROUP_KEY_GRANT is set in this shell; it is ignored while the saved login's session key is used."
+      )
+      expect(output()).not.toContain('GROUP_KEY_GRANT is set in this shell and takes precedence')
     })
 
     it('a new Grant replaces the saved one', async () => {
