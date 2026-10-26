@@ -109,7 +109,7 @@ export async function ownerGroupKey(synapse: Synapse, signer: OwnerSigner, logge
   const groupKeyId = recorded?.groupKeyId ?? defaultGroupKeyId(signer.address)
   if (recorded == null) {
     // The default id is on chain but its group was skipped: writing into it would grow an invalid group.
-    const invalid = tagged.filter((dataSet) => dataSet.metadata?.[GROUP_KEY_ID_KEY]?.toLowerCase() === groupKeyId)
+    const invalid = tagged.filter((dataSet) => dataSet.metadata?.[GROUP_KEY_ID_KEY] === groupKeyId)
     if (invalid.length > 0) {
       throw new Error(
         `The default group key ${groupKeyId} is already used by data sets ${invalid.map((d) => d.dataSetId).join(', ')}, which disagree on foc/kc or are not foc/enc "1"`
@@ -132,9 +132,16 @@ export async function ownerGroupKey(synapse: Synapse, signer: OwnerSigner, logge
 }
 
 /**
+ * A group key id as Keysmith and {@link defaultGroupKeyId} write it: 0x and 32 lowercase hex.
+ * Ids are matched exactly, never case-folded, since data sets are reused by exact metadata.
+ */
+const CANONICAL_GROUP_KEY_ID = /^0x[0-9a-f]{32}$/
+
+/**
  * "Oldest wins": sort data sets by their group key (`foc/ks`), skip any group key
- * whose data sets disagree on `foc/kc` or are not all `foc/enc` "1", and return
- * the remaining group key that holds the lowest data set id.
+ * whose id is not canonical, whose data sets disagree on `foc/kc`, or that are not
+ * all `foc/enc` "1", and return the remaining group key that holds the lowest data
+ * set id.
  *
  * Inconsistent group keys are skipped rather than refused so that one bad group
  * key cannot block every encrypted upload; the skip is logged.
@@ -154,6 +161,17 @@ export function oldestValidGroupKey(
 
   let best: { groupKeyId: Hex; commitment: string; oldest: bigint } | undefined
   for (const [groupKeyId, members] of byGroupKey) {
+    if (!CANONICAL_GROUP_KEY_ID.test(groupKeyId)) {
+      logger?.warn(
+        {
+          event: 'group-key.skipped',
+          groupKeyId,
+          dataSetIds: members.map((dataSet) => dataSet.dataSetId.toString()),
+        },
+        'Skipping group key: its id is not 0x and 32 lowercase hex'
+      )
+      continue
+    }
     const commitments = new Set(members.map((dataSet) => dataSet.metadata?.[GROUP_KEY_COMMITMENT_KEY]))
     const commitment = members[0]?.metadata?.[GROUP_KEY_COMMITMENT_KEY]
     const versioned = members.every((dataSet) => dataSet.metadata?.[ENCRYPTION_VERSION_KEY] === ENCRYPTION_VERSION)
