@@ -73,6 +73,11 @@ interface BaseSynapseConfig {
    * Leave unset for read-only commands — they need no permissions.
    */
   requiredPermissions?: Permission[]
+  /**
+   * Session-key mode only: a line the caller adds to the error when the key is expired or
+   * lacks a required permission, for remedies only the caller knows about.
+   */
+  authorizationHint?: string
 }
 
 /**
@@ -186,7 +191,8 @@ function checkSessionKeyPermissions(
   ownerAddress: string,
   required: Permission[],
   chainId: number,
-  networkName: string
+  networkName: string,
+  hint: string | undefined
 ): void {
   const missing = required.filter((p) => !key.hasPermission(p))
   if (missing.length === 0) return
@@ -197,7 +203,7 @@ function checkSessionKeyPermissions(
   // compete with the only fix that works for an expired key: run login.
   if (state === 'expired') {
     throw new Error(
-      `Session expired (key ${key.address}, grants lapsed ${latestExpiryDate(key)})\n  Renew it:  filecoin-pin login${grantRenewalHint()}`
+      `Session expired (key ${key.address}, grants lapsed ${latestExpiryDate(key)})\n  Renew it:  filecoin-pin login${hintLine(hint)}`
     )
   }
   const neverAuthorized = state === 'never'
@@ -235,17 +241,12 @@ function checkSessionKeyPermissions(
   lines.push('')
   lines.push('Then re-run this command.')
 
-  throw new Error(`${lines.join('\n')}${grantRenewalHint()}`)
+  throw new Error(`${lines.join('\n')}${hintLine(hint)}`)
 }
 
-/**
- * With a group key Grant in use, re-authorizing the key does not renew the Grant: it keeps
- * the expiry it was issued with. Empty without one.
- */
-function grantRenewalHint(): string {
-  const grant = process.env.GROUP_KEY_GRANT
-  if (grant == null || grant === '') return ''
-  return '\nA group key Grant is in use for this key: re-authorizing extends the session key, but the Grant keeps its old expiry. Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt` to get a new Grant.'
+/** The caller's {@link BaseSynapseConfig.authorizationHint} as a final line, or nothing. */
+function hintLine(hint: string | undefined): string {
+  return hint == null || hint === '' ? '' : `\n${hint}`
 }
 
 /**
@@ -302,7 +303,14 @@ export async function initializeSynapse(config: SynapseSetupConfig, logger?: Log
       throw new Error(`Invalid --session-key / SESSION_KEY: ${reason}`, { cause: error })
     }
     await sessionKey.syncExpirations()
-    checkSessionKeyPermissions(sessionKey, walletAddress, config.requiredPermissions ?? [], chain.id, chain.name)
+    checkSessionKeyPermissions(
+      sessionKey,
+      walletAddress,
+      config.requiredPermissions ?? [],
+      chain.id,
+      chain.name,
+      config.authorizationHint
+    )
     logger?.info({ event: 'synapse.init', mode: 'session-key' }, 'Initializing Synapse (session key)')
   } else if (isPrivateKeyConfig(config)) {
     account = privateKeyToAccount(config.privateKey)

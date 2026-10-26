@@ -60,6 +60,24 @@ describe('parseCLIAuth - single auth mode', () => {
   })
 })
 
+describe('parseCLIAuth - Grant renewal hint', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('adds the hint to a session-key config only while a Grant is in use', () => {
+    const session = { walletAddress: '0xowner', sessionKey: '0xsess', network: 'calibration' }
+    vi.stubEnv('GROUP_KEY_GRANT', '')
+    expect(parseCLIAuth(session)).not.toHaveProperty('authorizationHint')
+
+    vi.stubEnv('GROUP_KEY_GRANT', 'fgr1_saved')
+    expect(parseCLIAuth(session).authorizationHint).toBe(
+      'A group key Grant is in use for this key: re-authorizing extends the session key, but the Grant keeps its old expiry. Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt` to get a new Grant.'
+    )
+    expect(parseCLIAuth({ privateKey: PK, network: 'calibration' })).not.toHaveProperty('authorizationHint')
+  })
+})
+
 describe('parseCLIAuth - precedence: explicit flag beats env', () => {
   it('explicit --private-key wins over an env view address', () => {
     const config = parseCLIAuth(

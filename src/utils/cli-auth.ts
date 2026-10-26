@@ -10,6 +10,7 @@ import type { FilecoinChain, Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
 import { privateKeyToAccount } from 'viem/accounts'
 import { getRpcUrl, NETWORK_CHAINS, resolveDevnetConfig } from '../common/get-rpc-url.js'
+import { GRANT_LOGIN_COMMAND } from '../common/group-key.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { initializeSynapse, isReadOnlyConfig, isSessionKeyConfig } from '../core/synapse/index.js'
 import { createLogger } from '../logger.js'
@@ -156,6 +157,12 @@ function resolveAuthMode(candidates: AuthModeCandidate[]): AuthMode | undefined 
 }
 
 /**
+ * Added to a session key's expired or missing-permission error when a group key Grant is in
+ * use: re-authorizing the key does not renew the Grant, which keeps the expiry it was issued with.
+ */
+export const GRANT_RENEWAL_HINT = `A group key Grant is in use for this key: re-authorizing extends the session key, but the Grant keeps its old expiry. Run \`${GRANT_LOGIN_COMMAND}\` to get a new Grant.`
+
+/**
  * Parse CLI authentication options into SynapseSetupConfig
  *
  * This function handles reading from CLI options and environment variables,
@@ -231,6 +238,7 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
     readOnly?: boolean
     rpcUrl?: string
     chain?: FilecoinChain
+    authorizationHint?: string
   } = {}
 
   switch (mode) {
@@ -245,6 +253,7 @@ export function parseCLIAuth(options: CLIAuthOptions): SynapseSetupConfig {
       // Both halves are present (that is what made this a competing candidate).
       if (nonEmpty(walletAddress)) config.walletAddress = walletAddress
       if (nonEmpty(sessionKey)) config.sessionKey = sessionKey
+      if (nonEmpty(process.env.GROUP_KEY_GRANT)) config.authorizationHint = GRANT_RENEWAL_HINT
       break
     case 'privateKey':
       if (nonEmpty(options.privateKey)) config.privateKey = options.privateKey

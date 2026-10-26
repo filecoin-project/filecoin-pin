@@ -237,7 +237,7 @@ describe('synapse-service', () => {
     it.each([
       ['expired', 1000n],
       ['never authorized', 0n],
-    ])('with a Grant in use, says a %s key needs a new Grant too, and not otherwise', async (_case, expiry) => {
+    ])("appends the caller's authorization hint to a %s key's error, and nothing without one", async (_case, expiry) => {
       const config: SynapseSetupConfig = {
         walletAddress: '0x0000000000000000000000000000000000000002',
         sessionKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
@@ -250,23 +250,16 @@ describe('synapse-service', () => {
         [SchedulePieceRemovalsPermission]: 0n,
         [TerminateServicePermission]: 0n,
       }
-      const failure = async () => {
+      const failure = async (extra: Partial<SynapseSetupConfig>) => {
         mockSessionKeyOnce(() => false, expirations)
-        return initializeSynapse(config, logger).then(
+        return initializeSynapse({ ...config, ...extra } as SynapseSetupConfig, logger).then(
           () => '',
           (e: unknown) => (e as Error).message
         )
       }
-      const hint = /Grant keeps its old expiry\. Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt`/
 
-      vi.stubEnv('GROUP_KEY_GRANT', '')
-      expect(await failure()).not.toMatch(hint)
-      vi.stubEnv('GROUP_KEY_GRANT', 'fgr1_saved')
-      try {
-        expect(await failure()).toMatch(hint)
-      } finally {
-        vi.unstubAllEnvs()
-      }
+      expect(await failure({})).not.toContain('Caller hint')
+      expect(await failure({ authorizationHint: 'Caller hint: do this too.' })).toMatch(/\nCaller hint: do this too\.$/)
     })
 
     it("should use the 'never authorized, or expired/revoked' wording when the key holds no live grant", async () => {
