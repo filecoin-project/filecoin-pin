@@ -38,6 +38,8 @@ export const CREDENTIALS_FILE_VARS = [
   'WALLET_ADDRESS',
   'VIEW_ADDRESS',
   'NETWORK',
+  'GROUP_KEY_ID',
+  'GROUP_KEY_GRANT',
 ] as const satisfies LoadableEnvVar[]
 
 /**

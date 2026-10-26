@@ -134,6 +134,19 @@ describe('applyCredentialsFile', () => {
     expect(env.SESSION_KEY).toBeUndefined()
   })
 
+  it('supplies the group key Grant and its id, below the environment', async () => {
+    const path = join(dir, '.env')
+    writeFileSync(path, 'SESSION_KEY=0xabc\nGROUP_KEY_ID=0xfile\nGROUP_KEY_GRANT=fgr1_file\n')
+
+    const fromFile: NodeJS.ProcessEnv = {}
+    await parse(['add', '--credentials-file', path], fromFile)
+    expect(fromFile).toMatchObject({ GROUP_KEY_ID: '0xfile', GROUP_KEY_GRANT: 'fgr1_file' })
+
+    const shell: NodeJS.ProcessEnv = { GROUP_KEY_GRANT: 'fgr1_env' }
+    await parse(['add', '--credentials-file', path], shell)
+    expect(shell).toMatchObject({ GROUP_KEY_ID: '0xfile', GROUP_KEY_GRANT: 'fgr1_env' })
+  })
+
   it('surfaces a missing file through the parse, naming the path', async () => {
     const path = join(dir, 'does-not-exist.env')
     await expect(parse(['add', '--credentials-file', path], {})).rejects.toThrow(`could not read "${path}"`)

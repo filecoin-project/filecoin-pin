@@ -25,6 +25,9 @@ const OPTION_FOR_ENV = {
   WALLET_ADDRESS: 'walletAddress',
   VIEW_ADDRESS: 'viewAddress',
   NETWORK: 'network',
+  // No flags: set in the environment only, for the code that opens the Grant.
+  GROUP_KEY_ID: 'groupKeyId',
+  GROUP_KEY_GRANT: 'groupKeyGrant',
 } as const
 
 export type LoadableEnvVar = keyof typeof OPTION_FOR_ENV
@@ -102,7 +105,8 @@ export function supplyCredential(
 }
 
 /**
- * Load `SESSION_KEY` and `WALLET_ADDRESS` from the session file when nothing
+ * Load `SESSION_KEY` and `WALLET_ADDRESS` (and the group key Grant, when
+ * saved) from the session file when nothing
  * else supplied a credential, plus `NETWORK` when neither a flag, the env,
  * nor an RPC URL chose one, since the grant lives on the chain the key was
  * made for. A file without an owner address (login started but never
@@ -138,6 +142,10 @@ export function applySessionFileCredentials(
   supplyCredential(command, env, 'SESSION_KEY', session.sessionKey, 'session')
   supplyCredential(command, env, 'WALLET_ADDRESS', session.walletAddress, 'session')
   if (session.network !== undefined) supplyCredential(command, env, 'NETWORK', session.network, 'session')
+  if (session.groupKeyId !== undefined && session.groupKeyGrant !== undefined) {
+    supplyCredential(command, env, 'GROUP_KEY_ID', session.groupKeyId, 'session')
+    supplyCredential(command, env, 'GROUP_KEY_GRANT', session.groupKeyGrant, 'session')
+  }
   loadedFrom = path
   loadedNetwork = session.network
   if (isSet(env, 'CI')) {
