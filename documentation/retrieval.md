@@ -20,7 +20,7 @@ filecoin-pin get <root-cid> [output-dir]
 - **Finds providers** through [IPNI](glossary.md#ipni) and, when an address is set (`PRIVATE_KEY`, `WALLET_ADDRESS` or `VIEW_ADDRESS`), the providers of your own [Data Sets](glossary.md#data-set). Your own providers are found even before IPNI has indexed a fresh upload. Listing them is a public read, so no keys are needed.
 - **Downloads and verifies:** the CAR comes from the first provider that answers, and every block is checked against its CID. A bad, incomplete or stalled download is discarded and the next provider is tried.
 - **Saves** the file or folder into `[output-dir]` (default: the current directory) as `<root-cid>`, numbered `<root-cid>(1)` if that name is taken. Existing files are never touched, and the final path is printed.
-- **Decrypts** an Encrypted Upload with the owner wallet (`PRIVATE_KEY`) and saves it under its original name. Plain content needs no credentials.
+- **Decrypts** an Encrypted Upload with the owner wallet (`PRIVATE_KEY`) and saves it under its original name. You can `get` plain content without any key or login.
 - **Limits:** lookups and providers have timeouts, and the download is capped at about Synapse's maximum upload size. A CID uploaded in the last few minutes may not be found through IPNI yet, since cid.contact remembers a miss for a while (see the [Content Routing FAQ](content-routing-faq.md)).
 - Uploads made with `--no-ipfs` can't be fetched by root CID: download the piece from the provider's `/piece` endpoint and use `filecoin-pin decrypt`.
 
