@@ -3,7 +3,7 @@
  *
  * Generates (or resumes) a session key, saves it before anything else
  * happens, prints and opens the console link where the wallet owner
- * approves the key, waits for the grant on-chain, then prints the granted
+ * approves the key, waits for the authorization on-chain, then prints the granted
  * scopes and the account readiness scorecard. With `--scopes …,encrypt` it
  * also takes the group key Grant the console issues for the key (pasted at a
  * prompt, or later with `--grant`). Every printed line is part
@@ -34,6 +34,7 @@ import {
   keyAgreementParams,
   type OpenedGrant,
   openGroupKeyGrant,
+  precheckGroupKeyGrant,
 } from '../common/group-key-grant.js'
 import {
   buildAuthorizeUrl,
@@ -95,9 +96,15 @@ function parseLoginScopes(value: string | undefined): { permissions: Permission[
   }
 }
 
-/** Chain id of a console network slug; mainnet for a session file that never recorded one. */
+/**
+ * Chain id of a console network slug; mainnet for a session file that never recorded one.
+ *
+ * @throws for any other network: the console, which issues Grants, serves only these two.
+ */
 function chainIdOf(network: string | undefined): number {
-  return network === 'calibration' ? NETWORK_CHAINS.calibration.id : NETWORK_CHAINS.mainnet.id
+  if (network === undefined || network === 'mainnet') return NETWORK_CHAINS.mainnet.id
+  if (network === 'calibration') return NETWORK_CHAINS.calibration.id
+  throw new Error(`login --grant works on mainnet and calibration, not ${network}: Grants come from the console.`)
 }
 
 /** Save `opened` with the session, replacing any earlier Grant: one Grant per session key. */
@@ -135,10 +142,11 @@ async function importGrant(
       `The saved login is for ${saved.network}, not ${network}. Pass --network ${saved.network}, or run \`filecoin-pin login --fresh\` to replace it.`
     )
   }
+  const chainId = chainIdOf(network)
   const opened = await openGroupKeyGrant(grantText, {
     sessionKey: saved.sessionKey,
     walletAddress: saved.walletAddress,
-    chainId: chainIdOf(network),
+    chainId,
   })
   log.line(`${pc.green('✓')} Session key ${saved.sessionAddress} (${network ?? 'mainnet'})`)
   saveGrant(saved, opened, path)
@@ -159,13 +167,21 @@ async function obtainGrant(
   url: string,
   grantText: string | undefined,
   path: string,
-  stdin: NodeJS.ReadableStream & { isTTY?: boolean }
+  io: LoginIO
 ): Promise<boolean> {
   const open = (text: string) =>
     openGroupKeyGrant(text, { sessionKey: session.sessionKey, walletAddress: session.walletAddress, chainId })
   if (grantText !== undefined) {
-    saveGrant(session, await open(grantText), path)
-    return true
+    try {
+      saveGrant(session, await open(grantText), path)
+      return true
+    } catch (error) {
+      if (!(error instanceof GrantError)) throw error
+      // The login itself stands; only the Grant is still to come.
+      log.line(`${pc.red('✗')} Grant refused: ${error.message}`)
+      reportGrantPending(url)
+      return false
+    }
   }
   if (session.groupKeyGrant !== undefined) {
     try {
@@ -182,20 +198,27 @@ async function obtainGrant(
       log.line(`${pc.yellow('⚠')} The saved Grant was ignored: ${error.message}`)
     }
   }
-  if (stdin.isTTY !== true) {
+  // Both ends a terminal: readline's raw mode, which Ctrl-C and long pastes rely on, needs them.
+  if (io.stdin.isTTY !== true || io.stdout.isTTY !== true) {
     reportGrantPending(url)
     return false
   }
   log.line(`  In the console, approve the group key step for session key ${session.sessionAddress}`)
   log.line('  and copy the Grant it shows.')
   log.flush()
-  const opened = await promptForGrant(open, stdin, process.stdout)
+  const opened = await promptForGrant(open, io.stdin, io.stdout)
   if (opened === undefined) {
     reportGrantPending(url)
     return false
   }
   saveGrant(session, opened, path)
   return true
+}
+
+/** The streams `login` reads a Grant from and prompts on; a test passes its own. */
+export interface LoginIO {
+  stdin: NodeJS.ReadableStream & { isTTY?: boolean }
+  stdout: NodeJS.WritableStream & { isTTY?: boolean }
 }
 
 interface LoadedSession {
@@ -291,23 +314,30 @@ async function reportReadiness(
  */
 export async function runLogin(
   options: LoginOptions,
-  stdin: NodeJS.ReadableStream & { isTTY?: boolean } = process.stdin
+  io: LoginIO = { stdin: process.stdin, stdout: process.stdout }
 ): Promise<number> {
   const { permissions, encrypt } = parseLoginScopes(options.scopes)
+  if (options.grant !== undefined && options.fresh) {
+    // Refused before the saved key is replaced: a Grant names its key, and a fresh one has none yet.
+    throw new Error(
+      '--grant imports a Grant for the saved session key; a --fresh key has none yet. Run `login --fresh` first, then approve the new key and take its Grant.'
+    )
+  }
   // Read and decoded first, so a wrong paste fails now rather than after the wait.
-  const grantText = options.grant === undefined ? undefined : await readGrantArgument(options.grant, stdin)
+  const grantText = options.grant === undefined ? undefined : await readGrantArgument(options.grant, io.stdin)
   if (grantText !== undefined) decodeGrantText(grantText)
   // `--grant` asks for the Grant step whether or not `--scopes` names encrypt.
   const wantGrant = encrypt || grantText !== undefined
   const path = getSessionFilePath()
   let networkOptions: LoginOptions = options
-  if (grantText !== undefined && !options.fresh && options.rpcUrl === undefined) {
+  if (grantText !== undefined) {
     const saved = readSessionFile(path)
     if (saved?.walletAddress !== undefined) {
+      // Offline: the owner is known and the Grant names its network, so no RPC is needed.
       return importGrant({ ...saved, walletAddress: saved.walletAddress }, grantText, options, path)
     }
     // Not yet seen authorized: resume the saved key on its own network, then take the Grant.
-    if (options.network === undefined && saved?.network !== undefined) {
+    if (options.network === undefined && options.rpcUrl === undefined && saved?.network !== undefined) {
       networkOptions = { ...options, network: saved.network }
     }
   }
@@ -331,6 +361,8 @@ export async function runLogin(
   const consoleUrl = resolveConsoleUrl()
 
   const { session, resumed, replaced } = loadOrCreateSession(options.fresh, network, path)
+  // Checks that need no owner or network, before the link and the wait.
+  if (grantText !== undefined) precheckGroupKeyGrant(grantText, session.sessionKey)
   const short = shortAddress(session.sessionAddress)
   log.line(`${pc.green('✓')} ${resumed ? 'Resuming session key' : 'Session key generated'}: ${short} (${network})`)
   log.line(`${pc.green('✓')} Saved to ${path} (owner-readable only, saved BEFORE the browser opens — safe to re-run)`)
@@ -387,9 +419,14 @@ export async function runLogin(
       }
     }
     log.line(
-      `${pc.yellow('⚠')} Not waiting for the grant. Approve the key, then rerun \`filecoin-pin login\` to check it.`
+      `${pc.yellow('⚠')} Not waiting for the authorization. Approve the key, then rerun \`filecoin-pin login\` to check it.`
     )
-    if (wantGrant) {
+    if (grantText !== undefined) {
+      // Never dropped silently: the Grant can be checked only once the owner is known.
+      log.line(
+        "  The Grant was not imported: the session key isn't authorized yet. Approve it in the console, then run `filecoin-pin login --grant …` again."
+      )
+    } else if (wantGrant) {
       log.line('  Then copy the group key Grant the console shows, and run:')
       log.line('    filecoin-pin login --grant <grant>')
       log.line('    filecoin-pin login --grant -    (reads the Grant from stdin)')
@@ -458,7 +495,7 @@ export async function runLogin(
     spinner.stop('')
     reportPartialGrant(permissions, result)
   }
-  const haveGrant = wantGrant ? await obtainGrant(authorized, chain.id, url, grantText, path, stdin) : true
+  const haveGrant = wantGrant ? await obtainGrant(authorized, chain.id, url, grantText, path, io) : true
 
   // Funding never blocks login: a failed readiness read is reported, not fatal.
   try {

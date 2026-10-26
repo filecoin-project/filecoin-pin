@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PassThrough } from 'node:stream'
+import { PassThrough, Writable } from 'node:stream'
 import { publicKeyOf } from '@filoz/keysmith'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { recoverMessageAddress } from 'viem'
@@ -24,6 +24,7 @@ import {
   OTHER_SESSION_KEY,
   SESSION_ADDRESS,
   SESSION_KEY,
+  STRANGER_KEY,
 } from '../fixtures/group-key-grants.js'
 
 const OWNER = '0x00000000000000000000000000000000000000aa'
@@ -153,7 +154,7 @@ describe('runLogin', () => {
     const code = await runLogin({ wait: false })
 
     expect(code).toBe(2)
-    expect(output()).toContain('Not waiting for the grant')
+    expect(output()).toContain('Not waiting for the authorization')
   })
 
   it('records the block the wait started at even when the wait times out', async () => {
@@ -396,13 +397,27 @@ describe('runLogin', () => {
     const GRANT_AUTHORIZED: WatchAuthorizationResult = { ...FULL_GRANT, owner: GRANT_OWNER.address }
     let prompts: string[]
 
-    /** stdin that never ends: a read from it would hang the test. */
-    const silentStdin = (isTTY: boolean) => Object.assign(new PassThrough(), { isTTY })
-    /** A terminal the owner pastes `lines` into. */
+    /** A stdout whose writes (the prompts) land in `prompts`. */
+    const fakeStdout = (isTTY: boolean) =>
+      Object.assign(
+        new Writable({
+          write(chunk, _encoding, callback) {
+            prompts.push(String(chunk))
+            callback()
+          },
+        }),
+        { isTTY }
+      )
+    /** Streams whose stdin never ends: a read from it would hang the test. */
+    const silentStdin = (isTTY: boolean, stdoutIsTTY = isTTY) => ({
+      stdin: Object.assign(new PassThrough(), { isTTY }),
+      stdout: fakeStdout(stdoutIsTTY),
+    })
+    /** A terminal the owner pastes `lines` into, then closes. */
     const terminal = (...lines: string[]) => {
-      const stdin = silentStdin(true)
-      stdin.end(lines.map((line) => `${line}\n`).join(''))
-      return stdin
+      const io = silentStdin(true)
+      io.stdin.end(lines.map((line) => `${line}\n`).join(''))
+      return io
     }
     const savedKey = (extra: object = {}) =>
       writeSessionFile(
@@ -417,10 +432,6 @@ describe('runLogin', () => {
 
     beforeEach(() => {
       prompts = []
-      vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
-        prompts.push(String(chunk))
-        return true
-      })
     })
 
     it('links with pubkey and pubkeysig, keeps encrypt off the link scopes, and shows the session address', async () => {
@@ -547,10 +558,10 @@ describe('runLogin', () => {
     it('login --grant - reads a Grant with line breaks from stdin', async () => {
       savedKey({ walletAddress: GRANT_OWNER.address })
       const grant = await makeGrant()
-      const stdin = silentStdin(false)
-      stdin.end(`${grant.slice(0, 250)}\n${grant.slice(250)}\n`)
+      const io = silentStdin(false)
+      io.stdin.end(`${grant.slice(0, 250)}\n${grant.slice(250)}\n`)
 
-      const code = await runLogin({ grant: '-' }, stdin)
+      const code = await runLogin({ grant: '-' }, io)
 
       expect(code).toBe(0)
       expect(readSessionFile(sessionPath())?.groupKeyGrant).toBe(grant)
@@ -573,6 +584,114 @@ describe('runLogin', () => {
       )
       expect(vi.mocked(resolveNetwork)).not.toHaveBeenCalled()
       expect(vi.mocked(watchAuthorization)).not.toHaveBeenCalled()
+    })
+
+    it('login --grant --no-wait before the owner is known says the Grant was not imported, and exits 2', async () => {
+      savedKey()
+
+      const code = await runLogin({ grant: await makeGrant(), wait: false }, silentStdin(false))
+
+      expect(code).toBe(2)
+      expect(output()).toContain(
+        "The Grant was not imported: the session key isn't authorized yet. Approve it in the console, then run `filecoin-pin login --grant …` again."
+      )
+      expect(readSessionFile(sessionPath())).not.toHaveProperty('groupKeyGrant')
+    })
+
+    it('login --grant imports offline once the owner is known, even with --rpc-url', async () => {
+      savedKey({ walletAddress: GRANT_OWNER.address })
+
+      const code = await runLogin({ grant: await makeGrant(), rpcUrl: 'http://rpc.test' }, silentStdin(false))
+
+      expect(code).toBe(0)
+      expect(vi.mocked(resolveNetwork)).not.toHaveBeenCalled()
+      expect(readSessionFile(sessionPath())?.groupKeyId).toBe(GROUP_KEY)
+    })
+
+    it('login --fresh --grant is refused before the saved key is replaced', async () => {
+      savedKey({ walletAddress: GRANT_OWNER.address })
+
+      await expect(runLogin({ fresh: true, grant: await makeGrant() }, silentStdin(false))).rejects.toThrow(
+        /a --fresh key has none yet/
+      )
+      expect(readSessionFile(sessionPath())?.sessionKey).toBe(SESSION_KEY)
+      expect(vi.mocked(resolveNetwork)).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['for another session key', { sessionKey: OTHER_SESSION_KEY }, /another session key/],
+      ['expired', { expires: 1_000_000 }, /This Grant expired at/],
+    ])('login --grant with a Grant %s fails before the link and the wait', async (_case, input, message) => {
+      savedKey()
+
+      await expect(runLogin({ grant: await makeGrant(input) }, silentStdin(false))).rejects.toThrow(message)
+      expect(vi.mocked(watchAuthorization)).not.toHaveBeenCalled()
+      expect(output()).not.toContain('console/setup')
+    })
+
+    it('a Grant refused after the wait keeps the login, says why, and exits 2', async () => {
+      savedKey()
+      vi.mocked(watchAuthorization).mockResolvedValue(GRANT_AUTHORIZED)
+
+      const code = await runLogin({ grant: await makeGrant({ ownerKey: STRANGER_KEY }) }, silentStdin(false))
+
+      expect(code).toBe(2)
+      expect(output()).toMatch(/Grant refused: This Grant is from wallet 0x[0-9a-fA-F]{40}, not/)
+      expect(output()).toContain('filecoin-pin login --grant <grant>')
+      const saved = readSessionFile(sessionPath())
+      expect(saved?.walletAddress).toBe(GRANT_OWNER.address)
+      expect(saved).not.toHaveProperty('groupKeyGrant')
+    })
+
+    it('login --grant refuses a network the console does not serve', async () => {
+      writeSessionFile(
+        { sessionKey: SESSION_KEY, sessionAddress: SESSION_ADDRESS, walletAddress: GRANT_OWNER.address },
+        sessionPath()
+      )
+
+      await expect(runLogin({ grant: await makeGrant(), network: 'devnet' }, silentStdin(false))).rejects.toThrow(
+        /login --grant works on mainnet and calibration, not devnet/
+      )
+    })
+
+    it('login --grant - refuses a terminal instead of waiting on it', async () => {
+      savedKey({ walletAddress: GRANT_OWNER.address })
+
+      await expect(runLogin({ grant: '-' }, silentStdin(true))).rejects.toThrow(
+        /pipe the Grant in, or pass it as an argument/
+      )
+    })
+
+    it('login --grant - refuses more than 16 KB of stdin', async () => {
+      savedKey({ walletAddress: GRANT_OWNER.address })
+      const io = silentStdin(false)
+      io.stdin.write('a'.repeat(10_000))
+      io.stdin.end('a'.repeat(10_000))
+
+      await expect(runLogin({ grant: '-' }, io)).rejects.toThrow(/more than 16 KB, which is not a Grant/)
+    })
+
+    it('with stdin a terminal but stdout not, never prompts: prints the resume command and exits 2', async () => {
+      savedKey()
+      vi.mocked(watchAuthorization).mockResolvedValue(GRANT_AUTHORIZED)
+
+      const code = await runLogin({ scopes: ENCRYPT }, silentStdin(true, false))
+
+      expect(code).toBe(2)
+      expect(prompts).toEqual([])
+      expect(output()).toContain('filecoin-pin login --grant <grant>')
+    })
+
+    it('on a terminal, a new fgr1_ line replaces an unfinished paste, after saying it was incomplete', async () => {
+      savedKey()
+      vi.mocked(watchAuthorization).mockResolvedValue(GRANT_AUTHORIZED)
+      const grant = await makeGrant()
+
+      const code = await runLogin({ scopes: ENCRYPT }, terminal(grant.slice(0, 200), grant))
+
+      expect(code).toBe(0)
+      expect(prompts.join('')).toContain('still incomplete: keep pasting, or press Enter to start over')
+      expect(readSessionFile(sessionPath())?.groupKeyGrant).toBe(grant)
     })
 
     it('a new Grant replaces the saved one', async () => {

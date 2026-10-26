@@ -155,26 +155,39 @@ export function decodeGrantText(rawText: string): {
 }
 
 /**
+ * The checks that need neither the owner nor the network, so `login` can run them before it
+ * waits for the authorization: the Grant decodes, names this session key as its bearer, and
+ * has not expired. Unverified: {@link openGroupKeyGrant} checks them all again with the
+ * signatures.
+ *
+ * @throws GrantError with the reason it is refused.
+ */
+export function precheckGroupKeyGrant(
+  rawText: string,
+  sessionKey: Hex,
+  now: number = Math.floor(Date.now() / 1000)
+): void {
+  const { delivery } = decodeGrantText(rawText)
+  const sessionAddress = privateKeyToAccount(sessionKey).address
+  const bearer = delivery.chain.links.at(-1)?.bearer
+  if (bearer != null && !sameAddress(bearer, sessionAddress)) {
+    throw new GrantError(`This Grant is for another session key (${bearer}), not this one (${sessionAddress}).`)
+  }
+  if (delivery.chain.expires <= now) {
+    throw new GrantError(`This Grant expired at ${new Date(delivery.chain.expires * 1000).toISOString()}.`)
+  }
+}
+
+/**
  * Open a Grant for this session key and check it is for this owner, network and group key.
  * Grant checks come before key checks, so each refusal names its own reason.
  *
  * @throws GrantError with the reason it is refused.
  */
 export async function openGroupKeyGrant(rawText: string, expected: GrantExpectations): Promise<OpenedGrant> {
-  const { text, bytes, delivery: decoded } = decodeGrantText(rawText)
-
-  // Unverified yet, but read first so each refusal says why; openDelivery checks them all again.
-  const sessionAddress = privateKeyToAccount(expected.sessionKey).address
-  const bearer = decoded.chain.links.at(-1)?.bearer
-  if (bearer != null && !sameAddress(bearer, sessionAddress)) {
-    throw new GrantError(`This Grant is for another session key (${bearer}), not this one (${sessionAddress}).`)
-  }
+  const { text, bytes } = decodeGrantText(rawText)
   const now = expected.now ?? Math.floor(Date.now() / 1000)
-  if (decoded.chain.expires <= now) {
-    throw new GrantError(
-      `This Grant expired at ${new Date(decoded.chain.expires * 1000).toISOString()}, with the session key's authorization.`
-    )
-  }
+  precheckGroupKeyGrant(text, expected.sessionKey, now)
 
   let opened: Awaited<ReturnType<typeof openDelivery>>
   try {
