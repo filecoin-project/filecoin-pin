@@ -58,6 +58,7 @@ function activePiecePresence(dataSet: Pick<DataSetSummary, 'hasActivePieces'>): 
   return dataSet.hasActivePieces ? 'yes' : 'no'
 }
 
+/** Sort comparator: ascending by data set ID (bigint-safe). */
 function byDataSetId(a: DataSetSummary, b: DataSetSummary): number {
   if (a.dataSetId < b.dataSetId) return -1
   if (a.dataSetId > b.dataSetId) return 1

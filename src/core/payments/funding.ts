@@ -128,6 +128,7 @@ export function formatFundingReason(reasonCode: FundingReasonCode, plan?: Fileco
   }
 }
 
+/** Plan action for a signed deposit delta: positive deposits, negative withdraws. */
 function fundingAction(delta: bigint): FilecoinPayFundingPlan['action'] {
   if (delta > 0n) return 'deposit'
   if (delta < 0n) return 'withdraw'
