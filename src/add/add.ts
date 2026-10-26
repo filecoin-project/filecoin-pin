@@ -315,13 +315,16 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       encryptDir = mkdtempSync(join(tmpdir(), 'filecoin-pin-encrypt-'))
       spinner.start(`Encrypting ${pathType.toLowerCase()}...`)
       packPath = join(encryptDir, ENCRYPTED_FILE_NAME)
+      const pieceKey = newPieceKey(groupKey.target)
+      // The group key is needed only for this upload's key, and that key only to encrypt.
+      groupKey.target.key.fill(0)
       const { plan } = await encryptPath(
         options.filePath,
         packPath,
-        newPieceKey(groupKey.target),
+        pieceKey,
         { ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }) },
         SIZE_CONSTANTS.MAX_UPLOAD_SIZE
-      )
+      ).finally(() => pieceKey.cek.fill(0))
       spinner.stop(`${pc.green('✓')} ${pathType} encrypted${describeSkipped(plan.walk)}`)
     }
 

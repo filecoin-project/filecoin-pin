@@ -222,18 +222,20 @@ describe('grantKeyResolver', () => {
     )
   })
 
-  it('opens the Grant only when an envelope asks for a key, and once', async () => {
-    let loads = 0
+  it('opens the Grant only when an envelope asks for a key, and zeroes the group key after', async () => {
+    const loaded: OpenedGrant[] = []
     const resolver = grantKeyResolver(async (): Promise<OpenedGrant> => {
-      loads++
-      return opened()
+      const grant = await opened()
+      loaded.push(grant)
+      return grant
     })
-    expect(loads).toBe(0)
+    expect(loaded).toHaveLength(0)
 
-    await resolver(labels() as never)
-    await resolver(labels() as never)
+    const pieceKey = await resolver(labels() as never)
 
-    expect(loads).toBe(1)
+    expect(loaded).toHaveLength(1)
+    expect(pieceKey.some((byte) => byte !== 0)).toBe(true)
+    expect(loaded[0]?.key.every((byte) => byte === 0)).toBe(true)
   })
 
   it('names the source of a Grant that fails to load', async () => {

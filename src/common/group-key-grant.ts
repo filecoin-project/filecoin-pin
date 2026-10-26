@@ -282,8 +282,11 @@ export async function grantGroupKey(synapse: Synapse, opened: OpenedGrant, logge
       `Group key ${opened.groupKeyId} is used by data sets ${disagreeing.map((d) => d.dataSetId).join(', ')}, which disagree with the Grant on foc/kc or are not foc/enc "1".`
     )
   }
+  const target = writeTarget(opened.grant, opened.key)
+  // The caller zeroes target.key once used; a copy leaves the opened key to zero here.
+  if (target.key !== opened.key) opened.key.fill(0)
   return {
-    target: writeTarget(opened.grant, opened.key),
+    target,
     dataSetMetadata: {
       [ENCRYPTION_VERSION_KEY]: ENCRYPTION_VERSION,
       [GROUP_KEY_ID_KEY]: opened.groupKeyId,
@@ -293,32 +296,35 @@ export async function grantGroupKey(synapse: Synapse, opened: OpenedGrant, logge
 }
 
 /**
- * A FEE key resolver for a session key's Grant. `load` runs once, and only when an envelope
- * needs a key, so plain content needs no Grant. An envelope of another owner or group key
- * fails with a {@link NotOwnerError} naming both.
+ * A FEE key resolver for a session key's Grant. `load` runs only when an envelope needs a
+ * key, so plain content needs no Grant, and the group key it opens is zeroed once the piece
+ * key is derived. An envelope of another owner or group key fails with a
+ * {@link NotOwnerError} naming both.
  */
 export function grantKeyResolver(load: () => Promise<OpenedGrant>): KeyResolver {
-  let loading: Promise<OpenedGrant> | undefined
   return async ({ appMetadata }) => {
     const groupKeyId = appMetadata?.['foc/ks']
     if (appMetadata?.['foc/v'] !== 1 || typeof groupKeyId !== 'string') {
       throw new Error('not a Keysmith envelope')
     }
-    loading ??= load()
-    const opened = await loading
-    const owner = appMetadata['foc/own']
-    if (
-      typeof owner !== 'string' ||
-      !sameAddress(owner, opened.owner) ||
-      groupKeyId.toLowerCase() !== opened.groupKeyId
-    ) {
-      throw new NotOwnerError(
-        String(owner),
-        groupKeyId,
-        `this session's Grant is for group key ${opened.groupKeyId} of ${opened.owner.toLowerCase()}`
-      )
+    const opened = await load()
+    try {
+      const owner = appMetadata['foc/own']
+      if (
+        typeof owner !== 'string' ||
+        !sameAddress(owner, opened.owner) ||
+        groupKeyId.toLowerCase() !== opened.groupKeyId
+      ) {
+        throw new NotOwnerError(
+          String(owner),
+          groupKeyId,
+          `this session's Grant is for group key ${opened.groupKeyId} of ${opened.owner.toLowerCase()}`
+        )
+      }
+      return keyForEnvelope(opened.key, appMetadata, opened.grant)
+    } finally {
+      opened.key.fill(0)
     }
-    return keyForEnvelope(opened.key, appMetadata, opened.grant)
   }
 }
 
