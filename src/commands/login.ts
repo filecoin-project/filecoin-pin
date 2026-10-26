@@ -86,7 +86,7 @@ addNetworkOptions(loginCommand).addOption(rpcUrlOption('RPC endpoint'))
 
 export const logoutCommand = new Command('logout')
   .description(
-    'Log out: delete the saved session key from this machine (local only; the on-chain grant stays until it expires)'
+    'Log out: delete the saved session key from this machine (local only; the on-chain authorization stays until it expires)'
   )
   .action(() => {
     try {

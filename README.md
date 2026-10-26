@@ -277,7 +277,7 @@ Other arguments are possible for individual commands, use `--help` to find out m
 
 `filecoin-pin login` pairs this machine with a wallet without exporting a private key. It generates a session key, saves it to `session.env` in the data directory (owner-readable only) before anything else happens, prints a Filecoin Cloud console link, opens it in a browser on a terminal, and waits up to five minutes for the wallet owner to approve the key there. It ends with a readiness scorecard for uploads (key authorized, storage service approved, USDFC deposited) and a pre-filled console link when funding is still needed.
 
-An authorization lives on one chain, so the file records the network (`mainnet` or `calibration`); resuming it under another `--network` is refused. `login` works only on those two networks, which are the ones the console serves. On devnet or a custom RPC, use `session create` with the wallet key. If `PRIVATE_KEY`, `SESSION_KEY`, `VIEW_ADDRESS`, or `GROUP_KEY_GRANT` is set in the shell, `login` warns that it will take precedence over the saved key.
+An authorization lives on one chain, so the file records the network (`mainnet` or `calibration`); resuming it under another `--network` is refused. `login` works only on those two networks, which are the ones the console serves. On devnet or a custom RPC, use `session create` with the wallet key. If `PRIVATE_KEY`, `SESSION_KEY`, or `VIEW_ADDRESS` is set in the shell, `login` warns that it will take precedence over the saved key. If `GROUP_KEY_GRANT` is set, `login` warns that it is ignored while the saved login's session key is used (see [Group key Grants](#group-key-grants)).
 
 * `--scopes <ids>`: scopes to request (default: `createDataSet,addPieces`). See [Session-Key Permissions](#session-key-permissions) for what each command needs. Add `encrypt` (for example `--scopes createDataSet,addPieces,encrypt`) to also get a [Grant](documentation/glossary.md#grant) for [encrypted uploads](#encrypted-uploads); see below.
 * `--grant <grant>`: import the Grant the console showed for the saved session key (`-` reads it from stdin). Use it to finish a login that could not take the Grant at a prompt. Once the key's owner is known it works offline; before that it waits for the authorization first, and with `--no-wait` it says the Grant was not imported and exits `2` (rerun it after approving). It cannot be combined with `--fresh`: a new key has no Grant yet.
@@ -367,6 +367,7 @@ In session-key mode, each command checks only the on-chain permissions it needs 
 | `data-set terminate` | `terminateService` |
 | Pinning server (`filecoin-pinning-server`) | `createDataSet`, `addPieces`, `schedulePieceRemovals` |
 | `payments deposit`, `payments withdraw`, `payments fund`, `payments setup --auto` | Owner wallet only (session keys are refused) |
+| `add --encrypt`; `get` and `decrypt` on encrypted content | The scopes above for `add`, plus a group key [Grant](documentation/glossary.md#grant) (`login --scopes createDataSet,addPieces,encrypt`). `get` and `decrypt` need no on-chain scope, only the Grant. |
 
 If the session key is missing a required scope, the command fails up front with a console link to approve the missing scope with the owner wallet, plus the equivalent `filecoin-pin session authorize` / `filecoin-pin session create` commands for the account owner to run.
 
@@ -375,6 +376,13 @@ If the session key is missing a required scope, the command fails up front with 
 ```bash
 # Required
 PRIVATE_KEY=0x...              # Ethereum private key with USDFC tokens
+
+# Session key (instead of PRIVATE_KEY; `filecoin-pin login` saves these for you)
+SESSION_KEY=0x...              # Session key private key (not the session address)
+WALLET_ADDRESS=0x...           # Owner wallet that authorized the session key
+VIEW_ADDRESS=0x...             # Read-only mode for this address (never signs)
+GROUP_KEY_ID=0x...             # Group key the Grant opens (0x + 32 hex), set with GROUP_KEY_GRANT
+GROUP_KEY_GRANT=fgr1_...       # Group key Grant for SESSION_KEY: encrypted add, get and decrypt
 
 # Optional - Network Configuration
 NETWORK=mainnet                # Network to use: mainnet, calibration, or devnet (default: mainnet)
