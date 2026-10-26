@@ -58,8 +58,8 @@ function activePiecePresence(dataSet: Pick<DataSetSummary, 'hasActivePieces'>): 
   return dataSet.hasActivePieces ? 'yes' : 'no'
 }
 
-/** Sort comparator: ascending by data set ID (bigint-safe). */
-function byDataSetId(a: DataSetSummary, b: DataSetSummary): number {
+/** Ascending sort comparator for bigint data set IDs. */
+function compareDataSetIds(a: DataSetSummary, b: DataSetSummary): number {
   if (a.dataSetId < b.dataSetId) return -1
   if (a.dataSetId > b.dataSetId) return 1
   return 0
@@ -281,7 +281,7 @@ export function displayDataSetList(
 
   renderNetworkDetails(network, address)
 
-  const ordered = [...dataSets].sort(byDataSetId)
+  const ordered = [...dataSets].sort(compareDataSetIds)
   const tableRows = [
     ['ID', 'Status', 'Provider ID', 'Has Pieces', 'CDN'],
     ...ordered.map((dataSet) => [
@@ -321,7 +321,7 @@ export function displayDataSets(
   }
   renderNetworkDetails(network, address)
 
-  const ordered = [...dataSets].sort(byDataSetId)
+  const ordered = [...dataSets].sort(compareDataSetIds)
 
   for (const dataSet of ordered) {
     renderDataSetHeader(dataSet)
