@@ -183,9 +183,9 @@ describe('runDecrypt', () => {
     await runDecrypt(encryptedPath, outputDir, asOwner)
 
     expect(await readFile(join(outputDir, 'report.pdf'), 'utf8')).toBe('older report')
-    expect((await readFile(join(outputDir, 'report (1).pdf'))).equals(plaintext)).toBe(true)
-    expect((await readFile(join(outputDir, 'report (2).pdf'))).equals(plaintext)).toBe(true)
-    expect(outro).toHaveBeenLastCalledWith(`Saved to ${join(outputDir, 'report (2).pdf')}`)
+    expect((await readFile(join(outputDir, 'report(1).pdf'))).equals(plaintext)).toBe(true)
+    expect((await readFile(join(outputDir, 'report(2).pdf'))).equals(plaintext)).toBe(true)
+    expect(outro).toHaveBeenLastCalledWith(`Saved to ${join(outputDir, 'report(2).pdf')}`)
   })
 
   it('numbers a folder upload when the folder name is taken', async () => {
@@ -199,7 +199,7 @@ describe('runDecrypt', () => {
     await runDecrypt(encryptedPath, outputDir, asOwner)
 
     expect(await readFile(join(outputDir, 'photos', 'a.jpg'), 'utf8')).toBe('old a')
-    expect(await readFile(join(outputDir, 'photos (1)', 'a.jpg'), 'utf8')).toBe('new a')
+    expect(await readFile(join(outputDir, 'photos(1)', 'a.jpg'), 'utf8')).toBe('new a')
   })
 
   it('removes only the claimed entry when decryption fails after the claim', async () => {
@@ -218,7 +218,7 @@ describe('runDecrypt', () => {
 
     await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toThrow(/wrong key, or the file was modified/i)
 
-    expect(claims).toEqual([join(outputDir, 'report (1).pdf')])
+    expect(claims).toEqual([join(outputDir, 'report(1).pdf')])
     expect((await readdir(outputDir)).sort()).toEqual(['keep.txt', 'report.pdf'])
     expect(await readFile(join(outputDir, 'report.pdf'), 'utf8')).toBe('older report')
   })

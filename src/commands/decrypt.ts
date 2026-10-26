@@ -21,7 +21,7 @@ The key is derived from the owner wallet (PRIVATE_KEY) offline; no network conne
 The upload is restored under its original name inside <output-dir>: a file becomes
 <output-dir>/<name>, a directory becomes <output-dir>/<name>/... with its contents.
 Nothing in <output-dir> is overwritten: when the name is taken it is numbered like a browser
-download (report.pdf -> "report (1).pdf", photos -> "photos (1)").`
+download (report.pdf -> "report(1).pdf", archive.tar.gz -> "archive(1).tar.gz", photos -> "photos(1)").`
   )
 
 addAuthOptions(decryptCommand)

@@ -12,13 +12,22 @@ const run = promisify(execFile)
 
 describe('numberedName', () => {
   it.each([
-    ['report.pdf', 'file', 'report (1).pdf'],
-    ['archive.tar.gz', 'file', 'archive.tar (1).gz'],
-    ['README', 'file', 'README (1)'],
-    ['.env', 'file', '.env (1)'],
-    ['.config.json', 'file', '.config (1).json'],
-    ['photos', 'folder', 'photos (1)'],
-    ['v1.2', 'folder', 'v1.2 (1)'],
+    ['report.pdf', 'file', 'report(1).pdf'],
+    ['archive.tar.gz', 'file', 'archive(1).tar.gz'],
+    ['data.csv.GZ', 'file', 'data(1).csv.GZ'],
+    ['backup.tar.zst', 'file', 'backup(1).tar.zst'],
+    ['node-v24.1.0-darwin-arm64.tar.gz', 'file', 'node-v24.1.0-darwin-arm64(1).tar.gz'],
+    ['log.2026-10-23.gz', 'file', 'log.2026-10-23(1).gz'],
+    ['notes.gz', 'file', 'notes(1).gz'],
+    ['report.v2.pdf', 'file', 'report.v2(1).pdf'],
+    ['jquery.min.js', 'file', 'jquery.min(1).js'],
+    ['README', 'file', 'README(1)'],
+    ['.env', 'file', '.env(1)'],
+    ['.config.json', 'file', '.config(1).json'],
+    ['.tar.gz', 'file', '.tar(1).gz'],
+    ['photos', 'folder', 'photos(1)'],
+    ['v1.2', 'folder', 'v1.2(1)'],
+    ['archive.tar.gz', 'folder', 'archive.tar.gz(1)'],
   ] as const)('numbers %s (%s) as %s', (name, kind, expected) => {
     expect(numberedName(name, 0, kind)).toBe(name)
     expect(numberedName(name, 1, kind)).toBe(expected)
@@ -39,10 +48,10 @@ describe('claimEntry', () => {
   it('takes the name itself, then (1), then (2), leaving taken entries untouched', async () => {
     writeFileSync(join(dir, 'report.pdf'), 'mine')
 
-    expect(claimEntry(dir, 'report.pdf', 'file')).toBe(join(dir, 'report (1).pdf'))
-    expect(claimEntry(dir, 'report.pdf', 'file')).toBe(join(dir, 'report (2).pdf'))
+    expect(claimEntry(dir, 'report.pdf', 'file')).toBe(join(dir, 'report(1).pdf'))
+    expect(claimEntry(dir, 'report.pdf', 'file')).toBe(join(dir, 'report(2).pdf'))
     expect(await readFile(join(dir, 'report.pdf'), 'utf8')).toBe('mine')
-    expect(await readFile(join(dir, 'report (1).pdf'), 'utf8')).toBe('')
+    expect(await readFile(join(dir, 'report(1).pdf'), 'utf8')).toBe('')
   })
 
   it.skipIf(process.platform === 'win32')('creates a file 0600 and a folder 0700', async () => {
@@ -57,12 +66,12 @@ describe('claimEntry', () => {
   it('numbers a folder past a file of the same name', () => {
     writeFileSync(join(dir, 'photos'), 'a file')
 
-    expect(claimEntry(dir, 'photos', 'folder')).toBe(join(dir, 'photos (1)'))
+    expect(claimEntry(dir, 'photos', 'folder')).toBe(join(dir, 'photos(1)'))
   })
 
   it('gives up with a clear error once every numbered name is taken', () => {
     mkdirSync(join(dir, 'x'))
-    for (let n = 1; n < 1000; n++) mkdirSync(join(dir, `x (${n})`))
+    for (let n = 1; n < 1000; n++) mkdirSync(join(dir, `x(${n})`))
 
     expect(() => claimEntry(dir, 'x', 'folder')).toThrow(NoFreeNameError)
   })

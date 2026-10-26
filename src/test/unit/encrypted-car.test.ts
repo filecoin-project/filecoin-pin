@@ -363,8 +363,8 @@ describe('encrypted CAR payload', () => {
 
     const result = await decryptToDirectory(envelope, outDir, asOwner())
 
-    expect(result.path).toBe(join(outDir, 'input (1)'))
-    expect(await readFile(join(outDir, 'input (1)'), 'utf8')).toBe('x')
+    expect(result.path).toBe(join(outDir, 'input(1)'))
+    expect(await readFile(join(outDir, 'input(1)'), 'utf8')).toBe('x')
     expect(await readFile(join(outDir, 'input'), 'utf8')).toBe('keep me')
   })
 

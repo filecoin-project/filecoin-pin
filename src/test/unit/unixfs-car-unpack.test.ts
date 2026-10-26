@@ -129,10 +129,10 @@ describe('unpackCar', () => {
 
     const result = await unpackCar(stream(await handMadeCar(['a'])), outDir, claimed)
 
-    expect(result.path).toBe(join(outDir, 'a (1)'))
-    expect(claimed).toHaveBeenCalledWith(join(outDir, 'a (1)'))
+    expect(result.path).toBe(join(outDir, 'a(1)'))
+    expect(claimed).toHaveBeenCalledWith(join(outDir, 'a(1)'))
     expect(await readFile(join(outDir, 'a'), 'utf8')).toBe('keep me')
-    expect([...(await readFile(join(outDir, 'a (1)')))]).toEqual([0, 1, 2, 3])
+    expect([...(await readFile(join(outDir, 'a(1)')))]).toEqual([0, 1, 2, 3])
   })
 
   it('rejects a wrapper holding more than one entry before claiming anything', async () => {
