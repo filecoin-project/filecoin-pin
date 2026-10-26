@@ -19,7 +19,7 @@ next provider is tried.
 A plain file or folder is saved as <output-dir>/<cid> (its DAG holds no name). An encrypted
 upload is decrypted with the owner wallet (PRIVATE_KEY) and restored under its original name.
 Nothing in <output-dir> is overwritten: a taken name is numbered like a browser download
-(<cid> -> "<cid> (1)", report.pdf -> "report (1).pdf"). Plain content needs no credentials.`
+(<cid> -> "<cid>(1)", report.pdf -> "report(1).pdf"). Plain content needs no credentials.`
   )
 
 addAuthOptions(getCommand)

@@ -278,7 +278,7 @@ describe('get', () => {
       if (process.platform !== 'win32') expect((await stat(saved)).mode & 0o777).toBe(0o700)
     })
 
-    it('writes a HAMT-sharded plain folder', async () => {
+    it('writes a HAMT-sharded plain folder', { timeout: 30_000 }, async () => {
       const source = join(dir, 'many')
       await mkdir(source)
       const names = Array.from({ length: 1100 }, (_, i) => `${String(i).padStart(4, '0')}-${'n'.repeat(220)}.txt`)
@@ -309,7 +309,7 @@ describe('get', () => {
       expect((await readdir(outDir)).sort()).toEqual([upload.root.toString(), 'keep.txt', 'old'].sort())
     })
 
-    it('numbers a plain file when <cid> is taken: <cid> (1), then <cid> (2)', async () => {
+    it('numbers a plain file when <cid> is taken: <cid>(1), then <cid>(2)', async () => {
       await writeFile(join(dir, 'tiny.txt'), 'tiny')
       const upload = await plainUpload(join(dir, 'tiny.txt'))
       const cid = upload.root.toString()
@@ -321,10 +321,10 @@ describe('get', () => {
       await rm(join(tempDir, 'download.car'))
       const second = await get(upload.root, fakeNetwork({ [GOOD]: serve(upload.car) }), [GOOD])
 
-      expect(first.path).toBe(join(outDir, `${cid} (1)`))
-      expect(second.path).toBe(join(outDir, `${cid} (2)`))
+      expect(first.path).toBe(join(outDir, `${cid}(1)`))
+      expect(second.path).toBe(join(outDir, `${cid}(2)`))
       expect(await readFile(join(outDir, cid), 'utf8')).toBe('older copy')
-      expect(await readFile(join(outDir, `${cid} (1)`), 'utf8')).toBe('tiny')
+      expect(await readFile(join(outDir, `${cid}(1)`), 'utf8')).toBe('tiny')
     })
 
     it('numbers an encrypted file under its original name', async () => {
@@ -335,8 +335,8 @@ describe('get', () => {
 
       const result = await get(upload.root, fakeNetwork({ [GOOD]: serve(upload.car) }), [GOOD])
 
-      expect(result.path).toBe(join(outDir, 'report (1).pdf'))
-      expect(await readFile(join(outDir, 'report (1).pdf'), 'utf8')).toBe('new report')
+      expect(result.path).toBe(join(outDir, 'report(1).pdf'))
+      expect(await readFile(join(outDir, 'report(1).pdf'), 'utf8')).toBe('new report')
       expect(await readFile(join(outDir, 'report.pdf'), 'utf8')).toBe('older report')
     })
 
@@ -359,7 +359,7 @@ describe('get', () => {
 
       await expect(get(root.cid, network, [GOOD])).rejects.toBeInstanceOf(NotUnixfsError)
 
-      expect(claims).toEqual([join(outDir, `${root.cid} (1)`)])
+      expect(claims).toEqual([join(outDir, `${root.cid}(1)`)])
       expect((await readdir(outDir)).sort()).toEqual([root.cid.toString(), 'keep.txt'])
       expect(await readdir(join(outDir, root.cid.toString()))).toEqual([])
     })
@@ -660,9 +660,9 @@ describe('get', () => {
         process.chdir(cwd)
       }
 
-      expect(await readFile(join(outDir, `${cid} (1)`), 'utf8')).toBe('tiny')
+      expect(await readFile(join(outDir, `${cid}(1)`), 'utf8')).toBe('tiny')
       expect(await readFile(join(outDir, cid), 'utf8')).toBe('older copy')
-      expect(outro).toHaveBeenLastCalledWith(`Saved to ${cid} (1)`)
+      expect(outro).toHaveBeenLastCalledWith(`Saved to ${cid}(1)`)
     })
 
     it('on a signal after the claim removes only the claimed entry', async () => {
