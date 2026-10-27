@@ -185,20 +185,24 @@ export interface CarPayloadPlan {
 }
 
 /**
- * Pass 1: compute the DAG and its byte layout. `maxBytes` fails fast, before any hashing,
- * when the files alone exceed it (the CAR is always larger than its files).
+ * Pass 1: compute the DAG and its byte layout. `maxBytes` caps the upload, which is the CAR
+ * plus at most `overhead(carBytes)` the caller wraps around it. It fails fast, before any
+ * hashing, when the files alone exceed it (the CAR is always larger than its files).
  */
 export async function planCarPayload(
   inputPath: string,
   walkOptions: WalkOptions = {},
-  maxBytes = Number.POSITIVE_INFINITY
+  maxBytes = Number.POSITIVE_INFINITY,
+  overhead: (carBytes: number) => number = () => 0
 ): Promise<CarPayloadPlan> {
+  const tooBig = (what: string, bytes: number): EncryptInputError =>
+    new EncryptInputError(
+      `${what} is ${bytes} bytes. Encrypted, it needs up to ${bytes + overhead(bytes)} bytes, more than the ${maxBytes} bytes one upload can hold; split it into smaller uploads`
+    )
   const walk = await walkInput(inputPath, walkOptions)
   const inputBytes = walk.files.reduce((sum, file) => sum + file.size, 0)
-  if (inputBytes > maxBytes) {
-    throw new EncryptInputError(
-      `The input is ${inputBytes} bytes, more than the ${maxBytes} bytes one upload can hold; split it into smaller uploads`
-    )
+  if (inputBytes + overhead(inputBytes) > maxBytes) {
+    throw tooBig('The input', inputBytes)
   }
   const nodes = new Map<string, MetadataNode>()
   // The importer's multiformats is a different major than ours; re-decode CIDs at the boundary.
@@ -242,10 +246,8 @@ export async function planCarPayload(
     // layout's messages name paths; the walk has already rejected every name it could.
     throw new EncryptInputError('The input cannot be packed as an encrypted upload')
   }
-  if (lay.total > maxBytes) {
-    throw new EncryptInputError(
-      `The packed input is ${lay.total} bytes, more than the ${maxBytes} bytes one upload can hold; split it into smaller uploads`
-    )
+  if (lay.total + overhead(lay.total) > maxBytes) {
+    throw tooBig('The packed input', lay.total)
   }
   return { walk, root, nodes, layout: lay, contentLength: lay.total }
 }

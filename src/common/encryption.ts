@@ -36,12 +36,22 @@ export interface EncryptResult {
 }
 
 /**
+ * The most bytes the envelope and the outer CAR add around a `carBytes` inner CAR: FEE's
+ * 16-byte tag per 256 KiB chunk and the outer CAR's link and section per 1 MiB leaf come to
+ * about 155 bytes per MiB, plus a few hundred for the headers (measured from 1 to 256 MiB).
+ */
+export function wrapOverhead(carBytes: number): number {
+  return 4096 + Math.ceil(carBytes / (1024 * 1024)) * 256
+}
+
+/**
  * Pack `inputPath` (file or directory) as a CAR and stream it through FEE chunked
  * encryption into `outputPath` under `key`. No plaintext is written to disk.
  *
  * Every error is an {@link EncryptInputError} or a bare `Encryption failed: <code>`, so
- * no plaintext path or name reaches the caller's output or logs. `maxBytes` rejects an
- * input that cannot fit one upload before it is hashed.
+ * no plaintext path or name reaches the caller's output or logs. `maxBytes` caps the upload
+ * this becomes, outer CAR included (see {@link wrapOverhead}), and rejects an input that
+ * cannot fit before it is hashed.
  */
 export async function encryptPath(
   inputPath: string,
@@ -51,7 +61,7 @@ export async function encryptPath(
   maxBytes?: number
 ): Promise<EncryptResult> {
   try {
-    const plan = await planCarPayload(inputPath, walkOptions, maxBytes)
+    const plan = await planCarPayload(inputPath, walkOptions, maxBytes, wrapOverhead)
     await (Readable.toWeb(Readable.from(emitCarPayload(plan))) as ReadableStream<Uint8Array>)
       .pipeThrough(
         fee.encrypt({
