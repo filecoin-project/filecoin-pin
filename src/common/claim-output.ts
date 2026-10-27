@@ -17,16 +17,6 @@ import { join } from 'node:path'
 
 export type EntryKind = 'file' | 'folder'
 
-const MAX_ATTEMPTS = 1000
-
-/** Every numbered name was taken. The message names no entry, so it is safe to print. */
-export class NoFreeNameError extends Error {
-  constructor() {
-    super(`No free name in the output directory after ${MAX_ATTEMPTS} numbered attempts`)
-    this.name = 'NoFreeNameError'
-  }
-}
-
 /** Suffixes that belong with the extension before them, as in `.tar.gz`. */
 const COMPRESSION_SUFFIXES = new Set(['bz', 'bz2', 'gz', 'lz', 'lzma', 'xz', 'z', 'zst'])
 
@@ -63,7 +53,8 @@ export function numberedName(name: string, n: number, kind: EntryKind): string {
  * created empty with mode 0600, a folder with mode 0700.
  */
 export function claimEntry(dir: string, name: string, kind: EntryKind): string {
-  for (let n = 0; n < MAX_ATTEMPTS; n++) {
+  // Ends: each EEXIST means one more name is already taken in `dir`.
+  for (let n = 0; ; n++) {
     const path = join(dir, numberedName(name, n, kind))
     try {
       if (kind === 'folder') {
@@ -78,5 +69,4 @@ export function claimEntry(dir: string, name: string, kind: EntryKind): string {
       }
     }
   }
-  throw new NoFreeNameError()
 }

@@ -35,8 +35,6 @@ export interface UnpackResult {
   files: number
   dirs: number
   bytes: number
-  /** The plaintext CAR's root, so a fixture can pin the packed layout. */
-  root: string
   /** The claimed entry: `outDir/<name>`, or a numbered variant when the name was taken. */
   path: string
 }
@@ -73,7 +71,7 @@ export async function unpackCar(
   let lay: CarLayout | undefined
   let expected: LeafPlacement[] = []
   let next = 0
-  const result: UnpackResult = { files: 0, dirs: 0, bytes: 0, root: root.toString(), path: '' }
+  const result: UnpackResult = { files: 0, dirs: 0, bytes: 0, path: '' }
   // Maps a wrapper-relative path onto the claimed entry; set once the entry is claimed.
   let top = ''
   let claimed = ''

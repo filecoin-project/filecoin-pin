@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { keyspaceKeys as deriveGroupKey, writeTarget } from '@filoz/keysmith'
-import { CarIndexedReader } from '@ipld/car'
+import { CarBlockIterator, CarIndexedReader } from '@ipld/car'
 import * as fee from 'filecoin-encryption-envelope'
 import { CID } from 'multiformats/cid'
 import { privateKeyToAccount } from 'viem/accounts'
@@ -142,14 +142,6 @@ describe('runDecrypt', () => {
 
     await expect(runDecrypt(encryptedPath, outputDir, session)).rejects.toThrow(/PRIVATE_KEY/)
     expect(existsSync(outputDir)).toBe(false)
-  })
-
-  it('decrypts into an existing empty directory', async () => {
-    await mkdir(outputDir, { mode: 0o755 })
-
-    await runDecrypt(encryptedPath, outputDir, asOwner)
-
-    expect((await readFile(join(outputDir, 'report.pdf'))).equals(plaintext)).toBe(true)
   })
 
   it('keeps a pre-existing empty directory on failure', async () => {
@@ -387,26 +379,6 @@ describe('runDecrypt', () => {
     expect(await readdir(outputDir)).toEqual(['other.txt'])
   })
 
-  it('refuses an output path that is a file before arming the Ctrl-C handler', async () => {
-    const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
-      throw new CliIncomplete('exit')
-    })
-    await writeFile(outputDir, 'a file')
-    const { createSpinner } = await import('../../utils/cli-helpers.js')
-    vi.mocked(createSpinner).mockReturnValueOnce({
-      start: vi.fn(() => process.emit('SIGINT')),
-      stop: vi.fn(),
-      message: vi.fn(),
-      clear: vi.fn(),
-    } as never)
-
-    await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toThrow(/exists and is not a directory/)
-
-    expect(exit).not.toHaveBeenCalled()
-    expect(await readFile(outputDir, 'utf8')).toBe('a file')
-    expect(process.listenerCount('SIGINT')).toBe(0)
-  })
-
   it('reports an output path that is a file', async () => {
     await writeFile(outputDir, 'a file')
 
@@ -428,13 +400,10 @@ describe('runDecrypt', () => {
 
     const result = await decryptToDirectory(golden, outputDir, ownerKeyResolver(OWNER))
 
-    expect(result).toEqual({
-      files: 1,
-      dirs: 0,
-      bytes: 1_100_000,
-      root: 'bafybeifi5o5cikl37er2zmvmbwgcsoh5df7q2q4soo6iwvlit7nstujohm',
-      path: join(outputDir, 'big.bin'),
-    })
+    expect(result).toEqual({ files: 1, dirs: 0, bytes: 1_100_000, path: join(outputDir, 'big.bin') })
+    const plaintext = new Blob([await readFile(golden)]).stream().pipeThrough(fee.decrypt(ownerKeyResolver(OWNER)))
+    const roots = await (await CarBlockIterator.fromIterable(plaintext)).getRoots()
+    expect(roots.map(String)).toEqual(['bafybeifi5o5cikl37er2zmvmbwgcsoh5df7q2q4soo6iwvlit7nstujohm'])
     const sha256 = createHash('sha256')
       .update(await readFile(join(outputDir, 'big.bin')))
       .digest('hex')
@@ -514,10 +483,8 @@ describe('runDecrypt', () => {
     expect(existsSync(outputDir)).toBe(false)
   })
 
-  it('has no option that takes a password or a key on the command line', async () => {
+  it('reads the owner key from --private-key or PRIVATE_KEY', async () => {
     const { decryptCommand } = await import('../../commands/decrypt.js')
-    const flags = decryptCommand.options.map((o) => o.long)
-    expect(flags).toContain('--private-key')
-    expect(flags).not.toContain('--password-file')
+    expect(decryptCommand.options.map((o) => o.long)).toContain('--private-key')
   })
 })

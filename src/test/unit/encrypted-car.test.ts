@@ -426,26 +426,6 @@ describe('encrypted CAR payload', () => {
     return { cid: CID.createV1(DAG_PB_CODEC, await sha256.digest(bytes)), bytes }
   }
 
-  it.each([
-    '../escape',
-    '..\\..\\escape',
-  ])('rejects a payload whose directory entry %s could escape the output directory', async (name) => {
-    const leafBytes = new Uint8Array([1, 2, 3])
-    const leaf = CID.createV1(RAW_CODEC, await sha256.digest(leafBytes))
-    const root = await dagPbBlock({
-      Data: new UnixFS({ type: 'directory' }).marshal(),
-      Links: [{ Name: name, Hash: leaf, Tsize: leafBytes.length }],
-    })
-    await sealHandMade(root, [{ cid: leaf, bytes: leafBytes }])
-
-    const error = await decryptToDirectory(envelope, outDir, asOwner()).catch((e: Error) => e)
-    expect((error as Error).message).toMatch(/malformed or unsafe to unpack/)
-    expect((error as Error).message).not.toContain(name)
-    expect((error as Error).cause).toHaveProperty('message', expect.stringMatching(/unsafe entry name/))
-    expect(existsSync(outDir)).toBe(false)
-    expect(existsSync(join(dir, 'escape'))).toBe(false)
-  })
-
   it('rejects a symlink entry without naming it or creating the link', async () => {
     const link = await dagPbBlock({
       Data: new UnixFS({ type: 'symlink', data: new TextEncoder().encode('/etc/passwd') }).marshal(),

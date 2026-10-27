@@ -22,7 +22,6 @@ import * as fee from 'filecoin-encryption-envelope'
 import { UnixFS } from 'ipfs-unixfs'
 import { CID } from 'multiformats/cid'
 import { isCar } from '../core/car/index.js'
-import { NoFreeNameError } from './claim-output.js'
 import { NotOwnerError, type PieceKey } from './group-key.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC } from './unixfs-car-layout.js'
 import {
@@ -264,11 +263,7 @@ export async function decryptToDirectory(
     if (error instanceof fee.errors.KeyResolutionError || error instanceof fee.errors.MalformedEnvelopeError) {
       throw new DecryptError(NOT_OURS, { cause: error })
     }
-    if (
-      error instanceof DecryptError ||
-      error instanceof NoFreeNameError ||
-      error instanceof fee.errors.EnvelopeError
-    ) {
+    if (error instanceof DecryptError || error instanceof fee.errors.EnvelopeError) {
       throw error
     }
     // Anything else came from unpacking the plaintext, so its message may hold an entry name

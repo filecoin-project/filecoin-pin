@@ -3,7 +3,7 @@
  */
 
 import pc from 'picocolors'
-import { CliFatal, EXIT_CODE_INCOMPLETE, isCliIncomplete } from '../common/cli-errors.js'
+import { CliFatal, EXIT_CODE_INCOMPLETE } from '../common/cli-errors.js'
 import { checkDecryptPaths, decryptToDirectory, removeDecryptOutput } from '../common/encryption.js'
 import { ownerKeyResolver, ownerSignerFromAuth } from '../common/group-key.js'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
@@ -37,11 +37,6 @@ export async function runDecrypt(inputPath: string, outputDir: string, options: 
     spinner.stop(`${pc.green('✓')} Decrypted ${files} file${files === 1 ? '' : 's'}`)
     outro(`Saved to ${path}`)
   } catch (error) {
-    if (isCliIncomplete(error)) {
-      spinner.stop()
-      cancel(error.message)
-      throw error
-    }
     const message = error instanceof Error ? error.message : String(error)
     spinner.stop(`${pc.red('✗')} Decrypt failed: ${message}`)
     cancel('Decrypt failed')

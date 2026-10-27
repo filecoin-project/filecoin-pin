@@ -1,11 +1,11 @@
 import { execFile } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { claimEntry, NoFreeNameError, numberedName } from '../../common/claim-output.js'
+import { claimEntry, numberedName } from '../../common/claim-output.js'
 
 const run = promisify(execFile)
 
@@ -66,13 +66,6 @@ describe('claimEntry', () => {
     writeFileSync(join(dir, 'photos'), 'a file')
 
     expect(claimEntry(dir, 'photos', 'folder')).toBe(join(dir, 'photos(1)'))
-  })
-
-  it('gives up with a clear error once every numbered name is taken', () => {
-    mkdirSync(join(dir, 'x'))
-    for (let n = 1; n < 1000; n++) mkdirSync(join(dir, `x(${n})`))
-
-    expect(() => claimEntry(dir, 'x', 'folder')).toThrow(NoFreeNameError)
   })
 
   it('rethrows errors other than EEXIST', () => {

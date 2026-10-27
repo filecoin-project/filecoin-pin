@@ -1,5 +1,4 @@
 import { Command } from 'commander'
-import { EXIT_CODE_INCOMPLETE, isCliIncomplete } from '../common/cli-errors.js'
 import { runDecrypt } from '../decrypt/decrypt.js'
 import type { CLIAuthOptions } from '../utils/cli-auth.js'
 import { addAuthOptions } from '../utils/cli-options.js'
@@ -29,7 +28,7 @@ addAuthOptions(decryptCommand)
 decryptCommand.action(async (file: string, outputDir: string, options: CLIAuthOptions) => {
   try {
     await runDecrypt(file, outputDir, options)
-  } catch (error) {
-    process.exit(isCliIncomplete(error) ? EXIT_CODE_INCOMPLETE : 1)
+  } catch {
+    process.exit(1)
   }
 })
