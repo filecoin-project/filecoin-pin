@@ -443,6 +443,7 @@ describe('runLogin', () => {
       expect(link.searchParams.get('network')).toBe('calibration')
       expect(link.searchParams.get('authorize')).toBe(SESSION_ADDRESS.toLowerCase())
       expect(link.searchParams.get('scopes')).toBe('createDataSet,addPieces')
+      expect(link.searchParams.get('node')).toBe('keyspace')
       const pubkey = link.searchParams.get('pubkey')
       expect(pubkey).toBe(publicKeyOf(SESSION_KEY).toLowerCase())
       const signer = await recoverMessageAddress({

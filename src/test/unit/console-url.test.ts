@@ -71,7 +71,7 @@ describe('buildAuthorizeUrl key agreement', () => {
         pubkeysig: '0xcd',
       })
     ).toBe(
-      'https://pay.filecoin.cloud/console/setup?authorize=0xa&scopes=addPieces&network=calibration&pubkey=0x04ab&pubkeysig=0xcd'
+      'https://pay.filecoin.cloud/console/setup?authorize=0xa&scopes=addPieces&network=calibration&pubkey=0x04ab&pubkeysig=0xcd&node=keyspace'
     )
   })
 })
