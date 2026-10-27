@@ -64,14 +64,11 @@ export function buildAuthorizeUrl(
   chainId: number,
   keyAgreement?: { pubkey: string; pubkeysig: string }
 ): string {
-  const network = CONSOLE_NETWORK_SLUG[chainId]
-  const params = [
-    ...(network ? [`network=${network}`] : []),
-    `authorize=${sessionAddress.toLowerCase()}`,
-    `scopes=${scopeIds.join(',')}`,
-    ...(keyAgreement ? [`pubkey=${keyAgreement.pubkey}`, `pubkeysig=${keyAgreement.pubkeysig}`] : []),
-  ]
-  return withUtm(`${trimSlash(consoleUrl)}/console/setup?${params.join('&')}`, 'login')
+  const pubkey = keyAgreement ? `&pubkey=${keyAgreement.pubkey}&pubkeysig=${keyAgreement.pubkeysig}` : ''
+  return withUtm(
+    `${trimSlash(consoleUrl)}/console/setup?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId)}${pubkey}`,
+    'login'
+  )
 }
 
 /** Console network slugs, for placing a link the session file recorded by name. */

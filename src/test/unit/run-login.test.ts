@@ -31,7 +31,7 @@ const OWNER = '0x00000000000000000000000000000000000000aa'
 const REGISTRY = '0x00000000000000000000000000000000000000dd'
 const FUTURE = 1790380800n
 const KEY = `0x${'11'.repeat(32)}` as const
-const AUTHORIZE_LINK_PREFIX = 'https://console.test/console/setup?network=calibration&authorize='
+const AUTHORIZE_LINK_PREFIX = 'https://console.test/console/setup?authorize='
 const FUNDING_LINK = 'https://console.test/console?deposit=2&operator=fwss&network=calibration'
 
 const FULL_GRANT: WatchAuthorizationResult = {
@@ -188,7 +188,7 @@ describe('runLogin', () => {
     await runLogin({})
 
     const saved = readSessionFile(sessionPath())
-    const url = `${AUTHORIZE_LINK_PREFIX}${saved?.sessionAddress.toLowerCase()}&scopes=createDataSet,addPieces`
+    const url = `${AUTHORIZE_LINK_PREFIX}${saved?.sessionAddress.toLowerCase()}&scopes=createDataSet,addPieces&network=calibration`
     expect(output()).toContain(url)
     expect(vi.mocked(openBrowser)).toHaveBeenCalledExactlyOnceWith(url)
   })
@@ -342,7 +342,7 @@ describe('runLogin', () => {
     expect(saved?.sessionAddress).toBeDefined()
     const lines = vi.mocked(log.line).mock.calls.map((call) => String(call[0]))
     expect(lines).toContain(
-      `${AUTHORIZE_LINK_PREFIX}${saved?.sessionAddress.toLowerCase()}&scopes=createDataSet,addPieces`
+      `${AUTHORIZE_LINK_PREFIX}${saved?.sessionAddress.toLowerCase()}&scopes=createDataSet,addPieces&network=calibration`
     )
   })
 
@@ -750,6 +750,31 @@ describe('runLogin', () => {
       expect(code).toBe(0)
       expect(output()).toContain(`Grant for group key ${GROUP_KEY} already saved`)
       expect(prompts).toEqual([])
+    })
+
+    it('with a saved Grant that still opens, leaves the group key step off the link', async () => {
+      savedKey({ walletAddress: GRANT_OWNER.address, groupKeyId: GROUP_KEY, groupKeyGrant: await makeGrant() })
+
+      const code = await runLogin({ scopes: ENCRYPT, wait: false }, silentStdin(false))
+
+      expect(code).toBe(2)
+      expect(linkIn(output()).searchParams.has('pubkey')).toBe(false)
+      expect(output()).not.toContain('filecoin-pin login --grant <grant>')
+    })
+
+    it('when another owner authorizes, shows the group key link before asking for a Grant', async () => {
+      savedKey({ walletAddress: GRANT_OWNER.address, groupKeyId: GROUP_KEY, groupKeyGrant: await makeGrant() })
+      const other = '0x000000000000000000000000000000000000dEaD'
+      vi.mocked(watchAuthorization).mockResolvedValue({ ...FULL_GRANT, owner: other })
+
+      const code = await runLogin({ scopes: ENCRYPT }, terminal(''))
+
+      expect(code).toBe(2)
+      const lines = output().split('\n')
+      expect(linkIn(lines.join('\n')).searchParams.has('pubkey')).toBe(false)
+      const prompt = lines.indexOf('  Open this link for the group key step:')
+      expect(prompt).toBeGreaterThan(-1)
+      expect(lines[prompt + 1]).toContain('pubkeysig=')
     })
 
     it('on a resumed login with encrypt, ignores a saved Grant that no longer opens and asks again', async () => {

@@ -154,6 +154,23 @@ async function importGrant(
   return 0
 }
 
+/** Whether the saved Grant still opens for the owner that last authorized this key. */
+async function savedGrantOpens(session: SavedSession, chainId: number): Promise<boolean> {
+  if (session.groupKeyGrant === undefined || session.walletAddress === undefined) return false
+  try {
+    await openGroupKeyGrant(session.groupKeyGrant, {
+      sessionKey: session.sessionKey,
+      walletAddress: session.walletAddress,
+      chainId,
+      groupKeyId: session.groupKeyId,
+    })
+    return true
+  } catch (error) {
+    if (!(error instanceof GrantError)) throw error
+    return false
+  }
+}
+
 /**
  * The Grant step after the owner authorized the key: `--grant`, else a saved Grant that
  * still opens, else a prompt on a terminal. Never blocks without one: it prints the link
@@ -165,6 +182,7 @@ async function obtainGrant(
   session: SavedSession & { walletAddress: Address },
   chainId: number,
   url: string,
+  grantLinkShown: boolean,
   grantText: string | undefined,
   path: string,
   io: LoginIO
@@ -202,6 +220,11 @@ async function obtainGrant(
   if (io.stdin.isTTY !== true || io.stdout.isTTY !== true) {
     reportGrantPending(url)
     return false
+  }
+  if (!grantLinkShown) {
+    // The link shown before the wait left the group key step out: the saved Grant opened then.
+    log.line('  Open this link for the group key step:')
+    log.line(url)
   }
   log.line(`  In the console, approve the group key step for session key ${session.sessionAddress}`)
   log.line('  and copy the Grant it shows.')
@@ -400,7 +423,11 @@ export async function runLogin(
 
   const scopeIds = permissions.map(scopeIdOf)
   const keyAgreement = wantGrant ? await keyAgreementParams(session.sessionKey) : undefined
-  const url = buildAuthorizeUrl(consoleUrl, session.sessionAddress, scopeIds, chain.id, keyAgreement)
+  // With pubkey, the console asks the owner for a Grant wrapped to this session key.
+  const grantUrl = buildAuthorizeUrl(consoleUrl, session.sessionAddress, scopeIds, chain.id, keyAgreement)
+  // A saved Grant that still opens needs no new one, so the link leaves the group key step out.
+  const keepSavedGrant = wantGrant && grantText === undefined && (await savedGrantOpens(session, chain.id))
+  const url = keepSavedGrant ? buildAuthorizeUrl(consoleUrl, session.sessionAddress, scopeIds, chain.id) : grantUrl
   log.line('  Approve this key with your wallet in the Filecoin Cloud console:')
   // The link on its own line, unstyled, so it copies and parses cleanly.
   log.line(url)
@@ -432,10 +459,8 @@ export async function runLogin(
       log.line(
         "  The Grant was not imported: the session key isn't authorized yet. Approve it in the console, then run `filecoin-pin login --grant …` again."
       )
-    } else if (wantGrant) {
-      log.line('  Then copy the group key Grant the console shows, and run:')
-      log.line('    filecoin-pin login --grant <grant>')
-      log.line('    filecoin-pin login --grant -    (reads the Grant from stdin)')
+    } else if (wantGrant && !keepSavedGrant) {
+      reportGrantPending(url)
     }
     log.flush()
     return EXIT_CODE_INCOMPLETE
@@ -501,7 +526,9 @@ export async function runLogin(
     spinner.stop('')
     reportPartialGrant(permissions, result)
   }
-  const haveGrant = wantGrant ? await obtainGrant(authorized, chain.id, url, grantText, path, io) : true
+  const haveGrant = wantGrant
+    ? await obtainGrant(authorized, chain.id, grantUrl, !keepSavedGrant, grantText, path, io)
+    : true
 
   // Funding never blocks login: a failed readiness read is reported, not fatal.
   try {
