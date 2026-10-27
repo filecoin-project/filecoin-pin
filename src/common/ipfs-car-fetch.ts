@@ -16,12 +16,13 @@ import { METADATA_KEYS, type Synapse } from '@filoz/synapse-sdk'
 import { CarBlockIterator } from '@ipld/car'
 import * as dagCbor from '@ipld/dag-cbor'
 import * as dagPb from '@ipld/dag-pb'
+import { varint } from 'multiformats'
 import { CID } from 'multiformats/cid'
 import { sha256 } from 'multiformats/hashes/sha2'
 import type { Logger } from 'pino'
 import { listDataSets } from '../core/data-set/index.js'
 import { type IpniIndexerResponse, multiaddrToNormalizedUri } from '../core/utils/validate-ipni-advertisement.js'
-import { CAR_CONTENT_TYPE, DAG_PB_CODEC, decodeVarint, RAW_CODEC } from './unixfs-car-layout.js'
+import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC } from './unixfs-car-layout.js'
 
 /** Provider requests in flight at once. */
 export const FETCH_CONCURRENCY = 4
@@ -441,6 +442,16 @@ function linksOf(cid: CID, bytes: Uint8Array): CID[] {
   }
 }
 
+/** The section's length prefix; multiformats throws a RangeError when the bytes end first. */
+function decodeSectionLength(bytes: Uint8Array): [number, number] {
+  try {
+    return varint.decode(bytes)
+  } catch (error) {
+    if (error instanceof RangeError) throw new CarVerifyError('malformed CAR section header')
+    throw error
+  }
+}
+
 /**
  * Walk the section framing of the CAR at `carPath` without reading any block: the header must
  * be CARv1 and no section may exceed {@link MAX_BLOCK_BYTES} plus its CID. `@ipld/car` buffers
@@ -455,9 +466,7 @@ async function checkFraming(carPath: string): Promise<void> {
     let offset = 0
     while (offset < size) {
       const { bytesRead } = await file.read(head, 0, head.length, offset)
-      const varint = decodeVarint(head.subarray(0, bytesRead))
-      if (varint == null) throw new CarVerifyError('malformed CAR section header')
-      const [length, varintBytes] = varint
+      const [length, varintBytes] = decodeSectionLength(head.subarray(0, bytesRead))
       if (length > MAX_SECTION_BYTES) {
         throw new CarVerifyError(`a CAR section is ${length} bytes, more than the ${MAX_BLOCK_BYTES}-byte block limit`)
       }

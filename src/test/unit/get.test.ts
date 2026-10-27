@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { Writable } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { keyspaceKeys as deriveGroupKey, writeTarget } from '@filoz/keysmith'
-import { CarIndexedReader, CarWriter } from '@ipld/car'
+import { CarBlockIterator, CarIndexedReader, CarWriter } from '@ipld/car'
 import * as dagCbor from '@ipld/dag-cbor'
 import * as dagPb from '@ipld/dag-pb'
 import * as fee from 'filecoin-encryption-envelope'
@@ -18,7 +18,7 @@ import { pino } from 'pino'
 import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CliIncomplete, EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
-import { decryptToDirectory, encryptPath } from '../../common/encryption.js'
+import { encryptPath } from '../../common/encryption.js'
 import { newPieceKey, ownerKeyResolver, type PieceKey } from '../../common/group-key.js'
 import {
   BODY_IDLE_TIMEOUT_MS,
@@ -134,6 +134,20 @@ async function block(code: number, bytes: Uint8Array): Promise<Block> {
 
 const pbNode = (unixfs: UnixFS, links: dagPb.PBLink[] = []): Uint8Array =>
   dagPb.encode(dagPb.prepare({ Data: unixfs.marshal(), Links: links }))
+
+/** A folder holding `a.txt` and a symlink `evil`, with its CAR. */
+async function symlinkFolder(): Promise<{ root: Block; car: Uint8Array }> {
+  const file = await block(0x55, new TextEncoder().encode('a'))
+  const link = await block(0x70, pbNode(new UnixFS({ type: 'symlink', data: new TextEncoder().encode('/etc') })))
+  const root = await block(
+    0x70,
+    pbNode(new UnixFS({ type: 'directory' }), [
+      { Name: 'a.txt', Hash: file.cid, Tsize: 1 },
+      { Name: 'evil', Hash: link.cid, Tsize: link.bytes.length },
+    ] as never)
+  )
+  return { root, car: await encodeCar(root.cid, [root, file, link]) }
+}
 
 interface Call {
   url: string
@@ -409,21 +423,13 @@ describe('get', () => {
     })
 
     it('on failure removes only the claimed entry, leaving pre-existing files', async () => {
-      const file = await block(0x55, new TextEncoder().encode('a'))
-      const link = await block(0x70, pbNode(new UnixFS({ type: 'symlink', data: new TextEncoder().encode('/etc') })))
-      const root = await block(
-        0x70,
-        pbNode(new UnixFS({ type: 'directory' }), [
-          { Name: 'a.txt', Hash: file.cid, Tsize: 1 },
-          { Name: 'evil', Hash: link.cid, Tsize: link.bytes.length },
-        ] as never)
-      )
+      const { root, car } = await symlinkFolder()
       await mkdir(outDir)
       await writeFile(join(outDir, 'keep.txt'), 'keep me')
       await mkdir(join(outDir, root.cid.toString()))
       const claims: string[] = []
       claimHook.after = (path) => claims.push(path)
-      const network = fakeNetwork({ [GOOD]: serve(await encodeCar(root.cid, [root, file, link])) })
+      const network = fakeNetwork({ [GOOD]: serve(car) })
 
       await expect(get(root.cid, network, [GOOD])).rejects.toBeInstanceOf(NotUnixfsError)
 
@@ -654,16 +660,8 @@ describe('get', () => {
     })
 
     it('fails on a symlink inside a folder and removes what it wrote', async () => {
-      const file = await block(0x55, new TextEncoder().encode('a'))
-      const link = await block(0x70, pbNode(new UnixFS({ type: 'symlink', data: new TextEncoder().encode('/etc') })))
-      const root = await block(
-        0x70,
-        pbNode(new UnixFS({ type: 'directory' }), [
-          { Name: 'a.txt', Hash: file.cid, Tsize: 1 },
-          { Name: 'evil', Hash: link.cid, Tsize: link.bytes.length },
-        ] as never)
-      )
-      const network = fakeNetwork({ [GOOD]: serve(await encodeCar(root.cid, [root, file, link])) })
+      const { root, car } = await symlinkFolder()
+      const network = fakeNetwork({ [GOOD]: serve(car) })
 
       await expect(get(root.cid, network, [GOOD])).rejects.toBeInstanceOf(NotUnixfsError)
       expect(existsSync(outDir)).toBe(false)
@@ -890,7 +888,8 @@ describe('get', () => {
       await runGet(upload.root.toString(), outDir, { privateKey: OWNER_KEY })
 
       await encryptPath(source, envelope, pieceKey())
-      const { root: plaintextRoot } = await decryptToDirectory(envelope, join(dir, 'probe'), ownerKeyResolver(OWNER))
+      const plaintext = new Blob([await readFile(envelope)]).stream().pipeThrough(fee.decrypt(ownerKeyResolver(OWNER)))
+      const plaintextRoot = String((await (await CarBlockIterator.fromIterable(plaintext)).getRoots())[0])
       expect(await readFile(join(outDir, 'private-folder', 'diary.txt'), 'utf8')).toBe('dear diary')
       expect(logs.join('')).toContain('Discarded a provider response')
       const spinnerCalls = vi
@@ -1246,6 +1245,15 @@ describe('get', () => {
       )
     })
 
+    it('refuses a CAR that ends inside a section length', async () => {
+      const header = dagCbor.encode({ roots: [upload.root], version: 1 })
+      const cut = Buffer.concat([encodeVarint(header.length), header, Uint8Array.of(0x80)])
+
+      await expect(get(upload.root, fakeNetwork({ [BAD]: serve(cut) }), [BAD])).rejects.toThrow(
+        'malformed CAR section header'
+      )
+    })
+
     it('refuses a CARv2', async () => {
       const header = dagCbor.encode({ version: 2 })
       const v2 = Buffer.concat([encodeVarint(header.length), header, randomBytes(40)])
@@ -1281,6 +1289,36 @@ describe('get', () => {
 
       await expect(failure).rejects.toThrow(`needs ${1000n * size} bytes but only ${10 * MiB} bytes are free`)
       expect(existsSync(outDir)).toBe(false)
+    })
+
+    it('stops a file at its declared size, leaving nothing', async () => {
+      const leaf = await block(0x55, randomBytes(MiB))
+      const links = [{ Hash: leaf.cid, Tsize: MiB }]
+      const liar = await block(0x70, pbNode(new UnixFS({ type: 'file', blockSizes: [10n] }), links as never))
+
+      const failure = get(liar.cid, fakeNetwork({ [GOOD]: serve(await encodeCar(liar.cid, [liar, leaf])) }), [GOOD])
+
+      await expect(failure).rejects.toThrow('a file holds more bytes than its UnixFS size declares')
+      expect(existsSync(outDir)).toBe(false)
+    })
+
+    it('writes a file whose root holds inline data before its links', async () => {
+      const inline = randomBytes(100)
+      const leaf = await block(0x55, randomBytes(MiB))
+      const links = Array.from({ length: 10 }, () => ({ Hash: leaf.cid, Tsize: MiB }))
+      const file = await block(
+        0x70,
+        pbNode(new UnixFS({ type: 'file', data: inline, blockSizes: links.map(() => BigInt(MiB)) }), links as never)
+      )
+
+      const result = await get(file.cid, fakeNetwork({ [GOOD]: serve(await encodeCar(file.cid, [file, leaf])) }), [
+        GOOD,
+      ])
+
+      const written = await readFile(result.path)
+      expect(written.length).toBe(100 + 10 * MiB)
+      expect(written.subarray(0, 100).equals(inline)).toBe(true)
+      expect(written.subarray(100 + 9 * MiB).equals(leaf.bytes)).toBe(true)
     })
   })
 
@@ -1328,8 +1366,6 @@ describe('get', () => {
       await mkdir(osTmp)
       // os.tmpdir() reads TMPDIR on POSIX and TEMP/TMP on Windows.
       for (const name of ['TMPDIR', 'TEMP', 'TMP']) vi.stubEnv(name, osTmp)
-      vi.stubEnv('TEMP', osTmp)
-      vi.stubEnv('TMP', osTmp)
       const { getCLILogger } = await import('../../utils/cli-auth.js')
       vi.mocked(getCLILogger).mockReturnValue(captureLogs([]) as never)
     })
@@ -1348,16 +1384,7 @@ describe('get', () => {
     })
 
     it('keeps an output dir it created once another writer put something in it', async () => {
-      const file = await block(0x55, new TextEncoder().encode('a'))
-      const link = await block(0x70, pbNode(new UnixFS({ type: 'symlink', data: new TextEncoder().encode('/etc') })))
-      const root = await block(
-        0x70,
-        pbNode(new UnixFS({ type: 'directory' }), [
-          { Name: 'a.txt', Hash: file.cid, Tsize: 1 },
-          { Name: 'evil', Hash: link.cid, Tsize: link.bytes.length },
-        ] as never)
-      )
-      const car = await encodeCar(root.cid, [root, file, link])
+      const { root, car } = await symlinkFolder()
       vi.stubGlobal('fetch', fakeNetwork({ [GOOD]: serve(car) }, ['/dns/good.example/https']).fetch)
       claimHook.after = () => writeFileSync(join(outDir, 'theirs.txt'), 'not ours')
 

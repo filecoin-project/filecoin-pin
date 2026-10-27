@@ -36,8 +36,6 @@ import {
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, isUnsafeName, RAW_CODEC } from './unixfs-car-layout.js'
 import { insideDir } from './unixfs-car-unpack.js'
 
-/** Bytes read from a UnixFS file per exporter call: the exporter queues a whole file's blocks otherwise. */
-const READ_WINDOW = 8 * 1024 * 1024
 /** The FEE header (about 260 bytes) always fits in the first leaf. */
 const HEADER_PROBE_BYTES = 1024 * 1024
 /**
@@ -64,12 +62,7 @@ export interface GetOptions extends FetchOptions {
 }
 
 /** A verified CAR that still lacks a block: only reachable if the file changed after verification. */
-class IncompleteCarError extends Error {
-  constructor() {
-    super('The download is incomplete; try again')
-    this.name = 'IncompleteCarError'
-  }
-}
+const INCOMPLETE = 'The download is incomplete; try again'
 
 /** The plain content does not fit: refused before anything is written. */
 export class NotEnoughSpaceError extends Error {
@@ -118,7 +111,7 @@ export async function detect(carPath: string, root: CID): Promise<'encrypted' | 
   const reader = anyCidVersion(car)
   try {
     const block = await reader.get(root)
-    if (block == null) throw new IncompleteCarError()
+    if (block == null) throw new Error(INCOMPLETE)
     if (root.code === DAG_PB_CODEC) {
       let type: string
       try {
@@ -150,16 +143,6 @@ async function isEnvelope(reader: ReturnType<typeof anyCidVersion>, root: CID): 
     return (await fee.parse(Buffer.concat(head))).contentType === CAR_CONTENT_TYPE
   } catch {
     return false
-  }
-}
-
-/** Read a UnixFS file in bounded windows; see {@link READ_WINDOW}. */
-async function* readWindows(
-  entry: { content(options: { offset: number; length: number }): AsyncIterable<Uint8Array> },
-  size: number
-): AsyncGenerator<Uint8Array> {
-  for (let offset = 0; offset < size; offset += READ_WINDOW) {
-    yield* entry.content({ offset, length: Math.min(READ_WINDOW, size - offset) })
   }
 }
 
@@ -197,7 +180,7 @@ export async function extractUnixfs(
     async *get(cid: { bytes: Uint8Array }): AsyncGenerator<Uint8Array> {
       // The exporter's CID class is not ours; cross by bytes.
       const block = await reader.get(CID.decode(cid.bytes))
-      if (block == null) throw new IncompleteCarError()
+      if (block == null) throw new Error(INCOMPLETE)
       yield block.bytes
     },
   }
@@ -210,7 +193,8 @@ export async function extractUnixfs(
     if (entry.type === 'file') {
       const type = entry.unixfs.type
       if (type !== 'file' && type !== 'raw') throw new NotUnixfsError(`entry ${path} is a UnixFS ${type}`)
-      content = capped(readWindows(entry, Number(entry.unixfs.fileSize())), entry.unixfs.fileSize())
+      // One leaf at a time; the exporter reads ahead, and misplaces links after inline root data.
+      content = capped(unixfsFileBytes(reader, CID.decode(entry.cid.bytes)), entry.unixfs.fileSize())
     } else if (entry.type === 'raw' || entry.type === 'identity') {
       content = capped(entry.content(), entry.size)
     } else {
