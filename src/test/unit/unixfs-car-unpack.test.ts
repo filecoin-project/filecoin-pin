@@ -123,10 +123,21 @@ describe('unpackCar', () => {
     await expect(unpackCar(stream(await handMadeCar(['a', 'a'])), outDir)).rejects.toThrow(/duplicate path a/)
   })
 
-  it('never overwrites a file that already exists in the output directory', async () => {
+  it('writes beside a file that already has the name, under a numbered name', async () => {
     await writeFile(join(outDir, 'a'), 'keep me')
-    await expect(unpackCar(stream(await handMadeCar(['a'])), outDir)).rejects.toThrow(/EEXIST/)
+    const claimed = vi.fn()
+
+    const result = await unpackCar(stream(await handMadeCar(['a'])), outDir, claimed)
+
+    expect(result.path).toBe(join(outDir, 'a(1)'))
+    expect(claimed).toHaveBeenCalledWith(join(outDir, 'a(1)'))
     expect(await readFile(join(outDir, 'a'), 'utf8')).toBe('keep me')
+    expect([...(await readFile(join(outDir, 'a(1)')))]).toEqual([0, 1, 2, 3])
+  })
+
+  it('rejects a wrapper holding more than one entry before claiming anything', async () => {
+    await expect(unpackCar(stream(await handMadeCar(['a', 'b'])), outDir)).rejects.toThrow(/exactly one entry/)
+    expect(await readdir(outDir)).toEqual([])
   })
 
   it.each(['..', '.', '', 'a\0b', 'a/b', '..\\escape'])('rejects the entry name %j', async (name) => {
