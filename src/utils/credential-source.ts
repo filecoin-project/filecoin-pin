@@ -25,6 +25,9 @@ const OPTION_FOR_ENV = {
   WALLET_ADDRESS: 'walletAddress',
   VIEW_ADDRESS: 'viewAddress',
   NETWORK: 'network',
+  // No flags: set in the environment only, for the code that opens the Grant.
+  GROUP_KEY_ID: 'groupKeyId',
+  GROUP_KEY_GRANT: 'groupKeyGrant',
 } as const
 
 export type LoadableEnvVar = keyof typeof OPTION_FOR_ENV
@@ -102,7 +105,25 @@ export function supplyCredential(
 }
 
 /**
- * Load `SESSION_KEY` and `WALLET_ADDRESS` from the session file when nothing
+ * Supply `GROUP_KEY_ID` and `GROUP_KEY_GRANT` as one unit: skipped when either half is
+ * already set, so the pair never mixes sources.
+ */
+export function supplyGrantPair(
+  command: Command,
+  env: NodeJS.ProcessEnv,
+  groupKeyId: string | undefined,
+  groupKeyGrant: string | undefined,
+  source: 'file' | 'session'
+): void {
+  if (groupKeyId === undefined || groupKeyGrant === undefined) return
+  if (isSet(env, 'GROUP_KEY_ID') || isSet(env, 'GROUP_KEY_GRANT')) return
+  supplyCredential(command, env, 'GROUP_KEY_ID', groupKeyId, source)
+  supplyCredential(command, env, 'GROUP_KEY_GRANT', groupKeyGrant, source)
+}
+
+/**
+ * Load `SESSION_KEY` and `WALLET_ADDRESS` (and the group key Grant, when
+ * saved) from the session file when nothing
  * else supplied a credential, plus `NETWORK` when neither a flag, the env,
  * nor an RPC URL chose one, since the grant lives on the chain the key was
  * made for. A file without an owner address (login started but never
@@ -138,6 +159,7 @@ export function applySessionFileCredentials(
   supplyCredential(command, env, 'SESSION_KEY', session.sessionKey, 'session')
   supplyCredential(command, env, 'WALLET_ADDRESS', session.walletAddress, 'session')
   if (session.network !== undefined) supplyCredential(command, env, 'NETWORK', session.network, 'session')
+  supplyGrantPair(command, env, session.groupKeyId, session.groupKeyGrant, 'session')
   loadedFrom = path
   loadedNetwork = session.network
   if (isSet(env, 'CI')) {

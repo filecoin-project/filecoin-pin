@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { privateKeyToAccount } from 'viem/accounts'
@@ -60,6 +60,59 @@ describe('session file', () => {
     writeFileSync(path, `${readFileSync(path, 'utf8')}FROM_BLOCK=0x1f\n`)
 
     expect(readSessionFile(path)?.fromBlock).toBeUndefined()
+  })
+
+  const GROUP_KEY_ID = `0x${'cd'.repeat(16)}` as const
+  const GRANT = 'fgr1_gwGBqwABAWhrZXlz-_09'
+
+  it('keeps the group key Grant and its id, and writes them owner-readable only', () => {
+    writeSessionFile(
+      {
+        sessionKey: KEY,
+        sessionAddress: SESSION,
+        walletAddress: OWNER,
+        groupKeyId: GROUP_KEY_ID,
+        groupKeyGrant: GRANT,
+      },
+      path
+    )
+
+    expect(readSessionFile(path)).toMatchObject({ groupKeyId: GROUP_KEY_ID, groupKeyGrant: GRANT })
+    expect(readFileSync(path, 'utf8')).toContain(`GROUP_KEY_ID=${GROUP_KEY_ID}\nGROUP_KEY_GRANT=${GRANT}\n`)
+    if (process.platform !== 'win32') expect(statSync(path).mode & 0o777).toBe(0o600)
+  })
+
+  it('deleting the file (logout) leaves no Grant behind', () => {
+    writeSessionFile(
+      {
+        sessionKey: KEY,
+        sessionAddress: SESSION,
+        walletAddress: OWNER,
+        groupKeyId: GROUP_KEY_ID,
+        groupKeyGrant: GRANT,
+      },
+      path
+    )
+
+    expect(deleteSessionFile(path)).toBe(true)
+    expect(existsSync(path)).toBe(false)
+    expect(readdirSync(dir)).toEqual([])
+  })
+
+  it.each([
+    ['a group key id that is not 16 bytes of hex', `GROUP_KEY_ID=0x1234\nGROUP_KEY_GRANT=${GRANT}`],
+    ['a Grant without its prefix', `GROUP_KEY_ID=${GROUP_KEY_ID}\nGROUP_KEY_GRANT=gwGBqwAB`],
+    ['a Grant with characters outside base64url', `GROUP_KEY_ID=${GROUP_KEY_ID}\nGROUP_KEY_GRANT=fgr1_ab+c`],
+    ['a Grant without its group key id', `GROUP_KEY_GRANT=${GRANT}`],
+    ['a group key id without its Grant', `GROUP_KEY_ID=${GROUP_KEY_ID}`],
+  ])('treats %s as no Grant, keeping the session', (_, lines) => {
+    writeSessionFile({ sessionKey: KEY, sessionAddress: SESSION, walletAddress: OWNER }, path)
+    writeFileSync(path, `${readFileSync(path, 'utf8')}${lines}\n`)
+
+    const session = readSessionFile(path)
+    expect(session?.walletAddress).toBe(OWNER)
+    expect(session).not.toHaveProperty('groupKeyId')
+    expect(session).not.toHaveProperty('groupKeyGrant')
   })
 
   it('treats a missing or malformed file as no session', () => {

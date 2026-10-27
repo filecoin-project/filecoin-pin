@@ -14,7 +14,7 @@ import { type Address, getAddress } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { CliFatal, EXIT_CODE_INCOMPLETE, isCliIncomplete } from '../common/cli-errors.js'
 import { checkOutputDir, removeDecryptOutput } from '../common/encryption.js'
-import { type OwnerSigner, ownerKeyResolver } from '../common/group-key.js'
+import { credentialKeyResolver } from '../common/group-key-grant.js'
 import { ipniProviderUrls, ownProviderUrls, type ProviderSource } from '../common/ipfs-car-fetch.js'
 import { getToDirectory } from '../common/ipfs-get.js'
 import { initializeSynapse, type SynapseSetupConfig } from '../core/synapse/index.js'
@@ -73,9 +73,8 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
     const auth = parseCLIAuth(options)
     const logger = getCLILogger()
     const address = addressOf(auth)
-    // Read only when an envelope asks for a key, so plain content needs no credentials.
-    const signer = (): OwnerSigner | undefined =>
-      'privateKey' in auth && auth.privateKey != null ? privateKeyToAccount(auth.privateKey) : undefined
+    // Used only when an envelope asks for a key, so plain content needs no credentials.
+    const resolveKey = credentialKeyResolver(auth)
 
     tempDir = await mkdtemp(join(tmpdir(), 'filecoin-pin-get-'))
     for (const signal of cleanupSignals) process.once(signal, onSignal)
@@ -86,7 +85,7 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
     const onClaim = (path: string): void => {
       claimed = path
     }
-    const result = await getToDirectory(cid, outDir, sources, ownerKeyResolver(signer), {
+    const result = await getToDirectory(cid, outDir, sources, resolveKey, {
       tempDir,
       logger,
       onClaim,
