@@ -51,7 +51,9 @@ export function consoleNetworkSlug(chainId: number): string | undefined {
  *
  * `keyAgreement` (`login --scopes …,encrypt`) adds `pubkey` and `pubkeysig`:
  * the console then also issues a group key Grant wrapped to `pubkey`, once it
- * has checked `pubkeysig` recovers to the session address.
+ * has checked `pubkeysig` recovers to the session address. `node=keyspace` asks
+ * for the whole group key, the only kind of Grant this version reads; a console
+ * refuses a node it does not issue.
  *
  * The address is lowercased: the console validates it with viem's strict
  * `isAddress`, which accepts all-lowercase or a correct EIP-55 checksum but
@@ -64,14 +66,11 @@ export function buildAuthorizeUrl(
   chainId: number,
   keyAgreement?: { pubkey: string; pubkeysig: string }
 ): string {
-  const network = CONSOLE_NETWORK_SLUG[chainId]
-  const params = [
-    ...(network ? [`network=${network}`] : []),
-    `authorize=${sessionAddress.toLowerCase()}`,
-    `scopes=${scopeIds.join(',')}`,
-    ...(keyAgreement ? [`pubkey=${keyAgreement.pubkey}`, `pubkeysig=${keyAgreement.pubkeysig}`] : []),
-  ]
-  return withUtm(`${trimSlash(consoleUrl)}/console/setup?${params.join('&')}`, 'login')
+  const pubkey = keyAgreement ? `&pubkey=${keyAgreement.pubkey}&pubkeysig=${keyAgreement.pubkeysig}&node=keyspace` : ''
+  return withUtm(
+    `${trimSlash(consoleUrl)}/console/setup?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId)}${pubkey}`,
+    'login'
+  )
 }
 
 /** Console network slugs, for placing a link the session file recorded by name. */

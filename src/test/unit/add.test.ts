@@ -1102,6 +1102,22 @@ describe('Add Command', () => {
       })
     })
 
+    it('with view-only credentials, fails before packing or uploading', async () => {
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      vi.mocked(initializeSynapse).mockImplementation(baseInit)
+
+      await expect(runAdd({ viewAddress: OWNER.address, filePath: testFile, encrypt: true })).rejects.toThrow(
+        'Encrypted uploads need the owner wallet (set PRIVATE_KEY) or a session key with a group key Grant'
+      )
+
+      const { createSpinner } = await import('../../utils/cli-helpers.js')
+      const stops = vi.mocked(createSpinner).mock.results[0]?.value.stop.mock.calls.flat()
+      expect(stops).toContainEqual(expect.stringMatching(/✗\S* Add failed: Encrypted uploads need the owner wallet/))
+      const { performUpload } = await import('../../common/upload-flow.js')
+      expect(packed).toBeUndefined()
+      expect(vi.mocked(performUpload)).not.toHaveBeenCalled()
+    })
+
     it('uses a neutral name so the original filename is not stored', async () => {
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
