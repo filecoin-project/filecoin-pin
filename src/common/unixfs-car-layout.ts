@@ -17,6 +17,7 @@
 import { encode as cborEncode } from '@ipld/dag-cbor'
 import * as dagPb from '@ipld/dag-pb'
 import { UnixFS } from 'ipfs-unixfs'
+import { varint } from 'multiformats'
 import type { CID } from 'multiformats/cid'
 
 export const RAW_CODEC = 0x55
@@ -47,23 +48,12 @@ export interface LeafPlacement {
   targets: LeafTarget[]
 }
 
-export interface FileLeaf {
-  fileOffset: number
-  len: number
-  leaf: LeafPlacement
-}
-
-export interface FilePlacement {
-  size: number
-  leaves: FileLeaf[]
-}
-
 export interface CarLayout {
   header: Uint8Array
   metadata: { cid: CID; offset: number; len: number }[]
   leaves: LeafPlacement[]
-  /** Wrapper-relative path -> placement, in tree order. */
-  files: Map<string, FilePlacement>
+  /** Wrapper-relative file paths, in tree order. */
+  files: Set<string>
   /** Wrapper-relative directory paths, in tree order. */
   dirs: string[]
   /** Total CAR length in bytes. */
@@ -71,37 +61,12 @@ export interface CarLayout {
 }
 
 export function encodeVarint(n: number): Uint8Array {
-  const out: number[] = []
-  while (n >= 0x80) {
-    out.push((n & 0x7f) | 0x80)
-    n = Math.floor(n / 128)
-  }
-  out.push(n)
-  return Uint8Array.from(out)
-}
-
-/** Returns `[value, bytesRead]`, or `undefined` when `buf` ends before the varint does. */
-export function decodeVarint(buf: Uint8Array, pos = 0): [number, number] | undefined {
-  let n = 0
-  let shift = 0
-  let i = pos
-  for (;;) {
-    const b = buf[i]
-    if (b === undefined) {
-      return undefined
-    }
-    i++
-    n += (b & 0x7f) * 2 ** shift
-    if (b < 0x80) {
-      return [n, i - pos]
-    }
-    shift += 7
-  }
+  return varint.encodeTo(n, new Uint8Array(varint.encodingLength(n)))
 }
 
 export function sectionLength(cid: CID, dataLen: number): number {
   const body = cid.bytes.length + dataLen
-  return encodeVarint(body).length + body
+  return varint.encodingLength(body) + body
 }
 
 export function carHeader(root: CID): Uint8Array {
@@ -182,7 +147,7 @@ export function layout(root: CID, nodes: Map<string, MetadataNode>): CarLayout {
 
   const leaves: LeafPlacement[] = []
   const leafByCid = new Map<string, LeafPlacement>()
-  const files = new Map<string, FilePlacement>()
+  const files = new Set<string>()
   const dirs: string[] = []
   const dirSet = new Set<string>()
 
@@ -197,7 +162,6 @@ export function layout(root: CID, nodes: Map<string, MetadataNode>): CarLayout {
       throw new Error(`leaf ${key} is referenced with two sizes`)
     }
     placement.targets.push({ path, fileOffset })
-    files.get(path)?.leaves.push({ fileOffset, len: size, leaf: placement })
   }
 
   // Returns the subtree's byte length so the caller can advance the file offset.
@@ -225,14 +189,14 @@ export function layout(root: CID, nodes: Map<string, MetadataNode>): CarLayout {
       throw new Error(`duplicate path ${path}`)
     }
     if (cid.code === RAW_CODEC) {
-      files.set(path, { size: tsize, leaves: [] })
+      files.add(path)
       leaf(cid, tsize, path, 0)
       return
     }
     const { unixfs } = node(cid)
     if (unixfs?.type === 'file' || unixfs?.type === 'raw') {
       const size = Number(unixfs.fileSize())
-      files.set(path, { size, leaves: [] })
+      files.add(path)
       const got = fileTree(cid, size, path, 0)
       if (got !== size) {
         throw new Error(`file size mismatch at ${path}: ${got} vs ${size}`)

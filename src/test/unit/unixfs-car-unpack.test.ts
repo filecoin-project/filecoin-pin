@@ -27,7 +27,7 @@ vi.mock('../../common/unixfs-car-layout.js', async (importOriginal) => {
       for (const leaf of lay.leaves) {
         for (const target of leaf.targets) target.path = rename(target.path)
       }
-      return { ...lay, files: new Map([...lay.files].map(([path, placement]) => [rename(path), placement])) }
+      return { ...lay, files: new Set([...lay.files].map(rename)) }
     },
   }
 })

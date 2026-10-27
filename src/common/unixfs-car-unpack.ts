@@ -111,7 +111,7 @@ export async function unpackCar(source: ReadableStream<Uint8Array>, outDir: stri
     for (const dir of lay.dirs) {
       await mkdir(insideDir(outDir, dir), { recursive: true, mode: 0o700 })
     }
-    for (const path of lay.files.keys()) {
+    for (const path of lay.files) {
       const target = insideDir(outDir, path)
       await mkdir(dirname(target), { recursive: true, mode: 0o700 })
       await (await open(target, 'wx', 0o600)).close()

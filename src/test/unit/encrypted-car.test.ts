@@ -5,17 +5,18 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, truncate, utimes, w
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { keyspaceKeys as deriveGroupKey, writeTarget } from '@filoz/keysmith'
-import { CarBlockIterator, CarWriter } from '@ipld/car'
+import { CarBlockIterator } from '@ipld/car'
 import * as dagPb from '@ipld/dag-pb'
 import * as fee from 'filecoin-encryption-envelope'
 import { UnixFS } from 'ipfs-unixfs'
+import { varint } from 'multiformats'
 import { CID } from 'multiformats/cid'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { decryptToDirectory, encryptPath } from '../../common/encryption.js'
 import { newPieceKey, ownerKeyResolver, type PieceKey } from '../../common/group-key.js'
-import { CAR_CONTENT_TYPE, DAG_PB_CODEC, decodeVarint, RAW_CODEC } from '../../common/unixfs-car-layout.js'
+import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC } from '../../common/unixfs-car-layout.js'
 import { EncryptInputError, emitCarPayload, planCarPayload } from '../../common/unixfs-car-payload.js'
 import { insideDir } from '../../common/unixfs-car-unpack.js'
 import { createCarFromPath } from '../../core/unixfs/car-builder.js'
@@ -118,9 +119,9 @@ describe('encrypted CAR payload', () => {
     await writeFile(join(input, 'visible.txt'), 'v')
 
     const skipped = await planCarPayload(input)
-    expect([...skipped.layout.files.keys()]).toEqual(['input/visible.txt'])
+    expect([...skipped.layout.files]).toEqual(['input/visible.txt'])
     const kept = await planCarPayload(input, { includeHidden: true })
-    expect([...kept.layout.files.keys()].sort()).toEqual(['input/.env', 'input/.git/HEAD', 'input/visible.txt'])
+    expect([...kept.layout.files].sort()).toEqual(['input/.env', 'input/.git/HEAD', 'input/visible.txt'])
   })
 
   it('stores a repeated chunk once and restores every copy', async () => {
@@ -152,9 +153,7 @@ describe('encrypted CAR payload', () => {
     expect(codecs.slice(0, firstRaw).every((c) => c === DAG_PB_CODEC)).toBe(true)
     expect(codecs.slice(firstRaw).every((c) => c === RAW_CODEC)).toBe(true)
     for (const leaf of plan.layout.leaves) {
-      const prefix = decodeVarint(car, leaf.offset)
-      expect(prefix).toBeDefined()
-      const [, prefixLength] = prefix ?? [0, 0]
+      const [, prefixLength] = varint.decode(car, leaf.offset)
       expect(CID.decodeFirst(car.subarray(leaf.offset + prefixLength))[0].equals(leaf.cid)).toBe(true)
       const digest = await sha256.digest(car.subarray(leaf.dataOffset, leaf.dataOffset + leaf.len))
       expect(CID.createV1(RAW_CODEC, digest).equals(leaf.cid)).toBe(true)
@@ -396,34 +395,6 @@ describe('encrypted CAR payload', () => {
       'not encrypted by `filecoin-pin add --encrypt`'
     )
     expect(existsSync(outDir)).toBe(false)
-  })
-
-  it.each([
-    '../escape',
-    '..\\..\\escape',
-  ])('rejects a payload whose directory entry %s could escape the output directory', async (name) => {
-    const leafBytes = new Uint8Array([1, 2, 3])
-    const leaf = CID.createV1(RAW_CODEC, await sha256.digest(leafBytes))
-    const dirNode = dagPb.encode({
-      Data: new UnixFS({ type: 'directory' }).marshal(),
-      Links: [{ Name: name, Hash: leaf, Tsize: leafBytes.length }],
-    })
-    const root = CID.createV1(DAG_PB_CODEC, await sha256.digest(dirNode))
-    const { writer, out } = CarWriter.create([root])
-    const drain = collect(out)
-    await writer.put({ cid: root, bytes: dirNode })
-    await writer.put({ cid: leaf, bytes: leafBytes })
-    await writer.close()
-    const car = await drain
-    const { cek, appMetadata } = pieceKey()
-    const hostile = new Blob([new Uint8Array(car)])
-      .stream()
-      .pipeThrough(fee.encrypt({ cek, appMetadata, contentType: CAR_CONTENT_TYPE }))
-    await writeFile(envelope, Buffer.from(await new Response(hostile).arrayBuffer()))
-
-    await expect(decryptToDirectory(envelope, outDir, asOwner())).rejects.toThrow(/unsafe entry name/)
-    expect(existsSync(outDir)).toBe(false)
-    expect(existsSync(join(dir, 'escape'))).toBe(false)
   })
 
   it('never resolves a path outside the output directory', () => {

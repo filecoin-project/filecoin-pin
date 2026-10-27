@@ -308,13 +308,9 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     }
 
     // Create CAR from file or directory. An envelope is always packed as a single file.
-    const packingMsg =
-      groupKey != null
-        ? 'Packing the encrypted envelope for IPFS...'
-        : isDirectory
-          ? 'Packing directory for IPFS...'
-          : 'Packing file for IPFS...'
-    spinner.start(packingMsg)
+    // With --encrypt the packed file is the envelope, and its root is the Encrypted root CID.
+    const packedLabel = groupKey != null ? 'Encrypted envelope' : pathType
+    spinner.start(`Packing ${packedLabel.toLowerCase()} for IPFS...`)
 
     const { carPath, rootCid, name } = await createCarFromPath(packPath, {
       logger,
@@ -329,9 +325,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     // (codec + UnixFS Data.Type), not from a key-name distinction.
     const pieceMetadata = withDerivedNameMetadata(userPieceMetadata, name)
 
-    // With --encrypt the packed file is the envelope, and this is the Encrypted root CID.
-    const packed = groupKey != null ? 'Encrypted envelope' : isDirectory ? 'Directory' : 'File'
-    spinner.stop(`${pc.green('✓')} ${packed} packed with root CID: ${rootCid.toString()}`)
+    spinner.stop(`${pc.green('✓')} ${packedLabel} packed with root CID: ${rootCid.toString()}`)
 
     // The CLI still materializes a full CAR on disk first. This only avoids
     // buffering that CAR again in memory during upload.

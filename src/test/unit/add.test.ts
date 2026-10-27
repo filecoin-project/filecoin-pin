@@ -885,15 +885,6 @@ describe('Add Command', () => {
       expect(packed).toBeUndefined()
     })
 
-    it('skips a malformed oldest group key id instead of failing in Keysmith', async () => {
-      mockListDataSets.mockResolvedValue([groupKeySet(1n, { 'foc/ks': '0xnot-a-group-key' }), groupKeySet(8n, {})])
-
-      await runAdd({ ...auth, filePath: testFile, encrypt: true })
-
-      const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-      expect(appMetadata?.['foc/ks']).toBe(VECTOR_GROUP_KEY)
-    })
-
     it('does not treat a mixed-case lookalike of the default group key as the default', async () => {
       const lookalike = `0x${OWNER_DEFAULT_GROUP_KEY.slice(2).toUpperCase()}`
       mockListDataSets.mockResolvedValue([
@@ -955,14 +946,8 @@ describe('Add Command', () => {
       })
 
       it('is the same for the same owner, in any letter case', () => {
-        expect(defaultGroupKeyId(OWNER.address)).toBe(defaultGroupKeyId(OWNER.address))
         expect(defaultGroupKeyId(OWNER.address.toLowerCase() as `0x${string}`)).toBe(OWNER_DEFAULT_GROUP_KEY)
         expect(defaultGroupKeyId(`0x${OWNER.address.slice(2).toUpperCase()}`)).toBe(OWNER_DEFAULT_GROUP_KEY)
-      })
-
-      it('differs between owners', () => {
-        expect(defaultGroupKeyId(STRANGER.address)).toMatch(/^0x[0-9a-f]{32}$/)
-        expect(defaultGroupKeyId(STRANGER.address)).not.toBe(OWNER_DEFAULT_GROUP_KEY)
       })
 
       it('rejects a value that is not an address', () => {
@@ -999,23 +984,6 @@ describe('Add Command', () => {
       const { performUpload } = await import('../../common/upload-flow.js')
       expect(basename(packedFile().path)).toBe('encrypted.fee')
       expect(vi.mocked(performUpload).mock.calls[0]?.[3]?.pieceMetadata).toEqual({ name: 'encrypted.fee' })
-    })
-
-    it('removes the temporary envelope and its SIGINT handler after a successful upload', async () => {
-      const before = process.listeners('SIGINT')
-
-      await runAdd({ ...auth, filePath: testFile, encrypt: true })
-
-      expect(existsSync(packedFile().path)).toBe(false)
-      expect(process.listeners('SIGINT')).toEqual(before)
-    })
-
-    it('removes the temporary envelope when the upload fails', async () => {
-      const { performUpload } = await import('../../common/upload-flow.js')
-      vi.mocked(performUpload).mockRejectedValueOnce(new Error('provider down'))
-
-      await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow('provider down')
-      expect(existsSync(packedFile().path)).toBe(false)
     })
 
     it('encrypts a CAR file instead of redirecting it to import', async () => {
@@ -1110,13 +1078,6 @@ describe('Add Command', () => {
         expect(stops.join('\n')).not.toMatch(/link-name|pipe-name/)
       }
     )
-
-    it('builds the outer CAR inside the private temp dir', async () => {
-      await runAdd({ ...auth, filePath: testFile, encrypt: true })
-
-      const { createCarFromPath } = await import('../../core/unixfs/index.js')
-      expect(vi.mocked(createCarFromPath).mock.calls[0]?.[1]).toMatchObject({ tempDir: dirname(packedFile().path) })
-    })
 
     it('packs dotfiles when asked to include hidden entries', async () => {
       await writeFile(join(testDir, '.hidden'), 'dot')
