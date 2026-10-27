@@ -92,11 +92,8 @@ describe('add --encrypt with real packing', () => {
     await mkdir(join(input, 'nested'), { recursive: true })
     await writeFile(join(input, 'private-name.txt'), 'hello')
     await writeFile(join(input, 'nested', 'other-private.bin'), randomBytes(2048))
-    // os.tmpdir() reads these on every call, so every temp file of the run lands in `tmp`.
     // os.tmpdir() reads TMPDIR on POSIX and TEMP/TMP on Windows.
     for (const name of ['TMPDIR', 'TEMP', 'TMP']) vi.stubEnv(name, tmp)
-    vi.stubEnv('TEMP', tmp)
-    vi.stubEnv('TMP', tmp)
 
     writes = []
     const capture = (chunk: unknown) => writes.push(String(chunk)) > 0

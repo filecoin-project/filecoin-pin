@@ -130,7 +130,7 @@ export async function unpackCar(
   // every directory and file under it.
   const startData = async (): Promise<void> => {
     const tree = layout(root, nodes)
-    const entries = new Set([...tree.dirs, ...tree.files.keys()].map((path) => path.split('/')[0]))
+    const entries = new Set([...tree.dirs, ...tree.files].map((path) => path.split('/')[0]))
     const [only] = entries
     if (entries.size !== 1 || only == null) {
       throw new Error(`expected exactly one entry in the wrapper, got ${entries.size}`)
@@ -146,7 +146,7 @@ export async function unpackCar(
     for (const dir of lay.dirs) {
       await mkdir(target(dir), { recursive: true, mode: 0o700 })
     }
-    for (const path of lay.files.keys()) {
+    for (const path of lay.files) {
       if (path === top) {
         // The claim created it.
         continue

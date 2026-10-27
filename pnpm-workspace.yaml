@@ -4,7 +4,6 @@ packages:
 minimumReleaseAge: 10080
 minimumReleaseAgeExclude:
   - "@filoz/*"
-  - filecoin-encryption-envelope
 onlyBuiltDependencies:
   - esbuild
   - node-datachannel
