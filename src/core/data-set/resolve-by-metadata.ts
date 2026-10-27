@@ -19,6 +19,12 @@ export interface ResolveByMetadataOptions {
    * is `''` when set by the SDK but `'true'` when set by hand).
    */
   requiredKeys?: string[]
+  /**
+   * Metadata keys the dataset must NOT carry, with any value. Subset matching
+   * accepts extra keys, so this is how a caller keeps out datasets that carry
+   * more than it asked for (e.g. encrypted or IPFS-indexed ones).
+   */
+  excludedKeys?: string[]
 }
 
 /**
@@ -40,6 +46,7 @@ export async function resolveDataSetIdsByMetadata(
   }
 
   const requiredKeys = options.requiredKeys ?? []
+  const excludedKeys = options.excludedKeys ?? []
 
   const matched = await listDataSets(synapse, {
     filter: (dataSet) => {
@@ -65,6 +72,9 @@ export async function resolveDataSetIdsByMetadata(
        * of dataset metadata" rule.
        */
       if (!entries.every(([key, value]) => key in metadata && metadata[key] === value)) {
+        return false
+      }
+      if (excludedKeys.some((key) => key in metadata)) {
         return false
       }
       return requiredKeys.every((key) => key in metadata)
