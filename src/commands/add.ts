@@ -34,8 +34,9 @@ the account can pay for this upload. If not, exits 1 with a pre-filled console
 funding link; nothing is uploaded. Session keys cannot deposit.
 
 Retrieving your content after an add:
-  IPFS Root CID  view in a browser, or fetch from any IPFS gateway
-  Piece CID      download the stored CAR directly from the provider
+  filecoin-pin get <root-cid>  download, verify and save it (decrypts --encrypt uploads)
+  IPFS Root CID                view in a browser, or fetch from any IPFS gateway
+  Piece CID                    download the stored CAR directly from the provider
   Guide: https://github.com/filecoin-project/filecoin-pin/blob/master/documentation/retrieval.md`
   )
 

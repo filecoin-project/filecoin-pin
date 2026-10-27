@@ -125,8 +125,27 @@ async function openEnvelope(
     throw new DecryptError(NOT_OURS)
   }
   return {
-    stream: Readable.toWeb(Readable.from(unixfsFileBytes(reader, root))) as ReadableStream<Uint8Array>,
+    stream: Readable.toWeb(Readable.from(unixfsFileBytes(anyCidVersion(reader), root))) as ReadableStream<Uint8Array>,
     close: () => reader.close(),
+  }
+}
+
+type BlockGetter = { get(cid: CID): Promise<{ bytes: Uint8Array } | undefined> }
+
+/**
+ * `blocks`, looked up under either CID version: a gateway may key a dag-pb block as CIDv0 or
+ * CIDv1 whatever form the request or the link used. An identity CID carries its own bytes.
+ */
+export function anyCidVersion(blocks: BlockGetter): BlockGetter {
+  return {
+    async get(cid) {
+      if (cid.multihash.code === 0x00) return { bytes: cid.multihash.digest }
+      const block = await blocks.get(cid)
+      if (block != null) return block
+      if (cid.version === 0) return blocks.get(cid.toV1())
+      if (cid.code === DAG_PB_CODEC && cid.multihash.code === 0x12) return blocks.get(cid.toV0())
+      return undefined
+    },
   }
 }
 
@@ -193,6 +212,11 @@ export async function checkDecryptPaths(inputPath: string, outDir: string): Prom
   if (input.isDirectory()) {
     throw new Error(`Input path is a directory: ${inputPath}`)
   }
+  return checkOutputDir(outDir)
+}
+
+/** The output must be a directory (any contents), or absent with an existing parent. Returns whether it exists. */
+export async function checkOutputDir(outDir: string): Promise<{ outExists: boolean }> {
   const out = await exists(outDir)
   if (out == null) {
     if ((await exists(dirname(outDir))) == null) {
@@ -212,7 +236,7 @@ export async function checkDecryptPaths(inputPath: string, outDir: string): Prom
  */
 export function removeDecryptOutput(outDir: string, created: boolean, claimed: string | undefined): void {
   if (claimed != null) {
-    rmSync(claimed, { recursive: true, force: true })
+    rmSync(claimed, { recursive: true, force: true, maxRetries: 3 })
   }
   if (created) {
     try {
@@ -279,7 +303,8 @@ export async function decryptToDirectory(
     // Anything else came from unpacking the plaintext, so its message may hold an entry name
     // or a CID from inside the envelope: keep only the errno code (ENOSPC, EACCES, ...).
     const code = (error as NodeJS.ErrnoException | null)?.code
-    throw new DecryptError(typeof code === 'string' ? `Decryption failed: ${code}` : MALFORMED, { cause: error })
+    // No `cause` either: whoever logs or reports the error would print the original message.
+    throw new DecryptError(typeof code === 'string' ? `Decryption failed: ${code}` : MALFORMED)
   } finally {
     await envelope?.close()
   }

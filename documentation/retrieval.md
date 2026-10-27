@@ -7,7 +7,24 @@ Each `filecoin-pin add` reports two CIDs, and they fetch different things:
 
 These two CIDs are [related but distinct](glossary.md#relationship-between-piece-cid-and-ipfs-root-cid); neither can be derived from the other.
 
-Retrieval works once [IPNI](glossary.md#ipni) content routing is in place. Filecoin Pin waits for this before printing retrieval URLs. See the [Content Routing FAQ](content-routing-faq.md) for timing.
+Retrieval through IPFS gateways works once [IPNI](glossary.md#ipni) content routing is in place. Filecoin Pin waits for this before printing retrieval URLs. See the [Content Routing FAQ](content-routing-faq.md) for timing.
+
+The simplest way back from the command line is `filecoin-pin get`. Gateways and browsers return an [Encrypted Upload](glossary.md#encrypted-upload) as ciphertext, so use `get` (or `decrypt` on a downloaded file) to read one.
+
+## Fetch with `filecoin-pin get`
+
+```
+filecoin-pin get <root-cid> [output-dir]
+```
+
+- **Finds providers** through [IPNI](glossary.md#ipni) and, when an address is set (`PRIVATE_KEY`, `WALLET_ADDRESS` or `VIEW_ADDRESS`), the providers of your own [Data Sets](glossary.md#data-set). Your own providers are found even before IPNI has indexed a fresh upload. Listing them is a public read, so no keys are needed.
+- **Downloads and verifies:** the CAR comes from the first provider that answers, and every block is checked against its CID. A bad, incomplete or stalled download is discarded and the next provider is tried.
+- **Saves** the file or folder into `[output-dir]` (default: the current directory) as `<root-cid>`, numbered `<root-cid>(1)` if that name is taken. Existing files are never touched, and the final path is printed.
+- **Decrypts** an Encrypted Upload with the owner wallet (`PRIVATE_KEY`) and saves it under its original name. Plain content needs no credentials.
+- **Limits:** lookups and providers have timeouts, and the download is capped at about Synapse's maximum upload size. A CID uploaded in the last few minutes may not be found through IPNI yet, since cid.contact remembers a miss for a while (see the [Content Routing FAQ](content-routing-faq.md)).
+- Uploads made with `--no-ipfs` can't be fetched by root CID: download the piece from the provider's `/piece` endpoint and use `filecoin-pin decrypt`.
+
+See the [README](../README.md#get) for details.
 
 ## View it in a browser
 
@@ -38,3 +55,5 @@ Each [Service Provider](glossary.md#service-provider) exposes two endpoints:
 - [`/piece`](glossary.md#piece-retrieval) serves the [Piece CID](glossary.md#piece-cid): the exact CAR bytes stored and proven on chain, optionally a byte range.
 
 Both return a CAR. `/piece` gives the stored bytes verbatim. `?format=car` on an `/ipfs` endpoint rebuilds a CAR from per-block retrieval, so the byte layout can differ, but the content and root CID match.
+
+`filecoin-pin get` uses the `/ipfs` endpoint with `?format=car`. For an Encrypted Upload, either CAR can be passed to `filecoin-pin decrypt <file> <output-dir>`, which works offline.

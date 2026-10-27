@@ -322,7 +322,8 @@ describe('encrypted CAR payload', () => {
     expect((error as Error).message).toMatch(/malformed or unsafe to unpack/)
     // The leaf's CID is a hash of plaintext: it stays out of the message.
     expect((error as Error).message).not.toContain(leaf.cid.toString())
-    expect((error as Error).cause).toHaveProperty('message', expect.stringMatching(/does not match its CID/))
+    // No cause either: anything that reports the error would print the original message.
+    expect((error as Error).cause).toBeUndefined()
     expect(existsSync(outDir)).toBe(false)
   })
 
@@ -455,7 +456,8 @@ describe('encrypted CAR payload', () => {
     const error = await decryptToDirectory(envelope, outDir, asOwner()).catch((e: Error) => e)
     expect((error as Error).message).toMatch(/malformed or unsafe to unpack/)
     expect((error as Error).message).not.toContain('secret-link-name')
-    expect((error as Error).cause).toHaveProperty('message', expect.stringMatching(/symlink entries/))
+    // No cause either: anything that reports the error would print the original message.
+    expect((error as Error).cause).toBeUndefined()
     expect(existsSync(outDir)).toBe(false)
   })
 
