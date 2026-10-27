@@ -14,7 +14,7 @@ import { CID } from 'multiformats/cid'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { decryptToDirectory, encryptPath } from '../../common/encryption.js'
+import { decryptToDirectory, encryptPath, wrapOverhead } from '../../common/encryption.js'
 import { newPieceKey, ownerKeyResolver, type PieceKey } from '../../common/group-key.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC } from '../../common/unixfs-car-layout.js'
 import { EncryptInputError, emitCarPayload, planCarPayload } from '../../common/unixfs-car-payload.js'
@@ -243,24 +243,39 @@ describe('encrypted CAR payload', () => {
 
   it('refuses an input whose files fit the cap but whose packed CAR does not', async () => {
     await writeFile(input, randomBytes(2048))
-    // Exactly the file size: passes the files check (so it is `>`, not `>=`), fails the CAR check.
-    const error = await encryptPath(input, envelope, pieceKey(), {}, 2048).catch((e: Error) => e)
-    expect((error as Error).message).toMatch(/^The packed input is \d+ bytes, more than the 2048 bytes/)
+    // Exactly the files plus the wrap overhead: passes the files check (so it is `>`, not `>=`),
+    // fails the CAR check.
+    const cap = 2048 + wrapOverhead(2048)
+    const error = await encryptPath(input, envelope, pieceKey(), {}, cap).catch((e: Error) => e)
+    expect((error as Error).message).toMatch(
+      new RegExp(`^The packed input is \\d+ bytes\\. .* more than the ${cap} bytes`)
+    )
   })
 
-  it('accepts an input whose packed CAR is exactly the cap', async () => {
+  it('accepts an input whose packed CAR and wrap overhead are exactly the cap', async () => {
     await writeFile(input, randomBytes(2048))
     const { contentLength } = await planCarPayload(input)
 
-    await expect(encryptPath(input, envelope, pieceKey(), {}, contentLength)).resolves.toBeDefined()
+    const cap = contentLength + wrapOverhead(contentLength)
+    await expect(encryptPath(input, envelope, pieceKey(), {}, cap)).resolves.toBeDefined()
   })
 
   it('refuses an input larger than the upload cap before hashing it', async () => {
     await writeFile(input, randomBytes(2048))
     await expect(encryptPath(input, envelope, pieceKey(), {}, 1024)).rejects.toThrow(
-      'The input is 2048 bytes, more than the 1024 bytes one upload can hold; split it into smaller uploads'
+      'The input is 2048 bytes. Encrypted, it needs up to 6400 bytes, more than the 1024 bytes one upload can hold; split it into smaller uploads'
     )
     expect(existsSync(envelope)).toBe(false)
+  })
+
+  it('wraps a multi-MiB CAR in no more than wrapOverhead bytes', async () => {
+    await writeFile(input, randomBytes(5 * MiB))
+    const { plan } = await encryptPath(input, envelope, pieceKey())
+
+    const { carPath } = await createCarFromPath(envelope)
+    const { size } = await stat(carPath)
+    await rm(carPath, { force: true })
+    expect(size - plan.contentLength).toBeLessThanOrEqual(wrapOverhead(plan.contentLength))
   })
 
   it('uses a fresh salt and nonce on every encryption of the same input', async () => {
