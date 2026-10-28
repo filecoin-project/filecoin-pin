@@ -47,6 +47,8 @@ async function uploadLabels(
   logger: Logger
 ): Promise<{ labels: PieceMetadata; pieceCid?: CID }> {
   const record = findEncryptedUpload(cid.toString())
+  // Without a record the header read below finds providers only through IPNI and IPFS-indexed data sets.
+  if (record?.ipfs === false) throw new Error(NO_IPFS_SHARE)
   if (record != null) return { labels: record.labels, pieceCid: CID.parse(record.pieceCid) }
   // A failed lookup only narrows the list; readEnvelopeLabels says if nothing is left.
   const [ipni, own] = await Promise.all([
@@ -76,6 +78,15 @@ export async function shareSender(auth: SynapseSetupConfig, chainId: number): Pr
 
 /** Unix seconds `days` from now: when an owner-mode link stops fetching from gating providers. */
 export const expiresIn = (days: number): number => Math.floor(Date.now() / 1000) + days * 86400
+
+/** The closing reminder: how the link and its secret should travel. */
+export const shareReminder = (mode: ShareMode): string =>
+  mode === 'restricted'
+    ? 'Anyone with the link can read this upload: send it only where that is acceptable'
+    : `Send the link and the ${mode === 'password' ? 'password' : 'Access key'} by different channels`
+
+/** A `--no-ipfs` upload: nothing finds its blocks by CID, so neither the viewer nor `get --share` could open a link to it. */
+export const NO_IPFS_SHARE = 'A --no-ipfs upload cannot be shared: a Share link fetches the upload by its IPFS root CID'
 
 /** What the link can and cannot do, as notes above the summary. */
 export function logShareNotes(share: CreatedShare): void {
@@ -142,9 +153,7 @@ export async function runGetShareLink(cidArg: string, options: GetShareLinkOptio
       log.warn("--expires was ignored: a session key's links last as long as its Grant")
     }
     logShareNotes(share)
-    outro(
-      mode === 'restricted' ? 'Anyone with the link can read this upload' : 'Send the link and its secret separately'
-    )
+    outro(shareReminder(mode))
     printShare(share)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

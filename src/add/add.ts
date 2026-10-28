@@ -54,7 +54,15 @@ import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
-import { DEFAULT_SHARE_DAYS, expiresIn, logShareNotes, printShare, shareSender } from '../share/get-share-link.js'
+import {
+  DEFAULT_SHARE_DAYS,
+  expiresIn,
+  logShareNotes,
+  NO_IPFS_SHARE,
+  printShare,
+  shareReminder,
+  shareSender,
+} from '../share/get-share-link.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -219,6 +227,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     if (shareMode != null && options.encrypt !== true) {
       throw new Error('--get-share-link needs --encrypt: a plain upload is shared by its CID')
     }
+    if (shareMode != null && !ipfsIndexing) throw new Error(NO_IPFS_SHARE)
     const sharePassword = typeof options.getShareLinkPassword === 'string' ? options.getShareLinkPassword : undefined
     if (sharePassword != null && sharePassword.length < MIN_PASSWORD_LENGTH) {
       throw new Error(`A share password needs at least ${MIN_PASSWORD_LENGTH} characters`)
@@ -492,7 +501,12 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       // Lets `get-share-link` share this upload later with no network read (see upload-record.ts).
       // Best effort: the upload has succeeded, and sharing falls back to reading the header.
       try {
-        recordEncryptedUpload({ rootCid: rootCid.toString(), pieceCid: uploadResult.pieceCid, labels: encryptedLabels })
+        recordEncryptedUpload({
+          rootCid: rootCid.toString(),
+          pieceCid: uploadResult.pieceCid,
+          labels: encryptedLabels,
+          ipfs: ipfsIndexing,
+        })
       } catch (error) {
         logger.warn({ event: 'upload-record.write-failed', error }, 'Could not record the encrypted upload for sharing')
       }
@@ -545,7 +559,10 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       )
       log.flush()
     }
-    if (share != null) logShareNotes(share)
+    if (share != null && shareMode != null) {
+      logShareNotes(share)
+      log.warn(shareReminder(shareMode))
+    }
 
     if (uploadResult.copies.length < requestedCopies) {
       log.line('')

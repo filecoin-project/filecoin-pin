@@ -44,6 +44,15 @@ describe('runGetShareLink', () => {
     expect(bytesToHex(key)).toBe(bytesToHex(keyForEnvelope(kk, labels)))
   })
 
+  it('refuses a recorded --no-ipfs upload, which no link could fetch', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const labels = pieceMetadata({ owner: OWNER.address, keyspace: GROUP_KEY }, { salt: newSalt() })
+    record.value = { rootCid: ROOT, pieceCid: PIECE, labels, ipfs: false }
+    await expect(runGetShareLink(ROOT, { privateKey: OWNER_KEY, network: 'calibration' })).rejects.toThrow(
+      /--no-ipfs upload cannot be shared/
+    )
+  })
+
   it('refuses view-only credentials and conflicting modes', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     await expect(

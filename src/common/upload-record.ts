@@ -25,7 +25,7 @@
  *
  * One JSON object per line, appended after each successful `add --encrypt`:
  *
- *     {"v":1,"rootCid":"bafy…","pieceCid":"bafk…","labels":{"foc/v":1,"foc/own":"0x…","foc/ks":"0x…","foc/salt":"0x…"},"at":"2026-…"}
+ *     {"v":1,"rootCid":"bafy…","pieceCid":"bafk…","labels":{"foc/v":1,"foc/own":"0x…","foc/ks":"0x…","foc/salt":"0x…"},"ipfs":true,"at":"2026-…"}
  *
  * `labels` are the envelope's header labels, exactly as written (public: anyone who fetches the
  * upload can read them). **No key is ever stored.** The file does reveal which uploads are this
@@ -49,6 +49,11 @@ export interface UploadRecord {
   pieceCid: string
   /** The envelope's header labels, including `foc/salt`. */
   labels: PieceMetadata
+  /**
+   * False for a `--no-ipfs` upload, which nothing can fetch by its CID, so a Share link to it
+   * would open nothing. Absent in records written before this field.
+   */
+  ipfs?: boolean
 }
 
 const recordPath = (dataDir: string) => join(dataDir, UPLOAD_RECORD_FILE)
@@ -86,7 +91,12 @@ export function findEncryptedUpload(rootCid: string, dataDir: string = getDataDi
         typeof labels['foc/salt'] === 'string'
       ) {
         // The last record for a root wins (an upload repeated after a failure, say).
-        found = { rootCid: entry.rootCid, pieceCid: entry.pieceCid, labels: labels as PieceMetadata }
+        found = {
+          rootCid: entry.rootCid,
+          pieceCid: entry.pieceCid,
+          labels: labels as PieceMetadata,
+          ...(typeof entry.ipfs === 'boolean' && { ipfs: entry.ipfs }),
+        }
       }
     } catch {
       // A partial line (a crash mid-append) or hand edits: skip it.

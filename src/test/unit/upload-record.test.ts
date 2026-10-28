@@ -23,12 +23,14 @@ describe('upload record', () => {
     expect(findEncryptedUpload('bafyroot', dir)).toBeUndefined()
     recordEncryptedUpload({ rootCid: 'bafyroot', pieceCid: 'bafkold', labels: labels('0x01') }, dir)
     recordEncryptedUpload({ rootCid: 'bafyother', pieceCid: 'bafkother', labels: labels('0x02') }, dir)
-    recordEncryptedUpload({ rootCid: 'bafyroot', pieceCid: 'bafknew', labels: labels('0x03') }, dir)
+    recordEncryptedUpload({ rootCid: 'bafyroot', pieceCid: 'bafknew', labels: labels('0x03'), ipfs: false }, dir)
     expect(findEncryptedUpload('bafyroot', dir)).toEqual({
       rootCid: 'bafyroot',
       pieceCid: 'bafknew',
       labels: labels('0x03'),
+      ipfs: false,
     })
+    expect(findEncryptedUpload('bafyother', dir)).not.toHaveProperty('ipfs')
     expect(statSync(join(dir, UPLOAD_RECORD_FILE)).mode & 0o777).toBe(0o600)
   })
 

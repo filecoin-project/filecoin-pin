@@ -253,6 +253,8 @@ describe('add --encrypt with real packing', () => {
       const parsed = parseShareLink(out.match(/https:\/\/\S+#v1\/\S+/)?.[0] ?? '')
       const record = findEncryptedUpload(parsed.rootCid.toString())
       expect(record?.pieceCid).toBe(PIECE)
+      expect(record?.ipfs).toBe(true)
+      expect(out).toContain('Send the link and the Access key by different channels')
       const labels = record?.labels as NonNullable<typeof record>['labels']
       const accessKey = out.match(/fak1_[A-Za-z0-9_-]+/)?.[0]
       const key = await shareKeyResolver(
@@ -268,6 +270,7 @@ describe('add --encrypt with real packing', () => {
       [{ getShareLink: true }, /needs --encrypt/],
       [{ encrypt: true, getShareLink: true, getShareLinkRestricted: true }, /Choose one of/],
       [{ encrypt: true, getShareLinkPassword: 'too short' }, /at least 12 characters/],
+      [{ encrypt: true, ipfs: false, getShareLink: true }, /--no-ipfs upload cannot be shared/],
     ])('refuses %o before uploading', async (flags, message) => {
       const { performUpload } = await import('../../common/upload-flow.js')
       await expect(runAdd({ ...auth, filePath: input, ...flags })).rejects.toThrow(message)
