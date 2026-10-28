@@ -14,7 +14,6 @@ import type { PieceMetadata } from '@filoz/keysmith'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { SIZE_CONSTANTS } from '@filoz/synapse-core/utils'
 import type { Synapse } from '@filoz/synapse-sdk'
-import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino, { type Logger } from 'pino'
 import type { Hex } from 'viem'
@@ -42,7 +41,6 @@ import {
   resolveUploadTargets,
   validatePaymentSetup,
 } from '../common/upload-flow.js'
-import { recordEncryptedUpload } from '../common/upload-record.js'
 import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
 import {
   IPFS_INDEXED_METADATA,
@@ -54,15 +52,7 @@ import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
-import {
-  DEFAULT_SHARE_DAYS,
-  expiresIn,
-  logShareNotes,
-  NO_IPFS_SHARE,
-  printShare,
-  shareReminder,
-  shareSender,
-} from '../share/get-share-link.js'
+import { NO_IPFS_SHARE, printShare, shareReminder, shareSender } from '../share/get-share-link.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -194,7 +184,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
   let tempCarPath: string | undefined
   let encryptDir: string | undefined
-  // The envelope's header labels (public), kept to record the upload for share links: see upload-record.ts.
+  // The envelope's header labels (public), kept for --get-share-link.
   let encryptedLabels: PieceMetadata | undefined
   // Ctrl-C, kill and a closed terminal: clack's spinner installs its own SIGINT handler in start()
   // and the first listener to call process.exit wins, so these are registered before the spinner
@@ -497,21 +487,6 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       failedAttempts: uploadResult.failedAttempts,
     }
 
-    if (encryptedLabels != null) {
-      // Lets `get-share-link` share this upload later with no network read (see upload-record.ts).
-      // Best effort: the upload has succeeded, and sharing falls back to reading the header.
-      try {
-        recordEncryptedUpload({
-          rootCid: rootCid.toString(),
-          pieceCid: uploadResult.pieceCid,
-          labels: encryptedLabels,
-          ipfs: ipfsIndexing,
-        })
-      } catch (error) {
-        logger.warn({ event: 'upload-record.write-failed', error }, 'Could not record the encrypted upload for sharing')
-      }
-    }
-
     // The upload has succeeded, so a share that cannot be made only warns: get-share-link can retry it.
     let share: CreatedShare | undefined
     if (shareMode != null && encryptedLabels != null) {
@@ -520,11 +495,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
           sender: await shareSender(config, synapse.chain.id),
           rootCid,
           labels: encryptedLabels,
-          pieceCid: CID.parse(uploadResult.pieceCid),
-          chainId: synapse.chain.id,
           mode: shareMode,
           ...(sharePassword != null && { password: sharePassword }),
-          expires: expiresIn(DEFAULT_SHARE_DAYS),
         })
       } catch (error) {
         log.warn(
@@ -559,10 +531,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       )
       log.flush()
     }
-    if (share != null && shareMode != null) {
-      logShareNotes(share)
-      log.warn(shareReminder(shareMode))
-    }
+    if (share != null && shareMode != null) log.warn(shareReminder(shareMode))
 
     if (uploadResult.copies.length < requestedCopies) {
       log.line('')

@@ -31,9 +31,7 @@ import {
 } from '../fixtures/group-key-grants.js'
 
 const ROOT = CID.parse('bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi')
-const PIECE = CID.parse('bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy')
 const VIEWER = 'https://viewer.test/'
-const EXPIRES = Math.floor(Date.now() / 1000) + 30 * 86400
 
 const labelsFor = (salt = newSalt()): PieceMetadata =>
   pieceMetadata({ owner: OWNER.address, keyspace: GROUP_KEY }, { salt })
@@ -44,14 +42,14 @@ async function ownerPieceKey(labels: PieceMetadata): Promise<string> {
   return bytesToHex(keyForEnvelope(kk, labels))
 }
 
-async function sessionSender(maxDepth = 0): Promise<ShareSender> {
-  const text = await makeGrant({ maxDepth })
+async function sessionSender(): Promise<ShareSender> {
+  const text = await makeGrant()
   const grant = await openGroupKeyGrant(text, {
     sessionKey: SESSION_KEY,
     walletAddress: OWNER.address,
     chainId: CALIBRATION_CHAIN_ID,
   })
-  return { sessionKey: SESSION_KEY, grant }
+  return { grant }
 }
 
 /** Open a created share as a recipient would, and return the key it gives for `labels`. */
@@ -94,20 +92,15 @@ describe('share link text', () => {
 })
 
 describe('createShare', () => {
-  it('owner mode: a delivery the link and Access key open, and nothing else does', async () => {
+  it('owner mode: a link the Access key opens, and nothing else does', async () => {
     const labels = labelsFor()
     const share = await createShare({
       sender: { owner: OWNER },
       rootCid: ROOT,
       labels,
-      pieceCid: PIECE,
-      chainId: CALIBRATION_CHAIN_ID,
       mode: 'access-key',
-      expires: EXPIRES,
       viewer: VIEWER,
     })
-    expect(share.payloadKind).toBe('delivery')
-    expect(share.expires).toBe(EXPIRES)
     expect(share.link).not.toContain('&k=')
     expect(await open(share.link, { accessKey: share.accessKey }, labels)).toBe(await ownerPieceKey(labels))
     // The link alone, or another key, opens nothing.
@@ -125,9 +118,7 @@ describe('createShare', () => {
       sender: { owner: OWNER },
       rootCid: ROOT,
       labels,
-      chainId: CALIBRATION_CHAIN_ID,
       mode: 'password',
-      expires: EXPIRES,
       viewer: VIEWER,
     })
     expect(share.accessKey).toBeUndefined()
@@ -142,10 +133,8 @@ describe('createShare', () => {
         sender: { owner: OWNER },
         rootCid: ROOT,
         labels,
-        chainId: CALIBRATION_CHAIN_ID,
         mode: 'password',
         password: 'too short',
-        expires: EXPIRES,
       })
     ).rejects.toThrow(/at least 12 characters/)
   })
@@ -156,9 +145,7 @@ describe('createShare', () => {
       sender: { owner: OWNER },
       rootCid: ROOT,
       labels,
-      chainId: CALIBRATION_CHAIN_ID,
       mode: 'restricted',
-      expires: EXPIRES,
       viewer: VIEWER,
     })
     expect(share.accessKey).toBeUndefined()
@@ -176,44 +163,20 @@ describe('createShare', () => {
         sender: { owner: OWNER },
         rootCid: ROOT,
         labels,
-        chainId: CALIBRATION_CHAIN_ID,
         mode: 'access-key',
-        expires: EXPIRES,
       })
     ).rejects.toThrow(/belongs to 0x0000000000000000000000000000000000000001/)
   })
 
-  it('a session key whose Grant cannot be re-shared sends a plain grant, which still decrypts', async () => {
+  it("a session key shares with its Grant's group key", async () => {
     const labels = labelsFor()
     const share = await createShare({
-      sender: await sessionSender(0),
+      sender: await sessionSender(),
       rootCid: ROOT,
       labels,
-      chainId: CALIBRATION_CHAIN_ID,
       mode: 'access-key',
-      expires: EXPIRES,
       viewer: VIEWER,
     })
-    expect(share.payloadKind).toBe('grant')
-    expect(share.expires).toBeUndefined()
-    expect(await open(share.link, { accessKey: share.accessKey }, labels)).toBe(await ownerPieceKey(labels))
-  })
-
-  it('a session key whose Grant allows re-sharing delegates a delivery that lasts as long as the Grant', async () => {
-    const labels = labelsFor()
-    const sender = await sessionSender(1)
-    const share = await createShare({
-      sender,
-      rootCid: ROOT,
-      labels,
-      pieceCid: PIECE,
-      chainId: CALIBRATION_CHAIN_ID,
-      mode: 'access-key',
-      expires: EXPIRES,
-      viewer: VIEWER,
-    })
-    expect(share.payloadKind).toBe('delivery')
-    expect('grant' in sender && share.expires).toBe('grant' in sender ? sender.grant.chain.expires : undefined)
     expect(await open(share.link, { accessKey: share.accessKey }, labels)).toBe(await ownerPieceKey(labels))
     // A stranger's share key cannot stand in for the Access key.
     await expect(open(share.link, { accessKey: accessKeyText(STRANGER_KEY) }, labels)).rejects.toThrow(
@@ -227,7 +190,6 @@ interface OpeningVector {
   link: string
   accessKey?: string
   password?: string
-  payloadKind: 'delivery' | 'grant'
 }
 const vectors = JSON.parse(readFileSync(new URL('../fixtures/share-link-vectors.json', import.meta.url), 'utf8')) as {
   labels: PieceMetadata
@@ -256,8 +218,8 @@ describe('pinned vectors', () => {
   })
 
   // Made once on 2026-10-28 by createShare (owner: Anvil #0; GROUP_KEY; salt 00..0f; bearers
-  // random). Links already sent must keep opening: a change to the link, the delivery, the
-  // grant or pw1 must show up here, not get regenerated.
+  // random). Links already sent must keep opening: a change to the link, the grant or pw1 must
+  // show up here, not get regenerated.
   it('derives the pinned piece key from the vector labels', async () => {
     expect(await ownerPieceKey(vectors.labels)).toBe(vectors.pieceKey)
   })
@@ -265,8 +227,6 @@ describe('pinned vectors', () => {
   it.each(vectors.opening)('opens "$name" to the pinned piece key', async (vector) => {
     const parsed = parseShareLink(vector.link)
     expect(parsed.rootCid.equals(ROOT)).toBe(true)
-    // A delivery is a CBOR array, a plain grant a map.
-    expect((parsed.payload[0] ?? 0) >> 5).toBe(vector.payloadKind === 'delivery' ? 4 : 5)
     const T = await shareKey(parsed, vector)
     const key = await shareKeyResolver(parsed, T)({ appMetadata: vectors.labels } as never)
     expect(bytesToHex(key)).toBe(vectors.pieceKey)

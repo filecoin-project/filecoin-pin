@@ -1,7 +1,5 @@
 /**
- * Read an encrypted upload's header labels back from the upload itself, for share links when
- * this machine holds no record of it (see `upload-record.ts`: uploads made elsewhere, or before
- * records existed).
+ * Read an encrypted upload's header labels back from the upload itself, for share links.
  *
  * ## What is read, and why it must be verified
  *
@@ -22,10 +20,6 @@
  * the first leaf: at most the UnixFS chunk size, 1 MiB today, however large the upload. A provider
  * that serves IPIP-402 byte-range CARs (`?format=car&dag-scope=entity&entity-bytes=0:4095`) could
  * cut that to a few KB and stay verified; not relied on here, since support varies.
- *
- * Curio reads the same header at ingest (for the planned retrieval gating), so this is the same
- * read, from the client side. Once providers gate, the sharer fetches these blocks with its own
- * claim, as any reader does.
  */
 
 import type { PieceMetadata } from '@filoz/keysmith'

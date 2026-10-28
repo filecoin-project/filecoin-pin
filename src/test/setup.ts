@@ -7,8 +7,7 @@
 import { beforeEach, vi } from 'vitest'
 import { configureTelemetry } from '../core/telemetry/index.js'
 
-// Never the developer's real data directory: `add --encrypt` appends to the upload record there,
-// and login reads and writes session.env. A test that needs its own directory mocks this again.
+// Never the developer's real data directory: login reads and writes session.env there. A test that needs its own directory mocks this again.
 vi.mock('../config.js', async (importOriginal) => {
   const { mkdtempSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')

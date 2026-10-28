@@ -852,9 +852,7 @@ describe('get', () => {
         sender: { owner: OWNER },
         rootCid: upload.root,
         labels: upload.labels,
-        chainId: 314159,
         mode: 'access-key',
-        expires: Math.floor(Date.now() / 1000) + 86400,
       })
 
       await expect(runGet(upload.root.toString(), outDir, { share: share.link })).rejects.toThrow(

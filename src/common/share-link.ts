@@ -1,13 +1,8 @@
 /**
  * Share links (#779): one encrypted upload, shared with someone who has no key pair.
  *
- * A share is a Keysmith payload wrapped to a throwaway key T that the sender makes for the
- * recipient. Nothing flows back from the recipient, so it works for anyone on the web:
- *
- * - a **delivery** (a `piece:<salt>` claim for T plus the wrapped piece key) when the sender
- *   can issue a claim: the owner wallet, or a session key whose Grant allows re-sharing;
- * - a plain **piece grant** from a session key whose Grant cannot be re-shared (`maxDepth: 0`).
- *   It decrypts, but carries no claim, so it cannot fetch from providers that gate retrieval.
+ * A share is a Keysmith piece grant: the upload's key wrapped to a throwaway key T that the sender
+ * makes for the recipient. Nothing flows back from the recipient, so it works for anyone on the web.
  *
  * T's private key reaches the recipient as an Access key sent separately (the default), inside
  * the link (`--restricted`), or derived from a password (`--password`, Keysmith's `pw1`):
@@ -20,18 +15,14 @@
 
 import {
   decodeGrant,
-  delegateClaim,
   keyspaceKeys as deriveGroupKey,
-  encodeDelivery,
   encodeGrant,
   type Grant,
   grantDescriptor,
   keyForEnvelope,
-  openDelivery,
   type PieceMetadata,
   pieceNode,
   publicKeyOf,
-  rootClaim,
   shareKeyFromPassword,
   unwrapWith,
   wrapTo,
@@ -39,7 +30,7 @@ import {
 import type { KeyResolver } from 'filecoin-encryption-envelope'
 import { CID } from 'multiformats/cid'
 import { type Address, bytesToHex, getAddress, type Hex, hexToBytes } from 'viem'
-import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
+import { generatePrivateKey } from 'viem/accounts'
 import { KeyAccessError, type OwnerSigner } from './group-key.js'
 import { GRANT_PREFIX, type OpenedGrant } from './group-key-grant.js'
 
@@ -67,7 +58,7 @@ export type ShareSecret = { kind: 'access-key'; key: Hex } | { kind: 'password';
 
 export interface ParsedShare {
   rootCid: CID
-  /** A Keysmith delivery or a plain grant, told apart by CBOR shape (array or map). */
+  /** A Keysmith piece grant, CBOR. */
   payload: Uint8Array
   /** In the link itself: the Access key (restricted) or the password salt. Absent by default. */
   secret?: ShareSecret
@@ -160,22 +151,17 @@ export function generatePassword(): string {
   return [0, 5, 10, 15].map((i) => chars.slice(i, i + 5).join('')).join('-')
 }
 
-/** Who shares: the owner wallet, or a session key with its opened group key Grant. */
-export type ShareSender = { owner: OwnerSigner } | { sessionKey: Hex; grant: OpenedGrant }
+/** Who shares: the owner wallet, or a session key's opened group key Grant. */
+export type ShareSender = { owner: OwnerSigner } | { grant: OpenedGrant }
 
 export interface CreateShareInput {
   sender: ShareSender
   rootCid: CID
   /** The upload's envelope labels (`appMetadata`): they name its group key, owner and salt. */
   labels: PieceMetadata
-  /** The upload's piece CID, carried as the claim's locator so a recipient knows what to request. */
-  pieceCid?: CID
-  chainId: number
   mode: ShareMode
   /** For `password` mode; generated when absent. */
   password?: string
-  /** Unix seconds; owner mode only (a session key's share lasts as long as its Grant). */
-  expires: number
   viewer?: string
 }
 
@@ -185,10 +171,6 @@ export interface CreatedShare {
   accessKey?: string
   /** The generated password, if the caller gave none (password mode only). */
   password?: string
-  /** `delivery` fetches from gating providers too; a plain `grant` only decrypts. */
-  payloadKind: 'delivery' | 'grant'
-  /** When the share stops fetching from gating providers; absent for a plain grant. */
-  expires?: number
 }
 
 /**
@@ -200,7 +182,6 @@ export async function createShare(input: CreateShareInput): Promise<CreatedShare
   const { labels, sender } = input
   const ref = { owner: labels['foc/own'], keyspace: labels['foc/ks'] }
   const node = pieceNode(labels)
-  const pieceCid = input.pieceCid?.bytes
 
   let password: string | undefined
   let salt: Uint8Array | undefined
@@ -215,59 +196,26 @@ export async function createShare(input: CreateShareInput): Promise<CreatedShare
   } else {
     T = generatePrivateKey()
   }
-  const bearer = privateKeyToAccount(T).address
-  const descriptor = grantDescriptor(ref, node)
 
-  let payload: Uint8Array
-  let payloadKind: CreatedShare['payloadKind']
-  let expires: number | undefined
+  let pieceKey: Uint8Array
   if ('owner' in sender) {
     if (labels['foc/own'].toLowerCase() !== sender.owner.address.toLowerCase()) {
       throw new ShareLinkError(`This upload belongs to ${labels['foc/own']}, not ${sender.owner.address.toLowerCase()}`)
     }
     const { kk } = await deriveGroupKey(sender.owner, ref)
     try {
-      const claim = await rootClaim(sender.owner, {
-        ...ref,
-        chainId: BigInt(input.chainId),
-        kk,
-        node,
-        bearer,
-        maxDepth: 0,
-        expires: input.expires,
-        piece: labels,
-        ...(pieceCid != null && { pieceCid }),
-      })
-      payload = encodeDelivery(claim.chain, await wrapTo(publicKeyOf(T), claim.nodeKey, descriptor))
-      claim.nodeKey.fill(0)
+      pieceKey = keyForEnvelope(kk, labels)
     } finally {
       kk.fill(0)
     }
-    payloadKind = 'delivery'
-    expires = input.expires
   } else {
-    const { grant: opened, sessionKey } = sender
-    const held = opened.chain.links.at(-1)
-    if (held != null && held.maxDepth >= 1) {
-      const delegated = await delegateClaim(privateKeyToAccount(sessionKey), opened.chain, {
-        parentKey: opened.key,
-        node,
-        bearer,
-        maxDepth: 0,
-        piece: labels,
-        ...(pieceCid != null && { pieceCid }),
-      })
-      payload = encodeDelivery(delegated.chain, await wrapTo(publicKeyOf(T), delegated.nodeKey, descriptor))
-      delegated.nodeKey.fill(0)
-      payloadKind = 'delivery'
-      expires = opened.chain.expires
-    } else {
-      // A Grant that cannot be re-shared: the piece key alone, which decrypts but cannot fetch once providers gate.
-      const pieceKey = keyForEnvelope(opened.key, labels, opened.grant)
-      payload = encodeGrant(await wrapTo(publicKeyOf(T), pieceKey, descriptor))
-      pieceKey.fill(0)
-      payloadKind = 'grant'
-    }
+    pieceKey = keyForEnvelope(sender.grant.key, labels, sender.grant.grant)
+  }
+  let payload: Uint8Array
+  try {
+    payload = encodeGrant(await wrapTo(publicKeyOf(T), pieceKey, grantDescriptor(ref, node)))
+  } finally {
+    pieceKey.fill(0)
   }
 
   const viewer = input.viewer ?? DEFAULT_VIEWER_URL
@@ -275,23 +223,12 @@ export async function createShare(input: CreateShareInput): Promise<CreatedShare
     return {
       link: formatShareLink(viewer, input.rootCid, payload, { kind: 'password', salt }),
       ...(input.password == null && password != null && { password }),
-      payloadKind,
-      ...(expires != null && { expires }),
     }
   }
   if (input.mode === 'restricted') {
-    return {
-      link: formatShareLink(viewer, input.rootCid, payload, { kind: 'access-key', key: T }),
-      payloadKind,
-      ...(expires != null && { expires }),
-    }
+    return { link: formatShareLink(viewer, input.rootCid, payload, { kind: 'access-key', key: T }) }
   }
-  return {
-    link: formatShareLink(viewer, input.rootCid, payload),
-    accessKey: accessKeyText(T),
-    payloadKind,
-    ...(expires != null && { expires }),
-  }
+  return { link: formatShareLink(viewer, input.rootCid, payload), accessKey: accessKeyText(T) }
 }
 
 /** T's private key for a parsed share: from the link, the Access key, or the password. */
@@ -311,8 +248,6 @@ export async function shareKey(
 /** Open a share's payload with T: the shared key and the grant that names its owner, group key and node. */
 async function openPayload(share: ParsedShare, T: Hex): Promise<{ key: Uint8Array; grant: Grant }> {
   try {
-    // A delivery is a CBOR array (major type 4), a plain grant a map (major type 5).
-    if ((share.payload[0] ?? 0) >> 5 === 4) return await openDelivery(T, share.payload)
     const grant = decodeGrant(share.payload)
     return { key: await unwrapWith(T, grant), grant }
   } catch {
@@ -332,8 +267,7 @@ export async function shareOwner(share: ParsedShare, T: Hex): Promise<Address> {
 
 /**
  * A FEE key resolver for a share: opens its payload with T and derives the upload's key, checking
- * the envelope's owner, group key and salt against the share. An expired delivery still decrypts:
- * expiry only ends fetching from gating providers.
+ * the envelope's owner, group key and salt against the share.
  */
 export function shareKeyResolver(share: ParsedShare, T: Hex): KeyResolver {
   return async ({ appMetadata }) => {
