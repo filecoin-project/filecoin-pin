@@ -10,6 +10,7 @@ import { rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
+import type { PieceMetadata } from '@filoz/keysmith'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { SIZE_CONSTANTS } from '@filoz/synapse-core/utils'
 import type { Synapse } from '@filoz/synapse-sdk'
@@ -39,6 +40,7 @@ import {
   resolveUploadTargets,
   validatePaymentSetup,
 } from '../common/upload-flow.js'
+import { recordEncryptedUpload } from '../common/upload-record.js'
 import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
 import {
   IPFS_INDEXED_METADATA,
@@ -181,6 +183,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
   let tempCarPath: string | undefined
   let encryptDir: string | undefined
+  // The envelope's header labels (public), kept to record the upload for share links: see upload-record.ts.
+  let encryptedLabels: PieceMetadata | undefined
   // Ctrl-C, kill and a closed terminal: clack's spinner installs its own SIGINT handler in start()
   // and the first listener to call process.exit wins, so these are registered before the spinner
   // restarts. They remove the private temp directory (envelope and outer CAR) synchronously,
@@ -322,6 +326,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       spinner.start(`Encrypting ${pathType.toLowerCase()}...`)
       packPath = join(encryptDir, ENCRYPTED_FILE_NAME)
       const pieceKey = newPieceKey(groupKey.target)
+      encryptedLabels = pieceKey.appMetadata
       // The group key is needed only for this upload's key, and that key only to encrypt.
       groupKey.target.key.fill(0)
       const { plan } = await encryptPath(
@@ -457,6 +462,16 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       requestedCopies,
       copies: uploadResult.copies,
       failedAttempts: uploadResult.failedAttempts,
+    }
+
+    if (encryptedLabels != null) {
+      // Lets `get-share-link` share this upload later with no network read (see upload-record.ts).
+      // Best effort: the upload has succeeded, and sharing falls back to reading the header.
+      try {
+        recordEncryptedUpload({ rootCid: rootCid.toString(), pieceCid: uploadResult.pieceCid, labels: encryptedLabels })
+      } catch (error) {
+        logger.warn({ event: 'upload-record.write-failed', error }, 'Could not record the encrypted upload for sharing')
+      }
     }
 
     const filbeamUrl = buildFilbeamUrl(synapse, uploadResult.pieceCid, withCDN)
