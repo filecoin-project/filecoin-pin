@@ -189,7 +189,7 @@ describe('listDataSets', () => {
     expect(mockGetProviders).not.toHaveBeenCalled()
   })
 
-  it('sets createdWithFilecoinPin to true when both WITH_IPFS_INDEXING and source=filecoin-pin metadata are present', async () => {
+  it('sets createdWithFilecoinPin from source=filecoin-pin, with or without WITH_IPFS_INDEXING', async () => {
     state.datasets = [
       pdpDataSet({
         dataSetId: 1n,
@@ -213,7 +213,7 @@ describe('listDataSets', () => {
         clientDataSetId: 102n,
         managed: false,
         metadata: {
-          // Has source but no WITH_IPFS_INDEXING
+          // Has source but no WITH_IPFS_INDEXING (`add --no-ipfs`)
           [METADATA_KEYS.SOURCE]: 'filecoin-pin',
         },
       }),
@@ -224,7 +224,7 @@ describe('listDataSets', () => {
     expect(result).toHaveLength(3)
     expect(result[0]?.createdWithFilecoinPin).toBe(true)
     expect(result[1]?.createdWithFilecoinPin).toBe(false)
-    expect(result[2]?.createdWithFilecoinPin).toBe(false)
+    expect(result[2]?.createdWithFilecoinPin).toBe(true)
   })
 
   // Defensive mapper check: FWSS removes non-live IDs from the client listing.

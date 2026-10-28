@@ -5,15 +5,29 @@
  * It encodes content as UnixFS, creates CAR files, and uploads to Filecoin.
  */
 
-import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { createReadStream, mkdtempSync, rmSync } from 'node:fs'
+import { rm, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
+import { SIZE_CONSTANTS } from '@filoz/synapse-core/utils'
+import type { Synapse } from '@filoz/synapse-sdk'
 import pc from 'picocolors'
-import pino from 'pino'
-import { CliFatal, isCliFatal } from '../common/cli-errors.js'
+import pino, { type Logger } from 'pino'
+import type { Hex } from 'viem'
+import { CliFatal, EXIT_CODE_INCOMPLETE, isCliFatal, isCliIncomplete } from '../common/cli-errors.js'
+import { ENCRYPTED_FILE_NAME, encryptPath } from '../common/encryption.js'
 import { assertUploadFunds, estimateInputBytes, rerunHint } from '../common/funds-preflight.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
+import {
+  newPieceKey,
+  OWNER_WALLET_REQUIRED,
+  type OwnerGroupKey,
+  ownerGroupKey,
+  ownerSigner,
+} from '../common/group-key.js'
+import { grantGroupKey, loadGroupKeyGrant } from '../common/group-key-grant.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
 import {
   displayDryRunEstimate,
@@ -26,9 +40,9 @@ import {
   validatePaymentSetup,
 } from '../common/upload-flow.js'
 import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
-import { normalizeMetadataConfig, withDerivedNameMetadata } from '../core/metadata/index.js'
+import { IPFS_INDEXED_METADATA, normalizeMetadataConfig, withDerivedNameMetadata } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
-import { initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
+import { getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
@@ -69,6 +83,25 @@ async function validatePath(path: string): Promise<{
       error: `Cannot access path: ${path} (${error?.message || 'unknown error'})`,
     }
   }
+}
+
+/** ` (2 symlinks, 1 special file skipped)`, or empty when nothing was skipped. Counts only, no names. */
+function describeSkipped(walk: { skippedSymlinks: string[]; skippedSpecial: string[] }): string {
+  const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`
+  const parts = [
+    ...(walk.skippedSymlinks.length > 0 ? [plural(walk.skippedSymlinks.length, 'symlink')] : []),
+    ...(walk.skippedSpecial.length > 0 ? [plural(walk.skippedSpecial.length, 'special file')] : []),
+  ]
+  return parts.length > 0 ? ` (${parts.join(', ')} skipped)` : ''
+}
+
+/**
+ * The group key a session key writes under, from its Grant. A missing or invalid Grant
+ * throws before anything is packed or uploaded: never fall back to plaintext.
+ */
+async function sessionGroupKey(synapse: Synapse, sessionKey: string, logger: Logger): Promise<OwnerGroupKey> {
+  const session = { sessionKey: sessionKey as Hex, walletAddress: getClientAddress(synapse) }
+  return grantGroupKey(synapse, await loadGroupKeyGrant(session, synapse.chain.id), logger)
 }
 
 /**
@@ -139,8 +172,23 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
   // Map the public egress provider to the SDK's withCDN boolean (internal only).
   const withCDN = options.egressProvider === 'beam'
+  const ipfsIndexing = options.ipfs !== false
 
   let tempCarPath: string | undefined
+  let encryptDir: string | undefined
+  // Ctrl-C, kill and a closed terminal: clack's spinner installs its own SIGINT handler in start()
+  // and the first listener to call process.exit wins, so these are registered before the spinner
+  // restarts. They remove the private temp directory (envelope and outer CAR) synchronously,
+  // if it exists yet.
+  const onSignal = (): void => {
+    if (encryptDir != null) {
+      rmSync(encryptDir, { recursive: true, force: true })
+    }
+    process.exit(EXIT_CODE_INCOMPLETE)
+  }
+  const cleanupSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
+  // Declared here so the finally below zeroes its key on every exit path.
+  let groupKey: OwnerGroupKey | undefined
 
   try {
     // Validate path exists and is readable
@@ -160,8 +208,9 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     const sizeDisplay = isDirectory ? '' : ` (${formatFileSize(pathStat.size)})`
     spinner.stop(`${pc.green('✓')} ${pathType} validated${sizeDisplay}`)
 
-    // Fail fast on CAR-of-CAR before auth/payment checks run.
-    if (!isDirectory) {
+    // Fail fast on CAR-of-CAR before auth/payment checks run. Encrypted input is
+    // packed as a file inside the payload, so a CAR file is valid input for --encrypt.
+    if (!isDirectory && !options.encrypt) {
       const sniff = createReadStream(options.filePath)
       try {
         if (await isCar(sniff)) {
@@ -195,10 +244,34 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       printEgressNotice('beam')
     }
 
+    // The group key is settled before any data set is chosen: encrypted uploads land in data
+    // sets tagged with it. The owner wallet signs for it; a session key opens its Grant instead.
+    if (options.encrypt) {
+      const signer = ownerSigner(synapse)
+      if (signer != null) {
+        spinner.start('Deriving the encryption key from the owner wallet...')
+        groupKey = await ownerGroupKey(synapse, signer, logger)
+        spinner.stop(`${pc.green('✓')} Encryption key derived`)
+      } else if ('sessionKey' in config && config.sessionKey != null) {
+        spinner.start("Opening this session key's group key Grant...")
+        groupKey = await sessionGroupKey(synapse, config.sessionKey, logger)
+        spinner.stop(`${pc.green('✓')} Group key Grant opened`)
+      } else {
+        // A plain Error, so the catch below prints it (a CliFatal is taken as already shown).
+        throw new Error(OWNER_WALLET_REQUIRED)
+      }
+    }
+
+    // An encrypted upload requires its IPFS mode explicitly too, so explicit and
+    // metadata-filtered targets are checked against it like reused ones.
+    const requiredMetadata =
+      groupKey == null ? undefined : { ...groupKey.dataSetMetadata, ...(ipfsIndexing && IPFS_INDEXED_METADATA) }
     const targets = await resolveUploadTargets(synapse, contextSelection, {
       ...(dataSetMetadata != null && { dataSetMetadata }),
+      ...(requiredMetadata != null && { requiredMetadata }),
       ...(options.copies != null && { copies: options.copies }),
       withCDN,
+      ipfsIndexing,
       spinner,
       logger,
     })
@@ -213,6 +286,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
       ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
       withCDN,
+      ipfsIndexing,
     }
 
     // The exact invocation, flags included, for the "Then re-run" hint.
@@ -234,15 +308,38 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       })
     }
 
-    // Create CAR from file or directory
-    const packingMsg = isDirectory ? 'Packing directory for IPFS...' : 'Packing file for IPFS...'
-    spinner.start(packingMsg)
+    let packPath = options.filePath
+    if (groupKey != null) {
+      // Handlers first, then the directory: mkdtempSync creates it (0700, so the envelope and
+      // outer CAR stay private) and assigns it within one tick, so no signal falls in between.
+      for (const signal of cleanupSignals) process.once(signal, onSignal)
+      encryptDir = mkdtempSync(join(tmpdir(), 'filecoin-pin-encrypt-'))
+      spinner.start(`Encrypting ${pathType.toLowerCase()}...`)
+      packPath = join(encryptDir, ENCRYPTED_FILE_NAME)
+      const pieceKey = newPieceKey(groupKey.target)
+      // The group key is needed only for this upload's key, and that key only to encrypt.
+      groupKey.target.key.fill(0)
+      const { plan } = await encryptPath(
+        options.filePath,
+        packPath,
+        pieceKey,
+        { ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }) },
+        SIZE_CONSTANTS.MAX_UPLOAD_SIZE
+      ).finally(() => pieceKey.cek.fill(0))
+      spinner.stop(`${pc.green('✓')} ${pathType} encrypted${describeSkipped(plan.walk)}`)
+    }
 
-    const { carPath, rootCid, name } = await createCarFromPath(options.filePath, {
+    // Create CAR from file or directory. An envelope is always packed as a single file.
+    // With --encrypt the packed file is the envelope, and its root is the Encrypted root CID.
+    const packedLabel = groupKey == null ? pathType : 'Encrypted envelope'
+    spinner.start(`Packing ${packedLabel.toLowerCase()} for IPFS...`)
+
+    const { carPath, rootCid, name } = await createCarFromPath(packPath, {
       logger,
       spinner,
-      isDirectory,
+      isDirectory: isDirectory && groupKey == null,
       ...(options.includeHidden !== undefined && { includeHidden: options.includeHidden }),
+      ...(encryptDir != null && { tempDir: encryptDir }),
     })
     tempCarPath = carPath
 
@@ -250,7 +347,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     // (codec + UnixFS Data.Type), not from a key-name distinction.
     const pieceMetadata = withDerivedNameMetadata(userPieceMetadata, name)
 
-    spinner.stop(`${pc.green('✓')} ${isDirectory ? 'Directory' : 'File'} packed with root CID: ${rootCid.toString()}`)
+    spinner.stop(`${pc.green('✓')} ${packedLabel} packed with root CID: ${rootCid.toString()}`)
 
     // The CLI still materializes a full CAR on disk first. This only avoids
     // buffering that CAR again in memory during upload.
@@ -282,7 +379,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
     const autoFundOptions: Parameters<typeof performAutoFunding>[3] = {
       withCDN,
-      ...(dataSetMetadata && { metadata: dataSetMetadata }),
+      ipfsIndexing,
+      ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
       ...(options.copies != null && { copies: options.copies }),
     }
     if (contextSelection.providerIds) {
@@ -314,8 +412,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       await validatePaymentSetup(synapse, carSize, spinner)
     }
 
-    // Auto-skip IPNI on devnet (no IPNI infrastructure available)
-    const skipIpniVerification = options.skipIpniVerification || synapse.chain.id === DEVNET_CHAIN_ID
+    // Auto-skip IPNI on devnet (no IPNI infrastructure available) and when nothing is announced (--no-ipfs)
+    const skipIpniVerification = options.skipIpniVerification || !ipfsIndexing || synapse.chain.id === DEVNET_CHAIN_ID
 
     const uploadOptions: Parameters<typeof performUpload>[3] = {
       contextType: 'add',
@@ -323,6 +421,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       logger,
       spinner,
       skipIpniVerification,
+      ipfsIndexing,
       ...(pieceMetadata && { pieceMetadata }),
       ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
       ...(options.copies != null && { copies: options.copies }),
@@ -358,7 +457,20 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     const filbeamUrl = buildFilbeamUrl(synapse, uploadResult.pieceCid, withCDN)
     const egress = filbeamUrl == null ? undefined : { filbeamUrl }
 
-    displayUploadResults(result, 'Add', network, networkSlug, egress)
+    // The plaintext path stays out of the printed summary (CI logs, shared terminals); the
+    // returned result keeps it for programmatic callers.
+    displayUploadResults(
+      options.encrypt ? { ...result, filePath: ENCRYPTED_FILE_NAME } : result,
+      'Add',
+      network,
+      networkSlug,
+      egress
+    )
+    if (options.encrypt) {
+      log.line('')
+      log.line(pc.yellow('Content is encrypted: only the owner wallet can read it.'))
+      log.flush()
+    }
 
     if (uploadResult.copies.length < requestedCopies) {
       log.line('')
@@ -381,6 +493,11 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
     return result
   } catch (error) {
+    if (isCliIncomplete(error)) {
+      spinner.stop()
+      cancel(error.message)
+      throw error
+    }
     if (isCliFatal(error)) {
       spinner.stop()
       logger.error({ event: 'add.failed', error }, 'Add failed')
@@ -417,5 +534,11 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
     cancel(carInput ? 'Add cancelled' : 'Add failed')
     throw new CliFatal(message, { cause: error instanceof Error ? error : undefined })
+  } finally {
+    groupKey?.target.key.fill(0)
+    for (const signal of cleanupSignals) process.off(signal, onSignal)
+    if (encryptDir) {
+      await rm(encryptDir, { recursive: true, force: true })
+    }
   }
 }

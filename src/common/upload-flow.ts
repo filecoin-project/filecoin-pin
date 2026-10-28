@@ -10,11 +10,11 @@ import { type CopyResult, type FailedAttempt, METADATA_KEYS, type Synapse, type 
 import type { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
-import { resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
+import { listDataSets, resolveDataSetIdsByMetadata } from '../core/data-set/index.js'
 import type { DataSetSummary } from '../core/data-set/types.js'
 import { resolveIpfsIndexedMetadata } from '../core/metadata/index.js'
 import { DEFAULT_LOCKUP_DAYS, type PaymentCapacityCheck } from '../core/payments/index.js'
-import { DEFAULT_COPIES, DEFAULT_DATA_SET_METADATA } from '../core/synapse/constants.js'
+import { APPLICATION_SOURCE, DEFAULT_COPIES, DEFAULT_DATA_SET_METADATA } from '../core/synapse/constants.js'
 import {
   checkUploadReadiness,
   executeUpload,
@@ -32,6 +32,7 @@ import { log } from '../utils/cli-logger.js'
 import { truncate } from '../utils/format.js'
 import { createSpinnerFlow } from '../utils/multi-operation-spinner.js'
 import { CliFatal } from './cli-errors.js'
+import { ENCRYPTED_DATA_SET_KEYS } from './group-key.js'
 
 /**
  * Find the metadata keys whose values differ across the candidate set.
@@ -172,16 +173,34 @@ export function pickDataSetsForReuse(dataSets: DataSetSummary[], count: number):
  */
 export async function resolveDefaultDataSetReuse(
   synapse: Synapse,
-  options: { expectedCopies: number; withCDN: boolean; spinner: Spinner; logger: Logger }
+  options: {
+    expectedCopies: number
+    withCDN: boolean
+    spinner: Spinner
+    logger: Logger
+    /** Extra metadata a reusable data set must carry, with these exact values. */
+    metadata?: Record<string, string>
+    /** Keys a reusable data set must not carry (see {@link uploadExcludedKeys}). */
+    excludedKeys?: string[]
+    /** Reuse IPFS-indexed data sets (default) or, when false, only data sets without `withIPFSIndexing`. */
+    ipfsIndexing?: boolean
+  }
 ): Promise<bigint[] | undefined> {
   const { expectedCopies, withCDN, spinner, logger } = options
+  const base =
+    options.ipfsIndexing === false ? { [METADATA_KEYS.SOURCE]: APPLICATION_SOURCE } : DEFAULT_DATA_SET_METADATA
 
   spinner.start('Checking for existing data sets...')
-  const resolution = await resolveDataSetIdsByMetadata(synapse, DEFAULT_DATA_SET_METADATA, {
-    expectedCopies,
-    logger,
-    ...(withCDN && { requiredKeys: [METADATA_KEYS.WITH_CDN] }),
-  })
+  const resolution = await resolveDataSetIdsByMetadata(
+    synapse,
+    { ...base, ...options.metadata },
+    {
+      expectedCopies,
+      logger,
+      ...(withCDN && { requiredKeys: [METADATA_KEYS.WITH_CDN] }),
+      ...(options.excludedKeys != null && options.excludedKeys.length > 0 && { excludedKeys: options.excludedKeys }),
+    }
+  )
 
   if (resolution.kind === 'no-match') {
     spinner.stop(`${pc.gray('•')} No existing data sets to reuse; creating new ones`)
@@ -210,6 +229,52 @@ export async function resolveDefaultDataSetReuse(
 }
 
 /**
+ * Keys a data set must not carry to take this upload. Plain uploads stay out of
+ * encrypted data sets, and `--no-ipfs` uploads stay out of IPFS-indexed ones.
+ * (IPFS-indexed uploads require `withIPFSIndexing` through the requested
+ * metadata instead, so the two never share a data set in either direction.)
+ */
+export function uploadExcludedKeys(options: { encrypted: boolean; ipfsIndexing: boolean }): string[] {
+  return [
+    ...(options.encrypted ? [] : ENCRYPTED_DATA_SET_KEYS),
+    ...(options.ipfsIndexing ? [] : [METADATA_KEYS.WITH_IPFS_INDEXING]),
+  ]
+}
+
+/**
+ * Check that explicitly chosen data sets carry `required` and none of
+ * `excludedKeys`, so `--data-set-id` cannot put an encrypted upload in a plain
+ * or foreign-group-key data set, or a `--no-ipfs` upload in an indexed one.
+ */
+async function assertExplicitDataSets(
+  synapse: Synapse,
+  dataSetIds: bigint[],
+  required: Record<string, string>,
+  excludedKeys: string[],
+  logger: Logger
+): Promise<void> {
+  const wanted = new Set(dataSetIds)
+  const found = await listDataSets(synapse, { filter: (dataSet) => wanted.has(dataSet.dataSetId), logger })
+  for (const id of dataSetIds) {
+    const metadata = found.find((dataSet) => dataSet.dataSetId === id)?.metadata
+    if (metadata == null) {
+      throw new Error(`Data set ${id} was not found for this wallet, so it cannot be checked for this upload`)
+    }
+    for (const [key, value] of Object.entries(required)) {
+      if (metadata[key] !== value) {
+        throw new Error(
+          `Data set ${id} cannot take this upload: its ${key} is ${key in metadata ? JSON.stringify(metadata[key]) : 'missing'}, expected ${JSON.stringify(value)}`
+        )
+      }
+    }
+    const extra = excludedKeys.find((key) => key in metadata)
+    if (extra != null) {
+      throw new Error(`Data set ${id} cannot take this upload: it carries ${extra}`)
+    }
+  }
+}
+
+/**
  * Decide which data sets an upload targets, before the SDK resolves a context.
  *
  * Three paths, in order:
@@ -235,22 +300,51 @@ export async function resolveUploadTargets(
     withCDN: boolean
     spinner: Spinner
     logger: Logger
+    /**
+     * Metadata every target data set must carry (for example the group key of an
+     * encrypted upload). Narrows the default reuse and is written to any data set
+     * created, without turning on the strict `--data-set-metadata` matching.
+     * Its presence marks the upload as encrypted.
+     */
+    requiredMetadata?: Record<string, string>
+    /** False for `--no-ipfs`: only data sets without `withIPFSIndexing` qualify. Default true. */
+    ipfsIndexing?: boolean
   }
 ): Promise<{ dataSetIds?: bigint[]; dataSetMetadata?: Record<string, string> }> {
-  const { dataSetMetadata, withCDN, spinner, logger } = options
+  const { withCDN, spinner, logger, requiredMetadata } = options
   const expectedCopies = options.copies ?? DEFAULT_COPIES
+  const ipfsIndexing = options.ipfsIndexing ?? true
+  const excludedKeys = uploadExcludedKeys({ encrypted: requiredMetadata != null, ipfsIndexing })
 
   if (contextSelection.dataSetIds != null || contextSelection.providerIds != null) {
-    return { ...(dataSetMetadata != null && { dataSetMetadata }) }
+    if (contextSelection.dataSetIds != null) {
+      await assertExplicitDataSets(synapse, contextSelection.dataSetIds, requiredMetadata ?? {}, excludedKeys, logger)
+    }
+    const carried = { ...options.dataSetMetadata, ...requiredMetadata }
+    return { ...(Object.keys(carried).length > 0 && { dataSetMetadata: carried }) }
   }
 
-  if (dataSetMetadata == null) {
-    const reuseIds = await resolveDefaultDataSetReuse(synapse, { expectedCopies, withCDN, spinner, logger })
-    return { ...(reuseIds != null && { dataSetIds: reuseIds }) }
+  if (options.dataSetMetadata == null) {
+    const reuseIds = await resolveDefaultDataSetReuse(synapse, {
+      expectedCopies,
+      withCDN,
+      spinner,
+      logger,
+      excludedKeys,
+      ipfsIndexing,
+      ...(requiredMetadata != null && { metadata: requiredMetadata }),
+    })
+    if (reuseIds != null) return { dataSetIds: reuseIds }
+    return { ...(requiredMetadata != null && { dataSetMetadata: requiredMetadata }) }
   }
 
+  const dataSetMetadata = { ...options.dataSetMetadata, ...requiredMetadata }
   spinner.start('Resolving data sets from --data-set-metadata...')
-  const resolution = await resolveDataSetIdsByMetadata(synapse, dataSetMetadata, { expectedCopies, logger })
+  const resolution = await resolveDataSetIdsByMetadata(synapse, dataSetMetadata, {
+    expectedCopies,
+    logger,
+    ...(excludedKeys.length > 0 && { excludedKeys }),
+  })
 
   if (resolution.kind === 'matched') {
     spinner.stop(`${pc.green('✓')} Matched existing data sets ${resolution.dataSetIds.join(', ')} via metadata filter`)
@@ -332,6 +426,9 @@ export interface UploadFlowOptions {
 
   /** Skip IPNI advertisement verification after upload */
   skipIpniVerification?: boolean
+
+  /** Inject `withIPFSIndexing` into new or matched data sets (default true). */
+  ipfsIndexing?: boolean
 }
 
 export interface UploadFlowResult extends SynapseUploadResult {
@@ -360,7 +457,7 @@ export async function performAutoFunding(
   spinner?: Spinner,
   options: Pick<
     AutoFundOptions,
-    'minRunwayDays' | 'maxBalance' | 'copies' | 'providerIds' | 'dataSetIds' | 'metadata' | 'withCDN'
+    'minRunwayDays' | 'maxBalance' | 'copies' | 'providerIds' | 'dataSetIds' | 'metadata' | 'withCDN' | 'ipfsIndexing'
   > = {}
 ): Promise<void> {
   spinner?.start('Checking funding requirements for upload...')
@@ -374,6 +471,7 @@ export async function performAutoFunding(
       ...(options?.dataSetIds == null ? {} : { dataSetIds: options.dataSetIds }),
       ...(options?.metadata == null ? {} : { metadata: options.metadata }),
       ...(options?.withCDN == null ? {} : { withCDN: options.withCDN }),
+      ...(options?.ipfsIndexing == null ? {} : { ipfsIndexing: options.ipfsIndexing }),
     }
     if (spinner !== undefined) {
       fundOptions.spinner = spinner
@@ -570,6 +668,8 @@ export interface EstimateUploadCostOptions {
   metadata?: Record<string, string>
   /** Whether CDN (FilBeam) is enabled for the upload. */
   withCDN?: boolean
+  /** Inject `withIPFSIndexing` when matching or creating contexts (default true). */
+  ipfsIndexing?: boolean
 }
 
 export interface UploadCostEstimate {
@@ -616,7 +716,7 @@ export async function estimateUploadCost(
 ): Promise<UploadCostEstimate> {
   const requestedCopies = options.providerIds?.length ?? options.dataSetIds?.length ?? options.copies ?? DEFAULT_COPIES
 
-  const resolvedMetadata = resolveIpfsIndexedMetadata(options.metadata, options.dataSetIds)
+  const resolvedMetadata = resolveIpfsIndexedMetadata(options.metadata, options.dataSetIds, options.ipfsIndexing)
 
   const contexts = await synapse.storage.createContexts({
     copies: requestedCopies,
@@ -779,6 +879,7 @@ export async function performUpload(
     ...(options.excludeProviderIds != null && { excludeProviderIds: options.excludeProviderIds }),
     ...(options.metadata != null && { metadata: options.metadata }),
     ...(options.skipIpniVerification && { ipniValidation: { enabled: false } }),
+    ...(options.ipfsIndexing != null && { ipfsIndexing: options.ipfsIndexing }),
     onProgress(event) {
       switch (event.type) {
         case 'uploadProgress': {

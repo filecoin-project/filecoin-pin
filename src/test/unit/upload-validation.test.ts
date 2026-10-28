@@ -309,5 +309,20 @@ describe('upload option validation', () => {
       expect(metadata?.[METADATA_KEYS.WITH_IPFS_INDEXING]).toBe('')
       expect(metadata?.custom).toBe('value')
     })
+
+    it('omits withIPFSIndexing when executeUpload gets ipfsIndexing false (--no-ipfs)', async () => {
+      const uploadSpy = vi.spyOn(mockSynapse.storage, 'upload')
+      mockSynapse.storage.source = null
+
+      await executeUpload(mockSynapse as any, new Uint8Array([1]), TEST_CID, {
+        logger,
+        metadata: { custom: 'value' },
+        ipfsIndexing: false,
+        ipniValidation: { enabled: false },
+      })
+
+      const metadata = uploadSpy.mock.calls[0]?.[1]?.metadata
+      expect(metadata).toEqual({ [METADATA_KEYS.SOURCE]: APPLICATION_SOURCE, custom: 'value' })
+    })
   })
 })
