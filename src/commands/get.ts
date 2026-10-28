@@ -20,7 +20,8 @@ export const getCommand = new Command('get')
     'after',
     `
 Providers are found through IPNI (cid.contact) and, when an address is known (PRIVATE_KEY,
-WALLET_ADDRESS or VIEW_ADDRESS), the providers of that address's own data sets. Every block
+WALLET_ADDRESS or VIEW_ADDRESS), the providers of that address's own data sets; with --share,
+also the sharer's. Every block
 is verified against the CID before anything is written; a bad download is discarded and the
 next provider is tried.
 

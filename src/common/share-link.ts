@@ -38,7 +38,7 @@ import {
 } from '@filoz/keysmith'
 import type { KeyResolver } from 'filecoin-encryption-envelope'
 import { CID } from 'multiformats/cid'
-import { bytesToHex, type Hex, hexToBytes } from 'viem'
+import { type Address, bytesToHex, getAddress, type Hex, hexToBytes } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { KeyAccessError, type OwnerSigner } from './group-key.js'
 import { GRANT_PREFIX, type OpenedGrant } from './group-key-grant.js'
@@ -308,6 +308,28 @@ export async function shareKey(
   return parseAccessKey(given.accessKey)
 }
 
+/** Open a share's payload with T: the shared key and the grant that names its owner, group key and node. */
+async function openPayload(share: ParsedShare, T: Hex): Promise<{ key: Uint8Array; grant: Grant }> {
+  try {
+    // A delivery is a CBOR array (major type 4), a plain grant a map (major type 5).
+    if ((share.payload[0] ?? 0) >> 5 === 4) return await openDelivery(T, share.payload)
+    const grant = decodeGrant(share.payload)
+    return { key: await unwrapWith(T, grant), grant }
+  } catch {
+    throw new ShareLinkError('The Access key or password does not open this share')
+  }
+}
+
+/**
+ * The wallet the shared upload belongs to, as the share's grant names it, so a reader can search
+ * that wallet's own data sets for providers. Opening the payload also checks T before any download.
+ */
+export async function shareOwner(share: ParsedShare, T: Hex): Promise<Address> {
+  const { key, grant } = await openPayload(share, T)
+  key.fill(0)
+  return getAddress(grant.owner)
+}
+
 /**
  * A FEE key resolver for a share: opens its payload with T and derives the upload's key, checking
  * the envelope's owner, group key and salt against the share. An expired delivery still decrypts:
@@ -315,19 +337,7 @@ export async function shareKey(
  */
 export function shareKeyResolver(share: ParsedShare, T: Hex): KeyResolver {
   return async ({ appMetadata }) => {
-    let key: Uint8Array
-    let grant: Grant
-    try {
-      // A delivery is a CBOR array (major type 4), a plain grant a map (major type 5).
-      if ((share.payload[0] ?? 0) >> 5 === 4) {
-        ;({ key, grant } = await openDelivery(T, share.payload))
-      } else {
-        grant = decodeGrant(share.payload)
-        key = await unwrapWith(T, grant)
-      }
-    } catch {
-      throw new ShareLinkError('The Access key or password does not open this share')
-    }
+    const { key, grant } = await openPayload(share, T)
     try {
       return keyForEnvelope(key, appMetadata, grant)
     } catch (error) {

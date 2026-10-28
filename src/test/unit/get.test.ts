@@ -864,9 +864,16 @@ describe('get', () => {
       await expect(
         runGet(other.root.toString(), outDir, { share: share.link, accessKey: share.accessKey ?? '' })
       ).rejects.toThrow(/Share link is for/)
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      vi.mocked(initializeSynapse).mockClear()
       await runGet(upload.root.toString(), outDir, { share: share.link, accessKey: share.accessKey ?? '' })
 
       expect(await readFile(join(outDir, 'report.pdf'), 'utf8')).toBe('quarterly numbers')
+      // No credentials of its own: the sharer's data sets, read-only, are searched alongside IPNI.
+      expect(vi.mocked(initializeSynapse).mock.calls[0]?.[0]).toMatchObject({
+        walletAddress: OWNER.address,
+        readOnly: true,
+      })
     })
 
     it('with a session key and no Grant, fails with the login to run and writes nothing', async () => {
