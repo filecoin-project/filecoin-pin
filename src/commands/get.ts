@@ -1,4 +1,4 @@
-import { Command } from 'commander'
+import { Command, Option } from 'commander'
 import { EXIT_CODE_INCOMPLETE, isCliIncomplete } from '../common/cli-errors.js'
 import { type GetCommandOptions, runGet } from '../get/get.js'
 import { addAuthOptions } from '../utils/cli-options.js'
@@ -8,8 +8,14 @@ export const getCommand = new Command('get')
   .argument('<cid>', 'IPFS Root CID of the upload (for an encrypted upload, its Encrypted root CID)')
   .argument('[output-dir]', 'Directory to save into (created if missing; may hold other files; default: .)')
   .option('--share <link>', 'Decrypt with a Share link (from get-share-link) instead of your own credentials')
-  .option('--access-key <key>', "The Share link's Access key (fak1_…), unless the link carries it")
-  .option('--password <password>', "The Share link's password, for a password share")
+  .addOption(
+    new Option('--access-key <key>', "The Share link's Access key (fak1_…), unless the link carries it").env(
+      'SHARE_ACCESS_KEY'
+    )
+  )
+  .addOption(
+    new Option('--password <password>', "The Share link's password, for a password share").env('SHARE_PASSWORD')
+  )
   .addHelpText(
     'after',
     `
