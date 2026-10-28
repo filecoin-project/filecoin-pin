@@ -14,6 +14,7 @@
  */
 
 import {
+  type ClaimChain,
   decodeDelivery,
   COMMITMENT_KEY as GROUP_KEY_COMMITMENT_KEY,
   KEYSPACE_ID_KEY as GROUP_KEY_ID_KEY,
@@ -67,6 +68,8 @@ export interface OpenedGrant {
   /** `foc/kc` for new data sets: the commitment the owner signed, in metadata form. */
   commitment: string
   grant: Grant
+  /** The Grant's claim chain, which a share link delegates from. */
+  chain: ClaimChain
   /** The group key itself. */
   key: Uint8Array
 }
@@ -194,7 +197,7 @@ export async function openGroupKeyGrant(rawText: string, expected: GrantExpectat
     const reason = error instanceof Error ? error.message : String(error)
     throw new GrantError(`The Grant does not verify (${reason}); copy it again from the console.`)
   }
-  const { claim, grant, key } = opened
+  const { claim, grant, key, chain } = opened
 
   if (!sameAddress(claim.owner, expected.walletAddress)) {
     throw new GrantError(
@@ -218,6 +221,7 @@ export async function openGroupKeyGrant(rawText: string, expected: GrantExpectat
     // The claim carries `0x<32 hex>`; data set metadata records `v1.<32 hex>`.
     commitment: `v1.${claim.keyspaceCommitment.slice(2)}`,
     grant,
+    chain,
     key,
   }
 }
