@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import {
   keyspaceKeys as deriveGroupKey,
   keyForEnvelope,
@@ -219,4 +220,55 @@ describe('createShare', () => {
       /does not open this share/
     )
   })
+})
+
+interface OpeningVector {
+  name: string
+  link: string
+  accessKey?: string
+  password?: string
+  payloadKind: 'delivery' | 'grant'
+}
+const vectors = JSON.parse(readFileSync(new URL('../fixtures/share-link-vectors.json', import.meta.url), 'utf8')) as {
+  labels: PieceMetadata
+  pieceKey: string
+  opening: OpeningVector[]
+}
+
+describe('pinned vectors', () => {
+  // Expected values computed independently (Python's base64.urlsafe_b64encode, padding stripped).
+  const PAYLOAD = new Uint8Array([0x83, 1, 2, 3])
+  const KEY = bytesToHex(Uint8Array.from({ length: 32 }, (_, i) => i + 1))
+  const SALT = Uint8Array.from({ length: 16 }, (_, i) => i)
+  const FRAGMENT = `${VIEWER}#v1/${ROOT}&d=gwECAw`
+
+  it.each([
+    ['access key', undefined, FRAGMENT],
+    [
+      'restricted',
+      { kind: 'access-key' as const, key: KEY },
+      `${FRAGMENT}&k=fak1_AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA`,
+    ],
+    ['password', { kind: 'password' as const, salt: SALT }, `${FRAGMENT}&p=pw1.AAECAwQFBgcICQoLDA0ODw`],
+  ])('formats and parses the %s link form exactly', (_, secret, link) => {
+    expect(formatShareLink(VIEWER, ROOT, PAYLOAD, secret)).toBe(link)
+    expect(parseShareLink(link)).toEqual({ rootCid: ROOT, payload: PAYLOAD, ...(secret != null && { secret }) })
+  })
+
+  // Made once on 2026-10-28 by createShare (owner: Anvil #0; GROUP_KEY; salt 00..0f; bearers
+  // random). Links already sent must keep opening: a change to the link, the delivery, the
+  // grant or pw1 must show up here, not get regenerated.
+  it('derives the pinned piece key from the vector labels', async () => {
+    expect(await ownerPieceKey(vectors.labels)).toBe(vectors.pieceKey)
+  })
+
+  it.each(vectors.opening)('opens "$name" to the pinned piece key', async (vector) => {
+    const parsed = parseShareLink(vector.link)
+    expect(parsed.rootCid.equals(ROOT)).toBe(true)
+    // A delivery is a CBOR array, a plain grant a map.
+    expect((parsed.payload[0] ?? 0) >> 5).toBe(vector.payloadKind === 'delivery' ? 4 : 5)
+    const T = await shareKey(parsed, vector)
+    const key = await shareKeyResolver(parsed, T)({ appMetadata: vectors.labels } as never)
+    expect(bytesToHex(key)).toBe(vectors.pieceKey)
+  }, 30_000)
 })
