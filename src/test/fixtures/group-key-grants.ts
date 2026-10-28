@@ -57,6 +57,8 @@ export async function makeGrant(input: GrantInput = {}): Promise<string> {
     bearer: privateKeyToAccount(sessionKey).address,
     maxDepth: 0,
     expires: input.expires ?? FAR_FUTURE,
+    // Signed just before it expires, so a test can make an already-expired Grant: Keysmith refuses to sign one.
+    now: (input.expires ?? FAR_FUTURE) - 1,
   })
   const grant = await wrapTo(publicKeyOf(sessionKey), nodeKey, grantDescriptor(ref, node as 'keyspace'))
   return grantText(encodeDelivery(chain, grant))
