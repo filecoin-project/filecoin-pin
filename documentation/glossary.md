@@ -35,6 +35,38 @@ Collections of stored data ([Pieces](#piece)) managed by [Filecoin Warm Storage 
 
 Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metadata) (`source='filecoin-pin'`). When more match than the number of copies requested, it prefers the ones already holding pieces and takes at most one per Service Provider. When the matches do not cover enough distinct providers, Filecoin Pin creates new Data Sets instead.
 
+## Encrypted Upload
+
+A file or directory uploaded with `filecoin-pin add --encrypt`. The input is packed as a UnixFS CAR (the same [unixfs-v1-2025](#unixfs-v1-2025-profile) DAG an unencrypted `add` would build, under an anonymous wrapping directory holding the input's own name) and that CAR is wrapped in a [Filecoin Encryption Envelope](https://github.com/filecoin-project/FIPs/pull/1294) (FEE). The content key comes from [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983): the owner wallet (`PRIVATE_KEY`) signs once for its [Group Key](#group-key), and every upload gets its own key derived from that signature and a fresh random salt. Nothing is stored; the same wallet derives the key again to read the upload back with `filecoin-pin decrypt`, offline, or with `filecoin-pin get`, which also fetches it by its [IPFS Root CID](#ipfs-root-cid). The envelope is packed as `encrypted.fee`, so the `name` [Metadata](#metadata) does not reveal the original filename; names, individual file sizes, the folder structure and the plaintext [CIDs](#cid) exist only inside the ciphertext. The total size is not hidden: the envelope header records the inner CAR's length and the piece size is public, so a single file's size is visible to within a few hundred bytes. Symlinks and special files (FIFOs, sockets, devices) are skipped and counted, never named; hidden entries follow the same `--include-hidden` rule as an unencrypted `add`. See the [README](../README.md#encrypted-uploads) for usage and `--no-ipfs`.
+
+Blocks inside the CAR are written metadata-first: every dag-pb node (breadth-first from the root), then every raw leaf in file order, each CID once. A reader that knows the root can therefore list the tree before the first data byte and map any file offset to a byte range of the envelope without an index, which is what lets `decrypt` run in one pass and a viewer seek inside a video by HTTP Range.
+
+The envelope's public `content_type` is `application/vnd.ipld.car`; decryptors reject any other. Its authenticated `appMetadata` is exactly what Keysmith's `pieceMetadata` emits, which is all a reader needs to derive the key again:
+
+```json
+{ "foc/v": 1, "foc/own": "<owner wallet, lowercase>", "foc/ks": "<group key id>", "foc/salt": "<16 random bytes, hex>" }
+```
+
+## Group Key
+
+What [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) calls a *keyspace*: the root of a key derivation tree, named by a 16-byte id and bound to the owner wallet by one EIP-712 signature. Filecoin Pin records it on every [Data Set](#data-set) an [Encrypted Upload](#encrypted-upload) writes to, as `foc/ks` (the id) and `foc/kc` (a public commitment to the key, checked before the group key is reused), next to `foc/enc: "1"`, which marks the data set as encrypted and versions its rules. The metadata keys keep Keysmith's names. One group key usually spans multiple data sets: one per copy, plus any separate data set the user wants under the same group key. The group key id is public; no key material goes on chain. A [Session Key](#session-key) gets a group key through a [Grant](#grant).
+
+An owner wallet can end up with several group keys. `add --encrypt` sorts the wallet's live data sets by `foc/ks`, skips any group key whose data sets disagree on `foc/kc` or are not `foc/enc: "1"`, and uses the group key holding the oldest data set (lowest id). All copies of an upload go to that group key; a copy without a suitable data set gets a new one with the same `foc/ks` and `foc/kc`. A group key is created only when no valid one exists, and it exists on chain from its first upload. Nothing is stored locally.
+
+That first group key's id is derived from the owner address, so every client that sets up encryption before the first upload (the CLI, or several console logins) picks the same id: the first 16 bytes of `keccak256(utf8("filecoin/default-group-key") ‖ owner)`, with the owner as its 20 raw bytes (letter case does not matter), written as `0x`-prefixed lowercase hex. If that id is already on chain but its data sets are not valid (they disagree on `foc/kc` or are not `foc/enc: "1"`), and no other valid group key exists, `add --encrypt` stops with an error rather than writing into the invalid group.
+
+## Group
+
+What [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) calls a *scope*: a named part of a [Group Key](#group-key) with its own derived key, so access can be granted to some uploads without the whole group key. An upload in a group carries it in the envelope as `foc/scope` (Keysmith's label). `add --encrypt` does not put uploads in groups yet; every upload is under the group key itself. Not to be confused with session-key permission scopes (`login --scopes`).
+
+## Grant
+
+A group key Grant: what lets a [Session Key](#session-key) read and write a [Group Key](#group-key) without the owner wallet. `filecoin-pin login --scopes createDataSet,addPieces,encrypt` asks the Filecoin Cloud console (`CONSOLE_URL`, default https://pay.filecoin.cloud) for one. The console has the owner wallet sign a [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) root claim for the whole group key (bearer: the session key; expiry: the session key's authorization expiry; the network's chain id) and wraps the group key to the session key's public key. Its text form is `fgr1_` followed by the base64url (unpadded) Keysmith delivery; whitespace is ignored, since consoles wrap long lines.
+
+The CLI checks a Grant when it is imported and every time it is used: Keysmith checks the signatures, the expiry, that the session key is the bearer, and the key against the commitment the owner signed; the CLI checks the owner, the network, and the group key. It is saved as `GROUP_KEY_ID` and `GROUP_KEY_GRANT` next to the session key; the key it opens is never stored. A session key with a Grant uploads with `add --encrypt` into the group key's [Data Sets](#data-set) (tagging new ones with the `foc/kc` the owner signed) and reads uploads under that group key with `get` and `decrypt`.
+
+A Grant cannot be revoked: it gives the session key permanent read access to the whole group key, including future uploads. Session keys cannot pass it on. Not to be confused with the on-chain authorization of the session key's scopes, which `login` also calls a grant.
+
 ## FIL
 
 FIL is Filecoin's native token.  While [Filecoin Onchain Cloud](#filecoin-onchain-cloud) storage is currently denominated in [USDFC](#usdfc), gas for transactions on the Filecoin blockchain (e.g., adding a [Piece](#piece)) need to be paid for using FIL. Most transactions in the data onboarding flow for Filecoin Onchain Cloud are submitted by storage providers so client typically have minimal need to interact directly with FIL.
@@ -122,7 +154,7 @@ The CID for the root of a merkle DAG that is usually encoding a file or director
 
 This is one of two retrieval endpoints that [Service Providers](#service-provider) expose (see [Retrieving Your Data](retrieval.md) for a practical walkthrough).  This endpoint conforms with the [IPFS Trustless Gateway Specification](https://specs.ipfs.tech/http-gateways/trustless-gateway/).  All CIDs that are indexed by the SP should be retrievable via this endpoint.  This is the endpoint that is announced through the provider records stored by [IPNI](#ipni) Indexers. 
 
-As a "trustless" protocol, retrieval of IPFS data using this mechanism provides assurance that data has not been tampered with and that what is being retrieved is _exactly_ what was requested. This is in contrast to a "trusted" gateway where IPFS data is reassembled into a form appropriate for rendering. Developers and users are encouraged to perform this reassembly step as close as possible to the user, using existing IPFS technologies such as [Kubo](https://github.com/ipfs/kubo) and [Helia](https://github.com/ipfs/helia). For example, Helia's [`verified-fetch` package](https://www.npmjs.com/package/@helia/verified-fetch) is able to perform this within a browser context and is powering https://inbrowser.link/.
+As a "trustless" protocol, retrieval of IPFS data using this mechanism provides assurance that data has not been tampered with and that what is being retrieved is _exactly_ what was requested. This is in contrast to a "trusted" gateway where IPFS data is reassembled into a form appropriate for rendering. Developers and users are encouraged to perform this reassembly step as close as possible to the user, using existing IPFS technologies such as [Kubo](https://github.com/ipfs/kubo) and [Helia](https://github.com/ipfs/helia). For example, Helia's [`verified-fetch` package](https://www.npmjs.com/package/@helia/verified-fetch) is able to perform this within a browser context and is powering https://inbrowser.link/. On the command line, `filecoin-pin get` does it too: it finds providers through [IPNI](#ipni) and the caller's own [Data Sets](#data-set), downloads the CAR with `?format=car&dag-scope=all` and checks every block against its CID before writing anything.
 
 ## IPNI
 
