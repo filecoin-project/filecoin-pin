@@ -9,11 +9,15 @@ import fs from 'node:fs'
 import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { keyspaceKeys as deriveGroupKey, keyForEnvelope } from '@filoz/keysmith'
 import * as dagPb from '@ipld/dag-pb'
+import { bytesToHex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runAdd } from '../../add/add.js'
+import { parseShareLink, shareKey, shareKeyResolver } from '../../common/share-link.js'
 import { planCarPayload } from '../../common/unixfs-car-payload.js'
+import { findEncryptedUpload } from '../../common/upload-record.js'
 
 const OWNER_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
 
@@ -224,6 +228,50 @@ describe('add --encrypt with real packing', () => {
       await expect(runAdd({ ...auth, filePath: input, encrypt: true })).rejects.toThrow('interrupted')
       expect(leftBySignal).toEqual([])
       expect(await readdir(tmp)).toEqual([])
+    })
+  })
+
+  describe('--get-share-link', () => {
+    const PIECE = 'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy'
+
+    it("prints a link and Access key that open the new upload's key", async () => {
+      const { performUpload } = await import('../../common/upload-flow.js')
+      vi.mocked(performUpload).mockResolvedValueOnce({
+        pieceCid: PIECE,
+        size: 1,
+        copies: [],
+        failedAttempts: [],
+        network: 'calibration',
+      } as never)
+      // Vitest takes console.log over, so the printed link is caught here rather than in `writes`.
+      const printed: string[] = []
+      vi.spyOn(console, 'log').mockImplementation((line: string) => printed.push(line))
+
+      await runAdd({ ...auth, filePath: input, encrypt: true, getShareLink: true })
+
+      const out = printed.join('\n')
+      const parsed = parseShareLink(out.match(/https:\/\/\S+#v1\/\S+/)?.[0] ?? '')
+      const record = findEncryptedUpload(parsed.rootCid.toString())
+      expect(record?.pieceCid).toBe(PIECE)
+      const labels = record?.labels as NonNullable<typeof record>['labels']
+      const accessKey = out.match(/fak1_[A-Za-z0-9_-]+/)?.[0]
+      const key = await shareKeyResolver(
+        parsed,
+        await shareKey(parsed, { accessKey })
+      )({ appMetadata: labels } as never)
+      const owner = privateKeyToAccount(OWNER_KEY)
+      const { kk } = await deriveGroupKey(owner, { owner: owner.address, keyspace: labels['foc/ks'] })
+      expect(bytesToHex(key)).toBe(bytesToHex(keyForEnvelope(kk, labels)))
+    })
+
+    it.each([
+      [{ getShareLink: true }, /needs --encrypt/],
+      [{ encrypt: true, getShareLink: true, getShareLinkRestricted: true }, /Choose one of/],
+      [{ encrypt: true, getShareLinkPassword: 'too short' }, /at least 12 characters/],
+    ])('refuses %o before uploading', async (flags, message) => {
+      const { performUpload } = await import('../../common/upload-flow.js')
+      await expect(runAdd({ ...auth, filePath: input, ...flags })).rejects.toThrow(message)
+      expect(performUpload).not.toHaveBeenCalled()
     })
   })
 })

@@ -14,6 +14,7 @@ import type { PieceMetadata } from '@filoz/keysmith'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { SIZE_CONSTANTS } from '@filoz/synapse-core/utils'
 import type { Synapse } from '@filoz/synapse-sdk'
+import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino, { type Logger } from 'pino'
 import type { Hex } from 'viem'
@@ -30,6 +31,7 @@ import {
 } from '../common/group-key.js'
 import { grantGroupKey, loadGroupKeyGrant } from '../common/group-key-grant.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
+import { type CreatedShare, createShare, MIN_PASSWORD_LENGTH, type ShareMode } from '../common/share-link.js'
 import {
   displayDryRunEstimate,
   displayUploadResults,
@@ -52,6 +54,7 @@ import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
+import { DEFAULT_SHARE_DAYS, expiresIn, logShareNotes, printShare, shareSender } from '../share/get-share-link.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -200,6 +203,27 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
   let groupKey: OwnerGroupKey | undefined
 
   try {
+    // --get-share-link*: at most one, only for an encrypted upload, and checked before uploading.
+    const shareFlags = [options.getShareLink, options.getShareLinkPassword, options.getShareLinkRestricted]
+    if (shareFlags.filter((flag) => flag != null && flag !== false).length > 1) {
+      throw new Error('Choose one of --get-share-link, --get-share-link-password and --get-share-link-restricted')
+    }
+    const shareMode: ShareMode | undefined =
+      options.getShareLinkPassword != null
+        ? 'password'
+        : options.getShareLinkRestricted === true
+          ? 'restricted'
+          : options.getShareLink === true
+            ? 'access-key'
+            : undefined
+    if (shareMode != null && options.encrypt !== true) {
+      throw new Error('--get-share-link needs --encrypt: a plain upload is shared by its CID')
+    }
+    const sharePassword = typeof options.getShareLinkPassword === 'string' ? options.getShareLinkPassword : undefined
+    if (sharePassword != null && sharePassword.length < MIN_PASSWORD_LENGTH) {
+      throw new Error(`A share password needs at least ${MIN_PASSWORD_LENGTH} characters`)
+    }
+
     // Validate path exists and is readable
     spinner.start('Validating path...')
 
@@ -474,6 +498,27 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       }
     }
 
+    // The upload has succeeded, so a share that cannot be made only warns: get-share-link can retry it.
+    let share: CreatedShare | undefined
+    if (shareMode != null && encryptedLabels != null) {
+      try {
+        share = await createShare({
+          sender: await shareSender(config, synapse.chain.id),
+          rootCid,
+          labels: encryptedLabels,
+          pieceCid: CID.parse(uploadResult.pieceCid),
+          chainId: synapse.chain.id,
+          mode: shareMode,
+          ...(sharePassword != null && { password: sharePassword }),
+          expires: expiresIn(DEFAULT_SHARE_DAYS),
+        })
+      } catch (error) {
+        log.warn(
+          `No share link: ${error instanceof Error ? error.message : String(error)}. Run \`filecoin-pin get-share-link ${rootCid}\` to retry.`
+        )
+      }
+    }
+
     const filbeamUrl = buildFilbeamUrl(synapse, uploadResult.pieceCid, withCDN)
     const egress = filbeamUrl == null ? undefined : { filbeamUrl }
 
@@ -500,6 +545,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       )
       log.flush()
     }
+    if (share != null) logShareNotes(share)
 
     if (uploadResult.copies.length < requestedCopies) {
       log.line('')
@@ -519,6 +565,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     } else {
       outro('Add completed successfully')
     }
+    if (share != null) printShare(share)
 
     return result
   } catch (error) {

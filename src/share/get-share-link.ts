@@ -17,7 +17,7 @@ import { readEnvelopeLabels } from '../common/envelope-labels.js'
 import { GRANT_LOGIN_COMMAND } from '../common/group-key.js'
 import { loadGroupKeyGrant } from '../common/group-key-grant.js'
 import { DISCOVERY_TIMEOUT_MS, ipniProviderUrls } from '../common/ipfs-car-fetch.js'
-import { createShare, type ShareMode, type ShareSender } from '../common/share-link.js'
+import { type CreatedShare, createShare, type ShareMode, type ShareSender } from '../common/share-link.js'
 import { findEncryptedUpload } from '../common/upload-record.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { addressOf, ownProviders, readOnlySynapse } from '../get/get.js'
@@ -65,13 +65,36 @@ async function uploadLabels(
 }
 
 /** The owner wallet, else the session key with its group key Grant. */
-async function shareSender(auth: SynapseSetupConfig, chainId: number): Promise<ShareSender> {
+export async function shareSender(auth: SynapseSetupConfig, chainId: number): Promise<ShareSender> {
   if ('privateKey' in auth && auth.privateKey != null) return { owner: privateKeyToAccount(auth.privateKey) }
   if ('sessionKey' in auth && auth.sessionKey != null) {
     const session = { sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }
     return { sessionKey: auth.sessionKey, grant: await loadGroupKeyGrant(session, chainId) }
   }
   throw new Error(SHARE_NEEDS_CREDENTIALS)
+}
+
+/** Unix seconds `days` from now: when an owner-mode link stops fetching from gating providers. */
+export const expiresIn = (days: number): number => Math.floor(Date.now() / 1000) + days * 86400
+
+/** What the link can and cannot do, as notes above the summary. */
+export function logShareNotes(share: CreatedShare): void {
+  if (share.payloadKind === 'grant') {
+    log.warn(
+      "This session's Grant cannot be re-shared, so the link carries the upload's key only: it decrypts, but cannot fetch from providers that gate retrieval."
+    )
+  } else if (share.expires != null) {
+    log.info(
+      `Fetching from providers that gate retrieval ends ${new Date(share.expires * 1000).toISOString()}; decrypting never does.`
+    )
+  }
+}
+
+/** The link and its secret as plain lines, after the summary, so they copy cleanly. */
+export function printShare(share: CreatedShare): void {
+  console.log(`Share link:\n${share.link}`)
+  if (share.accessKey != null) console.log(`\nAccess key:\n${share.accessKey}`)
+  if (share.password != null) console.log(`\nPassword:\n${share.password}`)
 }
 
 export async function runGetShareLink(cidArg: string, options: GetShareLinkOptions): Promise<void> {
@@ -110,7 +133,7 @@ export async function runGetShareLink(cidArg: string, options: GetShareLinkOptio
       chainId,
       mode,
       ...(typeof options.password === 'string' && { password: options.password }),
-      expires: Math.floor(Date.now() / 1000) + days * 86400,
+      expires: expiresIn(days),
       ...(options.viewer != null && { viewer: options.viewer }),
     })
     spinner.stop(`${pc.green('✓')} Share link created`)
@@ -118,22 +141,11 @@ export async function runGetShareLink(cidArg: string, options: GetShareLinkOptio
     if ('grant' in sender && options.expires != null) {
       log.warn("--expires was ignored: a session key's links last as long as its Grant")
     }
-    if (share.payloadKind === 'grant') {
-      log.warn(
-        "This session's Grant cannot be re-shared, so the link carries the upload's key only: it decrypts, but cannot fetch from providers that gate retrieval."
-      )
-    } else if (share.expires != null) {
-      log.info(
-        `Fetching from providers that gate retrieval ends ${new Date(share.expires * 1000).toISOString()}; decrypting never does.`
-      )
-    }
+    logShareNotes(share)
     outro(
       mode === 'restricted' ? 'Anyone with the link can read this upload' : 'Send the link and its secret separately'
     )
-    // Plain lines, outside the spinner frame, so they copy cleanly.
-    console.log(`Share link:\n${share.link}`)
-    if (share.accessKey != null) console.log(`\nAccess key:\n${share.accessKey}`)
-    if (share.password != null) console.log(`\nPassword:\n${share.password}`)
+    printShare(share)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     spinner.stop(`${pc.red('✗')} ${message}`)
