@@ -43,12 +43,17 @@ export function consoleNetworkSlug(chainId: number): string | undefined {
 }
 
 /**
- * Build the console deep link that pre-fills the session address and the
- * scopes it needs on the session-keys authorization page. Carries the
- * network the failure happened on so the console can refuse to prefill
- * when the connected wallet is on a different chain — without it, a
- * calibration remediation link approved by a mainnet-connected wallet
+ * Build the console setup link that pre-fills the session address and the
+ * scopes it needs. Carries the network the request is for so the console can
+ * refuse to prefill when the connected wallet is on a different chain —
+ * without it, a calibration link approved by a mainnet-connected wallet
  * silently grants the scopes on mainnet.
+ *
+ * `keyAgreement` (`login --scopes …,encrypt`) adds `pubkey` and `pubkeysig`:
+ * the console then also issues a group key Grant wrapped to `pubkey`, once it
+ * has checked `pubkeysig` recovers to the session address. `node=keyspace` asks
+ * for the whole group key, the only kind of Grant this version reads; a console
+ * refuses a node it does not issue.
  *
  * The address is lowercased: the console validates it with viem's strict
  * `isAddress`, which accepts all-lowercase or a correct EIP-55 checksum but
@@ -58,11 +63,12 @@ export function buildAuthorizeUrl(
   consoleUrl: string,
   sessionAddress: string,
   scopeIds: string[],
-  chainId: number
+  chainId: number,
+  keyAgreement?: { pubkey: string; pubkeysig: string }
 ): string {
-  const base = trimSlash(consoleUrl)
+  const pubkey = keyAgreement ? `&pubkey=${keyAgreement.pubkey}&pubkeysig=${keyAgreement.pubkeysig}&node=keyspace` : ''
   return withUtm(
-    `${base}/console/session-keys?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId)}`,
+    `${trimSlash(consoleUrl)}/console/setup?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId)}${pubkey}`,
     'login'
   )
 }

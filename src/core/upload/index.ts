@@ -300,6 +300,9 @@ export interface UploadExecutionOptions {
 
   /** Data set metadata applied when creating or matching contexts. */
   metadata?: Record<string, string>
+
+  /** Inject `withIPFSIndexing` into new or matched data sets (default true). See {@link uploadToSynapse}. */
+  ipfsIndexing?: boolean
 }
 
 export interface UploadExecutionResult extends SynapseUploadResult {
@@ -445,6 +448,9 @@ export async function executeUpload(
   }
   if (options.metadata != null) {
     uploadOptions.metadata = options.metadata
+  }
+  if (options.ipfsIndexing != null) {
+    uploadOptions.ipfsIndexing = options.ipfsIndexing
   }
 
   const uploadResult = await uploadToSynapse(synapse, carData, rootCid, logger, uploadOptions)

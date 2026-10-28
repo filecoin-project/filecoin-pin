@@ -3,7 +3,7 @@
 export interface LoginOptions {
   network?: string | undefined
   rpcUrl?: string | undefined
-  /** Comma-separated scope ids; defaults to createDataSet,addPieces. */
+  /** Comma-separated scope ids; defaults to createDataSet,addPieces. `encrypt` adds the group key Grant step. */
   scopes?: string | undefined
   /** Generate a new key even when a saved one exists. */
   fresh?: boolean | undefined
@@ -13,4 +13,6 @@ export interface LoginOptions {
   wait?: boolean | undefined
   /** Seconds to wait for the grant; defaults to five minutes. */
   timeout?: number | undefined
+  /** A group key Grant (`fgr1_…`) to import for the saved session key, or `-` to read it from stdin. */
+  grant?: string | undefined
 }
