@@ -1,8 +1,9 @@
 /**
  * The saved login session: one dotenv-style file in the filecoin-pin data
  * directory holding the session key, its address, the network it was made
- * for and, once authorized, the owner wallet address. Exactly one
- * credential set; every write replaces the whole file.
+ * for, once authorized, the owner wallet address and, after `login --scopes
+ * …,encrypt`, the group key Grant. Exactly one credential set; every write
+ * replaces the whole file, so a rewrite must carry every field it read.
  *
  * `login` writes the key before the browser opens, so an interrupted login
  * resumes the same key. The owner address is added once the grant is seen
@@ -35,6 +36,10 @@ export interface SavedSession {
    * names the owner.
    */
   fromBlock?: bigint
+  /** Group key the Grant opens (`foc/ks`), 0x + 32 hex. Written together with {@link groupKeyGrant}. */
+  groupKeyId?: Hex
+  /** The group key Grant for this session key, `fgr1_…`. Never the key it opens. */
+  groupKeyGrant?: string
 }
 
 /** Absolute path of the session file. */
@@ -74,6 +79,13 @@ export function readSessionFile(path: string = getSessionFilePath()): SavedSessi
   if (network !== undefined && /^[a-z]+$/.test(network)) session.network = network
   const fromBlock = parsed.FROM_BLOCK
   if (fromBlock !== undefined && /^\d+$/.test(fromBlock)) session.fromBlock = BigInt(fromBlock)
+  // Both or neither: a Grant is checked against its group key id on every load.
+  const groupKeyId = parsed.GROUP_KEY_ID
+  const groupKeyGrant = parsed.GROUP_KEY_GRANT
+  if (isHex(groupKeyId, 16) && groupKeyGrant !== undefined && /^fgr1_[A-Za-z0-9_-]+$/.test(groupKeyGrant)) {
+    session.groupKeyId = groupKeyId
+    session.groupKeyGrant = groupKeyGrant
+  }
   return session
 }
 
@@ -92,6 +104,9 @@ export function writeSessionFile(session: SavedSession, path: string = getSessio
   if (session.walletAddress !== undefined) lines.push(`WALLET_ADDRESS=${session.walletAddress}`)
   if (session.network !== undefined) lines.push(`NETWORK=${session.network}`)
   if (session.fromBlock !== undefined) lines.push(`FROM_BLOCK=${session.fromBlock}`)
+  if (session.groupKeyId !== undefined && session.groupKeyGrant !== undefined) {
+    lines.push(`GROUP_KEY_ID=${session.groupKeyId}`, `GROUP_KEY_GRANT=${session.groupKeyGrant}`)
+  }
   mkdirSync(dirname(path), { recursive: true })
   const tmp = `${path}.${process.pid}.tmp`
   try {

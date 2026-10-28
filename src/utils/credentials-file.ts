@@ -18,7 +18,7 @@
 import { readFileSync } from 'node:fs'
 import { parseEnv } from 'node:util'
 import type { Command } from 'commander'
-import { type LoadableEnvVar, supplyCredential } from './credential-source.js'
+import { type LoadableEnvVar, supplyCredential, supplyGrantPair } from './credential-source.js'
 
 export const CREDENTIALS_FILE_FLAG = '--credentials-file'
 
@@ -38,6 +38,8 @@ export const CREDENTIALS_FILE_VARS = [
   'WALLET_ADDRESS',
   'VIEW_ADDRESS',
   'NETWORK',
+  'GROUP_KEY_ID',
+  'GROUP_KEY_GRANT',
 ] as const satisfies LoadableEnvVar[]
 
 /**
@@ -88,7 +90,9 @@ export function readCredentialsFile(path: string): Partial<Record<LoadableEnvVar
 export function applyCredentialsFile(actionCommand: Command, env: NodeJS.ProcessEnv = process.env): void {
   const path = actionCommand.optsWithGlobals<{ credentialsFile?: string }>().credentialsFile
   if (path === undefined) return
-  for (const [name, value] of Object.entries(readCredentialsFile(path))) {
+  const { GROUP_KEY_ID, GROUP_KEY_GRANT, ...rest } = readCredentialsFile(path)
+  for (const [name, value] of Object.entries(rest)) {
     supplyCredential(actionCommand, env, name as LoadableEnvVar, value, 'file')
   }
+  supplyGrantPair(actionCommand, env, GROUP_KEY_ID, GROUP_KEY_GRANT, 'file')
 }

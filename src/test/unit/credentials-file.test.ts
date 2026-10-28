@@ -14,7 +14,6 @@ describe('readCredentialsFile', () => {
   })
 
   afterEach(() => {
-    vi.restoreAllMocks()
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -132,6 +131,14 @@ describe('applyCredentialsFile', () => {
     expect(command.opts().sessionKey).toBe('from-flag')
     expect(command.getOptionValueSource('sessionKey')).toBe('cli')
     expect(env.SESSION_KEY).toBeUndefined()
+  })
+
+  it('supplies the group key Grant from the file', async () => {
+    const path = join(dir, '.env')
+    writeFileSync(path, 'SESSION_KEY=0xabc\nGROUP_KEY_ID=0xfile\nGROUP_KEY_GRANT=fgr1_file\n')
+    const env: NodeJS.ProcessEnv = {}
+    await parse(['add', '--credentials-file', path], env)
+    expect(env).toMatchObject({ SESSION_KEY: '0xabc', GROUP_KEY_ID: '0xfile', GROUP_KEY_GRANT: 'fgr1_file' })
   })
 
   it('surfaces a missing file through the parse, naming the path', async () => {
