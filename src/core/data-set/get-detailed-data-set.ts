@@ -7,8 +7,8 @@
  */
 
 import { getPdpDataSet } from '@filoz/synapse-core/warm-storage'
-import type { Synapse } from '@filoz/synapse-sdk'
-import { DEFAULT_DATA_SET_METADATA } from '../synapse/constants.js'
+import { METADATA_KEYS, type Synapse } from '@filoz/synapse-sdk'
+import { APPLICATION_SOURCE } from '../synapse/constants.js'
 import { getDataSetPieces } from './get-data-set-pieces.js'
 import type { DataSetSummary, ListDataSetsOptions } from './types.js'
 
@@ -27,9 +27,8 @@ export async function getDetailedDataSet(
       throw new Error(`Data set ${dataSetId} not found`)
     }
 
-    const createdWithFilecoinPin = Object.entries(DEFAULT_DATA_SET_METADATA).every(
-      ([key, value]) => pdpDataSet.metadata[key] === value
-    )
+    // Source alone: `add --no-ipfs` data sets are filecoin-pin's too, without `withIPFSIndexing`.
+    const createdWithFilecoinPin = pdpDataSet.metadata[METADATA_KEYS.SOURCE] === APPLICATION_SOURCE
 
     const result: DataSetSummary = {
       ...pdpDataSet,

@@ -83,6 +83,42 @@ describe('applySessionFileCredentials', () => {
     expect(env).toEqual(preset)
   })
 
+  const WITH_GRANT = { ...AUTHORIZED, groupKeyId: `0x${'cd'.repeat(16)}`, groupKeyGrant: 'fgr1_saved' }
+
+  it('loads the saved group key Grant with the session key', () => {
+    savedSession(WITH_GRANT)
+    const env: NodeJS.ProcessEnv = {}
+    applySessionFileCredentials(parsed(), env, PATH)
+    expect(env).toEqual({
+      SESSION_KEY: KEY,
+      WALLET_ADDRESS: OWNER,
+      GROUP_KEY_ID: WITH_GRANT.groupKeyId,
+      GROUP_KEY_GRANT: 'fgr1_saved',
+    })
+  })
+
+  it('lets a Grant in the environment win over the saved one, like every other variable', () => {
+    savedSession(WITH_GRANT)
+    const env: NodeJS.ProcessEnv = { GROUP_KEY_GRANT: 'fgr1_env', GROUP_KEY_ID: '0xenv' }
+    applySessionFileCredentials(parsed(), env, PATH)
+    expect(env).toMatchObject({ SESSION_KEY: KEY, GROUP_KEY_GRANT: 'fgr1_env', GROUP_KEY_ID: '0xenv' })
+  })
+
+  it('never mixes halves: a GROUP_KEY_GRANT alone in the environment keeps the saved GROUP_KEY_ID out', () => {
+    savedSession(WITH_GRANT)
+    const env: NodeJS.ProcessEnv = { GROUP_KEY_GRANT: 'fgr1_env' }
+    applySessionFileCredentials(parsed(), env, PATH)
+    expect(env).toMatchObject({ SESSION_KEY: KEY, GROUP_KEY_GRANT: 'fgr1_env' })
+    expect(env).not.toHaveProperty('GROUP_KEY_ID')
+  })
+
+  it('leaves the saved Grant out when the environment supplies the session key', () => {
+    savedSession(WITH_GRANT)
+    const env: NodeJS.ProcessEnv = { SESSION_KEY: '0xenv', WALLET_ADDRESS: '0xenv' }
+    applySessionFileCredentials(parsed([], env), env, PATH)
+    expect(env).not.toHaveProperty('GROUP_KEY_GRANT')
+  })
+
   it('ignores a file whose login never completed (no owner yet)', () => {
     savedSession({ sessionKey: KEY, sessionAddress: SESSION })
     const env: NodeJS.ProcessEnv = {}

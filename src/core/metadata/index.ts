@@ -38,13 +38,15 @@ export interface MetadataConfigResult {
  * injecting defaults would risk silent mismatches on the resolve-by-id path.
  * Otherwise, `IPFS_INDEXED_METADATA` is prepended so `metadataMatches()` finds existing
  * data sets (it uses exact key-count matching; omitting the key causes all contexts to
- * resolve as new data sets).
+ * resolve as new data sets). With `ipfsIndexing` false nothing is prepended, so only
+ * data sets without `withIPFSIndexing` match.
  */
 export function resolveIpfsIndexedMetadata(
   metadata: Record<string, string> | undefined,
-  dataSetIds: bigint[] | undefined
+  dataSetIds: bigint[] | undefined,
+  ipfsIndexing = true
 ): Record<string, string> {
-  if (dataSetIds != null) return metadata ?? {}
+  if (dataSetIds != null || !ipfsIndexing) return metadata ?? {}
   return { ...IPFS_INDEXED_METADATA, ...(metadata ?? {}) }
 }
 

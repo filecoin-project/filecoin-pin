@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeMetadataConfig, PIECE_METADATA_NAME_KEY, withDerivedNameMetadata } from '../../core/metadata/index.js'
+import {
+  normalizeMetadataConfig,
+  PIECE_METADATA_NAME_KEY,
+  resolveIpfsIndexedMetadata,
+  withDerivedNameMetadata,
+} from '../../core/metadata/index.js'
 
 describe('normalizeMetadataConfig', () => {
   it('returns undefined metadata when nothing provided', () => {
@@ -91,5 +96,13 @@ describe('withDerivedNameMetadata', () => {
   it('returns the input unchanged when the derived name is null', () => {
     expect(withDerivedNameMetadata(undefined, null)).toBeUndefined()
     expect(withDerivedNameMetadata({ region: 'us-west' }, null)).toEqual({ region: 'us-west' })
+  })
+})
+
+describe('resolveIpfsIndexedMetadata', () => {
+  it('prepends withIPFSIndexing by default and leaves it out with ipfsIndexing false', () => {
+    expect(resolveIpfsIndexedMetadata({ a: '1' }, undefined)).toEqual({ withIPFSIndexing: '', a: '1' })
+    expect(resolveIpfsIndexedMetadata({ a: '1' }, undefined, false)).toEqual({ a: '1' })
+    expect(resolveIpfsIndexedMetadata(undefined, [1n])).toEqual({})
   })
 })
