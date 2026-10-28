@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Writable } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { keyspaceKeys as deriveGroupKey, writeTarget } from '@filoz/keysmith'
+import { keyspaceKeys as deriveGroupKey, type PieceMetadata, writeTarget } from '@filoz/keysmith'
 import { CarBlockIterator, CarIndexedReader, CarWriter } from '@ipld/car'
 import * as dagCbor from '@ipld/dag-cbor'
 import * as dagPb from '@ipld/dag-pb'
@@ -33,6 +33,7 @@ import {
   UnsupportedHashError,
 } from '../../common/ipfs-car-fetch.js'
 import { type GetOptions, getToDirectory, NotEnoughSpaceError } from '../../common/ipfs-get.js'
+import { createShare } from '../../common/share-link.js'
 import { CAR_CONTENT_TYPE, encodeVarint, isUnsafeName } from '../../common/unixfs-car-layout.js'
 import { createCarFromPath } from '../../core/unixfs/index.js'
 import { runGet } from '../../get/get.js'
@@ -268,12 +269,15 @@ describe('get', () => {
   }
 
   /** Encrypt `path` as `add --encrypt` does and return the gateway CAR for the envelope. */
-  async function encryptedUpload(path: string): Promise<{ root: CID; blocks: Block[]; car: Uint8Array }> {
+  async function encryptedUpload(
+    path: string
+  ): Promise<{ root: CID; blocks: Block[]; car: Uint8Array; labels: PieceMetadata }> {
     const envelope = join(dir, 'encrypted.fee')
-    await encryptPath(path, envelope, pieceKey())
+    const key = pieceKey()
+    await encryptPath(path, envelope, key)
     const upload = await plainUpload(envelope)
     await rm(envelope)
-    return upload
+    return { ...upload, labels: key.appMetadata }
   }
 
   const get = (
@@ -836,6 +840,31 @@ describe('get', () => {
         sessionKey: SESSION_KEY,
         network: 'calibration',
       })
+
+      expect(await readFile(join(outDir, 'report.pdf'), 'utf8')).toBe('quarterly numbers')
+    })
+
+    it('with --share and its Access key, decrypts with no credentials of its own', async () => {
+      await writeFile(join(dir, 'report.pdf'), 'quarterly numbers')
+      const upload = await encryptedUpload(join(dir, 'report.pdf'))
+      vi.stubGlobal('fetch', fakeNetwork({ [GOOD]: serve(upload.car) }, ['/dns/good.example/https']).fetch)
+      const share = await createShare({
+        sender: { owner: OWNER },
+        rootCid: upload.root,
+        labels: upload.labels,
+        chainId: 314159,
+        mode: 'access-key',
+        expires: Math.floor(Date.now() / 1000) + 86400,
+      })
+
+      await expect(runGet(upload.root.toString(), outDir, { share: share.link })).rejects.toThrow(
+        /needs its Access key/
+      )
+      const other = await encryptedUpload(join(dir, 'report.pdf'))
+      await expect(
+        runGet(other.root.toString(), outDir, { share: share.link, accessKey: share.accessKey ?? '' })
+      ).rejects.toThrow(/Share link is for/)
+      await runGet(upload.root.toString(), outDir, { share: share.link, accessKey: share.accessKey ?? '' })
 
       expect(await readFile(join(outDir, 'report.pdf'), 'utf8')).toBe('quarterly numbers')
     })

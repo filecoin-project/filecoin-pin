@@ -17,6 +17,7 @@ import { checkOutputDir, removeDecryptOutput } from '../common/encryption.js'
 import { credentialKeyResolver } from '../common/group-key-grant.js'
 import { ipniProviderUrls, ownProviderUrls, type ProviderSource } from '../common/ipfs-car-fetch.js'
 import { getToDirectory } from '../common/ipfs-get.js'
+import { parseShareLink, ShareLinkError, shareKey, shareKeyResolver } from '../common/share-link.js'
 import { initializeSynapse, type SynapseSetupConfig } from '../core/synapse/index.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
@@ -44,7 +45,16 @@ export async function ownProviders(auth: SynapseSetupConfig, address: Address, l
   return ownProviderUrls(await readOnlySynapse(auth, address, logger), logger)
 }
 
-export async function runGet(cidArg: string, outputDir: string | undefined, options: CLIAuthOptions): Promise<void> {
+export interface GetCommandOptions extends CLIAuthOptions {
+  /** A Share link for this upload: its key replaces the credentials'. */
+  share?: string
+  /** The share's Access key (fak1_…), when the link does not carry it. */
+  accessKey?: string
+  /** The share's password, for a password share. */
+  password?: string
+}
+
+export async function runGet(cidArg: string, outputDir: string | undefined, options: GetCommandOptions): Promise<void> {
   intro(pc.bold('Filecoin Pin Get'))
   const spinner = createSpinner()
   const outDir = outputDir ?? '.'
@@ -79,7 +89,15 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
     const logger = getCLILogger()
     const address = addressOf(auth)
     // Used only when an envelope asks for a key, so plain content needs no credentials.
-    const resolveKey = credentialKeyResolver(auth)
+    let resolveKey = credentialKeyResolver(auth)
+    if (options.share != null) {
+      const share = parseShareLink(options.share)
+      if (!share.rootCid.equals(cid)) {
+        throw new ShareLinkError(`The Share link is for ${share.rootCid}, not ${cid}`)
+      }
+      // Before the download, so a missing or wrong-format secret fails fast.
+      resolveKey = shareKeyResolver(share, await shareKey(share, options))
+    }
 
     tempDir = await mkdtemp(join(tmpdir(), 'filecoin-pin-get-'))
     for (const signal of cleanupSignals) process.once(signal, onSignal)
