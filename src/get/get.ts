@@ -22,21 +22,26 @@ import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-au
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 
 /** The address whose data sets are searched for providers, if the credentials name one. */
-function addressOf(auth: SynapseSetupConfig): Address | undefined {
+export function addressOf(auth: SynapseSetupConfig): Address | undefined {
   if ('privateKey' in auth && auth.privateKey != null) return privateKeyToAccount(auth.privateKey).address
   if ('walletAddress' in auth && auth.walletAddress != null) return getAddress(auth.walletAddress)
   return undefined
 }
 
-/** Providers of the address's own IPFS-indexed data sets; a public read, so no key is used. */
-async function ownProviders(auth: SynapseSetupConfig, address: Address, logger: Logger): Promise<string[]> {
+/** A read-only client for `address` on the credentials' network: public reads, so no key is used. */
+export function readOnlySynapse(auth: SynapseSetupConfig, address: Address, logger: Logger) {
   const readOnly = {
     walletAddress: address,
     readOnly: true as const,
     ...(auth.chain != null && { chain: auth.chain }),
     ...(auth.rpcUrl != null && { rpcUrl: auth.rpcUrl }),
   }
-  return ownProviderUrls(await initializeSynapse(readOnly, logger), logger)
+  return initializeSynapse(readOnly, logger)
+}
+
+/** Providers of the address's own IPFS-indexed data sets. */
+export async function ownProviders(auth: SynapseSetupConfig, address: Address, logger: Logger): Promise<string[]> {
+  return ownProviderUrls(await readOnlySynapse(auth, address, logger), logger)
 }
 
 export async function runGet(cidArg: string, outputDir: string | undefined, options: CLIAuthOptions): Promise<void> {
