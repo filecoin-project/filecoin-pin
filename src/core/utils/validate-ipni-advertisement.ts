@@ -13,7 +13,7 @@ import type { ProgressEvent, ProgressEventHandler } from './types.js'
  * a given CID to IPNI.
  * Each provider includes their peer ID and multiaddrs.
  */
-interface IpniIndexerResponse {
+export interface IpniIndexerResponse {
   MultihashResults?: Array<{
     Multihash?: string
     ProviderResults?: ProviderResult[]
@@ -29,7 +29,7 @@ interface IpniIndexerResponse {
  *
  * Note: this format matches what IPNI indexers return (see https://cid.contact/cid/bafybeigvgzoolc3drupxhlevdp2ugqcrbcsqfmcek2zxiw5wctk3xjpjwy for an example)
  */
-interface ProviderResult {
+export interface ProviderResult {
   Provider?: {
     /** Libp2p peer ID of the storage provider */
     ID?: string
@@ -429,19 +429,6 @@ async function checkIpniIndexerForCid(
 }
 
 /**
- * Convert a multiaddr string to a normalized URI for comparison.
- *
- * Different multiaddr representations of the same endpoint (e.g.
- * `/dns/host/tcp/443/https` and `/dns/host/https`) produce the same URI
- * (`https://host`), making comparison format-agnostic.
- *
- * Uses `@multiformats/multiaddr` + `@multiformats/multiaddr-to-uri` to parse
- * and convert. Paths (via `http-path`) are preserved.
- *
- * @param addr - A multiaddr string from an IPNI provider record
- * @returns The URI form, or the original string if conversion fails
- */
-/**
  * Delay that rejects as soon as `signal` aborts, so an abort mid-wait does not
  * ride out the remaining `ms`. Rejects with `abortMessage` so each retry loop
  * reports the abort the same way whether it lands mid-wait or mid-attempt.
@@ -467,7 +454,20 @@ function abortableDelay(ms: number, signal: AbortSignal | undefined, abortMessag
   })
 }
 
-function multiaddrToNormalizedUri(addr: string): string {
+/**
+ * Convert a multiaddr string to a normalized URI for comparison.
+ *
+ * Different multiaddr representations of the same endpoint (e.g.
+ * `/dns/host/tcp/443/https` and `/dns/host/https`) produce the same URI
+ * (`https://host`), making comparison format-agnostic.
+ *
+ * Uses `@multiformats/multiaddr` + `@multiformats/multiaddr-to-uri` to parse
+ * and convert. Paths (via `http-path`) are preserved.
+ *
+ * @param addr - A multiaddr string from an IPNI provider record
+ * @returns The URI form, or the original string if conversion fails
+ */
+export function multiaddrToNormalizedUri(addr: string): string {
   try {
     return multiaddrToUri(multiaddr(addr))
   } catch {
