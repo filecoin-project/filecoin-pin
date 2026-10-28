@@ -1,5 +1,9 @@
 Filecoin Pin brings multiple technologies together (i.e., existing Filecoin blockchain and storage providers, new Filecoin initiatives including Filecoin Onchain Cloud, IPFS).  As a result, terminology from all these areas is used for describing Filecoin Pin.  This glossary serves as a primer of the key terminology.  Rather than seeking to be the comprehensive source of truth, it seeks to point to where to find authoritative and more in depth information.  Many additional IPFS-related terms can be found in https://docs.ipfs.tech/concepts/glossary.  
 
+## Access Key
+
+The secret half of a [Share Link](#share-link): the private key of a throwaway key pair the sender makes for one link, which the link's grant is wrapped to. Its text form is `fak1_` followed by the base64url (unpadded) 32-byte key; the prefix lets the CLI refuse a [Grant](#grant) or a Share Link pasted in its place, and lets secret scanners spot a leak. Printed by `get-share-link` (default mode) and passed to `get --share` as `--access-key` or `SHARE_ACCESS_KEY`. Whoever holds the link and its Access key can read that upload.
+
 ## Calibration Network
 
 The "test network" of Filecoin's Mainnet, where developers can have more realistic network conditions without using truly valuable tokens. This is sometimes colloquially known as "calibnet" and has the [chain ID](https://chainlist.org/) of 314159, while Filecoin's Mainnet is 314. See https://docs.filecoin.io/networks/calibration
@@ -65,7 +69,7 @@ A group key Grant: what lets a [Session Key](#session-key) read and write a [Gro
 
 The CLI checks a Grant when it is imported and every time it is used: Keysmith checks the signatures, the expiry, that the session key is the bearer, and the key against the commitment the owner signed; the CLI checks the owner, the network, and the group key. It is saved as `GROUP_KEY_ID` and `GROUP_KEY_GRANT` next to the session key; the key it opens is never stored. A session key with a Grant uploads with `add --encrypt` into the group key's [Data Sets](#data-set) (tagging new ones with the `foc/kc` the owner signed) and reads uploads under that group key with `get` and `decrypt`.
 
-A Grant cannot be revoked: it gives the session key permanent read access to the whole group key, including future uploads. Session keys cannot pass it on. Not to be confused with the on-chain authorization of the session key's scopes, which `login` also calls a grant.
+A Grant cannot be revoked: it gives the session key permanent read access to the whole group key, including future uploads. Session keys cannot pass it on; they can share single uploads with [Share Links](#share-link). Not to be confused with the on-chain authorization of the session key's scopes, which `login` also calls a grant.
 
 ## FIL
 
@@ -283,6 +287,16 @@ Session keys require specific permissions (such as CREATE_DATA_SET and ADD_PIECE
 Note that the filecoin-pin CLI's `--session-key` flag (and `SESSION_KEY` environment variable) expect the session key's **private key** — the `SESSION_KEY` value printed by `filecoin-pin session create` or `filecoin-pin session generate` — not the session address. The (public) session address is only used when authorizing or revoking: `filecoin-pin session authorize <session-address>` and `filecoin-pin session revoke <session-address>`.
 
 
+
+## Share Link
+
+A link that opens one [Encrypted Upload](#encrypted-upload) for someone with no wallet or [Grant](#grant), made by `filecoin-pin get-share-link` or `add --encrypt --get-share-link`. It carries a [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) delivery (a claim for the upload's piece node, `piece:<salt>`, plus its key wrapped to a throwaway key pair) or, from a session key whose Grant cannot be passed on, the wrapped key alone. Everything is in the URL fragment, so it never reaches a server:
+
+```text
+<viewer>#v1/<encrypted root CID>&d=<payload>[&k=fak1_<key> | &p=pw1.<salt>]
+```
+
+Values are base64url without padding. With no `&k=` or `&p=`, the recipient also needs the [Access Key](#access-key); `&k=` carries it (a restricted link); `&p=` carries the salt from which the key is derived with a password (Keysmith's `pw1`: scrypt N=2^17, r=8, p=1). A link opens only its own upload, cannot be revoked, and its expiry ends only fetching from providers that require a claim, never decryption. See the [README](../README.md#share-links).
 
 ## Standard IPFS Tooling
 
