@@ -58,6 +58,8 @@ function seedBuilt(db: MigrationDB, subPieceCid: string, carPath: string) {
 interface FakeBehavior {
   /** Throw on the numbered commit call (1-based) on the given provider. */
   failCommit?: { providerId: string; call: number; message: string }
+  /** Every commit fails with this non-GC message. */
+  failAllCommits?: string
   /** Per-CID presence answers for hasPiece during re-verify. */
   present?: (cid: string) => boolean
   pullFails?: boolean
@@ -114,6 +116,7 @@ function fakeDeps(b: FakeBehavior = {}) {
           options.onSubmitted?.(`0xtx-${providerId}-${n}`)
           throw new Error(f.message)
         }
+        if (b.failAllCommits != null) throw new Error(b.failAllCommits)
         const txHash = `0xtx-${providerId}-${n}`
         sdkDataSetId ??= '7'
         return {
@@ -293,6 +296,25 @@ describe('runDirectUpload', () => {
       // piece is collected and the one the probe never reached is parked.
       expect(db.uploadStatus(P1, 'p1')).toBe('collected')
       expect(db.uploadStatus(P2, 'p1')).toBe('parked')
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('stops after 3 consecutive non-GC commit failures', async () => {
+    const { dir, db } = await dbAt('du-commit-failures')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      seedBuilt(db, P2, join(dir, 'b.car'))
+      const { deps, calls } = fakeDeps({ failAllCommits: 'insufficient funds' })
+      // A 1 ms window flushes every piece as soon as it parks.
+      await expect(runDirectUpload(db, { ...OPTS, assumedWindowMs: 1 }, deps)).rejects.toThrow(
+        /3 consecutive commit failures.*insufficient funds.*re-run/
+      )
+      // The third failure lands on P2's primary flush; nothing is stored after it.
+      expect(calls.store).toHaveLength(2)
+      expect(calls.pull).toBe(1)
     } finally {
       db.close()
       await rm(dir, { recursive: true, force: true })

@@ -199,6 +199,9 @@ export async function pieceParked(serviceURL: string, pieceCid: string): Promise
 /** Curio names sub-pieces by CIDv1; both forms end in the same 32-byte root. */
 const pieceRoot = (cid: string): string => Buffer.from(CID.parse(cid).multihash.digest.subarray(-32)).toString('hex')
 
+/** Consecutive non-GC commit failures before the run stops. */
+const MAX_COMMIT_FAILURES = 3
+
 /** How often a pipeline wait wakes to re-check flush deadlines. */
 const FLUSH_POLL_MS = 60_000
 
@@ -242,6 +245,7 @@ export async function runDirectUpload(
 
   const observedCommitMs: number[] = []
   const flushCounts = new Map<string, number>()
+  let commitFailures = 0
   const runTimer = new Timer()
   let storedBytes = 0
 
@@ -265,6 +269,7 @@ export async function runDirectUpload(
         onSubmitted: (txHash) => db.markUploadTxSubmitted(cids, ctx.providerId, txHash),
       })
       observedCommitMs.push(commitTimer.stop())
+      commitFailures = 0
       if (observedCommitMs.length > MARGIN_SAMPLE) observedCommitMs.shift()
       batch.forEach((b, i) => {
         db.markUploadCommitted(b.subPieceCid, ctx.providerId, {
@@ -286,6 +291,13 @@ export async function runDirectUpload(
         // Not a GC rejection: leave the batch in add_unconfirmed for the
         // resume reconciliation: a blind retry could double-add on chain.
         log.message(`error: commit failed on provider ${ctx.providerId} (batch left add_unconfirmed): ${message}`)
+        // Every further piece would be stored and pulled only to fail the same way.
+        if (++commitFailures >= MAX_COMMIT_FAILURES) {
+          throw new Error(
+            `stopping after ${commitFailures} consecutive commit failures (last on provider ${ctx.providerId}: ` +
+              `${message}); fix the cause and re-run the same command to resume, unconfirmed batches are reconciled first`
+          )
+        }
         return false
       }
       // Curio rejected the batch because a parked piece is gone. The batch is
