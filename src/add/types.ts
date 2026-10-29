@@ -28,9 +28,9 @@ export interface AddOptions extends CLIAuthOptions, CLIAutoFundOptions {
    * skips the IPNI wait.
    */
   ipfs?: boolean
-  /** With `encrypt`: print a Share link (and its Access key) for the upload. */
+  /** With `encrypt`: print a Share link that carries its own key. */
   getShareLink?: boolean
-  /** With `encrypt`: a Share link that carries its own Access key. */
+  /** With `encrypt`: a Share link plus its Access key, to send separately. */
   getShareLinkRestricted?: boolean
 }
 

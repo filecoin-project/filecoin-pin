@@ -63,7 +63,7 @@ export async function shareSender(auth: SynapseSetupConfig, chainId: number): Pr
 
 /** The closing reminder: how the link and its secret should travel. */
 export const shareReminder = (mode: ShareMode): string =>
-  mode === 'restricted'
+  mode === 'open'
     ? 'Anyone with the link can read this upload: send it only where that is acceptable'
     : 'Send the link and the Access key by different channels'
 
@@ -86,7 +86,7 @@ export async function runGetShareLink(cidArg: string, options: GetShareLinkOptio
     } catch {
       throw new Error(`Not an IPFS root CID: ${cidArg}`)
     }
-    const mode: ShareMode = options.restricted === true ? 'restricted' : 'access-key'
+    const mode: ShareMode = options.restricted === true ? 'restricted' : 'open'
     const auth = parseCLIAuth(options)
     const address = addressOf(auth)
     // Owner and session credentials both name an address; shareSender refuses a view-only one.

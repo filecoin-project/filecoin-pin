@@ -233,7 +233,7 @@ describe('add --encrypt with real packing', () => {
   describe('--get-share-link', () => {
     const PIECE = 'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy'
 
-    it("prints a link and Access key that open the new upload's key", async () => {
+    it("restricted: prints a link and Access key that open the new upload's key", async () => {
       const { performUpload } = await import('../../common/upload-flow.js')
       let car = Buffer.alloc(0)
       vi.mocked(performUpload).mockImplementationOnce((async (_synapse: unknown, data: ReadableStream<Uint8Array>) => {
@@ -244,11 +244,12 @@ describe('add --encrypt with real packing', () => {
       const printed: string[] = []
       vi.spyOn(console, 'log').mockImplementation((line: string) => printed.push(line))
 
-      await runAdd({ ...auth, filePath: input, encrypt: true, getShareLink: true })
+      await runAdd({ ...auth, filePath: input, encrypt: true, getShareLinkRestricted: true })
 
       const out = printed.join('\n')
       const parsed = parseShareLink(out.match(/https:\/\/\S+#v1\/\S+/)?.[0] ?? '')
       expect(out).toContain('Send the link and the Access key by different channels')
+      expect(parsed.accessKey).toBeUndefined()
       // The share names the upload's salt, which must be the one in the uploaded envelope's header.
       const { owner: ownerAddress, keyspace, node } = decodeGrant(parsed.payload)
       const salt = node.replace(/^piece:/, '') as Hex

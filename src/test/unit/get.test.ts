@@ -852,7 +852,7 @@ describe('get', () => {
         sender: { owner: OWNER },
         rootCid: upload.root,
         labels: upload.labels,
-        mode: 'access-key',
+        mode: 'restricted',
       })
 
       await expect(runGet(upload.root.toString(), outDir, { share: share.link })).rejects.toThrow(

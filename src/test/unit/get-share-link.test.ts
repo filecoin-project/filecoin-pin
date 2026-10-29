@@ -31,18 +31,29 @@ describe('runGetShareLink', () => {
     vi.restoreAllMocks()
   })
 
-  it('prints a link and Access key that open the upload whose header was read', async () => {
+  it.each([
+    ['an open link', {}],
+    ['a restricted link and its Access key', { restricted: true }],
+  ])('prints %s that opens the upload whose header was read', async (_, mode) => {
     const labels = pieceMetadata({ owner: OWNER.address, keyspace: GROUP_KEY }, { salt: newSalt() })
     header.labels = labels
     const printed: string[] = []
     vi.spyOn(console, 'log').mockImplementation((line: string) => printed.push(line))
 
-    await runGetShareLink(ROOT, { privateKey: OWNER_KEY, network: 'calibration', viewer: 'https://viewer.test/' })
+    await runGetShareLink(ROOT, {
+      privateKey: OWNER_KEY,
+      network: 'calibration',
+      viewer: 'https://viewer.test/',
+      ...mode,
+    })
 
     const text = printed.join('\n')
     const parsed = parseShareLink(text.match(/https:\/\/viewer\.test\/#\S+/)?.[0] ?? '')
     expect(parsed.rootCid.toString()).toBe(ROOT)
-    const accessKey = text.match(/fak1_\S+/)?.[0]
+    // Only a restricted link leaves its key out, printed on a line of its own.
+    const accessKey = text.match(/^fak1_\S+/m)?.[0]
+    expect(parsed.accessKey == null).toBe(accessKey != null)
+    expect(accessKey != null).toBe('restricted' in mode)
     const key = await shareKeyResolver(parsed, shareKey(parsed, accessKey))({ appMetadata: labels } as never)
     const { kk } = await deriveGroupKey(OWNER, { owner: OWNER.address, keyspace: GROUP_KEY })
     expect(bytesToHex(key)).toBe(bytesToHex(keyForEnvelope(kk, labels)))

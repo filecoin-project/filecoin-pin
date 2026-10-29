@@ -88,13 +88,13 @@ describe('share link text', () => {
 })
 
 describe('createShare', () => {
-  it('owner mode: a link the Access key opens, and nothing else does', async () => {
+  it('restricted mode: a link the Access key opens, and nothing else does', async () => {
     const labels = labelsFor()
     const share = await createShare({
       sender: { owner: OWNER },
       rootCid: ROOT,
       labels,
-      mode: 'access-key',
+      mode: 'restricted',
       viewer: VIEWER,
     })
     expect(share.link).not.toContain('&k=')
@@ -108,13 +108,13 @@ describe('createShare', () => {
     await expect(open(share.link, share.accessKey, labelsFor())).rejects.toThrow(/another upload/)
   })
 
-  it('restricted mode: the link opens on its own', async () => {
+  it('open mode: the link opens on its own', async () => {
     const labels = labelsFor()
     const share = await createShare({
       sender: { owner: OWNER },
       rootCid: ROOT,
       labels,
-      mode: 'restricted',
+      mode: 'open',
       viewer: VIEWER,
     })
     expect(share.accessKey).toBeUndefined()
@@ -132,7 +132,7 @@ describe('createShare', () => {
         sender: { owner: OWNER },
         rootCid: ROOT,
         labels,
-        mode: 'access-key',
+        mode: 'restricted',
       })
     ).rejects.toThrow(/belongs to 0x0000000000000000000000000000000000000001/)
   })
@@ -143,7 +143,7 @@ describe('createShare', () => {
       sender: await sessionSender(),
       rootCid: ROOT,
       labels,
-      mode: 'access-key',
+      mode: 'restricted',
       viewer: VIEWER,
     })
     expect(await open(share.link, share.accessKey, labels)).toBe(await ownerPieceKey(labels))
@@ -170,8 +170,8 @@ describe('pinned vectors', () => {
   const FRAGMENT = `${VIEWER}#v1/${ROOT}&d=gwECAw`
 
   it.each([
-    ['access key', undefined, FRAGMENT],
-    ['restricted', KEY, `${FRAGMENT}&k=fak1_AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA`],
+    ['restricted', undefined, FRAGMENT],
+    ['open', KEY, `${FRAGMENT}&k=fak1_AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA`],
   ])('formats and parses the %s link form exactly', (_, accessKey, link) => {
     expect(formatShareLink(VIEWER, ROOT, PAYLOAD, accessKey)).toBe(link)
     expect(parseShareLink(link)).toEqual({ rootCid: ROOT, payload: PAYLOAD, ...(accessKey != null && { accessKey }) })

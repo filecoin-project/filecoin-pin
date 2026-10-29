@@ -2,7 +2,7 @@ Filecoin Pin brings multiple technologies together (i.e., existing Filecoin bloc
 
 ## Access Key
 
-The secret half of a [Share Link](#share-link): the private key of a throwaway key pair the sender makes for one link, which the link's grant is wrapped to. Its text form is `fak1_` followed by the base64url (unpadded) 32-byte key; the prefix lets the CLI refuse a [Grant](#grant) or a Share Link pasted in its place, and lets secret scanners spot a leak. Printed by `get-share-link` (default mode) and passed to `get --share` as `--access-key` or `SHARE_ACCESS_KEY`. Whoever holds the link and its Access key can read that upload.
+The secret half of a [Share Link](#share-link): the private key of a throwaway key pair the sender makes for one link, which the link's grant is wrapped to. Its text form is `fak1_` followed by the base64url (unpadded) 32-byte key; the prefix lets the CLI refuse a [Grant](#grant) or a Share Link pasted in its place, and lets secret scanners spot a leak. Printed by `get-share-link --restricted` and passed to `get --share` as `--access-key` or `SHARE_ACCESS_KEY`. Whoever holds the link and its Access key can read that upload.
 
 ## Calibration Network
 
@@ -296,7 +296,7 @@ A link that opens one [Encrypted Upload](#encrypted-upload) for someone with no 
 <viewer>#v1/<encrypted root CID>&d=<payload>[&k=fak1_<key>]
 ```
 
-Values are base64url without padding. Without `&k=`, the recipient also needs the [Access Key](#access-key); `&k=` carries it (a restricted link). A link opens only its own upload, never expires and cannot be revoked. See the [README](../README.md#share-links).
+Values are base64url without padding. By default `&k=` carries the [Access Key](#access-key), so the link alone opens the upload (an open link). A restricted link (`--restricted`) leaves `&k=` out, and the recipient also needs the Access key, sent separately. A link opens only its own upload, never expires and cannot be revoked. See the [README](../README.md#share-links).
 
 ## Standard IPFS Tooling
 

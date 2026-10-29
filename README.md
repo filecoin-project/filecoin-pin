@@ -357,23 +357,24 @@ PRIVATE_KEY=0x... filecoin-pin get bafybei... ~/Downloads
 
 ### Share Links
 
-`filecoin-pin get-share-link <cid>` shares one [Encrypted Upload](documentation/glossary.md#encrypted-upload) with someone who has no wallet or Grant. It prints a [Share Link](documentation/glossary.md#share-link) and, by default, an [Access Key](documentation/glossary.md#access-key) (`fak1_…`): send them by different channels. `<cid>` is the upload's Encrypted root CID, as `add --encrypt` printed it. `add --encrypt --get-share-link` prints the same right after a successful upload.
+`filecoin-pin get-share-link <cid>` shares one [Encrypted Upload](documentation/glossary.md#encrypted-upload) with someone who has no wallet or Grant. It prints a [Share Link](documentation/glossary.md#share-link) that, by default, opens the upload on its own. With `--restricted` it also prints an [Access Key](documentation/glossary.md#access-key) (`fak1_…`) that the recipient needs as well: send the two by different channels. `<cid>` is the upload's Encrypted root CID, as `add --encrypt` printed it. `add --encrypt --get-share-link` prints the same right after a successful upload.
 
 | Mode | `get-share-link` | `add --encrypt` | The recipient needs |
 | --- | --- | --- | --- |
-| Access key (default) | (no flag) | `--get-share-link` | the link and the Access key |
-| Restricted | `--restricted` | `--get-share-link-restricted` | the link alone |
+| Open (default) | (no flag) | `--get-share-link` | the link alone |
+| Restricted | `--restricted` | `--get-share-link-restricted` | the link and the Access key |
 
-* **What it opens:** that one upload, never the rest of its group key. The link alone opens nothing (except a restricted one), and every link has its own key, so links are independent.
+* **What it opens:** that one upload, never the rest of its group key. Anyone holding an open link can read the upload, so send it only where that is acceptable; a restricted link alone opens nothing. Every link has its own key, so links are independent.
 * **Who can share:** the owner wallet (`PRIVATE_KEY`), or a session key with a [Grant](documentation/glossary.md#grant) for the upload's group key.
 * **No expiry:** a link reads the upload for as long as the upload is stored. **A link cannot be revoked**: to stop sharing, upload again and remove the old upload.
 * **Finding the upload:** `get-share-link` reads the envelope header (owner, group key, salt) from the upload's first blocks, through [IPNI](documentation/glossary.md#ipni) and your own data sets' providers, checking every block against the CID: the root and the first leaf, about 1 MiB at most.
 * **Limits:** uploads made with `--no-ipfs` can't be shared, since a link fetches the upload by its root CID: `add` refuses `--no-ipfs` with a share flag. Links point at a web viewer (`--viewer <url>`) that is not released yet; until it is, open them with `get --share`.
 
-To open a link, pass it to `get` with its Access key, as a flag or from the environment (the flag wins):
+To open a link, pass it to `get`, with its Access key for a restricted link, as a flag or from the environment (the flag wins):
 
 ```bash
-PRIVATE_KEY=0x... filecoin-pin get-share-link bafybei...
+PRIVATE_KEY=0x... filecoin-pin get-share-link bafybei... --restricted
+filecoin-pin get bafybei... ./from-alice --share '<link>'
 filecoin-pin get bafybei... ./from-alice --share '<link>' --access-key fak1_...
 SHARE_ACCESS_KEY=fak1_... filecoin-pin get bafybei... --share '<link>'
 ```

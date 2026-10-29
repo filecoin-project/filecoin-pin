@@ -4,8 +4,8 @@
  * A share is a Keysmith piece grant: the upload's key wrapped to a throwaway key T that the sender
  * makes for the recipient. Nothing flows back from the recipient, so it works for anyone on the web.
  *
- * T's private key reaches the recipient as an Access key sent separately (the default), or inside
- * the link (`--restricted`):
+ * T's private key travels inside the link (the default), or as an Access key the recipient is
+ * sent separately and pastes in (`--restricted`):
  *
  *   <viewer>#v1/<encrypted root CID>&d=<payload>[&k=fak1_<key>]
  *
@@ -44,13 +44,14 @@ export const DEFAULT_VIEWER_URL =
 /** Prefix of an Access key's text form: lets both sides refuse a wrong paste, and secret scanners find a leak. */
 export const ACCESS_KEY_PREFIX = 'fak1_'
 
-export type ShareMode = 'access-key' | 'restricted'
+/** `open`: the link alone opens the upload. `restricted`: the link also needs its Access key. */
+export type ShareMode = 'open' | 'restricted'
 
 export interface ParsedShare {
   rootCid: CID
   /** A Keysmith piece grant, CBOR. */
   payload: Uint8Array
-  /** The Access key, when the link carries it (restricted). Absent by default. */
+  /** The Access key, when the link carries it (an open link). Absent from a restricted link. */
   accessKey?: Hex
 }
 
@@ -84,7 +85,7 @@ export function parseAccessKey(text: string): Hex {
   return bytesToHex(bytes)
 }
 
-/** `<viewer>#v1/<rootCid>&d=<payload>`, then `&k=` for a restricted link. */
+/** `<viewer>#v1/<rootCid>&d=<payload>`, then `&k=` for an open link. */
 export function formatShareLink(viewer: string, rootCid: CID, payload: Uint8Array, accessKey?: Hex): string {
   const base = viewer.split('#')[0] ?? viewer
   let fragment = `v1/${rootCid.toString()}&d=${b64(payload)}`
@@ -137,7 +138,7 @@ export interface CreateShareInput {
 
 export interface CreatedShare {
   link: string
-  /** The Access key to send separately (default mode only). */
+  /** The Access key to send separately (restricted mode only). */
   accessKey?: string
 }
 
@@ -174,7 +175,7 @@ export async function createShare(input: CreateShareInput): Promise<CreatedShare
   }
 
   const viewer = input.viewer ?? DEFAULT_VIEWER_URL
-  if (input.mode === 'restricted') return { link: formatShareLink(viewer, input.rootCid, payload, T) }
+  if (input.mode === 'open') return { link: formatShareLink(viewer, input.rootCid, payload, T) }
   return { link: formatShareLink(viewer, input.rootCid, payload), accessKey: accessKeyText(T) }
 }
 

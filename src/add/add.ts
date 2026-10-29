@@ -206,7 +206,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       throw new Error('Choose --get-share-link or --get-share-link-restricted, not both')
     }
     const shareMode: ShareMode | undefined =
-      options.getShareLinkRestricted === true ? 'restricted' : options.getShareLink === true ? 'access-key' : undefined
+      options.getShareLinkRestricted === true ? 'restricted' : options.getShareLink === true ? 'open' : undefined
     if (shareMode != null && options.encrypt !== true) {
       throw new Error('--get-share-link needs --encrypt: a plain upload is shared by its CID')
     }
