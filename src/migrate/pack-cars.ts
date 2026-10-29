@@ -43,6 +43,9 @@ export const DEFAULT_PACK_TARGET_BYTES = 1000n * 1024n * 1024n
 /** The SDK's per-piece upload cap: 1016 MiB in synapse-core 0.10.0, 64 GiB padded from 0.10.1. */
 export const MAX_UPLOAD_BYTES = SIZE_CONSTANTS.MAX_UPLOAD_SIZE
 
+/** Roots per multi-root CAR: ~41 header bytes each, far under go-car's 32 MiB header limit. */
+export const MAX_BIN_MEMBERS = 100_000
+
 export interface PackPlanInput {
   /** Source CID. */
   cid: string
@@ -118,7 +121,7 @@ export function planBins(
   for (const piece of sorted) {
     let placed = false
     for (const bin of bins) {
-      if (bin.used + piece.rawSize <= targetSizeBytes) {
+      if (bin.used + piece.rawSize <= targetSizeBytes && bin.pieces.length < MAX_BIN_MEMBERS) {
         bin.pieces.push(piece)
         bin.used += piece.rawSize
         placed = true
