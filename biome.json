@@ -93,7 +93,8 @@
           "options": { "requireAscii": true, "filenameCases": ["kebab-case"] }
         },
         "useNodejsImportProtocol": "off",
-        "useDefaultParameterLast": "warn"
+        "useDefaultParameterLast": "warn",
+        "noNestedTernary": "error"
       },
       "suspicious": {
         "noAssignInExpressions": "warn",
