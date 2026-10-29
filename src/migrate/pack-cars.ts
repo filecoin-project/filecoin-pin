@@ -46,6 +46,9 @@ export const MAX_UPLOAD_BYTES = SIZE_CONSTANTS.MAX_UPLOAD_SIZE
 /** The SDK's per-piece upload floor (127 bytes): a smaller piece is rejected at store time. */
 export const MIN_UPLOAD_BYTES = SIZE_CONSTANTS.MIN_UPLOAD_SIZE
 
+/** Roots per multi-root CAR: ~41 header bytes each, far under go-car's 32 MiB header limit. */
+export const MAX_BIN_MEMBERS = 100_000
+
 export interface PackPlanInput {
   /** Source CID. */
   cid: string
@@ -121,7 +124,7 @@ export function planBins(
   for (const piece of sorted) {
     let placed = false
     for (const bin of bins) {
-      if (bin.used + piece.rawSize <= targetSizeBytes) {
+      if (bin.used + piece.rawSize <= targetSizeBytes && bin.pieces.length < MAX_BIN_MEMBERS) {
         bin.pieces.push(piece)
         bin.used += piece.rawSize
         placed = true

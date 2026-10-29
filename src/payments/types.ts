@@ -32,6 +32,8 @@ export interface AutoFundOptions {
   dataSetIds?: bigint[]
   /** Data set metadata applied when creating or matching contexts */
   metadata?: Record<string, string>
+  /** Inject `withIPFSIndexing` when matching or creating contexts (default true) */
+  ipfsIndexing?: boolean
   /** Whether CDN (FilBeam) is enabled — adds the per-new-data-set fixed lockup to funding estimates */
   withCDN?: boolean
   /** Optional spinner for progress updates */

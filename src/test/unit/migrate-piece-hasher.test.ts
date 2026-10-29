@@ -6,11 +6,13 @@ import { CarWriter } from '@ipld/car'
 import * as dagPb from '@ipld/dag-pb'
 import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
+import * as Digest from 'multiformats/hashes/digest'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { describe, expect, it, vi } from 'vitest'
 import { MigrationDB } from '../../migrate/db.js'
 import {
   assembleMultiRootCar,
+  MAX_BIN_MEMBERS,
   MAX_UPLOAD_BYTES,
   MIN_UPLOAD_BYTES,
   planBins,
@@ -415,5 +417,16 @@ describe('planBins', () => {
     const { bins, deferred } = planBins([tiny], 1000)
     expect(bins).toEqual([])
     expect(deferred).toEqual([tiny])
+  })
+
+  // Every member is a CAR header root; go-car rejects headers over 32 MiB.
+  it('caps members per bin', () => {
+    const pieces = Array.from({ length: MAX_BIN_MEMBERS + 1 }, (_, i) => {
+      const bytes = new Uint8Array(32)
+      new DataView(bytes.buffer).setUint32(0, i)
+      return { cid: CID.createV1(raw.code, Digest.create(sha256.code, bytes)).toString(), rawSize: 1 }
+    })
+    const { bins } = planBins(pieces, Number.MAX_SAFE_INTEGER)
+    expect(bins.map((b) => b.memberCids.length)).toEqual([MAX_BIN_MEMBERS, 1])
   })
 })

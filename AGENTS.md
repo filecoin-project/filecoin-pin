@@ -96,7 +96,7 @@ src/
 
 **Required env**: `PRIVATE_KEY=0x...` (with USDFC tokens; not needed for devnet)
 
-**Optional**: `NETWORK`, `RPC_URL`, `EGRESS_PROVIDER`, `FOC_DEVNET_BASEDIR`, `DEVNET_INFO_PATH`, `DEVNET_USER_INDEX`, `PORT`, `HOST`, `DATABASE_PATH`, `CAR_STORAGE_PATH`, `LOG_LEVEL`
+**Optional**: `SESSION_KEY` + `WALLET_ADDRESS` (session key instead of `PRIVATE_KEY`), `VIEW_ADDRESS` (read-only), `GROUP_KEY_ID` + `GROUP_KEY_GRANT` (group key Grant for a session key), `NETWORK`, `RPC_URL`, `EGRESS_PROVIDER`, `FOC_DEVNET_BASEDIR`, `DEVNET_INFO_PATH`, `DEVNET_USER_INDEX`, `PORT`, `HOST`, `DATABASE_PATH`, `CAR_STORAGE_PATH`, `LOG_LEVEL`
 
 **Default data dirs for pinning server** (via `env-paths`): Linux `~/.local/share/filecoin-pin/`, macOS `~/Library/Application Support/filecoin-pin/`, Windows `%LOCALAPPDATA%\filecoin-pin\Data\`
 

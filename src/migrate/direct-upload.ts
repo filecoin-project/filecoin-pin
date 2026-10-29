@@ -21,8 +21,6 @@
 import { createReadStream } from 'node:fs'
 import { unlink } from 'node:fs/promises'
 import { Readable } from 'node:stream'
-import { FindPieceError } from '@filoz/synapse-core/errors'
-import { findPiece } from '@filoz/synapse-core/sp'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import { formatFileSize } from '../utils/cli-helpers.js'
@@ -149,18 +147,7 @@ export const defaultDirectUploadDeps: DirectUploadDeps = {
           pull: (options) => ctx.pull(options as never),
           commit: (options) => ctx.commit(options as never),
           getPieceUrl: (pieceCid) => ctx.getPieceUrl(pieceCid as never),
-          hasPiece: async (pieceCid) => {
-            try {
-              await findPiece({ serviceURL, pieceCid: pieceCid as never, retryCount: 0 })
-              return true
-            } catch (err) {
-              // False feeds "collected" transitions that trigger a full
-              // re-store, so only the SP's own not-found answer counts.
-              // Timeouts and transport errors propagate and abort the pass.
-              if (err instanceof FindPieceError && !err.message.includes('Timeout')) return false
-              throw err
-            }
-          },
+          hasPiece: (pieceCid) => pieceParked(serviceURL, String(pieceCid)),
         }
       }),
     }
@@ -181,6 +168,24 @@ export const defaultDirectUploadDeps: DirectUploadDeps = {
   fetchAddPiecesEvent,
   dataSetPieceId,
 }
+
+/**
+ * Whether the provider still holds a parked piece. False feeds "collected"
+ * transitions that trigger a full re-store, so only a 404 counts; any other
+ * failure throws and aborts the pass.
+ */
+export async function pieceParked(serviceURL: string, pieceCid: string): Promise<boolean> {
+  const res = await fetch(new URL(`pdp/piece?${new URLSearchParams({ pieceCid })}`, serviceURL))
+  if (res.status === 404) return false
+  if (!res.ok) throw new Error(`piece lookup on ${serviceURL} failed: HTTP ${res.status}`)
+  return true
+}
+
+/** Curio names sub-pieces by CIDv1; both forms end in the same 32-byte root. */
+const pieceRoot = (cid: string): string => Buffer.from(CID.parse(cid).multihash.digest.subarray(-32)).toString('hex')
+
+/** How often a pipeline wait wakes to re-check flush deadlines. */
+const FLUSH_POLL_MS = 60_000
 
 export interface DirectUploadSummary {
   network: string
@@ -274,7 +279,7 @@ export async function runDirectUpload(
       // atomic and pre-chain, so nothing landed. Lower the window from the
       // collected piece's parked age, then re-verify every batch member:
       // Curio reports only the FIRST miss.
-      const collected = batch.find((b) => b.subPieceCid === gcCid)
+      const collected = batch.find((b) => pieceRoot(b.subPieceCid) === pieceRoot(gcCid))
       if (collected == null) {
         log.message(`warn: provider ${ctx.providerId} rejected unknown sub-piece ${gcCid}; re-verifying batch`)
       } else {
@@ -289,8 +294,10 @@ export async function runDirectUpload(
       // Nothing landed, so the whole batch is parked again before probing:
       // a probe that throws must not strand the rest in add_unconfirmed.
       db.revertUploadsToParked(cids, ctx.providerId)
-      for (const b of batch) {
-        if (b.subPieceCid !== gcCid && (await ctx.hasPiece(CID.parse(b.subPieceCid)))) continue
+      // The named piece is known gone; mark it before any probe can throw.
+      const ordered = collected == null ? batch : [collected, ...batch.filter((b) => b !== collected)]
+      for (const b of ordered) {
+        if (b !== collected && (await ctx.hasPiece(CID.parse(b.subPieceCid)))) continue
         db.markUploadCollected(b.subPieceCid, ctx.providerId)
         log.message(`collected: ${b.subPieceCid} on provider ${ctx.providerId} (will re-store)`)
       }
@@ -355,17 +362,20 @@ export async function runDirectUpload(
     const pending = db.subPiecesNeedingUpload(primary.providerId).filter((s) => !storeDeferred.has(s.subPieceCid))
     const next = pending[0]
     if (next == null) {
-      if (opts.forceFlush?.() === true) {
-        // Downloads are blocked on the disk budget; commit whatever is
-        // parked now so eviction can free space, rather than holding the
-        // batch for the GC-window timer.
-        await maybeFlush(true)
-      }
-      // Pieces deferred after a failed store are not "more": waiting on them would spin.
-      if (opts.waitForMore != null && (await opts.waitForMore(storeDeferred))) {
-        continue
-      }
-      break
+      // A budget-blocked producer forces a commit so eviction frees space.
+      await maybeFlush(opts.forceFlush?.() === true)
+      if (opts.waitForMore == null) break
+      // Wake on a timer too: a slow packer must not age parked pieces past their deadline.
+      let timer: NodeJS.Timeout | undefined
+      const more = await Promise.race([
+        opts.waitForMore(storeDeferred),
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), FLUSH_POLL_MS)
+        }),
+      ])
+      clearTimeout(timer)
+      if (more === false) break
+      continue
     }
     if (next.carPath == null) {
       // subPiecesNeedingUpload selects built rows, which always carry a CAR
@@ -544,88 +554,60 @@ async function reconcileUnconfirmed(
   deps: DirectUploadDeps
 ): Promise<void> {
   for (const u of db.uploadsByStatus(ctx.providerId, 'add_unconfirmed')) {
-    if (u.txHash == null) {
-      // The crash landed between the transaction broadcast and the hash
-      // callback, so no receipt can be checked. The data set is the witness:
-      // a piece present on chain is committed. No data set at all means the
-      // first commit (createDataSetAndAddPieces, one transaction) has not
-      // confirmed; a later run finds it by metadata if it lands.
-      const dataSetId = u.dataSetId ?? ctx.dataSetId
-      if (dataSetId != null) {
-        const pieceId = await deps.dataSetPieceId(synapse, dataSetId, u.subPieceCid)
-        if (pieceId != null) {
-          db.markUploadCommitted(u.subPieceCid, ctx.providerId, { dataSetId, pieceId, txHash: null })
-          ctx.dataSetId ??= dataSetId
-          log.message(
-            `resume: ${u.subPieceCid} found on chain in data set ${dataSetId} (piece ${pieceId}); marked committed`
-          )
-          continue
-        }
-      }
-      // Absent on chain. A transaction the provider broadcast just before
-      // the crash could still land, and re-queueing while it can would add
-      // the piece twice, so the row only re-enters the flow once the
-      // breadcrumb is older than any realistic confirmation window. Younger
-      // rows stay unresolved and the run exits incomplete; a re-run later
-      // resolves them one way or the other.
-      const ageMs = deps.now() - Date.parse(u.updatedAt)
-      if (ageMs < UNCONFIRMED_REQUEUE_AFTER_MS) {
-        const where = dataSetId == null ? 'no data set exists yet' : `it is absent from data set ${dataSetId}`
+    if (u.txHash != null && (await deps.txLanded(synapse, u.txHash))) {
+      // The commit landed; only local confirmation was missed. Resolve it
+      // from the canonical witness (the PiecesAdded event) rather than
+      // trusting any side channel. The row's own data set takes precedence
+      // when known; a first-commit crash on a new data set has none, and
+      // then the event's own setId is the recovery path.
+      const event = await deps.fetchAddPiecesEvent(synapse, u.txHash, u.dataSetId ?? ctx.dataSetId)
+      const pieceIndex = event == null ? -1 : event.pieceCids.indexOf(u.subPieceCid)
+      if (event != null && pieceIndex >= 0) {
+        const dataSetId = String(event.dataSetId)
+        db.markUploadCommitted(u.subPieceCid, ctx.providerId, {
+          dataSetId,
+          pieceId: String(event.pieceIds[pieceIndex] ?? ''),
+          txHash: u.txHash,
+        })
+        // Later parks in this run carry the recovered set id on their rows.
+        ctx.dataSetId ??= dataSetId
         log.message(
-          `resume: ${u.subPieceCid} has an unconfirmed addPieces with no transaction hash and ${where} ` +
-            `on provider ${ctx.providerId}; too recent to rule out an in-flight transaction, left add_unconfirmed ` +
-            `(re-run after ${formatDuration(UNCONFIRMED_REQUEUE_AFTER_MS - ageMs)})`
+          `resume: ${u.subPieceCid} confirmed on chain via PiecesAdded (tx ${u.txHash}, ` +
+            `data set ${dataSetId}); marked committed`
         )
         continue
       }
-      // Old enough that an in-flight transaction would have landed or died.
-      // Fall through to the presence check below so the piece re-parks or
-      // re-stores like any other unconfirmed attempt.
+      log.message(
+        `resume: ${u.subPieceCid} has a LANDED addPieces tx ${u.txHash} on provider ${ctx.providerId} ` +
+          `but its PiecesAdded event could not be verified; leaving add_unconfirmed: check the data set ` +
+          `on the explorer before any manual retry (a blind re-add would duplicate the piece)`
+      )
+      continue
     }
-    if (u.txHash != null) {
-      if (await deps.txLanded(synapse, u.txHash)) {
-        // The commit landed; only local confirmation was missed. Resolve it
-        // from the canonical witness (the PiecesAdded event) rather than
-        // trusting any side channel. The row's own data set takes precedence
-        // when known; a first-commit crash on a new data set has none, and
-        // then the event's own setId is the recovery path.
-        const event = await deps.fetchAddPiecesEvent(synapse, u.txHash, u.dataSetId ?? ctx.dataSetId)
-        const pieceIndex = event == null ? -1 : event.pieceCids.indexOf(u.subPieceCid)
-        if (event != null && pieceIndex >= 0) {
-          const dataSetId = String(event.dataSetId)
-          db.markUploadCommitted(u.subPieceCid, ctx.providerId, {
-            dataSetId,
-            pieceId: String(event.pieceIds[pieceIndex] ?? ''),
-            txHash: u.txHash,
-          })
-          // Later parks in this run carry the recovered set id on their rows.
-          ctx.dataSetId ??= dataSetId
-          log.message(
-            `resume: ${u.subPieceCid} confirmed on chain via PiecesAdded (tx ${u.txHash}, ` +
-              `data set ${dataSetId}); marked committed`
-          )
-          continue
-        }
+    // No landed receipt (no hash, still pending, or replaced by the gas bumper): the data set is the witness.
+    const dataSetId = u.dataSetId ?? ctx.dataSetId
+    if (dataSetId != null) {
+      const pieceId = await deps.dataSetPieceId(synapse, dataSetId, u.subPieceCid)
+      if (pieceId != null) {
+        db.markUploadCommitted(u.subPieceCid, ctx.providerId, { dataSetId, pieceId, txHash: null })
+        ctx.dataSetId ??= dataSetId
         log.message(
-          `resume: ${u.subPieceCid} has a LANDED addPieces tx ${u.txHash} on provider ${ctx.providerId} ` +
-            `but its PiecesAdded event could not be verified; leaving add_unconfirmed: check the data set ` +
-            `on the explorer before any manual retry (a blind re-add would duplicate the piece)`
+          `resume: ${u.subPieceCid} found on chain in data set ${dataSetId} (piece ${pieceId}); marked committed`
         )
         continue
       }
-      // Not landed is not dead: the tx can still be in the mempool, and
-      // re-parking now would let the next flush double-add once it lands.
-      // Same age gate as the hashless path: only a breadcrumb older than any
-      // realistic confirmation window re-enters the flow.
-      const ageMs = deps.now() - Date.parse(u.updatedAt)
-      if (ageMs < UNCONFIRMED_REQUEUE_AFTER_MS) {
-        log.message(
-          `resume: ${u.subPieceCid} has an unlanded addPieces tx ${u.txHash} on provider ${ctx.providerId}; ` +
-            `too recent to rule out an in-flight transaction, left add_unconfirmed ` +
-            `(re-run after ${formatDuration(UNCONFIRMED_REQUEUE_AFTER_MS - ageMs)})`
-        )
-        continue
-      }
+    }
+    // Absent, or no data set yet: an in-flight tx could still land, so only an aged breadcrumb re-queues.
+    const ageMs = deps.now() - Date.parse(u.updatedAt)
+    if (ageMs < UNCONFIRMED_REQUEUE_AFTER_MS) {
+      const attempt = u.txHash == null ? 'no transaction hash' : `unlanded tx ${u.txHash}`
+      const where = dataSetId == null ? 'no data set exists yet' : `it is absent from data set ${dataSetId}`
+      log.message(
+        `resume: ${u.subPieceCid} has an unconfirmed addPieces (${attempt}) and ${where} on provider ` +
+          `${ctx.providerId}; too recent to rule out an in-flight transaction, left add_unconfirmed ` +
+          `(re-run after ${formatDuration(UNCONFIRMED_REQUEUE_AFTER_MS - ageMs)})`
+      )
+      continue
     }
     if (await ctx.hasPiece(CID.parse(u.subPieceCid))) {
       db.revertUploadsToParked([u.subPieceCid], ctx.providerId)
