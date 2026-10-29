@@ -1,10 +1,8 @@
 /**
- * Trustless-gateway CAR URL construction and the default gateway list. One
- * definition, so every fetch in the pipeline requests the same shape.
+ * Trustless-gateway CAR URL construction. One definition, so every fetch in
+ * the pipeline requests the same shape. There is no default gateway; the
+ * operator names the one that serves their content.
  */
-
-/** Gateways used when no `--gateway` is given. */
-export const DEFAULT_GATEWAYS = ['https://trustless-gateway.link']
 
 export const CAR_ACCEPT = 'application/vnd.ipld.car'
 

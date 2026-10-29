@@ -56,6 +56,8 @@ describe('CLI entrypoint', () => {
     expect(out).toMatch(/import .*<file>/)
     expect(out).toContain('Upload an existing CAR file to Filecoin')
     expect(out).toMatch(/Manage\s+storage\s+payments\s+\(required\s+before\s+your\s+first\s+upload\)/)
+    expect(out).toMatch(/migrate .*<cid-list-file>/)
+    expect(out).toMatch(/Migrate IPFS content to Filecoin/)
     expect(out).toContain('filecoin-pin payments setup --auto')
     expect(out).toContain('filecoin-pin add ./myfile.txt')
     expect(out).toContain('filecoin-pin import ./archive.car')

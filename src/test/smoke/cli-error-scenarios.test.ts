@@ -23,8 +23,10 @@
  * 3. Assert exitCode and one toContain() for the key error phrase.
  */
 
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { runCli } from './utils.js'
+import { runCli, SMOKE_DATA_DIR } from './utils.js'
 
 const T = { timeout: 30_000 } as const
 
@@ -96,6 +98,35 @@ describe('import', () => {
     const result = await runCli(['import', 'non-existent-archive.car'])
     expect(result.exitCode).toBe(1)
     expect(result.combined).toContain('File not found: non-existent-archive.car')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// migrate
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('migrate', () => {
+  const cidList = join(SMOKE_DATA_DIR, 'cids.txt')
+
+  it('missing --gateway', T, async () => {
+    writeFileSync(cidList, '')
+    const result = await runCli(['migrate', cidList])
+    expect(result.exitCode).toBe(1)
+    expect(result.combined).toContain("required option '--gateway <url>' not specified")
+  })
+
+  it('--gateway without a scheme', T, async () => {
+    writeFileSync(cidList, '')
+    const result = await runCli(['migrate', cidList, '--gateway', 'trustless-gateway.link'])
+    expect(result.exitCode).toBe(1)
+    expect(result.combined).toContain('is not an http(s) URL')
+  })
+
+  it('empty CID list', T, async () => {
+    writeFileSync(cidList, '# nothing here\n')
+    const result = await runCli(['migrate', cidList, '--gateway', 'https://trustless-gateway.link'])
+    expect(result.exitCode).toBe(1)
+    expect(result.combined).toContain('no CIDs found')
   })
 })
 
