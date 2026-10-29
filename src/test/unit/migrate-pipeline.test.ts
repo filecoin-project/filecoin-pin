@@ -36,6 +36,8 @@ interface HarnessOptions {
   forbiddenFetches?: string[]
   /** The first store() on the provider fails like a dropped connection. */
   storeFailsOnce?: boolean
+  /** The first commit is rejected by GC and the re-store after it fails. */
+  gcThenStoreFails?: boolean
 }
 
 async function harness(config: HarnessOptions) {
@@ -96,9 +98,9 @@ async function harness(config: HarnessOptions) {
     async store(_data, opts) {
       events.push(`store:${String(opts.pieceCid)}`)
       storeLanded()
-      if (config.storeFailsOnce && events.filter((e) => e.startsWith('store:')).length === 1) {
-        throw new Error('provider down')
-      }
+      const stores = events.filter((e) => e.startsWith('store:')).length
+      if (config.storeFailsOnce && stores === 1) throw new Error('provider down')
+      if (config.gcThenStoreFails && stores === 2) throw new Error('provider down')
       return { pieceCid: opts.pieceCid, size: 600 }
     },
     async presignForCommit() {
@@ -109,6 +111,9 @@ async function harness(config: HarnessOptions) {
     },
     async commit(opts) {
       events.push(`commit:${opts.pieces.length}`)
+      if (config.gcThenStoreFails && events.filter((e) => e.startsWith('commit:')).length === 1) {
+        throw new Error(`subPiece CID ${String(opts.pieces[0]?.pieceCid)} not found or does not belong to service x`)
+      }
       return { txHash: '0xtx', pieceIds: opts.pieces.map((_, i) => BigInt(i)), dataSetId: 7n }
     },
     getPieceUrl: (pieceCid) => `fake://p1/piece/${String(pieceCid)}`,
@@ -199,6 +204,19 @@ describe('runMigrate pipeline', () => {
       expect(summary.pieces.succeeded).toBe(2)
       expect(h.db.subPiecesNeedingUpload('p1')).toHaveLength(0)
       expect(h.events.filter((e) => e.startsWith('store:'))).toHaveLength(3)
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  }, 10_000)
+
+  it('does not spin on a collected piece whose re-store was deferred', async () => {
+    const cids = await Promise.all(['a', 'b', 'c', 'd'].map(async (t) => ({ cid: await cidFor(t) })))
+    const h = await harness({ cids, budgetBytes: 2000, packTargetBytes: 600, gcThenStoreFails: true })
+    try {
+      await runMigrate(h.db, h.options, h.deps)
+
+      expect(h.db.uploadsByStatus('p1', 'collected')).toHaveLength(0)
     } finally {
       h.db.close()
       await rm(h.dir, { recursive: true, force: true })
@@ -297,7 +315,7 @@ describe('runMigrate pipeline', () => {
     // a fits the budget alone but not on top of b's 500 staged bytes (b
     // downloads first). a must wait for b to ship and free space, not restart.
     const cids = [
-      { cid: await cidFor('a'), rawSize: 2800 },
+      { cid: await cidFor('a'), rawSize: 1900 },
       { cid: await cidFor('b'), rawSize: 500 },
     ]
     const h = await harness({ cids, budgetBytes: 4000, packTargetBytes: 1000 })
@@ -340,11 +358,26 @@ describe('runMigrate pipeline', () => {
     }
   }, 10_000)
 
+  it('fails a member that cannot fit alongside its own solo CAR', async () => {
+    // Over the pack target it ships solo: 2500 staged plus 2500 assembled exceeds the 4000 budget.
+    const cids = [{ cid: await cidFor('big'), rawSize: 2500 }]
+    const h = await harness({ cids, budgetBytes: 4000, packTargetBytes: 1000 })
+    try {
+      const summary = await runMigrate(h.db, h.options, h.deps)
+
+      expect(summary.failures[0]?.error).toContain('raise --max-staged-bytes')
+      expect(h.events.filter((e) => e.startsWith('build:'))).toHaveLength(0)
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  }, 10_000)
+
   it('stops instead of hanging when the only free member is too small to pack', async () => {
     // b downloads first and is under the upload floor, so a non-final pack
     // builds nothing and frees nothing; a cannot fit until b is gone.
     const cids = [
-      { cid: await cidFor('a'), rawSize: 2950 },
+      { cid: await cidFor('a'), rawSize: 1980 },
       { cid: await cidFor('b'), rawSize: 100 },
     ]
     const h = await harness({ cids, budgetBytes: 4000, packTargetBytes: 1000 })

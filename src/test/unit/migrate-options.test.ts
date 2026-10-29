@@ -27,6 +27,11 @@ describe('normalizeMigrateOptions', () => {
     expect(() => normalizeMigrateOptions({})).toThrow(/--gateway/)
   })
 
+  it('rejects a --gateway that is not an http(s) URL', () => {
+    expect(() => normalizeMigrateOptions({ gateway: ['trustless-gateway.link'] })).toThrow(/--gateway/)
+    expect(() => normalizeMigrateOptions({ gateway: ['localhost:8080'] })).toThrow(/--gateway/)
+  })
+
   it('opts into FilBeam egress only with --egress-provider beam', () => {
     expect(normalizeMigrateOptions({ gateway: ['https://gw.example'], egressProvider: 'beam' }).withCDN).toBe(true)
     expect(normalizeMigrateOptions({ gateway: ['https://gw.example'], egressProvider: 'none' }).withCDN).toBe(false)

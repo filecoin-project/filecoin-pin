@@ -371,11 +371,8 @@ export async function runMigrate(
   const checkStuck = (): void => {
     if (stuck || primaryProviderId == null) return
     if (!uploaderParked || budget.waiting === 0) return
-    if (
-      uploadable() ||
-      db.parkedUploads(primaryProviderId).length > 0 ||
-      db.uploadsByStatus(primaryProviderId, 'collected').length > 0
-    ) {
+    // uploadable() covers collected primaries and skips deferred ones.
+    if (uploadable() || db.parkedUploads(primaryProviderId).length > 0) {
       notifyUploader()
       return
     }
@@ -459,6 +456,8 @@ export async function runMigrate(
               if (err instanceof PipelineStuckError) return
               throw err
             }
+            // A member over the pack target ships solo and needs its own size again to assemble.
+            const assemblyExtra = (bytes: number): number => Math.max(0, bytes - opts.packTargetBytes)
             let written = 0
             // The stager refunds `written` to 0 before rethrowing; keep the peak for the ceiling check.
             let peak = 0
@@ -467,7 +466,7 @@ export async function runMigrate(
                 budget.add(delta)
                 written += delta
                 peak = Math.max(peak, written)
-                if (budget.used > budget.hardCap) {
+                if (budget.used + assemblyExtra(written) > budget.hardCap) {
                   throw new StagingError(
                     `staging budget exhausted while downloading ${cid}; retrying once space frees`,
                     'staging_budget'
@@ -486,7 +485,7 @@ export async function runMigrate(
                 // A member whose own bytes overran the hard cap can never
                 // fit no matter how much eviction frees; retrying would spin
                 // on the same download forever.
-                if (peak > budget.hardCap) {
+                if (peak + assemblyExtra(peak) > budget.hardCap) {
                   db.recordPieceFailure(
                     cid,
                     `member CAR exceeds the staging budget's ${formatFileSize(budget.hardCap)} download ceiling; ` +

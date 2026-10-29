@@ -83,6 +83,12 @@ export function normalizeMigrateOptions(options: Record<string, unknown>): Norma
   if (gateways.length === 0) {
     throw new Error('--gateway is required: the trustless gateway that serves these CIDs (repeatable, tried in order)')
   }
+  for (const gateway of gateways) {
+    const protocol = URL.canParse(gateway) ? new URL(gateway).protocol : ''
+    if (protocol !== 'http:' && protocol !== 'https:') {
+      throw new Error(`--gateway ${gateway} is not an http(s) URL`)
+    }
+  }
   // Bulk archival should not pay CDN lockup by default; `--egress-provider
   // beam` opts in. Only the explicit flag can set this: the migrate command
   // registers its option without env binding, so an EGRESS_PROVIDER exported
