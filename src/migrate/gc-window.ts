@@ -66,15 +66,20 @@ export function shouldFlush(input: FlushInput): FlushReason | null {
   return null
 }
 
+/** Recent commit durations the margin is drawn from; callers keep only this many. */
+export const MARGIN_SAMPLE = 5
+
 /**
  * Margin derived from confirmations observed earlier in the same run: a
- * constant cannot cover a congested chain. Doubling the worst observed commit
+ * constant cannot cover a congested chain. Doubling the worst recent commit
  * duration leaves room for one full retry; the floor covers the first flush
  * of a run, before any observation exists.
  */
 export function marginFromConfirmations(observedCommitMs: number[], floorMs: number = MIN_MARGIN_MS): number {
-  if (observedCommitMs.length === 0) return floorMs
-  return Math.max(floorMs, 2 * Math.max(...observedCommitMs))
+  // ponytail: max of the last 5, so a one-off spike affects the next 5 flushes; use a percentile or decay if batching looks wrong.
+  const recent = observedCommitMs.slice(-MARGIN_SAMPLE)
+  if (recent.length === 0) return floorMs
+  return Math.max(floorMs, 2 * Math.max(...recent))
 }
 
 /**
