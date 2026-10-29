@@ -265,10 +265,14 @@ export async function runDirectUpload(
     // auto-resolved into a blind re-add.
     db.markUploadsAddUnconfirmed(cids, ctx.providerId)
     const commitTimer = new Timer()
+    let submitted = false
     try {
       const result = await ctx.commit({
         pieces: cids.map((cid) => ({ pieceCid: CID.parse(cid) })),
-        onSubmitted: (txHash) => db.markUploadTxSubmitted(cids, ctx.providerId, txHash),
+        onSubmitted: (txHash) => {
+          submitted = true
+          db.markUploadTxSubmitted(cids, ctx.providerId, txHash)
+        },
       })
       observedCommitMs.push(commitTimer.stop())
       commitFailures = 0
@@ -289,6 +293,15 @@ export async function runDirectUpload(
     } catch (err) {
       const message = (err as Error).message ?? String(err)
       const gcCid = collectedCidFromError(message)
+      if (gcCid == null && submitted) {
+        // The provider's status check can time out after the tx landed: let the chain decide, as a resume does.
+        const recovered = await reconcileUnconfirmed(db, synapse, ctx, deps)
+        if (recovered != null) Object.assign(ctx, await deps.contextForDataSet(opts, recovered))
+        if (cids.every((cid) => db.uploadStatus(cid, ctx.providerId) === 'committed')) {
+          commitFailures = 0
+          return true
+        }
+      }
       if (gcCid == null) {
         // Not a GC rejection: leave the batch in add_unconfirmed for the
         // resume reconciliation: a blind retry could double-add on chain.
