@@ -426,7 +426,9 @@ describe('planBins', () => {
       new DataView(bytes.buffer).setUint32(0, i)
       return { cid: CID.createV1(raw.code, Digest.create(sha256.code, bytes)).toString(), rawSize: 1 }
     })
-    const { bins } = planBins(pieces, Number.MAX_SAFE_INTEGER)
-    expect(bins.map((b) => b.memberCids.length)).toEqual([MAX_BIN_MEMBERS, 1])
+    const { bins, deferred } = planBins(pieces, Number.MAX_SAFE_INTEGER)
+    // The leftover is under the upload floor and must not fold into the full bin.
+    expect(bins.map((b) => b.memberCids.length)).toEqual([MAX_BIN_MEMBERS])
+    expect(deferred).toHaveLength(1)
   })
 })

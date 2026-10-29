@@ -145,7 +145,12 @@ export function planBins(
     const small = byUsed.find((b) => b.used < MIN_UPLOAD_BYTES)
     if (small == null) break
     bins.splice(bins.indexOf(small), 1)
-    const host = byUsed.find((b) => b !== small && b.used + small.used <= MAX_UPLOAD_BYTES)
+    const host = byUsed.find(
+      (b) =>
+        b !== small &&
+        b.used + small.used <= MAX_UPLOAD_BYTES &&
+        b.pieces.length + small.pieces.length <= MAX_BIN_MEMBERS
+    )
     if (host == null) {
       deferred.push(...small.pieces)
       continue
