@@ -11,10 +11,10 @@ describe('filecoin-pin isomorphic import', () => {
     expect(typeof createCarFromPath).toBe('function')
     expect(typeof createCarFromFile).toBe('function')
     expect(typeof createCarFromFiles).toBe('function')
-    if (typeof window !== 'undefined') {
-      expect(() => createCarFromPath('foo')).toThrow('Function not available in the browser.')
-    } else {
+    if (typeof window === 'undefined') {
       await expect(createCarFromPath('foo')).rejects.toThrow('ENOENT')
+    } else {
+      expect(() => createCarFromPath('foo')).toThrow('Function not available in the browser.')
     }
   })
 })

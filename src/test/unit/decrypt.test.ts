@@ -374,37 +374,36 @@ describe('runDecrypt', () => {
     expect(await readFile(join(outputDir, 'report', 'empty.bin'), 'utf8')).toBe('')
   })
 
-  it.each([
-    'SIGINT',
-    'SIGTERM',
-    'SIGHUP',
-  ] as const)('on %s removes only the claimed entry and exits as incomplete', async (signal) => {
-    // Simulate the real process: clack's handler exits, ours runs first because it was registered first.
-    const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
-      throw new CliIncomplete('exit')
-    })
-    await mkdir(outputDir)
-    await writeFile(join(outputDir, 'report.pdf'), 'older report')
-    await writeFile(join(outputDir, 'keep.txt'), 'keep me')
-    // A real signal is delivered between event-loop turns, so the earliest it can land is the
-    // first turn after the claim: before any content is written into the claimed file.
-    claimHook.after = () =>
-      setImmediate(() => {
-        try {
-          process.emit(signal)
-        } catch {
-          // The mocked exit threw; the real one never returns.
-        }
+  it.each(['SIGINT', 'SIGTERM', 'SIGHUP'] as const)(
+    'on %s removes only the claimed entry and exits as incomplete',
+    async (signal) => {
+      // Simulate the real process: clack's handler exits, ours runs first because it was registered first.
+      const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
+        throw new CliIncomplete('exit')
       })
+      await mkdir(outputDir)
+      await writeFile(join(outputDir, 'report.pdf'), 'older report')
+      await writeFile(join(outputDir, 'keep.txt'), 'keep me')
+      // A real signal is delivered between event-loop turns, so the earliest it can land is the
+      // first turn after the claim: before any content is written into the claimed file.
+      claimHook.after = () =>
+        setImmediate(() => {
+          try {
+            process.emit(signal)
+          } catch {
+            // The mocked exit threw; the real one never returns.
+          }
+        })
 
-    // The real exit never returns; with it mocked the run carries on, so its outcome is moot.
-    await runDecrypt(encryptedPath, outputDir, asOwner).catch(() => undefined)
+      // The real exit never returns; with it mocked the run carries on, so its outcome is moot.
+      await runDecrypt(encryptedPath, outputDir, asOwner).catch(() => undefined)
 
-    expect(exit).toHaveBeenCalledWith(EXIT_CODE_INCOMPLETE)
-    expect((await readdir(outputDir)).sort()).toEqual(['keep.txt', 'report.pdf'])
-    expect(await readFile(join(outputDir, 'report.pdf'), 'utf8')).toBe('older report')
-    for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP']) expect(process.listenerCount(name)).toBe(0)
-  })
+      expect(exit).toHaveBeenCalledWith(EXIT_CODE_INCOMPLETE)
+      expect((await readdir(outputDir)).sort()).toEqual(['keep.txt', 'report.pdf'])
+      expect(await readFile(join(outputDir, 'report.pdf'), 'utf8')).toBe('older report')
+      for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP']) expect(process.listenerCount(name)).toBe(0)
+    }
+  )
 
   it('on a signal also removes the output directory it created, once empty', async () => {
     const exit = vi.spyOn(process, 'exit').mockImplementation(() => {

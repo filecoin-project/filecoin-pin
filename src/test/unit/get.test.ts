@@ -852,49 +852,48 @@ describe('get', () => {
       expect(existsSync(join(outDir, 'report.pdf'))).toBe(false)
     })
 
-    it.each([
-      'SIGINT',
-      'SIGTERM',
-      'SIGHUP',
-    ] as const)('on %s mid-download, leaves no output and no temp file', async (signal) => {
-      const fakeTmp = join(dir, 'os-tmp')
-      let tempBeforeSignal: string[] = []
-      let tempAtExit: string[] | undefined
-      // Snapshot at exit: the real process ends there, before any \`finally\`.
-      const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
-        tempAtExit = readdirSync(fakeTmp)
-        throw new CliIncomplete('exit')
-      })
-      await mkdir(fakeTmp)
-      // os.tmpdir() reads TMPDIR on POSIX and TEMP/TMP on Windows.
-      for (const name of ['TMPDIR', 'TEMP', 'TMP']) vi.stubEnv(name, fakeTmp)
-      const stalling: Handler = async () => {
-        let sent = false
-        const body = new ReadableStream<Uint8Array>({
-          pull(controller) {
-            if (!sent) {
-              sent = true
-              controller.enqueue(randomBytes(4096))
-              return
-            }
-            tempBeforeSignal = readdirSync(fakeTmp)
-            process.emit(signal)
-          },
+    it.each(['SIGINT', 'SIGTERM', 'SIGHUP'] as const)(
+      'on %s mid-download, leaves no output and no temp file',
+      async (signal) => {
+        const fakeTmp = join(dir, 'os-tmp')
+        let tempBeforeSignal: string[] = []
+        let tempAtExit: string[] | undefined
+        // Snapshot at exit: the real process ends there, before any \`finally\`.
+        const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
+          tempAtExit = readdirSync(fakeTmp)
+          throw new CliIncomplete('exit')
         })
-        return new Response(body, { status: 200, headers: CAR_HEADERS })
+        await mkdir(fakeTmp)
+        // os.tmpdir() reads TMPDIR on POSIX and TEMP/TMP on Windows.
+        for (const name of ['TMPDIR', 'TEMP', 'TMP']) vi.stubEnv(name, fakeTmp)
+        const stalling: Handler = async () => {
+          let sent = false
+          const body = new ReadableStream<Uint8Array>({
+            pull(controller) {
+              if (!sent) {
+                sent = true
+                controller.enqueue(randomBytes(4096))
+                return
+              }
+              tempBeforeSignal = readdirSync(fakeTmp)
+              process.emit(signal)
+            },
+          })
+          return new Response(body, { status: 200, headers: CAR_HEADERS })
+        }
+        const { cid: root } = await block(0x55, randomBytes(64))
+        vi.stubGlobal('fetch', fakeNetwork({ [GOOD]: stalling }, ['/dns/good.example/https']).fetch)
+
+        await expect(runGet(root.toString(), outDir, {})).rejects.toThrow()
+
+        expect(exit).toHaveBeenCalledWith(EXIT_CODE_INCOMPLETE)
+        expect(tempBeforeSignal).toHaveLength(1)
+        expect(tempAtExit).toEqual([])
+        expect(existsSync(outDir)).toBe(false)
+        for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP']) expect(process.listenerCount(name)).toBe(0)
+        vi.unstubAllEnvs()
       }
-      const { cid: root } = await block(0x55, randomBytes(64))
-      vi.stubGlobal('fetch', fakeNetwork({ [GOOD]: stalling }, ['/dns/good.example/https']).fetch)
-
-      await expect(runGet(root.toString(), outDir, {})).rejects.toThrow()
-
-      expect(exit).toHaveBeenCalledWith(EXIT_CODE_INCOMPLETE)
-      expect(tempBeforeSignal).toHaveLength(1)
-      expect(tempAtExit).toEqual([])
-      expect(existsSync(outDir)).toBe(false)
-      for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP']) expect(process.listenerCount(name)).toBe(0)
-      vi.unstubAllEnvs()
-    })
+    )
 
     it('never prints or logs the plaintext root CID', async () => {
       const source = join(dir, 'private-folder')

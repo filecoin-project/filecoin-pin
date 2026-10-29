@@ -14,9 +14,9 @@ export const INPUT_IS_CAR = 'INPUT_IS_CAR'
  */
 export async function isCar(source: AsyncIterable<Uint8Array> | ReadableStream<Uint8Array>): Promise<boolean> {
   const iter =
-    (source as any)[Symbol.asyncIterator] != null
-      ? (source as AsyncIterable<Uint8Array>)
-      : fromReadableStream(source as ReadableStream<Uint8Array>)
+    (source as any)[Symbol.asyncIterator] == null
+      ? fromReadableStream(source as ReadableStream<Uint8Array>)
+      : (source as AsyncIterable<Uint8Array>)
   try {
     await createDecoder(asyncIterableReader(iter)).header()
     return true

@@ -6,6 +6,7 @@ import type { CopyResult, FailedAttempt } from '@filoz/synapse-sdk'
 import type { PaymentStatus as FilecoinPinPaymentStatus } from 'filecoin-pin/core/payments'
 import type { initializeSynapse } from 'filecoin-pin/core/synapse'
 import type { Logger as PinoLogger } from 'pino'
+
 export type { FilecoinPinPaymentStatus }
 export type Synapse = Awaited<ReturnType<typeof initializeSynapse>>
 

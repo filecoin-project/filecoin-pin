@@ -1157,29 +1157,28 @@ describe('Add Command', () => {
       expect(basename(packedFile().path)).toBe('encrypted.fee')
     })
 
-    it.each([
-      'SIGINT',
-      'SIGTERM',
-      'SIGHUP',
-    ] as const)('on %s, the handler itself removes the private temp dir and exits as incomplete', async (signal) => {
-      const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
-      const { performUpload } = await import('../../common/upload-flow.js')
-      let goneBeforeFinally: boolean | undefined
-      vi.mocked(performUpload).mockImplementationOnce(async () => {
-        process.emit(signal)
-        // Checked before the error reaches runAdd's finally, so only the signal handler can have removed it.
-        goneBeforeFinally = !existsSync(dirname(packedFile().path))
-        throw new Error('interrupted')
-      })
-      const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
-      const before = signals.map((s) => process.listeners(s))
+    it.each(['SIGINT', 'SIGTERM', 'SIGHUP'] as const)(
+      'on %s, the handler itself removes the private temp dir and exits as incomplete',
+      async (signal) => {
+        const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+        const { performUpload } = await import('../../common/upload-flow.js')
+        let goneBeforeFinally: boolean | undefined
+        vi.mocked(performUpload).mockImplementationOnce(async () => {
+          process.emit(signal)
+          // Checked before the error reaches runAdd's finally, so only the signal handler can have removed it.
+          goneBeforeFinally = !existsSync(dirname(packedFile().path))
+          throw new Error('interrupted')
+        })
+        const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
+        const before = signals.map((s) => process.listeners(s))
 
-      await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow('interrupted')
+        await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow('interrupted')
 
-      expect(goneBeforeFinally).toBe(true)
-      expect(exit).toHaveBeenCalledWith(EXIT_CODE_INCOMPLETE)
-      expect(signals.map((s) => process.listeners(s))).toEqual(before)
-    })
+        expect(goneBeforeFinally).toBe(true)
+        expect(exit).toHaveBeenCalledWith(EXIT_CODE_INCOMPLETE)
+        expect(signals.map((s) => process.listeners(s))).toEqual(before)
+      }
+    )
 
     it("refuses an input over the SDK's upload cap before encrypting or uploading", async () => {
       uploadCap.max = 1024

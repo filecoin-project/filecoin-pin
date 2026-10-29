@@ -181,7 +181,7 @@ function renderMetadata(metadata: Record<string, string>, indentLevel: number = 
  * Render a single piece entry including PieceCID, size, and reconciled status.
  */
 function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
-  const sizeDisplay = piece.size != null ? formatFileSize(piece.size) : pc.gray('unknown')
+  const sizeDisplay = piece.size == null ? pc.gray('unknown') : formatFileSize(piece.size)
 
   let pieceStatusDisplay: string
   switch (piece.status) {
