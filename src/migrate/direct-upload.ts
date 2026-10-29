@@ -31,6 +31,7 @@ import {
   collectedCidFromError,
   DEFAULT_ASSUMED_WINDOW_MS,
   lowerWindowOnGc,
+  MARGIN_SAMPLE,
   MAX_ADD_PIECES_BATCH,
   marginFromConfirmations,
   shouldFlush,
@@ -254,6 +255,7 @@ export async function runDirectUpload(
         onSubmitted: (txHash) => db.markUploadTxSubmitted(cids, ctx.providerId, txHash),
       })
       observedCommitMs.push(commitTimer.stop())
+      if (observedCommitMs.length > MARGIN_SAMPLE) observedCommitMs.shift()
       batch.forEach((b, i) => {
         db.markUploadCommitted(b.subPieceCid, ctx.providerId, {
           dataSetId: String(result.dataSetId),
