@@ -21,6 +21,7 @@
 import { createReadStream } from 'node:fs'
 import { unlink } from 'node:fs/promises'
 import { Readable } from 'node:stream'
+import { RETRY_CONSTANTS } from '@filoz/synapse-core/utils'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import { formatFileSize } from '../utils/cli-helpers.js'
@@ -175,7 +176,9 @@ export const defaultDirectUploadDeps: DirectUploadDeps = {
  * failure throws and aborts the pass.
  */
 export async function pieceParked(serviceURL: string, pieceCid: string): Promise<boolean> {
-  const res = await fetch(new URL(`pdp/piece?${new URLSearchParams({ pieceCid })}`, serviceURL))
+  const res = await fetch(new URL(`pdp/piece?${new URLSearchParams({ pieceCid })}`, serviceURL), {
+    signal: AbortSignal.timeout(RETRY_CONSTANTS.TIMEOUT),
+  })
   if (res.status === 404) return false
   if (!res.ok) throw new Error(`piece lookup on ${serviceURL} failed: HTTP ${res.status}`)
   return true
