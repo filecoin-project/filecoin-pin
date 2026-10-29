@@ -135,6 +135,7 @@ async function harness(config: HarnessOptions) {
     txLanded: async () => false,
     fetchAddPiecesEvent: async () => null,
     dataSetPieceId: async () => null,
+    contextForDataSet: async () => ctx,
   }
 
   const options: MigrateRunOptions = {

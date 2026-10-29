@@ -23,6 +23,7 @@ import { unlink } from 'node:fs/promises'
 import { Readable } from 'node:stream'
 import { RETRY_CONSTANTS } from '@filoz/synapse-core/utils'
 import type { Synapse } from '@filoz/synapse-sdk'
+import type { StorageContext } from '@filoz/synapse-sdk/storage'
 import { CID } from 'multiformats/cid'
 import { formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -31,6 +32,7 @@ import {
   collectedCidFromError,
   DEFAULT_ASSUMED_WINDOW_MS,
   lowerWindowOnGc,
+  MARGIN_SAMPLE,
   MAX_ADD_PIECES_BATCH,
   marginFromConfirmations,
   shouldFlush,
@@ -110,6 +112,8 @@ export interface UploadContextLike {
 
 export interface DirectUploadDeps {
   setup(opts: DirectUploadOptions): Promise<{ contexts: UploadContextLike[] }>
+  /** A fresh context bound to an existing data set; the SDK context's own data set id cannot be reassigned. */
+  contextForDataSet(opts: DirectUploadOptions, dataSetId: string): Promise<UploadContextLike>
   /** Injectable clock so tests can drive the window timer. */
   now(): number
   /** Open a built CAR for streaming. Injectable so tests skip the filesystem. */
@@ -121,6 +125,21 @@ export interface DirectUploadDeps {
   fetchAddPiecesEvent(synapse: Synapse, txHash: string, dataSetId: string | null): Promise<AddPiecesEvent | null>
   /** On-chain piece id lookup for a data set, or null when absent (see pdp-verifier). */
   dataSetPieceId(synapse: Synapse, dataSetId: string, pieceCid: string): Promise<string | null>
+}
+
+function wrapContext(ctx: StorageContext): UploadContextLike {
+  const serviceURL = ctx.provider.pdp.serviceURL
+  return {
+    providerId: String(ctx.provider.id),
+    serviceURL,
+    dataSetId: ctx.dataSetId == null ? null : String(ctx.dataSetId),
+    store: (data, options) => ctx.store(data as never, options as never),
+    presignForCommit: (pieces) => ctx.presignForCommit(pieces as never),
+    pull: (options) => ctx.pull(options as never),
+    commit: (options) => ctx.commit(options as never),
+    getPieceUrl: (pieceCid) => ctx.getPieceUrl(pieceCid as never),
+    hasPiece: (pieceCid) => pieceParked(serviceURL, String(pieceCid)),
+  }
 }
 
 export const defaultDirectUploadDeps: DirectUploadDeps = {
@@ -136,22 +155,15 @@ export const defaultDirectUploadDeps: DirectUploadDeps = {
       ...(opts.withCDN === true ? { withCDN: true } : {}),
     })
     if (contexts.length === 0) throw new Error('no storage contexts resolved')
-    return {
-      contexts: contexts.map((ctx): UploadContextLike => {
-        const serviceURL = ctx.provider.pdp.serviceURL
-        return {
-          providerId: String(ctx.provider.id),
-          serviceURL,
-          dataSetId: ctx.dataSetId == null ? null : String(ctx.dataSetId),
-          store: (data, options) => ctx.store(data as never, options as never),
-          presignForCommit: (pieces) => ctx.presignForCommit(pieces as never),
-          pull: (options) => ctx.pull(options as never),
-          commit: (options) => ctx.commit(options as never),
-          getPieceUrl: (pieceCid) => ctx.getPieceUrl(pieceCid as never),
-          hasPiece: (pieceCid) => pieceParked(serviceURL, String(pieceCid)),
-        }
-      }),
-    }
+    return { contexts: contexts.map(wrapContext) }
+  },
+  async contextForDataSet(opts, dataSetId) {
+    return wrapContext(
+      await opts.synapse.storage.createContext({
+        dataSetId: BigInt(dataSetId),
+        ...(opts.withCDN === true ? { withCDN: true } : {}),
+      })
+    )
   },
   now: () => Date.now(),
   openCar: (path) => Readable.toWeb(createReadStream(path)) as ReadableStream,
@@ -186,6 +198,9 @@ export async function pieceParked(serviceURL: string, pieceCid: string): Promise
 
 /** Curio names sub-pieces by CIDv1; both forms end in the same 32-byte root. */
 const pieceRoot = (cid: string): string => Buffer.from(CID.parse(cid).multihash.digest.subarray(-32)).toString('hex')
+
+/** Consecutive non-GC commit failures before the run stops. */
+const MAX_COMMIT_FAILURES = 3
 
 /** How often a pipeline wait wakes to re-check flush deadlines. */
 const FLUSH_POLL_MS = 60_000
@@ -223,8 +238,7 @@ export async function runDirectUpload(
 ): Promise<DirectUploadSummary> {
   const { synapse } = opts
   const { contexts } = await deps.setup(opts)
-  const [primary, ...secondaries] = contexts
-  if (primary == null) throw new Error('no primary storage context')
+  if (contexts.length === 0) throw new Error('no primary storage context')
 
   log.message(
     `direct upload to ${contexts.length} provider(s): ` +
@@ -233,6 +247,7 @@ export async function runDirectUpload(
 
   const observedCommitMs: number[] = []
   const flushCounts = new Map<string, number>()
+  let commitFailures = 0
   const runTimer = new Timer()
   let storedBytes = 0
 
@@ -256,6 +271,8 @@ export async function runDirectUpload(
         onSubmitted: (txHash) => db.markUploadTxSubmitted(cids, ctx.providerId, txHash),
       })
       observedCommitMs.push(commitTimer.stop())
+      commitFailures = 0
+      if (observedCommitMs.length > MARGIN_SAMPLE) observedCommitMs.shift()
       batch.forEach((b, i) => {
         db.markUploadCommitted(b.subPieceCid, ctx.providerId, {
           dataSetId: String(result.dataSetId),
@@ -276,6 +293,13 @@ export async function runDirectUpload(
         // Not a GC rejection: leave the batch in add_unconfirmed for the
         // resume reconciliation: a blind retry could double-add on chain.
         log.message(`error: commit failed on provider ${ctx.providerId} (batch left add_unconfirmed): ${message}`)
+        // Every further piece would be stored and pulled only to fail the same way.
+        if (++commitFailures >= MAX_COMMIT_FAILURES) {
+          throw new Error(
+            `stopping after ${commitFailures} consecutive commit failures (last on provider ${ctx.providerId}: ` +
+              `${message}); fix the cause and re-run the same command to resume, unconfirmed batches are reconciled first`
+          )
+        }
         return false
       }
       // Curio rejected the batch because a parked piece is gone. The batch is
@@ -344,9 +368,11 @@ export async function runDirectUpload(
 
   // Reconcile add_unconfirmed leftovers from a previous run before uploading
   // anything new: their outcome is unknown and a blind re-add would duplicate.
-  for (const ctx of contexts) {
-    await reconcileUnconfirmed(db, synapse, ctx, deps)
+  for (const [i, ctx] of contexts.entries()) {
+    const recovered = await reconcileUnconfirmed(db, synapse, ctx, deps)
+    if (recovered != null) contexts[i] = await deps.contextForDataSet(opts, recovered)
   }
+  const [primary, ...secondaries] = contexts as [UploadContextLike, ...UploadContextLike[]]
 
   // Main loop: store on the primary, fan out to secondaries, flush as batches
   // and window timers demand. Sequential per piece: the upstream bandwidth is
@@ -555,7 +581,9 @@ async function reconcileUnconfirmed(
   synapse: Synapse,
   ctx: UploadContextLike,
   deps: DirectUploadDeps
-): Promise<void> {
+): Promise<string | null> {
+  // A data set recovered here; the caller rebinds the context to it.
+  let known = ctx.dataSetId
   for (const u of db.uploadsByStatus(ctx.providerId, 'add_unconfirmed')) {
     if (u.txHash != null && (await deps.txLanded(synapse, u.txHash))) {
       // The commit landed; only local confirmation was missed. Resolve it
@@ -563,7 +591,7 @@ async function reconcileUnconfirmed(
       // trusting any side channel. The row's own data set takes precedence
       // when known; a first-commit crash on a new data set has none, and
       // then the event's own setId is the recovery path.
-      const event = await deps.fetchAddPiecesEvent(synapse, u.txHash, u.dataSetId ?? ctx.dataSetId)
+      const event = await deps.fetchAddPiecesEvent(synapse, u.txHash, u.dataSetId ?? known)
       const pieceIndex = event == null ? -1 : event.pieceCids.indexOf(u.subPieceCid)
       if (event != null && pieceIndex >= 0) {
         const dataSetId = String(event.dataSetId)
@@ -572,8 +600,7 @@ async function reconcileUnconfirmed(
           pieceId: String(event.pieceIds[pieceIndex] ?? ''),
           txHash: u.txHash,
         })
-        // Later parks in this run carry the recovered set id on their rows.
-        ctx.dataSetId ??= dataSetId
+        known ??= dataSetId
         log.message(
           `resume: ${u.subPieceCid} confirmed on chain via PiecesAdded (tx ${u.txHash}, ` +
             `data set ${dataSetId}); marked committed`
@@ -588,12 +615,12 @@ async function reconcileUnconfirmed(
       continue
     }
     // No landed receipt (no hash, still pending, or replaced by the gas bumper): the data set is the witness.
-    const dataSetId = u.dataSetId ?? ctx.dataSetId
+    const dataSetId = u.dataSetId ?? known
     if (dataSetId != null) {
       const pieceId = await deps.dataSetPieceId(synapse, dataSetId, u.subPieceCid)
       if (pieceId != null) {
         db.markUploadCommitted(u.subPieceCid, ctx.providerId, { dataSetId, pieceId, txHash: null })
-        ctx.dataSetId ??= dataSetId
+        known ??= dataSetId
         log.message(
           `resume: ${u.subPieceCid} found on chain in data set ${dataSetId} (piece ${pieceId}); marked committed`
         )
@@ -620,6 +647,7 @@ async function reconcileUnconfirmed(
       log.message(`resume: ${u.subPieceCid} gone from provider ${ctx.providerId}; will re-store`)
     }
   }
+  return known === ctx.dataSetId ? null : known
 }
 
 /**
