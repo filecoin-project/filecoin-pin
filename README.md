@@ -362,7 +362,7 @@ In session-key mode, each command checks only the on-chain permissions it needs 
 | Command | Required scopes |
 | --- | --- |
 | Read commands (`payments status`, `data-set ls`, `provider ls`, `data-set show`, `data-set piece-status`, …) | None |
-| `add`, `import` | `createDataSet`, `addPieces` |
+| `add`, `import`, `migrate` | `createDataSet`, `addPieces` |
 | `rm` (`--piece` or `--all`) | `schedulePieceRemovals` |
 | `data-set terminate` | `terminateService` |
 | Pinning server (`filecoin-pinning-server`) | `createDataSet`, `addPieces`, `schedulePieceRemovals` |
