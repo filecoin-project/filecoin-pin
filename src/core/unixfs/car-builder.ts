@@ -37,6 +37,8 @@ export interface CreateCarOptions {
   isDirectory?: boolean
   /** Include hidden entries (dotfiles, dotdirs) when packing a directory. */
   includeHidden?: boolean
+  /** Directory for the temporary CAR (default: the OS temp directory). */
+  tempDir?: string
 }
 
 export interface CreateCarResult {
@@ -72,7 +74,10 @@ async function createCar(
 ): Promise<CreateCarResult> {
   const { logger, name } = options
 
-  const tempCarPath = join(tmpdir(), `filecoin-pin-add-${Date.now()}-${randomBytes(8).toString('hex')}.car`)
+  const tempCarPath = join(
+    options.tempDir ?? tmpdir(),
+    `filecoin-pin-add-${Date.now()}-${randomBytes(8).toString('hex')}.car`
+  )
 
   logger?.info({ path: contentPath, tempCarPath }, 'Creating CAR')
   logger?.debug({ placeholderCID: PLACEHOLDER_CID.toString() }, 'Using placeholder CID')

@@ -154,4 +154,20 @@ describe('resolveDataSetIdsByMetadata', () => {
 
     expect(result).toEqual({ kind: 'matched', dataSetIds: [2n, 3n], matchedDataSets: expect.any(Array) })
   })
+
+  it('excludedKeys rejects datasets carrying the key with any value', async () => {
+    withFixtures([
+      dataSet(1n, { source: 'filecoin-pin' }),
+      dataSet(2n, { source: 'filecoin-pin', 'foc/ks': '' }),
+      dataSet(3n, { source: 'filecoin-pin', 'foc/enc': '1' }),
+    ])
+
+    const result = await resolveDataSetIdsByMetadata(
+      fakeSynapse,
+      { source: 'filecoin-pin' },
+      { expectedCopies: 1, excludedKeys: ['foc/ks', 'foc/enc'] }
+    )
+
+    expect(result).toEqual({ kind: 'matched', dataSetIds: [1n], matchedDataSets: expect.any(Array) })
+  })
 })

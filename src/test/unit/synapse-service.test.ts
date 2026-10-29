@@ -161,7 +161,7 @@ describe('synapse-service', () => {
         expect(error?.message).toContain('lacks AddPieces for this operation on ')
         expect(error?.message).not.toContain('TerminateService')
         expect(error?.message).toContain(
-          'https://pay.example.test/console/session-keys?authorize=0x0000000000000000000000000000000000000001&scopes=addPieces'
+          'https://pay.example.test/console/setup?authorize=0x0000000000000000000000000000000000000001&scopes=addPieces&network=calibration'
         )
         expect(error?.message).toContain(
           'filecoin-pin session authorize 0x0000000000000000000000000000000000000001 --scopes addPieces'

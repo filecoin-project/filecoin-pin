@@ -8,8 +8,8 @@
 
 import { paginate } from '@filoz/synapse-core'
 import { getPdpDataSets } from '@filoz/synapse-core/warm-storage'
-import type { Synapse } from '@filoz/synapse-sdk'
-import { DEFAULT_DATA_SET_METADATA } from '../synapse/constants.js'
+import { METADATA_KEYS, type Synapse } from '@filoz/synapse-sdk'
+import { APPLICATION_SOURCE } from '../synapse/constants.js'
 import { getClientAddress } from '../synapse/index.js'
 import type { DataSetSummary, ListDataSetsOptions } from './types.js'
 
@@ -52,9 +52,8 @@ export async function listDataSets(synapse: Synapse, options?: ListDataSetsOptio
     for await (const pdpDataSet of pages) {
       processed++
       const { live, managed, cdn, ...rest } = pdpDataSet
-      const createdWithFilecoinPin = Object.entries(DEFAULT_DATA_SET_METADATA).every(
-        ([key, value]) => pdpDataSet.metadata[key] === value
-      )
+      // Source alone: `add --no-ipfs` data sets are filecoin-pin's too, without `withIPFSIndexing`.
+      const createdWithFilecoinPin = pdpDataSet.metadata[METADATA_KEYS.SOURCE] === APPLICATION_SOURCE
 
       const summary: DataSetSummary = {
         ...rest,
