@@ -52,7 +52,17 @@ export interface GetCommandOptions extends CLIAuthOptions {
   accessKey?: string
 }
 
-export async function runGet(cidArg: string, outputDir: string | undefined, options: GetCommandOptions): Promise<void> {
+export async function runGet(
+  cidArg: string | undefined,
+  outputDir: string | undefined,
+  options: GetCommandOptions
+): Promise<void> {
+  // With --share the link names the upload, so the CID may be left out: in
+  // `get --share <link> ./out`, the lone argument is the output directory.
+  if (options.share != null && outputDir == null && cidArg != null && !isCid(cidArg)) {
+    outputDir = cidArg
+    cidArg = undefined
+  }
   intro(pc.bold('Filecoin Pin Get'))
   const spinner = createSpinner()
   const outDir = outputDir ?? '.'
@@ -75,11 +85,20 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
   }
   const cleanupSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
   try {
+    const share = options.share != null ? parseShareLink(options.share) : undefined
     let cid: CID
-    try {
-      cid = CID.parse(cidArg)
-    } catch {
-      throw new Error(`Not an IPFS root CID: ${cidArg}`)
+    if (cidArg == null) {
+      if (share == null) throw new Error('Give the IPFS root CID to fetch, or --share with a Share link')
+      cid = share.rootCid
+    } else {
+      try {
+        cid = CID.parse(cidArg)
+      } catch {
+        throw new Error(`Not an IPFS root CID: ${cidArg}`)
+      }
+      if (share != null && !share.rootCid.equals(cid)) {
+        throw new ShareLinkError(`The Share link is for ${share.rootCid}, not ${cid}`)
+      }
     }
     // Before the handler is armed, so it knows whether `outDir` is ours to remove.
     outExists = (await checkOutputDir(outDir)).outExists
@@ -89,11 +108,7 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
     // Used only when an envelope asks for a key, so plain content needs no credentials.
     let resolveKey = credentialKeyResolver(auth)
     let sharer: Address | undefined
-    if (options.share != null) {
-      const share = parseShareLink(options.share)
-      if (!share.rootCid.equals(cid)) {
-        throw new ShareLinkError(`The Share link is for ${share.rootCid}, not ${cid}`)
-      }
+    if (share != null) {
       // Before the download, so a missing or wrong Access key fails fast.
       const T = shareKey(share, options.accessKey)
       sharer = await shareOwner(share, T)
@@ -137,6 +152,15 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
   } finally {
     for (const signal of cleanupSignals) process.off(signal, onSignal)
     removeTemp(tempDir)
+  }
+}
+
+function isCid(text: string): boolean {
+  try {
+    CID.parse(text)
+    return true
+  } catch {
+    return false
   }
 }
 

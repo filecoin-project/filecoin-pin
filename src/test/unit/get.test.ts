@@ -874,6 +874,23 @@ describe('get', () => {
       })
     })
 
+    it('with --share, takes the CID from the link: the lone argument is the output directory', async () => {
+      await writeFile(join(dir, 'report.pdf'), 'quarterly numbers')
+      const upload = await encryptedUpload(join(dir, 'report.pdf'))
+      vi.stubGlobal('fetch', fakeNetwork({ [GOOD]: serve(upload.car) }, ['/dns/good.example/https']).fetch)
+      const share = await createShare({
+        sender: { owner: OWNER },
+        rootCid: upload.root,
+        labels: upload.labels,
+        mode: 'open',
+      })
+
+      await runGet(outDir, undefined, { share: share.link })
+
+      expect(await readFile(join(outDir, 'report.pdf'), 'utf8')).toBe('quarterly numbers')
+      await expect(runGet(undefined, outDir, {})).rejects.toThrow(/Give the IPFS root CID/)
+    })
+
     it('with a session key and no Grant, fails with the login to run and writes nothing', async () => {
       await writeFile(join(dir, 'report.pdf'), 'quarterly numbers')
       const upload = await encryptedUpload(join(dir, 'report.pdf'))

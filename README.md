@@ -374,12 +374,12 @@ To open a link, pass it to `get`, with its Access key for a restricted link, as 
 
 ```bash
 PRIVATE_KEY=0x... filecoin-pin get-share-link bafybei... --restricted
-filecoin-pin get bafybei... ./from-alice --share '<link>'
-filecoin-pin get bafybei... ./from-alice --share '<link>' --access-key fak1_...
-SHARE_ACCESS_KEY=fak1_... filecoin-pin get bafybei... --share '<link>'
+filecoin-pin get ./from-alice --share '<link>'
+filecoin-pin get ./from-alice --share '<link>' --access-key fak1_...
+SHARE_ACCESS_KEY=fak1_... filecoin-pin get --share '<link>'
 ```
 
-`get --share` uses the link's key instead of any credentials, and refuses a link for another CID before downloading.
+`get --share` fetches the piece the link names, so the CID can be left out, and uses the link's key instead of any credentials. Given a CID as well, it refuses a link for another CID before downloading.
 
 ### Session-Key Permissions
 

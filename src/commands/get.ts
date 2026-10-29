@@ -5,9 +5,15 @@ import { addAuthOptions } from '../utils/cli-options.js'
 
 export const getCommand = new Command('get')
   .description('Fetch an upload by its IPFS root CID into a directory, decrypting it if encrypted.')
-  .argument('<cid>', 'IPFS Root CID of the upload (for an encrypted upload, its Encrypted root CID)')
+  .argument(
+    '[cid]',
+    'IPFS Root CID of the upload (for an encrypted upload, its Encrypted root CID); optional with --share'
+  )
   .argument('[output-dir]', 'Directory to save into (created if missing; may hold other files; default: .)')
-  .option('--share <link>', 'Decrypt with a Share link (from get-share-link) instead of your own credentials')
+  .option(
+    '--share <link>',
+    'Fetch and decrypt the piece a Share link (from get-share-link) names, instead of using your own credentials'
+  )
   .addOption(
     new Option('--access-key <key>', "The Share link's Access key (fak1_…), unless the link carries it").env(
       'SHARE_ACCESS_KEY'
@@ -31,7 +37,7 @@ Nothing in <output-dir> is overwritten: a taken name is numbered like a browser 
 
 addAuthOptions(getCommand)
 
-getCommand.action(async (cid: string, outputDir: string | undefined, options: GetCommandOptions) => {
+getCommand.action(async (cid: string | undefined, outputDir: string | undefined, options: GetCommandOptions) => {
   try {
     await runGet(cid, outputDir, options)
   } catch (error) {
