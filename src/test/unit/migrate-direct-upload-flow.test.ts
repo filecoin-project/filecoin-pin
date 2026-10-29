@@ -83,50 +83,56 @@ interface FakeBehavior {
 function fakeDeps(b: FakeBehavior = {}) {
   const calls = { store: [] as string[], pull: 0, commit: new Map<string, number>() }
   const evicted: string[] = []
-  const mkCtx = (providerId: string): UploadContextLike => ({
-    providerId,
-    serviceURL: `fake://${providerId}`,
-    dataSetId: b.ctxDataSetId ?? null,
-    async store(_data, options) {
-      const requested = String(options.pieceCid)
-      calls.store.push(`${providerId}:${requested}`)
-      const answered = b.storeReturns ? b.storeReturns(requested) : requested
-      return { pieceCid: answered, size: 1024 }
-    },
-    async presignForCommit() {
-      return '0xfake'
-    },
-    async pull(options) {
-      calls.pull++
-      const status = b.pullFails ? ('failed' as const) : ('complete' as const)
-      return { status, pieces: options.pieces.map((p) => ({ pieceCid: p, status })) }
-    },
-    async commit(options) {
-      const n = (calls.commit.get(providerId) ?? 0) + 1
-      calls.commit.set(providerId, n)
-      const f = b.failCommit
-      if (f != null && f.providerId === providerId && f.call === n) {
-        // Simulate a commit that was submitted (tx hash recorded) but then
-        // failed at confirmation: the shape of the add_unconfirmed hazard.
-        options.onSubmitted?.(`0xtx-${providerId}-${n}`)
-        throw new Error(f.message)
-      }
-      const txHash = `0xtx-${providerId}-${n}`
-      return {
-        txHash,
-        ...(b.confirmedTxHash ? { confirmedTxHash: b.confirmedTxHash(txHash) } : {}),
-        pieceIds: options.pieces.map((_, i) => BigInt(i)),
-        // A context that learned its data set keeps committing into it.
-        dataSetId: this.dataSetId == null ? 7n : BigInt(this.dataSetId),
-      }
-    },
-    getPieceUrl: (pieceCid) => `fake://${providerId}/piece/${String(pieceCid)}`,
-    hasPiece: async (pieceCid) => (b.present ? b.present(String(pieceCid)) : true),
-  })
+  const mkCtx = (providerId: string, dataSetId = b.ctxDataSetId ?? null): UploadContextLike => {
+    // Like the SDK: commits use the set the context was built with (or the one its first commit creates), never the wrapper field.
+    let sdkDataSetId = dataSetId
+    return {
+      providerId,
+      serviceURL: `fake://${providerId}`,
+      dataSetId,
+      async store(_data, options) {
+        const requested = String(options.pieceCid)
+        calls.store.push(`${providerId}:${requested}`)
+        const answered = b.storeReturns ? b.storeReturns(requested) : requested
+        return { pieceCid: answered, size: 1024 }
+      },
+      async presignForCommit() {
+        return '0xfake'
+      },
+      async pull(options) {
+        calls.pull++
+        const status = b.pullFails ? ('failed' as const) : ('complete' as const)
+        return { status, pieces: options.pieces.map((p) => ({ pieceCid: p, status })) }
+      },
+      async commit(options) {
+        const n = (calls.commit.get(providerId) ?? 0) + 1
+        calls.commit.set(providerId, n)
+        const f = b.failCommit
+        if (f != null && f.providerId === providerId && f.call === n) {
+          // Simulate a commit that was submitted (tx hash recorded) but then
+          // failed at confirmation: the shape of the add_unconfirmed hazard.
+          options.onSubmitted?.(`0xtx-${providerId}-${n}`)
+          throw new Error(f.message)
+        }
+        const txHash = `0xtx-${providerId}-${n}`
+        sdkDataSetId ??= '7'
+        return {
+          txHash,
+          ...(b.confirmedTxHash ? { confirmedTxHash: b.confirmedTxHash(txHash) } : {}),
+          pieceIds: options.pieces.map((_, i) => BigInt(i)),
+          dataSetId: BigInt(sdkDataSetId),
+        }
+      },
+      getPieceUrl: (pieceCid) => `fake://${providerId}/piece/${String(pieceCid)}`,
+      hasPiece: async (pieceCid) => (b.present ? b.present(String(pieceCid)) : true),
+    }
+  }
   const deps: DirectUploadDeps = {
     async setup() {
       return { contexts: [mkCtx('p1'), mkCtx('p2')] }
     },
+    // Only p1 recovers a data set in these tests.
+    contextForDataSet: async (_opts, dataSetId) => mkCtx('p1', dataSetId),
     now: () => Date.now() + (b.nowOffsetMs ?? 0),
     openCar: () => new Uint8Array(8),
     evictCar: async (path) => {
