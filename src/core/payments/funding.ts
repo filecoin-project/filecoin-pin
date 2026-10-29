@@ -128,6 +128,13 @@ export function formatFundingReason(reasonCode: FundingReasonCode, plan?: Fileco
   }
 }
 
+/** Plan action for a signed deposit delta: positive deposits, negative withdraws. */
+function fundingAction(delta: bigint): FilecoinPayFundingPlan['action'] {
+  if (delta > 0n) return 'deposit'
+  if (delta < 0n) return 'withdraw'
+  return 'none'
+}
+
 /**
  * SDK upload costs only express deposits (`depositNeeded` is clamped at 0n),
  * so exact mode with withdrawals stays on the local signed-delta math.
@@ -204,7 +211,9 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
         resolvedTargetDeposit = status.filecoinPayBalance + delta
         projectedRateUsed = accountSummary.lockupRatePerEpoch + uploadCosts.lockups.rateDeltaPerEpoch
         projectedLockupUsed = accountSummary.totalLockup + uploadCosts.lockups.total
-        reasonCode = delta > 0n ? (targetRunwayDays === 0 ? 'piece-upload' : 'runway-with-piece') : 'none'
+        if (delta > 0n) {
+          reasonCode = targetRunwayDays === 0 ? 'piece-upload' : 'runway-with-piece'
+        }
       } else {
         if (priceList == null) {
           throw new Error('priceList is required when planning with pieceSizeBytes')
@@ -304,7 +313,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
   const plan: FilecoinPayFundingPlan = {
     targetType,
     delta,
-    action: delta > 0n ? 'deposit' : delta < 0n ? 'withdraw' : 'none',
+    action: fundingAction(delta),
     reasonCode,
     mode,
     projectedDeposit,
