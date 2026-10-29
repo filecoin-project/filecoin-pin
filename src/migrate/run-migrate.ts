@@ -376,14 +376,13 @@ export async function runMigrate(
       notifyUploader()
       return
     }
+    // An in-flight download re-evaluates when it lands; packing now would split its bin.
+    if (inFlightDownloads > 0) return
     const free = db.freeMemberBytes()
     if (free > 0 && free !== idlePackFree) {
       void packNow()
       return
     }
-    // A download still in flight will stage a member and re-evaluate when it
-    // lands; only a fully quiet pipeline is actually stuck.
-    if (inFlightDownloads > 0) return
     stuck = true
     budget.failAll(new PipelineStuckError())
   }

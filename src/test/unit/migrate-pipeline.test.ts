@@ -290,6 +290,34 @@ describe('runMigrate pipeline', () => {
     }
   })
 
+  it('does not ship a partial bin while a download that would fill it is in flight', async () => {
+    // Run 1 shape: concurrency below the member count and a start gate (2200 - 2 x 1000) one member overfills.
+    const cids = await Promise.all(['a', 'b', 'c'].map(async (t) => ({ cid: await cidFor(t), rawSize: 300 })))
+    const h = await harness({ cids, budgetBytes: 2200, packTargetBytes: 1000 })
+    try {
+      const stage = h.options.stageMemberFn as NonNullable<typeof h.options.stageMemberFn>
+      let calls = 0
+      await runMigrate(
+        h.db,
+        {
+          ...h.options,
+          concurrency: 2,
+          // The first download is still in flight when the second lands and its worker parks on the gate.
+          stageMemberFn: async (cid, ...rest) => {
+            if (++calls === 1) await new Promise((resolve) => setTimeout(resolve, 200))
+            return stage(cid, ...rest)
+          },
+        },
+        h.deps
+      )
+
+      expect(h.events.find((e) => e.startsWith('build:'))).toBe('build:2')
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  }, 10_000)
+
   it('cycles a budget smaller than the migration instead of wedging', async () => {
     const cids = await Promise.all(['a', 'b', 'c', 'd', 'e', 'f'].map(async (t) => ({ cid: await cidFor(t) })))
     // 2x the pack target is the minimum viable budget; the whole migration is
