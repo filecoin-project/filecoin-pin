@@ -95,7 +95,7 @@ export interface DataSetSummary extends EnhancedDataSetInfo {
   totalSizeBytes?: bigint
   /** Pieces in the dataset (optional, populated when fetching detailed info) */
   pieces?: PieceInfo[]
-  /** Indicates if this dataset was created by filecoin-pin (has WITH_IPFS_INDEXING and source='filecoin-pin' metadata) */
+  /** Indicates if this dataset was created by filecoin-pin (`source='filecoin-pin'` metadata, with or without WITH_IPFS_INDEXING) */
   createdWithFilecoinPin: boolean
 }
 

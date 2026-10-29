@@ -101,6 +101,13 @@ export interface SynapseUploadOptions {
    * Data set metadata applied when creating or matching contexts.
    */
   metadata?: Record<string, string>
+
+  /**
+   * Inject `withIPFSIndexing` into the data set metadata (default true). Curio
+   * decides IPNI announcement per data set from this key, so `false` keeps the
+   * content out of IPNI.
+   */
+  ipfsIndexing?: boolean
 }
 
 export interface SynapseUploadResult {
@@ -319,7 +326,7 @@ export async function uploadToSynapse(
   } else {
     const hasCallerSource = options.metadata?.[METADATA_KEYS.SOURCE] != null || synapse.storage.source != null
 
-    const baseMetadata: Record<string, string> = { ...IPFS_INDEXED_METADATA }
+    const baseMetadata: Record<string, string> = options.ipfsIndexing === false ? {} : { ...IPFS_INDEXED_METADATA }
     if (!hasCallerSource) {
       baseMetadata[METADATA_KEYS.SOURCE] = APPLICATION_SOURCE
     }
