@@ -85,12 +85,9 @@ export async function runGet(
   }
   const cleanupSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
   try {
-    const share = options.share != null ? parseShareLink(options.share) : undefined
+    const share = options.share == null ? undefined : parseShareLink(options.share)
     let cid: CID
-    if (cidArg == null) {
-      if (share == null) throw new Error('Give the IPFS root CID to fetch, or --share with a Share link')
-      cid = share.rootCid
-    } else {
+    if (cidArg != null) {
       try {
         cid = CID.parse(cidArg)
       } catch {
@@ -99,6 +96,10 @@ export async function runGet(
       if (share != null && !share.rootCid.equals(cid)) {
         throw new ShareLinkError(`The Share link is for ${share.rootCid}, not ${cid}`)
       }
+    } else if (share == null) {
+      throw new Error('Give the IPFS root CID to fetch, or --share with a Share link')
+    } else {
+      cid = share.rootCid
     }
     // Before the handler is armed, so it knows whether `outDir` is ours to remove.
     outExists = (await checkOutputDir(outDir)).outExists

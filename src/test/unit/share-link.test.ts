@@ -184,11 +184,11 @@ describe('pinned vectors', () => {
     expect(await ownerPieceKey(vectors.labels)).toBe(vectors.pieceKey)
   })
 
-  it.each(vectors.opening)('opens "$name" to the pinned piece key', async (vector) => {
+  it.each(vectors.opening)('opens "$name" to the pinned piece key', { timeout: 30_000 }, async (vector) => {
     const parsed = parseShareLink(vector.link)
     expect(parsed.rootCid.equals(ROOT)).toBe(true)
     const T = shareKey(parsed, vector.accessKey)
     const key = await shareKeyResolver(parsed, T)({ appMetadata: vectors.labels } as never)
     expect(bytesToHex(key)).toBe(vectors.pieceKey)
-  }, 30_000)
+  })
 })
