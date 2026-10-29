@@ -2,12 +2,14 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Synapse } from '@filoz/synapse-sdk'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MigrationDB } from '../../migrate/db.js'
 import {
   type DirectUploadDeps,
   type DirectUploadOptions,
+  pieceParked,
   runDirectUpload,
+  UNCONFIRMED_REQUEUE_AFTER_MS,
   type UploadContextLike,
 } from '../../migrate/direct-upload.js'
 
@@ -20,6 +22,8 @@ import {
 // Real PieceCIDs so CID.parse succeeds.
 const P1 = 'bafkzcibf3ck4uais4fgennh4hbfx5z3i6hue4xgq2cdeamtus4hjbsrjs5lf2azbxmsa'
 const P2 = 'bafkzcibewpkqwewyhz3yxutlxbpt2nkb6si5qilg4qqtzzij32uw7ammsc73a4wkgi'
+// P1 as CIDv1, the form Curio names in its GC rejection (go-fil-commcid PieceCidV1FromV2).
+const P1_V1 = 'baga6ea4seaqoctcgwt6dqs3645upd2coltinbbsagj2joduqziuzovs5amq3wja'
 
 const fakeSynapse = { chain: { name: 'calibration' } } as unknown as Synapse
 const OPTS: DirectUploadOptions = { synapse: fakeSynapse, copies: 2 }
@@ -240,7 +244,7 @@ describe('runDirectUpload', () => {
         failCommit: {
           providerId: 'p1',
           call: 1,
-          message: `Failed to process request: subPiece CID ${P1} not found or does not belong to service svc`,
+          message: `Failed to process request: subPiece CID ${P1_V1} not found or does not belong to service svc`,
         },
         present: (cid) => cid !== P1,
       })
@@ -270,7 +274,7 @@ describe('runDirectUpload', () => {
         failCommit: {
           providerId: 'p1',
           call: 1,
-          message: `Failed to process request: subPiece CID ${P1} not found or does not belong to service svc`,
+          message: `Failed to process request: subPiece CID ${P1_V1} not found or does not belong to service svc`,
         },
         present: (cid) => {
           if (cid === P2) throw new Error('probe timeout')
@@ -553,7 +557,7 @@ describe('runDirectUpload', () => {
     }
   })
 
-  it('leaves a hashless add_unconfirmed row alone when no data set is known', async () => {
+  it('holds a fresh hashless add_unconfirmed row when no data set is known', async () => {
     const { dir, db } = await dbAt('du-hashless-unknown')
     try {
       seedBuilt(db, P1, join(dir, 'a.car'))
@@ -567,6 +571,71 @@ describe('runDirectUpload', () => {
       expect(calls.commit.get('p1') ?? 0).toBe(0)
       expect(summary.providers[0]?.addUnconfirmed).toBe(1)
     } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('re-parks a hashless add_unconfirmed row with no data set once it has aged out', async () => {
+    const { dir, db } = await dbAt('du-hashless-unknown-aged')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      db.recordUploadParked(P1, 'p1', 'primary', null)
+      db.markUploadsAddUnconfirmed([P1], 'p1')
+
+      // Still no data set on the provider an hour later: the create-and-add
+      // transaction never landed, so the piece is safe to commit again.
+      const { deps, calls } = fakeDeps({ nowOffsetMs: UNCONFIRMED_REQUEUE_AFTER_MS + 1 })
+      await runDirectUpload(db, OPTS, deps)
+
+      expect(calls.commit.get('p1')).toBe(1)
+      expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(1)
+      expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(0)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('resolves an aged unlanded tx from the data set when a replacement tx landed', async () => {
+    const { dir, db } = await dbAt('du-replaced-tx')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      db.recordUploadParked(P1, 'p1', 'primary', '7')
+      db.markUploadsAddUnconfirmed([P1], 'p1')
+      db.markUploadTxSubmitted([P1], 'p1', '0xoriginal')
+
+      // The gas bumper landed the add under another hash: the original has no receipt, the piece is on chain.
+      const { deps, calls } = fakeDeps({
+        nowOffsetMs: UNCONFIRMED_REQUEUE_AFTER_MS + 1,
+        dataSetPieceId: (dataSetId) => (dataSetId === '7' ? '42' : null),
+      })
+      await runDirectUpload(db, OPTS, deps)
+
+      expect(calls.commit.get('p1') ?? 0).toBe(0)
+      expect(db.uploadsByStatus('p1', 'committed').map((u) => u.pieceId)).toEqual(['42'])
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('flushes a parked piece at its deadline while waiting on the pipeline', async () => {
+    vi.useFakeTimers()
+    const { dir, db } = await dbAt('du-wait-deadline')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      const { deps, calls } = fakeDeps()
+      // The packer never produces another piece until the parked one commits.
+      const waitForMore = async (): Promise<boolean> =>
+        calls.commit.has('p1') ? false : new Promise<boolean>(() => undefined)
+      const run = runDirectUpload(db, { ...OPTS, waitForMore }, deps)
+      await vi.advanceTimersByTimeAsync(2 * 60 * 60_000)
+      await run
+
+      expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
       db.close()
       await rm(dir, { recursive: true, force: true })
     }
@@ -616,5 +685,27 @@ describe('runDirectUpload', () => {
       db.close()
       await rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('pieceParked', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('is false only on a 404, and throws on transient provider errors', async () => {
+    const answer = (status: number) =>
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response(null, { status }))
+      )
+    answer(200)
+    expect(await pieceParked('https://sp.example/', P1)).toBe(true)
+    answer(404)
+    expect(await pieceParked('https://sp.example/', P1)).toBe(false)
+    answer(500)
+    await expect(pieceParked('https://sp.example/', P1)).rejects.toThrow(/500/)
+    answer(429)
+    await expect(pieceParked('https://sp.example/', P1)).rejects.toThrow(/429/)
   })
 })
