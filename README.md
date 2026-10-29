@@ -364,11 +364,11 @@ PRIVATE_KEY=0x... filecoin-pin get bafybei... ~/Downloads
 | Open (default) | (no flag) | `--get-share-link` | the link alone |
 | Restricted | `--restricted` | `--get-share-link-restricted` | the link and the Access key |
 
-* **What it opens:** that one upload, never the rest of its group key. Anyone holding an open link can read the upload, so send it only where that is acceptable. A **restricted** link alone opens nothing, so use one where exposure needs more control. Every link has its own key, so links are independent.
-* **Who can share:** the owner wallet (`PRIVATE_KEY`), or a session key with a [Grant](documentation/glossary.md#grant) for the upload's group key.
-* **No expiry:** a link reads the upload for as long as the upload is stored. **A link cannot be revoked**: to stop sharing, remove the upload (and upload again if you still need it: the new upload has a new key).
-* **Finding the upload:** `get-share-link` reads the envelope header (owner, group key, salt) from the upload's first blocks, through [IPNI](documentation/glossary.md#ipni) and your own data sets' providers, checking every block against the CID: the root and the first leaf, about 1 MiB at most.
-* **Limits:** uploads made with `--no-ipfs` can't be shared, since a link fetches the upload by its root CID. For this reason, `add` refuses `--no-ipfs` when the user specifies a share flag. Links open with `get --share`, open or restricted. They point at a web viewer (`--viewer <url>`) that is not released yet; until it is, the default URL cannot open them.
+* **What it opens:** that single piece. Anyone holding an open link can read it, so send it only where that is acceptable. A **restricted** link alone opens nothing, so use one where exposure needs more control. Every link has its own key, so links are independent.
+* **Who can share:** the owner wallet (`PRIVATE_KEY`), or a session key with a [Grant](documentation/glossary.md#grant) for the piece's group key.
+* **No expiry:** a link gives access to the piece for as long as it is stored. **A link cannot be revoked**: to stop sharing, remove the piece and upload again, which will automatically protect it with a new key.
+* **Finding the piece:** `get-share-link` reads the envelope header (owner, group key, salt) from the upload's first blocks, through [IPNI](documentation/glossary.md#ipni) and your own data sets' providers, checking every block against the CID: the root and the first leaf, about 1 MiB at most.
+* **Limits:** uploads made with `--no-ipfs` can't be shared, since a link fetches the upload by its root CID. For this reason, `add` refuses `--no-ipfs` when the user specifies a share flag. Links open with `get --share`, open or restricted.
 
 To open a link, pass it to `get`, with its Access key for a restricted link, as a flag or from the environment (the flag wins):
 
