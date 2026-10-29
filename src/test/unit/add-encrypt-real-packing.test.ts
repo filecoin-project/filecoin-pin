@@ -265,7 +265,7 @@ describe('add --encrypt with real packing', () => {
     it.each([
       [{ getShareLink: true }, /needs --encrypt/],
       [{ encrypt: true, getShareLink: true, getShareLinkRestricted: true }, /not both/],
-      [{ encrypt: true, ipfs: false, getShareLink: true }, /--no-ipfs upload cannot be shared/],
+      [{ encrypt: true, ipfs: false, getShareLink: true }, /--no-ipfs cannot be shared/],
     ])('refuses %o before uploading', async (flags, message) => {
       const { performUpload } = await import('../../common/upload-flow.js')
       await expect(runAdd({ ...auth, filePath: input, ...flags })).rejects.toThrow(message)

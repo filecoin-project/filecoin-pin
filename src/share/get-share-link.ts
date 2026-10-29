@@ -30,8 +30,8 @@ export interface GetShareLinkOptions extends CLIAuthOptions {
   viewer?: string
 }
 
-/** The upload's labels, from providers found through IPNI and the sharer's IPFS-indexed data sets. */
-async function uploadLabels(
+/** The envelope header's labels, read from providers found through IPNI and the sharer's IPFS-indexed data sets. */
+async function findEnvelopeLabels(
   cid: CID,
   auth: SynapseSetupConfig,
   address: Address,
@@ -68,7 +68,8 @@ export const shareReminder = (mode: ShareMode): string =>
     : 'Send the link and the Access key by different channels'
 
 /** A `--no-ipfs` upload: nothing finds its blocks by CID, so neither the viewer nor `get --share` could open a link to it. */
-export const NO_IPFS_SHARE = 'A --no-ipfs upload cannot be shared: a Share link fetches the upload by its IPFS root CID'
+export const NO_IPFS_SHARE =
+  'Content added with --no-ipfs cannot be shared: a Share link fetches it by its IPFS root CID'
 
 /** The link and its secret as plain lines, after the summary, so they copy cleanly. */
 export function printShare(share: CreatedShare): void {
@@ -93,11 +94,11 @@ export async function runGetShareLink(cidArg: string, options: GetShareLinkOptio
     if (address == null) throw new Error(SHARE_NEEDS_CREDENTIALS)
     const logger = getCLILogger()
 
-    spinner.start('Reading the upload header...')
+    spinner.start('Reading the envelope header...')
     // `--rpc-url` leaves the network to be probed.
     const chainId = auth.chain?.id ?? (await readOnlySynapse(auth, address, logger)).chain.id
     const sender = await shareSender(auth, chainId)
-    const labels = await uploadLabels(cid, auth, address, logger)
+    const labels = await findEnvelopeLabels(cid, auth, address, logger)
     spinner.message('Creating the share...')
     const share = await createShare({
       sender,

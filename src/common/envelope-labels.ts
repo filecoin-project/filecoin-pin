@@ -92,7 +92,7 @@ async function headerLabels(bytes: Uint8Array): Promise<PieceMetadata> {
     .pipeTo(new WritableStream())
     .catch(() => undefined)
   if (labels == null) throw new Error('no FEE envelope header')
-  if (contentType !== CAR_CONTENT_TYPE) throw new Error('not an upload made by `add --encrypt`')
+  if (contentType !== CAR_CONTENT_TYPE) throw new Error('not content encrypted by `add --encrypt`')
   if (
     labels['foc/v'] !== 1 ||
     typeof labels['foc/own'] !== 'string' ||

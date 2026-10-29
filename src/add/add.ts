@@ -208,7 +208,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     const shareMode: ShareMode | undefined =
       options.getShareLinkRestricted === true ? 'restricted' : options.getShareLink === true ? 'open' : undefined
     if (shareMode != null && options.encrypt !== true) {
-      throw new Error('--get-share-link needs --encrypt: a plain upload is shared by its CID')
+      throw new Error('--get-share-link needs --encrypt: plain content is shared by its CID')
     }
     if (shareMode != null && !ipfsIndexing) throw new Error(NO_IPFS_SHARE)
 

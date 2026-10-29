@@ -4,7 +4,7 @@ import { addAuthOptions } from '../utils/cli-options.js'
 
 export const getShareLinkCommand = new Command('get-share-link')
   .description('Create a Share link for one encrypted upload, for someone without a wallet')
-  .argument('<cid>', 'Encrypted root CID of an upload made with `add --encrypt`')
+  .argument('<cid>', 'Encrypted root CID, as `add --encrypt` printed it')
   .option('--restricted', 'Keep the Access key out of the link: the recipient also needs it, sent separately')
   .option('--viewer <url>', 'Web page the link opens in')
   .addHelpText(
@@ -16,7 +16,7 @@ Each link has its own key, so links are independent. A link shares this one uplo
 rest of its group key, and it never expires.
 
 Shares with the owner wallet (PRIVATE_KEY), or with a session key and its group key Grant (from
-\`filecoin-pin login\`). The upload's header is read from its first blocks, verified against the CID.`
+\`filecoin-pin login\`). The envelope header is read from the first blocks, verified against the CID.`
   )
 
 addAuthOptions(getShareLinkCommand)
