@@ -26,8 +26,6 @@ import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 const SHARE_NEEDS_CREDENTIALS = `Sharing needs the owner wallet (set PRIVATE_KEY) or a session key with a group key Grant (run \`${GRANT_LOGIN_COMMAND}\`).`
 
 export interface GetShareLinkOptions extends CLIAuthOptions {
-  /** `true` for a generated password, or the password itself. */
-  password?: string | boolean
   restricted?: boolean
   viewer?: string
 }
@@ -67,7 +65,7 @@ export async function shareSender(auth: SynapseSetupConfig, chainId: number): Pr
 export const shareReminder = (mode: ShareMode): string =>
   mode === 'restricted'
     ? 'Anyone with the link can read this upload: send it only where that is acceptable'
-    : `Send the link and the ${mode === 'password' ? 'password' : 'Access key'} by different channels`
+    : 'Send the link and the Access key by different channels'
 
 /** A `--no-ipfs` upload: nothing finds its blocks by CID, so neither the viewer nor `get --share` could open a link to it. */
 export const NO_IPFS_SHARE = 'A --no-ipfs upload cannot be shared: a Share link fetches the upload by its IPFS root CID'
@@ -76,7 +74,6 @@ export const NO_IPFS_SHARE = 'A --no-ipfs upload cannot be shared: a Share link 
 export function printShare(share: CreatedShare): void {
   console.log(`Share link:\n${share.link}`)
   if (share.accessKey != null) console.log(`\nAccess key:\n${share.accessKey}`)
-  if (share.password != null) console.log(`\nPassword:\n${share.password}`)
 }
 
 export async function runGetShareLink(cidArg: string, options: GetShareLinkOptions): Promise<void> {
@@ -89,11 +86,7 @@ export async function runGetShareLink(cidArg: string, options: GetShareLinkOptio
     } catch {
       throw new Error(`Not an IPFS root CID: ${cidArg}`)
     }
-    if (options.password != null && options.restricted === true) {
-      throw new Error('Choose --password or --restricted, not both')
-    }
-    const mode: ShareMode =
-      options.password != null ? 'password' : options.restricted === true ? 'restricted' : 'access-key'
+    const mode: ShareMode = options.restricted === true ? 'restricted' : 'access-key'
     const auth = parseCLIAuth(options)
     const address = addressOf(auth)
     // Owner and session credentials both name an address; shareSender refuses a view-only one.
@@ -111,7 +104,6 @@ export async function runGetShareLink(cidArg: string, options: GetShareLinkOptio
       rootCid: cid,
       labels,
       mode,
-      ...(typeof options.password === 'string' && { password: options.password }),
       ...(options.viewer != null && { viewer: options.viewer }),
     })
     spinner.stop(`${pc.green('✓')} Share link created`)

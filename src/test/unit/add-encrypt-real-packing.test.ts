@@ -255,10 +255,7 @@ describe('add --encrypt with real packing', () => {
       expect(car.includes(Buffer.from(salt.slice(2), 'hex')) || car.includes(salt)).toBe(true)
       const labels = pieceMetadata({ owner: ownerAddress, keyspace }, { salt })
       const accessKey = out.match(/fak1_[A-Za-z0-9_-]+/)?.[0]
-      const key = await shareKeyResolver(
-        parsed,
-        await shareKey(parsed, { accessKey })
-      )({ appMetadata: labels } as never)
+      const key = await shareKeyResolver(parsed, shareKey(parsed, accessKey))({ appMetadata: labels } as never)
       const owner = privateKeyToAccount(OWNER_KEY)
       const { kk } = await deriveGroupKey(owner, { owner: owner.address, keyspace: labels['foc/ks'] })
       expect(bytesToHex(key)).toBe(bytesToHex(keyForEnvelope(kk, labels)))
@@ -266,8 +263,7 @@ describe('add --encrypt with real packing', () => {
 
     it.each([
       [{ getShareLink: true }, /needs --encrypt/],
-      [{ encrypt: true, getShareLink: true, getShareLinkRestricted: true }, /Choose one of/],
-      [{ encrypt: true, getShareLinkPassword: 'too short' }, /at least 12 characters/],
+      [{ encrypt: true, getShareLink: true, getShareLinkRestricted: true }, /not both/],
       [{ encrypt: true, ipfs: false, getShareLink: true }, /--no-ipfs upload cannot be shared/],
     ])('refuses %o before uploading', async (flags, message) => {
       const { performUpload } = await import('../../common/upload-flow.js')

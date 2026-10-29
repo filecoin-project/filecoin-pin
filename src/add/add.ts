@@ -30,7 +30,7 @@ import {
 } from '../common/group-key.js'
 import { grantGroupKey, loadGroupKeyGrant } from '../common/group-key-grant.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
-import { type CreatedShare, createShare, MIN_PASSWORD_LENGTH, type ShareMode } from '../common/share-link.js'
+import { type CreatedShare, createShare, type ShareMode } from '../common/share-link.js'
 import {
   displayDryRunEstimate,
   displayUploadResults,
@@ -202,26 +202,15 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
   try {
     // --get-share-link*: at most one, only for an encrypted upload, and checked before uploading.
-    const shareFlags = [options.getShareLink, options.getShareLinkPassword, options.getShareLinkRestricted]
-    if (shareFlags.filter((flag) => flag != null && flag !== false).length > 1) {
-      throw new Error('Choose one of --get-share-link, --get-share-link-password and --get-share-link-restricted')
+    if (options.getShareLink === true && options.getShareLinkRestricted === true) {
+      throw new Error('Choose --get-share-link or --get-share-link-restricted, not both')
     }
     const shareMode: ShareMode | undefined =
-      options.getShareLinkPassword != null
-        ? 'password'
-        : options.getShareLinkRestricted === true
-          ? 'restricted'
-          : options.getShareLink === true
-            ? 'access-key'
-            : undefined
+      options.getShareLinkRestricted === true ? 'restricted' : options.getShareLink === true ? 'access-key' : undefined
     if (shareMode != null && options.encrypt !== true) {
       throw new Error('--get-share-link needs --encrypt: a plain upload is shared by its CID')
     }
     if (shareMode != null && !ipfsIndexing) throw new Error(NO_IPFS_SHARE)
-    const sharePassword = typeof options.getShareLinkPassword === 'string' ? options.getShareLinkPassword : undefined
-    if (sharePassword != null && sharePassword.length < MIN_PASSWORD_LENGTH) {
-      throw new Error(`A share password needs at least ${MIN_PASSWORD_LENGTH} characters`)
-    }
 
     // Validate path exists and is readable
     spinner.start('Validating path...')
@@ -496,7 +485,6 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
           rootCid,
           labels: encryptedLabels,
           mode: shareMode,
-          ...(sharePassword != null && { password: sharePassword }),
         })
       } catch (error) {
         log.warn(

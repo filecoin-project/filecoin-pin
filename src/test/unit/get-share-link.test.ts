@@ -43,18 +43,15 @@ describe('runGetShareLink', () => {
     const parsed = parseShareLink(text.match(/https:\/\/viewer\.test\/#\S+/)?.[0] ?? '')
     expect(parsed.rootCid.toString()).toBe(ROOT)
     const accessKey = text.match(/fak1_\S+/)?.[0]
-    const key = await shareKeyResolver(parsed, await shareKey(parsed, { accessKey }))({ appMetadata: labels } as never)
+    const key = await shareKeyResolver(parsed, shareKey(parsed, accessKey))({ appMetadata: labels } as never)
     const { kk } = await deriveGroupKey(OWNER, { owner: OWNER.address, keyspace: GROUP_KEY })
     expect(bytesToHex(key)).toBe(bytesToHex(keyForEnvelope(kk, labels)))
   })
 
-  it('refuses view-only credentials and conflicting modes', async () => {
+  it('refuses view-only credentials', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     await expect(
       runGetShareLink(ROOT, { viewAddress: OWNER.address, network: 'calibration' } as never)
     ).rejects.toThrow(/owner wallet/)
-    await expect(
-      runGetShareLink(ROOT, { privateKey: OWNER_KEY, password: true, restricted: true } as never)
-    ).rejects.toThrow(/not both/)
   })
 })

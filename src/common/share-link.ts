@@ -4,10 +4,10 @@
  * A share is a Keysmith piece grant: the upload's key wrapped to a throwaway key T that the sender
  * makes for the recipient. Nothing flows back from the recipient, so it works for anyone on the web.
  *
- * T's private key reaches the recipient as an Access key sent separately (the default), inside
- * the link (`--restricted`), or derived from a password (`--password`, Keysmith's `pw1`):
+ * T's private key reaches the recipient as an Access key sent separately (the default), or inside
+ * the link (`--restricted`):
  *
- *   <viewer>#v1/<encrypted root CID>&d=<payload>[&k=fak1_<key> | &p=pw1.<salt>]
+ *   <viewer>#v1/<encrypted root CID>&d=<payload>[&k=fak1_<key>]
  *
  * Every value is base64url without padding. Everything is in the fragment, so nothing reaches a
  * server. Every link has its own T, so links are independent.
@@ -23,7 +23,6 @@ import {
   type PieceMetadata,
   pieceNode,
   publicKeyOf,
-  shareKeyFromPassword,
   unwrapWith,
   wrapTo,
 } from '@filoz/keysmith'
@@ -45,23 +44,14 @@ export const DEFAULT_VIEWER_URL =
 /** Prefix of an Access key's text form: lets both sides refuse a wrong paste, and secret scanners find a leak. */
 export const ACCESS_KEY_PREFIX = 'fak1_'
 
-/** Prefix of a password share's salt in the link: the `pw1` derivation, whose parameters it fixes. */
-export const PASSWORD_PREFIX = 'pw1.'
-
-/** Shortest password accepted for `--password`: anyone holding the link can guess offline. */
-export const MIN_PASSWORD_LENGTH = 12
-
-export type ShareMode = 'access-key' | 'password' | 'restricted'
-
-/** How the recipient gets T's private key, as the link records it. */
-export type ShareSecret = { kind: 'access-key'; key: Hex } | { kind: 'password'; salt: Uint8Array }
+export type ShareMode = 'access-key' | 'restricted'
 
 export interface ParsedShare {
   rootCid: CID
   /** A Keysmith piece grant, CBOR. */
   payload: Uint8Array
-  /** In the link itself: the Access key (restricted) or the password salt. Absent by default. */
-  secret?: ShareSecret
+  /** The Access key, when the link carries it (restricted). Absent by default. */
+  accessKey?: Hex
 }
 
 /** A share link, or an Access key, that cannot be used. The message is safe to print. */
@@ -94,12 +84,11 @@ export function parseAccessKey(text: string): Hex {
   return bytesToHex(bytes)
 }
 
-/** `<viewer>#v1/<rootCid>&d=<payload>`, then `&k=` for a restricted link or `&p=` for a password share. */
-export function formatShareLink(viewer: string, rootCid: CID, payload: Uint8Array, secret?: ShareSecret): string {
+/** `<viewer>#v1/<rootCid>&d=<payload>`, then `&k=` for a restricted link. */
+export function formatShareLink(viewer: string, rootCid: CID, payload: Uint8Array, accessKey?: Hex): string {
   const base = viewer.split('#')[0] ?? viewer
   let fragment = `v1/${rootCid.toString()}&d=${b64(payload)}`
-  if (secret?.kind === 'access-key') fragment += `&k=${accessKeyText(secret.key)}`
-  if (secret?.kind === 'password') fragment += `&p=${PASSWORD_PREFIX}${b64(secret.salt)}`
+  if (accessKey != null) fragment += `&k=${accessKeyText(accessKey)}`
   return `${base}#${fragment}`
 }
 
@@ -123,7 +112,7 @@ export function parseShareLink(text: string): ParsedShare {
   for (const param of params) {
     const at = param.indexOf('=')
     const name = at < 0 ? param : param.slice(0, at)
-    if (!['d', 'k', 'p'].includes(name) || values.has(name)) {
+    if (!['d', 'k'].includes(name) || values.has(name)) {
       throw new ShareLinkError(`The Share link has an unexpected part "${name}"; copy it again`)
     }
     values.set(name, param.slice(at + 1))
@@ -131,24 +120,7 @@ export function parseShareLink(text: string): ParsedShare {
   const d = values.get('d')
   if (d == null || d === '') throw new ShareLinkError('The Share link is incomplete (no share in it); copy it again')
   const k = values.get('k')
-  const p = values.get('p')
-  if (k != null && p != null) throw new ShareLinkError('The Share link carries both a key and a password salt')
-  let secret: ShareSecret | undefined
-  if (k != null) secret = { kind: 'access-key', key: parseAccessKey(k) }
-  if (p != null) {
-    if (!p.startsWith(PASSWORD_PREFIX)) throw new ShareLinkError('The Share link uses an unknown password scheme')
-    const salt = unb64(p.slice(PASSWORD_PREFIX.length), 'The password salt')
-    if (salt.length !== 16) throw new ShareLinkError('The password salt is incomplete; copy the link again')
-    secret = { kind: 'password', salt }
-  }
-  return { rootCid, payload: unb64(d, 'The share'), ...(secret != null && { secret }) }
-}
-
-/** A generated password: 20 random base32 characters in groups of 5, about 100 bits. */
-export function generatePassword(): string {
-  const alphabet = 'abcdefghijklmnopqrstuvwxyz234567'
-  const chars = Array.from(crypto.getRandomValues(new Uint8Array(20)), (byte) => alphabet[byte % 32])
-  return [0, 5, 10, 15].map((i) => chars.slice(i, i + 5).join('')).join('-')
+  return { rootCid, payload: unb64(d, 'The share'), ...(k != null && { accessKey: parseAccessKey(k) }) }
 }
 
 /** Who shares: the owner wallet, or a session key's opened group key Grant. */
@@ -160,8 +132,6 @@ export interface CreateShareInput {
   /** The upload's envelope labels (`appMetadata`): they name its group key, owner and salt. */
   labels: PieceMetadata
   mode: ShareMode
-  /** For `password` mode; generated when absent. */
-  password?: string
   viewer?: string
 }
 
@@ -169,33 +139,18 @@ export interface CreatedShare {
   link: string
   /** The Access key to send separately (default mode only). */
   accessKey?: string
-  /** The generated password, if the caller gave none (password mode only). */
-  password?: string
 }
 
 /**
- * Mint a share link for one upload, wrapped to a fresh key T (or one derived from a password).
+ * Mint a share link for one upload, wrapped to a fresh key T.
  *
- * @throws If the sender holds no key for the upload, or a supplied password is too short.
+ * @throws If the sender holds no key for the upload.
  */
 export async function createShare(input: CreateShareInput): Promise<CreatedShare> {
   const { labels, sender } = input
   const ref = { owner: labels['foc/own'], keyspace: labels['foc/ks'] }
   const node = pieceNode(labels)
-
-  let password: string | undefined
-  let salt: Uint8Array | undefined
-  let T: Hex
-  if (input.mode === 'password') {
-    password = input.password ?? generatePassword()
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      throw new ShareLinkError(`A share password needs at least ${MIN_PASSWORD_LENGTH} characters`)
-    }
-    salt = crypto.getRandomValues(new Uint8Array(16))
-    T = await shareKeyFromPassword(password, salt)
-  } else {
-    T = generatePrivateKey()
-  }
+  const T = generatePrivateKey()
 
   let pieceKey: Uint8Array
   if ('owner' in sender) {
@@ -219,30 +174,15 @@ export async function createShare(input: CreateShareInput): Promise<CreatedShare
   }
 
   const viewer = input.viewer ?? DEFAULT_VIEWER_URL
-  if (input.mode === 'password' && salt != null) {
-    return {
-      link: formatShareLink(viewer, input.rootCid, payload, { kind: 'password', salt }),
-      ...(input.password == null && password != null && { password }),
-    }
-  }
-  if (input.mode === 'restricted') {
-    return { link: formatShareLink(viewer, input.rootCid, payload, { kind: 'access-key', key: T }) }
-  }
+  if (input.mode === 'restricted') return { link: formatShareLink(viewer, input.rootCid, payload, T) }
   return { link: formatShareLink(viewer, input.rootCid, payload), accessKey: accessKeyText(T) }
 }
 
-/** T's private key for a parsed share: from the link, the Access key, or the password. */
-export async function shareKey(
-  share: ParsedShare,
-  given: { accessKey?: string | undefined; password?: string | undefined }
-): Promise<Hex> {
-  if (share.secret?.kind === 'access-key') return share.secret.key
-  if (share.secret?.kind === 'password') {
-    if (given.password == null) throw new ShareLinkError('This Share link needs its password (--password)')
-    return shareKeyFromPassword(given.password, share.secret.salt)
-  }
-  if (given.accessKey == null) throw new ShareLinkError('This Share link needs its Access key (--access-key fak1_…)')
-  return parseAccessKey(given.accessKey)
+/** T's private key for a parsed share: from the link, else the Access key sent with it. */
+export function shareKey(share: ParsedShare, accessKey: string | undefined): Hex {
+  if (share.accessKey != null) return share.accessKey
+  if (accessKey == null) throw new ShareLinkError('This Share link needs its Access key (--access-key fak1_…)')
+  return parseAccessKey(accessKey)
 }
 
 /** Open a share's payload with T: the shared key and the grant that names its owner, group key and node. */
@@ -251,7 +191,7 @@ async function openPayload(share: ParsedShare, T: Hex): Promise<{ key: Uint8Arra
     const grant = decodeGrant(share.payload)
     return { key: await unwrapWith(T, grant), grant }
   } catch {
-    throw new ShareLinkError('The Access key or password does not open this share')
+    throw new ShareLinkError('The Access key does not open this share')
   }
 }
 

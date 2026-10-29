@@ -50,8 +50,6 @@ export interface GetCommandOptions extends CLIAuthOptions {
   share?: string
   /** The share's Access key (fak1_…), when the link does not carry it. */
   accessKey?: string
-  /** The share's password, for a password share. */
-  password?: string
 }
 
 export async function runGet(cidArg: string, outputDir: string | undefined, options: GetCommandOptions): Promise<void> {
@@ -96,8 +94,8 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
       if (!share.rootCid.equals(cid)) {
         throw new ShareLinkError(`The Share link is for ${share.rootCid}, not ${cid}`)
       }
-      // Before the download, so a missing or wrong secret fails fast.
-      const T = await shareKey(share, options)
+      // Before the download, so a missing or wrong Access key fails fast.
+      const T = shareKey(share, options.accessKey)
       sharer = await shareOwner(share, T)
       resolveKey = shareKeyResolver(share, T)
     }

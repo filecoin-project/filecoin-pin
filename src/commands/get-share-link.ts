@@ -5,7 +5,6 @@ import { addAuthOptions } from '../utils/cli-options.js'
 export const getShareLinkCommand = new Command('get-share-link')
   .description('Create a Share link for one encrypted upload, for someone without a wallet')
   .argument('<cid>', 'Encrypted root CID of an upload made with `add --encrypt`')
-  .option('--password [password]', 'Open with a password instead of an Access key (generated when not given)')
   .option('--restricted', 'Put the Access key inside the link: the link alone opens the upload')
   .option('--viewer <url>', 'Web page the link opens in')
   .addHelpText(

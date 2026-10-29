@@ -293,10 +293,10 @@ Note that the filecoin-pin CLI's `--session-key` flag (and `SESSION_KEY` environ
 A link that opens one [Encrypted Upload](#encrypted-upload) for someone with no wallet or [Grant](#grant), made by `filecoin-pin get-share-link` or `add --encrypt --get-share-link`. It carries a [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) piece grant: the upload's key, wrapped to a throwaway key pair. Everything is in the URL fragment, so it never reaches a server:
 
 ```text
-<viewer>#v1/<encrypted root CID>&d=<payload>[&k=fak1_<key> | &p=pw1.<salt>]
+<viewer>#v1/<encrypted root CID>&d=<payload>[&k=fak1_<key>]
 ```
 
-Values are base64url without padding. With no `&k=` or `&p=`, the recipient also needs the [Access Key](#access-key); `&k=` carries it (a restricted link); `&p=` carries the salt from which the key is derived with a password (Keysmith's `pw1`: scrypt N=2^17, r=8, p=1). A link opens only its own upload, never expires and cannot be revoked. See the [README](../README.md#share-links).
+Values are base64url without padding. Without `&k=`, the recipient also needs the [Access Key](#access-key); `&k=` carries it (a restricted link). A link opens only its own upload, never expires and cannot be revoked. See the [README](../README.md#share-links).
 
 ## Standard IPFS Tooling
 

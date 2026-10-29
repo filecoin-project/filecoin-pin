@@ -362,22 +362,20 @@ PRIVATE_KEY=0x... filecoin-pin get bafybei... ~/Downloads
 | Mode | `get-share-link` | `add --encrypt` | The recipient needs |
 | --- | --- | --- | --- |
 | Access key (default) | (no flag) | `--get-share-link` | the link and the Access key |
-| Password | `--password [password]` | `--get-share-link-password [password]` | the link and the password |
 | Restricted | `--restricted` | `--get-share-link-restricted` | the link alone |
 
 * **What it opens:** that one upload, never the rest of its group key. The link alone opens nothing (except a restricted one), and every link has its own key, so links are independent.
 * **Who can share:** the owner wallet (`PRIVATE_KEY`), or a session key with a [Grant](documentation/glossary.md#grant) for the upload's group key.
-* **Password:** with no value, a password of 20 random characters is generated and printed. A password you choose needs at least 12 characters. Anyone holding the link can guess passwords offline, so its strength is the only protection: prefer the generated one.
 * **No expiry:** a link reads the upload for as long as the upload is stored. **A link cannot be revoked**: to stop sharing, upload again and remove the old upload.
 * **Finding the upload:** `get-share-link` reads the envelope header (owner, group key, salt) from the upload's first blocks, through [IPNI](documentation/glossary.md#ipni) and your own data sets' providers, checking every block against the CID: the root and the first leaf, about 1 MiB at most.
 * **Limits:** uploads made with `--no-ipfs` can't be shared, since a link fetches the upload by its root CID: `add` refuses `--no-ipfs` with a share flag. Links point at a web viewer (`--viewer <url>`) that is not released yet; until it is, open them with `get --share`.
 
-To open a link, pass it to `get` with its secret, as a flag or from the environment (the flag wins):
+To open a link, pass it to `get` with its Access key, as a flag or from the environment (the flag wins):
 
 ```bash
 PRIVATE_KEY=0x... filecoin-pin get-share-link bafybei...
 filecoin-pin get bafybei... ./from-alice --share '<link>' --access-key fak1_...
-SHARE_PASSWORD='abcde-fghij-...' filecoin-pin get bafybei... --share '<link>'
+SHARE_ACCESS_KEY=fak1_... filecoin-pin get bafybei... --share '<link>'
 ```
 
 `get --share` uses the link's key instead of any credentials, and refuses a link for another CID before downloading.
@@ -413,7 +411,6 @@ GROUP_KEY_GRANT=fgr1_...       # Group key Grant for SESSION_KEY: encrypted add,
 
 # Optional - opening a Share Link with `get --share`
 SHARE_ACCESS_KEY=fak1_...      # The link's Access key (--access-key)
-SHARE_PASSWORD=...             # The link's password (--password)
 
 # Optional - Network Configuration
 NETWORK=mainnet                # Network to use: mainnet, calibration, or devnet (default: mainnet)

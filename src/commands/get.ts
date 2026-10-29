@@ -13,9 +13,6 @@ export const getCommand = new Command('get')
       'SHARE_ACCESS_KEY'
     )
   )
-  .addOption(
-    new Option('--password <password>', "The Share link's password, for a password share").env('SHARE_PASSWORD')
-  )
   .addHelpText(
     'after',
     `
@@ -27,7 +24,7 @@ next provider is tried.
 
 A plain file or folder is saved as <output-dir>/<cid> (its DAG holds no name). An encrypted
 upload is decrypted with the owner wallet (PRIVATE_KEY), a session key's group key Grant, or
---share with its Access key or password, and restored under its original name.
+--share with its Access key, and restored under its original name.
 Nothing in <output-dir> is overwritten: a taken name is numbered like a browser download
 (<cid> -> "<cid>(1)", report.pdf -> "report(1).pdf"). Plain content needs no credentials.`
   )

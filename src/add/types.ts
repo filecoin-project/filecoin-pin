@@ -30,8 +30,6 @@ export interface AddOptions extends CLIAuthOptions, CLIAutoFundOptions {
   ipfs?: boolean
   /** With `encrypt`: print a Share link (and its Access key) for the upload. */
   getShareLink?: boolean
-  /** With `encrypt`: a password Share link; `true` generates the password. */
-  getShareLinkPassword?: string | boolean
   /** With `encrypt`: a Share link that carries its own Access key. */
   getShareLinkRestricted?: boolean
 }
