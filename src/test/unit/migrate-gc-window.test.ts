@@ -49,6 +49,11 @@ describe('marginFromConfirmations', () => {
     const slow = 20 * 60_000
     expect(marginFromConfirmations([1_000, slow])).toBe(2 * slow)
   })
+
+  it('forgets a spike once five later commits are observed', () => {
+    const slow = 30 * 60_000
+    expect(marginFromConfirmations([slow, 1_000, 1_000, 1_000, 1_000, 1_000])).toBe(MIN_MARGIN_MS)
+  })
 })
 
 describe('lowerWindowOnGc', () => {
