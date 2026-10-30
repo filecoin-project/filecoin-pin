@@ -312,9 +312,9 @@ CI and shared runners: set `PRIVATE_KEY` or `SESSION_KEY` and `WALLET_ADDRESS` e
 
 `filecoin-pin add <path> --encrypt` encrypts a file or directory on this machine before anything is uploaded. Only ciphertext leaves the machine. The [Encryption guide](documentation/encryption.md) explains the model: keys, Grants, what stays private, and the format.
 
-* **Who can read it:** the encrypted bytes are public and retrievable like any other upload; only the owner wallet, and session keys holding a [Grant](documentation/glossary.md#grant) for its group key, can decrypt them. `--encrypt` needs that wallet (`PRIVATE_KEY` or `--private-key`) or a session key with a Grant (see [Group key Grants](#group-key-grants)); a session key writes under the Grant's group key and its data sets. With a session key and no valid Grant it stops before uploading and prints the `login` command to run.
+* **Who can read it:** the encrypted bytes are public and retrievable like any other upload; only the owner wallet, and session keys holding a [Grant](documentation/glossary.md#grant) for its group key, can decrypt them, plus anyone given a [Share Link](#share-links) for one upload. `--encrypt` needs that wallet (`PRIVATE_KEY` or `--private-key`) or a session key with a Grant (see [Group key Grants](#group-key-grants)); a session key writes under the Grant's group key and its data sets. With a session key and no valid Grant it stops before uploading and prints the `login` command to run.
 * **What stays private:** the input is packed as a UnixFS CAR and that CAR is wrapped in a [Filecoin Encryption Envelope](documentation/glossary.md#encrypted-upload). File names, individual file sizes, the folder structure and the plaintext CIDs exist only inside the ciphertext. The total size is not hidden: the envelope header records the inner CAR's length and the piece size is public, so a single file's size is visible to within a few hundred bytes. The piece is named `encrypted.fee` unless you pass `--metadata name=...`, and the Root CID printed after the upload is the encrypted CAR's. Errors name a bad input entry by its position, not its path.
-* **Keys:** the wallet signs once for a [Group Key](documentation/glossary.md#group-key), and each upload gets its own key from that signature and a fresh salt. The CLI saves no key to your machine; the group key id is recorded on chain in the metadata of the data sets the upload goes to. The first group key's id is derived from the owner address (the first 16 bytes of `keccak256(utf8("filecoin/default-group-key") ‖ owner address bytes)`), so every client picks the same one before the first upload.
+* **Keys:** the wallet signs once for a [Group Key](documentation/glossary.md#group-key), and each upload gets its own key from that signature and a fresh salt. No key is stored locally; the group key is recorded on chain in the metadata of the data sets the upload goes to. The first group key's id is derived from the owner address (the first 16 bytes of `keccak256(utf8("filecoin/default-group-key") ‖ owner address bytes)`), so every client picks the same one before the first upload.
 * **Data sets:** encrypted uploads go to their own data sets, tagged with the group key and `foc/enc`. A plain `add` never reuses them, and `--data-set-id` pointing at the wrong kind of data set is refused.
 * **Limits:** symlinks and special files (FIFOs, sockets, devices) are skipped and counted in the output; hidden entries follow `--include-hidden`. One upload holds about 1 GiB; a larger input is refused before it is encrypted.
 
@@ -340,9 +340,9 @@ PRIVATE_KEY=0x... filecoin-pin decrypt encrypted.fee ./restored
 
 ### Get
 
-`filecoin-pin get <cid> [output-dir]` fetches an upload by its [IPFS Root CID](documentation/glossary.md#ipfs-root-cid) and saves the original as one entry in `<output-dir>` (default: the current directory), which may already hold other files and is created owner-only when missing. An [Encrypted Upload](documentation/glossary.md#encrypted-upload) is decrypted with the owner wallet (`PRIVATE_KEY`), or a session key's [Grant](documentation/glossary.md#grant), and restored under its original name, as `decrypt` does; plain content is written unchanged, and you can `get` it without any key or login. A plain file or folder is saved as `<output-dir>/<cid>`, since the DAG doesn't record the root's name. `get` never overwrites an existing file: a taken name is numbered like a browser download (`<cid>(1)`, `report(1).pdf`; see [Encrypted Uploads](#encrypted-uploads) for the rule), and the final path is printed on success.
+`filecoin-pin get <cid> [output-dir]` fetches an upload by its [IPFS Root CID](documentation/glossary.md#ipfs-root-cid) and saves the original as one entry in `<output-dir>` (default: the current directory), which may already hold other files and is created owner-only when missing. An [Encrypted Upload](documentation/glossary.md#encrypted-upload) is decrypted with the owner wallet (`PRIVATE_KEY`), a session key's [Grant](documentation/glossary.md#grant), or a [Share Link](#share-links) (`--share`), and restored under its original name, as `decrypt` does; plain content is written unchanged and needs no credentials. A plain file or folder is saved as `<output-dir>/<cid>`, since its DAG holds no root name. Nothing is overwritten: a taken name is numbered like a browser download (`<cid>(1)`, `report(1).pdf`; see [Encrypted Uploads](#encrypted-uploads) for the rule), and the final path is printed on success.
 
-* **Finding providers:** one [IPNI](documentation/glossary.md#ipni) lookup on cid.contact and, when an address is known (`PRIVATE_KEY`, `WALLET_ADDRESS` or `VIEW_ADDRESS`), the providers of that address's live, IPFS-indexed data sets, in parallel. Any provider is accepted, since every block is verified.
+* **Finding providers:** one [IPNI](documentation/glossary.md#ipni) lookup on cid.contact and, when an address is known (`PRIVATE_KEY`, `WALLET_ADDRESS` or `VIEW_ADDRESS`), the providers of that address's live, IPFS-indexed data sets, in parallel. With `--share`, the sharer's data sets are searched too (the link names the owner), so a recent upload is found before IPNI indexes it so long as the piece is on chain. Any provider is accepted, since every block is verified.
 * **Downloading:** the CAR is requested from up to 4 providers at a time (`/ipfs/<cid>?format=car&dag-scope=all`, depth-first, no duplicate blocks); the first to answer wins and the other requests are cancelled. It goes to a private temp file.
 * **Verifying:** the CAR must be rooted at `<cid>` and hold exactly the DAG's blocks in depth-first order, each hashing to its CID. A tampered, reordered, extra or missing block discards the download and the next provider is tried.
 * **Timeouts:** each lookup gets 20 s; a provider gets 30 s to answer and is dropped if it then stops sending data for 30 s. A dropped provider's download is deleted and the next one is tried.
@@ -354,6 +354,32 @@ PRIVATE_KEY=0x... filecoin-pin decrypt encrypted.fee ./restored
 filecoin-pin get bafybei...                         # saves ./bafybei...
 PRIVATE_KEY=0x... filecoin-pin get bafybei... ~/Downloads
 ```
+
+### Share Links
+
+`filecoin-pin get-share-link <cid>` shares one [Encrypted Upload](documentation/glossary.md#encrypted-upload) with someone who has no wallet, session key or Grant of their own. It prints a [Share Link](documentation/glossary.md#share-link) that, by default, opens the upload on its own (the link carries all the key material needed to open it, like "anyone with the link"). With `--restricted` it prints the link and a separate [Access Key](documentation/glossary.md#access-key) (`fak1_…`) that the recipient needs as well. Send the two by different channels, and then the link alone is harmless: the recipient must enter the Access Key at their end in order to get the content. `<cid>` is the upload's Encrypted root CID, as `add --encrypt` printed it. `add --encrypt --get-share-link` prints the same right after a successful upload.
+
+| Mode | `get-share-link` | `add --encrypt` | The recipient needs |
+| --- | --- | --- | --- |
+| Open (default) | (no flag) | `--get-share-link` | the link alone |
+| Restricted | `--restricted` | `--get-share-link-restricted` | the link and the Access key |
+
+* **What it opens:** that single piece. Anyone holding an open link can read it, so send it only where that is acceptable. A **restricted** link alone opens nothing, so use one where exposure needs more control. Every link has its own key, so links are independent.
+* **Who can share:** the owner wallet (`PRIVATE_KEY`), or a session key with a [Grant](documentation/glossary.md#grant) for the piece's group key.
+* **No expiry:** a link gives access to the piece for as long as it is stored. **A link cannot be revoked**: to stop sharing, remove the piece and upload again, which will automatically protect it with a new key.
+* **Finding the piece:** `get-share-link` reads the envelope header (owner, group key, salt) from the upload's first blocks, through [IPNI](documentation/glossary.md#ipni) and your own data sets' providers, checking every block against the CID: the root and the first leaf, about 1 MiB at most.
+* **Limits:** uploads made with `--no-ipfs` can't be shared, since a link fetches the upload by its root CID. For this reason, `add` refuses `--no-ipfs` when the user specifies a share flag. Links open with `get --share`, open or restricted.
+
+To open a link, pass it to `get`, with its Access key for a restricted link, as a flag or from the environment (the flag wins):
+
+```bash
+PRIVATE_KEY=0x... filecoin-pin get-share-link bafybei... --restricted
+filecoin-pin get ./from-alice --share '<link>'
+filecoin-pin get ./from-alice --share '<link>' --access-key fak1_...
+SHARE_ACCESS_KEY=fak1_... filecoin-pin get --share '<link>'
+```
+
+`get --share` fetches the piece the link names, so the CID can be left out, and uses the link's key instead of any credentials. Given a CID as well, it refuses a link for another CID before downloading.
 
 ### Session-Key Permissions
 
@@ -367,7 +393,7 @@ In session-key mode, each command checks only the on-chain permissions it needs 
 | `data-set terminate` | `terminateService` |
 | Pinning server (`filecoin-pinning-server`) | `createDataSet`, `addPieces`, `schedulePieceRemovals` |
 | `payments deposit`, `payments withdraw`, `payments fund`, `payments setup --auto` | Owner wallet only (session keys are refused) |
-| `add --encrypt`; `get` and `decrypt` on encrypted content | The scopes above for `add`, plus a group key [Grant](documentation/glossary.md#grant) (`login --scopes createDataSet,addPieces,encrypt`). `get` and `decrypt` only need the Grant, not an on-chain scope. |
+| `add --encrypt`; `get` and `decrypt` on encrypted content; `get-share-link` | The scopes above for `add`, plus a group key [Grant](documentation/glossary.md#grant) (`login --scopes createDataSet,addPieces,encrypt`). `get`, `decrypt` and `get-share-link` need no on-chain scope, only the Grant. |
 
 If the session key is missing a required scope, the command fails up front with a console link to approve the missing scope with the owner wallet, plus the equivalent `filecoin-pin session authorize` / `filecoin-pin session create` commands for the account owner to run.
 
@@ -383,6 +409,9 @@ WALLET_ADDRESS=0x...           # Owner wallet that authorized the session key
 VIEW_ADDRESS=0x...             # Read-only mode for this address (never signs)
 GROUP_KEY_ID=0x...             # Group key the Grant opens (0x + 32 hex), set with GROUP_KEY_GRANT
 GROUP_KEY_GRANT=fgr1_...       # Group key Grant for SESSION_KEY: encrypted add, get and decrypt
+
+# Optional - opening a Share Link with `get --share`
+SHARE_ACCESS_KEY=fak1_...      # The link's Access key (--access-key)
 
 # Optional - Network Configuration
 NETWORK=mainnet                # Network to use: mainnet, calibration, or devnet (default: mainnet)

@@ -17,29 +17,52 @@ import { checkOutputDir, removeDecryptOutput } from '../common/encryption.js'
 import { credentialKeyResolver } from '../common/group-key-grant.js'
 import { ipniProviderUrls, ownProviderUrls, type ProviderSource } from '../common/ipfs-car-fetch.js'
 import { getToDirectory } from '../common/ipfs-get.js'
+import { parseShareLink, ShareLinkError, shareKey, shareKeyResolver, shareOwner } from '../common/share-link.js'
 import { initializeSynapse, type SynapseSetupConfig } from '../core/synapse/index.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 
 /** The address whose data sets are searched for providers, if the credentials name one. */
-function addressOf(auth: SynapseSetupConfig): Address | undefined {
+export function addressOf(auth: SynapseSetupConfig): Address | undefined {
   if ('privateKey' in auth && auth.privateKey != null) return privateKeyToAccount(auth.privateKey).address
   if ('walletAddress' in auth && auth.walletAddress != null) return getAddress(auth.walletAddress)
   return undefined
 }
 
-/** Providers of the address's own IPFS-indexed data sets; a public read, so no key is used. */
-async function ownProviders(auth: SynapseSetupConfig, address: Address, logger: Logger): Promise<string[]> {
+/** A read-only client for `address` on the credentials' network: public reads, so no key is used. */
+export function readOnlySynapse(auth: SynapseSetupConfig, address: Address, logger: Logger) {
   const readOnly = {
     walletAddress: address,
     readOnly: true as const,
     ...(auth.chain != null && { chain: auth.chain }),
     ...(auth.rpcUrl != null && { rpcUrl: auth.rpcUrl }),
   }
-  return ownProviderUrls(await initializeSynapse(readOnly, logger), logger)
+  return initializeSynapse(readOnly, logger)
 }
 
-export async function runGet(cidArg: string, outputDir: string | undefined, options: CLIAuthOptions): Promise<void> {
+/** Providers of the address's own IPFS-indexed data sets. */
+export async function ownProviders(auth: SynapseSetupConfig, address: Address, logger: Logger): Promise<string[]> {
+  return ownProviderUrls(await readOnlySynapse(auth, address, logger), logger)
+}
+
+export interface GetCommandOptions extends CLIAuthOptions {
+  /** A Share link for this upload: its key replaces the credentials'. */
+  share?: string
+  /** The share's Access key (fak1_…), when the link does not carry it. */
+  accessKey?: string
+}
+
+export async function runGet(
+  cidArg: string | undefined,
+  outputDir: string | undefined,
+  options: GetCommandOptions
+): Promise<void> {
+  // With --share the link names the upload, so the CID may be left out: in
+  // `get --share <link> ./out`, the lone argument is the output directory.
+  if (options.share != null && outputDir == null && cidArg != null && !isCid(cidArg)) {
+    outputDir = cidArg
+    cidArg = undefined
+  }
   intro(pc.bold('Filecoin Pin Get'))
   const spinner = createSpinner()
   const outDir = outputDir ?? '.'
@@ -62,11 +85,21 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
   }
   const cleanupSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
   try {
+    const share = options.share == null ? undefined : parseShareLink(options.share)
     let cid: CID
-    try {
-      cid = CID.parse(cidArg)
-    } catch {
-      throw new Error(`Not an IPFS root CID: ${cidArg}`)
+    if (cidArg != null) {
+      try {
+        cid = CID.parse(cidArg)
+      } catch {
+        throw new Error(`Not an IPFS root CID: ${cidArg}`)
+      }
+      if (share != null && !share.rootCid.equals(cid)) {
+        throw new ShareLinkError(`The Share link is for ${share.rootCid}, not ${cid}`)
+      }
+    } else if (share == null) {
+      throw new Error('Give the IPFS root CID to fetch, or --share with a Share link')
+    } else {
+      cid = share.rootCid
     }
     // Before the handler is armed, so it knows whether `outDir` is ours to remove.
     outExists = (await checkOutputDir(outDir)).outExists
@@ -74,7 +107,14 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
     const logger = getCLILogger()
     const address = addressOf(auth)
     // Used only when an envelope asks for a key, so plain content needs no credentials.
-    const resolveKey = credentialKeyResolver(auth)
+    let resolveKey = credentialKeyResolver(auth)
+    let sharer: Address | undefined
+    if (share != null) {
+      // Before the download, so a missing or wrong Access key fails fast.
+      const T = shareKey(share, options.accessKey)
+      sharer = await shareOwner(share, T)
+      resolveKey = shareKeyResolver(share, T)
+    }
 
     tempDir = await mkdtemp(join(tmpdir(), 'filecoin-pin-get-'))
     for (const signal of cleanupSignals) process.once(signal, onSignal)
@@ -82,6 +122,10 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
     const sources: ProviderSource[] = [{ name: 'IPNI', find: (signal) => ipniProviderUrls(cid, { signal }) }]
     // initializeSynapse and listDataSets take no signal; the source deadline still ends the wait.
     if (address != null) sources.push({ name: 'Data set', find: () => ownProviders(auth, address, logger) })
+    // The sharer's own data sets: found before IPNI indexes a fresh upload, and on networks without IPNI.
+    if (sharer != null && sharer !== address) {
+      sources.push({ name: "Sharer's data set", find: () => ownProviders(auth, sharer, logger) })
+    }
     const onClaim = (path: string): void => {
       claimed = path
     }
@@ -109,6 +153,15 @@ export async function runGet(cidArg: string, outputDir: string | undefined, opti
   } finally {
     for (const signal of cleanupSignals) process.off(signal, onSignal)
     removeTemp(tempDir)
+  }
+}
+
+function isCid(text: string): boolean {
+  try {
+    CID.parse(text)
+    return true
+  } catch {
+    return false
   }
 }
 

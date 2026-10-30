@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Writable } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { keyspaceKeys as deriveGroupKey, writeTarget } from '@filoz/keysmith'
+import { keyspaceKeys as deriveGroupKey, type PieceMetadata, writeTarget } from '@filoz/keysmith'
 import { CarBlockIterator, CarIndexedReader, CarWriter } from '@ipld/car'
 import * as dagCbor from '@ipld/dag-cbor'
 import * as dagPb from '@ipld/dag-pb'
@@ -33,6 +33,7 @@ import {
   UnsupportedHashError,
 } from '../../common/ipfs-car-fetch.js'
 import { type GetOptions, getToDirectory, NotEnoughSpaceError } from '../../common/ipfs-get.js'
+import { createShare } from '../../common/share-link.js'
 import { CAR_CONTENT_TYPE, encodeVarint, isUnsafeName } from '../../common/unixfs-car-layout.js'
 import { createCarFromPath } from '../../core/unixfs/index.js'
 import { runGet } from '../../get/get.js'
@@ -268,12 +269,15 @@ describe('get', () => {
   }
 
   /** Encrypt `path` as `add --encrypt` does and return the gateway CAR for the envelope. */
-  async function encryptedUpload(path: string): Promise<{ root: CID; blocks: Block[]; car: Uint8Array }> {
+  async function encryptedUpload(
+    path: string
+  ): Promise<{ root: CID; blocks: Block[]; car: Uint8Array; labels: PieceMetadata }> {
     const envelope = join(dir, 'encrypted.fee')
-    await encryptPath(path, envelope, pieceKey())
+    const key = pieceKey()
+    await encryptPath(path, envelope, key)
     const upload = await plainUpload(envelope)
     await rm(envelope)
-    return upload
+    return { ...upload, labels: key.appMetadata }
   }
 
   const get = (
@@ -838,6 +842,53 @@ describe('get', () => {
       })
 
       expect(await readFile(join(outDir, 'report.pdf'), 'utf8')).toBe('quarterly numbers')
+    })
+
+    it('with --share and its Access key, decrypts with no credentials of its own', async () => {
+      await writeFile(join(dir, 'report.pdf'), 'quarterly numbers')
+      const upload = await encryptedUpload(join(dir, 'report.pdf'))
+      vi.stubGlobal('fetch', fakeNetwork({ [GOOD]: serve(upload.car) }, ['/dns/good.example/https']).fetch)
+      const share = await createShare({
+        sender: { owner: OWNER },
+        rootCid: upload.root,
+        labels: upload.labels,
+        mode: 'restricted',
+      })
+
+      await expect(runGet(upload.root.toString(), outDir, { share: share.link })).rejects.toThrow(
+        /needs its Access key/
+      )
+      const other = await encryptedUpload(join(dir, 'report.pdf'))
+      await expect(
+        runGet(other.root.toString(), outDir, { share: share.link, accessKey: share.accessKey ?? '' })
+      ).rejects.toThrow(/Share link is for/)
+      const { initializeSynapse } = await import('../../core/synapse/index.js')
+      vi.mocked(initializeSynapse).mockClear()
+      await runGet(upload.root.toString(), outDir, { share: share.link, accessKey: share.accessKey ?? '' })
+
+      expect(await readFile(join(outDir, 'report.pdf'), 'utf8')).toBe('quarterly numbers')
+      // No credentials of its own: the sharer's data sets, read-only, are searched alongside IPNI.
+      expect(vi.mocked(initializeSynapse).mock.calls[0]?.[0]).toMatchObject({
+        walletAddress: OWNER.address,
+        readOnly: true,
+      })
+    })
+
+    it('with --share, takes the CID from the link: the lone argument is the output directory', async () => {
+      await writeFile(join(dir, 'report.pdf'), 'quarterly numbers')
+      const upload = await encryptedUpload(join(dir, 'report.pdf'))
+      vi.stubGlobal('fetch', fakeNetwork({ [GOOD]: serve(upload.car) }, ['/dns/good.example/https']).fetch)
+      const share = await createShare({
+        sender: { owner: OWNER },
+        rootCid: upload.root,
+        labels: upload.labels,
+        mode: 'open',
+      })
+
+      await runGet(outDir, undefined, { share: share.link })
+
+      expect(await readFile(join(outDir, 'report.pdf'), 'utf8')).toBe('quarterly numbers')
+      await expect(runGet(undefined, outDir, {})).rejects.toThrow(/Give the IPFS root CID/)
     })
 
     it('with a session key and no Grant, fails with the login to run and writes nothing', async () => {
