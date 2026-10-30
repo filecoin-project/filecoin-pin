@@ -285,7 +285,7 @@ An authorization lives on one chain, so the file records the network (`mainnet` 
 * `--no-browser`: print the link only. `BROWSER=none` does the same for every command.
 * `--no-wait`: print the link, keep the key, and exit `2` without waiting. Rerun `login` after approving to check the authorization.
 * `--timeout <seconds>`: how long to wait for the authorization (default: 300).
-* Exit codes: `0` when every requested scope was granted (and, with `encrypt`, the Grant saved), `2` when the wait timed out, `--no-wait` skipped it, the owner granted fewer scopes than requested, or the Grant is still to come (rerun `login` to resume with the same key, `login --grant` to import the Grant, or `login --scopes` with only what you need), `1` on an error.
+* Exit codes: `0` when every requested scope was granted (and, with `encrypt`, the Grant saved), `2` when the wait timed out, `--no-wait` skipped it, the owner granted fewer scopes than requested, or the Grant is still to come (rerun `login` to resume with the same key and scopes, `login --grant` to import the Grant, or `login --scopes` with only what you need), `1` on an error.
 
 #### Group key Grants
 
