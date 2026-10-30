@@ -151,7 +151,18 @@ describe('add --encrypt with real packing', () => {
     for (const cid of await plaintextCids()) expect(out).not.toContain(cid)
 
     const { displayUploadResults } = await import('../../common/upload-flow.js')
-    expect(vi.mocked(displayUploadResults).mock.calls[0]?.[0]).toMatchObject({ filePath: 'encrypted.fee' })
+    expect(vi.mocked(displayUploadResults).mock.calls[0]?.[0]).toMatchObject({
+      filePath: 'encrypted.fee (the real name stays inside the ciphertext)',
+    })
+  })
+
+  it('shows the public label when --metadata name= sets one', async () => {
+    await runAdd({ ...auth, filePath: input, encrypt: true, pieceMetadata: { name: 'q3-report' } })
+
+    const { displayUploadResults } = await import('../../common/upload-flow.js')
+    expect(vi.mocked(displayUploadResults).mock.calls.at(-1)?.[0]).toMatchObject({
+      filePath: 'q3-report (the real name stays inside the ciphertext)',
+    })
   })
 
   it.skipIf(process.platform === 'win32')(
