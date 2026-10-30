@@ -23,6 +23,11 @@ export const addCommand = new Command('add')
     'Encrypt the file or directory before upload. Readable with the owner wallet (PRIVATE_KEY), a session key holding its group key Grant (see login), or any holder of a Share Link and associated Access Key. The piece is stored as encrypted.fee and the real name stays inside the ciphertext; --metadata name=<label> sets a public label instead.'
   )
   .option(
+    '--get-share-link',
+    'With --encrypt: print a Share link that opens the upload on its own (see get-share-link)'
+  )
+  .option('--get-share-link-restricted', 'With --encrypt: print a Share link and its Access key, to send separately')
+  .option(
     '--no-ipfs',
     'Do not index the upload in IPFS: use data sets without IPFS indexing (no IPNI announcement) and skip the IPNI wait'
   )

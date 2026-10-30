@@ -10,6 +10,7 @@ import { rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
+import type { PieceMetadata } from '@filoz/keysmith'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { SIZE_CONSTANTS } from '@filoz/synapse-core/utils'
 import type { Synapse } from '@filoz/synapse-sdk'
@@ -29,6 +30,7 @@ import {
 } from '../common/group-key.js'
 import { grantGroupKey, loadGroupKeyGrant } from '../common/group-key-grant.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
+import { type CreatedShare, createShare, type ShareMode } from '../common/share-link.js'
 import {
   displayDryRunEstimate,
   displayUploadResults,
@@ -50,6 +52,7 @@ import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
+import { NO_IPFS_SHARE, printShare, shareReminder, shareSender } from '../share/get-share-link.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -181,6 +184,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
   let tempCarPath: string | undefined
   let encryptDir: string | undefined
+  // The envelope's header labels (public), kept for --get-share-link.
+  let encryptedLabels: PieceMetadata | undefined
   // Ctrl-C, kill and a closed terminal: clack's spinner installs its own SIGINT handler in start()
   // and the first listener to call process.exit wins, so these are registered before the spinner
   // restarts. They remove the private temp directory (envelope and outer CAR) synchronously,
@@ -196,6 +201,18 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
   let groupKey: OwnerGroupKey | undefined
 
   try {
+    // --get-share-link*: at most one, only for an encrypted upload, and checked before uploading.
+    if (options.getShareLink === true && options.getShareLinkRestricted === true) {
+      throw new Error('Choose --get-share-link or --get-share-link-restricted, not both')
+    }
+    let shareMode: ShareMode | undefined
+    if (options.getShareLinkRestricted === true) shareMode = 'restricted'
+    else if (options.getShareLink === true) shareMode = 'open'
+    if (shareMode != null && options.encrypt !== true) {
+      throw new Error('--get-share-link needs --encrypt: plain content is shared by its CID')
+    }
+    if (shareMode != null && !ipfsIndexing) throw new Error(NO_IPFS_SHARE)
+
     // Validate path exists and is readable
     spinner.start('Validating path...')
 
@@ -322,6 +339,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       spinner.start(`Encrypting ${pathType.toLowerCase()}...`)
       packPath = join(encryptDir, ENCRYPTED_FILE_NAME)
       const pieceKey = newPieceKey(groupKey.target)
+      encryptedLabels = pieceKey.appMetadata
       // The group key is needed only for this upload's key, and that key only to encrypt.
       groupKey.target.key.fill(0)
       const { plan } = await encryptPath(
@@ -459,6 +477,23 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       failedAttempts: uploadResult.failedAttempts,
     }
 
+    // The upload has succeeded, so a share that cannot be made only warns: get-share-link can retry it.
+    let share: CreatedShare | undefined
+    if (shareMode != null && encryptedLabels != null) {
+      try {
+        share = await createShare({
+          sender: await shareSender(config, synapse.chain.id),
+          rootCid,
+          labels: encryptedLabels,
+          mode: shareMode,
+        })
+      } catch (error) {
+        log.warn(
+          `No share link: ${error instanceof Error ? error.message : String(error)}. Run \`filecoin-pin get-share-link ${rootCid}\` to retry.`
+        )
+      }
+    }
+
     const filbeamUrl = buildFilbeamUrl(synapse, uploadResult.pieceCid, withCDN)
     const egress = filbeamUrl == null ? undefined : { filbeamUrl }
 
@@ -485,6 +520,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       )
       log.flush()
     }
+    if (share != null && shareMode != null) log.warn(shareReminder(shareMode))
 
     if (uploadResult.copies.length < requestedCopies) {
       log.line('')
@@ -504,6 +540,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     } else {
       outro('Add completed successfully')
     }
+    if (share != null) printShare(share)
 
     return result
   } catch (error) {
