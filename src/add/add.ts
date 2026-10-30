@@ -40,7 +40,12 @@ import {
   validatePaymentSetup,
 } from '../common/upload-flow.js'
 import { carInputError, INPUT_IS_CAR, isCar } from '../core/car/index.js'
-import { IPFS_INDEXED_METADATA, normalizeMetadataConfig, withDerivedNameMetadata } from '../core/metadata/index.js'
+import {
+  IPFS_INDEXED_METADATA,
+  normalizeMetadataConfig,
+  PIECE_METADATA_NAME_KEY,
+  withDerivedNameMetadata,
+} from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
@@ -460,7 +465,12 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     // The plaintext path stays out of the printed summary (CI logs, shared terminals); the
     // returned result keeps it for programmatic callers.
     displayUploadResults(
-      options.encrypt ? { ...result, filePath: ENCRYPTED_FILE_NAME } : result,
+      options.encrypt
+        ? {
+            ...result,
+            filePath: `${pieceMetadata?.[PIECE_METADATA_NAME_KEY] ?? ENCRYPTED_FILE_NAME} (the real name stays inside the ciphertext)`,
+          }
+        : result,
       'Add',
       network,
       networkSlug,
@@ -468,7 +478,11 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     )
     if (options.encrypt) {
       log.line('')
-      log.line(pc.yellow('Content is encrypted: only the owner wallet can read it.'))
+      log.line(
+        pc.yellow(
+          'Content is encrypted: readable with the owner wallet, a session key holding its group key Grant (via `filecoin-pin login`), or any holder of a Share Link and associated Access Key.'
+        )
+      )
       log.flush()
     }
 
