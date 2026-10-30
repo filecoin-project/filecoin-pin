@@ -342,7 +342,12 @@ export async function runLogin(
   const path = getSessionFilePath()
   // A plain rerun (what every resume message says to run) resumes the first login's
   // request: with the defaults instead, a timed-out `…,encrypt` login never asked for the Grant.
-  const scopes = options.scopes ?? (options.fresh ? undefined : readSessionFile(path)?.scopes)
+  // Saved as parsed (`a, b` -> `a,b`), so the session file reads it back.
+  const given = options.scopes
+    ?.split(',')
+    .map((token) => token.trim())
+    .join(',')
+  const scopes = given ?? (options.fresh ? undefined : readSessionFile(path)?.scopes)
   const { permissions, encrypt } = parseLoginScopes(scopes)
   if (options.grant !== undefined && options.fresh) {
     // Refused before the saved key is replaced: a Grant names its key, and a fresh one has none yet.
