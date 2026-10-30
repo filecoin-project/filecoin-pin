@@ -480,7 +480,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       log.line('')
       log.line(
         pc.yellow(
-          'Content is encrypted: readable with the owner wallet, or a session key holding its group key Grant (filecoin-pin login).'
+          'Content is encrypted: readable with the owner wallet, a session key holding its group key Grant (via `filecoin-pin login`), or any holder of a Share Link and associated Access Key.'
         )
       )
       log.flush()
