@@ -63,6 +63,8 @@ interface FakeBehavior {
   /** Per-CID presence answers for hasPiece during re-verify. */
   present?: (cid: string) => boolean
   pullFails?: boolean
+  /** Secondary pulls resolve only after this settles. */
+  pullGate?: Promise<void>
   /** Store answers a different commitment than requested (commP mismatch). */
   storeReturns?: (pieceCid: string) => string
   /** Throw from store() on the numbered call (1-based) for that piece; null means succeed. */
@@ -108,6 +110,7 @@ function fakeDeps(b: FakeBehavior = {}) {
       },
       async pull(options) {
         calls.pull++
+        await b.pullGate
         const status = b.pullFails ? ('failed' as const) : ('complete' as const)
         return { status, pieces: options.pieces.map((p) => ({ pieceCid: p, status })) }
       },
@@ -317,9 +320,57 @@ describe('runDirectUpload', () => {
       await expect(runDirectUpload(db, { ...OPTS, assumedWindowMs: 1 }, deps)).rejects.toThrow(
         /3 consecutive commit failures.*insufficient funds.*re-run/
       )
-      // The third failure lands on P2's primary flush; nothing is stored after it.
+      // The third failure lands on P2's primary flush; nothing is stored or pulled after it.
       expect(calls.store).toHaveLength(2)
-      expect(calls.pull).toBe(1)
+      expect(calls.pull).toBe(2)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('confirms on chain when the provider status check times out after the tx landed', async () => {
+    const { dir, db } = await dbAt('du-status-timeout')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      seedBuilt(db, P2, join(dir, 'b.car'))
+      // Run 3c shape: first commit on a new data set; the SP status poll gives up but the tx landed.
+      const { deps, calls } = fakeDeps({
+        failCommit: { providerId: 'p1', call: 1, message: 'Request timed out after 300000ms' },
+        txLanded: (txHash) => txHash === '0xtx-p1-1',
+        addPiecesEvent: (_dataSetId, txHash) =>
+          txHash === '0xtx-p1-1' ? { dataSetId: 9n, pieceIds: [1n], pieceCids: [P1] } : null,
+      })
+      // A 1 ms window flushes each piece on its own, so P2 commits after the recovery.
+      const summary = await runDirectUpload(db, { ...OPTS, assumedWindowMs: 1 }, deps)
+
+      expect(summary.providers[0]?.addUnconfirmed).toBe(0)
+      expect(db.uploadsByStatus('p1', 'committed').map((u) => [u.subPieceCid, u.dataSetId, u.txHash])).toEqual([
+        [P1, '9', '0xtx-p1-1'],
+        [P2, '9', '0xtx-p1-2'],
+      ])
+      expect(calls.commit.get('p1')).toBe(2)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('commits the primary without waiting on a slow secondary pull', async () => {
+    const { dir, db } = await dbAt('du-slow-pull')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      let release: () => void = () => undefined
+      const pullGate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const { deps } = fakeDeps({ pullGate })
+      const run = runDirectUpload(db, OPTS, deps)
+
+      await vi.waitFor(() => expect(db.uploadStatus(P1, 'p1')).toBe('committed'))
+      release()
+      await run
+      expect(db.uploadStatus(P1, 'p2')).toBe('committed')
     } finally {
       db.close()
       await rm(dir, { recursive: true, force: true })

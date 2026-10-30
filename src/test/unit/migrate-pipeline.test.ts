@@ -290,12 +290,59 @@ describe('runMigrate pipeline', () => {
     }
   })
 
+  it('fails before any download when the budget is under 3x the pack target', async () => {
+    // The budget that split run 1's bins: new downloads stop at budget - 2 x target, before a bin can fill.
+    const cids = await Promise.all(['a', 'b', 'c'].map(async (t) => ({ cid: await cidFor(t), rawSize: 300 })))
+    const h = await harness({ cids, budgetBytes: 2200, packTargetBytes: 1000 })
+    try {
+      await expect(runMigrate(h.db, h.options, h.deps)).rejects.toThrow(
+        /2\.1 KiB \(--max-staged-bytes\) is under 3x the 1000\.0 B pack target.*at least 3000 bytes.*at most 733 bytes/
+      )
+      expect(h.events).toEqual([])
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  })
+
+  it('does not ship a partial bin while a download that would fill it is in flight', async () => {
+    // Two slow downloads hold 1100 bytes, so the fast one's worker parks on the gate (3000 - 2 x 1000) with only 300 free.
+    const cids = await Promise.all(['a', 'b', 'c', 'd'].map(async (t) => ({ cid: await cidFor(t), rawSize: 300 })))
+    const h = await harness({ cids, budgetBytes: 3000, packTargetBytes: 1000 })
+    try {
+      // Workers take CIDs in pendingCids order; the first two are the slow 600 and 500 byte members.
+      const [slowA, slowB] = h.db.pendingCids()
+      const sizes: Record<string, number> = { [slowA ?? '']: 600, [slowB ?? '']: 500 }
+      for (const c of cids) c.rawSize = sizes[c.cid] ?? 300
+      const stage = h.options.stageMemberFn as NonNullable<typeof h.options.stageMemberFn>
+      await runMigrate(
+        h.db,
+        {
+          ...h.options,
+          concurrency: 3,
+          stageMemberFn: async (cid, ...rest) => {
+            const member = await stage(cid, ...rest)
+            if (cid === slowA || cid === slowB) await new Promise((resolve) => setTimeout(resolve, 200))
+            return member
+          },
+        },
+        h.deps
+      )
+
+      // The fast 300 byte member joins the 600 byte one instead of shipping alone.
+      expect(h.events.find((e) => e.startsWith('build:'))).toBe('build:2')
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  }, 10_000)
+
   it('cycles a budget smaller than the migration instead of wedging', async () => {
     const cids = await Promise.all(['a', 'b', 'c', 'd', 'e', 'f'].map(async (t) => ({ cid: await cidFor(t) })))
-    // 2x the pack target is the minimum viable budget; the whole migration is
+    // 3x the pack target is the minimum viable budget; the whole migration is
     // 3600 bytes, so completion proves eviction returns budget to the
     // download gate.
-    const h = await harness({ cids, budgetBytes: 2000, packTargetBytes: 1000 })
+    const h = await harness({ cids, budgetBytes: 3000, packTargetBytes: 1000 })
     try {
       const summary = await runMigrate(h.db, h.options, h.deps)
 

@@ -265,10 +265,14 @@ export async function runDirectUpload(
     // auto-resolved into a blind re-add.
     db.markUploadsAddUnconfirmed(cids, ctx.providerId)
     const commitTimer = new Timer()
+    let submitted = false
     try {
       const result = await ctx.commit({
         pieces: cids.map((cid) => ({ pieceCid: CID.parse(cid) })),
-        onSubmitted: (txHash) => db.markUploadTxSubmitted(cids, ctx.providerId, txHash),
+        onSubmitted: (txHash) => {
+          submitted = true
+          db.markUploadTxSubmitted(cids, ctx.providerId, txHash)
+        },
       })
       observedCommitMs.push(commitTimer.stop())
       commitFailures = 0
@@ -289,6 +293,15 @@ export async function runDirectUpload(
     } catch (err) {
       const message = (err as Error).message ?? String(err)
       const gcCid = collectedCidFromError(message)
+      if (gcCid == null && submitted) {
+        // The provider's status check can time out after the tx landed: let the chain decide, as a resume does.
+        const recovered = await reconcileUnconfirmed(db, synapse, ctx, deps)
+        if (recovered != null) Object.assign(ctx, await deps.contextForDataSet(opts, recovered))
+        if (cids.every((cid) => db.uploadStatus(cid, ctx.providerId) === 'committed')) {
+          commitFailures = 0
+          return true
+        }
+      }
       if (gcCid == null) {
         // Not a GC rejection: leave the batch in add_unconfirmed for the
         // resume reconciliation: a blind retry could double-add on chain.
@@ -374,6 +387,19 @@ export async function runDirectUpload(
   }
   const [primary, ...secondaries] = contexts as [UploadContextLike, ...UploadContextLike[]]
 
+  // Pulls run one at a time behind the store loop, so a slow pull never holds a primary commit.
+  let pulls = Promise.resolve()
+  const queuePulls = (subPieceCid: string): void => {
+    pulls = pulls.then(async () => {
+      for (const secondary of secondaries) await pullToSecondary(db, primary, secondary, subPieceCid)
+    })
+  }
+  const drain = async (): Promise<void> => {
+    await maybeFlush(true)
+    await pulls
+    await maybeFlush(true)
+  }
+
   // Main loop: store on the primary, fan out to secondaries, flush as batches
   // and window timers demand. Sequential per piece: the upstream bandwidth is
   // the bottleneck, and one in-flight store keeps the disk footprint bounded.
@@ -435,15 +461,7 @@ export async function runDirectUpload(
       `parked ${next.subPieceCid} (${formatFileSize(stored.size)}) on primary ${primary.providerId} ` +
         `in ${formatDuration(storeTimer.stop())}`
     )
-
-    // Check the flush timers before the secondary fanout as well as after: a
-    // slow provider-to-provider pull must not age already-parked pieces past
-    // the GC window.
-    await maybeFlush(false)
-    for (const secondary of secondaries) {
-      await pullToSecondary(db, primary, secondary, next.subPieceCid)
-    }
-
+    queuePulls(next.subPieceCid)
     await maybeFlush(false)
   }
 
@@ -451,7 +469,7 @@ export async function runDirectUpload(
   // collected pieces (GC'd before commit) and failed secondary pulls. A
   // primary copy re-uploads from the staged CAR; a secondary copy re-pulls
   // from the primary, which still holds the bytes.
-  await maybeFlush(true)
+  await drain()
   for (let attempt = 0; attempt < 3; attempt++) {
     // A crash between the primary store and the secondary pull leaves a
     // sub-piece with a live primary row and no row at all for the secondary;
@@ -497,7 +515,7 @@ export async function runDirectUpload(
         db.recordUploadParked(sub.subPieceCid, ctx.providerId, role, ctx.dataSetId)
         // Same fanout as the main loop, or a store that only lands on the last
         // attempt leaves the secondaries without a copy.
-        for (const secondary of secondaries) await pullToSecondary(db, primary, secondary, sub.subPieceCid)
+        queuePulls(sub.subPieceCid)
       } catch (err) {
         if (err instanceof CommPMismatchError) {
           db.markUploadFailed(sub.subPieceCid, ctx.providerId, role, err.message)
@@ -507,7 +525,7 @@ export async function runDirectUpload(
         )
       }
     }
-    await maybeFlush(true)
+    await drain()
   }
 
   await evictCommitted()

@@ -308,10 +308,15 @@ export async function runMigrate(
   const staged = await sweepStaging(db, opts.memberDir, opts.carStore)
   const fs = await statfs(opts.stagingDir)
   const total = stagingBudget(Number(fs.bavail) * Number(fs.bsize), staged, opts.maxStagedBytes)
-  if (total < 2 * opts.packTargetBytes) {
+  // Downloads start only while staged bytes are at most total - 2x target, so a bin fills to the target only if total >= 3x.
+  const required = 3 * opts.packTargetBytes
+  if (total < required) {
+    const source = total === opts.maxStagedBytes ? '--max-staged-bytes' : '80% of free disk in the staging directory'
     throw new Error(
-      `staging budget ${formatFileSize(total)} is too small to assemble one ` +
-        `${formatFileSize(opts.packTargetBytes)} piece; free disk space or lower --pack-target-size`
+      `staging budget ${formatFileSize(total)} (${source}) is under 3x the ${formatFileSize(opts.packTargetBytes)} ` +
+        `pack target (${required} bytes), so pieces would ship below the target. ` +
+        `Free disk space or raise --max-staged-bytes to at least ${required} bytes, ` +
+        `or lower --pack-target-size to at most ${Math.floor(total / 3)} bytes.`
     )
   }
   const budget = new StagingBudget(total, opts.packTargetBytes)
@@ -319,12 +324,6 @@ export async function runMigrate(
   log.message(
     `staging budget ${formatFileSize(budget.total)} (${formatFileSize(budget.used)} already staged from a previous run)`
   )
-
-  // Track each built piece's size so eviction can return its bytes.
-  const binBytes = new Map<string, number>()
-  for (const sub of db.subPiecesByStatus('built')) {
-    if (sub.carPath != null) binBytes.set(sub.carPath, sub.assembledCarLength)
-  }
 
   // The uploader parks here between pieces; wake it when the packer builds
   // something and drain it when the producer finishes.
@@ -376,14 +375,13 @@ export async function runMigrate(
       notifyUploader()
       return
     }
+    // An in-flight download re-evaluates when it lands; packing now would split its bin.
+    if (inFlightDownloads > 0) return
     const free = db.freeMemberBytes()
     if (free > 0 && free !== idlePackFree) {
       void packNow()
       return
     }
-    // A download still in flight will stage a member and re-evaluate when it
-    // lands; only a fully quiet pipeline is actually stuck.
-    if (inFlightDownloads > 0) return
     stuck = true
     budget.failAll(new PipelineStuckError())
   }
@@ -414,9 +412,6 @@ export async function runMigrate(
           opts.buildBin
         )
         if (packed.built > 0) {
-          for (const sub of db.subPiecesByStatus('built')) {
-            if (sub.carPath != null && !binBytes.has(sub.carPath)) binBytes.set(sub.carPath, sub.assembledCarLength)
-          }
           notifyUploader()
         } else if (!final) {
           // Nothing shipped (members under the upload floor, or a failed bin) and nothing woke.
@@ -541,7 +536,8 @@ export async function runMigrate(
       // failed (permissions, EBUSY) leaves the file occupying real space.
       const remaining = await stat(path).catch(() => null)
       if (remaining == null) {
-        budget.free(binBytes.get(path) ?? 0)
+        // Read the row, not a pack-time cache: a bin can upload and evict before its pack call returns.
+        budget.free(db.subPiecesByStatus('built').find((s) => s.carPath === path)?.assembledCarLength ?? 0)
       }
     },
   }
