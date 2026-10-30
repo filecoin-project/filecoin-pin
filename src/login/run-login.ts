@@ -270,7 +270,7 @@ function loadOrCreateSession(fresh: boolean | undefined, network: string, path: 
   const keypair = generateSessionKeypair()
   const session: SavedSession = { sessionKey: keypair.privateKey, sessionAddress: keypair.address, network }
   writeSessionFile(session, path)
-  return saved?.walletAddress !== undefined ? { session, resumed: false, replaced: saved } : { session, resumed: false }
+  return saved?.walletAddress === undefined ? { session, resumed: false } : { session, resumed: false, replaced: saved }
 }
 
 /**
@@ -484,7 +484,7 @@ export async function runLogin(
   // event that never comes.
   const fromBlock = session.fromBlock ?? (await getBlockNumber(client))
   if (session.fromBlock === undefined) writeSessionFile({ ...session, fromBlock }, path)
-  const deadlineMs = options.timeout !== undefined ? options.timeout * 1000 : DEFAULT_WATCH_DEADLINE_MS
+  const deadlineMs = options.timeout === undefined ? DEFAULT_WATCH_DEADLINE_MS : options.timeout * 1000
   const spinner = createSpinner()
   const waitLine = (remainingMs: number) =>
     `Waiting for on-chain authorization… ${formatCountdown(remainingMs)} remaining (Ctrl-C safe; rerun \`login\` to resume)`
@@ -507,7 +507,7 @@ export async function runLogin(
       permissions,
       fromBlock,
       deadlineMs,
-      ...(session.walletAddress !== undefined ? { owner: session.walletAddress } : {}),
+      ...(session.walletAddress === undefined ? {} : { owner: session.walletAddress }),
       onProgress: (event) => {
         if (event.type === 'watch:tick') spinner.message(waitLine(event.data.remainingMs))
       },
@@ -531,7 +531,7 @@ export async function runLogin(
 
   const authorized = { ...session, fromBlock, walletAddress: result.owner }
   writeSessionFile(authorized, path)
-  const expires = result.expiry !== undefined ? ` · expires ${formatExpiryDate(result.expiry)}` : ''
+  const expires = result.expiry === undefined ? '' : ` · expires ${formatExpiryDate(result.expiry)}`
   if (result.status === 'granted') {
     spinner.stop(`${pc.green('✓')} Authorized! Granted: ${scopeList(result.granted)}${expires}`)
   } else {

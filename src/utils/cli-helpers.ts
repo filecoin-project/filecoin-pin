@@ -26,11 +26,32 @@ export type Spinner = {
  *
  * In TTY mode: Uses @clack/prompts spinner for nice visual feedback
  * In non-TTY mode: Prints simple status messages without ANSI codes
+ *
+ * Either way, `stop(msg)` always prints `msg`: clack drops it when the spinner is not
+ * running, so a failure before `start()` (or after an earlier `stop()`) would lose its reason.
  */
 export function createSpinner(): Spinner {
   if (isTTY()) {
-    // Use the real spinner for TTY
-    return clackSpinner()
+    const spinner = clackSpinner()
+    let running = false
+    return {
+      start(msg: string) {
+        running = true
+        spinner.start(msg)
+      },
+      message(msg: string) {
+        spinner.message(msg)
+      },
+      stop(msg?: string) {
+        if (running) spinner.stop(msg)
+        else if (msg) log.message(msg)
+        running = false
+      },
+      clear() {
+        running = false
+        spinner.clear()
+      },
+    }
   } else {
     // Non-TTY fallback - only print completion messages
     return {

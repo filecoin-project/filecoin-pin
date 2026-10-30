@@ -337,8 +337,8 @@ function firstCarResponse(
       outer?.removeEventListener('abort', onAbort)
       for (const controller of inFlight.values()) controller.abort()
       inFlight.clear()
-      if (winner != null) resolve(winner)
-      else reject(error)
+      if (winner == null) reject(error)
+      else resolve(winner)
     }
     const onAbort = (): void => settle(undefined, outer?.reason)
     if (outer?.aborted === true) {
@@ -413,7 +413,8 @@ const blockKey = (cid: CID): string => `${cid.code}:${Buffer.from(cid.multihash.
 export const isSupportedHash = (cid: CID): boolean =>
   cid.multihash.code === sha256.code || cid.multihash.code === IDENTITY_CODE
 
-async function assertHash(cid: CID, bytes: Uint8Array): Promise<void> {
+/** Throws unless `bytes` hash to `cid`'s multihash (sha2-256 or identity). */
+export async function assertHash(cid: CID, bytes: Uint8Array): Promise<void> {
   const { code, digest } = cid.multihash
   let actual: Uint8Array
   if (code === sha256.code) {

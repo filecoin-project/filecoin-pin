@@ -58,6 +58,13 @@ function activePiecePresence(dataSet: Pick<DataSetSummary, 'hasActivePieces'>): 
   return dataSet.hasActivePieces ? 'yes' : 'no'
 }
 
+/** Ascending sort comparator for bigint data set IDs. */
+function compareDataSetIds(a: DataSetSummary, b: DataSetSummary): number {
+  if (a.dataSetId < b.dataSetId) return -1
+  if (a.dataSetId > b.dataSetId) return 1
+  return 0
+}
+
 function centerCell(cell: string, width: number): string {
   const totalPadding = width - cell.length
   if (totalPadding <= 0) {
@@ -174,7 +181,7 @@ function renderMetadata(metadata: Record<string, string>, indentLevel: number = 
  * Render a single piece entry including PieceCID, size, and reconciled status.
  */
 function renderPiece(piece: PieceInfo, baseIndentLevel: number = 2): void {
-  const sizeDisplay = piece.size != null ? formatFileSize(piece.size) : pc.gray('unknown')
+  const sizeDisplay = piece.size == null ? pc.gray('unknown') : formatFileSize(piece.size)
 
   let pieceStatusDisplay: string
   switch (piece.status) {
@@ -274,7 +281,7 @@ export function displayDataSetList(
 
   renderNetworkDetails(network, address)
 
-  const ordered = [...dataSets].sort((a, b) => (a.dataSetId < b.dataSetId ? -1 : a.dataSetId > b.dataSetId ? 1 : 0))
+  const ordered = [...dataSets].sort(compareDataSetIds)
   const tableRows = [
     ['ID', 'Status', 'Provider ID', 'Has Pieces', 'CDN'],
     ...ordered.map((dataSet) => [
@@ -314,7 +321,7 @@ export function displayDataSets(
   }
   renderNetworkDetails(network, address)
 
-  const ordered = [...dataSets].sort((a, b) => (a.dataSetId < b.dataSetId ? -1 : a.dataSetId > b.dataSetId ? 1 : 0))
+  const ordered = [...dataSets].sort(compareDataSetIds)
 
   for (const dataSet of ordered) {
     renderDataSetHeader(dataSet)
