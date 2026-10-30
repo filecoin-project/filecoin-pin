@@ -82,14 +82,21 @@ const ENCRYPT_SCOPE = 'encrypt'
 /**
  * Parse login's `--scopes`: the on-chain scopes, plus whether `encrypt` asked for a group
  * key Grant. `encrypt` never reaches the link's `scopes` or the on-chain authorization.
+ * `scopes` is the value in canonical form (`addPieces, createDataSet,ENCRYPT,` ->
+ * `createDataSet,addPieces,encrypt`), which is what the session file saves.
  */
-function parseLoginScopes(value: string | undefined): { permissions: Permission[]; encrypt: boolean } {
-  if (value === undefined) return { permissions: DEFAULT_LOGIN_PERMISSIONS, encrypt: false }
+function parseLoginScopes(value: string | undefined): {
+  permissions: Permission[]
+  encrypt: boolean
+  scopes: string | undefined
+} {
+  if (value === undefined) return { permissions: DEFAULT_LOGIN_PERMISSIONS, encrypt: false, scopes: undefined }
   const tokens = value.split(',').map((token) => token.trim())
   const encrypt = tokens.some((token) => token.toLowerCase() === ENCRYPT_SCOPE)
   const onChain = tokens.filter((token) => token.toLowerCase() !== ENCRYPT_SCOPE).join(',')
   try {
-    return { permissions: parseScopes(onChain).permissions, encrypt }
+    const { ids, permissions } = parseScopes(onChain)
+    return { permissions, encrypt, scopes: [...ids, ...(encrypt ? [ENCRYPT_SCOPE] : [])].join(',') }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     throw new Error(`${reason.replace(/\.?$/, '.')} login also takes ${ENCRYPT_SCOPE}, with at least one of those.`)
@@ -342,13 +349,8 @@ export async function runLogin(
   const path = getSessionFilePath()
   // A plain rerun (what every resume message says to run) resumes the first login's
   // request: with the defaults instead, a timed-out `…,encrypt` login never asked for the Grant.
-  // Saved as parsed (`a, b` -> `a,b`), so the session file reads it back.
-  const given = options.scopes
-    ?.split(',')
-    .map((token) => token.trim())
-    .join(',')
-  const scopes = given ?? (options.fresh ? undefined : readSessionFile(path)?.scopes)
-  const { permissions, encrypt } = parseLoginScopes(scopes)
+  const requested = options.scopes ?? (options.fresh ? undefined : readSessionFile(path)?.scopes)
+  const { permissions, encrypt, scopes } = parseLoginScopes(requested)
   if (options.grant !== undefined && options.fresh) {
     // Refused before the saved key is replaced: a Grant names its key, and a fresh one has none yet.
     throw new Error(
