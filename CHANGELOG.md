@@ -1,5 +1,40 @@
 # Changelog
 
+## [2.3.0](https://github.com/filecoin-project/filecoin-pin/compare/v2.2.1...v2.3.0) (2026-10-30)
+
+
+### Features
+
+* add decrypt command for --encrypt uploads ([#772](https://github.com/filecoin-project/filecoin-pin/issues/772)) ([5e53746](https://github.com/filecoin-project/filecoin-pin/commit/5e53746d6561dca1671a6817a1e4aa74c8da68ba))
+* add migrate gateway fetch and CAR verify ([#654](https://github.com/filecoin-project/filecoin-pin/issues/654)) ([1eb2621](https://github.com/filecoin-project/filecoin-pin/commit/1eb26215ef094307bb48ade3d38a099e11a0d0b1))
+* add migrate state store and CLI parsers ([#653](https://github.com/filecoin-project/filecoin-pin/issues/653)) ([e36ddef](https://github.com/filecoin-project/filecoin-pin/commit/e36ddef6f29d6670c034f6f13b71c503424d6d10))
+* **add:** encrypt uploads with --encrypt ([6da2588](https://github.com/filecoin-project/filecoin-pin/commit/6da258863fe4a79a675d99816a16885a0987811c))
+* **add:** encrypt uploads with Keysmith keys ([#771](https://github.com/filecoin-project/filecoin-pin/issues/771)) ([6da2588](https://github.com/filecoin-project/filecoin-pin/commit/6da258863fe4a79a675d99816a16885a0987811c))
+* **encryption:** share links for encrypted uploads ([#794](https://github.com/filecoin-project/filecoin-pin/issues/794)) ([5c1b80c](https://github.com/filecoin-project/filecoin-pin/commit/5c1b80c78baecf0003b198653ca6a46927d745ff))
+* **get:** fetch an upload by its IPFS root CID ([#787](https://github.com/filecoin-project/filecoin-pin/issues/787)) ([abe84ec](https://github.com/filecoin-project/filecoin-pin/commit/abe84ec80e9097c4fd15d016df535a1689020e63))
+* **login:** group key Grants for session keys ([#788](https://github.com/filecoin-project/filecoin-pin/issues/788)) ([adc275a](https://github.com/filecoin-project/filecoin-pin/commit/adc275a8b8d5f875ddb6c8d701c0ff395313f1aa))
+
+
+### Bug Fixes
+
+* **add:** say who can read an encrypted upload ([#805](https://github.com/filecoin-project/filecoin-pin/issues/805)) ([7a93494](https://github.com/filecoin-project/filecoin-pin/commit/7a9349496583d733a6b862e881ddcc14cf0be3e7)), closes [#798](https://github.com/filecoin-project/filecoin-pin/issues/798) [#802](https://github.com/filecoin-project/filecoin-pin/issues/802)
+* **cli:** print a spinner's stop message even when it is not running ([#803](https://github.com/filecoin-project/filecoin-pin/issues/803)) ([1ac83a4](https://github.com/filecoin-project/filecoin-pin/commit/1ac83a46aebdcf6d3123074092bf32d40ad6a1f9)), closes [#800](https://github.com/filecoin-project/filecoin-pin/issues/800)
+
+
+### Chores
+
+* ban nested ternaries in biome ([#790](https://github.com/filecoin-project/filecoin-pin/issues/790)) ([02a7eb1](https://github.com/filecoin-project/filecoin-pin/commit/02a7eb114df036c8c1b3f141bb5dbac9b89fc42b))
+* **deps:** bump @filoz/synapse-core from 0.10.0 to 0.10.2 ([#792](https://github.com/filecoin-project/filecoin-pin/issues/792)) ([2381d31](https://github.com/filecoin-project/filecoin-pin/commit/2381d31995df2709d2cec71c51b9075ba562fd13))
+* **deps:** bump @ipld/car from 5.4.6 to 5.4.7 ([#791](https://github.com/filecoin-project/filecoin-pin/issues/791)) ([60294c2](https://github.com/filecoin-project/filecoin-pin/commit/60294c2dd977f77422c7d8e404bf2c3e5fda4f85))
+* **deps:** bump fastify from 5.12.1 to 5.12.5 ([#759](https://github.com/filecoin-project/filecoin-pin/issues/759)) ([0887bec](https://github.com/filecoin-project/filecoin-pin/commit/0887bec25a0ce003d23895eb7c062b84fef452e1))
+* **deps:** bump fastify from 5.12.5 to 5.12.7 ([#780](https://github.com/filecoin-project/filecoin-pin/issues/780)) ([ed87571](https://github.com/filecoin-project/filecoin-pin/commit/ed87571cdf10a417f7556710d1a36d1375ef1147))
+* **deps:** upgrade biome to 2.5 ([#785](https://github.com/filecoin-project/filecoin-pin/issues/785)) ([95c2c14](https://github.com/filecoin-project/filecoin-pin/commit/95c2c14cd3a7798f2b59582302a23aac9427eff7))
+
+
+### Documentation
+
+* add an encryption guide ([#789](https://github.com/filecoin-project/filecoin-pin/issues/789)) ([14e475d](https://github.com/filecoin-project/filecoin-pin/commit/14e475d486981bc009ec5917274369c3457902f1))
+
 ## [2.2.1](https://github.com/filecoin-project/filecoin-pin/compare/v2.2.0...v2.2.1) (2026-10-12)
 
 
