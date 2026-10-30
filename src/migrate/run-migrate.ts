@@ -308,10 +308,15 @@ export async function runMigrate(
   const staged = await sweepStaging(db, opts.memberDir, opts.carStore)
   const fs = await statfs(opts.stagingDir)
   const total = stagingBudget(Number(fs.bavail) * Number(fs.bsize), staged, opts.maxStagedBytes)
-  if (total < 2 * opts.packTargetBytes) {
+  // Downloads start only while staged bytes are at most total - 2x target, so a bin fills to the target only if total >= 3x.
+  const required = 3 * opts.packTargetBytes
+  if (total < required) {
+    const source = total === opts.maxStagedBytes ? '--max-staged-bytes' : '80% of free disk in the staging directory'
     throw new Error(
-      `staging budget ${formatFileSize(total)} is too small to assemble one ` +
-        `${formatFileSize(opts.packTargetBytes)} piece; free disk space or lower --pack-target-size`
+      `staging budget ${formatFileSize(total)} (${source}) is under 3x the ${formatFileSize(opts.packTargetBytes)} ` +
+        `pack target (${required} bytes), so pieces would ship below the target. ` +
+        `Free disk space or raise --max-staged-bytes to at least ${required} bytes, ` +
+        `or lower --pack-target-size to at most ${Math.floor(total / 3)} bytes.`
     )
   }
   const budget = new StagingBudget(total, opts.packTargetBytes)
