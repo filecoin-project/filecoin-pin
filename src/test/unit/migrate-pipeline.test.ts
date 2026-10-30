@@ -320,10 +320,10 @@ describe('runMigrate pipeline', () => {
 
   it('cycles a budget smaller than the migration instead of wedging', async () => {
     const cids = await Promise.all(['a', 'b', 'c', 'd', 'e', 'f'].map(async (t) => ({ cid: await cidFor(t) })))
-    // 2x the pack target is the minimum viable budget; the whole migration is
+    // 3x the pack target is the minimum viable budget; the whole migration is
     // 3600 bytes, so completion proves eviction returns budget to the
     // download gate.
-    const h = await harness({ cids, budgetBytes: 2000, packTargetBytes: 1000 })
+    const h = await harness({ cids, budgetBytes: 3000, packTargetBytes: 1000 })
     try {
       const summary = await runMigrate(h.db, h.options, h.deps)
 

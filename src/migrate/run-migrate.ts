@@ -320,12 +320,6 @@ export async function runMigrate(
     `staging budget ${formatFileSize(budget.total)} (${formatFileSize(budget.used)} already staged from a previous run)`
   )
 
-  // Track each built piece's size so eviction can return its bytes.
-  const binBytes = new Map<string, number>()
-  for (const sub of db.subPiecesByStatus('built')) {
-    if (sub.carPath != null) binBytes.set(sub.carPath, sub.assembledCarLength)
-  }
-
   // The uploader parks here between pieces; wake it when the packer builds
   // something and drain it when the producer finishes.
   let drained = false
@@ -413,9 +407,6 @@ export async function runMigrate(
           opts.buildBin
         )
         if (packed.built > 0) {
-          for (const sub of db.subPiecesByStatus('built')) {
-            if (sub.carPath != null && !binBytes.has(sub.carPath)) binBytes.set(sub.carPath, sub.assembledCarLength)
-          }
           notifyUploader()
         } else if (!final) {
           // Nothing shipped (members under the upload floor, or a failed bin) and nothing woke.
@@ -540,7 +531,8 @@ export async function runMigrate(
       // failed (permissions, EBUSY) leaves the file occupying real space.
       const remaining = await stat(path).catch(() => null)
       if (remaining == null) {
-        budget.free(binBytes.get(path) ?? 0)
+        // Read the row, not a pack-time cache: a bin can upload and evict before its pack call returns.
+        budget.free(db.subPiecesByStatus('built').find((s) => s.carPath === path)?.assembledCarLength ?? 0)
       }
     },
   }
