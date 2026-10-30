@@ -33,11 +33,7 @@ import { generatePrivateKey } from 'viem/accounts'
 import { KeyAccessError, type OwnerSigner } from './group-key.js'
 import { GRANT_PREFIX, type OpenedGrant } from './group-key-grant.js'
 
-/**
- * The share viewer the links open in.
- * TODO(FilOzone/synapse-sdk#1036): the v1 viewer's published URL. Until it ships this is the
- * prototype, which shows the link's shape but cannot open v1 shares.
- */
+/** The v1 Share link viewer the links open in (FilOzone/synapse-sdk#1036). */
 export const DEFAULT_VIEWER_URL =
   'https://bafkreibthn4gniz2rjyi6rpcqn6lavpbdgok3w5dj2zghou4hem4bfuiqa.ipfs.inbrowser.link/'
 
