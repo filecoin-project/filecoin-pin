@@ -492,11 +492,16 @@ describe('runLogin', () => {
       expect(readSessionFile(sessionPath())?.scopes).toBe(ENCRYPT)
     })
 
-    it('resumes scopes given with spaces, as --scopes accepts them', async () => {
+    it.each([
+      'createDataSet, addPieces, encrypt',
+      'createDataSet,addPieces,encrypt,',
+      ',addPieces,,ENCRYPT,createdataset',
+    ])('resumes anything --scopes accepts: %s', async (given) => {
       savedKey()
       vi.mocked(watchAuthorization).mockResolvedValueOnce(TIMED_OUT).mockResolvedValueOnce(GRANT_AUTHORIZED)
 
-      expect(await runLogin({ scopes: 'createDataSet, addPieces, encrypt' }, silentStdin(false))).toBe(2)
+      expect(await runLogin({ scopes: given }, silentStdin(false))).toBe(2)
+      expect(readSessionFile(sessionPath())?.scopes).toBe(ENCRYPT)
       vi.mocked(log.line).mockClear()
       const code = await runLogin({}, silentStdin(false))
 

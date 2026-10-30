@@ -37,7 +37,7 @@ export interface SavedSession {
    */
   fromBlock?: bigint
   /**
-   * The `--scopes` the first login asked for, as given. A plain rerun resumes the same
+   * The `--scopes` the first login asked for, in canonical form. A plain rerun resumes the same
    * request, so a timed-out `…,encrypt` login still asks for the Grant.
    */
   scopes?: string
