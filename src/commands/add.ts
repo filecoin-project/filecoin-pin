@@ -20,7 +20,7 @@ export const addCommand = new Command('add')
   .option('--copies <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
   .option(
     '--encrypt',
-    'Encrypt the file or directory before upload. Readable with the owner wallet (PRIVATE_KEY) or a session key holding its group key Grant (see login). The piece is stored as encrypted.fee and the real name stays inside the ciphertext; --metadata name=<label> sets a public label instead.'
+    'Encrypt the file or directory before upload. Readable with the owner wallet (PRIVATE_KEY), a session key holding its group key Grant (see login), or any holder of a Share Link and associated Access Key. The piece is stored as encrypted.fee and the real name stays inside the ciphertext; --metadata name=<label> sets a public label instead.'
   )
   .option(
     '--no-ipfs',
