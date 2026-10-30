@@ -158,16 +158,17 @@ Encrypted uploads go to their own [Data Sets](glossary.md#data-set), tagged with
 - `--no-ipfs` uploads go to data sets without `withIPFSIndexing`, in the same group key. Indexed and `--no-ipfs` data sets never share uploads.
 - Only the group key id and its commitment are written on chain, and both are public. The keys themselves are never published.
 
-## Sharing (not available yet)
+## Sharing
 
-> **Not available yet.** Nothing in this section works in the current release. It describes planned designs so the terms make sense.
+The CLI enables sharing of individual uploads with other suitably authorized session keys (via `login`) or with anyone on the Internet via Share links.
 
-**Share links and Access keys** ([#779](https://github.com/filecoin-project/filecoin-pin/issues/779)). A planned `get-share-link <cid>` command, and an `add --encrypt` option, will share one upload with someone who has no wallet or Grant:
+**Share links and Access keys**
 
-- The CLI generates a throwaway key pair for the share and wraps that one upload's key to its public key.
-- The [Share link](glossary.md#share-link) opens the upload in the Filecoin encryption viewer ([FilOzone/synapse-sdk#1036](https://github.com/FilOzone/synapse-sdk/issues/1036)). Everything is in the link's fragment, so it never reaches a server.
-- The [Access key](glossary.md#access-key) (`fak1_…`) is the throwaway private key, sent separately. The recipient needs both the link and the Access key to open the upload, and they open that one upload only.
-- A `--restricted` variant puts the Access key in the link's fragment too, so one link opens the content directly, for when one channel is acceptable.
+To share uploads with other entities that do not have a suitable wallet or Grant to participate in the encryption scheme directly, use Share links.
+
+- The CLI generates a throwaway key pair (the [Access key](glossary.md#access-key) ) for the share and wraps that one upload's key to its public key.
+- The [Share link](glossary.md#share-link) opens the upload in the Filecoin encryption viewer ([FilOzone/synapse-sdk#1036](https://github.com/FilOzone/synapse-sdk/issues/1036)). Everything is in the link's fragment, so it never needs to query a server for keys or such.
+- The recipient needs both the link and the Access key to open the upload. By default all the key material, including the Access key, is encoded into the link making the link self contained and sufficient for decrypting an upload much like a bearer token or "anyone with the link" concept. A `--restricted` variant omits the Access key enabling it to be sent to the recipient separately over a different channel for added security. In either case, the Share link and Access key open that one single upload only.
 - Like Grants, shares cannot be revoked. To stop sharing, upload again.
 
 **Recipient-bound links** ([#784](https://github.com/filecoin-project/filecoin-pin/issues/784)). The recipient's viewer generates its own key pair and sends its public key to the sender, who wraps the share to it. The recipient opens the link without an Access key, and only their own viewer can open it.
