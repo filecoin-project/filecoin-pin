@@ -337,8 +337,8 @@ function firstCarResponse(
       outer?.removeEventListener('abort', onAbort)
       for (const controller of inFlight.values()) controller.abort()
       inFlight.clear()
-      if (winner != null) resolve(winner)
-      else reject(error)
+      if (winner == null) reject(error)
+      else resolve(winner)
     }
     const onAbort = (): void => settle(undefined, outer?.reason)
     if (outer?.aborted === true) {
