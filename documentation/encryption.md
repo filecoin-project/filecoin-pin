@@ -9,7 +9,7 @@ This guide explains how encrypted uploads work in Filecoin Pin: who can read the
 - [What is private and what is not](#what-is-private-and-what-is-not)
 - [Lifecycle and limits](#lifecycle-and-limits)
 - [Format, for integrators](#format-for-integrators)
-- [Sharing (not available yet)](#sharing-not-available-yet)
+- [Sharing](#sharing)
 - [Further reading](#further-reading)
 
 ## Overview
@@ -42,8 +42,8 @@ Filecoin Pin builds on two libraries from [synapse-sdk](https://github.com/FilOz
 | [Envelope](glossary.md#envelope) | (FEE) | The encrypted file that is uploaded, named `encrypted.fee`. |
 | [Encrypted root CID](glossary.md#encrypted-root-cid) | | The IPFS Root CID of the envelope: what `add --encrypt` prints and `get` takes. |
 | [Plaintext root CID](glossary.md#plaintext-root-cid) | | The IPFS Root CID of the original content. It exists only inside the ciphertext and is never printed. |
-| [Share link](glossary.md#share-link) | | A viewer link for one upload. Not available yet ([#779](https://github.com/filecoin-project/filecoin-pin/issues/779)). |
-| [Access key](glossary.md#access-key) | (recipient private key) | The other half of a share link, text form `fak1_…`. Not available yet. |
+| [Share link](glossary.md#share-link) | | A link that opens one upload, made by `get-share-link`. It carries that upload's key, wrapped to a throwaway key pair. |
+| [Access key](glossary.md#access-key) | (recipient private key) | The private half of a share link's throwaway key pair, text form `fak1_…`. An open link carries it; a restricted link needs it sent separately. |
 
 Keysmith shares a key by wrapping it to the recipient's public key, so only the recipient's private key opens it. A Grant works this way: it is wrapped to the session key. The Access key is Filecoin Pin's name for a private key the sender generates for a recipient who has no key pair of their own; the share is wrapped to its public key, and the private key is handed over separately.
 
@@ -93,6 +93,7 @@ The [README](../README.md#encrypted-uploads) lists every flag. In terms of the m
 - **`add <path> --encrypt [--no-ipfs]`** packs the input, encrypts it into an [Envelope](glossary.md#envelope) under the group key (owner mode) or the Grant's group key (session-key mode), and uploads the envelope like any other file. It prints the [Encrypted root CID](glossary.md#encrypted-root-cid). Without a usable key it stops before uploading anything; it never uploads plaintext. `--no-ipfs` skips IPFS indexing; see [Lifecycle and limits](#lifecycle-and-limits). Reference: [Encrypted Uploads](../README.md#encrypted-uploads).
 - **`get <cid> [dir]`** fetches an upload by its IPFS Root CID, verifies every block, and checks whether the root file is an envelope. An envelope is decrypted with the Owner wallet or the session key's Grant and restored under its original name; plain content is saved unchanged, and you can `get` it without any key or login. Reference: [Get](../README.md#get).
 - **`decrypt <file> <dir>`** does the same from a file you already downloaded (the bare `encrypted.fee`, or a CAR from a gateway or `/piece`), offline. Reference: [Encrypted Uploads](../README.md#encrypted-uploads) and [Retrieving Your Data](retrieval.md).
+- **`get-share-link <cid> [--restricted]`** makes a [Share link](glossary.md#share-link) for one upload; `add --encrypt --get-share-link` (or `--get-share-link-restricted`) does it right after uploading. **`get --share '<link>' [dir]`** opens a Share link without any wallet or login. See [Sharing](#sharing). Reference: [Share Links](../README.md#share-links).
 
 ## What is private and what is not
 
@@ -162,7 +163,7 @@ Encrypted uploads go to their own [Data Sets](glossary.md#data-set), tagged with
 
 The CLI enables sharing of individual uploads with other suitably authorized session keys (via `login`) or with anyone on the Internet via Share links.
 
-**Share links and Access keys**
+**Share links and Access keys:**
 
 To share uploads with other entities that do not have a suitable wallet or Grant to participate in the encryption scheme directly, use Share links.
 
@@ -170,12 +171,18 @@ To share uploads with other entities that do not have a suitable wallet or Grant
 - The [Share link](glossary.md#share-link) opens the upload in the Filecoin encryption viewer ([FilOzone/synapse-sdk#1036](https://github.com/FilOzone/synapse-sdk/issues/1036)). Everything is in the link's fragment, so it never needs to query a server for keys or such.
 - The recipient needs both the link and the Access key to open the upload. By default all the key material, including the Access key, is encoded into the link making the link self contained and sufficient for decrypting an upload much like a bearer token or "anyone with the link" concept. A `--restricted` variant omits the Access key enabling it to be sent to the recipient separately over a different channel for added security. In either case, the Share link and Access key open that one single upload only.
 - Like Grants, shares cannot be revoked. To stop sharing, upload again.
+- `get-share-link <cid> [--restricted]` makes a Share link for an earlier upload, and `add --encrypt --get-share-link` (or `--get-share-link-restricted`) makes one right after uploading. The sharer needs the owner wallet or a session key with a Grant.
+- `get --share '<link>' [dir]` opens a Share link from the CLI, with no wallet or login. For a restricted link it takes the Access key from `SHARE_ACCESS_KEY` or `--access-key`.
+- Every link has its own key pair, so links are independent, and shares don't expire.
+- Uploads made with `--no-ipfs` can't be shared: a link fetches the upload by its IPFS root CID.
 
-**Recipient-bound links** ([#784](https://github.com/filecoin-project/filecoin-pin/issues/784)). The recipient's viewer generates its own key pair and sends its public key to the sender, who wraps the share to it. The recipient opens the link without an Access key, and only their own viewer can open it.
+Reference: [Share Links](../README.md#share-links).
+
+**Recipient-bound links** (planned, [#784](https://github.com/filecoin-project/filecoin-pin/issues/784)). The recipient's viewer generates its own key pair and sends its public key to the sender, who wraps the share to it. The recipient opens the link without an Access key, and only their own viewer can open it.
 
 ## Further reading
 
-- [README: Encrypted Uploads](../README.md#encrypted-uploads), [Get](../README.md#get), [Login](../README.md#login), [Group key Grants](../README.md#group-key-grants), [Session-Key Permissions](../README.md#session-key-permissions), [Environment Variables](../README.md#environment-variables)
+- [README: Encrypted Uploads](../README.md#encrypted-uploads), [Share Links](../README.md#share-links), [Get](../README.md#get), [Login](../README.md#login), [Group key Grants](../README.md#group-key-grants), [Session-Key Permissions](../README.md#session-key-permissions), [Environment Variables](../README.md#environment-variables)
 - [Glossary](glossary.md)
 - [Retrieving Your Data](retrieval.md)
 - [Keysmith README](https://github.com/FilOzone/synapse-sdk/tree/master/packages/keysmith)

@@ -2,7 +2,7 @@ Filecoin Pin brings multiple technologies together (i.e., existing Filecoin bloc
 
 ## Access Key
 
-*Not available yet* ([#779](https://github.com/filecoin-project/filecoin-pin/issues/779)). The other half of a [Share Link](#share-link): a private key the sender generates for a recipient who has no key pair of their own. [Keysmith](https://github.com/FilOzone/synapse-sdk/tree/master/packages/keysmith) wraps shared keys to a recipient's public key; the share is wrapped to this key's public half, and the private key is sent separately as text starting with `fak1_`. Whoever holds both the link and the Access key can read that one [Encrypted Upload](#encrypted-upload). Not to be confused with a [Grant](#grant): `login` refuses an Access key pasted in its place. See the [Encryption guide](encryption.md).
+The private half of a throwaway key pair the sender makes for one [Share Link](#share-link), for a recipient who has no key pair of their own. [Keysmith](https://github.com/FilOzone/synapse-sdk/tree/master/packages/keysmith) wraps shared keys to a recipient's public key; the share is wrapped to this key's public half. Its text form starts with `fak1_`. By default the link carries it; a restricted link (`--restricted`) leaves it out, and it is sent separately. Whoever holds both the link and the Access key can read that one [Encrypted Upload](#encrypted-upload). Not to be confused with a [Grant](#grant): `login` refuses an Access key pasted in its place. See the [Encryption guide](encryption.md).
 
 ## Calibration Network
 
@@ -314,7 +314,7 @@ Note that the filecoin-pin CLI's `--session-key` flag (and `SESSION_KEY` environ
 
 ## Share Link
 
-*Not available yet* ([#779](https://github.com/filecoin-project/filecoin-pin/issues/779)). A link that opens one [Encrypted Upload](#encrypted-upload) in the Filecoin encryption viewer. It carries a key for that upload only, in the link's fragment, so it never reaches a server. It needs an [Access Key](#access-key) to open, unless the restricted variant puts the Access key in the link too. A share cannot be revoked. See the [Encryption guide](encryption.md).
+A link that opens one [Encrypted Upload](#encrypted-upload) in the Filecoin encryption viewer, or with `get --share`, made by `get-share-link` or `add --encrypt --get-share-link`. It carries that upload's key, wrapped to a throwaway key pair, in the link's fragment, so it never reaches a server. By default it also carries the [Access Key](#access-key) and opens on its own; a restricted link (`--restricted`) leaves the Access Key out, and the recipient needs both. A share cannot be revoked and does not expire. See the [Encryption guide](encryption.md).
 
 ## Standard IPFS Tooling
 
