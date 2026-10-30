@@ -339,14 +339,17 @@ export async function runLogin(
   options: LoginOptions,
   io: LoginIO = { stdin: process.stdin, stdout: process.stdout }
 ): Promise<number> {
-  const { permissions, encrypt } = parseLoginScopes(options.scopes)
+  const path = getSessionFilePath()
+  // A plain rerun (what every resume message says to run) resumes the first login's
+  // request: with the defaults instead, a timed-out `…,encrypt` login never asked for the Grant.
+  const scopes = options.scopes ?? (options.fresh ? undefined : readSessionFile(path)?.scopes)
+  const { permissions, encrypt } = parseLoginScopes(scopes)
   if (options.grant !== undefined && options.fresh) {
     // Refused before the saved key is replaced: a Grant names its key, and a fresh one has none yet.
     throw new Error(
       '--grant imports a Grant for the saved session key; a --fresh key has none yet. Run `login --fresh` first, then approve the new key and take its Grant.'
     )
   }
-  const path = getSessionFilePath()
   const saved = options.grant === undefined ? undefined : readSessionFile(path)
   if (options.grant !== undefined && saved === undefined) {
     // Refused before anything is written: a new key could never match the Grant.
@@ -389,7 +392,10 @@ export async function runLogin(
   }
   const consoleUrl = resolveConsoleUrl()
 
-  const { session, resumed, replaced } = loadOrCreateSession(options.fresh, network, path)
+  const loaded = loadOrCreateSession(options.fresh, network, path)
+  const { resumed, replaced } = loaded
+  const session = scopes === undefined ? loaded.session : { ...loaded.session, scopes }
+  if (session.scopes !== loaded.session.scopes) writeSessionFile(session, path)
   // Checks that need no owner or network, before the link and the wait.
   if (grantText !== undefined) precheckGroupKeyGrant(grantText, session.sessionKey)
   const short = shortAddress(session.sessionAddress)
@@ -412,7 +418,11 @@ export async function runLogin(
       )
     }
   }
-  const scopeNote = options.scopes === undefined ? ' (defaults — override with --scopes)' : ''
+  let scopeNote = ''
+  if (options.scopes === undefined) {
+    scopeNote =
+      scopes === undefined ? ' (defaults — override with --scopes)' : ' (as first requested — override with --scopes)'
+  }
   const grantNote = wantGrant ? ` + ${ENCRYPT_SCOPE} (group key Grant)` : ''
   log.line(`  Requesting scopes: ${scopeList(permissions)}${grantNote}${scopeNote}`)
   if (wantGrant) {
