@@ -10,7 +10,7 @@ import { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { initializeSynapse, type SynapseSetupConfig } from '../../core/synapse/index.js'
+import { assertSessionKeyPrivateKey, initializeSynapse, type SynapseSetupConfig } from '../../core/synapse/index.js'
 import { uploadToSynapse } from '../../core/upload/synapse.js'
 import { createLogger } from '../../logger.js'
 import { MockSynapse } from '../mocks/synapse-mocks.js'
@@ -337,6 +337,15 @@ describe('synapse-service', () => {
 
       await expect(initializeSynapse(config, logger)).rejects.toThrow(
         'this looks like an address, but the session key private key'
+      )
+    })
+
+    it.each([
+      'not-a-private-key',
+      '0x1234567890123456789012345678901234567890',
+    ])('points malformed session key %s at login instead of session generate', (value) => {
+      expect(() => assertSessionKeyPrivateKey(value)).toThrow(
+        'Use the SESSION_KEY value saved by "filecoin-pin login" in session.env or printed by "filecoin-pin session create".'
       )
     })
 
