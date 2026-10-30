@@ -6,7 +6,7 @@ import { CID } from 'multiformats/cid'
 import * as raw from 'multiformats/codecs/raw'
 import { sha256 } from 'multiformats/hashes/sha2'
 import { describe, expect, it } from 'vitest'
-import { EnvelopeLabelsError, readEnvelopeLabels } from '../../common/envelope-labels.js'
+import { EnvelopeLabelsError, NotEncryptedUploadError, readEnvelopeLabels } from '../../common/envelope-labels.js'
 import { CAR_CONTENT_TYPE } from '../../common/unixfs-car-layout.js'
 
 const OWNER = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266' as const
@@ -83,11 +83,63 @@ describe('readEnvelopeLabels', () => {
     await expect(readEnvelopeLabels(root, ['https://evil.test'], fetchImpl)).rejects.toThrow(/does not match its CID/)
   })
 
-  it('says so when no provider has it, or the file is not an encrypted upload', async () => {
-    const plain = new TextEncoder().encode('just a file')
-    const root = await rawCid(plain)
-    const fetchImpl = fakeFetch({ 'https://good.test': new Map([[root.toString(), plain]]) })
-    await expect(readEnvelopeLabels(root, [], fetchImpl)).rejects.toBeInstanceOf(EnvelopeLabelsError)
-    await expect(readEnvelopeLabels(root, ['https://good.test'], fetchImpl)).rejects.toThrow(/no FEE envelope header/)
+  it('says so when no provider has it', async () => {
+    const root = await rawCid(new TextEncoder().encode('just a file'))
+    await expect(readEnvelopeLabels(root, [], fakeFetch({}))).rejects.toBeInstanceOf(EnvelopeLabelsError)
+  })
+
+  it.each([
+    [
+      'a plain file',
+      async () => {
+        const plain = new TextEncoder().encode('just a file')
+        const root = await rawCid(plain)
+        return { root, blocks: new Map([[root.toString(), plain]]) }
+      },
+    ],
+    [
+      'a folder',
+      async () => {
+        const bytes = dagPb.encode({ Data: new UnixFS({ type: 'directory' }).marshal(), Links: [] })
+        const root = CID.create(1, dagPb.code, await sha256.digest(bytes))
+        return { root, blocks: new Map([[root.toString(), bytes]]) }
+      },
+    ],
+  ])('says %s is plain content, without trying another provider', async (_, make) => {
+    const { root, blocks } = await make()
+    const asked: string[] = []
+    const serve = fakeFetch({ 'https://good.test': blocks })
+    const fetchImpl = (async (url: string) => {
+      asked.push(new URL(url).origin)
+      return serve(url)
+    }) as typeof fetch
+
+    const error = await readEnvelopeLabels(root, ['https://good.test', 'https://other.test'], fetchImpl).catch(
+      (e: unknown) => e
+    )
+
+    expect(error).toBeInstanceOf(NotEncryptedUploadError)
+    expect((error as Error).message).toBe(
+      `${root} is plain content, not an upload made with \`add --encrypt\`: anyone can open it by its CID, so it doesn't need a Share link`
+    )
+    // The blocks were verified, so the next provider would serve the same.
+    expect(asked).not.toContain('https://other.test')
+  })
+
+  it('says an envelope without Keysmith labels was not made by add --encrypt', async () => {
+    const leaf = await envelope({} as PieceMetadata)
+    const root = await rawCid(leaf)
+    const fetchImpl = fakeFetch({ 'https://good.test': new Map([[root.toString(), leaf]]) })
+    await expect(readEnvelopeLabels(root, ['https://good.test'], fetchImpl)).rejects.toThrow(
+      `${root} is encrypted, but not by \`add --encrypt\`, so a Share link cannot open it`
+    )
+  })
+
+  it('still moves on from a provider that fails to serve the blocks', async () => {
+    const labels = pieceMetadata({ owner: OWNER, keyspace: GROUP_KEY }, { salt: newSalt() })
+    const leaf = await envelope(labels)
+    const root = await rawCid(leaf)
+    const fetchImpl = fakeFetch({ 'https://good.test': new Map([[root.toString(), leaf]]) })
+    expect(await readEnvelopeLabels(root, ['https://missing.test', 'https://good.test'], fetchImpl)).toEqual(labels)
   })
 })

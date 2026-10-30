@@ -38,6 +38,28 @@ export class EnvelopeLabelsError extends Error {
   override name = 'EnvelopeLabelsError'
 }
 
+/**
+ * The content at the CID was verified, but is not an upload made with `add --encrypt`. Every
+ * honest provider serves the same blocks, so no other provider is tried.
+ */
+export class NotEncryptedUploadError extends EnvelopeLabelsError {
+  override name = 'NotEncryptedUploadError'
+}
+
+/** A folder, a file with no FEE header, or not UnixFS at all. */
+function plainContent(root: CID): NotEncryptedUploadError {
+  return new NotEncryptedUploadError(
+    `${root} is plain content, not an upload made with \`add --encrypt\`: anyone can open it by its CID, so it doesn't need a Share link`
+  )
+}
+
+/** An envelope, but not one `add --encrypt` wrote. */
+function foreignEnvelope(root: CID): NotEncryptedUploadError {
+  return new NotEncryptedUploadError(
+    `${root} is encrypted, but not by \`add --encrypt\`, so a Share link cannot open it`
+  )
+}
+
 /** Fetch one raw block from `provider` and check it against `cid`. */
 async function fetchBlock(provider: string, cid: CID, fetchImpl: typeof fetch): Promise<Uint8Array> {
   const response = await fetchImpl(`${provider}/ipfs/${cid.toString()}?format=raw`, {
@@ -60,22 +82,22 @@ async function firstLeaf(provider: string, root: CID, fetchImpl: typeof fetch): 
   for (let depth = 0; depth < MAX_DEPTH; depth++) {
     const bytes = await fetchBlock(provider, cid, fetchImpl)
     if (cid.code === RAW_CODEC) return bytes
-    if (cid.code !== DAG_PB_CODEC) throw new Error(`codec 0x${cid.code.toString(16)} is not UnixFS`)
+    if (cid.code !== DAG_PB_CODEC) throw plainContent(root)
     const node = dagPb.decode(bytes)
     const unixfs = node.Data == null ? undefined : UnixFS.unmarshal(node.Data)
-    if (unixfs == null || (unixfs.type !== 'file' && unixfs.type !== 'raw')) throw new Error('not a UnixFS file')
+    if (unixfs == null || (unixfs.type !== 'file' && unixfs.type !== 'raw')) throw plainContent(root)
     // A small file keeps its bytes in the node itself.
     if (unixfs.data != null && unixfs.data.length > 0) return unixfs.data
     const first = node.Links[0]
-    if (first == null) throw new Error('an empty file')
+    if (first == null) throw plainContent(root)
     // dag-pb's multiformats is a different major than ours; cross by bytes.
     cid = CID.decode(first.Hash.bytes)
   }
-  throw new Error('the file is nested too deeply')
+  throw plainContent(root)
 }
 
 /** Parse the FEE header at the start of `bytes`, returning its Keysmith labels. */
-async function headerLabels(bytes: Uint8Array): Promise<PieceMetadata> {
+async function headerLabels(bytes: Uint8Array, root: CID): Promise<PieceMetadata> {
   let labels: Record<string, unknown> | undefined
   let contentType: string | number | undefined
   // FEE parses the header, then asks for the key: stop there, before any ciphertext is touched.
@@ -91,15 +113,15 @@ async function headerLabels(bytes: Uint8Array): Promise<PieceMetadata> {
     )
     .pipeTo(new WritableStream())
     .catch(() => undefined)
-  if (labels == null) throw new Error('no FEE envelope header')
-  if (contentType !== CAR_CONTENT_TYPE) throw new Error('not content encrypted by `add --encrypt`')
+  if (labels == null) throw plainContent(root)
+  if (contentType !== CAR_CONTENT_TYPE) throw foreignEnvelope(root)
   if (
     labels['foc/v'] !== 1 ||
     typeof labels['foc/own'] !== 'string' ||
     typeof labels['foc/ks'] !== 'string' ||
     typeof labels['foc/salt'] !== 'string'
   ) {
-    throw new Error('the envelope carries no Keysmith labels')
+    throw foreignEnvelope(root)
   }
   return labels as unknown as PieceMetadata
 }
@@ -108,6 +130,7 @@ async function headerLabels(bytes: Uint8Array): Promise<PieceMetadata> {
  * The header labels of the upload at `root`, read from the first of `providers` that serves its
  * blocks intact. Providers are tried in order; a block that fails its hash moves on to the next.
  *
+ * @throws NotEncryptedUploadError when the verified content is not an `add --encrypt` upload.
  * @throws EnvelopeLabelsError when no provider serves a verified header.
  */
 export async function readEnvelopeLabels(
@@ -118,8 +141,10 @@ export async function readEnvelopeLabels(
   const failures: string[] = []
   for (const provider of providers) {
     try {
-      return await headerLabels(await firstLeaf(provider, root, fetchImpl))
+      return await headerLabels(await firstLeaf(provider, root, fetchImpl), root)
     } catch (error) {
+      // A verified answer: the next provider would serve the same blocks.
+      if (error instanceof NotEncryptedUploadError) throw error
       failures.push(`${provider}: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
