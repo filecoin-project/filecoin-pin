@@ -36,6 +36,11 @@ export interface SavedSession {
    * names the owner.
    */
   fromBlock?: bigint
+  /**
+   * The `--scopes` the first login asked for, in canonical form. A plain rerun resumes the same
+   * request, so a timed-out `…,encrypt` login still asks for the Grant.
+   */
+  scopes?: string
   /** Group key the Grant opens (`foc/ks`), 0x + 32 hex. Written together with {@link groupKeyGrant}. */
   groupKeyId?: Hex
   /** The group key Grant for this session key, `fgr1_…`. Never the key it opens. */
@@ -79,6 +84,8 @@ export function readSessionFile(path: string = getSessionFilePath()): SavedSessi
   if (network !== undefined && /^[a-z]+$/.test(network)) session.network = network
   const fromBlock = parsed.FROM_BLOCK
   if (fromBlock !== undefined && /^\d+$/.test(fromBlock)) session.fromBlock = BigInt(fromBlock)
+  const scopes = parsed.SCOPES
+  if (scopes !== undefined && /^[A-Za-z]+(,[A-Za-z]+)*$/.test(scopes)) session.scopes = scopes
   // Both or neither: a Grant is checked against its group key id on every load.
   const groupKeyId = parsed.GROUP_KEY_ID
   const groupKeyGrant = parsed.GROUP_KEY_GRANT
@@ -104,6 +111,7 @@ export function writeSessionFile(session: SavedSession, path: string = getSessio
   if (session.walletAddress !== undefined) lines.push(`WALLET_ADDRESS=${session.walletAddress}`)
   if (session.network !== undefined) lines.push(`NETWORK=${session.network}`)
   if (session.fromBlock !== undefined) lines.push(`FROM_BLOCK=${session.fromBlock}`)
+  if (session.scopes !== undefined) lines.push(`SCOPES=${session.scopes}`)
   if (session.groupKeyId !== undefined && session.groupKeyGrant !== undefined) {
     lines.push(`GROUP_KEY_ID=${session.groupKeyId}`, `GROUP_KEY_GRANT=${session.groupKeyGrant}`)
   }
