@@ -39,7 +39,7 @@ import { GRANT_PREFIX, type OpenedGrant } from './group-key-grant.js'
  * prototype, which shows the link's shape but cannot open v1 shares.
  */
 export const DEFAULT_VIEWER_URL =
-  'https://bafkreierah7bnqa4ah5gahnepajuqh3l5etmysc63zqzfegqwlez2deonm.ipfs.inbrowser.link/'
+  'https://bafkreibthn4gniz2rjyi6rpcqn6lavpbdgok3w5dj2zghou4hem4bfuiqa.ipfs.inbrowser.link/'
 
 /** Prefix of an Access key's text form: lets both sides refuse a wrong paste, and secret scanners find a leak. */
 export const ACCESS_KEY_PREFIX = 'fak1_'
