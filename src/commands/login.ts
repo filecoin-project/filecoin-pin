@@ -51,7 +51,7 @@ ${pc.bold('EXAMPLES')}
 ${pc.bold('FILES')}
   The session key is saved to session.env in the data directory before the
   browser opens (owner-readable only), so an interrupted login resumes the
-  same key. A group key Grant is saved there too, as GROUP_KEY_ID and
+  same key and, unless --scopes says otherwise, the same scopes. A group key Grant is saved there too, as GROUP_KEY_ID and
   GROUP_KEY_GRANT. \`filecoin-pin logout\` deletes the file.
 
 ${pc.bold('GROUP KEY GRANTS')}
