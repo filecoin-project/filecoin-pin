@@ -2,7 +2,7 @@ Filecoin Pin brings multiple technologies together (i.e., existing Filecoin bloc
 
 ## Access Key
 
-The secret half of a [Share Link](#share-link): the private key of a throwaway key pair the sender makes for one link, which the link's grant is wrapped to. Its text form is `fak1_` followed by the base64url (unpadded) 32-byte key; the prefix lets the CLI refuse a [Grant](#grant) or a Share Link pasted in its place, and lets secret scanners spot a leak. Printed by `get-share-link --restricted` and passed to `get --share` as `--access-key` or `SHARE_ACCESS_KEY`. Whoever holds the link and its Access key can read that upload.
+The private half of a throwaway key pair the sender makes for one [Share Link](#share-link), for a recipient who has no key pair of their own. [Keysmith](https://github.com/FilOzone/synapse-sdk/tree/master/packages/keysmith) wraps shared keys to a recipient's public key; the share is wrapped to this key's public half. Its text form starts with `fak1_`. By default the link carries it; a restricted link (`--restricted`) leaves it out, and it is sent separately. Whoever holds both the link and the Access key can read that one [Encrypted Upload](#encrypted-upload). Not to be confused with a [Grant](#grant): `login` refuses an Access key pasted in its place. See the [Encryption guide](encryption.md).
 
 ## Calibration Network
 
@@ -15,6 +15,10 @@ A CAR is a container format and network transport to hold your "IPFS data" (i.e.
 ## CID
 
 See https://docs.ipfs.tech/concepts/glossary/#cid.
+
+## Claim Chain
+
+[Keysmith](https://github.com/FilOzone/synapse-sdk/tree/master/packages/keysmith)'s signed record of who may read which key. The root is an EIP-712 `ReadGrant` signed by the [Owner](#owner) wallet, naming a bearer (for a [Grant](#grant), the [Session Key](#session-key)), the [Group Key](#group-key) or part of it, the network's chain id, an expiry, and how many more levels the bearer may delegate (none, for Grants from the console). It travels with the wrapped key in a [Delivery](#delivery). See the [Encryption guide](encryption.md).
 
 ## CommP
 
@@ -39,9 +43,17 @@ Collections of stored data ([Pieces](#piece)) managed by [Filecoin Warm Storage 
 
 Filecoin Pin reuses existing Data Sets by default, matching on [metadata](#metadata) (`source='filecoin-pin'`). When more match than the number of copies requested, it prefers the ones already holding pieces and takes at most one per Service Provider. When the matches do not cover enough distinct providers, Filecoin Pin creates new Data Sets instead.
 
+## Delivery
+
+[Keysmith](https://github.com/FilOzone/synapse-sdk/tree/master/packages/keysmith)'s one-blob format holding a [Claim Chain](#claim-chain) and the key it vouches for, wrapped to the bearer's public key. A [Grant](#grant) is a delivery in text form: `fgr1_` followed by its base64url encoding. See the [Encryption guide](encryption.md).
+
+## Encrypted Root CID
+
+The [IPFS Root CID](#ipfs-root-cid) of an [Encrypted Upload](#encrypted-upload): the root of its [Envelope](#envelope), packed as a single UnixFS file. It is what `add --encrypt` prints and what `get` takes. Gateways and [standard IPFS tooling](#standard-ipfs-tooling) can fetch it, but they return ciphertext. Compare [Plaintext Root CID](#plaintext-root-cid). See the [Encryption guide](encryption.md).
+
 ## Encrypted Upload
 
-A file or directory uploaded with `filecoin-pin add --encrypt`. The input is packed as a UnixFS CAR (the same [unixfs-v1-2025](#unixfs-v1-2025-profile) DAG an unencrypted `add` would build, under an anonymous wrapping directory holding the input's own name) and that CAR is wrapped in a [Filecoin Encryption Envelope](https://github.com/filecoin-project/FIPs/pull/1294) (FEE). The content key comes from [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983): the owner wallet (`PRIVATE_KEY`) signs once for its [Group Key](#group-key), and every upload gets its own key derived from that signature and a fresh random salt. Nothing is stored; the same wallet derives the key again to read the upload back with `filecoin-pin decrypt`, offline, or with `filecoin-pin get`, which also fetches it by its [IPFS Root CID](#ipfs-root-cid). The envelope is packed as `encrypted.fee`, so the `name` [Metadata](#metadata) does not reveal the original filename; names, individual file sizes, the folder structure and the plaintext [CIDs](#cid) exist only inside the ciphertext. The total size is not hidden: the envelope header records the inner CAR's length and the piece size is public, so a single file's size is visible to within a few hundred bytes. Symlinks and special files (FIFOs, sockets, devices) are skipped and counted, never named; hidden entries follow the same `--include-hidden` rule as an unencrypted `add`. See the [README](../README.md#encrypted-uploads) for usage and `--no-ipfs`.
+A file or directory uploaded with `filecoin-pin add --encrypt`. The input is packed as a UnixFS CAR (the same [unixfs-v1-2025](#unixfs-v1-2025-profile) DAG an unencrypted `add` would build, under an anonymous wrapping directory holding the input's own name) and that CAR is wrapped in an [Envelope](#envelope) (a Filecoin Encryption Envelope, FEE). The content key comes from [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983): the [Owner](#owner) wallet (`PRIVATE_KEY`) signs once for its [Group Key](#group-key), and every upload gets its own key derived from that signature and a fresh random salt. The CLI doesn't save the key: the same wallet derives it again to read the upload back with `filecoin-pin decrypt`, offline, or with `filecoin-pin get`, which also fetches it by its [IPFS Root CID](#ipfs-root-cid). The envelope is packed as `encrypted.fee`, so the `name` [Metadata](#metadata) does not reveal the original filename; names, individual file sizes, the folder structure and the plaintext [CIDs](#cid) exist only inside the ciphertext. The total size is not hidden: the envelope header records the inner CAR's length and the piece size is public, so a single file's size is visible to within a few hundred bytes. Symlinks and special files (FIFOs, sockets, devices) are skipped and counted, never named; hidden entries follow the same `--include-hidden` rule as an unencrypted `add`. A [Session Key](#session-key) with a [Grant](#grant) for the group key can read and write uploads too. The upload is fetched by its [Encrypted Root CID](#encrypted-root-cid); the original content's [Plaintext Root CID](#plaintext-root-cid) is never shown. See the [Encryption guide](encryption.md) for the model and the [README](../README.md#encrypted-uploads) for usage and `--no-ipfs`.
 
 Blocks inside the CAR are written metadata-first: every dag-pb node (breadth-first from the root), then every raw leaf in file order, each CID once. A reader that knows the root can therefore list the tree before the first data byte and map any file offset to a byte range of the envelope without an index, which is what lets `decrypt` run in one pass and a viewer seek inside a video by HTTP Range.
 
@@ -51,25 +63,29 @@ The envelope's public `content_type` is `application/vnd.ipld.car`; decryptors r
 { "foc/v": 1, "foc/own": "<owner wallet, lowercase>", "foc/ks": "<group key id>", "foc/salt": "<16 random bytes, hex>" }
 ```
 
+## Envelope
+
+The encrypted file an [Encrypted Upload](#encrypted-upload) uploads, named `encrypted.fee`: a [Filecoin Encryption Envelope](https://github.com/FilOzone/synapse-sdk/tree/master/packages/filecoin-encryption-envelope) (FEE, draft FRC [filecoin-project/FIPs#1294](https://github.com/filecoin-project/FIPs/pull/1294)) wrapping the upload's UnixFS [CAR](#car). Its header is public: the content type, the plaintext length, and the [Owner](#owner), [Group Key](#group-key) id and salt (`foc/own`, `foc/ks`, `foc/salt`). Everything else is ciphertext. See [Format, for integrators](encryption.md#format-for-integrators) in the Encryption guide.
+
 ## Group Key
 
-What [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) calls a *keyspace*: the root of a key derivation tree, named by a 16-byte id and bound to the owner wallet by one EIP-712 signature. Filecoin Pin records it on every [Data Set](#data-set) an [Encrypted Upload](#encrypted-upload) writes to, as `foc/ks` (the id) and `foc/kc` (a public commitment to the key, checked before the group key is reused), next to `foc/enc: "1"`, which marks the data set as encrypted and versions its rules. The metadata keys keep Keysmith's names. One group key usually spans multiple data sets: one per copy, plus any separate data set the user wants under the same group key. The group key id is public; no key material goes on chain. A [Session Key](#session-key) gets a group key through a [Grant](#grant).
+What [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) calls a *keyspace*: the root of a key derivation tree, named by a 16-byte id and bound to the [Owner](#owner) wallet by one EIP-712 signature. Filecoin Pin records it on every [Data Set](#data-set) an [Encrypted Upload](#encrypted-upload) writes to, as `foc/ks` (the id) and `foc/kc` (a public commitment to the key, checked before the group key is reused), next to `foc/enc: "1"`, which marks the data set as encrypted and versions its rules. The metadata keys keep Keysmith's names. One group key usually spans multiple data sets: one per copy, plus any separate data set the user wants under the same group key. Only the group key id and its commitment are written on chain, and both are public; the keys themselves are never published. A [Session Key](#session-key) gets a group key through a [Grant](#grant).
 
-An owner wallet can end up with several group keys. `add --encrypt` sorts the wallet's live data sets by `foc/ks`, skips any group key whose data sets disagree on `foc/kc` or are not `foc/enc: "1"`, and uses the group key holding the oldest data set (lowest id). All copies of an upload go to that group key; a copy without a suitable data set gets a new one with the same `foc/ks` and `foc/kc`. A group key is created only when no valid one exists, and it exists on chain from its first upload. Nothing is stored locally.
+An owner wallet can end up with several group keys. `add --encrypt` sorts the wallet's live data sets by `foc/ks`, skips any group key whose data sets disagree on `foc/kc` or are not `foc/enc: "1"`, and uses the group key holding the oldest data set (lowest id). All copies of an upload go to that group key; a copy without a suitable data set gets a new one with the same `foc/ks` and `foc/kc`. A group key is created only when no valid one exists, and it appears on chain with its first upload. The CLI writes nothing about it to your machine.
 
-That first group key's id is derived from the owner address, so every client that sets up encryption before the first upload (the CLI, or several console logins) picks the same id: the first 16 bytes of `keccak256(utf8("filecoin/default-group-key") ‖ owner)`, with the owner as its 20 raw bytes (letter case does not matter), written as `0x`-prefixed lowercase hex. If that id is already on chain but its data sets are not valid (they disagree on `foc/kc` or are not `foc/enc: "1"`), and no other valid group key exists, `add --encrypt` stops with an error rather than writing into the invalid group.
+That first group key's id is derived from the owner address, so every client that sets up encryption before the first upload (the CLI, or several console logins) picks the same id: the first 16 bytes of `keccak256(utf8("filecoin/default-group-key") ‖ owner)`, with the owner as its 20 raw bytes (letter case does not matter), written as `0x`-prefixed lowercase hex. If that id is already on chain but its data sets are not valid (they disagree on `foc/kc` or are not `foc/enc: "1"`), and no other valid group key exists, `add --encrypt` stops with an error rather than writing into the invalid group. See [Lifecycle and limits](encryption.md#lifecycle-and-limits) in the Encryption guide.
 
 ## Group
 
-What [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) calls a *scope*: a named part of a [Group Key](#group-key) with its own derived key, so access can be granted to some uploads without the whole group key. An upload in a group carries it in the envelope as `foc/scope` (Keysmith's label). `add --encrypt` does not put uploads in groups yet; every upload is under the group key itself. Not to be confused with session-key permission scopes (`login --scopes`).
+What [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) calls a *scope*: a named part of a [Group Key](#group-key) with its own derived key, so access can be granted to some uploads without the whole group key. An upload in a group carries it in the envelope as `foc/scope` (Keysmith's label). `add --encrypt` does not put uploads in groups yet; every upload is under the group key itself. Groups are planned in [#781](https://github.com/filecoin-project/filecoin-pin/issues/781); with them, a [Grant](#grant) can cover part of a group key. Not to be confused with session-key permission scopes (`login --scopes`).
 
 ## Grant
 
-A group key Grant: what lets a [Session Key](#session-key) read and write a [Group Key](#group-key) without the owner wallet. `filecoin-pin login --scopes createDataSet,addPieces,encrypt` asks the Filecoin Cloud console (`CONSOLE_URL`, default https://pay.filecoin.cloud) for one. The console has the owner wallet sign a [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) root claim for the whole group key (bearer: the session key; expiry: the session key's authorization expiry; the network's chain id) and wraps the group key to the session key's public key. Its text form is `fgr1_` followed by the base64url (unpadded) Keysmith delivery; whitespace is ignored, since consoles wrap long lines.
+A group key Grant: what lets a [Session Key](#session-key) read and write a [Group Key](#group-key) without the owner wallet. `filecoin-pin login --scopes createDataSet,addPieces,encrypt` asks the Filecoin Cloud console (`CONSOLE_URL`, default https://pay.filecoin.cloud) for one. The console has the owner wallet sign a [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) root claim for the whole group key (bearer: the session key; expiry: the session key's authorization expiry; the network's chain id) and wraps the group key to the session key's public key. Its text form is `fgr1_` followed by the base64url (unpadded) Keysmith [Delivery](#delivery), which holds the [Claim Chain](#claim-chain) and the wrapped key; whitespace is ignored, since consoles wrap long lines.
 
-The CLI checks a Grant when it is imported and every time it is used: Keysmith checks the signatures, the expiry, that the session key is the bearer, and the key against the commitment the owner signed; the CLI checks the owner, the network, and the group key. It is saved as `GROUP_KEY_ID` and `GROUP_KEY_GRANT` next to the session key; the key it opens is never stored. A session key with a Grant uploads with `add --encrypt` into the group key's [Data Sets](#data-set) (tagging new ones with the `foc/kc` the owner signed) and reads uploads under that group key with `get` and `decrypt`.
+The CLI checks a Grant when it is imported and every time it is used: Keysmith checks the signatures, the expiry, that the session key is the bearer, and the key against the commitment the owner signed; the CLI checks the owner, the network, and the group key. It is saved as `GROUP_KEY_ID` and `GROUP_KEY_GRANT` next to the session key; the key it opens is never stored. A session key with a Grant uploads with `add --encrypt` into the group key's [Data Sets](#data-set) (tagging new ones with the `foc/kc` the owner signed) and reads [Encrypted Uploads](#encrypted-upload) under that group key with `get` and `decrypt`.
 
-A Grant cannot be revoked: it gives the session key permanent read access to the whole group key, including future uploads. Session keys cannot pass it on; they can share single uploads with [Share Links](#share-link). Not to be confused with the on-chain authorization of the session key's scopes, which `login` also calls a grant.
+A Grant cannot be revoked: it gives the session key permanent read access to the whole group key, including future uploads. Session keys cannot pass it on. Not to be confused with the on-chain authorization of the session key's scopes, which `login` also calls a grant, or with an [Access Key](#access-key). See [Two ways to hold the key](encryption.md#two-ways-to-hold-the-key) in the Encryption guide.
 
 ## FIL
 
@@ -183,6 +199,10 @@ Data Set metadata is stored and remains queryable on-chain. Piece metadata (`ipf
 
 A single source [CID](#cid)'s verified [CAR](#car), downloaded from a trustless gateway by the `migrate` command and staged on disk. Members are bin-packed into one multi-root CAR that becomes a [Piece](#piece); the member file is deleted once the packed piece records it. See [How migrate works](migrate.md).
 
+## Owner
+
+The wallet an upload belongs to: it pays for storage, authorizes [Session Keys](#session-key), and derives its [Group Keys](#group-key) by signing. Owner mode means the CLI holds this wallet's key (`PRIVATE_KEY`). Every [Envelope](#envelope) names its owner as `foc/own`. See the [Encryption guide](encryption.md).
+
 ## Parked Piece
 
 A [Piece](#piece) stored on a [Service Provider](#service-provider) but not yet committed on chain via `addPieces`. Parking starts the provider's [GC Window](#gc-window) clock: a piece parked past the window is garbage-collected and must be stored again.
@@ -212,6 +232,10 @@ This is not the everyday sense of "original plus one duplicate." Here, N copies 
 This is a Filecoin-defined retrieval specification outlined in https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0066.md (see [Retrieving Your Data](retrieval.md) for a practical walkthrough).  It is for retrieving pieces by [Piece CID](#piece-cid), optionally taking a byte range specified by standard HTTP request format. Piece retrieval is useful for downloading the bytes _as they are stored and proven_ in Filecoin, either to request the original non-IPFS data stored, or downloading the CAR format data generated by Filecoin Pin.
 
 It takes the form of https://sp.domain/piece/$pieceCid.
+
+## Plaintext Root CID
+
+The [IPFS Root CID](#ipfs-root-cid) of the original content of an [Encrypted Upload](#encrypted-upload), before encryption. It exists only inside the ciphertext: Filecoin Pin never prints or logs it, and it is not the CID to fetch. Compare [Encrypted Root CID](#encrypted-root-cid). See the [Encryption guide](encryption.md).
 
 ## Proof of Data Possession
 
@@ -282,7 +306,7 @@ Session Keys are wallet addresses, registered in the **Session Key Registry** on
 
 A session key acts as a credential that permits a scoped-down set of tasks on behalf of a wallet within an expiration window.  For example, the [filecoin-pin-website](#filecoin-pin-website) uses a shared session key so that anonymous users can test out the tool without bringing their own wallet or funds, while the owner of those actions is original (private) wallet of the service.
 
-Session keys require specific permissions (such as CREATE_DATA_SET and ADD_PIECES) and have expiration timestamps.  The filecoin-pin-website session key is scoped to allowing the creation of [data sets](#data-set) and [pieces](#piece), but prevents transferring of funds for example. Wallet owners can also revoke session key permissions before expiration.
+Session keys require specific permissions (such as CREATE_DATA_SET and ADD_PIECES) and have expiration timestamps.  The filecoin-pin-website session key is scoped to allowing the creation of [data sets](#data-set) and [pieces](#piece), but prevents transferring of funds for example. Wallet owners can also revoke session key permissions before expiration. With `filecoin-pin login --scopes …,encrypt` a session key also gets a [Grant](#grant) to read and write [Encrypted Uploads](#encrypted-upload) without the [Owner](#owner) wallet; see the [Encryption guide](encryption.md).
 
 Note that the filecoin-pin CLI's `--session-key` flag (and `SESSION_KEY` environment variable) expect the session key's **private key** — the `SESSION_KEY` value printed by `filecoin-pin session create` or `filecoin-pin session generate` — not the session address. The (public) session address is only used when authorizing or revoking: `filecoin-pin session authorize <session-address>` and `filecoin-pin session revoke <session-address>`.
 
@@ -290,13 +314,7 @@ Note that the filecoin-pin CLI's `--session-key` flag (and `SESSION_KEY` environ
 
 ## Share Link
 
-A link that opens one [Encrypted Upload](#encrypted-upload) for someone with no wallet or [Grant](#grant), made by `filecoin-pin get-share-link` or `add --encrypt --get-share-link`. It carries a [Keysmith](https://github.com/FilOzone/synapse-sdk/pull/983) piece grant: the upload's key, wrapped to a throwaway key pair. Everything is in the URL fragment, so it never reaches a server:
-
-```text
-<viewer>#v1/<encrypted root CID>&d=<payload>[&k=fak1_<key>]
-```
-
-Values are base64url without padding. By default `&k=` carries the [Access Key](#access-key), so the link alone opens the upload (an open link). A restricted link (`--restricted`) leaves `&k=` out, and the recipient also needs the Access key, sent separately. A link opens only its own upload, never expires and cannot be revoked. See the [README](../README.md#share-links).
+A link that opens one [Encrypted Upload](#encrypted-upload) in the Filecoin encryption viewer, or with `get --share`, made by `get-share-link` or `add --encrypt --get-share-link`. It carries that upload's key, wrapped to a throwaway key pair, in the link's fragment, so it never reaches a server. By default it also carries the [Access Key](#access-key) and opens on its own; a restricted link (`--restricted`) leaves the Access Key out, and the recipient needs both. A share cannot be revoked and does not expire. See the [Encryption guide](encryption.md).
 
 ## Standard IPFS Tooling
 
