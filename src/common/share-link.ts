@@ -35,7 +35,7 @@ import { GRANT_PREFIX, type OpenedGrant } from './group-key-grant.js'
 
 /** The v1 Share link viewer the links open in (FilOzone/synapse-sdk#1036). */
 export const DEFAULT_VIEWER_URL =
-  'https://bafkreibthn4gniz2rjyi6rpcqn6lavpbdgok3w5dj2zghou4hem4bfuiqa.ipfs.inbrowser.link/'
+  'https://bafkreiarmlzfby6zdf2g6lppopnn2d35mpc2m73thored5w2yy2lfj42ce.ipfs.inbrowser.link/'
 
 /** Prefix of an Access key's text form: lets both sides refuse a wrong paste, and secret scanners find a leak. */
 export const ACCESS_KEY_PREFIX = 'fak1_'
