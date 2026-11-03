@@ -30,6 +30,9 @@ export interface StatusOptions extends CLIAuthOptions {
 const EPOCHS_14_DAYS = TIME_CONSTANTS.EPOCHS_PER_DAY * 14n
 const EPOCH_DURATION_MS = TIME_CONSTANTS.EPOCH_DURATION * 1000
 
+/** Terminal color for each account status from `deriveAccountStatus`. */
+const ACCOUNT_STATUS_COLORS = { HEALTHY: pc.green, WARNING: pc.yellow, DEFICIT: pc.red }
+
 /**
  * Debt or zero runway is DEFICIT regardless of approval; short runway or an
  * unapproved storage service is WARNING; otherwise HEALTHY.
@@ -97,7 +100,7 @@ export async function showPaymentStatus(options: StatusOptions): Promise<void> {
 
     const serviceApproved = !allowances.needsUpdate
     const accountStatus = deriveAccountStatus(runwayInEpochs, debt, serviceApproved)
-    const statusColor = accountStatus === 'HEALTHY' ? pc.green : accountStatus === 'WARNING' ? pc.yellow : pc.red
+    const statusColor = ACCOUNT_STATUS_COLORS[accountStatus]
     const fundedUntilStr = formatFundedUntil(runwayInEpochs, lockupRatePerEpoch)
     const burnRatePerMonth = lockupRatePerEpoch * TIME_CONSTANTS.EPOCHS_PER_DAY * TIME_CONSTANTS.DAYS_PER_MONTH
 

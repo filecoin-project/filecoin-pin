@@ -172,15 +172,13 @@ describe('telemetry', () => {
     }
   })
 
-  it.each([
-    'CLI',
-    'GitHub Action',
-    'Library',
-    'pin.filecoin.cloud',
-  ] as const)('accepts %s as a valid affordance', async (affordance) => {
-    const { configureTelemetry } = await freshTelemetry()
-    expect(() => configureTelemetry({ affordance })).not.toThrow()
-  })
+  it.each(['CLI', 'GitHub Action', 'Library', 'pin.filecoin.cloud'] as const)(
+    'accepts %s as a valid affordance',
+    async (affordance) => {
+      const { configureTelemetry } = await freshTelemetry()
+      expect(() => configureTelemetry({ affordance })).not.toThrow()
+    }
+  )
 
   it('throws when configureTelemetry is given an invalid affordance', async () => {
     const { configureTelemetry } = await freshTelemetry()

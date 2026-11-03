@@ -4,8 +4,17 @@
  * This ensures tests have a clean environment without interference
  * from local development environment variables.
  */
-import { beforeEach } from 'vitest'
+import { beforeEach, vi } from 'vitest'
 import { configureTelemetry } from '../core/telemetry/index.js'
+
+// Never the developer's real data directory: login reads and writes session.env there. A test that needs its own directory mocks this again.
+vi.mock('../config.js', async (importOriginal) => {
+  const { mkdtempSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dataDir = mkdtempSync(join(tmpdir(), 'filecoin-pin-test-data-'))
+  return { ...(await importOriginal<typeof import('../config.js')>()), getDataDirectory: () => dataDir }
+})
 
 // Clear authentication-related environment variables that might interfere with tests
 // Tests should explicitly set these values when needed
