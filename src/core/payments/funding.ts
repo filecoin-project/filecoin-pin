@@ -112,13 +112,13 @@ export function formatFundingReason(reasonCode: FundingReasonCode, plan?: Fileco
     case 'piece-upload':
       return 'Required funding for file upload (lockup requirement)'
     case 'runway-insufficient':
-      return plan?.targetRunwayDays != null
-        ? `Required funding for ${plan.targetRunwayDays} days of storage`
-        : 'Required funding to meet runway target'
+      return plan?.targetRunwayDays == null
+        ? 'Required funding to meet runway target'
+        : `Required funding for ${plan.targetRunwayDays} days of storage`
     case 'runway-with-piece':
-      return plan?.targetRunwayDays != null
-        ? `Required funding for ${plan.targetRunwayDays} days of storage (including upcoming upload)`
-        : 'Required funding for storage runway (including upcoming upload)'
+      return plan?.targetRunwayDays == null
+        ? 'Required funding for storage runway (including upcoming upload)'
+        : `Required funding for ${plan.targetRunwayDays} days of storage (including upcoming upload)`
     case 'target-deposit':
       return 'Required funding to reach target deposit amount'
     case 'withdrawal-excess':
@@ -126,6 +126,13 @@ export function formatFundingReason(reasonCode: FundingReasonCode, plan?: Fileco
     default:
       return 'Unknown funding reason'
   }
+}
+
+/** Plan action for a signed deposit delta: positive deposits, negative withdraws. */
+function fundingAction(delta: bigint): FilecoinPayFundingPlan['action'] {
+  if (delta > 0n) return 'deposit'
+  if (delta < 0n) return 'withdraw'
+  return 'none'
 }
 
 /**
@@ -196,55 +203,22 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
   let reasonCode: FundingReasonCode = 'none'
   let targetType: 'runway-days' | 'deposit'
 
-  if (targetRunwayDays != null) {
-    targetType = 'runway-days'
-    if (pieceSizeBytes != null) {
-      if (usePrecomputedUploadCosts) {
-        delta = uploadCosts.depositNeeded
-        resolvedTargetDeposit = status.filecoinPayBalance + delta
-        projectedRateUsed = accountSummary.lockupRatePerEpoch + uploadCosts.lockups.rateDeltaPerEpoch
-        projectedLockupUsed = accountSummary.totalLockup + uploadCosts.lockups.total
-        reasonCode = delta > 0n ? (targetRunwayDays === 0 ? 'piece-upload' : 'runway-with-piece') : 'none'
-      } else {
-        if (priceList == null) {
-          throw new Error('priceList is required when planning with pieceSizeBytes')
-        }
-        const adjustment = computeAdjustmentForExactDaysWithPiece(
-          accountSummary,
-          status.filecoinPayBalance,
-          targetRunwayDays,
-          pieceSizeBytes,
-          priceList
-        )
-        const reserveFunding = calculateLifecycleReserveFunding({
-          priceList,
-          isNewDataSet: true,
-          pieceSizes: [BigInt(pieceSizeBytes)],
-        })
-        const perNewDataSetCosts =
-          reserveFunding.total +
-          (withCDN ? priceList.lockups.cdnLockupAmount + priceList.lockups.cacheMissLockupAmount : 0n)
-        const newDataSetCosts = BigInt(newDataSetCount) * perNewDataSetCosts
-        delta = adjustment.delta + newDataSetCosts
-        resolvedTargetDeposit = adjustment.targetDeposit + newDataSetCosts
-        projectedRateUsed = adjustment.newRateUsed
-        projectedLockupUsed = adjustment.newLockupUsed
+  if (targetRunwayDays == null) {
+    targetType = 'deposit'
+    const adjustment = computeAdjustmentForExactDeposit(accountSummary, status.filecoinPayBalance, targetDeposit ?? 0n)
+    delta = adjustment.delta
+    resolvedTargetDeposit = adjustment.clampedTarget
+    projectedLockupUsed = adjustment.lockupUsed
 
-        // Determine reason: piece upload with or without runway
-        if (targetRunwayDays === 0) {
-          /**
-           * Special case: targetRunwayDays === 0 means "fund this upload only" (no runway target).
-           * Even with 0 days, onboarding a new piece can still require additional deposit to satisfy
-           * the piece's lockup requirement (and the small safety buffer). If delta <= 0, no adjustment needed.
-           */
-          reasonCode = delta > 0n ? 'piece-upload' : 'none'
-        } else if (delta > 0n) {
-          reasonCode = 'runway-with-piece'
-        } else if (delta < 0n) {
-          reasonCode = 'withdrawal-excess'
-        }
-      }
-    } else {
+    // Target deposit adjustment
+    if (delta > 0n) {
+      reasonCode = 'target-deposit'
+    } else if (delta < 0n) {
+      reasonCode = 'withdrawal-excess'
+    }
+  } else {
+    targetType = 'runway-days'
+    if (pieceSizeBytes == null) {
       const adjustment = computeAdjustmentForExactDays(accountSummary, status.filecoinPayBalance, targetRunwayDays)
       delta = adjustment.delta
       projectedRateUsed = adjustment.rateUsed
@@ -257,19 +231,52 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
       } else if (delta < 0n) {
         reasonCode = 'withdrawal-excess'
       }
-    }
-  } else {
-    targetType = 'deposit'
-    const adjustment = computeAdjustmentForExactDeposit(accountSummary, status.filecoinPayBalance, targetDeposit ?? 0n)
-    delta = adjustment.delta
-    resolvedTargetDeposit = adjustment.clampedTarget
-    projectedLockupUsed = adjustment.lockupUsed
+    } else if (usePrecomputedUploadCosts) {
+      delta = uploadCosts.depositNeeded
+      resolvedTargetDeposit = status.filecoinPayBalance + delta
+      projectedRateUsed = accountSummary.lockupRatePerEpoch + uploadCosts.lockups.rateDeltaPerEpoch
+      projectedLockupUsed = accountSummary.totalLockup + uploadCosts.lockups.total
+      if (delta > 0n) {
+        reasonCode = targetRunwayDays === 0 ? 'piece-upload' : 'runway-with-piece'
+      }
+    } else {
+      if (priceList == null) {
+        throw new Error('priceList is required when planning with pieceSizeBytes')
+      }
+      const adjustment = computeAdjustmentForExactDaysWithPiece(
+        accountSummary,
+        status.filecoinPayBalance,
+        targetRunwayDays,
+        pieceSizeBytes,
+        priceList
+      )
+      const reserveFunding = calculateLifecycleReserveFunding({
+        priceList,
+        isNewDataSet: true,
+        pieceSizes: [BigInt(pieceSizeBytes)],
+      })
+      const perNewDataSetCosts =
+        reserveFunding.total +
+        (withCDN ? priceList.lockups.cdnLockupAmount + priceList.lockups.cacheMissLockupAmount : 0n)
+      const newDataSetCosts = BigInt(newDataSetCount) * perNewDataSetCosts
+      delta = adjustment.delta + newDataSetCosts
+      resolvedTargetDeposit = adjustment.targetDeposit + newDataSetCosts
+      projectedRateUsed = adjustment.newRateUsed
+      projectedLockupUsed = adjustment.newLockupUsed
 
-    // Target deposit adjustment
-    if (delta > 0n) {
-      reasonCode = 'target-deposit'
-    } else if (delta < 0n) {
-      reasonCode = 'withdrawal-excess'
+      // Determine reason: piece upload with or without runway
+      if (targetRunwayDays === 0) {
+        /**
+         * Special case: targetRunwayDays === 0 means "fund this upload only" (no runway target).
+         * Even with 0 days, onboarding a new piece can still require additional deposit to satisfy
+         * the piece's lockup requirement (and the small safety buffer). If delta <= 0, no adjustment needed.
+         */
+        reasonCode = delta > 0n ? 'piece-upload' : 'none'
+      } else if (delta > 0n) {
+        reasonCode = 'runway-with-piece'
+      } else if (delta < 0n) {
+        reasonCode = 'withdrawal-excess'
+      }
     }
   }
 
@@ -304,7 +311,7 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
   const plan: FilecoinPayFundingPlan = {
     targetType,
     delta,
-    action: delta > 0n ? 'deposit' : delta < 0n ? 'withdraw' : 'none',
+    action: fundingAction(delta),
     reasonCode,
     mode,
     projectedDeposit,
@@ -312,11 +319,11 @@ export function calculateFilecoinPayFundingPlan(options: FilecoinPayFundingPlanO
     projectedLockupUsed,
     current: currentInsights,
     projected: projectedInsights,
-    ...(targetRunwayDays != null ? { targetRunwayDays } : {}),
-    ...(resolvedTargetDeposit != null ? { targetDeposit: resolvedTargetDeposit } : {}),
-    ...(pieceSizeBytes != null ? { pieceSizeBytes } : {}),
+    ...(targetRunwayDays == null ? {} : { targetRunwayDays }),
+    ...(resolvedTargetDeposit == null ? {} : { targetDeposit: resolvedTargetDeposit }),
+    ...(pieceSizeBytes == null ? {} : { pieceSizeBytes }),
     ...(newDataSetCount > 0 ? { newDataSetCount } : {}),
-    ...(walletShortfall != null ? { walletShortfall } : {}),
+    ...(walletShortfall == null ? {} : { walletShortfall }),
   }
 
   return plan
