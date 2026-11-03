@@ -100,15 +100,14 @@ describe('buildRevokeUrl', () => {
     )
   })
 
-  it.each([
-    ['devnet'],
-    ['nonsense'],
-    [undefined],
-  ])('falls back to the plain page for a link the console cannot place: %s', (network) => {
-    expect(buildRevokeUrl('https://pay.filecoin.cloud', '0xA', network)).toBe(
-      'https://pay.filecoin.cloud/console/session-keys'
-    )
-  })
+  it.each([['devnet'], ['nonsense'], [undefined]])(
+    'falls back to the plain page for a link the console cannot place: %s',
+    (network) => {
+      expect(buildRevokeUrl('https://pay.filecoin.cloud', '0xA', network)).toBe(
+        'https://pay.filecoin.cloud/console/session-keys'
+      )
+    }
+  )
 })
 
 describe('console attribution', () => {

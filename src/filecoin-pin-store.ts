@@ -327,8 +327,8 @@ export class FilecoinPinStore extends EventEmitter {
         pinStatus.info = {
           ...pinStatus.info,
           synapse_piece_cid: uploadResult.pieceCid,
-          synapse_piece_id: primaryCopy != null ? String(primaryCopy.pieceId) : '0',
-          synapse_data_set_id: primaryCopy != null ? String(primaryCopy.dataSetId) : '',
+          synapse_piece_id: primaryCopy == null ? '0' : String(primaryCopy.pieceId),
+          synapse_data_set_id: primaryCopy == null ? '' : String(primaryCopy.dataSetId),
         }
       } catch (error) {
         // Rollback on Synapse failure

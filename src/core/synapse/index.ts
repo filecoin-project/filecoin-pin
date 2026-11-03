@@ -10,7 +10,7 @@
 
 import { calibration, type FilecoinChain, mainnet, Synapse, type SynapseOptions } from '@filoz/synapse-sdk'
 
-export { calibration, mainnet, type FilecoinChain }
+export { calibration, type FilecoinChain, mainnet }
 
 import type { SessionKey } from '@filoz/synapse-core/session-key'
 import { fromSecp256k1, type Permission, PermissionNames } from '@filoz/synapse-core/session-key'

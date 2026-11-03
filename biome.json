@@ -33,7 +33,8 @@
       "!**/components.d.ts",
       "!**/mockServiceWorker.js",
       "!**/cars",
-      "!docs"
+      "!docs",
+      "!**/*.svg"
     ]
   },
   "vcs": {
@@ -68,7 +69,7 @@
       "test": "recommended"
     },
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "complexity": {
         "useSimpleNumberKeys": "off"
       },
