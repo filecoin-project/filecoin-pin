@@ -171,7 +171,7 @@
     "@vitest/browser-playwright": "^4.1.11",
     "@vitest/coverage-v8": "^4.1.11",
     "blockstore-core": "^7.0.1",
-    "pkg-pr-new": "^0.0.88",
+    "pkg-pr-new": "^0.0.92",
     "playwright": "1.64.1",
     "tsx": "~4.23.1",
     "typedoc": "^0.28.17",
