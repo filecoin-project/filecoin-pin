@@ -11,6 +11,7 @@ describe('instrument', () => {
       cookies: false,
       httpHeaders: false,
       httpBodies: [],
+      urlQueryParams: false,
     })
   })
 })

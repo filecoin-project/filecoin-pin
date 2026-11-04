@@ -10,6 +10,7 @@ Sentry.init({
     cookies: false,
     httpHeaders: false,
     httpBodies: [],
+    urlQueryParams: false,
   },
   // Enable tracing/performance monitoring
   tracesSampleRate: 1.0, // Capture 100% of transactions for development (adjust in production)
