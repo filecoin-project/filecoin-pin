@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runProviderList, runProviderPing, runProviderShow } from '../../provider/run.js'
 import * as cliAuthModule from '../../utils/cli-auth.js'
@@ -71,7 +72,7 @@ vi.mock('@filoz/synapse-core/endorsements', () => ({
 }))
 
 function lines(): string[] {
-  return vi.mocked(log.line).mock.calls.map(([line]) => String(line))
+  return vi.mocked(log.line).mock.calls.map(([line]) => stripVTControlCharacters(String(line)))
 }
 
 describe('provider command', () => {
