@@ -68,11 +68,12 @@ describe('exitCodeFor', () => {
     expect(exitCodeFor('CANCELLED')).toBe(2)
   })
 
-  it.each(
-    CODES.filter((code) => code !== 'OK' && code !== 'AUTHORIZATION_INCOMPLETE' && code !== 'CANCELLED')
-  )('maps %s to 1', (code) => {
-    expect(exitCodeFor(code)).toBe(1)
-  })
+  it.each(CODES.filter((code) => code !== 'OK' && code !== 'AUTHORIZATION_INCOMPLETE' && code !== 'CANCELLED'))(
+    'maps %s to 1',
+    (code) => {
+      expect(exitCodeFor(code)).toBe(1)
+    }
+  )
 })
 
 describe('emit', () => {
