@@ -340,14 +340,14 @@ describe('synapse-service', () => {
       )
     })
 
-    it.each([
-      'not-a-private-key',
-      '0x1234567890123456789012345678901234567890',
-    ])('points malformed session key %s at login instead of session generate', (value) => {
-      expect(() => assertSessionKeyPrivateKey(value)).toThrow(
-        'Use the SESSION_KEY value saved by "filecoin-pin login" in session.env or printed by "filecoin-pin session create".'
-      )
-    })
+    it.each(['not-a-private-key', '0x1234567890123456789012345678901234567890'])(
+      'points malformed session key %s at login instead of session generate',
+      (value) => {
+        expect(() => assertSessionKeyPrivateKey(value)).toThrow(
+          'Use the SESSION_KEY value saved by "filecoin-pin login" in session.env or printed by "filecoin-pin session create".'
+        )
+      }
+    )
 
     it('should name --session-key when the SDK rejects a well-formed key (e.g. out of curve range)', async () => {
       const { fromSecp256k1 } = await import('@filoz/synapse-core/session-key')
