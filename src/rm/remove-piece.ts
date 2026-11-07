@@ -10,10 +10,10 @@
 
 import { SchedulePieceRemovalsPermission } from '@filoz/synapse-core/session-key'
 import pc from 'picocolors'
-import pino from 'pino'
 import { setIncompleteExitCode } from '../common/cli-errors.js'
 import { type RemovePieceProgressEvents, removePiece } from '../core/piece/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
+import { createLogger } from '../logger.js'
 import { parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -37,9 +37,7 @@ export async function runRmPiece(options: RmPieceOptions): Promise<RmPieceResult
   const spinner = createSpinner()
 
   // Initialize logger (silent for CLI output)
-  const logger = pino({
-    level: process.env.LOG_LEVEL || 'silent',
-  })
+  const logger = createLogger({ logLevel: process.env.LOG_LEVEL || 'silent' })
 
   const { piece: pieceCid, dataSet } = options
 
