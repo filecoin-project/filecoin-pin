@@ -163,7 +163,8 @@ export async function runProviderPing(
     for (const p of providersToPing) {
       const serviceUrl = p.pdp?.serviceURL
       if (!serviceUrl) {
-        console.log(`${pc.yellow('⚠')} ${p.name || p.id} [${p.serviceProvider}]: ${pc.gray('No PDP Service URL')}`)
+        log.line(`${pc.yellow('⚠')} ${p.name || p.id} [${p.serviceProvider}]: ${pc.gray('No PDP Service URL')}`)
+        log.flush()
         continue
       }
 
@@ -185,20 +186,21 @@ export async function runProviderPing(
         const prefix = `[ID:${p.id}]`.padEnd(8)
 
         if (res.ok) {
-          console.log(
+          log.line(
             `${pc.green('✔')} ${prefix} ${p.name || 'Unknown'}: ${pc.green('OK')} ${pc.gray(`(${ms}ms)`)} -> ${pingUrl}`
           )
         } else {
-          console.log(
+          log.line(
             `${pc.red('✖')} ${prefix} ${p.name || 'Unknown'}: ${pc.red(`HTTP ${res.status}`)} ${pc.gray(`(${ms}ms)`)} -> ${pingUrl}`
           )
         }
       } catch (err: any) {
         const prefix = `[ID:${p.id}]`.padEnd(8)
-        console.log(
+        log.line(
           `${pc.red('✖')} ${prefix} ${p.name || 'Unknown'}: ${pc.red('FAILED')} ${pc.gray(`(${err.message})`)} -> ${serviceUrl}`
         )
       } finally {
+        log.flush()
         if (timeout) clearTimeout(timeout)
       }
     }
@@ -220,30 +222,30 @@ export async function runProviderPing(
 }
 
 function printProvider(p: any, status?: { isEndorsed: boolean; isApproved: boolean }) {
-  console.log(`Provider: ${pc.cyan(p.name || 'Unknown')} (ID: ${p.id})`)
-  console.log(`  Address: ${p.serviceProvider}`)
+  log.line(`Provider: ${pc.cyan(p.name || 'Unknown')} (ID: ${p.id})`)
+  log.line(`  Address: ${p.serviceProvider}`)
   if (status) {
-    console.log(`  Endorsed: ${status.isEndorsed ? pc.green('yes') : 'no'}`)
-    console.log(`  Approved: ${status.isApproved ? pc.green('yes') : 'no'}`)
+    log.line(`  Endorsed: ${status.isEndorsed ? pc.green('yes') : 'no'}`)
+    log.line(`  Approved: ${status.isApproved ? pc.green('yes') : 'no'}`)
   }
-  if (p.description) console.log(`  Description: ${p.description}`)
+  if (p.description) log.line(`  Description: ${p.description}`)
   if (p.pdp?.serviceURL) {
-    console.log(`  PDP Service: ${p.pdp.serviceURL}`)
+    log.line(`  PDP Service: ${p.pdp.serviceURL}`)
   }
   const location = p.pdp?.location
-  if (location) console.log(`  Location: ${location}`)
+  if (location) log.line(`  Location: ${location}`)
 
   const pdp = p.pdp
   if (pdp) {
     if (pdp.minPieceSizeInBytes != null)
-      console.log(`  Min Piece Size: ${formatFileSize(Number(pdp.minPieceSizeInBytes))}`)
+      log.line(`  Min Piece Size: ${formatFileSize(Number(pdp.minPieceSizeInBytes))}`)
     if (pdp.maxPieceSizeInBytes != null)
-      console.log(`  Max Piece Size: ${formatFileSize(Number(pdp.maxPieceSizeInBytes))}`)
+      log.line(`  Max Piece Size: ${formatFileSize(Number(pdp.maxPieceSizeInBytes))}`)
     if (pdp.storagePricePerTibPerDay != null)
-      console.log(`  Storage Price: ${formatUSDFC(pdp.storagePricePerTibPerDay)} USDFC/TiB/Day`)
-    if (pdp.minProvingPeriodInEpochs != null)
-      console.log(`  Min Proving Period: ${pdp.minProvingPeriodInEpochs} epochs`)
+      log.line(`  Storage Price: ${formatUSDFC(pdp.storagePricePerTibPerDay)} USDFC/TiB/Day`)
+    if (pdp.minProvingPeriodInEpochs != null) log.line(`  Min Proving Period: ${pdp.minProvingPeriodInEpochs} epochs`)
   }
+  log.flush()
 }
 
 function printTable(providers: any[]) {
@@ -273,8 +275,8 @@ function printTable(providers: any[]) {
   })
 
   const headerRow = columns.map((c) => c.header.padEnd(c.width)).join('  ')
-  console.log(pc.gray(headerRow))
-  console.log(pc.gray('-'.repeat(headerRow.length)))
+  log.line(pc.gray(headerRow))
+  log.line(pc.gray('-'.repeat(headerRow.length)))
 
   rows.forEach((r) => {
     const line = columns
@@ -286,8 +288,9 @@ function printTable(providers: any[]) {
         return val.padEnd(c.width)
       })
       .join('  ')
-    console.log(line)
+    log.line(line)
   })
+  log.flush()
 }
 
 function ensurePublicAuth(options: any) {
