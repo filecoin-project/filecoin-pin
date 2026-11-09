@@ -7,9 +7,9 @@ const { mockPassword, mockIsCancel, mockIsTTY, mockParseCLIAuth, mockAssertOwner
     mockIsCancel: vi.fn(() => false),
     mockIsTTY: vi.fn(() => true),
     mockParseCLIAuth: vi.fn((options: { walletAddress?: string; sessionKey?: string; privateKey?: string }) => ({
-      ...(options.privateKey != null ? { privateKey: options.privateKey } : {}),
-      ...(options.walletAddress != null ? { walletAddress: options.walletAddress } : {}),
-      ...(options.sessionKey != null ? { sessionKey: options.sessionKey } : {}),
+      ...(options.privateKey == null ? {} : { privateKey: options.privateKey }),
+      ...(options.walletAddress == null ? {} : { walletAddress: options.walletAddress }),
+      ...(options.sessionKey == null ? {} : { sessionKey: options.sessionKey }),
     })),
     mockAssertOwnerAuth: vi.fn(),
     // Throw right after auth resolves so the flow stops before any network work.
