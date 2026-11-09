@@ -489,7 +489,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
         })
       } catch (error) {
         log.warn(
-          `No share link: ${error instanceof Error ? error.message : String(error)}. Run \`filecoin-pin get-share-link ${rootCid}\` to retry.`
+          `No share link: ${error instanceof Error ? error.message : String(error)}. Run \`filecoin-pin get-share-link ${rootCid}${shareMode === 'restricted' ? ' --restricted' : ''}\` to retry.`
         )
       }
     }
