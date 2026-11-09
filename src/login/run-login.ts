@@ -82,14 +82,21 @@ const ENCRYPT_SCOPE = 'encrypt'
 /**
  * Parse login's `--scopes`: the on-chain scopes, plus whether `encrypt` asked for a group
  * key Grant. `encrypt` never reaches the link's `scopes` or the on-chain authorization.
+ * `scopes` is the value in canonical form (`addPieces, createDataSet,ENCRYPT,` ->
+ * `createDataSet,addPieces,encrypt`), which is what the session file saves.
  */
-function parseLoginScopes(value: string | undefined): { permissions: Permission[]; encrypt: boolean } {
-  if (value === undefined) return { permissions: DEFAULT_LOGIN_PERMISSIONS, encrypt: false }
+function parseLoginScopes(value: string | undefined): {
+  permissions: Permission[]
+  encrypt: boolean
+  scopes: string | undefined
+} {
+  if (value === undefined) return { permissions: DEFAULT_LOGIN_PERMISSIONS, encrypt: false, scopes: undefined }
   const tokens = value.split(',').map((token) => token.trim())
   const encrypt = tokens.some((token) => token.toLowerCase() === ENCRYPT_SCOPE)
   const onChain = tokens.filter((token) => token.toLowerCase() !== ENCRYPT_SCOPE).join(',')
   try {
-    return { permissions: parseScopes(onChain).permissions, encrypt }
+    const { ids, permissions } = parseScopes(onChain)
+    return { permissions, encrypt, scopes: [...ids, ...(encrypt ? [ENCRYPT_SCOPE] : [])].join(',') }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     throw new Error(`${reason.replace(/\.?$/, '.')} login also takes ${ENCRYPT_SCOPE}, with at least one of those.`)
@@ -269,7 +276,7 @@ function loadOrCreateSession(fresh: boolean | undefined, network: string, path: 
   const keypair = generateSessionKeypair()
   const session: SavedSession = { sessionKey: keypair.privateKey, sessionAddress: keypair.address, network }
   writeSessionFile(session, path)
-  return saved?.walletAddress !== undefined ? { session, resumed: false, replaced: saved } : { session, resumed: false }
+  return saved?.walletAddress === undefined ? { session, resumed: false } : { session, resumed: false, replaced: saved }
 }
 
 /**
@@ -339,14 +346,17 @@ export async function runLogin(
   options: LoginOptions,
   io: LoginIO = { stdin: process.stdin, stdout: process.stdout }
 ): Promise<number> {
-  const { permissions, encrypt } = parseLoginScopes(options.scopes)
+  const path = getSessionFilePath()
+  // A plain rerun (what every resume message says to run) resumes the first login's
+  // request: with the defaults instead, a timed-out `…,encrypt` login never asked for the Grant.
+  const requested = options.scopes ?? (options.fresh ? undefined : readSessionFile(path)?.scopes)
+  const { permissions, encrypt, scopes } = parseLoginScopes(requested)
   if (options.grant !== undefined && options.fresh) {
     // Refused before the saved key is replaced: a Grant names its key, and a fresh one has none yet.
     throw new Error(
       '--grant imports a Grant for the saved session key; a --fresh key has none yet. Run `login --fresh` first, then approve the new key and take its Grant.'
     )
   }
-  const path = getSessionFilePath()
   const saved = options.grant === undefined ? undefined : readSessionFile(path)
   if (options.grant !== undefined && saved === undefined) {
     // Refused before anything is written: a new key could never match the Grant.
@@ -389,7 +399,10 @@ export async function runLogin(
   }
   const consoleUrl = resolveConsoleUrl()
 
-  const { session, resumed, replaced } = loadOrCreateSession(options.fresh, network, path)
+  const loaded = loadOrCreateSession(options.fresh, network, path)
+  const { resumed, replaced } = loaded
+  const session = scopes === undefined ? loaded.session : { ...loaded.session, scopes }
+  if (session.scopes !== loaded.session.scopes) writeSessionFile(session, path)
   // Checks that need no owner or network, before the link and the wait.
   if (grantText !== undefined) precheckGroupKeyGrant(grantText, session.sessionKey)
   const short = shortAddress(session.sessionAddress)
@@ -412,7 +425,11 @@ export async function runLogin(
       )
     }
   }
-  const scopeNote = options.scopes === undefined ? ' (defaults — override with --scopes)' : ''
+  let scopeNote = ''
+  if (options.scopes === undefined) {
+    scopeNote =
+      scopes === undefined ? ' (defaults — override with --scopes)' : ' (as first requested — override with --scopes)'
+  }
   const grantNote = wantGrant ? ` + ${ENCRYPT_SCOPE} (group key Grant)` : ''
   log.line(`  Requesting scopes: ${scopeList(permissions)}${grantNote}${scopeNote}`)
   if (wantGrant) {
@@ -472,7 +489,7 @@ export async function runLogin(
   // event that never comes.
   const fromBlock = session.fromBlock ?? (await getBlockNumber(client))
   if (session.fromBlock === undefined) writeSessionFile({ ...session, fromBlock }, path)
-  const deadlineMs = options.timeout !== undefined ? options.timeout * 1000 : DEFAULT_WATCH_DEADLINE_MS
+  const deadlineMs = options.timeout === undefined ? DEFAULT_WATCH_DEADLINE_MS : options.timeout * 1000
   const spinner = createSpinner()
   const waitLine = (remainingMs: number) =>
     `Waiting for on-chain authorization… ${formatCountdown(remainingMs)} remaining (Ctrl-C safe; rerun \`login\` to resume)`
@@ -495,7 +512,7 @@ export async function runLogin(
       permissions,
       fromBlock,
       deadlineMs,
-      ...(session.walletAddress !== undefined ? { owner: session.walletAddress } : {}),
+      ...(session.walletAddress === undefined ? {} : { owner: session.walletAddress }),
       onProgress: (event) => {
         if (event.type === 'watch:tick') spinner.message(waitLine(event.data.remainingMs))
       },
@@ -519,7 +536,7 @@ export async function runLogin(
 
   const authorized = { ...session, fromBlock, walletAddress: result.owner }
   writeSessionFile(authorized, path)
-  const expires = result.expiry !== undefined ? ` · expires ${formatExpiryDate(result.expiry)}` : ''
+  const expires = result.expiry === undefined ? '' : ` · expires ${formatExpiryDate(result.expiry)}`
   if (result.status === 'granted') {
     spinner.stop(`${pc.green('✓')} Authorized! Granted: ${scopeList(result.granted)}${expires}`)
   } else {

@@ -477,6 +477,38 @@ describe('runLogin', () => {
       expect(prompts).toEqual([])
     })
 
+    it('a plain rerun after a timeout resumes the encrypt request and still asks for the Grant', async () => {
+      savedKey()
+      vi.mocked(watchAuthorization).mockResolvedValueOnce(TIMED_OUT).mockResolvedValueOnce(GRANT_AUTHORIZED)
+
+      expect(await runLogin({ scopes: ENCRYPT }, silentStdin(false))).toBe(2)
+      vi.mocked(log.line).mockClear()
+      // What the timeout message says to run: no --scopes.
+      const code = await runLogin({}, silentStdin(false))
+
+      expect(code).toBe(2)
+      expect(output()).toContain('(as first requested — override with --scopes)')
+      expect(output()).toContain('Encrypted uploads need the group key Grant')
+      expect(readSessionFile(sessionPath())?.scopes).toBe(ENCRYPT)
+    })
+
+    it.each([
+      'createDataSet, addPieces, encrypt',
+      'createDataSet,addPieces,encrypt,',
+      ',addPieces,,ENCRYPT,createdataset',
+    ])('resumes anything --scopes accepts: %s', async (given) => {
+      savedKey()
+      vi.mocked(watchAuthorization).mockResolvedValueOnce(TIMED_OUT).mockResolvedValueOnce(GRANT_AUTHORIZED)
+
+      expect(await runLogin({ scopes: given }, silentStdin(false))).toBe(2)
+      expect(readSessionFile(sessionPath())?.scopes).toBe(ENCRYPT)
+      vi.mocked(log.line).mockClear()
+      const code = await runLogin({}, silentStdin(false))
+
+      expect(code).toBe(2)
+      expect(output()).toContain('Encrypted uploads need the group key Grant')
+    })
+
     it('without a terminal, never blocks: prints the link and the resume command, and exits 2', async () => {
       savedKey()
       vi.mocked(watchAuthorization).mockResolvedValue(GRANT_AUTHORIZED)

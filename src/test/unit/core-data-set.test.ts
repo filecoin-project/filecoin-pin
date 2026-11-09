@@ -109,9 +109,9 @@ const {
     if (state.providerPieces === null) throw new Error('Provider unavailable')
     // When providerPieces is explicitly set, use it; otherwise mirror on-chain pieces
     const pieces =
-      state.providerPieces !== undefined
-        ? state.providerPieces
-        : state.pieces.map((p) => ({ ...p, subPieceCid: p.pieceCid, subPieceOffset: 0 }))
+      state.providerPieces === undefined
+        ? state.pieces.map((p) => ({ ...p, subPieceCid: p.pieceCid, subPieceOffset: 0 }))
+        : state.providerPieces
     return { id: 123n, nextChallengeEpoch: 100, pieces }
   })
 
