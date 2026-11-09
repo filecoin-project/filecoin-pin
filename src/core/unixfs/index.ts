@@ -36,7 +36,7 @@ export function createUnixfsCarBuilder(): FileBuilder {
         name,
       }
 
-      return size !== undefined ? { ...baseResult, size } : baseResult
+      return size === undefined ? baseResult : { ...baseResult, size }
     },
 
     async cleanup(carPath: string, logger?: Logger): Promise<void> {

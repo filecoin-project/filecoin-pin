@@ -5,7 +5,6 @@ import {
   lowerWindowOnGc,
   MAX_ADD_PIECES_BATCH,
   MIN_MARGIN_MS,
-  MIN_WINDOW_MS,
   marginFromConfirmations,
   shouldFlush,
 } from '../../migrate/gc-window.js'
@@ -57,12 +56,19 @@ describe('marginFromConfirmations', () => {
 })
 
 describe('lowerWindowOnGc', () => {
-  it('lowers from evidence, never raises, floors', () => {
+  it('lowers from evidence, never raises', () => {
     const hourMs = 60 * 60_000
     expect(lowerWindowOnGc(hourMs, 40 * 60_000)).toBe(30 * 60_000)
     // Evidence above the current guess must not raise it.
     expect(lowerWindowOnGc(hourMs, 10 * hourMs)).toBe(hourMs)
-    expect(lowerWindowOnGc(hourMs, 0)).toBe(MIN_WINDOW_MS)
+    expect(lowerWindowOnGc(60_000, 10 * 60_000)).toBe(60_000)
+  })
+
+  it('flushes on arrival after a GC inside the margin', () => {
+    const collectedAgeMs = 5 * 60_000
+    const assumedWindowMs = lowerWindowOnGc(DEFAULT_ASSUMED_WINDOW_MS, collectedAgeMs)
+    expect(assumedWindowMs).toBeLessThan(collectedAgeMs)
+    expect(shouldFlush({ ...base, assumedWindowMs })).toBe('window')
   })
 })
 
@@ -75,15 +81,5 @@ describe('collectedCidFromError', () => {
       )
     ).toBe(cid)
     expect(collectedCidFromError('insufficient funds')).toBeNull()
-  })
-})
-
-describe('window floor', () => {
-  it('keeps the floor above the margin floor so a floored window still batches', () => {
-    expect(MIN_WINDOW_MS).toBeGreaterThan(MIN_MARGIN_MS)
-  })
-
-  it('never raises a window the operator set below the floor', () => {
-    expect(lowerWindowOnGc(60_000, 10 * 60_000)).toBe(60_000)
   })
 })

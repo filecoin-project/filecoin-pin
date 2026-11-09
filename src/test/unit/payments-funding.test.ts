@@ -114,14 +114,9 @@ function makeStatus(params: {
 function makeSummary(params: { filecoinPayBalance: bigint; lockupUsed?: bigint; rateUsed?: bigint }): AccountSummary {
   const totalLockup = params.lockupUsed ?? 0n
   const lockupRatePerEpoch = params.rateUsed ?? 0n
-  const runwayInEpochs =
-    lockupRatePerEpoch === 0n
-      ? 0n
-      : params.filecoinPayBalance > totalLockup
-        ? (params.filecoinPayBalance - totalLockup) / lockupRatePerEpoch
-        : 0n
-  const grossCoverageInEpochs = lockupRatePerEpoch === 0n ? 0n : params.filecoinPayBalance / lockupRatePerEpoch
   const availableFunds = params.filecoinPayBalance > totalLockup ? params.filecoinPayBalance - totalLockup : 0n
+  const runwayInEpochs = lockupRatePerEpoch === 0n ? 0n : availableFunds / lockupRatePerEpoch
+  const grossCoverageInEpochs = lockupRatePerEpoch === 0n ? 0n : params.filecoinPayBalance / lockupRatePerEpoch
   return {
     funds: params.filecoinPayBalance,
     availableFunds,

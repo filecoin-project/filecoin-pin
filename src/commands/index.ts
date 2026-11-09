@@ -4,6 +4,7 @@ import { addCommand } from './add.js'
 import { dataSetCommand } from './data-set.js'
 import { decryptCommand } from './decrypt.js'
 import { getCommand } from './get.js'
+import { getShareLinkCommand } from './get-share-link.js'
 import { importCommand } from './import.js'
 import { loginCommand, logoutCommand } from './login.js'
 import { migrateCommand } from './migrate.js'
@@ -20,6 +21,7 @@ export {
   dataSetCommand,
   decryptCommand,
   getCommand,
+  getShareLinkCommand,
   importCommand,
   loginCommand,
   logoutCommand,
@@ -39,7 +41,10 @@ interface CliCommandGroup {
 /** Every top-level CLI command, grouped and ordered for help output. */
 export const CLI_COMMAND_GROUPS: readonly CliCommandGroup[] = [
   { heading: 'ACCOUNT', commands: [loginCommand, logoutCommand, balanceCommand, dashboardCommand] },
-  { heading: 'UPLOAD', commands: [addCommand, importCommand, getCommand, decryptCommand, migrateCommand] },
+  {
+    heading: 'UPLOAD',
+    commands: [addCommand, importCommand, getCommand, getShareLinkCommand, decryptCommand, migrateCommand],
+  },
   { heading: 'PAYMENTS', commands: [paymentsCommand] },
   { heading: 'MANAGEMENT', commands: [dataSetCommand, providerCommand, removeCommand] },
   { heading: 'ADVANCED', commands: [sessionCommand, serverCommand] },

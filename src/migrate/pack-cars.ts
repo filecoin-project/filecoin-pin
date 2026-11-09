@@ -12,8 +12,8 @@
  *      CIDv1 of the same DAG collapse), which pins the multi-root CAR's
  *      bytes.
  *   2. Assemble each bin from the LOCAL member files, streaming block by
- *      block: no member CAR is ever buffered whole, so memory stays bounded
- *      regardless of piece size. The assembled piece commitment and sha256
+ *      block: no member CAR is ever buffered whole, so memory is bounded by
+ *      the largest single block. The assembled piece commitment and sha256
  *      are computed from the same write stream.
  *   3. Record the piece row and its member list in one transaction, then
  *      delete the member files. A crash before the record leaves the members
@@ -183,8 +183,8 @@ export interface WritableStreamWithLength {
  *
  * Each member is opened in canonical order, its declared roots checked
  * against the expected CID, and its blocks copied straight into the writer:
- * at no point is a whole member CAR held in memory, so a full-size piece
- * assembles in constant memory. Zero-length *sections* (the Curio indexer's
+ * at no point is a whole member CAR held in memory, so memory is bounded by
+ * the largest single block. Zero-length *sections* (the Curio indexer's
  * `ZeroLengthSectionAsEOF` truncation hazard) need no guard here: a
  * section's length always covers its CID bytes, so even an empty block is a
  * positive-length section, and `@ipld/car` rejects a true zero-length
@@ -289,7 +289,8 @@ export interface PackCarsSummary {
 }
 
 /** The bin assembler `runPackCars` drives; injectable so the pack loop's
- *  success/failure accounting is testable without real member files. */
+ *  success/failure accounting is testable without real member files. A
+ *  builder that throws refunds its own `onBytes` for whatever it removed. */
 export type BinBuilder = (
   bin: PackedBin,
   carStore: string,
@@ -362,12 +363,11 @@ export async function runPackCars(
 
   const summary: PackCarsSummary = { bins: bins.length, built: 0, failed: 0, overCap, failedMemberCids: [] }
   for (const bin of bins) {
-    // Track this bin's writes so a failed assembly returns its bytes to the
-    // budget along with the unlinked partial file.
+    // Track this bin's writes so a finalized CAR that fails to record returns
+    // its bytes to the budget.
     let binWritten = 0
     // Set while a finalized CAR exists on disk without a DB row; the catch
-    // unlinks it so a failed record does not strand a file whose bytes were
-    // refunded to the budget.
+    // unlinks it and refunds its bytes only once it is gone.
     let builtPath: string | null = null
     const onBytes = (delta: number): void => {
       binWritten += delta
@@ -425,10 +425,9 @@ export async function runPackCars(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       // No DB write: the members stay `done` and a transient failure recovers
-      // on the next pass. A finalized CAR without a DB row is unlinked here
-      // so the refund below matches what is actually on disk.
-      if (builtPath != null) await unlink(builtPath).catch(() => undefined)
-      if (binWritten > 0) opts.onBytesStaged?.(-binWritten)
+      // on the next pass. A finalized CAR without a DB row is unlinked here;
+      // one that resists deletion keeps counting against the budget.
+      if (builtPath != null && (await unlinkGone(builtPath)) && binWritten > 0) opts.onBytesStaged?.(-binWritten)
       summary.failedMemberCids.push(...bin.memberCids)
       log.message(
         `  ! piece build failed (${bin.memberCids.length} member(s): ${bin.memberCids.join(', ')}): ${message}`
@@ -459,8 +458,10 @@ async function buildOneBin(
 
   const tmpPath = path.join(carStore, `pack-${process.pid}-${Date.now()}.car`)
   const file = createFileSink(tmpPath)
+  let written = 0
   const sink: WritableStreamWithLength = {
     write: async (chunk) => {
+      written += chunk.length
       onBytes?.(chunk.length)
       await file.write(chunk)
     },
@@ -479,7 +480,7 @@ async function buildOneBin(
     }
   } catch (err) {
     await file.destroy()
-    await unlink(tmpPath).catch(() => undefined)
+    if (await unlinkGone(tmpPath)) onBytes?.(-written)
     throw err
   }
 }
