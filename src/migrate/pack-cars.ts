@@ -12,8 +12,8 @@
  *      CIDv1 of the same DAG collapse), which pins the multi-root CAR's
  *      bytes.
  *   2. Assemble each bin from the LOCAL member files, streaming block by
- *      block: no member CAR is ever buffered whole, so memory stays bounded
- *      regardless of piece size. The assembled piece commitment and sha256
+ *      block: no member CAR is ever buffered whole, so memory is bounded by
+ *      the largest single block. The assembled piece commitment and sha256
  *      are computed from the same write stream.
  *   3. Record the piece row and its member list in one transaction, then
  *      delete the member files. A crash before the record leaves the members
@@ -156,8 +156,8 @@ export interface WritableStreamWithLength {
  *
  * Each member is opened in canonical order, its declared roots checked
  * against the expected CID, and its blocks copied straight into the writer:
- * at no point is a whole member CAR held in memory, so a full-size piece
- * assembles in constant memory. Zero-length *sections* (the Curio indexer's
+ * at no point is a whole member CAR held in memory, so memory is bounded by
+ * the largest single block. Zero-length *sections* (the Curio indexer's
  * `ZeroLengthSectionAsEOF` truncation hazard) need no guard here: a
  * section's length always covers its CID bytes, so even an empty block is a
  * positive-length section, and `@ipld/car` rejects a true zero-length
