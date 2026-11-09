@@ -71,6 +71,11 @@ vi.mock('../../common/upload-flow.js', async (importOriginal) => {
   }
 })
 
+vi.mock('../../share/get-share-link.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../share/get-share-link.js')>()
+  return { ...actual, shareSender: vi.fn(actual.shareSender) }
+})
+
 vi.mock('../../utils/cli-helpers.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../utils/cli-helpers.js')>()),
   intro: vi.fn(),
@@ -260,6 +265,22 @@ describe('add --encrypt with real packing', () => {
       const owner = privateKeyToAccount(OWNER_KEY)
       const { kk } = await deriveGroupKey(owner, { owner: owner.address, keyspace: labels['foc/ks'] })
       expect(bytesToHex(key)).toBe(bytesToHex(keyForEnvelope(kk, labels)))
+    })
+
+    it('restricted: a failed share says to retry with --restricted', async () => {
+      const { performUpload } = await import('../../common/upload-flow.js')
+      const { shareSender } = await import('../../share/get-share-link.js')
+      vi.mocked(performUpload).mockImplementationOnce((async (_synapse: unknown, data: ReadableStream<Uint8Array>) => {
+        await new Response(data).arrayBuffer()
+        return { pieceCid: PIECE, size: 1, copies: [], failedAttempts: [], network: 'calibration' }
+      }) as never)
+      vi.mocked(shareSender).mockRejectedValueOnce(new Error('rpc down'))
+      const printed: string[] = []
+      vi.spyOn(console, 'log').mockImplementation((line: string) => printed.push(line))
+
+      await runAdd({ ...auth, filePath: input, encrypt: true, getShareLinkRestricted: true })
+
+      expect(printed.join('\n')).toMatch(/No share link: rpc down.*get-share-link \S+ --restricted/)
     })
 
     it.each([
