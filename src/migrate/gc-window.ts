@@ -32,12 +32,6 @@ export const DEFAULT_ASSUMED_WINDOW_MS = 60 * 60_000
 /** Floor for the flush margin, covering commit build + confirmation. */
 export const MIN_MARGIN_MS = 10 * 60_000
 
-/**
- * Never lower a window guess below this: at or under the margin floor every
- * piece would flush on arrival, so the floor leaves one margin's worth of batching.
- */
-export const MIN_WINDOW_MS = 2 * MIN_MARGIN_MS
-
 export type FlushReason = 'batch-full' | 'window' | 'drained'
 
 export interface FlushInput {
@@ -85,11 +79,12 @@ export function marginFromConfirmations(observedCommitMs: number[], floorMs: num
 /**
  * Lower the assumed window after a detected GC. The collected piece survived
  * less than `collectedParkedAgeMs`, so the true window is at most that; 3/4
- * of it keeps the next guess strictly inside. Never raises the estimate.
+ * of it keeps the next guess strictly inside. Never raises the estimate. No
+ * floor: a window at or under the margin flushes every piece on arrival.
  */
 export function lowerWindowOnGc(assumedWindowMs: number, collectedParkedAgeMs: number): number {
   const fromEvidence = Math.floor((collectedParkedAgeMs * 3) / 4)
-  return Math.min(assumedWindowMs, Math.max(MIN_WINDOW_MS, fromEvidence))
+  return Math.min(assumedWindowMs, fromEvidence)
 }
 
 /**
