@@ -327,12 +327,11 @@ describe('session create', () => {
 })
 
 describe('session generate', () => {
-  it('exits 0 and prints a keypair', T, async () => {
+  it('exits 1 and redirects to login', T, async () => {
     const result = await runCli(['session', 'generate'])
-    expect(result.exitCode).toBe(0)
-    expect(result.combined).toContain('SESSION_KEY=0x')
-    expect(result.combined).toContain('SESSION_ADDRESS=0x')
-    expect(result.combined).toContain('Session keypair generated locally')
+    expect(result.exitCode).toBe(1)
+    expect(result.combined).toContain('use `filecoin-pin login`')
+    expect(result.combined).not.toContain('SESSION_KEY=0x')
   })
 })
 

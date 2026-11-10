@@ -266,7 +266,7 @@ filecoin-pin add myfile.txt
 * `-v`, `--verbose`: Verbose output
 * `--private-key`: Ethereum-style (`0x`) private key (wallet and signer), funded with USDFC
 * `--wallet-address`: Session key mode: owner wallet address
-* `--session-key`: Session key mode: the session key's **private key** (printed as `SESSION_KEY` by `filecoin-pin session create` / `session generate`), not the session address. Each command checks only the permissions it needs; see [Session-Key Permissions](#session-key-permissions) below.
+* `--session-key`: Session key mode: the session key's **private key** (saved as `SESSION_KEY` in `session.env` by `filecoin-pin login`, or printed by `filecoin-pin session create`), not the session address. Each command checks only the permissions it needs; see [Session-Key Permissions](#session-key-permissions) below.
 * `--network`: Filecoin network to use: `mainnet`, `calibration`, or `devnet` (default: `mainnet`). Mutually exclusive with `--rpc-url`.
 * `--rpc-url`: Filecoin RPC endpoint. Filecoin Pin probes its `eth_chainId` to derive the chain. Mutually exclusive with `--network`.
 * `--credentials-file <path>`: Load credentials (e.g. `SESSION_KEY`, `WALLET_ADDRESS`) from a dotenv-style file, e.g. a downloaded credentials file. Flags and environment variables always win over the file, across auth modes too: `PRIVATE_KEY` in the shell beats a session key pair in the file.
