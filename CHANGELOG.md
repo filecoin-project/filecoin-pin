@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.4.0](https://github.com/filecoin-project/filecoin-pin/compare/v2.3.0...v2.4.0) (2026-11-11)
+
+
+### Features
+
+* add migrate piece packing and GC windows ([#655](https://github.com/filecoin-project/filecoin-pin/issues/655)) ([1250641](https://github.com/filecoin-project/filecoin-pin/commit/1250641872f00e3c09cdc1f8eea9eb59fa6c1f39))
+
+
+### Bug Fixes
+
+* **add:** keep --restricted in share retry hint ([#813](https://github.com/filecoin-project/filecoin-pin/issues/813)) ([2aa0f7f](https://github.com/filecoin-project/filecoin-pin/commit/2aa0f7fdb840491ce48d531bdbda72c8baa3b6f9))
+* point share links at viewer 9b141cb ([#818](https://github.com/filecoin-project/filecoin-pin/issues/818)) ([7a1d56f](https://github.com/filecoin-project/filecoin-pin/commit/7a1d56ff925d2ac94be8042e1fa003d9f1265c90))
+* point share links at viewer.filecoin.cloud ([#829](https://github.com/filecoin-project/filecoin-pin/issues/829)) ([9ca48a2](https://github.com/filecoin-project/filecoin-pin/commit/9ca48a205ba0bd30f0d6aec0643c5056eab16619))
+
 ## [2.3.0](https://github.com/filecoin-project/filecoin-pin/compare/v2.2.1...v2.3.0) (2026-11-03)
 
 
