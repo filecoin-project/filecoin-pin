@@ -986,23 +986,27 @@ describe('Add Command', () => {
     })
 
     describe('--private', () => {
-      it('encrypts without --encrypt and requires read=restricted next to the group key on every data set', async () => {
+      it('encrypts without --encrypt', async () => {
         await runAdd({ ...auth, filePath: testFile, private: true })
 
         const { plaintext } = await decrypt(packedFile().bytes)
         expect(plaintext.equals(testContent)).toBe(true)
+      })
+
+      it('requires read=restricted next to the owner group key on every data set', async () => {
+        await runAdd({ ...auth, filePath: testFile, private: true })
+
         const { resolveUploadTargets } = await import('../../common/upload-flow.js')
-        const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
         expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]?.requiredMetadata).toEqual({
           'foc/enc': '1',
-          'foc/ks': appMetadata?.['foc/ks'],
+          'foc/ks': OWNER_DEFAULT_GROUP_KEY,
           'foc/kc': expect.stringMatching(/^v1\.[0-9a-f]{32}$/),
           read: 'restricted',
           withIPFSIndexing: '',
         })
       })
 
-      it('works with --no-ipfs', async () => {
+      it('with --no-ipfs, requires read=restricted but not withIPFSIndexing', async () => {
         await runAdd({ ...auth, filePath: testFile, private: true, ipfs: false })
 
         const { resolveUploadTargets } = await import('../../common/upload-flow.js')

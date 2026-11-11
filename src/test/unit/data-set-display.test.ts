@@ -118,7 +118,7 @@ describe('data set visibility', () => {
   })
 
   it('labels each kind in data-set show', () => {
-    displayDataSets(kinds.slice(0, 4), 'calibration', '0xtest')
+    displayDataSets(kinds, 'calibration', '0xtest')
 
     const indented = logMock.indent.mock.calls
       .map(([line]) => String(line))
@@ -127,6 +127,7 @@ describe('data set visibility', () => {
       'Visibility: public',
       'Visibility: public encrypted',
       'Visibility: private',
+      'Visibility: unknown visibility',
       'Visibility: unknown visibility',
     ])
   })
