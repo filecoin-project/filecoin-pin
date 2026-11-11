@@ -985,6 +985,56 @@ describe('Add Command', () => {
       })
     })
 
+    describe('--private', () => {
+      it('encrypts without --encrypt and requires read=restricted next to the group key on every data set', async () => {
+        await runAdd({ ...auth, filePath: testFile, private: true })
+
+        const { plaintext } = await decrypt(packedFile().bytes)
+        expect(plaintext.equals(testContent)).toBe(true)
+        const { resolveUploadTargets } = await import('../../common/upload-flow.js')
+        const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
+        expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]?.requiredMetadata).toEqual({
+          'foc/enc': '1',
+          'foc/ks': appMetadata?.['foc/ks'],
+          'foc/kc': expect.stringMatching(/^v1\.[0-9a-f]{32}$/),
+          read: 'restricted',
+          withIPFSIndexing: '',
+        })
+      })
+
+      it('works with --no-ipfs', async () => {
+        await runAdd({ ...auth, filePath: testFile, private: true, ipfs: false })
+
+        const { resolveUploadTargets } = await import('../../common/upload-flow.js')
+        const targetOptions = vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]
+        expect(targetOptions?.ipfsIndexing).toBe(false)
+        expect(targetOptions?.requiredMetadata).not.toHaveProperty('withIPFSIndexing')
+        expect(targetOptions?.requiredMetadata).toMatchObject({ 'foc/enc': '1', read: 'restricted' })
+      })
+
+      it.each([
+        [{ getShareLink: true }, /--private cannot be shared yet/],
+        [{ getShareLinkRestricted: true }, /--private cannot be shared yet/],
+        [{ encrypt: true, getShareLink: true }, /--private cannot be shared yet/],
+        [{ dataSetMetadata: { read: 'restricted' } }, /--data-set-metadata cannot set read/],
+      ])('refuses %o before signing or uploading', async (flags, message) => {
+        const signTypedData = vi.spyOn(OWNER, 'signTypedData')
+        const { performUpload, resolveUploadTargets } = await import('../../common/upload-flow.js')
+        await expect(runAdd({ ...auth, filePath: testFile, private: true, ...flags })).rejects.toThrow(message)
+        expect(signTypedData).not.toHaveBeenCalled()
+        expect(resolveUploadTargets).not.toHaveBeenCalled()
+        expect(performUpload).not.toHaveBeenCalled()
+      })
+
+      it('refuses read in --data-set-metadata on a plain upload too', async () => {
+        const { performUpload } = await import('../../common/upload-flow.js')
+        await expect(runAdd({ ...auth, filePath: testFile, dataSetMetadata: { read: 'restricted' } })).rejects.toThrow(
+          /--data-set-metadata cannot set read/
+        )
+        expect(performUpload).not.toHaveBeenCalled()
+      })
+    })
+
     describe('with a session key', () => {
       const session = { walletAddress: OWNER.address, sessionKey: SESSION_KEY, rpcUrl: 'wss://test.rpc.url' }
       /** The owner's data sets, filtered as the real listDataSets does. */
@@ -1028,6 +1078,19 @@ describe('Add Command', () => {
           'foc/ks': GRANT_GROUP_KEY,
           // The claim carries 0x<32 hex>; data sets record v1.<32 hex>, as owner mode does.
           'foc/kc': await groupKeyCommitment(),
+          withIPFSIndexing: '',
+        })
+      })
+
+      it("with --private, tags new data sets with the Grant's group key and read=restricted", async () => {
+        await runAdd({ ...session, filePath: testFile, private: true })
+
+        const { resolveUploadTargets } = await import('../../common/upload-flow.js')
+        expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]?.requiredMetadata).toEqual({
+          'foc/enc': '1',
+          'foc/ks': GRANT_GROUP_KEY,
+          'foc/kc': await groupKeyCommitment(),
+          read: 'restricted',
           withIPFSIndexing: '',
         })
       })
@@ -1259,6 +1322,7 @@ describe('Add Command', () => {
       const flags = addCommand.options.map((o) => o.long)
       expect(flags).toContain('--encrypt')
       expect(flags).toContain('--no-ipfs')
+      expect(flags).toContain('--private')
       expect(flags).not.toContain('--password-file')
       expect(flags).not.toContain('--password')
     })

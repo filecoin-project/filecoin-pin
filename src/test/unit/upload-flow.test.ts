@@ -857,7 +857,7 @@ describe('resolveUploadTargets with requiredMetadata', () => {
     const required = { ...groupKey, withIPFSIndexing: '' }
     await expect(
       resolveUploadTargets(synapse, { dataSetIds: [1n] }, { ...base, requiredMetadata: required })
-    ).rejects.toThrow(/Data set 1 cannot take this upload: its foc\/enc is missing/)
+    ).rejects.toThrow('Data set 1 is public: remove --encrypt and --private')
     await expect(
       resolveUploadTargets(synapse, { dataSetIds: [2n] }, { ...base, requiredMetadata: required })
     ).rejects.toThrow(/Data set 2 cannot take this upload: its foc\/ks/)
@@ -947,8 +947,11 @@ describe('resolveUploadTargets for plain uploads', () => {
         metadata: { withIPFSIndexing: '', source: 'filecoin-pin', ...encrypted },
       }),
     ])
+    await expect(resolveUploadTargets(synapse, { dataSetIds: [2n] }, base)).rejects.toThrow(
+      'Data set 2 is public encrypted: use --encrypt without --private'
+    )
     await expect(resolveUploadTargets(synapse, { dataSetIds: [1n, 2n] }, base)).rejects.toThrow(
-      /Data set 2 cannot take this upload: it carries foc\/ks/
+      'Data sets 1 (public), 2 (public encrypted) are of different kinds'
     )
   })
 
@@ -958,4 +961,112 @@ describe('resolveUploadTargets for plain uploads', () => {
       /Data set 1 cannot take this upload: it carries withIPFSIndexing/
     )
   })
+})
+
+describe('resolveUploadTargets for private uploads', () => {
+  const base = { withCDN: false, spinner, logger }
+  const groupKey = {
+    'foc/enc': '1',
+    'foc/ks': '0x00112233445566778899aabbccddeeff',
+    'foc/kc': 'v1.6982807649650e311e4c69af4ac90417',
+  }
+  const privateKeys = { ...groupKey, read: 'restricted' }
+  const set = (id: bigint, metadata: Record<string, string>) =>
+    pinSet({
+      pdpVerifierDataSetId: id,
+      providerId: id,
+      metadata: { withIPFSIndexing: '', source: 'filecoin-pin', ...metadata },
+    })
+
+  it('reuses only private data sets of its group key', async () => {
+    const synapse = makeSynapse([
+      set(1n, {}),
+      set(2n, groupKey),
+      set(3n, groupKey),
+      set(4n, privateKeys),
+      set(5n, { ...privateKeys, 'foc/ks': `0x${'ff'.repeat(16)}` }),
+      set(6n, privateKeys),
+    ])
+    expect(await resolveUploadTargets(synapse, {}, { ...base, copies: 2, requiredMetadata: privateKeys })).toEqual({
+      dataSetIds: [4n, 6n],
+    })
+  })
+
+  it('creates every copy with read=restricted when too few private data sets exist', async () => {
+    const synapse = makeSynapse([set(2n, groupKey), set(3n, groupKey), set(4n, privateKeys)])
+    expect(await resolveUploadTargets(synapse, {}, { ...base, copies: 2, requiredMetadata: privateKeys })).toEqual({
+      dataSetMetadata: privateKeys,
+    })
+  })
+
+  it('never reuses a data set with an unknown read value', async () => {
+    const synapse = makeSynapse([set(1n, { ...groupKey, read: 'friends' }), set(2n, { ...groupKey, read: 'friends' })])
+    expect(await resolveUploadTargets(synapse, {}, { ...base, copies: 2, requiredMetadata: privateKeys })).toEqual({
+      dataSetMetadata: privateKeys,
+    })
+    expect(await resolveUploadTargets(synapse, {}, { ...base, copies: 2, requiredMetadata: groupKey })).toEqual({
+      dataSetMetadata: groupKey,
+    })
+  })
+
+  it('keeps public and public encrypted uploads out of data sets with any read key', async () => {
+    const synapse = makeSynapse([set(1n, privateKeys), set(2n, privateKeys), set(3n, { read: 'restricted' })])
+    expect(await resolveUploadTargets(synapse, {}, { ...base, copies: 2, requiredMetadata: groupKey })).toEqual({
+      dataSetMetadata: groupKey,
+    })
+    expect(await resolveUploadTargets(synapse, {}, { ...base, copies: 1 })).toEqual({})
+    expect(
+      await resolveUploadTargets(synapse, {}, { ...base, copies: 1, dataSetMetadata: { source: 'filecoin-pin' } })
+    ).toEqual({ dataSetMetadata: { source: 'filecoin-pin' } })
+  })
+
+  it('takes an explicit --data-set-id only of its own kind, and says how to fix it', async () => {
+    const synapse = makeSynapse([
+      set(1n, {}),
+      set(2n, groupKey),
+      set(3n, privateKeys),
+      set(4n, { ...groupKey, read: 'friends' }),
+      set(5n, privateKeys),
+    ])
+    const explicit = (ids: bigint[], requiredMetadata?: Record<string, string>) =>
+      resolveUploadTargets(
+        synapse,
+        { dataSetIds: ids },
+        { ...base, ...(requiredMetadata != null && { requiredMetadata }) }
+      )
+
+    await expect(explicit([3n])).rejects.toThrow('Data set 3 is private: add --private')
+    await expect(explicit([3n], groupKey)).rejects.toThrow('Data set 3 is private: add --private')
+    await expect(explicit([2n], privateKeys)).rejects.toThrow(
+      'Data set 2 is public encrypted: use --encrypt without --private'
+    )
+    await expect(explicit([1n], privateKeys)).rejects.toThrow('Data set 1 is public: remove --encrypt and --private')
+    for (const required of [undefined, groupKey, privateKeys]) {
+      await expect(explicit([4n], required)).rejects.toThrow(
+        'Data set 4 has a read value this version of filecoin-pin does not know ("friends"): update filecoin-pin'
+      )
+    }
+    await expect(explicit([2n, 3n], privateKeys)).rejects.toThrow(
+      'Data sets 2 (public encrypted), 3 (private) are of different kinds'
+    )
+    await expect(explicit([3n, 5n], privateKeys)).resolves.toEqual({ dataSetMetadata: privateKeys })
+  })
+
+  it('refuses a private --data-set-id of another group key', async () => {
+    const synapse = makeSynapse([set(3n, { ...privateKeys, 'foc/ks': `0x${'ff'.repeat(16)}` })])
+    await expect(
+      resolveUploadTargets(synapse, { dataSetIds: [3n] }, { ...base, requiredMetadata: privateKeys })
+    ).rejects.toThrow(/Data set 3 cannot take this upload: its foc\/ks/)
+  })
+
+  it.each(['restricted', 'friends'])(
+    'refuses read=%s in --data-set-metadata, before looking up any data set',
+    async (value) => {
+      const synapse = makeSynapse([])
+      await expect(resolveUploadTargets(synapse, {}, { ...base, dataSetMetadata: { read: value } })).rejects.toThrow(
+        '--data-set-metadata cannot set read: use add --private for a private upload'
+      )
+      expect(mocks.getPdpDataSets).not.toHaveBeenCalled()
+    }
+  )
 })

@@ -59,6 +59,48 @@ export const ENCRYPTED_DATA_SET_KEYS: readonly string[] = [
   ENCRYPTION_VERSION_KEY,
 ]
 
+/** Data set metadata key for who may read its pieces. Absent: providers serve them on open paths. */
+export const READ_KEY = 'read'
+
+/** The only `read` value this version writes and reuses: pieces are served only on the authenticated path. */
+export const READ_RESTRICTED = 'restricted'
+
+/**
+ * `read` is set only by `add --private`, never by `--data-set-metadata`, so no data set
+ * is created with a visibility the upload did not choose (such as restricted plaintext).
+ */
+export function assertNoReadMetadata(dataSetMetadata: Record<string, string> | undefined): void {
+  if (dataSetMetadata != null && READ_KEY in dataSetMetadata) {
+    throw new Error(`--data-set-metadata cannot set ${READ_KEY}: use add --private for a private upload`)
+  }
+}
+
+/** The kind of a data set, from its metadata. A data set keeps its kind for life. */
+export type DataSetVisibility = 'public' | 'public-encrypted' | 'private' | 'unknown'
+
+/**
+ * Data set visibility is determined by its metadata, which never changes. The rules are:
+ * - Public: no encryption keys and no `read`. 
+ * - Public encrypted: v1 encryption keys and no `read`.
+ * - Private: `read=restricted` with `foc/enc`. 
+ * Anything else with a `read` key (an unknown value, or restricted plaintext) is unknown: 
+ * never reused and never written to.
+ */
+export function dataSetVisibility(metadata: Record<string, string>): DataSetVisibility {
+  if (READ_KEY in metadata) {
+    return metadata[READ_KEY] === READ_RESTRICTED && ENCRYPTION_VERSION_KEY in metadata ? 'private' : 'unknown'
+  }
+  return ENCRYPTED_DATA_SET_KEYS.some((key) => key in metadata) ? 'public-encrypted' : 'public'
+}
+
+/** How `data-set show` and `data-set list` name each kind. */
+export const VISIBILITY_LABELS: Record<DataSetVisibility, string> = {
+  public: 'public',
+  'public-encrypted': 'public encrypted',
+  private: 'private',
+  unknown: 'unknown visibility',
+}
+
 export interface OwnerGroupKey {
   /** Where new pieces are written: the group key itself, with no group. */
   target: WriteTarget
