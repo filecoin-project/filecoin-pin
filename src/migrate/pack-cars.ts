@@ -295,8 +295,7 @@ export type BinBuilder = (
   bin: PackedBin,
   carStore: string,
   memberPaths: Map<string, string>,
-  onBytes?: (delta: number) => void,
-  storedCids?: Map<string, string>
+  onBytes?: (delta: number) => void
 ) => Promise<{ pieceCid: string; assembledBytes: number; sha256: string; filePath: string }>
 
 /**
@@ -321,10 +320,8 @@ export async function runPackCars(
   const free = db.donePiecesFreeForPacking()
   const piecesByCid = new Map<string, PieceRow>(free.map((p) => [p.cid, p]))
   const memberPaths = new Map<string, string>()
-  const storedCids = new Map<string, string>()
   for (const p of free) {
     if (p.memberCarPath != null) memberPaths.set(p.cid, p.memberCarPath)
-    if (p.storedCid != null) storedCids.set(p.cid, p.storedCid)
   }
   const inputsForBuild: PackPlanInput[] = free
     .filter((p) => p.memberCarPath != null)
@@ -377,7 +374,7 @@ export async function runPackCars(
       opts.onBytesStaged?.(delta)
     }
     try {
-      const built = await buildBin(bin, opts.carStore, memberPaths, onBytes, storedCids)
+      const built = await buildBin(bin, opts.carStore, memberPaths, onBytes)
       builtPath = built.filePath
       // The multi-root header and framing add bytes the planning weight
       // ignores; the assembled length is what the SDK caps.
@@ -446,8 +443,7 @@ async function buildOneBin(
   bin: PackedBin,
   carStore: string,
   memberPaths: Map<string, string>,
-  onBytes?: (delta: number) => void,
-  storedCids?: Map<string, string>
+  onBytes?: (delta: number) => void
 ): Promise<{ pieceCid: string; assembledBytes: number; sha256: string; filePath: string }> {
   const members = bin.memberCids.map((cid) => {
     const memberPath = memberPaths.get(cid)
@@ -455,7 +451,7 @@ async function buildOneBin(
       throw new Error(`member ${cid} has no staged CAR file`)
     }
     return {
-      cid: storedCids?.get(cid) ?? cid,
+      cid,
       open: () => createReadStream(memberPath),
     }
   })

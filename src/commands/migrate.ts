@@ -27,11 +27,7 @@ export const migrateCommand = new Command('migrate')
   .option('--copies <n>', 'Number of storage copies to create (default: 2)')
   .option(
     '--encrypt',
-    'Encrypt every CID before upload, as add --encrypt does, so providers and gateways serve only ciphertext. Each CID is stored under a new Encrypted root CID (recorded as stored_cid in the state database); get <stored-cid> restores it as <source-cid>.car.'
-  )
-  .option(
-    '--group-key <id>',
-    'Encrypt under this group key (0x and 32 lowercase hex) instead of the wallet default, so its data sets and key stay apart from every other group key. Implies --encrypt.'
+    'Encrypt each object as add --encrypt does, so providers and gateways hold only ciphertext; get <cid> restores it. gs:// sources only.'
   )
   .option('--db <file>', 'Migrate state database path (default: migrate.db in the filecoin-pin data directory)')
   .action(async (source: string, options) => {

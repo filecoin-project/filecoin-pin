@@ -14,6 +14,10 @@ Credentials come from [Application Default Credentials](https://cloud.google.com
 
 The `sources` table in `migrate.db` maps each object (`gs://bucket/name`) to its root CID, with the size and crc32c from the listing. Re-running against the same bucket lists it again and imports only objects that are new or whose crc32c changed, so a daily re-run is safe and cheap. Objects with identical content share one CID and are stored once.
 
+### Encrypting bucket objects
+
+`--encrypt` stores each object the way `add --encrypt` stores a file (see the [Encryption guide](encryption.md)): same [Group Key](glossary.md#group-key) choice, same [Envelope](glossary.md#envelope), and the piece holds only ciphertext. Restore an object with `filecoin-pin get <cid>`, as for any `add --encrypt` upload; the `sources` table maps each object to that ciphertext CID. Encryption happens while the object streams in, so plaintext never touches disk; building the envelope reads each object twice. Every object gets a fresh key, so identical objects are no longer stored once. `--encrypt` applies only to gs:// sources (content in a CID list is already public on IPFS) and cannot be combined with `--data-set-id`.
+
 ## Why not just run `add` in a loop
 
 Two reasons: cost and throughput. Each on-chain `addPieces` transaction can carry up to 40 pieces, and each piece can hold up to 1016 MiB. Uploading a 2 MiB CID as its own piece wastes both dimensions. Migrate packs many source CIDs into one ~1000 MiB multi-root [CAR](glossary.md#car) and commits up to 40 of those pieces per transaction, so a million small files does not mean a million transactions.
@@ -59,14 +63,6 @@ Two runs against the same `migrate.db` at the same time are not supported.
 Migrate writes into its own [data sets](glossary.md#data-set), tagged with `migrate: true` [metadata](glossary.md#metadata), separate from the data sets `add` and `import` use. Pass `--data-set-id` to target an existing one instead.
 
 Egress defaults to `none` for migrate: bulk archives will not pay [FilBeam](glossary.md#filbeam-egress) CDN lockup unless you ask for it with `--egress-provider beam`. Storage costs are the same as any other upload; run `filecoin-pin payments status` before a large migration.
-
-## Encryption
-
-`--encrypt` encrypts every CID before it is packed, the same way `add --encrypt` does (see the [Encryption guide](encryption.md)): each verified member CAR becomes the plaintext of its own [Envelope](glossary.md#envelope), under a fresh key derived from a [Group Key](glossary.md#group-key), packed as one file named `<source-cid>.car`. The envelope is wrapped in a UnixFS CAR whose root, the [Encrypted Root CID](glossary.md#encrypted-root-cid), takes the source CID's place in the packed piece. Providers and gateways only ever hold and serve ciphertext.
-
-The source CID is never on chain or in the piece; `migrate.db` maps it to the stored CID (`SELECT cid, stored_cid FROM pieces`). To restore one, run `filecoin-pin get <stored-cid> <dir>` with the owner wallet (or a session key holding the group key's Grant): it writes `<dir>/<source-cid>.car`, the exact CAR that was verified at download.
-
-Encrypted runs write into data sets tagged with their group key, so they never share a data set with plain uploads or another group key. Without `--group-key` that is the wallet's group key, as for `add --encrypt`. `--group-key <id>` (`0x` and 32 lowercase hex, implies `--encrypt`) picks another one, so each tenant gets its own key and its own data set per copy; state and staging files are kept per group key too. `--data-set-id` is refused with `--encrypt`.
 
 ## What the exit code means
 

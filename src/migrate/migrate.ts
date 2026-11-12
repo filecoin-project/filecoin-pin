@@ -6,26 +6,26 @@
 
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { KEYSPACE_ID_KEY as GROUP_KEY_ID } from '@filoz/keysmith'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
+import type { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
-import pino from 'pino'
+import pino, { type Logger } from 'pino'
 import type { Hex } from 'viem'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { assertUploadFunds, rerunHint } from '../common/funds-preflight.js'
-import {
-  CANONICAL_GROUP_KEY_ID,
-  OWNER_WALLET_REQUIRED,
-  type OwnerGroupKey,
-  ownerGroupKey,
-  ownerSigner,
-} from '../common/group-key.js'
+import { OWNER_WALLET_REQUIRED, type OwnerGroupKey, ownerGroupKey, ownerSigner } from '../common/group-key.js'
 import { grantGroupKey, loadGroupKeyGrant } from '../common/group-key-grant.js'
 import { validatePaymentSetup } from '../common/upload-flow.js'
 import { getDataDirectory } from '../config.js'
 import { DEFAULT_COPIES, IPFS_INDEXED_METADATA } from '../core/synapse/constants.js'
-import { APPLICATION_SOURCE, getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
+import {
+  APPLICATION_SOURCE,
+  getClientAddress,
+  initializeSynapse,
+  isSessionKeyMode,
+  type SynapseSetupConfig,
+} from '../core/synapse/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions, parseDataSetIdSelection } from '../utils/cli-auth.js'
 import {
@@ -69,10 +69,8 @@ export interface NormalizedMigrateOptions {
   withCDN: boolean
   /** Explicit staging cap; null means derive from free disk space. */
   maxStagedBytes: number | null
-  /** `--encrypt`, or implied by `--group-key`. */
+  /** `--encrypt`: each object is uploaded as its `add --encrypt` envelope. */
   encrypt: boolean
-  /** `--group-key`: the group key to encrypt under instead of the wallet's default one. */
-  groupKeyId: Hex | undefined
 }
 
 /**
@@ -113,11 +111,10 @@ export function normalizeMigrateOptions(options: Record<string, unknown>, gcs = 
   // for add/import cannot flip a bulk run to beam.
   const egressProvider = (options.egressProvider as string | undefined) ?? 'none'
   const maxStagedBytes = options.maxStagedBytes == null ? null : Number(parseSize(String(options.maxStagedBytes)))
-  const groupKeyId = options.groupKey as Hex | undefined
-  if (groupKeyId != null && !CANONICAL_GROUP_KEY_ID.test(groupKeyId)) {
-    throw new Error(`--group-key ${groupKeyId} is not 0x and 32 lowercase hex`)
+  const encrypt = options.encrypt === true
+  if (encrypt && !gcs) {
+    throw new Error('--encrypt applies only to a gs:// source: content in a CID list is already public on IPFS')
   }
-  const encrypt = options.encrypt === true || groupKeyId != null
   if (encrypt && parseDataSetIdSelection(options).length > 0) {
     throw new Error('--data-set-id cannot be used with --encrypt: encrypted data sets are chosen by their group key')
   }
@@ -130,25 +127,42 @@ export function normalizeMigrateOptions(options: Record<string, unknown>, gcs = 
     withCDN: egressProvider === 'beam',
     maxStagedBytes,
     encrypt,
-    groupKeyId,
   }
+}
+
+/**
+ * The group key `add --encrypt` would write under: the owner wallet's (oldest valid
+ * on chain, else the default one), else the session key's Grant. Never plaintext.
+ */
+export async function migrateGroupKey(
+  synapse: Synapse,
+  config: SynapseSetupConfig,
+  logger?: Logger
+): Promise<OwnerGroupKey> {
+  const signer = ownerSigner(synapse)
+  if (signer != null) return ownerGroupKey(synapse, signer, logger)
+  if ('sessionKey' in config && config.sessionKey != null) {
+    const session = { sessionKey: config.sessionKey as Hex, walletAddress: getClientAddress(synapse) }
+    return grantGroupKey(synapse, await loadGroupKeyGrant(session, synapse.chain.id), logger)
+  }
+  throw new Error(OWNER_WALLET_REQUIRED)
 }
 
 /**
  * Resolve the migrate state paths under the platform data directory:
  * `<dataDir>/migrate/migrate.db` (unless `--db` overrides it), and per
  * network and owner, `<dataDir>/migrate/<network>/<owner>/members` for
- * verified member CARs and `.../cars` for assembled pieces, under `<groupKeyId>/`
- * with `--encrypt`. The DB scopes rows the same way; the directories follow, or a
- * run for one wallet or group key would sweep away files another run is still using.
+ * verified member CARs and `.../cars` for assembled pieces. The DB scopes
+ * rows by network and owner; the directories follow, or a run for one wallet
+ * would sweep away files another wallet's run is still using.
  */
 export function resolveMigratePaths(
   dataDir: string,
-  scope: { network: string; owner: string; groupKeyId?: string | undefined },
+  scope: { network: string; owner: string },
   dbFlag?: string
 ): { migrateDir: string; dbPath: string; stagingDir: string; memberDir: string; carStore: string } {
   const migrateDir = join(dataDir, 'migrate')
-  const stagingDir = join(migrateDir, scope.network, scope.owner.toLowerCase(), scope.groupKeyId ?? '')
+  const stagingDir = join(migrateDir, scope.network, scope.owner.toLowerCase())
   return {
     migrateDir,
     dbPath: dbFlag ?? join(migrateDir, 'migrate.db'),
@@ -244,22 +258,11 @@ export async function runMigrateFromCli(sourceArg: string, options: Record<strin
       printEgressNotice('beam')
     }
 
-    // Encrypted members land only in data sets of their group key, one group key per tenant.
+    // Settled before any data set is chosen: encrypted objects land in data sets tagged with it.
     if (normalized.encrypt) {
-      const signer = ownerSigner(synapse)
-      if (signer != null) {
-        groupKey = await ownerGroupKey(synapse, signer, logger, normalized.groupKeyId)
-      } else if ('sessionKey' in config && config.sessionKey != null) {
-        const session = { sessionKey: config.sessionKey, walletAddress: getClientAddress(synapse) }
-        groupKey = await grantGroupKey(synapse, await loadGroupKeyGrant(session, synapse.chain.id), logger)
-        const granted = groupKey.dataSetMetadata[GROUP_KEY_ID]
-        if (normalized.groupKeyId != null && normalized.groupKeyId !== granted) {
-          throw new Error(`--group-key ${normalized.groupKeyId} is not this session's Grant (${granted})`)
-        }
-      } else {
-        throw new Error(OWNER_WALLET_REQUIRED)
-      }
-      cliLog.line(`Encrypting under group key ${groupKey.dataSetMetadata[GROUP_KEY_ID]}`)
+      spinner.start('Deriving the encryption key...')
+      groupKey = await migrateGroupKey(synapse, config, logger)
+      spinner.stop(`${pc.green('✓')} Encryption key derived`)
     }
     const dataSetMetadata = { ...MIGRATE_DATA_SET_METADATA, ...groupKey?.dataSetMetadata }
 
@@ -290,18 +293,17 @@ export async function runMigrateFromCli(sourceArg: string, options: Record<strin
       await validatePaymentSetup(synapse, packTargetBytes, spinner)
     }
 
-    // State is scoped per network, owner and group key, rows and staging files alike:
-    // two wallets or tenants on one machine must not resume or sweep each other's work.
+    // State is scoped per network AND owner, rows and staging files alike:
+    // two wallets on one machine must not resume or sweep each other's work.
     const owner = getClientAddress(synapse).toLowerCase()
-    const groupKeyId = groupKey?.dataSetMetadata[GROUP_KEY_ID]
     const { dbPath, stagingDir, memberDir, carStore } = resolveMigratePaths(
       getDataDirectory(),
-      { network: networkSlug, owner, groupKeyId },
+      { network: networkSlug, owner },
       options.db as string | undefined
     )
     await mkdir(memberDir, { recursive: true })
     await mkdir(carStore, { recursive: true })
-    const db = new MigrationDB(dbPath, [networkSlug, owner, groupKeyId].filter((part) => part != null).join(':'))
+    const db = new MigrationDB(dbPath, `${networkSlug}:${owner}`)
     try {
       db.addCids(cids)
       db.addSources(objects)
@@ -322,9 +324,8 @@ export async function runMigrateFromCli(sourceArg: string, options: Record<strin
         dataSetIds: contextSelection.dataSetIds,
         assumedWindowMs,
         dataSetMetadata: contextSelection.dataSetIds == null ? dataSetMetadata : undefined,
-        encryptTarget: groupKey?.target,
         withCDN,
-        source: gcsFetch == null ? undefined : gcsSource(db, gcsFetch),
+        source: gcsFetch == null ? undefined : gcsSource(db, gcsFetch, groupKey?.target),
       })
 
       printSummary(summary)

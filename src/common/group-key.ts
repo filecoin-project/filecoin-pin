@@ -78,36 +78,27 @@ export function defaultGroupKeyId(owner: Address): Hex {
 }
 
 /**
- * The group key this wallet encrypts under: `named` when given, else the oldest
- * valid one its data sets record (see {@link oldestValidGroupKey}), else the
- * owner's default one (see {@link defaultGroupKeyId}). Every copy of an upload
- * lands in data sets of this one group key.
+ * The group key this wallet encrypts under: the oldest valid one its data sets
+ * record (see {@link oldestValidGroupKey}), else the owner's default one (see
+ * {@link defaultGroupKeyId}). Every copy of an upload lands in data sets of this
+ * one group key.
  *
  * @throws If the recorded commitment does not match this wallet's key, or if the
- * chosen group key is already on chain but invalid.
+ * default group key is already on chain but invalid.
  */
-export async function ownerGroupKey(
-  synapse: Synapse,
-  signer: OwnerSigner,
-  logger?: Logger,
-  named?: Hex
-): Promise<OwnerGroupKey> {
+export async function ownerGroupKey(synapse: Synapse, signer: OwnerSigner, logger?: Logger): Promise<OwnerGroupKey> {
   const tagged = await listDataSets(synapse, {
-    filter: (dataSet) =>
-      dataSet.isLive &&
-      (named == null
-        ? typeof dataSet.metadata?.[GROUP_KEY_ID_KEY] === 'string'
-        : dataSet.metadata?.[GROUP_KEY_ID_KEY] === named),
+    filter: (dataSet) => dataSet.isLive && typeof dataSet.metadata?.[GROUP_KEY_ID_KEY] === 'string',
     ...(logger != null && { logger }),
   })
   const recorded = oldestValidGroupKey(tagged, logger)
-  const groupKeyId = recorded?.groupKeyId ?? named ?? defaultGroupKeyId(signer.address)
+  const groupKeyId = recorded?.groupKeyId ?? defaultGroupKeyId(signer.address)
   if (recorded == null) {
-    // The id is on chain but its group was skipped: writing into it would grow an invalid group.
+    // The default id is on chain but its group was skipped: writing into it would grow an invalid group.
     const invalid = tagged.filter((dataSet) => dataSet.metadata?.[GROUP_KEY_ID_KEY] === groupKeyId)
     if (invalid.length > 0) {
       throw new Error(
-        `${named == null ? 'The default group key' : 'Group key'} ${groupKeyId} is already used by data sets ${invalid.map((d) => d.dataSetId).join(', ')}, which disagree on foc/kc or are not foc/enc "1"`
+        `The default group key ${groupKeyId} is already used by data sets ${invalid.map((d) => d.dataSetId).join(', ')}, which disagree on foc/kc or are not foc/enc "1"`
       )
     }
   }
@@ -130,7 +121,7 @@ export async function ownerGroupKey(
  * A group key id as Keysmith and {@link defaultGroupKeyId} write it: 0x and 32 lowercase hex.
  * Ids are matched exactly, never case-folded, since data sets are reused by exact metadata.
  */
-export const CANONICAL_GROUP_KEY_ID = /^0x[0-9a-f]{32}$/
+const CANONICAL_GROUP_KEY_ID = /^0x[0-9a-f]{32}$/
 
 /**
  * "Oldest wins": sort data sets by their group key (`foc/ks`), skip any group key

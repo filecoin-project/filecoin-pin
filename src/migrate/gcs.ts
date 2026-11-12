@@ -6,7 +6,14 @@
 
 import { createReadStream } from 'node:fs'
 import { unlink } from 'node:fs/promises'
+import { basename } from 'node:path'
 import { Readable } from 'node:stream'
+import type { WriteTarget } from '@filoz/keysmith'
+import * as fee from 'filecoin-encryption-envelope'
+import { ENCRYPTED_FILE_NAME } from '../common/encryption.js'
+import { newPieceKey, type PieceKey } from '../common/group-key.js'
+import { CAR_CONTENT_TYPE } from '../common/unixfs-car-layout.js'
+import { emitStreamPayload, planStreamPayload } from '../common/unixfs-car-payload.js'
 import { createCarFromStream } from '../core/unixfs/car-builder.js'
 import type { MigrationDB } from './db.js'
 import { categoryForFetchError, categoryForStatus, rootCause, StagingError } from './gateway.js'
@@ -60,17 +67,8 @@ export async function listGcsObjects(
 
 const noopSink = { write: async () => undefined, end: async () => undefined }
 
-/**
- * Download one object and import it into a member CAR under `memberDir`.
- * Bytes count against the staging budget as they stream in; the CAR is then
- * hashed (piece commitment, sha256) in a second local pass.
- */
-export async function stageGcsObject(
-  url: string,
-  memberDir: string,
-  opts: VerifyCarOptions,
-  fetchFn: GcsFetch
-): Promise<StagedMember> {
+/** The object's bytes, with fetch failures categorized like gateway ones. */
+async function readObject(url: string, fetchFn: GcsFetch): Promise<ReadableStream<Uint8Array>> {
   const { bucket, prefix: name } = parseGcsUrl(url) ?? { bucket: '', prefix: '' }
   const mediaUrl = `${API}/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(name)}?alt=media`
   let res: Response
@@ -83,23 +81,56 @@ export async function stageGcsObject(
     void res.body?.cancel().catch(() => undefined)
     throw new StagingError(`${url}: HTTP ${res.status}`, categoryForStatus(res.status))
   }
+  return res.body
+}
 
+/**
+ * The envelope `add --encrypt` makes of a file, built from two reads of the object
+ * (plan, then emit) so no plaintext touches disk.
+ */
+async function encryptedObject(url: string, fetchFn: GcsFetch, key: PieceKey): Promise<ReadableStream<Uint8Array>> {
+  const plan = await planStreamPayload(basename(parseGcsUrl(url)?.prefix ?? ''), await readObject(url, fetchFn))
+  const payload = Readable.toWeb(Readable.from(emitStreamPayload(plan, await readObject(url, fetchFn))))
+  return (payload as ReadableStream<Uint8Array>).pipeThrough(
+    fee.encrypt({
+      cek: key.cek,
+      contentLength: plan.contentLength,
+      contentType: CAR_CONTENT_TYPE,
+      appMetadata: key.appMetadata,
+    })
+  )
+}
+
+/**
+ * Download one object and import it into a member CAR under `memberDir`; with
+ * `encryptTarget`, the object's `add --encrypt` envelope instead.
+ * Bytes count against the staging budget as they stream in; the CAR is then
+ * hashed (piece commitment, sha256) in a second local pass.
+ */
+export async function stageGcsObject(
+  url: string,
+  memberDir: string,
+  opts: VerifyCarOptions,
+  fetchFn: GcsFetch,
+  encryptTarget?: WriteTarget
+): Promise<StagedMember> {
+  const key = encryptTarget == null ? undefined : newPieceKey(encryptTarget)
   let counted = 0
   const count = (delta: number): void => {
     counted += delta
     opts.onBytes?.(delta)
   }
-  const body = res.body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        count(chunk.length)
-        controller.enqueue(chunk)
-      },
-    })
-  )
+  const counter = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      count(chunk.length)
+      controller.enqueue(chunk)
+    },
+  })
   let carPath: string | undefined
   try {
-    const car = await createCarFromStream(body, name, { tempDir: memberDir })
+    const input = key == null ? await readObject(url, fetchFn) : await encryptedObject(url, fetchFn, key)
+    const name = key == null ? (parseGcsUrl(url)?.prefix ?? '') : ENCRYPTED_FILE_NAME
+    const car = await createCarFromStream(input.pipeThrough(counter), name, { tempDir: memberDir })
     carPath = car.carPath
     const verified = await verifyCarStream(
       Readable.toWeb(createReadStream(carPath)) as ReadableStream<Uint8Array>,
@@ -120,14 +151,16 @@ export async function stageGcsObject(
     if (carPath != null) await unlink(carPath).catch(() => undefined)
     if (counted !== 0) opts.onBytes?.(-counted)
     throw err
+  } finally {
+    key?.cek.fill(0)
   }
 }
 
 /** Member source over objects registered with `db.addSources`. */
-export function gcsSource(db: MigrationDB, fetchFn: GcsFetch): MemberSource {
+export function gcsSource(db: MigrationDB, fetchFn: GcsFetch, encryptTarget?: WriteTarget): MemberSource {
   return {
     pending: () => db.pendingSources(),
-    stage: (url, memberDir, opts) => stageGcsObject(url, memberDir, opts, fetchFn),
+    stage: (url, memberDir, opts) => stageGcsObject(url, memberDir, opts, fetchFn, encryptTarget),
     recordSuccess: (url, member) => db.recordSourceSuccess(url, member),
     recordFailure: (url, error, category) => db.recordSourceFailure(url, error, category),
   }

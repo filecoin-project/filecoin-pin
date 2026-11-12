@@ -1,10 +1,15 @@
+import { randomBytes } from 'node:crypto'
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { keyspaceKeys as deriveGroupKey, type WriteTarget, writeTarget } from '@filoz/keysmith'
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { decryptToDirectory } from '../../common/encryption.js'
+import { ownerKeyResolver } from '../../common/group-key.js'
 import { createCarFromPath } from '../../core/unixfs/car-builder.js'
 import { MigrationDB } from '../../migrate/db.js'
 import { type GcsFetch, listGcsObjects, parseGcsUrl, stageGcsObject } from '../../migrate/gcs.js'
+import { GROUP_KEY, OWNER } from '../fixtures/group-key-grants.js'
 
 const MEMBER = {
   pieceCid: 'bafkzcibpiece',
@@ -154,6 +159,68 @@ describe('stageGcsObject', () => {
     await expect(stageGcsObject('gs://bk/gone', dir, {}, bucket)).rejects.toMatchObject({
       category: 'source_not_found',
     })
+  })
+})
+
+describe('stageGcsObject with --encrypt', () => {
+  let dir: string
+  let target: WriteTarget
+  beforeAll(async () => {
+    const { kk, descriptor } = await deriveGroupKey(OWNER, { owner: OWNER.address, keyspace: GROUP_KEY })
+    target = writeTarget(descriptor, kk)
+  })
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'fp-gcs-enc-'))
+  })
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('restores the exact object bytes the way add --encrypt content is restored', async () => {
+    const bytes = randomBytes(3 * 1024 * 1024 + 17)
+    const bucket = fakeBucket({ 'scans/2024/scan.tiff': bytes })
+    let counted = 0
+    const member = await stageGcsObject(
+      'gs://bk/scans/2024/scan.tiff',
+      dir,
+      { onBytes: (d) => (counted += d) },
+      bucket,
+      target
+    )
+    expect(counted).toBe(member.rawSize)
+
+    const out = join(dir, 'out')
+    await decryptToDirectory(member.memberCarPath, out, ownerKeyResolver(OWNER))
+    expect((await readFile(join(out, 'scan.tiff'))).equals(bytes)).toBe(true)
+  })
+
+  it('never writes plaintext to the staging directory', async () => {
+    const marker = randomBytes(64)
+    const bytes = Buffer.concat(Array.from({ length: 40_000 }, () => marker))
+    const leaked: string[] = []
+    const scan = async (): Promise<void> => {
+      for (const f of await readdir(dir)) {
+        const data = await readFile(join(dir, f)).catch(() => Buffer.alloc(0))
+        if (data.includes(marker)) leaked.push(f)
+      }
+    }
+    const bucket: GcsFetch = async () => {
+      let sent = 0
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            await scan()
+            if (sent >= bytes.length) return controller.close()
+            controller.enqueue(bytes.subarray(sent, sent + 256 * 1024))
+            sent += 256 * 1024
+          },
+        })
+      )
+    }
+    const member = await stageGcsObject('gs://bk/a.bin', dir, {}, bucket, target)
+    await scan()
+    expect(leaked).toEqual([])
+    expect(await readdir(dir)).toEqual([member.memberCarPath.split('/').at(-1)])
   })
 })
 
