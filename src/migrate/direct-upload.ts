@@ -389,15 +389,20 @@ export async function runDirectUpload(
 
   // Pulls run one at a time behind the store loop, so a slow pull never holds a primary commit.
   let pulls = Promise.resolve()
+  const queuedPulls: Promise<void>[] = []
   const queuePulls = (subPieceCid: string): void => {
     pulls = pulls.then(async () => {
       for (const secondary of secondaries) await pullToSecondary(db, primary, secondary, subPieceCid)
     })
+    queuedPulls.push(pulls)
   }
   const drain = async (): Promise<void> => {
     await maybeFlush(true)
-    await pulls
-    await maybeFlush(true)
+    // Flush after each pull, so an early secondary does not wait out the whole queue.
+    for (let next = queuedPulls.shift(); next != null; next = queuedPulls.shift()) {
+      await next
+      await maybeFlush(true)
+    }
   }
 
   // Main loop: store on the primary, fan out to secondaries, flush as batches

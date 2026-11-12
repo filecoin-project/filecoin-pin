@@ -63,8 +63,8 @@ interface FakeBehavior {
   /** Per-CID presence answers for hasPiece during re-verify. */
   present?: (cid: string) => boolean
   pullFails?: boolean
-  /** Secondary pulls resolve only after this settles. */
-  pullGate?: Promise<void>
+  /** The numbered secondary pull (1-based) resolves only after the returned promise settles. */
+  pullGate?: (call: number) => Promise<void> | undefined
   /** Store answers a different commitment than requested (commP mismatch). */
   storeReturns?: (pieceCid: string) => string
   /** Throw from store() on the numbered call (1-based) for that piece; null means succeed. */
@@ -110,7 +110,7 @@ function fakeDeps(b: FakeBehavior = {}) {
       },
       async pull(options) {
         calls.pull++
-        await b.pullGate
+        await b.pullGate?.(calls.pull)
         const status = b.pullFails ? ('failed' as const) : ('complete' as const)
         return { status, pieces: options.pieces.map((p) => ({ pieceCid: p, status })) }
       },
@@ -356,6 +356,28 @@ describe('runDirectUpload', () => {
     }
   })
 
+  it('commits each secondary as its pull lands while draining the pull queue', async () => {
+    const { dir, db } = await dbAt('du-drain-flush')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      seedBuilt(db, P2, join(dir, 'b.car'))
+      const releases: Array<() => void> = []
+      const gates = [0, 1].map(() => new Promise<void>((resolve) => releases.push(resolve)))
+      const { deps } = fakeDeps({ pullGate: (call) => gates[call - 1] })
+      const run = runDirectUpload(db, OPTS, deps)
+
+      await vi.waitFor(() => expect(db.uploadStatus(P2, 'p1')).toBe('committed'))
+      releases[0]?.()
+      // P2's pull is still running; P1's secondary must not wait behind it.
+      await vi.waitFor(() => expect(db.uploadStatus(P1, 'p2')).toBe('committed'))
+      releases[1]?.()
+      await run
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('commits the primary without waiting on a slow secondary pull', async () => {
     const { dir, db } = await dbAt('du-slow-pull')
     try {
@@ -364,7 +386,7 @@ describe('runDirectUpload', () => {
       const pullGate = new Promise<void>((resolve) => {
         release = resolve
       })
-      const { deps } = fakeDeps({ pullGate })
+      const { deps } = fakeDeps({ pullGate: () => pullGate })
       const run = runDirectUpload(db, OPTS, deps)
 
       await vi.waitFor(() => expect(db.uploadStatus(P1, 'p1')).toBe('committed'))
