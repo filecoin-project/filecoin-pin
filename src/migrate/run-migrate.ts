@@ -95,6 +95,8 @@ class PipelineStuckError extends Error {
  */
 class StagingBudget {
   used = 0
+  /** Extra bytes solo assemblies of free and in-flight members will write, held until the member is evicted. */
+  reserved = 0
   #waiters: Array<{ resolve: () => void; reject: (err: Error) => void }> = []
   #failedWith: Error | null = null
   constructor(
@@ -138,7 +140,7 @@ class StagingBudget {
   }
 
   async waitToStart(onParked: () => void): Promise<void> {
-    while (this.used > this.startGate) {
+    while (this.used + this.reserved > this.startGate) {
       // A budget already declared dead must reject late arrivals too, or a
       // worker parking after failAll would wait forever.
       if (this.#failedWith != null) throw this.#failedWith
@@ -316,6 +318,9 @@ export async function runMigrate(
   }
   const budget = new StagingBudget(total, opts.packTargetBytes)
   budget.used = staged
+  // A member over the pack target ships solo and needs its own size again to assemble.
+  const assemblyExtra = (bytes: number): number => Math.max(0, bytes - opts.packTargetBytes)
+  for (const p of db.donePiecesFreeForPacking()) budget.reserved += assemblyExtra(p.rawSize ?? 0)
   log.message(
     `staging budget ${formatFileSize(budget.total)} (${formatFileSize(budget.used)} already staged from a previous run)`
   )
@@ -409,7 +414,10 @@ export async function runMigrate(
               if (delta < 0) budget.free(-delta)
               else budget.add(delta)
             },
-            onMemberEvicted: (bytes) => budget.free(bytes),
+            onMemberEvicted: (bytes) => {
+              budget.reserved -= assemblyExtra(bytes)
+              budget.free(bytes)
+            },
           },
           opts.buildBin
         )
@@ -456,9 +464,8 @@ export async function runMigrate(
               if (err instanceof PipelineStuckError) return
               throw err
             }
-            // A member over the pack target ships solo and needs its own size again to assemble.
-            const assemblyExtra = (bytes: number): number => Math.max(0, bytes - opts.packTargetBytes)
             let written = 0
+            let reservedHere = 0
             // The stager refunds `written` to 0 before rethrowing; keep the peak for the ceiling check.
             let peak = 0
             const verifyOpts: VerifyCarOptions = {
@@ -466,7 +473,9 @@ export async function runMigrate(
                 budget.add(delta)
                 written += delta
                 peak = Math.max(peak, written)
-                if (budget.used + assemblyExtra(written) > budget.hardCap) {
+                budget.reserved += assemblyExtra(written) - reservedHere
+                reservedHere = assemblyExtra(written)
+                if (budget.used + budget.reserved > budget.hardCap) {
                   throw new StagingError(
                     `staging budget exhausted while downloading ${cid}; retrying once space frees`,
                     'staging_budget'
@@ -480,6 +489,7 @@ export async function runMigrate(
               member = await stage(cid, opts.gateways, opts.memberDir, verifyOpts)
             } catch (err) {
               // The temp file is gone either way; return its bytes.
+              budget.reserved -= reservedHere
               budget.free(written)
               if (failureCategoryOf(err) === 'staging_budget') {
                 // A member whose own bytes overran the hard cap can never
