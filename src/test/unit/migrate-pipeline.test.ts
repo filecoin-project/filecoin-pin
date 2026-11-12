@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Synapse } from '@filoz/synapse-sdk'
@@ -54,6 +54,7 @@ async function harness(config: HarnessOptions) {
     storeLanded = resolve
   })
 
+  let peakOnDisk = 0
   const attempts = new Map<string, number>()
   const stageMemberFn: typeof stageMember = async (cid, _gateways, dirForMembers, opts) => {
     const entry = config.cids.find((c) => c.cid === cid)
@@ -87,7 +88,8 @@ async function harness(config: HarnessOptions) {
     events.push(`build:${bin.memberCids.length}`)
     onBytes?.(bin.totalRawSize)
     const filePath = join(binStore, `${pieceCid}.car`)
-    await writeFile(filePath, new Uint8Array(8))
+    await writeFile(filePath, new Uint8Array(bin.totalRawSize))
+    peakOnDisk = Math.max(peakOnDisk, (await dirBytes(memberDir)) + (await dirBytes(carStore)))
     return { pieceCid, assembledBytes: bin.totalRawSize, sha256: 'sha', filePath }
   }
 
@@ -152,7 +154,13 @@ async function harness(config: HarnessOptions) {
     buildBin,
   }
 
-  return { db, dir, events, options, deps }
+  return { db, dir, events, options, deps, peakOnDisk: () => peakOnDisk }
+}
+
+async function dirBytes(dir: string): Promise<number> {
+  let total = 0
+  for (const entry of await readdir(dir)) total += (await stat(join(dir, entry))).size
+  return total
 }
 
 describe('stagingBudget', () => {
@@ -415,6 +423,53 @@ describe('runMigrate pipeline', () => {
 
       expect(summary.failures[0]?.error).toContain('raise --max-staged-bytes')
       expect(h.events.filter((e) => e.startsWith('build:'))).toHaveLength(0)
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  }, 10_000)
+
+  it('holds a solo assembly reservation against concurrent downloads', async () => {
+    // big passes alone (5000 + 4000 extra <= 9240 ceiling); small must not take the space big's solo CAR needs.
+    const [big, small] = (await Promise.all([cidFor('big'), cidFor('small')])).sort()
+    if (big == null || small == null) throw new Error('unreachable')
+    const h = await harness({
+      cids: [
+        { cid: big, rawSize: 5000 },
+        { cid: small, rawSize: 1000 },
+      ],
+      budgetBytes: 10_240,
+      packTargetBytes: 1000,
+    })
+    let smallSettled: () => void = () => undefined
+    const smallFirstTry = new Promise<void>((resolve) => {
+      smallSettled = resolve
+    })
+    const stage = h.options.stageMemberFn ?? stageMember
+    const build = h.options.buildBin
+    try {
+      const summary = await runMigrate(
+        h.db,
+        {
+          ...h.options,
+          stageMemberFn: async (c, gateways, dir, opts) => {
+            try {
+              return await stage(c, gateways, dir, opts)
+            } finally {
+              if (c === small) smallSettled()
+            }
+          },
+          buildBin: async (bin, ...rest) => {
+            if (build == null) throw new Error('unreachable')
+            if (bin.memberCids.includes(big)) await smallFirstTry
+            return build(bin, ...rest)
+          },
+        },
+        h.deps
+      )
+
+      expect(summary.pieces).toEqual({ total: 2, succeeded: 2, failed: 0, pending: 0, oversized: 0 })
+      expect(h.peakOnDisk()).toBeLessThanOrEqual(10_240)
     } finally {
       h.db.close()
       await rm(h.dir, { recursive: true, force: true })
