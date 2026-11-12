@@ -11,6 +11,7 @@ import { sha256 } from 'multiformats/hashes/sha2'
 import { describe, expect, it } from 'vitest'
 import { MigrationDB } from '../../migrate/db.js'
 import type { DirectUploadDeps, UploadContextLike } from '../../migrate/direct-upload.js'
+import { type GcsFetch, gcsSource, listGcsObjects } from '../../migrate/gcs.js'
 import { migrateIncomplete } from '../../migrate/migrate.js'
 import type { BinBuilder } from '../../migrate/pack-cars.js'
 import { type MigrateRunOptions, runMigrate, stagingBudget } from '../../migrate/run-migrate.js'
@@ -571,6 +572,48 @@ describe('runMigrate pipeline', () => {
       expect(h.db.subPieceByCid(subPieceCid)).toBeNull()
       expect(second.pieces.pending).toBe(0)
       expect(second.pieces.failed).toBe(0)
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  })
+
+  it('imports bucket objects and skips them on the next daily run', async () => {
+    const enc = new TextEncoder()
+    const objects: Record<string, Uint8Array<ArrayBuffer>> = {
+      'a.pdf': enc.encode('a'.repeat(700)),
+      'b.tiff': enc.encode('b'.repeat(900)),
+      'copy-of-a.pdf': enc.encode('a'.repeat(700)),
+    }
+    const reads: string[] = []
+    const bucketFetch: GcsFetch = async (url) => {
+      const name = decodeURIComponent(new URL(url).pathname.split('/o/')[1] ?? '')
+      if (name === '') {
+        return Response.json({ items: Object.keys(objects).map((n) => ({ name: n, size: '1', crc32c: `crc-${n}` })) })
+      }
+      reads.push(name)
+      return new Response(objects[name] ?? null)
+    }
+    const h = await harness({ cids: [], budgetBytes: 100_000, packTargetBytes: 1000 })
+    try {
+      const run = async () => {
+        h.db.addSources(await listGcsObjects({ bucket: 'bk', prefix: '' }, bucketFetch))
+        return runMigrate(h.db, { ...h.options, gateways: [], source: gcsSource(h.db, bucketFetch) }, h.deps)
+      }
+      const first = await run()
+      expect(first.pieces).toMatchObject({ total: 2, succeeded: 2, failed: 0, pending: 0 })
+      expect(migrateIncomplete(first)).toBe(false)
+      const manifest = h.db.sources()
+      expect(manifest.map((s) => s.url)).toEqual(['gs://bk/a.pdf', 'gs://bk/b.tiff', 'gs://bk/copy-of-a.pdf'])
+      // Same content, same CID: one piece row, both names in the manifest.
+      expect(manifest[2]?.cid).toBe(manifest[0]?.cid)
+      expect(await readdir(h.options.memberDir)).toEqual([])
+
+      reads.length = 0
+      h.events.length = 0
+      await run()
+      expect(reads).toEqual([])
+      expect(h.events.filter((e) => e.startsWith('store:'))).toEqual([])
     } finally {
       h.db.close()
       await rm(h.dir, { recursive: true, force: true })

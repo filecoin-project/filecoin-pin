@@ -156,6 +156,15 @@ async function createCarFromSingleFile(filePath: string, options: CreateCarOptio
   })
 }
 
+/** Import a byte stream as a single UnixFS file, same profile as `add`. */
+export async function createCarFromStream(
+  stream: ReadableStream<Uint8Array>,
+  name: string,
+  options: CreateCarOptions = {}
+): Promise<CreateCarResult> {
+  return createCar(name, { ...options, name }, (fs) => fs.addByteStream(stream, importerOptions))
+}
+
 async function createCarFromDirectory(dirPath: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {
   const { logger, spinner, includeHidden = INCLUDE_HIDDEN_FILES } = options
 

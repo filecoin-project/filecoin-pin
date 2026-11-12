@@ -27,6 +27,11 @@ describe('normalizeMigrateOptions', () => {
     expect(() => normalizeMigrateOptions({})).toThrow(/--gateway/)
   })
 
+  it('needs no --gateway for a gs:// source, and refuses one', () => {
+    expect(normalizeMigrateOptions({}, true).gateways).toEqual([])
+    expect(() => normalizeMigrateOptions({ gateway: ['https://gw.example'] }, true)).toThrow(/--gateway/)
+  })
+
   it('rejects a --gateway that is not an http(s) URL', () => {
     expect(() => normalizeMigrateOptions({ gateway: ['trustless-gateway.link'] })).toThrow(/--gateway/)
     expect(() => normalizeMigrateOptions({ gateway: ['localhost:8080'] })).toThrow(/--gateway/)

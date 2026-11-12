@@ -31,6 +31,7 @@ import { log as cliLog } from '../utils/cli-logger.js'
 import { chainSupportsFilbeam, printEgressNotice } from '../utils/cli-options-egress.js'
 import { MigrationDB } from './db.js'
 import { DEFAULT_ASSUMED_WINDOW_MS } from './gc-window.js'
+import { adcFetch, type GcsFetch, type GcsObject, gcsSource, listGcsObjects, parseGcsUrl } from './gcs.js'
 import { DEFAULT_PACK_TARGET_BYTES, MAX_UPLOAD_BYTES, MIN_UPLOAD_BYTES } from './pack-cars.js'
 import { type MigrateSummary, runMigrate } from './run-migrate.js'
 import { parseCidList } from './util.js'
@@ -65,7 +66,7 @@ export interface NormalizedMigrateOptions {
  * the flag defaults (egress none, gateway list, pack target) are
  * unit-testable without a network.
  */
-export function normalizeMigrateOptions(options: Record<string, unknown>): NormalizedMigrateOptions {
+export function normalizeMigrateOptions(options: Record<string, unknown>, gcs = false): NormalizedMigrateOptions {
   const packTargetBytes = Number(parseSize(String(options.packTargetSize ?? DEFAULT_PACK_TARGET_BYTES.toString())))
   if (packTargetBytes > MAX_UPLOAD_BYTES) {
     throw new Error(`--pack-target-size ${packTargetBytes} exceeds the per-piece upload cap ${MAX_UPLOAD_BYTES}`)
@@ -80,7 +81,10 @@ export function normalizeMigrateOptions(options: Record<string, unknown>): Norma
       : parsePositiveInt(String(options.assumedWindowMinutes), '--assumed-window-minutes')
   const copies = options.copies == null ? DEFAULT_COPIES : parsePositiveInt(String(options.copies), '--copies')
   const gateways = Array.isArray(options.gateway) ? (options.gateway as string[]) : []
-  if (gateways.length === 0) {
+  if (gcs && gateways.length > 0) {
+    throw new Error('--gateway does not apply to a gs:// source')
+  }
+  if (!gcs && gateways.length === 0) {
     throw new Error('--gateway is required: the trustless gateway that serves these CIDs (repeatable, tried in order)')
   }
   for (const gateway of gateways) {
@@ -158,34 +162,47 @@ export function dedupeCids(cids: string[]): { unique: string[]; duplicates: stri
   return { unique, duplicates }
 }
 
+/** Read and dedupe a CID list file. */
+async function readCids(cidListFile: string): Promise<string[]> {
+  const { unique, duplicates } = dedupeCids(parseCidList(await readFile(cidListFile, 'utf8')))
+  if (unique.length === 0) {
+    throw new Error(`no CIDs found in ${cidListFile} (one CID per line; # comments and blank lines are ignored)`)
+  }
+  if (duplicates.length > 0) {
+    cliLog.message(`ignoring ${duplicates.length} duplicate CID(s) in ${cidListFile}: ${duplicates.join(', ')}`)
+  }
+  return unique
+}
+
 /**
  * Normalize Commander options and run the migrate flow.
  *
  * Commander wiring calls this so option validation errors are displayed by
  * the command UI layer and command files only own exit-code handling.
  */
-export async function runMigrateFromCli(
-  cidListFile: string,
-  options: Record<string, unknown>
-): Promise<MigrateSummary> {
+export async function runMigrateFromCli(sourceArg: string, options: Record<string, unknown>): Promise<MigrateSummary> {
   intro(pc.bold('Filecoin Pin Migrate'))
   const spinner = createSpinner()
 
   const logger = pino({ level: process.env.LOG_LEVEL || 'silent' })
 
   try {
-    const normalized = normalizeMigrateOptions(options)
+    const gcs = parseGcsUrl(sourceArg)
+    const normalized = normalizeMigrateOptions(options, gcs != null)
     const { packTargetBytes, concurrency, assumedWindowMs, copies, gateways, withCDN, maxStagedBytes } = normalized
 
     const contextSelection = parseContextSelectionOptions(options)
 
-    // Read the CID list before any network work so a bad path fails fast.
-    const { unique: cids, duplicates } = dedupeCids(parseCidList(await readFile(cidListFile, 'utf8')))
-    if (cids.length === 0) {
-      throw new Error(`no CIDs found in ${cidListFile} (one CID per line; # comments and blank lines are ignored)`)
-    }
-    if (duplicates.length > 0) {
-      cliLog.message(`ignoring ${duplicates.length} duplicate CID(s) in ${cidListFile}: ${duplicates.join(', ')}`)
+    // Read the source before any Synapse work so a bad path or missing credentials fail fast.
+    let cids: string[] = []
+    let objects: GcsObject[] = []
+    let gcsFetch: GcsFetch | null = null
+    if (gcs == null) {
+      cids = await readCids(sourceArg)
+    } else {
+      gcsFetch = await adcFetch()
+      objects = await listGcsObjects(gcs, gcsFetch)
+      if (objects.length === 0) throw new Error(`no objects found under ${sourceArg}`)
     }
 
     spinner.start('Initializing Synapse SDK...')
@@ -242,7 +259,8 @@ export async function runMigrateFromCli(
     const db = new MigrationDB(dbPath, `${networkSlug}:${owner}`)
     try {
       db.addCids(cids)
-      cliLog.line(`Registered ${cids.length} CID(s) from ${cidListFile} (state: ${db.path})`)
+      db.addSources(objects)
+      cliLog.line(`Registered ${cids.length + objects.length} item(s) from ${sourceArg} (state: ${db.path})`)
       cliLog.flush()
 
       const summary = await runMigrate(db, {
@@ -260,6 +278,7 @@ export async function runMigrateFromCli(
         assumedWindowMs,
         dataSetMetadata: contextSelection.dataSetIds == null ? { ...MIGRATE_DATA_SET_METADATA } : undefined,
         withCDN,
+        source: gcsFetch == null ? undefined : gcsSource(db, gcsFetch),
       })
 
       printSummary(summary)
