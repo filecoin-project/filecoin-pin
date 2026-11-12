@@ -52,6 +52,14 @@ Migrate writes into its own [data sets](glossary.md#data-set), tagged with `migr
 
 Egress defaults to `none` for migrate: bulk archives will not pay [FilBeam](glossary.md#filbeam-egress) CDN lockup unless you ask for it with `--egress-provider beam`. Storage costs are the same as any other upload; run `filecoin-pin payments status` before a large migration.
 
+## Encryption
+
+`--encrypt` encrypts every CID before it is packed, the same way `add --encrypt` does (see the [Encryption guide](encryption.md)): each verified member CAR becomes the plaintext of its own [Envelope](glossary.md#envelope), under a fresh key derived from a [Group Key](glossary.md#group-key), packed as one file named `<source-cid>.car`. The envelope is wrapped in a UnixFS CAR whose root, the [Encrypted Root CID](glossary.md#encrypted-root-cid), takes the source CID's place in the packed piece. Providers and gateways only ever hold and serve ciphertext.
+
+The source CID is never on chain or in the piece; `migrate.db` maps it to the stored CID (`SELECT cid, stored_cid FROM pieces`). To restore one, run `filecoin-pin get <stored-cid> <dir>` with the owner wallet (or a session key holding the group key's Grant): it writes `<dir>/<source-cid>.car`, the exact CAR that was verified at download.
+
+Encrypted runs write into data sets tagged with their group key, so they never share a data set with plain uploads or another group key. Without `--group-key` that is the wallet's group key, as for `add --encrypt`. `--group-key <id>` (`0x` and 32 lowercase hex, implies `--encrypt`) picks another one, so each tenant gets its own key and its own data set per copy; state and staging files are kept per group key too. `--data-set-id` is refused with `--encrypt`.
+
 ## What the exit code means
 
 `0` means every CID in the list is committed on chain at the requested number of copies. Anything short of that (failed downloads, over-cap CIDs, unresolved commits, missing copies) exits `1`, and the summary printed at the end says exactly which CIDs need attention (the full record lives in `migrate.db`). Re-running is always safe.

@@ -6,18 +6,28 @@
 
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { KEYSPACE_ID_KEY as GROUP_KEY_ID } from '@filoz/keysmith'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino from 'pino'
+import type { Hex } from 'viem'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { assertUploadFunds, rerunHint } from '../common/funds-preflight.js'
+import {
+  CANONICAL_GROUP_KEY_ID,
+  OWNER_WALLET_REQUIRED,
+  type OwnerGroupKey,
+  ownerGroupKey,
+  ownerSigner,
+} from '../common/group-key.js'
+import { grantGroupKey, loadGroupKeyGrant } from '../common/group-key-grant.js'
 import { validatePaymentSetup } from '../common/upload-flow.js'
 import { getDataDirectory } from '../config.js'
 import { DEFAULT_COPIES, IPFS_INDEXED_METADATA } from '../core/synapse/constants.js'
 import { APPLICATION_SOURCE, getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
-import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
+import { parseCLIAuth, parseContextSelectionOptions, parseDataSetIdSelection } from '../utils/cli-auth.js'
 import {
   cancel,
   createSpinner,
@@ -58,6 +68,10 @@ export interface NormalizedMigrateOptions {
   withCDN: boolean
   /** Explicit staging cap; null means derive from free disk space. */
   maxStagedBytes: number | null
+  /** `--encrypt`, or implied by `--group-key`. */
+  encrypt: boolean
+  /** `--group-key`: the group key to encrypt under instead of the wallet's default one. */
+  groupKeyId: Hex | undefined
 }
 
 /**
@@ -95,6 +109,14 @@ export function normalizeMigrateOptions(options: Record<string, unknown>): Norma
   // for add/import cannot flip a bulk run to beam.
   const egressProvider = (options.egressProvider as string | undefined) ?? 'none'
   const maxStagedBytes = options.maxStagedBytes == null ? null : Number(parseSize(String(options.maxStagedBytes)))
+  const groupKeyId = options.groupKey as Hex | undefined
+  if (groupKeyId != null && !CANONICAL_GROUP_KEY_ID.test(groupKeyId)) {
+    throw new Error(`--group-key ${groupKeyId} is not 0x and 32 lowercase hex`)
+  }
+  const encrypt = options.encrypt === true || groupKeyId != null
+  if (encrypt && parseDataSetIdSelection(options).length > 0) {
+    throw new Error('--data-set-id cannot be used with --encrypt: encrypted data sets are chosen by their group key')
+  }
   return {
     packTargetBytes,
     concurrency,
@@ -103,6 +125,8 @@ export function normalizeMigrateOptions(options: Record<string, unknown>): Norma
     gateways,
     withCDN: egressProvider === 'beam',
     maxStagedBytes,
+    encrypt,
+    groupKeyId,
   }
 }
 
@@ -110,17 +134,17 @@ export function normalizeMigrateOptions(options: Record<string, unknown>): Norma
  * Resolve the migrate state paths under the platform data directory:
  * `<dataDir>/migrate/migrate.db` (unless `--db` overrides it), and per
  * network and owner, `<dataDir>/migrate/<network>/<owner>/members` for
- * verified member CARs and `.../cars` for assembled pieces. The DB scopes
- * rows by network and owner; the directories follow, or a run for one wallet
- * would sweep away files another wallet's run is still using.
+ * verified member CARs and `.../cars` for assembled pieces, under `<groupKeyId>/`
+ * with `--encrypt`. The DB scopes rows the same way; the directories follow, or a
+ * run for one wallet or group key would sweep away files another run is still using.
  */
 export function resolveMigratePaths(
   dataDir: string,
-  scope: { network: string; owner: string },
+  scope: { network: string; owner: string; groupKeyId?: string | undefined },
   dbFlag?: string
 ): { migrateDir: string; dbPath: string; stagingDir: string; memberDir: string; carStore: string } {
   const migrateDir = join(dataDir, 'migrate')
-  const stagingDir = join(migrateDir, scope.network, scope.owner.toLowerCase())
+  const stagingDir = join(migrateDir, scope.network, scope.owner.toLowerCase(), scope.groupKeyId ?? '')
   return {
     migrateDir,
     dbPath: dbFlag ?? join(migrateDir, 'migrate.db'),
@@ -172,6 +196,7 @@ export async function runMigrateFromCli(
   const spinner = createSpinner()
 
   const logger = pino({ level: process.env.LOG_LEVEL || 'silent' })
+  let groupKey: OwnerGroupKey | undefined
 
   try {
     const normalized = normalizeMigrateOptions(options)
@@ -202,6 +227,25 @@ export async function runMigrateFromCli(
       printEgressNotice('beam')
     }
 
+    // Encrypted members land only in data sets of their group key, one group key per tenant.
+    if (normalized.encrypt) {
+      const signer = ownerSigner(synapse)
+      if (signer != null) {
+        groupKey = await ownerGroupKey(synapse, signer, logger, normalized.groupKeyId)
+      } else if ('sessionKey' in config && config.sessionKey != null) {
+        const session = { sessionKey: config.sessionKey, walletAddress: getClientAddress(synapse) }
+        groupKey = await grantGroupKey(synapse, await loadGroupKeyGrant(session, synapse.chain.id), logger)
+        const granted = groupKey.dataSetMetadata[GROUP_KEY_ID]
+        if (normalized.groupKeyId != null && normalized.groupKeyId !== granted) {
+          throw new Error(`--group-key ${normalized.groupKeyId} is not this session's Grant (${granted})`)
+        }
+      } else {
+        throw new Error(OWNER_WALLET_REQUIRED)
+      }
+      cliLog.line(`Encrypting under group key ${groupKey.dataSetMetadata[GROUP_KEY_ID]}`)
+    }
+    const dataSetMetadata = { ...MIGRATE_DATA_SET_METADATA, ...groupKey?.dataSetMetadata }
+
     // The total upload size is unknown until CIDs download, so the check
     // here is "can the account pay for one packed piece"; per-batch capacity
     // failures come out of the commit path with the payments hints. (A zero
@@ -217,7 +261,7 @@ export async function runMigrateFromCli(
           copies,
           ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
           ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
-          ...(contextSelection.dataSetIds == null && { metadata: { ...MIGRATE_DATA_SET_METADATA } }),
+          ...(contextSelection.dataSetIds == null && { metadata: dataSetMetadata }),
           withCDN,
         },
         rerunHint(),
@@ -229,17 +273,18 @@ export async function runMigrateFromCli(
       await validatePaymentSetup(synapse, packTargetBytes, spinner)
     }
 
-    // State is scoped per network AND owner, rows and staging files alike:
-    // two wallets on one machine must not resume or sweep each other's work.
+    // State is scoped per network, owner and group key, rows and staging files alike:
+    // two wallets or tenants on one machine must not resume or sweep each other's work.
     const owner = getClientAddress(synapse).toLowerCase()
+    const groupKeyId = groupKey?.dataSetMetadata[GROUP_KEY_ID]
     const { dbPath, stagingDir, memberDir, carStore } = resolveMigratePaths(
       getDataDirectory(),
-      { network: networkSlug, owner },
+      { network: networkSlug, owner, groupKeyId },
       options.db as string | undefined
     )
     await mkdir(memberDir, { recursive: true })
     await mkdir(carStore, { recursive: true })
-    const db = new MigrationDB(dbPath, `${networkSlug}:${owner}`)
+    const db = new MigrationDB(dbPath, [networkSlug, owner, groupKeyId].filter((part) => part != null).join(':'))
     try {
       db.addCids(cids)
       cliLog.line(`Registered ${cids.length} CID(s) from ${cidListFile} (state: ${db.path})`)
@@ -258,7 +303,8 @@ export async function runMigrateFromCli(
         providerIds: contextSelection.providerIds,
         dataSetIds: contextSelection.dataSetIds,
         assumedWindowMs,
-        dataSetMetadata: contextSelection.dataSetIds == null ? { ...MIGRATE_DATA_SET_METADATA } : undefined,
+        dataSetMetadata: contextSelection.dataSetIds == null ? dataSetMetadata : undefined,
+        encryptTarget: groupKey?.target,
         withCDN,
       })
 
@@ -284,6 +330,8 @@ export async function runMigrateFromCli(
     logger.error({ event: 'migrate.failed', error }, 'Migrate failed')
     cancel('Migrate failed')
     throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
+  } finally {
+    groupKey?.target.key.fill(0)
   }
 }
 

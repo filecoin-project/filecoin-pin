@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { keyspaceKeys as deriveGroupKey, writeTarget } from '@filoz/keysmith'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { CarWriter } from '@ipld/car'
 import toBuffer from 'it-to-buffer'
@@ -15,6 +16,7 @@ import { migrateIncomplete } from '../../migrate/migrate.js'
 import type { BinBuilder } from '../../migrate/pack-cars.js'
 import { type MigrateRunOptions, runMigrate, stagingBudget } from '../../migrate/run-migrate.js'
 import { stageMember } from '../../migrate/verify-car.js'
+import { OWNER } from '../fixtures/group-key-grants.js'
 
 // Exercises the budget-clocked pipeline end to end with fake network edges:
 // downloads overlap uploads, a small budget cycles instead of wedging, and a
@@ -174,6 +176,38 @@ describe('stagingBudget', () => {
 })
 
 describe('runMigrate pipeline', () => {
+  it('with an encrypt target, packs every member under its stored CID and records it', async () => {
+    const cids = [{ cid: await cidFor('a') }, { cid: await cidFor('b') }]
+    const h = await harness({ cids, budgetBytes: 100_000, packTargetBytes: 1000 })
+    const { kk, descriptor } = await deriveGroupKey(OWNER, {
+      owner: OWNER.address,
+      keyspace: '0x00112233445566778899aabbccddeeff',
+    })
+    const roots = new Map<string, string>()
+    const buildBin = h.options.buildBin
+    try {
+      const summary = await runMigrate(
+        h.db,
+        {
+          ...h.options,
+          encryptTarget: writeTarget(descriptor, kk),
+          buildBin: async (bin, store, paths, onBytes, storedCids) => {
+            for (const [cid, stored] of storedCids ?? []) roots.set(cid, stored)
+            return (buildBin as BinBuilder)(bin, store, paths, onBytes, storedCids)
+          },
+        },
+        h.deps
+      )
+
+      expect(summary.pieces.succeeded).toBe(2)
+      expect([...roots.keys()].sort()).toEqual(cids.map((c) => c.cid).sort())
+      for (const [cid, stored] of roots) expect(stored).not.toBe(cid)
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  })
+
   it('uploads packed pieces while later CIDs still download', async () => {
     const cids = [
       { cid: await cidFor('a') },

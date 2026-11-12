@@ -64,6 +64,8 @@ export interface PieceRow {
   memberCarPath: string | null
   /** sha256 of the member CAR bytes, for resume re-verification. */
   memberSha256: string | null
+  /** Root CID the piece holds for this source CID when it differs (`--encrypt`): what `get` restores from. */
+  storedCid: string | null
   status: PieceStatus
   error: string | null
 }
@@ -138,6 +140,7 @@ export class MigrationDB {
         url              TEXT,
         member_car_path  TEXT,
         member_sha256    TEXT,
+        stored_cid       TEXT,
         status           TEXT NOT NULL DEFAULT 'pending',
         error            TEXT,
         failure_category TEXT,
@@ -236,12 +239,13 @@ export class MigrationDB {
       url: string
       memberCarPath: string
       memberSha256: string
+      storedCid?: string | undefined
     }
   ): void {
     this.#db
       .prepare(
         `UPDATE pieces SET piece_cid=?, raw_size=?, gateway=?, url=?,
-                            member_car_path=?, member_sha256=?,
+                            member_car_path=?, member_sha256=?, stored_cid=?,
                             status='done', error=NULL, failure_category=NULL, updated_at=?
          WHERE scope=? AND cid=?`
       )
@@ -252,6 +256,7 @@ export class MigrationDB {
         info.url,
         info.memberCarPath,
         info.memberSha256,
+        info.storedCid ?? null,
         new Date().toISOString(),
         this.scope,
         cid
@@ -487,7 +492,7 @@ export class MigrationDB {
     const rows = this.#db
       .prepare(
         `SELECT p.cid, p.piece_cid, p.raw_size, p.gateway, p.url,
-                p.member_car_path, p.member_sha256, p.status, p.error
+                p.member_car_path, p.member_sha256, p.stored_cid, p.status, p.error
          FROM pieces p
          WHERE p.scope = ? AND p.status='done'
            AND p.cid NOT IN (SELECT member_cid FROM sub_piece_members WHERE scope = ?)
@@ -816,6 +821,7 @@ function toPieceRow(r: unknown): PieceRow {
     url: row.url == null ? null : String(row.url),
     memberCarPath: row.member_car_path == null ? null : String(row.member_car_path),
     memberSha256: row.member_sha256 == null ? null : String(row.member_sha256),
+    storedCid: row.stored_cid == null ? null : String(row.stored_cid),
     status: row.status as PieceStatus,
     error: row.error == null ? null : String(row.error),
   }

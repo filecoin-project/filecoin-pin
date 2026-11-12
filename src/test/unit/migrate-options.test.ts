@@ -52,6 +52,25 @@ describe('normalizeMigrateOptions', () => {
       normalizeMigrateOptions({ gateway: ['https://gw.example'], packTargetSize: String(MAX_UPLOAD_BYTES + 1) })
     ).toThrow(/exceeds the per-piece upload cap/)
   })
+
+  it('takes --group-key as a canonical id and lets it imply --encrypt', () => {
+    const gw = { gateway: ['https://gw.example'] }
+    expect(normalizeMigrateOptions(gw).encrypt).toBe(false)
+    expect(normalizeMigrateOptions({ ...gw, encrypt: true })).toMatchObject({ encrypt: true, groupKeyId: undefined })
+    expect(normalizeMigrateOptions({ ...gw, groupKey: '0x00112233445566778899aabbccddeeff' })).toMatchObject({
+      encrypt: true,
+      groupKeyId: '0x00112233445566778899aabbccddeeff',
+    })
+    expect(() => normalizeMigrateOptions({ ...gw, groupKey: '0x00112233445566778899AABBCCDDEEFF' })).toThrow(
+      /--group-key/
+    )
+  })
+
+  it('refuses --encrypt with --data-set-id: encrypted data sets are chosen by group key', () => {
+    expect(() =>
+      normalizeMigrateOptions({ gateway: ['https://gw.example'], encrypt: true, dataSetIds: ['7'] })
+    ).toThrow(/--data-set-id/)
+  })
 })
 
 describe('resolveMigratePaths', () => {
@@ -70,6 +89,13 @@ describe('resolveMigratePaths', () => {
     const b = resolveMigratePaths('/data', { ...scope, owner: '0xDEF' })
     expect(a.dbPath).toBe(b.dbPath)
     expect(a.stagingDir).not.toBe(b.stagingDir)
+  })
+
+  it("stages each group key apart, so one run never sweeps another tenant's files", () => {
+    const plain = resolveMigratePaths('/data', scope)
+    const tenant = resolveMigratePaths('/data', { ...scope, groupKeyId: '0x00112233445566778899aabbccddeeff' })
+    expect(tenant.stagingDir).toBe(join(plain.stagingDir, '0x00112233445566778899aabbccddeeff'))
+    expect(tenant.dbPath).toBe(plain.dbPath)
   })
 
   it('lets --db override the database path but keeps the staging dirs', () => {

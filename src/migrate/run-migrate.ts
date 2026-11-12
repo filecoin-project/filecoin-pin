@@ -18,6 +18,7 @@ import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { readdir, stat, statfs, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { WriteTarget } from '@filoz/keysmith'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { formatFileSize } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -29,6 +30,7 @@ import {
   defaultDirectUploadDeps,
   runDirectUpload,
 } from './direct-upload.js'
+import { encryptMember } from './encrypt-member.js'
 import { failureCategoryOf, StagingError } from './gateway.js'
 import { type BinBuilder, runPackCars } from './pack-cars.js'
 import { type StagedMember, stageMember, type VerifyCarOptions } from './verify-car.js'
@@ -54,6 +56,8 @@ export interface MigrateRunOptions {
   assumedWindowMs?: number | undefined
   dataSetMetadata?: Record<string, string> | undefined
   withCDN?: boolean | undefined
+  /** `--encrypt`: each member is encrypted under a fresh key from this group key before packing. */
+  encryptTarget?: WriteTarget | undefined
   /** Test seam: replaces the gateway member stager. */
   stageMemberFn?: typeof stageMember | undefined
   /** Test seam: replaces the per-bin CAR assembler. */
@@ -482,6 +486,11 @@ export async function runMigrate(
             inFlightDownloads++
             try {
               member = await stage(cid, opts.gateways, opts.memberDir, verifyOpts)
+              if (opts.encryptTarget != null) {
+                const encrypted = await encryptMember(member, opts.encryptTarget)
+                budget.add(encrypted.rawSize - member.rawSize)
+                member = encrypted
+              }
             } catch (err) {
               // The temp file is gone either way; return its bytes.
               budget.reserved -= reservedHere
