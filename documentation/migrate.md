@@ -12,7 +12,7 @@ This page explains the pipeline and the guarantees behind it. For flags and defa
 
 Credentials come from [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials): run `gcloud auth application-default login`, or set `GOOGLE_APPLICATION_CREDENTIALS` to a service account key. Read access to the bucket (`roles/storage.objectViewer`) is enough.
 
-The `sources` table in `migrate.db` maps each object (`gs://bucket/name`) to its root CID, with the size and crc32c from the listing. Re-running against the same bucket lists it again and imports only objects that are new or whose crc32c changed, so a daily re-run is safe and cheap. Objects with identical content share one CID and are stored once.
+State for a `gs://` source lives in its own `migrate-gcs.db`, apart from the CID-list `migrate.db` (`--db` overrides either). Its `sources` table maps each object (`gs://bucket/name`) to its root CID, with the size and crc32c from the listing. Re-running against the same bucket lists it again and imports only objects that are new or whose crc32c changed, so a daily re-run is safe and cheap. Objects with identical content share one CID and are stored once.
 
 ## Why not just run `add` in a loop
 

@@ -25,7 +25,10 @@ export const migrateCommand = new Command('migrate')
     'Starting guess for the provider GC window; commits flush before it expires (default: 60)'
   )
   .option('--copies <n>', 'Number of storage copies to create (default: 2)')
-  .option('--db <file>', 'Migrate state database path (default: migrate.db in the filecoin-pin data directory)')
+  .option(
+    '--db <file>',
+    'Migrate state database path (default: migrate.db in the filecoin-pin data directory, migrate-gcs.db for gs:// sources)'
+  )
   .action(async (source: string, options) => {
     try {
       const summary = await runMigrateFromCli(source, options)
