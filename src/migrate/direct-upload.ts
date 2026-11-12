@@ -418,119 +418,125 @@ export async function runDirectUpload(
   // and stored again in the retry pass below; aborting the run on the first
   // one would let every other parked piece age toward the GC window.
   const storeDeferred = new Set<string>()
-  for (;;) {
-    const pending = db.subPiecesNeedingUpload(primary.providerId).filter((s) => !storeDeferred.has(s.subPieceCid))
-    const next = pending[0]
-    if (next == null) {
-      // A budget-blocked producer forces a commit so eviction frees space.
-      await maybeFlush(opts.forceFlush?.() === true)
-      if (opts.waitForMore == null) break
-      // Wake on a timer too: a slow packer must not age parked pieces past their deadline.
-      let timer: NodeJS.Timeout | undefined
-      const more = await Promise.race([
-        opts.waitForMore(storeDeferred),
-        new Promise<null>((resolve) => {
-          timer = setTimeout(() => resolve(null), FLUSH_POLL_MS)
-        }),
-      ])
-      clearTimeout(timer)
-      if (more === false) break
-      continue
-    }
-    if (next.carPath == null) {
-      // subPiecesNeedingUpload selects built rows, which always carry a CAR
-      // path; reaching this is a query bug.
-      throw new Error(`sub-piece ${next.subPieceCid} has no local CAR path`)
-    }
+  try {
+    for (;;) {
+      const pending = db.subPiecesNeedingUpload(primary.providerId).filter((s) => !storeDeferred.has(s.subPieceCid))
+      const next = pending[0]
+      if (next == null) {
+        // A budget-blocked producer forces a commit so eviction frees space.
+        await maybeFlush(opts.forceFlush?.() === true)
+        if (opts.waitForMore == null) break
+        // Wake on a timer too: a slow packer must not age parked pieces past their deadline.
+        let timer: NodeJS.Timeout | undefined
+        const more = await Promise.race([
+          opts.waitForMore(storeDeferred),
+          new Promise<null>((resolve) => {
+            timer = setTimeout(() => resolve(null), FLUSH_POLL_MS)
+          }),
+        ])
+        clearTimeout(timer)
+        if (more === false) break
+        continue
+      }
+      if (next.carPath == null) {
+        // subPiecesNeedingUpload selects built rows, which always carry a CAR
+        // path; reaching this is a query bug.
+        throw new Error(`sub-piece ${next.subPieceCid} has no local CAR path`)
+      }
 
-    const storeTimer = new Timer()
-    let stored: { size: number }
-    try {
-      stored = await storeCar(primary, deps, next.carPath, next.subPieceCid)
-    } catch (err) {
-      if (err instanceof CommPMismatchError) {
-        db.markUploadFailed(next.subPieceCid, primary.providerId, 'primary', err.message)
-        log.message(`error: ${err.message}`)
-        continue
-      }
-      storeDeferred.add(next.subPieceCid)
-      log.message(
-        `error: store of ${next.subPieceCid} on provider ${primary.providerId} failed, will retry after the ` +
-          `remaining pieces: ${(err as Error).message}`
-      )
-      continue
-    }
-    storedBytes += stored.size
-    db.recordUploadParked(next.subPieceCid, primary.providerId, 'primary', primary.dataSetId)
-    log.message(
-      `parked ${next.subPieceCid} (${formatFileSize(stored.size)}) on primary ${primary.providerId} ` +
-        `in ${formatDuration(storeTimer.stop())}`
-    )
-    queuePulls(next.subPieceCid)
-    await maybeFlush(false)
-  }
-
-  // Source drained. Flush whatever is parked, then retry what didn't land:
-  // collected pieces (GC'd before commit) and failed secondary pulls. A
-  // primary copy re-uploads from the staged CAR; a secondary copy re-pulls
-  // from the primary, which still holds the bytes.
-  await drain()
-  for (let attempt = 0; attempt < 3; attempt++) {
-    // A crash between the primary store and the secondary pull leaves a
-    // sub-piece with a live primary row and no row at all for the secondary;
-    // repair those alongside the recorded retry states, or the secondary
-    // copy would silently never exist.
-    const missingSecondaries = secondaries.flatMap((ctx) =>
-      db.subPiecesMissingSecondary(primary.providerId, ctx.providerId).map((subPieceCid) => ({ ctx, subPieceCid }))
-    )
-    const needsRetry = contexts.flatMap((ctx, i) =>
-      ['collected' as const, ...(i > 0 ? ['failed' as const] : [])]
-        .flatMap((status) => db.uploadsByStatus(ctx.providerId, status))
-        .map((u) => ({ ctx, subPieceCid: u.subPieceCid, role: u.role }))
-    )
-    // Built pieces with no live primary row and no retry row above: store()
-    // failed earlier in this run, or a crash landed between the build and
-    // the first store. (A collected primary is already in needsRetry.)
-    const queued = new Set(needsRetry.filter((r) => r.ctx === primary).map((r) => r.subPieceCid))
-    const unstored = db
-      .subPiecesNeedingUpload(primary.providerId)
-      .filter((s) => !queued.has(s.subPieceCid))
-      .map((s) => ({ ctx: primary, subPieceCid: s.subPieceCid, role: 'primary' as const }))
-    const retries = [...needsRetry, ...unstored]
-    if (retries.length === 0 && missingSecondaries.length === 0) break
-    log.message(
-      `retrying ${retries.length + missingSecondaries.length} piece(s) that did not land (attempt ${attempt + 1})`
-    )
-    for (const { ctx, subPieceCid } of missingSecondaries) {
-      await pullToSecondary(db, primary, ctx, subPieceCid)
-    }
-    for (const { ctx, subPieceCid, role } of retries) {
-      if (role === 'secondary') {
-        await pullToSecondary(db, primary, ctx, subPieceCid)
-        continue
-      }
-      const sub = db.subPieceByCid(subPieceCid)
-      if (sub?.carPath == null) {
-        log.message(`error: ${subPieceCid} has no local CAR; cannot store it`)
-        continue
-      }
+      const storeTimer = new Timer()
+      let stored: { size: number }
       try {
-        const stored = await storeCar(ctx, deps, sub.carPath, sub.subPieceCid)
-        storedBytes += stored.size
-        db.recordUploadParked(sub.subPieceCid, ctx.providerId, role, ctx.dataSetId)
-        // Same fanout as the main loop, or a store that only lands on the last
-        // attempt leaves the secondaries without a copy.
-        queuePulls(sub.subPieceCid)
+        stored = await storeCar(primary, deps, next.carPath, next.subPieceCid)
       } catch (err) {
         if (err instanceof CommPMismatchError) {
-          db.markUploadFailed(sub.subPieceCid, ctx.providerId, role, err.message)
+          db.markUploadFailed(next.subPieceCid, primary.providerId, 'primary', err.message)
+          log.message(`error: ${err.message}`)
+          continue
         }
+        storeDeferred.add(next.subPieceCid)
         log.message(
-          `error: store of ${sub.subPieceCid} on provider ${ctx.providerId} failed: ${(err as Error).message}`
+          `error: store of ${next.subPieceCid} on provider ${primary.providerId} failed, will retry after the ` +
+            `remaining pieces: ${(err as Error).message}`
         )
+        continue
       }
+      storedBytes += stored.size
+      db.recordUploadParked(next.subPieceCid, primary.providerId, 'primary', primary.dataSetId)
+      log.message(
+        `parked ${next.subPieceCid} (${formatFileSize(stored.size)}) on primary ${primary.providerId} ` +
+          `in ${formatDuration(storeTimer.stop())}`
+      )
+      queuePulls(next.subPieceCid)
+      await maybeFlush(false)
     }
+
+    // Source drained. Flush whatever is parked, then retry what didn't land:
+    // collected pieces (GC'd before commit) and failed secondary pulls. A
+    // primary copy re-uploads from the staged CAR; a secondary copy re-pulls
+    // from the primary, which still holds the bytes.
     await drain()
+    for (let attempt = 0; attempt < 3; attempt++) {
+      // A crash between the primary store and the secondary pull leaves a
+      // sub-piece with a live primary row and no row at all for the secondary;
+      // repair those alongside the recorded retry states, or the secondary
+      // copy would silently never exist.
+      const missingSecondaries = secondaries.flatMap((ctx) =>
+        db.subPiecesMissingSecondary(primary.providerId, ctx.providerId).map((subPieceCid) => ({ ctx, subPieceCid }))
+      )
+      const needsRetry = contexts.flatMap((ctx, i) =>
+        ['collected' as const, ...(i > 0 ? ['failed' as const] : [])]
+          .flatMap((status) => db.uploadsByStatus(ctx.providerId, status))
+          .map((u) => ({ ctx, subPieceCid: u.subPieceCid, role: u.role }))
+      )
+      // Built pieces with no live primary row and no retry row above: store()
+      // failed earlier in this run, or a crash landed between the build and
+      // the first store. (A collected primary is already in needsRetry.)
+      const queued = new Set(needsRetry.filter((r) => r.ctx === primary).map((r) => r.subPieceCid))
+      const unstored = db
+        .subPiecesNeedingUpload(primary.providerId)
+        .filter((s) => !queued.has(s.subPieceCid))
+        .map((s) => ({ ctx: primary, subPieceCid: s.subPieceCid, role: 'primary' as const }))
+      const retries = [...needsRetry, ...unstored]
+      if (retries.length === 0 && missingSecondaries.length === 0) break
+      log.message(
+        `retrying ${retries.length + missingSecondaries.length} piece(s) that did not land (attempt ${attempt + 1})`
+      )
+      for (const { ctx, subPieceCid } of missingSecondaries) {
+        await pullToSecondary(db, primary, ctx, subPieceCid)
+      }
+      for (const { ctx, subPieceCid, role } of retries) {
+        if (role === 'secondary') {
+          await pullToSecondary(db, primary, ctx, subPieceCid)
+          continue
+        }
+        const sub = db.subPieceByCid(subPieceCid)
+        if (sub?.carPath == null) {
+          log.message(`error: ${subPieceCid} has no local CAR; cannot store it`)
+          continue
+        }
+        try {
+          const stored = await storeCar(ctx, deps, sub.carPath, sub.subPieceCid)
+          storedBytes += stored.size
+          db.recordUploadParked(sub.subPieceCid, ctx.providerId, role, ctx.dataSetId)
+          // Same fanout as the main loop, or a store that only lands on the last
+          // attempt leaves the secondaries without a copy.
+          queuePulls(sub.subPieceCid)
+        } catch (err) {
+          if (err instanceof CommPMismatchError) {
+            db.markUploadFailed(sub.subPieceCid, ctx.providerId, role, err.message)
+          }
+          log.message(
+            `error: store of ${sub.subPieceCid} on provider ${ctx.providerId} failed: ${(err as Error).message}`
+          )
+        }
+      }
+      await drain()
+    }
+  } catch (err) {
+    // A detached pull would write through the caller's closed DB.
+    await pulls.catch(() => undefined)
+    throw err
   }
 
   await evictCommitted()

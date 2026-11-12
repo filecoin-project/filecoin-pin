@@ -378,6 +378,36 @@ describe('runDirectUpload', () => {
     }
   })
 
+  it('settles queued pulls before rejecting on commit failures', async () => {
+    const { dir, db } = await dbAt('du-fail-pulls')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      seedBuilt(db, P2, join(dir, 'b.car'))
+      let release: () => void = () => undefined
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const { deps, calls } = fakeDeps({
+        failAllCommits: 'insufficient funds',
+        pullGate: (call) => (call === 2 ? gate : undefined),
+      })
+      let settled = false
+      const run = runDirectUpload(db, { ...OPTS, assumedWindowMs: 1 }, deps).finally(() => {
+        settled = true
+      })
+      run.catch(() => undefined)
+
+      await vi.waitFor(() => expect((calls.commit.get('p1') ?? 0) + (calls.commit.get('p2') ?? 0)).toBe(3))
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(settled).toBe(false)
+      release()
+      await expect(run).rejects.toThrow(/3 consecutive commit failures/)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('commits the primary without waiting on a slow secondary pull', async () => {
     const { dir, db } = await dbAt('du-slow-pull')
     try {
