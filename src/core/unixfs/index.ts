@@ -2,7 +2,13 @@ import { stat } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import { type CreateCarOptions, type CreateCarResult, cleanupTempCar, createCarFromPath } from './car-builder.js'
 
-export * from './car-builder.js'
+export {
+  type CreateCarOptions,
+  type CreateCarResult,
+  cleanupTempCar,
+  createCarFromPath,
+  type Spinner,
+} from './car-builder.js'
 export { importerOptions, UNIXFS_PROFILE } from './importer-options.js'
 
 export interface CarBuildResult {

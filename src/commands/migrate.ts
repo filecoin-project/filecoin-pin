@@ -29,7 +29,10 @@ export const migrateCommand = new Command('migrate')
     '--encrypt',
     'Encrypt each object as add --encrypt does, so providers and gateways hold only ciphertext; get <cid> restores it. gs:// sources only.'
   )
-  .option('--db <file>', 'Migrate state database path (default: migrate.db in the filecoin-pin data directory)')
+  .option(
+    '--db <file>',
+    'Migrate state database path (default: migrate.db in the filecoin-pin data directory, migrate-gcs.db for gs:// sources)'
+  )
   .action(async (source: string, options) => {
     try {
       const summary = await runMigrateFromCli(source, options)

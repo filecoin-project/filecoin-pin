@@ -154,18 +154,20 @@ export async function migrateGroupKey(
  * network and owner, `<dataDir>/migrate/<network>/<owner>/members` for
  * verified member CARs and `.../cars` for assembled pieces. The DB scopes
  * rows by network and owner; the directories follow, or a run for one wallet
- * would sweep away files another wallet's run is still using.
+ * would sweep away files another wallet's run is still using. A gs:// source
+ * gets its own `migrate-gcs.db` and `.../<owner>/gcs/` staging dirs.
  */
 export function resolveMigratePaths(
   dataDir: string,
   scope: { network: string; owner: string },
-  dbFlag?: string
+  dbFlag?: string,
+  gcs = false
 ): { migrateDir: string; dbPath: string; stagingDir: string; memberDir: string; carStore: string } {
   const migrateDir = join(dataDir, 'migrate')
-  const stagingDir = join(migrateDir, scope.network, scope.owner.toLowerCase())
+  const stagingDir = join(migrateDir, scope.network, scope.owner.toLowerCase(), gcs ? 'gcs' : '')
   return {
     migrateDir,
-    dbPath: dbFlag ?? join(migrateDir, 'migrate.db'),
+    dbPath: dbFlag ?? join(migrateDir, gcs ? 'migrate-gcs.db' : 'migrate.db'),
     stagingDir,
     memberDir: join(stagingDir, 'members'),
     carStore: join(stagingDir, 'cars'),
@@ -299,7 +301,8 @@ export async function runMigrateFromCli(sourceArg: string, options: Record<strin
     const { dbPath, stagingDir, memberDir, carStore } = resolveMigratePaths(
       getDataDirectory(),
       { network: networkSlug, owner },
-      options.db as string | undefined
+      options.db as string | undefined,
+      gcs != null
     )
     await mkdir(memberDir, { recursive: true })
     await mkdir(carStore, { recursive: true })
