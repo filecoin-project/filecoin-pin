@@ -378,6 +378,37 @@ describe('runDirectUpload', () => {
     }
   })
 
+  it.each([
+    ['missing', (_db: MigrationDB, _cid: string) => undefined],
+    ['failed', (db: MigrationDB, cid: string) => db.markUploadFailed(cid, 'p2', 'secondary', 'pull failed')],
+  ])('commits each repaired %s secondary before the next retry pull finishes', async (_name, seedSecondary) => {
+    const { dir, db } = await dbAt('du-retry-flush')
+    try {
+      for (const [cid, car] of [
+        [P1, 'a.car'],
+        [P2, 'b.car'],
+      ] as const) {
+        seedBuilt(db, cid, join(dir, car))
+        db.recordUploadParked(cid, 'p1', 'primary', null)
+        seedSecondary(db, cid)
+      }
+      const releases: Array<() => void> = []
+      const gates = [0, 1].map(() => new Promise<void>((resolve) => releases.push(resolve)))
+      const { deps } = fakeDeps({ pullGate: (call) => gates[call - 1] })
+      // A 1 ms window makes every repaired secondary due as soon as it parks.
+      const run = runDirectUpload(db, { ...OPTS, assumedWindowMs: 1 }, deps)
+
+      await vi.waitFor(() => expect(db.uploadStatus(P1, 'p1')).toBe('committed'))
+      releases[0]?.()
+      await vi.waitFor(() => expect(db.uploadsByStatus('p2', 'committed')).toHaveLength(1))
+      releases[1]?.()
+      await run
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('settles queued pulls before rejecting on commit failures', async () => {
     const { dir, db } = await dbAt('du-fail-pulls')
     try {

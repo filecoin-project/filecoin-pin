@@ -504,10 +504,12 @@ export async function runDirectUpload(
       )
       for (const { ctx, subPieceCid } of missingSecondaries) {
         await pullToSecondary(db, primary, ctx, subPieceCid)
+        await maybeFlush(false)
       }
       for (const { ctx, subPieceCid, role } of retries) {
         if (role === 'secondary') {
           await pullToSecondary(db, primary, ctx, subPieceCid)
+          await maybeFlush(false)
           continue
         }
         const sub = db.subPieceByCid(subPieceCid)
