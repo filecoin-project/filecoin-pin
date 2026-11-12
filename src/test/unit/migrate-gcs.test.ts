@@ -278,4 +278,18 @@ describe('MigrationDB object sources', () => {
     expect(db.pendingSources()).toEqual(['gs://b/a.pdf', 'gs://b/b.pdf'])
     db.close()
   })
+
+  it('refuses to switch an object between plain and encrypted, registering nothing', () => {
+    const db = new MigrationDB(':memory:', 'test:0xabc')
+    db.addSources([obj('a.pdf')])
+    expect(() => db.addSources([obj('new.pdf'), obj('a.pdf')], true)).toThrow(
+      /gs:\/\/b\/a\.pdf was migrated without --encrypt.*different --db/
+    )
+    expect(db.sources().map((s) => s.url)).toEqual(['gs://b/a.pdf'])
+    db.addSources([{ url: 'gs://other/x.pdf', size: 10, crc32c: 'x' }], true)
+    expect(() => db.addSources([{ url: 'gs://other/x.pdf', size: 10, crc32c: 'x' }])).toThrow(
+      /gs:\/\/other\/x\.pdf was migrated with --encrypt/
+    )
+    db.close()
+  })
 })

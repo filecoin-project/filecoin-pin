@@ -325,7 +325,7 @@ export async function runMigrateFromCli(sourceArg: string, options: Record<strin
     const db = new MigrationDB(dbPath, `${networkSlug}:${owner}`)
     try {
       db.addCids(cids)
-      db.addSources(objects)
+      db.addSources(objects, normalized.encrypt)
       cliLog.line(`Registered ${cids.length + objects.length} item(s) from ${sourceArg} (state: ${db.path})`)
       cliLog.flush()
 

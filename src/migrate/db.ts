@@ -208,6 +208,7 @@ export class MigrationDB {
         cid              TEXT,
         error            TEXT,
         failure_category TEXT,
+        encrypted        INTEGER NOT NULL DEFAULT 0,
         updated_at       TEXT NOT NULL,
         PRIMARY KEY (scope, url)
       );
@@ -271,16 +272,36 @@ export class MigrationDB {
       )
   }
 
-  /** Register listed objects. Unchanged ones keep their CID; a changed crc32c re-queues the import. */
-  addSources(objects: Array<{ url: string; size: number; crc32c: string }>): void {
+  /**
+   * Register listed objects. Unchanged ones keep their CID; a changed crc32c re-queues the import.
+   * Throws, registering nothing, if an object was recorded under the other `--encrypt` mode.
+   */
+  addSources(objects: Array<{ url: string; size: number; crc32c: string }>, encrypted = false): void {
+    const mode = this.#db.prepare('SELECT encrypted FROM sources WHERE scope = ? AND url = ?')
     const stmt = this.#db.prepare(
-      `INSERT INTO sources (scope, url, size, crc32c, updated_at) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO sources (scope, url, size, crc32c, encrypted, updated_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(scope, url) DO UPDATE SET size = excluded.size, crc32c = excluded.crc32c, cid = NULL,
          error = NULL, failure_category = NULL, updated_at = excluded.updated_at
        WHERE sources.crc32c != excluded.crc32c`
     )
     const now = new Date().toISOString()
-    for (const o of objects) stmt.run(this.scope, o.url, o.size, o.crc32c, now)
+    this.#db.exec('BEGIN')
+    try {
+      for (const o of objects) {
+        const row = mode.get(this.scope, o.url) as { encrypted: number } | undefined
+        if (row != null && row.encrypted !== Number(encrypted)) {
+          const was = encrypted ? 'without' : 'with'
+          throw new Error(
+            `${o.url} was migrated ${was} --encrypt in ${this.path}; re-run ${was} --encrypt, or pass a different --db to migrate it again`
+          )
+        }
+        stmt.run(this.scope, o.url, o.size, o.crc32c, Number(encrypted), now)
+      }
+      this.#db.exec('COMMIT')
+    } catch (err) {
+      this.#db.exec('ROLLBACK')
+      throw err
+    }
   }
 
   /** Objects not yet imported, or whose imported piece went back to pending. */
