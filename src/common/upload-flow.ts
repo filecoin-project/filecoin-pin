@@ -32,7 +32,14 @@ import { log } from '../utils/cli-logger.js'
 import { truncate } from '../utils/format.js'
 import { createSpinnerFlow } from '../utils/multi-operation-spinner.js'
 import { CliFatal } from './cli-errors.js'
-import { ENCRYPTED_DATA_SET_KEYS } from './group-key.js'
+import {
+  assertNoReadMetadata,
+  type DataSetVisibility,
+  dataSetVisibility,
+  ENCRYPTED_DATA_SET_KEYS,
+  READ_KEY,
+  VISIBILITY_LABELS,
+} from './group-key.js'
 
 /**
  * Find the metadata keys whose values differ across the candidate set.
@@ -229,22 +236,47 @@ export async function resolveDefaultDataSetReuse(
 }
 
 /**
- * Keys a data set must not carry to take this upload. Plain uploads stay out of
- * encrypted data sets, and `--no-ipfs` uploads stay out of IPFS-indexed ones.
- * (IPFS-indexed uploads require `withIPFSIndexing` through the requested
- * metadata instead, so the two never share a data set in either direction.)
+ * Data set metadata keys that disqualify a data set from taking this upload.
+ *
+ * Matching a data set for reuse, or checking a `--data-set-id`, only requires that
+ * it carries the upload's required metadata; a data set with extra keys still
+ * matches. These are the extra keys that rule it out:
+ *
+ * - not encrypted: the encryption keys (`foc/enc`, `foc/ks`, `foc/kc`), so a plain
+ *   upload never lands in an encrypted data set;
+ * - not private: `read`, whatever its value, so only a private upload lands in a
+ *   private data set, and no upload lands in one whose `read` value this version
+ *   doesn't know;
+ * - `--no-ipfs`: `withIPFSIndexing`, so the upload never lands in an indexed data set.
+ *
+ * The other direction is covered by the required metadata: an encrypted, private or
+ * IPFS-indexed upload requires its own keys, so it never lands in a data set without
+ * them. Together, every kind of upload reaches only data sets of its own kind.
  */
-export function uploadExcludedKeys(options: { encrypted: boolean; ipfsIndexing: boolean }): string[] {
+export function uploadExcludedKeys(options: {
+  encrypted: boolean
+  restricted?: boolean
+  ipfsIndexing: boolean
+}): string[] {
   return [
     ...(options.encrypted ? [] : ENCRYPTED_DATA_SET_KEYS),
+    ...(options.restricted === true ? [] : [READ_KEY]),
     ...(options.ipfsIndexing ? [] : [METADATA_KEYS.WITH_IPFS_INDEXING]),
   ]
 }
 
+/** What to change so an upload fits a data set of this kind. */
+const KIND_FIX: Record<Exclude<DataSetVisibility, 'unknown'>, string> = {
+  public: 'remove --encrypt and --private',
+  'public-encrypted': 'use --encrypt without --private',
+  private: 'add --private',
+}
+
 /**
- * Check that explicitly chosen data sets carry `required` and none of
- * `excludedKeys`, so `--data-set-id` cannot put an encrypted upload in a plain
- * or foreign-group-key data set, or a `--no-ipfs` upload in an indexed one.
+ * Check that explicitly chosen data sets are all of the upload's kind (see
+ * {@link dataSetVisibility}), carry `required` and none of `excludedKeys`, so
+ * `--data-set-id` cannot put an upload in a data set of another kind or a
+ * foreign group key, or a `--no-ipfs` upload in an indexed one.
  */
 async function assertExplicitDataSets(
   synapse: Synapse,
@@ -255,10 +287,28 @@ async function assertExplicitDataSets(
 ): Promise<void> {
   const wanted = new Set(dataSetIds)
   const found = await listDataSets(synapse, { filter: (dataSet) => wanted.has(dataSet.dataSetId), logger })
-  for (const id of dataSetIds) {
+  const chosen = dataSetIds.map((id) => {
     const metadata = found.find((dataSet) => dataSet.dataSetId === id)?.metadata
     if (metadata == null) {
       throw new Error(`Data set ${id} was not found for this wallet, so it cannot be checked for this upload`)
+    }
+    const kind = dataSetVisibility(metadata)
+    if (kind === 'unknown') {
+      throw new Error(
+        `Data set ${id} has a ${READ_KEY} value this version of filecoin-pin does not know (${JSON.stringify(metadata[READ_KEY])}): update filecoin-pin to use it`
+      )
+    }
+    return { id, metadata, kind }
+  })
+  const kinds = new Set(chosen.map((dataSet) => dataSet.kind))
+  if (kinds.size > 1) {
+    const listed = chosen.map((dataSet) => `${dataSet.id} (${VISIBILITY_LABELS[dataSet.kind]})`).join(', ')
+    throw new Error(`Data sets ${listed} are of different kinds: one upload goes to data sets of one kind`)
+  }
+  const uploadKind = dataSetVisibility(required)
+  for (const { id, metadata, kind } of chosen) {
+    if (kind !== uploadKind) {
+      throw new Error(`Data set ${id} is ${VISIBILITY_LABELS[kind]}: ${KIND_FIX[kind]}`)
     }
     for (const [key, value] of Object.entries(required)) {
       if (metadata[key] !== value) {
@@ -304,7 +354,7 @@ export async function resolveUploadTargets(
      * Metadata every target data set must carry (for example the group key of an
      * encrypted upload). Narrows the default reuse and is written to any data set
      * created, without turning on the strict `--data-set-metadata` matching.
-     * Its presence marks the upload as encrypted.
+     * Its presence marks the upload as encrypted, and a `read` key in it as private.
      */
     requiredMetadata?: Record<string, string>
     /** False for `--no-ipfs`: only data sets without `withIPFSIndexing` qualify. Default true. */
@@ -314,7 +364,12 @@ export async function resolveUploadTargets(
   const { withCDN, spinner, logger, requiredMetadata } = options
   const expectedCopies = options.copies ?? DEFAULT_COPIES
   const ipfsIndexing = options.ipfsIndexing ?? true
-  const excludedKeys = uploadExcludedKeys({ encrypted: requiredMetadata != null, ipfsIndexing })
+  assertNoReadMetadata(options.dataSetMetadata)
+  const excludedKeys = uploadExcludedKeys({
+    encrypted: requiredMetadata != null,
+    restricted: requiredMetadata?.[READ_KEY] != null,
+    ipfsIndexing,
+  })
 
   if (contextSelection.dataSetIds != null || contextSelection.providerIds != null) {
     if (contextSelection.dataSetIds != null) {

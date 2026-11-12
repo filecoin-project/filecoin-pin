@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { type DataSetSummary, type PieceInfo, PieceStatus } from '../../core/data-set/types.js'
-import { displayDataSetList, displayPieceStatuses } from '../../data-set/display.js'
+import { displayDataSetList, displayDataSets, displayPieceStatuses } from '../../data-set/display.js'
 
 const { logMock } = vi.hoisted(() => ({
   logMock: {
@@ -56,10 +56,10 @@ describe('displayDataSetList', () => {
     const output = lines()
     expect(output.some((line) => line.includes('Network:') && line.includes('calibration'))).toBe(true)
     expect(output).toContain('Client address: 0xtest')
-    expect(output.some((line) => /^ID\s+Status\s+Provider ID\s+Has Pieces\s+CDN$/.test(line))).toBe(true)
+    expect(output.some((line) => /^ID\s+Status\s+Provider ID\s+Has Pieces\s+CDN\s+Visibility$/.test(line))).toBe(true)
     expect(output.some((line) => /\bSize\b/.test(line))).toBe(false)
-    expect(output.findIndex((line) => /^1\s+live\s+10\s+yes\s+disabled$/.test(line.trim()))).toBeLessThan(
-      output.findIndex((line) => /^3\s+live\s+30\s+yes\s+disabled$/.test(line.trim()))
+    expect(output.findIndex((line) => /^1\s+live\s+10\s+yes\s+disabled\s+public$/.test(line.trim()))).toBeLessThan(
+      output.findIndex((line) => /^3\s+live\s+30\s+yes\s+disabled\s+public$/.test(line.trim()))
     )
   })
 
@@ -74,7 +74,7 @@ describe('displayDataSetList', () => {
     expect(output).toContain('2 data sets, 1 with active pieces')
     expect(output).toContain('Run `filecoin-pin data-set show <id>` for full details.')
     expect(output.some((line) => /total known size/i.test(line))).toBe(false)
-    expect(output.some((line) => /^2\s+live\s+10\s+no\s+enabled$/.test(line.trim()))).toBe(true)
+    expect(output.some((line) => /^2\s+live\s+10\s+no\s+enabled\s+public$/.test(line.trim()))).toBe(true)
   })
 
   it('renders lifecycle status labels in compact rows', () => {
@@ -85,8 +85,51 @@ describe('displayDataSetList', () => {
     )
 
     const output = lines()
-    expect(output.some((line) => /^1\s+inactive\s+10\s+yes\s+disabled$/.test(line.trim()))).toBe(true)
-    expect(output.some((line) => /^2\s+terminated\s+10\s+yes\s+disabled$/.test(line.trim()))).toBe(true)
+    expect(output.some((line) => /^1\s+inactive\s+10\s+yes\s+disabled\s+public$/.test(line.trim()))).toBe(true)
+    expect(output.some((line) => /^2\s+terminated\s+10\s+yes\s+disabled\s+public$/.test(line.trim()))).toBe(true)
+  })
+})
+
+const encrypted = { 'foc/enc': '1', 'foc/ks': `0x${'11'.repeat(16)}`, 'foc/kc': `v1.${'22'.repeat(16)}` }
+
+describe('data set visibility', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  const kinds = [
+    row({ dataSetId: 1n, metadata: {} }),
+    row({ dataSetId: 2n, metadata: encrypted }),
+    row({ dataSetId: 3n, metadata: { ...encrypted, read: 'restricted' } }),
+    row({ dataSetId: 4n, metadata: { ...encrypted, read: 'friends' } }),
+    row({ dataSetId: 5n, metadata: { read: 'restricted' } }),
+  ]
+
+  it('labels each kind in data-set list', () => {
+    displayDataSetList(kinds, 'calibration', '0xtest')
+
+    const rows = lines().map((line) => line.trim())
+    expect(rows).toContainEqual(expect.stringMatching(/^1\s.*disabled\s+public$/))
+    expect(rows).toContainEqual(expect.stringMatching(/^2\s.*disabled\s+public encrypted$/))
+    expect(rows).toContainEqual(expect.stringMatching(/^3\s.*disabled\s+private$/))
+    expect(rows).toContainEqual(expect.stringMatching(/^4\s.*disabled\s+unknown visibility$/))
+    // Restricted plaintext is not a supported kind.
+    expect(rows).toContainEqual(expect.stringMatching(/^5\s.*disabled\s+unknown visibility$/))
+  })
+
+  it('labels each kind in data-set show', () => {
+    displayDataSets(kinds, 'calibration', '0xtest')
+
+    const indented = logMock.indent.mock.calls
+      .map(([line]) => String(line))
+      .filter((line) => line.startsWith('Visibility'))
+    expect(indented).toEqual([
+      'Visibility: public',
+      'Visibility: public encrypted',
+      'Visibility: private',
+      'Visibility: unknown visibility',
+      'Visibility: unknown visibility',
+    ])
   })
 })
 
