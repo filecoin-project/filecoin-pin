@@ -16,7 +16,7 @@ State for a `gs://` source lives in its own `migrate-gcs.db`, apart from the CID
 
 ### Encrypting bucket objects
 
-`--encrypt` stores each object the way `add --encrypt` stores a file (see the [Encryption guide](encryption.md)): same [Group Key](glossary.md#group-key) choice, same [Envelope](glossary.md#envelope), and the piece holds only ciphertext. Restore an object with `filecoin-pin get <cid>`, as for any `add --encrypt` upload; the `sources` table maps each object to that ciphertext CID. Encryption happens while the object streams in, so plaintext never touches disk; building the envelope reads each object twice. Every object gets a fresh key, so identical objects are no longer stored once. `--encrypt` applies only to gs:// sources (content in a CID list is already public on IPFS) and cannot be combined with `--data-set-id`.
+`--encrypt` stores each object the way `add --encrypt` stores a file (see the [Encryption guide](encryption.md)): same [Group Key](glossary.md#group-key) choice, same [Envelope](glossary.md#envelope), and the piece holds only ciphertext. Restore an object with `filecoin-pin get <cid>`, as for any `add --encrypt` upload; the `sources` table maps each object to that ciphertext CID. Encryption happens while the object streams in, so plaintext never touches disk; building the envelope reads each object twice. Every object gets a fresh key, so identical objects are no longer stored once. `--encrypt` applies only to gs:// sources (content in a CID list is already public on IPFS). As with `add --encrypt`, a `--data-set-id` must already be in the same Group Key.
 
 ## Why not just run `add` in a loop
 

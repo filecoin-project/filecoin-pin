@@ -39,8 +39,8 @@ describe('normalizeMigrateOptions', () => {
     expect(normalizeMigrateOptions({ encrypt: true }, true).encrypt).toBe(true)
   })
 
-  it('refuses --data-set-id with --encrypt: encrypted data sets are chosen by their group key', () => {
-    expect(() => normalizeMigrateOptions({ encrypt: true, dataSetIds: ['7'] }, true)).toThrow(/--data-set-id/)
+  it('takes --data-set-id with --encrypt, like add --encrypt', () => {
+    expect(normalizeMigrateOptions({ encrypt: true, dataSetIds: ['7'] }, true).encrypt).toBe(true)
   })
 
   it('rejects a --gateway that is not an http(s) URL', () => {

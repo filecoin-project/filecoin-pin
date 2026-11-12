@@ -16,7 +16,7 @@ import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { assertUploadFunds, rerunHint } from '../common/funds-preflight.js'
 import { OWNER_WALLET_REQUIRED, type OwnerGroupKey, ownerGroupKey, ownerSigner } from '../common/group-key.js'
 import { grantGroupKey, loadGroupKeyGrant } from '../common/group-key-grant.js'
-import { validatePaymentSetup } from '../common/upload-flow.js'
+import { assertExplicitDataSets, validatePaymentSetup } from '../common/upload-flow.js'
 import { getDataDirectory } from '../config.js'
 import { DEFAULT_COPIES, IPFS_INDEXED_METADATA } from '../core/synapse/constants.js'
 import {
@@ -27,7 +27,7 @@ import {
   type SynapseSetupConfig,
 } from '../core/synapse/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
-import { parseCLIAuth, parseContextSelectionOptions, parseDataSetIdSelection } from '../utils/cli-auth.js'
+import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import {
   cancel,
   createSpinner,
@@ -115,9 +115,6 @@ export function normalizeMigrateOptions(options: Record<string, unknown>, gcs = 
   if (encrypt && !gcs) {
     throw new Error('--encrypt applies only to a gs:// source: content in a CID list is already public on IPFS')
   }
-  if (encrypt && parseDataSetIdSelection(options).length > 0) {
-    throw new Error('--data-set-id cannot be used with --encrypt: encrypted data sets are chosen by their group key')
-  }
   return {
     packTargetBytes,
     concurrency,
@@ -146,6 +143,22 @@ export async function migrateGroupKey(
     return grantGroupKey(synapse, await loadGroupKeyGrant(session, synapse.chain.id), logger)
   }
   throw new Error(OWNER_WALLET_REQUIRED)
+}
+
+/** `add --encrypt`'s check: explicit data sets must be IPFS-indexed and in this group key. */
+export async function assertEncryptedDataSets(
+  synapse: Synapse,
+  dataSetIds: bigint[],
+  groupKey: OwnerGroupKey,
+  logger: Logger
+): Promise<void> {
+  await assertExplicitDataSets(
+    synapse,
+    dataSetIds,
+    { ...groupKey.dataSetMetadata, ...IPFS_INDEXED_METADATA },
+    [],
+    logger
+  )
 }
 
 /**
@@ -265,6 +278,9 @@ export async function runMigrateFromCli(sourceArg: string, options: Record<strin
       spinner.start('Deriving the encryption key...')
       groupKey = await migrateGroupKey(synapse, config, logger)
       spinner.stop(`${pc.green('✓')} Encryption key derived`)
+      if (contextSelection.dataSetIds != null) {
+        await assertEncryptedDataSets(synapse, contextSelection.dataSetIds, groupKey, logger)
+      }
     }
     const dataSetMetadata = { ...MIGRATE_DATA_SET_METADATA, ...groupKey?.dataSetMetadata }
 

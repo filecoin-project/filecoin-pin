@@ -246,7 +246,7 @@ export function uploadExcludedKeys(options: { encrypted: boolean; ipfsIndexing: 
  * `excludedKeys`, so `--data-set-id` cannot put an encrypted upload in a plain
  * or foreign-group-key data set, or a `--no-ipfs` upload in an indexed one.
  */
-async function assertExplicitDataSets(
+export async function assertExplicitDataSets(
   synapse: Synapse,
   dataSetIds: bigint[],
   required: Record<string, string>,

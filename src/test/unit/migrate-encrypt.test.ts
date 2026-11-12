@@ -1,9 +1,10 @@
 import { keyspaceKeys as deriveGroupKey } from '@filoz/keysmith'
 import type { Synapse } from '@filoz/synapse-sdk'
+import pino from 'pino'
 import { describe, expect, it, vi } from 'vitest'
 import { OWNER_WALLET_REQUIRED, ownerGroupKey } from '../../common/group-key.js'
 import type { SynapseSetupConfig } from '../../core/synapse/index.js'
-import { migrateGroupKey } from '../../migrate/migrate.js'
+import { assertEncryptedDataSets, migrateGroupKey } from '../../migrate/migrate.js'
 import { GROUP_KEY, OWNER } from '../fixtures/group-key-grants.js'
 
 const { mockListDataSets } = vi.hoisted(() => ({ mockListDataSets: vi.fn() }))
@@ -34,5 +35,23 @@ describe('migrateGroupKey', () => {
   it('needs the owner wallet or a session key Grant, never falling back to plaintext', async () => {
     const readOnly = { client: { account: OWNER.address }, chain: { id: 314159 } } as unknown as Synapse
     await expect(migrateGroupKey(readOnly, NO_SESSION)).rejects.toThrow(OWNER_WALLET_REQUIRED)
+  })
+})
+
+describe('assertEncryptedDataSets', () => {
+  it('takes an explicit data set only in this group key, as add --encrypt does', async () => {
+    const groupKey = await ownerGroupKey(asOwner, OWNER)
+    const logger = pino({ level: 'silent' })
+    const encrypted = { ...groupKey.dataSetMetadata, withIPFSIndexing: '' }
+    mockListDataSets.mockResolvedValue([
+      { dataSetId: 1n, isLive: true, metadata: { withIPFSIndexing: '' } },
+      { dataSetId: 2n, isLive: true, metadata: { ...encrypted, 'foc/ks': `0x${'ff'.repeat(16)}` } },
+      { dataSetId: 3n, isLive: true, metadata: encrypted },
+    ])
+    await expect(assertEncryptedDataSets(asOwner, [1n], groupKey, logger)).rejects.toThrow(
+      /Data set 1 .*foc\/enc is missing/
+    )
+    await expect(assertEncryptedDataSets(asOwner, [2n], groupKey, logger)).rejects.toThrow(/Data set 2 .*foc\/ks/)
+    await expect(assertEncryptedDataSets(asOwner, [3n], groupKey, logger)).resolves.toBeUndefined()
   })
 })
