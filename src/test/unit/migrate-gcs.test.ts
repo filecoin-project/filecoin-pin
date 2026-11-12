@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -95,6 +95,58 @@ describe('stageGcsObject', () => {
     expect(member.url).toBe('gs://bk/scans/scan.tiff')
     expect(member.rawSize).toBe((await readFile(member.memberCarPath)).length)
     expect(counted).toBe(member.rawSize)
+  })
+
+  /** A bucket whose one object streams `chunks`, then errors when `fail` is set. */
+  function streamingBucket(chunks: Uint8Array[], onPull: () => void, fail = false): GcsFetch {
+    return async () => {
+      let i = 0
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            onPull()
+            const chunk = chunks[i++]
+            if (chunk != null) controller.enqueue(chunk)
+            else if (fail) controller.error(new Error('connection reset'))
+            else controller.close()
+          },
+        })
+      )
+    }
+  }
+
+  it('counts bytes while the import is still reading the object', async () => {
+    let counted = 0
+    const countedAtPull: number[] = []
+    const chunks = [new Uint8Array(1000).fill(1), new Uint8Array(1000).fill(2)]
+    const bucket = streamingBucket(chunks, () => countedAtPull.push(counted))
+    await stageGcsObject('gs://bk/a', dir, { onBytes: (d) => (counted += d) }, bucket)
+    expect(countedAtPull.at(-1)).toBeGreaterThan(0)
+  })
+
+  it('frees its bytes and its temp CAR when the import fails', async () => {
+    let counted = 0
+    const bucket = streamingBucket([new Uint8Array(3 * 1024 * 1024).fill(7)], () => undefined, true)
+    await expect(stageGcsObject('gs://bk/a', dir, { onBytes: (d) => (counted += d) }, bucket)).rejects.toThrow(
+      /connection reset/
+    )
+    expect(counted).toBe(0)
+    expect(await readdir(dir)).toEqual([])
+  })
+
+  it('stops the import as soon as the budget refuses more bytes', async () => {
+    let counted = 0
+    let pulls = 0
+    const chunks = Array.from({ length: 10 }, () => new Uint8Array(1000))
+    const bucket = streamingBucket(chunks, () => pulls++)
+    const onBytes = (d: number): void => {
+      counted += d
+      if (d > 0 && counted > 2500) throw new Error('budget exhausted')
+    }
+    await expect(stageGcsObject('gs://bk/a', dir, { onBytes }, bucket)).rejects.toThrow(/budget exhausted/)
+    expect(pulls).toBeLessThan(10)
+    expect(counted).toBe(0)
+    expect(await readdir(dir)).toEqual([])
   })
 
   it('fails as source_not_found when the object is gone', async () => {

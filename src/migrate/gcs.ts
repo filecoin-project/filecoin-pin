@@ -62,8 +62,8 @@ const noopSink = { write: async () => undefined, end: async () => undefined }
 
 /**
  * Download one object and import it into a member CAR under `memberDir`.
- * The CAR is hashed (piece commitment, sha256) in a second local pass, which
- * is also where its bytes are counted against the staging budget.
+ * Bytes count against the staging budget as they stream in; the CAR is then
+ * hashed (piece commitment, sha256) in a second local pass.
  */
 export async function stageGcsObject(
   url: string,
@@ -84,23 +84,31 @@ export async function stageGcsObject(
     throw new StagingError(`${url}: HTTP ${res.status}`, categoryForStatus(res.status))
   }
 
-  const { carPath, rootCid } = await createCarFromStream(res.body, name, { tempDir: memberDir })
   let counted = 0
+  const count = (delta: number): void => {
+    counted += delta
+    opts.onBytes?.(delta)
+  }
+  const body = res.body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        count(chunk.length)
+        controller.enqueue(chunk)
+      },
+    })
+  )
+  let carPath: string | undefined
   try {
-    // ponytail: bytes count after the import wrote them, so the budget can overshoot by one object per worker.
+    const car = await createCarFromStream(body, name, { tempDir: memberDir })
+    carPath = car.carPath
     const verified = await verifyCarStream(
       Readable.toWeb(createReadStream(carPath)) as ReadableStream<Uint8Array>,
-      rootCid,
-      noopSink,
-      {
-        onBytes: (delta) => {
-          counted += delta
-          opts.onBytes?.(delta)
-        },
-      }
+      car.rootCid,
+      noopSink
     )
+    count(verified.rawSize - counted)
     return {
-      cid: rootCid.toString(),
+      cid: car.rootCid.toString(),
       pieceCid: verified.pieceCid,
       rawSize: verified.rawSize,
       gateway: 'gcs',
@@ -109,8 +117,8 @@ export async function stageGcsObject(
       memberSha256: verified.sha256,
     }
   } catch (err) {
-    await unlink(carPath).catch(() => undefined)
-    if (counted > 0) opts.onBytes?.(-counted)
+    if (carPath != null) await unlink(carPath).catch(() => undefined)
+    if (counted !== 0) opts.onBytes?.(-counted)
     throw err
   }
 }
