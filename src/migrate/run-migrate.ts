@@ -58,10 +58,21 @@ export interface MigrateRunOptions {
   withCDN?: boolean | undefined
   /** `--encrypt`: each member is encrypted under a fresh key from this group key before packing. */
   encryptTarget?: WriteTarget | undefined
+  /** Where members come from; defaults to the registered CIDs fetched from `gateways`. */
+  source?: MemberSource | undefined
   /** Test seam: replaces the gateway member stager. */
   stageMemberFn?: typeof stageMember | undefined
   /** Test seam: replaces the per-bin CAR assembler. */
   buildBin?: BinBuilder | undefined
+}
+
+/** Work items and how each one stages into a member CAR. */
+export interface MemberSource {
+  pending(): string[]
+  stage(item: string, memberDir: string, opts: VerifyCarOptions): Promise<StagedMember>
+  /** False when the member's CID is already staged or stored; the caller drops the copy. */
+  recordSuccess(item: string, member: StagedMember): boolean
+  recordFailure(item: string, error: string, category: FailureCategory): void
 }
 
 export interface MigrateSummary extends DirectUploadSummary {
@@ -295,6 +306,15 @@ export async function runMigrate(
   deps: DirectUploadDeps = defaultDirectUploadDeps
 ): Promise<MigrateSummary> {
   const stage = opts.stageMemberFn ?? stageMember
+  const source: MemberSource = opts.source ?? {
+    pending: () => db.pendingCids(),
+    stage: (cid, memberDir, verifyOpts) => stage(cid, opts.gateways, memberDir, verifyOpts),
+    recordSuccess: (cid, member) => {
+      db.recordPieceSuccess(cid, member)
+      return true
+    },
+    recordFailure: (cid, error, category) => db.recordPieceFailure(cid, error, category),
+  }
 
   // Resolve the storage contexts once; the upload loop reuses them (and a
   // test fake sees a single setup call).
@@ -444,8 +464,8 @@ export async function runMigrate(
 
   const producer = (async () => {
     try {
-      const pending = db.pendingCids()
-      log.message(`downloading ${pending.length} CID(s) (concurrency ${opts.concurrency}, budget-gated)...`)
+      const pending = source.pending()
+      log.message(`downloading ${pending.length} item(s) (concurrency ${opts.concurrency}, budget-gated)...`)
       let cursor = 0
       const worker = async (): Promise<void> => {
         while (cursor < pending.length) {
@@ -485,7 +505,7 @@ export async function runMigrate(
             let member: StagedMember
             inFlightDownloads++
             try {
-              member = await stage(cid, opts.gateways, opts.memberDir, verifyOpts)
+              member = await source.stage(cid, opts.memberDir, verifyOpts)
               if (opts.encryptTarget != null) {
                 const encrypted = await encryptMember(member, opts.encryptTarget)
                 budget.add(encrypted.rawSize - member.rawSize)
@@ -500,7 +520,7 @@ export async function runMigrate(
                 // fit no matter how much eviction frees; retrying would spin
                 // on the same download forever.
                 if (peak + assemblyExtra(peak) > budget.hardCap) {
-                  db.recordPieceFailure(
+                  source.recordFailure(
                     cid,
                     `member CAR exceeds the staging budget's ${formatFileSize(budget.hardCap)} download ceiling; ` +
                       `raise --max-staged-bytes and re-run`,
@@ -512,12 +532,17 @@ export async function runMigrate(
                 continue
               }
               const message = err instanceof Error ? err.message : String(err)
-              db.recordPieceFailure(cid, message, failureCategoryOf(err))
+              source.recordFailure(cid, message, failureCategoryOf(err))
               break
             } finally {
               inFlightDownloads--
             }
-            db.recordPieceSuccess(cid, member)
+            if (!source.recordSuccess(cid, member)) {
+              await unlink(member.memberCarPath).catch(() => undefined)
+              budget.reserved -= reservedHere
+              budget.free(written)
+              break
+            }
             if (db.freeMemberBytes() >= opts.packTargetBytes) {
               // Kick the packer without awaiting it: parking a download
               // worker behind an assembly would serialize the stages this

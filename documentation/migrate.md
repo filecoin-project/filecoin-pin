@@ -6,6 +6,14 @@ A migrate piece is an aggregate: one multi-root [CAR](glossary.md#car) file whos
 
 This page explains the pipeline and the guarantees behind it. For flags and defaults, run `filecoin-pin migrate --help`. The CLI defaults to mainnet; pass `--network calibration` to try it on the testnet first.
 
+## Migrating a GCS bucket
+
+`filecoin-pin migrate gs://<bucket>[/<prefix>]` reads objects straight from a Google Cloud Storage bucket instead of a CID list. Each object is imported as one UnixFS file with the same settings as `add` (CIDv1, raw leaves), so the CID matches what `add` gives the same bytes, and then goes through the same pack, upload, and commit stages below. `--gateway` does not apply.
+
+Credentials come from [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials): run `gcloud auth application-default login`, or set `GOOGLE_APPLICATION_CREDENTIALS` to a service account key. Read access to the bucket (`roles/storage.objectViewer`) is enough.
+
+The `sources` table in `migrate.db` maps each object (`gs://bucket/name`) to its root CID, with the size and crc32c from the listing. Re-running against the same bucket lists it again and imports only objects that are new or whose crc32c changed, so a daily re-run is safe and cheap. Objects with identical content share one CID and are stored once.
+
 ## Why not just run `add` in a loop
 
 Two reasons: cost and throughput. Each on-chain `addPieces` transaction can carry up to 40 pieces, and each piece can hold up to 1016 MiB. Uploading a 2 MiB CID as its own piece wastes both dimensions. Migrate packs many source CIDs into one ~1000 MiB multi-root [CAR](glossary.md#car) and commits up to 40 of those pieces per transaction, so a million small files does not mean a million transactions.

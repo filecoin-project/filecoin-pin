@@ -4,9 +4,16 @@ import { addAuthOptions, addContextSelectionOptions } from '../utils/cli-options
 import { EGRESS_PROVIDERS } from '../utils/cli-options-egress.js'
 
 export const migrateCommand = new Command('migrate')
-  .description('Migrate IPFS content to Filecoin from a list of CIDs, packing them into batched pieces')
-  .argument('<cid-list-file>', 'Path to a file with one CID per line (# comments and blank lines ignored)')
-  .requiredOption('--gateway <url>', 'Trustless gateway to fetch CARs from; repeatable, tried in order', collect)
+  .description('Migrate IPFS content to Filecoin from a CID list or a GCS bucket, packing items into batched pieces')
+  .argument(
+    '<source>',
+    'A file with one CID per line (# comments and blank lines ignored), or gs://bucket[/prefix] to import every object under it'
+  )
+  .option(
+    '--gateway <url>',
+    'Trustless gateway to fetch CARs from; repeatable, tried in order (CID lists only)',
+    collect
+  )
   .option('--pack-target-size <size>', 'Target raw size for one packed piece, e.g. 1000MiB (default: 1000MiB)')
   .option('--concurrency <n>', 'CID download concurrency (default: 8)')
   .option(
@@ -27,9 +34,9 @@ export const migrateCommand = new Command('migrate')
     'Encrypt under this group key (0x and 32 lowercase hex) instead of the wallet default, so its data sets and key stay apart from every other group key. Implies --encrypt.'
   )
   .option('--db <file>', 'Migrate state database path (default: migrate.db in the filecoin-pin data directory)')
-  .action(async (cidListFile: string, options) => {
+  .action(async (source: string, options) => {
     try {
-      const summary = await runMigrateFromCli(cidListFile, options)
+      const summary = await runMigrateFromCli(source, options)
       if (migrateIncomplete(summary)) {
         process.exitCode = 1
       }

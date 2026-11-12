@@ -104,6 +104,16 @@ export interface UploadRow {
   error: string | null
 }
 
+/** What a verified member download records on its piece row. */
+export interface StagedMemberInfo {
+  pieceCid: string
+  rawSize: number
+  gateway: string
+  url: string
+  memberCarPath: string
+  memberSha256: string
+}
+
 export class MigrationDB {
   #db: DatabaseSync
   /** The sqlite file path this instance opened, so callers can echo it back. */
@@ -191,6 +201,19 @@ export class MigrationDB {
         PRIMARY KEY (scope, sub_piece_cid, provider_id),
         FOREIGN KEY (scope, sub_piece_cid) REFERENCES sub_pieces(scope, sub_piece_cid)
       );
+      -- Object-store items (gs://bucket/name) and the root CID each imported
+      -- to; the manifest a restore walks. crc32c is the listing's content hash.
+      CREATE TABLE IF NOT EXISTS sources (
+        scope            TEXT NOT NULL,
+        url              TEXT NOT NULL,
+        size             INTEGER NOT NULL,
+        crc32c           TEXT NOT NULL,
+        cid              TEXT,
+        error            TEXT,
+        failure_category TEXT,
+        updated_at       TEXT NOT NULL,
+        PRIMARY KEY (scope, url)
+      );
       CREATE TABLE IF NOT EXISTS provider_windows (
         scope             TEXT NOT NULL,
         provider_id       TEXT NOT NULL,
@@ -230,18 +253,7 @@ export class MigrationDB {
   }
 
   /** Record a verified member download: commP, sizes, and the on-disk CAR file. */
-  recordPieceSuccess(
-    cid: string,
-    info: {
-      pieceCid: string
-      rawSize: number
-      gateway: string
-      url: string
-      memberCarPath: string
-      memberSha256: string
-      storedCid?: string | undefined
-    }
-  ): void {
+  recordPieceSuccess(cid: string, info: StagedMemberInfo & { storedCid?: string | undefined }): void {
     this.#db
       .prepare(
         `UPDATE pieces SET piece_cid=?, raw_size=?, gateway=?, url=?,
@@ -261,6 +273,73 @@ export class MigrationDB {
         this.scope,
         cid
       )
+  }
+
+  /** Register listed objects. Unchanged ones keep their CID; a changed crc32c re-queues the import. */
+  addSources(objects: Array<{ url: string; size: number; crc32c: string }>): void {
+    const stmt = this.#db.prepare(
+      `INSERT INTO sources (scope, url, size, crc32c, updated_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(scope, url) DO UPDATE SET size = excluded.size, crc32c = excluded.crc32c, cid = NULL,
+         error = NULL, failure_category = NULL, updated_at = excluded.updated_at
+       WHERE sources.crc32c != excluded.crc32c`
+    )
+    const now = new Date().toISOString()
+    for (const o of objects) stmt.run(this.scope, o.url, o.size, o.crc32c, now)
+  }
+
+  /** Objects not yet imported, or whose imported piece went back to pending. */
+  pendingSources(): string[] {
+    return this.#db
+      .prepare(
+        `SELECT s.url FROM sources s LEFT JOIN pieces p ON p.scope = s.scope AND p.cid = s.cid
+         WHERE s.scope = ? AND (s.cid IS NULL OR p.status IN ('pending', 'failed'))
+         ORDER BY s.url`
+      )
+      .all(this.scope)
+      .map((r) => (r as { url: string }).url)
+  }
+
+  /**
+   * Map an imported object to its root CID and record the staged member.
+   * Returns false when that CID is already staged or stored (same content
+   * under another name): the caller drops its copy.
+   */
+  recordSourceSuccess(url: string, member: StagedMemberInfo & { cid: string }): boolean {
+    this.#db.exec('BEGIN')
+    try {
+      this.addCids([member.cid])
+      const { status } = this.#db
+        .prepare('SELECT status FROM pieces WHERE scope = ? AND cid = ?')
+        .get(this.scope, member.cid) as { status: PieceStatus }
+      const fresh = status === 'pending' || status === 'failed'
+      if (fresh) this.recordPieceSuccess(member.cid, member)
+      this.#db
+        .prepare(
+          `UPDATE sources SET cid = ?, error = NULL, failure_category = NULL, updated_at = ? WHERE scope = ? AND url = ?`
+        )
+        .run(member.cid, new Date().toISOString(), this.scope, url)
+      this.#db.exec('COMMIT')
+      return fresh
+    } catch (err) {
+      this.#db.exec('ROLLBACK')
+      throw err
+    }
+  }
+
+  recordSourceFailure(url: string, error: string, category: FailureCategory): void {
+    this.#db
+      .prepare(
+        `UPDATE sources SET cid = NULL, error = ?, failure_category = ?, updated_at = ? WHERE scope = ? AND url = ?`
+      )
+      .run(error, category, new Date().toISOString(), this.scope, url)
+  }
+
+  /** The object manifest: each object and the root CID it imported to. */
+  sources(): Array<{ url: string; cid: string | null; size: number; crc32c: string }> {
+    return this.#db
+      .prepare('SELECT url, cid, size, crc32c FROM sources WHERE scope = ? ORDER BY url')
+      .all(this.scope)
+      .map((r) => ({ ...(r as { url: string; cid: string | null; size: number; crc32c: string }) }))
   }
 
   recordPieceFailure(cid: string, error: string, category: FailureCategory = 'other'): void {
@@ -293,9 +372,13 @@ export class MigrationDB {
            SUM(status='failed')     AS failed,
            SUM(status='oversized')  AS oversized,
            COUNT(*)                 AS total
-         FROM pieces WHERE scope = ?`
+         FROM (
+           SELECT status FROM pieces WHERE scope = ?
+           UNION ALL
+           SELECT IIF(error IS NULL, 'pending', 'failed') FROM sources WHERE scope = ? AND cid IS NULL
+         )`
       )
-      .get(this.scope) as Record<string, number | null>
+      .get(this.scope, this.scope) as Record<string, number | null>
     return {
       pending: Number(row.pending ?? 0),
       done: Number(row.done ?? 0),
@@ -307,8 +390,13 @@ export class MigrationDB {
 
   failures(): Array<{ cid: string; error: string; category: FailureCategory }> {
     const rows = this.#db
-      .prepare(`SELECT cid, error, failure_category FROM pieces WHERE scope = ? AND status='failed' ORDER BY cid`)
-      .all(this.scope)
+      .prepare(
+        `SELECT cid, error, failure_category FROM pieces WHERE scope = ? AND status='failed'
+         UNION ALL
+         SELECT url, error, failure_category FROM sources WHERE scope = ? AND cid IS NULL AND error IS NOT NULL
+         ORDER BY 1`
+      )
+      .all(this.scope, this.scope)
     return rows.map((r) => {
       const row = r as Record<string, unknown>
       return {
