@@ -58,9 +58,10 @@ export interface DirectUploadOptions {
   /**
    * Pipeline hook: called when no sub-piece is currently pending. Resolves
    * true when new sub-pieces may have appeared (re-poll), false when the
-   * source is drained. Absent means the source was fully staged up-front.
+   * source is drained, and true when `signal` aborts (the uploader's poll
+   * timer). Absent means the source was fully staged up-front.
    */
-  waitForMore?: ((skipping: ReadonlySet<string>) => Promise<boolean>) | undefined
+  waitForMore?: ((skipping: ReadonlySet<string>, signal: AbortSignal) => Promise<boolean>) | undefined
   /**
    * Pipeline hook: when it returns true while the upload queue is empty,
    * parked pieces are flushed immediately instead of waiting for a full
@@ -395,13 +396,9 @@ export async function runDirectUpload(
       await maybeFlush(opts.forceFlush?.() === true)
       if (opts.waitForMore == null) break
       // Wake on a timer too: a slow packer must not age parked pieces past their deadline.
-      let timer: NodeJS.Timeout | undefined
-      const more = await Promise.race([
-        opts.waitForMore(storeDeferred),
-        new Promise<null>((resolve) => {
-          timer = setTimeout(() => resolve(null), FLUSH_POLL_MS)
-        }),
-      ])
+      const poll = new AbortController()
+      const timer = setTimeout(() => poll.abort(), FLUSH_POLL_MS)
+      const more = await opts.waitForMore(storeDeferred, poll.signal)
       clearTimeout(timer)
       if (more === false) break
       continue

@@ -719,13 +719,38 @@ describe('runDirectUpload', () => {
       seedBuilt(db, P1, join(dir, 'a.car'))
       const { deps, calls } = fakeDeps()
       // The packer never produces another piece until the parked one commits.
-      const waitForMore = async (): Promise<boolean> =>
-        calls.commit.has('p1') ? false : new Promise<boolean>(() => undefined)
+      const waitForMore = async (_skipping: ReadonlySet<string>, signal: AbortSignal): Promise<boolean> =>
+        calls.commit.has('p1')
+          ? false
+          : new Promise<boolean>((resolve) => signal.addEventListener('abort', () => resolve(true)))
       const run = runDirectUpload(db, { ...OPTS, waitForMore }, deps)
       await vi.advanceTimersByTimeAsync(2 * 60 * 60_000)
       await run
 
       expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('aborts the waitForMore signal when the poll timer wakes the uploader', async () => {
+    vi.useFakeTimers()
+    const { dir, db } = await dbAt('du-wait-abort')
+    try {
+      const { deps } = fakeDeps()
+      const signals: AbortSignal[] = []
+      const waitForMore = async (_skipping: ReadonlySet<string>, signal: AbortSignal): Promise<boolean> => {
+        signals.push(signal)
+        if (signals.length > 1) return false
+        return new Promise<boolean>((resolve) => signal.addEventListener('abort', () => resolve(true)))
+      }
+      const run = runDirectUpload(db, { ...OPTS, waitForMore }, deps)
+      await vi.advanceTimersByTimeAsync(60_000)
+      await run
+
+      expect(signals[0]?.aborted).toBe(true)
     } finally {
       vi.useRealTimers()
       db.close()
