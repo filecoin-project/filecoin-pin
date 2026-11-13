@@ -58,9 +58,10 @@ export interface DirectUploadOptions {
   /**
    * Pipeline hook: called when no sub-piece is currently pending. Resolves
    * true when new sub-pieces may have appeared (re-poll), false when the
-   * source is drained. Absent means the source was fully staged up-front.
+   * source is drained, and true when `signal` aborts (the uploader's poll
+   * timer). Absent means the source was fully staged up-front.
    */
-  waitForMore?: ((skipping: ReadonlySet<string>) => Promise<boolean>) | undefined
+  waitForMore?: ((skipping: ReadonlySet<string>, signal: AbortSignal) => Promise<boolean>) | undefined
   /**
    * Pipeline hook: when it returns true while the upload queue is empty,
    * parked pieces are flushed immediately instead of waiting for a full
@@ -274,13 +275,16 @@ export async function runDirectUpload(
           db.markUploadTxSubmitted(cids, ctx.providerId, txHash)
         },
       })
+      if (result.pieceIds.length !== batch.length) {
+        throw new Error(`commit returned ${result.pieceIds.length} piece id(s) for ${batch.length} piece(s)`)
+      }
       observedCommitMs.push(commitTimer.stop())
       commitFailures = 0
       if (observedCommitMs.length > MARGIN_SAMPLE) observedCommitMs.shift()
       batch.forEach((b, i) => {
         db.markUploadCommitted(b.subPieceCid, ctx.providerId, {
           dataSetId: String(result.dataSetId),
-          pieceId: String(result.pieceIds[i] ?? ''),
+          pieceId: String(result.pieceIds[i]),
           txHash: result.confirmedTxHash ?? result.txHash,
         })
       })
@@ -295,11 +299,15 @@ export async function runDirectUpload(
       const gcCid = collectedCidFromError(message)
       if (gcCid == null && submitted) {
         // The provider's status check can time out after the tx landed: let the chain decide, as a resume does.
-        const recovered = await reconcileUnconfirmed(db, synapse, ctx, deps)
-        if (recovered != null) Object.assign(ctx, await deps.contextForDataSet(opts, recovered))
-        if (cids.every((cid) => db.uploadStatus(cid, ctx.providerId) === 'committed')) {
-          commitFailures = 0
-          return true
+        try {
+          const recovered = await reconcileUnconfirmed(db, synapse, ctx, deps)
+          if (recovered != null) Object.assign(ctx, await deps.contextForDataSet(opts, recovered))
+          if (cids.every((cid) => db.uploadStatus(cid, ctx.providerId) === 'committed')) {
+            commitFailures = 0
+            return true
+          }
+        } catch (checkErr) {
+          log.message(`warn: on-chain recovery after the failed commit failed: ${(checkErr as Error).message}`)
         }
       }
       if (gcCid == null) {
@@ -390,9 +398,14 @@ export async function runDirectUpload(
   // Pulls run one at a time behind the store loop, so a slow pull never holds a primary commit.
   let pulls = Promise.resolve()
   const queuedPulls: Promise<void>[] = []
+  // Set when the run is failing; a skipped pull is repaired as a missing secondary on the next run.
+  let stopping = false
   const queuePulls = (subPieceCid: string): void => {
     pulls = pulls.then(async () => {
-      for (const secondary of secondaries) await pullToSecondary(db, primary, secondary, subPieceCid)
+      for (const secondary of secondaries) {
+        if (stopping) return
+        await pullToSecondary(db, primary, secondary, subPieceCid)
+      }
     })
     queuedPulls.push(pulls)
   }
@@ -427,13 +440,9 @@ export async function runDirectUpload(
         await maybeFlush(opts.forceFlush?.() === true)
         if (opts.waitForMore == null) break
         // Wake on a timer too: a slow packer must not age parked pieces past their deadline.
-        let timer: NodeJS.Timeout | undefined
-        const more = await Promise.race([
-          opts.waitForMore(storeDeferred),
-          new Promise<null>((resolve) => {
-            timer = setTimeout(() => resolve(null), FLUSH_POLL_MS)
-          }),
-        ])
+        const poll = new AbortController()
+        const timer = setTimeout(() => poll.abort(), FLUSH_POLL_MS)
+        const more = await opts.waitForMore(storeDeferred, poll.signal)
         clearTimeout(timer)
         if (more === false) break
         continue
@@ -537,6 +546,7 @@ export async function runDirectUpload(
     }
   } catch (err) {
     // A detached pull would write through the caller's closed DB.
+    stopping = true
     await pulls.catch(() => undefined)
     throw err
   }

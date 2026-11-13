@@ -57,6 +57,12 @@ describe('normalizeMigrateOptions', () => {
       normalizeMigrateOptions({ gateway: ['https://gw.example'], packTargetSize: String(MAX_UPLOAD_BYTES + 1) })
     ).toThrow(/exceeds the per-piece upload cap/)
   })
+
+  it('rejects a staging cap under 3x the pack target', () => {
+    expect(() =>
+      normalizeMigrateOptions({ gateway: ['https://gw.example'], packTargetSize: '100MiB', maxStagedBytes: '250MiB' })
+    ).toThrow(/under 3x the pack target/)
+  })
 })
 
 describe('resolveMigratePaths', () => {
