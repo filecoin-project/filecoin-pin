@@ -307,7 +307,7 @@ export async function runDirectUpload(
             return true
           }
         } catch (checkErr) {
-          log.message(`warn: on-chain check after the failed commit failed: ${(checkErr as Error).message}`)
+          log.message(`warn: on-chain recovery after the failed commit failed: ${(checkErr as Error).message}`)
         }
       }
       if (gcCid == null) {
