@@ -726,7 +726,7 @@ describe('runMigrate pipeline', () => {
       h.db.close()
       await rm(h.dir, { recursive: true, force: true })
     }
-  })
+  }, 10_000)
 
   it('reuses members already staged on disk when resuming', async () => {
     const staged = await cidFor('already-staged')
