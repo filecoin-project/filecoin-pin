@@ -112,7 +112,7 @@ describe('migrate', () => {
     writeFileSync(cidList, '')
     const result = await runCli(['migrate', cidList])
     expect(result.exitCode).toBe(1)
-    expect(result.combined).toContain("required option '--gateway <url>' not specified")
+    expect(result.combined).toContain('--gateway is required')
   })
 
   it('--gateway without a scheme', T, async () => {

@@ -28,7 +28,7 @@ export function failureCategoryOf(err: unknown): FailureCategory {
   return err instanceof StagingError ? err.category : 'other'
 }
 
-function categoryForStatus(status: number): FailureCategory {
+export function categoryForStatus(status: number): FailureCategory {
   if (status === 429) return 'source_gateway_429'
   if (status === 404 || status === 410) return 'source_not_found'
   if (status >= 500 && status < 600) return 'source_gateway_5xx'

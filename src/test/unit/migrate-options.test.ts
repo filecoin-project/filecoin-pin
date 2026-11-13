@@ -27,6 +27,11 @@ describe('normalizeMigrateOptions', () => {
     expect(() => normalizeMigrateOptions({})).toThrow(/--gateway/)
   })
 
+  it('needs no --gateway for a gs:// source, and refuses one', () => {
+    expect(normalizeMigrateOptions({}, true).gateways).toEqual([])
+    expect(() => normalizeMigrateOptions({ gateway: ['https://gw.example'] }, true)).toThrow(/--gateway/)
+  })
+
   it('rejects a --gateway that is not an http(s) URL', () => {
     expect(() => normalizeMigrateOptions({ gateway: ['trustless-gateway.link'] })).toThrow(/--gateway/)
     expect(() => normalizeMigrateOptions({ gateway: ['localhost:8080'] })).toThrow(/--gateway/)
@@ -76,6 +81,15 @@ describe('resolveMigratePaths', () => {
     const b = resolveMigratePaths('/data', { ...scope, owner: '0xDEF' })
     expect(a.dbPath).toBe(b.dbPath)
     expect(a.stagingDir).not.toBe(b.stagingDir)
+  })
+
+  it('gives a gs:// source its own default DB and staging dirs', () => {
+    const cids = resolveMigratePaths('/data', scope)
+    const gcs = resolveMigratePaths('/data', scope, undefined, true)
+    expect(gcs.dbPath).toBe(join('/data', 'migrate', 'migrate-gcs.db'))
+    expect(gcs.memberDir.startsWith(cids.memberDir)).toBe(false)
+    expect(gcs.carStore.startsWith(cids.carStore)).toBe(false)
+    expect(resolveMigratePaths('/data', scope, '/elsewhere/x.db', true).dbPath).toBe('/elsewhere/x.db')
   })
 
   it('lets --db override the database path but keeps the staging dirs', () => {

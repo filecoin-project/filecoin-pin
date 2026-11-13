@@ -92,27 +92,34 @@ async function createCar(
   }
   const blockstore = new CARWritingBlockstore(blockstoreOptions)
 
-  // Initialize blockstore (writes CAR header with placeholder)
-  await blockstore.initialize()
-
-  // Create UnixFS instance with our blockstore
-  const fs = unixfs({ blockstore })
-
-  // Add content using the provided function
-  const rootCid = await addContent(fs)
-
-  logger?.info({ rootCid: rootCid.toString() }, `Content added to UnixFS`)
-
-  // Finalize CAR (close writer, flush to disk)
-  await blockstore.finalize()
-
-  // Update the root CID in the CAR file
-  logger?.debug('Updating root CID in CAR file')
-  const fd = await open(tempCarPath, 'r+')
+  let rootCid: CID
   try {
-    await CarWriter.updateRootsInFile(fd, [rootCid])
-  } finally {
-    await fd.close()
+    // Initialize blockstore (writes CAR header with placeholder)
+    await blockstore.initialize()
+
+    // Create UnixFS instance with our blockstore
+    const fs = unixfs({ blockstore })
+
+    // Add content using the provided function
+    rootCid = await addContent(fs)
+
+    logger?.info({ rootCid: rootCid.toString() }, `Content added to UnixFS`)
+
+    // Finalize CAR (close writer, flush to disk)
+    await blockstore.finalize()
+
+    // Update the root CID in the CAR file
+    logger?.debug('Updating root CID in CAR file')
+    const fd = await open(tempCarPath, 'r+')
+    try {
+      await CarWriter.updateRootsInFile(fd, [rootCid])
+    } finally {
+      await fd.close()
+    }
+  } catch (err) {
+    await blockstore.cleanup()
+    await unlink(tempCarPath).catch(() => undefined)
+    throw err
   }
 
   logger?.info(
@@ -154,6 +161,15 @@ async function createCarFromSingleFile(filePath: string, options: CreateCarOptio
     logger?.info({ filePath, name }, 'Adding file to UnixFS')
     return fs.addByteStream(webStream, importerOptions)
   })
+}
+
+/** Import a byte stream as a single UnixFS file, same profile as `add`. */
+export async function createCarFromStream(
+  stream: ReadableStream<Uint8Array>,
+  name: string,
+  options: CreateCarOptions = {}
+): Promise<CreateCarResult> {
+  return createCar(name, { ...options, name }, (fs) => fs.addByteStream(stream, importerOptions))
 }
 
 async function createCarFromDirectory(dirPath: string, options: CreateCarOptions = {}): Promise<CreateCarResult> {

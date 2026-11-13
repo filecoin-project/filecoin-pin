@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CarReader } from '@ipld/car'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import * as unixfsEntry from '../../core/unixfs/index.js'
 import { createCarFromPath } from '../../core/unixfs/index.js'
 
 // Test constants
@@ -491,5 +492,11 @@ describe('UnixFS CAR Creation', () => {
       await rm(result.carPath, { force: true })
       await rm(hiddenRoot, { recursive: true, force: true })
     })
+  })
+})
+
+describe('filecoin-pin/core/unixfs entry', () => {
+  it('keeps the migrate stream importer internal', () => {
+    expect(unixfsEntry).not.toHaveProperty('createCarFromStream')
   })
 })
