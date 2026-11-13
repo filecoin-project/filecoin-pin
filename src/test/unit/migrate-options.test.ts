@@ -53,10 +53,10 @@ describe('normalizeMigrateOptions', () => {
     ).toThrow(/exceeds the per-piece upload cap/)
   })
 
-  it('rejects a staging cap too small to assemble one piece', () => {
+  it('rejects a staging cap under 3x the pack target', () => {
     expect(() =>
-      normalizeMigrateOptions({ gateway: ['https://gw.example'], packTargetSize: '100MiB', maxStagedBytes: '150MiB' })
-    ).toThrow(/too small/)
+      normalizeMigrateOptions({ gateway: ['https://gw.example'], packTargetSize: '100MiB', maxStagedBytes: '250MiB' })
+    ).toThrow(/under 3x the pack target/)
   })
 })
 
