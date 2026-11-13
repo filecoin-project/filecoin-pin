@@ -82,6 +82,8 @@ interface FakeBehavior {
   confirmedTxHash?: (txHash: string) => string
   /** Offset added to the fake clock, for aging add_unconfirmed breadcrumbs. */
   nowOffsetMs?: number
+  /** Piece ids the commit answers with. Default: one per piece. */
+  commitPieceIds?: bigint[]
 }
 
 function fakeDeps(b: FakeBehavior = {}) {
@@ -127,7 +129,7 @@ function fakeDeps(b: FakeBehavior = {}) {
         return {
           txHash,
           ...(b.confirmedTxHash ? { confirmedTxHash: b.confirmedTxHash(txHash) } : {}),
-          pieceIds: options.pieces.map((_, i) => BigInt(i)),
+          pieceIds: b.commitPieceIds ?? options.pieces.map((_, i) => BigInt(i)),
           dataSetId: BigInt(sdkDataSetId),
         }
       },
@@ -351,6 +353,21 @@ describe('runDirectUpload', () => {
 
       expect(db.uploadStatus(P1, 'p1')).toBe('committed')
       expect(db.uploadStatus(P1, 'p2')).toBe('committed')
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('a commit answering fewer piece ids than pieces leaves the batch add_unconfirmed', async () => {
+    const { dir, db } = await dbAt('du-short-ids')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      const { deps } = fakeDeps({ commitPieceIds: [] })
+      await runDirectUpload(db, OPTS, deps)
+
+      expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(0)
+      expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(1)
     } finally {
       db.close()
       await rm(dir, { recursive: true, force: true })
