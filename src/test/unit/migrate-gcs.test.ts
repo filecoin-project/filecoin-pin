@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { keyspaceKeys as deriveGroupKey, type WriteTarget, writeTarget } from '@filoz/keysmith'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { decryptToDirectory } from '../../common/encryption.js'
@@ -220,7 +220,7 @@ describe('stageGcsObject with --encrypt', () => {
     const member = await stageGcsObject('gs://bk/a.bin', dir, {}, bucket, target)
     await scan()
     expect(leaked).toEqual([])
-    expect(await readdir(dir)).toEqual([member.memberCarPath.split('/').at(-1)])
+    expect(await readdir(dir)).toEqual([basename(member.memberCarPath)])
   })
 
   it('downloads the object from GCS once', async () => {
