@@ -95,6 +95,12 @@ export function normalizeMigrateOptions(options: Record<string, unknown>): Norma
   // for add/import cannot flip a bulk run to beam.
   const egressProvider = (options.egressProvider as string | undefined) ?? 'none'
   const maxStagedBytes = options.maxStagedBytes == null ? null : Number(parseSize(String(options.maxStagedBytes)))
+  if (maxStagedBytes != null && maxStagedBytes < 3 * packTargetBytes) {
+    throw new Error(
+      `--max-staged-bytes ${maxStagedBytes} is under 3x the pack target (${3 * packTargetBytes} bytes); ` +
+        `raise it or lower --pack-target-size`
+    )
+  }
   return {
     packTargetBytes,
     concurrency,
