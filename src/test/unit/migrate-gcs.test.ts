@@ -222,6 +222,65 @@ describe('stageGcsObject with --encrypt', () => {
     expect(leaked).toEqual([])
     expect(await readdir(dir)).toEqual([member.memberCarPath.split('/').at(-1)])
   })
+
+  it('downloads the object from GCS once', async () => {
+    const bytes = randomBytes(3 * 1024 * 1024 + 5)
+    const bucket = fakeBucket({ 'a.bin': bytes })
+    let fetches = 0
+    const counting: GcsFetch = async (url) => {
+      fetches++
+      return bucket(url)
+    }
+    await stageGcsObject('gs://bk/a.bin', dir, {}, counting, target)
+    expect(fetches).toBe(1)
+  })
+
+  /** One object of `size` bytes; `beforeClose` runs once every byte has been read. */
+  function oneObject(size: number, beforeClose: () => Promise<void>, fail = false): GcsFetch {
+    return async () => {
+      let sent = false
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            if (!sent) {
+              sent = true
+              return controller.enqueue(randomBytes(size))
+            }
+            await beforeClose()
+            if (fail) return controller.error(new Error('connection reset'))
+            controller.close()
+          },
+        })
+      )
+    }
+  }
+
+  it('fails clearly when its temporary copy changes before encryption, and removes it', async () => {
+    let counted = 0
+    const bucket = oneObject(2 * 1024 * 1024, async () => {
+      const [spool] = await readdir(dir)
+      await writeFile(join(dir, String(spool)), randomBytes(1024 * 1024), { flag: 'r+' })
+    })
+    await expect(
+      stageGcsObject('gs://bk/a.bin', dir, { onBytes: (d) => (counted += d) }, bucket, target)
+    ).rejects.toThrow(/gs:\/\/bk\/a\.bin: its temporary copy changed on disk; re-run/)
+    expect(counted).toBe(0)
+    expect(await readdir(dir)).toEqual([])
+  })
+
+  it('counts its temporary copy against the budget and removes it when the download fails', async () => {
+    let peak = 0
+    let counted = 0
+    const bucket = oneObject(1024 * 1024, async () => undefined, true)
+    const onBytes = (d: number): void => {
+      counted += d
+      peak = Math.max(peak, counted)
+    }
+    await expect(stageGcsObject('gs://bk/a.bin', dir, { onBytes }, bucket, target)).rejects.toThrow(/connection reset/)
+    expect(peak).toBe(1024 * 1024)
+    expect(counted).toBe(0)
+    expect(await readdir(dir)).toEqual([])
+  })
 })
 
 describe('MigrationDB object sources', () => {

@@ -4,16 +4,17 @@
  * member CAR for the packing pipeline. Read-only access is enough.
  */
 
+import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { unlink } from 'node:fs/promises'
-import { basename } from 'node:path'
+import { open, rm, unlink } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { Readable } from 'node:stream'
 import type { WriteTarget } from '@filoz/keysmith'
 import * as fee from 'filecoin-encryption-envelope'
 import { ENCRYPTED_FILE_NAME } from '../common/encryption.js'
 import { newPieceKey, type PieceKey } from '../common/group-key.js'
 import { CAR_CONTENT_TYPE } from '../common/unixfs-car-layout.js'
-import { emitStreamPayload, planStreamPayload } from '../common/unixfs-car-payload.js'
+import { EncryptInputError, emitStreamPayload, planStreamPayload } from '../common/unixfs-car-payload.js'
 import { createCarFromStream } from '../core/unixfs/car-builder.js'
 import type { MigrationDB } from './db.js'
 import { categoryForFetchError, categoryForStatus, rootCause, StagingError } from './gateway.js'
@@ -85,12 +86,45 @@ async function readObject(url: string, fetchFn: GcsFetch): Promise<ReadableStrea
 }
 
 /**
- * The envelope `add --encrypt` makes of a file, built from two reads of the object
- * (plan, then emit) so no plaintext touches disk.
+ * The envelope `add --encrypt` makes of a file, from one read of the object: the plan pass
+ * copies it to `spool` under a memory-only key, so only ciphertext touches disk.
  */
-async function encryptedObject(url: string, fetchFn: GcsFetch, key: PieceKey): Promise<ReadableStream<Uint8Array>> {
-  const plan = await planStreamPayload(basename(parseGcsUrl(url)?.prefix ?? ''), await readObject(url, fetchFn))
-  const payload = Readable.toWeb(Readable.from(emitStreamPayload(plan, await readObject(url, fetchFn))))
+async function encryptedObject(
+  url: string,
+  fetchFn: GcsFetch,
+  key: PieceKey,
+  spool: string,
+  count: (delta: number) => void
+): Promise<ReadableStream<Uint8Array>> {
+  // Unauthenticated, but emit re-hashes every leaf against its CID, so a tampered spool fails.
+  const spoolKey = randomBytes(32)
+  const iv = randomBytes(16)
+  const cipher = createCipheriv('aes-256-ctr', spoolKey, iv)
+  const file = await open(spool, 'wx')
+  const plan = await planStreamPayload(
+    basename(parseGcsUrl(url)?.prefix ?? ''),
+    (async function* () {
+      for await (const chunk of await readObject(url, fetchFn)) {
+        const sealed = cipher.update(chunk)
+        count(sealed.length)
+        await file.write(sealed)
+        yield chunk
+      }
+    })()
+  ).finally(() => file.close())
+  async function* spooled(): AsyncGenerator<Uint8Array> {
+    const decipher = createDecipheriv('aes-256-ctr', spoolKey, iv)
+    for await (const chunk of createReadStream(spool)) yield decipher.update(chunk)
+  }
+  async function* emitted(): AsyncGenerator<Uint8Array> {
+    try {
+      yield* emitStreamPayload(plan, spooled())
+    } catch (err) {
+      if (!(err instanceof EncryptInputError)) throw err
+      throw new Error(`${url}: its temporary copy changed on disk; re-run`, { cause: err })
+    }
+  }
+  const payload = Readable.toWeb(Readable.from(emitted()))
   return (payload as ReadableStream<Uint8Array>).pipeThrough(
     fee.encrypt({
       cek: key.cek,
@@ -127,11 +161,13 @@ export async function stageGcsObject(
     },
   })
   let carPath: string | undefined
+  const spool = join(memberDir, `${randomUUID()}.spool`)
   try {
-    const input = key == null ? await readObject(url, fetchFn) : await encryptedObject(url, fetchFn, key)
+    const input = key == null ? await readObject(url, fetchFn) : await encryptedObject(url, fetchFn, key, spool, count)
     const name = key == null ? (parseGcsUrl(url)?.prefix ?? '') : ENCRYPTED_FILE_NAME
     const car = await createCarFromStream(input.pipeThrough(counter), name, { tempDir: memberDir })
     carPath = car.carPath
+    await rm(spool, { force: true })
     const verified = await verifyCarStream(
       Readable.toWeb(createReadStream(carPath)) as ReadableStream<Uint8Array>,
       car.rootCid,
@@ -149,6 +185,7 @@ export async function stageGcsObject(
     }
   } catch (err) {
     if (carPath != null) await unlink(carPath).catch(() => undefined)
+    await rm(spool, { force: true }).catch(() => undefined)
     if (counted !== 0) opts.onBytes?.(-counted)
     throw err
   } finally {
