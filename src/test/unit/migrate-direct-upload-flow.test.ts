@@ -22,6 +22,7 @@ import {
 // Real PieceCIDs so CID.parse succeeds.
 const P1 = 'bafkzcibf3ck4uais4fgennh4hbfx5z3i6hue4xgq2cdeamtus4hjbsrjs5lf2azbxmsa'
 const P2 = 'bafkzcibewpkqwewyhz3yxutlxbpt2nkb6si5qilg4qqtzzij32uw7ammsc73a4wkgi'
+const P3 = 'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy'
 // P1 as CIDv1, the form Curio names in its GC rejection (go-fil-commcid PieceCidV1FromV2).
 const P1_V1 = 'baga6ea4seaqoctcgwt6dqs3645upd2coltinbbsagj2joduqziuzovs5amq3wja'
 
@@ -435,6 +436,30 @@ describe('runDirectUpload', () => {
       expect(settled).toBe(false)
       release()
       await expect(run).rejects.toThrow(/3 consecutive commit failures/)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('skips queued pulls once commit failures stop the run', async () => {
+    const { dir, db } = await dbAt('du-fail-skip-pulls')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      seedBuilt(db, P2, join(dir, 'b.car'))
+      seedBuilt(db, P3, join(dir, 'c.car'))
+      let release: () => void = () => undefined
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const { deps, calls } = fakeDeps({ failAllCommits: 'insufficient funds', pullGate: () => gate })
+      const run = runDirectUpload(db, { ...OPTS, assumedWindowMs: 1 }, deps)
+      run.catch(() => undefined)
+
+      await vi.waitFor(() => expect(calls.commit.get('p1')).toBe(3))
+      release()
+      await expect(run).rejects.toThrow(/3 consecutive commit failures/)
+      expect(calls.pull).toBe(1)
     } finally {
       db.close()
       await rm(dir, { recursive: true, force: true })

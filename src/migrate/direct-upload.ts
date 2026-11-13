@@ -394,9 +394,14 @@ export async function runDirectUpload(
   // Pulls run one at a time behind the store loop, so a slow pull never holds a primary commit.
   let pulls = Promise.resolve()
   const queuedPulls: Promise<void>[] = []
+  // Set when the run is failing; a skipped pull is repaired as a missing secondary on the next run.
+  let stopping = false
   const queuePulls = (subPieceCid: string): void => {
     pulls = pulls.then(async () => {
-      for (const secondary of secondaries) await pullToSecondary(db, primary, secondary, subPieceCid)
+      for (const secondary of secondaries) {
+        if (stopping) return
+        await pullToSecondary(db, primary, secondary, subPieceCid)
+      }
     })
     queuedPulls.push(pulls)
   }
@@ -537,6 +542,7 @@ export async function runDirectUpload(
     }
   } catch (err) {
     // A detached pull would write through the caller's closed DB.
+    stopping = true
     await pulls.catch(() => undefined)
     throw err
   }
