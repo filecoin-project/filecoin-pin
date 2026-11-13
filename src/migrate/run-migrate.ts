@@ -347,7 +347,7 @@ export async function runMigrate(
   const uploadable = (): boolean =>
     primaryProviderId != null &&
     db.subPiecesNeedingUpload(primaryProviderId).some((s) => !uploaderSkipping.has(s.subPieceCid))
-  const waitForMore = async (skipping: ReadonlySet<string>): Promise<boolean> => {
+  const waitForMore = async (skipping: ReadonlySet<string>, signal: AbortSignal): Promise<boolean> => {
     if (drained) return false
     uploaderSkipping = skipping
     // A pack can record new pieces between the uploader's empty poll and this
@@ -357,6 +357,7 @@ export async function runMigrate(
     await new Promise<void>((resolve) => {
       uploaderParked = true
       wakeUploader.push(resolve)
+      signal.addEventListener('abort', notifyUploader)
       checkStuck()
     })
     return true
