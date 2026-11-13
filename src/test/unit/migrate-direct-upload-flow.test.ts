@@ -359,6 +359,25 @@ describe('runDirectUpload', () => {
     }
   })
 
+  it('leaves the batch add_unconfirmed when the on-chain check after a failed commit throws', async () => {
+    const { dir, db } = await dbAt('du-status-rpc-blip')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      const { deps } = fakeDeps({
+        failCommit: { providerId: 'p1', call: 1, message: 'Request timed out after 300000ms' },
+        txLanded: () => {
+          throw new Error('rpc blip')
+        },
+      })
+      const summary = await runDirectUpload(db, OPTS, deps)
+
+      expect(summary.providers[0]?.addUnconfirmed).toBe(1)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('commits each secondary as its pull lands while draining the pull queue', async () => {
     const { dir, db } = await dbAt('du-drain-flush')
     try {

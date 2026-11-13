@@ -299,11 +299,15 @@ export async function runDirectUpload(
       const gcCid = collectedCidFromError(message)
       if (gcCid == null && submitted) {
         // The provider's status check can time out after the tx landed: let the chain decide, as a resume does.
-        const recovered = await reconcileUnconfirmed(db, synapse, ctx, deps)
-        if (recovered != null) Object.assign(ctx, await deps.contextForDataSet(opts, recovered))
-        if (cids.every((cid) => db.uploadStatus(cid, ctx.providerId) === 'committed')) {
-          commitFailures = 0
-          return true
+        try {
+          const recovered = await reconcileUnconfirmed(db, synapse, ctx, deps)
+          if (recovered != null) Object.assign(ctx, await deps.contextForDataSet(opts, recovered))
+          if (cids.every((cid) => db.uploadStatus(cid, ctx.providerId) === 'committed')) {
+            commitFailures = 0
+            return true
+          }
+        } catch (checkErr) {
+          log.message(`warn: on-chain check after the failed commit failed: ${(checkErr as Error).message}`)
         }
       }
       if (gcCid == null) {
