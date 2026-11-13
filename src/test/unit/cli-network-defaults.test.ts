@@ -4,6 +4,7 @@ import {
   addCommand,
   dataSetCommand,
   importCommand,
+  migrateCommand,
   paymentsCommand,
   providerCommand,
   removeCommand,
@@ -18,6 +19,7 @@ function leafCommands(cmd: Command): Command[] {
 const roots: Array<[string, Command]> = [
   ['add', addCommand],
   ['import', importCommand],
+  ['migrate', migrateCommand],
   ['remove', removeCommand],
   ['server', serverCommand],
   ['payments', paymentsCommand],

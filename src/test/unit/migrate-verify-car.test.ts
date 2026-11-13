@@ -461,6 +461,14 @@ describe('stageMember', () => {
     await sink.destroy()
   })
 
+  it('reports a line that is not a CID in plain words', async () => {
+    await expect(stageMember('notacid', ['fake://gw'], dir, {}, vi.fn())).rejects.toMatchObject({
+      name: 'StagingError',
+      category: 'other',
+      message: expect.stringMatching(/not a valid CID/),
+    })
+  })
+
   it('overwrites a temp file left by a crashed run', async () => {
     const { root, leaf } = await linkedDag()
     const car = await buildCar([root.cid], [root, leaf])

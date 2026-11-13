@@ -211,6 +211,14 @@ export class MigrationDB {
   }
 
   /** CIDs not yet downloaded and verified. Failed CIDs re-enter the queue. */
+  /** CIDs that exceed the per-piece upload cap, from this and earlier runs. */
+  oversizedCids(): string[] {
+    return this.#db
+      .prepare(`SELECT cid FROM pieces WHERE scope = ? AND status = 'oversized' ORDER BY cid`)
+      .all(this.scope)
+      .map((row) => (row as { cid: string }).cid)
+  }
+
   pendingCids(): string[] {
     const rows = this.#db
       .prepare(`SELECT cid FROM pieces WHERE scope = ? AND status IN ('pending', 'failed') ORDER BY cid`)
