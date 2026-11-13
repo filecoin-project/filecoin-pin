@@ -11,7 +11,7 @@ import type { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import pino, { type Logger } from 'pino'
-import type { Hex } from 'viem'
+import { type Hex, sha256, slice, toHex } from 'viem'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { assertUploadFunds, rerunHint } from '../common/funds-preflight.js'
 import { OWNER_WALLET_REQUIRED, type OwnerGroupKey, ownerGroupKey, ownerSigner } from '../common/group-key.js'
@@ -133,20 +133,34 @@ export function normalizeMigrateOptions(options: Record<string, unknown>, gcs = 
   }
 }
 
+/** A gs:// source's group key id: `sha256(source URL)[0:16]`, with `gs://bucket/` read as `gs://bucket`. */
+export function sourceGroupKeyId(source: string): Hex {
+  return slice(sha256(toHex(source.replace(/^(gs:\/\/[^/]+)\/$/, '$1'))), 0, 16)
+}
+
 /**
- * The group key `add --encrypt` would write under: the owner wallet's (oldest valid
- * on chain, else the default one), else the session key's Grant. Never plaintext.
+ * The source's group key (see {@link sourceGroupKeyId}), derived as `add --encrypt` derives
+ * one: by the owner wallet, else from a session key's Grant for that group key. Never plaintext.
  */
 export async function migrateGroupKey(
   synapse: Synapse,
   config: SynapseSetupConfig,
+  source: string,
   logger?: Logger
 ): Promise<OwnerGroupKey> {
+  const groupKeyId = sourceGroupKeyId(source)
   const signer = ownerSigner(synapse)
-  if (signer != null) return ownerGroupKey(synapse, signer, logger)
+  if (signer != null) return ownerGroupKey(synapse, signer, logger, groupKeyId)
   if ('sessionKey' in config && config.sessionKey != null) {
     const session = { sessionKey: config.sessionKey as Hex, walletAddress: getClientAddress(synapse) }
-    return grantGroupKey(synapse, await loadGroupKeyGrant(session, synapse.chain.id), logger)
+    const opened = await loadGroupKeyGrant(session, synapse.chain.id)
+    if (opened.groupKeyId !== groupKeyId) {
+      opened.key.fill(0)
+      throw new Error(
+        `This session key's Grant is for group key ${opened.groupKeyId}, but ${source} encrypts under group key ${groupKeyId}; run with the owner wallet (set PRIVATE_KEY), or with a Grant for group key ${groupKeyId}.`
+      )
+    }
+    return grantGroupKey(synapse, opened, logger)
   }
   throw new Error(OWNER_WALLET_REQUIRED)
 }
@@ -282,7 +296,7 @@ export async function runMigrateFromCli(sourceArg: string, options: Record<strin
     // Settled before any data set is chosen: encrypted objects land in data sets tagged with it.
     if (normalized.encrypt) {
       spinner.start('Deriving the encryption key...')
-      groupKey = await migrateGroupKey(synapse, config, logger)
+      groupKey = await migrateGroupKey(synapse, config, sourceArg, logger)
       spinner.stop(`${pc.green('✓')} Encryption key derived`)
       if (contextSelection.dataSetIds != null) {
         await assertEncryptedDataSets(synapse, contextSelection.dataSetIds, groupKey, logger)
@@ -331,7 +345,7 @@ export async function runMigrateFromCli(sourceArg: string, options: Record<strin
     const db = new MigrationDB(dbPath, `${networkSlug}:${owner}`)
     try {
       db.addCids(cids)
-      db.addSources(objects, normalized.encrypt)
+      db.addSources(objects, groupKey?.dataSetMetadata['foc/ks'])
       cliLog.line(`Registered ${cids.length + objects.length} item(s) from ${sourceArg} (state: ${db.path})`)
       cliLog.flush()
 

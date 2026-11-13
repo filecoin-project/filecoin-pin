@@ -467,7 +467,7 @@ describe('runMigrate pipeline', () => {
     const bucketFetch: GcsFetch = async () => new Response(new Uint8Array(1200))
     const h = await harness({ cids: [], budgetBytes: 4000, packTargetBytes: 1000 })
     try {
-      h.db.addSources([{ url: 'gs://bk/a.bin', size: 1200, crc32c: 'a' }], true)
+      h.db.addSources([{ url: 'gs://bk/a.bin', size: 1200, crc32c: 'a' }], GROUP_KEY)
       const source = gcsSource(h.db, bucketFetch, writeTarget(descriptor, kk))
       const summary = await runMigrate(h.db, { ...h.options, gateways: [], source }, h.deps)
 

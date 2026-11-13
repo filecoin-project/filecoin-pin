@@ -9,6 +9,7 @@ import { ownerKeyResolver } from '../../common/group-key.js'
 import { createCarFromPath } from '../../core/unixfs/car-builder.js'
 import { MigrationDB } from '../../migrate/db.js'
 import { type GcsFetch, listGcsObjects, parseGcsUrl, stageGcsObject } from '../../migrate/gcs.js'
+import { sourceGroupKeyId } from '../../migrate/migrate.js'
 import { GROUP_KEY, OWNER } from '../fixtures/group-key-grants.js'
 
 const MEMBER = {
@@ -194,6 +195,24 @@ describe('stageGcsObject with --encrypt', () => {
     expect((await readFile(join(out, 'scan.tiff'))).equals(bytes)).toBe(true)
   })
 
+  it("restores an object encrypted under its source's group key with the owner wallet", async () => {
+    const { kk, descriptor } = await deriveGroupKey(OWNER, {
+      owner: OWNER.address,
+      keyspace: sourceGroupKeyId('gs://bk/scans'),
+    })
+    const bytes = randomBytes(1024 * 1024 + 3)
+    const member = await stageGcsObject(
+      'gs://bk/scans/a.tiff',
+      dir,
+      {},
+      fakeBucket({ 'scans/a.tiff': bytes }),
+      writeTarget(descriptor, kk)
+    )
+    const out = join(dir, 'out')
+    await decryptToDirectory(member.memberCarPath, out, ownerKeyResolver(OWNER))
+    expect((await readFile(join(out, 'a.tiff'))).equals(bytes)).toBe(true)
+  })
+
   it('never writes plaintext to the staging directory', async () => {
     const marker = randomBytes(64)
     const bytes = Buffer.concat(Array.from({ length: 40_000 }, () => marker))
@@ -285,6 +304,8 @@ describe('stageGcsObject with --encrypt', () => {
 
 describe('MigrationDB object sources', () => {
   const obj = (name: string, crc32c = `crc-${name}`) => ({ url: `gs://b/${name}`, size: 10, crc32c })
+  const KEY_A = `0x${'aa'.repeat(16)}`
+  const KEY_B = `0x${'bb'.repeat(16)}`
 
   it('queues new objects and skips ones already recorded with the same content', () => {
     const db = new MigrationDB(':memory:', 'test:0xabc')
@@ -294,7 +315,13 @@ describe('MigrationDB object sources', () => {
     expect(db.recordSourceSuccess('gs://b/a.pdf', { ...MEMBER, cid: 'bafkreia' })).toBe(true)
     db.addSources([obj('a.pdf'), obj('b.pdf')])
     expect(db.pendingSources()).toEqual(['gs://b/b.pdf'])
-    expect(db.sources()).toContainEqual({ url: 'gs://b/a.pdf', cid: 'bafkreia', size: 10, crc32c: 'crc-a.pdf' })
+    expect(db.sources()).toContainEqual({
+      url: 'gs://b/a.pdf',
+      cid: 'bafkreia',
+      size: 10,
+      crc32c: 'crc-a.pdf',
+      groupKeyId: null,
+    })
     db.close()
   })
 
@@ -341,13 +368,33 @@ describe('MigrationDB object sources', () => {
   it('refuses to switch an object between plain and encrypted, registering nothing', () => {
     const db = new MigrationDB(':memory:', 'test:0xabc')
     db.addSources([obj('a.pdf')])
-    expect(() => db.addSources([obj('new.pdf'), obj('a.pdf')], true)).toThrow(
+    expect(() => db.addSources([obj('new.pdf'), obj('a.pdf')], KEY_A)).toThrow(
       /gs:\/\/b\/a\.pdf was migrated without --encrypt.*different --db/
     )
     expect(db.sources().map((s) => s.url)).toEqual(['gs://b/a.pdf'])
-    db.addSources([{ url: 'gs://other/x.pdf', size: 10, crc32c: 'x' }], true)
+    db.addSources([{ url: 'gs://other/x.pdf', size: 10, crc32c: 'x' }], KEY_A)
     expect(() => db.addSources([{ url: 'gs://other/x.pdf', size: 10, crc32c: 'x' }])).toThrow(
       /gs:\/\/other\/x\.pdf was migrated with --encrypt/
+    )
+    db.close()
+  })
+
+  it('records the group key id each object was encrypted under', () => {
+    const db = new MigrationDB(':memory:', 'test:0xabc')
+    db.addSources([obj('a.pdf')], KEY_A)
+    db.addSources([obj('b.pdf')])
+    expect(db.sources().map((s) => [s.url, s.groupKeyId])).toEqual([
+      ['gs://b/a.pdf', KEY_A],
+      ['gs://b/b.pdf', null],
+    ])
+    db.close()
+  })
+
+  it('refuses to move an object to another group key', () => {
+    const db = new MigrationDB(':memory:', 'test:0xabc')
+    db.addSources([obj('a.pdf')], KEY_A)
+    expect(() => db.addSources([obj('a.pdf')], KEY_B)).toThrow(
+      `gs://b/a.pdf was migrated with --encrypt under group key ${KEY_A}`
     )
     db.close()
   })
