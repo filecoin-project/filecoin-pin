@@ -369,15 +369,15 @@ describe('runMigrate pipeline', () => {
             return member
           },
           buildBin: async (...args) => {
-            // Hold the pack's second bin until c lands, so the first bin uploads and evicts mid-pack.
-            if (++builds === 2) await Promise.race([cLanded, new Promise((resolve) => setTimeout(resolve, 1000))])
+            // Without the early bin's bytes back, c never starts and this holds the pack forever.
+            if (++builds === 2) await cLanded
             return build(...args)
           },
         },
         h.deps
       )
 
-      expect(h.events.indexOf(`fetch:${last}`)).toBeLessThan(h.events.indexOf('build:1', h.events.indexOf('evict')))
+      expect(h.events.indexOf(`fetch:${last}`)).toBeGreaterThan(h.events.indexOf('evict'))
     } finally {
       h.db.close()
       await rm(h.dir, { recursive: true, force: true })
