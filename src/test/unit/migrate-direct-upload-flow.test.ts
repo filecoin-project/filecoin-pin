@@ -22,6 +22,7 @@ import {
 // Real PieceCIDs so CID.parse succeeds.
 const P1 = 'bafkzcibf3ck4uais4fgennh4hbfx5z3i6hue4xgq2cdeamtus4hjbsrjs5lf2azbxmsa'
 const P2 = 'bafkzcibewpkqwewyhz3yxutlxbpt2nkb6si5qilg4qqtzzij32uw7ammsc73a4wkgi'
+const P3 = 'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy'
 // P1 as CIDv1, the form Curio names in its GC rejection (go-fil-commcid PieceCidV1FromV2).
 const P1_V1 = 'baga6ea4seaqoctcgwt6dqs3645upd2coltinbbsagj2joduqziuzovs5amq3wja'
 
@@ -84,6 +85,8 @@ interface FakeBehavior {
   confirmedTxHash?: (txHash: string) => string
   /** Offset added to the fake clock, for aging add_unconfirmed breadcrumbs. */
   nowOffsetMs?: number
+  /** Piece ids the commit answers with. Default: one per piece. */
+  commitPieceIds?: bigint[]
 }
 
 function fakeDeps(b: FakeBehavior = {}) {
@@ -130,7 +133,7 @@ function fakeDeps(b: FakeBehavior = {}) {
         return {
           txHash,
           ...(b.confirmedTxHash ? { confirmedTxHash: b.confirmedTxHash(txHash) } : {}),
-          pieceIds: options.pieces.map((_, i) => BigInt(i)),
+          pieceIds: b.commitPieceIds ?? options.pieces.map((_, i) => BigInt(i)),
           dataSetId: BigInt(sdkDataSetId),
         }
       },
@@ -356,6 +359,25 @@ describe('runDirectUpload', () => {
     }
   })
 
+  it('leaves the batch add_unconfirmed when the on-chain check after a failed commit throws', async () => {
+    const { dir, db } = await dbAt('du-status-rpc-blip')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      const { deps } = fakeDeps({
+        failCommit: { providerId: 'p1', call: 1, message: 'Request timed out after 300000ms' },
+        txLanded: () => {
+          throw new Error('rpc blip')
+        },
+      })
+      const summary = await runDirectUpload(db, OPTS, deps)
+
+      expect(summary.providers[0]?.addUnconfirmed).toBe(1)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('commits each secondary as its pull lands while draining the pull queue', async () => {
     const { dir, db } = await dbAt('du-drain-flush')
     try {
@@ -439,6 +461,30 @@ describe('runDirectUpload', () => {
     }
   })
 
+  it('skips queued pulls once commit failures stop the run', async () => {
+    const { dir, db } = await dbAt('du-fail-skip-pulls')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      seedBuilt(db, P2, join(dir, 'b.car'))
+      seedBuilt(db, P3, join(dir, 'c.car'))
+      let release: () => void = () => undefined
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const { deps, calls } = fakeDeps({ failAllCommits: 'insufficient funds', pullGate: () => gate })
+      const run = runDirectUpload(db, { ...OPTS, assumedWindowMs: 1 }, deps)
+      run.catch(() => undefined)
+
+      await vi.waitFor(() => expect(calls.commit.get('p1')).toBe(3))
+      release()
+      await expect(run).rejects.toThrow(/3 consecutive commit failures/)
+      expect(calls.pull).toBe(1)
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('commits the primary without waiting on a slow secondary pull', async () => {
     const { dir, db } = await dbAt('du-slow-pull')
     try {
@@ -485,6 +531,21 @@ describe('runDirectUpload', () => {
 
       expect(db.uploadStatus(P1, 'p1')).toBe('committed')
       expect(db.uploadStatus(P1, 'p2')).toBe('committed')
+    } finally {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('a commit answering fewer piece ids than pieces leaves the batch add_unconfirmed', async () => {
+    const { dir, db } = await dbAt('du-short-ids')
+    try {
+      seedBuilt(db, P1, join(dir, 'a.car'))
+      const { deps } = fakeDeps({ commitPieceIds: [] })
+      await runDirectUpload(db, OPTS, deps)
+
+      expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(0)
+      expect(db.uploadsByStatus('p1', 'add_unconfirmed')).toHaveLength(1)
     } finally {
       db.close()
       await rm(dir, { recursive: true, force: true })
@@ -853,13 +914,38 @@ describe('runDirectUpload', () => {
       seedBuilt(db, P1, join(dir, 'a.car'))
       const { deps, calls } = fakeDeps()
       // The packer never produces another piece until the parked one commits.
-      const waitForMore = async (): Promise<boolean> =>
-        calls.commit.has('p1') ? false : new Promise<boolean>(() => undefined)
+      const waitForMore = async (_skipping: ReadonlySet<string>, signal: AbortSignal): Promise<boolean> =>
+        calls.commit.has('p1')
+          ? false
+          : new Promise<boolean>((resolve) => signal.addEventListener('abort', () => resolve(true)))
       const run = runDirectUpload(db, { ...OPTS, waitForMore }, deps)
       await vi.advanceTimersByTimeAsync(2 * 60 * 60_000)
       await run
 
       expect(db.uploadsByStatus('p1', 'committed')).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('aborts the waitForMore signal when the poll timer wakes the uploader', async () => {
+    vi.useFakeTimers()
+    const { dir, db } = await dbAt('du-wait-abort')
+    try {
+      const { deps } = fakeDeps()
+      const signals: AbortSignal[] = []
+      const waitForMore = async (_skipping: ReadonlySet<string>, signal: AbortSignal): Promise<boolean> => {
+        signals.push(signal)
+        if (signals.length > 1) return false
+        return new Promise<boolean>((resolve) => signal.addEventListener('abort', () => resolve(true)))
+      }
+      const run = runDirectUpload(db, { ...OPTS, waitForMore }, deps)
+      await vi.advanceTimersByTimeAsync(60_000)
+      await run
+
+      expect(signals[0]?.aborted).toBe(true)
     } finally {
       vi.useRealTimers()
       db.close()

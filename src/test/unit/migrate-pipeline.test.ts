@@ -350,6 +350,45 @@ describe('runMigrate pipeline', () => {
     }
   }, 10_000)
 
+  it('returns the bytes of a bin evicted before its pack call returns', async () => {
+    // a and b pack as two bins in one call; c parks on the gate (3000 - 2 x 1000) until a's bin frees its 900 bytes.
+    const cids = await Promise.all(['a', 'b', 'c'].map(async (t) => ({ cid: await cidFor(t), rawSize: 900 })))
+    const h = await harness({ cids, budgetBytes: 3000, packTargetBytes: 1000 })
+    try {
+      const last = h.db.pendingCids()[2]
+      let cStaged: () => void = () => undefined
+      const cLanded = new Promise<void>((resolve) => {
+        cStaged = resolve
+      })
+      const stage = h.options.stageMemberFn as NonNullable<typeof h.options.stageMemberFn>
+      const build = h.options.buildBin as NonNullable<typeof h.options.buildBin>
+      let builds = 0
+      await runMigrate(
+        h.db,
+        {
+          ...h.options,
+          concurrency: 2,
+          stageMemberFn: async (cid, ...rest) => {
+            const member = await stage(cid, ...rest)
+            if (cid === last) cStaged()
+            return member
+          },
+          buildBin: async (...args) => {
+            // Without the early bin's bytes back, c never starts and this holds the pack forever.
+            if (++builds === 2) await cLanded
+            return build(...args)
+          },
+        },
+        h.deps
+      )
+
+      expect(h.events.indexOf(`fetch:${last}`)).toBeGreaterThan(h.events.indexOf('evict'))
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  }, 10_000)
+
   it('cycles a budget smaller than the migration instead of wedging', async () => {
     const cids = await Promise.all(['a', 'b', 'c', 'd', 'e', 'f'].map(async (t) => ({ cid: await cidFor(t) })))
     // 3x the pack target is the minimum viable budget; the whole migration is
