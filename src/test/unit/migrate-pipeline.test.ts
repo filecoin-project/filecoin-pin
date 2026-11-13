@@ -3,6 +3,7 @@ import { readdirSync, statSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { keyspaceKeys as deriveGroupKey, writeTarget } from '@filoz/keysmith'
 import type { Synapse } from '@filoz/synapse-sdk'
 import { CarWriter } from '@ipld/car'
 import toBuffer from 'it-to-buffer'
@@ -17,6 +18,7 @@ import { migrateIncomplete } from '../../migrate/migrate.js'
 import type { BinBuilder } from '../../migrate/pack-cars.js'
 import { type MigrateRunOptions, runMigrate, stagingBudget } from '../../migrate/run-migrate.js'
 import { stageMember } from '../../migrate/verify-car.js'
+import { GROUP_KEY, OWNER } from '../fixtures/group-key-grants.js'
 
 // Exercises the budget-clocked pipeline end to end with fake network edges:
 // downloads overlap uploads, a small budget cycles instead of wedging, and a
@@ -449,7 +451,28 @@ describe('runMigrate pipeline', () => {
       )
 
       expect(summary.failures).toHaveLength(1)
+      // The whole CAR plus its assembly reservation over the 1000-byte pack target.
+      const needed = ((2 * car.length - 1000) / 1024).toFixed(1)
+      expect(summary.failures[0]?.error).toContain(`needs at least ${needed} KiB of staging`)
       expect(summary.failures[0]?.error).toContain('raise --max-staged-bytes')
+    } finally {
+      h.db.close()
+      await rm(h.dir, { recursive: true, force: true })
+    }
+  }, 10_000)
+
+  it('counts the encrypted temporary copy in the download ceiling error', async () => {
+    // hardCap is 3000: 1200 bytes stage plain within it, but not alongside their encrypted copy.
+    const { kk, descriptor } = await deriveGroupKey(OWNER, { owner: OWNER.address, keyspace: GROUP_KEY })
+    const bucketFetch: GcsFetch = async () => new Response(new Uint8Array(1200))
+    const h = await harness({ cids: [], budgetBytes: 4000, packTargetBytes: 1000 })
+    try {
+      h.db.addSources([{ url: 'gs://bk/a.bin', size: 1200, crc32c: 'a' }], GROUP_KEY)
+      const source = gcsSource(h.db, bucketFetch, writeTarget(descriptor, kk))
+      const summary = await runMigrate(h.db, { ...h.options, gateways: [], source }, h.deps)
+
+      const needed = Number(/needs at least ([\d.]+) KiB/.exec(summary.failures[0]?.error ?? '')?.[1]) * 1024
+      expect(needed).toBeGreaterThanOrEqual(2 * 1200)
     } finally {
       h.db.close()
       await rm(h.dir, { recursive: true, force: true })

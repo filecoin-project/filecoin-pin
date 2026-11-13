@@ -200,6 +200,7 @@ export class MigrationDB {
       );
       -- Object-store items (gs://bucket/name) and the root CID each imported
       -- to; the manifest a restore walks. crc32c is the listing's content hash.
+      -- group_key_id is the --encrypt group key (foc/ks), NULL for plain.
       CREATE TABLE IF NOT EXISTS sources (
         scope            TEXT NOT NULL,
         url              TEXT NOT NULL,
@@ -208,6 +209,7 @@ export class MigrationDB {
         cid              TEXT,
         error            TEXT,
         failure_category TEXT,
+        group_key_id     TEXT,
         updated_at       TEXT NOT NULL,
         PRIMARY KEY (scope, url)
       );
@@ -271,16 +273,38 @@ export class MigrationDB {
       )
   }
 
-  /** Register listed objects. Unchanged ones keep their CID; a changed crc32c re-queues the import. */
-  addSources(objects: Array<{ url: string; size: number; crc32c: string }>): void {
+  /**
+   * Register listed objects under `groupKeyId` (`--encrypt`) or none. Unchanged ones keep their CID;
+   * a changed crc32c re-queues the import. Throws, registering nothing, if an object was recorded
+   * under another group key or the other `--encrypt` mode.
+   */
+  addSources(objects: Array<{ url: string; size: number; crc32c: string }>, groupKeyId?: string): void {
+    const recorded = this.#db.prepare('SELECT group_key_id FROM sources WHERE scope = ? AND url = ?')
     const stmt = this.#db.prepare(
-      `INSERT INTO sources (scope, url, size, crc32c, updated_at) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO sources (scope, url, size, crc32c, group_key_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(scope, url) DO UPDATE SET size = excluded.size, crc32c = excluded.crc32c, cid = NULL,
          error = NULL, failure_category = NULL, updated_at = excluded.updated_at
        WHERE sources.crc32c != excluded.crc32c`
     )
     const now = new Date().toISOString()
-    for (const o of objects) stmt.run(this.scope, o.url, o.size, o.crc32c, now)
+    const mode = (id: string | null): string =>
+      id == null ? 'without --encrypt' : `with --encrypt under group key ${id}`
+    this.#db.exec('BEGIN')
+    try {
+      for (const o of objects) {
+        const row = recorded.get(this.scope, o.url) as { group_key_id: string | null } | undefined
+        if (row != null && row.group_key_id !== (groupKeyId ?? null)) {
+          throw new Error(
+            `${o.url} was migrated ${mode(row.group_key_id)} in ${this.path}, not ${mode(groupKeyId ?? null)}; re-run it that way, or pass a different --db to migrate it again`
+          )
+        }
+        stmt.run(this.scope, o.url, o.size, o.crc32c, groupKeyId ?? null, now)
+      }
+      this.#db.exec('COMMIT')
+    } catch (err) {
+      this.#db.exec('ROLLBACK')
+      throw err
+    }
   }
 
   /** Objects not yet imported, or whose imported piece went back to pending. */
@@ -331,11 +355,13 @@ export class MigrationDB {
   }
 
   /** The object manifest: each object and the root CID it imported to. */
-  sources(): Array<{ url: string; cid: string | null; size: number; crc32c: string }> {
+  sources(): Array<{ url: string; cid: string | null; size: number; crc32c: string; groupKeyId: string | null }> {
     return this.#db
-      .prepare('SELECT url, cid, size, crc32c FROM sources WHERE scope = ? ORDER BY url')
+      .prepare('SELECT url, cid, size, crc32c, group_key_id AS groupKeyId FROM sources WHERE scope = ? ORDER BY url')
       .all(this.scope)
-      .map((r) => ({ ...(r as { url: string; cid: string | null; size: number; crc32c: string }) }))
+      .map((r) => ({
+        ...(r as { url: string; cid: string | null; size: number; crc32c: string; groupKeyId: string | null }),
+      }))
   }
 
   recordPieceFailure(cid: string, error: string, category: FailureCategory = 'other'): void {

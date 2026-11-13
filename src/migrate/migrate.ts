@@ -7,15 +7,25 @@
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
+import type { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
-import pino from 'pino'
+import pino, { type Logger } from 'pino'
+import { type Hex, sha256, slice, toHex } from 'viem'
 import { CliFatal, isCliFatal } from '../common/cli-errors.js'
 import { assertUploadFunds, rerunHint } from '../common/funds-preflight.js'
-import { validatePaymentSetup } from '../common/upload-flow.js'
+import { OWNER_WALLET_REQUIRED, type OwnerGroupKey, ownerGroupKey, ownerSigner } from '../common/group-key.js'
+import { grantGroupKey, loadGroupKeyGrant } from '../common/group-key-grant.js'
+import { assertExplicitDataSets, validatePaymentSetup } from '../common/upload-flow.js'
 import { getDataDirectory } from '../config.js'
 import { DEFAULT_COPIES, IPFS_INDEXED_METADATA } from '../core/synapse/constants.js'
-import { APPLICATION_SOURCE, getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
+import {
+  APPLICATION_SOURCE,
+  getClientAddress,
+  initializeSynapse,
+  isSessionKeyMode,
+  type SynapseSetupConfig,
+} from '../core/synapse/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import {
@@ -59,6 +69,8 @@ export interface NormalizedMigrateOptions {
   withCDN: boolean
   /** Explicit staging cap; null means derive from free disk space. */
   maxStagedBytes: number | null
+  /** `--encrypt`: each object is uploaded as its `add --encrypt` envelope. */
+  encrypt: boolean
 }
 
 /**
@@ -105,6 +117,10 @@ export function normalizeMigrateOptions(options: Record<string, unknown>, gcs = 
         `raise it or lower --pack-target-size`
     )
   }
+  const encrypt = options.encrypt === true
+  if (encrypt && !gcs) {
+    throw new Error('--encrypt applies only to a gs:// source: content in a CID list is already public on IPFS')
+  }
   return {
     packTargetBytes,
     concurrency,
@@ -113,7 +129,56 @@ export function normalizeMigrateOptions(options: Record<string, unknown>, gcs = 
     gateways,
     withCDN: egressProvider === 'beam',
     maxStagedBytes,
+    encrypt,
   }
+}
+
+/** A gs:// source's group key id: `sha256(source URL)[0:16]`, with `gs://bucket/` read as `gs://bucket`. */
+export function sourceGroupKeyId(source: string): Hex {
+  return slice(sha256(toHex(source.replace(/^(gs:\/\/[^/]+)\/$/, '$1'))), 0, 16)
+}
+
+/**
+ * The source's group key (see {@link sourceGroupKeyId}), derived as `add --encrypt` derives
+ * one: by the owner wallet, else from a session key's Grant for that group key. Never plaintext.
+ */
+export async function migrateGroupKey(
+  synapse: Synapse,
+  config: SynapseSetupConfig,
+  source: string,
+  logger?: Logger
+): Promise<OwnerGroupKey> {
+  const groupKeyId = sourceGroupKeyId(source)
+  const signer = ownerSigner(synapse)
+  if (signer != null) return ownerGroupKey(synapse, signer, logger, groupKeyId)
+  if ('sessionKey' in config && config.sessionKey != null) {
+    const session = { sessionKey: config.sessionKey as Hex, walletAddress: getClientAddress(synapse) }
+    const opened = await loadGroupKeyGrant(session, synapse.chain.id)
+    if (opened.groupKeyId !== groupKeyId) {
+      opened.key.fill(0)
+      throw new Error(
+        `This session key's Grant is for group key ${opened.groupKeyId}, but ${source} encrypts under group key ${groupKeyId}; run with the owner wallet (set PRIVATE_KEY), or with a Grant for group key ${groupKeyId}.`
+      )
+    }
+    return grantGroupKey(synapse, opened, logger)
+  }
+  throw new Error(OWNER_WALLET_REQUIRED)
+}
+
+/** `add --encrypt`'s check: explicit data sets must be IPFS-indexed and in this group key. */
+export async function assertEncryptedDataSets(
+  synapse: Synapse,
+  dataSetIds: bigint[],
+  groupKey: OwnerGroupKey,
+  logger: Logger
+): Promise<void> {
+  await assertExplicitDataSets(
+    synapse,
+    dataSetIds,
+    { ...groupKey.dataSetMetadata, ...IPFS_INDEXED_METADATA },
+    [],
+    logger
+  )
 }
 
 /**
@@ -193,6 +258,7 @@ export async function runMigrateFromCli(sourceArg: string, options: Record<strin
   const spinner = createSpinner()
 
   const logger = pino({ level: process.env.LOG_LEVEL || 'silent' })
+  let groupKey: OwnerGroupKey | undefined
 
   try {
     const gcs = parseGcsUrl(sourceArg)
@@ -227,6 +293,17 @@ export async function runMigrateFromCli(sourceArg: string, options: Record<strin
       printEgressNotice('beam')
     }
 
+    // Settled before any data set is chosen: encrypted objects land in data sets tagged with it.
+    if (normalized.encrypt) {
+      spinner.start('Deriving the encryption key...')
+      groupKey = await migrateGroupKey(synapse, config, sourceArg, logger)
+      spinner.stop(`${pc.green('✓')} Encryption key derived`)
+      if (contextSelection.dataSetIds != null) {
+        await assertEncryptedDataSets(synapse, contextSelection.dataSetIds, groupKey, logger)
+      }
+    }
+    const dataSetMetadata = { ...MIGRATE_DATA_SET_METADATA, ...groupKey?.dataSetMetadata }
+
     // The total upload size is unknown until CIDs download, so the check
     // here is "can the account pay for one packed piece"; per-batch capacity
     // failures come out of the commit path with the payments hints. (A zero
@@ -242,7 +319,7 @@ export async function runMigrateFromCli(sourceArg: string, options: Record<strin
           copies,
           ...(contextSelection.providerIds && { providerIds: contextSelection.providerIds }),
           ...(contextSelection.dataSetIds && { dataSetIds: contextSelection.dataSetIds }),
-          ...(contextSelection.dataSetIds == null && { metadata: { ...MIGRATE_DATA_SET_METADATA } }),
+          ...(contextSelection.dataSetIds == null && { metadata: dataSetMetadata }),
           withCDN,
         },
         rerunHint(),
@@ -268,7 +345,7 @@ export async function runMigrateFromCli(sourceArg: string, options: Record<strin
     const db = new MigrationDB(dbPath, `${networkSlug}:${owner}`)
     try {
       db.addCids(cids)
-      db.addSources(objects)
+      db.addSources(objects, groupKey?.dataSetMetadata['foc/ks'])
       cliLog.line(`Registered ${cids.length + objects.length} item(s) from ${sourceArg} (state: ${db.path})`)
       cliLog.flush()
 
@@ -285,9 +362,9 @@ export async function runMigrateFromCli(sourceArg: string, options: Record<strin
         providerIds: contextSelection.providerIds,
         dataSetIds: contextSelection.dataSetIds,
         assumedWindowMs,
-        dataSetMetadata: contextSelection.dataSetIds == null ? { ...MIGRATE_DATA_SET_METADATA } : undefined,
+        dataSetMetadata: contextSelection.dataSetIds == null ? dataSetMetadata : undefined,
         withCDN,
-        source: gcsFetch == null ? undefined : gcsSource(db, gcsFetch),
+        source: gcsFetch == null ? undefined : gcsSource(db, gcsFetch, groupKey?.target),
       })
 
       printSummary(summary)
@@ -312,6 +389,8 @@ export async function runMigrateFromCli(sourceArg: string, options: Record<strin
     logger.error({ event: 'migrate.failed', error }, 'Migrate failed')
     cancel('Migrate failed')
     throw new CliFatal(msg, { cause: error instanceof Error ? error : undefined })
+  } finally {
+    groupKey?.target.key.fill(0)
   }
 }
 

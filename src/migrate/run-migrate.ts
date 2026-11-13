@@ -514,8 +514,8 @@ export async function runMigrate(
                 if (peak + assemblyExtra(peak) > budget.hardCap) {
                   source.recordFailure(
                     cid,
-                    `member CAR exceeds the staging budget's ${formatFileSize(budget.hardCap)} download ceiling; ` +
-                      `raise --max-staged-bytes and re-run`,
+                    `needs at least ${formatFileSize(peak + assemblyExtra(peak))} of staging (the CAR, or for an encrypted GCS object the object plus its encrypted temporary copy), ` +
+                      `over the staging budget's ${formatFileSize(budget.hardCap)} download ceiling; raise --max-staged-bytes and re-run`,
                     'staging_budget'
                   )
                   break

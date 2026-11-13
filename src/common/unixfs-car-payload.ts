@@ -195,11 +195,38 @@ export async function planCarPayload(
   maxBytes = Number.POSITIVE_INFINITY,
   overhead: (carBytes: number) => number = () => 0
 ): Promise<CarPayloadPlan> {
+  const walk = await walkInput(inputPath, walkOptions)
+  return planWalk(walk, (file) => readEntry(file.abs, file.entry), maxBytes, overhead)
+}
+
+/**
+ * Pass 1 for a single file whose bytes stream in, named `name` inside the wrapper. Pass 2
+ * reads the same bytes again in order with {@link emitStreamPayload}.
+ */
+export async function planStreamPayload(name: string, bytes: AsyncIterable<Uint8Array>): Promise<CarPayloadPlan> {
+  if (name.includes('\\')) {
+    throw new EncryptInputError('Entry #1 has a name containing "\\", which cannot be restored safely')
+  }
+  const file: InputFile = { rel: name, abs: '', size: 0, mtimeNs: 0n, entry: 1 }
+  const walk: InputWalk = { name, isDirectory: false, files: [file], dirs: [], skippedSymlinks: [], skippedSpecial: [] }
+  return planWalk(walk, async function* () {
+    for await (const chunk of bytes) {
+      file.size += chunk.length
+      yield chunk
+    }
+  })
+}
+
+async function planWalk(
+  walk: InputWalk,
+  read: (file: InputFile) => AsyncIterable<Uint8Array>,
+  maxBytes = Number.POSITIVE_INFINITY,
+  overhead: (carBytes: number) => number = () => 0
+): Promise<CarPayloadPlan> {
   const tooBig = (what: string, bytes: number): EncryptInputError =>
     new EncryptInputError(
       `${what} is ${bytes} bytes. Encrypted, it needs up to ${bytes + overhead(bytes)} bytes, more than the ${maxBytes} bytes one upload can hold; split it into smaller uploads`
     )
-  const walk = await walkInput(inputPath, walkOptions)
   const inputBytes = walk.files.reduce((sum, file) => sum + file.size, 0)
   if (inputBytes + overhead(inputBytes) > maxBytes) {
     throw tooBig('The input', inputBytes)
@@ -223,7 +250,7 @@ export async function planCarPayload(
       yield { path: dir }
     }
     for (const file of walk.files) {
-      yield { path: file.rel, content: readEntry(file.abs, file.entry) }
+      yield { path: file.rel, content: read(file) }
     }
   }
   const options: ImporterOptions = {
@@ -255,19 +282,9 @@ export async function planCarPayload(
 /** Pass 2: the CAR bytes, in layout order. */
 export async function* emitCarPayload(plan: CarPayloadPlan): AsyncGenerator<Uint8Array> {
   const byRel = new Map(plan.walk.files.map((f) => [f.rel, f]))
-  yield plan.layout.header
-  for (const { cid } of plan.layout.metadata) {
-    const node = plan.nodes.get(cid.toString())
-    if (node == null) {
-      throw new Error(`metadata node ${cid} vanished`)
-    }
-    yield encodeVarint(cid.bytes.length + node.bytes.length)
-    yield cid.bytes
-    yield node.bytes
-  }
   let current: { abs: string; fd: Awaited<ReturnType<typeof open>> } | undefined
   try {
-    for (const leaf of plan.layout.leaves) {
+    yield* emitLayout(plan, async (leaf) => {
       const target = leaf.targets[0]
       const source = target == null ? undefined : byRel.get(target.path)
       if (target == null || source == null) {
@@ -289,16 +306,8 @@ export async function* emitCarPayload(plan: CarPayloadPlan): AsyncGenerator<Uint
       if (bytesRead !== leaf.len) {
         throw changed(entry)
       }
-      // Size and mtime miss a same-size rewrite with its mtime restored (`touch -r`, `cp -p`).
-      // Every leaf comes from parallelHashImporter, so it is sha2-256, never identity.
-      const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buf))
-      if (leaf.cid.multihash.code !== SHA256_CODE || !equals(digest, leaf.cid.multihash.digest)) {
-        throw changed(entry)
-      }
-      yield encodeVarint(leaf.cid.bytes.length + leaf.len)
-      yield leaf.cid.bytes
-      yield buf
-    }
+      return { buf, entry }
+    })
   } finally {
     await current?.fd.close()
   }
@@ -309,5 +318,76 @@ export async function* emitCarPayload(plan: CarPayloadPlan): AsyncGenerator<Uint
     if (Number(st.size) !== file.size || st.mtimeNs !== file.mtimeNs) {
       throw changed(file.entry)
     }
+  }
+}
+
+/** Pass 2 for a {@link planStreamPayload} plan: `bytes` must be the same bytes again, in order. */
+export async function* emitStreamPayload(
+  plan: CarPayloadPlan,
+  bytes: AsyncIterable<Uint8Array>
+): AsyncGenerator<Uint8Array> {
+  const size = plan.walk.files[0]?.size ?? 0
+  const source = bytes[Symbol.asyncIterator]()
+  let pending: Uint8Array = new Uint8Array(0)
+  let pos = 0
+  // Up to `max` bytes at `pos`, or undefined at the end of the stream.
+  const next = async (max: number): Promise<Uint8Array | undefined> => {
+    while (pending.length === 0) {
+      const { done, value } = await source.next()
+      if (done) return undefined
+      pending = value
+    }
+    const out = pending.subarray(0, max)
+    pending = pending.subarray(out.length)
+    pos += out.length
+    return out
+  }
+  const skipTo = async (offset: number): Promise<void> => {
+    while (pos < offset) {
+      if ((await next(offset - pos)) == null) throw changed(1)
+    }
+  }
+  yield* emitLayout(plan, async (leaf) => {
+    // Leaves are in file order; a repeated chunk is emitted once, so its later copies are skipped.
+    await skipTo(leaf.targets[0]?.fileOffset ?? 0)
+    const buf = new Uint8Array(leaf.len)
+    for (let filled = 0; filled < leaf.len; ) {
+      const chunk = await next(leaf.len - filled)
+      if (chunk == null) throw changed(1)
+      buf.set(chunk, filled)
+      filled += chunk.length
+    }
+    return { buf, entry: 1 }
+  })
+  await skipTo(size)
+  if ((await next(1)) != null) throw changed(1)
+}
+
+/** The header, every dag-pb node, then every leaf from `readLeaf`, re-hashed before it is emitted. */
+async function* emitLayout(
+  plan: CarPayloadPlan,
+  readLeaf: (leaf: CarLayout['leaves'][number]) => Promise<{ buf: Uint8Array<ArrayBuffer>; entry: number }>
+): AsyncGenerator<Uint8Array> {
+  yield plan.layout.header
+  for (const { cid } of plan.layout.metadata) {
+    const node = plan.nodes.get(cid.toString())
+    if (node == null) {
+      throw new Error(`metadata node ${cid} vanished`)
+    }
+    yield encodeVarint(cid.bytes.length + node.bytes.length)
+    yield cid.bytes
+    yield node.bytes
+  }
+  for (const leaf of plan.layout.leaves) {
+    const { buf, entry } = await readLeaf(leaf)
+    // Size and mtime miss a same-size rewrite with its mtime restored (`touch -r`, `cp -p`).
+    // Every leaf comes from parallelHashImporter, so it is sha2-256, never identity.
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buf))
+    if (leaf.cid.multihash.code !== SHA256_CODE || !equals(digest, leaf.cid.multihash.digest)) {
+      throw changed(entry)
+    }
+    yield encodeVarint(leaf.cid.bytes.length + leaf.len)
+    yield leaf.cid.bytes
+    yield buf
   }
 }

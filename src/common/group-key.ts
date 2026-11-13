@@ -80,38 +80,46 @@ export function defaultGroupKeyId(owner: Address): Hex {
 /**
  * The group key this wallet encrypts under: the oldest valid one its data sets
  * record (see {@link oldestValidGroupKey}), else the owner's default one (see
- * {@link defaultGroupKeyId}). Every copy of an upload lands in data sets of this
- * one group key.
+ * {@link defaultGroupKeyId}); with `groupKeyId`, that one instead. Every copy of an
+ * upload lands in data sets of this one group key.
  *
  * @throws If the recorded commitment does not match this wallet's key, or if the
- * default group key is already on chain but invalid.
+ * default (or given) group key is already on chain but invalid.
  */
-export async function ownerGroupKey(synapse: Synapse, signer: OwnerSigner, logger?: Logger): Promise<OwnerGroupKey> {
+export async function ownerGroupKey(
+  synapse: Synapse,
+  signer: OwnerSigner,
+  logger?: Logger,
+  groupKeyId?: Hex
+): Promise<OwnerGroupKey> {
   const tagged = await listDataSets(synapse, {
-    filter: (dataSet) => dataSet.isLive && typeof dataSet.metadata?.[GROUP_KEY_ID_KEY] === 'string',
+    filter: (dataSet) => {
+      const id = dataSet.metadata?.[GROUP_KEY_ID_KEY]
+      return dataSet.isLive && typeof id === 'string' && (groupKeyId == null || id === groupKeyId)
+    },
     ...(logger != null && { logger }),
   })
   const recorded = oldestValidGroupKey(tagged, logger)
-  const groupKeyId = recorded?.groupKeyId ?? defaultGroupKeyId(signer.address)
+  const id = recorded?.groupKeyId ?? groupKeyId ?? defaultGroupKeyId(signer.address)
   if (recorded == null) {
-    // The default id is on chain but its group was skipped: writing into it would grow an invalid group.
-    const invalid = tagged.filter((dataSet) => dataSet.metadata?.[GROUP_KEY_ID_KEY] === groupKeyId)
+    // The id is on chain but its group was skipped: writing into it would grow an invalid group.
+    const invalid = tagged.filter((dataSet) => dataSet.metadata?.[GROUP_KEY_ID_KEY] === id)
     if (invalid.length > 0) {
       throw new Error(
-        `The default group key ${groupKeyId} is already used by data sets ${invalid.map((d) => d.dataSetId).join(', ')}, which disagree on foc/kc or are not foc/enc "1"`
+        `The ${groupKeyId == null ? 'default ' : ''}group key ${id} is already used by data sets ${invalid.map((d) => d.dataSetId).join(', ')}, which disagree on foc/kc or are not foc/enc "1"`
       )
     }
   }
   const keys = await deriveGroupKey(
     signer,
-    { owner: signer.address, keyspace: groupKeyId },
+    { owner: signer.address, keyspace: id },
     recorded == null ? {} : { commitment: recorded.commitment }
   )
   return {
     target: writeTarget(keys.descriptor, keys.kk),
     dataSetMetadata: {
       [ENCRYPTION_VERSION_KEY]: ENCRYPTION_VERSION,
-      [GROUP_KEY_ID_KEY]: groupKeyId,
+      [GROUP_KEY_ID_KEY]: id,
       [GROUP_KEY_COMMITMENT_KEY]: keys.commitment,
     },
   }

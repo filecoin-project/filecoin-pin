@@ -32,6 +32,17 @@ describe('normalizeMigrateOptions', () => {
     expect(() => normalizeMigrateOptions({ gateway: ['https://gw.example'] }, true)).toThrow(/--gateway/)
   })
 
+  it('refuses --encrypt for a CID list: that content is already public on IPFS', () => {
+    expect(() => normalizeMigrateOptions({ gateway: ['https://gw.example'], encrypt: true })).toThrow(
+      /--encrypt applies only to a gs:\/\/ source/
+    )
+    expect(normalizeMigrateOptions({ encrypt: true }, true).encrypt).toBe(true)
+  })
+
+  it('takes --data-set-id with --encrypt, like add --encrypt', () => {
+    expect(normalizeMigrateOptions({ encrypt: true, dataSetIds: ['7'] }, true).encrypt).toBe(true)
+  })
+
   it('rejects a --gateway that is not an http(s) URL', () => {
     expect(() => normalizeMigrateOptions({ gateway: ['trustless-gateway.link'] })).toThrow(/--gateway/)
     expect(() => normalizeMigrateOptions({ gateway: ['localhost:8080'] })).toThrow(/--gateway/)

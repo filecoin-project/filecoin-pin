@@ -17,7 +17,13 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { decryptToDirectory, encryptPath, wrapOverhead } from '../../common/encryption.js'
 import { newPieceKey, ownerKeyResolver, type PieceKey } from '../../common/group-key.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC } from '../../common/unixfs-car-layout.js'
-import { EncryptInputError, emitCarPayload, planCarPayload } from '../../common/unixfs-car-payload.js'
+import {
+  EncryptInputError,
+  emitCarPayload,
+  emitStreamPayload,
+  planCarPayload,
+  planStreamPayload,
+} from '../../common/unixfs-car-payload.js'
 import { insideDir } from '../../common/unixfs-car-unpack.js'
 import { createCarFromPath } from '../../core/unixfs/car-builder.js'
 
@@ -136,6 +142,33 @@ describe('encrypted CAR payload', () => {
     await encryptPath(input, envelope, pieceKey())
     await decryptToDirectory(envelope, outDir, asOwner())
     expect((await readFile(join(outDir, 'input'))).equals(content)).toBe(true)
+  })
+
+  async function* chunks(bytes: Uint8Array, size = 64 * 1024): AsyncGenerator<Uint8Array> {
+    for (let i = 0; i < bytes.length; i += size) yield bytes.subarray(i, i + size)
+  }
+
+  it('plans and emits a streamed file exactly as the same file on disk', async () => {
+    const chunk = randomBytes(MiB)
+    const content = Buffer.concat([chunk, randomBytes(MiB), chunk, randomBytes(1000), chunk])
+    await writeFile(input, content)
+
+    const fromDisk = await collect(emitCarPayload(await planCarPayload(input)))
+    const plan = await planStreamPayload('input', chunks(content))
+    const streamed = await collect(emitStreamPayload(plan, chunks(content, 100_000)))
+    expect(streamed.equals(fromDisk)).toBe(true)
+  })
+
+  it('fails if a streamed file differs between the two passes', async () => {
+    const content = randomBytes(2 * MiB)
+    const plan = await planStreamPayload('input', chunks(content))
+    const changedLeaf = Buffer.from(content)
+    changedLeaf[MiB + 1] = (changedLeaf[MiB + 1] ?? 0) ^ 1
+    const longer = Buffer.concat([content, Buffer.from('x')])
+    for (const second of [changedLeaf, content.subarray(1), longer]) {
+      const error = await collect(emitStreamPayload(plan, chunks(second))).catch((e: Error) => e)
+      expect((error as Error).message).toBe('Input changed during encryption (entry #1); re-run')
+    }
   })
 
   it('emits every dag-pb node before the first raw leaf and matches the computed layout', async () => {

@@ -26,6 +26,10 @@ export const migrateCommand = new Command('migrate')
   )
   .option('--copies <n>', 'Number of storage copies to create (default: 2)')
   .option(
+    '--encrypt',
+    'Encrypt each object as add --encrypt does, so providers and gateways hold only ciphertext; get <cid> restores it. gs:// sources only.'
+  )
+  .option(
     '--db <file>',
     'Migrate state database path (default: migrate.db in the filecoin-pin data directory, migrate-gcs.db for gs:// sources)'
   )
