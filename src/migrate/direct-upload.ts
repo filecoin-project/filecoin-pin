@@ -268,13 +268,16 @@ export async function runDirectUpload(
         pieces: cids.map((cid) => ({ pieceCid: CID.parse(cid) })),
         onSubmitted: (txHash) => db.markUploadTxSubmitted(cids, ctx.providerId, txHash),
       })
+      if (result.pieceIds.length !== batch.length) {
+        throw new Error(`commit returned ${result.pieceIds.length} piece id(s) for ${batch.length} piece(s)`)
+      }
       observedCommitMs.push(commitTimer.stop())
       commitFailures = 0
       if (observedCommitMs.length > MARGIN_SAMPLE) observedCommitMs.shift()
       batch.forEach((b, i) => {
         db.markUploadCommitted(b.subPieceCid, ctx.providerId, {
           dataSetId: String(result.dataSetId),
-          pieceId: String(result.pieceIds[i] ?? ''),
+          pieceId: String(result.pieceIds[i]),
           txHash: result.confirmedTxHash ?? result.txHash,
         })
       })
