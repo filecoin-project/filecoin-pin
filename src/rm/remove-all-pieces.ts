@@ -11,10 +11,10 @@
 import { confirm, isCancel } from '@clack/prompts'
 import { SchedulePieceRemovalsPermission } from '@filoz/synapse-core/session-key'
 import pc from 'picocolors'
-import pino from 'pino'
 import { setIncompleteExitCode } from '../common/cli-errors.js'
 import { type RemoveAllPiecesProgressEvents, removeAllPieces } from '../core/piece/index.js'
 import { initializeSynapse } from '../core/synapse/index.js'
+import { createLogger } from '../logger.js'
 import { parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, isInteractive, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -39,9 +39,7 @@ export async function runRmAllPieces(options: RmAllPiecesOptions): Promise<RmAll
   const spinner = createSpinner()
 
   // Initialize logger (silent for CLI output)
-  const logger = pino({
-    level: process.env.LOG_LEVEL || 'silent',
-  })
+  const logger = createLogger({ logLevel: process.env.LOG_LEVEL || 'silent' })
 
   const { dataSet, force } = options
 
