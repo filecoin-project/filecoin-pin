@@ -4,7 +4,7 @@
  * Two-party owner side: signs the on-chain `login()` authorizing an
  * externally generated session address. The address can come from any source
  * the holder controls (MetaMask, hardware wallet, `cast wallet new`,
- * `filecoin-pin session generate`, ...); only the address itself is needed.
+ * `filecoin-pin login`, ...); only the address itself is needed.
  */
 
 import { confirm, isCancel } from '@clack/prompts'

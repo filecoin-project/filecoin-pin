@@ -146,7 +146,7 @@ export function assertSessionKeyPrivateKey(value: string): asserts value is Hex 
     : 'expected the session key private key (0x-prefixed, 64 hex characters)'
   throw new Error(
     `Invalid --session-key / SESSION_KEY: ${detail}. ` +
-      'Use the SESSION_KEY value printed by "filecoin-pin session create" or "filecoin-pin session generate".'
+      'Use the SESSION_KEY value saved by "filecoin-pin login" in session.env or printed by "filecoin-pin session create".'
   )
 }
 
