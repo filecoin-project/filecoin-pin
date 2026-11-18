@@ -18,8 +18,8 @@ importers:
         specifier: ^1.0.1
         version: 1.5.1
       '@filoz/keysmith':
-        specifier: ^0.1.0
-        version: 0.1.0(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
+        specifier: file:vendor/filoz-keysmith-0.2.0-061b1110.tgz
+        version: file:vendor/filoz-keysmith-0.2.0-061b1110.tgz(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
       '@filoz/synapse-core':
         specifier: ^0.10.0
         version: 0.10.2(typescript@6.0.3)(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
@@ -726,8 +726,9 @@ packages:
   '@fastify/proxy-addr@5.1.2':
     resolution: {integrity: sha512-uqB4QsgVoro0XDC+DIftIMGXHdBPn+lK6Ek3xXAIxPMCJfqxnbtyEoMCm2KPUVOuIosd7Cyw9HawEqMFM/UA+g==}
 
-  '@filoz/keysmith@0.1.0':
-    resolution: {integrity: sha512-rHtKdR9YDZzto9hWGrJXyBI6NvEj8LsWWgFz7fAnLBgSf4rDJv7fyi232flbC3ICiuPz3IqNo8+avQtHb8ycfw==}
+  '@filoz/keysmith@file:vendor/filoz-keysmith-0.2.0-061b1110.tgz':
+    resolution: {integrity: sha512-kgNzD8JOwKrFuvNFe3nnzhKnxKZHIaw7DSNpp5YNWOxcUdAt++90WMfI9iAitYg8QW8l2iSFY/4Z0bkkAOiCHA==, tarball: file:vendor/filoz-keysmith-0.2.0-061b1110.tgz}
+    version: 0.2.0-061b1110
     peerDependencies:
       viem: 2.x
 
@@ -2971,7 +2972,7 @@ snapshots:
       '@fastify/forwarded': 3.1.1
       ipaddr.js: 2.5.0
 
-  '@filoz/keysmith@0.1.0(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))':
+  '@filoz/keysmith@file:vendor/filoz-keysmith-0.2.0-061b1110.tgz(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))':
     dependencies:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
