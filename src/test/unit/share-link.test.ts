@@ -1,5 +1,12 @@
 import { readFileSync } from 'node:fs'
-import { deriveGroupKey, keyForEnvelope, newSalt, type PieceMetadata, pieceMetadata } from '@filoz/keysmith'
+import {
+  decodeGrant,
+  deriveGroupKey,
+  keyForEnvelope,
+  newSalt,
+  type PieceMetadata,
+  pieceMetadata,
+} from '@filoz/keysmith'
 import { CID } from 'multiformats/cid'
 import { bytesToHex } from 'viem'
 import { generatePrivateKey } from 'viem/accounts'
@@ -27,8 +34,8 @@ import {
 const ROOT = CID.parse('bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi')
 const VIEWER = 'https://viewer.test/'
 
-const labelsFor = (salt = newSalt()): PieceMetadata =>
-  pieceMetadata({ owner: OWNER.address, groupKeyId: GROUP_KEY }, { salt })
+const labelsFor = (salt = newSalt(), group?: string): PieceMetadata =>
+  pieceMetadata({ owner: OWNER.address, groupKeyId: GROUP_KEY }, { salt, ...(group != null && { group }) })
 
 /** The upload's key as the owner derives it: what every share must open to. */
 async function ownerPieceKey(labels: PieceMetadata): Promise<string> {
@@ -184,5 +191,44 @@ describe('pinned vectors', () => {
     const T = shareKey(parsed, vector.accessKey)
     const key = await shareKeyResolver(parsed, T)({ appMetadata: vectors.labels } as never)
     expect(bytesToHex(key)).toBe(vectors.pieceKey)
+  })
+})
+
+describe('shares from a session key holding group Grants', () => {
+  const groupSender = async (...nodes: string[]): Promise<ShareSender> => ({
+    grants: await Promise.all(
+      nodes.map(async (node) =>
+        openGroupKeyGrant(await makeGrant({ node }), {
+          sessionKey: SESSION_KEY,
+          walletAddress: OWNER.address,
+          chainId: CALIBRATION_CHAIN_ID,
+        })
+      )
+    ),
+  })
+
+  it.each([
+    ['in a group beneath a held one', 'team/a/docs'],
+    ['in another held group', 'other'],
+  ])('shares an upload %s, as a piece grant that opens to its key', async (_case, group) => {
+    const labels = labelsFor(newSalt(), group)
+    const share = await createShare({
+      sender: await groupSender('group:team/a', 'group:other'),
+      rootCid: ROOT,
+      labels,
+      mode: 'open',
+      viewer: VIEWER,
+    })
+
+    expect(await open(share.link, undefined, labels)).toBe(await ownerPieceKey(labels))
+    // The link carries one piece, never a group: the recipient gets this upload only.
+    expect(decodeGrant(parseShareLink(share.link).payload).node).toBe(`piece:${labels['foc/salt']}`)
+  })
+
+  it('refuses an upload outside every held group, naming the login to run', async () => {
+    const labels = labelsFor(newSalt(), 'finance')
+    await expect(
+      createShare({ sender: await groupSender('group:team/a'), rootCid: ROOT, labels, mode: 'open', viewer: VIEWER })
+    ).rejects.toThrow(/in group finance, outside every group .*--group finance/)
   })
 })
