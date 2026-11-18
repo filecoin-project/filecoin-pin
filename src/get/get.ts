@@ -14,6 +14,7 @@ import { type Address, getAddress } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { CliFatal, EXIT_CODE_INCOMPLETE, isCliIncomplete } from '../common/cli-errors.js'
 import { checkOutputDir, removeDecryptOutput } from '../common/encryption.js'
+import { ownerAuthorizations } from '../common/group-key.js'
 import { credentialKeyResolver, grantAuthorizations } from '../common/group-key-grant.js'
 import { ipniProviderUrls, ownProviderUrls, type ProviderSource } from '../common/ipfs-car-fetch.js'
 import { type GetOptions, getToDirectory } from '../common/ipfs-get.js'
@@ -133,13 +134,19 @@ export async function runGet(
       } catch {
         throw new Error(`Not a piece CID: ${piece}`)
       }
-      if (!('sessionKey' in auth) || auth.sessionKey == null || address == null) {
+      if ('privateKey' in auth && auth.privateKey != null && address != null) {
+        // The owner wallet authorizes itself: a root claim per group key of its private data sets.
+        const signer = privateKeyToAccount(auth.privateKey)
+        const synapse = await readOnlySynapse(auth, address, logger)
+        download = { pieceCid: piece, authorizations: ownerAuthorizations(synapse, signer, piece, logger) }
+      } else if ('sessionKey' in auth && auth.sessionKey != null && address != null) {
+        const session = { sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }
+        download = { pieceCid: piece, authorizations: () => grantAuthorizations(session, auth.chain?.id, piece) }
+      } else {
         throw new Error(
-          '--piece needs a session key holding a group key Grant: run `filecoin-pin login --group <group>`'
+          '--piece needs the owner wallet (PRIVATE_KEY) or a session key holding a group key Grant (`filecoin-pin login --group <group>`)'
         )
       }
-      const session = { sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }
-      download = { pieceCid: piece, authorizations: () => grantAuthorizations(session, auth.chain?.id, piece) }
     }
 
     tempDir = await mkdtemp(join(tmpdir(), 'filecoin-pin-get-'))

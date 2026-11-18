@@ -12,6 +12,7 @@
  */
 
 import {
+  authorizationHeader,
   deriveGroupKey,
   COMMITMENT_KEY as GROUP_KEY_COMMITMENT_KEY,
   groupPath,
@@ -22,12 +23,14 @@ import {
   pieceKey,
   pieceMetadata,
   readPieceMetadata,
+  rootClaim,
   type TypedDataSigner,
   type WriteTarget,
   writeTarget,
 } from '@filoz/keysmith'
 import type { Synapse } from '@filoz/synapse-sdk'
 import type { KeyResolver } from 'filecoin-encryption-envelope'
+import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { type Address, concat, type Hex, isAddress, keccak256, slice, toHex } from 'viem'
 import { type DataSetSummary, listDataSets } from '../core/data-set/index.js'
@@ -305,5 +308,68 @@ export function ownerKeyResolver(signer: OwnerSigner | (() => OwnerSigner | unde
     } finally {
       groupKey.fill(0)
     }
+  }
+}
+
+/** How long the owner's own read claims last: one `get` or `get-share-link` run. */
+const OWNER_READ_CLAIM_SECONDS = 3600
+
+/**
+ * `Authorization` headers for the owner wallet to fetch one of its own private uploads from
+ * `/download/<pieceCid>`. The piece's group key is inside the piece, so the wallet signs, for each
+ * group key its read-restricted data sets record (`foc/gkid`), a root claim for that whole group
+ * key with itself as bearer, valid for an hour; each request is signed fresh. The caller presents the
+ * headers in turn while the provider answers 403. One wallet signature per group key, on first use.
+ */
+export function ownerAuthorizations(
+  synapse: Synapse,
+  signer: OwnerSigner,
+  pieceCid: string,
+  logger?: Logger
+): () => Promise<string[]> {
+  let chains: Promise<Awaited<ReturnType<typeof rootClaim>>['chain'][]> | undefined
+  const issue = async () => {
+    const restricted = await listDataSets(synapse, {
+      filter: (dataSet) =>
+        dataSet.isLive &&
+        dataSet.metadata?.[READ_KEY] === READ_RESTRICTED &&
+        typeof dataSet.metadata?.[GROUP_KEY_ID_KEY] === 'string',
+      ...(logger != null && { logger }),
+    })
+    // Each group key once, with the commitment its data sets record: one signature, checked against the chain.
+    const commitments = new Map<Hex, string | undefined>()
+    for (const dataSet of restricted) {
+      commitments.set(dataSet.metadata?.[GROUP_KEY_ID_KEY] as Hex, dataSet.metadata?.[GROUP_KEY_COMMITMENT_KEY])
+    }
+    if (commitments.size === 0) {
+      throw new Error(`Wallet ${signer.address} has no private data sets: nothing to fetch with --piece`)
+    }
+    const expires = Math.floor(Date.now() / 1000) + OWNER_READ_CLAIM_SECONDS
+    const issued = []
+    for (const [groupKeyId, commitment] of commitments) {
+      const ref = { owner: signer.address, groupKeyId }
+      const { groupKey } = await deriveGroupKey(signer, ref, commitment == null ? {} : { commitment })
+      try {
+        const { chain, nodeKey } = await rootClaim(signer, {
+          ...ref,
+          chainId: BigInt(synapse.chain.id),
+          groupKey,
+          node: 'groupKey',
+          bearer: signer.address,
+          maxDepth: 0,
+          expires,
+        })
+        nodeKey.fill(0)
+        issued.push(chain)
+      } finally {
+        groupKey.fill(0)
+      }
+    }
+    return issued
+  }
+  const piece = CID.parse(pieceCid).bytes
+  return async () => {
+    chains ??= issue()
+    return Promise.all((await chains).map((chain) => authorizationHeader(signer, chain, { pieceCid: piece })))
   }
 }
