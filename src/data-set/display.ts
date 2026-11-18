@@ -1,4 +1,5 @@
 import pc from 'picocolors'
+import { dataSetVisibility } from '../common/group-key.js'
 import type { DataSetSummary, PieceInfo } from '../core/data-set/types.js'
 import { PieceStatus } from '../core/data-set/types.js'
 import { formatFileSize } from '../utils/cli-helpers.js'
@@ -96,6 +97,7 @@ function renderDataSetHeader(dataSet: DataSetSummary): void {
   log.line(`${pc.bold(`#${dataSet.dataSetId}`)}`)
   log.indent(`Status: ${statusLabel(dataSet)}`)
   log.indent(`CDN add-on: ${dataSet.withCDN ? 'enabled' : 'disabled'}`)
+  log.indent(`Visibility: ${dataSetVisibility(dataSet.metadata ?? {})}`)
   log.line('')
 }
 
@@ -283,13 +285,14 @@ export function displayDataSetList(
 
   const ordered = [...dataSets].sort(compareDataSetIds)
   const tableRows = [
-    ['ID', 'Status', 'Provider ID', 'Has Pieces', 'CDN'],
+    ['ID', 'Status', 'Provider ID', 'Has Pieces', 'CDN', 'Visibility'],
     ...ordered.map((dataSet) => [
       dataSet.dataSetId.toString(),
       plainStatusLabel(dataSet),
       dataSet.providerId.toString(),
       activePiecePresence(dataSet),
       dataSet.withCDN ? 'enabled' : 'disabled',
+      dataSetVisibility(dataSet.metadata ?? {}),
     ]),
   ]
 

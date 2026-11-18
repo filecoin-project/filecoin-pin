@@ -71,6 +71,10 @@ export const shareReminder = (mode: ShareMode): string =>
 export const NO_IPFS_SHARE =
   'Content added with --no-ipfs cannot be shared: a Share link fetches it by its IPFS root CID'
 
+/** A `--private` upload: its pieces are not served on the open path a Share link reads (private share links: #821). */
+export const PRIVATE_SHARE =
+  'Content added with --private cannot be shared yet: a Share link reads from the open path, which private data sets do not serve'
+
 /** The link and its secret as plain lines, after the summary, so they copy cleanly. */
 export function printShare(share: CreatedShare): void {
   console.log(`Share link:\n${share.link}`)

@@ -59,6 +59,35 @@ export const ENCRYPTED_DATA_SET_KEYS: readonly string[] = [
   ENCRYPTION_VERSION_KEY,
 ]
 
+/** Data set metadata key for who may read its pieces. Absent: providers serve them on open paths. */
+export const READ_KEY = 'read'
+
+/** The only `read` value this version writes and reuses: pieces are served only on the authenticated path. */
+export const READ_RESTRICTED = 'restricted'
+
+/**
+ * `read` is set only by `add --private`, never by `--data-set-metadata`, so no data set
+ * is created with a visibility the upload did not choose (such as restricted plaintext).
+ */
+export function assertNoReadMetadata(dataSetMetadata: Record<string, string> | undefined): void {
+  if (dataSetMetadata != null && READ_KEY in dataSetMetadata) {
+    throw new Error(`--data-set-metadata cannot set ${READ_KEY}: use add --private for a private upload`)
+  }
+}
+
+/** A data set's visibility, fixed at creation; the values are how `data-set show` and `list` print it. */
+export type DataSetVisibility = 'public' | 'public encrypted' | 'private' | 'unknown visibility'
+
+/** A data set's visibility from its metadata; any `read` other than `restricted` with `foc/enc` is unknown. */
+export function dataSetVisibility(metadata: Record<string, string>): DataSetVisibility {
+  if (READ_KEY in metadata) {
+    return metadata[READ_KEY] === READ_RESTRICTED && ENCRYPTION_VERSION_KEY in metadata
+      ? 'private'
+      : 'unknown visibility'
+  }
+  return ENCRYPTED_DATA_SET_KEYS.some((key) => key in metadata) ? 'public encrypted' : 'public'
+}
+
 export interface OwnerGroupKey {
   /** Where new pieces are written: the group key itself, with no group. */
   target: WriteTarget
