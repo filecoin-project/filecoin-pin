@@ -16,7 +16,7 @@ export const getCommand = new Command('get')
   )
   .option(
     '--piece <piece-cid>',
-    'Fetch a private upload (add --private) from /download/<piece-cid> on your gated data sets, authorized by your session key Grants'
+    'Fetch a private upload (add --private) from /download/<piece-cid> on your gated data sets, authorized by the owner wallet or your session key Grants'
   )
   .addOption(
     new Option('--access-key <key>', "The Share link's Access key (fak1_…), unless the link carries it").env(
@@ -41,7 +41,8 @@ Nothing in <output-dir> is overwritten: a taken name is numbered like a browser 
 A private upload (add --private) is served only on the authenticated path: pass its piece CID
 with --piece. It is fetched from /download/<piece-cid> on your own read-restricted data sets,
 with an Authorization header from each of your session key's Grants in turn, until one reaches
-the upload's group.`
+the upload's group. The owner wallet (PRIVATE_KEY) authorizes itself instead: it signs, once per
+group key of its private data sets, a claim to read that group key.`
   )
 
 addAuthOptions(getCommand)
