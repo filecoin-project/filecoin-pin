@@ -19,6 +19,7 @@
  */
 
 import {
+  authorizationHeader,
   type ClaimChain,
   decodeDelivery,
   COMMITMENT_KEY as GROUP_KEY_COMMITMENT_KEY,
@@ -34,6 +35,7 @@ import {
 } from '@filoz/keysmith'
 import type { Synapse } from '@filoz/synapse-sdk'
 import type { KeyResolver } from 'filecoin-encryption-envelope'
+import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import type { Address, Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
@@ -304,6 +306,26 @@ export async function loadGroupKeyGrants(
       `A Grant in GROUP_KEY_GRANT was ignored: ${error.message} Run \`${GRANT_LOGIN_COMMAND}\` to get a new one (unset GROUP_KEY_GRANT if it is exported in this shell).`
     )
   }
+}
+
+/**
+ * `Authorization` headers for one gated `/download/<pieceCid>`, one per held Grant: its claim chain
+ * plus a read request for that piece, signed by the session key (the chain's bearer). The whole group
+ * key's Grant comes first, since it reaches every piece; a group Grant reaches only its group's, and
+ * the piece's group is inside the piece, so the caller tries them in turn. Make them per request: each
+ * expires within the gate's 5-minute limit. The keys the Grants open never leave this function.
+ */
+export async function grantAuthorizations(
+  session: SessionCredentials,
+  chainId: number | undefined,
+  pieceCid: string
+): Promise<string[]> {
+  const grants = await loadGroupKeyGrants(session, chainId)
+  for (const g of grants) g.key.fill(0)
+  const ordered = [...grants.filter((g) => g.group == null), ...grants.filter((g) => g.group != null)]
+  const bearer = privateKeyToAccount(session.sessionKey)
+  const piece = CID.parse(pieceCid).bytes
+  return Promise.all(ordered.map((g) => authorizationHeader(bearer, g.chain, { pieceCid: piece })))
 }
 
 /** The command that asks for a Grant to `group`. */

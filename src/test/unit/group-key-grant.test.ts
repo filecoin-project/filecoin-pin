@@ -1,10 +1,12 @@
-import { decodeDelivery, encodeDelivery, publicKeyOf } from '@filoz/keysmith'
+import { decodeDelivery, encodeDelivery, publicKeyOf, verifyPresentation } from '@filoz/keysmith'
+import { CID } from 'multiformats/cid'
 import { recoverMessageAddress } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   GRANT_PREFIX,
   GrantError,
+  grantAuthorizations,
   grantForPiece,
   grantForWrite,
   grantKeyResolver,
@@ -295,5 +297,44 @@ describe('group Grants', () => {
     expect(await resolver({ appMetadata: piece('a') } as never)).toHaveLength(32)
     expect(await resolver({ appMetadata: piece('b/deep') } as never)).toHaveLength(32)
     await expect(resolver({ appMetadata: piece('c') } as never)).rejects.toThrow(/outside every group/)
+  })
+})
+
+describe('grantAuthorizations', () => {
+  const PIECE = 'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy'
+  const OTHER_PIECE = 'bafkzcibcaapao7rtuqyy2qvnpoqbbefwlfb6rnksbmhgqmlnfqxdzfuoxuy5emi'
+  const session = { sessionKey: SESSION_KEY, walletAddress: OWNER.address }
+  const piece = (group?: string) => ({
+    'foc/v': 2,
+    'foc/own': OWNER.address.toLowerCase(),
+    'foc/gkid': GROUP_KEY,
+    ...(group != null && { 'foc/group': group }),
+    'foc/salt': `0x${'01'.repeat(16)}`,
+  })
+  const check = (header: string, cid: string, group?: string) =>
+    verifyPresentation(new Uint8Array(Buffer.from(header.slice('FOC-Grant '.length), 'base64url')), {
+      pieceCid: CID.parse(cid).bytes,
+      piece: piece(group) as never,
+      chainId: BigInt(CALIBRATION_CHAIN_ID),
+    })
+
+  it('makes one FOC-Grant header per held Grant, the whole group key first, each for that piece only', async () => {
+    const env = {
+      GROUP_KEY_GRANT: joinGrants([await makeGrant({ node: 'group:a' }), await makeGrant()]),
+      GROUP_KEY_ID: GROUP_KEY,
+    }
+    vi.stubEnv('GROUP_KEY_GRANT', env.GROUP_KEY_GRANT)
+    vi.stubEnv('GROUP_KEY_ID', env.GROUP_KEY_ID)
+    try {
+      const [whole, groupA] = await grantAuthorizations(session, CALIBRATION_CHAIN_ID, PIECE)
+      expect(whole).toMatch(/^FOC-Grant [A-Za-z0-9_-]+$/)
+      // The whole group key's chain reaches a piece in any group; group a's reaches only group a.
+      expect((await check(whole as string, PIECE, 'b')).bearer).toBe(SESSION_ADDRESS)
+      expect((await check(groupA as string, PIECE, 'a/x')).bearer).toBe(SESSION_ADDRESS)
+      await expect(check(groupA as string, PIECE, 'b')).rejects.toThrow(/does not reach/)
+      await expect(check(whole as string, OTHER_PIECE)).rejects.toThrow(/names another piece/)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })

@@ -556,6 +556,45 @@ describe('get', () => {
       upload = await plainUpload(join(dir, 'tiny.txt'))
     })
 
+    it('fetches a private piece from /download/, trying the next Grant while the provider answers 403', async () => {
+      const PIECE = 'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy'
+      const seen: string[] = []
+      const gated = vi.fn(async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        expect(String(input)).toBe(`${GOOD}/download/${PIECE}`)
+        const authorization = new Headers(init?.headers).get('authorization') ?? ''
+        seen.push(authorization)
+        // The stored piece is served as raw bytes: no CAR content type, still verified against the root.
+        return authorization === 'FOC-Grant reaches'
+          ? new Response(new Uint8Array(upload.car), { status: 200 })
+          : new Response('does not reach this piece', { status: 403 })
+      })
+
+      const result = await getToDirectory(upload.root, outDir, only(GOOD), ownerKeyResolver(OWNER), {
+        tempDir,
+        fetch: gated as unknown as typeof fetch,
+        download: { pieceCid: PIECE, authorizations: async () => ['FOC-Grant misses', 'FOC-Grant reaches'] },
+      })
+
+      expect(result.provider).toBe(GOOD)
+      expect(seen).toEqual(['FOC-Grant misses', 'FOC-Grant reaches'])
+    })
+
+    it('reports a 403 when no held Grant reaches the private piece', async () => {
+      const gated = vi.fn(async () => new Response('does not reach this piece', { status: 403 }))
+
+      await expect(
+        getToDirectory(upload.root, outDir, only(GOOD), ownerKeyResolver(OWNER), {
+          tempDir,
+          fetch: gated as unknown as typeof fetch,
+          download: {
+            pieceCid: 'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy',
+            authorizations: async () => ['FOC-Grant a', 'FOC-Grant b'],
+          },
+        })
+      ).rejects.toThrow(/HTTP 403/)
+      expect(gated).toHaveBeenCalledTimes(2)
+    })
+
     it('takes the first 200 and aborts every other request', async () => {
       const losers = ['https://slow.example', 'https://hang.example']
       const network = fakeNetwork({

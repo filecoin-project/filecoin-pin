@@ -14,9 +14,9 @@ import { type Address, getAddress } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { CliFatal, EXIT_CODE_INCOMPLETE, isCliIncomplete } from '../common/cli-errors.js'
 import { checkOutputDir, removeDecryptOutput } from '../common/encryption.js'
-import { credentialKeyResolver } from '../common/group-key-grant.js'
+import { credentialKeyResolver, grantAuthorizations } from '../common/group-key-grant.js'
 import { ipniProviderUrls, ownProviderUrls, type ProviderSource } from '../common/ipfs-car-fetch.js'
-import { getToDirectory } from '../common/ipfs-get.js'
+import { type GetOptions, getToDirectory } from '../common/ipfs-get.js'
 import { parseShareLink, ShareLinkError, shareKey, shareKeyResolver, shareOwner } from '../common/share-link.js'
 import { initializeSynapse, type SynapseSetupConfig } from '../core/synapse/index.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
@@ -40,9 +40,14 @@ export function readOnlySynapse(auth: SynapseSetupConfig, address: Address, logg
   return initializeSynapse(readOnly, logger)
 }
 
-/** Providers of the address's own IPFS-indexed data sets. */
-export async function ownProviders(auth: SynapseSetupConfig, address: Address, logger: Logger): Promise<string[]> {
-  return ownProviderUrls(await readOnlySynapse(auth, address, logger), logger)
+/** Providers of the address's own IPFS-indexed data sets, or with `restricted` its read-gated ones. */
+export async function ownProviders(
+  auth: SynapseSetupConfig,
+  address: Address,
+  logger: Logger,
+  restricted = false
+): Promise<string[]> {
+  return ownProviderUrls(await readOnlySynapse(auth, address, logger), logger, restricted)
 }
 
 export interface GetCommandOptions extends CLIAuthOptions {
@@ -50,6 +55,8 @@ export interface GetCommandOptions extends CLIAuthOptions {
   share?: string
   /** The share's Access key (fak1_…), when the link does not carry it. */
   accessKey?: string
+  /** A private upload's piece CID: fetched from gated `/download/` with the session key's Grants. */
+  piece?: string
 }
 
 export async function runGet(
@@ -116,12 +123,34 @@ export async function runGet(
       resolveKey = shareKeyResolver(share, T)
     }
 
+    // A private upload is not indexed anywhere: only its own gated data sets serve it.
+    const { piece } = options
+    let download: GetOptions['download']
+    if (piece != null) {
+      if (share != null) throw new Error('Choose --piece or --share, not both')
+      try {
+        CID.parse(piece)
+      } catch {
+        throw new Error(`Not a piece CID: ${piece}`)
+      }
+      if (!('sessionKey' in auth) || auth.sessionKey == null || address == null) {
+        throw new Error(
+          '--piece needs a session key holding a group key Grant: run `filecoin-pin login --group <group>`'
+        )
+      }
+      const session = { sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }
+      download = { pieceCid: piece, authorizations: () => grantAuthorizations(session, auth.chain?.id, piece) }
+    }
+
     tempDir = await mkdtemp(join(tmpdir(), 'filecoin-pin-get-'))
     for (const signal of cleanupSignals) process.once(signal, onSignal)
     spinner.start('Finding providers and downloading...')
-    const sources: ProviderSource[] = [{ name: 'IPNI', find: (signal) => ipniProviderUrls(cid, { signal }) }]
+    const sources: ProviderSource[] = []
+    if (download == null) sources.push({ name: 'IPNI', find: (signal) => ipniProviderUrls(cid, { signal }) })
     // initializeSynapse and listDataSets take no signal; the source deadline still ends the wait.
-    if (address != null) sources.push({ name: 'Data set', find: () => ownProviders(auth, address, logger) })
+    if (address != null) {
+      sources.push({ name: 'Data set', find: () => ownProviders(auth, address, logger, download != null) })
+    }
     // The sharer's own data sets: found before IPNI indexes a fresh upload, and on networks without IPNI.
     if (sharer != null && sharer !== address) {
       sources.push({ name: "Sharer's data set", find: () => ownProviders(auth, sharer, logger) })
@@ -133,6 +162,7 @@ export async function runGet(
       tempDir,
       logger,
       onClaim,
+      ...(download != null && { download }),
     })
     const what = `${result.files} file${result.files === 1 ? '' : 's'}`
     spinner.stop(

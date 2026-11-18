@@ -22,6 +22,7 @@ import { sha256 } from 'multiformats/hashes/sha2'
 import type { Logger } from 'pino'
 import { listDataSets } from '../core/data-set/index.js'
 import { type IpniIndexerResponse, multiaddrToNormalizedUri } from '../core/utils/validate-ipni-advertisement.js'
+import { READ_KEY, READ_RESTRICTED } from './group-key.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC } from './unixfs-car-layout.js'
 
 /** Provider requests in flight at once. */
@@ -54,6 +55,13 @@ export interface FetchOptions {
   concurrency?: number
   /** Largest CAR to download; {@link MAX_CAR_BYTES} by default. */
   maxCarBytes?: number
+  /**
+   * Fetch the stored piece from a gated provider's `/download/<pieceCid>` instead of `/ipfs/<cid>`.
+   * `authorizations` gives fresh `Authorization` headers, one per held Grant, best first; each provider
+   * is tried with them in turn while it answers 403 (that Grant does not reach the piece). The piece is
+   * the CAR `add` uploaded, so it is verified against `cid` like any other.
+   */
+  download?: { pieceCid: string; authorizations: () => Promise<string[]> }
 }
 
 /** One way to find providers; `find` should stop when `signal` aborts. */
@@ -140,11 +148,18 @@ export async function ipniProviderUrls(
   )
 }
 
-/** PDP service URLs of the providers holding the client's live, IPFS-indexed data sets with pieces. */
-export async function ownProviderUrls(synapse: Synapse, logger?: Logger): Promise<string[]> {
+/**
+ * PDP service URLs of the providers holding the client's live data sets with pieces: the
+ * IPFS-indexed ones, or with `restricted` the read-gated ones (`add --private`).
+ */
+export async function ownProviderUrls(synapse: Synapse, logger?: Logger, restricted = false): Promise<string[]> {
   const dataSets = await listDataSets(synapse, {
     filter: (dataSet) =>
-      dataSet.isLive && dataSet.hasActivePieces && dataSet.metadata?.[METADATA_KEYS.WITH_IPFS_INDEXING] != null,
+      dataSet.isLive &&
+      dataSet.hasActivePieces &&
+      (restricted
+        ? dataSet.metadata?.[READ_KEY] === READ_RESTRICTED
+        : dataSet.metadata?.[METADATA_KEYS.WITH_IPFS_INDEXING] != null),
     logger,
   })
   return dataSets.flatMap((dataSet) => dataSet.provider?.pdp?.serviceURL ?? [])
@@ -304,14 +319,33 @@ function guardBody(controller: AbortController, maxBytes: number): Transform {
   return guard
 }
 
-/** Why a response cannot win, or undefined when it is a usable CAR. */
-function unusable(response: Response, maxBytes: number): string | undefined {
+/** Why a response cannot win, or undefined when it is a usable CAR. A raw piece carries no CAR type. */
+function unusable(response: Response, maxBytes: number, piece: boolean): string | undefined {
   if (response.status !== 200 || response.body == null) return `HTTP ${response.status}`
   const type = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase()
-  if (type !== CAR_CONTENT_TYPE) return `content type ${type ?? 'missing'}, not a CAR`
+  if (!piece && type !== CAR_CONTENT_TYPE) return `content type ${type ?? 'missing'}, not a CAR`
   const length = Number(response.headers.get('content-length') ?? 0)
   if (length > maxBytes) return `the CAR is ${length} bytes, more than ${maxBytes}`
   return undefined
+}
+
+/**
+ * A gated `/download/`: one held Grant at a time, while the provider answers 403 (that Grant does
+ * not reach the piece). Any other answer, or the last 403, is the provider's answer.
+ */
+async function gatedDownload(
+  doFetch: typeof fetch,
+  url: string,
+  authorizations: () => Promise<string[]>,
+  signal: AbortSignal
+): Promise<Response> {
+  const headers = await authorizations()
+  for (const [i, authorization] of headers.entries()) {
+    const response = await doFetch(url, { headers: { Authorization: authorization }, signal })
+    if (response.status !== 403 || i === headers.length - 1) return response
+    await response.body?.cancel().catch(() => undefined)
+  }
+  throw new Error('no Grant to present')
 }
 
 /** The first usable 200 among the candidates, at most `concurrency` requests at a time; the rest are aborted. */
@@ -371,10 +405,15 @@ function firstCarResponse(
         RESPONSE_TIMEOUT_MS
       )
       const signal = outer == null ? controller.signal : AbortSignal.any([outer, controller.signal])
-      doFetch(`${base}/ipfs/${cid}?format=car&dag-scope=all`, { headers: { Accept: CAR_ACCEPT }, signal }).then(
+      const { download } = options
+      const request =
+        download == null
+          ? doFetch(`${base}/ipfs/${cid}?format=car&dag-scope=all`, { headers: { Accept: CAR_ACCEPT }, signal })
+          : gatedDownload(doFetch, `${base}/download/${download.pieceCid}`, download.authorizations, signal)
+      request.then(
         (response) => {
           clearTimeout(timer)
-          const reason = done ? 'aborted' : unusable(response, options.maxCarBytes)
+          const reason = done ? 'aborted' : unusable(response, options.maxCarBytes, download != null)
           if (reason != null) {
             response.body?.cancel().catch(() => undefined)
             lose(base, reason)
