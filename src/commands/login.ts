@@ -41,7 +41,7 @@ export const loginCommand = new Command('login')
   )
   .option(
     '--delegation-depth <n>',
-    'How many links this session key may add below its Grant (0-7, console default 7): 0 cannot delegate at all, 1 can delegate one piece (a share link), higher lets those keys delegate further',
+    'How many links this session key may add below its Grant (0-7, console default 7): 0 cannot delegate at all, 1 can delegate one piece (a share link), higher lets those keys delegate further. A Grant that allows more than this is refused',
     parseDelegationDepth
   )
   .option('--fresh', 'Generate a new session key instead of resuming the saved one')

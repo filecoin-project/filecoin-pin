@@ -40,6 +40,8 @@ export interface GrantInput {
   chainId?: number
   expires?: number
   node?: string
+  /** Links the bearer may add below the Grant (default 0). */
+  maxDepth?: number
   /** Signing time, Unix seconds: lets a test make a Grant that has already expired. */
   now?: number
 }
@@ -58,7 +60,7 @@ export async function makeGrant(input: GrantInput = {}): Promise<string> {
     groupKey,
     node,
     bearer: privateKeyToAccount(sessionKey).address,
-    maxDepth: 0,
+    maxDepth: input.maxDepth ?? 0,
     expires: input.expires ?? FAR_FUTURE,
     // Keysmith refuses to sign an already expired root, so an expired Grant is signed before its expiry.
     now: input.now ?? Math.min(Math.floor(Date.now() / 1000), (input.expires ?? FAR_FUTURE) - 3600),

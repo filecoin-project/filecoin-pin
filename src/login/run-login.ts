@@ -121,14 +121,38 @@ function chainIdOf(network: string | undefined): number {
 /** The Grant node a login asks the console for: the whole group key, or one group. */
 const grantNode = (group: string | undefined): string => (group == null ? 'groupKey' : `group:${group}`)
 
+/** What a login asked the console for: a group (undefined: the whole group key), and the onward delegation. */
+interface GrantRequest {
+  group?: string | undefined
+  /** `--delegation-depth`; undefined: whatever the console issues. */
+  maxDepth?: number | undefined
+}
+
+/** How many links the bearer of `opened` may add below it: its final link's `maxDepth`. */
+const delegationDepthOf = (opened: OpenedGrant): number | undefined => opened.chain.links.at(-1)?.maxDepth
+
+/** Whether `opened` is no wider than `request`: its group, or one beneath it, and no more onward delegation. */
+function withinRequest(opened: OpenedGrant, request: GrantRequest): string | undefined {
+  const { group, maxDepth } = request
+  if (group != null && opened.group !== group && !opened.group?.startsWith(`${group}/`)) {
+    return `This Grant covers ${grantCovers(opened)}, not group ${group} as requested.`
+  }
+  const depth = delegationDepthOf(opened)
+  if (maxDepth != null && (depth == null || depth > maxDepth)) {
+    return `This Grant allows delegation ${depth ?? 'of unknown depth'} below it, more than the --delegation-depth ${maxDepth} requested.`
+  }
+  return undefined
+}
+
 /**
  * Refuse a Grant wider than the login asked for. The console may narrow a request (a group
- * beneath it), never widen it.
+ * beneath it, less onward delegation), never widen it.
  */
-function checkRequested(opened: OpenedGrant, group: string | undefined): OpenedGrant {
-  if (group != null && opened.group !== group && !opened.group?.startsWith(`${group}/`)) {
+function checkRequested(opened: OpenedGrant, request: GrantRequest): OpenedGrant {
+  const refusal = withinRequest(opened, request)
+  if (refusal !== undefined) {
     opened.key.fill(0)
-    throw new GrantError(`This Grant covers ${grantCovers(opened)}, not group ${group} as requested.`)
+    throw new GrantError(refusal)
   }
   return opened
 }
@@ -234,7 +258,7 @@ async function importGrant(
       walletAddress: saved.walletAddress,
       chainId,
     }),
-    group
+    { group, maxDepth: options.delegationDepth }
   )
   log.line(`${pc.green('✓')} Session key ${saved.sessionAddress} (${network ?? 'mainnet'})`)
   await saveGrant(saved, opened, path, chainId)
@@ -259,7 +283,7 @@ async function savedGrantFor(session: SavedSession, chainId: number, node: strin
 async function obtainGrant(
   session: SavedSession & { walletAddress: Address },
   chainId: number,
-  group: string | undefined,
+  request: GrantRequest,
   url: string,
   grantLinkShown: boolean,
   grantText: string | undefined,
@@ -269,7 +293,7 @@ async function obtainGrant(
   const open = async (text: string) =>
     checkRequested(
       await openGroupKeyGrant(text, { sessionKey: session.sessionKey, walletAddress: session.walletAddress, chainId }),
-      group
+      request
     )
   if (grantText !== undefined) {
     try {
@@ -285,7 +309,8 @@ async function obtainGrant(
   }
   const { kept, dropped } = await savedGrants(session, chainId)
   for (const k of kept) k.key.fill(0)
-  const saved = kept.find((k) => k.claim.node === grantNode(group))
+  // A saved Grant for this node counts only if it allows no more delegation than this login asks for.
+  const saved = kept.find((k) => k.claim.node === grantNode(request.group) && withinRequest(k, request) === undefined)
   if (saved !== undefined) {
     log.line(`${pc.green('✓')} Grant for ${grantCovers(saved)} already saved`)
     return true
@@ -630,7 +655,16 @@ export async function runLogin(
     reportPartialGrant(permissions, result)
   }
   const haveGrant = wantGrant
-    ? await obtainGrant(authorized, chain.id, group, grantUrl, !keepSavedGrant, grantText, path, io)
+    ? await obtainGrant(
+        authorized,
+        chain.id,
+        { group, maxDepth: delegationDepth },
+        grantUrl,
+        !keepSavedGrant,
+        grantText,
+        path,
+        io
+      )
     : true
 
   // Funding never blocks login: a failed readiness read is reported, not fatal.

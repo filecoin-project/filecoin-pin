@@ -795,6 +795,28 @@ describe('runLogin', () => {
       )
     })
 
+    it('--delegation-depth refuses a Grant that allows more onward delegation, and keeps one that allows no more', async () => {
+      savedKey({ walletAddress: GRANT_OWNER.address })
+
+      await expect(
+        runLogin(
+          { grant: await makeGrant({ node: 'group:a', maxDepth: 3 }), group: 'a', delegationDepth: 1 },
+          silentStdin(false)
+        )
+      ).rejects.toThrow(/allows delegation 3 below it, more than the --delegation-depth 1 requested/)
+      expect(readSessionFile(sessionPath())?.groupKeyGrant).toBeUndefined()
+
+      const exact = await makeGrant({ node: 'group:a', maxDepth: 1 })
+      expect(await runLogin({ grant: exact, group: 'a', delegationDepth: 1 }, silentStdin(false))).toBe(0)
+      expect(
+        await runLogin(
+          { grant: await makeGrant({ node: 'group:b' }), group: 'b', delegationDepth: 1 },
+          silentStdin(false)
+        )
+      ).toBe(0)
+      expect(readSessionFile(sessionPath())?.groupKeyGrant?.split(',')).toHaveLength(2)
+    })
+
     it('accepts a Grant for a group beneath the one asked for', async () => {
       savedKey({ walletAddress: GRANT_OWNER.address })
 
