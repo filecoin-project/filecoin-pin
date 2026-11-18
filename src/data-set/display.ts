@@ -1,5 +1,5 @@
 import pc from 'picocolors'
-import { dataSetVisibility, VISIBILITY_LABELS } from '../common/group-key.js'
+import { dataSetVisibility } from '../common/group-key.js'
 import type { DataSetSummary, PieceInfo } from '../core/data-set/types.js'
 import { PieceStatus } from '../core/data-set/types.js'
 import { formatFileSize } from '../utils/cli-helpers.js'
@@ -93,16 +93,11 @@ function buildTable(rows: string[][]): string[] {
   )
 }
 
-/** public, public encrypted, private, or unknown visibility (see {@link dataSetVisibility}). */
-function visibilityLabel(dataSet: Pick<DataSetSummary, 'metadata'>): string {
-  return VISIBILITY_LABELS[dataSetVisibility(dataSet.metadata ?? {})]
-}
-
 function renderDataSetHeader(dataSet: DataSetSummary): void {
   log.line(`${pc.bold(`#${dataSet.dataSetId}`)}`)
   log.indent(`Status: ${statusLabel(dataSet)}`)
   log.indent(`CDN add-on: ${dataSet.withCDN ? 'enabled' : 'disabled'}`)
-  log.indent(`Visibility: ${visibilityLabel(dataSet)}`)
+  log.indent(`Visibility: ${dataSetVisibility(dataSet.metadata ?? {})}`)
   log.line('')
 }
 
@@ -297,7 +292,7 @@ export function displayDataSetList(
       dataSet.providerId.toString(),
       activePiecePresence(dataSet),
       dataSet.withCDN ? 'enabled' : 'disabled',
-      visibilityLabel(dataSet),
+      dataSetVisibility(dataSet.metadata ?? {}),
     ]),
   ]
 

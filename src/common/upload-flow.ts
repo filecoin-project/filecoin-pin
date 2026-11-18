@@ -34,11 +34,10 @@ import { createSpinnerFlow } from '../utils/multi-operation-spinner.js'
 import { CliFatal } from './cli-errors.js'
 import {
   assertNoReadMetadata,
-  type DataSetVisibility,
   dataSetVisibility,
   ENCRYPTED_DATA_SET_KEYS,
   READ_KEY,
-  VISIBILITY_LABELS,
+  READ_RESTRICTED,
 } from './group-key.js'
 
 /**
@@ -235,24 +234,7 @@ export async function resolveDefaultDataSetReuse(
   return chosen
 }
 
-/**
- * Data set metadata keys that disqualify a data set from taking this upload.
- *
- * Matching a data set for reuse, or checking a `--data-set-id`, only requires that
- * it carries the upload's required metadata; a data set with extra keys still
- * matches. These are the extra keys that rule it out:
- *
- * - not encrypted: the encryption keys (`foc/enc`, `foc/ks`, `foc/kc`), so a plain
- *   upload never lands in an encrypted data set;
- * - not private: `read`, whatever its value, so only a private upload lands in a
- *   private data set, and no upload lands in one whose `read` value this version
- *   doesn't know;
- * - `--no-ipfs`: `withIPFSIndexing`, so the upload never lands in an indexed data set.
- *
- * The other direction is covered by the required metadata: an encrypted, private or
- * IPFS-indexed upload requires its own keys, so it never lands in a data set without
- * them. Together, every kind of upload reaches only data sets of its own kind.
- */
+/** Data set keys that rule a data set out for this upload: the encryption keys, `read` or `withIPFSIndexing` the upload doesn't have. */
 export function uploadExcludedKeys(options: {
   encrypted: boolean
   restricted?: boolean
@@ -265,17 +247,22 @@ export function uploadExcludedKeys(options: {
   ]
 }
 
-/** What to change so an upload fits a data set of this kind. */
-const KIND_FIX: Record<Exclude<DataSetVisibility, 'unknown'>, string> = {
-  public: 'remove --encrypt and --private',
-  'public-encrypted': 'use --encrypt without --private',
-  private: 'add --private',
+/** Why a data set of unknown visibility can't take this upload. */
+function unknownVisibilityError(id: bigint, metadata: Record<string, string>): Error {
+  if (metadata[READ_KEY] === READ_RESTRICTED) {
+    return new Error(
+      `Data set ${id} is restricted but not encrypted, which filecoin-pin does not support: it cannot take uploads`
+    )
+  }
+  return new Error(
+    `Data set ${id} has a ${READ_KEY} value this version of filecoin-pin does not know (${JSON.stringify(metadata[READ_KEY])}): update filecoin-pin to use it`
+  )
 }
 
 /**
- * Check that explicitly chosen data sets are all of the upload's kind (see
+ * Check that explicitly chosen data sets have the upload's visibility (see
  * {@link dataSetVisibility}), carry `required` and none of `excludedKeys`, so
- * `--data-set-id` cannot put an upload in a data set of another kind or a
+ * `--data-set-id` cannot put an upload in a data set of another visibility or a
  * foreign group key, or a `--no-ipfs` upload in an indexed one.
  */
 async function assertExplicitDataSets(
@@ -287,28 +274,16 @@ async function assertExplicitDataSets(
 ): Promise<void> {
   const wanted = new Set(dataSetIds)
   const found = await listDataSets(synapse, { filter: (dataSet) => wanted.has(dataSet.dataSetId), logger })
-  const chosen = dataSetIds.map((id) => {
+  const uploadVisibility = dataSetVisibility(required)
+  for (const id of dataSetIds) {
     const metadata = found.find((dataSet) => dataSet.dataSetId === id)?.metadata
     if (metadata == null) {
       throw new Error(`Data set ${id} was not found for this wallet, so it cannot be checked for this upload`)
     }
-    const kind = dataSetVisibility(metadata)
-    if (kind === 'unknown') {
-      throw new Error(
-        `Data set ${id} has a ${READ_KEY} value this version of filecoin-pin does not know (${JSON.stringify(metadata[READ_KEY])}): update filecoin-pin to use it`
-      )
-    }
-    return { id, metadata, kind }
-  })
-  const kinds = new Set(chosen.map((dataSet) => dataSet.kind))
-  if (kinds.size > 1) {
-    const listed = chosen.map((dataSet) => `${dataSet.id} (${VISIBILITY_LABELS[dataSet.kind]})`).join(', ')
-    throw new Error(`Data sets ${listed} are of different kinds: one upload goes to data sets of one kind`)
-  }
-  const uploadKind = dataSetVisibility(required)
-  for (const { id, metadata, kind } of chosen) {
-    if (kind !== uploadKind) {
-      throw new Error(`Data set ${id} is ${VISIBILITY_LABELS[kind]}: ${KIND_FIX[kind]}`)
+    const visibility = dataSetVisibility(metadata)
+    if (visibility === 'unknown visibility') throw unknownVisibilityError(id, metadata)
+    if (visibility !== uploadVisibility) {
+      throw new Error(`Data set ${id} is ${visibility}, this upload is ${uploadVisibility}`)
     }
     for (const [key, value] of Object.entries(required)) {
       if (metadata[key] !== value) {

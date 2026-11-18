@@ -857,7 +857,7 @@ describe('resolveUploadTargets with requiredMetadata', () => {
     const required = { ...groupKey, withIPFSIndexing: '' }
     await expect(
       resolveUploadTargets(synapse, { dataSetIds: [1n] }, { ...base, requiredMetadata: required })
-    ).rejects.toThrow('Data set 1 is public: remove --encrypt and --private')
+    ).rejects.toThrow('Data set 1 is public, this upload is public encrypted')
     await expect(
       resolveUploadTargets(synapse, { dataSetIds: [2n] }, { ...base, requiredMetadata: required })
     ).rejects.toThrow(/Data set 2 cannot take this upload: its foc\/ks/)
@@ -948,10 +948,10 @@ describe('resolveUploadTargets for plain uploads', () => {
       }),
     ])
     await expect(resolveUploadTargets(synapse, { dataSetIds: [2n] }, base)).rejects.toThrow(
-      'Data set 2 is public encrypted: use --encrypt without --private'
+      'Data set 2 is public encrypted, this upload is public'
     )
     await expect(resolveUploadTargets(synapse, { dataSetIds: [1n, 2n] }, base)).rejects.toThrow(
-      'Data sets 1 (public), 2 (public encrypted) are of different kinds'
+      'Data set 2 is public encrypted, this upload is public'
     )
   })
 
@@ -1050,32 +1050,39 @@ describe('resolveUploadTargets for private uploads', () => {
       )
     const unknownRead = (id: bigint, value: string) =>
       `Data set ${id} has a read value this version of filecoin-pin does not know ("${value}"): update filecoin-pin`
+    const restrictedPlaintext = (id: bigint) =>
+      `Data set ${id} is restricted but not encrypted, which filecoin-pin does not support: it cannot take uploads`
 
     it.each([
-      { upload: 'public', ids: [3n], required: undefined, message: 'Data set 3 is private: add --private' },
-      { upload: 'public encrypted', ids: [3n], required: groupKey, message: 'Data set 3 is private: add --private' },
+      { upload: 'public', ids: [3n], required: undefined, message: 'Data set 3 is private, this upload is public' },
+      {
+        upload: 'public encrypted',
+        ids: [3n],
+        required: groupKey,
+        message: 'Data set 3 is private, this upload is public encrypted',
+      },
       {
         upload: 'private',
         ids: [2n],
         required: privateKeys,
-        message: 'Data set 2 is public encrypted: use --encrypt without --private',
+        message: 'Data set 2 is public encrypted, this upload is private',
       },
       {
         upload: 'private',
         ids: [1n],
         required: privateKeys,
-        message: 'Data set 1 is public: remove --encrypt and --private',
+        message: 'Data set 1 is public, this upload is private',
       },
       { upload: 'public', ids: [4n], required: undefined, message: unknownRead(4n, 'friends') },
       { upload: 'public encrypted', ids: [4n], required: groupKey, message: unknownRead(4n, 'friends') },
       { upload: 'private', ids: [4n], required: privateKeys, message: unknownRead(4n, 'friends') },
-      { upload: 'public', ids: [6n], required: undefined, message: unknownRead(6n, 'restricted') },
-      { upload: 'private', ids: [6n], required: privateKeys, message: unknownRead(6n, 'restricted') },
+      { upload: 'public', ids: [6n], required: undefined, message: restrictedPlaintext(6n) },
+      { upload: 'private', ids: [6n], required: privateKeys, message: restrictedPlaintext(6n) },
       {
         upload: 'private',
         ids: [2n, 3n],
         required: privateKeys,
-        message: 'Data sets 2 (public encrypted), 3 (private) are of different kinds',
+        message: 'Data set 2 is public encrypted, this upload is private',
       },
     ])('refuses data sets $ids for a $upload upload', async ({ ids, required, message }) => {
       await expect(explicit(ids, required)).rejects.toThrow(message)

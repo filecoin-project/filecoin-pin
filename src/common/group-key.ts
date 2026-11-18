@@ -75,30 +75,17 @@ export function assertNoReadMetadata(dataSetMetadata: Record<string, string> | u
   }
 }
 
-/** The kind of a data set, from its metadata. A data set keeps its kind for life. */
-export type DataSetVisibility = 'public' | 'public-encrypted' | 'private' | 'unknown'
+/** A data set's visibility, fixed at creation; the values are how `data-set show` and `list` print it. */
+export type DataSetVisibility = 'public' | 'public encrypted' | 'private' | 'unknown visibility'
 
-/**
- * Data set visibility is determined by its metadata, which never changes. The rules are:
- * - Public: no encryption keys and no `read`.
- * - Public encrypted: v1 encryption keys and no `read`.
- * - Private: `read=restricted` with `foc/enc`.
- * Anything else with a `read` key (an unknown value, or restricted plaintext) is unknown:
- * never reused and never written to.
- */
+/** A data set's visibility from its metadata; any `read` other than `restricted` with `foc/enc` is unknown. */
 export function dataSetVisibility(metadata: Record<string, string>): DataSetVisibility {
   if (READ_KEY in metadata) {
-    return metadata[READ_KEY] === READ_RESTRICTED && ENCRYPTION_VERSION_KEY in metadata ? 'private' : 'unknown'
+    return metadata[READ_KEY] === READ_RESTRICTED && ENCRYPTION_VERSION_KEY in metadata
+      ? 'private'
+      : 'unknown visibility'
   }
-  return ENCRYPTED_DATA_SET_KEYS.some((key) => key in metadata) ? 'public-encrypted' : 'public'
-}
-
-/** How `data-set show` and `data-set list` name each kind. */
-export const VISIBILITY_LABELS: Record<DataSetVisibility, string> = {
-  public: 'public',
-  'public-encrypted': 'public encrypted',
-  private: 'private',
-  unknown: 'unknown visibility',
+  return ENCRYPTED_DATA_SET_KEYS.some((key) => key in metadata) ? 'public encrypted' : 'public'
 }
 
 export interface OwnerGroupKey {
