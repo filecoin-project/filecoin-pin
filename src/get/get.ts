@@ -17,7 +17,14 @@ import { checkOutputDir, removeDecryptOutput } from '../common/encryption.js'
 import { credentialKeyResolver, grantAuthorizations } from '../common/group-key-grant.js'
 import { ipniProviderUrls, ownProviderUrls, type ProviderSource } from '../common/ipfs-car-fetch.js'
 import { type GetOptions, getToDirectory } from '../common/ipfs-get.js'
-import { parseShareLink, ShareLinkError, shareKey, shareKeyResolver, shareOwner } from '../common/share-link.js'
+import {
+  parseShareLink,
+  ShareLinkError,
+  shareDownload,
+  shareKey,
+  shareKeyResolver,
+  shareOwner,
+} from '../common/share-link.js'
 import { initializeSynapse, type SynapseSetupConfig } from '../core/synapse/index.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
@@ -116,16 +123,18 @@ export async function runGet(
     // Used only when an envelope asks for a key, so plain content needs no credentials.
     let resolveKey = credentialKeyResolver(auth)
     let sharer: Address | undefined
+    // A private upload is not indexed anywhere: only its own gated data sets serve it.
+    let download: GetOptions['download']
     if (share != null) {
-      // Before the download, so a missing or wrong Access key fails fast.
+      // Before the download, so a missing or wrong Access key, or an expired share, fails fast.
       const T = shareKey(share, options.accessKey)
       sharer = await shareOwner(share, T)
       resolveKey = shareKeyResolver(share, T)
+      // A private upload's link carries the right to fetch it, signed with T.
+      download = await shareDownload(share, T)
     }
 
-    // A private upload is not indexed anywhere: only its own gated data sets serve it.
     const { piece } = options
-    let download: GetOptions['download']
     if (piece != null) {
       if (share != null) throw new Error('Choose --piece or --share, not both')
       try {
@@ -147,13 +156,17 @@ export async function runGet(
     spinner.start('Finding providers and downloading...')
     const sources: ProviderSource[] = []
     if (download == null) sources.push({ name: 'IPNI', find: (signal) => ipniProviderUrls(cid, { signal }) })
+    // The providers a private share link names.
+    const linked = share?.providers
+    if (download != null && linked != null) sources.push({ name: 'Share link', find: async () => linked })
     // initializeSynapse and listDataSets take no signal; the source deadline still ends the wait.
-    if (address != null) {
+    if (address != null && (piece != null || share == null || download == null)) {
       sources.push({ name: 'Data set', find: () => ownProviders(auth, address, logger, download != null) })
     }
-    // The sharer's own data sets: found before IPNI indexes a fresh upload, and on networks without IPNI.
+    // The sharer's own data sets (read-restricted ones for a private share): found before IPNI indexes a
+    // fresh upload, and on networks without IPNI.
     if (sharer != null && sharer !== address) {
-      sources.push({ name: "Sharer's data set", find: () => ownProviders(auth, sharer, logger) })
+      sources.push({ name: "Sharer's data set", find: () => ownProviders(auth, sharer, logger, download != null) })
     }
     const onClaim = (path: string): void => {
       claimed = path

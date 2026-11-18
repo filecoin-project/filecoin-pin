@@ -56,7 +56,7 @@ import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
-import { NO_IPFS_SHARE, PRIVATE_SHARE, printShare, shareReminder, shareSender } from '../share/get-share-link.js'
+import { NO_IPFS_SHARE, printShare, shareReminder, shareSender } from '../share/get-share-link.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -105,6 +105,12 @@ function describeSkipped(walk: { skippedSymlinks: string[]; skippedSpecial: stri
     ...(walk.skippedSpecial.length > 0 ? [plural(walk.skippedSpecial.length, 'special file')] : []),
   ]
   return parts.length > 0 ? ` (${parts.join(', ')} skipped)` : ''
+}
+
+/** A provider's service URL from a copy's `<service>/piece/<cid>` retrieval URL. */
+function serviceUrlOf(retrievalUrl: string | undefined): string | undefined {
+  const service = retrievalUrl?.replace(/\/piece\/[^/]+$/, '')
+  return service === retrievalUrl ? undefined : service
 }
 
 /**
@@ -224,11 +230,11 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     let shareMode: ShareMode | undefined
     if (options.getShareLinkRestricted === true) shareMode = 'restricted'
     else if (options.getShareLink === true) shareMode = 'open'
-    if (shareMode != null && options.private === true) throw new Error(PRIVATE_SHARE)
     if (shareMode != null && !encrypt) {
       throw new Error('--get-share-link needs --encrypt: plain content is shared by its CID')
     }
-    if (shareMode != null && !ipfsIndexing) throw new Error(NO_IPFS_SHARE)
+    // A private upload's link fetches it by its piece, not over IPFS.
+    if (shareMode != null && !ipfsIndexing && options.private !== true) throw new Error(NO_IPFS_SHARE)
     assertNoReadMetadata(dataSetMetadata)
 
     // Validate path exists and is readable
@@ -511,11 +517,18 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
           rootCid,
           labels: encryptedLabels,
           mode: shareMode,
+          // A private upload's link carries the right to fetch it, from the providers that took a copy.
+          ...(options.private === true && {
+            private: {
+              pieceCid: uploadResult.pieceCid.toString(),
+              providers: uploadResult.copies.flatMap((copy) => serviceUrlOf(copy.retrievalUrl) ?? []),
+              chainId: synapse.chain.id,
+            },
+          }),
         })
       } catch (error) {
-        log.warn(
-          `No share link: ${error instanceof Error ? error.message : String(error)}. Run \`filecoin-pin get-share-link ${rootCid}${shareMode === 'restricted' ? ' --restricted' : ''}\` to retry.`
-        )
+        const retry = `filecoin-pin get-share-link ${rootCid}${options.private === true ? ` --piece ${uploadResult.pieceCid}` : ''}${shareMode === 'restricted' ? ' --restricted' : ''}`
+        log.warn(`No share link: ${error instanceof Error ? error.message : String(error)}. Run \`${retry}\` to retry.`)
       }
     }
 
