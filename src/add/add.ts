@@ -529,6 +529,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
         ? {
             ...result,
             filePath: `${pieceMetadata?.[PIECE_METADATA_NAME_KEY] ?? ENCRYPTED_FILE_NAME} (the real name stays inside the ciphertext)`,
+            // A private piece is not served on /piece/: printing that URL would only lead to a 404.
+            ...(options.private === true && { copies: result.copies.map((copy) => ({ ...copy, retrievalUrl: '' })) }),
           }
         : result,
       'Add',
@@ -545,6 +547,10 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
             : 'Content is encrypted: readable with the owner wallet, a session key holding its group key Grant (via `filecoin-pin login`), or any holder of a Share Link and associated Access Key.'
         )
       )
+      if (options.private === true) {
+        // Not indexed anywhere: reading it back needs the piece CID as well as the root.
+        log.line(`  Read it back: filecoin-pin get ${result.rootCid} --piece ${result.pieceCid}`)
+      }
       log.flush()
     }
     if (share != null && shareMode != null) log.warn(shareReminder(shareMode))

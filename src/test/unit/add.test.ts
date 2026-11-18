@@ -996,6 +996,20 @@ describe('Add Command', () => {
         expect(plaintext.equals(testContent)).toBe(true)
       })
 
+      it('prints no /piece/ URL, and the get --piece command that reads it back', async () => {
+        const { log } = await import('../../utils/cli-logger.js')
+        const lines = vi.spyOn(log, 'line')
+        const { displayUploadResults } = await import('../../common/upload-flow.js')
+
+        const result = await runAdd({ ...auth, filePath: testFile, private: true })
+
+        const shown = vi.mocked(displayUploadResults).mock.calls.at(-1)?.[0] as { copies: { retrievalUrl: string }[] }
+        expect(shown.copies.map((copy) => copy.retrievalUrl)).toEqual([''])
+        expect(lines.mock.calls.map(([text]) => String(text))).toContain(
+          `  Read it back: filecoin-pin get ${result.rootCid} --piece bafkzcibtest1234567890`
+        )
+      })
+
       it('requires read=restricted next to the owner group key on every data set', async () => {
         await runAdd({ ...auth, filePath: testFile, private: true })
 
