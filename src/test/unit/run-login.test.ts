@@ -443,7 +443,7 @@ describe('runLogin', () => {
       expect(link.searchParams.get('network')).toBe('calibration')
       expect(link.searchParams.get('authorize')).toBe(SESSION_ADDRESS.toLowerCase())
       expect(link.searchParams.get('scopes')).toBe('createDataSet,addPieces')
-      expect(link.searchParams.get('node')).toBe('keyspace')
+      expect(link.searchParams.get('node')).toBe('groupKey')
       const pubkey = link.searchParams.get('pubkey')
       expect(pubkey).toBe(publicKeyOf(SESSION_KEY).toLowerCase())
       const signer = await recoverMessageAddress({
@@ -734,6 +734,71 @@ describe('runLogin', () => {
       await runLogin({ wait: false }, silentStdin(false))
 
       expect(output()).toContain('⚠ GROUP_KEY_GRANT is set in this shell and takes precedence over the saved login.')
+    })
+
+    it('login --group links node=group:<path> and implies the Grant step', async () => {
+      savedKey()
+
+      await runLogin({ group: 'team/design', wait: false }, silentStdin(false))
+
+      const link = linkIn(output())
+      expect(link.searchParams.get('node')).toBe('group:team/design')
+      expect(link.searchParams.get('pubkey')).not.toBeNull()
+      expect(link.searchParams.get('maxdepth')).toBeNull()
+    })
+
+    it('login --delegation-depth sends maxdepth', async () => {
+      savedKey()
+
+      await runLogin({ group: 'backups/ci', delegationDepth: 0, wait: false }, silentStdin(false))
+
+      expect(linkIn(output()).searchParams.get('maxdepth')).toBe('0')
+    })
+
+    it('refuses an invalid group by keysmith rules before any link', async () => {
+      savedKey()
+
+      await expect(runLogin({ group: 'a//b', wait: false }, silentStdin(false))).rejects.toThrow(
+        /Invalid group "a\/\/b"/
+      )
+      expect(output()).not.toContain('console/setup')
+    })
+
+    it('refuses a Grant request without addPieces before any link', async () => {
+      savedKey()
+
+      await expect(runLogin({ scopes: 'createDataSet,encrypt', wait: false }, silentStdin(false))).rejects.toThrow(
+        /needs the addPieces scope/
+      )
+      expect(output()).not.toContain('console/setup')
+    })
+
+    it('keeps Grants for other groups of the group key, replacing only the same group', async () => {
+      savedKey({ walletAddress: GRANT_OWNER.address })
+      const a = await makeGrant({ node: 'group:a' })
+      const b = await makeGrant({ node: 'group:b' })
+      const b2 = await makeGrant({ node: 'group:b' })
+
+      await runLogin({ grant: a, group: 'a' }, silentStdin(false))
+      await runLogin({ grant: b, group: 'b' }, silentStdin(false))
+      await runLogin({ grant: b2, group: 'b' }, silentStdin(false))
+
+      expect(readSessionFile(sessionPath())?.groupKeyGrant).toBe(`${a},${b2}`)
+      expect(output()).toContain(`Also held: group a of group key ${GROUP_KEY}`)
+    })
+
+    it('refuses a Grant wider than the --group asked for', async () => {
+      savedKey({ walletAddress: GRANT_OWNER.address })
+
+      await expect(runLogin({ grant: await makeGrant(), group: 'a' }, silentStdin(false))).rejects.toThrow(
+        /covers group key .*, not group a as requested/
+      )
+    })
+
+    it('accepts a Grant for a group beneath the one asked for', async () => {
+      savedKey({ walletAddress: GRANT_OWNER.address })
+
+      expect(await runLogin({ grant: await makeGrant({ node: 'group:a/b' }), group: 'a' }, silentStdin(false))).toBe(0)
     })
 
     it('a new Grant replaces the saved one', async () => {

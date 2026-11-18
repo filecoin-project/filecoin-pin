@@ -15,7 +15,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { CliFatal } from '../common/cli-errors.js'
 import { readEnvelopeLabels } from '../common/envelope-labels.js'
 import { GRANT_LOGIN_COMMAND } from '../common/group-key.js'
-import { loadGroupKeyGrant } from '../common/group-key-grant.js'
+import { loadGroupKeyGrants } from '../common/group-key-grant.js'
 import { DISCOVERY_TIMEOUT_MS, ipniProviderUrls } from '../common/ipfs-car-fetch.js'
 import { type CreatedShare, createShare, type ShareMode, type ShareSender } from '../common/share-link.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
@@ -56,7 +56,7 @@ export async function shareSender(auth: SynapseSetupConfig, chainId: number): Pr
   if ('privateKey' in auth && auth.privateKey != null) return { owner: privateKeyToAccount(auth.privateKey) }
   if ('sessionKey' in auth && auth.sessionKey != null) {
     const session = { sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }
-    return { grant: await loadGroupKeyGrant(session, chainId) }
+    return { grants: await loadGroupKeyGrants(session, chainId) }
   }
   throw new Error(SHARE_NEEDS_CREDENTIALS)
 }

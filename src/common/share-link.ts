@@ -15,7 +15,7 @@
 
 import {
   decodeGrant,
-  keyspaceKeys as deriveGroupKey,
+  deriveGroupKey,
   encodeGrant,
   type Grant,
   grantDescriptor,
@@ -23,6 +23,7 @@ import {
   type PieceMetadata,
   pieceNode,
   publicKeyOf,
+  readPieceMetadata,
   unwrapWith,
   wrapTo,
 } from '@filoz/keysmith'
@@ -31,7 +32,7 @@ import { CID } from 'multiformats/cid'
 import { type Address, bytesToHex, getAddress, type Hex, hexToBytes } from 'viem'
 import { generatePrivateKey } from 'viem/accounts'
 import { KeyAccessError, type OwnerSigner } from './group-key.js'
-import { GRANT_PREFIX, type OpenedGrant } from './group-key-grant.js'
+import { GRANT_PREFIX, grantForPiece, type OpenedGrant } from './group-key-grant.js'
 
 /** The v1 Share link viewer the links open in (FilOzone/synapse-sdk#1036). */
 export const DEFAULT_VIEWER_URL = 'https://viewer.filecoin.cloud/'
@@ -119,8 +120,8 @@ export function parseShareLink(text: string): ParsedShare {
   return { rootCid, payload: unb64(d, 'The share'), ...(k != null && { accessKey: parseAccessKey(k) }) }
 }
 
-/** Who shares: the owner wallet, or a session key's opened group key Grant. */
-export type ShareSender = { owner: OwnerSigner } | { grant: OpenedGrant }
+/** Who shares: the owner wallet, or a session key's opened group key Grants. */
+export type ShareSender = { owner: OwnerSigner } | { grants: OpenedGrant[] }
 
 export interface CreateShareInput {
   sender: ShareSender
@@ -144,23 +145,31 @@ export interface CreatedShare {
  */
 export async function createShare(input: CreateShareInput): Promise<CreatedShare> {
   const { labels, sender } = input
-  const ref = { owner: labels['foc/own'], keyspace: labels['foc/ks'] }
+  const view = readPieceMetadata(labels)
+  const owner = view.owner ?? ('owner' in sender ? sender.owner.address : sender.grants[0]?.owner)
+  if (owner == null) throw new ShareLinkError('This session key has no group key Grant')
+  const ref = { owner, groupKeyId: view.groupKeyId }
   const node = pieceNode(labels)
   const T = generatePrivateKey()
 
   let pieceKey: Uint8Array
   if ('owner' in sender) {
-    if (labels['foc/own'].toLowerCase() !== sender.owner.address.toLowerCase()) {
-      throw new ShareLinkError(`This upload belongs to ${labels['foc/own']}, not ${sender.owner.address.toLowerCase()}`)
+    if (owner.toLowerCase() !== sender.owner.address.toLowerCase()) {
+      throw new ShareLinkError(`This upload belongs to ${owner}, not ${sender.owner.address.toLowerCase()}`)
     }
-    const { kk } = await deriveGroupKey(sender.owner, ref)
+    const { groupKey } = await deriveGroupKey(sender.owner, ref)
     try {
-      pieceKey = keyForEnvelope(kk, labels)
+      pieceKey = keyForEnvelope(groupKey, labels)
     } finally {
-      kk.fill(0)
+      groupKey.fill(0)
     }
   } else {
-    pieceKey = keyForEnvelope(sender.grant.key, labels, sender.grant.grant)
+    try {
+      const picked = grantForPiece(sender.grants, labels)
+      pieceKey = keyForEnvelope(picked.key, labels, picked.grant)
+    } finally {
+      for (const g of sender.grants) g.key.fill(0)
+    }
   }
   let payload: Uint8Array
   try {

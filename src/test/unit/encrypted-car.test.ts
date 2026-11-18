@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, truncate, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { keyspaceKeys as deriveGroupKey, writeTarget } from '@filoz/keysmith'
+import { deriveGroupKey, writeTarget } from '@filoz/keysmith'
 import { CarBlockIterator, CarWriter } from '@ipld/car'
 import * as dagPb from '@ipld/dag-pb'
 import * as fee from 'filecoin-encryption-envelope'
@@ -41,9 +41,9 @@ describe('encrypted CAR payload', () => {
   const asOwner = () => ownerKeyResolver(OWNER)
 
   beforeAll(async () => {
-    const { kk, descriptor } = await deriveGroupKey(OWNER, {
+    const { groupKey: kk, descriptor } = await deriveGroupKey(OWNER, {
       owner: OWNER.address,
-      keyspace: '0x00112233445566778899aabbccddeeff',
+      groupKeyId: '0x00112233445566778899aabbccddeeff',
     })
     const target = writeTarget(descriptor, kk)
     pieceKey = () => newPieceKey(target)

@@ -28,13 +28,17 @@ import { type Address, createPublicClient } from 'viem'
 import { getBlockNumber } from 'viem/actions'
 import { EXIT_CODE_INCOMPLETE } from '../common/cli-errors.js'
 import { NETWORK_CHAINS } from '../common/get-rpc-url.js'
+import { checkGroup } from '../common/group-key.js'
 import {
   decodeGrantText,
   GrantError,
+  grantCovers,
+  joinGrants,
   keyAgreementParams,
   type OpenedGrant,
   openGroupKeyGrant,
   precheckGroupKeyGrant,
+  splitGrants,
 } from '../common/group-key-grant.js'
 import {
   buildAuthorizeUrl,
@@ -114,14 +118,87 @@ function chainIdOf(network: string | undefined): number {
   throw new Error(`login --grant works on mainnet and calibration, not ${network}: Grants come from the console.`)
 }
 
-/** Save `opened` with the session, replacing any earlier Grant: one Grant per session key. */
-function saveGrant(session: SavedSession, opened: OpenedGrant, path: string): SavedSession {
-  const next = { ...session, groupKeyId: opened.groupKeyId, groupKeyGrant: opened.text }
+/** The Grant node a login asks the console for: the whole group key, or one group. */
+const grantNode = (group: string | undefined): string => (group == null ? 'groupKey' : `group:${group}`)
+
+/**
+ * Refuse a Grant wider than the login asked for. The console may narrow a request (a group
+ * beneath it), never widen it.
+ */
+function checkRequested(opened: OpenedGrant, group: string | undefined): OpenedGrant {
+  if (group != null && opened.group !== group && !opened.group?.startsWith(`${group}/`)) {
+    opened.key.fill(0)
+    throw new GrantError(`This Grant covers ${grantCovers(opened)}, not group ${group} as requested.`)
+  }
+  return opened
+}
+
+/**
+ * The saved Grants that still open, each opened (keys zeroed by the caller), and the ones
+ * dropped because they no longer do.
+ */
+async function savedGrants(
+  session: SavedSession,
+  chainId: number
+): Promise<{ kept: OpenedGrant[]; dropped: string[] }> {
+  const kept: OpenedGrant[] = []
+  const dropped: string[] = []
+  if (session.groupKeyGrant === undefined || session.walletAddress === undefined) return { kept, dropped }
+  for (const text of splitGrants(session.groupKeyGrant)) {
+    try {
+      kept.push(
+        await openGroupKeyGrant(text, {
+          sessionKey: session.sessionKey,
+          walletAddress: session.walletAddress,
+          chainId,
+          groupKeyId: session.groupKeyId,
+        })
+      )
+    } catch (error) {
+      if (!(error instanceof GrantError)) throw error
+      dropped.push(error.message)
+    }
+  }
+  return { kept, dropped }
+}
+
+/**
+ * Save `opened` with the session's other Grants: one per group, so a Grant for the same node
+ * replaces the earlier one. Grants that no longer open are dropped, and so are all the saved ones
+ * when `opened` is for another group key: a session key holds Grants of one group key.
+ */
+async function saveGrant(
+  session: SavedSession,
+  opened: OpenedGrant,
+  path: string,
+  chainId: number
+): Promise<SavedSession> {
+  const { kept, dropped } = await savedGrants(session, chainId)
+  for (const k of kept) k.key.fill(0)
+  opened.key.fill(0)
+  const otherKey = kept.filter((k) => k.groupKeyId !== opened.groupKeyId)
+  const others = kept.filter((k) => k.groupKeyId === opened.groupKeyId && k.claim.node !== opened.claim.node)
+  const next = {
+    ...session,
+    groupKeyId: opened.groupKeyId,
+    groupKeyGrant: joinGrants([...others.map((k) => k.text), opened.text]),
+  }
   writeSessionFile(next, path)
   log.line(
-    `${pc.green('✓')} Grant saved for group key ${opened.groupKeyId} of ${shortAddress(opened.owner)} · expires ${formatExpiryDate(BigInt(opened.expires))}`
+    `${pc.green('✓')} Grant saved for ${grantCovers(opened)} of ${shortAddress(opened.owner)} · expires ${formatExpiryDate(BigInt(opened.expires))}`
   )
-  log.line(pc.gray('  It gives this session key permanent read access to that group key, including future uploads.'))
+  log.line(
+    pc.gray(
+      `  It gives this session key permanent read access to ${opened.group == null ? 'that group key' : 'that group and every group beneath it'}, including future uploads.`
+    )
+  )
+  if (others.length > 0) log.line(`  Also held: ${others.map(grantCovers).join('; ')}`)
+  if (otherKey.length > 0) {
+    log.line(
+      `${pc.yellow('⚠')} Dropped ${otherKey.length} saved Grant(s) for another group key: a session key holds Grants of one group key.`
+    )
+  }
+  for (const reason of dropped) log.line(`${pc.yellow('⚠')} Dropped a saved Grant that no longer opens: ${reason}`)
   return next
 }
 
@@ -150,32 +227,26 @@ async function importGrant(
     )
   }
   const chainId = chainIdOf(network)
-  const opened = await openGroupKeyGrant(grantText, {
-    sessionKey: saved.sessionKey,
-    walletAddress: saved.walletAddress,
-    chainId,
-  })
+  const group = options.group == null ? undefined : checkGroup(options.group)
+  const opened = checkRequested(
+    await openGroupKeyGrant(grantText, {
+      sessionKey: saved.sessionKey,
+      walletAddress: saved.walletAddress,
+      chainId,
+    }),
+    group
+  )
   log.line(`${pc.green('✓')} Session key ${saved.sessionAddress} (${network ?? 'mainnet'})`)
-  saveGrant(saved, opened, path)
+  await saveGrant(saved, opened, path, chainId)
   log.flush()
   return 0
 }
 
-/** Whether the saved Grant still opens for the owner that last authorized this key. */
-async function savedGrantOpens(session: SavedSession, chainId: number): Promise<boolean> {
-  if (session.groupKeyGrant === undefined || session.walletAddress === undefined) return false
-  try {
-    await openGroupKeyGrant(session.groupKeyGrant, {
-      sessionKey: session.sessionKey,
-      walletAddress: session.walletAddress,
-      chainId,
-      groupKeyId: session.groupKeyId,
-    })
-    return true
-  } catch (error) {
-    if (!(error instanceof GrantError)) throw error
-    return false
-  }
+/** The saved Grant for exactly this node that still opens for the owner that last authorized this key, if any. */
+async function savedGrantFor(session: SavedSession, chainId: number, node: string): Promise<OpenedGrant | undefined> {
+  const { kept } = await savedGrants(session, chainId)
+  for (const k of kept) k.key.fill(0)
+  return kept.find((k) => k.claim.node === node)
 }
 
 /**
@@ -188,17 +259,21 @@ async function savedGrantOpens(session: SavedSession, chainId: number): Promise<
 async function obtainGrant(
   session: SavedSession & { walletAddress: Address },
   chainId: number,
+  group: string | undefined,
   url: string,
   grantLinkShown: boolean,
   grantText: string | undefined,
   path: string,
   io: LoginIO
 ): Promise<boolean> {
-  const open = (text: string) =>
-    openGroupKeyGrant(text, { sessionKey: session.sessionKey, walletAddress: session.walletAddress, chainId })
+  const open = async (text: string) =>
+    checkRequested(
+      await openGroupKeyGrant(text, { sessionKey: session.sessionKey, walletAddress: session.walletAddress, chainId }),
+      group
+    )
   if (grantText !== undefined) {
     try {
-      saveGrant(session, await open(grantText), path)
+      await saveGrant(session, await open(grantText), path, chainId)
       return true
     } catch (error) {
       if (!(error instanceof GrantError)) throw error
@@ -208,21 +283,14 @@ async function obtainGrant(
       return false
     }
   }
-  if (session.groupKeyGrant !== undefined) {
-    try {
-      const opened = await openGroupKeyGrant(session.groupKeyGrant, {
-        sessionKey: session.sessionKey,
-        walletAddress: session.walletAddress,
-        chainId,
-        groupKeyId: session.groupKeyId,
-      })
-      log.line(`${pc.green('✓')} Grant for group key ${opened.groupKeyId} already saved`)
-      return true
-    } catch (error) {
-      if (!(error instanceof GrantError)) throw error
-      log.line(`${pc.yellow('⚠')} The saved Grant was ignored: ${error.message}`)
-    }
+  const { kept, dropped } = await savedGrants(session, chainId)
+  for (const k of kept) k.key.fill(0)
+  const saved = kept.find((k) => k.claim.node === grantNode(group))
+  if (saved !== undefined) {
+    log.line(`${pc.green('✓')} Grant for ${grantCovers(saved)} already saved`)
+    return true
   }
+  for (const reason of dropped) log.line(`${pc.yellow('⚠')} The saved Grant was ignored: ${reason}`)
   // Both ends a terminal: readline's raw mode, which Ctrl-C and long pastes rely on, needs them.
   if (io.stdin.isTTY !== true || io.stdout.isTTY !== true) {
     reportGrantPending(url)
@@ -241,7 +309,7 @@ async function obtainGrant(
     reportGrantPending(url)
     return false
   }
-  saveGrant(session, opened, path)
+  await saveGrant(session, opened, path, chainId)
   return true
 }
 
@@ -351,6 +419,9 @@ export async function runLogin(
   // request: with the defaults instead, a timed-out `…,encrypt` login never asked for the Grant.
   const requested = options.scopes ?? (options.fresh ? undefined : readSessionFile(path)?.scopes)
   const { permissions, encrypt, scopes } = parseLoginScopes(requested)
+  // Checked by keysmith's rules before any signature, link or wait.
+  const group = options.group == null ? undefined : checkGroup(options.group)
+  const delegationDepth = options.delegationDepth
   if (options.grant !== undefined && options.fresh) {
     // Refused before the saved key is replaced: a Grant names its key, and a fresh one has none yet.
     throw new Error(
@@ -367,8 +438,12 @@ export async function runLogin(
   // Read and decoded first, so a wrong paste fails now rather than after the wait.
   const grantText = options.grant === undefined ? undefined : await readGrantArgument(options.grant, io.stdin)
   if (grantText !== undefined) decodeGrantText(grantText)
-  // `--grant` asks for the Grant step whether or not `--scopes` names encrypt.
-  const wantGrant = encrypt || grantText !== undefined
+  // `--grant` and `--group` ask for the Grant step whether or not `--scopes` names encrypt.
+  const wantGrant = encrypt || grantText !== undefined || group !== undefined || delegationDepth !== undefined
+  if (wantGrant && grantText === undefined && !permissions.includes(AddPiecesPermission)) {
+    // The console refuses it too: a Grant is for writing encrypted pieces, which needs addPieces.
+    throw new Error('A group key Grant (encrypt, --group) needs the addPieces scope: add it to --scopes.')
+  }
   let networkOptions: LoginOptions = options
   if (grantText !== undefined) {
     if (saved?.walletAddress !== undefined) {
@@ -439,11 +514,22 @@ export async function runLogin(
   log.line('')
 
   const scopeIds = permissions.map(scopeIdOf)
-  const keyAgreement = wantGrant ? await keyAgreementParams(session.sessionKey) : undefined
+  const keyAgreement = wantGrant
+    ? {
+        ...(await keyAgreementParams(session.sessionKey)),
+        node: grantNode(group),
+        ...(delegationDepth !== undefined && { maxDepth: delegationDepth }),
+      }
+    : undefined
+  if (group !== undefined) log.line(`  Requesting a Grant for group ${group} (and every group beneath it)`)
   // With pubkey, the console asks the owner for a Grant wrapped to this session key.
   const grantUrl = buildAuthorizeUrl(consoleUrl, session.sessionAddress, scopeIds, chain.id, keyAgreement)
-  // A saved Grant that still opens needs no new one, so the link leaves the group key step out.
-  const keepSavedGrant = wantGrant && grantText === undefined && (await savedGrantOpens(session, chain.id))
+  // A saved Grant for this node that still opens needs no new one, so the link leaves the group key step out.
+  const keepSavedGrant =
+    wantGrant &&
+    grantText === undefined &&
+    delegationDepth === undefined &&
+    (await savedGrantFor(session, chain.id, grantNode(group))) !== undefined
   const url = keepSavedGrant ? buildAuthorizeUrl(consoleUrl, session.sessionAddress, scopeIds, chain.id) : grantUrl
   log.line('  Approve this key with your wallet in the Filecoin Cloud console:')
   // The link on its own line, unstyled, so it copies and parses cleanly.
@@ -544,7 +630,7 @@ export async function runLogin(
     reportPartialGrant(permissions, result)
   }
   const haveGrant = wantGrant
-    ? await obtainGrant(authorized, chain.id, grantUrl, !keepSavedGrant, grantText, path, io)
+    ? await obtainGrant(authorized, chain.id, group, grantUrl, !keepSavedGrant, grantText, path, io)
     : true
 
   // Funding never blocks login: a failed readiness read is reported, not fatal.

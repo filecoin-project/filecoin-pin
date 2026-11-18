@@ -5,10 +5,13 @@ import { describe, expect, it } from 'vitest'
 import {
   GRANT_PREFIX,
   GrantError,
+  grantForPiece,
+  grantForWrite,
   grantKeyResolver,
   grantText,
+  joinGrants,
   keyAgreementParams,
-  loadGroupKeyGrant,
+  loadGroupKeyGrants,
   type OpenedGrant,
   openGroupKeyGrant,
 } from '../../common/group-key-grant.js'
@@ -31,7 +34,7 @@ import {
  * CLIs of other versions exchange this text form.
  */
 const GOLDEN_GRANT =
-  'fgr1_gwGBqwABAWhrZXlzcGFjZQJU85_W5RqtiPb0zmq4gnJ5z_-5ImYDUALKCM9-AiLIQyrcFZIyt-sEVDxEzd22qQD6K1hd0pngPRL6QpO8BQAGGgAEyy8HUGoMg9KNYHqOiNxnkftJ1-IIWEGdCbSL16RMCZ2Hjsznju8VSTRpq-2RHLu7I-Bporb53VomKJ-goC0IRqON69e6bUOcH7QUKmWcKFlpQI2nT5JjGwpQagyD0o1geo6I3GeR-0nX4gsa9IZXAFi6pwABAWhrZXlzcGFjZQJU85_W5RqtiPb0zmq4gnJ5z_-5ImYDUALKCM9-AiLIQyrcFZIyt-sEWEEEQ9-xkEnBkX7FqCJHDgkGNVOlDBknDtAvJ__SuOQjpQlgLGfm1EvV4j3YxrjJg33xI92pA85BM-J4cgycL0Yl1QVMYIy-eUdXcvuV3NhHBlgwikJobsjiFOwzSVnbA7-WyI7_-0AIn8UgnzuANx3YCl_SQDZrM8iUMIDuNL620d39'
+  'fgr1_gwKBqwACAWhncm91cEtleQJU85_W5RqtiPb0zmq4gnJ5z_-5ImYDUALKCM9-AiLIQyrcFZIyt-sEVDxEzd22qQD6K1hd0pngPRL6QpO8BQAGGgAEyy8HUKTAK_v_zb_3Sz5mAaZ0bZwIWEFG8XomGpP0MPKlif23na1MQLEFFhipPX0GNZbtOZtVbEnsqFZxhM0Tq5a53kaP2LBSDM5ZEU3WcH3MOkQtzt5QGwpQpMAr-__Nv_dLPmYBpnRtnAsa9IZXAFi6pwACAWhncm91cEtleQJU85_W5RqtiPb0zmq4gnJ5z_-5ImYDUALKCM9-AiLIQyrcFZIyt-sEWEEEBoUkIEGC2gyP3meS8N2b9UhsyBd3WReZgk7mSKPpS6C32SriAFwr42n4tCRCEkfwYwayZrzr65t4R75nm1wcuAVMtAgEssgVvy1RrhL7Blgw-shWVySbCmDnncKG_XYFLv-tFsqTcdkWlaSISB1gboMHUylMQWkyH0lKC6Lzb0Bn'
 /** 2026-01-01, so the golden vector is checked at a fixed time. */
 const PINNED_NOW = 1767225600
 
@@ -46,7 +49,7 @@ describe('openGroupKeyGrant', () => {
       groupKeyId: GROUP_KEY,
       owner: OWNER.address,
       expires: FAR_FUTURE,
-      commitment: 'v1.6a0c83d28d607a8e88dc6791fb49d7e2',
+      commitment: 'v2.a4c02bfbffcdbff74b3e6601a6746d9c',
     })
     // The commitment the owner signed is the one owner-mode uploads record as foc/kc.
     expect(opened.commitment).toBe(await groupKeyCommitment())
@@ -140,8 +143,9 @@ describe('openGroupKeyGrant', () => {
     await rejects(GOLDEN_GRANT, /another network \(chain id 314159, not 314\)/, { chainId: 314 })
   })
 
-  it('refuses a Grant for less than a whole group key', async () => {
-    await rejects(makeGrant({ node: 'scope:team' }), /covers scope:team, not a whole group key/)
+  it('opens a Grant for a group, not only the whole group key', async () => {
+    const opened = await openGroupKeyGrant(await makeGrant({ node: 'group:team' }), expected)
+    expect(opened.group).toBe('team')
   })
 
   it('refuses a Grant for another group key than GROUP_KEY_ID', async () => {
@@ -167,23 +171,23 @@ describe('keyAgreementParams', () => {
   })
 })
 
-describe('loadGroupKeyGrant', () => {
+describe('loadGroupKeyGrants', () => {
   const session = { sessionKey: SESSION_KEY, walletAddress: OWNER.address }
 
   it('opens GROUP_KEY_GRANT checked against GROUP_KEY_ID', async () => {
     const env = { GROUP_KEY_GRANT: GOLDEN_GRANT, GROUP_KEY_ID: GROUP_KEY }
 
-    expect((await loadGroupKeyGrant(session, CALIBRATION_CHAIN_ID, env)).groupKeyId).toBe(GROUP_KEY)
+    expect((await loadGroupKeyGrants(session, CALIBRATION_CHAIN_ID, env)).map((g) => g.groupKeyId)).toEqual([GROUP_KEY])
   })
 
   it('says there is no Grant, with the login to run', async () => {
-    await expect(loadGroupKeyGrant(session, CALIBRATION_CHAIN_ID, {})).rejects.toThrow(
+    await expect(loadGroupKeyGrants(session, CALIBRATION_CHAIN_ID, {})).rejects.toThrow(
       /no group key Grant\. Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt`/
     )
   })
 
   it('needs GROUP_KEY_ID with the Grant', async () => {
-    await expect(loadGroupKeyGrant(session, CALIBRATION_CHAIN_ID, { GROUP_KEY_GRANT: GOLDEN_GRANT })).rejects.toThrow(
+    await expect(loadGroupKeyGrants(session, CALIBRATION_CHAIN_ID, { GROUP_KEY_GRANT: GOLDEN_GRANT })).rejects.toThrow(
       /GROUP_KEY_GRANT is set without GROUP_KEY_ID/
     )
   })
@@ -191,19 +195,19 @@ describe('loadGroupKeyGrant', () => {
   it('ignores a Grant that fails a check, with the reason and the login to run', async () => {
     const env = { GROUP_KEY_GRANT: GOLDEN_GRANT, GROUP_KEY_ID: GROUP_KEY }
 
-    await expect(loadGroupKeyGrant(session, 314, env)).rejects.toThrow(
-      /The Grant in GROUP_KEY_GRANT was ignored: .*another network.* Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt`/
+    await expect(loadGroupKeyGrants(session, 314, env)).rejects.toThrow(
+      /A Grant in GROUP_KEY_GRANT was ignored: .*another network.* Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt`/
     )
   })
 })
 
 describe('grantKeyResolver', () => {
-  const opened = () => openGroupKeyGrant(GOLDEN_GRANT, { ...expected, now: PINNED_NOW })
+  const opened = async () => [await openGroupKeyGrant(GOLDEN_GRANT, { ...expected, now: PINNED_NOW })]
   const labels = (overrides: Record<string, unknown> = {}) => ({
     appMetadata: {
-      'foc/v': 1,
+      'foc/v': 2,
       'foc/own': OWNER.address.toLowerCase(),
-      'foc/ks': GROUP_KEY,
+      'foc/gkid': GROUP_KEY,
       'foc/salt': `0x${'01'.repeat(16)}`,
       ...overrides,
     },
@@ -215,24 +219,24 @@ describe('grantKeyResolver', () => {
 
   it('names the envelope and the Grant for another group key', async () => {
     const other = `0x${'ab'.repeat(16)}`
-    await expect(grantKeyResolver(opened)(labels({ 'foc/ks': other }) as never)).rejects.toThrow(
-      new RegExp(`belongs to .* under group key ${other}; this session's Grant is for group key ${GROUP_KEY}`)
+    await expect(grantKeyResolver(opened)(labels({ 'foc/gkid': other }) as never)).rejects.toThrow(
+      new RegExp(`belongs to .* under group key ${other}; this session's Grants are for group key ${GROUP_KEY}`)
     )
   })
 
   it('names the envelope and the Grant for another owner', async () => {
     const stranger = privateKeyToAccount(STRANGER_KEY).address.toLowerCase()
     await expect(grantKeyResolver(opened)(labels({ 'foc/own': stranger }) as never)).rejects.toThrow(
-      new RegExp(`belongs to ${stranger} under group key ${GROUP_KEY}; this session's Grant`)
+      new RegExp(`belongs to ${stranger} under group key ${GROUP_KEY}; this session's Grants`)
     )
   })
 
   it('opens the Grant only when an envelope asks for a key, and zeroes the group key after', async () => {
     const loaded: OpenedGrant[] = []
-    const resolver = grantKeyResolver(async (): Promise<OpenedGrant> => {
-      const grant = await opened()
-      loaded.push(grant)
-      return grant
+    const resolver = grantKeyResolver(async (): Promise<OpenedGrant[]> => {
+      const grants = await opened()
+      loaded.push(...grants)
+      return grants
     })
     expect(loaded).toHaveLength(0)
 
@@ -241,5 +245,55 @@ describe('grantKeyResolver', () => {
     expect(loaded).toHaveLength(1)
     expect(pieceKey.some((byte) => byte !== 0)).toBe(true)
     expect(loaded[0]?.key.every((byte) => byte === 0)).toBe(true)
+  })
+})
+
+describe('group Grants', () => {
+  const session = { sessionKey: SESSION_KEY, walletAddress: OWNER.address }
+  const openAll = async (...nodes: string[]) =>
+    loadGroupKeyGrants(session, CALIBRATION_CHAIN_ID, {
+      GROUP_KEY_GRANT: joinGrants(await Promise.all(nodes.map((node) => makeGrant({ node })))),
+      GROUP_KEY_ID: GROUP_KEY,
+    })
+  const piece = (group?: string) => ({
+    'foc/v': 2,
+    'foc/own': OWNER.address.toLowerCase(),
+    'foc/gkid': GROUP_KEY,
+    ...(group != null && { 'foc/group': group }),
+    'foc/salt': `0x${'01'.repeat(16)}`,
+  })
+
+  it('opens a group Grant and names its group', async () => {
+    const [grant] = await openAll('group:team/design')
+    expect(grant?.group).toBe('team/design')
+    expect(grant?.claim.node).toBe('group:team/design')
+  })
+
+  it('writes with the narrowest Grant that covers the group, refusing one no Grant covers', async () => {
+    const grants = await openAll('group:a', 'group:b/c')
+    expect(grantForWrite(grants, 'b/c/d').group).toBe('b/c')
+    expect(grantForWrite(grants, 'a').group).toBe('a')
+    expect(() => grantForWrite(grants, 'b')).toThrow(/None of this session key's Grants covers group b .*--group b/)
+  })
+
+  it('needs --group to write when several group Grants are held, unless one is the whole group key', async () => {
+    const disjoint = await openAll('group:a', 'group:b')
+    expect(() => grantForWrite(disjoint, undefined)).toThrow(/choose one with --group/)
+    expect(grantForWrite(await openAll('group:a', 'groupKey'), undefined).group).toBeUndefined()
+    expect(grantForWrite(await openAll('group:a'), undefined).group).toBe('a')
+  })
+
+  it('reads a piece with the Grant whose group reaches it, and names the login for one outside every group', async () => {
+    const grants = await openAll('group:a', 'group:b')
+    expect(grantForPiece(grants, piece('b/x')).group).toBe('b')
+    expect(() => grantForPiece(grants, piece('c'))).toThrow(/in group c, outside every group .*--group c/)
+    expect(() => grantForPiece(grants, piece())).toThrow(/at the group key root/)
+  })
+
+  it('decrypts with either of two disjoint group Grants', async () => {
+    const resolver = grantKeyResolver(() => openAll('group:a', 'group:b'))
+    expect(await resolver({ appMetadata: piece('a') } as never)).toHaveLength(32)
+    expect(await resolver({ appMetadata: piece('b/deep') } as never)).toHaveLength(32)
+    await expect(resolver({ appMetadata: piece('c') } as never)).rejects.toThrow(/outside every group/)
   })
 })

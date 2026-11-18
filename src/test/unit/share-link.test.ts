@@ -1,11 +1,5 @@
 import { readFileSync } from 'node:fs'
-import {
-  keyspaceKeys as deriveGroupKey,
-  keyForEnvelope,
-  newSalt,
-  type PieceMetadata,
-  pieceMetadata,
-} from '@filoz/keysmith'
+import { deriveGroupKey, keyForEnvelope, newSalt, type PieceMetadata, pieceMetadata } from '@filoz/keysmith'
 import { CID } from 'multiformats/cid'
 import { bytesToHex } from 'viem'
 import { generatePrivateKey } from 'viem/accounts'
@@ -34,11 +28,11 @@ const ROOT = CID.parse('bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fb
 const VIEWER = 'https://viewer.test/'
 
 const labelsFor = (salt = newSalt()): PieceMetadata =>
-  pieceMetadata({ owner: OWNER.address, keyspace: GROUP_KEY }, { salt })
+  pieceMetadata({ owner: OWNER.address, groupKeyId: GROUP_KEY }, { salt })
 
 /** The upload's key as the owner derives it: what every share must open to. */
 async function ownerPieceKey(labels: PieceMetadata): Promise<string> {
-  const { kk } = await deriveGroupKey(OWNER, { owner: OWNER.address, keyspace: GROUP_KEY })
+  const { groupKey: kk } = await deriveGroupKey(OWNER, { owner: OWNER.address, groupKeyId: GROUP_KEY })
   return bytesToHex(keyForEnvelope(kk, labels))
 }
 
@@ -49,7 +43,7 @@ async function sessionSender(): Promise<ShareSender> {
     walletAddress: OWNER.address,
     chainId: CALIBRATION_CHAIN_ID,
   })
-  return { grant }
+  return { grants: [grant] }
 }
 
 /** Open a created share as a recipient would, and return the key it gives for `labels`. */
@@ -124,7 +118,7 @@ describe('createShare', () => {
 
   it('refuses to share an upload of another owner', async () => {
     const labels = pieceMetadata(
-      { owner: '0x0000000000000000000000000000000000000001', keyspace: GROUP_KEY },
+      { owner: '0x0000000000000000000000000000000000000001', groupKeyId: GROUP_KEY },
       { salt: newSalt() }
     )
     await expect(
@@ -177,7 +171,7 @@ describe('pinned vectors', () => {
     expect(parseShareLink(link)).toEqual({ rootCid: ROOT, payload: PAYLOAD, ...(accessKey != null && { accessKey }) })
   })
 
-  // Made once on 2026-10-28 by createShare (owner: Anvil #0; GROUP_KEY; salt 00..0f; bearers
+  // Made on 2026-11-18 (keysmith format 2) by createShare (owner: Anvil #0; GROUP_KEY; salt 00..0f; bearers
   // random). Links already sent must keep opening: a change to the link or the grant must
   // show up here, not get regenerated.
   it('derives the pinned piece key from the vector labels', async () => {

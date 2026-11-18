@@ -1,9 +1,9 @@
 /**
  * Keysmith key derivation for `add --encrypt` and `decrypt`.
  *
- * filecoin-pin names Keysmith's concepts for its users: a Keysmith *keyspace* is a
- * **group key** here, and a Keysmith *scope* is a **group**. The on-chain and envelope
- * labels keep Keysmith's names (`foc/ks`, `foc/kc`, `foc/scope`).
+ * Keysmith format 2: data sets record the group key as `foc/gkid` and `foc/kc`; envelopes name
+ * their group key (`foc/gkid`), group (`foc/group`, when written under one) and salt.
+ * Data from keysmith 0.1.0 (`foc/ks`) is not readable by this version.
  *
  * One owner wallet signature per group key derives every key beneath it. Nothing is
  * stored: the group key id, a public commitment and the `foc/enc` format version ride
@@ -12,14 +12,16 @@
  */
 
 import {
-  keyspaceKeys as deriveGroupKey,
+  deriveGroupKey,
   COMMITMENT_KEY as GROUP_KEY_COMMITMENT_KEY,
-  KEYSPACE_ID_KEY as GROUP_KEY_ID_KEY,
+  groupPath,
   keyForEnvelope,
+  dataSetMetadata as keysmithDataSetMetadata,
   newSalt,
   type PieceMetadata,
   pieceKey,
   pieceMetadata,
+  readPieceMetadata,
   type TypedDataSigner,
   type WriteTarget,
   writeTarget,
@@ -30,7 +32,7 @@ import type { Logger } from 'pino'
 import { type Address, concat, type Hex, isAddress, keccak256, slice, toHex } from 'viem'
 import { type DataSetSummary, listDataSets } from '../core/data-set/index.js'
 
-/** A wallet that can sign for a group key (Keysmith's `KeyspaceKey` message): the owner's own key, never a session key. */
+/** A wallet that can sign for a group key (Keysmith's `GroupKey` message): the owner's own key, never a session key. */
 export type OwnerSigner = TypedDataSigner & { address: Address }
 
 /** The `login` command that gives a session key a group key Grant. */
@@ -46,6 +48,25 @@ export function ownerSigner(synapse: Synapse): OwnerSigner | undefined {
     : undefined
 }
 
+/** Data set metadata key naming a data set's group key (Keysmith format 2). */
+export const GROUP_KEY_ID_KEY = 'foc/gkid'
+
+/** keysmith 0.1.0's group key id key: such data sets are encrypted, but this version cannot write to them. */
+const LEGACY_GROUP_KEY_ID_KEY = 'foc/ks'
+
+/**
+ * A group path by keysmith's rules, canonical (`a/b`), checked before any signature or upload.
+ *
+ * @throws With keysmith's reason the path is refused.
+ */
+export function checkGroup(group: string): string {
+  try {
+    return groupPath(group)
+  } catch (error) {
+    throw new Error(`Invalid group "${group}": ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 /** Data set metadata key that marks a data set as encrypted and versions its rules. */
 export const ENCRYPTION_VERSION_KEY = 'foc/enc'
 
@@ -55,6 +76,7 @@ export const ENCRYPTION_VERSION = '1'
 /** Keys that mark a data set as encrypted; a plain upload never reuses a data set carrying any of them. */
 export const ENCRYPTED_DATA_SET_KEYS: readonly string[] = [
   GROUP_KEY_ID_KEY,
+  LEGACY_GROUP_KEY_ID_KEY,
   GROUP_KEY_COMMITMENT_KEY,
   ENCRYPTION_VERSION_KEY,
 ]
@@ -89,9 +111,9 @@ export function dataSetVisibility(metadata: Record<string, string>): DataSetVisi
 }
 
 export interface OwnerGroupKey {
-  /** Where new pieces are written: the group key itself, with no group. */
+  /** Where new pieces are written: the group key itself, or a group within it. */
   target: WriteTarget
-  /** `foc/enc`, `foc/ks` and `foc/kc`, carried by every data set the upload writes to. */
+  /** `foc/enc`, `foc/gkid` and `foc/kc`, carried by every data set the upload writes to. */
   dataSetMetadata: Record<string, string>
 }
 
@@ -112,10 +134,17 @@ export function defaultGroupKeyId(owner: Address): Hex {
  * {@link defaultGroupKeyId}). Every copy of an upload lands in data sets of this
  * one group key.
  *
+ * `group`, already checked with {@link checkGroup}, writes under that group instead of the group key root.
+ *
  * @throws If the recorded commitment does not match this wallet's key, or if the
  * default group key is already on chain but invalid.
  */
-export async function ownerGroupKey(synapse: Synapse, signer: OwnerSigner, logger?: Logger): Promise<OwnerGroupKey> {
+export async function ownerGroupKey(
+  synapse: Synapse,
+  signer: OwnerSigner,
+  logger?: Logger,
+  group?: string
+): Promise<OwnerGroupKey> {
   const tagged = await listDataSets(synapse, {
     filter: (dataSet) => dataSet.isLive && typeof dataSet.metadata?.[GROUP_KEY_ID_KEY] === 'string',
     ...(logger != null && { logger }),
@@ -131,19 +160,19 @@ export async function ownerGroupKey(synapse: Synapse, signer: OwnerSigner, logge
       )
     }
   }
-  const keys = await deriveGroupKey(
-    signer,
-    { owner: signer.address, keyspace: groupKeyId },
-    recorded == null ? {} : { commitment: recorded.commitment }
-  )
-  return {
-    target: writeTarget(keys.descriptor, keys.kk),
-    dataSetMetadata: {
-      [ENCRYPTION_VERSION_KEY]: ENCRYPTION_VERSION,
-      [GROUP_KEY_ID_KEY]: groupKeyId,
-      [GROUP_KEY_COMMITMENT_KEY]: keys.commitment,
-    },
-  }
+  const ref = { owner: signer.address, groupKeyId }
+  const keys = await deriveGroupKey(signer, ref, recorded == null ? {} : { commitment: recorded.commitment })
+  const target = writeTarget(keys.descriptor, keys.groupKey, group)
+  if (target.key !== keys.groupKey) keys.groupKey.fill(0)
+  return { target, dataSetMetadata: encryptedDataSetMetadata(ref, keys.commitment) }
+}
+
+/** The metadata every encrypted data set of this group key carries: `foc/enc`, `foc/gkid` and `foc/kc`. */
+export function encryptedDataSetMetadata(
+  ref: { owner: Address; groupKeyId: Hex },
+  commitment: string
+): Record<string, string> {
+  return { [ENCRYPTION_VERSION_KEY]: ENCRYPTION_VERSION, ...keysmithDataSetMetadata(ref, commitment) }
 }
 
 /**
@@ -153,7 +182,7 @@ export async function ownerGroupKey(synapse: Synapse, signer: OwnerSigner, logge
 const CANONICAL_GROUP_KEY_ID = /^0x[0-9a-f]{32}$/
 
 /**
- * "Oldest wins": sort data sets by their group key (`foc/ks`), skip any group key
+ * "Oldest wins": sort data sets by their group key (`foc/gkid`), skip any group key
  * whose id is not canonical, whose data sets disagree on `foc/kc`, or that are not
  * all `foc/enc` "1", and return the remaining group key that holds the lowest data
  * set id.
@@ -169,6 +198,7 @@ export function oldestValidGroupKey(
   for (const dataSet of dataSets) {
     const groupKeyId = dataSet.metadata?.[GROUP_KEY_ID_KEY]
     if (typeof groupKeyId !== 'string') continue
+    // Kept as written: a lookalike spelling is its own (skipped) group key, never merged into a canonical one.
     const members = byGroupKey.get(groupKeyId)
     if (members == null) byGroupKey.set(groupKeyId, [dataSet])
     else members.push(dataSet)
@@ -223,8 +253,7 @@ export function newPieceKey(target: WriteTarget): PieceKey {
   const salt = newSalt()
   return {
     cek: pieceKey(target.key, salt),
-    // Keysmith calls a group a scope; it is written as `foc/scope` when present.
-    appMetadata: pieceMetadata(target.ref, { salt, ...(target.scope != null && { scope: target.scope }) }),
+    appMetadata: pieceMetadata(target.ref, { salt, ...(target.group != null && { group: target.group }) }),
   }
 }
 
@@ -259,13 +288,9 @@ export class NotOwnerError extends KeyAccessError {
  */
 export function ownerKeyResolver(signer: OwnerSigner | (() => OwnerSigner | undefined)): KeyResolver {
   return async ({ appMetadata }) => {
-    const groupKeyId = appMetadata?.['foc/ks']
-    if (appMetadata?.['foc/v'] !== 1 || typeof groupKeyId !== 'string') {
-      throw new Error('not a Keysmith envelope')
-    }
-    const owner = appMetadata['foc/own']
+    const { owner, groupKeyId } = readPieceMetadata(appMetadata)
     const wallet = typeof signer === 'function' ? signer() : signer
-    if (wallet == null || typeof owner !== 'string' || owner.toLowerCase() !== wallet.address.toLowerCase()) {
+    if (wallet == null || owner == null || owner.toLowerCase() !== wallet.address.toLowerCase()) {
       throw new NotOwnerError(
         String(owner),
         groupKeyId,
@@ -274,7 +299,11 @@ export function ownerKeyResolver(signer: OwnerSigner | (() => OwnerSigner | unde
           : `the owner wallet in use (PRIVATE_KEY or --private-key) is ${wallet.address.toLowerCase()}`
       )
     }
-    const { kk } = await deriveGroupKey(wallet, { owner: wallet.address, keyspace: groupKeyId as Hex })
-    return keyForEnvelope(kk, appMetadata)
+    const { groupKey } = await deriveGroupKey(wallet, { owner: wallet.address, groupKeyId })
+    try {
+      return keyForEnvelope(groupKey, appMetadata)
+    } finally {
+      groupKey.fill(0)
+    }
   }
 }
