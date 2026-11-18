@@ -4,6 +4,7 @@ import {
   buildConsoleUrl,
   buildFundingUrl,
   buildRevokeUrl,
+  consoleNetworkSlug,
   DEFAULT_CONSOLE_URL,
   resolveConsoleUrl,
 } from '../../core/session/console-url.js'
@@ -152,5 +153,34 @@ describe('console attribution', () => {
     configureTelemetry({ disabled: true, driver: 'claude' })
     expect(buildConsoleUrl('https://pay.filecoin.cloud')).toBe('https://pay.filecoin.cloud/console')
     expect(buildFundingUrl('https://pay.filecoin.cloud', 2, 314)).not.toContain('utm_')
+  })
+})
+
+describe('a console of your own and the devnet', () => {
+  const DEVNET = 31415926
+  beforeEach(() => {
+    configureTelemetry({ disabled: true })
+  })
+
+  it('names the devnet only for a console other than the production one', () => {
+    expect(consoleNetworkSlug(DEVNET, DEFAULT_CONSOLE_URL)).toBeUndefined()
+    expect(consoleNetworkSlug(DEVNET, `${DEFAULT_CONSOLE_URL}/`)).toBeUndefined()
+    expect(consoleNetworkSlug(DEVNET, 'http://localhost:3100')).toBe('devnet')
+    expect(consoleNetworkSlug(314159, 'http://localhost:3100')).toBe('calibration')
+    expect(consoleNetworkSlug(12345, 'http://localhost:3100')).toBeUndefined()
+  })
+
+  it('reads CONSOLE_URL when no console is given', () => {
+    expect(consoleNetworkSlug(DEVNET)).toBeUndefined()
+    vi.stubEnv('CONSOLE_URL', 'http://localhost:3100')
+    expect(consoleNetworkSlug(DEVNET)).toBe('devnet')
+  })
+
+  it('puts network=devnet on setup, funding and revoke links to your own console', () => {
+    const own = 'http://localhost:3100'
+    expect(buildAuthorizeUrl(own, '0xA', ['addPieces'], DEVNET)).toContain('&network=devnet')
+    expect(buildFundingUrl(own, 2, DEVNET)).toContain('&network=devnet')
+    expect(buildRevokeUrl(own, '0xA', 'devnet')).toBe(`${own}/console/session-keys?revoke=0xa&network=devnet`)
+    expect(buildAuthorizeUrl(DEFAULT_CONSOLE_URL, '0xA', ['addPieces'], DEVNET)).not.toContain('network=')
   })
 })
