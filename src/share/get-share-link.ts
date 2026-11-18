@@ -17,7 +17,7 @@ import type { Address } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { CliFatal } from '../common/cli-errors.js'
 import { envelopeLabelsFromCar, readEnvelopeLabels } from '../common/envelope-labels.js'
-import { GRANT_LOGIN_COMMAND } from '../common/group-key.js'
+import { GRANT_LOGIN_COMMAND, ownerAuthorizations } from '../common/group-key.js'
 import { grantAuthorizations, loadGroupKeyGrants } from '../common/group-key-grant.js'
 import { DISCOVERY_TIMEOUT_MS, fetchVerifiedCar, ipniProviderUrls } from '../common/ipfs-car-fetch.js'
 import { type CreatedShare, createShare, type ShareMode, type ShareSender } from '../common/share-link.js'
@@ -47,17 +47,26 @@ async function findPrivateUpload(
   chainId: number,
   logger: Logger
 ): Promise<{ labels: PieceMetadata; providers: string[] }> {
-  if (!('sessionKey' in auth) || auth.sessionKey == null) {
-    throw new Error('--piece needs a session key holding a group key Grant: run `filecoin-pin login --group <group>`')
+  // The owner wallet authorizes itself; a session key presents its Grants.
+  let authorizations: () => Promise<string[]>
+  if ('privateKey' in auth && auth.privateKey != null) {
+    const synapse = await readOnlySynapse(auth, address, logger)
+    authorizations = ownerAuthorizations(synapse, privateKeyToAccount(auth.privateKey), pieceCid, logger)
+  } else if ('sessionKey' in auth && auth.sessionKey != null) {
+    const session = { sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }
+    authorizations = () => grantAuthorizations(session, chainId, pieceCid)
+  } else {
+    throw new Error(
+      '--piece needs the owner wallet (PRIVATE_KEY) or a session key holding a group key Grant (`filecoin-pin login --group <group>`)'
+    )
   }
-  const session = { sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }
   const providers = [...new Set(await ownProviders(auth, address, logger, true))]
   const dir = await mkdtemp(join(tmpdir(), 'filecoin-pin-share-'))
   try {
     const carPath = join(dir, 'piece.car')
     await fetchVerifiedCar(cid, [{ name: 'Data set', find: async () => providers }], carPath, {
       logger,
-      download: { pieceCid, authorizations: () => grantAuthorizations(session, chainId, pieceCid) },
+      download: { pieceCid, authorizations },
     })
     return { labels: await envelopeLabelsFromCar(carPath, cid), providers }
   } finally {

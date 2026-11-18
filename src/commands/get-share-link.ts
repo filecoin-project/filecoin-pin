@@ -23,8 +23,7 @@ A private upload (add --private) is served only on the authenticated path, so it
 carries a claim that lets the link's key fetch it, and the providers that hold it. Pass its piece
 CID with --piece. The link stops opening when that claim expires: with a session key, when its
 Grant does (the Grant must allow delegation: not --delegation-depth 0); with the owner wallet, after
-30 days. Sharing a private upload after the fact needs a session key; the owner wallet can share
-one at upload time (add --private --get-share-link).
+30 days.
 
 Shares with the owner wallet (PRIVATE_KEY), or with a session key and its group key Grant (from
 \`filecoin-pin login\`). The envelope header is read from the first blocks, verified against the CID.`
