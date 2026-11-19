@@ -55,6 +55,7 @@ import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
+import { readSessionFile } from '../login/session-file.js'
 import { NO_IPFS_SHARE, PRIVATE_SHARE, printShare, shareReminder, shareSender } from '../share/get-share-link.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
@@ -116,6 +117,19 @@ async function sessionGroupKey(synapse: Synapse, sessionKey: string, logger: Log
 }
 
 /**
+ * Whether one upload is private: `--private` or `--public` decides it, else the saved login's
+ * `login --private-uploads` setting. Without either flag or the setting, an upload is public.
+ *
+ * @throws When both flags are given.
+ */
+export function resolvePrivate(flags: { private?: boolean; public?: boolean }, privateByDefault: boolean): boolean {
+  if (flags.private === true && flags.public === true) throw new Error('Choose --private or --public, not both')
+  if (flags.private === true) return true
+  if (flags.public === true) return false
+  return privateByDefault
+}
+
+/**
  * Normalize Commander options and run the add flow.
  *
  * Commander wiring calls this so option validation errors are displayed by the
@@ -137,6 +151,7 @@ export async function runAddFromCli(path: string, options: Record<string, any>):
       minRunwayDays: _minRunwayDays,
       maxBalance: _maxBalance,
       egressProvider: rawEgressProvider,
+      public: _public,
       ...addOptionsFromCli
     } = options
     const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
@@ -146,6 +161,7 @@ export async function runAddFromCli(path: string, options: Record<string, any>):
     addOptions = {
       ...addOptionsFromCli,
       ...autoFundOptions,
+      private: resolvePrivate(options, readSessionFile()?.uploads === 'private'),
       filePath: path,
       egressProvider,
       ...(pieceMetadata && { pieceMetadata }),

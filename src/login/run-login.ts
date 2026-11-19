@@ -114,6 +114,42 @@ function chainIdOf(network: string | undefined): number {
   throw new Error(`login --grant works on mainnet and calibration, not ${network}: Grants come from the console.`)
 }
 
+/** The session with `--private-uploads` (true) or `--no-private-uploads` (false) applied; unchanged without either. */
+function withUploadSetting(session: SavedSession, privateUploads: boolean | undefined): SavedSession {
+  if (privateUploads === undefined) return session
+  const { uploads: _, ...rest } = session
+  if (privateUploads) return { ...rest, uploads: 'private' }
+  return rest
+}
+
+/** The line that says what the upload setting now is. */
+function reportUploadSetting(session: SavedSession): void {
+  if (session.uploads === 'private') {
+    log.line(`${pc.green('✓')} Uploads are private by default (add --public for one that isn't)`)
+  } else {
+    log.line(`${pc.green('✓')} Uploads are public unless add --private says otherwise`)
+  }
+}
+
+/**
+ * Only the upload setting changed, on a login that is already done: save it and stop, with no
+ * console link, browser or wait. Undefined when there is more to do.
+ */
+function saveUploadSettingOnly(options: LoginOptions, path: string): number | undefined {
+  const onlySetting =
+    options.privateUploads !== undefined &&
+    options.fresh !== true &&
+    options.grant === undefined &&
+    options.scopes === undefined
+  const saved = onlySetting ? readSessionFile(path) : undefined
+  if (saved?.walletAddress === undefined) return undefined
+  const next = withUploadSetting(saved, options.privateUploads)
+  writeSessionFile(next, path)
+  reportUploadSetting(next)
+  log.flush()
+  return 0
+}
+
 /** Save `opened` with the session, replacing any earlier Grant: one Grant per session key. */
 function saveGrant(session: SavedSession, opened: OpenedGrant, path: string): SavedSession {
   const next = { ...session, groupKeyId: opened.groupKeyId, groupKeyGrant: opened.text }
@@ -347,6 +383,8 @@ export async function runLogin(
   io: LoginIO = { stdin: process.stdin, stdout: process.stdout }
 ): Promise<number> {
   const path = getSessionFilePath()
+  const settingOnly = saveUploadSettingOnly(options, path)
+  if (settingOnly !== undefined) return settingOnly
   // A plain rerun (what every resume message says to run) resumes the first login's
   // request: with the defaults instead, a timed-out `…,encrypt` login never asked for the Grant.
   const requested = options.scopes ?? (options.fresh ? undefined : readSessionFile(path)?.scopes)
@@ -401,8 +439,12 @@ export async function runLogin(
 
   const loaded = loadOrCreateSession(options.fresh, network, path)
   const { resumed, replaced } = loaded
-  const session = scopes === undefined ? loaded.session : { ...loaded.session, scopes }
-  if (session.scopes !== loaded.session.scopes) writeSessionFile(session, path)
+  const withScopes = scopes === undefined ? loaded.session : { ...loaded.session, scopes }
+  const session = withUploadSetting(withScopes, options.privateUploads)
+  if (session.scopes !== loaded.session.scopes || session.uploads !== loaded.session.uploads) {
+    writeSessionFile(session, path)
+  }
+  if (options.privateUploads !== undefined) reportUploadSetting(session)
   // Checks that need no owner or network, before the link and the wait.
   if (grantText !== undefined) precheckGroupKeyGrant(grantText, session.sessionKey)
   const short = shortAddress(session.sessionAddress)
