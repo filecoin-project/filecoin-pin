@@ -31,7 +31,7 @@ import type { KeyResolver } from 'filecoin-encryption-envelope'
 import { CID } from 'multiformats/cid'
 import { type Address, bytesToHex, getAddress, type Hex, hexToBytes } from 'viem'
 import { generatePrivateKey } from 'viem/accounts'
-import { KeyAccessError, type OwnerSigner } from './group-key.js'
+import { format1Message, KeyAccessError, type OwnerSigner } from './group-key.js'
 import { GRANT_PREFIX, grantForPiece, type OpenedGrant } from './group-key-grant.js'
 
 /** The v1 Share link viewer the links open in (FilOzone/synapse-sdk#1036). */
@@ -144,6 +144,15 @@ export interface CreatedShare {
  * @throws If the sender holds no key for the upload.
  */
 export async function createShare(input: CreateShareInput): Promise<CreatedShare> {
+  try {
+    return await shareWith(input)
+  } finally {
+    // Whatever fails, from reading the labels on: the Grants' keys never outlive this call.
+    if ('grants' in input.sender) for (const g of input.sender.grants) g.key.fill(0)
+  }
+}
+
+async function shareWith(input: CreateShareInput): Promise<CreatedShare> {
   const { labels, sender } = input
   const view = readPieceMetadata(labels)
   const owner = view.owner ?? ('owner' in sender ? sender.owner.address : sender.grants[0]?.owner)
@@ -164,12 +173,8 @@ export async function createShare(input: CreateShareInput): Promise<CreatedShare
       groupKey.fill(0)
     }
   } else {
-    try {
-      const picked = grantForPiece(sender.grants, labels)
-      pieceKey = keyForEnvelope(picked.key, labels, picked.grant)
-    } finally {
-      for (const g of sender.grants) g.key.fill(0)
-    }
+    const picked = grantForPiece(sender.grants, labels)
+    pieceKey = keyForEnvelope(picked.key, labels, picked.grant)
   }
   let payload: Uint8Array
   try {
@@ -195,8 +200,9 @@ async function openPayload(share: ParsedShare, T: Hex): Promise<{ key: Uint8Arra
   try {
     const grant = decodeGrant(share.payload)
     return { key: await unwrapWith(T, grant), grant }
-  } catch {
-    throw new ShareLinkError('The Access key does not open this share')
+  } catch (error) {
+    // A link from filecoin-pin 2.3 or 2.4 (keysmith 0.1.0) is whole, in a format this version no longer reads.
+    throw new ShareLinkError(format1Message(error) ?? 'The Access key does not open this share')
   }
 }
 

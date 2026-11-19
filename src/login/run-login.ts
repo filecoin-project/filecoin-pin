@@ -188,8 +188,8 @@ async function savedGrants(
 
 /**
  * Save `opened` with the session's other Grants: one per group, so a Grant for the same node
- * replaces the earlier one. Grants that no longer open are dropped, and so are all the saved ones
- * when `opened` is for another group key: a session key holds Grants of one group key.
+ * replaces the earlier one. Grants that no longer open are dropped, and
+ * a Grant for another group key is refused: a session key holds Grants of one group key.
  */
 async function saveGrant(
   session: SavedSession,
@@ -201,6 +201,12 @@ async function saveGrant(
   for (const k of kept) k.key.fill(0)
   opened.key.fill(0)
   const otherKey = kept.filter((k) => k.groupKeyId !== opened.groupKeyId)
+  // Refused before anything is written: a session key holds Grants of one group key, and the saved ones stay.
+  if (otherKey.length > 0) {
+    throw new GrantError(
+      `This session key holds Grants for group key ${otherKey[0]?.groupKeyId}, and this one is for group key ${opened.groupKeyId}. A session key holds Grants of one group key: run \`filecoin-pin login --fresh\` for a new key to hold it.`
+    )
+  }
   const others = kept.filter((k) => k.groupKeyId === opened.groupKeyId && k.claim.node !== opened.claim.node)
   const next = {
     ...session,
@@ -217,21 +223,27 @@ async function saveGrant(
     )
   )
   if (others.length > 0) log.line(`  Also held: ${others.map(grantCovers).join('; ')}`)
-  if (otherKey.length > 0) {
-    log.line(
-      `${pc.yellow('⚠')} Dropped ${otherKey.length} saved Grant(s) for another group key: a session key holds Grants of one group key.`
-    )
-  }
   for (const reason of dropped) log.line(`${pc.yellow('⚠')} Dropped a saved Grant that no longer opens: ${reason}`)
   return next
 }
 
 /** Where to finish when the Grant could not be taken now: the console link and the resume command. */
-function reportGrantPending(url: string): void {
+function reportGrantPending(url: string, resume: string): void {
   log.line(`${pc.yellow('⚠')} Encrypted uploads need the group key Grant the console shows for this key:`)
   log.line(url)
-  log.line('  Then run:  filecoin-pin login --grant <grant>')
-  log.line('  or:        filecoin-pin login --grant -    (reads the Grant from stdin)')
+  log.line(`  Then run:  ${resume} --grant <grant>`)
+  log.line(`  or:        ${resume} --grant -    (reads the Grant from stdin)`)
+}
+
+/**
+ * The command that resumes this login: `filecoin-pin login` with the --group and --delegation-depth it
+ * asked for, which the session file doesn't keep. A plain rerun would ask for the whole group key instead.
+ */
+function resumeCommand(request: GrantRequest): string {
+  const parts = ['filecoin-pin login']
+  if (request.group != null) parts.push(`--group ${request.group}`)
+  if (request.maxDepth != null) parts.push(`--delegation-depth ${request.maxDepth}`)
+  return parts.join(' ')
 }
 
 /**
@@ -303,7 +315,7 @@ async function obtainGrant(
       if (!(error instanceof GrantError)) throw error
       // The login itself stands; only the Grant is still to come.
       log.line(`${pc.red('✗')} Grant refused: ${error.message}`)
-      reportGrantPending(url)
+      reportGrantPending(url, resumeCommand(request))
       return false
     }
   }
@@ -318,7 +330,7 @@ async function obtainGrant(
   for (const reason of dropped) log.line(`${pc.yellow('⚠')} The saved Grant was ignored: ${reason}`)
   // Both ends a terminal: readline's raw mode, which Ctrl-C and long pastes rely on, needs them.
   if (io.stdin.isTTY !== true || io.stdout.isTTY !== true) {
-    reportGrantPending(url)
+    reportGrantPending(url, resumeCommand(request))
     return false
   }
   if (!grantLinkShown) {
@@ -331,7 +343,7 @@ async function obtainGrant(
   log.flush()
   const opened = await promptForGrant(open, io.stdin, io.stdout)
   if (opened === undefined) {
-    reportGrantPending(url)
+    reportGrantPending(url, resumeCommand(request))
     return false
   }
   await saveGrant(session, opened, path, chainId)
@@ -447,6 +459,8 @@ export async function runLogin(
   // Checked by keysmith's rules before any signature, link or wait.
   const group = options.group == null ? undefined : checkGroup(options.group)
   const delegationDepth = options.delegationDepth
+  // What every "rerun to resume" message names: the session file keeps neither --group nor --delegation-depth.
+  const resume = resumeCommand({ group, maxDepth: delegationDepth })
   if (options.grant !== undefined && options.fresh) {
     // Refused before the saved key is replaced: a Grant names its key, and a fresh one has none yet.
     throw new Error(
@@ -580,7 +594,7 @@ export async function runLogin(
       }
     }
     log.line(
-      `${pc.yellow('⚠')} Not waiting for the authorization. Approve the key, then rerun \`filecoin-pin login\` to check it.`
+      `${pc.yellow('⚠')} Not waiting for the authorization. Approve the key, then rerun \`${resume}\` to check it.`
     )
     if (grantText !== undefined) {
       // Never dropped silently: the Grant can be checked only once the owner is known.
@@ -588,7 +602,7 @@ export async function runLogin(
         "  The Grant was not imported: the session key isn't authorized yet. Approve it in the console, then run `filecoin-pin login --grant …` again."
       )
     } else if (wantGrant && !keepSavedGrant) {
-      reportGrantPending(url)
+      reportGrantPending(url, resume)
     }
     log.flush()
     return EXIT_CODE_INCOMPLETE
@@ -603,11 +617,11 @@ export async function runLogin(
   const deadlineMs = options.timeout === undefined ? DEFAULT_WATCH_DEADLINE_MS : options.timeout * 1000
   const spinner = createSpinner()
   const waitLine = (remainingMs: number) =>
-    `Waiting for on-chain authorization… ${formatCountdown(remainingMs)} remaining (Ctrl-C safe; rerun \`login\` to resume)`
+    `Waiting for on-chain authorization… ${formatCountdown(remainingMs)} remaining (Ctrl-C safe; rerun \`${resume}\` to resume)`
   // Registered before the spinner starts: clack installs its own SIGINT
   // handler in start(), and the first listener to call process.exit wins.
   const onSigint = () => {
-    spinner.stop(`${pc.yellow('⚠')} Login paused. Your key is saved; rerun \`filecoin-pin login\` to resume.`)
+    spinner.stop(`${pc.yellow('⚠')} Login paused. Your key is saved; rerun \`${resume}\` to resume.`)
     log.flush()
     process.exit(EXIT_CODE_INCOMPLETE)
   }
@@ -630,7 +644,7 @@ export async function runLogin(
     })
   } catch (error) {
     spinner.stop(
-      `${pc.red('✗')} Could not watch for the authorization. Your key is saved; rerun \`filecoin-pin login\` to resume.`
+      `${pc.red('✗')} Could not watch for the authorization. Your key is saved; rerun \`${resume}\` to resume.`
     )
     throw error
   } finally {
@@ -638,9 +652,7 @@ export async function runLogin(
   }
 
   if (result.status === 'timeout' || result.owner === undefined) {
-    spinner.stop(
-      `${pc.yellow('⚠')} No authorization seen in time. Your key is saved; rerun \`filecoin-pin login\` to resume.`
-    )
+    spinner.stop(`${pc.yellow('⚠')} No authorization seen in time. Your key is saved; rerun \`${resume}\` to resume.`)
     log.flush()
     return EXIT_CODE_INCOMPLETE
   }

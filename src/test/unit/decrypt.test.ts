@@ -271,10 +271,22 @@ describe('runDecrypt', () => {
     expect(await readFile(join(outputDir, 'report.pdf'), 'utf8')).toBe('older report')
   })
 
+  it('says an envelope from keysmith 0.1.0 (filecoin-pin 2.3, 2.4) is no longer readable, not that it is foreign', async () => {
+    const appMetadata = { ...pieceKey().appMetadata, 'foc/v': 1 }
+    const old = new Blob([new Uint8Array(plaintext)])
+      .stream()
+      .pipeThrough(fee.encrypt({ cek: pieceKey().cek, contentType: CAR_CONTENT_TYPE, appMetadata }))
+    await writeFile(encryptedPath, Buffer.from(await new Response(old).arrayBuffer()))
+
+    await expect(runDecrypt(encryptedPath, outputDir, asOwner)).rejects.toThrow(
+      /keysmith 0\.1\.0 \(format 1\) data is not supported/
+    )
+    expect(existsSync(outputDir)).toBe(false)
+  })
+
   it.each([
     ['no appMetadata', () => undefined],
     ['password-era metadata', () => ({ kdf: 'pbkdf2-sha256', iterations: 600_000, salt: 'AAAAAAAAAAAAAAAAAAAAAA==' })],
-    ['keysmith 0.1.0 labels', () => ({ ...pieceKey().appMetadata, 'foc/v': 1 })],
     ['a malformed salt', () => ({ ...pieceKey().appMetadata, 'foc/salt': 'not hex' })],
     ['a malformed group key id', () => ({ ...pieceKey().appMetadata, 'foc/gkid': '0x1234' })],
   ])('rejects an envelope with %s', async (_case, labels) => {
