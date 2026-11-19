@@ -42,6 +42,9 @@ vi.mock('../../core/data-set/list-data-sets.js', () => ({ listDataSets: mockList
  */
 const GOLDEN_GRANT =
   'fgr1_gwKBqwACAWhncm91cEtleQJU85_W5RqtiPb0zmq4gnJ5z_-5ImYDUALKCM9-AiLIQyrcFZIyt-sEVDxEzd22qQD6K1hd0pngPRL6QpO8BQAGGgAEyy8HUKTAK_v_zb_3Sz5mAaZ0bZwIWEFG8XomGpP0MPKlif23na1MQLEFFhipPX0GNZbtOZtVbEnsqFZxhM0Tq5a53kaP2LBSDM5ZEU3WcH3MOkQtzt5QGwpQpMAr-__Nv_dLPmYBpnRtnAsa9IZXAFi6pwACAWhncm91cEtleQJU85_W5RqtiPb0zmq4gnJ5z_-5ImYDUALKCM9-AiLIQyrcFZIyt-sEWEEEBoUkIEGC2gyP3meS8N2b9UhsyBd3WReZgk7mSKPpS6C32SriAFwr42n4tCRCEkfwYwayZrzr65t4R75nm1wcuAVMtAgEssgVvy1RrhL7Blgw-shWVySbCmDnncKG_XYFLv-tFsqTcdkWlaSISB1gboMHUylMQWkyH0lKC6Lzb0Bn'
+/** A Grant made by filecoin-pin 2.4 (keysmith 0.1.0, format 1), which this version refuses as such. */
+const V1_GRANT =
+  'fgr1_gwGBqwABAWhrZXlzcGFjZQJU85_W5RqtiPb0zmq4gnJ5z_-5ImYDUALKCM9-AiLIQyrcFZIyt-sEVDxEzd22qQD6K1hd0pngPRL6QpO8BQAGGgAEyy8HUGoMg9KNYHqOiNxnkftJ1-IIWEGdCbSL16RMCZ2Hjsznju8VSTRpq-2RHLu7I-Bporb53VomKJ-goC0IRqON69e6bUOcH7QUKmWcKFlpQI2nT5JjGwpQagyD0o1geo6I3GeR-0nX4gsa9IZXAFi6pwABAWhrZXlzcGFjZQJU85_W5RqtiPb0zmq4gnJ5z_-5ImYDUALKCM9-AiLIQyrcFZIyt-sEWEEEQ9-xkEnBkX7FqCJHDgkGNVOlDBknDtAvJ__SuOQjpQlgLGfm1EvV4j3YxrjJg33xI92pA85BM-J4cgycL0Yl1QVMYIy-eUdXcvuV3NhHBlgwikJobsjiFOwzSVnbA7-WyI7_-0AIn8UgnzuANx3YCl_SQDZrM8iUMIDuNL620d39'
 /** 2026-01-01, so the golden vector is checked at a fixed time. */
 const PINNED_NOW = 1767225600
 
@@ -203,7 +206,29 @@ describe('loadGroupKeyGrants', () => {
     const env = { GROUP_KEY_GRANT: GOLDEN_GRANT, GROUP_KEY_ID: GROUP_KEY }
 
     await expect(loadGroupKeyGrants(session, 314, env)).rejects.toThrow(
-      /A Grant in GROUP_KEY_GRANT was ignored: .*another network.* Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt`/
+      /The Grant in GROUP_KEY_GRANT was ignored: .*another network.* Run `filecoin-pin login --scopes createDataSet,addPieces,encrypt`/
+    )
+  })
+
+  it('skips a Grant that no longer opens with a warning, and keeps the others', async () => {
+    const expired = await makeGrant({ node: 'group:old', expires: Math.floor(Date.now() / 1000) - 60 })
+    const env = {
+      GROUP_KEY_GRANT: joinGrants([expired, await makeGrant({ node: 'group:live' })]),
+      GROUP_KEY_ID: GROUP_KEY,
+    }
+    const warnings: string[] = []
+
+    const grants = await loadGroupKeyGrants(session, CALIBRATION_CHAIN_ID, env, (message) => warnings.push(message))
+
+    expect(grants.map((g) => g.group)).toEqual(['live'])
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatch(/A Grant in GROUP_KEY_GRANT was ignored: This Grant expired at/)
+  })
+
+  it('says a keysmith 0.1.0 Grant (filecoin-pin 2.3, 2.4) is no longer readable, not that it is corrupted', async () => {
+    const env = { GROUP_KEY_GRANT: V1_GRANT, GROUP_KEY_ID: GROUP_KEY }
+    await expect(loadGroupKeyGrants(session, CALIBRATION_CHAIN_ID, env)).rejects.toThrow(
+      /keysmith 0\.1\.0 \(format 1\) data is not supported.* Get a new Grant/
     )
   })
 })

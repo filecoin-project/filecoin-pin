@@ -823,15 +823,28 @@ describe('runLogin', () => {
       expect(await runLogin({ grant: await makeGrant({ node: 'group:a/b' }), group: 'a' }, silentStdin(false))).toBe(0)
     })
 
-    it('a new Grant replaces the saved one', async () => {
+    it('refuses a Grant for another group key, keeping the saved ones, with the login --fresh to run', async () => {
       const other = `0x${'ab'.repeat(16)}` as const
       savedKey({ walletAddress: GRANT_OWNER.address })
       await runLogin({ grant: await makeGrant() }, silentStdin(false))
+      const before = readFileSync(sessionPath(), 'utf8')
 
-      await runLogin({ grant: await makeGrant({ groupKey: other }) }, silentStdin(false))
+      await expect(runLogin({ grant: await makeGrant({ groupKey: other }) }, silentStdin(false))).rejects.toThrow(
+        /holds Grants for group key .* this one is for group key 0xab.*login --fresh/
+      )
 
-      expect(readSessionFile(sessionPath())?.groupKeyId).toBe(other)
-      expect(readFileSync(sessionPath(), 'utf8').match(/GROUP_KEY_GRANT=/g)).toHaveLength(1)
+      expect(readFileSync(sessionPath(), 'utf8')).toBe(before)
+    })
+
+    it('names --group and --delegation-depth in every resume hint, which the session file does not keep', async () => {
+      savedKey()
+
+      await runLogin({ group: 'team/design', delegationDepth: 1, wait: false }, silentStdin(false))
+
+      expect(output()).toContain('rerun `filecoin-pin login --group team/design --delegation-depth 1` to check it')
+      expect(output()).toContain(
+        'Then run:  filecoin-pin login --group team/design --delegation-depth 1 --grant <grant>'
+      )
     })
 
     it('login --grant before the authorization was seen resumes the wait on the saved network, then imports', async () => {
