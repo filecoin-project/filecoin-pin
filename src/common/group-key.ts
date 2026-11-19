@@ -307,3 +307,15 @@ export function ownerKeyResolver(signer: OwnerSigner | (() => OwnerSigner | unde
     }
   }
 }
+
+/**
+ * keysmith's refusal of keysmith 0.1.0 (format 1) data, if `error` or one of its causes is it: an
+ * upload, Grant or share link from filecoin-pin 2.3 or 2.4, which this version no longer reads.
+ * Callers show it as it is rather than a generic "not ours" or "corrupted".
+ */
+export function format1Message(error: unknown): string | undefined {
+  for (let e = error; e instanceof Error; e = e.cause) {
+    if (e.message.includes('keysmith 0.1.0 (format 1)')) return e.message
+  }
+  return undefined
+}

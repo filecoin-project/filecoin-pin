@@ -21,6 +21,7 @@ import {
   type ShareSender,
   shareKey,
   shareKeyResolver,
+  shareOwner,
 } from '../../common/share-link.js'
 import {
   CALIBRATION_CHAIN_ID,
@@ -191,6 +192,33 @@ describe('pinned vectors', () => {
     const T = shareKey(parsed, vector.accessKey)
     const key = await shareKeyResolver(parsed, T)({ appMetadata: vectors.labels } as never)
     expect(bytesToHex(key)).toBe(vectors.pieceKey)
+  })
+})
+
+describe('a share link from filecoin-pin 2.3 or 2.4 (keysmith 0.1.0)', () => {
+  it('says it is no longer readable, not that the Access key is wrong', async () => {
+    const parsed = parseShareLink(
+      'https://viewer.test/#v1/bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi&d=pwABAXgocGllY2U6MHgwMDAxMDIwMzA0MDUwNjA3MDgwOTBhMGIwYzBkMGUwZgJU85_W5RqtiPb0zmq4gnJ5z_-5ImYDUALKCM9-AiLIQyrcFZIyt-sEWEEEbM60TnCFAJPv1N3nGck4lS5U65RKTOQMeKo0vrEUp1nfjDdtw1sx3wG82jhhCQnIymF2g28piHdYI4O9FX-FzwVMbvHPgHT5gdVTJdbrBlgwPwGfuNJ1BsUhPuxgitHPGO7k3hsEnNfXfn6k60dzF-3dwlbs8fsBEUiq54dDh2q5&k=fak1_NriZvJuvxjbKLvUb9ExS2AqO2kkVNDGuh3zW1LM9hpM'
+    )
+    await expect(shareOwner(parsed, shareKey(parsed, undefined))).rejects.toThrow(
+      /keysmith 0\.1\.0 \(format 1\) data is not supported/
+    )
+  })
+})
+
+describe('Grant keys', () => {
+  it('are zeroed even when the labels are refused before any key is used', async () => {
+    const opened = await openGroupKeyGrant(await makeGrant(), {
+      sessionKey: SESSION_KEY,
+      walletAddress: OWNER.address,
+      chainId: CALIBRATION_CHAIN_ID,
+    })
+    const bad = { ...labelsFor(), 'foc/salt': 'not hex' } as unknown as PieceMetadata
+
+    await expect(
+      createShare({ sender: { grants: [opened] }, rootCid: ROOT, labels: bad, mode: 'open' })
+    ).rejects.toThrow()
+    expect(opened.key.every((byte) => byte === 0)).toBe(true)
   })
 })
 

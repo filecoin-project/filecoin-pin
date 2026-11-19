@@ -876,7 +876,13 @@ describe('resolveUploadTargets with requiredMetadata', () => {
 
 describe('resolveUploadTargets for plain uploads', () => {
   const base = { withCDN: false, spinner, logger }
-  const encrypted = { 'foc/enc': '1', 'foc/gkid': `0x${'11'.repeat(16)}`, 'foc/kc': `v2.${'22'.repeat(16)}` }
+  // foc/ks is keysmith 0.1.0's group key id: such a data set is encrypted too, and stays out of reach.
+  const encrypted = {
+    'foc/enc': '1',
+    'foc/gkid': `0x${'11'.repeat(16)}`,
+    'foc/ks': `0x${'33'.repeat(16)}`,
+    'foc/kc': `v2.${'22'.repeat(16)}`,
+  }
 
   it.each(Object.keys(encrypted))('never reuses a data set carrying %s', async (key) => {
     const synapse = makeSynapse([

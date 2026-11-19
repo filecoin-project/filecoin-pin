@@ -39,10 +39,12 @@ import type { Address, Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { listDataSets } from '../core/data-set/index.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
+import { log } from '../utils/cli-logger.js'
 import {
   ENCRYPTION_VERSION,
   ENCRYPTION_VERSION_KEY,
   encryptedDataSetMetadata,
+  format1Message,
   GRANT_LOGIN_COMMAND,
   GROUP_KEY_ID_KEY,
   KeyAccessError,
@@ -187,7 +189,10 @@ export function decodeGrantText(rawText: string): {
   const bytes = grantBytes(text)
   try {
     return { text, bytes, delivery: decodeDelivery(bytes) }
-  } catch {
+  } catch (error) {
+    // A Grant from filecoin-pin 2.3 or 2.4 (keysmith 0.1.0) is whole, just in a format this version no longer reads.
+    const format1 = format1Message(error)
+    if (format1 != null) throw new GrantError(`${format1} Get a new Grant: run \`${GRANT_LOGIN_COMMAND}\`.`)
     throw incomplete()
   }
 }
@@ -283,7 +288,8 @@ export interface SessionCredentials {
 export async function loadGroupKeyGrants(
   session: SessionCredentials,
   chainId: number | undefined,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  warn: (message: string) => void = (message) => log.warn(message)
 ): Promise<OpenedGrant[]> {
   const texts = splitGrants(env.GROUP_KEY_GRANT ?? '')
   const groupKeyId = env.GROUP_KEY_ID
@@ -293,17 +299,27 @@ export async function loadGroupKeyGrants(
   if (groupKeyId == null || groupKeyId === '') {
     throw new GrantError(`GROUP_KEY_GRANT is set without GROUP_KEY_ID. Set both, or run \`${GRANT_LOGIN_COMMAND}\`.`)
   }
+  // A Grant that no longer opens (one group's Grant expired, say) is skipped with a warning, as login drops it;
+  // the others still work. Only when none opens is that an error.
   const opened: OpenedGrant[] = []
-  try {
-    for (const text of texts) opened.push(await openGroupKeyGrant(text, { ...session, chainId, groupKeyId }))
-    return opened
-  } catch (error) {
-    for (const o of opened) o.key.fill(0)
-    if (!(error instanceof GrantError)) throw error
-    throw new GrantError(
-      `A Grant in GROUP_KEY_GRANT was ignored: ${error.message} Run \`${GRANT_LOGIN_COMMAND}\` to get a new one (unset GROUP_KEY_GRANT if it is exported in this shell).`
-    )
+  const ignored: string[] = []
+  for (const text of texts) {
+    try {
+      opened.push(await openGroupKeyGrant(text, { ...session, chainId, groupKeyId }))
+    } catch (error) {
+      if (!(error instanceof GrantError)) {
+        for (const o of opened) o.key.fill(0)
+        throw error
+      }
+      ignored.push(error.message)
+    }
   }
+  const relogin = `Run \`${GRANT_LOGIN_COMMAND}\` to get a new one (unset GROUP_KEY_GRANT if it is exported in this shell).`
+  if (opened.length === 0) {
+    throw new GrantError(`The Grant in GROUP_KEY_GRANT was ignored: ${ignored.join(' ')} ${relogin}`)
+  }
+  for (const reason of ignored) warn(`A Grant in GROUP_KEY_GRANT was ignored: ${reason} ${relogin}`)
+  return opened
 }
 
 /** The command that asks for a Grant to `group`. */
