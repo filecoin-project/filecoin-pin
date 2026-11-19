@@ -28,6 +28,15 @@ describe('session file', () => {
     expect(readSessionFile(path)).toEqual({ sessionKey: KEY, sessionAddress: SESSION })
   })
 
+  it('keeps the private uploads setting, and ignores any other UPLOADS value', () => {
+    writeSessionFile({ sessionKey: KEY, sessionAddress: SESSION, uploads: 'private' }, path)
+    expect(readFileSync(path, 'utf8')).toContain('UPLOADS=private')
+    expect(readSessionFile(path)?.uploads).toBe('private')
+
+    writeFileSync(path, `SESSION_KEY=${KEY}\nUPLOADS=public\n`)
+    expect(readSessionFile(path)).not.toHaveProperty('uploads')
+  })
+
   it('adds the owner on the second write and keeps exactly one credential set', () => {
     writeSessionFile({ sessionKey: KEY, sessionAddress: SESSION }, path)
     writeSessionFile({ sessionKey: KEY, sessionAddress: SESSION, walletAddress: OWNER }, path)

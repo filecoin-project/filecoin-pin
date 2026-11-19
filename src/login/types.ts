@@ -15,4 +15,6 @@ export interface LoginOptions {
   timeout?: number | undefined
   /** A group key Grant (`fgr1_…`) to import for the saved session key, or `-` to read it from stdin. */
   grant?: string | undefined
+  /** `--private-uploads` (true) or `--no-private-uploads` (false): save whether every `add` is private. */
+  privateUploads?: boolean | undefined
 }

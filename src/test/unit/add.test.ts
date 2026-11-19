@@ -24,7 +24,7 @@ import type { Logger } from 'pino'
 import { encodePacked, keccak256, slice } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runAdd, runAddFromCli } from '../../add/add.js'
+import { resolvePrivate, runAdd, runAddFromCli } from '../../add/add.js'
 import type { AddDryRunResult, AddResult } from '../../add/types.js'
 import { EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
 import { decryptToDirectory } from '../../common/encryption.js'
@@ -178,6 +178,25 @@ vi.mock('../../utils/cli-helpers.js', () => ({
 const TEST_FILE_CID = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi'
 const TEST_PIECE_CID = 'bafkzcibtest1234567890'
 const TEST_CAR_CONTENT = Buffer.from('mock-car-data')
+
+describe('resolvePrivate', () => {
+  it.each([
+    [{}, false, false],
+    [{}, true, true],
+    [{ private: true }, false, true],
+    [{ public: true }, true, false],
+    [{ private: true }, true, true],
+    [{ public: true }, false, false],
+  ])('flags %o with login --private-uploads %s: private is %s', (flags, privateByDefault, expected) => {
+    expect(resolvePrivate(flags, privateByDefault)).toBe(expected)
+  })
+
+  it('refuses --private with --public', () => {
+    expect(() => resolvePrivate({ private: true, public: true }, false)).toThrow(
+      'Choose --private or --public, not both'
+    )
+  })
+})
 
 describe('Add Command', () => {
   const testDir = join(process.cwd(), 'test-add-files')

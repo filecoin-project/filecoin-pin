@@ -26,6 +26,7 @@ export const addCommand = new Command('add')
     '--private',
     'Upload to private data sets (read=restricted): providers serve their pieces only on the authenticated path, to readers the owner authorized. Implies --encrypt. A data set is private from creation and never changes, so private uploads go only to private data sets of your group key.'
   )
+  .option('--public', 'Upload this one publicly even though login --private-uploads is on (the opposite of --private)')
   .option(
     '--get-share-link',
     'With --encrypt: print a Share link that opens the upload on its own (see get-share-link)'

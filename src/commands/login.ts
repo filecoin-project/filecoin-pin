@@ -30,6 +30,11 @@ export const loginCommand = new Command('login')
     '--grant <grant>',
     'Import the group key Grant (fgr1_…) the console showed for the saved session key; - reads it from stdin'
   )
+  .option(
+    '--private-uploads',
+    'Make every add on this machine private (as add --private; add --public opts one out). Saved with the login; no console step'
+  )
+  .option('--no-private-uploads', 'Turn --private-uploads off again')
   .option('--fresh', 'Generate a new session key instead of resuming the saved one')
   .option('--no-browser', 'Print the console link without opening a browser')
   .option(
@@ -45,6 +50,7 @@ ${pc.bold('EXAMPLES')}
   $ filecoin-pin login --network calibration
   $ filecoin-pin login --scopes createDataSet,addPieces,encrypt   # also get a group key Grant
   $ filecoin-pin login --no-browser --no-wait                     # print the link, approve later, rerun to check
+  $ filecoin-pin login --private-uploads                          # every add private from now on (saved, no console)
   $ filecoin-pin login --grant fgr1_…                             # finish: import the Grant the console showed
   $ pbpaste | filecoin-pin login --grant -                        # the same, reading the Grant from stdin
 

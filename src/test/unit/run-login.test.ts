@@ -120,6 +120,49 @@ describe('runLogin', () => {
     }
   })
 
+  describe('--private-uploads', () => {
+    const authorized = () =>
+      writeSessionFile(
+        {
+          sessionKey: SESSION_KEY,
+          sessionAddress: SESSION_ADDRESS,
+          walletAddress: GRANT_OWNER.address,
+          network: 'calibration',
+        },
+        sessionPath()
+      )
+
+    it('on a login already done, saves the setting and stops: no console link, browser or wait', async () => {
+      authorized()
+
+      expect(await runLogin({ privateUploads: true })).toBe(0)
+
+      expect(readSessionFile(sessionPath())).toMatchObject({ uploads: 'private', walletAddress: GRANT_OWNER.address })
+      expect(output()).toContain('Uploads are private by default')
+      expect(output()).not.toContain('console/setup')
+      expect(vi.mocked(resolveNetwork)).not.toHaveBeenCalled()
+      expect(vi.mocked(openBrowser)).not.toHaveBeenCalled()
+    })
+
+    it('--no-private-uploads turns it off again', async () => {
+      authorized()
+      await runLogin({ privateUploads: true })
+
+      expect(await runLogin({ privateUploads: false })).toBe(0)
+
+      expect(readSessionFile(sessionPath())).not.toHaveProperty('uploads')
+      expect(output()).toContain('Uploads are public unless add --private says otherwise')
+    })
+
+    it('on a new login, is saved with the session as it is made', async () => {
+      vi.mocked(resolveNetwork).mockResolvedValue(networkFor(314159, 'calibration'))
+
+      await runLogin({ privateUploads: true, wait: false, browser: false })
+
+      expect(readSessionFile(sessionPath())?.uploads).toBe('private')
+    })
+  })
+
   it('writes the session file before the wait starts', async () => {
     vi.mocked(watchAuthorization).mockImplementation(async (options) => {
       // The file exists by the time the wait starts.
