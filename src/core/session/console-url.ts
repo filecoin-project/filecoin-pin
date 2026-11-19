@@ -39,12 +39,21 @@ const CONSOLE_NETWORK_SLUG: Record<number, string> = {
 }
 
 /**
- * Whether `consoleUrl` is a console other than the production one: one you run yourself
- * (`CONSOLE_URL`), such as a local console started against foc-devnet.
+ * Whether `consoleUrl` is a hosted console: production, its preview deployments, or staging. None of
+ * them serves a local foc-devnet; only a console you run yourself (`CONSOLE_URL`) can.
  */
-function isOwnConsole(consoleUrl: string): boolean {
-  return trimSlash(consoleUrl) !== DEFAULT_CONSOLE_URL
+function isHostedConsole(consoleUrl: string): boolean {
+  let host: string
+  try {
+    host = new URL(consoleUrl).hostname
+  } catch {
+    return false
+  }
+  return host === 'pay.filecoin.cloud' || host.endsWith('.pay.filecoin.cloud') || host === STAGING_CONSOLE_HOST
 }
+
+/** The hosted staging console. */
+const STAGING_CONSOLE_HOST = 'filecoin-pay-explorer-staging.vercel.app'
 
 /**
  * The console's name for a chain, or undefined when the console has no page for it (a custom RPC).
@@ -54,7 +63,7 @@ function isOwnConsole(consoleUrl: string): boolean {
 export function consoleNetworkSlug(chainId: number, consoleUrl: string = resolveConsoleUrl()): string | undefined {
   const slug = CONSOLE_NETWORK_SLUG[chainId]
   if (slug !== undefined) return slug
-  return chainId === DEVNET_CHAIN_ID && isOwnConsole(consoleUrl) ? 'devnet' : undefined
+  return chainId === DEVNET_CHAIN_ID && !isHostedConsole(consoleUrl) ? 'devnet' : undefined
 }
 
 /**
@@ -103,7 +112,7 @@ const CONSOLE_NETWORKS = new Set(Object.values(CONSOLE_NETWORK_SLUG))
 export function buildRevokeUrl(consoleUrl: string, sessionAddress: string, network: string | undefined): string {
   const page = `${trimSlash(consoleUrl)}/console/session-keys`
   const placed =
-    network !== undefined && (CONSOLE_NETWORKS.has(network) || (network === 'devnet' && isOwnConsole(consoleUrl)))
+    network !== undefined && (CONSOLE_NETWORKS.has(network) || (network === 'devnet' && !isHostedConsole(consoleUrl)))
   if (!placed) return withUtm(page, 'revoke')
   // Lowercased for the same reason as buildAuthorizeUrl: strict isAddress.
   return withUtm(`${page}?revoke=${sessionAddress.toLowerCase()}&network=${network}`, 'revoke')

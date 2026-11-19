@@ -162,9 +162,17 @@ describe('a console of your own and the devnet', () => {
     configureTelemetry({ disabled: true })
   })
 
-  it('names the devnet only for a console other than the production one', () => {
-    expect(consoleNetworkSlug(DEVNET, DEFAULT_CONSOLE_URL)).toBeUndefined()
-    expect(consoleNetworkSlug(DEVNET, `${DEFAULT_CONSOLE_URL}/`)).toBeUndefined()
+  it.each([
+    ['production', DEFAULT_CONSOLE_URL],
+    ['production, with a trailing slash', `${DEFAULT_CONSOLE_URL}/`],
+    ['a preview deployment', 'https://pr-635.pay.filecoin.cloud'],
+    ['staging', 'https://filecoin-pay-explorer-staging.vercel.app'],
+  ])('names no devnet for a hosted console: %s', (_case, consoleUrl) => {
+    expect(consoleNetworkSlug(DEVNET, consoleUrl)).toBeUndefined()
+    expect(buildRevokeUrl(consoleUrl, '0xA', 'devnet')).not.toContain('network=devnet')
+  })
+
+  it('names the devnet only for a console you run yourself', () => {
     expect(consoleNetworkSlug(DEVNET, 'http://localhost:3100')).toBe('devnet')
     expect(consoleNetworkSlug(314159, 'http://localhost:3100')).toBe('calibration')
     expect(consoleNetworkSlug(12345, 'http://localhost:3100')).toBeUndefined()

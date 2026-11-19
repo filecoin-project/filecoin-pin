@@ -64,8 +64,8 @@ ${pc.bold('GROUP KEY GRANTS')}
   uploads: expiry and revoking the key do not take it back.
 
 ${pc.bold('ENVIRONMENT')}
-  CONSOLE_URL   Filecoin Cloud console base URL (default: https://pay.filecoin.cloud). A console you run
-                yourself against a local foc-devnet also takes --network devnet
+  CONSOLE_URL   Filecoin Cloud console base URL (default: https://pay.filecoin.cloud). Point it at a
+                console you run against a local foc-devnet to use login --network devnet
   BROWSER=none  never open a browser
   NETWORK, RPC_URL  as --network and --rpc-url
 
