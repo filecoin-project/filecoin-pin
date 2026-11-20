@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Writable } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { keyspaceKeys as deriveGroupKey, type PieceMetadata, writeTarget } from '@filoz/keysmith'
+import { deriveGroupKey, type PieceMetadata, writeTarget } from '@filoz/keysmith'
 import { CarBlockIterator, CarIndexedReader, CarWriter } from '@ipld/car'
 import * as dagCbor from '@ipld/dag-cbor'
 import * as dagPb from '@ipld/dag-pb'
@@ -239,7 +239,7 @@ describe('get', () => {
   let pieceKey: () => PieceKey
 
   beforeAll(async () => {
-    const { kk, descriptor } = await deriveGroupKey(OWNER, { owner: OWNER.address, keyspace: GROUP_KEY })
+    const { groupKey: kk, descriptor } = await deriveGroupKey(OWNER, { owner: OWNER.address, groupKeyId: GROUP_KEY })
     const target = writeTarget(descriptor, kk)
     pieceKey = () => newPieceKey(target)
   })

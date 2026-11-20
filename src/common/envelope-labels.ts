@@ -22,11 +22,12 @@
  * cut that to a few KB and stay verified; not relied on here, since support varies.
  */
 
-import type { PieceMetadata } from '@filoz/keysmith'
+import { type PieceMetadata, readPieceMetadata } from '@filoz/keysmith'
 import * as dagPb from '@ipld/dag-pb'
 import * as fee from 'filecoin-encryption-envelope'
 import { UnixFS } from 'ipfs-unixfs'
 import { CID } from 'multiformats/cid'
+import { format1Message } from './group-key.js'
 import { assertHash, MAX_BLOCK_BYTES, RESPONSE_TIMEOUT_MS } from './ipfs-car-fetch.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC } from './unixfs-car-layout.js'
 
@@ -115,12 +116,12 @@ async function headerLabels(bytes: Uint8Array, root: CID): Promise<PieceMetadata
     .catch(() => undefined)
   if (labels == null) throw plainContent(root)
   if (contentType !== CAR_CONTENT_TYPE) throw foreignEnvelope(root)
-  if (
-    labels['foc/v'] !== 1 ||
-    typeof labels['foc/own'] !== 'string' ||
-    typeof labels['foc/ks'] !== 'string' ||
-    typeof labels['foc/salt'] !== 'string'
-  ) {
+  try {
+    // Keysmith format 2 only: a keysmith 0.1.0 envelope says so, anything else reads as foreign.
+    readPieceMetadata(labels)
+  } catch (error) {
+    const format1 = format1Message(error)
+    if (format1 != null) throw new NotEncryptedUploadError(`${root} cannot be shared: ${format1}`)
     throw foreignEnvelope(root)
   }
   return labels as unknown as PieceMetadata

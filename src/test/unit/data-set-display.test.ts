@@ -90,7 +90,7 @@ describe('displayDataSetList', () => {
   })
 })
 
-const encrypted = { 'foc/enc': '1', 'foc/ks': `0x${'11'.repeat(16)}`, 'foc/kc': `v1.${'22'.repeat(16)}` }
+const encrypted = { 'foc/enc': '1', 'foc/gkid': `0x${'11'.repeat(16)}`, 'foc/kc': `v2.${'22'.repeat(16)}` }
 
 describe('data set visibility', () => {
   beforeEach(() => {
