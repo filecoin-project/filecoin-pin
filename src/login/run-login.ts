@@ -241,9 +241,14 @@ function reportGrantPending(url: string, resume: string): void {
  * The command that resumes this login: `filecoin-pin login` with the --group and --delegation-depth it
  * asked for, which the session file doesn't keep. A plain rerun would ask for the whole group key instead.
  */
+/** A group path as one shell word: keysmith allows spaces and other characters inside a group name. */
+function shellArg(value: string): string {
+  return /^[\w./-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`
+}
+
 function resumeCommand(request: GrantRequest): string {
   const parts = ['filecoin-pin login']
-  if (request.group != null) parts.push(`--group ${request.group}`)
+  if (request.group != null) parts.push(`--group ${shellArg(request.group)}`)
   if (request.maxDepth != null) parts.push(`--delegation-depth ${request.maxDepth}`)
   return parts.join(' ')
 }
@@ -614,24 +619,28 @@ export async function runLogin(
     log.line(`  Requesting a Grant for group ${group} (and every group beneath it)`)
   }
 
+  log.line('  Approve this key with your wallet in the Filecoin Cloud console:')
+  // The link on its own line, unstyled, so it copies and parses cleanly.
+  log.line(url)
+  log.line('')
+  log.flush()
+
+  // The link is already on screen: an RPC that is down here costs the wait, not the pairing.
   const client = createPublicClient({ chain, transport })
   // Nothing for the console to do: the key is live on chain and any Grant asked for is in hand.
+  // The link stays on screen to extend the key; no browser, no wait.
   if (grantText === undefined && (!wantGrant || keepSavedGrant)) {
     const live = await liveAuthorization(client, session, registryAddress, permissions)
     if (live !== undefined) {
       const expires = live.expiry === undefined ? '' : ` · expires ${formatExpiryDate(live.expiry)}`
       log.line(`${pc.green('✓')} Already authorized: ${scopeList(live.granted)}${expires}`)
+      log.line('  Open the link above only to extend this key.')
       await reportReadinessSafely(live.owner, chain, rpcUrl, consoleUrl)
       log.flush()
       return 0
     }
   }
 
-  log.line('  Approve this key with your wallet in the Filecoin Cloud console:')
-  // The link on its own line, unstyled, so it copies and parses cleanly.
-  log.line(url)
-  log.line('')
-  log.flush()
   // A Grant already in hand means the owner has been to the console.
   if (options.browser !== false && grantText === undefined) openBrowser(url)
 
