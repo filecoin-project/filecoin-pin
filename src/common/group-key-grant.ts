@@ -334,9 +334,8 @@ export async function loadGroupKeyGrants(
  */
 export function grantAuthorizations(
   session: SessionCredentials,
-  chainId: number | undefined,
-  pieceCid: string
-): () => Promise<string[]> {
+  chainId: number | undefined
+): (pieceCid: string) => Promise<string[]> {
   // The Grants are opened (and any ignored one warned about) once; each call signs fresh requests.
   let chains: Promise<OpenedGrant['chain'][]> | undefined
   const open = async () => {
@@ -345,9 +344,9 @@ export function grantAuthorizations(
     return [...grants.filter((g) => g.group == null), ...grants.filter((g) => g.group != null)].map((g) => g.chain)
   }
   const bearer = privateKeyToAccount(session.sessionKey)
-  const piece = CID.parse(pieceCid).bytes
-  return async () => {
+  return async (pieceCid) => {
     chains ??= open()
+    const piece = CID.parse(pieceCid).bytes
     return Promise.all((await chains).map((chain) => authorizationHeader(bearer, chain, { pieceCid: piece })))
   }
 }

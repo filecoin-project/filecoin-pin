@@ -356,8 +356,8 @@ describe('grantAuthorizations', () => {
     vi.stubEnv('GROUP_KEY_GRANT', env.GROUP_KEY_GRANT)
     vi.stubEnv('GROUP_KEY_ID', env.GROUP_KEY_ID)
     try {
-      const authorizations = grantAuthorizations(session, CALIBRATION_CHAIN_ID, PIECE)
-      const [whole, groupA] = await authorizations()
+      const authorizations = grantAuthorizations(session, CALIBRATION_CHAIN_ID)
+      const [whole, groupA] = await authorizations(PIECE)
       expect(whole).toMatch(/^FOC-Grant [A-Za-z0-9_-]+$/)
       // The whole group key's chain reaches a piece in any group; group a's reaches only group a.
       expect((await check(whole as string, PIECE, 'b')).bearer).toBe(SESSION_ADDRESS)
@@ -367,7 +367,7 @@ describe('grantAuthorizations', () => {
 
       // The Grants were opened once: a later call (another provider) signs new requests without reading them again.
       vi.stubEnv('GROUP_KEY_GRANT', '')
-      const again = await authorizations()
+      const again = await authorizations(PIECE)
       expect(again).toHaveLength(2)
     } finally {
       vi.unstubAllEnvs()
@@ -396,9 +396,9 @@ describe('ownerAuthorizations', () => {
     ]
     mockListDataSets.mockImplementation(async (_s, { filter }) => all.filter(filter))
     const signs = vi.spyOn(OWNER, 'signTypedData')
-    const authorizations = ownerAuthorizations(synapse, OWNER, PIECE)
+    const authorizations = ownerAuthorizations(synapse, OWNER)
 
-    const headers = await authorizations()
+    const headers = await authorizations(PIECE)
     expect(headers).toHaveLength(2)
     const piece = (groupKeyId: string) => ({
       'foc/v': 2,
@@ -418,7 +418,7 @@ describe('ownerAuthorizations', () => {
 
     // Per group key: its signature and the root claim; then one request each. A second call signs requests only.
     expect(signs).toHaveBeenCalledTimes(6)
-    await authorizations()
+    await authorizations(PIECE)
     expect(signs).toHaveBeenCalledTimes(8)
     signs.mockRestore()
   })
@@ -432,18 +432,18 @@ describe('ownerAuthorizations', () => {
     ]
     mockListDataSets.mockImplementation(async (_s, { filter }) => all.filter(filter))
     const warn = vi.fn()
-    const headers = await ownerAuthorizations(synapse, OWNER, PIECE, { warn } as never)()
+    const headers = await ownerAuthorizations(synapse, OWNER, { warn } as never)(PIECE)
     expect(headers).toHaveLength(1)
     expect(warn).toHaveBeenCalledTimes(2)
   })
 
   it('says so when none of its group keys can be read', async () => {
     mockListDataSets.mockResolvedValue([dataSet(1n, { read: 'restricted', 'foc/gkid': OTHER, 'foc/kc': 'nope' })])
-    await expect(ownerAuthorizations(synapse, OWNER, PIECE)()).rejects.toThrow(/has a group key it can read/)
+    await expect(ownerAuthorizations(synapse, OWNER)(PIECE)).rejects.toThrow(/has a group key it can read/)
   })
 
   it('says so when the wallet has no private data sets', async () => {
     mockListDataSets.mockResolvedValue([])
-    await expect(ownerAuthorizations(synapse, OWNER, PIECE)()).rejects.toThrow(/has no private data sets/)
+    await expect(ownerAuthorizations(synapse, OWNER)(PIECE)).rejects.toThrow(/has no private data sets/)
   })
 })

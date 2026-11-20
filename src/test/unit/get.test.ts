@@ -25,6 +25,7 @@ import {
   DISCOVERY_TIMEOUT_MS,
   FETCH_CONCURRENCY,
   FetchFailedError,
+  findPrivatePiece,
   ipniProviderUrls,
   NoProviderError,
   NotUnixfsError,
@@ -74,6 +75,7 @@ vi.mock('../../core/synapse/index.js', async (importOriginal) => ({
 vi.mock('../../core/data-set/index.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../core/data-set/index.js')>()),
   listDataSets: vi.fn(async () => []),
+  getDataSetPieces: vi.fn(async () => ({ pieces: [], dataSetId: 0n })),
 }))
 
 vi.mock('../../utils/cli-auth.js', async (importOriginal) => ({
@@ -577,6 +579,56 @@ describe('get', () => {
 
       expect(result.provider).toBe(GOOD)
       expect(seen).toEqual(['FOC-Grant misses', 'FOC-Grant reaches'])
+    })
+
+    it("finds a private upload's piece by its root CID: reads each piece's CAR header, newest first", async () => {
+      const { getDataSetPieces, listDataSets } = await import('../../core/data-set/index.js')
+      await writeFile(join(dir, 'other.txt'), 'other')
+      const other = await plainUpload(join(dir, 'other.txt'))
+      const [OLDER, MINE, NEWER] = [
+        'bafkzcibcaapao7rtuqyy2qvnpoqbbefwlfb6rnksbmhgqmlnfqxdzfuoxuy5emi',
+        'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy',
+        'bafkzcibcaaces3nobte6ezpp4wqan2age2s5yxcatzotcvobhgcmv5wi2xh5mbi',
+      ]
+      const restricted = { dataSetId: 7n, isLive: true, hasActivePieces: true, metadata: { read: 'restricted' } }
+      const listed = [restricted, { ...restricted, dataSetId: 8n, metadata: {} }].map((d) => ({
+        ...d,
+        provider: { pdp: { serviceURL: GOOD } },
+      }))
+      vi.mocked(listDataSets).mockImplementation(
+        async (_s, options) => listed.filter((d) => options?.filter?.(d as never) ?? true) as never
+      )
+      vi.mocked(getDataSetPieces).mockResolvedValue({
+        dataSetId: 7n,
+        pieces: [OLDER, MINE, NEWER].map((pieceCid, i) => ({
+          pieceId: BigInt(i),
+          pieceCid,
+          status: 'ACTIVE' as never,
+        })),
+      })
+      const served: Record<string, Uint8Array> = { [NEWER]: other.car, [MINE]: upload.car, [OLDER]: upload.car }
+      const asked: string[] = []
+      const gated = vi.fn(async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const piece = String(input).slice(`${GOOD}/download/`.length)
+        asked.push(piece)
+        const headers = new Headers(init?.headers)
+        expect(headers.get('range')).toBe('bytes=0-1023')
+        expect(headers.get('authorization')).toBe(`FOC-Grant for ${piece}`)
+        return new Response(new Uint8Array(served[piece] ?? []).slice(0, 1024), { status: 206 })
+      })
+
+      const found = await findPrivatePiece({} as never, upload.root, async (piece) => [`FOC-Grant for ${piece}`], {
+        fetch: gated as unknown as typeof fetch,
+      })
+
+      expect(found).toBe(MINE)
+      expect(asked).toEqual([NEWER, MINE])
+      expect(getDataSetPieces).toHaveBeenCalledTimes(1)
+      await expect(
+        findPrivatePiece({} as never, CID.parse(OLDER), async () => ['FOC-Grant x'], {
+          fetch: gated as unknown as typeof fetch,
+        })
+      ).resolves.toBeUndefined()
     })
 
     it('reports a 403 when no held Grant reaches the private piece', async () => {

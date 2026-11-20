@@ -7,6 +7,7 @@ import { rmSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
@@ -16,12 +17,19 @@ import { CliFatal, EXIT_CODE_INCOMPLETE, isCliIncomplete } from '../common/cli-e
 import { checkOutputDir, removeDecryptOutput } from '../common/encryption.js'
 import { ownerAuthorizations } from '../common/group-key.js'
 import { credentialKeyResolver, grantAuthorizations } from '../common/group-key-grant.js'
-import { ipniProviderUrls, ownProviderUrls, type ProviderSource } from '../common/ipfs-car-fetch.js'
+import {
+  type Authorizations,
+  findPrivatePiece,
+  ipniProviderUrls,
+  ownProviderUrls,
+  type ProviderSource,
+} from '../common/ipfs-car-fetch.js'
 import { type GetOptions, getToDirectory } from '../common/ipfs-get.js'
 import { parseShareLink, ShareLinkError, shareKey, shareKeyResolver, shareOwner } from '../common/share-link.js'
 import { initializeSynapse, type SynapseSetupConfig } from '../core/synapse/index.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
+import { log } from '../utils/cli-logger.js'
 
 /** The address whose data sets are searched for providers, if the credentials name one. */
 export function addressOf(auth: SynapseSetupConfig): Address | undefined {
@@ -124,9 +132,8 @@ export async function runGet(
       resolveKey = shareKeyResolver(share, T)
     }
 
-    // A private upload is not indexed anywhere: only its own gated data sets serve it.
+    // A private upload is not indexed anywhere: only its own gated data sets serve it, by piece CID.
     const { piece } = options
-    let download: GetOptions['download']
     if (piece != null) {
       if (share != null) throw new Error('Choose --piece or --share, not both')
       try {
@@ -134,23 +141,32 @@ export async function runGet(
       } catch {
         throw new Error(`Not a piece CID: ${piece}`)
       }
-      if ('privateKey' in auth && auth.privateKey != null && address != null) {
-        // The owner wallet authorizes itself: a root claim per group key of its private data sets.
-        const signer = privateKeyToAccount(auth.privateKey)
-        const synapse = await readOnlySynapse(auth, address, logger)
-        download = { pieceCid: piece, authorizations: ownerAuthorizations(synapse, signer, piece, logger) }
-      } else if ('sessionKey' in auth && auth.sessionKey != null && address != null) {
-        const session = { sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }
-        download = { pieceCid: piece, authorizations: grantAuthorizations(session, auth.chain?.id, piece) }
-      } else {
-        throw new Error(
-          '--piece needs the owner wallet (PRIVATE_KEY) or a session key holding a group key Grant (`filecoin-pin login --group <group>`)'
-        )
-      }
+    }
+    const privateAccess = share == null && address != null ? await privateAccessOf(auth, address, logger) : undefined
+    if (piece != null && privateAccess == null) {
+      throw new Error(
+        '--piece needs the owner wallet (PRIVATE_KEY) or a session key holding a group key Grant (`filecoin-pin login --group <group>`)'
+      )
     }
 
     tempDir = await mkdtemp(join(tmpdir(), 'filecoin-pin-get-'))
     for (const signal of cleanupSignals) process.once(signal, onSignal)
+    let download: GetOptions['download']
+    if (privateAccess != null) {
+      const { synapse, authorizations } = privateAccess
+      let pieceCid = piece
+      if (pieceCid == null) {
+        spinner.start('Looking for it among your private uploads...')
+        try {
+          pieceCid = await findPrivatePiece(synapse, cid, authorizations, { logger })
+        } catch (error) {
+          // No Grant, say: the upload may still be public, so look there.
+          log.warn(`Could not search your private uploads: ${error instanceof Error ? error.message : String(error)}`)
+        }
+        spinner.stop()
+      }
+      if (pieceCid != null) download = { pieceCid, authorizations }
+    }
     spinner.start('Finding providers and downloading...')
     const sources: ProviderSource[] = []
     if (download == null) sources.push({ name: 'IPNI', find: (signal) => ipniProviderUrls(cid, { signal }) })
@@ -191,6 +207,29 @@ export async function runGet(
     for (const signal of cleanupSignals) process.off(signal, onSignal)
     removeTemp(tempDir)
   }
+}
+
+/**
+ * How these credentials fetch a private upload: the owner wallet authorizes itself, a session key
+ * presents its Grants. Undefined for credentials that can do neither.
+ */
+async function privateAccessOf(
+  auth: SynapseSetupConfig,
+  address: Address,
+  logger: Logger
+): Promise<{ synapse: Synapse; authorizations: Authorizations } | undefined> {
+  if ('privateKey' in auth && auth.privateKey != null) {
+    const synapse = await readOnlySynapse(auth, address, logger)
+    return { synapse, authorizations: ownerAuthorizations(synapse, privateKeyToAccount(auth.privateKey), logger) }
+  }
+  if ('sessionKey' in auth && auth.sessionKey != null) {
+    const session = { sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }
+    return {
+      synapse: await readOnlySynapse(auth, address, logger),
+      authorizations: grantAuthorizations(session, auth.chain?.id),
+    }
+  }
+  return undefined
 }
 
 function isCid(text: string): boolean {
