@@ -853,6 +853,14 @@ describe('runLogin', () => {
       )
     })
 
+    it('quotes a group path with spaces in the resume hint, so it copies as one argument', async () => {
+      savedKey()
+
+      await runLogin({ group: "photos 2026/it's", wait: false }, silentStdin(false))
+
+      expect(output()).toContain(`rerun \`filecoin-pin login --group 'photos 2026/it'\\''s'\` to check it`)
+    })
+
     it('login --grant before the authorization was seen resumes the wait on the saved network, then imports', async () => {
       savedKey({ fromBlock: 7n })
       vi.mocked(watchAuthorization).mockResolvedValue(GRANT_AUTHORIZED)
@@ -891,7 +899,7 @@ describe('runLogin', () => {
       expect(prompts).toEqual([])
     })
 
-    it('with a saved Grant for the group and the key live on chain, finishes without a link, browser or wait', async () => {
+    it('with a saved Grant for the group and the key live on chain, keeps the link for extending but opens no browser and does not wait', async () => {
       const grant = await makeGrant({ node: 'group:team' })
       savedKey({ walletAddress: GRANT_OWNER.address, groupKeyId: GROUP_KEY, groupKeyGrant: grant })
       vi.mocked(readScopeGrants).mockResolvedValue({ ...FULL_GRANT, owner: GRANT_OWNER.address } as never)
@@ -902,7 +910,8 @@ describe('runLogin', () => {
       expect(output()).toContain(`Grant for group team of group key ${GROUP_KEY} already saved`)
       expect(output()).toContain('Already authorized')
       expect(output()).not.toContain('Requesting a Grant')
-      expect(output()).not.toContain('console/setup')
+      expect(linkIn(output()).searchParams.has('pubkey')).toBe(false)
+      expect(output()).toContain('Open the link above only to extend this key.')
       expect(vi.mocked(openBrowser)).not.toHaveBeenCalled()
       expect(vi.mocked(watchAuthorization)).not.toHaveBeenCalled()
       expect(prompts).toEqual([])
