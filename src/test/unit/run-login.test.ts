@@ -9,7 +9,11 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { getBlockNumber } from 'viem/actions'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loginCommand } from '../../commands/login.js'
-import { type WatchAuthorizationResult, watchAuthorization } from '../../core/session/watch-authorization.js'
+import {
+  readScopeGrants,
+  type WatchAuthorizationResult,
+  watchAuthorization,
+} from '../../core/session/watch-authorization.js'
 import { initializeSynapse } from '../../core/synapse/index.js'
 import { openBrowser } from '../../login/open-browser.js'
 import { checkAccountReadiness } from '../../login/readiness.js'
@@ -48,6 +52,7 @@ let dataDir: string
 vi.mock('../../config.js', () => ({ getDataDirectory: () => dataDir }))
 vi.mock('../../core/session/watch-authorization.js', () => ({
   watchAuthorization: vi.fn(),
+  readScopeGrants: vi.fn(),
   DEFAULT_WATCH_DEADLINE_MS: 300000,
 }))
 vi.mock('../../login/open-browser.js', () => ({ openBrowser: vi.fn(() => false) }))
@@ -115,6 +120,7 @@ describe('runLogin', () => {
       getBlockNumber,
       checkAccountReadiness,
       watchAuthorization,
+      readScopeGrants,
     ]) {
       vi.mocked(fn).mockReset()
     }
@@ -883,6 +889,36 @@ describe('runLogin', () => {
       expect(code).toBe(0)
       expect(output()).toContain(`Grant for group key ${GROUP_KEY} already saved`)
       expect(prompts).toEqual([])
+    })
+
+    it('with a saved Grant for the group and the key live on chain, finishes without a link, browser or wait', async () => {
+      const grant = await makeGrant({ node: 'group:team' })
+      savedKey({ walletAddress: GRANT_OWNER.address, groupKeyId: GROUP_KEY, groupKeyGrant: grant })
+      vi.mocked(readScopeGrants).mockResolvedValue({ ...FULL_GRANT, owner: GRANT_OWNER.address } as never)
+
+      const code = await runLogin({ group: 'team' }, silentStdin(true))
+
+      expect(code).toBe(0)
+      expect(output()).toContain(`Grant for group team of group key ${GROUP_KEY} already saved`)
+      expect(output()).toContain('Already authorized')
+      expect(output()).not.toContain('Requesting a Grant')
+      expect(output()).not.toContain('console/setup')
+      expect(vi.mocked(openBrowser)).not.toHaveBeenCalled()
+      expect(vi.mocked(watchAuthorization)).not.toHaveBeenCalled()
+      expect(prompts).toEqual([])
+    })
+
+    it('with a saved Grant for the group but the key not live, says so and links without the group key step', async () => {
+      const grant = await makeGrant({ node: 'group:team' })
+      savedKey({ walletAddress: GRANT_OWNER.address, groupKeyId: GROUP_KEY, groupKeyGrant: grant })
+      vi.mocked(readScopeGrants).mockResolvedValue({ ...FULL_GRANT, status: 'none', granted: [] } as never)
+
+      const code = await runLogin({ group: 'team', wait: false }, silentStdin(false))
+
+      expect(code).toBe(2)
+      expect(output()).toContain(`Grant for group team of group key ${GROUP_KEY} already saved`)
+      expect(output()).not.toContain('Requesting a Grant')
+      expect(linkIn(output()).searchParams.has('pubkey')).toBe(false)
     })
 
     it('with a saved Grant that still opens, leaves the group key step off the link', async () => {
