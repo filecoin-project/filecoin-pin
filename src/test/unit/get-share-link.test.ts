@@ -6,14 +6,18 @@ import { runGetShareLink } from '../../share/get-share-link.js'
 import { GROUP_KEY, OWNER, OWNER_KEY } from '../fixtures/group-key-grants.js'
 
 const header = vi.hoisted(() => ({ labels: undefined as unknown }))
+// None of the sharer's private uploads is rooted at ROOT, so the link is for a public one
+const findPrivatePiece = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => undefined))
 vi.mock('../../common/envelope-labels.js', () => ({ readEnvelopeLabels: async () => header.labels }))
 vi.mock('../../common/ipfs-car-fetch.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../common/ipfs-car-fetch.js')>()),
   ipniProviderUrls: async () => [],
+  findPrivatePiece,
 }))
 vi.mock('../../get/get.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../get/get.js')>()),
   ownProviders: async () => [],
+  readOnlySynapse: async () => ({}),
 }))
 vi.mock('../../utils/cli-helpers.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../utils/cli-helpers.js')>()),
@@ -47,6 +51,8 @@ describe('runGetShareLink', () => {
       ...mode,
     })
 
+    // It looked among the sharer's private uploads first
+    expect(String(findPrivatePiece.mock.calls[0]?.[1])).toBe(ROOT)
     const text = printed.join('\n')
     const parsed = parseShareLink(text.match(/https:\/\/viewer\.test\/#\S+/)?.[0] ?? '')
     expect(parsed.rootCid.toString()).toBe(ROOT)

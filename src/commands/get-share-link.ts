@@ -9,7 +9,7 @@ export const getShareLinkCommand = new Command('get-share-link')
   .option('--viewer <url>', 'Web page the link opens in')
   .option(
     '--piece <piece-cid>',
-    'Share a private upload (add --private), named by its piece CID: the link also carries the right to fetch it'
+    "A private upload's piece CID, to skip finding it by the root CID. A private upload's link also carries the right to fetch it"
   )
   .addHelpText(
     'after',

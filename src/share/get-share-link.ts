@@ -23,6 +23,7 @@ import {
   type Authorizations,
   DISCOVERY_TIMEOUT_MS,
   fetchVerifiedCar,
+  findPrivatePiece,
   ipniProviderUrls,
 } from '../common/ipfs-car-fetch.js'
 import { type CreatedShare, createShare, type ShareMode, type ShareSender } from '../common/share-link.js'
@@ -30,6 +31,7 @@ import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { addressOf, ownProviders, readOnlySynapse } from '../get/get.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
+import { log } from '../utils/cli-logger.js'
 
 const SHARE_NEEDS_CREDENTIALS = `Sharing needs the owner wallet (set PRIVATE_KEY) or a session key with a group key Grant (run \`${GRANT_LOGIN_COMMAND}\`).`
 
@@ -41,21 +43,23 @@ export interface GetShareLinkOptions extends CLIAuthOptions {
 }
 
 /**
- * A private upload's header labels, from its piece fetched on the authenticated path with the session
- * key's Grants, and the providers that hold it (the sharer's own read-restricted data sets).
+ * A private upload's header labels, from its piece fetched on the authenticated path with the owner
+ * wallet or the session key's Grants, and the providers that hold it (the sharer's own read-restricted
+ * data sets). Without `piece`, the piece is found by its root CID (see findPrivatePiece); undefined
+ * when none of the sharer's private uploads is rooted there, or the search fails (it warns).
  */
 async function findPrivateUpload(
   cid: CID,
-  pieceCid: string,
+  piece: string | undefined,
   auth: SynapseSetupConfig,
   address: Address,
   chainId: number,
   logger: Logger
-): Promise<{ labels: PieceMetadata; providers: string[] }> {
+): Promise<{ labels: PieceMetadata; providers: string[]; pieceCid: string } | undefined> {
   // The owner wallet authorizes itself; a session key presents its Grants.
   let authorizations: Authorizations
+  const synapse = await readOnlySynapse(auth, address, logger)
   if ('privateKey' in auth && auth.privateKey != null) {
-    const synapse = await readOnlySynapse(auth, address, logger)
     authorizations = ownerAuthorizations(synapse, privateKeyToAccount(auth.privateKey), logger)
   } else if ('sessionKey' in auth && auth.sessionKey != null) {
     const session = { sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }
@@ -65,6 +69,16 @@ async function findPrivateUpload(
       '--piece needs the owner wallet (PRIVATE_KEY) or a session key holding a group key Grant (`filecoin-pin login --group <group>`)'
     )
   }
+  let pieceCid = piece
+  if (pieceCid == null) {
+    try {
+      pieceCid = await findPrivatePiece(synapse, cid, authorizations, { logger })
+    } catch (error) {
+      // No Grant, say: the upload may still be public, so look there.
+      log.warn(`Could not search your private uploads: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    if (pieceCid == null) return undefined
+  }
   const providers = [...new Set(await ownProviders(auth, address, logger, true))]
   const dir = await mkdtemp(join(tmpdir(), 'filecoin-pin-share-'))
   try {
@@ -73,7 +87,7 @@ async function findPrivateUpload(
       logger,
       download: { pieceCid, authorizations },
     })
-    return { labels: await envelopeLabelsFromCar(carPath, cid), providers }
+    return { labels: await envelopeLabelsFromCar(carPath, cid), providers, pieceCid }
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -149,10 +163,11 @@ export async function runGetShareLink(cidArg: string, options: GetShareLinkOptio
     const chainId = auth.chain?.id ?? (await readOnlySynapse(auth, address, logger)).chain.id
     const sender = await shareSender(auth, chainId)
     const { piece } = options
-    const found =
-      piece == null
-        ? { labels: await findEnvelopeLabels(cid, auth, address, logger), providers: undefined }
-        : await findPrivateUpload(cid, piece, auth, address, chainId, logger)
+    const found = (await findPrivateUpload(cid, piece, auth, address, chainId, logger)) ?? {
+      labels: await findEnvelopeLabels(cid, auth, address, logger),
+      providers: undefined,
+      pieceCid: undefined,
+    }
     spinner.message('Creating the share...')
     const share = await createShare({
       sender,
@@ -160,8 +175,8 @@ export async function runGetShareLink(cidArg: string, options: GetShareLinkOptio
       labels: found.labels,
       mode,
       ...(options.viewer != null && { viewer: options.viewer }),
-      ...(piece != null &&
-        found.providers != null && { private: { pieceCid: piece, providers: found.providers, chainId } }),
+      ...(found.pieceCid != null &&
+        found.providers != null && { private: { pieceCid: found.pieceCid, providers: found.providers, chainId } }),
     })
     spinner.stop(`${pc.green('✓')} Share link created`)
 
