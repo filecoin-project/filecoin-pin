@@ -150,7 +150,7 @@ export async function runGet(
         download = { pieceCid: piece, authorizations: ownerAuthorizations(synapse, signer, piece, logger) }
       } else if ('sessionKey' in auth && auth.sessionKey != null && address != null) {
         const session = { sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }
-        download = { pieceCid: piece, authorizations: () => grantAuthorizations(session, auth.chain?.id, piece) }
+        download = { pieceCid: piece, authorizations: grantAuthorizations(session, auth.chain?.id, piece) }
       } else {
         throw new Error(
           '--piece needs the owner wallet (PRIVATE_KEY) or a session key holding a group key Grant (`filecoin-pin login --group <group>`)'

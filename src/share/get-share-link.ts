@@ -54,7 +54,7 @@ async function findPrivateUpload(
     authorizations = ownerAuthorizations(synapse, privateKeyToAccount(auth.privateKey), pieceCid, logger)
   } else if ('sessionKey' in auth && auth.sessionKey != null) {
     const session = { sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }
-    authorizations = () => grantAuthorizations(session, chainId, pieceCid)
+    authorizations = grantAuthorizations(session, chainId, pieceCid)
   } else {
     throw new Error(
       '--piece needs the owner wallet (PRIVATE_KEY) or a session key holding a group key Grant (`filecoin-pin login --group <group>`)'

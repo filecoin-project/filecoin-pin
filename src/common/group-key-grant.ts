@@ -328,20 +328,28 @@ export async function loadGroupKeyGrants(
  * `Authorization` headers for one gated `/download/<pieceCid>`, one per held Grant: its claim chain
  * plus a read request for that piece, signed by the session key (the chain's bearer). The whole group
  * key's Grant comes first, since it reaches every piece; a group Grant reaches only its group's, and
- * the piece's group is inside the piece, so the caller tries them in turn. Make them per request: each
- * expires within the gate's 5-minute limit. The keys the Grants open never leave this function.
+ * the piece's group is inside the piece, so the caller tries them in turn. Call the result once per
+ * request: the Grants are opened on the first call, and each call signs fresh requests, which expire
+ * within the gate's 5-minute limit. The keys the Grants open never leave this function.
  */
-export async function grantAuthorizations(
+export function grantAuthorizations(
   session: SessionCredentials,
   chainId: number | undefined,
   pieceCid: string
-): Promise<string[]> {
-  const grants = await loadGroupKeyGrants(session, chainId)
-  for (const g of grants) g.key.fill(0)
-  const ordered = [...grants.filter((g) => g.group == null), ...grants.filter((g) => g.group != null)]
+): () => Promise<string[]> {
+  // The Grants are opened (and any ignored one warned about) once; each call signs fresh requests.
+  let chains: Promise<OpenedGrant['chain'][]> | undefined
+  const open = async () => {
+    const grants = await loadGroupKeyGrants(session, chainId)
+    for (const g of grants) g.key.fill(0)
+    return [...grants.filter((g) => g.group == null), ...grants.filter((g) => g.group != null)].map((g) => g.chain)
+  }
   const bearer = privateKeyToAccount(session.sessionKey)
   const piece = CID.parse(pieceCid).bytes
-  return Promise.all(ordered.map((g) => authorizationHeader(bearer, g.chain, { pieceCid: piece })))
+  return async () => {
+    chains ??= open()
+    return Promise.all((await chains).map((chain) => authorizationHeader(bearer, chain, { pieceCid: piece })))
+  }
 }
 
 /** The command that asks for a Grant to `group`. */
