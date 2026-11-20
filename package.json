@@ -128,7 +128,7 @@
     "@chainsafe/libp2p-noise": "^17.0.0",
     "@chainsafe/libp2p-yamux": "^8.0.1",
     "@clack/prompts": "^1.0.1",
-    "@filoz/keysmith": "file:vendor/filoz-keysmith-0.2.0-061b1110.tgz",
+    "@filoz/keysmith": "^0.2.0",
     "@filoz/synapse-core": "^0.10.0",
     "@filoz/synapse-sdk": "^2.0.2",
     "@helia/block-brokers": "^5.1.3",
