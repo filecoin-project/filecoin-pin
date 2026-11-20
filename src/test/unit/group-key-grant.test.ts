@@ -356,13 +356,19 @@ describe('grantAuthorizations', () => {
     vi.stubEnv('GROUP_KEY_GRANT', env.GROUP_KEY_GRANT)
     vi.stubEnv('GROUP_KEY_ID', env.GROUP_KEY_ID)
     try {
-      const [whole, groupA] = await grantAuthorizations(session, CALIBRATION_CHAIN_ID, PIECE)
+      const authorizations = grantAuthorizations(session, CALIBRATION_CHAIN_ID, PIECE)
+      const [whole, groupA] = await authorizations()
       expect(whole).toMatch(/^FOC-Grant [A-Za-z0-9_-]+$/)
       // The whole group key's chain reaches a piece in any group; group a's reaches only group a.
       expect((await check(whole as string, PIECE, 'b')).bearer).toBe(SESSION_ADDRESS)
       expect((await check(groupA as string, PIECE, 'a/x')).bearer).toBe(SESSION_ADDRESS)
       await expect(check(groupA as string, PIECE, 'b')).rejects.toThrow(/does not reach/)
       await expect(check(whole as string, OTHER_PIECE)).rejects.toThrow(/names another piece/)
+
+      // The Grants were opened once: a later call (another provider) signs new requests without reading them again.
+      vi.stubEnv('GROUP_KEY_GRANT', '')
+      const again = await authorizations()
+      expect(again).toHaveLength(2)
     } finally {
       vi.unstubAllEnvs()
     }
@@ -372,7 +378,12 @@ describe('grantAuthorizations', () => {
 describe('ownerAuthorizations', () => {
   const PIECE = 'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy'
   const OTHER = `0x${'ab'.repeat(16)}` as const
-  const dataSet = (id: bigint, metadata: Record<string, string>) => ({ dataSetId: id, isLive: true, metadata })
+  // Every encrypted data set records foc/enc "1" with its group key and commitment
+  const dataSet = (id: bigint, metadata: Record<string, string>) => ({
+    dataSetId: id,
+    isLive: true,
+    metadata: { 'foc/enc': '1', ...metadata },
+  })
   const synapse = { chain: { id: CALIBRATION_CHAIN_ID } } as never
 
   it('signs a root claim to itself per group key of its private data sets, once, and a request per call', async () => {
@@ -410,6 +421,25 @@ describe('ownerAuthorizations', () => {
     await authorizations()
     expect(signs).toHaveBeenCalledTimes(8)
     signs.mockRestore()
+  })
+
+  it('skips a group key with a malformed id or a commitment this wallet does not match, and fetches with the rest', async () => {
+    const kc = await groupKeyCommitment(GROUP_KEY)
+    const all = [
+      dataSet(1n, { read: 'restricted', 'foc/gkid': GROUP_KEY, 'foc/kc': kc }),
+      dataSet(2n, { read: 'restricted', 'foc/gkid': OTHER.toUpperCase().replace('0X', '0x'), 'foc/kc': kc }),
+      dataSet(3n, { read: 'restricted', 'foc/gkid': OTHER, 'foc/kc': kc }),
+    ]
+    mockListDataSets.mockImplementation(async (_s, { filter }) => all.filter(filter))
+    const warn = vi.fn()
+    const headers = await ownerAuthorizations(synapse, OWNER, PIECE, { warn } as never)()
+    expect(headers).toHaveLength(1)
+    expect(warn).toHaveBeenCalledTimes(2)
+  })
+
+  it('says so when none of its group keys can be read', async () => {
+    mockListDataSets.mockResolvedValue([dataSet(1n, { read: 'restricted', 'foc/gkid': OTHER, 'foc/kc': 'nope' })])
+    await expect(ownerAuthorizations(synapse, OWNER, PIECE)()).rejects.toThrow(/has a group key it can read/)
   })
 
   it('says so when the wallet has no private data sets', async () => {

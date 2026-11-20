@@ -197,6 +197,21 @@ export function oldestValidGroupKey(
   dataSets: DataSetSummary[],
   logger?: Logger
 ): { groupKeyId: Hex; commitment: string } | undefined {
+  let best: { groupKeyId: Hex; commitment: string; oldest: bigint } | undefined
+  for (const key of validGroupKeys(dataSets, logger)) {
+    if (best == null || key.oldest < best.oldest) best = key
+  }
+  return best == null ? undefined : { groupKeyId: best.groupKeyId, commitment: best.commitment }
+}
+
+/**
+ * Every group key {@link oldestValidGroupKey} would consider, with its commitment and its oldest
+ * data set id; the skipped ones are logged.
+ */
+function validGroupKeys(
+  dataSets: DataSetSummary[],
+  logger?: Logger
+): { groupKeyId: Hex; commitment: string; oldest: bigint }[] {
   const byGroupKey = new Map<string, DataSetSummary[]>()
   for (const dataSet of dataSets) {
     const groupKeyId = dataSet.metadata?.[GROUP_KEY_ID_KEY]
@@ -207,7 +222,7 @@ export function oldestValidGroupKey(
     else members.push(dataSet)
   }
 
-  let best: { groupKeyId: Hex; commitment: string; oldest: bigint } | undefined
+  const valid: { groupKeyId: Hex; commitment: string; oldest: bigint }[] = []
   for (const [groupKeyId, members] of byGroupKey) {
     if (!CANONICAL_GROUP_KEY_ID.test(groupKeyId)) {
       logger?.warn(
@@ -238,11 +253,9 @@ export function oldestValidGroupKey(
       (min, dataSet) => (dataSet.dataSetId < min ? dataSet.dataSetId : min),
       members[0]?.dataSetId ?? 0n
     )
-    if (best == null || oldest < best.oldest) {
-      best = { groupKeyId: groupKeyId as Hex, commitment, oldest }
-    }
+    valid.push({ groupKeyId: groupKeyId as Hex, commitment, oldest })
   }
-  return best == null ? undefined : { groupKeyId: best.groupKeyId, commitment: best.commitment }
+  return valid
 }
 
 /** The key for one upload and the labels its envelope carries. */
@@ -336,19 +349,25 @@ export function ownerAuthorizations(
         typeof dataSet.metadata?.[GROUP_KEY_ID_KEY] === 'string',
       ...(logger != null && { logger }),
     })
-    // Each group key once, with the commitment its data sets record: one signature, checked against the chain.
-    const commitments = new Map<Hex, string | undefined>()
-    for (const dataSet of restricted) {
-      commitments.set(dataSet.metadata?.[GROUP_KEY_ID_KEY] as Hex, dataSet.metadata?.[GROUP_KEY_COMMITMENT_KEY])
-    }
-    if (commitments.size === 0) {
+    if (restricted.length === 0) {
       throw new Error(`Wallet ${signer.address} has no private data sets: nothing to fetch with --piece`)
     }
+    // Each group key once, by oldestValidGroupKey's rule: one signature, checked against the commitment.
+    // A group key that fails is skipped, so one bad data set cannot block every fetch.
     const expires = Math.floor(Date.now() / 1000) + OWNER_READ_CLAIM_SECONDS
     const issued = []
-    for (const [groupKeyId, commitment] of commitments) {
+    for (const { groupKeyId, commitment } of validGroupKeys(restricted, logger)) {
       const ref = { owner: signer.address, groupKeyId }
-      const { groupKey } = await deriveGroupKey(signer, ref, commitment == null ? {} : { commitment })
+      let groupKey: Uint8Array
+      try {
+        ;({ groupKey } = await deriveGroupKey(signer, ref, { commitment }))
+      } catch (error) {
+        logger?.warn(
+          { event: 'group-key.skipped', groupKeyId, error: error instanceof Error ? error.message : String(error) },
+          'Skipping group key: this wallet does not derive it'
+        )
+        continue
+      }
       try {
         const { chain, nodeKey } = await rootClaim(signer, {
           ...ref,
@@ -364,6 +383,9 @@ export function ownerAuthorizations(
       } finally {
         groupKey.fill(0)
       }
+    }
+    if (issued.length === 0) {
+      throw new Error(`None of wallet ${signer.address}'s private data sets has a group key it can read`)
     }
     return issued
   }
