@@ -337,9 +337,8 @@ const OWNER_READ_CLAIM_SECONDS = 3600
 export function ownerAuthorizations(
   synapse: Synapse,
   signer: OwnerSigner,
-  pieceCid: string,
   logger?: Logger
-): () => Promise<string[]> {
+): (pieceCid: string) => Promise<string[]> {
   let chains: Promise<Awaited<ReturnType<typeof rootClaim>>['chain'][]> | undefined
   const issue = async () => {
     const restricted = await listDataSets(synapse, {
@@ -389,9 +388,9 @@ export function ownerAuthorizations(
     }
     return issued
   }
-  const piece = CID.parse(pieceCid).bytes
-  return async () => {
+  return async (pieceCid) => {
     chains ??= issue()
+    const piece = CID.parse(pieceCid).bytes
     return Promise.all((await chains).map((chain) => authorizationHeader(signer, chain, { pieceCid: piece })))
   }
 }

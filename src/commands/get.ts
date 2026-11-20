@@ -14,10 +14,7 @@ export const getCommand = new Command('get')
     '--share <link>',
     'Fetch and decrypt the piece a Share link (from get-share-link) names, instead of using your own credentials'
   )
-  .option(
-    '--piece <piece-cid>',
-    'Fetch a private upload (add --private) from /download/<piece-cid> on your gated data sets, authorized by the owner wallet or your session key Grants'
-  )
+  .option('--piece <piece-cid>', "A private upload's piece CID, to skip finding it by the root CID (see below)")
   .addOption(
     new Option('--access-key <key>', "The Share link's Access key (fak1_…), unless the link carries it").env(
       'SHARE_ACCESS_KEY'
@@ -28,7 +25,9 @@ export const getCommand = new Command('get')
     `
 Providers are found through IPNI (cid.contact) and, when an address is known (PRIVATE_KEY,
 WALLET_ADDRESS or VIEW_ADDRESS), the providers of that address's own data sets; with --share,
-also the sharer's. Every block
+also the sharer's. A private upload (add --private) is found by its root CID among your own
+read-restricted data sets and fetched from their gated /download/, authorized by the owner wallet
+or your session key's Grants; --piece names its piece directly. Every block
 is verified against the CID before anything is written; a bad download is discarded and the
 next provider is tried.
 

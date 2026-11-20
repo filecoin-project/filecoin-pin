@@ -19,7 +19,12 @@ import { CliFatal } from '../common/cli-errors.js'
 import { envelopeLabelsFromCar, readEnvelopeLabels } from '../common/envelope-labels.js'
 import { GRANT_LOGIN_COMMAND, ownerAuthorizations } from '../common/group-key.js'
 import { grantAuthorizations, loadGroupKeyGrants } from '../common/group-key-grant.js'
-import { DISCOVERY_TIMEOUT_MS, fetchVerifiedCar, ipniProviderUrls } from '../common/ipfs-car-fetch.js'
+import {
+  type Authorizations,
+  DISCOVERY_TIMEOUT_MS,
+  fetchVerifiedCar,
+  ipniProviderUrls,
+} from '../common/ipfs-car-fetch.js'
 import { type CreatedShare, createShare, type ShareMode, type ShareSender } from '../common/share-link.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
 import { addressOf, ownProviders, readOnlySynapse } from '../get/get.js'
@@ -48,13 +53,13 @@ async function findPrivateUpload(
   logger: Logger
 ): Promise<{ labels: PieceMetadata; providers: string[] }> {
   // The owner wallet authorizes itself; a session key presents its Grants.
-  let authorizations: () => Promise<string[]>
+  let authorizations: Authorizations
   if ('privateKey' in auth && auth.privateKey != null) {
     const synapse = await readOnlySynapse(auth, address, logger)
-    authorizations = ownerAuthorizations(synapse, privateKeyToAccount(auth.privateKey), pieceCid, logger)
+    authorizations = ownerAuthorizations(synapse, privateKeyToAccount(auth.privateKey), logger)
   } else if ('sessionKey' in auth && auth.sessionKey != null) {
     const session = { sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }
-    authorizations = grantAuthorizations(session, chainId, pieceCid)
+    authorizations = grantAuthorizations(session, chainId)
   } else {
     throw new Error(
       '--piece needs the owner wallet (PRIVATE_KEY) or a session key holding a group key Grant (`filecoin-pin login --group <group>`)'
