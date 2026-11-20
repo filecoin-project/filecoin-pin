@@ -18,8 +18,8 @@ importers:
         specifier: ^1.0.1
         version: 1.5.1
       '@filoz/keysmith':
-        specifier: file:vendor/filoz-keysmith-0.2.0-061b1110.tgz
-        version: file:vendor/filoz-keysmith-0.2.0-061b1110.tgz(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
+        specifier: ^0.2.0
+        version: 0.2.0(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
       '@filoz/synapse-core':
         specifier: ^0.10.0
         version: 0.10.2(typescript@6.0.3)(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))
@@ -726,9 +726,8 @@ packages:
   '@fastify/proxy-addr@5.1.2':
     resolution: {integrity: sha512-uqB4QsgVoro0XDC+DIftIMGXHdBPn+lK6Ek3xXAIxPMCJfqxnbtyEoMCm2KPUVOuIosd7Cyw9HawEqMFM/UA+g==}
 
-  '@filoz/keysmith@file:vendor/filoz-keysmith-0.2.0-061b1110.tgz':
-    resolution: {integrity: sha512-kgNzD8JOwKrFuvNFe3nnzhKnxKZHIaw7DSNpp5YNWOxcUdAt++90WMfI9iAitYg8QW8l2iSFY/4Z0bkkAOiCHA==, tarball: file:vendor/filoz-keysmith-0.2.0-061b1110.tgz}
-    version: 0.2.0-061b1110
+  '@filoz/keysmith@0.2.0':
+    resolution: {integrity: sha512-fX2hcDKRUsjh13CGX75xOY5Gra0ueqfKkbSuu5B72CUO40qnB8LUHY+dPKWGN65i3EGHMjRF8U9r0r7KL0Xlxw==}
     peerDependencies:
       viem: 2.x
 
@@ -2972,7 +2971,7 @@ snapshots:
       '@fastify/forwarded': 3.1.1
       ipaddr.js: 2.5.0
 
-  '@filoz/keysmith@file:vendor/filoz-keysmith-0.2.0-061b1110.tgz(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))':
+  '@filoz/keysmith@0.2.0(viem@2.55.19(typescript@6.0.3)(zod@4.4.3))':
     dependencies:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
@@ -3166,12 +3165,12 @@ snapshots:
 
   '@ipld/dag-cbor@9.2.7':
     dependencies:
-      cborg: 5.1.7
+      cborg: 5.1.11
       multiformats: 13.4.2
 
   '@ipld/dag-json@10.2.9':
     dependencies:
-      cborg: 5.1.7
+      cborg: 5.1.11
       multiformats: 13.4.2
 
   '@ipld/dag-pb@4.1.7':
@@ -3204,8 +3203,8 @@ snapshots:
   '@libp2p/crypto@5.1.20':
     dependencies:
       '@libp2p/interface': 3.2.5
-      '@noble/curves': 2.2.0
-      '@noble/hashes': 2.2.0
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
       multiformats: 14.0.4
       protons-runtime: 7.0.0
       uint8arraylist: 3.0.2
