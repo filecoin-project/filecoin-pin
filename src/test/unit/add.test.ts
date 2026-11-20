@@ -1006,7 +1006,7 @@ describe('Add Command', () => {
         const shown = vi.mocked(displayUploadResults).mock.calls.at(-1)?.[0] as { copies: { retrievalUrl: string }[] }
         expect(shown.copies.map((copy) => copy.retrievalUrl)).toEqual([''])
         expect(lines.mock.calls.map(([text]) => String(text))).toContain(
-          `  Read it back: filecoin-pin get ${result.rootCid} --piece bafkzcibtest1234567890`
+          `  Read it back: filecoin-pin get ${result.rootCid}`
         )
       })
 
