@@ -1,15 +1,18 @@
 import { readFileSync } from 'node:fs'
 import {
-  keyspaceKeys as deriveGroupKey,
+  decodeDelivery,
+  decodeGrant,
+  deriveGroupKey,
   keyForEnvelope,
   newSalt,
   type PieceMetadata,
   pieceMetadata,
+  verifyPresentation,
 } from '@filoz/keysmith'
 import { CID } from 'multiformats/cid'
 import { bytesToHex } from 'viem'
 import { generatePrivateKey } from 'viem/accounts'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { openGroupKeyGrant } from '../../common/group-key-grant.js'
 import {
   accessKeyText,
@@ -18,8 +21,10 @@ import {
   parseAccessKey,
   parseShareLink,
   type ShareSender,
+  shareDownload,
   shareKey,
   shareKeyResolver,
+  shareOwner,
 } from '../../common/share-link.js'
 import {
   CALIBRATION_CHAIN_ID,
@@ -33,12 +38,12 @@ import {
 const ROOT = CID.parse('bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi')
 const VIEWER = 'https://viewer.test/'
 
-const labelsFor = (salt = newSalt()): PieceMetadata =>
-  pieceMetadata({ owner: OWNER.address, keyspace: GROUP_KEY }, { salt })
+const labelsFor = (salt = newSalt(), group?: string): PieceMetadata =>
+  pieceMetadata({ owner: OWNER.address, groupKeyId: GROUP_KEY }, { salt, ...(group != null && { group }) })
 
 /** The upload's key as the owner derives it: what every share must open to. */
 async function ownerPieceKey(labels: PieceMetadata): Promise<string> {
-  const { kk } = await deriveGroupKey(OWNER, { owner: OWNER.address, keyspace: GROUP_KEY })
+  const { groupKey: kk } = await deriveGroupKey(OWNER, { owner: OWNER.address, groupKeyId: GROUP_KEY })
   return bytesToHex(keyForEnvelope(kk, labels))
 }
 
@@ -49,7 +54,7 @@ async function sessionSender(): Promise<ShareSender> {
     walletAddress: OWNER.address,
     chainId: CALIBRATION_CHAIN_ID,
   })
-  return { grant }
+  return { grants: [grant] }
 }
 
 /** Open a created share as a recipient would, and return the key it gives for `labels`. */
@@ -124,7 +129,7 @@ describe('createShare', () => {
 
   it('refuses to share an upload of another owner', async () => {
     const labels = pieceMetadata(
-      { owner: '0x0000000000000000000000000000000000000001', keyspace: GROUP_KEY },
+      { owner: '0x0000000000000000000000000000000000000001', groupKeyId: GROUP_KEY },
       { salt: newSalt() }
     )
     await expect(
@@ -177,7 +182,7 @@ describe('pinned vectors', () => {
     expect(parseShareLink(link)).toEqual({ rootCid: ROOT, payload: PAYLOAD, ...(accessKey != null && { accessKey }) })
   })
 
-  // Made once on 2026-10-28 by createShare (owner: Anvil #0; GROUP_KEY; salt 00..0f; bearers
+  // Made on 2026-11-18 (keysmith format 2) by createShare (owner: Anvil #0; GROUP_KEY; salt 00..0f; bearers
   // random). Links already sent must keep opening: a change to the link or the grant must
   // show up here, not get regenerated.
   it('derives the pinned piece key from the vector labels', async () => {
@@ -190,5 +195,180 @@ describe('pinned vectors', () => {
     const T = shareKey(parsed, vector.accessKey)
     const key = await shareKeyResolver(parsed, T)({ appMetadata: vectors.labels } as never)
     expect(bytesToHex(key)).toBe(vectors.pieceKey)
+  })
+})
+
+describe('a share link from filecoin-pin 2.3 or 2.4 (keysmith 0.1.0)', () => {
+  it('says it is no longer readable, not that the Access key is wrong', async () => {
+    const parsed = parseShareLink(
+      'https://viewer.test/#v1/bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi&d=pwABAXgocGllY2U6MHgwMDAxMDIwMzA0MDUwNjA3MDgwOTBhMGIwYzBkMGUwZgJU85_W5RqtiPb0zmq4gnJ5z_-5ImYDUALKCM9-AiLIQyrcFZIyt-sEWEEEbM60TnCFAJPv1N3nGck4lS5U65RKTOQMeKo0vrEUp1nfjDdtw1sx3wG82jhhCQnIymF2g28piHdYI4O9FX-FzwVMbvHPgHT5gdVTJdbrBlgwPwGfuNJ1BsUhPuxgitHPGO7k3hsEnNfXfn6k60dzF-3dwlbs8fsBEUiq54dDh2q5&k=fak1_NriZvJuvxjbKLvUb9ExS2AqO2kkVNDGuh3zW1LM9hpM'
+    )
+    await expect(shareOwner(parsed, shareKey(parsed, undefined))).rejects.toThrow(
+      /keysmith 0\.1\.0 \(format 1\) data is not supported/
+    )
+  })
+})
+
+describe('Grant keys', () => {
+  it('are zeroed even when the labels are refused before any key is used', async () => {
+    const opened = await openGroupKeyGrant(await makeGrant(), {
+      sessionKey: SESSION_KEY,
+      walletAddress: OWNER.address,
+      chainId: CALIBRATION_CHAIN_ID,
+    })
+    const bad = { ...labelsFor(), 'foc/salt': 'not hex' } as unknown as PieceMetadata
+
+    await expect(
+      createShare({ sender: { grants: [opened] }, rootCid: ROOT, labels: bad, mode: 'open' })
+    ).rejects.toThrow()
+    expect(opened.key.every((byte) => byte === 0)).toBe(true)
+  })
+})
+
+describe('shares from a session key holding group Grants', () => {
+  const groupSender = async (...nodes: string[]): Promise<ShareSender> => ({
+    grants: await Promise.all(
+      nodes.map(async (node) =>
+        openGroupKeyGrant(await makeGrant({ node }), {
+          sessionKey: SESSION_KEY,
+          walletAddress: OWNER.address,
+          chainId: CALIBRATION_CHAIN_ID,
+        })
+      )
+    ),
+  })
+
+  it.each([
+    ['in a group beneath a held one', 'team/a/docs'],
+    ['in another held group', 'other'],
+  ])('shares an upload %s, as a piece grant that opens to its key', async (_case, group) => {
+    const labels = labelsFor(newSalt(), group)
+    const share = await createShare({
+      sender: await groupSender('group:team/a', 'group:other'),
+      rootCid: ROOT,
+      labels,
+      mode: 'open',
+      viewer: VIEWER,
+    })
+
+    expect(await open(share.link, undefined, labels)).toBe(await ownerPieceKey(labels))
+    // The link carries one piece, never a group: the recipient gets this upload only.
+    expect(decodeGrant(parseShareLink(share.link).payload).node).toBe(`piece:${labels['foc/salt']}`)
+  })
+
+  it('refuses an upload outside every held group, naming the login to run', async () => {
+    const labels = labelsFor(newSalt(), 'finance')
+    await expect(
+      createShare({ sender: await groupSender('group:team/a'), rootCid: ROOT, labels, mode: 'open', viewer: VIEWER })
+    ).rejects.toThrow(/in group finance, outside every group .*--group finance/)
+  })
+})
+
+describe('share links for private uploads', () => {
+  const PIECE = 'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy'
+  const OTHER_PIECE = 'bafkzcibcaapao7rtuqyy2qvnpoqbbefwlfb6rnksbmhgqmlnfqxdzfuoxuy5emi'
+  const target = {
+    pieceCid: PIECE,
+    providers: ['https://sp1.test', 'http://localhost:5711'],
+    chainId: CALIBRATION_CHAIN_ID,
+  }
+  const groupSender = async (node: string, maxDepth: number): Promise<ShareSender> => ({
+    grants: [
+      await openGroupKeyGrant(await makeGrant({ node, maxDepth }), {
+        sessionKey: SESSION_KEY,
+        walletAddress: OWNER.address,
+        chainId: CALIBRATION_CHAIN_ID,
+      }),
+    ],
+    sessionKey: SESSION_KEY,
+  })
+
+  /** What a gate checks: the header presented for `pieceCid`, against the piece's labels. */
+  const gateAccepts = async (header: string, pieceCid: string, labels: PieceMetadata) =>
+    verifyPresentation(new Uint8Array(Buffer.from(header.slice('FOC-Grant '.length), 'base64url')), {
+      pieceCid: CID.parse(pieceCid).bytes,
+      piece: labels as never,
+      chainId: BigInt(CALIBRATION_CHAIN_ID),
+    })
+
+  it.each([
+    ['the owner wallet', async () => ({ owner: OWNER }) as ShareSender, 1],
+    ['a session key, delegating from its group Grant', () => groupSender('group:team', 1), 2],
+  ])(
+    'from %s: a Delivery that opens the upload and lets the link key fetch that piece only',
+    async (_case, sender, links) => {
+      const labels = labelsFor(newSalt(), 'team/docs')
+      const share = await createShare({
+        sender: await sender(),
+        rootCid: ROOT,
+        labels,
+        mode: 'restricted',
+        viewer: VIEWER,
+        private: target,
+      })
+      const parsed = parseShareLink(share.link)
+      expect(parsed.providers).toEqual(target.providers)
+      expect(decodeDelivery(parsed.payload).chain.links).toHaveLength(links)
+
+      const T = shareKey(parsed, share.accessKey)
+      expect(await open(share.link, share.accessKey, labels)).toBe(await ownerPieceKey(labels))
+      const download = await shareDownload(parsed, T)
+      expect(download?.pieceCid).toBe(PIECE)
+      const [header] = (await download?.authorizations()) ?? []
+      expect((await gateAccepts(header ?? '', PIECE, labels)).node).toBe(`piece:${labels['foc/salt']}`)
+      await expect(gateAccepts(header ?? '', OTHER_PIECE, labels)).rejects.toThrow(/another piece/)
+    }
+  )
+
+  it('refuses a session key Grant that allows no delegation, naming the login to run', async () => {
+    await expect(
+      createShare({
+        sender: await groupSender('group:team', 0),
+        rootCid: ROOT,
+        labels: labelsFor(newSalt(), 'team'),
+        mode: 'open',
+        viewer: VIEWER,
+        private: target,
+      })
+    ).rejects.toThrow(
+      /allows no delegation, so it cannot share a private upload: run `filecoin-pin login --group team`/
+    )
+  })
+
+  it('refuses a private share once its claim has expired', async () => {
+    const labels = labelsFor()
+    const share = await createShare({
+      sender: { owner: OWNER },
+      rootCid: ROOT,
+      labels,
+      mode: 'open',
+      viewer: VIEWER,
+      private: target,
+    })
+    const parsed = parseShareLink(share.link)
+    vi.useFakeTimers({ now: Date.now() + 31 * 24 * 3600 * 1000 })
+    try {
+      await expect(shareDownload(parsed, shareKey(parsed, undefined))).rejects.toThrow(/This share expired at/)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('refuses a provider in s that is not an http(s) URL', () => {
+    const share = `${VIEWER}#v1/${ROOT}&d=gwECAw&s=${encodeURIComponent('javascript:alert(1)')}`
+    expect(() => parseShareLink(share)).toThrow(/not an http\(s\) URL/)
+  })
+
+  it("a public upload's share has no download: it is fetched on the open path", async () => {
+    const share = await createShare({
+      sender: { owner: OWNER },
+      rootCid: ROOT,
+      labels: labelsFor(),
+      mode: 'open',
+      viewer: VIEWER,
+    })
+    const parsed = parseShareLink(share.link)
+    expect(parsed.providers).toBeUndefined()
+    expect(await shareDownload(parsed, shareKey(parsed, undefined))).toBeUndefined()
   })
 })

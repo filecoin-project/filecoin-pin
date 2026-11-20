@@ -27,8 +27,12 @@ export const addCommand = new Command('add')
     'Upload to private data sets (read=restricted): providers serve their pieces only on the authenticated path, to readers the owner authorized. Implies --encrypt. A data set is private from creation and never changes, so private uploads go only to private data sets of your group key.'
   )
   .option(
+    '--group <path>',
+    'With --encrypt or --private: write under this group (a/b/c) of the group key, so Grants for that group (or one above it) can read it. A session key needs a Grant that covers it (login --group). Group names are public in the envelope.'
+  )
+  .option(
     '--get-share-link',
-    'With --encrypt: print a Share link that opens the upload on its own (see get-share-link)'
+    'With --encrypt or --private: print a Share link that opens the upload on its own (see get-share-link)'
   )
   .option('--get-share-link-restricted', 'With --encrypt: print a Share link and its Access key, to send separately')
   .option(

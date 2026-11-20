@@ -75,9 +75,10 @@ export function consoleNetworkSlug(chainId: number, consoleUrl: string = resolve
  *
  * `keyAgreement` (`login --scopes …,encrypt`) adds `pubkey` and `pubkeysig`:
  * the console then also issues a group key Grant wrapped to `pubkey`, once it
- * has checked `pubkeysig` recovers to the session address. `node=keyspace` asks
- * for the whole group key, the only kind of Grant this version reads; a console
- * refuses a node it does not issue.
+ * has checked `pubkeysig` recovers to the session address. `node` is `groupKey`
+ * (the whole group key, the default) or `group:<path>`; `maxdepth` (0–7) limits
+ * the links the session key may add below its Grant. A console refuses a node it
+ * does not issue.
  *
  * The address is lowercased: the console validates it with viem's strict
  * `isAddress`, which accepts all-lowercase or a correct EIP-55 checksum but
@@ -88,9 +89,12 @@ export function buildAuthorizeUrl(
   sessionAddress: string,
   scopeIds: string[],
   chainId: number,
-  keyAgreement?: { pubkey: string; pubkeysig: string }
+  keyAgreement?: { pubkey: string; pubkeysig: string; node?: string; maxDepth?: number }
 ): string {
-  const pubkey = keyAgreement ? `&pubkey=${keyAgreement.pubkey}&pubkeysig=${keyAgreement.pubkeysig}&node=keyspace` : ''
+  const depth = keyAgreement?.maxDepth == null ? '' : `&maxdepth=${keyAgreement.maxDepth}`
+  const pubkey = keyAgreement
+    ? `&pubkey=${keyAgreement.pubkey}&pubkeysig=${keyAgreement.pubkeysig}&node=${encodeURIComponent(keyAgreement.node ?? 'groupKey')}${depth}`
+    : ''
   return withUtm(
     `${trimSlash(consoleUrl)}/console/setup?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId, consoleUrl)}${pubkey}`,
     'login'

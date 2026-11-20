@@ -14,6 +14,7 @@ export const getCommand = new Command('get')
     '--share <link>',
     'Fetch and decrypt the piece a Share link (from get-share-link) names, instead of using your own credentials'
   )
+  .option('--piece <piece-cid>', "A private upload's piece CID, to skip finding it by the root CID (see below)")
   .addOption(
     new Option('--access-key <key>', "The Share link's Access key (fak1_…), unless the link carries it").env(
       'SHARE_ACCESS_KEY'
@@ -24,7 +25,9 @@ export const getCommand = new Command('get')
     `
 Providers are found through IPNI (cid.contact) and, when an address is known (PRIVATE_KEY,
 WALLET_ADDRESS or VIEW_ADDRESS), the providers of that address's own data sets; with --share,
-also the sharer's. Every block
+also the sharer's. A private upload (add --private) is found by its root CID among your own
+read-restricted data sets and fetched from their gated /download/, authorized by the owner wallet
+or your session key's Grants; --piece names its piece directly. Every block
 is verified against the CID before anything is written; a bad download is discarded and the
 next provider is tried.
 
@@ -32,7 +35,13 @@ A plain file or folder is saved as <output-dir>/<cid> (its DAG holds no name). A
 upload is decrypted with the owner wallet (PRIVATE_KEY), a session key's group key Grant, or
 --share with its Access key, and restored under its original name.
 Nothing in <output-dir> is overwritten: a taken name is numbered like a browser download
-(<cid> -> "<cid>(1)", report.pdf -> "report(1).pdf"). Plain content needs no credentials.`
+(<cid> -> "<cid>(1)", report.pdf -> "report(1).pdf"). Plain content needs no credentials.
+
+A private upload (add --private) is served only on the authenticated path: pass its piece CID
+with --piece. It is fetched from /download/<piece-cid> on your own read-restricted data sets,
+with an Authorization header from each of your session key's Grants in turn, until one reaches
+the upload's group. The owner wallet (PRIVATE_KEY) authorizes itself instead: it signs, once per
+group key of its private data sets, a claim to read that group key.`
   )
 
 addAuthOptions(getCommand)

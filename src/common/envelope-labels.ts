@@ -22,11 +22,13 @@
  * cut that to a few KB and stay verified; not relied on here, since support varies.
  */
 
-import type { PieceMetadata } from '@filoz/keysmith'
+import { type PieceMetadata, readPieceMetadata } from '@filoz/keysmith'
+import { CarIndexedReader } from '@ipld/car/indexed-reader'
 import * as dagPb from '@ipld/dag-pb'
 import * as fee from 'filecoin-encryption-envelope'
 import { UnixFS } from 'ipfs-unixfs'
 import { CID } from 'multiformats/cid'
+import { format1Message } from './group-key.js'
 import { assertHash, MAX_BLOCK_BYTES, RESPONSE_TIMEOUT_MS } from './ipfs-car-fetch.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC } from './unixfs-car-layout.js'
 
@@ -75,12 +77,12 @@ async function fetchBlock(provider: string, cid: CID, fetchImpl: typeof fetch): 
 
 /**
  * The first bytes of the UnixFS file at `root`: the first leaf, reached through first links.
- * Every block on the way is verified against the CID that names it.
+ * `getBlock` returns each block on the way, verified against the CID that names it.
  */
-async function firstLeaf(provider: string, root: CID, fetchImpl: typeof fetch): Promise<Uint8Array> {
+async function firstLeaf(root: CID, getBlock: (cid: CID) => Promise<Uint8Array>): Promise<Uint8Array> {
   let cid = root
   for (let depth = 0; depth < MAX_DEPTH; depth++) {
-    const bytes = await fetchBlock(provider, cid, fetchImpl)
+    const bytes = await getBlock(cid)
     if (cid.code === RAW_CODEC) return bytes
     if (cid.code !== DAG_PB_CODEC) throw plainContent(root)
     const node = dagPb.decode(bytes)
@@ -115,12 +117,12 @@ async function headerLabels(bytes: Uint8Array, root: CID): Promise<PieceMetadata
     .catch(() => undefined)
   if (labels == null) throw plainContent(root)
   if (contentType !== CAR_CONTENT_TYPE) throw foreignEnvelope(root)
-  if (
-    labels['foc/v'] !== 1 ||
-    typeof labels['foc/own'] !== 'string' ||
-    typeof labels['foc/ks'] !== 'string' ||
-    typeof labels['foc/salt'] !== 'string'
-  ) {
+  try {
+    // Keysmith format 2 only: a keysmith 0.1.0 envelope says so, anything else reads as foreign.
+    readPieceMetadata(labels)
+  } catch (error) {
+    const format1 = format1Message(error)
+    if (format1 != null) throw new NotEncryptedUploadError(`${root} cannot be shared: ${format1}`)
     throw foreignEnvelope(root)
   }
   return labels as unknown as PieceMetadata
@@ -141,7 +143,7 @@ export async function readEnvelopeLabels(
   const failures: string[] = []
   for (const provider of providers) {
     try {
-      return await headerLabels(await firstLeaf(provider, root, fetchImpl), root)
+      return await headerLabels(await firstLeaf(root, (cid) => fetchBlock(provider, cid, fetchImpl)), root)
     } catch (error) {
       // A verified answer: the next provider would serve the same blocks.
       if (error instanceof NotEncryptedUploadError) throw error
@@ -153,4 +155,25 @@ export async function readEnvelopeLabels(
       ? `No provider found for ${root}`
       : `Could not read the header of ${root} from any provider (${failures.join('; ')})`
   )
+}
+
+/**
+ * The header labels of the upload at `root`, from a CAR of it already downloaded and verified
+ * (a private upload's piece, fetched on the authenticated path).
+ *
+ * @throws NotEncryptedUploadError when the content is not an `add --encrypt` upload.
+ */
+export async function envelopeLabelsFromCar(carPath: string, root: CID): Promise<PieceMetadata> {
+  const reader = await CarIndexedReader.fromFile(carPath)
+  try {
+    const leaf = await firstLeaf(root, async (cid) => {
+      const block = await reader.get(cid as never)
+      if (block == null) throw plainContent(root)
+      await assertHash(cid, block.bytes)
+      return block.bytes
+    })
+    return await headerLabels(leaf, root)
+  } finally {
+    await reader.close()
+  }
 }

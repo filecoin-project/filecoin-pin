@@ -14,6 +14,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
+import { decodeDelivery } from '@filoz/keysmith'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { CarWriter } from '@ipld/car'
 import * as fee from 'filecoin-encryption-envelope'
@@ -29,6 +30,7 @@ import type { AddDryRunResult, AddResult } from '../../add/types.js'
 import { EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
 import { decryptToDirectory } from '../../common/encryption.js'
 import { defaultGroupKeyId, oldestValidGroupKey, ownerKeyResolver } from '../../common/group-key.js'
+import { parseShareLink } from '../../common/share-link.js'
 import type { DataSetSummary } from '../../core/data-set/index.js'
 import { groupKeyCommitment, makeGrant, SESSION_KEY } from '../fixtures/group-key-grants.js'
 
@@ -711,7 +713,7 @@ describe('Add Command', () => {
     const OWNER = privateKeyToAccount('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80')
     const STRANGER = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d')
     const VECTOR_GROUP_KEY = '0x00112233445566778899aabbccddeeff'
-    const VECTOR_COMMITMENT = 'v1.6982807649650e311e4c69af4ac90417'
+    const VECTOR_COMMITMENT = 'v2.577089220f63dc662b4fc4a60abe1b48'
     // defaultGroupKeyId(OWNER), cross-checked with @noble/hashes keccak_256 and `cast keccak`.
     const OWNER_DEFAULT_GROUP_KEY = '0x02ca08cf7e0222c8432adc159232b7eb'
     const GRANT_GROUP_KEY = OWNER_DEFAULT_GROUP_KEY
@@ -793,9 +795,9 @@ describe('Add Command', () => {
 
       const { appMetadata } = await decrypt(packedFile().bytes)
       expect({ ...appMetadata }).toEqual({
-        'foc/v': 1,
+        'foc/v': 2,
         'foc/own': OWNER.address.toLowerCase(),
-        'foc/ks': expect.stringMatching(/^0x[0-9a-f]{32}$/),
+        'foc/gkid': expect.stringMatching(/^0x[0-9a-f]{32}$/),
         'foc/salt': expect.stringMatching(/^0x[0-9a-f]{32}$/),
       })
     })
@@ -809,8 +811,8 @@ describe('Add Command', () => {
         ipfsIndexing: true,
         requiredMetadata: {
           'foc/enc': '1',
-          'foc/ks': appMetadata?.['foc/ks'],
-          'foc/kc': expect.stringMatching(/^v1\.[0-9a-f]{32}$/),
+          'foc/gkid': appMetadata?.['foc/gkid'],
+          'foc/kc': expect.stringMatching(/^v2\.[0-9a-f]{32}$/),
           withIPFSIndexing: '',
         },
       })
@@ -819,7 +821,7 @@ describe('Add Command', () => {
     const groupKeySet = (dataSetId: bigint, metadata: Record<string, string>) => ({
       dataSetId,
       isLive: true,
-      metadata: { 'foc/enc': '1', 'foc/ks': VECTOR_GROUP_KEY, 'foc/kc': VECTOR_COMMITMENT, ...metadata },
+      metadata: { 'foc/enc': '1', 'foc/gkid': VECTOR_GROUP_KEY, 'foc/kc': VECTOR_COMMITMENT, ...metadata },
     })
     const OTHER_GROUP_KEY = `0x${'ab'.repeat(16)}`
 
@@ -829,15 +831,15 @@ describe('Add Command', () => {
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-      expect(appMetadata?.['foc/ks']).toBe(VECTOR_GROUP_KEY)
+      expect(appMetadata?.['foc/gkid']).toBe(VECTOR_GROUP_KEY)
       const { resolveUploadTargets } = await import('../../common/upload-flow.js')
       expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]).toMatchObject({
-        requiredMetadata: { 'foc/ks': VECTOR_GROUP_KEY, 'foc/kc': VECTOR_COMMITMENT },
+        requiredMetadata: { 'foc/gkid': VECTOR_GROUP_KEY, 'foc/kc': VECTOR_COMMITMENT },
       })
     })
 
     it('stops when the recorded commitment does not match this wallet', async () => {
-      mockListDataSets.mockResolvedValue([groupKeySet(7n, { 'foc/kc': `v1.${'0'.repeat(32)}` })])
+      mockListDataSets.mockResolvedValue([groupKeySet(7n, { 'foc/kc': `v2.${'0'.repeat(32)}` })])
 
       await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow(/commitment/)
       expect(packed).toBeUndefined()
@@ -845,7 +847,7 @@ describe('Add Command', () => {
 
     it('with two group keys, uses the one holding the oldest data set', async () => {
       mockListDataSets.mockResolvedValue([
-        groupKeySet(9n, { 'foc/ks': OTHER_GROUP_KEY, 'foc/kc': `v1.${'0'.repeat(32)}` }),
+        groupKeySet(9n, { 'foc/gkid': OTHER_GROUP_KEY, 'foc/kc': `v2.${'0'.repeat(32)}` }),
         groupKeySet(12n, {}),
         groupKeySet(3n, {}),
       ])
@@ -853,20 +855,20 @@ describe('Add Command', () => {
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-      expect(appMetadata?.['foc/ks']).toBe(VECTOR_GROUP_KEY)
+      expect(appMetadata?.['foc/gkid']).toBe(VECTOR_GROUP_KEY)
     })
 
     it('skips a group key whose data sets disagree on foc/kc, and uses the next oldest', async () => {
       mockListDataSets.mockResolvedValue([
-        groupKeySet(2n, { 'foc/ks': OTHER_GROUP_KEY }),
-        groupKeySet(4n, { 'foc/ks': OTHER_GROUP_KEY, 'foc/kc': `v1.${'0'.repeat(32)}` }),
+        groupKeySet(2n, { 'foc/gkid': OTHER_GROUP_KEY }),
+        groupKeySet(4n, { 'foc/gkid': OTHER_GROUP_KEY, 'foc/kc': `v2.${'0'.repeat(32)}` }),
         groupKeySet(8n, {}),
       ])
 
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-      expect(appMetadata?.['foc/ks']).toBe(VECTOR_GROUP_KEY)
+      expect(appMetadata?.['foc/gkid']).toBe(VECTOR_GROUP_KEY)
     })
 
     it('uses the default group key when the only one recorded is not foc/enc "1"', async () => {
@@ -875,24 +877,24 @@ describe('Add Command', () => {
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-      expect(appMetadata?.['foc/ks']).toBe(OWNER_DEFAULT_GROUP_KEY)
+      expect(appMetadata?.['foc/gkid']).toBe(OWNER_DEFAULT_GROUP_KEY)
     })
 
     it('with no group key on chain, writes under the default group key id derived from the owner', async () => {
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-      expect(appMetadata?.['foc/ks']).toBe(OWNER_DEFAULT_GROUP_KEY)
+      expect(appMetadata?.['foc/gkid']).toBe(OWNER_DEFAULT_GROUP_KEY)
       const { resolveUploadTargets } = await import('../../common/upload-flow.js')
       expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]).toMatchObject({
-        requiredMetadata: { 'foc/enc': '1', 'foc/ks': OWNER_DEFAULT_GROUP_KEY },
+        requiredMetadata: { 'foc/enc': '1', 'foc/gkid': OWNER_DEFAULT_GROUP_KEY },
       })
     })
 
     it('stops when the default group key is on chain but its data sets disagree on foc/kc', async () => {
       mockListDataSets.mockResolvedValue([
-        groupKeySet(2n, { 'foc/ks': OWNER_DEFAULT_GROUP_KEY }),
-        groupKeySet(4n, { 'foc/ks': OWNER_DEFAULT_GROUP_KEY, 'foc/kc': `v1.${'0'.repeat(32)}` }),
+        groupKeySet(2n, { 'foc/gkid': OWNER_DEFAULT_GROUP_KEY }),
+        groupKeySet(4n, { 'foc/gkid': OWNER_DEFAULT_GROUP_KEY, 'foc/kc': `v2.${'0'.repeat(32)}` }),
       ])
 
       await expect(runAdd({ ...auth, filePath: testFile, encrypt: true })).rejects.toThrow(
@@ -904,29 +906,32 @@ describe('Add Command', () => {
     it('does not treat a mixed-case lookalike of the default group key as the default', async () => {
       const lookalike = `0x${OWNER_DEFAULT_GROUP_KEY.slice(2).toUpperCase()}`
       mockListDataSets.mockResolvedValue([
-        groupKeySet(2n, { 'foc/ks': lookalike }),
-        groupKeySet(4n, { 'foc/ks': lookalike, 'foc/kc': `v1.${'0'.repeat(32)}` }),
+        groupKeySet(2n, { 'foc/gkid': lookalike }),
+        groupKeySet(4n, { 'foc/gkid': lookalike, 'foc/kc': `v2.${'0'.repeat(32)}` }),
       ])
 
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-      expect(appMetadata?.['foc/ks']).toBe(OWNER_DEFAULT_GROUP_KEY)
+      expect(appMetadata?.['foc/gkid']).toBe(OWNER_DEFAULT_GROUP_KEY)
     })
 
     describe('oldestValidGroupKey', () => {
       const summaries = (...sets: ReturnType<typeof groupKeySet>[]) => sets as unknown as DataSetSummary[]
-      const OTHER_COMMITMENT = `v1.${'0'.repeat(32)}`
+      const OTHER_COMMITMENT = `v2.${'0'.repeat(32)}`
 
       it('returns the canonical group key holding the oldest data set', () => {
-        const dataSets = summaries(groupKeySet(5n, { 'foc/ks': OTHER_GROUP_KEY }), groupKeySet(3n, {}))
+        const dataSets = summaries(groupKeySet(5n, { 'foc/gkid': OTHER_GROUP_KEY }), groupKeySet(3n, {}))
         expect(oldestValidGroupKey(dataSets)).toEqual({ groupKeyId: VECTOR_GROUP_KEY, commitment: VECTOR_COMMITMENT })
       })
 
       it('skips a mixed-case id rather than merging it with its lowercase form', () => {
         const dataSets = summaries(
-          groupKeySet(1n, { 'foc/ks': OTHER_GROUP_KEY.toUpperCase().replace('0X', '0x'), 'foc/kc': OTHER_COMMITMENT }),
-          groupKeySet(5n, { 'foc/ks': OTHER_GROUP_KEY })
+          groupKeySet(1n, {
+            'foc/gkid': OTHER_GROUP_KEY.toUpperCase().replace('0X', '0x'),
+            'foc/kc': OTHER_COMMITMENT,
+          }),
+          groupKeySet(5n, { 'foc/gkid': OTHER_GROUP_KEY })
         )
         expect(oldestValidGroupKey(dataSets)).toEqual({ groupKeyId: OTHER_GROUP_KEY, commitment: VECTOR_COMMITMENT })
       })
@@ -939,7 +944,7 @@ describe('Add Command', () => {
         ['uppercase 0X', `0X${'ab'.repeat(16)}`],
       ])('skips and logs a %s id when it holds the oldest data set', (_label, groupKeyId) => {
         const warn = vi.fn()
-        const dataSets = summaries(groupKeySet(1n, { 'foc/ks': groupKeyId }), groupKeySet(9n, {}))
+        const dataSets = summaries(groupKeySet(1n, { 'foc/gkid': groupKeyId }), groupKeySet(9n, {}))
 
         expect(oldestValidGroupKey(dataSets, { warn } as unknown as Logger)).toEqual({
           groupKeyId: VECTOR_GROUP_KEY,
@@ -993,14 +998,28 @@ describe('Add Command', () => {
         expect(plaintext.equals(testContent)).toBe(true)
       })
 
+      it('prints no /piece/ URL, and the get --piece command that reads it back', async () => {
+        const { log } = await import('../../utils/cli-logger.js')
+        const lines = vi.spyOn(log, 'line')
+        const { displayUploadResults } = await import('../../common/upload-flow.js')
+
+        const result = await runAdd({ ...auth, filePath: testFile, private: true })
+
+        const shown = vi.mocked(displayUploadResults).mock.calls.at(-1)?.[0] as { copies: { retrievalUrl: string }[] }
+        expect(shown.copies.map((copy) => copy.retrievalUrl)).toEqual([''])
+        expect(lines.mock.calls.map(([text]) => String(text))).toContain(
+          `  Read it back: filecoin-pin get ${result.rootCid}`
+        )
+      })
+
       it('requires read=restricted next to the owner group key on every data set', async () => {
         await runAdd({ ...auth, filePath: testFile, private: true })
 
         const { resolveUploadTargets } = await import('../../common/upload-flow.js')
         expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]?.requiredMetadata).toEqual({
           'foc/enc': '1',
-          'foc/ks': OWNER_DEFAULT_GROUP_KEY,
-          'foc/kc': expect.stringMatching(/^v1\.[0-9a-f]{32}$/),
+          'foc/gkid': OWNER_DEFAULT_GROUP_KEY,
+          'foc/kc': expect.stringMatching(/^v2\.[0-9a-f]{32}$/),
           read: 'restricted',
           withIPFSIndexing: '',
         })
@@ -1016,18 +1035,54 @@ describe('Add Command', () => {
         expect(targetOptions?.requiredMetadata).toMatchObject({ 'foc/enc': '1', read: 'restricted' })
       })
 
-      it.each([
-        [{ getShareLink: true }, /--private cannot be shared yet/],
-        [{ getShareLinkRestricted: true }, /--private cannot be shared yet/],
-        [{ encrypt: true, getShareLink: true }, /--private cannot be shared yet/],
-        [{ dataSetMetadata: { read: 'restricted' } }, /--data-set-metadata cannot set read/],
-      ])('refuses %o before signing or uploading', async (flags, message) => {
-        const signTypedData = vi.spyOn(OWNER, 'signTypedData')
-        const { performUpload, resolveUploadTargets } = await import('../../common/upload-flow.js')
-        await expect(runAdd({ ...auth, filePath: testFile, private: true, ...flags })).rejects.toThrow(message)
-        expect(signTypedData).not.toHaveBeenCalled()
-        expect(resolveUploadTargets).not.toHaveBeenCalled()
-        expect(performUpload).not.toHaveBeenCalled()
+      it.each([[{ dataSetMetadata: { read: 'restricted' } }, /--data-set-metadata cannot set read/]])(
+        'refuses %o before signing or uploading',
+        async (flags, message) => {
+          const signTypedData = vi.spyOn(OWNER, 'signTypedData')
+          const { performUpload, resolveUploadTargets } = await import('../../common/upload-flow.js')
+          await expect(runAdd({ ...auth, filePath: testFile, private: true, ...flags })).rejects.toThrow(message)
+          expect(signTypedData).not.toHaveBeenCalled()
+          expect(resolveUploadTargets).not.toHaveBeenCalled()
+          expect(performUpload).not.toHaveBeenCalled()
+        }
+      )
+
+      it('with --get-share-link, prints a link that carries the right to fetch it, and its providers', async () => {
+        const PIECE = 'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy'
+        const { performUpload } = await import('../../common/upload-flow.js')
+        vi.mocked(performUpload).mockResolvedValueOnce({
+          pieceCid: PIECE,
+          size: 1024,
+          copies: [
+            {
+              providerId: 1n,
+              dataSetId: 123n,
+              pieceId: 789n,
+              role: 'primary',
+              retrievalUrl: `https://sp1.test/piece/${PIECE}`,
+              isNewDataSet: false,
+            },
+          ],
+          failedAttempts: [],
+        } as never)
+        const printed = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+
+        const { log } = await import('../../utils/cli-logger.js')
+        const warned = vi.spyOn(log, 'warn')
+        // The owner wallet shares: the real key behind the mocked client's signer.
+        const ownerKey = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
+        await runAdd({ ...auth, privateKey: ownerKey, filePath: testFile, private: true, getShareLink: true })
+        expect(warned.mock.calls.flat().join('\n')).not.toContain('No share link')
+
+        const link = printed.mock.calls.map(([text]) => String(text)).find((text) => text.includes('#v1/'))
+        const share = parseShareLink(link?.split('\n').at(-1) ?? '')
+        expect(share.providers).toEqual(['https://sp1.test'])
+        // A Delivery (a CBOR array), whose final claim names the piece and is borne by the link's key.
+        const { chain } = decodeDelivery(share.payload)
+        const final = chain.links.at(-1)
+        expect(final?.node).toMatch(/^piece:0x[0-9a-f]{32}$/)
+        expect(CID.decode(final?.pieceCid ?? new Uint8Array()).toString()).toBe(PIECE)
+        expect(final?.bearer).toBe(privateKeyToAccount(share.accessKey ?? '0x').address)
       })
 
       it('refuses read in --data-set-metadata on a plain upload too', async () => {
@@ -1070,7 +1125,7 @@ describe('Add Command', () => {
 
         const { plaintext, appMetadata } = await decrypt(packedFile().bytes)
         expect(plaintext.equals(testContent)).toBe(true)
-        expect(appMetadata).toMatchObject({ 'foc/own': OWNER.address.toLowerCase(), 'foc/ks': GRANT_GROUP_KEY })
+        expect(appMetadata).toMatchObject({ 'foc/own': OWNER.address.toLowerCase(), 'foc/gkid': GRANT_GROUP_KEY })
       })
 
       it("tags new data sets with the Grant's group key and its foc/kc in metadata form", async () => {
@@ -1079,8 +1134,8 @@ describe('Add Command', () => {
         const { resolveUploadTargets } = await import('../../common/upload-flow.js')
         expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]?.requiredMetadata).toEqual({
           'foc/enc': '1',
-          'foc/ks': GRANT_GROUP_KEY,
-          // The claim carries 0x<32 hex>; data sets record v1.<32 hex>, as owner mode does.
+          'foc/gkid': GRANT_GROUP_KEY,
+          // The claim carries 0x<32 hex>; data sets record v2.<32 hex>, as owner mode does.
           'foc/kc': await groupKeyCommitment(),
           withIPFSIndexing: '',
         })
@@ -1092,7 +1147,7 @@ describe('Add Command', () => {
         const { resolveUploadTargets } = await import('../../common/upload-flow.js')
         expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]?.requiredMetadata).toEqual({
           'foc/enc': '1',
-          'foc/ks': GRANT_GROUP_KEY,
+          'foc/gkid': GRANT_GROUP_KEY,
           'foc/kc': await groupKeyCommitment(),
           read: 'restricted',
           withIPFSIndexing: '',
@@ -1101,20 +1156,20 @@ describe('Add Command', () => {
 
       it("reuses only the Grant's group key, and only when its data sets agree with the Grant", async () => {
         onChain([
-          groupKeySet(3n, { 'foc/ks': OTHER_GROUP_KEY }),
-          groupKeySet(5n, { 'foc/ks': GRANT_GROUP_KEY, 'foc/kc': await groupKeyCommitment() }),
+          groupKeySet(3n, { 'foc/gkid': OTHER_GROUP_KEY }),
+          groupKeySet(5n, { 'foc/gkid': GRANT_GROUP_KEY, 'foc/kc': await groupKeyCommitment() }),
         ])
 
         await runAdd({ ...session, filePath: testFile, encrypt: true })
 
         const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-        expect(appMetadata?.['foc/ks']).toBe(GRANT_GROUP_KEY)
+        expect(appMetadata?.['foc/gkid']).toBe(GRANT_GROUP_KEY)
       })
 
       it("stops before packing when the group key's data sets disagree with the Grant on foc/kc", async () => {
         onChain([
-          groupKeySet(5n, { 'foc/ks': GRANT_GROUP_KEY, 'foc/kc': await groupKeyCommitment() }),
-          groupKeySet(6n, { 'foc/ks': GRANT_GROUP_KEY, 'foc/kc': `v1.${'0'.repeat(32)}` }),
+          groupKeySet(5n, { 'foc/gkid': GRANT_GROUP_KEY, 'foc/kc': await groupKeyCommitment() }),
+          groupKeySet(6n, { 'foc/gkid': GRANT_GROUP_KEY, 'foc/kc': `v2.${'0'.repeat(32)}` }),
         ])
 
         await expect(runAdd({ ...session, filePath: testFile, encrypt: true })).rejects.toThrow(
@@ -1125,12 +1180,12 @@ describe('Add Command', () => {
 
       it("ignores a mixed-case copy of the Grant's group key id that disagrees on foc/kc", async () => {
         const lookalike = `0x${GRANT_GROUP_KEY.slice(2).toUpperCase()}`
-        onChain([groupKeySet(6n, { 'foc/ks': lookalike, 'foc/kc': `v1.${'0'.repeat(32)}` })])
+        onChain([groupKeySet(6n, { 'foc/gkid': lookalike, 'foc/kc': `v2.${'0'.repeat(32)}` })])
 
         await runAdd({ ...session, filePath: testFile, encrypt: true })
 
         const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-        expect(appMetadata?.['foc/ks']).toBe(GRANT_GROUP_KEY)
+        expect(appMetadata?.['foc/gkid']).toBe(GRANT_GROUP_KEY)
       })
 
       it('zeroes the group key when the upload fails before encrypting', async () => {
@@ -1308,7 +1363,7 @@ describe('Add Command', () => {
         {
           dataSetId: 1n,
           isLive: false,
-          metadata: { ...groupKeySet(1n, {}).metadata, 'foc/kc': `v1.${'0'.repeat(32)}` },
+          metadata: { ...groupKeySet(1n, {}).metadata, 'foc/kc': `v2.${'0'.repeat(32)}` },
         },
       ]
       mockListDataSets.mockImplementation(async (_synapse: unknown, opts?: { filter?: (d: any) => boolean }) =>
@@ -1318,7 +1373,7 @@ describe('Add Command', () => {
       await runAdd({ ...auth, filePath: testFile, encrypt: true })
 
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
-      expect(appMetadata?.['foc/ks']).toBe(OWNER_DEFAULT_GROUP_KEY)
+      expect(appMetadata?.['foc/gkid']).toBe(OWNER_DEFAULT_GROUP_KEY)
     })
 
     it('has no option that takes a password or a key on the command line', async () => {
