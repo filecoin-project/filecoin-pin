@@ -1,9 +1,9 @@
 /**
  * Keysmith key derivation for `add --encrypt` and `decrypt`.
  *
- * filecoin-pin names Keysmith's concepts for its users: a Keysmith *keyspace* is a
- * **group key** here, and a Keysmith *scope* is a **group**. The on-chain and envelope
- * labels keep Keysmith's names (`foc/ks`, `foc/kc`, `foc/scope`).
+ * Keysmith format 2: data sets record the group key as `foc/gkid` and `foc/kc`; envelopes name
+ * their group key (`foc/gkid`), group (`foc/group`, when written under one) and salt.
+ * Data from keysmith 0.1.0 (`foc/ks`) is not readable by this version.
  *
  * One owner wallet signature per group key derives every key beneath it. Nothing is
  * stored: the group key id, a public commitment and the `foc/enc` format version ride
@@ -12,25 +12,30 @@
  */
 
 import {
-  keyspaceKeys as deriveGroupKey,
+  authorizationHeader,
+  deriveGroupKey,
   COMMITMENT_KEY as GROUP_KEY_COMMITMENT_KEY,
-  KEYSPACE_ID_KEY as GROUP_KEY_ID_KEY,
+  groupPath,
   keyForEnvelope,
+  dataSetMetadata as keysmithDataSetMetadata,
   newSalt,
   type PieceMetadata,
   pieceKey,
   pieceMetadata,
+  readPieceMetadata,
+  rootClaim,
   type TypedDataSigner,
   type WriteTarget,
   writeTarget,
 } from '@filoz/keysmith'
 import type { Synapse } from '@filoz/synapse-sdk'
 import type { KeyResolver } from 'filecoin-encryption-envelope'
+import { CID } from 'multiformats/cid'
 import type { Logger } from 'pino'
 import { type Address, concat, type Hex, isAddress, keccak256, slice, toHex } from 'viem'
 import { type DataSetSummary, listDataSets } from '../core/data-set/index.js'
 
-/** A wallet that can sign for a group key (Keysmith's `KeyspaceKey` message): the owner's own key, never a session key. */
+/** A wallet that can sign for a group key (Keysmith's `GroupKey` message): the owner's own key, never a session key. */
 export type OwnerSigner = TypedDataSigner & { address: Address }
 
 /** The `login` command that gives a session key a group key Grant. */
@@ -46,6 +51,25 @@ export function ownerSigner(synapse: Synapse): OwnerSigner | undefined {
     : undefined
 }
 
+/** Data set metadata key naming a data set's group key (Keysmith format 2). */
+export const GROUP_KEY_ID_KEY = 'foc/gkid'
+
+/** keysmith 0.1.0's group key id key: such data sets are encrypted, but this version cannot write to them. */
+const LEGACY_GROUP_KEY_ID_KEY = 'foc/ks'
+
+/**
+ * A group path by keysmith's rules, canonical (`a/b`), checked before any signature or upload.
+ *
+ * @throws With keysmith's reason the path is refused.
+ */
+export function checkGroup(group: string): string {
+  try {
+    return groupPath(group)
+  } catch (error) {
+    throw new Error(`Invalid group "${group}": ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 /** Data set metadata key that marks a data set as encrypted and versions its rules. */
 export const ENCRYPTION_VERSION_KEY = 'foc/enc'
 
@@ -55,6 +79,7 @@ export const ENCRYPTION_VERSION = '1'
 /** Keys that mark a data set as encrypted; a plain upload never reuses a data set carrying any of them. */
 export const ENCRYPTED_DATA_SET_KEYS: readonly string[] = [
   GROUP_KEY_ID_KEY,
+  LEGACY_GROUP_KEY_ID_KEY,
   GROUP_KEY_COMMITMENT_KEY,
   ENCRYPTION_VERSION_KEY,
 ]
@@ -89,9 +114,9 @@ export function dataSetVisibility(metadata: Record<string, string>): DataSetVisi
 }
 
 export interface OwnerGroupKey {
-  /** Where new pieces are written: the group key itself, with no group. */
+  /** Where new pieces are written: the group key itself, or a group within it. */
   target: WriteTarget
-  /** `foc/enc`, `foc/ks` and `foc/kc`, carried by every data set the upload writes to. */
+  /** `foc/enc`, `foc/gkid` and `foc/kc`, carried by every data set the upload writes to. */
   dataSetMetadata: Record<string, string>
 }
 
@@ -112,10 +137,17 @@ export function defaultGroupKeyId(owner: Address): Hex {
  * {@link defaultGroupKeyId}). Every copy of an upload lands in data sets of this
  * one group key.
  *
+ * `group`, already checked with {@link checkGroup}, writes under that group instead of the group key root.
+ *
  * @throws If the recorded commitment does not match this wallet's key, or if the
  * default group key is already on chain but invalid.
  */
-export async function ownerGroupKey(synapse: Synapse, signer: OwnerSigner, logger?: Logger): Promise<OwnerGroupKey> {
+export async function ownerGroupKey(
+  synapse: Synapse,
+  signer: OwnerSigner,
+  logger?: Logger,
+  group?: string
+): Promise<OwnerGroupKey> {
   const tagged = await listDataSets(synapse, {
     filter: (dataSet) => dataSet.isLive && typeof dataSet.metadata?.[GROUP_KEY_ID_KEY] === 'string',
     ...(logger != null && { logger }),
@@ -131,19 +163,19 @@ export async function ownerGroupKey(synapse: Synapse, signer: OwnerSigner, logge
       )
     }
   }
-  const keys = await deriveGroupKey(
-    signer,
-    { owner: signer.address, keyspace: groupKeyId },
-    recorded == null ? {} : { commitment: recorded.commitment }
-  )
-  return {
-    target: writeTarget(keys.descriptor, keys.kk),
-    dataSetMetadata: {
-      [ENCRYPTION_VERSION_KEY]: ENCRYPTION_VERSION,
-      [GROUP_KEY_ID_KEY]: groupKeyId,
-      [GROUP_KEY_COMMITMENT_KEY]: keys.commitment,
-    },
-  }
+  const ref = { owner: signer.address, groupKeyId }
+  const keys = await deriveGroupKey(signer, ref, recorded == null ? {} : { commitment: recorded.commitment })
+  const target = writeTarget(keys.descriptor, keys.groupKey, group)
+  if (target.key !== keys.groupKey) keys.groupKey.fill(0)
+  return { target, dataSetMetadata: encryptedDataSetMetadata(ref, keys.commitment) }
+}
+
+/** The metadata every encrypted data set of this group key carries: `foc/enc`, `foc/gkid` and `foc/kc`. */
+export function encryptedDataSetMetadata(
+  ref: { owner: Address; groupKeyId: Hex },
+  commitment: string
+): Record<string, string> {
+  return { [ENCRYPTION_VERSION_KEY]: ENCRYPTION_VERSION, ...keysmithDataSetMetadata(ref, commitment) }
 }
 
 /**
@@ -153,7 +185,7 @@ export async function ownerGroupKey(synapse: Synapse, signer: OwnerSigner, logge
 const CANONICAL_GROUP_KEY_ID = /^0x[0-9a-f]{32}$/
 
 /**
- * "Oldest wins": sort data sets by their group key (`foc/ks`), skip any group key
+ * "Oldest wins": sort data sets by their group key (`foc/gkid`), skip any group key
  * whose id is not canonical, whose data sets disagree on `foc/kc`, or that are not
  * all `foc/enc` "1", and return the remaining group key that holds the lowest data
  * set id.
@@ -165,16 +197,32 @@ export function oldestValidGroupKey(
   dataSets: DataSetSummary[],
   logger?: Logger
 ): { groupKeyId: Hex; commitment: string } | undefined {
+  let best: { groupKeyId: Hex; commitment: string; oldest: bigint } | undefined
+  for (const key of validGroupKeys(dataSets, logger)) {
+    if (best == null || key.oldest < best.oldest) best = key
+  }
+  return best == null ? undefined : { groupKeyId: best.groupKeyId, commitment: best.commitment }
+}
+
+/**
+ * Every group key {@link oldestValidGroupKey} would consider, with its commitment and its oldest
+ * data set id; the skipped ones are logged.
+ */
+function validGroupKeys(
+  dataSets: DataSetSummary[],
+  logger?: Logger
+): { groupKeyId: Hex; commitment: string; oldest: bigint }[] {
   const byGroupKey = new Map<string, DataSetSummary[]>()
   for (const dataSet of dataSets) {
     const groupKeyId = dataSet.metadata?.[GROUP_KEY_ID_KEY]
     if (typeof groupKeyId !== 'string') continue
+    // Kept as written: a lookalike spelling is its own (skipped) group key, never merged into a canonical one.
     const members = byGroupKey.get(groupKeyId)
     if (members == null) byGroupKey.set(groupKeyId, [dataSet])
     else members.push(dataSet)
   }
 
-  let best: { groupKeyId: Hex; commitment: string; oldest: bigint } | undefined
+  const valid: { groupKeyId: Hex; commitment: string; oldest: bigint }[] = []
   for (const [groupKeyId, members] of byGroupKey) {
     if (!CANONICAL_GROUP_KEY_ID.test(groupKeyId)) {
       logger?.warn(
@@ -205,11 +253,9 @@ export function oldestValidGroupKey(
       (min, dataSet) => (dataSet.dataSetId < min ? dataSet.dataSetId : min),
       members[0]?.dataSetId ?? 0n
     )
-    if (best == null || oldest < best.oldest) {
-      best = { groupKeyId: groupKeyId as Hex, commitment, oldest }
-    }
+    valid.push({ groupKeyId: groupKeyId as Hex, commitment, oldest })
   }
-  return best == null ? undefined : { groupKeyId: best.groupKeyId, commitment: best.commitment }
+  return valid
 }
 
 /** The key for one upload and the labels its envelope carries. */
@@ -223,8 +269,7 @@ export function newPieceKey(target: WriteTarget): PieceKey {
   const salt = newSalt()
   return {
     cek: pieceKey(target.key, salt),
-    // Keysmith calls a group a scope; it is written as `foc/scope` when present.
-    appMetadata: pieceMetadata(target.ref, { salt, ...(target.scope != null && { scope: target.scope }) }),
+    appMetadata: pieceMetadata(target.ref, { salt, ...(target.group != null && { group: target.group }) }),
   }
 }
 
@@ -259,13 +304,9 @@ export class NotOwnerError extends KeyAccessError {
  */
 export function ownerKeyResolver(signer: OwnerSigner | (() => OwnerSigner | undefined)): KeyResolver {
   return async ({ appMetadata }) => {
-    const groupKeyId = appMetadata?.['foc/ks']
-    if (appMetadata?.['foc/v'] !== 1 || typeof groupKeyId !== 'string') {
-      throw new Error('not a Keysmith envelope')
-    }
-    const owner = appMetadata['foc/own']
+    const { owner, groupKeyId } = readPieceMetadata(appMetadata)
     const wallet = typeof signer === 'function' ? signer() : signer
-    if (wallet == null || typeof owner !== 'string' || owner.toLowerCase() !== wallet.address.toLowerCase()) {
+    if (wallet == null || owner == null || owner.toLowerCase() !== wallet.address.toLowerCase()) {
       throw new NotOwnerError(
         String(owner),
         groupKeyId,
@@ -274,7 +315,94 @@ export function ownerKeyResolver(signer: OwnerSigner | (() => OwnerSigner | unde
           : `the owner wallet in use (PRIVATE_KEY or --private-key) is ${wallet.address.toLowerCase()}`
       )
     }
-    const { kk } = await deriveGroupKey(wallet, { owner: wallet.address, keyspace: groupKeyId as Hex })
-    return keyForEnvelope(kk, appMetadata)
+    const { groupKey } = await deriveGroupKey(wallet, { owner: wallet.address, groupKeyId })
+    try {
+      return keyForEnvelope(groupKey, appMetadata)
+    } finally {
+      groupKey.fill(0)
+    }
   }
+}
+
+/** How long the owner's own read claims last: one `get` or `get-share-link` run. */
+const OWNER_READ_CLAIM_SECONDS = 3600
+
+/**
+ * `Authorization` headers for the owner wallet to fetch one of its own private uploads from
+ * `/download/<pieceCid>`. The piece's group key is inside the piece, so the wallet signs, for each
+ * group key its read-restricted data sets record (`foc/gkid`), a root claim for that whole group
+ * key with itself as bearer, valid for an hour; each request is signed fresh. The caller presents the
+ * headers in turn while the provider answers 403. One wallet signature per group key, on first use.
+ */
+export function ownerAuthorizations(
+  synapse: Synapse,
+  signer: OwnerSigner,
+  logger?: Logger
+): (pieceCid: string) => Promise<string[]> {
+  let chains: Promise<Awaited<ReturnType<typeof rootClaim>>['chain'][]> | undefined
+  const issue = async () => {
+    const restricted = await listDataSets(synapse, {
+      filter: (dataSet) =>
+        dataSet.isLive &&
+        dataSet.metadata?.[READ_KEY] === READ_RESTRICTED &&
+        typeof dataSet.metadata?.[GROUP_KEY_ID_KEY] === 'string',
+      ...(logger != null && { logger }),
+    })
+    if (restricted.length === 0) {
+      throw new Error(`Wallet ${signer.address} has no private data sets: nothing to fetch with --piece`)
+    }
+    // Each group key once, by oldestValidGroupKey's rule: one signature, checked against the commitment.
+    // A group key that fails is skipped, so one bad data set cannot block every fetch.
+    const expires = Math.floor(Date.now() / 1000) + OWNER_READ_CLAIM_SECONDS
+    const issued = []
+    for (const { groupKeyId, commitment } of validGroupKeys(restricted, logger)) {
+      const ref = { owner: signer.address, groupKeyId }
+      let groupKey: Uint8Array
+      try {
+        ;({ groupKey } = await deriveGroupKey(signer, ref, { commitment }))
+      } catch (error) {
+        logger?.warn(
+          { event: 'group-key.skipped', groupKeyId, error: error instanceof Error ? error.message : String(error) },
+          'Skipping group key: this wallet does not derive it'
+        )
+        continue
+      }
+      try {
+        const { chain, nodeKey } = await rootClaim(signer, {
+          ...ref,
+          chainId: BigInt(synapse.chain.id),
+          groupKey,
+          node: 'groupKey',
+          bearer: signer.address,
+          maxDepth: 0,
+          expires,
+        })
+        nodeKey.fill(0)
+        issued.push(chain)
+      } finally {
+        groupKey.fill(0)
+      }
+    }
+    if (issued.length === 0) {
+      throw new Error(`None of wallet ${signer.address}'s private data sets has a group key it can read`)
+    }
+    return issued
+  }
+  return async (pieceCid) => {
+    chains ??= issue()
+    const piece = CID.parse(pieceCid).bytes
+    return Promise.all((await chains).map((chain) => authorizationHeader(signer, chain, { pieceCid: piece })))
+  }
+}
+
+/**
+ * keysmith's refusal of keysmith 0.1.0 (format 1) data, if `error` or one of its causes is it: an
+ * upload, Grant or share link from filecoin-pin 2.3 or 2.4, which this version no longer reads.
+ * Callers show it as it is rather than a generic "not ours" or "corrupted".
+ */
+export function format1Message(error: unknown): string | undefined {
+  for (let e = error; e instanceof Error; e = e.cause) {
+    if (e.message.includes('keysmith 0.1.0 (format 1)')) return e.message
+  }
+  return undefined
 }

@@ -4,8 +4,9 @@
  */
 
 import {
-  keyspaceKeys as deriveGroupKey,
+  deriveGroupKey,
   encodeDelivery,
+  type GrantNode,
   grantDescriptor,
   publicKeyOf,
   rootClaim,
@@ -39,31 +40,37 @@ export interface GrantInput {
   chainId?: number
   expires?: number
   node?: string
+  /** Links the bearer may add below the Grant (default 0). */
+  maxDepth?: number
+  /** Signing time, Unix seconds: lets a test make a Grant that has already expired. */
+  now?: number
 }
 
 /** A Grant (`fgr1_…`) for `sessionKey`, signed by `ownerKey`. */
 export async function makeGrant(input: GrantInput = {}): Promise<string> {
   const owner = privateKeyToAccount(input.ownerKey ?? OWNER_KEY)
   const sessionKey = input.sessionKey ?? SESSION_KEY
-  const keyspace = input.groupKey ?? GROUP_KEY
-  const node = input.node ?? 'keyspace'
-  const ref = { owner: owner.address, keyspace }
-  const { kk } = await deriveGroupKey(owner, ref)
+  const groupKeyId = input.groupKey ?? GROUP_KEY
+  const node = input.node ?? 'groupKey'
+  const ref = { owner: owner.address, groupKeyId }
+  const { groupKey } = await deriveGroupKey(owner, ref)
   const { chain, nodeKey } = await rootClaim(owner, {
     ...ref,
     chainId: BigInt(input.chainId ?? CALIBRATION_CHAIN_ID),
-    kk,
+    groupKey,
     node,
     bearer: privateKeyToAccount(sessionKey).address,
-    maxDepth: 0,
+    maxDepth: input.maxDepth ?? 0,
     expires: input.expires ?? FAR_FUTURE,
+    // Keysmith refuses to sign an already expired root, so an expired Grant is signed before its expiry.
+    now: input.now ?? Math.min(Math.floor(Date.now() / 1000), (input.expires ?? FAR_FUTURE) - 3600),
   })
-  const grant = await wrapTo(publicKeyOf(sessionKey), nodeKey, grantDescriptor(ref, node as 'keyspace'))
+  const grant = await wrapTo(publicKeyOf(sessionKey), nodeKey, grantDescriptor(ref, node as GrantNode))
   return grantText(encodeDelivery(chain, grant))
 }
 
 /** `foc/kc` of the owner's group key, as the owner-mode upload records it. */
 export async function groupKeyCommitment(groupKey: Hex = GROUP_KEY): Promise<string> {
-  const { commitment } = await deriveGroupKey(OWNER, { owner: OWNER.address, keyspace: groupKey })
+  const { commitment } = await deriveGroupKey(OWNER, { owner: OWNER.address, groupKeyId: groupKey })
   return commitment
 }

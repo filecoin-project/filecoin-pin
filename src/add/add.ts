@@ -23,6 +23,7 @@ import { assertUploadFunds, estimateInputBytes, rerunHint } from '../common/fund
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import {
   assertNoReadMetadata,
+  checkGroup,
   newPieceKey,
   OWNER_WALLET_REQUIRED,
   type OwnerGroupKey,
@@ -31,7 +32,7 @@ import {
   READ_KEY,
   READ_RESTRICTED,
 } from '../common/group-key.js'
-import { grantGroupKey, loadGroupKeyGrant } from '../common/group-key-grant.js'
+import { grantGroupKey, loadGroupKeyGrants } from '../common/group-key-grant.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
 import { type CreatedShare, createShare, type ShareMode } from '../common/share-link.js'
 import {
@@ -107,12 +108,18 @@ function describeSkipped(walk: { skippedSymlinks: string[]; skippedSpecial: stri
 }
 
 /**
- * The group key a session key writes under, from its Grant. A missing or invalid Grant
- * throws before anything is packed or uploaded: never fall back to plaintext.
+ * The group key (and group) a session key writes under, from its Grants. A missing or invalid
+ * Grant, or a group no Grant covers, throws before anything is packed or uploaded: never fall
+ * back to plaintext.
  */
-async function sessionGroupKey(synapse: Synapse, sessionKey: string, logger: Logger): Promise<OwnerGroupKey> {
+async function sessionGroupKey(
+  synapse: Synapse,
+  sessionKey: string,
+  group: string | undefined,
+  logger: Logger
+): Promise<OwnerGroupKey> {
   const session = { sessionKey: sessionKey as Hex, walletAddress: getClientAddress(synapse) }
-  return grantGroupKey(synapse, await loadGroupKeyGrant(session, synapse.chain.id), logger)
+  return grantGroupKey(synapse, await loadGroupKeyGrants(session, synapse.chain.id), group, logger)
 }
 
 /**
@@ -186,6 +193,10 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
   const ipfsIndexing = options.ipfs !== false
   // --private implies --encrypt: a private data set is always encrypted.
   const encrypt = options.encrypt === true || options.private === true
+  // Checked by keysmith's rules before any signature or upload.
+  if (options.group != null && !encrypt)
+    throw new Error('--group needs --encrypt or --private: a group names who can decrypt')
+  const group = options.group == null ? undefined : checkGroup(options.group)
 
   let tempCarPath: string | undefined
   let encryptDir: string | undefined
@@ -279,11 +290,11 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       const signer = ownerSigner(synapse)
       if (signer != null) {
         spinner.start('Deriving the encryption key from the owner wallet...')
-        groupKey = await ownerGroupKey(synapse, signer, logger)
+        groupKey = await ownerGroupKey(synapse, signer, logger, group)
         spinner.stop(`${pc.green('✓')} Encryption key derived`)
       } else if ('sessionKey' in config && config.sessionKey != null) {
         spinner.start("Opening this session key's group key Grant...")
-        groupKey = await sessionGroupKey(synapse, config.sessionKey, logger)
+        groupKey = await sessionGroupKey(synapse, config.sessionKey, group, logger)
         spinner.stop(`${pc.green('✓')} Group key Grant opened`)
       } else {
         // A plain Error, so the catch below prints it (a CliFatal is taken as already shown).
@@ -518,6 +529,8 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
         ? {
             ...result,
             filePath: `${pieceMetadata?.[PIECE_METADATA_NAME_KEY] ?? ENCRYPTED_FILE_NAME} (the real name stays inside the ciphertext)`,
+            // A private piece is not served on /piece/: printing that URL would only lead to a 404.
+            ...(options.private === true && { copies: result.copies.map((copy) => ({ ...copy, retrievalUrl: '' })) }),
           }
         : result,
       'Add',
@@ -534,6 +547,10 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
             : 'Content is encrypted: readable with the owner wallet, a session key holding its group key Grant (via `filecoin-pin login`), or any holder of a Share Link and associated Access Key.'
         )
       )
+      if (options.private === true) {
+        // Not indexed anywhere: reading it back needs the piece CID as well as the root.
+        log.line(`  Read it back: filecoin-pin get ${result.rootCid}`)
+      }
       log.flush()
     }
     if (share != null && shareMode != null) log.warn(shareReminder(shareMode))

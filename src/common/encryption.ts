@@ -22,7 +22,7 @@ import * as fee from 'filecoin-encryption-envelope'
 import { UnixFS } from 'ipfs-unixfs'
 import { CID } from 'multiformats/cid'
 import { isCar } from '../core/car/index.js'
-import { KeyAccessError, type PieceKey } from './group-key.js'
+import { format1Message, KeyAccessError, type PieceKey } from './group-key.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC } from './unixfs-car-layout.js'
 import {
   type CarPayloadPlan,
@@ -295,7 +295,8 @@ export async function decryptToDirectory(
       throw new DecryptError(error.cause.message, { cause: error })
     }
     if (error instanceof fee.errors.KeyResolutionError || error instanceof fee.errors.MalformedEnvelopeError) {
-      throw new DecryptError(NOT_OURS, { cause: error })
+      // An upload from filecoin-pin 2.3 or 2.4 (keysmith 0.1.0) is ours, in a format this version no longer reads.
+      throw new DecryptError(format1Message(error) ?? NOT_OURS, { cause: error })
     }
     if (error instanceof DecryptError || error instanceof fee.errors.EnvelopeError) {
       throw error

@@ -773,8 +773,8 @@ describe('resolveUploadTargets with requiredMetadata', () => {
   const base = { withCDN: false, spinner, logger }
   const groupKey = {
     'foc/enc': '1',
-    'foc/ks': '0x00112233445566778899aabbccddeeff',
-    'foc/kc': 'v1.6982807649650e311e4c69af4ac90417',
+    'foc/gkid': '0x00112233445566778899aabbccddeeff',
+    'foc/kc': 'v2.577089220f63dc662b4fc4a60abe1b48',
   }
   const groupKeySet = (id: bigint, providerId: bigint, extra: Record<string, string> = { withIPFSIndexing: '' }) =>
     pinSet({
@@ -799,7 +799,7 @@ describe('resolveUploadTargets with requiredMetadata', () => {
       pinSet({
         pdpVerifierDataSetId: 3n,
         providerId: 3n,
-        metadata: { withIPFSIndexing: '', source: 'filecoin-pin', ...groupKey, 'foc/ks': `0x${'ff'.repeat(16)}` },
+        metadata: { withIPFSIndexing: '', source: 'filecoin-pin', ...groupKey, 'foc/gkid': `0x${'ff'.repeat(16)}` },
       }),
     ])
     const targets = await resolveUploadTargets(synapse, {}, { ...base, copies: 2, requiredMetadata: groupKey })
@@ -812,7 +812,7 @@ describe('resolveUploadTargets with requiredMetadata', () => {
     expect(targets).toEqual({ dataSetMetadata: groupKey })
   })
 
-  it('creates the missing copy with the same foc/enc, foc/ks and foc/kc when too few carry them', async () => {
+  it('creates the missing copy with the same foc/enc, foc/gkid and foc/kc when too few carry them', async () => {
     const synapse = makeSynapse([groupKeySet(2n, 2n)])
     const targets = await resolveUploadTargets(synapse, {}, { ...base, copies: 2, requiredMetadata: groupKey })
     expect(targets).toEqual({ dataSetMetadata: groupKey })
@@ -850,7 +850,7 @@ describe('resolveUploadTargets with requiredMetadata', () => {
       pinSet({
         pdpVerifierDataSetId: 2n,
         providerId: 2n,
-        metadata: { withIPFSIndexing: '', source: 'filecoin-pin', ...groupKey, 'foc/ks': `0x${'ff'.repeat(16)}` },
+        metadata: { withIPFSIndexing: '', source: 'filecoin-pin', ...groupKey, 'foc/gkid': `0x${'ff'.repeat(16)}` },
       }),
       groupKeySet(3n, 3n),
     ])
@@ -860,7 +860,7 @@ describe('resolveUploadTargets with requiredMetadata', () => {
     ).rejects.toThrow('Data set 1 is public, this upload is public encrypted')
     await expect(
       resolveUploadTargets(synapse, { dataSetIds: [2n] }, { ...base, requiredMetadata: required })
-    ).rejects.toThrow(/Data set 2 cannot take this upload: its foc\/ks/)
+    ).rejects.toThrow(/Data set 2 cannot take this upload: its foc\/gkid/)
     await expect(
       resolveUploadTargets(synapse, { dataSetIds: [3n] }, { ...base, requiredMetadata: required })
     ).resolves.toEqual({ dataSetMetadata: required })
@@ -876,7 +876,13 @@ describe('resolveUploadTargets with requiredMetadata', () => {
 
 describe('resolveUploadTargets for plain uploads', () => {
   const base = { withCDN: false, spinner, logger }
-  const encrypted = { 'foc/enc': '1', 'foc/ks': `0x${'11'.repeat(16)}`, 'foc/kc': `v1.${'22'.repeat(16)}` }
+  // foc/ks is keysmith 0.1.0's group key id: such a data set is encrypted too, and stays out of reach.
+  const encrypted = {
+    'foc/enc': '1',
+    'foc/gkid': `0x${'11'.repeat(16)}`,
+    'foc/ks': `0x${'33'.repeat(16)}`,
+    'foc/kc': `v2.${'22'.repeat(16)}`,
+  }
 
   it.each(Object.keys(encrypted))('never reuses a data set carrying %s', async (key) => {
     const synapse = makeSynapse([
@@ -967,8 +973,8 @@ describe('resolveUploadTargets for private uploads', () => {
   const base = { withCDN: false, spinner, logger }
   const groupKey = {
     'foc/enc': '1',
-    'foc/ks': '0x00112233445566778899aabbccddeeff',
-    'foc/kc': 'v1.6982807649650e311e4c69af4ac90417',
+    'foc/gkid': '0x00112233445566778899aabbccddeeff',
+    'foc/kc': 'v2.577089220f63dc662b4fc4a60abe1b48',
   }
   const privateKeys = { ...groupKey, read: 'restricted' }
   const set = (id: bigint, metadata: Record<string, string>) =>
@@ -984,7 +990,7 @@ describe('resolveUploadTargets for private uploads', () => {
       set(2n, groupKey),
       set(3n, groupKey),
       set(4n, privateKeys),
-      set(5n, { ...privateKeys, 'foc/ks': `0x${'ff'.repeat(16)}` }),
+      set(5n, { ...privateKeys, 'foc/gkid': `0x${'ff'.repeat(16)}` }),
       set(6n, privateKeys),
     ])
     expect(await resolveUploadTargets(synapse, {}, { ...base, copies: 2, requiredMetadata: privateKeys })).toEqual({
@@ -1094,10 +1100,10 @@ describe('resolveUploadTargets for private uploads', () => {
   })
 
   it('refuses a private --data-set-id of another group key', async () => {
-    const synapse = makeSynapse([set(3n, { ...privateKeys, 'foc/ks': `0x${'ff'.repeat(16)}` })])
+    const synapse = makeSynapse([set(3n, { ...privateKeys, 'foc/gkid': `0x${'ff'.repeat(16)}` })])
     await expect(
       resolveUploadTargets(synapse, { dataSetIds: [3n] }, { ...base, requiredMetadata: privateKeys })
-    ).rejects.toThrow(/Data set 3 cannot take this upload: its foc\/ks/)
+    ).rejects.toThrow(/Data set 3 cannot take this upload: its foc\/gkid/)
   })
 
   it.each(['restricted', 'friends'])(

@@ -13,6 +13,11 @@ import pc from 'picocolors'
 import { runLogin, runLogout } from '../login/index.js'
 import { addNetworkOptions, rpcUrlOption, scopesOption } from '../utils/cli-options.js'
 
+function parseDelegationDepth(value: string): number {
+  if (!/^\d$/.test(value) || Number(value) > 7) throw new InvalidArgumentError('Expected a whole number from 0 to 7.')
+  return Number(value)
+}
+
 function parseTimeoutSeconds(value: string): number {
   const seconds = Number(value)
   if (!Number.isInteger(seconds) || seconds <= 0) throw new InvalidArgumentError('Expected a whole number of seconds.')
@@ -30,6 +35,15 @@ export const loginCommand = new Command('login')
     '--grant <grant>',
     'Import the group key Grant (fgr1_…) the console showed for the saved session key; - reads it from stdin'
   )
+  .option(
+    '--group <path>',
+    'Ask for a Grant to this group (a/b/c) instead of the whole group key; the Grant also covers every group beneath it. Implies encrypt. Each --group login adds a Grant and keeps the ones saved before'
+  )
+  .option(
+    '--delegation-depth <n>',
+    'How many links this session key may add below its Grant (0-7, console default 7): 0 cannot delegate at all, 1 can delegate one piece (as a share link of a private upload does), higher lets those keys delegate further. A Grant that allows more than this is refused',
+    parseDelegationDepth
+  )
   .option('--fresh', 'Generate a new session key instead of resuming the saved one')
   .option('--no-browser', 'Print the console link without opening a browser')
   .option(
@@ -44,6 +58,8 @@ ${pc.bold('EXAMPLES')}
   $ filecoin-pin login
   $ filecoin-pin login --network calibration
   $ filecoin-pin login --scopes createDataSet,addPieces,encrypt   # also get a group key Grant
+  $ filecoin-pin login --group team/design                        # a Grant for one group (and beneath it)
+  $ filecoin-pin login --group backups/ci --delegation-depth 0    # one that cannot be delegated further
   $ filecoin-pin login --no-browser --no-wait                     # print the link, approve later, rerun to check
   $ filecoin-pin login --grant fgr1_…                             # finish: import the Grant the console showed
   $ pbpaste | filecoin-pin login --grant -                        # the same, reading the Grant from stdin
@@ -51,8 +67,8 @@ ${pc.bold('EXAMPLES')}
 ${pc.bold('FILES')}
   The session key is saved to session.env in the data directory before the
   browser opens (owner-readable only), so an interrupted login resumes the
-  same key and, unless --scopes says otherwise, the same scopes. A group key Grant is saved there too, as GROUP_KEY_ID and
-  GROUP_KEY_GRANT. \`filecoin-pin logout\` deletes the file.
+  same key and, unless --scopes says otherwise, the same scopes. Group key Grants are saved there too, as GROUP_KEY_ID and
+  GROUP_KEY_GRANT (comma-separated, one per group). \`filecoin-pin logout\` deletes the file.
 
 ${pc.bold('GROUP KEY GRANTS')}
   With encrypt, the console also wraps your group key to this session key.
@@ -60,8 +76,10 @@ ${pc.bold('GROUP KEY GRANTS')}
   --no-wait) it prints the resume command and never blocks. A --grant given
   before the key is authorized is not imported with --no-wait: rerun it after
   approving. The Grant gives
-  this key permanent read access to the whole group key, including future
-  uploads: expiry and revoking the key do not take it back.
+  this key permanent read access to the whole group key (or, with --group, to that
+  group and every group beneath it), including future uploads: expiry and revoking
+  the key do not take it back. Group names are public in every envelope.
+  filecoin-pin does not list groups: the app or person using it keeps track of them.
 
 ${pc.bold('ENVIRONMENT')}
   CONSOLE_URL   Filecoin Cloud console base URL (default: https://pay.filecoin.cloud). Point it at a
