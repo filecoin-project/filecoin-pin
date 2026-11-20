@@ -50,6 +50,8 @@ import {
 import { generateSessionKeypair } from '../core/session/create-session-key.js'
 import {
   DEFAULT_WATCH_DEADLINE_MS,
+  readScopeGrants,
+  type ScopeGrants,
   type WatchAuthorizationResult,
   watchAuthorization,
 } from '../core/session/watch-authorization.js'
@@ -324,7 +326,8 @@ async function obtainGrant(
   // A saved Grant for this node counts only if it allows no more delegation than this login asks for.
   const saved = kept.find((k) => k.claim.node === grantNode(request.group) && withinRequest(k, request) === undefined)
   if (saved !== undefined) {
-    log.line(`${pc.green('✓')} Grant for ${grantCovers(saved)} already saved`)
+    // Said before the link when the link left the group key step out.
+    if (grantLinkShown) log.line(`${pc.green('✓')} Grant for ${grantCovers(saved)} already saved`)
     return true
   }
   for (const reason of dropped) log.line(`${pc.yellow('⚠')} The saved Grant was ignored: ${reason}`)
@@ -439,6 +442,42 @@ async function reportReadiness(
   }
   log.line('')
   log.line(pc.gray('  check anytime: filecoin-pin balance · top up: filecoin-pin dashboard'))
+}
+
+/** Funding never blocks login: a failed readiness read is reported, not fatal. */
+async function reportReadinessSafely(...args: Parameters<typeof reportReadiness>): Promise<void> {
+  try {
+    await reportReadiness(...args)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    log.line(`${pc.yellow('⚠')} Could not read account readiness: ${reason}. Run \`filecoin-pin balance\` to check.`)
+  }
+}
+
+/**
+ * The saved key's authorization when every requested scope is already live, so login has
+ * nothing to wait for. Undefined when the owner isn't known yet, a scope is missing, or the
+ * read fails: login then shows the link and waits as usual.
+ */
+async function liveAuthorization(
+  client: Parameters<typeof readScopeGrants>[0]['client'],
+  session: SavedSession,
+  registryAddress: Address,
+  permissions: Permission[]
+): Promise<ScopeGrants | undefined> {
+  if (session.walletAddress === undefined) return undefined
+  try {
+    const scopes = await readScopeGrants({
+      client,
+      sessionAddress: session.sessionAddress,
+      registryAddress,
+      permissions,
+      owner: session.walletAddress,
+    })
+    return scopes.status === 'granted' ? scopes : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -560,16 +599,34 @@ export async function runLogin(
         ...(delegationDepth !== undefined && { maxDepth: delegationDepth }),
       }
     : undefined
-  if (group !== undefined) log.line(`  Requesting a Grant for group ${group} (and every group beneath it)`)
   // With pubkey, the console asks the owner for a Grant wrapped to this session key.
   const grantUrl = buildAuthorizeUrl(consoleUrl, session.sessionAddress, scopeIds, chain.id, keyAgreement)
   // A saved Grant for this node that still opens needs no new one, so the link leaves the group key step out.
-  const keepSavedGrant =
-    wantGrant &&
-    grantText === undefined &&
-    delegationDepth === undefined &&
-    (await savedGrantFor(session, chain.id, grantNode(group))) !== undefined
+  const savedGrant =
+    wantGrant && grantText === undefined && delegationDepth === undefined
+      ? await savedGrantFor(session, chain.id, grantNode(group))
+      : undefined
+  const keepSavedGrant = savedGrant !== undefined
   const url = keepSavedGrant ? buildAuthorizeUrl(consoleUrl, session.sessionAddress, scopeIds, chain.id) : grantUrl
+  if (savedGrant !== undefined) {
+    log.line(`${pc.green('✓')} Grant for ${grantCovers(savedGrant)} already saved: no group key step needed`)
+  } else if (group !== undefined) {
+    log.line(`  Requesting a Grant for group ${group} (and every group beneath it)`)
+  }
+
+  const client = createPublicClient({ chain, transport })
+  // Nothing for the console to do: the key is live on chain and any Grant asked for is in hand.
+  if (grantText === undefined && (!wantGrant || keepSavedGrant)) {
+    const live = await liveAuthorization(client, session, registryAddress, permissions)
+    if (live !== undefined) {
+      const expires = live.expiry === undefined ? '' : ` · expires ${formatExpiryDate(live.expiry)}`
+      log.line(`${pc.green('✓')} Already authorized: ${scopeList(live.granted)}${expires}`)
+      await reportReadinessSafely(live.owner, chain, rpcUrl, consoleUrl)
+      log.flush()
+      return 0
+    }
+  }
+
   log.line('  Approve this key with your wallet in the Filecoin Cloud console:')
   // The link on its own line, unstyled, so it copies and parses cleanly.
   log.line(url)
@@ -577,9 +634,6 @@ export async function runLogin(
   log.flush()
   // A Grant already in hand means the owner has been to the console.
   if (options.browser !== false && grantText === undefined) openBrowser(url)
-
-  // The link is already on screen: an RPC that is down here costs the wait, not the pairing.
-  const client = createPublicClient({ chain, transport })
 
   if (options.wait === false) {
     // This exit tells the owner to rerun `login`, and the grant is usually
@@ -679,13 +733,7 @@ export async function runLogin(
       )
     : true
 
-  // Funding never blocks login: a failed readiness read is reported, not fatal.
-  try {
-    await reportReadiness(result.owner, chain, rpcUrl, consoleUrl)
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    log.line(`${pc.yellow('⚠')} Could not read account readiness: ${reason}. Run \`filecoin-pin balance\` to check.`)
-  }
+  await reportReadinessSafely(result.owner, chain, rpcUrl, consoleUrl)
   log.flush()
   return grantedEveryRequested(permissions, result.granted) && haveGrant ? 0 : EXIT_CODE_INCOMPLETE
 }
