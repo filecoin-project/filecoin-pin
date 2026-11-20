@@ -51,7 +51,7 @@ describe('runLogout', () => {
   })
 
   it.each([
-    ['a network the console has no page for', 'devnet'],
+    ['a network the console has no page for', 'localnet'],
     ['a session file that recorded no network', undefined],
   ])('falls back to the plain page for %s', (_case, network) => {
     vi.mocked(readSessionFile).mockReturnValue({
@@ -67,6 +67,17 @@ describe('runLogout', () => {
     // A link the console would refuse is worse than no link.
     expect(lines()).toContain('https://console.test/console/session-keys')
     expect(lines().join('\n')).not.toContain('revoke=')
+  })
+
+  it('prints the revoke link for a devnet key on your own console (CONSOLE_URL)', () => {
+    vi.mocked(readSessionFile).mockReturnValue({ sessionKey: '0xsecret', sessionAddress: SESSION, network: 'devnet' })
+    vi.mocked(deleteSessionFile).mockReturnValue(true)
+
+    runLogout()
+
+    expect(lines().join('\n')).toContain(
+      `https://console.test/console/session-keys?revoke=${SESSION.toLowerCase()}&network=devnet`
+    )
   })
 
   it('still prints the revoke link when no wallet was saved, since --no-wait exits before the grant', () => {
