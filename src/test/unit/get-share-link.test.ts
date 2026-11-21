@@ -1,4 +1,4 @@
-import { keyspaceKeys as deriveGroupKey, keyForEnvelope, newSalt, pieceMetadata } from '@filoz/keysmith'
+import { deriveGroupKey, keyForEnvelope, newSalt, pieceMetadata } from '@filoz/keysmith'
 import { bytesToHex } from 'viem'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseShareLink, shareKey, shareKeyResolver } from '../../common/share-link.js'
@@ -35,7 +35,7 @@ describe('runGetShareLink', () => {
     ['an open link', {}],
     ['a restricted link and its Access key', { restricted: true }],
   ])('prints %s that opens the upload whose header was read', async (_, mode) => {
-    const labels = pieceMetadata({ owner: OWNER.address, keyspace: GROUP_KEY }, { salt: newSalt() })
+    const labels = pieceMetadata({ owner: OWNER.address, groupKeyId: GROUP_KEY }, { salt: newSalt() })
     header.labels = labels
     const printed: string[] = []
     vi.spyOn(console, 'log').mockImplementation((line: string) => printed.push(line))
@@ -55,7 +55,7 @@ describe('runGetShareLink', () => {
     expect(parsed.accessKey == null).toBe(accessKey != null)
     expect(accessKey != null).toBe('restricted' in mode)
     const key = await shareKeyResolver(parsed, shareKey(parsed, accessKey))({ appMetadata: labels } as never)
-    const { kk } = await deriveGroupKey(OWNER, { owner: OWNER.address, keyspace: GROUP_KEY })
+    const { groupKey: kk } = await deriveGroupKey(OWNER, { owner: OWNER.address, groupKeyId: GROUP_KEY })
     expect(bytesToHex(key)).toBe(bytesToHex(keyForEnvelope(kk, labels)))
   })
 

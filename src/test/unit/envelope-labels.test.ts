@@ -48,7 +48,7 @@ function fakeFetch(blocks: Record<string, Map<string, Uint8Array>>): typeof fetc
 
 describe('readEnvelopeLabels', () => {
   it('reads the labels of a single-block upload (a raw root)', async () => {
-    const labels = pieceMetadata({ owner: OWNER, keyspace: GROUP_KEY }, { salt: newSalt() })
+    const labels = pieceMetadata({ owner: OWNER, groupKeyId: GROUP_KEY }, { salt: newSalt() })
     const leaf = await envelope(labels)
     const root = await rawCid(leaf)
     const fetchImpl = fakeFetch({ 'https://good.test': new Map([[root.toString(), leaf]]) })
@@ -56,7 +56,7 @@ describe('readEnvelopeLabels', () => {
   })
 
   it('walks a dag-pb root to its first leaf', async () => {
-    const labels = pieceMetadata({ owner: OWNER, keyspace: GROUP_KEY }, { salt: newSalt() })
+    const labels = pieceMetadata({ owner: OWNER, groupKeyId: GROUP_KEY }, { salt: newSalt() })
     const leaf = await envelope(labels)
     const leafCid = await rawCid(leaf)
     const root = await fileRoot(leafCid, leaf.length)
@@ -70,8 +70,8 @@ describe('readEnvelopeLabels', () => {
   })
 
   it("refuses a provider that serves another upload's header for this CID, and uses the next", async () => {
-    const mine = pieceMetadata({ owner: OWNER, keyspace: GROUP_KEY }, { salt: newSalt() })
-    const other = pieceMetadata({ owner: OWNER, keyspace: GROUP_KEY }, { salt: newSalt() })
+    const mine = pieceMetadata({ owner: OWNER, groupKeyId: GROUP_KEY }, { salt: newSalt() })
+    const other = pieceMetadata({ owner: OWNER, groupKeyId: GROUP_KEY }, { salt: newSalt() })
     const leaf = await envelope(mine)
     const root = await rawCid(leaf)
     const fetchImpl = fakeFetch({
@@ -136,7 +136,7 @@ describe('readEnvelopeLabels', () => {
   })
 
   it('still moves on from a provider that fails to serve the blocks', async () => {
-    const labels = pieceMetadata({ owner: OWNER, keyspace: GROUP_KEY }, { salt: newSalt() })
+    const labels = pieceMetadata({ owner: OWNER, groupKeyId: GROUP_KEY }, { salt: newSalt() })
     const leaf = await envelope(labels)
     const root = await rawCid(leaf)
     const fetchImpl = fakeFetch({ 'https://good.test': new Map([[root.toString(), leaf]]) })

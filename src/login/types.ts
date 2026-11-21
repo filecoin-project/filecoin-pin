@@ -15,4 +15,8 @@ export interface LoginOptions {
   timeout?: number | undefined
   /** A group key Grant (`fgr1_…`) to import for the saved session key, or `-` to read it from stdin. */
   grant?: string | undefined
+  /** Ask for a Grant to this group (keysmith path) instead of the whole group key. Implies the Grant step. */
+  group?: string | undefined
+  /** How many links the session key may add below its Grant (0–7); the console defaults to 7. */
+  delegationDepth?: number | undefined
 }
