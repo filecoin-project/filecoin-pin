@@ -27,6 +27,7 @@ import pc from 'picocolors'
 import { type Address, createPublicClient } from 'viem'
 import { getBlockNumber } from 'viem/actions'
 import { EXIT_CODE_INCOMPLETE } from '../common/cli-errors.js'
+import { DEVNET_CHAIN_ID } from '../common/constants.js'
 import { NETWORK_CHAINS } from '../common/get-rpc-url.js'
 import { checkGroup } from '../common/group-key.js'
 import {
@@ -112,12 +113,16 @@ function parseLoginScopes(value: string | undefined): {
 /**
  * Chain id of a console network slug; mainnet for a session file that never recorded one.
  *
- * @throws for any other network: the console, which issues Grants, serves only these two.
+ * @throws for a network the console, which issues Grants, does not serve: mainnet and
+ * calibration, and devnet only on a console of your own (`CONSOLE_URL`).
  */
 function chainIdOf(network: string | undefined): number {
   if (network === undefined || network === 'mainnet') return NETWORK_CHAINS.mainnet.id
   if (network === 'calibration') return NETWORK_CHAINS.calibration.id
-  throw new Error(`login --grant works on mainnet and calibration, not ${network}: Grants come from the console.`)
+  if (network === 'devnet' && consoleNetworkSlug(DEVNET_CHAIN_ID) === 'devnet') return DEVNET_CHAIN_ID
+  throw new Error(
+    `login --grant works on mainnet and calibration (and devnet, with CONSOLE_URL set to your own console), not ${network}: Grants come from the console.`
+  )
 }
 
 /** The session with `--private-uploads` (true) or `--no-private-uploads` (false) applied; unchanged without either. */
@@ -589,12 +594,12 @@ export async function runLogin(
   const network = consoleNetworkSlug(chain.id)
   if (network === undefined && wantGrant) {
     throw new Error(
-      `Group key Grants come from the Filecoin Cloud console, which has no page for chain id ${chain.id}. On this network, encrypt in owner mode: set PRIVATE_KEY to the wallet key.`
+      `Group key Grants come from the Filecoin Cloud console, which has no page for chain id ${chain.id}. On this network, encrypt in owner mode: set PRIVATE_KEY to the wallet key. For a local foc-devnet, set CONSOLE_URL to a console you run against it.`
     )
   }
   if (network === undefined) {
     throw new Error(
-      `The Filecoin Cloud console has no pairing page for chain id ${chain.id}. login works on mainnet and calibration; on other networks use \`filecoin-pin session create\` with the wallet key.`
+      `The Filecoin Cloud console has no pairing page for chain id ${chain.id}. login works on mainnet and calibration, and on a local foc-devnet with CONSOLE_URL set to a console you run against it; on other networks use \`filecoin-pin session create\` with the wallet key.`
     )
   }
   const consoleUrl = resolveConsoleUrl()
