@@ -332,11 +332,25 @@ describe('runLogin', () => {
   })
 
   it('refuses a chain the console has no page for before saving anything', async () => {
+    vi.stubEnv('CONSOLE_URL', undefined) // the production console, which serves no devnet
     vi.mocked(resolveNetwork).mockResolvedValue(networkFor(31415926, 'devnet'))
 
     await expect(runLogin({})).rejects.toThrow(/no pairing page for chain id 31415926/)
     expect(readSessionFile(sessionPath())).toBeUndefined()
     expect(vi.mocked(openBrowser)).not.toHaveBeenCalled()
+  })
+
+  it('on a local foc-devnet, links to your own console (CONSOLE_URL) with network=devnet', async () => {
+    vi.mocked(resolveNetwork).mockResolvedValue(networkFor(31415926, 'devnet'))
+
+    expect(await runLogin({ wait: false, browser: false })).toBe(2)
+
+    const line = vi
+      .mocked(log.line)
+      .mock.calls.map(([text]) => String(text))
+      .find((text) => text.startsWith('https://console.test/console/setup?'))
+    expect(new URL(line ?? 'https://x.invalid').searchParams.get('network')).toBe('devnet')
+    expect(readSessionFile(sessionPath())?.network).toBe('devnet')
   })
 
   it('--no-wait saves the key, prints the bare link, and exits 2 without watching', async () => {
@@ -676,13 +690,14 @@ describe('runLogin', () => {
     })
 
     it('login --grant refuses a network the console does not serve', async () => {
+      vi.stubEnv('CONSOLE_URL', undefined) // the production console, which serves no devnet
       writeSessionFile(
         { sessionKey: SESSION_KEY, sessionAddress: SESSION_ADDRESS, walletAddress: GRANT_OWNER.address },
         sessionPath()
       )
 
       await expect(runLogin({ grant: await makeGrant(), network: 'devnet' }, silentStdin(false))).rejects.toThrow(
-        /login --grant works on mainnet and calibration, not devnet/
+        /login --grant works on mainnet and calibration \(and devnet, with CONSOLE_URL set to your own console\), not devnet/
       )
     })
 
@@ -982,6 +997,7 @@ describe('runLogin', () => {
     })
 
     it('refuses encrypt on a network without a console, pointing at owner mode', async () => {
+      vi.stubEnv('CONSOLE_URL', undefined) // the production console, which serves no devnet
       vi.mocked(resolveNetwork).mockResolvedValue(networkFor(31415926, 'devnet'))
 
       await expect(runLogin({ scopes: ENCRYPT }, silentStdin(false))).rejects.toThrow(
