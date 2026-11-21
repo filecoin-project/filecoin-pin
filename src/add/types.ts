@@ -24,6 +24,8 @@ export interface AddOptions extends CLIAuthOptions, CLIAutoFundOptions {
   encrypt?: boolean
   /** Upload to private data sets (`read=restricted`), served only on the authenticated path. Implies `encrypt`. */
   private?: boolean
+  /** With `encrypt`: the group to write under (keysmith path rules); default the group key root, or a session Grant's own group. */
+  group?: string
   /**
    * IPFS indexing (default true). `false` (`--no-ipfs`) uploads to data sets without
    * `withIPFSIndexing`, so the provider does not announce the content to IPNI, and

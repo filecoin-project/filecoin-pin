@@ -28,8 +28,12 @@ export const addCommand = new Command('add')
   )
   .option('--public', 'Upload this one publicly even though login --private-uploads is on (the opposite of --private)')
   .option(
+    '--group <path>',
+    'With --encrypt or --private: write under this group (a/b/c) of the group key, so Grants for that group (or one above it) can read it. A session key needs a Grant that covers it (login --group). Group names are public in the envelope.'
+  )
+  .option(
     '--get-share-link',
-    'With --encrypt: print a Share link that opens the upload on its own (see get-share-link)'
+    'With --encrypt or --private: print a Share link that opens the upload on its own (see get-share-link)'
   )
   .option('--get-share-link-restricted', 'With --encrypt: print a Share link and its Access key, to send separately')
   .option(

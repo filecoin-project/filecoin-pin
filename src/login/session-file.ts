@@ -43,9 +43,9 @@ export interface SavedSession {
   scopes?: string
   /** `login --private-uploads`: every `add` is private unless `--public` says otherwise. */
   uploads?: 'private'
-  /** Group key the Grant opens (`foc/ks`), 0x + 32 hex. Written together with {@link groupKeyGrant}. */
+  /** Group key the Grants open (`foc/gkid`), 0x + 32 hex. Written together with {@link groupKeyGrant}. */
   groupKeyId?: Hex
-  /** The group key Grant for this session key, `fgr1_…`. Never the key it opens. */
+  /** This session key's group key Grants, `fgr1_…`, comma-separated: one per group. Never the keys they open. */
   groupKeyGrant?: string
 }
 
@@ -92,7 +92,11 @@ export function readSessionFile(path: string = getSessionFilePath()): SavedSessi
   // Both or neither: a Grant is checked against its group key id on every load.
   const groupKeyId = parsed.GROUP_KEY_ID
   const groupKeyGrant = parsed.GROUP_KEY_GRANT
-  if (isHex(groupKeyId, 16) && groupKeyGrant !== undefined && /^fgr1_[A-Za-z0-9_-]+$/.test(groupKeyGrant)) {
+  if (
+    isHex(groupKeyId, 16) &&
+    groupKeyGrant !== undefined &&
+    /^fgr1_[A-Za-z0-9_-]+(,fgr1_[A-Za-z0-9_-]+)*$/.test(groupKeyGrant)
+  ) {
     session.groupKeyId = groupKeyId
     session.groupKeyGrant = groupKeyGrant
   }

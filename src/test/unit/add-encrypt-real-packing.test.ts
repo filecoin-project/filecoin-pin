@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { decodeGrant, keyspaceKeys as deriveGroupKey, keyForEnvelope, pieceMetadata } from '@filoz/keysmith'
+import { decodeGrant, deriveGroupKey, keyForEnvelope, pieceMetadata } from '@filoz/keysmith'
 import * as dagPb from '@ipld/dag-pb'
 import { bytesToHex, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
@@ -256,14 +256,14 @@ describe('add --encrypt with real packing', () => {
       expect(out).toContain('Send the link and the Access key by different channels')
       expect(parsed.accessKey).toBeUndefined()
       // The share names the upload's salt, which must be the one in the uploaded envelope's header.
-      const { owner: ownerAddress, keyspace, node } = decodeGrant(parsed.payload)
+      const { owner: ownerAddress, groupKeyId, node } = decodeGrant(parsed.payload)
       const salt = node.replace(/^piece:/, '') as Hex
       expect(car.includes(Buffer.from(salt.slice(2), 'hex')) || car.includes(salt)).toBe(true)
-      const labels = pieceMetadata({ owner: ownerAddress, keyspace }, { salt })
+      const labels = pieceMetadata({ owner: ownerAddress, groupKeyId }, { salt })
       const accessKey = out.match(/fak1_[A-Za-z0-9_-]+/)?.[0]
       const key = await shareKeyResolver(parsed, shareKey(parsed, accessKey))({ appMetadata: labels } as never)
       const owner = privateKeyToAccount(OWNER_KEY)
-      const { kk } = await deriveGroupKey(owner, { owner: owner.address, keyspace: labels['foc/ks'] })
+      const { groupKey: kk } = await deriveGroupKey(owner, { owner: owner.address, groupKeyId: labels['foc/gkid'] })
       expect(bytesToHex(key)).toBe(bytesToHex(keyForEnvelope(kk, labels)))
     })
 
