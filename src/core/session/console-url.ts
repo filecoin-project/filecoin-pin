@@ -3,6 +3,7 @@
  * deep links. Session-key pairing/login work builds on these same helpers.
  */
 
+import { DEVNET_CHAIN_ID } from '../../common/constants.js'
 import { telemetryConfig } from '../telemetry/index.js'
 
 /**
@@ -37,9 +38,32 @@ const CONSOLE_NETWORK_SLUG: Record<number, string> = {
   314159: 'calibration',
 }
 
-/** The console's name for a chain, or undefined when the console has no page for it (devnet, custom RPC). */
-export function consoleNetworkSlug(chainId: number): string | undefined {
-  return CONSOLE_NETWORK_SLUG[chainId]
+/**
+ * Whether `consoleUrl` is a hosted console: production, its preview deployments, or staging. None of
+ * them serves a local foc-devnet; only a console you run yourself (`CONSOLE_URL`) can.
+ */
+function isHostedConsole(consoleUrl: string): boolean {
+  let host: string
+  try {
+    host = new URL(consoleUrl).hostname
+  } catch {
+    return false
+  }
+  return host === 'pay.filecoin.cloud' || host.endsWith('.pay.filecoin.cloud') || host === STAGING_CONSOLE_HOST
+}
+
+/** The hosted staging console. */
+const STAGING_CONSOLE_HOST = 'filecoin-pay-explorer-staging.vercel.app'
+
+/**
+ * The console's name for a chain, or undefined when the console has no page for it (a custom RPC).
+ * The production console serves mainnet and calibration. A console you run yourself (`CONSOLE_URL`)
+ * may also serve a local foc-devnet, as `devnet`; it refuses a link for a network it does not serve.
+ */
+export function consoleNetworkSlug(chainId: number, consoleUrl: string = resolveConsoleUrl()): string | undefined {
+  const slug = CONSOLE_NETWORK_SLUG[chainId]
+  if (slug !== undefined) return slug
+  return chainId === DEVNET_CHAIN_ID && !isHostedConsole(consoleUrl) ? 'devnet' : undefined
 }
 
 /**
@@ -72,7 +96,7 @@ export function buildAuthorizeUrl(
     ? `&pubkey=${keyAgreement.pubkey}&pubkeysig=${keyAgreement.pubkeysig}&node=${encodeURIComponent(keyAgreement.node ?? 'groupKey')}${depth}`
     : ''
   return withUtm(
-    `${trimSlash(consoleUrl)}/console/setup?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId)}${pubkey}`,
+    `${trimSlash(consoleUrl)}/console/setup?authorize=${sessionAddress.toLowerCase()}&scopes=${scopeIds.join(',')}${networkParam(chainId, consoleUrl)}${pubkey}`,
     'login'
   )
 }
@@ -91,14 +115,16 @@ const CONSOLE_NETWORKS = new Set(Object.values(CONSOLE_NETWORK_SLUG))
  */
 export function buildRevokeUrl(consoleUrl: string, sessionAddress: string, network: string | undefined): string {
   const page = `${trimSlash(consoleUrl)}/console/session-keys`
-  if (network === undefined || !CONSOLE_NETWORKS.has(network)) return withUtm(page, 'revoke')
+  const placed =
+    network !== undefined && (CONSOLE_NETWORKS.has(network) || (network === 'devnet' && !isHostedConsole(consoleUrl)))
+  if (!placed) return withUtm(page, 'revoke')
   // Lowercased for the same reason as buildAuthorizeUrl: strict isAddress.
   return withUtm(`${page}?revoke=${sessionAddress.toLowerCase()}&network=${network}`, 'revoke')
 }
 
 /** `&network=<slug>` for a chain the console knows, empty otherwise: the console refuses a link it cannot place. */
-function networkParam(chainId: number): string {
-  const network = CONSOLE_NETWORK_SLUG[chainId]
+function networkParam(chainId: number, consoleUrl: string): string {
+  const network = consoleNetworkSlug(chainId, consoleUrl)
   return network ? `&network=${network}` : ''
 }
 
@@ -122,7 +148,7 @@ export function buildConsoleUrl(consoleUrl: string): string {
  */
 export function buildFundingUrl(consoleUrl: string, depositUsdfc: number, chainId: number): string {
   return withUtm(
-    `${trimSlash(consoleUrl)}/console?deposit=${depositUsdfc}&operator=fwss${networkParam(chainId)}`,
+    `${trimSlash(consoleUrl)}/console?deposit=${depositUsdfc}&operator=fwss${networkParam(chainId, consoleUrl)}`,
     'fund'
   )
 }

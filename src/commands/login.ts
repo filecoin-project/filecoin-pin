@@ -82,7 +82,8 @@ ${pc.bold('GROUP KEY GRANTS')}
   filecoin-pin does not list groups: the app or person using it keeps track of them.
 
 ${pc.bold('ENVIRONMENT')}
-  CONSOLE_URL   Filecoin Cloud console base URL (default: https://pay.filecoin.cloud)
+  CONSOLE_URL   Filecoin Cloud console base URL (default: https://pay.filecoin.cloud). Point it at a
+                console you run against a local foc-devnet to use login --network devnet
   BROWSER=none  never open a browser
   NETWORK, RPC_URL  as --network and --rpc-url
 
