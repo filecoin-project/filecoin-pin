@@ -548,7 +548,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
         )
       )
       if (options.private === true) {
-        // Not indexed anywhere: reading it back needs the piece CID as well as the root.
+        // Not indexed anywhere: get finds it by its root among the owner's private data sets.
         log.line(`  Read it back: filecoin-pin get ${result.rootCid}`)
       }
       log.flush()

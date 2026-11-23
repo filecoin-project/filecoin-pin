@@ -20,7 +20,7 @@ import { varint } from 'multiformats'
 import { CID } from 'multiformats/cid'
 import { sha256 } from 'multiformats/hashes/sha2'
 import type { Logger } from 'pino'
-import { getDataSetPieces, listDataSets, PieceStatus } from '../core/data-set/index.js'
+import { listDataSets } from '../core/data-set/index.js'
 import { type IpniIndexerResponse, multiaddrToNormalizedUri } from '../core/utils/validate-ipni-advertisement.js'
 import { READ_KEY, READ_RESTRICTED } from './group-key.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC } from './unixfs-car-layout.js'
@@ -56,16 +56,17 @@ export interface FetchOptions {
   /** Largest CAR to download; {@link MAX_CAR_BYTES} by default. */
   maxCarBytes?: number
   /**
-   * Fetch the stored piece from a gated provider's `/download/<pieceCid>` instead of `/ipfs/<cid>`.
-   * `authorizations` gives fresh `Authorization` headers, one per held Grant, best first; each provider
-   * is tried with them in turn while it answers 403 (that Grant does not reach the piece). The piece is
-   * the CAR `add` uploaded, so it is verified against `cid` like any other.
+   * Fetch the stored piece from a gated provider's `/download/<cid>` instead of `/ipfs/<root>`: `cid` is
+   * the root (the provider resolves it to its private piece) or the piece CID, and each request is signed
+   * over that same CID. `authorizations` gives fresh `Authorization` headers, one per held Grant, best
+   * first; each provider is tried with them in turn while it answers 403 (that Grant does not reach the
+   * piece). The piece is the CAR `add` uploaded, so it is verified against the root like any other.
    */
-  download?: { pieceCid: string; authorizations: Authorizations }
+  download?: { cid: string; authorizations: Authorizations }
 }
 
-/** Fresh `Authorization` headers for one piece's gated `/download/`, one per held Grant, best first. */
-export type Authorizations = (pieceCid: string) => Promise<string[]>
+/** Fresh `Authorization` headers for one gated `/download/<cid>`, one per held Grant, best first. */
+export type Authorizations = (cid: string) => Promise<string[]>
 
 /** One way to find providers; `find` should stop when `signal` aborts. */
 export interface ProviderSource {
@@ -339,15 +340,14 @@ function unusable(response: Response, maxBytes: number, piece: boolean): string 
 async function gatedDownload(
   doFetch: typeof fetch,
   base: string,
-  pieceCid: string,
+  cid: string,
   authorizations: Authorizations,
-  signal: AbortSignal | undefined,
-  extra: Record<string, string> = {}
+  signal: AbortSignal | undefined
 ): Promise<Response> {
-  const headers = await authorizations(pieceCid)
+  const headers = await authorizations(cid)
   for (const [i, authorization] of headers.entries()) {
-    const response = await doFetch(`${base}/download/${pieceCid}`, {
-      headers: { ...extra, Authorization: authorization },
+    const response = await doFetch(`${base}/download/${cid}`, {
+      headers: { Authorization: authorization },
       ...(signal != null && { signal }),
     })
     if (response.status !== 403 || i === headers.length - 1) return response
@@ -417,7 +417,7 @@ function firstCarResponse(
       const request =
         download == null
           ? doFetch(`${base}/ipfs/${cid}?format=car&dag-scope=all`, { headers: { Accept: CAR_ACCEPT }, signal })
-          : gatedDownload(doFetch, base, download.pieceCid, download.authorizations, signal)
+          : gatedDownload(doFetch, base, download.cid, download.authorizations, signal)
       request.then(
         (response) => {
           clearTimeout(timer)
@@ -596,74 +596,4 @@ export async function verifyCar(carPath: string, root: CID): Promise<void> {
   } finally {
     stream.destroy()
   }
-}
-
-/** Enough of a piece's start for its CAR header: filecoin-pin writes one root. */
-const CAR_HEADER_PROBE_BYTES = 1024
-
-/**
- * The piece, in the address's read-restricted data sets, whose CAR is rooted at `root`. A private
- * upload is not indexed anywhere, and the gate verifies a request that names the piece, so the piece
- * is found by reading each one's CAR header: a ranged, signed `/download/<piece>`, newest piece first,
- * until one names the root. A piece a provider does not serve is skipped. Undefined when none does.
- *
- * ponytail: one request per private piece. Curio already resolves `/download/<root>` to its private
- * piece; once its gate also accepts a request naming the root, fetch that and drop this lookup.
- */
-export async function findPrivatePiece(
-  synapse: Synapse,
-  root: CID,
-  authorizations: Authorizations,
-  options: { fetch?: typeof fetch; signal?: AbortSignal; logger?: Logger } = {}
-): Promise<string | undefined> {
-  const doFetch = options.fetch ?? fetch
-  const dataSets = await listDataSets(synapse, {
-    filter: (dataSet) => dataSet.isLive && dataSet.hasActivePieces && dataSet.metadata?.[READ_KEY] === READ_RESTRICTED,
-    ...(options.logger != null && { logger: options.logger }),
-  })
-  const wanted = blockKey(root)
-  for (const dataSet of dataSets) {
-    const base = dataSet.provider?.pdp?.serviceURL
-    if (base == null) continue
-    const { pieces } = await getDataSetPieces(synapse, dataSet.dataSetId, base, {
-      ...(options.logger != null && { logger: options.logger }),
-    })
-    const active = pieces.filter((piece) => piece.status === PieceStatus.ACTIVE).reverse()
-    for (const { pieceCid } of active) {
-      try {
-        const response = await gatedDownload(doFetch, base, pieceCid, authorizations, options.signal, {
-          Range: `bytes=0-${CAR_HEADER_PROBE_BYTES - 1}`,
-        })
-        const head = await firstBytes(response, CAR_HEADER_PROBE_BYTES)
-        if (head == null) continue
-        const [length, varintBytes] = decodeSectionLength(head)
-        const { roots } = dagCbor.decode<{ roots?: CID[] }>(head.subarray(varintBytes, varintBytes + length))
-        const first = roots?.[0]
-        if (roots?.length === 1 && first != null && blockKey(CID.decode(first.bytes)) === wanted) return pieceCid
-      } catch (error) {
-        if (options.signal?.aborted) throw error
-        options.logger?.debug({ pieceCid, reason: reasonOf(error) }, 'Could not read the piece header')
-      }
-    }
-  }
-  return undefined
-}
-
-/** Up to `max` bytes from a 200 or 206 body, the rest cancelled; undefined for any other status. */
-async function firstBytes(response: Response, max: number): Promise<Uint8Array | undefined> {
-  if ((response.status !== 200 && response.status !== 206) || response.body == null) {
-    await response.body?.cancel().catch(() => undefined)
-    return undefined
-  }
-  const reader = response.body.getReader()
-  const parts: Uint8Array[] = []
-  let total = 0
-  while (total < max) {
-    const { done, value } = await reader.read()
-    if (done) break
-    parts.push(value)
-    total += value.length
-  }
-  await reader.cancel().catch(() => undefined)
-  return Buffer.concat(parts).subarray(0, max)
 }

@@ -14,7 +14,7 @@ export const getCommand = new Command('get')
     '--share <link>',
     'Fetch and decrypt the piece a Share link (from get-share-link) names, instead of using your own credentials'
   )
-  .option('--piece <piece-cid>', "A private upload's piece CID, to skip finding it by the root CID (see below)")
+  .option('--piece <piece-cid>', "A private upload's piece CID, to fetch instead of its root CID (see below)")
   .addOption(
     new Option('--access-key <key>', "The Share link's Access key (fak1_…), unless the link carries it").env(
       'SHARE_ACCESS_KEY'
@@ -37,10 +37,10 @@ upload is decrypted with the owner wallet (PRIVATE_KEY), a session key's group k
 Nothing in <output-dir> is overwritten: a taken name is numbered like a browser download
 (<cid> -> "<cid>(1)", report.pdf -> "report(1).pdf"). Plain content needs no credentials.
 
-A private upload (add --private) is served only on the authenticated path: pass its piece CID
-with --piece. It is fetched from /download/<piece-cid> on your own read-restricted data sets,
+A private upload (add --private) is served only on the authenticated path: it is fetched from
+/download/<cid> on your own read-restricted data sets (the root CID, or --piece's piece CID),
 with an Authorization header from each of your session key's Grants in turn, until one reaches
-the upload's group. The owner wallet (PRIVATE_KEY) authorizes itself instead: it signs, once per
+the upload's group. Content they do not serve is then looked for publicly. The owner wallet (PRIVATE_KEY) authorizes itself instead: it signs, once per
 group key of its private data sets, a claim to read that group key.`
   )
 
