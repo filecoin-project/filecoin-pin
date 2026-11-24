@@ -160,7 +160,6 @@ export async function runGetShareLink(cidArg: string, options: GetShareLinkOptio
     spinner.start('Reading the envelope header...')
     // `--rpc-url` leaves the network to be probed.
     const chainId = auth.chain?.id ?? (await readOnlySynapse(auth, address, logger)).chain.id
-    const sender = await shareSender(auth, chainId)
     const { piece } = options
     const found = (await findPrivateUpload(cid, piece, auth, address, chainId, logger)) ?? {
       labels: await findEnvelopeLabels(cid, auth, address, logger),
@@ -169,7 +168,8 @@ export async function runGetShareLink(cidArg: string, options: GetShareLinkOptio
     }
     spinner.message('Creating the share...')
     const share = await createShare({
-      sender,
+      // Opened only now: createShare zeroes the Grants' keys however it ends, and nothing in between can throw.
+      sender: await shareSender(auth, chainId),
       rootCid: cid,
       labels: found.labels,
       mode,

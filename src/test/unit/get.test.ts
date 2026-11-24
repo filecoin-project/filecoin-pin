@@ -591,7 +591,9 @@ describe('get', () => {
             authorizations: async () => ['FOC-Grant a', 'FOC-Grant b'],
           },
         })
-      ).rejects.toThrow(/HTTP 403/)
+      ).rejects.toThrow(
+        /HTTP 403: the provider refused access\. The Share link or Grant may have expired, been revoked, or not cover this upload: ask for a new one/
+      )
       expect(gated).toHaveBeenCalledTimes(2)
     })
 
