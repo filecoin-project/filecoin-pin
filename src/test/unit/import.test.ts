@@ -756,6 +756,17 @@ describe('runCarImportFromCli egress glue', () => {
     }
   })
 
+  it('refuses while uploads are private by default, unless --public', async () => {
+    vi.stubEnv('FILECOIN_PIN_UPLOADS', 'private')
+    try {
+      await expect(runCarImportFromCli('./missing.car', { privateKey: testPrivateKey })).rejects.toThrow(
+        /Uploads are private by default, and import uploads the CAR publicly: pass --public/
+      )
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('defaults to no egress (withCDN unset) when --egress-provider is omitted', async () => {
     const carPath = join(testDir, 'default-none.car')
     await createTestCarFile(carPath, [], [{ content: 'default none content' }])

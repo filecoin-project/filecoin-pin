@@ -31,6 +31,7 @@ import { normalizeMetadataConfig } from '../core/metadata/index.js'
 import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
+import { privateUploadsByDefault } from '../login/settings-file.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -163,8 +164,15 @@ export async function runCarImportFromCli(
       minRunwayDays: _minRunwayDays,
       maxBalance: _maxBalance,
       egressProvider: rawEgressProvider,
+      public: _public,
       ...importOptionsFromCli
     } = options
+    // import uploads a CAR as it is, so it is always public: refused while uploads are private by default.
+    if (options.public !== true && privateUploadsByDefault()) {
+      throw new Error(
+        'Uploads are private by default, and import uploads the CAR publicly: pass --public to import it anyway, or use add --private'
+      )
+    }
 
     const egressProvider = rawEgressProvider ?? 'none'
 

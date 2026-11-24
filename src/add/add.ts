@@ -56,7 +56,7 @@ import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
-import { readSessionFile } from '../login/session-file.js'
+import { privateUploadsByDefault } from '../login/settings-file.js'
 import { NO_IPFS_SHARE, printShare, shareReminder, shareSender } from '../share/get-share-link.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
@@ -130,8 +130,8 @@ async function sessionGroupKey(
 }
 
 /**
- * Whether one upload is private: `--private` or `--public` decides it, else the saved login's
- * `login --private-uploads` setting. Without either flag or the setting, an upload is public.
+ * Whether one upload is private: `--private` or `--public` decides it, else the setting
+ * (`FILECOIN_PIN_UPLOADS`, or `login --private-uploads`). Without either flag or the setting, an upload is public.
  *
  * @throws When both flags are given.
  */
@@ -174,7 +174,7 @@ export async function runAddFromCli(path: string, options: Record<string, any>):
     addOptions = {
       ...addOptionsFromCli,
       ...autoFundOptions,
-      private: resolvePrivate(options, readSessionFile()?.uploads === 'private'),
+      private: resolvePrivate(options, privateUploadsByDefault()),
       filePath: path,
       egressProvider,
       ...(pieceMetadata && { pieceMetadata }),

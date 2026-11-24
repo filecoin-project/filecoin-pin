@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runLogout } from '../../login/run-logout.js'
 import { deleteSessionFile, readSessionFile } from '../../login/session-file.js'
+import { writePrivateUploads } from '../../login/settings-file.js'
 import { log } from '../../utils/cli-logger.js'
 
 vi.mock('../../login/session-file.js', () => ({
@@ -96,6 +97,20 @@ describe('runLogout', () => {
     expect(lines()).toContain(
       `https://console.test/console/session-keys?revoke=${SESSION.toLowerCase()}&network=calibration`
     )
+  })
+
+  it('keeps private uploads on, and says so, since the next add is still private', () => {
+    vi.mocked(readSessionFile).mockReturnValue(undefined)
+    vi.mocked(deleteSessionFile).mockReturnValue(false)
+    writePrivateUploads(true)
+    try {
+      runLogout()
+      expect(lines().join('\n')).toMatch(
+        /Private uploads are still on \(.*settings\.env\): login --no-private-uploads turns them off/
+      )
+    } finally {
+      writePrivateUploads(false)
+    }
   })
 
   it('says it was not logged in when there is no session file', () => {

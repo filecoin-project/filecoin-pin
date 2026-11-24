@@ -19,6 +19,7 @@ import { openBrowser } from '../../login/open-browser.js'
 import { checkAccountReadiness } from '../../login/readiness.js'
 import { runLogin } from '../../login/run-login.js'
 import { readSessionFile, writeSessionFile } from '../../login/session-file.js'
+import { getSettingsFilePath, privateUploadsByDefault } from '../../login/settings-file.js'
 import { resolveNetwork } from '../../session/resolve-network.js'
 import { log } from '../../utils/cli-logger.js'
 import {
@@ -127,23 +128,13 @@ describe('runLogin', () => {
   })
 
   describe('--private-uploads', () => {
-    const authorized = () =>
-      writeSessionFile(
-        {
-          sessionKey: SESSION_KEY,
-          sessionAddress: SESSION_ADDRESS,
-          walletAddress: GRANT_OWNER.address,
-          network: 'calibration',
-        },
-        sessionPath()
-      )
+    const saved = () => privateUploadsByDefault(getSettingsFilePath(dataDir), {})
 
-    it('on a login already done, saves the setting and stops: no console link, browser or wait', async () => {
-      authorized()
-
+    it('saves the setting in settings.env and stops, with no login at all: no console link, browser or wait', async () => {
       expect(await runLogin({ privateUploads: true })).toBe(0)
 
-      expect(readSessionFile(sessionPath())).toMatchObject({ uploads: 'private', walletAddress: GRANT_OWNER.address })
+      expect(saved()).toBe(true)
+      expect(existsSync(sessionPath())).toBe(false)
       expect(output()).toContain('Uploads are private by default')
       expect(output()).not.toContain('console/setup')
       expect(vi.mocked(resolveNetwork)).not.toHaveBeenCalled()
@@ -151,31 +142,31 @@ describe('runLogin', () => {
     })
 
     it('--no-private-uploads turns it off again', async () => {
-      authorized()
       await runLogin({ privateUploads: true })
 
       expect(await runLogin({ privateUploads: false })).toBe(0)
 
-      expect(readSessionFile(sessionPath())).not.toHaveProperty('uploads')
+      expect(saved()).toBe(false)
       expect(output()).toContain('Uploads are public unless add --private says otherwise')
     })
 
-    it('on a new login, is saved with the session as it is made', async () => {
+    it('is not part of the session: a --fresh login keeps it, and leaves it out of session.env', async () => {
+      await runLogin({ privateUploads: true })
       vi.mocked(resolveNetwork).mockResolvedValue(networkFor(314159, 'calibration'))
 
-      await runLogin({ privateUploads: true, wait: false, browser: false })
+      await runLogin({ fresh: true, wait: false, browser: false })
 
-      expect(readSessionFile(sessionPath())?.uploads).toBe('private')
+      expect(saved()).toBe(true)
+      expect(readFileSync(sessionPath(), 'utf8')).not.toContain('UPLOADS')
     })
 
-    it('with --group on a login already done, still asks for the Grant, and saves the setting too', async () => {
-      authorized()
+    it('with --group, saves the setting and still asks for the Grant', async () => {
       vi.mocked(resolveNetwork).mockResolvedValue(networkFor(314159, 'calibration'))
 
       await runLogin({ privateUploads: true, group: 'team', wait: false, browser: false })
 
       expect(output()).toContain('node=group%3Ateam')
-      expect(readSessionFile(sessionPath())?.uploads).toBe('private')
+      expect(saved()).toBe(true)
     })
   })
 
@@ -660,7 +651,8 @@ describe('runLogin', () => {
 
       expect(await runLogin({ grant, privateUploads: true }, silentStdin(false))).toBe(0)
 
-      expect(readSessionFile(sessionPath())).toMatchObject({ groupKeyGrant: grant, uploads: 'private' })
+      expect(readSessionFile(sessionPath())?.groupKeyGrant).toBe(grant)
+      expect(privateUploadsByDefault(getSettingsFilePath(dataDir), {})).toBe(true)
       expect(output()).toContain('Uploads are private by default')
     })
 

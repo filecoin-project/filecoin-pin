@@ -13,6 +13,10 @@ export const importCommand = new Command('import')
   .description('Upload an existing CAR file to Filecoin')
   .argument('<file>', 'Path to the CAR file to import')
   .option('--copies <n>', 'Number of storage copies to create (default: 2)', Number.parseInt)
+  .option(
+    '--public',
+    'Import even though uploads are private by default (login --private-uploads, FILECOIN_PIN_UPLOADS)'
+  )
   .addHelpText(
     'after',
     `

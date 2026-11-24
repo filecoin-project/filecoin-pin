@@ -7,6 +7,16 @@ import pc from 'picocolors'
 import { buildRevokeUrl, resolveConsoleUrl } from '../core/session/console-url.js'
 import { log } from '../utils/cli-logger.js'
 import { deleteSessionFile, getSessionFilePath, readSessionFile } from './session-file.js'
+import { getSettingsFilePath, privateUploadsByDefault } from './settings-file.js'
+
+/** Whether settings.env turns private uploads on; an unreadable file counts as on, as add treats it. */
+function privateUploadsSaved(): boolean {
+  try {
+    return privateUploadsByDefault(getSettingsFilePath(), {})
+  } catch {
+    return true
+  }
+}
 
 export function runLogout(): void {
   const path = getSessionFilePath()
@@ -29,6 +39,12 @@ export function runLogout(): void {
     // The link on its own line, unstyled, so it copies and parses cleanly.
     log.line(buildRevokeUrl(resolveConsoleUrl(), session.sessionAddress, session.network))
     log.line(`  or with the wallet key:  filecoin-pin session revoke ${session.sessionAddress}`)
+  }
+  // A preference, not a credential: it stays, but say so, since the next add is still private.
+  if (privateUploadsSaved()) {
+    log.line(
+      `${pc.gray('•')} Private uploads are still on (${getSettingsFilePath()}): login --no-private-uploads turns them off`
+    )
   }
   log.flush()
 }

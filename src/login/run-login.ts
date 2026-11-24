@@ -66,6 +66,7 @@ import { promptForGrant, readGrantArgument } from './grant-input.js'
 import { openBrowser } from './open-browser.js'
 import { checkAccountReadiness, formatReadinessLines } from './readiness.js'
 import { getSessionFilePath, readSessionFile, type SavedSession, writeSessionFile } from './session-file.js'
+import { writePrivateUploads } from './settings-file.js'
 import type { LoginOptions } from './types.js'
 
 const DEFAULT_LOGIN_PERMISSIONS: Permission[] = [CreateDataSetPermission, AddPiecesPermission]
@@ -123,44 +124,6 @@ function chainIdOf(network: string | undefined): number {
   throw new Error(
     `login --grant works on mainnet and calibration (and devnet, with CONSOLE_URL set to your own console), not ${network}: Grants come from the console.`
   )
-}
-
-/** The session with `--private-uploads` (true) or `--no-private-uploads` (false) applied; unchanged without either. */
-function withUploadSetting(session: SavedSession, privateUploads: boolean | undefined): SavedSession {
-  if (privateUploads === undefined) return session
-  const { uploads: _, ...rest } = session
-  if (privateUploads) return { ...rest, uploads: 'private' }
-  return rest
-}
-
-/** The line that says what the upload setting now is. */
-function reportUploadSetting(session: SavedSession): void {
-  if (session.uploads === 'private') {
-    log.line(`${pc.green('✓')} Uploads are private by default (add --public for one that isn't)`)
-  } else {
-    log.line(`${pc.green('✓')} Uploads are public unless add --private says otherwise`)
-  }
-}
-
-/**
- * Only the upload setting changed, on a login that is already done: save it and stop, with no
- * console link, browser or wait. Undefined when there is more to do.
- */
-function saveUploadSettingOnly(options: LoginOptions, path: string): number | undefined {
-  const onlySetting =
-    options.privateUploads !== undefined &&
-    options.fresh !== true &&
-    options.grant === undefined &&
-    options.scopes === undefined &&
-    options.group === undefined &&
-    options.delegationDepth === undefined
-  const saved = onlySetting ? readSessionFile(path) : undefined
-  if (saved?.walletAddress === undefined) return undefined
-  const next = withUploadSetting(saved, options.privateUploads)
-  writeSessionFile(next, path)
-  reportUploadSetting(next)
-  log.flush()
-  return 0
 }
 
 /** The Grant node a login asks the console for: the whole group key, or one group. */
@@ -538,9 +501,27 @@ export async function runLogin(
   options: LoginOptions,
   io: LoginIO = { stdin: process.stdin, stdout: process.stdout }
 ): Promise<number> {
+  if (options.privateUploads !== undefined) {
+    // A preference, not part of the session: saved now, whatever the login does next.
+    writePrivateUploads(options.privateUploads)
+    log.line(
+      options.privateUploads
+        ? `${pc.green('✓')} Uploads are private by default (add --public for one that isn't)`
+        : `${pc.green('✓')} Uploads are public unless add --private says otherwise`
+    )
+    // Only the setting: nothing to log in, so no console link, browser or wait.
+    const settingOnly =
+      options.fresh !== true &&
+      options.grant === undefined &&
+      options.scopes === undefined &&
+      options.group === undefined &&
+      options.delegationDepth === undefined
+    if (settingOnly) {
+      log.flush()
+      return 0
+    }
+  }
   const path = getSessionFilePath()
-  const settingOnly = saveUploadSettingOnly(options, path)
-  if (settingOnly !== undefined) return settingOnly
   // A plain rerun (what every resume message says to run) resumes the first login's
   // request: with the defaults instead, a timed-out `…,encrypt` login never asked for the Grant.
   const requested = options.scopes ?? (options.fresh ? undefined : readSessionFile(path)?.scopes)
@@ -576,9 +557,7 @@ export async function runLogin(
   if (grantText !== undefined) {
     if (saved?.walletAddress !== undefined) {
       // Offline: the owner is known and the Grant names its network, so no RPC is needed.
-      const withSetting = withUploadSetting(saved, options.privateUploads)
-      if (options.privateUploads !== undefined) reportUploadSetting(withSetting)
-      return importGrant({ ...withSetting, walletAddress: saved.walletAddress }, grantText, options, path)
+      return importGrant({ ...saved, walletAddress: saved.walletAddress }, grantText, options, path)
     }
     // Not yet seen authorized: resume the saved key on its own network, then take the Grant.
     if (options.network === undefined && options.rpcUrl === undefined && saved?.network !== undefined) {
@@ -606,12 +585,8 @@ export async function runLogin(
 
   const loaded = loadOrCreateSession(options.fresh, network, path)
   const { resumed, replaced } = loaded
-  const withScopes = scopes === undefined ? loaded.session : { ...loaded.session, scopes }
-  const session = withUploadSetting(withScopes, options.privateUploads)
-  if (session.scopes !== loaded.session.scopes || session.uploads !== loaded.session.uploads) {
-    writeSessionFile(session, path)
-  }
-  if (options.privateUploads !== undefined) reportUploadSetting(session)
+  const session = scopes === undefined ? loaded.session : { ...loaded.session, scopes }
+  if (session.scopes !== loaded.session.scopes) writeSessionFile(session, path)
   // Checks that need no owner or network, before the link and the wait.
   if (grantText !== undefined) precheckGroupKeyGrant(grantText, session.sessionKey)
   const short = shortAddress(session.sessionAddress)

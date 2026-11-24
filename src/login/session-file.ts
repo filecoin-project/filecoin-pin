@@ -41,8 +41,6 @@ export interface SavedSession {
    * request, so a timed-out `…,encrypt` login still asks for the Grant.
    */
   scopes?: string
-  /** `login --private-uploads`: every `add` is private unless `--public` says otherwise. */
-  uploads?: 'private'
   /** Group key the Grants open (`foc/gkid`), 0x + 32 hex. Written together with {@link groupKeyGrant}. */
   groupKeyId?: Hex
   /** This session key's group key Grants, `fgr1_…`, comma-separated: one per group. Never the keys they open. */
@@ -88,7 +86,6 @@ export function readSessionFile(path: string = getSessionFilePath()): SavedSessi
   if (fromBlock !== undefined && /^\d+$/.test(fromBlock)) session.fromBlock = BigInt(fromBlock)
   const scopes = parsed.SCOPES
   if (scopes !== undefined && /^[A-Za-z]+(,[A-Za-z]+)*$/.test(scopes)) session.scopes = scopes
-  if (parsed.UPLOADS === 'private') session.uploads = 'private'
   // Both or neither: a Grant is checked against its group key id on every load.
   const groupKeyId = parsed.GROUP_KEY_ID
   const groupKeyGrant = parsed.GROUP_KEY_GRANT
@@ -119,7 +116,6 @@ export function writeSessionFile(session: SavedSession, path: string = getSessio
   if (session.network !== undefined) lines.push(`NETWORK=${session.network}`)
   if (session.fromBlock !== undefined) lines.push(`FROM_BLOCK=${session.fromBlock}`)
   if (session.scopes !== undefined) lines.push(`SCOPES=${session.scopes}`)
-  if (session.uploads !== undefined) lines.push(`UPLOADS=${session.uploads}`)
   if (session.groupKeyId !== undefined && session.groupKeyGrant !== undefined) {
     lines.push(`GROUP_KEY_ID=${session.groupKeyId}`, `GROUP_KEY_GRANT=${session.groupKeyGrant}`)
   }
