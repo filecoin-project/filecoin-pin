@@ -323,8 +323,13 @@ function guardBody(controller: AbortController, maxBytes: number): Transform {
   return guard
 }
 
+/** A gated `/download/` that refused every Grant presented. */
+export const GATE_REFUSED =
+  'HTTP 403: the provider refused access. The Share link or Grant may have expired, been revoked, or not cover this upload: ask for a new one'
+
 /** Why a response cannot win, or undefined when it is a usable CAR. A raw piece carries no CAR type. */
 function unusable(response: Response, maxBytes: number, piece: boolean): string | undefined {
+  if (piece && response.status === 403) return GATE_REFUSED
   if (response.status !== 200 || response.body == null) return `HTTP ${response.status}`
   const type = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase()
   if (!piece && type !== CAR_CONTENT_TYPE) return `content type ${type ?? 'missing'}, not a CAR`

@@ -19,4 +19,6 @@ export interface LoginOptions {
   group?: string | undefined
   /** How many links the session key may add below its Grant (0–7); the console defaults to 7. */
   delegationDepth?: number | undefined
+  /** `--private-uploads` (true) or `--no-private-uploads` (false): save whether every `add` is private. */
+  privateUploads?: boolean | undefined
 }

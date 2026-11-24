@@ -22,5 +22,6 @@ beforeEach(() => {
   delete process.env.WALLET_ADDRESS
   delete process.env.SESSION_KEY
   delete process.env.PRIVATE_KEY
+  delete process.env.FILECOIN_PIN_UPLOADS
   configureTelemetry({ disabled: true, affordance: 'Library', driver: undefined })
 })

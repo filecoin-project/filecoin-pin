@@ -56,7 +56,8 @@ import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
-import { NO_IPFS_SHARE, PRIVATE_SHARE, printShare, shareReminder, shareSender } from '../share/get-share-link.js'
+import { privateUploadsByDefault } from '../login/settings-file.js'
+import { NO_IPFS_SHARE, printShare, shareReminder, shareSender } from '../share/get-share-link.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -107,6 +108,12 @@ function describeSkipped(walk: { skippedSymlinks: string[]; skippedSpecial: stri
   return parts.length > 0 ? ` (${parts.join(', ')} skipped)` : ''
 }
 
+/** A provider's service URL from a copy's `<service>/piece/<cid>` retrieval URL. */
+function serviceUrlOf(retrievalUrl: string | undefined): string | undefined {
+  const service = retrievalUrl?.replace(/\/piece\/[^/]+$/, '')
+  return service === retrievalUrl ? undefined : service
+}
+
 /**
  * The group key (and group) a session key writes under, from its Grants. A missing or invalid
  * Grant, or a group no Grant covers, throws before anything is packed or uploaded: never fall
@@ -120,6 +127,19 @@ async function sessionGroupKey(
 ): Promise<OwnerGroupKey> {
   const session = { sessionKey: sessionKey as Hex, walletAddress: getClientAddress(synapse) }
   return grantGroupKey(synapse, await loadGroupKeyGrants(session, synapse.chain.id), group, logger)
+}
+
+/**
+ * Whether one upload is private: `--private` or `--public` decides it, else the setting
+ * (`FILECOIN_PIN_UPLOADS`, or `login --private-uploads`). Without either flag or the setting, an upload is public.
+ *
+ * @throws When both flags are given.
+ */
+export function resolvePrivate(flags: { private?: boolean; public?: boolean }, privateByDefault: boolean): boolean {
+  if (flags.private === true && flags.public === true) throw new Error('Choose --private or --public, not both')
+  if (flags.private === true) return true
+  if (flags.public === true) return false
+  return privateByDefault
 }
 
 /**
@@ -144,6 +164,7 @@ export async function runAddFromCli(path: string, options: Record<string, any>):
       minRunwayDays: _minRunwayDays,
       maxBalance: _maxBalance,
       egressProvider: rawEgressProvider,
+      public: _public,
       ...addOptionsFromCli
     } = options
     const { pieceMetadata, dataSetMetadata } = resolveMetadataOptions(options, { includeErc8004: true })
@@ -153,6 +174,7 @@ export async function runAddFromCli(path: string, options: Record<string, any>):
     addOptions = {
       ...addOptionsFromCli,
       ...autoFundOptions,
+      private: resolvePrivate(options, privateUploadsByDefault()),
       filePath: path,
       egressProvider,
       ...(pieceMetadata && { pieceMetadata }),
@@ -224,11 +246,11 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     let shareMode: ShareMode | undefined
     if (options.getShareLinkRestricted === true) shareMode = 'restricted'
     else if (options.getShareLink === true) shareMode = 'open'
-    if (shareMode != null && options.private === true) throw new Error(PRIVATE_SHARE)
     if (shareMode != null && !encrypt) {
       throw new Error('--get-share-link needs --encrypt: plain content is shared by its CID')
     }
-    if (shareMode != null && !ipfsIndexing) throw new Error(NO_IPFS_SHARE)
+    // A private upload's link fetches it by its piece, not over IPFS.
+    if (shareMode != null && !ipfsIndexing && options.private !== true) throw new Error(NO_IPFS_SHARE)
     assertNoReadMetadata(dataSetMetadata)
 
     // Validate path exists and is readable
@@ -511,11 +533,18 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
           rootCid,
           labels: encryptedLabels,
           mode: shareMode,
+          // A private upload's link carries the right to fetch it, from the providers that took a copy.
+          ...(options.private === true && {
+            private: {
+              cid: uploadResult.pieceCid.toString(),
+              providers: uploadResult.copies.flatMap((copy) => serviceUrlOf(copy.retrievalUrl) ?? []),
+              chainId: synapse.chain.id,
+            },
+          }),
         })
       } catch (error) {
-        log.warn(
-          `No share link: ${error instanceof Error ? error.message : String(error)}. Run \`filecoin-pin get-share-link ${rootCid}${shareMode === 'restricted' ? ' --restricted' : ''}\` to retry.`
-        )
+        const retry = `filecoin-pin get-share-link ${rootCid}${options.private === true ? ` --piece ${uploadResult.pieceCid}` : ''}${shareMode === 'restricted' ? ' --restricted' : ''}`
+        log.warn(`No share link: ${error instanceof Error ? error.message : String(error)}. Run \`${retry}\` to retry.`)
       }
     }
 

@@ -66,6 +66,7 @@ import { promptForGrant, readGrantArgument } from './grant-input.js'
 import { openBrowser } from './open-browser.js'
 import { checkAccountReadiness, formatReadinessLines } from './readiness.js'
 import { getSessionFilePath, readSessionFile, type SavedSession, writeSessionFile } from './session-file.js'
+import { writePrivateUploads } from './settings-file.js'
 import type { LoginOptions } from './types.js'
 
 const DEFAULT_LOGIN_PERMISSIONS: Permission[] = [CreateDataSetPermission, AddPiecesPermission]
@@ -500,6 +501,26 @@ export async function runLogin(
   options: LoginOptions,
   io: LoginIO = { stdin: process.stdin, stdout: process.stdout }
 ): Promise<number> {
+  if (options.privateUploads !== undefined) {
+    // A preference, not part of the session: saved now, whatever the login does next.
+    writePrivateUploads(options.privateUploads)
+    log.line(
+      options.privateUploads
+        ? `${pc.green('✓')} Uploads are private by default (add --public for one that isn't)`
+        : `${pc.green('✓')} Uploads are public unless add --private says otherwise`
+    )
+    // Only the setting: nothing to log in, so no console link, browser or wait.
+    const settingOnly =
+      options.fresh !== true &&
+      options.grant === undefined &&
+      options.scopes === undefined &&
+      options.group === undefined &&
+      options.delegationDepth === undefined
+    if (settingOnly) {
+      log.flush()
+      return 0
+    }
+  }
   const path = getSessionFilePath()
   // A plain rerun (what every resume message says to run) resumes the first login's
   // request: with the defaults instead, a timed-out `…,encrypt` login never asked for the Grant.

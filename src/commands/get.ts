@@ -40,8 +40,9 @@ Nothing in <output-dir> is overwritten: a taken name is numbered like a browser 
 A private upload (add --private) is served only on the authenticated path: it is fetched from
 /download/<cid> on your own read-restricted data sets (the root CID, or --piece's piece CID),
 with an Authorization header from each of your session key's Grants in turn, until one reaches
-the upload's group. Content they do not serve is then looked for publicly. The owner wallet (PRIVATE_KEY) authorizes itself instead: it signs, once per
-group key of its private data sets, a claim to read that group key.`
+the upload's group. Content they do not serve is then looked for publicly. The owner wallet
+(PRIVATE_KEY) authorizes itself instead: it signs, once per group key of its private data sets,
+a claim to read that group key.`
   )
 
 addAuthOptions(getCommand)

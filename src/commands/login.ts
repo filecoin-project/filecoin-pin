@@ -44,6 +44,11 @@ export const loginCommand = new Command('login')
     'How many links this session key may add below its Grant (0-7, console default 7): 0 cannot delegate at all, 1 can delegate one piece (as a share link of a private upload does), higher lets those keys delegate further. A Grant that allows more than this is refused',
     parseDelegationDepth
   )
+  .option(
+    '--private-uploads',
+    'Make every add private for this user (as add --private; add --public opts one out). Saved in settings.env, apart from the login, so logout keeps it; FILECOIN_PIN_UPLOADS=private|public overrides it'
+  )
+  .option('--no-private-uploads', 'Turn --private-uploads off again')
   .option('--fresh', 'Generate a new session key instead of resuming the saved one')
   .option('--no-browser', 'Print the console link without opening a browser')
   .option(
@@ -61,6 +66,7 @@ ${pc.bold('EXAMPLES')}
   $ filecoin-pin login --group team/design                        # a Grant for one group (and beneath it)
   $ filecoin-pin login --group backups/ci --delegation-depth 0    # one that cannot be delegated further
   $ filecoin-pin login --no-browser --no-wait                     # print the link, approve later, rerun to check
+  $ filecoin-pin login --private-uploads                          # every add private from now on (no console step)
   $ filecoin-pin login --grant fgr1_…                             # finish: import the Grant the console showed
   $ pbpaste | filecoin-pin login --grant -                        # the same, reading the Grant from stdin
 
