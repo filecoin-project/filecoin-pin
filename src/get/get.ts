@@ -7,7 +7,6 @@ import { rmSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
@@ -19,12 +18,13 @@ import { ownerAuthorizations } from '../common/group-key.js'
 import { credentialKeyResolver, grantAuthorizations } from '../common/group-key-grant.js'
 import {
   type Authorizations,
-  findPrivatePiece,
+  FetchFailedError,
   ipniProviderUrls,
+  NoProviderError,
   ownProviderUrls,
   type ProviderSource,
 } from '../common/ipfs-car-fetch.js'
-import { type GetOptions, getToDirectory } from '../common/ipfs-get.js'
+import { type GetOptions, type GetResult, getToDirectory } from '../common/ipfs-get.js'
 import {
   parseShareLink,
   ShareLinkError,
@@ -71,7 +71,7 @@ export interface GetCommandOptions extends CLIAuthOptions {
   share?: string
   /** The share's Access key (fak1_…), when the link does not carry it. */
   accessKey?: string
-  /** A private upload's piece CID: fetched from gated `/download/` with the session key's Grants. */
+  /** A private upload's piece CID, fetched from gated `/download/` instead of its root CID. */
   piece?: string
 }
 
@@ -132,15 +132,15 @@ export async function runGet(
     // Used only when an envelope asks for a key, so plain content needs no credentials.
     let resolveKey = credentialKeyResolver(auth)
     let sharer: Address | undefined
-    // A private upload is not indexed anywhere: only its own gated data sets serve it.
-    let download: GetOptions['download']
+    // A private upload's share: what to fetch, and the right to, from the link.
+    let shared: GetOptions['download']
     if (share != null) {
       // Before the download, so a missing or wrong Access key, or an expired share, fails fast.
       const T = shareKey(share, options.accessKey)
       sharer = await shareOwner(share, T)
       resolveKey = shareKeyResolver(share, T)
       // A private upload's link carries the right to fetch it, signed with T.
-      download = await shareDownload(share, T)
+      shared = await shareDownload(share, T)
     }
 
     // Without a link: the credentials' own private upload, by --piece or found by its root CID.
@@ -160,47 +160,69 @@ export async function runGet(
       )
     }
 
-    tempDir = await mkdtemp(join(tmpdir(), 'filecoin-pin-get-'))
+    const workDir = await mkdtemp(join(tmpdir(), 'filecoin-pin-get-'))
+    tempDir = workDir
     for (const signal of cleanupSignals) process.once(signal, onSignal)
-    if (privateAccess != null) {
-      const { synapse, authorizations } = privateAccess
-      let pieceCid = piece
-      if (pieceCid == null) {
-        spinner.start('Looking for it among your private uploads...')
-        try {
-          pieceCid = await findPrivatePiece(synapse, cid, authorizations, { logger })
-        } catch (error) {
-          // No Grant, say: the upload may still be public, so look there.
-          log.warn(`Could not search your private uploads: ${error instanceof Error ? error.message : String(error)}`)
-        }
-        spinner.stop()
-      }
-      if (pieceCid != null) download = { pieceCid, authorizations }
-    }
-    spinner.start('Finding providers and downloading...')
-    const sources: ProviderSource[] = []
-    if (download == null) sources.push({ name: 'IPNI', find: (signal) => ipniProviderUrls(cid, { signal }) })
-    // The providers a private share link names.
-    const linked = share?.providers
-    if (download != null && linked != null) sources.push({ name: 'Share link', find: async () => linked })
-    // initializeSynapse and listDataSets take no signal; the source deadline still ends the wait.
-    if (address != null && (piece != null || share == null || download == null)) {
-      sources.push({ name: 'Data set', find: () => ownProviders(auth, address, logger, download != null) })
-    }
-    // The sharer's own data sets (read-restricted ones for a private share): found before IPNI indexes a
-    // fresh upload, and on networks without IPNI.
-    if (sharer != null && sharer !== address) {
-      sources.push({ name: "Sharer's data set", find: () => ownProviders(auth, sharer, logger, download != null) })
-    }
     const onClaim = (path: string): void => {
       claimed = path
     }
-    const result = await getToDirectory(cid, outDir, sources, resolveKey, {
-      tempDir,
-      logger,
-      onClaim,
-      ...(download != null && { download }),
-    })
+    const fetchFrom = (sources: ProviderSource[], download?: GetOptions['download']) =>
+      getToDirectory(cid, outDir, sources, resolveKey, {
+        tempDir: workDir,
+        logger,
+        onClaim,
+        ...(download != null && { download }),
+      })
+
+    let result: GetResult | undefined
+    // Why the private path failed, when it got as far as a provider: shown only if the public path fails too.
+    let privateFailure: string | undefined
+    if (shared != null) {
+      // A private share is served only on the gated path: by the providers the link names, then the
+      // sharer's own read-restricted data sets. Never public, so there is nothing to fall back to.
+      const sources: ProviderSource[] = [{ name: 'Share link', find: async () => share?.providers ?? [] }]
+      if (sharer != null) {
+        sources.push({ name: "Sharer's private data set", find: () => ownProviders(auth, sharer, logger, true) })
+      }
+      spinner.start('Downloading the shared private upload...')
+      result = await fetchFrom(sources, shared)
+      spinner.stop()
+    } else if (privateAccess != null && address != null) {
+      // A private upload is not indexed anywhere: only its own gated data sets serve it, at
+      // /download/<root> (or /download/<piece> with --piece), each request signed over that CID.
+      spinner.start('Looking among your private uploads...')
+      try {
+        result = await fetchFrom(
+          [{ name: 'Private data set', find: () => ownProviders(auth, address, logger, true) }],
+          {
+            cid: piece ?? cid.toString(),
+            authorizations: privateAccess,
+          }
+        )
+      } catch (error) {
+        // Not among them (or none to search): it may still be public. --piece names a private upload only.
+        if (piece != null || !(error instanceof NoProviderError || error instanceof FetchFailedError)) throw error
+        if (error instanceof FetchFailedError) privateFailure = error.message
+        logger.debug({ reason: error.message }, 'Not served from a private data set')
+      }
+      spinner.stop()
+    }
+    if (result == null) {
+      spinner.start('Finding providers and downloading...')
+      const sources: ProviderSource[] = [{ name: 'IPNI', find: (signal) => ipniProviderUrls(cid, { signal }) }]
+      // initializeSynapse and listDataSets take no signal; the source deadline still ends the wait.
+      if (address != null) sources.push({ name: 'Data set', find: () => ownProviders(auth, address, logger) })
+      // The sharer's own data sets: found before IPNI indexes a fresh upload, and on networks without IPNI.
+      if (sharer != null && sharer !== address) {
+        sources.push({ name: "Sharer's data set", find: () => ownProviders(auth, sharer, logger) })
+      }
+      try {
+        result = await fetchFrom(sources)
+      } catch (error) {
+        if (privateFailure != null) log.warn(`Your private uploads did not serve it either: ${privateFailure}`)
+        throw error
+      }
+    }
     const what = `${result.files} file${result.files === 1 ? '' : 's'}`
     spinner.stop(
       `${pc.green('✓')} Verified every block from ${result.provider}; ${result.encrypted ? 'decrypted' : 'wrote'} ${what}`
@@ -231,17 +253,13 @@ async function privateAccessOf(
   auth: SynapseSetupConfig,
   address: Address,
   logger: Logger
-): Promise<{ synapse: Synapse; authorizations: Authorizations } | undefined> {
+): Promise<Authorizations | undefined> {
   if ('privateKey' in auth && auth.privateKey != null) {
     const synapse = await readOnlySynapse(auth, address, logger)
-    return { synapse, authorizations: ownerAuthorizations(synapse, privateKeyToAccount(auth.privateKey), logger) }
+    return ownerAuthorizations(synapse, privateKeyToAccount(auth.privateKey), logger)
   }
   if ('sessionKey' in auth && auth.sessionKey != null) {
-    const session = { sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }
-    return {
-      synapse: await readOnlySynapse(auth, address, logger),
-      authorizations: grantAuthorizations(session, auth.chain?.id),
-    }
+    return grantAuthorizations({ sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }, auth.chain?.id)
   }
   return undefined
 }

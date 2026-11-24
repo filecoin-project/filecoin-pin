@@ -268,7 +268,7 @@ describe('share links for private uploads', () => {
   const PIECE = 'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy'
   const OTHER_PIECE = 'bafkzcibcaapao7rtuqyy2qvnpoqbbefwlfb6rnksbmhgqmlnfqxdzfuoxuy5emi'
   const target = {
-    pieceCid: PIECE,
+    cid: PIECE,
     providers: ['https://sp1.test', 'http://localhost:5711'],
     chainId: CALIBRATION_CHAIN_ID,
   }
@@ -313,12 +313,30 @@ describe('share links for private uploads', () => {
       const T = shareKey(parsed, share.accessKey)
       expect(await open(share.link, share.accessKey, labels)).toBe(await ownerPieceKey(labels))
       const download = await shareDownload(parsed, T)
-      expect(download?.pieceCid).toBe(PIECE)
-      const [header] = (await download?.authorizations()) ?? []
+      expect(download?.cid).toBe(PIECE)
+      const [header] = (await download?.authorizations(PIECE)) ?? []
       expect((await gateAccepts(header ?? '', PIECE, labels)).node).toBe(`piece:${labels['foc/salt']}`)
       await expect(gateAccepts(header ?? '', OTHER_PIECE, labels)).rejects.toThrow(/another piece/)
     }
   )
+
+  it('fetches what the link names: a link located at the root asks for, and signs over, the root', async () => {
+    const labels = labelsFor()
+    const share = await createShare({
+      sender: { owner: OWNER },
+      rootCid: ROOT,
+      labels,
+      mode: 'open',
+      viewer: VIEWER,
+      private: { ...target, cid: ROOT.toString() },
+    })
+    const parsed = parseShareLink(share.link)
+    const download = await shareDownload(parsed, shareKey(parsed, undefined))
+    expect(download?.cid).toBe(ROOT.toString())
+    const [header] = (await download?.authorizations(ROOT.toString())) ?? []
+    expect((await gateAccepts(header ?? '', ROOT.toString(), labels)).node).toBe(`piece:${labels['foc/salt']}`)
+    await expect(gateAccepts(header ?? '', PIECE, labels)).rejects.toThrow(/another piece/)
+  })
 
   it('refuses a session key Grant that allows no delegation, naming the login to run', async () => {
     await expect(

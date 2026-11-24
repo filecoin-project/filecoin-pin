@@ -536,7 +536,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
           // A private upload's link carries the right to fetch it, from the providers that took a copy.
           ...(options.private === true && {
             private: {
-              pieceCid: uploadResult.pieceCid.toString(),
+              cid: uploadResult.pieceCid.toString(),
               providers: uploadResult.copies.flatMap((copy) => serviceUrlOf(copy.retrievalUrl) ?? []),
               chainId: synapse.chain.id,
             },
@@ -577,7 +577,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
         )
       )
       if (options.private === true) {
-        // Not indexed anywhere: reading it back needs the piece CID as well as the root.
+        // Not indexed anywhere: get finds it by its root among the owner's private data sets.
         log.line(`  Read it back: filecoin-pin get ${result.rootCid}`)
       }
       log.flush()

@@ -1017,7 +1017,7 @@ describe('Add Command', () => {
         expect(plaintext.equals(testContent)).toBe(true)
       })
 
-      it('prints no /piece/ URL, and the get --piece command that reads it back', async () => {
+      it('prints no /piece/ URL, and the get command that reads it back', async () => {
         const { log } = await import('../../utils/cli-logger.js')
         const lines = vi.spyOn(log, 'line')
         const { displayUploadResults } = await import('../../common/upload-flow.js')
