@@ -4,6 +4,7 @@ import {
   buildConsoleUrl,
   buildFundingUrl,
   buildRevokeUrl,
+  consoleNetworkSlug,
   DEFAULT_CONSOLE_URL,
   resolveConsoleUrl,
 } from '../../core/session/console-url.js'
@@ -71,7 +72,7 @@ describe('buildAuthorizeUrl key agreement', () => {
         pubkeysig: '0xcd',
       })
     ).toBe(
-      'https://pay.filecoin.cloud/console/setup?authorize=0xa&scopes=addPieces&network=calibration&pubkey=0x04ab&pubkeysig=0xcd&node=keyspace'
+      'https://pay.filecoin.cloud/console/setup?authorize=0xa&scopes=addPieces&network=calibration&pubkey=0x04ab&pubkeysig=0xcd&node=groupKey'
     )
   })
 })
@@ -152,5 +153,42 @@ describe('console attribution', () => {
     configureTelemetry({ disabled: true, driver: 'claude' })
     expect(buildConsoleUrl('https://pay.filecoin.cloud')).toBe('https://pay.filecoin.cloud/console')
     expect(buildFundingUrl('https://pay.filecoin.cloud', 2, 314)).not.toContain('utm_')
+  })
+})
+
+describe('a console of your own and the devnet', () => {
+  const DEVNET = 31415926
+  beforeEach(() => {
+    configureTelemetry({ disabled: true })
+  })
+
+  it.each([
+    ['production', DEFAULT_CONSOLE_URL],
+    ['production, with a trailing slash', `${DEFAULT_CONSOLE_URL}/`],
+    ['a preview deployment', 'https://pr-635.pay.filecoin.cloud'],
+    ['staging', 'https://filecoin-pay-explorer-staging.vercel.app'],
+  ])('names no devnet for a hosted console: %s', (_case, consoleUrl) => {
+    expect(consoleNetworkSlug(DEVNET, consoleUrl)).toBeUndefined()
+    expect(buildRevokeUrl(consoleUrl, '0xA', 'devnet')).not.toContain('network=devnet')
+  })
+
+  it('names the devnet only for a console you run yourself', () => {
+    expect(consoleNetworkSlug(DEVNET, 'http://localhost:3100')).toBe('devnet')
+    expect(consoleNetworkSlug(314159, 'http://localhost:3100')).toBe('calibration')
+    expect(consoleNetworkSlug(12345, 'http://localhost:3100')).toBeUndefined()
+  })
+
+  it('reads CONSOLE_URL when no console is given', () => {
+    expect(consoleNetworkSlug(DEVNET)).toBeUndefined()
+    vi.stubEnv('CONSOLE_URL', 'http://localhost:3100')
+    expect(consoleNetworkSlug(DEVNET)).toBe('devnet')
+  })
+
+  it('puts network=devnet on setup, funding and revoke links to your own console', () => {
+    const own = 'http://localhost:3100'
+    expect(buildAuthorizeUrl(own, '0xA', ['addPieces'], DEVNET)).toContain('&network=devnet')
+    expect(buildFundingUrl(own, 2, DEVNET)).toContain('&network=devnet')
+    expect(buildRevokeUrl(own, '0xA', 'devnet')).toBe(`${own}/console/session-keys?revoke=0xa&network=devnet`)
+    expect(buildAuthorizeUrl(DEFAULT_CONSOLE_URL, '0xA', ['addPieces'], DEVNET)).not.toContain('network=')
   })
 })

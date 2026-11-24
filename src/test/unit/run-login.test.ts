@@ -9,7 +9,11 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { getBlockNumber } from 'viem/actions'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loginCommand } from '../../commands/login.js'
-import { type WatchAuthorizationResult, watchAuthorization } from '../../core/session/watch-authorization.js'
+import {
+  readScopeGrants,
+  type WatchAuthorizationResult,
+  watchAuthorization,
+} from '../../core/session/watch-authorization.js'
 import { initializeSynapse } from '../../core/synapse/index.js'
 import { openBrowser } from '../../login/open-browser.js'
 import { checkAccountReadiness } from '../../login/readiness.js'
@@ -48,6 +52,7 @@ let dataDir: string
 vi.mock('../../config.js', () => ({ getDataDirectory: () => dataDir }))
 vi.mock('../../core/session/watch-authorization.js', () => ({
   watchAuthorization: vi.fn(),
+  readScopeGrants: vi.fn(),
   DEFAULT_WATCH_DEADLINE_MS: 300000,
 }))
 vi.mock('../../login/open-browser.js', () => ({ openBrowser: vi.fn(() => false) }))
@@ -115,6 +120,7 @@ describe('runLogin', () => {
       getBlockNumber,
       checkAccountReadiness,
       watchAuthorization,
+      readScopeGrants,
     ]) {
       vi.mocked(fn).mockReset()
     }
@@ -326,11 +332,25 @@ describe('runLogin', () => {
   })
 
   it('refuses a chain the console has no page for before saving anything', async () => {
+    vi.stubEnv('CONSOLE_URL', undefined) // the production console, which serves no devnet
     vi.mocked(resolveNetwork).mockResolvedValue(networkFor(31415926, 'devnet'))
 
     await expect(runLogin({})).rejects.toThrow(/no pairing page for chain id 31415926/)
     expect(readSessionFile(sessionPath())).toBeUndefined()
     expect(vi.mocked(openBrowser)).not.toHaveBeenCalled()
+  })
+
+  it('on a local foc-devnet, links to your own console (CONSOLE_URL) with network=devnet', async () => {
+    vi.mocked(resolveNetwork).mockResolvedValue(networkFor(31415926, 'devnet'))
+
+    expect(await runLogin({ wait: false, browser: false })).toBe(2)
+
+    const line = vi
+      .mocked(log.line)
+      .mock.calls.map(([text]) => String(text))
+      .find((text) => text.startsWith('https://console.test/console/setup?'))
+    expect(new URL(line ?? 'https://x.invalid').searchParams.get('network')).toBe('devnet')
+    expect(readSessionFile(sessionPath())?.network).toBe('devnet')
   })
 
   it('--no-wait saves the key, prints the bare link, and exits 2 without watching', async () => {
@@ -443,7 +463,7 @@ describe('runLogin', () => {
       expect(link.searchParams.get('network')).toBe('calibration')
       expect(link.searchParams.get('authorize')).toBe(SESSION_ADDRESS.toLowerCase())
       expect(link.searchParams.get('scopes')).toBe('createDataSet,addPieces')
-      expect(link.searchParams.get('node')).toBe('keyspace')
+      expect(link.searchParams.get('node')).toBe('groupKey')
       const pubkey = link.searchParams.get('pubkey')
       expect(pubkey).toBe(publicKeyOf(SESSION_KEY).toLowerCase())
       const signer = await recoverMessageAddress({
@@ -670,13 +690,14 @@ describe('runLogin', () => {
     })
 
     it('login --grant refuses a network the console does not serve', async () => {
+      vi.stubEnv('CONSOLE_URL', undefined) // the production console, which serves no devnet
       writeSessionFile(
         { sessionKey: SESSION_KEY, sessionAddress: SESSION_ADDRESS, walletAddress: GRANT_OWNER.address },
         sessionPath()
       )
 
       await expect(runLogin({ grant: await makeGrant(), network: 'devnet' }, silentStdin(false))).rejects.toThrow(
-        /login --grant works on mainnet and calibration, not devnet/
+        /login --grant works on mainnet and calibration \(and devnet, with CONSOLE_URL set to your own console\), not devnet/
       )
     })
 
@@ -736,15 +757,123 @@ describe('runLogin', () => {
       expect(output()).toContain('⚠ GROUP_KEY_GRANT is set in this shell and takes precedence over the saved login.')
     })
 
-    it('a new Grant replaces the saved one', async () => {
+    it('login --group links node=group:<path> and implies the Grant step', async () => {
+      savedKey()
+
+      await runLogin({ group: 'team/design', wait: false }, silentStdin(false))
+
+      const link = linkIn(output())
+      expect(link.searchParams.get('node')).toBe('group:team/design')
+      expect(link.searchParams.get('pubkey')).not.toBeNull()
+      expect(link.searchParams.get('maxdepth')).toBeNull()
+    })
+
+    it('login --delegation-depth sends maxdepth', async () => {
+      savedKey()
+
+      await runLogin({ group: 'backups/ci', delegationDepth: 0, wait: false }, silentStdin(false))
+
+      expect(linkIn(output()).searchParams.get('maxdepth')).toBe('0')
+    })
+
+    it('refuses an invalid group by keysmith rules before any link', async () => {
+      savedKey()
+
+      await expect(runLogin({ group: 'a//b', wait: false }, silentStdin(false))).rejects.toThrow(
+        /Invalid group "a\/\/b"/
+      )
+      expect(output()).not.toContain('console/setup')
+    })
+
+    it('refuses a Grant request without addPieces before any link', async () => {
+      savedKey()
+
+      await expect(runLogin({ scopes: 'createDataSet,encrypt', wait: false }, silentStdin(false))).rejects.toThrow(
+        /needs the addPieces scope/
+      )
+      expect(output()).not.toContain('console/setup')
+    })
+
+    it('keeps Grants for other groups of the group key, replacing only the same group', async () => {
+      savedKey({ walletAddress: GRANT_OWNER.address })
+      const a = await makeGrant({ node: 'group:a' })
+      const b = await makeGrant({ node: 'group:b' })
+      const b2 = await makeGrant({ node: 'group:b' })
+
+      await runLogin({ grant: a, group: 'a' }, silentStdin(false))
+      await runLogin({ grant: b, group: 'b' }, silentStdin(false))
+      await runLogin({ grant: b2, group: 'b' }, silentStdin(false))
+
+      expect(readSessionFile(sessionPath())?.groupKeyGrant).toBe(`${a},${b2}`)
+      expect(output()).toContain(`Also held: group a of group key ${GROUP_KEY}`)
+    })
+
+    it('refuses a Grant wider than the --group asked for', async () => {
+      savedKey({ walletAddress: GRANT_OWNER.address })
+
+      await expect(runLogin({ grant: await makeGrant(), group: 'a' }, silentStdin(false))).rejects.toThrow(
+        /covers group key .*, not group a as requested/
+      )
+    })
+
+    it('--delegation-depth refuses a Grant that allows more onward delegation, and keeps one that allows no more', async () => {
+      savedKey({ walletAddress: GRANT_OWNER.address })
+
+      await expect(
+        runLogin(
+          { grant: await makeGrant({ node: 'group:a', maxDepth: 3 }), group: 'a', delegationDepth: 1 },
+          silentStdin(false)
+        )
+      ).rejects.toThrow(/allows delegation 3 below it, more than the --delegation-depth 1 requested/)
+      expect(readSessionFile(sessionPath())?.groupKeyGrant).toBeUndefined()
+
+      const exact = await makeGrant({ node: 'group:a', maxDepth: 1 })
+      expect(await runLogin({ grant: exact, group: 'a', delegationDepth: 1 }, silentStdin(false))).toBe(0)
+      expect(
+        await runLogin(
+          { grant: await makeGrant({ node: 'group:b' }), group: 'b', delegationDepth: 1 },
+          silentStdin(false)
+        )
+      ).toBe(0)
+      expect(readSessionFile(sessionPath())?.groupKeyGrant?.split(',')).toHaveLength(2)
+    })
+
+    it('accepts a Grant for a group beneath the one asked for', async () => {
+      savedKey({ walletAddress: GRANT_OWNER.address })
+
+      expect(await runLogin({ grant: await makeGrant({ node: 'group:a/b' }), group: 'a' }, silentStdin(false))).toBe(0)
+    })
+
+    it('refuses a Grant for another group key, keeping the saved ones, with the login --fresh to run', async () => {
       const other = `0x${'ab'.repeat(16)}` as const
       savedKey({ walletAddress: GRANT_OWNER.address })
       await runLogin({ grant: await makeGrant() }, silentStdin(false))
+      const before = readFileSync(sessionPath(), 'utf8')
 
-      await runLogin({ grant: await makeGrant({ groupKey: other }) }, silentStdin(false))
+      await expect(runLogin({ grant: await makeGrant({ groupKey: other }) }, silentStdin(false))).rejects.toThrow(
+        /holds Grants for group key .* this one is for group key 0xab.*login --fresh/
+      )
 
-      expect(readSessionFile(sessionPath())?.groupKeyId).toBe(other)
-      expect(readFileSync(sessionPath(), 'utf8').match(/GROUP_KEY_GRANT=/g)).toHaveLength(1)
+      expect(readFileSync(sessionPath(), 'utf8')).toBe(before)
+    })
+
+    it('names --group and --delegation-depth in every resume hint, which the session file does not keep', async () => {
+      savedKey()
+
+      await runLogin({ group: 'team/design', delegationDepth: 1, wait: false }, silentStdin(false))
+
+      expect(output()).toContain('rerun `filecoin-pin login --group team/design --delegation-depth 1` to check it')
+      expect(output()).toContain(
+        'Then run:  filecoin-pin login --group team/design --delegation-depth 1 --grant <grant>'
+      )
+    })
+
+    it('quotes a group path with spaces in the resume hint, so it copies as one argument', async () => {
+      savedKey()
+
+      await runLogin({ group: "photos 2026/it's", wait: false }, silentStdin(false))
+
+      expect(output()).toContain(`rerun \`filecoin-pin login --group 'photos 2026/it'\\''s'\` to check it`)
     })
 
     it('login --grant before the authorization was seen resumes the wait on the saved network, then imports', async () => {
@@ -783,6 +912,37 @@ describe('runLogin', () => {
       expect(code).toBe(0)
       expect(output()).toContain(`Grant for group key ${GROUP_KEY} already saved`)
       expect(prompts).toEqual([])
+    })
+
+    it('with a saved Grant for the group and the key live on chain, keeps the link for extending but opens no browser and does not wait', async () => {
+      const grant = await makeGrant({ node: 'group:team' })
+      savedKey({ walletAddress: GRANT_OWNER.address, groupKeyId: GROUP_KEY, groupKeyGrant: grant })
+      vi.mocked(readScopeGrants).mockResolvedValue({ ...FULL_GRANT, owner: GRANT_OWNER.address } as never)
+
+      const code = await runLogin({ group: 'team' }, silentStdin(true))
+
+      expect(code).toBe(0)
+      expect(output()).toContain(`Grant for group team of group key ${GROUP_KEY} already saved`)
+      expect(output()).toContain('Already authorized')
+      expect(output()).not.toContain('Requesting a Grant')
+      expect(linkIn(output()).searchParams.has('pubkey')).toBe(false)
+      expect(output()).toContain('Open the link above only to extend this key.')
+      expect(vi.mocked(openBrowser)).not.toHaveBeenCalled()
+      expect(vi.mocked(watchAuthorization)).not.toHaveBeenCalled()
+      expect(prompts).toEqual([])
+    })
+
+    it('with a saved Grant for the group but the key not live, says so and links without the group key step', async () => {
+      const grant = await makeGrant({ node: 'group:team' })
+      savedKey({ walletAddress: GRANT_OWNER.address, groupKeyId: GROUP_KEY, groupKeyGrant: grant })
+      vi.mocked(readScopeGrants).mockResolvedValue({ ...FULL_GRANT, status: 'none', granted: [] } as never)
+
+      const code = await runLogin({ group: 'team', wait: false }, silentStdin(false))
+
+      expect(code).toBe(2)
+      expect(output()).toContain(`Grant for group team of group key ${GROUP_KEY} already saved`)
+      expect(output()).not.toContain('Requesting a Grant')
+      expect(linkIn(output()).searchParams.has('pubkey')).toBe(false)
     })
 
     it('with a saved Grant that still opens, leaves the group key step off the link', async () => {
@@ -837,6 +997,7 @@ describe('runLogin', () => {
     })
 
     it('refuses encrypt on a network without a console, pointing at owner mode', async () => {
+      vi.stubEnv('CONSOLE_URL', undefined) // the production console, which serves no devnet
       vi.mocked(resolveNetwork).mockResolvedValue(networkFor(31415926, 'devnet'))
 
       await expect(runLogin({ scopes: ENCRYPT }, silentStdin(false))).rejects.toThrow(

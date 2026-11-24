@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Writable } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { keyspaceKeys as deriveGroupKey, type PieceMetadata, writeTarget } from '@filoz/keysmith'
+import { decodePresentation, deriveGroupKey, type PieceMetadata, writeTarget } from '@filoz/keysmith'
 import { CarBlockIterator, CarIndexedReader, CarWriter } from '@ipld/car'
 import * as dagCbor from '@ipld/dag-cbor'
 import * as dagPb from '@ipld/dag-pb'
@@ -37,7 +37,7 @@ import { createShare } from '../../common/share-link.js'
 import { CAR_CONTENT_TYPE, encodeVarint, isUnsafeName } from '../../common/unixfs-car-layout.js'
 import { createCarFromPath } from '../../core/unixfs/index.js'
 import { runGet } from '../../get/get.js'
-import { makeGrant, SESSION_KEY } from '../fixtures/group-key-grants.js'
+import { groupKeyCommitment, makeGrant, SESSION_KEY } from '../fixtures/group-key-grants.js'
 
 // Lets a test act right after get claims its entry, before anything is written into it.
 const claimHook = vi.hoisted(() => ({ after: undefined as undefined | ((path: string) => void) }))
@@ -239,7 +239,7 @@ describe('get', () => {
   let pieceKey: () => PieceKey
 
   beforeAll(async () => {
-    const { kk, descriptor } = await deriveGroupKey(OWNER, { owner: OWNER.address, keyspace: GROUP_KEY })
+    const { groupKey: kk, descriptor } = await deriveGroupKey(OWNER, { owner: OWNER.address, groupKeyId: GROUP_KEY })
     const target = writeTarget(descriptor, kk)
     pieceKey = () => newPieceKey(target)
   })
@@ -556,6 +556,45 @@ describe('get', () => {
       upload = await plainUpload(join(dir, 'tiny.txt'))
     })
 
+    it('fetches a private piece from /download/, trying the next Grant while the provider answers 403', async () => {
+      const PIECE = 'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy'
+      const seen: string[] = []
+      const gated = vi.fn(async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        expect(String(input)).toBe(`${GOOD}/download/${PIECE}`)
+        const authorization = new Headers(init?.headers).get('authorization') ?? ''
+        seen.push(authorization)
+        // The stored piece is served as raw bytes: no CAR content type, still verified against the root.
+        return authorization === 'FOC-Grant reaches'
+          ? new Response(new Uint8Array(upload.car), { status: 200 })
+          : new Response('does not reach this piece', { status: 403 })
+      })
+
+      const result = await getToDirectory(upload.root, outDir, only(GOOD), ownerKeyResolver(OWNER), {
+        tempDir,
+        fetch: gated as unknown as typeof fetch,
+        download: { cid: PIECE, authorizations: async () => ['FOC-Grant misses', 'FOC-Grant reaches'] },
+      })
+
+      expect(result.provider).toBe(GOOD)
+      expect(seen).toEqual(['FOC-Grant misses', 'FOC-Grant reaches'])
+    })
+
+    it('reports a 403 when no held Grant reaches the private piece', async () => {
+      const gated = vi.fn(async () => new Response('does not reach this piece', { status: 403 }))
+
+      await expect(
+        getToDirectory(upload.root, outDir, only(GOOD), ownerKeyResolver(OWNER), {
+          tempDir,
+          fetch: gated as unknown as typeof fetch,
+          download: {
+            cid: 'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy',
+            authorizations: async () => ['FOC-Grant a', 'FOC-Grant b'],
+          },
+        })
+      ).rejects.toThrow(/HTTP 403/)
+      expect(gated).toHaveBeenCalledTimes(2)
+    })
+
     it('takes the first 200 and aborts every other request', async () => {
       const losers = ['https://slow.example', 'https://hang.example']
       const network = fakeNetwork({
@@ -826,6 +865,77 @@ describe('get', () => {
       const tried = network.calls.filter((c) => c.url.includes('/ipfs/')).map((c) => new URL(c.url).origin)
       expect(tried).toEqual(['https://own.example'])
       expect(await readFile(join(outDir, upload.root.toString()), 'utf8')).toBe('tiny')
+    })
+
+    describe('a private upload', () => {
+      const PRIVATE = 'https://private.example'
+      const restricted = async () => {
+        const { listDataSets } = await import('../../core/data-set/index.js')
+        const { initializeSynapse } = await import('../../core/synapse/index.js')
+        vi.mocked(initializeSynapse).mockResolvedValue({ chain: { id: 314159 } } as never)
+        const dataSets = [
+          {
+            dataSetId: 1n,
+            isLive: true,
+            hasActivePieces: true,
+            metadata: {
+              read: 'restricted',
+              'foc/enc': '1',
+              'foc/gkid': GROUP_KEY,
+              'foc/kc': await groupKeyCommitment(GROUP_KEY),
+            },
+            provider: { pdp: { serviceURL: PRIVATE } },
+          },
+        ]
+        vi.mocked(listDataSets).mockImplementation(
+          async (_synapse, options) => dataSets.filter((d) => options?.filter?.(d as never) ?? true) as never
+        )
+      }
+
+      it('is fetched from /download/<root>, signed over the root: no lookup, no IPNI', async () => {
+        await writeFile(join(dir, 'tiny.txt'), 'tiny')
+        const upload = await plainUpload(join(dir, 'tiny.txt'))
+        await restricted()
+        const urls: string[] = []
+        const signed: Uint8Array[] = []
+        vi.stubGlobal(
+          'fetch',
+          vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+            urls.push(String(input))
+            if (!String(input).includes('/download/')) return new Response('', { status: 404 })
+            const token = new Headers(init?.headers).get('authorization')?.slice('FOC-Grant '.length) ?? ''
+            signed.push(decodePresentation(new Uint8Array(Buffer.from(token, 'base64url'))).request.pieceCid)
+            return new Response(new Uint8Array(upload.car), { status: 200 })
+          })
+        )
+
+        await runGet(upload.root.toString(), outDir, { privateKey: OWNER_KEY })
+
+        expect(urls).toEqual([`${PRIVATE}/download/${upload.root}`])
+        expect(signed).toEqual([upload.root.bytes])
+        expect(await readFile(join(outDir, upload.root.toString()), 'utf8')).toBe('tiny')
+      })
+
+      it('falls back to the public path when no private data set serves it', async () => {
+        await writeFile(join(dir, 'tiny.txt'), 'tiny')
+        const upload = await plainUpload(join(dir, 'tiny.txt'))
+        await restricted()
+        const network = fakeNetwork({ [GOOD]: serve(upload.car) }, ['/dns/good.example/https'])
+        const gated: string[] = []
+        vi.stubGlobal(
+          'fetch',
+          vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+            if (!String(input).includes('/download/')) return network.fetch(input, init)
+            gated.push(String(input))
+            return new Response('not here', { status: 404 })
+          })
+        )
+
+        await runGet(upload.root.toString(), outDir, { privateKey: OWNER_KEY })
+
+        expect(gated).toEqual([`${PRIVATE}/download/${upload.root}`])
+        expect(await readFile(join(outDir, upload.root.toString()), 'utf8')).toBe('tiny')
+      })
     })
 
     it("with a session key, opens the owner's encrypted upload with the session's Grant", async () => {

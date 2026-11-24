@@ -15,7 +15,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { CliFatal } from '../common/cli-errors.js'
 import { readEnvelopeLabels } from '../common/envelope-labels.js'
 import { GRANT_LOGIN_COMMAND } from '../common/group-key.js'
-import { loadGroupKeyGrant } from '../common/group-key-grant.js'
+import { loadGroupKeyGrants } from '../common/group-key-grant.js'
 import { DISCOVERY_TIMEOUT_MS, ipniProviderUrls } from '../common/ipfs-car-fetch.js'
 import { type CreatedShare, createShare, type ShareMode, type ShareSender } from '../common/share-link.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
@@ -56,7 +56,7 @@ export async function shareSender(auth: SynapseSetupConfig, chainId: number): Pr
   if ('privateKey' in auth && auth.privateKey != null) return { owner: privateKeyToAccount(auth.privateKey) }
   if ('sessionKey' in auth && auth.sessionKey != null) {
     const session = { sessionKey: auth.sessionKey, walletAddress: auth.walletAddress }
-    return { grant: await loadGroupKeyGrant(session, chainId) }
+    return { grants: await loadGroupKeyGrants(session, chainId) }
   }
   throw new Error(SHARE_NEEDS_CREDENTIALS)
 }
@@ -70,6 +70,10 @@ export const shareReminder = (mode: ShareMode): string =>
 /** A `--no-ipfs` upload: nothing finds its blocks by CID, so neither the viewer nor `get --share` could open a link to it. */
 export const NO_IPFS_SHARE =
   'Content added with --no-ipfs cannot be shared: a Share link fetches it by its IPFS root CID'
+
+/** A `--private` upload: its pieces are not served on the open path a Share link reads (private share links: #821). */
+export const PRIVATE_SHARE =
+  'Content added with --private cannot be shared yet: a Share link reads from the open path, which private data sets do not serve'
 
 /** The link and its secret as plain lines, after the summary, so they copy cleanly. */
 export function printShare(share: CreatedShare): void {

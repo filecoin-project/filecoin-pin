@@ -32,7 +32,13 @@ import { log } from '../utils/cli-logger.js'
 import { truncate } from '../utils/format.js'
 import { createSpinnerFlow } from '../utils/multi-operation-spinner.js'
 import { CliFatal } from './cli-errors.js'
-import { ENCRYPTED_DATA_SET_KEYS } from './group-key.js'
+import {
+  assertNoReadMetadata,
+  dataSetVisibility,
+  ENCRYPTED_DATA_SET_KEYS,
+  READ_KEY,
+  READ_RESTRICTED,
+} from './group-key.js'
 
 /**
  * Find the metadata keys whose values differ across the candidate set.
@@ -228,23 +234,36 @@ export async function resolveDefaultDataSetReuse(
   return chosen
 }
 
-/**
- * Keys a data set must not carry to take this upload. Plain uploads stay out of
- * encrypted data sets, and `--no-ipfs` uploads stay out of IPFS-indexed ones.
- * (IPFS-indexed uploads require `withIPFSIndexing` through the requested
- * metadata instead, so the two never share a data set in either direction.)
- */
-export function uploadExcludedKeys(options: { encrypted: boolean; ipfsIndexing: boolean }): string[] {
+/** Data set keys that rule a data set out for this upload: the encryption keys, `read` or `withIPFSIndexing` the upload doesn't have. */
+export function uploadExcludedKeys(options: {
+  encrypted: boolean
+  restricted?: boolean
+  ipfsIndexing: boolean
+}): string[] {
   return [
     ...(options.encrypted ? [] : ENCRYPTED_DATA_SET_KEYS),
+    ...(options.restricted === true ? [] : [READ_KEY]),
     ...(options.ipfsIndexing ? [] : [METADATA_KEYS.WITH_IPFS_INDEXING]),
   ]
 }
 
+/** Why a data set of unknown visibility can't take this upload. */
+function unknownVisibilityError(id: bigint, metadata: Record<string, string>): Error {
+  if (metadata[READ_KEY] === READ_RESTRICTED) {
+    return new Error(
+      `Data set ${id} is restricted but not encrypted, which filecoin-pin does not support: it cannot take uploads`
+    )
+  }
+  return new Error(
+    `Data set ${id} has a ${READ_KEY} value this version of filecoin-pin does not know (${JSON.stringify(metadata[READ_KEY])}): update filecoin-pin to use it`
+  )
+}
+
 /**
- * Check that explicitly chosen data sets carry `required` and none of
- * `excludedKeys`, so `--data-set-id` cannot put an encrypted upload in a plain
- * or foreign-group-key data set, or a `--no-ipfs` upload in an indexed one.
+ * Check that explicitly chosen data sets have the upload's visibility (see
+ * {@link dataSetVisibility}), carry `required` and none of `excludedKeys`, so
+ * `--data-set-id` cannot put an upload in a data set of another visibility or a
+ * foreign group key, or a `--no-ipfs` upload in an indexed one.
  */
 async function assertExplicitDataSets(
   synapse: Synapse,
@@ -255,10 +274,16 @@ async function assertExplicitDataSets(
 ): Promise<void> {
   const wanted = new Set(dataSetIds)
   const found = await listDataSets(synapse, { filter: (dataSet) => wanted.has(dataSet.dataSetId), logger })
+  const uploadVisibility = dataSetVisibility(required)
   for (const id of dataSetIds) {
     const metadata = found.find((dataSet) => dataSet.dataSetId === id)?.metadata
     if (metadata == null) {
       throw new Error(`Data set ${id} was not found for this wallet, so it cannot be checked for this upload`)
+    }
+    const visibility = dataSetVisibility(metadata)
+    if (visibility === 'unknown visibility') throw unknownVisibilityError(id, metadata)
+    if (visibility !== uploadVisibility) {
+      throw new Error(`Data set ${id} is ${visibility}, this upload is ${uploadVisibility}`)
     }
     for (const [key, value] of Object.entries(required)) {
       if (metadata[key] !== value) {
@@ -304,7 +329,7 @@ export async function resolveUploadTargets(
      * Metadata every target data set must carry (for example the group key of an
      * encrypted upload). Narrows the default reuse and is written to any data set
      * created, without turning on the strict `--data-set-metadata` matching.
-     * Its presence marks the upload as encrypted.
+     * Its presence marks the upload as encrypted, and a `read` key in it as private.
      */
     requiredMetadata?: Record<string, string>
     /** False for `--no-ipfs`: only data sets without `withIPFSIndexing` qualify. Default true. */
@@ -314,7 +339,12 @@ export async function resolveUploadTargets(
   const { withCDN, spinner, logger, requiredMetadata } = options
   const expectedCopies = options.copies ?? DEFAULT_COPIES
   const ipfsIndexing = options.ipfsIndexing ?? true
-  const excludedKeys = uploadExcludedKeys({ encrypted: requiredMetadata != null, ipfsIndexing })
+  assertNoReadMetadata(options.dataSetMetadata)
+  const excludedKeys = uploadExcludedKeys({
+    encrypted: requiredMetadata != null,
+    restricted: requiredMetadata?.[READ_KEY] != null,
+    ipfsIndexing,
+  })
 
   if (contextSelection.dataSetIds != null || contextSelection.providerIds != null) {
     if (contextSelection.dataSetIds != null) {

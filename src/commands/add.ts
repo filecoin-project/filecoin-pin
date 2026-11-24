@@ -23,6 +23,14 @@ export const addCommand = new Command('add')
     'Encrypt the file or directory before upload. Readable with the owner wallet (PRIVATE_KEY), a session key holding its group key Grant (see login), or any holder of a Share Link and associated Access Key. The piece is stored as encrypted.fee and the real name stays inside the ciphertext; --metadata name=<label> sets a public label instead.'
   )
   .option(
+    '--private',
+    'Upload to private data sets (read=restricted): providers serve their pieces only on the authenticated path, to readers the owner authorized. Implies --encrypt. A data set is private from creation and never changes, so private uploads go only to private data sets of your group key.'
+  )
+  .option(
+    '--group <path>',
+    'With --encrypt or --private: write under this group (a/b/c) of the group key, so Grants for that group (or one above it) can read it. A session key needs a Grant that covers it (login --group). Group names are public in the envelope.'
+  )
+  .option(
     '--get-share-link',
     'With --encrypt: print a Share link that opens the upload on its own (see get-share-link)'
   )

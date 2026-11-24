@@ -27,14 +27,19 @@ import pc from 'picocolors'
 import { type Address, createPublicClient } from 'viem'
 import { getBlockNumber } from 'viem/actions'
 import { EXIT_CODE_INCOMPLETE } from '../common/cli-errors.js'
+import { DEVNET_CHAIN_ID } from '../common/constants.js'
 import { NETWORK_CHAINS } from '../common/get-rpc-url.js'
+import { checkGroup } from '../common/group-key.js'
 import {
   decodeGrantText,
   GrantError,
+  grantCovers,
+  joinGrants,
   keyAgreementParams,
   type OpenedGrant,
   openGroupKeyGrant,
   precheckGroupKeyGrant,
+  splitGrants,
 } from '../common/group-key-grant.js'
 import {
   buildAuthorizeUrl,
@@ -46,6 +51,8 @@ import {
 import { generateSessionKeypair } from '../core/session/create-session-key.js'
 import {
   DEFAULT_WATCH_DEADLINE_MS,
+  readScopeGrants,
+  type ScopeGrants,
   type WatchAuthorizationResult,
   watchAuthorization,
 } from '../core/session/watch-authorization.js'
@@ -106,31 +113,149 @@ function parseLoginScopes(value: string | undefined): {
 /**
  * Chain id of a console network slug; mainnet for a session file that never recorded one.
  *
- * @throws for any other network: the console, which issues Grants, serves only these two.
+ * @throws for a network the console, which issues Grants, does not serve: mainnet and
+ * calibration, and devnet only on a console of your own (`CONSOLE_URL`).
  */
 function chainIdOf(network: string | undefined): number {
   if (network === undefined || network === 'mainnet') return NETWORK_CHAINS.mainnet.id
   if (network === 'calibration') return NETWORK_CHAINS.calibration.id
-  throw new Error(`login --grant works on mainnet and calibration, not ${network}: Grants come from the console.`)
+  if (network === 'devnet' && consoleNetworkSlug(DEVNET_CHAIN_ID) === 'devnet') return DEVNET_CHAIN_ID
+  throw new Error(
+    `login --grant works on mainnet and calibration (and devnet, with CONSOLE_URL set to your own console), not ${network}: Grants come from the console.`
+  )
 }
 
-/** Save `opened` with the session, replacing any earlier Grant: one Grant per session key. */
-function saveGrant(session: SavedSession, opened: OpenedGrant, path: string): SavedSession {
-  const next = { ...session, groupKeyId: opened.groupKeyId, groupKeyGrant: opened.text }
+/** The Grant node a login asks the console for: the whole group key, or one group. */
+const grantNode = (group: string | undefined): string => (group == null ? 'groupKey' : `group:${group}`)
+
+/** What a login asked the console for: a group (undefined: the whole group key), and the onward delegation. */
+interface GrantRequest {
+  group?: string | undefined
+  /** `--delegation-depth`; undefined: whatever the console issues. */
+  maxDepth?: number | undefined
+}
+
+/** How many links the bearer of `opened` may add below it: its final link's `maxDepth`. */
+const delegationDepthOf = (opened: OpenedGrant): number | undefined => opened.chain.links.at(-1)?.maxDepth
+
+/** Whether `opened` is no wider than `request`: its group, or one beneath it, and no more onward delegation. */
+function withinRequest(opened: OpenedGrant, request: GrantRequest): string | undefined {
+  const { group, maxDepth } = request
+  if (group != null && opened.group !== group && !opened.group?.startsWith(`${group}/`)) {
+    return `This Grant covers ${grantCovers(opened)}, not group ${group} as requested.`
+  }
+  const depth = delegationDepthOf(opened)
+  if (maxDepth != null && (depth == null || depth > maxDepth)) {
+    return `This Grant allows delegation ${depth ?? 'of unknown depth'} below it, more than the --delegation-depth ${maxDepth} requested.`
+  }
+  return undefined
+}
+
+/**
+ * Refuse a Grant wider than the login asked for. The console may narrow a request (a group
+ * beneath it, less onward delegation), never widen it.
+ */
+function checkRequested(opened: OpenedGrant, request: GrantRequest): OpenedGrant {
+  const refusal = withinRequest(opened, request)
+  if (refusal !== undefined) {
+    opened.key.fill(0)
+    throw new GrantError(refusal)
+  }
+  return opened
+}
+
+/**
+ * The saved Grants that still open, each opened (keys zeroed by the caller), and the ones
+ * dropped because they no longer do.
+ */
+async function savedGrants(
+  session: SavedSession,
+  chainId: number
+): Promise<{ kept: OpenedGrant[]; dropped: string[] }> {
+  const kept: OpenedGrant[] = []
+  const dropped: string[] = []
+  if (session.groupKeyGrant === undefined || session.walletAddress === undefined) return { kept, dropped }
+  for (const text of splitGrants(session.groupKeyGrant)) {
+    try {
+      kept.push(
+        await openGroupKeyGrant(text, {
+          sessionKey: session.sessionKey,
+          walletAddress: session.walletAddress,
+          chainId,
+          groupKeyId: session.groupKeyId,
+        })
+      )
+    } catch (error) {
+      if (!(error instanceof GrantError)) throw error
+      dropped.push(error.message)
+    }
+  }
+  return { kept, dropped }
+}
+
+/**
+ * Save `opened` with the session's other Grants: one per group, so a Grant for the same node
+ * replaces the earlier one. Grants that no longer open are dropped, and
+ * a Grant for another group key is refused: a session key holds Grants of one group key.
+ */
+async function saveGrant(
+  session: SavedSession,
+  opened: OpenedGrant,
+  path: string,
+  chainId: number
+): Promise<SavedSession> {
+  const { kept, dropped } = await savedGrants(session, chainId)
+  for (const k of kept) k.key.fill(0)
+  opened.key.fill(0)
+  const otherKey = kept.filter((k) => k.groupKeyId !== opened.groupKeyId)
+  // Refused before anything is written: a session key holds Grants of one group key, and the saved ones stay.
+  if (otherKey.length > 0) {
+    throw new GrantError(
+      `This session key holds Grants for group key ${otherKey[0]?.groupKeyId}, and this one is for group key ${opened.groupKeyId}. A session key holds Grants of one group key: run \`filecoin-pin login --fresh\` for a new key to hold it.`
+    )
+  }
+  const others = kept.filter((k) => k.groupKeyId === opened.groupKeyId && k.claim.node !== opened.claim.node)
+  const next = {
+    ...session,
+    groupKeyId: opened.groupKeyId,
+    groupKeyGrant: joinGrants([...others.map((k) => k.text), opened.text]),
+  }
   writeSessionFile(next, path)
   log.line(
-    `${pc.green('✓')} Grant saved for group key ${opened.groupKeyId} of ${shortAddress(opened.owner)} · expires ${formatExpiryDate(BigInt(opened.expires))}`
+    `${pc.green('✓')} Grant saved for ${grantCovers(opened)} of ${shortAddress(opened.owner)} · expires ${formatExpiryDate(BigInt(opened.expires))}`
   )
-  log.line(pc.gray('  It gives this session key permanent read access to that group key, including future uploads.'))
+  log.line(
+    pc.gray(
+      `  It gives this session key permanent read access to ${opened.group == null ? 'that group key' : 'that group and every group beneath it'}, including future uploads.`
+    )
+  )
+  if (others.length > 0) log.line(`  Also held: ${others.map(grantCovers).join('; ')}`)
+  for (const reason of dropped) log.line(`${pc.yellow('⚠')} Dropped a saved Grant that no longer opens: ${reason}`)
   return next
 }
 
 /** Where to finish when the Grant could not be taken now: the console link and the resume command. */
-function reportGrantPending(url: string): void {
+function reportGrantPending(url: string, resume: string): void {
   log.line(`${pc.yellow('⚠')} Encrypted uploads need the group key Grant the console shows for this key:`)
   log.line(url)
-  log.line('  Then run:  filecoin-pin login --grant <grant>')
-  log.line('  or:        filecoin-pin login --grant -    (reads the Grant from stdin)')
+  log.line(`  Then run:  ${resume} --grant <grant>`)
+  log.line(`  or:        ${resume} --grant -    (reads the Grant from stdin)`)
+}
+
+/**
+ * The command that resumes this login: `filecoin-pin login` with the --group and --delegation-depth it
+ * asked for, which the session file doesn't keep. A plain rerun would ask for the whole group key instead.
+ */
+/** A group path as one shell word: keysmith allows spaces and other characters inside a group name. */
+function shellArg(value: string): string {
+  return /^[\w./-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`
+}
+
+function resumeCommand(request: GrantRequest): string {
+  const parts = ['filecoin-pin login']
+  if (request.group != null) parts.push(`--group ${shellArg(request.group)}`)
+  if (request.maxDepth != null) parts.push(`--delegation-depth ${request.maxDepth}`)
+  return parts.join(' ')
 }
 
 /**
@@ -150,32 +275,26 @@ async function importGrant(
     )
   }
   const chainId = chainIdOf(network)
-  const opened = await openGroupKeyGrant(grantText, {
-    sessionKey: saved.sessionKey,
-    walletAddress: saved.walletAddress,
-    chainId,
-  })
+  const group = options.group == null ? undefined : checkGroup(options.group)
+  const opened = checkRequested(
+    await openGroupKeyGrant(grantText, {
+      sessionKey: saved.sessionKey,
+      walletAddress: saved.walletAddress,
+      chainId,
+    }),
+    { group, maxDepth: options.delegationDepth }
+  )
   log.line(`${pc.green('✓')} Session key ${saved.sessionAddress} (${network ?? 'mainnet'})`)
-  saveGrant(saved, opened, path)
+  await saveGrant(saved, opened, path, chainId)
   log.flush()
   return 0
 }
 
-/** Whether the saved Grant still opens for the owner that last authorized this key. */
-async function savedGrantOpens(session: SavedSession, chainId: number): Promise<boolean> {
-  if (session.groupKeyGrant === undefined || session.walletAddress === undefined) return false
-  try {
-    await openGroupKeyGrant(session.groupKeyGrant, {
-      sessionKey: session.sessionKey,
-      walletAddress: session.walletAddress,
-      chainId,
-      groupKeyId: session.groupKeyId,
-    })
-    return true
-  } catch (error) {
-    if (!(error instanceof GrantError)) throw error
-    return false
-  }
+/** The saved Grant for exactly this node that still opens for the owner that last authorized this key, if any. */
+async function savedGrantFor(session: SavedSession, chainId: number, node: string): Promise<OpenedGrant | undefined> {
+  const { kept } = await savedGrants(session, chainId)
+  for (const k of kept) k.key.fill(0)
+  return kept.find((k) => k.claim.node === node)
 }
 
 /**
@@ -188,44 +307,43 @@ async function savedGrantOpens(session: SavedSession, chainId: number): Promise<
 async function obtainGrant(
   session: SavedSession & { walletAddress: Address },
   chainId: number,
+  request: GrantRequest,
   url: string,
   grantLinkShown: boolean,
   grantText: string | undefined,
   path: string,
   io: LoginIO
 ): Promise<boolean> {
-  const open = (text: string) =>
-    openGroupKeyGrant(text, { sessionKey: session.sessionKey, walletAddress: session.walletAddress, chainId })
+  const open = async (text: string) =>
+    checkRequested(
+      await openGroupKeyGrant(text, { sessionKey: session.sessionKey, walletAddress: session.walletAddress, chainId }),
+      request
+    )
   if (grantText !== undefined) {
     try {
-      saveGrant(session, await open(grantText), path)
+      await saveGrant(session, await open(grantText), path, chainId)
       return true
     } catch (error) {
       if (!(error instanceof GrantError)) throw error
       // The login itself stands; only the Grant is still to come.
       log.line(`${pc.red('✗')} Grant refused: ${error.message}`)
-      reportGrantPending(url)
+      reportGrantPending(url, resumeCommand(request))
       return false
     }
   }
-  if (session.groupKeyGrant !== undefined) {
-    try {
-      const opened = await openGroupKeyGrant(session.groupKeyGrant, {
-        sessionKey: session.sessionKey,
-        walletAddress: session.walletAddress,
-        chainId,
-        groupKeyId: session.groupKeyId,
-      })
-      log.line(`${pc.green('✓')} Grant for group key ${opened.groupKeyId} already saved`)
-      return true
-    } catch (error) {
-      if (!(error instanceof GrantError)) throw error
-      log.line(`${pc.yellow('⚠')} The saved Grant was ignored: ${error.message}`)
-    }
+  const { kept, dropped } = await savedGrants(session, chainId)
+  for (const k of kept) k.key.fill(0)
+  // A saved Grant for this node counts only if it allows no more delegation than this login asks for.
+  const saved = kept.find((k) => k.claim.node === grantNode(request.group) && withinRequest(k, request) === undefined)
+  if (saved !== undefined) {
+    // Said before the link when the link left the group key step out.
+    if (grantLinkShown) log.line(`${pc.green('✓')} Grant for ${grantCovers(saved)} already saved`)
+    return true
   }
+  for (const reason of dropped) log.line(`${pc.yellow('⚠')} The saved Grant was ignored: ${reason}`)
   // Both ends a terminal: readline's raw mode, which Ctrl-C and long pastes rely on, needs them.
   if (io.stdin.isTTY !== true || io.stdout.isTTY !== true) {
-    reportGrantPending(url)
+    reportGrantPending(url, resumeCommand(request))
     return false
   }
   if (!grantLinkShown) {
@@ -238,10 +356,10 @@ async function obtainGrant(
   log.flush()
   const opened = await promptForGrant(open, io.stdin, io.stdout)
   if (opened === undefined) {
-    reportGrantPending(url)
+    reportGrantPending(url, resumeCommand(request))
     return false
   }
-  saveGrant(session, opened, path)
+  await saveGrant(session, opened, path, chainId)
   return true
 }
 
@@ -336,6 +454,42 @@ async function reportReadiness(
   log.line(pc.gray('  check anytime: filecoin-pin balance · top up: filecoin-pin dashboard'))
 }
 
+/** Funding never blocks login: a failed readiness read is reported, not fatal. */
+async function reportReadinessSafely(...args: Parameters<typeof reportReadiness>): Promise<void> {
+  try {
+    await reportReadiness(...args)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    log.line(`${pc.yellow('⚠')} Could not read account readiness: ${reason}. Run \`filecoin-pin balance\` to check.`)
+  }
+}
+
+/**
+ * The saved key's authorization when every requested scope is already live, so login has
+ * nothing to wait for. Undefined when the owner isn't known yet, a scope is missing, or the
+ * read fails: login then shows the link and waits as usual.
+ */
+async function liveAuthorization(
+  client: Parameters<typeof readScopeGrants>[0]['client'],
+  session: SavedSession,
+  registryAddress: Address,
+  permissions: Permission[]
+): Promise<ScopeGrants | undefined> {
+  if (session.walletAddress === undefined) return undefined
+  try {
+    const scopes = await readScopeGrants({
+      client,
+      sessionAddress: session.sessionAddress,
+      registryAddress,
+      permissions,
+      owner: session.walletAddress,
+    })
+    return scopes.status === 'granted' ? scopes : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Run `login`. Returns the process exit code rather than calling
  * `process.exit`, so the command wrapper stays in charge of flushing. The
@@ -351,6 +505,11 @@ export async function runLogin(
   // request: with the defaults instead, a timed-out `…,encrypt` login never asked for the Grant.
   const requested = options.scopes ?? (options.fresh ? undefined : readSessionFile(path)?.scopes)
   const { permissions, encrypt, scopes } = parseLoginScopes(requested)
+  // Checked by keysmith's rules before any signature, link or wait.
+  const group = options.group == null ? undefined : checkGroup(options.group)
+  const delegationDepth = options.delegationDepth
+  // What every "rerun to resume" message names: the session file keeps neither --group nor --delegation-depth.
+  const resume = resumeCommand({ group, maxDepth: delegationDepth })
   if (options.grant !== undefined && options.fresh) {
     // Refused before the saved key is replaced: a Grant names its key, and a fresh one has none yet.
     throw new Error(
@@ -367,8 +526,12 @@ export async function runLogin(
   // Read and decoded first, so a wrong paste fails now rather than after the wait.
   const grantText = options.grant === undefined ? undefined : await readGrantArgument(options.grant, io.stdin)
   if (grantText !== undefined) decodeGrantText(grantText)
-  // `--grant` asks for the Grant step whether or not `--scopes` names encrypt.
-  const wantGrant = encrypt || grantText !== undefined
+  // `--grant` and `--group` ask for the Grant step whether or not `--scopes` names encrypt.
+  const wantGrant = encrypt || grantText !== undefined || group !== undefined || delegationDepth !== undefined
+  if (wantGrant && grantText === undefined && !permissions.includes(AddPiecesPermission)) {
+    // The console refuses it too: a Grant is for writing encrypted pieces, which needs addPieces.
+    throw new Error('A group key Grant (encrypt, --group) needs the addPieces scope: add it to --scopes.')
+  }
   let networkOptions: LoginOptions = options
   if (grantText !== undefined) {
     if (saved?.walletAddress !== undefined) {
@@ -389,12 +552,12 @@ export async function runLogin(
   const network = consoleNetworkSlug(chain.id)
   if (network === undefined && wantGrant) {
     throw new Error(
-      `Group key Grants come from the Filecoin Cloud console, which has no page for chain id ${chain.id}. On this network, encrypt in owner mode: set PRIVATE_KEY to the wallet key.`
+      `Group key Grants come from the Filecoin Cloud console, which has no page for chain id ${chain.id}. On this network, encrypt in owner mode: set PRIVATE_KEY to the wallet key. For a local foc-devnet, set CONSOLE_URL to a console you run against it.`
     )
   }
   if (network === undefined) {
     throw new Error(
-      `The Filecoin Cloud console has no pairing page for chain id ${chain.id}. login works on mainnet and calibration; on other networks use \`filecoin-pin session create\` with the wallet key.`
+      `The Filecoin Cloud console has no pairing page for chain id ${chain.id}. login works on mainnet and calibration, and on a local foc-devnet with CONSOLE_URL set to a console you run against it; on other networks use \`filecoin-pin session create\` with the wallet key.`
     )
   }
   const consoleUrl = resolveConsoleUrl()
@@ -439,22 +602,52 @@ export async function runLogin(
   log.line('')
 
   const scopeIds = permissions.map(scopeIdOf)
-  const keyAgreement = wantGrant ? await keyAgreementParams(session.sessionKey) : undefined
+  const keyAgreement = wantGrant
+    ? {
+        ...(await keyAgreementParams(session.sessionKey)),
+        node: grantNode(group),
+        ...(delegationDepth !== undefined && { maxDepth: delegationDepth }),
+      }
+    : undefined
   // With pubkey, the console asks the owner for a Grant wrapped to this session key.
   const grantUrl = buildAuthorizeUrl(consoleUrl, session.sessionAddress, scopeIds, chain.id, keyAgreement)
-  // A saved Grant that still opens needs no new one, so the link leaves the group key step out.
-  const keepSavedGrant = wantGrant && grantText === undefined && (await savedGrantOpens(session, chain.id))
+  // A saved Grant for this node that still opens needs no new one, so the link leaves the group key step out.
+  const savedGrant =
+    wantGrant && grantText === undefined && delegationDepth === undefined
+      ? await savedGrantFor(session, chain.id, grantNode(group))
+      : undefined
+  const keepSavedGrant = savedGrant !== undefined
   const url = keepSavedGrant ? buildAuthorizeUrl(consoleUrl, session.sessionAddress, scopeIds, chain.id) : grantUrl
+  if (savedGrant !== undefined) {
+    log.line(`${pc.green('✓')} Grant for ${grantCovers(savedGrant)} already saved: no group key step needed`)
+  } else if (group !== undefined) {
+    log.line(`  Requesting a Grant for group ${group} (and every group beneath it)`)
+  }
+
   log.line('  Approve this key with your wallet in the Filecoin Cloud console:')
   // The link on its own line, unstyled, so it copies and parses cleanly.
   log.line(url)
   log.line('')
   log.flush()
-  // A Grant already in hand means the owner has been to the console.
-  if (options.browser !== false && grantText === undefined) openBrowser(url)
 
   // The link is already on screen: an RPC that is down here costs the wait, not the pairing.
   const client = createPublicClient({ chain, transport })
+  // Nothing for the console to do: the key is live on chain and any Grant asked for is in hand.
+  // The link stays on screen to extend the key; no browser, no wait.
+  if (grantText === undefined && (!wantGrant || keepSavedGrant)) {
+    const live = await liveAuthorization(client, session, registryAddress, permissions)
+    if (live !== undefined) {
+      const expires = live.expiry === undefined ? '' : ` · expires ${formatExpiryDate(live.expiry)}`
+      log.line(`${pc.green('✓')} Already authorized: ${scopeList(live.granted)}${expires}`)
+      log.line('  Open the link above only to extend this key.')
+      await reportReadinessSafely(live.owner, chain, rpcUrl, consoleUrl)
+      log.flush()
+      return 0
+    }
+  }
+
+  // A Grant already in hand means the owner has been to the console.
+  if (options.browser !== false && grantText === undefined) openBrowser(url)
 
   if (options.wait === false) {
     // This exit tells the owner to rerun `login`, and the grant is usually
@@ -469,7 +662,7 @@ export async function runLogin(
       }
     }
     log.line(
-      `${pc.yellow('⚠')} Not waiting for the authorization. Approve the key, then rerun \`filecoin-pin login\` to check it.`
+      `${pc.yellow('⚠')} Not waiting for the authorization. Approve the key, then rerun \`${resume}\` to check it.`
     )
     if (grantText !== undefined) {
       // Never dropped silently: the Grant can be checked only once the owner is known.
@@ -477,7 +670,7 @@ export async function runLogin(
         "  The Grant was not imported: the session key isn't authorized yet. Approve it in the console, then run `filecoin-pin login --grant …` again."
       )
     } else if (wantGrant && !keepSavedGrant) {
-      reportGrantPending(url)
+      reportGrantPending(url, resume)
     }
     log.flush()
     return EXIT_CODE_INCOMPLETE
@@ -492,11 +685,11 @@ export async function runLogin(
   const deadlineMs = options.timeout === undefined ? DEFAULT_WATCH_DEADLINE_MS : options.timeout * 1000
   const spinner = createSpinner()
   const waitLine = (remainingMs: number) =>
-    `Waiting for on-chain authorization… ${formatCountdown(remainingMs)} remaining (Ctrl-C safe; rerun \`login\` to resume)`
+    `Waiting for on-chain authorization… ${formatCountdown(remainingMs)} remaining (Ctrl-C safe; rerun \`${resume}\` to resume)`
   // Registered before the spinner starts: clack installs its own SIGINT
   // handler in start(), and the first listener to call process.exit wins.
   const onSigint = () => {
-    spinner.stop(`${pc.yellow('⚠')} Login paused. Your key is saved; rerun \`filecoin-pin login\` to resume.`)
+    spinner.stop(`${pc.yellow('⚠')} Login paused. Your key is saved; rerun \`${resume}\` to resume.`)
     log.flush()
     process.exit(EXIT_CODE_INCOMPLETE)
   }
@@ -519,7 +712,7 @@ export async function runLogin(
     })
   } catch (error) {
     spinner.stop(
-      `${pc.red('✗')} Could not watch for the authorization. Your key is saved; rerun \`filecoin-pin login\` to resume.`
+      `${pc.red('✗')} Could not watch for the authorization. Your key is saved; rerun \`${resume}\` to resume.`
     )
     throw error
   } finally {
@@ -527,9 +720,7 @@ export async function runLogin(
   }
 
   if (result.status === 'timeout' || result.owner === undefined) {
-    spinner.stop(
-      `${pc.yellow('⚠')} No authorization seen in time. Your key is saved; rerun \`filecoin-pin login\` to resume.`
-    )
+    spinner.stop(`${pc.yellow('⚠')} No authorization seen in time. Your key is saved; rerun \`${resume}\` to resume.`)
     log.flush()
     return EXIT_CODE_INCOMPLETE
   }
@@ -544,16 +735,19 @@ export async function runLogin(
     reportPartialGrant(permissions, result)
   }
   const haveGrant = wantGrant
-    ? await obtainGrant(authorized, chain.id, grantUrl, !keepSavedGrant, grantText, path, io)
+    ? await obtainGrant(
+        authorized,
+        chain.id,
+        { group, maxDepth: delegationDepth },
+        grantUrl,
+        !keepSavedGrant,
+        grantText,
+        path,
+        io
+      )
     : true
 
-  // Funding never blocks login: a failed readiness read is reported, not fatal.
-  try {
-    await reportReadiness(result.owner, chain, rpcUrl, consoleUrl)
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    log.line(`${pc.yellow('⚠')} Could not read account readiness: ${reason}. Run \`filecoin-pin balance\` to check.`)
-  }
+  await reportReadinessSafely(result.owner, chain, rpcUrl, consoleUrl)
   log.flush()
   return grantedEveryRequested(permissions, result.granted) && haveGrant ? 0 : EXIT_CODE_INCOMPLETE
 }

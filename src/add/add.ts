@@ -22,13 +22,17 @@ import { ENCRYPTED_FILE_NAME, encryptPath } from '../common/encryption.js'
 import { assertUploadFunds, estimateInputBytes, rerunHint } from '../common/funds-preflight.js'
 import { DEVNET_CHAIN_ID } from '../common/get-rpc-url.js'
 import {
+  assertNoReadMetadata,
+  checkGroup,
   newPieceKey,
   OWNER_WALLET_REQUIRED,
   type OwnerGroupKey,
   ownerGroupKey,
   ownerSigner,
+  READ_KEY,
+  READ_RESTRICTED,
 } from '../common/group-key.js'
-import { grantGroupKey, loadGroupKeyGrant } from '../common/group-key-grant.js'
+import { grantGroupKey, loadGroupKeyGrants } from '../common/group-key-grant.js'
 import { describeLockupShortfall } from '../common/lockup-error.js'
 import { type CreatedShare, createShare, type ShareMode } from '../common/share-link.js'
 import {
@@ -52,7 +56,7 @@ import { DEFAULT_COPIES } from '../core/synapse/constants.js'
 import { getClientAddress, initializeSynapse, isSessionKeyMode } from '../core/synapse/index.js'
 import { cleanupTempCar, createCarFromPath } from '../core/unixfs/index.js'
 import { getNetworkSlug } from '../core/upload/index.js'
-import { NO_IPFS_SHARE, printShare, shareReminder, shareSender } from '../share/get-share-link.js'
+import { NO_IPFS_SHARE, PRIVATE_SHARE, printShare, shareReminder, shareSender } from '../share/get-share-link.js'
 import { parseCLIAuth, parseContextSelectionOptions } from '../utils/cli-auth.js'
 import { cancel, createSpinner, formatFileSize, intro, outro } from '../utils/cli-helpers.js'
 import { log } from '../utils/cli-logger.js'
@@ -104,12 +108,18 @@ function describeSkipped(walk: { skippedSymlinks: string[]; skippedSpecial: stri
 }
 
 /**
- * The group key a session key writes under, from its Grant. A missing or invalid Grant
- * throws before anything is packed or uploaded: never fall back to plaintext.
+ * The group key (and group) a session key writes under, from its Grants. A missing or invalid
+ * Grant, or a group no Grant covers, throws before anything is packed or uploaded: never fall
+ * back to plaintext.
  */
-async function sessionGroupKey(synapse: Synapse, sessionKey: string, logger: Logger): Promise<OwnerGroupKey> {
+async function sessionGroupKey(
+  synapse: Synapse,
+  sessionKey: string,
+  group: string | undefined,
+  logger: Logger
+): Promise<OwnerGroupKey> {
   const session = { sessionKey: sessionKey as Hex, walletAddress: getClientAddress(synapse) }
-  return grantGroupKey(synapse, await loadGroupKeyGrant(session, synapse.chain.id), logger)
+  return grantGroupKey(synapse, await loadGroupKeyGrants(session, synapse.chain.id), group, logger)
 }
 
 /**
@@ -181,6 +191,12 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
   // Map the public egress provider to the SDK's withCDN boolean (internal only).
   const withCDN = options.egressProvider === 'beam'
   const ipfsIndexing = options.ipfs !== false
+  // --private implies --encrypt: a private data set is always encrypted.
+  const encrypt = options.encrypt === true || options.private === true
+  // Checked by keysmith's rules before any signature or upload.
+  if (options.group != null && !encrypt)
+    throw new Error('--group needs --encrypt or --private: a group names who can decrypt')
+  const group = options.group == null ? undefined : checkGroup(options.group)
 
   let tempCarPath: string | undefined
   let encryptDir: string | undefined
@@ -208,10 +224,12 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     let shareMode: ShareMode | undefined
     if (options.getShareLinkRestricted === true) shareMode = 'restricted'
     else if (options.getShareLink === true) shareMode = 'open'
-    if (shareMode != null && options.encrypt !== true) {
+    if (shareMode != null && options.private === true) throw new Error(PRIVATE_SHARE)
+    if (shareMode != null && !encrypt) {
       throw new Error('--get-share-link needs --encrypt: plain content is shared by its CID')
     }
     if (shareMode != null && !ipfsIndexing) throw new Error(NO_IPFS_SHARE)
+    assertNoReadMetadata(dataSetMetadata)
 
     // Validate path exists and is readable
     spinner.start('Validating path...')
@@ -232,7 +250,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
     // Fail fast on CAR-of-CAR before auth/payment checks run. Encrypted input is
     // packed as a file inside the payload, so a CAR file is valid input for --encrypt.
-    if (!isDirectory && !options.encrypt) {
+    if (!isDirectory && !encrypt) {
       const sniff = createReadStream(options.filePath)
       try {
         if (await isCar(sniff)) {
@@ -268,15 +286,15 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
 
     // The group key is settled before any data set is chosen: encrypted uploads land in data
     // sets tagged with it. The owner wallet signs for it; a session key opens its Grant instead.
-    if (options.encrypt) {
+    if (encrypt) {
       const signer = ownerSigner(synapse)
       if (signer != null) {
         spinner.start('Deriving the encryption key from the owner wallet...')
-        groupKey = await ownerGroupKey(synapse, signer, logger)
+        groupKey = await ownerGroupKey(synapse, signer, logger, group)
         spinner.stop(`${pc.green('✓')} Encryption key derived`)
       } else if ('sessionKey' in config && config.sessionKey != null) {
         spinner.start("Opening this session key's group key Grant...")
-        groupKey = await sessionGroupKey(synapse, config.sessionKey, logger)
+        groupKey = await sessionGroupKey(synapse, config.sessionKey, group, logger)
         spinner.stop(`${pc.green('✓')} Group key Grant opened`)
       } else {
         // A plain Error, so the catch below prints it (a CliFatal is taken as already shown).
@@ -285,9 +303,16 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     }
 
     // An encrypted upload requires its IPFS mode explicitly too, so explicit and
-    // metadata-filtered targets are checked against it like reused ones.
+    // metadata-filtered targets are checked against it like reused ones. A private one
+    // also requires read=restricted, which every new data set (every copy) is created with.
     const requiredMetadata =
-      groupKey == null ? undefined : { ...groupKey.dataSetMetadata, ...(ipfsIndexing && IPFS_INDEXED_METADATA) }
+      groupKey == null
+        ? undefined
+        : {
+            ...groupKey.dataSetMetadata,
+            ...(options.private === true && { [READ_KEY]: READ_RESTRICTED }),
+            ...(ipfsIndexing && IPFS_INDEXED_METADATA),
+          }
     const targets = await resolveUploadTargets(synapse, contextSelection, {
       ...(dataSetMetadata != null && { dataSetMetadata }),
       ...(requiredMetadata != null && { requiredMetadata }),
@@ -500,10 +525,12 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
     // The plaintext path stays out of the printed summary (CI logs, shared terminals); the
     // returned result keeps it for programmatic callers.
     displayUploadResults(
-      options.encrypt
+      encrypt
         ? {
             ...result,
             filePath: `${pieceMetadata?.[PIECE_METADATA_NAME_KEY] ?? ENCRYPTED_FILE_NAME} (the real name stays inside the ciphertext)`,
+            // A private piece is not served on /piece/: printing that URL would only lead to a 404.
+            ...(options.private === true && { copies: result.copies.map((copy) => ({ ...copy, retrievalUrl: '' })) }),
           }
         : result,
       'Add',
@@ -511,13 +538,19 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       networkSlug,
       egress
     )
-    if (options.encrypt) {
+    if (encrypt) {
       log.line('')
       log.line(
         pc.yellow(
-          'Content is encrypted: readable with the owner wallet, a session key holding its group key Grant (via `filecoin-pin login`), or any holder of a Share Link and associated Access Key.'
+          options.private === true
+            ? 'Content is private: providers serve it only on the authenticated path, and it is readable with the owner wallet or a session key holding its group key Grant (via `filecoin-pin login`).'
+            : 'Content is encrypted: readable with the owner wallet, a session key holding its group key Grant (via `filecoin-pin login`), or any holder of a Share Link and associated Access Key.'
         )
       )
+      if (options.private === true) {
+        // Not indexed anywhere: get finds it by its root among the owner's private data sets.
+        log.line(`  Read it back: filecoin-pin get ${result.rootCid}`)
+      }
       log.flush()
     }
     if (share != null && shareMode != null) log.warn(shareReminder(shareMode))
