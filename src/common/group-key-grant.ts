@@ -325,17 +325,14 @@ export async function loadGroupKeyGrants(
 }
 
 /**
- * `Authorization` headers for one gated `/download/<pieceCid>`, one per held Grant: its claim chain
- * plus a read request for that piece, signed by the session key (the chain's bearer). The whole group
- * key's Grant comes first, since it reaches every piece; a group Grant reaches only its group's, and
- * the piece's group is inside the piece, so the caller tries them in turn. Call the result once per
- * request: the Grants are opened on the first call, and each call signs fresh requests, which expire
- * within the gate's 5-minute limit. The keys the Grants open never leave this function.
+ * `Authorization` headers for one gated `/download/<cid>` (a private upload's root or piece CID), one per
+ * held Grant: its claim chain plus a read request signed over that CID, signed by the session key
+ * (the chain's bearer). The keys the Grants open never leave this function.
  */
 export function grantAuthorizations(
   session: SessionCredentials,
   chainId: number | undefined
-): (pieceCid: string) => Promise<string[]> {
+): (cid: string) => Promise<string[]> {
   // The Grants are opened (and any ignored one warned about) once; each call signs fresh requests.
   let chains: Promise<OpenedGrant['chain'][]> | undefined
   const open = async () => {
@@ -344,10 +341,10 @@ export function grantAuthorizations(
     return [...grants.filter((g) => g.group == null), ...grants.filter((g) => g.group != null)].map((g) => g.chain)
   }
   const bearer = privateKeyToAccount(session.sessionKey)
-  return async (pieceCid) => {
+  return async (cid) => {
     chains ??= open()
-    const piece = CID.parse(pieceCid).bytes
-    return Promise.all((await chains).map((chain) => authorizationHeader(bearer, chain, { pieceCid: piece })))
+    const bytes = CID.parse(cid).bytes
+    return Promise.all((await chains).map((chain) => authorizationHeader(bearer, chain, { pieceCid: bytes })))
   }
 }
 

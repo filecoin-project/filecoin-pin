@@ -329,7 +329,7 @@ const OWNER_READ_CLAIM_SECONDS = 3600
 
 /**
  * `Authorization` headers for the owner wallet to fetch one of its own private uploads from
- * `/download/<pieceCid>`. The piece's group key is inside the piece, so the wallet signs, for each
+ * `/download/<cid>`, its root or piece CID. The piece's group key is inside the piece, so the wallet signs, for each
  * group key its read-restricted data sets record (`foc/gkid`), a root claim for that whole group
  * key with itself as bearer, valid for an hour; each request is signed fresh. The caller presents the
  * headers in turn while the provider answers 403. One wallet signature per group key, on first use.
@@ -338,7 +338,7 @@ export function ownerAuthorizations(
   synapse: Synapse,
   signer: OwnerSigner,
   logger?: Logger
-): (pieceCid: string) => Promise<string[]> {
+): (cid: string) => Promise<string[]> {
   let chains: Promise<Awaited<ReturnType<typeof rootClaim>>['chain'][]> | undefined
   const issue = async () => {
     const restricted = await listDataSets(synapse, {
@@ -349,7 +349,7 @@ export function ownerAuthorizations(
       ...(logger != null && { logger }),
     })
     if (restricted.length === 0) {
-      throw new Error(`Wallet ${signer.address} has no private data sets: nothing to fetch with --piece`)
+      throw new Error(`Wallet ${signer.address} has no private data sets: no private uploads to fetch`)
     }
     // Each group key once, by oldestValidGroupKey's rule: one signature, checked against the commitment.
     // A group key that fails is skipped, so one bad data set cannot block every fetch.
@@ -388,10 +388,10 @@ export function ownerAuthorizations(
     }
     return issued
   }
-  return async (pieceCid) => {
+  return async (cid) => {
     chains ??= issue()
-    const piece = CID.parse(pieceCid).bytes
-    return Promise.all((await chains).map((chain) => authorizationHeader(signer, chain, { pieceCid: piece })))
+    const bytes = CID.parse(cid).bytes
+    return Promise.all((await chains).map((chain) => authorizationHeader(signer, chain, { pieceCid: bytes })))
   }
 }
 

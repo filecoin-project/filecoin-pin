@@ -56,16 +56,17 @@ export interface FetchOptions {
   /** Largest CAR to download; {@link MAX_CAR_BYTES} by default. */
   maxCarBytes?: number
   /**
-   * Fetch the stored piece from a gated provider's `/download/<pieceCid>` instead of `/ipfs/<cid>`.
-   * `authorizations` gives fresh `Authorization` headers, one per held Grant, best first; each provider
-   * is tried with them in turn while it answers 403 (that Grant does not reach the piece). The piece is
-   * the CAR `add` uploaded, so it is verified against `cid` like any other.
+   * Fetch the stored piece from a gated provider's `/download/<cid>` instead of `/ipfs/<root>`: `cid` is
+   * the root (the provider resolves it to its private piece) or the piece CID, and each request is signed
+   * over that same CID. `authorizations` gives fresh `Authorization` headers, one per held Grant, best
+   * first; each provider is tried with them in turn while it answers 403 (that Grant does not reach the
+   * piece). The piece is the CAR `add` uploaded, so it is verified against the root like any other.
    */
-  download?: { pieceCid: string; authorizations: Authorizations }
+  download?: { cid: string; authorizations: Authorizations }
 }
 
-/** Fresh `Authorization` headers for one piece's gated `/download/`, one per held Grant, best first. */
-export type Authorizations = (pieceCid: string) => Promise<string[]>
+/** Fresh `Authorization` headers for one gated `/download/<cid>`, one per held Grant, best first. */
+export type Authorizations = (cid: string) => Promise<string[]>
 
 /** One way to find providers; `find` should stop when `signal` aborts. */
 export interface ProviderSource {
@@ -339,15 +340,14 @@ function unusable(response: Response, maxBytes: number, piece: boolean): string 
 async function gatedDownload(
   doFetch: typeof fetch,
   base: string,
-  pieceCid: string,
+  cid: string,
   authorizations: Authorizations,
-  signal: AbortSignal | undefined,
-  extra: Record<string, string> = {}
+  signal: AbortSignal | undefined
 ): Promise<Response> {
-  const headers = await authorizations(pieceCid)
+  const headers = await authorizations(cid)
   for (const [i, authorization] of headers.entries()) {
-    const response = await doFetch(`${base}/download/${pieceCid}`, {
-      headers: { ...extra, Authorization: authorization },
+    const response = await doFetch(`${base}/download/${cid}`, {
+      headers: { Authorization: authorization },
       ...(signal != null && { signal }),
     })
     if (response.status !== 403 || i === headers.length - 1) return response
@@ -417,7 +417,7 @@ function firstCarResponse(
       const request =
         download == null
           ? doFetch(`${base}/ipfs/${cid}?format=car&dag-scope=all`, { headers: { Accept: CAR_ACCEPT }, signal })
-          : gatedDownload(doFetch, base, download.pieceCid, download.authorizations, signal)
+          : gatedDownload(doFetch, base, download.cid, download.authorizations, signal)
       request.then(
         (response) => {
           clearTimeout(timer)
