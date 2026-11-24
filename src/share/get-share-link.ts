@@ -75,6 +75,9 @@ async function findPrivateUpload(
   const dir = await mkdtemp(join(tmpdir(), 'filecoin-pin-share-'))
   try {
     const carPath = join(dir, 'piece.car')
+    // ponytail: downloads the whole upload to read its header. The outer CAR is written leaves first
+    // with the root last, so the first leaf (the header) can only be verified against the root once
+    // the end is in. A metadata-first outer CAR, like the inner one, would make this a short read.
     try {
       await fetchVerifiedCar(cid, [{ name: 'Data set', find: async () => providers }], carPath, {
         logger,
