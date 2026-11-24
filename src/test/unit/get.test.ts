@@ -25,7 +25,6 @@ import {
   DISCOVERY_TIMEOUT_MS,
   FETCH_CONCURRENCY,
   FetchFailedError,
-  findPrivatePiece,
   ipniProviderUrls,
   NoProviderError,
   NotUnixfsError,
@@ -75,7 +74,6 @@ vi.mock('../../core/synapse/index.js', async (importOriginal) => ({
 vi.mock('../../core/data-set/index.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../core/data-set/index.js')>()),
   listDataSets: vi.fn(async () => []),
-  getDataSetPieces: vi.fn(async () => ({ pieces: [], dataSetId: 0n })),
 }))
 
 vi.mock('../../utils/cli-auth.js', async (importOriginal) => ({

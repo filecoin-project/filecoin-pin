@@ -7,7 +7,6 @@ import { rmSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Synapse } from '@filoz/synapse-sdk'
 import { CID } from 'multiformats/cid'
 import pc from 'picocolors'
 import type { Logger } from 'pino'
@@ -26,13 +25,14 @@ import {
   type ProviderSource,
 } from '../common/ipfs-car-fetch.js'
 import { type GetOptions, type GetResult, getToDirectory } from '../common/ipfs-get.js'
-import { 
+import {
   parseShareLink,
   ShareLinkError,
   shareDownload,
   shareKey,
   shareKeyResolver,
-  shareOwner } from '../common/share-link.js'
+  shareOwner,
+} from '../common/share-link.js'
 import { initializeSynapse, type SynapseSetupConfig } from '../core/synapse/index.js'
 import { type CLIAuthOptions, getCLILogger, parseCLIAuth } from '../utils/cli-auth.js'
 import { cancel, createSpinner, intro, outro } from '../utils/cli-helpers.js'
@@ -132,34 +132,18 @@ export async function runGet(
     // Used only when an envelope asks for a key, so plain content needs no credentials.
     let resolveKey = credentialKeyResolver(auth)
     let sharer: Address | undefined
-    // A private upload is not indexed anywhere: only its own gated data sets serve it.
-    let download: GetOptions['download']
+    // A private upload's share: what to fetch, and the right to, from the link.
+    let shared: GetOptions['download']
     if (share != null) {
       // Before the download, so a missing or wrong Access key, or an expired share, fails fast.
       const T = shareKey(share, options.accessKey)
       sharer = await shareOwner(share, T)
       resolveKey = shareKeyResolver(share, T)
       // A private upload's link carries the right to fetch it, signed with T.
-      download = await shareDownload(share, T)
+      shared = await shareDownload(share, T)
     }
 
     // Without a link: the credentials' own private upload, by --piece or found by its root CID.
-    const { piece } = options
-    if (piece != null) {
-      if (share != null) throw new Error('Choose --piece or --share, not both')
-      try {
-        CID.parse(piece)
-      } catch {
-        throw new Error(`Not a piece CID: ${piece}`)
-      }
-    }
-    const privateAccess = share == null && address != null ? await privateAccessOf(auth, address, logger) : undefined
-    if (piece != null && privateAccess == null) {
-      throw new Error(
-        '--piece needs the owner wallet (PRIVATE_KEY) or a session key holding a group key Grant (`filecoin-pin login --group <group>`)'
-      )
-    }
-
     const { piece } = options
     if (piece != null) {
       if (share != null) throw new Error('Choose --piece or --share, not both')
@@ -193,7 +177,17 @@ export async function runGet(
     let result: GetResult | undefined
     // Why the private path failed, when it got as far as a provider: shown only if the public path fails too.
     let privateFailure: string | undefined
-    if (privateAccess != null && address != null) {
+    if (shared != null) {
+      // A private share is served only on the gated path: by the providers the link names, then the
+      // sharer's own read-restricted data sets. Never public, so there is nothing to fall back to.
+      const sources: ProviderSource[] = [{ name: 'Share link', find: async () => share?.providers ?? [] }]
+      if (sharer != null) {
+        sources.push({ name: "Sharer's private data set", find: () => ownProviders(auth, sharer, logger, true) })
+      }
+      spinner.start('Downloading the shared private upload...')
+      result = await fetchFrom(sources, shared)
+      spinner.stop()
+    } else if (privateAccess != null && address != null) {
       // A private upload is not indexed anywhere: only its own gated data sets serve it, at
       // /download/<root> (or /download/<piece> with --piece), each request signed over that CID.
       spinner.start('Looking among your private uploads...')

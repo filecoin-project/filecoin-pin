@@ -520,7 +520,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
           // A private upload's link carries the right to fetch it, from the providers that took a copy.
           ...(options.private === true && {
             private: {
-              pieceCid: uploadResult.pieceCid.toString(),
+              cid: uploadResult.pieceCid.toString(),
               providers: uploadResult.copies.flatMap((copy) => serviceUrlOf(copy.retrievalUrl) ?? []),
               chainId: synapse.chain.id,
             },

@@ -18,8 +18,9 @@
  * fetch the ciphertext. A private upload is served only on the authenticated path, so its link
  * also carries the right to fetch it, as a Keysmith Delivery (a CBOR array) in `d`:
  *
- * - the claim chain ends in a `piece:<salt>` claim whose bearer is T's address, with the piece CID
- *   as its locator (not signed, and not needed to verify: it says what to ask for);
+ * - the claim chain ends in a `piece:<salt>` claim whose bearer is T's address, with the CID to
+ *   fetch as its locator: the upload's IPFS root, or its piece CID (not signed, and not needed to
+ *   verify: it says what to ask for);
  * - the grant wraps that piece's key to T, as for a public upload.
  *
  * The owner wallet signs that claim as a root of its own. A session key delegates it from the
@@ -30,7 +31,7 @@
  * `s` lists the providers that hold the piece, as comma-separated, URI-encoded service URLs: a
  * reader with no chain access (the viewer) has no other way to find them. A reader signs a fresh
  * read request with T for each fetch (`authorizationHeader`) and presents it at
- * `<provider>/download/<pieceCid>`. A link with a Delivery is new: a reader that predates it
+ * `<provider>/download/<locator>`. A link with a Delivery is new: a reader that predates it
  * refuses `s`, and fails rather than misreading the link.
  */
 
@@ -60,6 +61,7 @@ import { type Address, bytesToHex, getAddress, type Hex, hexToBytes } from 'viem
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { format1Message, KeyAccessError, type OwnerSigner } from './group-key.js'
 import { GRANT_PREFIX, grantForPiece, type OpenedGrant } from './group-key-grant.js'
+import type { Authorizations } from './ipfs-car-fetch.js'
 
 /** The v1 Share link viewer the links open in (FilOzone/synapse-sdk#1036). */
 export const DEFAULT_VIEWER_URL = 'https://viewer.filecoin.cloud/'
@@ -186,9 +188,10 @@ export type ShareSender = { owner: OwnerSigner } | { grants: OpenedGrant[]; sess
 // ponytail: fixed lifetime; add a --expires flag when someone needs another one
 export const PRIVATE_SHARE_LIFETIME_SECONDS = 30 * 24 * 3600
 
-/** Where a private upload is fetched: its piece, on these providers. */
+/** Where a private upload is fetched: `/download/<cid>` on these providers. */
 export interface PrivateShareTarget {
-  pieceCid: string
+  /** The upload's IPFS root, or its piece CID. */
+  cid: string
   /** Service URLs of the providers that hold it. */
   providers: readonly string[]
   /** The network the claim is for. */
@@ -284,7 +287,8 @@ async function privateClaim(
 ): Promise<{ pieceKey: Uint8Array; chain: ClaimChain }> {
   const node = pieceNode(labels)
   const bearer = privateKeyToAccount(T).address
-  const pieceCid = CID.parse(target.pieceCid).bytes
+  // Keysmith calls the locator pieceCid; it is opaque, and any CID the provider resolves will do.
+  const pieceCid = CID.parse(target.cid).bytes
   if ('owner' in sender) {
     const { groupKey } = await deriveGroupKey(sender.owner, ref)
     try {
@@ -376,23 +380,23 @@ async function openPayload(share: ParsedShare, T: Hex): Promise<{ key: Uint8Arra
 }
 
 /**
- * For a private upload's share: the piece to fetch, and fresh `Authorization` headers for it, signed
- * with T. Undefined for a public upload's share, which is fetched on the open path.
+ * For a private upload's share: the CID to fetch (the link's locator), and fresh `Authorization`
+ * headers for it, signed with T. Undefined for a public upload's share, which is fetched on the open path.
  */
 export async function shareDownload(
   share: ParsedShare,
   T: Hex
-): Promise<{ pieceCid: string; authorizations: () => Promise<string[]> } | undefined> {
+): Promise<{ cid: string; authorizations: Authorizations } | undefined> {
   const { key, chain } = await openPayload(share, T)
   key.fill(0)
   if (chain == null) return undefined
   const locator = chain.links.at(-1)?.pieceCid
-  if (locator == null) throw new ShareLinkError('This private share names no piece to fetch; ask for a new link')
-  const pieceCid = CID.decode(locator)
+  if (locator == null) throw new ShareLinkError('This private share names nothing to fetch; ask for a new link')
   const bearer = privateKeyToAccount(T)
   return {
-    pieceCid: pieceCid.toString(),
-    authorizations: async () => [await authorizationHeader(bearer, chain, { pieceCid: pieceCid.bytes })],
+    cid: CID.decode(locator).toString(),
+    // Signed over the CID in the URL, as the provider checks.
+    authorizations: async (cid) => [await authorizationHeader(bearer, chain, { pieceCid: CID.parse(cid).bytes })],
   }
 }
 
