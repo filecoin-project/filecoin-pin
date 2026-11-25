@@ -308,7 +308,10 @@ describe('share links for private uploads', () => {
       })
       const parsed = parseShareLink(share.link)
       expect(parsed.providers).toEqual(target.providers)
-      expect(decodeDelivery(parsed.payload).chain.links).toHaveLength(links)
+      const { chain } = decodeDelivery(parsed.payload)
+      expect(chain.links).toHaveLength(links)
+      // The link's key can fetch, never delegate further.
+      expect(chain.links.at(-1)?.maxDepth).toBe(0)
 
       const T = shareKey(parsed, share.accessKey)
       expect(await open(share.link, share.accessKey, labels)).toBe(await ownerPieceKey(labels))

@@ -520,14 +520,14 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
           // A private upload's link carries the right to fetch it, from the providers that took a copy.
           ...(options.private === true && {
             private: {
-              cid: uploadResult.pieceCid.toString(),
+              cid: rootCid.toString(),
               providers: uploadResult.copies.flatMap((copy) => serviceUrlOf(copy.retrievalUrl) ?? []),
               chainId: synapse.chain.id,
             },
           }),
         })
       } catch (error) {
-        const retry = `filecoin-pin get-share-link ${rootCid}${options.private === true ? ` --piece ${uploadResult.pieceCid}` : ''}${shareMode === 'restricted' ? ' --restricted' : ''}`
+        const retry = `filecoin-pin get-share-link ${rootCid}${shareMode === 'restricted' ? ' --restricted' : ''}`
         log.warn(`No share link: ${error instanceof Error ? error.message : String(error)}. Run \`${retry}\` to retry.`)
       }
     }

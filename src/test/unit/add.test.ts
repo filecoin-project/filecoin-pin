@@ -1081,7 +1081,8 @@ describe('Add Command', () => {
         const { chain } = decodeDelivery(share.payload)
         const final = chain.links.at(-1)
         expect(final?.node).toMatch(/^piece:0x[0-9a-f]{32}$/)
-        expect(CID.decode(final?.pieceCid ?? new Uint8Array()).toString()).toBe(PIECE)
+        // Located at the root, like every link: the piece CID appears only with --piece.
+        expect(CID.decode(final?.pieceCid ?? new Uint8Array()).toString()).toBe(share.rootCid.toString())
         expect(final?.bearer).toBe(privateKeyToAccount(share.accessKey ?? '0x').address)
       })
 

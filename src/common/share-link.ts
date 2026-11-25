@@ -19,8 +19,8 @@
  * also carries the right to fetch it, as a Keysmith Delivery (a CBOR array) in `d`:
  *
  * - the claim chain ends in a `piece:<salt>` claim whose bearer is T's address, with the CID to
- *   fetch as its locator: the upload's IPFS root, or its piece CID (not signed, and not needed to
- *   verify: it says what to ask for);
+ *   fetch as its locator: the upload's IPFS root, or its piece CID only when the sharer passed
+ *   `--piece` (not signed, and not needed to verify: it says what to ask for);
  * - the grant wraps that piece's key to T, as for a public upload.
  *
  * The owner wallet signs that claim as a root of its own. A session key delegates it from the

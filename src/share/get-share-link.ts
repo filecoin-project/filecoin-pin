@@ -78,18 +78,25 @@ async function findPrivateUpload(
     // ponytail: downloads the whole upload to read its header. The outer CAR is written leaves first
     // with the root last, so the first leaf (the header) can only be verified against the root once
     // the end is in. A metadata-first outer CAR, like the inner one, would make this a short read.
+    let served: string
     try {
-      await fetchVerifiedCar(cid, [{ name: 'Data set', find: async () => providers }], carPath, {
-        logger,
-        download: { cid: target, authorizations },
-      })
+      ;({ provider: served } = await fetchVerifiedCar(
+        cid,
+        [{ name: 'Data set', find: async () => providers }],
+        carPath,
+        {
+          logger,
+          download: { cid: target, authorizations },
+        }
+      ))
     } catch (error) {
       // Not among the private uploads: it may still be public. --piece names a private upload only.
       if (piece != null || !(error instanceof NoProviderError || error instanceof FetchFailedError)) throw error
       logger.debug({ reason: error.message }, 'Not served from a private data set')
       return undefined
     }
-    return { labels: await envelopeLabelsFromCar(carPath, cid), providers, target }
+    // The link names only the provider that served it, not every provider the sharer uses.
+    return { labels: await envelopeLabelsFromCar(carPath, cid), providers: [served], target }
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
