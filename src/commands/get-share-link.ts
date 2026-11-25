@@ -23,8 +23,9 @@ expires: with a session key, when its Grant does (the Grant must allow delegatio
 --delegation-depth 0); with the owner wallet, after 30 days.
 
 Shares with the owner wallet (PRIVATE_KEY), or with a session key and its group key Grant (from
-\`filecoin-pin login\`). The envelope header is verified against the CID: a public upload's is read
-from its first blocks, but a private upload is downloaded whole to read it.`
+\`filecoin-pin login\`). The envelope header is read from the upload's first blocks and verified
+against the CID: for a private upload, the start and the end of its piece (where the root is), by
+ranged requests.`
   )
 
 addAuthOptions(getShareLinkCommand)

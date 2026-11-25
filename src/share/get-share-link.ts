@@ -16,7 +16,12 @@ import type { Logger } from 'pino'
 import type { Address } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { CliFatal } from '../common/cli-errors.js'
-import { envelopeLabelsFromCar, readEnvelopeLabels } from '../common/envelope-labels.js'
+import {
+  envelopeLabelsFromCar,
+  NotEncryptedUploadError,
+  privateEnvelopeLabels,
+  readEnvelopeLabels,
+} from '../common/envelope-labels.js'
 import { GRANT_LOGIN_COMMAND, ownerAuthorizations } from '../common/group-key.js'
 import { grantAuthorizations, loadGroupKeyGrants } from '../common/group-key-grant.js'
 import {
@@ -24,8 +29,10 @@ import {
   DISCOVERY_TIMEOUT_MS,
   FetchFailedError,
   fetchVerifiedCar,
+  gatedDownload,
   ipniProviderUrls,
   NoProviderError,
+  RESPONSE_TIMEOUT_MS,
 } from '../common/ipfs-car-fetch.js'
 import { type CreatedShare, createShare, type ShareMode, type ShareSender } from '../common/share-link.js'
 import type { SynapseSetupConfig } from '../core/synapse/index.js'
@@ -72,12 +79,25 @@ async function findPrivateUpload(
   // What the link will ask for, and what is read here: the piece if named, else the root.
   const target = piece ?? cid.toString()
   const providers = [...new Set(await ownProviders(auth, address, logger, true))]
+  // Two short ranged reads of the piece, verified against the root; the link names the provider
+  // that served them, not every provider the sharer uses.
+  for (const provider of providers) {
+    try {
+      const labels = await privateEnvelopeLabels(cid, (range) => readRange(provider, target, authorizations, range))
+      return { labels, providers: [provider], target }
+    } catch (error) {
+      if (error instanceof NotEncryptedUploadError) throw error
+      logger.debug(
+        { provider, reason: error instanceof Error ? error.message : String(error) },
+        'No ranged header read'
+      )
+    }
+  }
+  // Otherwise the whole piece, verified block by block: an upload over 1 GiB, a provider that
+  // ignores Range, or none serving it (it may be public).
   const dir = await mkdtemp(join(tmpdir(), 'filecoin-pin-share-'))
   try {
     const carPath = join(dir, 'piece.car')
-    // ponytail: downloads the whole upload to read its header. The outer CAR is written leaves first
-    // with the root last, so the first leaf (the header) can only be verified against the root once
-    // the end is in. A metadata-first outer CAR, like the inner one, would make this a short read.
     let served: string
     try {
       ;({ provider: served } = await fetchVerifiedCar(
@@ -101,6 +121,26 @@ async function findPrivateUpload(
     await rm(dir, { recursive: true, force: true })
   }
 }
+
+/** One `Range` of the piece at `<provider>/download/<cid>`, presenting each held Grant in turn. */
+async function readRange(
+  provider: string,
+  cid: string,
+  authorizations: Authorizations,
+  range: string
+): Promise<Uint8Array> {
+  const signal = AbortSignal.timeout(RESPONSE_TIMEOUT_MS)
+  const response = await gatedDownload(fetch, provider, cid, authorizations, signal, range)
+  const length = Number(response.headers.get('content-length') ?? 0)
+  if (response.status !== 206 || length > MAX_RANGE_BYTES) {
+    await response.body?.cancel().catch(() => undefined)
+    throw new Error(response.status === 206 ? `a ${length}-byte range` : `HTTP ${response.status}`)
+  }
+  return new Uint8Array(await response.arrayBuffer())
+}
+
+/** No range asked for is larger: a first block and the CAR header. */
+const MAX_RANGE_BYTES = 4 * 1024 * 1024
 
 /** The envelope header's labels, read from providers found through IPNI and the sharer's IPFS-indexed data sets. */
 async function findEnvelopeLabels(

@@ -340,19 +340,21 @@ function unusable(response: Response, maxBytes: number, piece: boolean): string 
 
 /**
  * A gated `/download/`: one held Grant at a time, while the provider answers 403 (that Grant does
- * not reach the piece). Any other answer, or the last 403, is the provider's answer.
+ * not reach the piece). Any other answer, or the last 403, is the provider's answer. `range` asks
+ * for part of the piece (`bytes=…`).
  */
-async function gatedDownload(
+export async function gatedDownload(
   doFetch: typeof fetch,
   base: string,
   cid: string,
   authorizations: Authorizations,
-  signal: AbortSignal | undefined
+  signal: AbortSignal | undefined,
+  range?: string
 ): Promise<Response> {
   const headers = await authorizations(cid)
   for (const [i, authorization] of headers.entries()) {
     const response = await doFetch(`${base}/download/${cid}`, {
-      headers: { Authorization: authorization },
+      headers: { Authorization: authorization, ...(range != null && { Range: range }) },
       ...(signal != null && { signal }),
     })
     if (response.status !== 403 || i === headers.length - 1) return response

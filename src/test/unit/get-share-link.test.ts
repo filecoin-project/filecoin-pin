@@ -8,9 +8,13 @@ import { GROUP_KEY, OWNER, OWNER_KEY } from '../fixtures/group-key-grants.js'
 
 const header = vi.hoisted(() => ({ labels: undefined as unknown }))
 const own = vi.hoisted(() => ({ providers: [] as string[] }))
-vi.mock('../../common/envelope-labels.js', () => ({
+// The ranged read fails unless a test says otherwise, so the whole-piece fallback runs.
+const ranged = vi.hoisted(() => vi.fn(async (): Promise<unknown> => Promise.reject(new Error('HTTP 200'))))
+vi.mock('../../common/envelope-labels.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../common/envelope-labels.js')>()),
   readEnvelopeLabels: async () => header.labels,
   envelopeLabelsFromCar: async () => header.labels,
+  privateEnvelopeLabels: ranged,
 }))
 // The real fetch, watched: with no providers, none of the sharer's private uploads serves ROOT, so the link is for a public one
 vi.mock('../../common/ipfs-car-fetch.js', async (importOriginal) => {
@@ -39,7 +43,22 @@ describe('runGetShareLink', () => {
     vi.restoreAllMocks()
   })
 
-  it("names only the provider that served a private upload, not the sharer's others", async () => {
+  it('reads a private upload with ranged reads, naming the provider that served them, without the whole piece', async () => {
+    header.labels = pieceMetadata({ owner: OWNER.address, groupKeyId: GROUP_KEY }, { salt: newSalt() })
+    own.providers = ['https://a.test', 'https://b.test']
+    // a.test can't serve the ranges; b.test can.
+    ranged.mockRejectedValueOnce(new Error('HTTP 404')).mockResolvedValueOnce(header.labels)
+    const printed: string[] = []
+    vi.spyOn(console, 'log').mockImplementation((line: string) => printed.push(line))
+
+    await runGetShareLink(ROOT, { privateKey: OWNER_KEY, network: 'calibration', viewer: 'https://viewer.test/' })
+
+    const parsed = parseShareLink(printed.join('\n').match(/https:\/\/viewer\.test\/#\S+/)?.[0] ?? '')
+    expect(parsed.providers).toEqual(['https://b.test'])
+    expect(fetchVerifiedCar).not.toHaveBeenCalled()
+  })
+
+  it("falls back to the whole piece, naming only the provider that served it, not the sharer's others", async () => {
     header.labels = pieceMetadata({ owner: OWNER.address, groupKeyId: GROUP_KEY }, { salt: newSalt() })
     own.providers = ['https://a.test', 'https://b.test']
     vi.mocked(fetchVerifiedCar).mockResolvedValueOnce({ provider: 'https://b.test' })
