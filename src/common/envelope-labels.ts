@@ -23,9 +23,12 @@
  */
 
 import { type PieceMetadata, readPieceMetadata } from '@filoz/keysmith'
+import { CarIndexedReader } from '@ipld/car/indexed-reader'
 import * as dagPb from '@ipld/dag-pb'
 import * as fee from 'filecoin-encryption-envelope'
 import { UnixFS } from 'ipfs-unixfs'
+import { varint } from 'multiformats'
+import { equals } from 'multiformats/bytes'
 import { CID } from 'multiformats/cid'
 import { format1Message } from './group-key.js'
 import { assertHash, MAX_BLOCK_BYTES, RESPONSE_TIMEOUT_MS } from './ipfs-car-fetch.js'
@@ -76,12 +79,12 @@ async function fetchBlock(provider: string, cid: CID, fetchImpl: typeof fetch): 
 
 /**
  * The first bytes of the UnixFS file at `root`: the first leaf, reached through first links.
- * Every block on the way is verified against the CID that names it.
+ * `getBlock` returns each block on the way, verified against the CID that names it.
  */
-async function firstLeaf(provider: string, root: CID, fetchImpl: typeof fetch): Promise<Uint8Array> {
+async function firstLeaf(root: CID, getBlock: (cid: CID) => Promise<Uint8Array>): Promise<Uint8Array> {
   let cid = root
   for (let depth = 0; depth < MAX_DEPTH; depth++) {
-    const bytes = await fetchBlock(provider, cid, fetchImpl)
+    const bytes = await getBlock(cid)
     if (cid.code === RAW_CODEC) return bytes
     if (cid.code !== DAG_PB_CODEC) throw plainContent(root)
     const node = dagPb.decode(bytes)
@@ -142,7 +145,7 @@ export async function readEnvelopeLabels(
   const failures: string[] = []
   for (const provider of providers) {
     try {
-      return await headerLabels(await firstLeaf(provider, root, fetchImpl), root)
+      return await headerLabels(await firstLeaf(root, (cid) => fetchBlock(provider, cid, fetchImpl)), root)
     } catch (error) {
       // A verified answer: the next provider would serve the same blocks.
       if (error instanceof NotEncryptedUploadError) throw error
@@ -154,4 +157,93 @@ export async function readEnvelopeLabels(
       ? `No provider found for ${root}`
       : `Could not read the header of ${root} from any provider (${failures.join('; ')})`
   )
+}
+
+/**
+ * The header labels of the upload at `root`, from a CAR of it already downloaded and verified
+ * (a private upload's piece, fetched on the authenticated path).
+ *
+ * @throws NotEncryptedUploadError when the content is not an `add --encrypt` upload.
+ */
+export async function envelopeLabelsFromCar(carPath: string, root: CID): Promise<PieceMetadata> {
+  const reader = await CarIndexedReader.fromFile(carPath)
+  try {
+    const leaf = await firstLeaf(root, async (cid) => {
+      const block = await reader.get(cid as never)
+      if (block == null) throw plainContent(root)
+      await assertHash(cid, block.bytes)
+      return block.bytes
+    })
+    return await headerLabels(leaf, root)
+  } finally {
+    await reader.close()
+  }
+}
+
+/** The CAR header and the first block's section: a leaf is at most a chunk (1 MiB), within MAX_BLOCK_BYTES. */
+const HEAD_BYTES = MAX_BLOCK_BYTES + 4096
+/** The end of the piece, which holds the root: one link per leaf, 1024 at most, about 50 KB. */
+const TAIL_BYTES = 128 * 1024
+
+/** The first block of a CAR, if `head` holds all of it. */
+function firstBlock(head: Uint8Array): { cid: Uint8Array; bytes: Uint8Array } | undefined {
+  try {
+    const [headerLength, h] = varint.decode(head)
+    const start = h + headerLength
+    const [sectionLength, s] = varint.decode(head, start)
+    const end = start + s + sectionLength
+    if (end > head.length) return undefined
+    const [cid, bytes] = CID.decodeFirst(head.subarray(start + s, end))
+    return { cid: cid.bytes, bytes }
+  } catch {
+    return undefined
+  }
+}
+
+/** Whether `bytes` hash to `cid`. */
+const hashesTo = (cid: CID, bytes: Uint8Array): Promise<boolean> =>
+  assertHash(cid, bytes).then(
+    () => true,
+    () => false
+  )
+
+/**
+ * The header labels of the private upload at `root`, from two ranged reads of its piece rather
+ * than the whole of it. `add` writes the outer CAR leaves first, in file order, and the root last:
+ * so the first leaf is the CAR's first block, and the root's bytes run from its CID to the end of
+ * the piece. The root is found in the tail by its CID and checked by hash, and the leaf is checked
+ * against the CID the root links to, so the labels are as verified as from the whole piece.
+ *
+ * `readRange` returns the bytes of one `Range` (`bytes=0-N` or `bytes=-N`), and throws when the
+ * provider does not serve it.
+ *
+ * ponytail: one level of links. An upload over 1 GiB (a root that links to intermediate nodes,
+ * found neither first nor last) throws, and the caller reads the whole piece instead.
+ *
+ * @throws NotEncryptedUploadError when the verified content is not an `add --encrypt` upload.
+ */
+export async function privateEnvelopeLabels(
+  root: CID,
+  readRange: (range: string) => Promise<Uint8Array>
+): Promise<PieceMetadata> {
+  let head: Uint8Array | undefined
+  let tail: Uint8Array | undefined
+  const leaf = await firstLeaf(root, async (cid) => {
+    // A one-block upload's root is its first leaf too.
+    head ??= await readRange(`bytes=0-${HEAD_BYTES - 1}`)
+    const first = firstBlock(head)
+    if (first != null && equals(first.cid, cid.bytes) && (await hashesTo(cid, first.bytes))) return first.bytes
+    tail ??= await readRange(`bytes=-${TAIL_BYTES}`)
+    const haystack = Buffer.from(tail.buffer, tail.byteOffset, tail.byteLength)
+    for (
+      let at = haystack.lastIndexOf(cid.bytes);
+      at >= 0;
+      at = at > 0 ? haystack.lastIndexOf(cid.bytes, at - 1) : -1
+    ) {
+      const bytes = tail.subarray(at + cid.bytes.length)
+      if (await hashesTo(cid, bytes)) return bytes
+    }
+    throw new Error(`${cid} is neither the first nor the last block of the piece`)
+  })
+  return headerLabels(leaf, root)
 }

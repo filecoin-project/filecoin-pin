@@ -208,6 +208,10 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve }
 }
 
+/** A gated provider answering `/download/` with the stored piece as raw bytes. */
+const servePiece = (piece: Uint8Array) =>
+  (async () => new Response(new Uint8Array(piece), { status: 200 })) as typeof fetch
+
 const only = (...urls: string[]): ProviderSource[] => [{ name: 'Test', find: async () => urls }]
 
 /** A logger whose lines land in `lines`. */
@@ -300,6 +304,32 @@ describe('get', () => {
 
       expect(result).toMatchObject({ encrypted: true, files: 1, provider: GOOD })
       expect((await readFile(join(outDir, 'report.pdf'))).equals(content)).toBe(true)
+    })
+
+    it('decrypts a private piece served from /download/ as add stored it: leaves first, root last', async () => {
+      const content = randomBytes(2.5 * MiB)
+      await writeFile(join(dir, 'report.pdf'), content)
+      const upload = await encryptedUpload(join(dir, 'report.pdf'))
+      const stored = await encodeCar(upload.root, [...upload.blocks].reverse())
+      const download = { cid: upload.root.toString(), authorizations: async () => ['FOC-Grant reaches'] }
+
+      // The gateway order check would refuse this CAR; the stored piece is checked in any order.
+      await expect(get(upload.root, fakeNetwork({ [GOOD]: serve(stored) }), [GOOD])).rejects.toThrow(/out of order/)
+      const result = await get(upload.root, fakeNetwork({}), [GOOD], undefined, { download, fetch: servePiece(stored) })
+
+      expect(result).toMatchObject({ encrypted: true, files: 1, provider: GOOD })
+      expect((await readFile(join(outDir, 'report.pdf'))).equals(content)).toBe(true)
+    })
+
+    it('refuses a private piece from /download/ that lacks a block', async () => {
+      await writeFile(join(dir, 'report.pdf'), randomBytes(2.5 * MiB))
+      const upload = await encryptedUpload(join(dir, 'report.pdf'))
+      const stored = await encodeCar(upload.root, upload.blocks.slice(0, -1).reverse())
+      const download = { cid: upload.root.toString(), authorizations: async () => ['FOC-Grant reaches'] }
+
+      await expect(
+        get(upload.root, fakeNetwork({}), [GOOD], undefined, { download, fetch: servePiece(stored) })
+      ).rejects.toThrow(/block \S+ is missing/)
     })
 
     it('decrypts an encrypted folder under its own name', async () => {
@@ -591,7 +621,9 @@ describe('get', () => {
             authorizations: async () => ['FOC-Grant a', 'FOC-Grant b'],
           },
         })
-      ).rejects.toThrow(/HTTP 403/)
+      ).rejects.toThrow(
+        /HTTP 403: the provider refused access\. The Share link or Grant may have expired, been revoked, or not cover this upload: ask for a new one/
+      )
       expect(gated).toHaveBeenCalledTimes(2)
     })
 

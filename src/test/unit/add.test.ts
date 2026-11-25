@@ -14,6 +14,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
+import { decodeDelivery } from '@filoz/keysmith'
 import { AddPiecesPermission, CreateDataSetPermission } from '@filoz/synapse-core/session-key'
 import { CarWriter } from '@ipld/car'
 import * as fee from 'filecoin-encryption-envelope'
@@ -29,6 +30,7 @@ import type { AddDryRunResult, AddResult } from '../../add/types.js'
 import { EXIT_CODE_INCOMPLETE } from '../../common/cli-errors.js'
 import { decryptToDirectory } from '../../common/encryption.js'
 import { defaultGroupKeyId, oldestValidGroupKey, ownerKeyResolver } from '../../common/group-key.js'
+import { parseShareLink } from '../../common/share-link.js'
 import type { DataSetSummary } from '../../core/data-set/index.js'
 import { groupKeyCommitment, makeGrant, SESSION_KEY } from '../fixtures/group-key-grants.js'
 
@@ -1033,18 +1035,55 @@ describe('Add Command', () => {
         expect(targetOptions?.requiredMetadata).toMatchObject({ 'foc/enc': '1', read: 'restricted' })
       })
 
-      it.each([
-        [{ getShareLink: true }, /--private cannot be shared yet/],
-        [{ getShareLinkRestricted: true }, /--private cannot be shared yet/],
-        [{ encrypt: true, getShareLink: true }, /--private cannot be shared yet/],
-        [{ dataSetMetadata: { read: 'restricted' } }, /--data-set-metadata cannot set read/],
-      ])('refuses %o before signing or uploading', async (flags, message) => {
-        const signTypedData = vi.spyOn(OWNER, 'signTypedData')
-        const { performUpload, resolveUploadTargets } = await import('../../common/upload-flow.js')
-        await expect(runAdd({ ...auth, filePath: testFile, private: true, ...flags })).rejects.toThrow(message)
-        expect(signTypedData).not.toHaveBeenCalled()
-        expect(resolveUploadTargets).not.toHaveBeenCalled()
-        expect(performUpload).not.toHaveBeenCalled()
+      it.each([[{ dataSetMetadata: { read: 'restricted' } }, /--data-set-metadata cannot set read/]])(
+        'refuses %o before signing or uploading',
+        async (flags, message) => {
+          const signTypedData = vi.spyOn(OWNER, 'signTypedData')
+          const { performUpload, resolveUploadTargets } = await import('../../common/upload-flow.js')
+          await expect(runAdd({ ...auth, filePath: testFile, private: true, ...flags })).rejects.toThrow(message)
+          expect(signTypedData).not.toHaveBeenCalled()
+          expect(resolveUploadTargets).not.toHaveBeenCalled()
+          expect(performUpload).not.toHaveBeenCalled()
+        }
+      )
+
+      it('with --get-share-link, prints a link that carries the right to fetch it, and its providers', async () => {
+        const PIECE = 'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy'
+        const { performUpload } = await import('../../common/upload-flow.js')
+        vi.mocked(performUpload).mockResolvedValueOnce({
+          pieceCid: PIECE,
+          size: 1024,
+          copies: [
+            {
+              providerId: 1n,
+              dataSetId: 123n,
+              pieceId: 789n,
+              role: 'primary',
+              retrievalUrl: `https://sp1.test/piece/${PIECE}`,
+              isNewDataSet: false,
+            },
+          ],
+          failedAttempts: [],
+        } as never)
+        const printed = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+
+        const { log } = await import('../../utils/cli-logger.js')
+        const warned = vi.spyOn(log, 'warn')
+        // The owner wallet shares: the real key behind the mocked client's signer.
+        const ownerKey = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
+        await runAdd({ ...auth, privateKey: ownerKey, filePath: testFile, private: true, getShareLink: true })
+        expect(warned.mock.calls.flat().join('\n')).not.toContain('No share link')
+
+        const link = printed.mock.calls.map(([text]) => String(text)).find((text) => text.includes('#v1/'))
+        const share = parseShareLink(link?.split('\n').at(-1) ?? '')
+        expect(share.providers).toEqual(['https://sp1.test'])
+        // A Delivery (a CBOR array), whose final claim names the piece and is borne by the link's key.
+        const { chain } = decodeDelivery(share.payload)
+        const final = chain.links.at(-1)
+        expect(final?.node).toMatch(/^piece:0x[0-9a-f]{32}$/)
+        // Located at the root, like every link: the piece CID appears only with --piece.
+        expect(CID.decode(final?.pieceCid ?? new Uint8Array()).toString()).toBe(share.rootCid.toString())
+        expect(final?.bearer).toBe(privateKeyToAccount(share.accessKey ?? '0x').address)
       })
 
       it('refuses read in --data-set-metadata on a plain upload too', async () => {

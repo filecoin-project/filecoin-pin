@@ -32,7 +32,7 @@ export const addCommand = new Command('add')
   )
   .option(
     '--get-share-link',
-    'With --encrypt: print a Share link that opens the upload on its own (see get-share-link)'
+    'With --encrypt or --private: print a Share link that opens the upload on its own (see get-share-link)'
   )
   .option('--get-share-link-restricted', 'With --encrypt: print a Share link and its Access key, to send separately')
   .option(

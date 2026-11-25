@@ -13,7 +13,7 @@ import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { SIZE_CONSTANTS } from '@filoz/synapse-core/utils'
 import { METADATA_KEYS, type Synapse } from '@filoz/synapse-sdk'
-import { CarBlockIterator } from '@ipld/car'
+import { CarBlockIterator, CarIndexedReader } from '@ipld/car'
 import * as dagCbor from '@ipld/dag-cbor'
 import * as dagPb from '@ipld/dag-pb'
 import { varint } from 'multiformats'
@@ -22,6 +22,7 @@ import { sha256 } from 'multiformats/hashes/sha2'
 import type { Logger } from 'pino'
 import { listDataSets } from '../core/data-set/index.js'
 import { type IpniIndexerResponse, multiaddrToNormalizedUri } from '../core/utils/validate-ipni-advertisement.js'
+import { anyCidVersion } from './encryption.js'
 import { READ_KEY, READ_RESTRICTED } from './group-key.js'
 import { CAR_CONTENT_TYPE, DAG_PB_CODEC, RAW_CODEC } from './unixfs-car-layout.js'
 
@@ -60,7 +61,8 @@ export interface FetchOptions {
    * the root (the provider resolves it to its private piece) or the piece CID, and each request is signed
    * over that same CID. `authorizations` gives fresh `Authorization` headers, one per held Grant, best
    * first; each provider is tried with them in turn while it answers 403 (that Grant does not reach the
-   * piece). The piece is the CAR `add` uploaded, so it is verified against the root like any other.
+   * piece). The piece is the CAR `add` uploaded, leaves first, so it is verified against the root in
+   * any order ({@link verifyStoredCar}).
    */
   download?: { cid: string; authorizations: Authorizations }
 }
@@ -272,7 +274,7 @@ export async function fetchVerifiedCar(
         { ...(signal != null && { signal }) }
       )
       downloaded = true
-      await verifyCar(carPath, cid)
+      await (options.download == null ? verifyCar : verifyStoredCar)(carPath, cid)
       return { provider: winner.base }
     } catch (error) {
       winner.controller.abort()
@@ -323,8 +325,13 @@ function guardBody(controller: AbortController, maxBytes: number): Transform {
   return guard
 }
 
+/** A gated `/download/` that refused every Grant presented. */
+export const GATE_REFUSED =
+  'HTTP 403: the provider refused access. The Share link or Grant may have expired, been revoked, or not cover this upload: ask for a new one'
+
 /** Why a response cannot win, or undefined when it is a usable CAR. A raw piece carries no CAR type. */
 function unusable(response: Response, maxBytes: number, piece: boolean): string | undefined {
+  if (piece && response.status === 403) return GATE_REFUSED
   if (response.status !== 200 || response.body == null) return `HTTP ${response.status}`
   const type = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase()
   if (!piece && type !== CAR_CONTENT_TYPE) return `content type ${type ?? 'missing'}, not a CAR`
@@ -335,19 +342,21 @@ function unusable(response: Response, maxBytes: number, piece: boolean): string 
 
 /**
  * A gated `/download/`: one held Grant at a time, while the provider answers 403 (that Grant does
- * not reach the piece). Any other answer, or the last 403, is the provider's answer.
+ * not reach the piece). Any other answer, or the last 403, is the provider's answer. `range` asks
+ * for part of the piece (`bytes=…`).
  */
-async function gatedDownload(
+export async function gatedDownload(
   doFetch: typeof fetch,
   base: string,
   cid: string,
   authorizations: Authorizations,
-  signal: AbortSignal | undefined
+  signal: AbortSignal | undefined,
+  range?: string
 ): Promise<Response> {
   const headers = await authorizations(cid)
   for (const [i, authorization] of headers.entries()) {
     const response = await doFetch(`${base}/download/${cid}`, {
-      headers: { Authorization: authorization },
+      headers: { Authorization: authorization, ...(range != null && { Range: range }) },
       ...(signal != null && { signal }),
     })
     if (response.status !== 403 || i === headers.length - 1) return response
@@ -595,5 +604,46 @@ export async function verifyCar(carPath: string, root: CID): Promise<void> {
     throw new CarVerifyError('incomplete or malformed CAR', { cause: error })
   } finally {
     stream.destroy()
+  }
+}
+
+/**
+ * Check a stored piece from a gated `/download/`: a CARv1 rooted at `root` that holds every
+ * block of the DAG, each hashing to its CID. Unlike {@link verifyCar} the order is free, since
+ * `add` stores the piece leaves first with the root last. Extra blocks are ignored; nothing
+ * reads them.
+ */
+export async function verifyStoredCar(carPath: string, root: CID): Promise<void> {
+  let car: CarIndexedReader | undefined
+  try {
+    await checkFraming(carPath)
+    car = await CarIndexedReader.fromFile(carPath)
+    const roots = await car.getRoots()
+    const headerRoot = roots[0]
+    if (roots.length !== 1 || headerRoot == null || blockKey(CID.decode(headerRoot.bytes)) !== blockKey(root)) {
+      throw new CarVerifyError('the CAR is not rooted at the requested CID')
+    }
+    const blocks = anyCidVersion(car)
+    const seen = new Set<string>()
+    const stack: CID[] = [root]
+    for (let cid = stack.pop(); cid != null; cid = stack.pop()) {
+      const key = blockKey(cid)
+      if (seen.has(key)) continue
+      seen.add(key)
+      const block = await blocks.get(cid)
+      if (block == null) {
+        if (!isSupportedHash(cid)) throw new UnsupportedHashError(cid)
+        throw new CarVerifyError(`incomplete download: block ${cid} is missing`)
+      }
+      await assertHash(cid, block.bytes)
+      stack.push(...linksOf(cid, block.bytes))
+    }
+  } catch (error) {
+    if (error instanceof CarVerifyError || error instanceof NotUnixfsError || error instanceof UnsupportedHashError) {
+      throw error
+    }
+    throw new CarVerifyError('incomplete or malformed CAR', { cause: error })
+  } finally {
+    await car?.close()
   }
 }

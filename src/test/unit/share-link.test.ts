@@ -1,16 +1,18 @@
 import { readFileSync } from 'node:fs'
 import {
+  decodeDelivery,
   decodeGrant,
   deriveGroupKey,
   keyForEnvelope,
   newSalt,
   type PieceMetadata,
   pieceMetadata,
+  verifyPresentation,
 } from '@filoz/keysmith'
 import { CID } from 'multiformats/cid'
 import { bytesToHex } from 'viem'
 import { generatePrivateKey } from 'viem/accounts'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { openGroupKeyGrant } from '../../common/group-key-grant.js'
 import {
   accessKeyText,
@@ -19,6 +21,7 @@ import {
   parseAccessKey,
   parseShareLink,
   type ShareSender,
+  shareDownload,
   shareKey,
   shareKeyResolver,
   shareOwner,
@@ -258,5 +261,135 @@ describe('shares from a session key holding group Grants', () => {
     await expect(
       createShare({ sender: await groupSender('group:team/a'), rootCid: ROOT, labels, mode: 'open', viewer: VIEWER })
     ).rejects.toThrow(/in group finance, outside every group .*--group finance/)
+  })
+})
+
+describe('share links for private uploads', () => {
+  const PIECE = 'bafkzcibcgmcfzo4vnay2rysh5udpp4ut7lprug3enpwikqvmnjgnekjjcnrwsjy'
+  const OTHER_PIECE = 'bafkzcibcaapao7rtuqyy2qvnpoqbbefwlfb6rnksbmhgqmlnfqxdzfuoxuy5emi'
+  const target = {
+    cid: PIECE,
+    providers: ['https://sp1.test', 'http://localhost:5711'],
+    chainId: CALIBRATION_CHAIN_ID,
+  }
+  const groupSender = async (node: string, maxDepth: number): Promise<ShareSender> => ({
+    grants: [
+      await openGroupKeyGrant(await makeGrant({ node, maxDepth }), {
+        sessionKey: SESSION_KEY,
+        walletAddress: OWNER.address,
+        chainId: CALIBRATION_CHAIN_ID,
+      }),
+    ],
+    sessionKey: SESSION_KEY,
+  })
+
+  /** What a gate checks: the header presented for `pieceCid`, against the piece's labels. */
+  const gateAccepts = async (header: string, pieceCid: string, labels: PieceMetadata) =>
+    verifyPresentation(new Uint8Array(Buffer.from(header.slice('FOC-Grant '.length), 'base64url')), {
+      pieceCid: CID.parse(pieceCid).bytes,
+      piece: labels as never,
+      chainId: BigInt(CALIBRATION_CHAIN_ID),
+    })
+
+  it.each([
+    ['the owner wallet', async () => ({ owner: OWNER }) as ShareSender, 1],
+    ['a session key, delegating from its group Grant', () => groupSender('group:team', 1), 2],
+  ])(
+    'from %s: a Delivery that opens the upload and lets the link key fetch that piece only',
+    async (_case, sender, links) => {
+      const labels = labelsFor(newSalt(), 'team/docs')
+      const share = await createShare({
+        sender: await sender(),
+        rootCid: ROOT,
+        labels,
+        mode: 'restricted',
+        viewer: VIEWER,
+        private: target,
+      })
+      const parsed = parseShareLink(share.link)
+      expect(parsed.providers).toEqual(target.providers)
+      const { chain } = decodeDelivery(parsed.payload)
+      expect(chain.links).toHaveLength(links)
+      // The link's key can fetch, never delegate further.
+      expect(chain.links.at(-1)?.maxDepth).toBe(0)
+
+      const T = shareKey(parsed, share.accessKey)
+      expect(await open(share.link, share.accessKey, labels)).toBe(await ownerPieceKey(labels))
+      const download = await shareDownload(parsed, T)
+      expect(download?.cid).toBe(PIECE)
+      const [header] = (await download?.authorizations(PIECE)) ?? []
+      expect((await gateAccepts(header ?? '', PIECE, labels)).node).toBe(`piece:${labels['foc/salt']}`)
+      await expect(gateAccepts(header ?? '', OTHER_PIECE, labels)).rejects.toThrow(/another piece/)
+    }
+  )
+
+  it('fetches what the link names: a link located at the root asks for, and signs over, the root', async () => {
+    const labels = labelsFor()
+    const share = await createShare({
+      sender: { owner: OWNER },
+      rootCid: ROOT,
+      labels,
+      mode: 'open',
+      viewer: VIEWER,
+      private: { ...target, cid: ROOT.toString() },
+    })
+    const parsed = parseShareLink(share.link)
+    const download = await shareDownload(parsed, shareKey(parsed, undefined))
+    expect(download?.cid).toBe(ROOT.toString())
+    const [header] = (await download?.authorizations(ROOT.toString())) ?? []
+    expect((await gateAccepts(header ?? '', ROOT.toString(), labels)).node).toBe(`piece:${labels['foc/salt']}`)
+    await expect(gateAccepts(header ?? '', PIECE, labels)).rejects.toThrow(/another piece/)
+  })
+
+  it('refuses a session key Grant that allows no delegation, naming the login to run', async () => {
+    await expect(
+      createShare({
+        sender: await groupSender('group:team', 0),
+        rootCid: ROOT,
+        labels: labelsFor(newSalt(), 'team'),
+        mode: 'open',
+        viewer: VIEWER,
+        private: target,
+      })
+    ).rejects.toThrow(
+      /allows no delegation, so it cannot share a private upload: run `filecoin-pin login --group team`/
+    )
+  })
+
+  it('refuses a private share once its claim has expired', async () => {
+    const labels = labelsFor()
+    const share = await createShare({
+      sender: { owner: OWNER },
+      rootCid: ROOT,
+      labels,
+      mode: 'open',
+      viewer: VIEWER,
+      private: target,
+    })
+    const parsed = parseShareLink(share.link)
+    vi.useFakeTimers({ now: Date.now() + 31 * 24 * 3600 * 1000 })
+    try {
+      await expect(shareDownload(parsed, shareKey(parsed, undefined))).rejects.toThrow(/This share expired at/)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('refuses a provider in s that is not an http(s) URL', () => {
+    const share = `${VIEWER}#v1/${ROOT}&d=gwECAw&s=${encodeURIComponent('javascript:alert(1)')}`
+    expect(() => parseShareLink(share)).toThrow(/not an http\(s\) URL/)
+  })
+
+  it("a public upload's share has no download: it is fetched on the open path", async () => {
+    const share = await createShare({
+      sender: { owner: OWNER },
+      rootCid: ROOT,
+      labels: labelsFor(),
+      mode: 'open',
+      viewer: VIEWER,
+    })
+    const parsed = parseShareLink(share.link)
+    expect(parsed.providers).toBeUndefined()
+    expect(await shareDownload(parsed, shareKey(parsed, undefined))).toBeUndefined()
   })
 })
