@@ -273,6 +273,8 @@ filecoin-pin add myfile.txt
 
 Other arguments are possible for individual commands, use `--help` to find out more.
 
+If `add` or `import` finds fewer data sets than requested with `--data-set-metadata`, keep the metadata and add one `--provider-id <id>` per requested copy, using distinct IDs from the [service provider registry](https://filecoin.cloud/service-providers). Filecoin Pin resolves or creates a data set on each selected provider. Add `--dry-run` first to see how many data sets the upload would create and estimate its cost.
+
 ### Login
 
 `filecoin-pin login` pairs this machine with a wallet without exporting a private key. It generates a session key, saves it to `session.env` in the data directory (owner-readable only) before anything else happens, prints a Filecoin Cloud console link, opens it in a browser on a terminal, and waits up to five minutes for the wallet owner to approve the key there. It ends with a readiness scorecard for uploads (key authorized, storage service approved, USDFC deposited) and a pre-filled console link when funding is still needed.

@@ -751,7 +751,16 @@ describe('resolveUploadTargets', () => {
     const synapse = makeSynapse([migrationSet(1n, 1n)])
     await expect(
       resolveUploadTargets(synapse, {}, { ...base, copies: 2, dataSetMetadata: { source: 'storacha-migration' } })
-    ).rejects.toThrow(/matched only 1 data set.*expected 2/)
+    ).rejects.toThrow(/matched only 1 data set.*expected 2.*repeat --provider-id once per requested copy/)
+  })
+
+  it('keeps the same metadata when the requested copies are targeted by provider', async () => {
+    const synapse = makeSynapse([migrationSet(1n, 1n)])
+    const dataSetMetadata = { source: 'storacha-migration' }
+
+    const targets = await resolveUploadTargets(synapse, { providerIds: [1n, 2n] }, { ...base, dataSetMetadata })
+
+    expect(targets).toEqual({ dataSetMetadata })
   })
 
   it('keeps the metadata filter when nothing matches, so a new data set carries it', async () => {
