@@ -301,6 +301,9 @@ export interface UploadExecutionOptions {
   /** Data set metadata applied when creating or matching contexts. */
   metadata?: Record<string, string>
 
+  /** Whether the caller encrypted the input, for upload metrics. */
+  encrypted?: boolean
+
   /** Inject `withIPFSIndexing` into new or matched data sets (default true). See {@link uploadToSynapse}. */
   ipfsIndexing?: boolean
 }
@@ -456,7 +459,7 @@ export async function executeUpload(
   const uploadResult = await uploadToSynapse(synapse, carData, rootCid, logger, uploadOptions)
 
   const network = getNetworkSlug(synapse.chain)
-  recordUploadResult(uploadResult, network)
+  recordUploadResult(uploadResult, network, options.encrypted)
 
   options.signal?.throwIfAborted()
 

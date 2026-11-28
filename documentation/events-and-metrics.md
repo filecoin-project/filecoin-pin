@@ -40,11 +40,14 @@ Metrics ship as [direct HTTP POSTs](https://betterstack.com/docs/logs/ingesting-
 
 ### Common Tags
 
-Every metric emitted by Filecoin Pin carries the following tags:
+Filecoin Pin uses these tags. Optional tags are omitted when their values are unavailable.
 
 | Tag | Values | Definition |
 |---|---|---|
 | <a id="tag-affordance"></a>`affordance` | `CLI`, `GitHub Action`, `Library`, `pin.filecoin.cloud` | Which [affordance](../README.md#affordances) emitted the metric. Set by the host via `configureTelemetry({ affordance })`; defaults to `Library` when not configured. `configureTelemetry` rejects any other value at runtime. |
+| `client` | Optional slug of 1–32 lowercase letters, digits, or hyphens | Tool or skill calling Filecoin Pin, such as `session-share`. Set `FILECOIN_PIN_CLIENT` in the calling environment. Invalid values are omitted. |
+| `driver` | Optional agent name, `human`, or `automation` | Who prompted the upload. The CLI uses the same value as its console links. |
+| `encrypted` | `true`, `false` | Whether the caller marked the upload as encrypted. `add --encrypt` reports `true`; callers of `executeUpload` can pass `encrypted: true` for already encrypted input. |
 | <a id="tag-network"></a>`network` | `mainnet`, `calibration`, `devnet` | The Filecoin network the upload targeted. |
 | <a id="tag-spId"></a>`spId` | stringified provider ID | [Storage Provider](glossary.md#service-provider) for this copy attempt, from the Synapse SDK's `providerId`. |
 | <a id="tag-role"></a>`role` | `primary`, `secondary` | Copy role per the Synapse SDK (`primary` = client store target; `secondary` = SP-to-SP pull). |
