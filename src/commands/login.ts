@@ -11,7 +11,7 @@
 import { Command, InvalidArgumentError } from 'commander'
 import pc from 'picocolors'
 import { runLogin, runLogout } from '../login/index.js'
-import { addNetworkOptions, rpcUrlOption, scopesOption } from '../utils/cli-options.js'
+import { addNetworkOptions, networkOption, rpcUrlOption, scopesOption } from '../utils/cli-options.js'
 
 function parseTimeoutSeconds(value: string): number {
   const seconds = Number(value)
@@ -88,9 +88,11 @@ export const logoutCommand = new Command('logout')
   .description(
     'Log out: delete the saved session key from this machine (local only; the on-chain authorization stays until it expires)'
   )
-  .action(() => {
+  .addOption(networkOption('Remove the saved session only if it belongs to this network'))
+  .option('--rpc-url <url>', 'Check the saved session against the network of this RPC endpoint')
+  .action(async (options) => {
     try {
-      runLogout()
+      await runLogout(options)
     } catch (error) {
       console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
       process.exitCode = 1

@@ -4,13 +4,23 @@
  */
 
 import pc from 'picocolors'
-import { buildRevokeUrl, resolveConsoleUrl } from '../core/session/console-url.js'
+import { buildRevokeUrl, consoleNetworkSlug, resolveConsoleUrl } from '../core/session/console-url.js'
+import { type NetworkCliOptions, resolveNetwork } from '../session/resolve-network.js'
 import { log } from '../utils/cli-logger.js'
 import { deleteSessionFile, getSessionFilePath, readSessionFile } from './session-file.js'
 
-export function runLogout(): void {
+export async function runLogout({ network, rpcUrl }: NetworkCliOptions = {}): Promise<void> {
   const path = getSessionFilePath()
   const session = readSessionFile(path)
+  if (session !== undefined && (network !== undefined || rpcUrl !== undefined)) {
+    if (session.network === undefined) {
+      throw new Error('The saved session has no recorded network. Run logout without network flags to remove it.')
+    }
+    const requested = rpcUrl === undefined ? network : consoleNetworkSlug((await resolveNetwork({ rpcUrl })).chain.id)
+    if (session.network !== requested) {
+      throw new Error(`The saved session belongs to ${session.network}. Use that network to log out.`)
+    }
+  }
   if (deleteSessionFile(path)) {
     const key = session ? ` ${session.sessionAddress}` : ''
     log.line(`${pc.green('✓')} Logged out: removed${key} from ${path}`)
