@@ -314,17 +314,11 @@ export function addOwnerAuthOptions(command: Command): Command {
 
 const ALLOWED_NETWORKS = ['mainnet', 'calibration', 'devnet']
 
-export function addNetworkOptions(command: Command): Command {
-  command.addOption(
-    new Option(
-      '--network <network>',
-      'Filecoin network to use (default: mainnet). Mutually exclusive with --rpc-url. "devnet" reads ' +
-        'config from foc-devnet (https://github.com/filecoin-project/foc-devnet, ' +
-        'env: FOC_DEVNET_BASEDIR or DEVNET_INFO_PATH, DEVNET_USER_INDEX).'
-    )
-      // .choices() keeps --help limited to the canonical names AND installs its
-      // own arg parser. A later .argParser() replaces that parser, so it must
-      // both normalize aliases (e.g. calibnet) and re-validate the result.
+export function networkOption(description: string): Option {
+  return (
+    new Option('--network <network>', description)
+      // .choices() keeps --help limited to the canonical names. The custom
+      // parser normalizes aliases and validates against the same choices.
       .choices(ALLOWED_NETWORKS)
       .argParser((value) => {
         const normalized = normalizeNetworkName(value) ?? value
@@ -333,10 +327,18 @@ export function addNetworkOptions(command: Command): Command {
         }
         return normalized
       })
-      .env('NETWORK')
       .conflicts('rpcUrl')
   )
-  return command
+}
+
+export function addNetworkOptions(command: Command): Command {
+  return command.addOption(
+    networkOption(
+      'Filecoin network to use (default: mainnet). Mutually exclusive with --rpc-url. "devnet" reads ' +
+        'config from foc-devnet (https://github.com/filecoin-project/foc-devnet, ' +
+        'env: FOC_DEVNET_BASEDIR or DEVNET_INFO_PATH, DEVNET_USER_INDEX).'
+    ).env('NETWORK')
+  )
 }
 
 /**
