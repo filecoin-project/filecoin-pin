@@ -30,10 +30,12 @@ const DEFAULT_AFFORDANCE: Affordance = 'Library'
 export interface TelemetryConfiguration {
   disabled: boolean
   affordance: Affordance
+  /** Optional short slug naming the calling tool or skill. */
+  client?: string | undefined
   /**
-   * Who is driving the host, for console link attribution: an agent name
+   * Who is driving the host, for console links and upload metrics: an agent name
    * (`claude`, `cursor`, `codex`), `human`, or `automation`. Undefined when
-   * the host has not determined it; the link then carries no `utm_content`.
+   * the host has not determined it.
    */
   driver?: string | undefined
 }
@@ -102,7 +104,7 @@ async function post(points: MetricPoint[]): Promise<void> {
     name: p.name,
     [p.type]: { value: p.value },
     dt,
-    tags: { affordance: config.affordance, ...p.tags },
+    tags: { affordance: config.affordance, ...(config.client !== undefined && { client: config.client }), ...p.tags },
   }))
   try {
     await fetch(METRICS_ENDPOINT, {
@@ -126,14 +128,21 @@ async function post(points: MetricPoint[]): Promise<void> {
  *
  * @param result - The structured upload result returned by Synapse.
  * @param network - URL-safe network slug (e.g. `mainnet`, `calibration`).
+ * @param encrypted - Whether the caller encrypted the upload.
  */
 export function recordUploadResult(
   result: Pick<UploadResult, 'copies' | 'failedAttempts' | 'size'>,
-  network: string
+  network: string,
+  encrypted = false
 ): void {
   if (config.disabled) return
 
   const points: MetricPoint[] = []
+  const uploadTags = {
+    network,
+    encrypted: String(encrypted),
+    ...(config.driver !== undefined && { driver: config.driver }),
+  }
   const pushPair = (tags: Record<string, string>) => {
     points.push({ name: METRIC_UPLOAD_COPY_STATUS, type: 'counter', value: 1, tags })
     points.push({ name: METRIC_UPLOAD_COPY_BYTES, type: 'gauge', value: result.size, tags })
@@ -143,7 +152,7 @@ export function recordUploadResult(
       spId: String(copy.providerId),
       role: copy.role,
       status: 'success',
-      network,
+      ...uploadTags,
     })
   }
   for (const attempt of result.failedAttempts) {
@@ -151,7 +160,7 @@ export function recordUploadResult(
       spId: String(attempt.providerId),
       role: attempt.role,
       status: classifyFailure(attempt.error),
-      network,
+      ...uploadTags,
     })
   }
   if (points.length === 0) return

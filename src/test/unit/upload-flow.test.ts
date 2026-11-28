@@ -224,7 +224,7 @@ describe('performUpload', () => {
     expect(spinner.stop).toHaveBeenCalledWith(expect.stringContaining('Stored on provider 1'))
   })
 
-  it('passes ipfsIndexing down to executeUpload', async () => {
+  it('passes indexing and encryption options down to executeUpload', async () => {
     mocks.executeUpload.mockResolvedValueOnce({
       pieceCid: 'bafkzcibtest123',
       size: 4,
@@ -241,9 +241,10 @@ describe('performUpload', () => {
       spinner,
       skipIpniVerification: true,
       ipfsIndexing: false,
+      encrypted: true,
     })
 
-    expect(mocks.executeUpload.mock.calls.at(-1)?.[3]).toMatchObject({ ipfsIndexing: false })
+    expect(mocks.executeUpload.mock.calls.at(-1)?.[3]).toMatchObject({ ipfsIndexing: false, encrypted: true })
   })
 
   it('deduplicates spinner updates for unchanged and clamped upload percentages', async () => {

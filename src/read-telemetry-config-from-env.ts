@@ -12,10 +12,12 @@
 import type { TelemetryConfiguration } from './core/telemetry/index.js'
 
 export function readTelemetryConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Partial<TelemetryConfiguration> {
+  const client = env.FILECOIN_PIN_CLIENT
   return {
     disabled:
       env.FILECOIN_PIN_TELEMETRY_DISABLED === 'true' ||
       env.DO_NOT_TRACK === '1' ||
       env.DO_NOT_TRACK?.toLowerCase() === 'true',
+    ...(client !== undefined && /^[a-z0-9-]{1,32}$/.test(client) && { client }),
   }
 }

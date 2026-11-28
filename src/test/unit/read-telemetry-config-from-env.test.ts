@@ -7,6 +7,17 @@ describe('readTelemetryConfigFromEnv', () => {
     expect(readTelemetryConfigFromEnv({})).toEqual({ disabled: false })
   })
 
+  it('reads a short client slug', () => {
+    expect(readTelemetryConfigFromEnv({ FILECOIN_PIN_CLIENT: 'session-share' })).toEqual({
+      disabled: false,
+      client: 'session-share',
+    })
+  })
+
+  it.each(['', 'Account_Name', 'a/b', 'a'.repeat(33)])('ignores an invalid client slug %j', (client) => {
+    expect(readTelemetryConfigFromEnv({ FILECOIN_PIN_CLIENT: client })).toEqual({ disabled: false })
+  })
+
   it('disables telemetry when FILECOIN_PIN_TELEMETRY_DISABLED=true', () => {
     expect(readTelemetryConfigFromEnv({ FILECOIN_PIN_TELEMETRY_DISABLED: 'true' })).toEqual({ disabled: true })
   })

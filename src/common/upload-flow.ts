@@ -424,6 +424,9 @@ export interface UploadFlowOptions {
   /** Data set metadata applied when creating or matching contexts. */
   metadata?: Record<string, string>
 
+  /** Whether the caller encrypted the input, for upload metrics. */
+  encrypted?: boolean
+
   /** Skip IPNI advertisement verification after upload */
   skipIpniVerification?: boolean
 
@@ -872,6 +875,7 @@ export async function performUpload(
   const uploadResult = await executeUpload(synapse, carData, rootCid, {
     logger,
     contextId: `${contextType}-${Date.now()}`,
+    ...(options.encrypted !== undefined && { encrypted: options.encrypted }),
     ...(pieceMetadata && { pieceMetadata }),
     ...(options.copies != null && { copies: options.copies }),
     ...(options.providerIds != null && { providerIds: options.providerIds }),

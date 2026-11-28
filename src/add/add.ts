@@ -445,6 +445,7 @@ export async function runAdd(options: AddOptions): Promise<AddResult | AddDryRun
       spinner,
       skipIpniVerification,
       ipfsIndexing,
+      encrypted: groupKey != null,
       ...(pieceMetadata && { pieceMetadata }),
       ...(effectiveDataSetMetadata && { metadata: effectiveDataSetMetadata }),
       ...(options.copies != null && { copies: options.copies }),

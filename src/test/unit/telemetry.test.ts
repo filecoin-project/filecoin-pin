@@ -104,6 +104,9 @@ describe('telemetry', () => {
 
     for (const point of points) {
       expect(point.tags.affordance).toBe('Library')
+      expect(point.tags.encrypted).toBe('false')
+      expect(point.tags).not.toHaveProperty('client')
+      expect(point.tags).not.toHaveProperty('driver')
       expect(typeof point.dt).toBe('string')
     }
 
@@ -205,7 +208,8 @@ describe('telemetry', () => {
   })
 
   it('emits an uploadCopyBytes gauge sharing the status point tags', async () => {
-    const { recordUploadResult, flushTelemetry } = await freshTelemetry()
+    const { configureTelemetry, recordUploadResult, flushTelemetry } = await freshTelemetry()
+    configureTelemetry({ client: 'session-share', driver: 'codex' })
 
     recordUploadResult(
       makeResult({
@@ -213,11 +217,15 @@ describe('telemetry', () => {
         failedAttempts: [makeAttempt({ providerId: 8n, role: 'secondary', error: 'Commit failed' })],
         size: 123_456,
       }),
-      'calibration'
+      'calibration',
+      true
     )
     await flushTelemetry()
 
     const points = parseBody(firstCall())
+    for (const point of points) {
+      expect(point.tags).toMatchObject({ client: 'session-share', driver: 'codex', encrypted: 'true' })
+    }
     const sizePoints = points.filter((p) => p.name === 'uploadCopyBytes')
     expect(sizePoints).toHaveLength(2)
 

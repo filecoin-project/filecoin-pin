@@ -883,10 +883,11 @@ describe('Add Command', () => {
 
       const { appMetadata } = await fee.parse(new Uint8Array(packedFile().bytes))
       expect(appMetadata?.['foc/ks']).toBe(OWNER_DEFAULT_GROUP_KEY)
-      const { resolveUploadTargets } = await import('../../common/upload-flow.js')
+      const { performUpload, resolveUploadTargets } = await import('../../common/upload-flow.js')
       expect(vi.mocked(resolveUploadTargets).mock.calls[0]?.[2]).toMatchObject({
         requiredMetadata: { 'foc/enc': '1', 'foc/ks': OWNER_DEFAULT_GROUP_KEY },
       })
+      expect(vi.mocked(performUpload).mock.calls[0]?.[3]).toMatchObject({ encrypted: true })
     })
 
     it('stops when the default group key is on chain but its data sets disagree on foc/kc', async () => {
