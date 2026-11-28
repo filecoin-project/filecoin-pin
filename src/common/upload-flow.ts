@@ -360,7 +360,7 @@ export async function resolveUploadTargets(
     spinner.stop(`${pc.red('✗')} --data-set-metadata matched too few data sets`)
     throw new Error(
       `--data-set-metadata matched only ${resolution.matchedIds.length} data set(s) (${resolution.matchedIds.join(', ')}) ` +
-        `but expected ${resolution.expected} (lower --copies, widen the filter, or pass --data-set-id).`
+        `but expected ${resolution.expected}. Keep the same --data-set-metadata and repeat --provider-id once per requested copy.`
     )
   }
 
